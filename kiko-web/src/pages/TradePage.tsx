@@ -31,7 +31,24 @@ export const TradePage: React.FC = () => {
 
   const handleSaveStrategy = async (updates: any) => {
     if (editingStrategy) {
-      await updateStrategy(editingStrategy.id, { copyTradeConfig: updates });
+      const safePatch = {
+        targetWallet: updates?.targetWallet,
+        buyAmountUsd: updates?.buyAmountUsd,
+        maxSlippageBps: updates?.maxSlippageBps,
+        minMarketCapUsd: updates?.minMarketCapUsd,
+        minLiquidityUsd: updates?.minLiquidityUsd,
+        minTargetValueUsd: updates?.minTargetValueUsd,
+        copyTradeTokenCooldownMinutes: updates?.copyTradeTokenCooldownMinutes,
+        executionMode: updates?.executionMode,
+        disableTokenInfo: updates?.disableTokenInfo,
+        takeProfitPct: updates?.takeProfitPct,
+        stopLossPct: updates?.stopLossPct,
+        mirrorSell: updates?.mirrorSell,
+        aiAnalysisMode: updates?.aiAnalysisMode,
+        enableDynamicTP: updates?.enableDynamicTP,
+        dynamicTPMinProfitPct: updates?.dynamicTPMinProfitPct,
+      };
+      await updateStrategy(editingStrategy.id, { copyTradeConfig: safePatch as any });
     }
   };
 

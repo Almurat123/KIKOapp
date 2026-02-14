@@ -344,24 +344,44 @@
 }
 
 .showMoreButton {
-    padding: 6px 0;
+    padding: 7px 20px;
     font-size: 12px;
+    font-weight: 500;
     color: #71717a;
-    background: transparent;
-    border: none;
-    text-align: left;
+    background: rgba(255, 255, 255, 0.05);
+    border: 0.5px solid rgba(255, 255, 255, 0.15);
+    backdrop-filter: blur(20px) saturate(180%);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08), 0 0 1px rgba(255, 255, 255, 0.1);
     cursor: pointer;
+    border-radius: 10px;
+    margin: 8px auto;
+    width: fit-content;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    /* Offset the parent's padding-left to center better */
+    transform: translateX(-19px) !important;
+    transition: none !important;
 }
 
 .light .showMoreButton {
+    background: rgba(255, 255, 255, 0.4);
+    border: 0.5px solid rgba(0, 0, 0, 0.08);
     color: #9ca3af;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08), 0 0 1px rgba(0, 0, 0, 0.1);
 }
 
 .showMoreButton:hover {
+    background: rgba(255, 255, 255, 0.12);
+    border-color: rgba(255, 255, 255, 0.25);
     color: #a1a1aa;
+    transform: translateX(-19px) !important;
 }
 
 .light .showMoreButton:hover {
+    background: rgba(255, 255, 255, 0.65);
+    border-color: rgba(0, 0, 0, 0.15);
     color: #6b7280;
 }
 

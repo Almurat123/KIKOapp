@@ -12,6 +12,8 @@ export type BuildBalanceContextParams = {
     includeRequestedTokenBlock?: boolean;
     includeExecutionRule?: boolean;
     chainLabel?: string;
+    /** When true, inject trade-critical guardrails (sell-all extraction, USD inference). */
+    isExecutionIntent?: boolean;
     stableStringify: (v: any) => string;
     filterBalanceEntriesForAi: (
         entries: Array<{ symbol: string; balance: string; decimals?: number; contractAddress?: string }> | undefined,
@@ -41,9 +43,9 @@ export function buildBalanceContextBlock(params: BuildBalanceContextParams): Bui
     const includePortfolioBlock = !!params.includePortfolioBlock;
     const includeRequestedTokenBlock = !!params.includeRequestedTokenBlock;
     const includeExecutionRule = !!params.includeExecutionRule;
+    const isExec = !!params.isExecutionIntent;
     const requestedAddressSet = params.requestedAddressSet || new Set<string>();
     const requestedTokens = new Set<string>((params.requestedTokens || []).filter(Boolean).map(v => String(v)));
-    const chainLabel = params.chainLabel || String(chainId || 'Unknown');
     const nativeSymbol = params.nativeSymbol || 'NATIVE';
 
     const result: BuildBalanceContextResult = {
@@ -65,10 +67,7 @@ export function buildBalanceContextBlock(params: BuildBalanceContextParams): Bui
     })}`;
 
     if (!params.toolResultsCache.has(balanceKey)) {
-        result.tokenContextBlock = `\n\n[USER_BALANCE_CONTEXT]
-User Wallet: ${walletAddress}
-Status: unavailable (balance data not available from cache).
-CRITICAL: Do not infer wallet USD value or token balances without an explicit trusted price/balance source.`;
+        result.tokenContextBlock = `\n\n[WALLET_STATE] unavailable`;
         return result;
     }
 
@@ -76,24 +75,29 @@ CRITICAL: Do not infer wallet USD value or token balances without an explicit tr
     const balanceData = params.toolResultsCache.get(balanceKey);
     const rawTokens = Array.isArray(balanceData?.tokens) ? balanceData.tokens : [];
     const nativeBalanceRaw = balanceData?.ethBalance || toolContext?.nativeBalance || 'Unknown';
-    const nativeBalanceNum = Number(nativeBalanceRaw);
     const hasNativePrice = Number.isFinite(params.nativePriceUsd || NaN) && (params.nativePriceUsd || 0) > 0;
-    const nativePriceLine = hasNativePrice
-        ? `Native Price Reference (${params.nativePriceSource || 'Coinbase'}): 1 ${nativeSymbol} ≈ $${Number(params.nativePriceUsd).toFixed(2)}${params.nativePriceFetchedAt ? ` (as of ${params.nativePriceFetchedAt})` : ''}`
-        : `Native Price Reference: unavailable`;
-    const nativeValueLine = hasNativePrice && Number.isFinite(nativeBalanceNum)
-        ? `Estimated Native USD Value: ≈ $${(nativeBalanceNum * Number(params.nativePriceUsd)).toFixed(2)}`
-        : `Estimated Native USD Value: unknown (no trusted native price reference)`;
-    const snapshotAtLine = params.balanceSnapshotAt
-        ? `Balance Snapshot Time: ${params.balanceSnapshotAt}`
-        : `Balance Snapshot Time: unknown`;
+    const nativeBalanceNum = Number(nativeBalanceRaw);
+    const nativeUsdStr = hasNativePrice && Number.isFinite(nativeBalanceNum)
+        ? ` ≈ $${(nativeBalanceNum * Number(params.nativePriceUsd)).toFixed(2)}`
+        : '';
+    const nativePriceStr = hasNativePrice
+        ? `1 ${nativeSymbol} ≈ $${Number(params.nativePriceUsd).toFixed(2)}`
+        : '';
 
-    result.tokenContextBlock += `\n\n[NATIVE_PRICE_CONTEXT]
-Native Balance: ${nativeBalanceRaw} ${nativeSymbol}
-${nativePriceLine}
-${nativeValueLine}
-${snapshotAtLine}
-CRITICAL: NEVER infer USD value for native balance unless Native Price Reference is explicitly provided above.`;
+    // ── Single [WALLET_STATE] block (replaces old NATIVE_PRICE_CONTEXT + USER_BALANCE_CONTEXT) ──
+    // Wallet address & chain are already in [CONTEXT], so we only emit balance data here.
+    const lines: string[] = [
+        `\n\n[WALLET_STATE]`,
+        `Native: ${nativeBalanceRaw} ${nativeSymbol}${nativeUsdStr}`,
+    ];
+    if (nativePriceStr) lines.push(`Price ref: ${nativePriceStr}`);
+    if (params.balanceSnapshotAt) lines.push(`Snapshot: ${params.balanceSnapshotAt}`);
+
+    // Only inject USD guardrail for execution intents where it actually matters
+    if (isExec && !hasNativePrice) {
+        lines.push(`Note: No native price ref — fetch before USD conversions.`);
+    }
+
     const filteredTokens = params.filterBalanceEntriesForAi(rawTokens, chainId, requestedAddressSet) || [];
     result.tokenCount = filteredTokens.length || 0;
     result.tokensInPortfolio = rawTokens
@@ -113,19 +117,16 @@ CRITICAL: NEVER infer USD value for native balance unless Native Price Reference
             })
             : [];
         const limitedPortfolio = params.limitLines(portfolioLineItems, 12);
-        const portfolioLines = limitedPortfolio.lines.join('\n')
+        const portfolioBlock = limitedPortfolio.lines.join('\n')
             + (limitedPortfolio.hiddenCount > 0 ? `\n... (+${limitedPortfolio.hiddenCount} more)` : '');
+        if (portfolioBlock) lines.push(`Holdings:\n${portfolioBlock}`);
 
-        result.tokenContextBlock += `\n\n[USER_BALANCE_CONTEXT] ✅ CACHED DATA AVAILABLE
-User Wallet: ${walletAddress}
-Chain: ${chainLabel}
-Native Balance: ${nativeBalanceRaw} ${nativeSymbol}
-${portfolioLines ? `\nToken Holdings:\n${portfolioLines}` : '\nNo tokens found.'}
-`;
-        if (includeExecutionRule) {
-            result.tokenContextBlock += `\nCRITICAL: When user says "sell all 0xABC..." or "sell SYMBOL", extract the balance from above and use it as amount_in (NOT "all").`;
+        if (includeExecutionRule && isExec) {
+            lines.push(`Rule: For "sell all SYMBOL", extract exact balance above as amount_in.`);
         }
     }
+
+    result.tokenContextBlock += lines.join('\n');
 
     if (includeRequestedTokenBlock && requestedTokens.size > 0 && rawTokens.length > 0) {
         const requestedLines: string[] = [];
@@ -134,7 +135,7 @@ ${portfolioLines ? `\nToken Holdings:\n${portfolioLines}` : '\nNo tokens found.'
             const requestIsAddress = requestLower.startsWith('0x') || requestLower.length >= 32;
             const requestSymbol = requestIsAddress ? '' : request.toUpperCase();
             if (!requestIsAddress && !params.isStableSymbolForChain(chainId, requestSymbol) && !params.isNativeSymbol(requestSymbol)) {
-                requestedLines.push(`- ${request}: hidden (unverified token; provide contract address)`);
+                requestedLines.push(`- ${request}: hidden (provide contract address)`);
                 result.requestedMissing.push(request);
                 continue;
             }
@@ -159,14 +160,14 @@ ${portfolioLines ? `\nToken Holdings:\n${portfolioLines}` : '\nNo tokens found.'
                 result.requestedMatched.push(matchName);
                 result.resolvedBalances[matchName] = String(matchBalance);
             } else {
-                requestedLines.push(`- ${request}: not present in provided balance snapshot`);
+                requestedLines.push(`- ${request}: not found`);
                 result.requestedMissing.push(request);
             }
         }
-        result.requestedTokenBlock = `\n\n[REQUESTED_TOKEN_BALANCE]
-${requestedLines.join('\n')}
-Rule: If a token is marked "not present", you must say the balance is unknown or zero and MUST NOT infer or guess.
-Rule: For USD conversions, use Native Price Reference above or fetch trusted price data first.`;
+        result.requestedTokenBlock = `\n\n[REQUESTED_BALANCES]\n${requestedLines.join('\n')}`;
+        if (isExec) {
+            result.requestedTokenBlock += `\nRule: "not found" = unknown or zero; do not guess.`;
+        }
         result.tokenContextBlock += result.requestedTokenBlock;
     }
 

@@ -743,7 +743,7 @@ export class ChatWorker {
         allowContracts: Set<string> = new Set()
     ) {
         if (!entries || entries.length === 0) return entries;
-        const nativeSymbols = new Set(['ETH', 'MATIC', 'POL', 'BNB','SOL',]);
+        const nativeSymbols = new Set(['ETH', 'MATIC', 'POL', 'BNB', 'SOL',]);
         const isEvm = chainId !== 900 && chainId !== undefined;
         const scamKeywordPattern = /(t\.me|telegram|airdrop|reward|claim|visit|free|bonus|giveaway|promo|http|https|\.com|\.io)/i;
         const dustThreshold = 1e-6;
@@ -812,6 +812,7 @@ export class ChatWorker {
         includeRequestedTokenBlock?: boolean;
         includeExecutionRule?: boolean;
         chainLabel?: string;
+        isExecutionIntent?: boolean;
     }): {
         cacheHit: boolean;
         tokenCount: number;
@@ -1567,12 +1568,12 @@ Do NOT estimate or guess USD values.`;
         let userId: string | null = null;
 
         try {
-            // 1. Session context
-            const session = await this.repo.getSession(task.sessionId);
+            // 1. Session context + message history (parallel — independent DB queries)
+            const [session, messages] = await Promise.all([
+                this.repo.getSession(task.sessionId),
+                this.repo.getSessionMessages(task.sessionId),
+            ]);
             userId = session?.userId || null;
-
-            // 2. Load context
-            const messages = await this.repo.getSessionMessages(task.sessionId);
             let conversationHistory = messages.map(msg => ({
                 role: msg.role,
                 content: msg.content,
@@ -1728,6 +1729,7 @@ Do NOT estimate or guess USD values.`;
         payload: {
             ttftMs?: number;
             latencyMs?: number;
+            contextAssemblyMs?: number;
             inputTokensEstimated?: number;
             promptTokens?: number;
             completionTokens?: number;
@@ -2456,6 +2458,7 @@ Detected Contract Address: ${parsedIntent.contractAddress}
                     includeRequestedTokenBlock: true,
                     includeExecutionRule: false,
                     chainLabel: String(task.toolContext?.chainId || 'Unknown'),
+                    isExecutionIntent: EXECUTION_INTENTS.has(intent),
                 });
 
                 let tokensInPortfolio: string[] = balanceContext.tokensInPortfolio;
@@ -2886,6 +2889,7 @@ ${socialData.slice(0, 5).map((c: any) => `- @${c.author?.username}: ${c.text.sli
                                     firstTokenAt = Date.now();
                                     this.broadcastLatencyMetrics(userId, task, {
                                         ttftMs: firstTokenAt - apiRequestStartedAt,
+                                        contextAssemblyMs: apiRequestStartedAt - taskProcessStartedAt,
                                         inputTokensEstimated: lastBudgetMetrics?.inputTokensEstimated,
                                         historyKept: lastBudgetMetrics?.historyKept,
                                         historyCompacted: lastBudgetMetrics?.historyCompacted,
@@ -2925,6 +2929,7 @@ ${socialData.slice(0, 5).map((c: any) => `- @${c.author?.username}: ${c.text.sli
                                     firstTokenAt = Date.now();
                                     this.broadcastLatencyMetrics(userId, task, {
                                         ttftMs: firstTokenAt - apiRequestStartedAt,
+                                        contextAssemblyMs: apiRequestStartedAt - taskProcessStartedAt,
                                         inputTokensEstimated: lastBudgetMetrics?.inputTokensEstimated,
                                         historyKept: lastBudgetMetrics?.historyKept,
                                         historyCompacted: lastBudgetMetrics?.historyCompacted,
@@ -3540,6 +3545,43 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
             }
         }
 
+        // 🚀 SPECULATIVE simulate_swap (TRADING + all params present + showQuoteBeforeSwap)
+        // Pre-fire the quote API call in parallel with LLM — when the model calls simulate_swap, it hits cache.
+        if (isTrading && task.toolContext?.toolConfig?.showQuoteBeforeSwap && !task.toolContext?.toolConfig?.fastSwapMode) {
+            const tokenIn = String(parsedIntent?.detailed?.token_in || parsedIntent?.tokenIn || '').trim();
+            const tokenOut = String(parsedIntent?.detailed?.token_out || parsedIntent?.tokenOut || '').trim();
+            const amount = String(parsedIntent?.detailed?.amount || parsedIntent?.amount || '').trim();
+            const chainId = parsedIntent?.chainId || task.toolContext?.chainId;
+
+            if (tokenIn && tokenOut && amount && chainId) {
+                const simArgs = {
+                    token_in: tokenIn,
+                    token_out: tokenOut,
+                    amount_in: amount,
+                    chain_id: Number(chainId),
+                    slippage: task.toolContext?.toolConfig?.customSlippage ? Number(task.toolContext.toolConfig.customSlippage) : 1.0,
+                };
+                const simKey = `simulate_swap:${this.stableStringify(simArgs)}`;
+                // Also store under a normalized key so we can fuzzy-match LLM arg variations
+                const normKey = `simulate_swap:__norm:${tokenIn.toLowerCase()}:${tokenOut.toLowerCase()}:${amount}:${chainId}`;
+
+                if (!resultsMap.has(simKey)) {
+                    logger.info(LogCode.AI_API_CALL, 'ChatWorker: speculative simulate_swap pre-fetch', {
+                        taskId: task.id,
+                        tokenIn, tokenOut, amount, chainId,
+                    });
+                    toolRegistry.execute('simulate_swap', simArgs, task.toolContext).then(res => {
+                        resultsMap.set(simKey, res);
+                        resultsMap.set(normKey, res);
+                        logger.info(LogCode.CACHE_HIT, 'ChatWorker: speculative simulate_swap stored', { taskId: task.id });
+                    }).catch(err => logger.warn(LogCode.API_FETCH_FAILED, 'Speculative simulate_swap failed (non-blocking)', {
+                        taskId: task.id,
+                        error: err?.message || String(err),
+                    }));
+                }
+            }
+        }
+
         // Proactive Social
         if (action !== 'social_trending' && /\b(trending|social|farcaster|twitter|hot|sentiment|what.*people|大家|在聊|热门)\b/i.test(lowerMsg)) {
             const socialKey = `get_trending_casts:${this.stableStringify({})}`;
@@ -3740,6 +3782,25 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
                         content: typeof cachedResult === 'string' ? cachedResult : JSON.stringify(cachedResult)
                     });
                     continue;
+                }
+                // Fallback: simulate_swap normalized key lookup for speculative pre-fetch
+                if (tc.function.name === 'simulate_swap' && cache) {
+                    const tIn = String(args.token_in || '').trim().toLowerCase();
+                    const tOut = String(args.token_out || '').trim().toLowerCase();
+                    const amt = String(args.amount_in || '').trim();
+                    const cid = args.chain_id;
+                    const normKey = `simulate_swap:__norm:${tIn}:${tOut}:${amt}:${cid}`;
+                    if (cache.has(normKey)) {
+                        logger.info(LogCode.CACHE_HIT, 'ChatWorker: simulate_swap speculative cache hit (normalized)', { tool: tc.function.name });
+                        const cachedResult = cache.get(normKey);
+                        trace?.toolCalls.push({ tool: toolName, argsKey, status: 'cached' });
+                        results.push({
+                            role: 'tool',
+                            tool_call_id: tc.id,
+                            content: typeof cachedResult === 'string' ? cachedResult : JSON.stringify(cachedResult)
+                        });
+                        continue;
+                    }
                 }
                 if (toolName === 'get_wallet_info' && cache) {
                     const contextChain = this.normalizeChainName(this.resolveChainNameForContext(context?.chainId));
@@ -4438,6 +4499,7 @@ Chain: ${chainName}${chainId ? ` (${chainId})` : ''}
                     includeRequestedTokenBlock: false,
                     includeExecutionRule: true,
                     chainLabel: String(task.toolContext?.chainId || 'Unknown'),
+                    isExecutionIntent: EXECUTION_INTENTS.has(intent),
                 });
                 tokenContextBlock += balanceContext.tokenContextBlock;
                 const needUsdGuardrail = this.requiresUsdPriceGuardrail(lastUserMessage, parsedIntent, routingMode);

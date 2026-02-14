@@ -104,6 +104,7 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({ message, isGroup
     onFeedback
 }: MessageBubbleProps) => {
     const isUser = message.role === 'user';
+    const hasInlineCard = !!(message.type && message.type !== 'text' && message.data);
     const [copied, setCopied] = useState(false);
     const [showCitations, setShowCitations] = useState(false);
     const [showReasoning, setShowReasoning] = useState(true); // 默认展开状态
@@ -129,9 +130,10 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({ message, isGroup
         const isReasoningPhase = hasReasoning &&
             !hasContent &&
             !isComplete &&
-            !isStuck;
+            !isStuck &&
+            !hasInlineCard;
 
-        const shouldRunTimer = isInitialThinking || isReasoningPhase;
+        const shouldRunTimer = !hasInlineCard && (isInitialThinking || isReasoningPhase);
 
         if (shouldRunTimer) {
             if (intervalRef.current) {
@@ -182,6 +184,7 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({ message, isGroup
         message.timestamp,
         !!(message.content && message.content.trim().length > 0),
         !!(message.reasoning_content && message.reasoning_content.trim().length > 0),
+        hasInlineCard,
     ]);
 
     const elapsedTime = (elapsedTenths / 10).toFixed(1);
@@ -292,7 +295,7 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({ message, isGroup
     const hasVisibleContent =
         (message.content && message.content.trim().length > 0) ||
         (message.reasoning_content && message.reasoning_content.trim().length > 0) ||
-        (message.type && message.type !== 'text' && message.data);
+        hasInlineCard;
 
     return (
         <div className={clsx(
@@ -312,7 +315,7 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({ message, isGroup
                             </>
                         )}
                         {/* Thinking标签显示 */}
-                        {message.reasoning_content && (
+                        {message.reasoning_content && !hasInlineCard && (
                             <>
                                 {((!message.content || message.content.trim().length === 0) && message.status !== 'complete') ? (
                                     // 思考中：显示shimmer Thinking标签 + 计时器 + 当前状态
@@ -345,7 +348,7 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({ message, isGroup
                         ) : (
                             <>
                                 {/* Waiting for first content - show thinkingText animation */}
-                                {thinkingText && !message.content && !message.reasoning_content && (
+                                {thinkingText && !message.content && !message.reasoning_content && !hasInlineCard && (
                                     <div className={styles.thinkingBubble}>
                                         <span className={styles.thinkingText}>
                                             {thinkingText} ({elapsedTime}s)
@@ -354,7 +357,7 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({ message, isGroup
                                 )}
 
                                 {/* Thinking进行中（无content）：在bubble内显示思考内容 */}
-                                {message.reasoning_content && (!message.content || message.content.trim().length === 0) && (
+                                {message.reasoning_content && (!message.content || message.content.trim().length === 0) && !hasInlineCard && (
                                     <div className={styles.markdownContent}>
                                         <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]} components={MarkdownComponents}>
                                             {preprocessMarkdown(message.reasoning_content)}

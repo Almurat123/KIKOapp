@@ -11,6 +11,7 @@ import { useSmartSuggestions } from './useSmartSuggestions.tsx';
 import { ChatInputSuggestions } from './ChatInputSuggestions';
 import { logger } from '../../utils/logger';
 import { LiquidGlassEffect } from '../Effects/LiquidGlassEffect';
+import { StardustBackground } from '../Effects/StardustBackground';
 
 // Model options
 // According to DeepSeek API docs: https://api-docs.deepseek.com/zh-cn/quick_start/pricing
@@ -126,6 +127,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onSuggestionClick 
 
   return (
     <div className={`${styles.welcomeContainer} ${styles[resolvedTheme]}`}>
+      <StardustBackground />
       {/* Background Ambient Light */}
       <div className={styles.ambientLight}>
         <div className={styles.centerLight}></div>

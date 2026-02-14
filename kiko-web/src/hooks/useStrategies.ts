@@ -98,7 +98,7 @@ export const useStrategies = () => {
         ]);
 
         // Calculate Stats
-        const totalExecutions = positions.length;
+        const totalExecutions = positions.filter((p: any) => p.status === 'open' || p.status === 'closed').length;
         // Sum up realized PNL from closed positions + unrealized PNL from open positions
         // realizedPnlUsd: actual profit/loss from closed positions
         // profitLossPct: current profit/loss percentage for open positions (need to convert to USD)
@@ -107,10 +107,17 @@ export const useStrategies = () => {
           if (pos.status === 'closed' && pos.realizedPnlUsd) {
             return acc + Number(pos.realizedPnlUsd);
           }
-          // Open positions: calculate unrealized PNL from profitLossPct
-          if (pos.status === 'open' && pos.profitLossPct && pos.entryUsdValue) {
-            const unrealizedPnl = (Number(pos.profitLossPct) / 100) * Number(pos.entryUsdValue);
-            return acc + unrealizedPnl;
+          // Open positions: prefer price-based unrealized PNL when available, fallback to stored pct
+          if (pos.status === 'open' && pos.entryUsdValue) {
+            if (pos.currentPrice && pos.entryPrice && Number(pos.entryPrice) > 0) {
+              const pct = ((Number(pos.currentPrice) - Number(pos.entryPrice)) / Number(pos.entryPrice)) * 100;
+              const unrealizedPnl = (pct / 100) * Number(pos.entryUsdValue);
+              return acc + unrealizedPnl;
+            }
+            if (pos.profitLossPct !== null && pos.profitLossPct !== undefined) {
+              const unrealizedPnl = (Number(pos.profitLossPct) / 100) * Number(pos.entryUsdValue);
+              return acc + unrealizedPnl;
+            }
           }
           return acc;
         }, 0);

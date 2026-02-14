@@ -158,15 +158,8 @@ USER_QUERY_END
         }
 
 
-        if (ctx.balance && Object.keys(ctx.balance).length > 0) {
-            const entries = Object.entries(ctx.balance);
-            const preview = entries.slice(0, maxTokenEntries)
-                .map(([k, v]) => `${k}=${v}`)
-                .join(', ');
-            const remaining = entries.length - maxTokenEntries;
-            const suffix = remaining > 0 ? `, ... (+${remaining} more)` : '';
-            parts.push(`- Tokens: ${preview}${suffix}`);
-        }
+        // Balance entries omitted from [CONTEXT] — injected via dedicated balance context blocks
+        // to avoid duplication and reduce token count.
 
         if (ctx.pendingSwapToken) {
             parts.push(`- Pending Swap Token: ${ctx.pendingSwapToken.symbol} (${ctx.pendingSwapToken.address}) on Chain ${ctx.pendingSwapToken.chainId}`);

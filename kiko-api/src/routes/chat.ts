@@ -359,23 +359,30 @@ export async function chatRoutes(fastify: FastifyInstance) {
 
                 let resolvedBalance = balance;
                 let resolvedNativeBalance = nativeBalance;
+                const needsTokenBalances = !resolvedBalance || Object.keys(resolvedBalance).length === 0;
                 const needsNativeBalance =
                     resolvedNativeBalance === undefined ||
                     resolvedNativeBalance === null ||
                     resolvedNativeBalance === '';
-                const needsTokenBalances = !resolvedBalance || Object.keys(resolvedBalance).length === 0;
+
+                // OPTIMIZATION: Only hydrate from Alchemy when frontend sent NO balance data.
+                // The frontend already sends userBalances from its wallet state.
+                // The worker has its own fallback mechanisms (resolveTokenContext, direct balance query)
+                // so missing/stale data is self-healing at the worker level.
                 const shouldHydrateWalletSnapshot =
                     resolvedWalletAddress &&
                     chainId &&
                     chainId !== 900 &&
-                    (needsTokenBalances || needsNativeBalance);
+                    needsTokenBalances &&
+                    needsNativeBalance;
 
                 if (shouldHydrateWalletSnapshot && resolvedWalletAddress) {
                     try {
                         const chainName = chainIdToName[chainId] || 'eth';
+                        // getWalletBalance now has a 15s in-memory cache — fast on cache hit
                         const walletSnapshot = await getWalletBalance(resolvedWalletAddress, chainName);
                         const tokenBalances = walletSnapshot?.tokens || [];
-                        const hydrated: Record<string, string> = needsTokenBalances ? {} : { ...(resolvedBalance || {}) };
+                        const hydrated: Record<string, string> = {};
 
                         if (walletSnapshot?.ethBalanceFormatted !== undefined) {
                             const nativeSymbol = nativeSymbolMap[chainId] || 'ETH';
@@ -383,21 +390,19 @@ export async function chatRoutes(fastify: FastifyInstance) {
                             resolvedNativeBalance = String(walletSnapshot.ethBalanceFormatted);
                         }
 
-                        if (needsTokenBalances) {
-                            for (const token of tokenBalances || []) {
-                                const decimals = typeof token.decimals === 'number' ? token.decimals : 18;
-                                let formatted = '0';
-                                try {
-                                    formatted = ethers.formatUnits(token.tokenBalance || '0', decimals);
-                                } catch {
-                                    formatted = '0';
-                                }
-                                if (token.symbol) {
-                                    hydrated[token.symbol] = formatted;
-                                }
-                                if (token.contractAddress) {
-                                    hydrated[token.contractAddress.toLowerCase()] = formatted;
-                                }
+                        for (const token of tokenBalances || []) {
+                            const decimals = typeof token.decimals === 'number' ? token.decimals : 18;
+                            let formatted = '0';
+                            try {
+                                formatted = ethers.formatUnits(token.tokenBalance || '0', decimals);
+                            } catch {
+                                formatted = '0';
+                            }
+                            if (token.symbol) {
+                                hydrated[token.symbol] = formatted;
+                            }
+                            if (token.contractAddress) {
+                                hydrated[token.contractAddress.toLowerCase()] = formatted;
                             }
                         }
 

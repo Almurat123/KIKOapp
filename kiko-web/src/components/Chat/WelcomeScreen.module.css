@@ -105,43 +105,9 @@
 .kikoWrapped {
   position: relative;
   display: inline-block;
-
-  /* Combine gradients from Input Wrapper (Fresnel + Chromatic + Base) */
-  background:
-    /* Fresnel Highlight (::before) */
-    radial-gradient(ellipse 80% 60% at 20% 15%,
-      rgba(255, 255, 255, 0.9) 0%,
-      rgba(255, 255, 255, 0.7) 30%,
-      rgba(255, 255, 255, 0.4) 50%,
-      rgba(150, 150, 160, 0.2) 100%),
-    /* Chromatic Aberration (::after) */
-    radial-gradient(ellipse at top left, rgba(255, 70, 70, 0.5), transparent 50%),
-    radial-gradient(ellipse at top right, rgba(70, 120, 255, 0.5), transparent 50%),
-    radial-gradient(ellipse at bottom, rgba(255, 200, 100, 0.4), transparent 40%),
-    /* Base Glass Background */
-    linear-gradient(to bottom, rgba(255, 255, 255, 0.8), rgba(150, 150, 160, 0.5));
-
-  background-size: 200% 200%;
-  animation: gradient-flow 8s ease infinite;
-
-  /* Apply to text */
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-  color: transparent;
-
-  /* Reset box styles */
-  padding: 0;
-  margin: 0;
-  border: none;
-  box-shadow: none;
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
-  border-radius: 0;
-
-  /* Ensure it pops */
+  color: inherit;
+  /* Inherit white from .heroTitle */
   font-weight: 800;
-  filter: drop-shadow(0 0 15px rgba(255, 255, 255, 0.3));
 }
 
 /* Remove pseudo-elements as they are now merged into the text background */
@@ -150,18 +116,6 @@
   display: none;
 }
 
-.light .kikoWrapped {
-  /* Light mode adaptation: Darker, cleaner glass text */
-  background:
-    radial-gradient(ellipse at top left, rgba(0, 122, 255, 0.6), transparent 50%),
-    radial-gradient(ellipse at bottom right, rgba(0, 0, 0, 0.8), rgba(50, 50, 50, 0.5));
-
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-
-  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.1));
-}
 
 .heroSubTitleSecondary {
   font-family: inherit;

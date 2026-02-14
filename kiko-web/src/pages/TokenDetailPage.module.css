@@ -326,6 +326,60 @@
     }
 }
 
+/* === NARROW MOBILE SCALING (e.g. iPhone Pro/Pro Max) === */
+@media (max-width: 430px) {
+    .tokenIdentity {
+        gap: 6px;
+    }
+
+    .tokenIconWrapper,
+    .tokenIcon {
+        width: 36px;
+        height: 36px;
+    }
+
+    .chainLogo {
+        width: 14px;
+        height: 14px;
+        border-width: 1px;
+    }
+
+    .tokenSymbol {
+        font-size: 16px;
+    }
+
+    .chainName {
+        font-size: 10px;
+    }
+
+    .mainPrice {
+        font-size: 14px;
+    }
+
+    .priceWrapper {
+        gap: 4px;
+    }
+
+    .priceChangeBadge {
+        font-size: 9px;
+        padding: 2px 4px;
+    }
+
+    .starButton {
+        padding: 4px;
+        margin-left: 4px;
+    }
+
+    .tokenNameWrapper {
+        flex-shrink: 1;
+        min-width: 0;
+    }
+
+    .priceWrapper {
+        flex-shrink: 0;
+    }
+}
+
 .positive {
     background-color: rgba(16, 185, 129, 0.1);
     color: #10b981;

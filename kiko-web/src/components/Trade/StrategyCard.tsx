@@ -36,8 +36,8 @@ export const StrategyCard: React.FC<StrategyCardProps> = ({
   const { resolvedTheme } = useThemeContext();
   const [isWalletCopied, setIsWalletCopied] = React.useState(false);
   const [targetTradeCount, setTargetTradeCount] = React.useState<number>(0);
-  const [targetTotalPnl, setTargetTotalPnl] = React.useState<number>(0);
-  const [targetUnrealizedPnl, setTargetUnrealizedPnl] = React.useState<number>(0);
+  const [targetProfitUsd, setTargetProfitUsd] = React.useState<number>(0);
+  const [targetLossUsd, setTargetLossUsd] = React.useState<number>(0);
   const isMobile = useIsMobile();
 
   const isCopyTrade = strategy.type === 'copy_trade';
@@ -75,14 +75,14 @@ export const StrategyCard: React.FC<StrategyCardProps> = ({
         if (cancelled) return;
         const agg = res?.aggregate;
         setTargetTradeCount(Number(agg?.trackedTxCount || 0));
-        setTargetTotalPnl(Number(agg?.targetTotalPnlUsd ?? agg?.targetRealizedPnlUsd ?? 0));
-        setTargetUnrealizedPnl(Number(agg?.targetUnrealizedPnlUsd || 0));
+        setTargetProfitUsd(Number(agg?.targetRealizedProfitUsd || 0));
+        setTargetLossUsd(Number(agg?.targetRealizedLossUsd || 0));
       })
       .catch(() => {
         if (cancelled) return;
         setTargetTradeCount(0);
-        setTargetTotalPnl(0);
-        setTargetUnrealizedPnl(0);
+        setTargetProfitUsd(0);
+        setTargetLossUsd(0);
       });
 
     return () => {
@@ -152,27 +152,25 @@ export const StrategyCard: React.FC<StrategyCardProps> = ({
               <span className={styles.targetStatValue}>{targetTradeCount}</span>
             </div>
             <div className={clsx(styles.targetStat, styles.targetStatCenter)}>
-              <span className={styles.targetStatLabel}>PnL (30D)</span>
+              <span className={styles.targetStatLabel}>Total Profit</span>
               <span
                 className={clsx(
                   styles.targetStatValue,
-                  targetTotalPnl > 0 && styles.successText,
-                  targetTotalPnl < 0 && styles.dangerText
+                  styles.successText
                 )}
               >
-                {formatSignedUsdCompact(targetTotalPnl)}
+                {formatSignedUsdCompact(Math.abs(targetProfitUsd))}
               </span>
             </div>
             <div className={clsx(styles.targetStat, styles.targetStatRight)}>
-              <span className={styles.targetStatLabel}>Unrealized</span>
+              <span className={styles.targetStatLabel}>Total Loss</span>
               <span
                 className={clsx(
                   styles.targetStatValue,
-                  targetUnrealizedPnl > 0 && styles.successText,
-                  targetUnrealizedPnl < 0 && styles.dangerText
+                  styles.dangerText
                 )}
               >
-                {formatSignedUsdCompact(targetUnrealizedPnl)}
+                {formatSignedUsdCompact(-Math.abs(targetLossUsd))}
               </span>
             </div>
           </div>

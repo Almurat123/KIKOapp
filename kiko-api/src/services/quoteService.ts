@@ -214,7 +214,7 @@ async function getBestQuoteInternal(params: BestQuoteParams): Promise<{ best: Qu
 
     // CRITICAL: Exclude failed DEX on retry
     // Filter out the excluded DEX before selection logic
-    const availableQuotes = params.excludeDex 
+    const availableQuotes = params.excludeDex
         ? quotes.filter(q => q.dex !== params.excludeDex)
         : quotes;
 
@@ -235,12 +235,12 @@ async function getBestQuoteInternal(params: BestQuoteParams): Promise<{ best: Qu
     if (zeroExQuote && kyberQuote) {
         const zeroExAmount = BigInt(zeroExQuote.amountOutBase || '0');
         const kyberAmount = BigInt(kyberQuote.amountOutBase || '0');
-        
+
         // Calculate percentage difference
-        const percentDiff = kyberAmount > 0n && zeroExAmount > 0n 
+        const percentDiff = kyberAmount > 0n && zeroExAmount > 0n
             ? Math.abs(Number((kyberAmount - zeroExAmount) * 100n / zeroExAmount))
             : 0;
-        
+
         console.log('[QuoteService] Quote comparison:', {
             '0x_amount': zeroExQuote.amountOut,
             'kyber_amount': kyberQuote.amountOut,
@@ -252,11 +252,11 @@ async function getBestQuoteInternal(params: BestQuoteParams): Promise<{ best: Qu
         // Previous logic: Base preferred Kyber due to "0x allowance-holder issues"
         // Reality: Kyber transactions are reverting frequently on Base
         // 0x allowance-holder is more reliable despite initial concerns
-        
+
         // If 0x advantage or near-equal (< 2% difference), prefer 0x for reliability
         const zeroExAdvantage = zeroExAmount > kyberAmount;
         const nearEqual = percentDiff < 2;
-        
+
         if (zeroExAdvantage || nearEqual) {
             console.log('[QuoteService] Preferring 0x for reliability', {
                 reason: zeroExAdvantage ? '0x has better price' : 'prices within 2%',
@@ -264,7 +264,7 @@ async function getBestQuoteInternal(params: BestQuoteParams): Promise<{ best: Qu
             });
             return { best: zeroExQuote, quotes };
         }
-        
+
         // Only use Kyber if it's significantly better (>= 2% advantage)
         if (percentDiff >= 2) {
             console.log('[QuoteService] Using Kyber due to significant price advantage', {

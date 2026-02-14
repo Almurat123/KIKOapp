@@ -794,6 +794,17 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
                         // DEPRECATED: show_swap_card removed from chat interface (kept in WalletPage)
                     } else if (normalizedAction.type === 'show_strategy_card') {
+                        // Card has arrived: hard-stop any residual thinking/streaming state
+                        setIsThinking(false);
+                        setIsStreaming(false);
+                        setActiveTaskId(null);
+                        if (sidebar?.setGeneratingConversationId) {
+                            sidebar.setGeneratingConversationId(null);
+                        }
+                        if (onTaskUpdate) {
+                            onTaskUpdate(null);
+                        }
+
                         // For strategy cards, trigger an immediate refresh of the strategies list
                         // This helps avoid the "deleted" race condition
                         if (refreshStrategies) {
@@ -843,6 +854,18 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                             }
                             : actionData;
                         logger.debug('Handling card action:', { type: actionType, targetMsgId: targetMessageId });
+
+                        // Card has arrived: hard-stop any residual thinking/streaming state
+                        // to avoid ghost timers in chat UI.
+                        setIsThinking(false);
+                        setIsStreaming(false);
+                        setActiveTaskId(null);
+                        if (sidebar?.setGeneratingConversationId) {
+                            sidebar.setGeneratingConversationId(null);
+                        }
+                        if (onTaskUpdate) {
+                            onTaskUpdate(null);
+                        }
 
                         setMessages(prev => {
                             // First, try to find by ID
@@ -927,18 +950,6 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                             return prev;
                         });
 
-                        // If a transaction card reports completion, force-stop thinking/streaming.
-                        if (actionType === 'show_transaction_status_card' || actionType === 'show_cross_chain_status_card') {
-                            const status = normalizedData?.status;
-                            if (status === 'success' || status === 'failed') {
-                                setIsThinking(false);
-                                setIsStreaming(false);
-                                setActiveTaskId(null);
-                                if (sidebar?.setGeneratingConversationId) {
-                                    sidebar.setGeneratingConversationId(null);
-                                }
-                            }
-                        }
                     }
                     break;
                 }

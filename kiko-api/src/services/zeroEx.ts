@@ -1026,8 +1026,8 @@ export async function getTokenPriceUSD(
     let actualTokenAddress = tokenAddress;
     const lowerToken = tokenAddress?.toLowerCase() || '';
     if (lowerToken === '0x0000000000000000000000000000000000000000' ||
-        lowerToken === '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee' ||
-        !tokenAddress) {
+      lowerToken === '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee' ||
+      !tokenAddress) {
       // Use getNativeTokenAddress which returns the wrapped native token for each chain
       const wrappedNativeAddress = getNativeTokenAddress(chainId);
       if (wrappedNativeAddress) {

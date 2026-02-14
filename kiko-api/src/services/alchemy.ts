@@ -1362,6 +1362,11 @@ const tokenPriceCache = new Map<string, { price: number; timestamp: number }>();
 const tokenPriceInFlight = new Map<string, Promise<number | undefined>>();
 const solanaBalanceCache = new Map<string, { tokens: TokenBalance[]; nativeBalance?: number; timestamp: number }>();
 
+// In-memory portfolio cache to avoid redundant Alchemy Portfolio API calls
+// Key: "address:chain", TTL: 15 seconds
+const PORTFOLIO_CACHE_TTL_MS = 15_000;
+const portfolioCache = new Map<string, { data: WalletBalance; timestamp: number }>();
+
 // fetchWithTimeout removed - replaced by fetchJson
 
 function priceCacheKey(chain: string, address: string): string {
@@ -2266,8 +2271,34 @@ export async function getTokenBalances(address: string, chain: string = 'eth'): 
 }
 
 export async function getWalletBalance(address: string, chain: string = 'eth'): Promise<WalletBalance> {
+  const cacheKey = `${address.toLowerCase()}:${chain.toLowerCase()}`;
+  const cached = portfolioCache.get(cacheKey);
+  if (cached && (Date.now() - cached.timestamp) < PORTFOLIO_CACHE_TTL_MS) {
+    logger.debug(LogCode.CACHE_HIT, 'Portfolio cache hit for getWalletBalance', {
+      address: address.slice(0, 10),
+      chain,
+      ageMs: Date.now() - cached.timestamp,
+    });
+    return cached.data;
+  }
+
   const portfolio = await getPortfolio(address, [chain]);
-  return portfolio[chain] || { ethBalance: '0', ethBalanceFormatted: 0, tokens: [] };
+  const result = portfolio[chain] || { ethBalance: '0', ethBalanceFormatted: 0, tokens: [] };
+
+  // Cache the result
+  portfolioCache.set(cacheKey, { data: result, timestamp: Date.now() });
+
+  // Evict stale entries periodically (keep cache bounded)
+  if (portfolioCache.size > 200) {
+    const now = Date.now();
+    for (const [key, entry] of portfolioCache) {
+      if (now - entry.timestamp > PORTFOLIO_CACHE_TTL_MS) {
+        portfolioCache.delete(key);
+      }
+    }
+  }
+
+  return result;
 }
 
 export async function getNativeBalances(
