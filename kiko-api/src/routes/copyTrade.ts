@@ -446,6 +446,7 @@ export default async function copyTradeRoutes(fastify: FastifyInstance) {
                 userId,
                 configId: id,
                 trackedTxCount: data.aggregate?.trackedTxCount ?? 0,
+                walletTxCount: data.aggregate?.walletTxCount ?? 0,
                 buyCount: data.aggregate?.buyCount ?? 0,
                 sellCount: data.aggregate?.sellCount ?? 0,
                 tokenSwapCount: data.aggregate?.tokenSwapCount ?? 0,

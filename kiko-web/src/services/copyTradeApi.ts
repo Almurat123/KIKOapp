@@ -57,6 +57,7 @@ export interface CopyTradeTargetStatusResponse {
         windowEndAt: string;
         windowDays: number;
         trackedTxCount: number;
+        walletTxCount?: number;
         buyCount: number;
         sellCount: number;
         tokenSwapCount: number;

@@ -74,11 +74,14 @@ export const StrategyCard: React.FC<StrategyCardProps> = ({
       .then((res) => {
         if (cancelled) return;
         const agg = res?.aggregate;
-        setTargetTradeCount(Number(agg?.trackedTxCount || 0));
+        const tracked = Number(agg?.trackedTxCount || 0);
+        const walletTotal = Number((agg as any)?.walletTxCount || 0);
+        setTargetTradeCount(tracked > 0 ? tracked : walletTotal);
         setTargetProfitUsd(Number(agg?.targetRealizedProfitUsd || 0));
         setTargetLossUsd(Number(agg?.targetRealizedLossUsd || 0));
       })
-      .catch(() => {
+      .catch((err) => {
+        console.error('[StrategyCard] target-status fetch failed', { configId, error: err?.message || String(err) });
         if (cancelled) return;
         setTargetTradeCount(0);
         setTargetProfitUsd(0);

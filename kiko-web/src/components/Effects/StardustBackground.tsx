@@ -1,260 +1,246 @@
 import React, { useEffect, useRef } from 'react';
+import * as THREE from 'three';
 import { useThemeContext } from '../../contexts/ThemeContext';
 
-interface Node {
-    x: number;
-    y: number;
-    vx: number;
-    vy: number;
-    size: number;
-    active: number;
-    id: number;
-    connections: number[]; // Explicit parent-child links
-}
-
-// Simplified background animation component
 export const StardustBackground: React.FC = () => {
-    const canvasRef = useRef<HTMLCanvasElement>(null);
+    const containerRef = useRef<HTMLDivElement>(null);
     const { resolvedTheme } = useThemeContext();
 
+    // Safety guard to prevent double-initialization (Fixes "Browser Freeze" in StrictMode)
+    const initializedRef = useRef(false);
+
     useEffect(() => {
-        const canvas = canvasRef.current;
-        if (!canvas) return;
+        if (!containerRef.current || initializedRef.current) return;
+        initializedRef.current = true;
 
-        const ctx = canvas.getContext('2d');
-        if (!ctx) return;
+        const container = containerRef.current;
+        const width = window.innerWidth;
+        const height = window.innerHeight;
 
-        let animationFrameId: number;
-        let nodes: Node[] = [];
+        // --- Init Three.js Scene ---
+        const scene = new THREE.Scene();
+        const isLight = resolvedTheme === 'light';
+        const bgColor = isLight ? 0xFFFFFF : 0x000103;
+        scene.fog = new THREE.FogExp2(bgColor, 0.0006);
+        scene.background = new THREE.Color(bgColor);
 
-        const initNodes = () => {
-            const { width, height } = canvas;
-            const nodeCount = Math.floor((width * height) / 22000);
-            nodes = [];
+        const aspect = width / height;
+        const camera = new THREE.PerspectiveCamera(aspect < 1 ? 85 : 60, aspect, 1, 10000);
+        camera.position.set(0, 0, 1400);
 
-            // Add regular random starry sky background
-            for (let i = 0; i < nodeCount; i++) {
-                nodes.push({
-                    x: Math.random() * width,
-                    y: Math.random() * height,
-                    vx: (Math.random() - 0.5) * 0.05, // Slower velocity
-                    vy: (Math.random() - 0.5) * 0.05, // Slower velocity
-                    size: Math.random() * 0.8 + 0.5, // Slightly larger base for visibility
-                    active: 0,
-                    id: i,
-                    connections: [] // Explicitly initialize connections
-                });
+        const renderer = new THREE.WebGLRenderer({
+            antialias: true,
+            alpha: true,
+            powerPreference: 'high-performance'
+        });
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        renderer.setSize(width, height);
+        container.appendChild(renderer.domElement);
+
+        // --- GPU Accelerated Shaders (Moving math to GPU to avoid lag) ---
+        const vertexShader = `
+            uniform float uTime;
+            uniform float uGap;
+            attribute float aScale;
+            attribute float aRandom;
+            attribute vec3 aBasePos;
+            attribute vec3 customColor;
+            varying float vPulse;
+            varying vec3 vColor;
+
+            void main() {
+                vColor = customColor;
+                
+                // Coordinate-based noise seeds
+                float ix = aBasePos.x / 45.0 + 50.0;
+                float iy = aBasePos.z / 45.0 + 32.5;
+                float factor = position.y > 0.0 ? 1.0 : -1.0;
+
+                // Exact Wave Logic from User Reference (Computed on GPU)
+                float mainWave = sin((ix * 0.15) + (uTime * 0.6)) * 80.0;
+                float secondaryWave = cos((iy * 0.12) + (uTime * 0.8)) * 60.0;
+                float turbulence = sin((ix * 0.3 + iy * 0.2 + uTime * 1.2)) * 30.0;
+                
+                // Pulsing motion scale
+                float breath = 0.8 + sin(uTime * 0.4) * 0.2;
+                
+                // Horizontal drifting
+                float driftX = sin(uTime * 0.5 + aRandom) * 15.0;
+                float driftZ = cos(uTime * 0.5 + aRandom) * 15.0;
+
+                float targetY = (uGap * factor) + (mainWave + secondaryWave + turbulence) * factor * breath;
+                vec3 animatedPos = vec3(aBasePos.x + driftX, targetY, aBasePos.z + driftZ);
+
+                // Exact Pulse logic from reference: (Math.sin(count * 2.5 + randoms[i]) + 1.0) / 2.0;
+                vPulse = (sin(uTime * 2.5 + aRandom) + 1.0) / 2.0;
+
+                vec4 mvPosition = modelViewMatrix * vec4( animatedPos, 1.0 );
+                gl_PointSize = aScale * ( 600.0 / - mvPosition.z );
+                gl_Position = projectionMatrix * mvPosition;
             }
+        `;
+
+        const fragmentShader = `
+            varying float vPulse;
+            varying vec3 vColor;
+            
+            void main() {
+                float r = distance(gl_PointCoord, vec2(0.5));
+                if (r > 0.5) discard;
+
+                // 黑底增强发光算法 (Exact from User Reference)
+                float core = pow(1.0 - r * 4.2, 4.0);
+                core = max(core, 0.0);
+                float glow = pow(1.0 - r * 2.1, 3.2);
+                
+                vec3 finalColor = mix(vColor, vec3(1.0, 1.0, 1.0), core);
+                gl_FragColor = vec4( finalColor, glow * (0.4 + vPulse * 0.6) );
+            }
+        `;
+
+        const uniforms = {
+            uTime: { value: 0 },
+            uGap: { value: 360.0 }
         };
 
-        const triggerConstellation = () => {
-            if (nodes.length === 0) return;
-            // Activate a precise "path" of nodes (Parent -> Child) with MOMENTUM
-            const startIdx = Math.floor(Math.random() * nodes.length);
-            let currentIdx = startIdx;
-            let prevIdx = -1; // To track direction
-            let count = 0;
-            const visited = new Set<number>();
-            const maxSteps = Math.floor(Math.random() * 6) + 3; // Variable chain length
+        const material = new THREE.ShaderMaterial({
+            uniforms: uniforms,
+            vertexShader,
+            fragmentShader,
+            transparent: true,
+            blending: isLight ? THREE.NormalBlending : THREE.AdditiveBlending,
+            depthWrite: false
+        });
 
-            const chain = () => {
-                if (count > maxSteps) return;
+        // --- Implementation of Google 4-Color Gradient ---
+        const SEPARATION = 45, AMOUNTX = 100, AMOUNTY = 65;
+        const googleColors = [
+            new THREE.Color(0x4285F4), // 蓝
+            new THREE.Color(0x34A853), // 绿
+            new THREE.Color(0xFBBC05), // 黄
+            new THREE.Color(0xEA4335)  // 红
+        ];
 
-                // Set node active
-                nodes[currentIdx].active = 1.0;
-                visited.add(currentIdx);
+        const createLayer = (isTop: boolean) => {
+            const numParticles = AMOUNTX * AMOUNTY;
+            const positions = new Float32Array(numParticles * 3);
+            const basePositions = new Float32Array(numParticles * 3);
+            const colors = new Float32Array(numParticles * 3);
+            const scales = new Float32Array(numParticles);
+            const randoms = new Float32Array(numParticles);
 
-                let bestNextIdx = -1;
-                let bestScore = -Infinity; // Higher is better (closer + better direction)
+            for (let i = 0; i < numParticles; i++) {
+                const ix = Math.floor(i / AMOUNTY);
+                const iy = i % AMOUNTY;
+                const x = ix * SEPARATION - ((AMOUNTX * SEPARATION) / 2);
+                const z = iy * SEPARATION - ((AMOUNTY * SEPARATION) / 2);
+                const y = isTop ? 1.0 : -1.0; // Use Y to store the "factor" for the shader
 
-                // Direction vector from previous node (if any)
-                let dirX = 0, dirY = 0;
-                if (prevIdx !== -1) {
-                    dirX = nodes[currentIdx].x - nodes[prevIdx].x;
-                    dirY = nodes[currentIdx].y - nodes[prevIdx].y;
-                    // Normalize
-                    const len = Math.sqrt(dirX * dirX + dirY * dirY);
-                    if (len > 0) { dirX /= len; dirY /= len; }
+                positions[i * 3] = x;
+                positions[i * 3 + 1] = y;
+                positions[i * 3 + 2] = z;
+
+                basePositions[i * 3] = x;
+                basePositions[i * 3 + 1] = y;
+                basePositions[i * 3 + 2] = z;
+
+                // Gradient Interpolation
+                const t = ix / (AMOUNTX - 1);
+                let baseColor = new THREE.Color();
+                if (t < 0.33) {
+                    baseColor.lerpColors(googleColors[0], googleColors[1], t / 0.33);
+                } else if (t < 0.66) {
+                    baseColor.lerpColors(googleColors[1], googleColors[2], (t - 0.33) / 0.33);
+                } else {
+                    baseColor.lerpColors(googleColors[2], googleColors[3], (t - 0.66) / 0.34);
                 }
 
-                // Find nearest neighbor that hopefully continues the direction
-                for (let i = 0; i < nodes.length; i++) {
-                    if (visited.has(i)) continue;
+                colors[i * 3] = baseColor.r;
+                colors[i * 3 + 1] = baseColor.g;
+                colors[i * 3 + 2] = baseColor.b;
 
-                    const dx = nodes[i].x - nodes[currentIdx].x;
-                    const dy = nodes[i].y - nodes[currentIdx].y;
-                    const dist = Math.sqrt(dx * dx + dy * dy);
+                scales[i] = Math.random() > 0.98 ? 40.0 : 14.0;
+                randoms[i] = Math.random() * Math.PI * 2;
+            }
 
-                    if (dist > 300 || dist < 20) continue; // Range check
+            const geo = new THREE.BufferGeometry();
+            geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            geo.setAttribute('aBasePos', new THREE.BufferAttribute(basePositions, 3));
+            geo.setAttribute('customColor', new THREE.BufferAttribute(colors, 3));
+            geo.setAttribute('aScale', new THREE.BufferAttribute(scales, 1));
+            geo.setAttribute('aRandom', new THREE.BufferAttribute(randoms, 1));
 
-                    // Score based on distance (closer is better)
-                    let score = (1 - dist / 300) * 10;
-
-                    // Score based on direction (alignment with previous path)
-                    if (prevIdx !== -1) {
-                        const nextDirX = dx / dist;
-                        const nextDirY = dy / dist;
-                        // Dot product: 1 = straight ahead, -1 = backwards, 0 = 90 deg turn
-                        const alignment = dirX * nextDirX + dirY * nextDirY;
-
-                        // Favor forward movement (alignment > -0.2), penalize sharp U-turns
-                        score += alignment * 5;
-                    }
-
-                    if (score > bestScore) {
-                        bestScore = score;
-                        bestNextIdx = i;
-                    }
-                }
-
-                if (bestNextIdx !== -1) {
-                    // LINK current node to next node
-                    nodes[currentIdx].connections = [bestNextIdx];
-
-                    prevIdx = currentIdx;
-                    currentIdx = bestNextIdx;
-                    count++;
-                    setTimeout(chain, 200); // 200ms delay for slower propagation
-                }
-            };
-
-            chain();
+            const points = new THREE.Points(geo, material);
+            // In original code, position.y is set to +/- GAP. Here we use uGap attribute in vertex shader.
+            return points;
         };
 
-        const resize = () => {
-            canvas.width = window.innerWidth;
-            canvas.height = window.innerHeight;
-            initNodes();
+        const pointsTop = createLayer(true);
+        const pointsBottom = createLayer(false);
+        scene.add(pointsTop);
+        scene.add(pointsBottom);
+
+        // --- Animation Loop ---
+        let count = 0;
+        let animationFrameId: number;
+
+        const animate = () => {
+            animationFrameId = requestAnimationFrame(animate);
+            count += 0.02;
+            uniforms.uTime.value = count;
+
+            const time = Date.now() * 0.0001;
+            camera.position.x = 450 * Math.sin(time * 0.4);
+            camera.position.y = 100 * Math.cos(time * 0.3);
+            camera.position.z = 1350 + 200 * Math.cos(time * 0.6);
+            camera.lookAt(0, 0, 0);
+
+            renderer.render(scene, camera);
         };
 
-        const draw = () => {
-            const isLight = resolvedTheme === 'light';
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
+        animate();
 
-            // Diamond Prism Palette
-            // Light mode: Pure Black for maximum clarity/contrast
-            // Dark mode: Brilliant White
-            const starRGB = isLight ? '0, 0, 0' : '255, 255, 255';
-            const prismBlue = isLight ? '30, 64, 175' : '180, 220, 255'; // Dark blue vs Celestial
-            const prismPink = isLight ? '190, 24, 93' : '255, 180, 230'; // Dark pink vs Faint
-
-            // Increased frequency: ~3x more often
-            if (Math.random() > 0.985) triggerConstellation();
-
-            nodes.forEach(node => {
-                node.x += node.vx;
-                node.y += node.vy;
-                if (node.x < 0 || node.x > canvas.width) node.vx *= -1;
-                if (node.y < 0 || node.y > canvas.height) node.vy *= -1;
-                if (node.active > 0) node.active -= 0.0025; // Slower fade out
-            });
-
-            // 1. Draw Ethereal Lines (Explicit Parent-Child Paths ONLY)
-            ctx.beginPath();
-            nodes.forEach(node => {
-                // Only draw if active AND has explicit connection
-                if (node.active < 0.01 || node.connections.length === 0) return;
-
-                node.connections.forEach(targetIdx => {
-                    const target = nodes[targetIdx];
-                    if (!target || target.active < 0.01) return;
-
-                    const dist = Math.sqrt((node.x - target.x) ** 2 + (node.y - target.y) ** 2);
-                    if (dist > 350) return; // Break if drifted too far
-
-                    const activity = Math.min(node.active, target.active);
-                    const opacity = (1 - dist / 350) * activity * 0.8;
-
-                    ctx.strokeStyle = `rgba(${isLight ? '50, 50, 50' : '180, 220, 255'}, ${opacity})`;
-                    ctx.lineWidth = 0.5;
-                    ctx.moveTo(node.x, node.y);
-                    ctx.lineTo(target.x, target.y);
-                });
-            });
-            ctx.stroke();
-
-            // 2. Draw Brilliant Diamond Stars (Chaotic Scintillation)
-            nodes.forEach(node => {
-                const activity = node.active;
-
-                // CHAOTIC SPARKLE MATH (Diamond Scintillation)
-                // Using high powers of Sine to create sharp peaks (flashes) and long troughs (darkness)
-                // Combining two prime frequencies (11 and 17) to prevent obvious repetition
-                const t = Date.now() * 0.0005; // 0.5x speed
-                const baseTwinkle = Math.sin(t + node.id);
-                // Sharp flash: sin^6 results in very narrow peaks
-                const flash = Math.pow(Math.sin(t * 3 + node.id * 7), 6);
-
-                const twinkle = (baseTwinkle * 0.2 + flash * 0.8) * 0.8;
-
-                // Base visibility + active boost + sparkle
-                const opacity = Math.max(0.15, Math.min(1, (activity > 0 ? 0.8 : 0.15) + twinkle + activity));
-
-                ctx.save();
-
-                // Active Bloom (Diamond Fire)
-                if (activity > 0.05 || twinkle > 0.3) {
-                    const bloomSize = node.size * (isLight ? 6 : 8); // Tighter, sharper bloom
-                    const grad = ctx.createRadialGradient(node.x, node.y, 0, node.x, node.y, bloomSize);
-
-                    grad.addColorStop(0, `rgba(${prismBlue}, ${Math.min(1, opacity * 0.5)})`);
-                    if (!isLight) { // Pink fire mostly visible in dark mode
-                        grad.addColorStop(0.4, `rgba(${prismPink}, ${Math.min(1, opacity * 0.3)})`);
-                    }
-                    grad.addColorStop(1, 'rgba(0,0,0,0)');
-
-                    ctx.fillStyle = grad;
-                    ctx.beginPath();
-                    ctx.arc(node.x, node.y, bloomSize, 0, Math.PI * 2);
-                    ctx.fill();
-                }
-
-                // Solid Core (No Icons, just light)
-                ctx.beginPath();
-                // When twinkling, size fluctuates slightly
-                const drawSize = node.size + (activity * 1.5) + (twinkle * 0.5);
-                ctx.arc(node.x, node.y, drawSize, 0, Math.PI * 2);
-                ctx.fillStyle = `rgba(${starRGB}, ${opacity})`;
-                ctx.fill();
-
-                // Optical Flare (Natural "Cross" from diffraction, not drawn lines)
-                // Only for very bright/active stars to mimic camera lens diffraction
-                if ((activity > 0.6 || twinkle > 0.4) && !isLight) {
-                    ctx.fillStyle = `rgba(255, 255, 255, ${opacity * 0.5})`;
-                    // Horizontal glare
-                    ctx.fillRect(node.x - drawSize * 4, node.y - 0.5, drawSize * 8, 1);
-                    // Vertical glare
-                    ctx.fillRect(node.x - 0.5, node.y - drawSize * 4, 1, drawSize * 8);
-                }
-
-                ctx.restore();
-            });
-
-            animationFrameId = requestAnimationFrame(draw);
+        // --- Robust Cleanup ---
+        const handleResize = () => {
+            const w = window.innerWidth;
+            const h = window.innerHeight;
+            camera.aspect = w / h;
+            camera.updateProjectionMatrix();
+            renderer.setSize(w, h);
         };
-
-        window.addEventListener('resize', resize);
-        resize();
-        draw();
+        window.addEventListener('resize', handleResize);
 
         return () => {
-            window.removeEventListener('resize', resize);
+            window.removeEventListener('resize', handleResize);
             cancelAnimationFrame(animationFrameId);
+
+            // Explicit Disposal
+            material.dispose();
+            pointsTop.geometry.dispose();
+            pointsBottom.geometry.dispose();
+            renderer.dispose();
+
+            if (container.contains(renderer.domElement)) {
+                container.removeChild(renderer.domElement);
+            }
+            initializedRef.current = false;
         };
     }, [resolvedTheme]);
 
     return (
-        <canvas
-            ref={canvasRef}
+        <div
+            ref={containerRef}
+            id="webgl-background-root"
             style={{
-                position: 'absolute',
+                position: 'fixed',
                 top: 0,
                 left: 0,
-                width: '100%',
-                height: '100%',
-                pointerEvents: 'none',
+                width: '100vw',
+                height: '100vh',
                 zIndex: 0,
-                opacity: resolvedTheme === 'light' ? 0.95 : 1, // Almost full opacity for light mode
+                pointerEvents: 'none',
+                overflow: 'hidden',
+                backgroundColor: resolvedTheme === 'light' ? '#FFFFFF' : '#000103',
             }}
         />
     );

@@ -10,6 +10,7 @@ import { getChainConfig } from '../config/chainConfig.js';
 import { getNativeTokenPriceUsd } from './onChainPriceService.js';
 import { getTokenMetadata } from './rpcService.js';
 import { ethers } from 'ethers';
+import { getTokenDetails } from './dexscreener.js';
 
 const TARGET_STATUS_MIN_TX_USD = Number(process.env.TARGET_STATUS_MIN_TX_USD || 0.000001);
 const TARGET_STATUS_MAX_TX_USD = Number(process.env.TARGET_STATUS_MAX_TX_USD || 250000);
@@ -41,6 +42,14 @@ function safeNum(v: number | string | null | undefined): number {
   if (v === null || v === undefined) return 0;
   const n = Number(v);
   return Number.isFinite(n) ? n : 0;
+}
+
+function choosePositive(...values: Array<number | null | undefined>): number | null {
+  for (const v of values) {
+    const n = safeNum(v);
+    if (n > 0) return n;
+  }
+  return null;
 }
 
 export async function persistTargetSwapEvent(params: {
@@ -153,6 +162,35 @@ async function fillUsdFromDecodedLeg(params: {
   return null;
 }
 
+async function fillUsdFromTokenSpot(params: {
+  chain: string;
+  chainId: number;
+  tokenAddress?: string | null;
+  amountRaw?: string | null;
+}): Promise<number | null> {
+  const tokenAddress = params.tokenAddress ? normalizeAddress(params.tokenAddress) : '';
+  const amountRaw = params.amountRaw || '';
+  if (!tokenAddress || !amountRaw) return null;
+  let amountBn: bigint;
+  try {
+    amountBn = BigInt(amountRaw);
+  } catch {
+    return null;
+  }
+  if (amountBn <= 0n) return null;
+  const meta = await getTokenMetadata(params.chainId, tokenAddress, { rpcStrategy: 'cheap' }).catch(() => null);
+  const decimals = Number(meta?.decimals ?? 18);
+  if (!Number.isFinite(decimals) || decimals < 0 || decimals > 36) return null;
+  const qty = Number(ethers.formatUnits(amountBn, decimals));
+  if (!Number.isFinite(qty) || qty <= 0) return null;
+  const details = await getTokenDetails(params.chain, tokenAddress).catch(() => null);
+  const px = Number(details?.price || 0);
+  if (!Number.isFinite(px) || px <= 0) return null;
+  const usd = qty * px;
+  if (!Number.isFinite(usd) || usd <= 0) return null;
+  return usd;
+}
+
 export async function backfillMissingTargetUsd(params: {
   walletAddress?: string;
   chainId?: number;
@@ -162,9 +200,25 @@ export async function backfillMissingTargetUsd(params: {
   const where: any = {
     txType: { in: ['TARGET_BUY', 'TARGET_SELL'] },
     valueUsd: null,
+    AND: [
+      {
+        OR: [
+          { parseReason: null },
+          { parseReason: { not: 'backfill_unresolved' } },
+        ],
+      },
+    ],
   };
   if (params.walletAddress) where.walletAddress = normalizeAddress(params.walletAddress);
-  if (params.chainId) where.chainId = params.chainId;
+  if (params.chainId) {
+    const chain = chainIdToLabel(params.chainId);
+    where.AND.push({
+      OR: [
+        { chainId: params.chainId },
+        { chainId: null, chain },
+      ],
+    });
+  }
 
   const rows = await prisma.walletTransaction.findMany({
     where,
@@ -221,7 +275,7 @@ export async function backfillMissingTargetUsd(params: {
               : await fillUsdFromDecodedLeg({ chainId: cid, tokenAddress: swap.tokenOut, amountRaw: swap.amountOut });
             if (legUsd && legUsd > 0) {
               valueUsd = legUsd;
-              await prisma.walletTransaction.update({
+              await withRetry(() => prisma.walletTransaction.update({
                 where: { id: row.id },
                 data: {
                   chainId: cid,
@@ -233,7 +287,7 @@ export async function backfillMissingTargetUsd(params: {
                   parseReason: 'backfill_decode',
                   source: 'backfill',
                 },
-              });
+              }), 4, 200);
               updated += 1;
               continue;
             }
@@ -245,7 +299,7 @@ export async function backfillMissingTargetUsd(params: {
     }
 
     if (valueUsd && Number.isFinite(valueUsd) && valueUsd > 0) {
-      await prisma.walletTransaction.update({
+      await withRetry(() => prisma.walletTransaction.update({
         where: { id: row.id },
         data: {
           chainId: cid,
@@ -253,8 +307,39 @@ export async function backfillMissingTargetUsd(params: {
           parseReason: row.txType === 'TARGET_BUY' ? 'backfill_buy_leg' : 'backfill_sell_leg',
           source: 'backfill',
         },
-      });
+      }), 4, 200);
       updated += 1;
+    } else {
+      // final fallback: estimate by current token spot using tokenAddress+amount
+      const spotUsd = await fillUsdFromTokenSpot({
+        chain: row.chain,
+        chainId: cid,
+        tokenAddress: row.tokenAddress,
+        amountRaw: row.amount,
+      });
+      if (spotUsd && Number.isFinite(spotUsd) && spotUsd > 0) {
+        await withRetry(() => prisma.walletTransaction.update({
+          where: { id: row.id },
+          data: {
+            chainId: cid,
+            valueUsd: spotUsd,
+            parseReason: 'backfill_spot',
+            source: 'backfill',
+          },
+        }), 4, 200);
+        updated += 1;
+        continue;
+      }
+
+      // Mark as unresolved so repeated status refreshes don't re-run heavy decode forever.
+      await withRetry(() => prisma.walletTransaction.update({
+        where: { id: row.id },
+        data: {
+          chainId: cid,
+          parseReason: 'backfill_unresolved',
+          source: 'backfill',
+        },
+      }), 4, 200);
     }
   }
 
@@ -383,7 +468,7 @@ export async function getTargetWalletStatus(params: {
   // Non-blocking best-effort repair for missing USD values (does not affect trading path).
   void backfillMissingTargetUsd({ walletAddress, chainId: cfg.chainId, limit: 8 }).catch(() => undefined);
 
-  const [leaderStats, recentTx, copiedPositions, targetTradeTxs] = await Promise.all([
+  const [leaderStats, recentTx, copiedPositions, targetTradeTxs, walletTxCount] = await Promise.all([
     prisma.leaderWalletStats.findUnique({
       where: { address_chainId: { address: walletAddress, chainId: cfg.chainId } },
     }),
@@ -422,6 +507,13 @@ export async function getTargetWalletStatus(params: {
       },
       orderBy: { blockTimestamp: 'asc' },
     }),
+    prisma.walletTransaction.count({
+      where: {
+        walletAddress,
+        chain,
+        blockTimestamp: { gte: since },
+      },
+    }),
   ]);
 
   let tokenSwaps = 0;
@@ -451,14 +543,18 @@ export async function getTargetWalletStatus(params: {
         valueUsd: number | null;
         blockTimestamp: Date;
       }> = [];
-      // Token->Token: interpret as sell tokenIn + buy tokenOut when both legs carry usable USD.
-      if (safeNum(row.valueInUsd) > 0 && safeNum(row.valueOutUsd) > 0) {
+      // Fallback layer:
+      // even if one leg USD is missing (common on non-standard routers/DEXes),
+      // still synthesize sell+buy from tokenIn/tokenOut so cross-DEX exits are not dropped from PnL.
+      const inferredSellUsd = choosePositive(row.valueInUsd, row.valueUsd, row.valueOutUsd);
+      const inferredBuyUsd = choosePositive(row.valueOutUsd, row.valueUsd, row.valueInUsd);
+      if (inferredSellUsd && inferredBuyUsd) {
         synthetic.push({
           id: row.id,
           txType: 'TARGET_SELL',
           tokenAddress: row.tokenInAddress || null,
           amount: row.amountIn || null,
-          valueUsd: row.valueInUsd || null,
+          valueUsd: inferredSellUsd,
           blockTimestamp: row.blockTimestamp,
         });
         synthetic.push({
@@ -466,7 +562,7 @@ export async function getTargetWalletStatus(params: {
           txType: 'TARGET_BUY',
           tokenAddress: row.tokenOutAddress || null,
           amount: row.amountOut || null,
-          valueUsd: row.valueOutUsd || null,
+          valueUsd: inferredBuyUsd,
           blockTimestamp: row.blockTimestamp,
         });
       }
@@ -496,6 +592,7 @@ export async function getTargetWalletStatus(params: {
       windowEndAt: new Date(),
       windowDays: 30,
       trackedTxCount,
+      walletTxCount,
       buyCount: rawBuyCount,
       sellCount: rawSellCount,
       tokenSwapCount: tokenSwaps,
