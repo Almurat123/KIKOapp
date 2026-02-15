@@ -14,6 +14,7 @@ import { getTokenDetails } from './dexscreener.js';
 
 const TARGET_STATUS_MIN_TX_USD = Number(process.env.TARGET_STATUS_MIN_TX_USD || 0.000001);
 const TARGET_STATUS_MAX_TX_USD = Number(process.env.TARGET_STATUS_MAX_TX_USD || 250000);
+const TARGET_STATUS_MAX_TX_USD_LOW_CONF = Number(process.env.TARGET_STATUS_MAX_TX_USD_LOW_CONF || 10000);
 const TARGET_HISTORY_REFRESH_TTL_SEC = Number(process.env.TARGET_HISTORY_REFRESH_TTL_SEC || 180);
 
 function chainIdToLabel(chainId: number): string {
@@ -50,6 +51,24 @@ function choosePositive(...values: Array<number | null | undefined>): number | n
     if (n > 0) return n;
   }
   return null;
+}
+
+function sanitizeTxUsd(row: {
+  valueUsd?: number | null;
+  amountIn?: string | null;
+  amountOut?: string | null;
+  tokenInAddress?: string | null;
+  tokenOutAddress?: string | null;
+  source?: string | null;
+}): number | null {
+  const usd = safeNum(row.valueUsd);
+  if (usd <= 0) return null;
+  const hasDecodedLegs = !!(row.amountIn || row.amountOut || row.tokenInAddress || row.tokenOutAddress);
+  const source = String(row.source || '').toLowerCase();
+  const hasTrustedSource = source === 'webhook' || source === 'backfill' || source === 'target_history';
+  // Legacy rows without decoded legs/source often contain inflated USD values from old parsing logic.
+  if (!hasDecodedLegs && !hasTrustedSource && usd > TARGET_STATUS_MAX_TX_USD_LOW_CONF) return null;
+  return usd;
 }
 
 export async function persistTargetSwapEvent(params: {
@@ -450,9 +469,10 @@ export async function getTargetWalletStatus(params: {
   configId: string;
   recentLimit?: number;
 }) {
-  const cfg = await prisma.copyTradeConfig.findFirst({
+  const db = <T>(fn: () => Promise<T>) => withRetry(fn, 4, 250);
+  const cfg = await db(() => prisma.copyTradeConfig.findFirst({
     where: { id: params.configId, userId: params.userId },
-  });
+  }));
   if (!cfg) return null;
 
   const walletAddress = normalizeAddress(cfg.targetWallet);
@@ -469,10 +489,10 @@ export async function getTargetWalletStatus(params: {
   void backfillMissingTargetUsd({ walletAddress, chainId: cfg.chainId, limit: 8 }).catch(() => undefined);
 
   const [leaderStats, recentTx, copiedPositions, targetTradeTxs, walletTxCount] = await Promise.all([
-    prisma.leaderWalletStats.findUnique({
+    db(() => prisma.leaderWalletStats.findUnique({
       where: { address_chainId: { address: walletAddress, chainId: cfg.chainId } },
-    }),
-    prisma.walletTransaction.findMany({
+    })),
+    db(() => prisma.walletTransaction.findMany({
       where: {
         walletAddress,
         chain,
@@ -480,11 +500,11 @@ export async function getTargetWalletStatus(params: {
       },
       orderBy: { blockTimestamp: 'desc' },
       take: recentLimit,
-    }),
-    prisma.position.count({
+    })),
+    db(() => prisma.position.count({
       where: { configId: cfg.id },
-    }),
-    prisma.walletTransaction.findMany({
+    })),
+    db(() => prisma.walletTransaction.findMany({
       where: {
         walletAddress,
         chain,
@@ -503,17 +523,18 @@ export async function getTargetWalletStatus(params: {
         tokenOutAddress: true,
         valueInUsd: true,
         valueOutUsd: true,
+        source: true,
         blockTimestamp: true,
       },
       orderBy: { blockTimestamp: 'asc' },
-    }),
-    prisma.walletTransaction.count({
+    })),
+    db(() => prisma.walletTransaction.count({
       where: {
         walletAddress,
         chain,
         blockTimestamp: { gte: since },
       },
-    }),
+    })),
   ]);
 
   let tokenSwaps = 0;
@@ -528,7 +549,7 @@ export async function getTargetWalletStatus(params: {
         txType: row.txType as 'TARGET_BUY' | 'TARGET_SELL' | 'BUY' | 'SELL',
         tokenAddress: row.tokenAddress,
         amount: row.amount,
-        valueUsd: row.valueUsd,
+        valueUsd: sanitizeTxUsd(row),
         blockTimestamp: row.blockTimestamp,
       }];
     }

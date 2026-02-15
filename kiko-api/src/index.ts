@@ -162,10 +162,8 @@ fastify.addHook('preHandler', async (request, reply) => {
     await requireAllowedOrigin(request, reply);
     // Then validate app key
     await requireAppKey(request, reply);
-    // Optional: Verify request signature (if configured)
-    if (isSensitive) {
-        await verifyRequestSignature(request, reply);
-    }
+    // Browser requests are not signed (no frontend secrets).
+    // If signature headers are present, they are already verified above.
 });
 
 import fastifyStatic from '@fastify/static';

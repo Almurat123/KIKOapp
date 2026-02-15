@@ -20,6 +20,16 @@ export function getRuntimeConfigUrl(key: keyof KikoRuntimeConfig): string {
 }
 
 export function getEnvUrl(key: 'VITE_CHAT_API_URL' | 'VITE_CHAT_WS_URL' | 'VITE_API_URL' | 'VITE_WS_URL'): string {
-    return sanitize(import.meta.env[key]);
+    switch (key) {
+        case 'VITE_CHAT_API_URL':
+            return sanitize(import.meta.env.VITE_CHAT_API_URL);
+        case 'VITE_CHAT_WS_URL':
+            return sanitize(import.meta.env.VITE_CHAT_WS_URL);
+        case 'VITE_API_URL':
+            return sanitize(import.meta.env.VITE_API_URL);
+        case 'VITE_WS_URL':
+            return sanitize(import.meta.env.VITE_WS_URL);
+        default:
+            return '';
+    }
 }
-

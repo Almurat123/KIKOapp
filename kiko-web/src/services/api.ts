@@ -268,18 +268,6 @@ export async function fetchApi<T>(endpoint: string, options?: RequestInit): Prom
     // Get Privy access token if available
     const authToken = await getAuthToken();
 
-    // Generate request signature if enabled
-    let signatureHeaders = {};
-    if (import.meta.env.VITE_SIGNING_SECRET) {
-        try {
-            const { signRequest } = await import('../utils/signRequest.js');
-            const body = options?.body ? JSON.parse(options.body as string) : undefined;
-            signatureHeaders = await signRequest(options?.method || 'GET', endpoint, body);
-        } catch (error) {
-            console.warn('[API] Failed to sign request:', error);
-        }
-    }
-
     // Create the request promise
     const requestPromise = (async () => {
         try {
@@ -293,7 +281,6 @@ export async function fetchApi<T>(endpoint: string, options?: RequestInit): Prom
                     'X-App-Key': import.meta.env.VITE_APP_KEY || '',
                     ...(options?.body ? { 'Content-Type': 'application/json' } : {}),
                     ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
-                    ...signatureHeaders,
                     ...options?.headers,
                 },
             });

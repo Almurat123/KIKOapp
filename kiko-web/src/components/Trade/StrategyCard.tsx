@@ -70,23 +70,29 @@ export const StrategyCard: React.FC<StrategyCardProps> = ({
     const configId = copyConfig?.id;
     if (!isCopyTrade || !configId) return;
 
-    getTargetStatus(configId)
-      .then((res) => {
-        if (cancelled) return;
-        const agg = res?.aggregate;
-        const tracked = Number(agg?.trackedTxCount || 0);
-        const walletTotal = Number((agg as any)?.walletTxCount || 0);
-        setTargetTradeCount(tracked > 0 ? tracked : walletTotal);
-        setTargetProfitUsd(Number(agg?.targetProfitUsd ?? agg?.targetRealizedProfitUsd ?? 0));
-        setTargetLossUsd(Number(agg?.targetLossUsd ?? agg?.targetRealizedLossUsd ?? 0));
-      })
-      .catch((err) => {
-        console.error('[StrategyCard] target-status fetch failed', { configId, error: err?.message || String(err) });
-        if (cancelled) return;
-        setTargetTradeCount(0);
-        setTargetProfitUsd(0);
-        setTargetLossUsd(0);
-      });
+    const fetchWithRetry = async () => {
+      let lastError: unknown;
+      for (let attempt = 1; attempt <= 3; attempt += 1) {
+        try {
+          const res = await getTargetStatus(configId);
+          if (cancelled) return;
+          const agg = res?.aggregate;
+          const tracked = Number(agg?.trackedTxCount || 0);
+          const walletTotal = Number((agg as any)?.walletTxCount || 0);
+          setTargetTradeCount(tracked > 0 ? tracked : walletTotal);
+          setTargetProfitUsd(Number(agg?.targetProfitUsd ?? agg?.targetRealizedProfitUsd ?? 0));
+          setTargetLossUsd(Number(agg?.targetLossUsd ?? agg?.targetRealizedLossUsd ?? 0));
+          return;
+        } catch (err) {
+          lastError = err;
+          if (attempt < 3) await new Promise((resolve) => setTimeout(resolve, 350 * attempt));
+        }
+      }
+      console.error('[StrategyCard] target-status fetch failed after retries', { configId, error: (lastError as any)?.message || String(lastError) });
+      // Keep previous UI values on transient failure instead of forcing zeros.
+    };
+
+    void fetchWithRetry();
 
     return () => {
       cancelled = true;
