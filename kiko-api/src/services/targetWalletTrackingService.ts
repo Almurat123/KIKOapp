@@ -477,8 +477,9 @@ export async function getTargetWalletStatus(params: {
 
   const walletAddress = normalizeAddress(cfg.targetWallet);
   const chain = chainIdToLabel(cfg.chainId);
-  const monthAgo = new Date(Date.now() - (30 * 24 * 60 * 60 * 1000));
-  const since = cfg.createdAt > monthAgo ? cfg.createdAt : monthAgo;
+  // Use config creation time as strict baseline so target metrics are "since subscription start".
+  // This avoids mixing pre-subscription wallet history into current strategy stats.
+  const since = cfg.createdAt;
   const recentLimit = params.recentLimit ?? 80;
 
   // Refresh latest wallet activity before aggregating so card data stays current.

@@ -108,6 +108,10 @@ export interface MainSwapRequest {
 
   // Copytrade execution hint from target wallet decoded tx
   directSwapHint?: DirectSwapHint;
+
+  // When true, do not report success until a confirmed successful receipt is observed.
+  // Used by position exits to prevent false "sold" states on later reverts.
+  requireConfirmedTx?: boolean;
 }
 
 /**
@@ -867,6 +871,12 @@ export class MainSwapService {
       }
     }
 
+    const requireConfirmedTx = request.requireConfirmedTx === true;
+    const shouldWaitForConfirmation = requireConfirmedTx ? true : !isTurboCopytrade;
+    const confirmationTimeoutMs = requireConfirmedTx
+      ? 15000
+      : (request.mode === 'allowance' || request.mode === 'copytrade' ? (isTurboCopytrade ? 3000 : 12000) : 60000);
+
     const swapParams: SwapParams = {
       userId: request.userId,
       walletAddress: request.walletAddress,
@@ -885,9 +895,9 @@ export class MainSwapService {
       // - swap-card: API/UI swaps need real confirmation before reporting success
       // - copytrade: Copy trading requires verified confirmation before notifications
       // Only 'allowance' mode skips confirmation (handles separately via allowance trade flow)
-      waitForConfirmation: isTurboCopytrade ? false : true,
-      confirmationTimeoutMs: request.mode === 'allowance' || request.mode === 'copytrade' ? (isTurboCopytrade ? 3000 : 12000) : 60000,
-      returnOnConfirmTimeout: request.mode === 'allowance' || request.mode === 'copytrade',
+      waitForConfirmation: shouldWaitForConfirmation,
+      confirmationTimeoutMs,
+      returnOnConfirmTimeout: requireConfirmedTx ? false : (request.mode === 'allowance' || request.mode === 'copytrade'),
       speedUpAfterMs: request.mode === 'allowance' || request.mode === 'copytrade' ? (isTurboCopytrade ? 1200 : 6000) : undefined,
       speedUpBumpBps: request.mode === 'copytrade' ? (isTurboCopytrade ? 22000 : 15000) : request.mode === 'allowance' ? 13000 : undefined
     };

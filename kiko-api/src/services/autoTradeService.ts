@@ -2183,6 +2183,7 @@ async function executePositionExit(params: {
                     chainId: chainId,
                     slippageBps: initialSlippage,
                     mode: 'copytrade',
+                    requireConfirmedTx: true,
                     userSettings: {
                         fastSwapMode: executionMode !== 'safe',
                         copyTradeExecutionMode: executionMode
@@ -2209,6 +2210,7 @@ async function executePositionExit(params: {
                         chainId: chainId,
                         slippageBps: retrySlippage,
                         mode: 'copytrade',
+                        requireConfirmedTx: true,
                         userSettings: {
                             fastSwapMode: executionMode !== 'safe',
                             copyTradeExecutionMode: executionMode
