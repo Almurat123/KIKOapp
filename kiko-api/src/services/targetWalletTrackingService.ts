@@ -578,6 +578,8 @@ export async function getTargetWalletStatus(params: {
     chainId: cfg.chainId,
   });
   const trackedTxCount = rawBuyCount + rawSellCount + tokenSwaps;
+  const targetProfitUsd = safeNum(pnl.targetRealizedProfitUsd) + Math.max(0, safeNum(pnl.targetUnrealizedPnlUsd));
+  const targetLossUsd = safeNum(pnl.targetRealizedLossUsd) + Math.max(0, -safeNum(pnl.targetUnrealizedPnlUsd));
 
   return {
     config: {
@@ -602,6 +604,8 @@ export async function getTargetWalletStatus(params: {
       targetRealizedPnlUsd: pnl.targetRealizedPnlUsd,
       targetRealizedProfitUsd: pnl.targetRealizedProfitUsd,
       targetRealizedLossUsd: pnl.targetRealizedLossUsd,
+      targetProfitUsd,
+      targetLossUsd,
       targetUnrealizedPnlUsd: pnl.targetUnrealizedPnlUsd,
       targetTotalPnlUsd: pnl.targetTotalPnlUsd,
       openPositionCostUsd: pnl.openPositionCostUsd,

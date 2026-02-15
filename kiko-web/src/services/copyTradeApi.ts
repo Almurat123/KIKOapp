@@ -67,6 +67,8 @@ export interface CopyTradeTargetStatusResponse {
         targetRealizedPnlUsd: number;
         targetRealizedProfitUsd: number;
         targetRealizedLossUsd: number;
+        targetProfitUsd?: number;
+        targetLossUsd?: number;
         targetUnrealizedPnlUsd: number;
         targetTotalPnlUsd: number;
         openPositionCostUsd: number;

@@ -450,6 +450,8 @@ export default async function copyTradeRoutes(fastify: FastifyInstance) {
                 buyCount: data.aggregate?.buyCount ?? 0,
                 sellCount: data.aggregate?.sellCount ?? 0,
                 tokenSwapCount: data.aggregate?.tokenSwapCount ?? 0,
+                targetProfitUsd: data.aggregate?.targetProfitUsd ?? 0,
+                targetLossUsd: data.aggregate?.targetLossUsd ?? 0,
             });
             return reply.send({ success: true, ...data });
         } catch (error: any) {
