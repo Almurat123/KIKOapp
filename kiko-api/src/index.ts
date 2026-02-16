@@ -140,6 +140,12 @@ import { requireAppKey } from './middleware/apiKey.js';
 import { requireAllowedOrigin } from './middleware/originRestriction.js';
 import { verifyRequestSignature } from './middleware/requestSigning.js';
 fastify.addHook('preHandler', async (request, reply) => {
+    // Always allow browser CORS preflight to reach @fastify/cors handler.
+    // Preflight does not carry app credentials like X-App-Key.
+    if (request.method === 'OPTIONS') {
+        return;
+    }
+
     // Skip security checks for these paths:
     // - /health: health check
     // - /api/chat/ws: WebSocket (uses JWT token in URL)

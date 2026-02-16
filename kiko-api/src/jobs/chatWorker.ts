@@ -1470,10 +1470,11 @@ Do NOT estimate or guess USD values.`;
         extraData: Record<string, any> = {}
     ) {
         if (!userId) return;
+        // Single canonical event: messageId for which message completed, taskId optional for frontend task clearing
         this.ws.broadcastToUser(userId, {
             type: 'message_complete',
             sessionId,
-            data: { messageId, ...extraData },
+            data: { messageId, message_id: messageId, ...extraData },
         });
     }
 
@@ -1991,9 +1992,10 @@ Do NOT estimate or guess USD values.`;
                 });
             }
 
-            // Always broadcast success/completion to UI even if DB was flaky
+            // Always broadcast success/completion to UI even if DB was flaky.
+            // message_complete is already sent once by processDeepSeekTask/processGrokTask (broadcastAssistantMessageComplete).
+            // Only broadcast task_status so frontend clears activeTask; avoid duplicate message_complete with same messageId.
             this.broadcastTaskStatus(userId, task, { taskId: task.id, status: 'done' });
-            this.ws.broadcastToUser(userId!, { type: 'message_complete', sessionId: task.sessionId, data: { messageId: task.assistantMessageId } });
             logger.debug(LogCode.AI_API_CALL, 'ChatWorker: task completed successfully', { taskId: task.id });
 
         } catch (error: any) {

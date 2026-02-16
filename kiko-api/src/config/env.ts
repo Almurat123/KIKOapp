@@ -137,7 +137,14 @@ function validateEnv(): EnvConfig {
     const nodeEnv = process.env.NODE_ENV || 'development';
     const isProduction = nodeEnv === 'production' || nodeEnv === 'prod';
     const databaseUrl = process.env.DATABASE_URL || 'postgresql://user:password@localhost:5432/kiko_db';
-    const corsOrigin = process.env.CORS_ORIGIN || 'http://localhost:5173';
+    const corsOrigin = process.env.CORS_ORIGIN || [
+        'http://localhost:5173',
+        'http://localhost:3000',
+        'http://127.0.0.1:5173',
+        'http://127.0.0.1:3000',
+        'https://kikoapp.app',
+        'https://www.kikoapp.app',
+    ].join(',');
 
     if (!databaseUrl) {
         throw new Error('DATABASE_URL is required');

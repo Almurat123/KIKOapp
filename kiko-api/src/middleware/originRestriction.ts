@@ -9,7 +9,7 @@ import { AppError } from './errorHandler.js';
 // [Logic]: Load allowed origins from environment, with development defaults
 // [Ref]: CORS-like origin validation pattern
 // [Risk]: Empty ALLOWED_ORIGINS will block all requests in production
-const ALLOWED_ORIGINS_ENV = process.env.ALLOWED_ORIGINS || '';
+const ALLOWED_ORIGINS_ENV = process.env.ALLOWED_ORIGINS || process.env.CORS_ORIGIN || '';
 const ALLOWED_ORIGINS = ALLOWED_ORIGINS_ENV
     ? ALLOWED_ORIGINS_ENV.split(',').map(o => o.trim())
     : [
@@ -17,6 +17,8 @@ const ALLOWED_ORIGINS = ALLOWED_ORIGINS_ENV
         'http://localhost:3000',  // Alternative dev port
         'http://127.0.0.1:5173',
         'http://127.0.0.1:3000',
+        'https://kikoapp.app',    // Production web app
+        'https://www.kikoapp.app',
         'capacitor://localhost',  // iOS Capacitor app
         'http://localhost',       // iOS Capacitor WebView
     ];

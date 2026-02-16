@@ -6,7 +6,8 @@ import { LogCode } from '../config/logRegistry.js';
 
 dotenv.config();
 
-const MODERATION_SERVICE_URL = process.env.MODERATION_SERVICE_URL || 'http://localhost:8003';
+const MODERATION_SERVICE_URL = process.env.MODERATION_SERVICE_URL || 'http://localhost:8000';
+const MODERATION_TIMEOUT_MS = Number(process.env.MODERATION_TIMEOUT_MS || '5000');
 
 export interface ModerationResult {
     safe: boolean;
@@ -51,7 +52,7 @@ export class ModerationClient {
                     text,
                     context
                 }),
-                timeout: Number(process.env.MODERATION_TIMEOUT_MS || '800')
+                timeout: MODERATION_TIMEOUT_MS
             });
 
             logger.info(LogCode.SYS_INFO, 'Moderation Input check result', { safe: response.safe, action: response.action, userId: userId ?? undefined });
@@ -79,7 +80,7 @@ export class ModerationClient {
                 body: JSON.stringify({
                     text
                 }),
-                timeout: Number(process.env.MODERATION_TIMEOUT_MS || '800')
+                timeout: MODERATION_TIMEOUT_MS
             });
 
             logger.info(LogCode.SYS_INFO, 'Moderation Output check result', { safe: response.safe, userId: userId ?? undefined });
