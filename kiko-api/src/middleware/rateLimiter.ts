@@ -4,7 +4,7 @@
  */
 
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import { redis } from '../cache/redis.js';
+import { redis } from '../cache/cacheClient.js';
 import prisma from '../db/prisma.js';
 
 const WINDOW_SIZE_IN_SECONDS = 60;

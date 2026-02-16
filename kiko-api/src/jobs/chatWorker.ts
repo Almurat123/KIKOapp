@@ -23,7 +23,7 @@ import { AnalystPolicy } from '../services/ai/prompts/v2/policies/AnalystPolicy.
 import { GENERAL_THINKING_POLICY } from '../services/ai/prompts/v2/policies/GeneralThinkingPolicy.js';
 import { promptOrchestrator } from '../services/ai/PromptOrchestrator.js';
 import type { IntentType, ModelType, UserContext } from '../services/ai/types.js';
-import { parseIntent } from '../services/ai/intentParser.js';
+import { parseIntent, detectContractAddress } from '../services/ai/intentParser.js';
 import { findTokenOnAnyChain, getTokenInfo } from '../services/ai/tokenDetector.js';
 import { contextBudgetManager } from '../services/ai/contextBudgetManager.js';
 import { modelGateway, type ConversationStateRef, type Provider } from '../services/ai/modelGateway.js';
@@ -38,6 +38,7 @@ import { processClaimedTasks } from './chat/taskClaimRunner.js';
 import { buildBalanceContextBlock } from './chat/balanceContextBuilder.js';
 import { buildLaunchpadContextBlock, buildTokenContextBlock } from './chat/contextBlockBuilder.js';
 import { getFastSwapDecision, prepareFastSwapExecution } from './chat/fastSwapExecutor.js';
+import cacheClient from '../cache/cacheClient.js';
 
 // Constants
 const DEEPSEEK_API_URL = process.env.DEEPSEEK_API_URL || 'https://api.deepseek.com/v1/chat/completions';
@@ -1525,6 +1526,11 @@ Do NOT estimate or guess USD values.`;
 
     private async checkTaskCancelled(taskId: string, sourceLabel: string): Promise<boolean> {
         try {
+            // First check Redis (extremely fast, <1ms)
+            const redisCancel = await cacheClient.get(`chat:cancel:${taskId}`);
+            if (redisCancel === '1') return true;
+
+            // Fallback to DB check if Redis fails or missed (more stable persistence)
             const currentTask = await this.repo.getTaskStatus(taskId);
             return currentTask?.status === 'cancelled';
         } catch (error: any) {
@@ -1909,6 +1915,17 @@ Do NOT estimate or guess USD values.`;
             // we must strip the tool_calls to avoid API errors
             conversationHistory = this.sanitizeToolCallHistory(conversationHistory);
 
+            // 2. IMMEDIATE FEEDBACK: Broadcast message_start early
+            this.ws.broadcastToUser(userId!, {
+                type: 'message_start',
+                sessionId: task.sessionId,
+                data: {
+                    messageId: task.assistantMessageId,
+                    role: 'assistant',
+                    model: task.model
+                }
+            });
+
             const lastUserMsg = conversationHistory.filter(m => m.role === 'user').pop();
             const lastUserContent = lastUserMsg?.content || '';
             const fastSwapCandidate =
@@ -1918,23 +1935,48 @@ Do NOT estimate or guess USD values.`;
             const taskType = fastSwapCandidate ? 'card' : 'text';
 
             this.broadcastTaskStatus(userId, task, { taskId: task.id, status: 'running', message: 'Analyzing query', taskType });
-            this.broadcastTaskStatus(userId, task, { taskId: task.id, status: 'running', message: 'Loading history', taskType });
 
-            // 2.5 Backend Moderation Check
-            if (lastUserMsg && lastUserMsg.content) {
-                this.broadcastTaskStatus(userId, task, { taskId: task.id, status: 'running', message: 'Verifying safety', taskType });
-                const modResult = await moderationClient.moderateInput(lastUserMsg.content, {}, userId, task.sessionId, task.model);
-                if (!modResult.safe) {
-                    throw new Error(modResult.checks?.intent?.reason || 'Message blocked by security policy');
-                }
+            // 3. PARALLEL PRE-PROCESSING: Moderation + Intent + Token Context
+            const toolResultsCache = new Map<string, any>();
+            this.seedToolCacheFromContext(toolResultsCache, task);
+
+            const [modResult, parsedIntent, resolvedContext] = await Promise.all([
+                // Parallel moderation
+                lastUserMsg?.content
+                    ? moderationClient.moderateInput(lastUserMsg.content, {}, userId, task.sessionId, task.model)
+                    : Promise.resolve({ safe: true, action: 'allow', checks: {} } as any),
+                // Parallel intent parsing
+                parseIntent(lastUserContent || '', {
+                    userAddress: task.toolContext?.walletAddress,
+                    chainId: task.toolContext?.chainId,
+                    isWalletConnected: !!task.toolContext?.walletAddress,
+                }),
+                // Parallel early token context (if CA detected)
+                (async () => {
+                    const detectedCA = detectContractAddress(lastUserContent || '');
+                    if (detectedCA) {
+                        return this.resolveTokenContext({
+                            mode: 'deepseek', // use deepseek as default mode for pre-fetch
+                            task,
+                            parsedIntent: { contractAddress: detectedCA },
+                            toolResultsCache,
+                            userId,
+                            broadcastScanningStatus: true
+                        });
+                    }
+                    return null;
+                })()
+            ]);
+
+            if (!modResult.safe) {
+                throw new Error(modResult.checks?.intent?.reason || 'Message blocked by security policy');
             }
 
-
-            // 3. Process based on model
+            // 4. Process based on model
             if (task.model.includes('deepseek') || task.model.includes('gpt')) {
-                await this.processDeepSeekTask(task, conversationHistory, userId, messages, session);
+                await this.processDeepSeekTask(task, conversationHistory, userId, messages, session, { parsedIntent, resolvedContext, toolResultsCache });
             } else if (task.model.includes('grok')) {
-                await this.processGrokTask(task, conversationHistory, userId, messages, session);
+                await this.processGrokTask(task, conversationHistory, userId, messages, session, { parsedIntent, resolvedContext, toolResultsCache });
             } else {
                 throw new Error(`Unsupported model: ${task.model}`);
             }
@@ -2076,7 +2118,14 @@ Do NOT estimate or guess USD values.`;
     /**
      * DeepSeek processing with multi-turn tool support
      */
-    private async processDeepSeekTask(task: AITask, history: any[], userId: string | null = null, sessionMessages: any[] = [], session: any = null) {
+    private async processDeepSeekTask(
+        task: AITask,
+        history: any[],
+        userId: string | null = null,
+        sessionMessages: any[] = [],
+        session: any = null,
+        preProcessed?: { parsedIntent: any; resolvedContext: any; toolResultsCache: Map<string, any> }
+    ) {
         let iteration = 0;
         let fastSwapAttempted = false; // Circuit breaker for Fast Swap
         let detectedLaunchpadInfo: { chainId: number; provider: string; data: any; address: string } | null = null; // Store launchpad info when detected
@@ -2093,28 +2142,13 @@ Do NOT estimate or guess USD values.`;
         const taskProcessStartedAt = Date.now();
         let latestProviderResponseId: string | undefined;
 
-        // Immediately broadcast thinking status so UI doesn't feel stuck
+        // Initial status broadcast
+        const initialStatus = this.getIntentStatusMessage(preProcessed?.parsedIntent);
         this.broadcastTaskStatus(userId, task, {
             status: 'running',
-            iteration: 1,
+            iteration: 0,
             maxIterations: maxIterations,
-            message: 'Thinking'
-        });
-
-        // CRITICAL: Broadcast message_start so frontend creates the message BEFORE chunks arrive
-        // This fixes the race condition where chunks are dropped because frontend message doesn't exist yet
-        this.ws.broadcastToUser(userId!, {
-            type: 'message_start',
-            sessionId: task.sessionId,
-            data: {
-                messageId: assistantMessageId,
-                role: 'assistant',
-                model: task.model
-            }
-        });
-        logger.debug(LogCode.WS_MESSAGE_SENT, 'Sent message_start', {
-            assistantMessageId,
-            taskId: task.id,
+            message: initialStatus
         });
 
         // Phase 5 Cache: Shared across all iterations of this task
@@ -2175,13 +2209,13 @@ Do NOT estimate or guess USD values.`;
                 status: 'running',
                 iteration,
                 maxIterations,
-                message: iteration > 1 ? `Processing tool results (${iteration}/${maxIterations})` : 'Thinking'
+                message: iteration > 1 ? `Processing tool results (${iteration}/${maxIterations})` : this.getIntentStatusMessage(preProcessed?.parsedIntent)
             });
 
-            // Check if task was cancelled
-            const currentTask = await this.repo.getTask(task.id);
-            if (currentTask?.status === 'cancelled') {
-                logger.info(LogCode.AI_ORCHESTRATOR, 'Task cancelled by user', { taskId: task.id });
+            // Check if task was cancelled (uses fast Redis signaling)
+            const isCancelled = await this.checkTaskCancelled(task.id, 'Orchestrator');
+            if (isCancelled) {
+                logger.info(LogCode.AI_ORCHESTRATOR, 'Task cancelled by user (orchestrator check)', { taskId: task.id });
                 return;
             }
 
@@ -2215,7 +2249,7 @@ Do NOT estimate or guess USD values.`;
                 return msg;
             });
 
-            // Parse intent from user message
+            // Parse intent from user message (skip if pre-processed)
             const taskType = (task as any).fastSwapCandidate ? 'card' : 'text';
             if (task.sessionId) {
                 this.broadcastTaskStatus(userId, task, {
@@ -2224,11 +2258,13 @@ Do NOT estimate or guess USD values.`;
                     taskType
                 });
             }
-            const parsedIntent = await parseIntent(lastUserMessage, {
-                userAddress: task.toolContext?.walletAddress,
-                chainId: task.toolContext?.chainId,
-                isWalletConnected: !!task.toolContext?.walletAddress,
-            });
+            const parsedIntent = preProcessed?.parsedIntent && iteration === 1
+                ? preProcessed.parsedIntent
+                : await parseIntent(lastUserMessage, {
+                    userAddress: task.toolContext?.walletAddress,
+                    chainId: task.toolContext?.chainId,
+                    isWalletConnected: !!task.toolContext?.walletAddress,
+                });
 
             const confirmedSwap = this.isConfirmationMessage(lastUserMessage)
                 ? this.findRecentSimulateSwap(sessionMessages, 2 * 60 * 1000)
@@ -3072,7 +3108,7 @@ ${socialData.slice(0, 5).map((c: any) => `- @${c.author?.username}: ${c.text.sli
                 assistantMessageId,
             });
 
-            this.broadcastTaskStatus(userId, task, { status: 'running', message: 'Thinking' });
+            this.broadcastTaskStatus(userId, task, { status: 'running', message: this.getIntentStatusMessage(preProcessed?.parsedIntent) });
 
             let response: Response | undefined;
             let retryCount = 0;
@@ -3143,7 +3179,7 @@ ${socialData.slice(0, 5).map((c: any) => `- @${c.author?.username}: ${c.text.sli
 
             // Initialize chunk counter for periodic cancellation checks
             let chunkCounter = 0;
-            const CHECK_CANCEL_INTERVAL = 30; // Check DB every 30 chunks
+            const CHECK_CANCEL_INTERVAL = 5; // Check Redis every 5 chunks (near-instant)
             let lastDbSave = 0; // Throttle DB saves
 
             // Helper to add timeout to stream reads
@@ -3693,38 +3729,57 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
      */
     private getToolStatusMessage(toolName: string): string {
         const toolMessages: Record<string, string> = {
-            'external_web_search': 'Searching the web',
-            'get_trending_tokens': 'Fetching trending tokens',
-            'get_token_info': 'Analyzing token data',
+            'external_web_search': 'Websearch',
+            'x_search': 'Searching X',
+            'get_trending_tokens': 'Fetching global trends',
+            'get_token_info': 'Analyzing token',
             'get_token_chart': 'Generating chart',
-            'swapTransaction': 'Preparing swap transaction',
+            'swapTransaction': 'Preparing swap',
             'create_copy_trade_task': 'Setting up copy trade',
-            'list_copy_trade_configs': 'Checking copy trade setups',
-            'delete_copy_trade_config': 'Removing copy trade setup',
-            'pause_copy_trade_config': 'Updating copy trade status',
+            'list_copy_trade_configs': 'Checking trade setups',
+            'delete_copy_trade_config': 'Removing trade setup',
+            'pause_copy_trade_config': 'Updating trade status',
             'get_launchpad_stats': 'Fetching launchpad data',
             'search_launchpad': 'Searching launchpads',
-            'get_wallet_info': 'Fetching wallet data',
-            'get_farcaster_profile': 'Analyzing social profile',
+            'get_wallet_info': 'Checking wallet',
+            'get_farcaster_profile': 'Analyzing profile',
             'get_trending_casts': 'Listening to social trends',
-            'get_token_mentions': 'Analyzing social sentiment',
+            'get_token_mentions': 'Analyzing sentiment',
             'get_gas_price': 'Checking gas prices',
-            'get_token_price': 'Fetching token price',
-            'get_historical_price': 'Analyzing historical data',
-            'check_token_risk': 'Evaluating token risk',
+            'get_token_price': 'Checking price',
+            'get_historical_price': 'Analyzing history',
+            'check_token_risk': 'Evaluating risk',
             'search_farcaster_casts': 'Searching social feed',
             'get_user_favorites': 'Loading favorites',
-            'get_market_overview': 'Analyzing market overview',
-            'get_polymarket_trending': 'Fetching prediction trends',
-            'get_polymarket_event': 'Analyzing prediction event',
-            'search_polymarket': 'Searching prediction markets',
+            'get_market_overview': 'Analyzing market',
+            'get_polymarket_trending': 'Fetching predictions',
+            'get_polymarket_event': 'Analyzing event',
+            'search_polymarket': 'Searching markets',
         };
         // Use proper capitalization and mapping, or fallback to generic "Executing [tool_name]"
         if (toolMessages[toolName]) return toolMessages[toolName];
 
         // Convert snake_case to Space Case for fallback
         const fallback = toolName.split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
-        return `Executing ${fallback}`;
+        return fallback;
+    }
+
+    private getIntentStatusMessage(parsedIntent: any): string {
+        const type = parsedIntent?.highLevel?.type || parsedIntent?.intent;
+        if (!type) return 'Thinking';
+
+        const intentMessages: Record<string, string> = {
+            'MARKET_ANALYSIS': 'Analyzing market',
+            'TOKEN_ANALYSIS': 'Analyzing token',
+            'TRADING': 'Checking status',
+            'SWAP': 'Checking price',
+            'SOCIAL': 'Checking social',
+            'SEARCH': 'Websearch',
+            'WEB_SEARCH': 'Websearch',
+            'X_SEARCH': 'Searching X',
+        };
+
+        return intentMessages[type] || 'Thinking';
     }
 
     /**
@@ -4514,8 +4569,16 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
      * Grok processing via grok-service (Python FastAPI)
      * Uses OpenAI-compatible streaming format
      */
-    private async processGrokTask(task: AITask, history: any[], userId: string | null = null, sessionMessages: any[] = [], session: any = null) {
-        const GROK_SERVICE_URL = process.env.GROK_SERVICE_URL || 'http://localhost:8001';
+    private async processGrokTask(
+        task: AITask,
+        history: any[],
+        userId: string | null = null,
+        sessionMessages: any[] = [],
+        session: any = null,
+        preProcessed?: { parsedIntent: any; resolvedContext: any; toolResultsCache: Map<string, any> }
+    ) {
+        const XAI_API_URL = 'https://api.x.ai/v1/chat/completions';
+        const XAI_API_KEY = process.env.XAI_API_KEY;
         const assistantMessageId = task.assistantMessageId!;
         let fullContent = '';
         let chunkIndex = 0;
@@ -4525,6 +4588,10 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
         let lastDbSave = 0; // Periodic DB sync to prevent data loss on refresh
         let lastBudgetMetrics: { inputTokensEstimated: number; historyKept: number; historyCompacted: number; compactionHits: number } | null = null;
         const taskProcessStartedAt = Date.now();
+        let iteration = 0;
+        const maxIterations = 5;
+        let currentHistory = [...history];
+
         const toolTrace: ToolTraceState = {
             mode: 'thinking',
             skillVersion: 'clean',
@@ -4564,17 +4631,11 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
             }
         }
 
-        // CRITICAL: Broadcast message_start so frontend creates the message BEFORE chunks arrive
-        this.ws.broadcastToUser(userId!, {
-            type: 'message_start',
-            sessionId: task.sessionId,
-            data: {
-                messageId: assistantMessageId,
-                role: 'assistant',
-                model: task.model
-            }
+        // Initial status broadcast for Grok
+        this.broadcastTaskStatus(userId, task, {
+            status: 'running',
+            message: this.getIntentStatusMessage(preProcessed?.parsedIntent)
         });
-        logger.info(LogCode.AI_API_CALL, 'Grok: message_start sent', { assistantMessageId, taskId: task.id });
 
         const bypassed = await this.executeConfirmedSwapBypass({
             task,
@@ -4594,11 +4655,13 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
         const baseToolDefs = toolRegistry.getAllDefinitions();
         let toolDefinitions = baseToolDefs.map(def => ({ type: 'function', function: def }));
         logger.debug(LogCode.AI_TOOL_FILTERED, 'Grok: base tool list prepared', { count: toolDefinitions.length });
-        const parsedIntent = await parseIntent(lastUserMessage, {
-            userAddress: task.toolContext?.walletAddress,
-            chainId: task.toolContext?.chainId,
-            isWalletConnected: !!task.toolContext?.walletAddress,
-        });
+        const parsedIntent = preProcessed?.parsedIntent
+            ? preProcessed.parsedIntent
+            : await parseIntent(lastUserMessage, {
+                userAddress: task.toolContext?.walletAddress,
+                chainId: task.toolContext?.chainId,
+                isWalletConnected: !!task.toolContext?.walletAddress,
+            });
         const forceChainContextAnswer = this.isChainStatusQuery(lastUserMessage) && !!task.toolContext?.chainId;
         if (forceChainContextAnswer) {
             const chainId = Number(task.toolContext?.chainId);
@@ -4734,41 +4797,66 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
         // Log detailed intent for debugging
 
         // Phase 5 Cache: Shared across this task
-        const toolResultsCache = new Map<string, any>();
-        this.seedToolCacheFromContext(toolResultsCache, task);
+        const toolResultsCache = preProcessed?.toolResultsCache || new Map<string, any>();
+        if (!preProcessed?.toolResultsCache) {
+            this.seedToolCacheFromContext(toolResultsCache, task);
+        }
+
         // 🚀 PRE-EMPTIVE TOOL EXECUTION (Phase 5: Intent-based)
-        const earlyPreFetchPromise = this.preFetchByIntent(task, parsedIntent, toolResultsCache).catch(err => {
-            logger.warn(LogCode.AI_API_CALL, 'Grok: early pre-fetch failed', { error: err?.message || err });
-        });
+        const earlyPreFetchPromise = preProcessed?.resolvedContext
+            ? Promise.resolve()
+            : this.preFetchByIntent(task, parsedIntent, toolResultsCache).catch(err => {
+                logger.warn(LogCode.AI_API_CALL, 'Grok: early pre-fetch failed', { error: err?.message || err });
+            });
 
         const systemPrompt = routingMode === 'thinking'
             ? this.buildThinkingSystemPrompt('grok')
             : promptOrchestrator.getSystemPrompt('grok', intent, { routingMode });
 
         // Detect and resolve contract address if present (same as DeepSeek)
-        let detectedChainId = task.toolContext?.chainId;
-        let detectedChainName: string | undefined = this.resolveChainNameForContext(detectedChainId);
-        let tokenInfo: any = null;
-        let detectedLaunchpadInfo: { chainId: number; provider: string; data: any; address: string } | null = null;
-        let xSeedHandles: string[] = [];
-        let officialSites: string[] = [];
+        let { detectedChainId, detectedChainName, tokenInfo, detectedLaunchpadInfo } = preProcessed?.resolvedContext
+            ? preProcessed.resolvedContext
+            : { detectedChainId: task.toolContext?.chainId, detectedChainName: this.resolveChainNameForContext(task.toolContext?.chainId), tokenInfo: null, detectedLaunchpadInfo: null };
 
-        if (parsedIntent.contractAddress) {
-            logger.info(LogCode.AI_TOKEN_DETECTED, 'Grok: contract address detected', { contractAddress: parsedIntent.contractAddress });
-            const resolved = await this.resolveTokenContext({
+        if (!preProcessed?.resolvedContext) {
+            const contextUpdate = await this.resolveTokenContext({
                 mode: 'grok',
                 task,
                 parsedIntent,
                 toolResultsCache,
                 userId,
-                detectedChainId,
-                detectedLaunchpadInfo,
-                broadcastScanningStatus: true,
+                broadcastScanningStatus: true
             });
-            detectedChainId = resolved.detectedChainId;
-            detectedChainName = resolved.detectedChainName;
-            tokenInfo = resolved.tokenInfo;
-            detectedLaunchpadInfo = resolved.detectedLaunchpadInfo;
+            detectedChainId = contextUpdate.detectedChainId;
+            detectedChainName = contextUpdate.detectedChainName;
+            tokenInfo = contextUpdate.tokenInfo;
+            detectedLaunchpadInfo = contextUpdate.detectedLaunchpadInfo;
+        }
+
+        let xSeedHandles: string[] = [];
+        let officialSites: string[] = [];
+
+        if (parsedIntent.contractAddress) {
+            logger.info(LogCode.AI_TOKEN_DETECTED, 'Grok: contract address detected', { contractAddress: parsedIntent.contractAddress });
+
+            // Only re-resolve if not already resolved by pre-processing
+            if (!preProcessed?.resolvedContext) {
+                const resolved = await this.resolveTokenContext({
+                    mode: 'grok',
+                    task,
+                    parsedIntent,
+                    toolResultsCache,
+                    userId,
+                    detectedChainId,
+                    detectedLaunchpadInfo,
+                    broadcastScanningStatus: true,
+                });
+                detectedChainId = resolved.detectedChainId;
+                detectedChainName = resolved.detectedChainName;
+                tokenInfo = resolved.tokenInfo;
+                detectedLaunchpadInfo = resolved.detectedLaunchpadInfo;
+            }
+
             if (detectedLaunchpadInfo) {
                 logger.info(LogCode.AI_LAUNCHPAD_DETECTED, 'Grok: launchpad token detected', {
                     provider: detectedLaunchpadInfo.provider
@@ -4983,223 +5071,187 @@ Chain: ${chainName}${chainId ? ` (${chainId})` : ''}
         const now = Date.now();
         const last7dIso = new Date(now - 7 * 24 * 60 * 60 * 1000).toISOString();
 
-        // Broadcast Thinking state before API call
-        this.broadcastTaskStatus(userId, task, { status: 'running', message: 'Thinking' });
+        // Broadcast state before API call
+        this.broadcastTaskStatus(userId, task, { status: 'running', message: this.getIntentStatusMessage(preProcessed?.parsedIntent) });
 
-        // Call grok-service
-        const accessToken = task.toolContext?.accessToken;
-        const previousResponseId = this.grokResponseIdBySession.get(task.sessionId);
-        const gateway = this.isUnifiedOrchestrator()
-            ? modelGateway.prepareRequest({
-                model: task.model,
-                provider: 'grok',
-                system: systemPrompt,
-                messages: grokMessages.slice(1),
-                tools: toolDefinitions as any,
-                allowedTools: { names: toolDefinitions.map(t => t.function?.name).filter(Boolean) as string[] },
-                conversationRef: this.buildConversationRef(session),
-                stream: true,
-                metadata: {
-                    orchestrator: 'unified',
-                    input_tokens_estimated: lastBudgetMetrics?.inputTokensEstimated,
-                },
-            })
-            : null;
-        const apiRequestStartedAt = Date.now();
-        let firstTokenAt: number | null = null;
-        const response = await fetch(`${GROK_SERVICE_URL}/v1/chat/completions`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                ...(accessToken ? { 'Authorization': `Bearer ${accessToken}` } : {}),
-            },
-            body: JSON.stringify({
-                model: task.model,
-                messages: grokMessages,
-                stream: true,
-                ...(previousResponseId ? { previous_response_id: previousResponseId } : {}),
-                enable_search: true,
-                // Built-in search tool config (xAI SDK)
-                // Keep defaults lightweight; for CA analysis, prefer recent window (1–7d) to match short-term trading style.
-                tool_config: {
-                    web_search: {
-                        enable_image_understanding: false,
-                    },
-                    x_search: {
-                        enable_image_understanding: false,
-                        enable_video_understanding: false,
-                        ...(isLikelyCaAnalysis ? { from_date: last7dIso } : {}),
-                    },
-                },
-                tools: gateway?.requestBody.tools || toolDefinitions,
-                tool_context: task.toolContext,
-                // Pass user settings for trading preferences
-                user_settings: {
-                    allowance_mode: task.toolContext?.allowanceMode || 'confirm', // default: require confirmation
-                },
-                ...(gateway?.requestBody.metadata ? { metadata: gateway.requestBody.metadata } : {}),
-            }),
-        });
-
-        if (!response.ok) {
-            const err: any = await response.json().catch(() => ({ error: response.statusText }));
-            throw new Error(`Grok API error: ${err.error || err.detail || response.statusText}`);
-        }
-
-        const reader = response.body!.getReader();
-        const decoder = new TextDecoder();
-        let buffer = '';
-        let newResponseId: string | null = null;
-        let grokChunkReadCount = 0;
-        const GROK_CANCEL_CHECK_INTERVAL = 30;
-
-        while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            grokChunkReadCount++;
-
-            // Avoid DB hit on every chunk; periodic cancellation checks are enough.
-            if (grokChunkReadCount % GROK_CANCEL_CHECK_INTERVAL === 0) {
-                const cancelled = await this.checkTaskCancelled(task.id, 'Grok');
-                if (cancelled) {
-                    logger.info(LogCode.AI_ORCHESTRATOR, 'Grok stream cancelled by user', {
-                        taskId: task.id,
-                    });
-                    return;
-                }
-            }
-
-            buffer += decoder.decode(value, { stream: true });
-            const lines = buffer.split('\n');
-            buffer = lines.pop() || '';
-
-            for (const line of lines) {
-                // console.log('[ChatWorker] Raw stream line:', line.substring(0, 1000)); // DEBUG ENABLED
-                if (!line.startsWith('data: ') || line.trim() === 'data: [DONE]') continue;
-
-                try {
-                    const data = JSON.parse(line.slice(6));
-                    const delta = data.choices?.[0]?.delta;
-                    if (data.response_id && typeof data.response_id === 'string') {
-                        newResponseId = data.response_id;
-                    }
-
-                    // Handle usage data (sent in final chunks from grok-service)
-                    if (data.usage) {
-                        lastUsage = data.usage;
-                        this.ws.broadcastToUser(userId!, {
-                            type: 'usage',
-                            sessionId: task.sessionId,
-                            data: {
-                                message_id: assistantMessageId,
-                                usage: data.usage
-                            }
-                        });
-                    }
-
-                    // Collect citations (from grok-service web_search results)
-                    const choice = data.choices?.[0];
-                    if (choice?.message?.citations && Array.isArray(choice.message.citations)) {
-                        const newCitations: any[] = [];
-                        for (const cite of choice.message.citations) {
-                            const url = typeof cite === 'string'
-                                ? cite
-                                : (cite && typeof cite === 'object' && 'url' in cite ? String((cite as any).url) : '');
-                            const key = url || JSON.stringify(cite);
-                            // Skip duplicates
-                            if (key && !citationUrlSet.has(key)) {
-                                citationUrlSet.add(key);
-                                allCitations.push(cite);
-                                newCitations.push(cite);
-                            }
-                        }
-                        // Broadcast new citations immediately to frontend (like DeepSeek)
-                        if (newCitations.length > 0) {
-                            logger.info(LogCode.SYS_INFO, `[chatWorker] Broadcasting citations: msgId=${assistantMessageId}, count=${newCitations.length}, sample=${JSON.stringify(newCitations[0])}`);
-                            this.ws.broadcastToUser(userId!, {
-                                type: 'citations',
-                                sessionId: task.sessionId,
-                                data: {
-                                    message_id: assistantMessageId,
-                                    citations: newCitations
-                                }
-                            });
-                        }
-                    }
-
-
-                    if (!delta && !data.custom_event) continue; // Skip if no delta AND no custom_event
-
-                    // Handle content chunks - HOT PATH: WebSocket only, no DB writes
-                    if (delta && delta.content) {
-                        if (firstTokenAt === null) {
-                            firstTokenAt = Date.now();
-                            this.broadcastLatencyMetrics(userId, task, {
-                                ttftMs: firstTokenAt - apiRequestStartedAt,
-                                inputTokensEstimated: lastBudgetMetrics?.inputTokensEstimated,
-                                historyKept: lastBudgetMetrics?.historyKept,
-                                historyCompacted: lastBudgetMetrics?.historyCompacted,
-                                compactionHits: lastBudgetMetrics?.compactionHits,
-                                toolRounds: 1,
-                            });
-                        }
-                        fullContent += delta.content;
-                        // Broadcast immediately to frontend (zero latency)
-                        // Include both content and delta for compatibility
-                        const scrubbedDelta = scrub(delta.content);
-                        const chunkData = {
-                            index: chunkIndex++,
-                            type: 'content' as const,
-                            content: scrubbedDelta,
-                            delta: scrubbedDelta, // Add delta for compatibility
-                            messageId: assistantMessageId
-                        };
-                        this.ws.broadcastToUser(userId!, { type: 'chunk', sessionId: task.sessionId, data: chunkData });
-                        lastDbSave = this.persistStreamingMessageThrottled(
-                            assistantMessageId,
-                            fullContent,
-                            '',
-                            lastDbSave,
-                            1000
-                        );
-                    }
-
-                    // Handle client_actions from grok-service (swap actions, UI triggers)
-                    if (delta && delta.client_actions && Array.isArray(delta.client_actions)) {
-                        for (const action of delta.client_actions) {
-                            logger.info(LogCode.WS_MESSAGE_SENT, 'Grok: broadcast client_action', { action: action.type });
-                            this.ws.broadcastToUser(userId!, {
-                                type: 'client_action',
-                                sessionId: task.sessionId,
-                                data: {
-                                    message_id: assistantMessageId,
-                                    action: action
-                                }
-                            });
-                        }
-                    }
-
-                    // Grok-service handles tool calls internally, so we just stream the results
-                    // If there are swap/UI action events, handle them
-                    if (data.custom_event) {
-                        const eventChunk = await this.repo.createChunk(assistantMessageId, chunkIndex++, 'custom_event' as any, undefined, undefined, data.custom_event);
-                        this.ws.broadcastToUser(userId!, { type: 'chunk', sessionId: task.sessionId, data: eventChunk });
-                    }
-
-                } catch (e) { }
-            }
-        }
-
-        // Broadcast citations once at the end to avoid flooding the stream
-        if (allCitations.length > 0) {
-            this.ws.broadcastToUser(userId!, {
-                type: 'citations',
-                sessionId: task.sessionId,
-                data: {
-                    message_id: assistantMessageId,
-                    citations: allCitations
-                }
+        while (iteration < maxIterations) {
+            iteration++;
+            // Broadcast Thinking state before API call
+            this.broadcastTaskStatus(userId, task, {
+                status: 'running',
+                iteration,
+                maxIterations,
+                message: iteration > 1 ? `Processing tool results (${iteration}/${maxIterations})` : this.getIntentStatusMessage(preProcessed?.parsedIntent)
             });
+
+            // Call xAI directly
+            const previousResponseId = this.grokResponseIdBySession.get(task.sessionId);
+            const apiRequestStartedAt = Date.now();
+            let firstTokenAt: number | null = null;
+            let currentToolCalls: any[] = [];
+
+            const response = await fetch(XAI_API_URL, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${XAI_API_KEY}`,
+                },
+                body: JSON.stringify({
+                    model: task.model,
+                    messages: grokMessages,
+                    stream: true,
+                    tools: toolDefinitions, // Use Kiko tools
+                }),
+            });
+
+            if (!response.ok) {
+                const errText = await response.text();
+                logger.error(LogCode.AI_API_CALL, 'Grok API error', { status: response.status, error: errText });
+                throw new Error(`Grok API error: ${response.status} ${errText}`);
+            }
+
+            const reader = response.body!.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+            let grokChunkReadCount = 0;
+            const GROK_CANCEL_CHECK_INTERVAL = 5;
+
+            let assistantContent = '';
+            let toolCalls: any[] = [];
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                grokChunkReadCount++;
+
+                // Fast cancellation check (Redis <1ms)
+                if (grokChunkReadCount % GROK_CANCEL_CHECK_INTERVAL === 0) {
+                    const cancelled = await this.checkTaskCancelled(task.id, 'Grok');
+                    if (cancelled) {
+                        logger.info(LogCode.AI_ORCHESTRATOR, 'Grok stream cancelled by user', {
+                            taskId: task.id,
+                        });
+                        return;
+                    }
+                }
+
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split('\n');
+                buffer = lines.pop() || '';
+
+                for (const line of lines) {
+                    if (!line.startsWith('data: ') || line.trim() === 'data: [DONE]') continue;
+
+                    try {
+                        const data = JSON.parse(line.slice(6));
+                        const delta = data.choices?.[0]?.delta;
+
+                        // Handle usage data if present
+                        if (data.usage) {
+                            lastUsage = data.usage;
+                        }
+
+                        if (!delta) continue;
+
+                        // Accumulate tool calls
+                        if (delta.tool_calls) {
+                            for (const tc of delta.tool_calls) {
+                                if (!toolCalls[tc.index]) {
+                                    toolCalls[tc.index] = { ...tc, function: { ...tc.function } };
+                                } else {
+                                    if (tc.function?.arguments) {
+                                        toolCalls[tc.index].function.arguments += tc.function.arguments;
+                                    }
+                                }
+                            }
+                        }
+
+                        // Handle content chunks
+                        if (delta.content) {
+                            if (firstTokenAt === null) {
+                                firstTokenAt = Date.now();
+                                this.broadcastLatencyMetrics(userId, task, {
+                                    ttftMs: firstTokenAt - apiRequestStartedAt,
+                                    inputTokensEstimated: lastBudgetMetrics?.inputTokensEstimated,
+                                    toolRounds: iteration,
+                                });
+                            }
+                            assistantContent += delta.content;
+                            fullContent += delta.content;
+
+                            const scrubbedDelta = scrub(delta.content);
+                            const chunkData = {
+                                index: chunkIndex++,
+                                type: 'content' as const,
+                                content: scrubbedDelta,
+                                delta: scrubbedDelta,
+                                messageId: assistantMessageId
+                            };
+                            this.ws.broadcastToUser(userId!, { type: 'chunk', sessionId: task.sessionId, data: chunkData });
+
+                            lastDbSave = this.persistStreamingMessageThrottled(
+                                assistantMessageId,
+                                fullContent,
+                                '',
+                                lastDbSave,
+                                1000
+                            );
+                        }
+                    } catch (e) { }
+                }
+            }
+
+            // After stream: Add assistant message to history
+            const assistantMsg = {
+                role: 'assistant',
+                content: assistantContent || '',
+                tool_calls: toolCalls.length > 0 ? toolCalls.map(tc => ({
+                    id: tc.id,
+                    type: 'function',
+                    function: tc.function
+                })) : undefined
+            };
+            (grokMessages as any[]).push(assistantMsg);
+
+            // Execute tools if any
+            if (toolCalls.length > 0) {
+                const toolResults = await Promise.all(toolCalls.map(async (tc) => {
+                    const name = tc.function.name;
+                    const args = JSON.parse(tc.function.arguments || '{}');
+
+                    this.broadcastTaskStatus(userId, task, {
+                        status: 'running',
+                        message: `Executing tool: ${name}`
+                    });
+
+                    try {
+                        const result = await toolRegistry.execute(name, args, {
+                            userId: userId || undefined,
+                            sessionId: task.sessionId,
+                            task,
+                            toolResultsCache
+                        });
+                        return {
+                            role: 'tool',
+                            tool_call_id: tc.id,
+                            name: name,
+                            content: typeof result === 'string' ? result : JSON.stringify(result)
+                        };
+                    } catch (err: any) {
+                        return {
+                            role: 'tool',
+                            tool_call_id: tc.id,
+                            name: name,
+                            content: `Error: ${err.message || String(err)}`
+                        };
+                    }
+                }));
+
+                grokMessages.push(...toolResults);
+            } else {
+                // No more tool calls, we are done
+                break;
+            }
         }
 
         // Final output moderation
@@ -5215,45 +5267,10 @@ Chain: ${chainName}${chainId ? ` (${chainId})` : ''}
                 content: fullContent,
                 usage: lastUsage || undefined,
                 citations: allCitations.length > 0 ? allCitations : undefined,
-                compacted_data: {
-                    summaryVersion: 1,
-                    toolCalls: toolTrace.toolCalls.length,
-                    stopReasons: Array.from(new Set(toolTrace.stopReasons)),
-                    citationCount: allCitations.length,
-                },
                 status: 'complete'
             },
             logLabel: 'Grok final update',
         });
-
-        try {
-            const existing = await this.repo.getMessage(assistantMessageId);
-            const existingData = existing?.data || {};
-            const toolTracePayload = {
-                mode: toolTrace.mode,
-                skillVersion: toolTrace.skillVersion,
-                toolCalls: toolTrace.toolCalls,
-                toolCallCounts: toolTrace.toolCallCounts,
-                toolFailures: toolTrace.toolFailures,
-                toolRepeats: toolTrace.toolRepeats,
-                stopReasons: Array.from(new Set(toolTrace.stopReasons)),
-            };
-            await this.repo.updateMessage(assistantMessageId, {
-                data: {
-                    ...existingData,
-                    toolTrace: toolTracePayload,
-                }
-            });
-        } catch (traceErr: any) {
-            logger.warn(LogCode.DB_TRANSACTION_FAILED, 'Grok: failed to persist tool trace', { error: traceErr?.message || traceErr });
-        }
-
-        if (newResponseId) {
-            this.grokResponseIdBySession.set(task.sessionId, newResponseId);
-            if (this.isUnifiedOrchestrator()) {
-                await this.persistConversationRef(task, { previousResponseId: newResponseId });
-            }
-        }
 
         this.broadcastLatencyMetrics(userId, task, {
             latencyMs: Date.now() - taskProcessStartedAt,
@@ -5261,13 +5278,9 @@ Chain: ${chainName}${chainId ? ` (${chainId})` : ''}
             promptTokens: lastUsage?.prompt_tokens,
             completionTokens: lastUsage?.completion_tokens,
             totalTokens: lastUsage?.total_tokens,
-            cachedTokens: lastUsage?.prompt_tokens_details?.cached_tokens,
-            toolRounds: 1,
-            compactionHits: lastBudgetMetrics?.compactionHits || 0,
-            historyKept: lastBudgetMetrics?.historyKept,
-            historyCompacted: lastBudgetMetrics?.historyCompacted,
+            toolRounds: iteration,
         });
-        this.broadcastAssistantMessageComplete(userId, task.sessionId, assistantMessageId, { status: 'success', totalIterations: 1 });
+        this.broadcastAssistantMessageComplete(userId, task.sessionId, assistantMessageId, { status: 'success', totalIterations: iteration });
 
         logger.throttled(LogCode.AI_API_CALL, 'Grok: task completed', { taskId: task.id, chunks: chunkIndex });
     }

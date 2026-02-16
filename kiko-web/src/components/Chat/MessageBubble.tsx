@@ -252,7 +252,7 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({ message, isGroup
                                     <ThinkingTimer
                                         startTime={thinkingStartTime || (message.timestamp ? new Date(message.timestamp).getTime() : Date.now())}
                                         status="complete"
-                                        text="Thinking"
+                                        text={thinkingText || "Thinking"}
                                         expanded={showReasoning}
                                         onToggle={() => setShowReasoning(!showReasoning)}
                                     />

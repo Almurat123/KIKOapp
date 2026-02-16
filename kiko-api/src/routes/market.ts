@@ -4,7 +4,7 @@
  */
 
 import { FastifyInstance } from 'fastify';
-import { get, set } from '../cache/redis.js';
+import { get, set } from '../cache/cacheClient.js';
 import { getMarketOverview, getTrendingTokens as getTrendingFromDb, getLastUpdateTime as getMarketUpdateTime, saveTrends } from '../repositories/marketRepository.js';
 import { getChainsData, getLastUpdateTime as getChainsUpdateTime } from '../repositories/chainRepository.js';
 import { getProtocolsData, getLastUpdateTime as getProtocolsUpdateTime, saveProtocolsData } from '../repositories/protocolRepository.js';

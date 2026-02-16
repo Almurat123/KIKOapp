@@ -1,5 +1,5 @@
 import prisma, { withRetry } from '../db/prisma.js';
-import { get, set } from '../cache/redis.js';
+import { get, set } from '../cache/cacheClient.js';
 import { Decimal } from 'decimal.js';
 
 export interface QualityFarcasterUser {

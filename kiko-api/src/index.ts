@@ -12,7 +12,7 @@ import { env } from './config/env.js';
 import { installConsoleInterception, logger } from './utils/logger.js';
 import { LogCode } from './config/logRegistry.js';
 import { testConnection } from './db/connection.js';
-import { initRedis } from './cache/redis.js';
+import { initRedis } from './cache/cacheClient.js';
 import { startMarketDataJobs } from './jobs/marketDataJob.js';
 import { startTokenDataJobs } from './jobs/tokenDataJob.js';
 

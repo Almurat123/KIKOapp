@@ -268,123 +268,77 @@ function isLowQualityCreatorLabelValue(raw?: string): boolean {
   return /^fid:\d+$/i.test(value) || /^@?\d+$/.test(value) || /^@?(i|status)$/i.test(value);
 }
 
+function isAddressLikeValue(v?: string): boolean {
+  return !!v && (/^0x[a-fA-F0-9]{40}$/.test(v.trim()) || /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(v.trim()));
+}
+
+function parseCreatorUrlLabel(raw?: string): string {
+  if (!raw) return '';
+  try {
+    const u = new URL(raw);
+    const host = u.hostname.replace(/^www\./, '').toLowerCase();
+    const parts = u.pathname.split('/').filter(Boolean);
+    const isX = host.includes('x.com') || host.includes('twitter.com');
+    if (isX) {
+      const xUser = (parts[0] || '').replace(/^@/, '');
+      const reserved = new Set([
+        'i', 'intent', 'share', 'home', 'explore', 'search', 'messages',
+        'notifications', 'settings', 'tos', 'privacy', 'status'
+      ]);
+      if (xUser && !reserved.has(xUser.toLowerCase())) return `@${xUser}`;
+      return 'X post';
+    }
+    if (host.includes('warpcast.com')) {
+      if (parts.length >= 3 && parts[0] === '~' && parts[1] === 'profiles') return 'Farcaster';
+      const handle = (parts[0] || '').replace(/^@/, '');
+      if (handle && handle !== '~') return `@${handle}`;
+      return 'Farcaster';
+    }
+    return host || '';
+  } catch {
+    return '';
+  }
+}
+
 function creatorText(label?: string, address?: string, url?: string, website?: string): string {
   const isDigits = (v?: string) => !!v && /^\d+$/.test(v.trim());
-  const normalizeFromUrl = (raw?: string): string => {
-    if (!raw) return '';
-    try {
-      const u = new URL(raw);
-      const host = u.hostname.replace(/^www\./, '');
-      const parts = u.pathname.split('/').filter(Boolean);
-      const isX = host.includes('x.com') || host.includes('twitter.com');
-      if (isX) {
-        // x.com/{user}/status/{id} => show @user
-        const xUser = (parts[0] || '').replace(/^@/, '');
-        const reserved = new Set([
-          'i', 'intent', 'share', 'home', 'explore', 'search', 'messages',
-          'notifications', 'settings', 'tos', 'privacy', 'status'
-        ]);
-        if (xUser && !reserved.has(xUser.toLowerCase())) {
-          return `@${xUser.replace(/^@/, '')}`;
-        }
-      }
-      if (host.includes('warpcast.com')) {
-        if (parts.length >= 3 && parts[0] === '~' && parts[1] === 'profiles') {
-          return 'Farcaster';
-        }
-        const handle = (parts[0] || '').replace(/^@/, '');
-        if (handle && handle !== '~') return `@${handle}`;
-        return 'Farcaster';
-      }
-      const last = parts[parts.length - 1];
-      if (last) {
-        if (host.includes('x.com') || host.includes('twitter.com') || host.includes('warpcast.com')) {
-          return `@${last.replace(/^@/, '')}`;
-        }
-      }
-      return host || '';
-    } catch {
-      return '';
-    }
-  };
-
-  const byUrl = normalizeFromUrl(url);
+  const isZeroEvmAddress = (v?: string) => !!v && /^0x0{40}$/i.test(v.trim());
+  const byUrl = parseCreatorUrlLabel(url);
   if (byUrl) return byUrl;
-
-  // x.com/i/status/... has no username in path; show platform instead of noisy fallback (e.g. fid).
-  if (url) {
-    try {
-      const u = new URL(url);
-      const host = u.hostname.replace(/^www\./, '').toLowerCase();
-      if (host.includes('x.com') || host.includes('twitter.com')) return 'X';
-      if (host.includes('warpcast.com')) return 'Farcaster';
-    } catch {
-      // ignore
-    }
-  }
 
   const cleanLabel = (label || '').trim();
   if (cleanLabel) {
+    if (isAddressLikeValue(cleanLabel)) {
+      if (isZeroEvmAddress(cleanLabel)) return '';
+      return shortAddress(cleanLabel);
+    }
     if ((cleanLabel.startsWith('http://') || cleanLabel.startsWith('https://'))) {
-      const byLabelUrl = normalizeFromUrl(cleanLabel);
+      const byLabelUrl = parseCreatorUrlLabel(cleanLabel);
       if (byLabelUrl) return byLabelUrl;
     }
     if (/^@?\d+$/i.test(cleanLabel)) {
-      if (url) {
-        try {
-          const u = new URL(url);
-          const host = u.hostname.replace(/^www\./, '').toLowerCase();
-          if (host.includes('x.com') || host.includes('twitter.com')) return 'X';
-          if (host.includes('warpcast.com')) return 'Farcaster';
-        } catch {
-          // ignore
-        }
-      }
+      const platformFromUrl = parseCreatorUrlLabel(url);
+      if (platformFromUrl) return platformFromUrl;
       return address ? shortAddress(address) : '';
     }
     if (/^@?(i|status)$/i.test(cleanLabel)) {
-      return 'X';
+      return 'X post';
     }
     if (cleanLabel.startsWith('@')) return cleanLabel;
     if (/^fid:\d+$/i.test(cleanLabel)) {
-      // If URL indicates X, keep X as higher-priority creator source.
-      if (url) {
-        try {
-          const u = new URL(url);
-          const host = u.hostname.replace(/^www\./, '').toLowerCase();
-          if (host.includes('x.com') || host.includes('twitter.com')) return 'X';
-        } catch {
-          // ignore
-        }
-      }
+      const platformFromUrl = parseCreatorUrlLabel(url);
+      if (platformFromUrl === 'X post') return platformFromUrl;
       return 'Farcaster';
     }
     if (isDigits(cleanLabel) && address) return shortAddress(address);
     return cleanLabel;
   }
 
-  const byWebsite = normalizeFromUrl(website);
+  const byWebsite = parseCreatorUrlLabel(website);
   if (byWebsite) return byWebsite;
 
-  if (address && address.trim()) return shortAddress(address);
-  if (!url) return '';
-  try {
-    const u = new URL(url);
-    const parts = u.pathname.split('/').filter(Boolean);
-    if (u.hostname.includes('warpcast.com') && parts.length >= 2 && parts[0] === '~' && parts[1] === 'profiles') {
-      return 'Farcaster';
-    }
-    const last = parts[parts.length - 1];
-    if (last) {
-      if (u.hostname.includes('x.com') || u.hostname.includes('twitter.com') || u.hostname.includes('warpcast.com')) {
-        return `@${last.replace(/^@/, '')}`;
-      }
-      return last;
-    }
-  } catch {
-    // ignore parse error
-  }
-  return '';
+  if (address && address.trim() && !isZeroEvmAddress(address)) return shortAddress(address);
+  return parseCreatorUrlLabel(url);
 }
 
 function chainExplorerAddressUrl(chain: string, address?: string): string | undefined {
@@ -975,9 +929,6 @@ const TokenRow = React.memo(({
                   address={t.address || ''}
                   chain={t.chain}
                   launchpad={t.launchpad}
-                  websiteUrl={t.socialLinks?.website}
-                  creatorUrl={t.creatorUrl}
-                  creatorLabel={t.creatorLabel}
                   onAskAI={() => console.log('Trigger Ask AI for', t.name)}
                 />
                 {creatorDisplay && (t.creatorLabel || t.creatorAddress || t.creatorUrl) && (

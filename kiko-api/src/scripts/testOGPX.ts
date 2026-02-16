@@ -1,5 +1,5 @@
 import { ogpService } from '../services/ogpService.js';
-import redis from '../cache/redis.js';
+import redis from '../cache/cacheClient.js';
 
 async function testX() {
     const url = 'https://x.com/VitalikButerin/status/1877640248560000000'; // Mocking a tweet

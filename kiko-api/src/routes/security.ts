@@ -5,7 +5,7 @@
 
 import { FastifyInstance } from 'fastify';
 import { env } from '../config/env.js';
-import { get, set } from '../cache/redis.js';
+import { get, set } from '../cache/cacheClient.js';
 import { AppError, handleExternalApiError } from '../middleware/errorHandler.js';
 import { validateAddress } from '../utils/validation.js';
 import { CheckTokenRiskTool } from '../skills/RiskSkill/index.js';

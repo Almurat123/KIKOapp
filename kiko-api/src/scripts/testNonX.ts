@@ -1,6 +1,6 @@
 
 import { ogpService } from '../services/ogpService.js';
-import redis from '../cache/redis.js';
+import redis from '../cache/cacheClient.js';
 
 async function testNonX() {
     const url = 'https://qrcoin.fun';

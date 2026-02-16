@@ -25,6 +25,16 @@ export const LAUNCHPAD_LOGOS: Record<string, string> = {
     'dopplerfinance': DopplerLogo,
 };
 
+export function normalizeLaunchpadTag(value?: string | null): string | null {
+    const v = String(value || '').trim().toLowerCase();
+    if (!v) return null;
+    if (v === 'pumpfun') return 'pump.fun';
+    if (v === 'bonkfun') return 'bonk.fun';
+    if (v === 'fourmeme') return 'four.meme';
+    if (v === 'dopplerfinance' || v === 'doppler finance') return 'doppler';
+    return v;
+}
+
 /**
  * Detect launchpad by token address and chain
  * Uses address patterns (suffix/prefix) to identify the launchpad

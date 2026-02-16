@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
-import { ArrowDown, ChevronDown, Settings, ArrowUp } from 'lucide-react';
+import { ArrowDown, ChevronDown, Settings } from 'lucide-react';
 import { LiquidGlassEffect } from '../Effects/LiquidGlassEffect';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useParams, useNavigate } from 'react-router-dom';
@@ -11,8 +11,8 @@ import { MessageBubble } from './MessageBubble';
 import { toast } from '../Toast';
 import { WelcomeScreen } from './WelcomeScreen';
 import { CustomAISettingsModal } from './CustomAISettingsModal';
-import { ThinkingTimer } from './ThinkingTimer';
 import { ChatInputSuggestions } from './ChatInputSuggestions';
+import { ThinkingTimer } from './ThinkingTimer';
 import { useSmartSuggestions } from './useSmartSuggestions.tsx';
 import { useSidebar } from '../Layout/Layout';
 import { useThemeContext } from '../../contexts/ThemeContext';
@@ -226,8 +226,14 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
     };
     const [thinkingText, setThinkingText] = useState('Thinking');
     const [thinkingStartTime, setThinkingStartTime] = useState<number>(0);
+    const [firstSendPending, setFirstSendPending] = useState(false);
     const [showJumpToBottom, setShowJumpToBottom] = useState(false);
     const [isComposing, setIsComposing] = useState(false);
+    const hasAssistantTextMessage = useMemo(
+        () => messages.some(m => m.role === 'assistant' && (!m.type || m.type === 'text')),
+        [messages]
+    );
+    const isBusy = isThinking || isStreaming || firstSendPending;
 
 
     // Load selected model from localStorage or use default
@@ -912,6 +918,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                 processedStrategyIdsRef.current.clear();
             }
             setThinkingText('Thinking');
+            setFirstSendPending(false);
             setInput('');
             logger.debug('UI states reset, loading messages from context');
 
@@ -991,7 +998,15 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
         }
     }, [conversationId, initialMessages, isStreaming, isThinking, setHasStarted, messages.length, activeTaskId, conversationId, currentConv?.activeTask, onTaskUpdate, updateConversation]);
 
-    // Check active task and restore UI state when conversationId changes or component mounts
+    // Sync thinking text with active task message
+    useEffect(() => {
+        if (currentConv?.activeTask?.message) {
+            setThinkingText(currentConv.activeTask.message);
+        } else if (!isBusy) {
+            setThinkingText('Thinking');
+        }
+    }, [currentConv?.activeTask?.message, isBusy]);
+
     useEffect(() => {
         if (!conversationId) {
             if (onTaskUpdate) {
@@ -1028,6 +1043,12 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
             }
         }
     }, [conversationId, propActiveTask, messages, currentConv?.activeTask, onTaskUpdate, updateConversation]);
+
+    useEffect(() => {
+        if (firstSendPending && hasAssistantTextMessage) {
+            setFirstSendPending(false);
+        }
+    }, [firstSendPending, hasAssistantTextMessage]);
 
     // Fetch user balances for common tokens AND tokens mentioned in chat
     useEffect(() => {
@@ -1168,7 +1189,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
             return;
         }
 
-        if (isThinking || isStreaming || messages.length === 0) return;
+        if (isBusy || messages.length === 0) return;
 
         // Only check if we have messages and conversation is active
         if (!conversationId) return;
@@ -1197,7 +1218,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                 });
             }
         }
-    }, [messages, conversationId, isThinking, isStreaming]);
+    }, [messages, conversationId, isBusy]);
 
     // Auto-save messages removed - handled by updateConversation in event handlers
 
@@ -1315,7 +1336,12 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
     // silentMode: if true, doesn't trigger visual stopping state (for conversation switches)
     const stopGeneration = async (silentMode = false) => {
-        if (!isThinking && !isStreaming) return;
+        if (!isThinking && !isStreaming && !firstSendPending) return;
+
+        if (firstSendPending && !isThinking && !isStreaming) {
+            setFirstSendPending(false);
+            return;
+        }
 
         if (!silentMode) {
             setIsStopping(true);
@@ -1355,6 +1381,9 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
         if (!text.trim()) return;
 
         isSubmittingRef.current = true;
+        if (!conversationId) {
+            setFirstSendPending(true);
+        }
 
         // ============================================
         // OPTIMISTIC UI: Update visual state IMMEDIATELY before any API calls
@@ -1438,6 +1467,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                     });
                 }
                 if (!conversationId) setHasStarted(false);
+                setFirstSendPending(false);
                 return;
             }
 
@@ -1453,6 +1483,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                 if (conversationId) updateConversation(conversationId, { activeTask: null });
                 // If stopping a new conversation (no ID yet), just reset local state
                 if (!conversationId) setHasStarted(false);
+                setFirstSendPending(false);
                 return;
             }
 
@@ -1510,6 +1541,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                 } else {
                     toast.error('Unable to create chat session. Please refresh and try again.');
                 }
+                setFirstSendPending(false);
                 return;
             }
 
@@ -1608,6 +1640,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
         } catch (error: unknown) {
             const err = error as Error;
             logger.error('Error sending message:', err);
+            setFirstSendPending(false);
 
             const errorMsg: Message = {
                 id: Date.now().toString(),
@@ -1652,7 +1685,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                 return;
             }
             // Prevent sending while thinking, streaming, or stopping
-            if (isThinking || isStreaming || isStopping) {
+            if (isBusy || isStopping) {
                 e.preventDefault();
                 logger.debug('Blocked Enter - AI is busy');
                 return;
@@ -1971,8 +2004,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                     });
                 })()}
 
-                {/* Standalone Thinking Indicator for immediate feedback before assistant message exists */}
-                {isThinking && !enrichedMessages.some(m => m.role === 'assistant' && (m.status as string) === 'streaming' && m.content.length > 0) && (
+                {firstSendPending && !hasAssistantTextMessage && (
                     <div className={styles.thinkingContainer}>
                         <div className={styles.thinkingContent}>
                             <div className={styles.thinkingSpinner} />
@@ -1984,8 +2016,6 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                         </div>
                     </div>
                 )}
-
-                {/* Thinking State indicator is now part of the message itself, no separate bubble needed */}
 
                 <div ref={messagesEndRef} />
             </div>
@@ -2089,21 +2119,46 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                                     <button
                                         className={clsx(
                                             styles.sendBtn,
-                                            (isThinking || isStreaming) && styles.stopMode,
-                                            !isThinking && !isStreaming && input.trim() && styles.activeMode,
+                                            isBusy && styles.stopMode,
+                                            !isBusy && input.trim() && styles.activeMode,
                                             isStopping && styles.stoppingMode
                                         )}
-                                        onClick={() => (isThinking || isStreaming) ? stopGeneration() : handleSend()}
-                                        disabled={(!input.trim() && !isThinking && !isStreaming) || isStopping}
-                                        title={(isThinking || isStreaming) ? "Stop generation" : "Send message"}
+                                        onClick={() => isBusy ? stopGeneration() : handleSend()}
+                                        disabled={(!input.trim() && !isBusy) || isStopping}
+                                        title={isBusy ? "Stop generation" : "Send message"}
                                     >
-                                        <div className={clsx(styles.btnIcon, (isThinking || isStreaming) ? styles.iconHidden : styles.iconVisible)}>
-                                            <ArrowUp size={20} strokeWidth={2.5} />
-                                        </div>
-                                        <div className={clsx(styles.btnIcon, (isThinking || isStreaming) ? styles.iconVisible : styles.iconHidden)}>
-                                            <div className={styles.stopIconSquare} />
-                                        </div>
-                                        {(isThinking || isStreaming) && (
+                                        {/* Aurora Background Effect */}
+                                        {isBusy && <div className={styles.auroraLayer} />}
+
+                                        <motion.div
+                                            className={styles.btnIcon}
+                                            animate={{
+                                                scale: isBusy ? 1.1 : 1, // Slightly less aggressive scale with aurora
+                                                rotate: isBusy ? 0 : 0,
+                                            }}
+                                            transition={{
+                                                type: "spring",
+                                                stiffness: 300,
+                                                damping: 15
+                                            }}
+                                        >
+                                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                                                <motion.path
+                                                    initial={false}
+                                                    animate={{
+                                                        d: isBusy
+                                                            ? "M6 6h12v12H6z" // Square (Stop)
+                                                            : "M12 19V5M5 12l7-7 7 7" // Arrow Up (Send)
+                                                    }}
+                                                    transition={{
+                                                        type: "spring",
+                                                        stiffness: 200,
+                                                        damping: 20
+                                                    }}
+                                                />
+                                            </svg>
+                                        </motion.div>
+                                        {isBusy && (
                                             <div className={styles.spinnerRing} />
                                         )}
                                     </button>

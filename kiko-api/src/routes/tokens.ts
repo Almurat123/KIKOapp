@@ -8,7 +8,7 @@
 import { FastifyInstance } from 'fastify';
 import { searchTokens as searchGeckoTerminal, getTokenDetails as getGeckoTokenDetails, getCandlestickData as getGeckoCandlestickData, getTrendingTokens as getLiveTrendingTokens, type TrendingDuration } from '../services/geckoTerminal.js';
 import { searchTokens as searchDexScreener, getTokenDetails as getDexTokenDetails, getTokenPairAddress, getCandlestickData as getDexCandlestickData, getTrendingTokensPremium } from '../services/dexscreener.js';
-import { get, set } from '../cache/redis.js';
+import { get, set } from '../cache/cacheClient.js';
 import { getTrendingTokens, getLastUpdateTime as getTrendingUpdateTime, saveTrendingTokenCreator } from '../repositories/tokenRepository.js';
 import { getSupportedChains, refreshSingleChain } from '../jobs/tokenDataJob.js';
 import { env } from '../config/env.js';
@@ -180,8 +180,8 @@ export async function tokenRoutes(fastify: FastifyInstance) {
         limit?: string;
         strict?: string;
       };
-      // Token page path: DB-first only. Do not serve Redis response-cache payloads.
-      const strictMode = true;
+      // Keep trending/live stable and fast: never force DB-only read from request params.
+      const strictMode = false;
 
       // Validate duration
       const validDuration = SUPPORTED_DURATIONS.includes(duration as TrendingDuration)

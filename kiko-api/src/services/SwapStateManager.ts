@@ -1,6 +1,6 @@
 import { logger } from '../utils/logger.js';
 import { LogCode, LogRole } from '../config/logRegistry.js';
-import { get as cacheGet, set as cacheSet, del as cacheDel } from '../cache/redis.js';
+import { get as cacheGet, set as cacheSet, del as cacheDel } from '../cache/cacheClient.js';
 
 export type SwapState =
     | 'IDLE'              // No swap in progress

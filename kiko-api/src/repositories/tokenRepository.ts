@@ -3,7 +3,7 @@ import { memoryCache, CACHE_KEYS, CACHE_TTL } from '../cache/memoryCache.js';
 import { TokenSearchResult } from '../services/geckoTerminal.js';
 import { hasMeaningfulActivity } from '../services/trendingValidation.js';
 import { computeLaunchpadMultiple } from '../services/launchpadMultipleService.js';
-import { get as getRedisCache } from '../cache/redis.js';
+import { get as getRedisCache, isRedisAvailable } from '../cache/cacheClient.js';
 import { Prisma } from '@prisma/client';
 
 const TRENDING_SAVE_TX_MAX_WAIT_MS = Math.max(1_000, Number(process.env.TRENDING_SAVE_TX_MAX_WAIT_MS || '10000'));
@@ -92,7 +92,7 @@ function normalizeCreatorPresentation(creatorUrl?: string | null, creatorLabel?:
     if (isLowQualityXLabel) {
       return {
         creatorUrl: undefined,
-        creatorLabel: 'X',
+        creatorLabel: 'X post',
       };
     }
     return {
@@ -117,7 +117,7 @@ function normalizeCreatorPresentation(creatorUrl?: string | null, creatorLabel?:
         return { creatorUrl, creatorLabel: `@${first}` };
       }
       if (!label || isFid || isAtDigits || isAddr || labelIsReservedHandle) {
-        return { creatorUrl, creatorLabel: 'X' };
+        return { creatorUrl, creatorLabel: 'X post' };
       }
       return { creatorUrl, creatorLabel: label };
     }
@@ -170,18 +170,88 @@ function buildAddressVariants(addresses: string[]): string[] {
 }
 
 function launchpadCacheKey(chain: string, address: string): string {
-  const chainId = chain === 'base' ? 8453 : chain === 'bsc' ? 56 : chain === 'solana' ? 101 : 'any';
-  return `launchpad:detected:v2:${chainId}:${address.toLowerCase()}`;
+  const chainId = chain === 'base' ? 8453 : chain === 'bsc' ? 56 : chain === 'solana' ? 900 : 'any';
+  return `launchpad:decision:v3:${chainId}:${address.toLowerCase()}`;
 }
 
-function pickCreatorAddressFromLaunchpadCache(raw: string): string | undefined {
+function parseLaunchpadCacheData(raw: string): Record<string, unknown> | null {
   try {
     const parsed = JSON.parse(raw) as any;
     const root = parsed?.data || {};
     const nested = (root && typeof root === 'object' && root.data && typeof root.data === 'object')
       ? root.data
       : null;
-    const data = nested ? { ...(root as Record<string, unknown>), ...(nested as Record<string, unknown>) } : root;
+    return (nested ? { ...(root as Record<string, unknown>), ...(nested as Record<string, unknown>) } : root) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
+function parseLaunchpadProvider(raw: string): string | undefined {
+  try {
+    const parsed = JSON.parse(raw) as any;
+    const provider = typeof parsed?.provider === 'string' ? parsed.provider.trim().toLowerCase() : '';
+    if (!provider) return undefined;
+    return normalizeLaunchpadTag(provider);
+  } catch {
+    return undefined;
+  }
+}
+
+async function loadLaunchpadDecisionCacheMap(chain: string, tokens: TokenSearchResult[]): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  if (!Array.isArray(tokens) || tokens.length === 0) return out;
+
+  const keysByAddress = new Map<string, string>();
+  for (const token of tokens) {
+    const address = String(token.address || '').toLowerCase();
+    if (!address) continue;
+    keysByAddress.set(address, launchpadCacheKey(chain, address));
+  }
+  const keyEntries = Array.from(keysByAddress.entries());
+  if (keyEntries.length === 0) return out;
+
+  if (isRedisAvailable()) {
+    await Promise.all(keyEntries.map(async ([address, key]) => {
+      try {
+        const raw = await getRedisCache(key);
+        if (raw) out.set(address, raw);
+      } catch {
+        // best-effort cache read
+      }
+    }));
+    return out;
+  }
+
+  // Local-dev fallback when Redis is disabled: read all decision keys in one DB query.
+  try {
+    const keyList = keyEntries.map(([, key]) => key);
+    const rows = await prisma.cache.findMany({
+      where: {
+        key: { in: keyList },
+        OR: [
+          { expiresAt: null },
+          { expiresAt: { gt: new Date() } }
+        ]
+      },
+      select: { key: true, value: true }
+    });
+    const byKey = new Map(rows.map((r) => [r.key, r.value]));
+    for (const [address, key] of keyEntries) {
+      const raw = byKey.get(key);
+      if (raw) out.set(address, raw);
+    }
+  } catch {
+    // ignore and return empty map
+  }
+
+  return out;
+}
+
+function pickCreatorAddressFromLaunchpadCache(raw: string): string | undefined {
+  try {
+    const data = parseLaunchpadCacheData(raw) as any;
+    if (!data) return undefined;
     const candidates: unknown[] = [
       data.creatorAddress,
       data.creator,
@@ -232,15 +302,11 @@ function pickCreatorMetaFromLaunchpadCache(raw: string): { creatorAddress?: stri
   let creatorUrl: string | undefined;
   let creatorLabel: string | undefined;
   try {
-    const parsed = JSON.parse(raw) as any;
-    const root = parsed?.data || {};
-    const nested = (root && typeof root === 'object' && root.data && typeof root.data === 'object')
-      ? root.data
-      : null;
-    const data = nested ? { ...(root as Record<string, unknown>), ...(nested as Record<string, unknown>) } : root;
+    const data = parseLaunchpadCacheData(raw) as any;
+    if (!data) return {};
 
     creatorAddress = pickCreatorAddressFromLaunchpadCache(raw);
-    const socials = data.socials || {};
+    const socials = (data.socials || {}) as any;
     const urlCandidates: unknown[] = [
       data.creatorUrl,
       data.creator_url,
@@ -298,6 +364,21 @@ function pickCreatorMetaFromLaunchpadCache(raw: string): { creatorAddress?: stri
     // ignore parsing errors
   }
   return { creatorAddress, creatorUrl, creatorLabel };
+}
+
+function pickLaunchpadFromLaunchpadCache(raw: string): string | undefined {
+  return parseLaunchpadProvider(raw);
+}
+
+function sanitizeCreatorLabel(value?: string | null): string | undefined {
+  if (!value || typeof value !== 'string') return undefined;
+  const v = value.trim();
+  if (!v) return undefined;
+  if (/^fid:\d+$/i.test(v)) return undefined;
+  if (/^@\d+$/.test(v)) return undefined;
+  if (/^\d+$/.test(v)) return undefined;
+  if (/^@?(i|status)$/i.test(v)) return undefined;
+  return v;
 }
 
 let trendingLaunchpadColumnCache:
@@ -529,15 +610,22 @@ export async function saveTokenLaunchpadProfile(
     const normalizedLaunchpad = profile.launchpad === null
       ? null
       : normalizeLaunchpadTag(profile.launchpad);
+    const creatorLabel = sanitizeCreatorLabel(profile.creatorLabel);
+    const hasCreatorMeta = !!profile.creatorAddress || !!profile.creatorUrl || !!creatorLabel;
+    const source = profile.source || 'launchpad_detector';
+    const isExplicitClear = normalizedLaunchpad === null && !hasCreatorMeta && source.includes('clear');
 
+    if (!normalizedLaunchpad && !hasCreatorMeta && !isExplicitClear) {
+      return;
+    }
     await prisma.tokenLaunchpadProfile.upsert({
       where: { chain_address: { chain, address: lower } },
       update: {
         launchpad: normalizedLaunchpad,
         creatorAddress: profile.creatorAddress || undefined,
         creatorUrl: profile.creatorUrl || undefined,
-        creatorLabel: profile.creatorLabel || undefined,
-        source: profile.source || 'launchpad_detector',
+        creatorLabel: creatorLabel || undefined,
+        source,
         verifiedAt: new Date(),
         lastCheckedAt: new Date(),
         lastError: null,
@@ -548,8 +636,8 @@ export async function saveTokenLaunchpadProfile(
         launchpad: normalizedLaunchpad,
         creatorAddress: profile.creatorAddress || undefined,
         creatorUrl: profile.creatorUrl || undefined,
-        creatorLabel: profile.creatorLabel || undefined,
-        source: profile.source || 'launchpad_detector',
+        creatorLabel: creatorLabel || undefined,
+        source,
         verifiedAt: new Date(),
         lastCheckedAt: new Date(),
       },
@@ -651,12 +739,22 @@ export async function saveTrendingTokens(chain: string, tokens: TokenSearchResul
           return merged;
         });
 
-        // 1. Delete old data for this chain
-        await tx.trendingToken.deleteMany({
-          where: { chain }
-        });
+        // 1. Delete rows no longer in latest snapshot for this chain.
+        // Keep in-chain writes incremental to avoid full-chain wipe/reinsert churn.
+        if (addressList.length > 0) {
+          await tx.trendingToken.deleteMany({
+            where: {
+              chain,
+              address: { notIn: addressList }
+            }
+          });
+        } else {
+          await tx.trendingToken.deleteMany({
+            where: { chain }
+          });
+        }
 
-        // 2. Insert new tokens with rank in bulk
+        // 2. Upsert snapshot rows with stable metadata fields.
         if (mergedTokens.length > 0) {
           const mappedRows = mergedTokens.map((token, index) => {
             const baseData: Record<string, unknown> = {
@@ -686,12 +784,20 @@ export async function saveTrendingTokens(chain: string, tokens: TokenSearchResul
             }
             return baseData as any;
           });
-          const batches = chunkArray(mappedRows, TRENDING_SAVE_BATCH_SIZE);
+          const batches = chunkArray(mappedRows, Math.min(TRENDING_SAVE_BATCH_SIZE, 80));
           for (const batch of batches) {
-            await tx.trendingToken.createMany({
-              data: batch,
-              skipDuplicates: true
-            });
+            await Promise.all(batch.map((row) =>
+              tx.trendingToken.upsert({
+                where: {
+                  chain_address: {
+                    chain,
+                    address: row.address,
+                  }
+                },
+                update: row,
+                create: row,
+              })
+            ));
           }
         }
       }, {
@@ -791,6 +897,9 @@ export async function getTrendingTokens(
     }));
 
     try {
+      // Merge priority (highest last write wins by quality gate):
+      // 1) DB snapshot (base row) -> 2) persisted profile -> 3) token meta cache -> 4) launchpad decision cache.
+      // Weak labels never overwrite strong labels (handled by shouldReplaceCreator* guards).
       const canReadProfile = await hasTokenLaunchpadProfileTable();
       if (canReadProfile && tokens.length > 0) {
         const addresses = buildAddressVariants(tokens.map((t) => t.address));
@@ -805,6 +914,7 @@ export async function getTrendingTokens(
             creatorLabel: true,
             source: true,
             lastCheckedAt: true,
+            updatedAt: true,
           },
         });
         const byAddress = new Map<string, typeof profiles[number]>();
@@ -818,11 +928,14 @@ export async function getTrendingTokens(
           if (!profile) continue;
           const profileLaunchpad = normalizeLaunchpadTag(profile.launchpad);
           const tokenLaunchpad = normalizeLaunchpadTag((token as any).launchpad);
+          const profileTs = profile.lastCheckedAt || profile.updatedAt || null;
+          const profileAgeMs = profileTs ? (Date.now() - profileTs.getTime()) : Number.POSITIVE_INFINITY;
+          const isProfileStale = Number.isFinite(profileAgeMs) && profileAgeMs > 24 * 60 * 60 * 1000;
+          const hasProfileCreator = !!profile.creatorAddress || !!profile.creatorUrl || !!profile.creatorLabel;
 
           // If profile explicitly has no launchpad and no creator metadata, clear stale non-deterministic tags
           // from TrendingToken rows (e.g. historical false-positive doppler labels).
           if (!profileLaunchpad && tokenLaunchpad) {
-            const hasProfileCreator = !!profile.creatorAddress || !!profile.creatorUrl || !!profile.creatorLabel;
             if (!hasProfileCreator && !deterministicLaunchpads.has(tokenLaunchpad)) {
               delete (token as any).launchpad;
             }
@@ -831,7 +944,9 @@ export async function getTrendingTokens(
           // Fill missing launchpad from persisted profile when TrendingToken row has no tag.
           // This unblocks capsules for tokens detected asynchronously by background verifier.
           if (!token.launchpad) {
-            if (profileLaunchpad) token.launchpad = profileLaunchpad as any;
+            if (profileLaunchpad && !(isProfileStale && !hasProfileCreator)) {
+              token.launchpad = profileLaunchpad as any;
+            }
           }
           if (!token.creatorAddress && profile.creatorAddress) token.creatorAddress = profile.creatorAddress;
           if (shouldReplaceCreatorUrl((token as any).creatorUrl, profile.creatorUrl)) (token as any).creatorUrl = profile.creatorUrl;
@@ -908,6 +1023,10 @@ export async function getTrendingTokens(
         try {
           const raw = await getRedisCache(launchpadCacheKey(chain, token.address));
           if (!raw) return;
+          if (!(token as any).launchpad) {
+            const cachedLaunchpad = pickLaunchpadFromLaunchpadCache(raw);
+            if (cachedLaunchpad) (token as any).launchpad = cachedLaunchpad as any;
+          }
           const creator = pickCreatorMetaFromLaunchpadCache(raw);
           if (creator.creatorAddress && !token.creatorAddress) token.creatorAddress = creator.creatorAddress;
           if (shouldReplaceCreatorUrl((token as any).creatorUrl, creator.creatorUrl)) (token as any).creatorUrl = creator.creatorUrl;
@@ -916,6 +1035,29 @@ export async function getTrendingTokens(
           // ignore launchpad cache parse/read errors
         }
       }));
+    }
+
+    // Launchpad decision cache is part of core display.
+    // It must run for lightweight responses too (e.g. /trending/live),
+    // otherwise launchpad capsules can disappear even when decision cache exists.
+    if (opts?.lightweight || !ENABLE_TRENDING_REDIS_METADATA) {
+      const rawByAddress = await loadLaunchpadDecisionCacheMap(chain, tokens);
+      for (const token of tokens) {
+        try {
+          const raw = rawByAddress.get(String(token.address || '').toLowerCase());
+          if (!raw) continue;
+          if (!(token as any).launchpad) {
+            const cachedLaunchpad = pickLaunchpadFromLaunchpadCache(raw);
+            if (cachedLaunchpad) (token as any).launchpad = cachedLaunchpad as any;
+          }
+          const creator = pickCreatorMetaFromLaunchpadCache(raw);
+          if (creator.creatorAddress && !token.creatorAddress) token.creatorAddress = creator.creatorAddress;
+          if (shouldReplaceCreatorUrl((token as any).creatorUrl, creator.creatorUrl)) (token as any).creatorUrl = creator.creatorUrl;
+          if (shouldReplaceCreatorLabel((token as any).creatorLabel, creator.creatorLabel)) (token as any).creatorLabel = creator.creatorLabel;
+        } catch {
+          // ignore launchpad cache parse/read errors
+        }
+      }
     }
 
     const listedTokens = tokens.filter(shouldKeepListedToken);

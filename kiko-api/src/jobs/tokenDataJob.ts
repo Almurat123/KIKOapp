@@ -22,7 +22,7 @@ import { detectLaunchpadToken } from '../services/ai/launchpadDetector.js';
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
 import pLimit from 'p-limit';
-import { acquireLock, releaseLock, set as setRedisCache, get as getRedisCache } from '../cache/redis.js';
+import { acquireLock, releaseLock, set as setRedisCache, get as getRedisCache, incrBy as incrCacheBy, del as delCacheKey } from '../cache/cacheClient.js';
 
 import { getNativeTokenPriceUsd } from '../services/onChainPriceService.js';
 import { computeLaunchpadMultiple } from '../services/launchpadMultipleService.js';
@@ -64,20 +64,28 @@ const LAUNCHPAD_DETECT_CONCURRENCY = Math.max(
 );
 const LAUNCH_MULTIPLE_ENRICH_ENABLED = true;
 const LAUNCHPAD_API_VERIFY_BUDGET_PER_RUN = Math.max(
-  8,
-  Number(process.env.LAUNCHPAD_API_VERIFY_BUDGET_PER_RUN || '24')
+  16,
+  Number(process.env.LAUNCHPAD_API_VERIFY_BUDGET_PER_RUN || '48')
 );
 const BASE_DOPPLER_VERIFY_BUDGET_PER_RUN = Math.max(
-  2,
-  Number(process.env.BASE_DOPPLER_VERIFY_BUDGET_PER_RUN || '6')
+  8,
+  Number(process.env.BASE_DOPPLER_VERIFY_BUDGET_PER_RUN || '24')
 );
 const BASE_DOPPLER_VERIFY_CONCURRENCY = Math.max(
   1,
-  Number(process.env.BASE_DOPPLER_VERIFY_CONCURRENCY || '1')
+  Number(process.env.BASE_DOPPLER_VERIFY_CONCURRENCY || '2')
 );
 const TOKEN_META_CACHE_TTL_SECONDS = Math.max(
   60 * 60,
   Number(process.env.TOKEN_META_CACHE_TTL_SECONDS || `${6 * 60 * 60}`)
+);
+const LAUNCHPAD_CLEAR_FAIL_THRESHOLD = Math.max(
+  2,
+  Number(process.env.LAUNCHPAD_CLEAR_FAIL_THRESHOLD || '3')
+);
+const LAUNCHPAD_CLEAR_FAIL_TTL_SECONDS = Math.max(
+  5 * 60,
+  Number(process.env.LAUNCHPAD_CLEAR_FAIL_TTL_SECONDS || `${30 * 60}`)
 );
 
 const LAUNCHPAD_CREATOR_BACKFILL_BUDGET_PER_RUN = Math.max(
@@ -109,7 +117,7 @@ function detectBySuffix(chainId: string, address: string): string | null {
   return null;
 }
 
-function normalizeLaunchpad(provider?: string | null): string | null {
+function normalizeLaunchpadProvider(provider?: string | null): string | null {
   if (!provider) return null;
   if (provider === 'pumpfun') return 'pump.fun';
   if (provider === 'bonkfun') return 'bonk.fun';
@@ -118,16 +126,39 @@ function normalizeLaunchpad(provider?: string | null): string | null {
   return provider;
 }
 
+function sanitizeCreatorForLaunchpad(token: { launchpad?: string | null; creatorAddress?: string; creatorUrl?: string; creatorLabel?: string }): void {
+  if (String(token.launchpad || '').toLowerCase() !== 'flap') return;
+  delete token.creatorAddress;
+  delete token.creatorUrl;
+  delete token.creatorLabel;
+}
+
 function initialPoolCacheKey(chainId: string, address: string) {
+  return `token:initial_pool:v2:${chainId}:${address.toLowerCase()}`;
+}
+
+function initialPoolLegacyCacheKey(chainId: string, address: string) {
   return `initial_pool:${chainId}:${address.toLowerCase()}`;
 }
 
 function tokenMetaCacheKey(chainId: string, address: string) {
-  return `token_meta_v2:${chainId}:${address.toLowerCase()}`;
+  return `token:meta:v2:${chainId}:${address.toLowerCase()}`;
 }
 
 function tokenMetaLegacyCacheKey(chainId: string, address: string) {
+  return `token:meta:v1:${chainId}:${address.toLowerCase()}`;
+}
+
+function tokenMetaCompatV2Key(chainId: string, address: string) {
+  return `token_meta_v2:${chainId}:${address.toLowerCase()}`;
+}
+
+function tokenMetaCompatV1Key(chainId: string, address: string) {
   return `token_meta:${chainId}:${address.toLowerCase()}`;
+}
+
+function launchpadClearFailKey(chainId: string, address: string) {
+  return `launchpad:clear_fail:v1:${chainId}:${address.toLowerCase()}`;
 }
 
 function nativeUsdMissCacheKey(chainId: string | number, date: string) {
@@ -141,10 +172,9 @@ async function fetchJson<T = any>(
     method?: string;
     body?: any;
     timeout?: number;
-    logCode?: LogCode;
   }
 ): Promise<T> {
-  const { url, headers, method = 'GET', body, timeout = 10000, logCode = LogCode.API_FETCH_SUCCESS } = options;
+  const { url, headers, method = 'GET', body, timeout = 10000 } = options;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeout);
   try {
@@ -277,6 +307,14 @@ async function readTokenMetaCache(chainId: string, address: string): Promise<Enr
       raw = await getRedisCache(tokenMetaLegacyCacheKey(chainId, address));
       fromLegacy = !!raw;
     }
+    if (!raw) {
+      raw = await getRedisCache(tokenMetaCompatV2Key(chainId, address));
+      fromLegacy = !!raw;
+    }
+    if (!raw) {
+      raw = await getRedisCache(tokenMetaCompatV1Key(chainId, address));
+      fromLegacy = !!raw;
+    }
     if (!raw) return null;
     const parsed = JSON.parse(raw) as EnrichedTokenMeta & { cacheVersion?: number };
     if (!parsed || typeof parsed !== 'object') return null;
@@ -381,7 +419,10 @@ async function cacheInitialPoolSnapshots(
       if (!poolAddress && !poolCreatedAt) return;
 
       const key = initialPoolCacheKey(chainId, address);
-      const existing = await getRedisCache(key);
+      let existing = await getRedisCache(key);
+      if (!existing) {
+        existing = await getRedisCache(initialPoolLegacyCacheKey(chainId, address));
+      }
       let existingParsed: any = null;
       if (existing) {
         try { existingParsed = JSON.parse(existing); } catch { }
@@ -689,7 +730,7 @@ function pickCreatorLabel(detected: any, creatorUrl?: string, creatorAddress?: s
           return `@${xUser.replace(/^@/, '')}`;
         }
         // For x.com/i/status/... and other reserved paths, keep platform label.
-        return 'X';
+        return 'X post';
       }
       if (u.hostname.includes('warpcast.com') && path.includes('/~/profiles/')) {
         return 'Farcaster';
@@ -735,18 +776,32 @@ function pickCreatorMeta(detected: any): { creatorAddress?: string; creatorUrl?:
     : null;
   const merged = nested ? { ...(root as Record<string, unknown>), ...(nested as Record<string, unknown>) } : root;
 
+  // flap policy: provider does not expose reliable creator identity.
+  if (provider === 'flap') {
+    return {};
+  }
+
   // four.meme strict creator policy:
-  // 1) use twitterUrl (display @handle when parseable)
+  // 1) use social URL (twitter/x/messageId) first
   // 2) fallback to userAddress
   if (provider === 'fourmeme') {
-    const twitterUrlRaw = typeof (merged as any)?.twitterUrl === 'string'
-      ? (merged as any).twitterUrl.trim()
-      : '';
+    const twitterUrlRaw = [
+      (merged as any)?.twitterUrl,
+      (merged as any)?.twitter,
+      (merged as any)?.xUrl,
+      (merged as any)?.x,
+      (merged as any)?.creatorUrl,
+      (merged as any)?.social_context?.messageId,
+      (merged as any)?.social_context?.message_id,
+      (merged as any)?.social_context?.twitter,
+      (merged as any)?.social_context?.x,
+    ].find((v) => typeof v === 'string' && !!String(v).trim());
+    const twitterUrl = typeof twitterUrlRaw === 'string' ? twitterUrlRaw.trim() : '';
     const creatorAddress = pickCreatorAddress(detected);
-    if (twitterUrlRaw) {
+    if (twitterUrl) {
       let creatorLabel: string | undefined;
       try {
-        const u = new URL(twitterUrlRaw);
+        const u = new URL(twitterUrl);
         if (u.hostname.includes('x.com') || u.hostname.includes('twitter.com')) {
           const user = (u.pathname.split('/').filter(Boolean)[0] || '').replace(/^@/, '');
           const reserved = new Set([
@@ -762,8 +817,8 @@ function pickCreatorMeta(detected: any): { creatorAddress?: string; creatorUrl?:
       }
       return {
         creatorAddress,
-        creatorUrl: twitterUrlRaw,
-        creatorLabel: creatorLabel || 'X'
+        creatorUrl: twitterUrl,
+        creatorLabel: creatorLabel || 'X post'
       };
     }
     return {
@@ -915,6 +970,7 @@ async function enrichLaunchpadsForTrending(
     source: string
   ) => {
     try {
+      sanitizeCreatorForLaunchpad(token);
       await saveTokenLaunchpadProfile(chainId, token.address, {
         launchpad: token.launchpad,
         creatorAddress: token.creatorAddress,
@@ -941,6 +997,7 @@ async function enrichLaunchpadsForTrending(
     if (!token.creatorAddress && cached.creatorAddress) token.creatorAddress = cached.creatorAddress;
     if (!(token as any).creatorUrl && cached.creatorUrl) (token as any).creatorUrl = cached.creatorUrl;
     if (!(token as any).creatorLabel && cached.creatorLabel) (token as any).creatorLabel = cached.creatorLabel;
+    sanitizeCreatorForLaunchpad(token as any);
   }));
 
   // Step 1: deterministic suffix detection
@@ -957,6 +1014,7 @@ async function enrichLaunchpadsForTrending(
     token.launchpad =
       detectBySuffix(chainId, token.address)
       || undefined;
+    sanitizeCreatorForLaunchpad(token as any);
   }
   const deterministic = tokens.filter((t) => !!t.launchpad);
   if (deterministic.length > 0) {
@@ -986,6 +1044,7 @@ async function enrichLaunchpadsForTrending(
           token.creatorAddress = creatorMeta.creatorAddress;
           (token as any).creatorUrl = creatorMeta.creatorUrl;
           (token as any).creatorLabel = creatorMeta.creatorLabel;
+          sanitizeCreatorForLaunchpad(token as any);
           await writeTokenMetaCache(chainId, token.address, {
             creatorAddress: token.creatorAddress,
             creatorUrl: (token as any).creatorUrl,
@@ -993,6 +1052,7 @@ async function enrichLaunchpadsForTrending(
             launchMultiple: token.launchMultiple
           });
           await persistLaunchpad(token as any, 'detector_flap');
+          await delCacheKey(launchpadClearFailKey(chainId, token.address)).catch(() => undefined);
           if (!token.imageUrl && typeof (detected as any)?.data?.imageUrl === 'string') {
             token.imageUrl = (detected as any).data.imageUrl;
           }
@@ -1028,7 +1088,7 @@ async function enrichLaunchpadsForTrending(
             mode: 'full',
             forceRefresh: true
           });
-          const normalized = normalizeLaunchpad(detected?.provider || null);
+          const normalized = normalizeLaunchpadProvider(detected?.provider || null);
           if (normalized) token.launchpad = normalized;
           const creatorMeta = pickCreatorMeta(detected);
           token.creatorAddress = creatorMeta.creatorAddress;
@@ -1041,6 +1101,7 @@ async function enrichLaunchpadsForTrending(
             launchMultiple: token.launchMultiple
           });
           await persistLaunchpad(token as any, 'detector_base');
+          await delCacheKey(launchpadClearFailKey(chainId, token.address)).catch(() => undefined);
           if (!token.imageUrl && typeof (detected as any)?.data?.imageUrl === 'string') {
             token.imageUrl = (detected as any).data.imageUrl;
           }
@@ -1078,29 +1139,33 @@ async function enrichLaunchpadsForTrending(
         requireCreator: true,
         forceRefresh: true,
       });
-      if (!detected) {
-        const suffixLaunchpad = detectBySuffix(chainId, token.address);
-        const hasCreator = !!token.creatorAddress || !!(token as any).creatorUrl || !!(token as any).creatorLabel;
-        const currentLaunchpad = String(token.launchpad || '').toLowerCase();
-        const isNonDeterministicLaunchpad = !!currentLaunchpad
-          && !['clanker', 'four.meme', 'flap', 'pump.fun', 'bonk.fun'].includes(currentLaunchpad);
-        // Clear stale non-deterministic launchpad labels when force-refresh verify misses.
-        // This prevents historical false positives (e.g. stale doppler tag) from sticking forever.
-        if (!suffixLaunchpad && !hasCreator && isNonDeterministicLaunchpad) {
-          token.launchpad = undefined;
-          await persistLaunchpad({
-            address: token.address,
-            launchpad: null,
-            creatorAddress: undefined,
-            creatorUrl: undefined,
-            creatorLabel: undefined,
-          }, 'detector_backfill_clear');
+        if (!detected) {
+          const suffixLaunchpad = detectBySuffix(chainId, token.address);
+          const hasCreator = !!token.creatorAddress || !!(token as any).creatorUrl || !!(token as any).creatorLabel;
+          const currentLaunchpad = String(token.launchpad || '').toLowerCase();
+          const isNonDeterministicLaunchpad = !!currentLaunchpad
+            && !['clanker', 'four.meme', 'flap', 'pump.fun', 'bonk.fun'].includes(currentLaunchpad);
+          // Clear stale non-deterministic launchpad labels when force-refresh verify misses.
+          // This prevents historical false positives (e.g. stale doppler tag) from sticking forever.
+          if (!suffixLaunchpad && !hasCreator && isNonDeterministicLaunchpad) {
+            const failKey = launchpadClearFailKey(chainId, token.address);
+            const strikes = await incrCacheBy(failKey, 1, LAUNCHPAD_CLEAR_FAIL_TTL_SECONDS).catch(() => 1);
+            if (strikes >= LAUNCHPAD_CLEAR_FAIL_THRESHOLD) {
+              token.launchpad = undefined;
+              await persistLaunchpad({
+                address: token.address,
+                launchpad: null,
+                creatorAddress: undefined,
+                creatorUrl: undefined,
+                creatorLabel: undefined,
+              }, 'detector_backfill_clear');
+            }
+          }
+          return;
         }
-        return;
-      }
 
       if (!token.launchpad) {
-        const normalized = normalizeLaunchpad(detected.provider || null);
+        const normalized = normalizeLaunchpadProvider(detected.provider || null);
         if (normalized) token.launchpad = normalized;
       }
       const creatorMeta = pickCreatorMeta(detected);
@@ -1116,7 +1181,11 @@ async function enrichLaunchpadsForTrending(
       if (creatorMeta.creatorLabel && (!(token as any).creatorLabel || shouldUpgradeFromWeak)) {
         (token as any).creatorLabel = creatorMeta.creatorLabel;
       }
-      if (String(token.launchpad || '').toLowerCase() === 'bonk.fun') {
+      const launchpadTag = String(token.launchpad || '').toLowerCase();
+      const shouldUseDexCreatorFallback =
+        (chainId === 'solana' && launchpadTag === 'bonk.fun') ||
+        (chainId === 'bsc' && launchpadTag === 'four.meme');
+      if (shouldUseDexCreatorFallback) {
         const dexFallback = pickDexCreatorMetaFromToken(token as any);
         if (dexFallback.creatorUrl && !(token as any).creatorUrl) {
           (token as any).creatorUrl = dexFallback.creatorUrl;
@@ -1135,6 +1204,7 @@ async function enrichLaunchpadsForTrending(
         launchMultiple: token.launchMultiple
       });
       await persistLaunchpad(token as any, 'detector_backfill');
+      await delCacheKey(launchpadClearFailKey(chainId, token.address)).catch(() => undefined);
     } catch {
       // Best-effort metadata backfill only.
     }
@@ -1161,13 +1231,15 @@ async function enrichLaunchpadsForTrending(
             requireCreator: true
           });
           if (!detected) return;
-          const normalized = normalizeLaunchpad(detected?.provider || null);
+          const normalized = normalizeLaunchpadProvider(detected?.provider || null);
           if (normalized && !token.launchpad) token.launchpad = normalized;
           const creatorMeta = pickCreatorMeta(detected);
           if (creatorMeta.creatorAddress && !token.creatorAddress) token.creatorAddress = creatorMeta.creatorAddress;
           if (creatorMeta.creatorUrl && !(token as any).creatorUrl) (token as any).creatorUrl = creatorMeta.creatorUrl;
           if (creatorMeta.creatorLabel && !(token as any).creatorLabel) (token as any).creatorLabel = creatorMeta.creatorLabel;
-          if (String(token.launchpad || '').toLowerCase() === 'bonk.fun') {
+          const launchpadTag = String(token.launchpad || '').toLowerCase();
+          const shouldUseDexCreatorFallback = launchpadTag === 'bonk.fun';
+          if (shouldUseDexCreatorFallback) {
             const dexFallback = pickDexCreatorMetaFromToken(token as any);
             if (dexFallback.creatorUrl && !(token as any).creatorUrl) {
               (token as any).creatorUrl = dexFallback.creatorUrl;
@@ -1186,6 +1258,7 @@ async function enrichLaunchpadsForTrending(
             launchMultiple: token.launchMultiple
           });
           await persistLaunchpad(token as any, 'detector_discovery');
+          await delCacheKey(launchpadClearFailKey(chainId, token.address)).catch(() => undefined);
         } catch {
           // best-effort creator discovery only
         }

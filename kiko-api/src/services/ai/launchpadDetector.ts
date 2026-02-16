@@ -11,7 +11,7 @@ import { LogCode } from '../../config/logRegistry.js';
 import { SOLANA_CONFIG } from '../../config/solanaConfig.js';
 import { fetchJson } from '../../config/unifiedApiService.js';
 import { getEthersProvider, getSolanaConnection } from '../rpcManager.js';
-import { get as getCache, set as setCache } from '../../cache/redis.js';
+import { del as delCache, get as getCache, set as setCache, setIfNotExists } from '../../cache/cacheClient.js';
 import { ethers } from 'ethers';
 import { DOPPLER_HOOKS_BY_CHAIN } from '../dex/v4Hooks.js';
 
@@ -88,13 +88,6 @@ const DOPPLER_INDEXER_BASES = (process.env.DOPPLER_INDEXER_BASES
     ]);
 const DOPPLER_INDEXER_API_KEY = process.env.DOPPLER_INDEXER_API_KEY || process.env.DOPPLER_API_KEY || '';
 const DOPPLER_INDEXER_BEARER = process.env.DOPPLER_INDEXER_BEARER || process.env.DOPPLER_BEARER_TOKEN || '';
-const FLAP_CREATOR_ABI = [
-    'function creator() view returns (address)',
-    'function getCreator() view returns (address)',
-    'function owner() view returns (address)',
-    'function deployer() view returns (address)',
-    'function dev() view returns (address)'
-] as const;
 const UNISWAP_V4_POOL_MANAGER_BY_CHAIN: Record<number, string> = {
     8453: '0x000000000004444c5dc75cb358380d2e3de08a90',
     1: '0x000000000004444c5dc75cb358380d2e3de08a90'
@@ -106,21 +99,67 @@ const v4InitEventInterface = new ethers.Interface([
 const PROVIDER_BACKOFF_BASE_MS = Math.max(30_000, Number(process.env.LAUNCHPAD_PROVIDER_BACKOFF_BASE_MS || '120000'));
 const PROVIDER_BACKOFF_MAX_MS = Math.max(PROVIDER_BACKOFF_BASE_MS, Number(process.env.LAUNCHPAD_PROVIDER_BACKOFF_MAX_MS || '1800000'));
 const providerBackoffState = new Map<string, { until: number; strikes: number }>();
-const LAUNCHPAD_CACHE_PREFIX = 'launchpad:detected:v2';
-const LAUNCHPAD_CACHE_TTL_HOURS = Math.max(24, Number(process.env.LAUNCHPAD_CACHE_TTL_HOURS || '72'));
-const LAUNCHPAD_NEGATIVE_CACHE_PREFIX = 'launchpad:detected:none:v1';
-const LAUNCHPAD_NEGATIVE_CACHE_TTL_HOURS = Math.max(1, Number(process.env.LAUNCHPAD_NEGATIVE_CACHE_TTL_HOURS || '24'));
-const LAUNCHPAD_RETRY_CACHE_PREFIX = 'launchpad:detected:retry:v1';
-const LAUNCHPAD_RETRY_CACHE_TTL_SECONDS = Math.max(60, Number(process.env.LAUNCHPAD_RETRY_CACHE_TTL_SECONDS || '1200'));
-const LAUNCHPAD_RAW_CACHE_PREFIX = 'launchpad:raw:v1';
-const LAUNCHPAD_RAW_CACHE_TTL_SECONDS = Math.max(10 * 60, Number(process.env.LAUNCHPAD_RAW_CACHE_TTL_SECONDS || `${60 * 60}`));
+const LAUNCHPAD_DECISION_CACHE_PREFIX = 'launchpad:decision:v3';
+const LAUNCHPAD_DECISION_STALE_TTL_SECONDS = Math.max(60, Number(process.env.LAUNCHPAD_DECISION_STALE_TTL_SECONDS || '300'));
+const LAUNCHPAD_DECISION_CACHE_TTL_SECONDS = Math.max(LAUNCHPAD_DECISION_STALE_TTL_SECONDS, Number(process.env.LAUNCHPAD_DECISION_CACHE_TTL_SECONDS || '1200'));
+const LAUNCHPAD_NEGATIVE_CACHE_PREFIX = 'launchpad:negative:v2';
+const LAUNCHPAD_NEGATIVE_CACHE_TTL_SECONDS = Math.max(30, Number(process.env.LAUNCHPAD_NEGATIVE_CACHE_TTL_SECONDS || '120'));
+const LAUNCHPAD_RETRY_CACHE_PREFIX = 'launchpad:retry:v2';
+const LAUNCHPAD_RETRY_CACHE_TTL_SECONDS = Math.max(60, Number(process.env.LAUNCHPAD_RETRY_CACHE_TTL_SECONDS || '600'));
+const LAUNCHPAD_RAW_CACHE_PREFIX = 'launchpad:raw:v2';
+const LAUNCHPAD_RAW_CACHE_TTL_SECONDS = Math.max(10 * 60, Number(process.env.LAUNCHPAD_RAW_CACHE_TTL_SECONDS || `${2 * 60 * 60}`));
+const LAUNCHPAD_DECISION_DETECTOR_VERSION = process.env.LAUNCHPAD_DETECTOR_VERSION || 'v3';
+const LAUNCHPAD_REFRESH_LOCK_TTL_SECONDS = 15;
+const LEGACY_LAUNCHPAD_CACHE_PREFIX = 'launchpad:detected:v2';
 const ZORA_INDEX_TTL_MS = 10 * 60 * 1000;
+
+const BASE_DOPPLER_DENYLIST = new Set<string>([
+    '0x0b3e328455c4059eeb9e3f84b5543f74e24e7e1b',
+    '0x9eadbe35f3ee3bf3e28180070c429298a1b02f93',
+    '0x940181a94a35a4569e4529a3cdfb74e38fd98631',
+    '0xf8e76b87ca61d9ecdada87393ab4864c6b3de479',
+    '0xef5997c2cf2f6c138196f8a6203afc335206b3c1',
+    '0x93918567cdd1bc845be955325a43419a7c56d66f',
+    ZORA_PLATFORM_TOKEN
+]);
+
+for (const raw of String(process.env.BASE_DOPPLER_DENYLIST || '')
+    .split(',')
+    .map((v) => v.trim().toLowerCase())
+    .filter(Boolean)) {
+    if (/^0x[0-9a-f]{40}$/.test(raw)) BASE_DOPPLER_DENYLIST.add(raw);
+}
+
+type LaunchpadValidationFlags = {
+    hasPool?: boolean;
+    isDerc20?: boolean;
+    isCreatorCoin?: boolean;
+    denylisted?: boolean;
+};
+
+type LaunchpadDecisionCacheV3 = {
+    version: 3;
+    provider: LaunchpadResult['provider'];
+    data: any;
+    chainId: number;
+    source?: string;
+    confidence: number;
+    detectorVersion: string;
+    cachedAt: number;
+    staleAt: number;
+    expiresAt: number;
+    validationFlags?: LaunchpadValidationFlags;
+};
 
 let zoraAddressIndexCache: { set: Set<string>; expiry: number } | null = null;
 let zoraAddressIndexInflight: Promise<Set<string>> | null = null;
 
-function buildPersistentCacheKey(address: string, chainId?: number): string {
-    return `${LAUNCHPAD_CACHE_PREFIX}:${chainId || 'any'}:${address.toLowerCase()}`;
+function buildDecisionCacheKey(address: string, chainId?: number): string {
+    return `${LAUNCHPAD_DECISION_CACHE_PREFIX}:${chainId || 'any'}:${address.toLowerCase()}`;
+}
+
+function buildLegacyDecisionCacheKey(address: string, chainId?: number): string {
+    return `${LEGACY_LAUNCHPAD_CACHE_PREFIX}:${chainId || 'any'}:${address.toLowerCase()}`;
 }
 
 function buildNegativeCacheKey(address: string, chainId?: number): string {
@@ -133,6 +172,10 @@ function buildRetryCacheKey(address: string, chainId?: number): string {
 
 function buildRawCacheKey(provider: string, address: string, chainId?: number): string {
     return `${LAUNCHPAD_RAW_CACHE_PREFIX}:${provider}:${chainId || 'any'}:${address.toLowerCase()}`;
+}
+
+function buildRefreshLockKey(address: string, chainId?: number): string {
+    return `launchpad:refresh:lock:v1:${chainId || 'any'}:${address.toLowerCase()}`;
 }
 
 function isLaunchpadProvider(value: unknown): value is LaunchpadResult['provider'] {
@@ -189,35 +232,94 @@ function hasCreatorInResult(result: LaunchpadResult | null | undefined): boolean
     return false;
 }
 
-async function readPersistentLaunchpadCache(address: string, chainId?: number): Promise<LaunchpadResult | null> {
+function isValidDopplerDecision(address: string, chainId: number, data: any): { ok: boolean; flags: LaunchpadValidationFlags } {
+    const lower = address.toLowerCase();
+    const hasPool = !!normalizeEvmAddress(data?.poolAddress || data?.pool?.address || '');
+    const isDerc20 = data?.isDerc20 === true;
+    const isCreatorCoin = data?.isCreatorCoin === true;
+    const denylisted = chainId === 8453 && BASE_DOPPLER_DENYLIST.has(lower);
+    const ok = !denylisted && (hasPool || isDerc20 || isCreatorCoin);
+    return { ok, flags: { hasPool, isDerc20, isCreatorCoin, denylisted } };
+}
+
+function validateCachedDecision(
+    address: string,
+    chainId: number | undefined,
+    decision: LaunchpadDecisionCacheV3
+): { ok: boolean; validationFlags?: LaunchpadValidationFlags } {
+    if (decision.version !== 3) return { ok: false };
+    if (!isLaunchpadProvider(decision.provider)) return { ok: false };
+    const resolvedChainId = Number(decision.chainId || chainId || 0);
+    if (!Number.isFinite(resolvedChainId) || resolvedChainId <= 0) return { ok: false };
+    if (chainId && resolvedChainId !== chainId) return { ok: false };
+    if (decision.provider === 'doppler') {
+        return isValidDopplerDecision(address, resolvedChainId, decision.data || {});
+    }
+    return { ok: true, validationFlags: decision.validationFlags };
+}
+
+async function readPersistentLaunchpadDecision(
+    address: string,
+    chainId?: number
+): Promise<{ result: LaunchpadResult; stale: boolean } | null> {
     try {
-        const raw = await getCache(buildPersistentCacheKey(address, chainId));
+        const key = buildDecisionCacheKey(address, chainId);
+        const raw = await getCache(key);
         if (!raw) return null;
-        const parsed = JSON.parse(raw) as any;
-        if (!parsed || !isLaunchpadProvider(parsed.provider)) return null;
-        const resolvedChainId = Number(parsed.chainId);
+        const parsed = JSON.parse(raw) as LaunchpadDecisionCacheV3;
+        const validation = validateCachedDecision(address, chainId, parsed);
+        if (!validation.ok) {
+            await delCache(key).catch(() => {});
+            return null;
+        }
+        const now = Date.now();
+        const expiresAt = Number(parsed.expiresAt || 0);
+        if (!Number.isFinite(expiresAt) || expiresAt <= now) {
+            await delCache(key).catch(() => {});
+            return null;
+        }
+        const resolvedChainId = Number(parsed.chainId || chainId || 0);
         return {
-            provider: parsed.provider,
-            data: parsed.data || null,
-            chainId: Number.isFinite(resolvedChainId) ? resolvedChainId : (chainId || 0)
+            result: {
+                provider: parsed.provider,
+                data: parsed.data || null,
+                chainId: resolvedChainId
+            },
+            stale: Number(parsed.staleAt || 0) <= now
         };
     } catch {
         return null;
     }
 }
 
-async function writePersistentLaunchpadCache(address: string, chainId: number | undefined, result: LaunchpadResult): Promise<void> {
+async function writePersistentLaunchpadDecision(address: string, chainId: number | undefined, result: LaunchpadResult): Promise<void> {
+    const now = Date.now();
+    const resolvedChainId = Number(result.chainId || chainId || 0);
+    const confidence = result.provider === 'doppler' ? 0.95 : 0.9;
+    const validationFlags = result.provider === 'doppler'
+        ? isValidDopplerDecision(address, resolvedChainId, result.data || {}).flags
+        : undefined;
+    const payload: LaunchpadDecisionCacheV3 = {
+        version: 3,
+        provider: result.provider,
+        data: result.data || null,
+        chainId: resolvedChainId,
+        source: (result.data as any)?.source || 'detector',
+        confidence,
+        detectorVersion: LAUNCHPAD_DECISION_DETECTOR_VERSION,
+        cachedAt: now,
+        staleAt: now + (LAUNCHPAD_DECISION_STALE_TTL_SECONDS * 1000),
+        expiresAt: now + (LAUNCHPAD_DECISION_CACHE_TTL_SECONDS * 1000),
+        validationFlags
+    };
     try {
         await setCache(
-            buildPersistentCacheKey(address, chainId),
-            JSON.stringify({
-                provider: result.provider,
-                data: result.data || null,
-                chainId: result.chainId,
-                cachedAt: Date.now()
-            }),
-            LAUNCHPAD_CACHE_TTL_HOURS * 60 * 60
+            buildDecisionCacheKey(address, chainId),
+            JSON.stringify(payload),
+            LAUNCHPAD_DECISION_CACHE_TTL_SECONDS
         );
+        // Best effort: scrub legacy decision key to avoid stale v2 resurrection by older fallback readers.
+        await delCache(buildLegacyDecisionCacheKey(address, chainId)).catch(() => {});
     } catch {
         // Ignore persistent cache errors
     }
@@ -239,7 +341,7 @@ async function writeNegativeLaunchpadCache(address: string, chainId?: number): P
         await setCache(
             buildNegativeCacheKey(address, chainId),
             JSON.stringify({ none: true, cachedAt: Date.now() }),
-            LAUNCHPAD_NEGATIVE_CACHE_TTL_HOURS * 60 * 60
+            LAUNCHPAD_NEGATIVE_CACHE_TTL_SECONDS
         );
     } catch {
         // Ignore persistent cache errors
@@ -408,14 +510,26 @@ async function getFourMemeToken(address: string): Promise<any | null> {
                 || data.data.creator
                 || data.data.deployer
             ) || undefined;
-            const twitterUrl = typeof data.data.twitterUrl === 'string' ? data.data.twitterUrl : undefined;
+            const twitterUrlRaw = [
+                data.data.twitterUrl,
+                data.data.twitter,
+                data.data.xUrl,
+                data.data.x,
+                data.data.social_context?.messageId,
+                data.data.social_context?.message_id,
+                data.data.social_context?.twitter,
+                data.data.social_context?.x,
+            ].find((v) => typeof v === 'string' && !!String(v).trim()) as string | undefined;
+            const twitterUrl = typeof twitterUrlRaw === 'string' ? twitterUrlRaw.trim() : undefined;
             let creatorLabel: string | undefined;
             if (twitterUrl) {
                 const user = extractXUsernameFromUrl(twitterUrl);
                 if (user) creatorLabel = `@${user}`;
             }
             if (!creatorLabel) {
-                creatorLabel = creatorAddress || undefined;
+                // If a social URL exists but no resolvable handle (e.g. x.com/i/status/...),
+                // keep creator display as platform label, not raw address.
+                creatorLabel = twitterUrl ? 'X post' : (creatorAddress || undefined);
             }
             return {
                 ...data.data,
@@ -658,7 +772,8 @@ async function getVirtualsToken(address: string, _mode: DetectMode = 'full'): Pr
             url.searchParams.append('page', '1');
             const data = await fetchJson({
                 url: url.toString(),
-                timeout: 8000,
+                // Keep provider timeout below global detector timeout to avoid guaranteed null on race.
+                timeout: 2200,
                 headers: {
                     'Accept': 'application/json',
                     'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
@@ -726,6 +841,7 @@ async function getDopplerToken(address: string, chainId?: number): Promise<any |
         if (isProviderBackoffActive('doppler')) return null;
         const lower = address.toLowerCase();
         const cid = Number(chainId || 8453);
+        if (cid === 8453 && BASE_DOPPLER_DENYLIST.has(lower)) return null;
         const headers = buildDopplerHeaders();
         const query = `query DopplerToken($address: String!, $chainId: Float!) {
   token(address: $address, chainId: $chainId) {
@@ -828,7 +944,7 @@ export async function getDopplerTokensBatch(addresses: string[], chainId = 8453)
         addresses
             .map((a) => normalizeEvmAddress(a))
             .filter((a): a is string => !!a)
-    ));
+    )).filter((addr) => !(Number(chainId) === 8453 && BASE_DOPPLER_DENYLIST.has(addr)));
     if (normalized.length === 0) return result;
     if (isProviderBackoffActive('doppler')) return result;
 
@@ -1022,11 +1138,9 @@ async function getFlapToken(address: string): Promise<any | null> {
         }
 
         const token = new ethers.Contract(address, FLAP_META_ABI, provider);
-        const creatorProbe = new ethers.Contract(address, FLAP_CREATOR_ABI, provider);
         let metaUri: string | null = null;
         let name = 'Unknown';
         let symbol = 'UNKNOWN';
-        let creatorAddress: string | undefined;
         try { metaUri = await token.metaURI(); } catch { /* no-op */ }
         if (!metaUri) {
             try { metaUri = await token.meta(); } catch { /* no-op */ }
@@ -1036,47 +1150,12 @@ async function getFlapToken(address: string): Promise<any | null> {
         }
         try { name = await token.name(); } catch { /* no-op */ }
         try { symbol = await token.symbol(); } catch { /* no-op */ }
-        try {
-            const creator = await creatorProbe.creator();
-            const normalized = normalizeEvmAddress(creator);
-            if (normalized) creatorAddress = normalized;
-        } catch { /* no-op */ }
-        if (!creatorAddress) {
-            try {
-                const creator = await creatorProbe.getCreator();
-                const normalized = normalizeEvmAddress(creator);
-                if (normalized) creatorAddress = normalized;
-            } catch { /* no-op */ }
-        }
-        if (!creatorAddress) {
-            try {
-                const owner = await creatorProbe.owner();
-                const normalized = normalizeEvmAddress(owner);
-                if (normalized) creatorAddress = normalized;
-            } catch { /* no-op */ }
-        }
-        if (!creatorAddress) {
-            try {
-                const deployer = await creatorProbe.deployer();
-                const normalized = normalizeEvmAddress(deployer);
-                if (normalized) creatorAddress = normalized;
-            } catch { /* no-op */ }
-        }
-        if (!creatorAddress) {
-            try {
-                const dev = await creatorProbe.dev();
-                const normalized = normalizeEvmAddress(dev);
-                if (normalized) creatorAddress = normalized;
-            } catch { /* no-op */ }
-        }
-
         const imageUrl = await resolveFlapTokenImage(metaUri);
         markProviderHealthy('flap');
         return {
             address,
             name,
             symbol,
-            creatorAddress,
             status: statusRaw,
             source: 'flap_portal',
             metaURI: metaUri || undefined,
@@ -1391,11 +1470,14 @@ export async function detectLaunchpadToken(
         }
     }
 
-    const persistent = !forceRefresh ? await readPersistentLaunchpadCache(address, chainId) : null;
-    if (persistent) {
-        if (!needsCreator || hasCreatorInResult(persistent)) {
-            DETECTION_CACHE.set(cacheKey, { result: persistent, expiry: Date.now() + CACHE_TTL });
-            return persistent;
+    const persistent = !forceRefresh ? await readPersistentLaunchpadDecision(address, chainId) : null;
+    if (persistent?.result) {
+        if (!needsCreator || hasCreatorInResult(persistent.result)) {
+            DETECTION_CACHE.set(cacheKey, { result: persistent.result, expiry: Date.now() + CACHE_TTL });
+            if (persistent.stale) {
+                void refreshLaunchpadDecisionInBackground(address, chainId, { ...options, forceRefresh: true }, cacheKey);
+            }
+            return persistent.result;
         }
     }
     if (!forceRefresh && await readRetryLaunchpadCache(address, chainId)) {
@@ -1429,7 +1511,9 @@ export async function detectLaunchpadToken(
         if (timeoutId) clearTimeout(timeoutId);
 
         if (result) {
-            await writePersistentLaunchpadCache(address, chainId, result);
+            await writePersistentLaunchpadDecision(address, chainId, result);
+            await delCache(buildNegativeCacheKey(address, chainId)).catch(() => {});
+            await delCache(buildRetryCacheKey(address, chainId)).catch(() => {});
         } else if (hasAnyRelevantBackoff(address, chainId)) {
             await writeRetryLaunchpadCache(address, chainId);
         } else if (useNegativeCache) {
@@ -1441,6 +1525,38 @@ export async function detectLaunchpadToken(
     } catch (err) {
         if (timeoutId) clearTimeout(timeoutId);
         throw err;
+    }
+}
+
+async function refreshLaunchpadDecisionInBackground(
+    address: string,
+    chainId: number | undefined,
+    options: DetectOptions,
+    cacheKey: string
+): Promise<void> {
+    const lockKey = buildRefreshLockKey(address, chainId);
+    const lockValue = `${Date.now()}:${Math.random().toString(16).slice(2)}`;
+    const locked = await setIfNotExists(lockKey, lockValue, LAUNCHPAD_REFRESH_LOCK_TTL_SECONDS);
+    if (!locked) return;
+
+    try {
+        const useNegativeCache = Number(chainId || 0) !== 8453;
+        const detected = await handleDetection(address, chainId, cacheKey, { ...options, forceRefresh: true });
+        if (detected) {
+            await writePersistentLaunchpadDecision(address, chainId, detected);
+            await delCache(buildNegativeCacheKey(address, chainId)).catch(() => {});
+            await delCache(buildRetryCacheKey(address, chainId)).catch(() => {});
+            return;
+        }
+        if (hasAnyRelevantBackoff(address, chainId)) {
+            await writeRetryLaunchpadCache(address, chainId);
+        } else if (useNegativeCache) {
+            await writeNegativeLaunchpadCache(address, chainId);
+        }
+    } catch {
+        // Non-blocking refresh path.
+    } finally {
+        await delCache(lockKey).catch(() => {});
     }
 }
 
@@ -1638,6 +1754,21 @@ async function handleDetection(
             return null;
         }
 
+        // Priority 0 (Base only): Virtuals fast-path.
+        // Virtuals API can return exact tokenAddress/migrateTokenAddress matches quickly,
+        // and prevents false "Ask AI" when slower providers consume the global timeout budget.
+        if (basePlatforms && !isProviderBackoffActive('virtuals')) {
+            const virtualFast = await Promise.race([
+                getVirtualsToken(address, options.mode || 'full').catch(() => null),
+                new Promise<null>((resolve) => setTimeout(() => resolve(null), 2500)),
+            ]);
+            if (virtualFast) {
+                const result: LaunchpadResult = { provider: 'virtuals', data: virtualFast, chainId: 8453 };
+                DETECTION_CACHE.set(cacheKey, { result, expiry: Date.now() + CACHE_TTL });
+                return result;
+            }
+        }
+
         // === PRIORITY-BASED DETECTION with Early Return ===
         // Check Zora FIRST (fastest & most reliable for Creator Tokens)
         // Only check other platforms if Zora returns null
@@ -1645,7 +1776,10 @@ async function handleDetection(
         // Priority 1: Zora SDK (very fast, ~100-500ms)
         if (basePlatforms && !isProviderBackoffActive('zora')) {
             try {
-                const zoraResult = await zoraService.getCoinByAddress(address);
+                const zoraResult = await Promise.race([
+                    zoraService.getCoinByAddress(address),
+                    new Promise<null>((resolve) => setTimeout(() => resolve(null), 1800)),
+                ]);
                 if (zoraResult) {
                     markProviderHealthy('zora');
                     const result: LaunchpadResult = { provider: 'zora', data: zoraResult, chainId: 8453 };
@@ -1664,7 +1798,10 @@ async function handleDetection(
         // Priority 1.5: Zora API index fallback (still official Zora API/SDK data)
         if (basePlatforms && !options.requireCreator) {
             try {
-                const zoraIndex = await getZoraAddressIndex();
+                const zoraIndex = await Promise.race([
+                    getZoraAddressIndex(),
+                    new Promise<Set<string>>((resolve) => setTimeout(() => resolve(new Set<string>()), 900)),
+                ]);
                 if (zoraIndex.has(lowerAddress)) {
                     const result: LaunchpadResult = {
                         provider: 'zora',
@@ -1680,18 +1817,24 @@ async function handleDetection(
         }
 
         // Priority 1.6~1.9: Base API checks in parallel; choose by strict priority.
-        // This avoids missing a valid provider due to global timeout when run sequentially.
+        // Isolate per-provider latency so one slow source cannot block all sources.
         if (basePlatforms) {
             const allowDopplerHookFallback = String(process.env.DOPPLER_HOOK_FALLBACK_ENABLED || '').toLowerCase() === 'true';
-            const [virtualsResult, paragraphResult, clankerResult, dopplerResult, dopplerByHook] = await Promise.all([
-                getVirtualsToken(address, options.mode || 'full').catch(() => null),
-                getParagraphToken(address).catch(() => null),
+            const withProviderTimeout = async <T>(promise: Promise<T>, ms = 1800): Promise<T | null> => {
+                return await Promise.race([
+                    promise,
+                    new Promise<null>((resolve) => setTimeout(() => resolve(null), ms)),
+                ]);
+            };
+            const [virtualsResult, dopplerResult, paragraphResult, clankerResult, dopplerByHook] = await Promise.all([
+                withProviderTimeout(getVirtualsToken(address, options.mode || 'full').catch(() => null)),
+                withProviderTimeout(getDopplerToken(address, 8453).catch(() => null)),
+                withProviderTimeout(getParagraphToken(address).catch(() => null)),
                 (!lowerAddress.endsWith(CLANKER_SUFFIX) && !isProviderBackoffActive('clanker'))
-                    ? getClankerToken(address).catch(() => null)
+                    ? withProviderTimeout(getClankerToken(address).catch(() => null))
                     : Promise.resolve(null),
-                getDopplerToken(address, 8453).catch(() => null),
                 allowDopplerHookFallback
-                    ? getDopplerTokenByV4Hook(address, 8453).catch(() => null)
+                    ? withProviderTimeout(getDopplerTokenByV4Hook(address, 8453).catch(() => null))
                     : Promise.resolve(null),
             ]);
 

@@ -185,6 +185,17 @@ export const RootLayout: React.FC = () => {
                 const messageId = event.data.messageId || event.data.message_id;
                 if (!messageId) return;
 
+                // Zombie Guard: Discard chunks if the task has been locally stopped
+                const targetConvForChunk = conversationsRef.current.find(c => c.id === targetSessionId);
+                const localActiveTaskId = targetConvForChunk?.activeTask?.id;
+                // Note: implicit task ID is `task-${messageId}` (see message_start logic)
+                const expectedTaskId = `task-${messageId}`;
+
+                if (!targetConvForChunk?.activeTask || (localActiveTaskId !== expectedTaskId && !localActiveTaskId?.includes(messageId))) {
+                    console.warn('[RootLayout] Zombie chunk detected, discarding:', messageId);
+                    return;
+                }
+
                 const msg = sessionPending.get(messageId) || {
                     id: messageId,
                     role: 'assistant',
@@ -294,11 +305,10 @@ export const RootLayout: React.FC = () => {
                 if (targetConv) {
                     const status = event.data.status;
                     const taskId = event.data.taskId || event.data.task_id;
-                    const taskType = event.data.taskType || 'text';
 
                     if (status === 'done' || status === 'completed') {
                         updateConversation(targetSessionId, { activeTask: null });
-                    } else if ((status === 'running' || status === 'pending') && taskType === 'text') {
+                    } else if (status === 'running' || status === 'pending') {
                         updateConversation(targetSessionId, {
                             activeTask: { id: taskId, status: 'running', message: event.data.message }
                         });

@@ -1,7 +1,7 @@
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
 import type { DecodedSwap } from './txDecoder.js';
-import { acquireLock, releaseLock, get as cacheGet, set as cacheSet } from '../cache/redis.js';
+import { acquireLock, releaseLock, get as cacheGet, set as cacheSet } from '../cache/cacheClient.js';
 import { randomUUID } from 'node:crypto';
 import { getPendingTxHint, markCopyTradeTxState } from './copyTradeTxStateService.js';
 

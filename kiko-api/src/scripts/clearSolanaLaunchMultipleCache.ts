@@ -1,5 +1,5 @@
 import prisma from '../db/prisma.js';
-import { connectRedis, del } from '../cache/redis.js';
+import { connectRedis, del } from '../cache/cacheClient.js';
 
 async function main() {
   await connectRedis();

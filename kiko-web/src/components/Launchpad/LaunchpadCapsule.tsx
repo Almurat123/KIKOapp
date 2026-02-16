@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { getLaunchpadDisplayName, LAUNCHPAD_LOGOS } from '../../utils/launchpadLogos';
+import { getLaunchpadDisplayName, LAUNCHPAD_LOGOS, normalizeLaunchpadTag } from '../../utils/launchpadLogos';
 import styles from './LaunchpadCapsule.module.css';
 import kikoLogoDark from '../../assets/images/KIKOdark.png';
 import kikoLogoLight from '../../assets/images/KIKOlight.png';
@@ -9,9 +9,6 @@ interface LaunchpadCapsuleProps {
     address: string;
     chain: string;
     launchpad?: string; // Optional backend-provided launchpad tag
-    websiteUrl?: string;
-    creatorUrl?: string;
-    creatorLabel?: string;
     onAskAI?: () => void;
 }
 
@@ -23,24 +20,8 @@ export const LaunchpadCapsule: React.FC<LaunchpadCapsuleProps> = ({
 }) => {
     const { resolvedTheme } = useThemeContext();
 
-    // 1. Determine Launchpad (Backend priority, then local fallback if needed)
-    // Since backend does the heave lifting, we primarily rely on the prop.
-    // NOTE: Local fallback logic can be added here if backend data latency is an issue, 
-    // but per requirements, we trust the DB flow. Since the user asked for logic 
-    // "based on chain matching" we can include a light version here if prop is missing.
-
-    const normalizeLaunchpad = (value?: string | null): string | null => {
-        const v = String(value || '').trim().toLowerCase();
-        if (!v) return null;
-        if (v === 'pumpfun') return 'pump.fun';
-        if (v === 'bonkfun') return 'bonk.fun';
-        if (v === 'fourmeme') return 'four.meme';
-        if (v === 'dopplerfinance' || v === 'doppler finance') return 'doppler';
-        return v;
-    };
-
     const detectedLaunchpad = useMemo(() => {
-        const normalizedBackend = normalizeLaunchpad(backendLaunchpad);
+        const normalizedBackend = normalizeLaunchpadTag(backendLaunchpad);
         return normalizedBackend;
     }, [backendLaunchpad]);
 

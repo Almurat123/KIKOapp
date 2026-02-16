@@ -4,7 +4,7 @@
  */
 
 import { FastifyInstance } from 'fastify';
-import { get, set } from '../cache/redis.js';
+import { get, set } from '../cache/cacheClient.js';
 import { validateLimit } from '../utils/validation.js';
 
 // Lazy-loaded Paragraph API (to avoid startup crash from broken doppler-router)

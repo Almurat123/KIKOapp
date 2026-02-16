@@ -2,7 +2,7 @@ import { getWalletTransactions as fetchAlchemyTransactions, WalletBalance, getPo
 import prisma from '../db/prisma.js';
 import { getNativeBalance } from './rpcManager.js';
 import { ethers } from 'ethers';
-import { get as cacheGet, set as cacheSet } from '../cache/redis.js';
+import { get as cacheGet, set as cacheSet } from '../cache/cacheClient.js';
 
 const ALL_BALANCES_CACHE_TTL_MS = 60_000; // 增加到 60 秒，减少 RPC 调用
 const allBalancesCache = new Map<string, { timestamp: number; data: Record<string, WalletBalance> }>();

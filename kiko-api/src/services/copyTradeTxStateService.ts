@@ -1,4 +1,4 @@
-import { get as cacheGet, set as cacheSet } from '../cache/redis.js';
+import { get as cacheGet, set as cacheSet } from '../cache/cacheClient.js';
 import type { DecodedSwap } from './txDecoder.js';
 
 export type CopyTradeTxState =

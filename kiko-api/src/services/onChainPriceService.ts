@@ -10,7 +10,7 @@ import { getChainConfig } from '../config/chainConfig.js';
 import { TOKEN_REGISTRY, getTokenDecimalsFromRegistry, NATIVE_TOKEN_ADDRESS } from '../config/tokenRegistry.js';
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
-import { get as cacheGet, set as cacheSet } from '../cache/redis.js';
+import { get as cacheGet, set as cacheSet } from '../cache/cacheClient.js';
 import { ethers } from 'ethers';
 import { calculatePriceFromSqrtX96, findV4Pools, V4_STATE_VIEW } from './dex/uniswapV4.js';
 import { get as getDbCache, set as setDbCache } from '../cache/dbCache.js';

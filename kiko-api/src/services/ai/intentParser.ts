@@ -271,7 +271,7 @@ CONTRACT ADDRESS HANDLING:
 /**
  * Detect contract address pattern
  */
-function detectContractAddress(text: string): string | null {
+export function detectContractAddress(text: string): string | null {
     // EVM address: 0x + 40 hex
     const evmPattern = /0x[a-fA-F0-9]{40}/i;
     const evmMatch = text.match(evmPattern);

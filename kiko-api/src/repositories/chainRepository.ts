@@ -3,7 +3,7 @@
  */
 
 import prisma, { withRetry } from '../db/prisma.js';
-import { get, set } from '../cache/redis.js';
+import { get, set } from '../cache/cacheClient.js';
 import { ChainData } from '../services/defillama.js';
 
 /**

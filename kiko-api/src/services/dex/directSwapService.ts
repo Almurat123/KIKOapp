@@ -24,7 +24,7 @@ import { getKyberQuote } from '../kyberAggregator.js';
 import { getTokenDetails } from '../geckoTerminal.js';
 import { getTokenMetadata } from '../rpcService.js';
 import { get as getDbCache } from '../../cache/dbCache.js';
-import { get as cacheGet, set as cacheSet, del as cacheDel } from '../../cache/redis.js';
+import { get as cacheGet, set as cacheSet, del as cacheDel } from '../../cache/cacheClient.js';
 import { V2_ROUTER_ABI, V3_FEE_TIERS } from './types.js';
 import { buildAerodromeSwapTransaction, getAerodromeQuote } from './aerodrome.js';
 import { getChainConfig } from '../../config/chainConfig.js';

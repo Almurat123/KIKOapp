@@ -9,7 +9,7 @@ import { LogCode } from '../config/logRegistry.js';
 import { parseSwapTransaction, DecodedSwap } from './txDecoder.js';
 import { callRpc as rpcCall } from './rpcManager.js';
 import { fetchJson } from '../config/unifiedApiService.js';
-import { get as cacheGet, set as cacheSet, acquireLock, releaseLock } from '../cache/redis.js';
+import { get as cacheGet, set as cacheSet, acquireLock, releaseLock } from '../cache/cacheClient.js';
 import { randomUUID } from 'node:crypto';
 
 const PROFILE = process.env.COPYTRADE_PROFILE ? process.env.COPYTRADE_PROFILE === 'true' : true;

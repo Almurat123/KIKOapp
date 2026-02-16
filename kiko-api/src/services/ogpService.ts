@@ -2,7 +2,7 @@
 import * as cheerio from 'cheerio';
 import puppeteer from 'puppeteer-extra';
 import StealthPlugin from 'puppeteer-extra-plugin-stealth';
-import redis from '../cache/redis.js';
+import redis from '../cache/cacheClient.js';
 import { logger } from '../utils/logger.js';
 import { LogCode, LogRole } from '../config/logRegistry.js';
 

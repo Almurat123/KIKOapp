@@ -1,6 +1,6 @@
 
 import { ogpService } from '../services/ogpService.js';
-import redis from '../cache/redis.js';
+import redis from '../cache/cacheClient.js';
 
 async function testVideo() {
     const url = 'https://media.firefly.land/post_m3u8/60aed4cc-eb6b-4f82-853d-2aba545e9a70/60aed4cc-eb6b-4f82-853d-2aba545e9a70.m3u8';

@@ -27,6 +27,8 @@
     "test:tools": "tsx src/scripts/testAllTools.ts",
     "test:chat-evals": "tsx src/scripts/chatEvalGate.ts",
     "cleanup:target-outliers": "tsx src/scripts/cleanupTargetWalletOutliers.ts",
+    "cleanup:doppler-false-positives": "tsx src/scripts/cleanupDopplerFalsePositives.ts",
+    "rehydrate:doppler-base": "tsx src/scripts/rehydrateBaseDopplerProfiles.ts",
     "backfill:target-history": "tsx src/scripts/backfillTargetWalletHistory.ts",
     "sec:slither": "slither contracts/**/*.sol --exclude-dependencies --json slither.json",
     "sec:myth": "myth analyze contracts/Token.sol --max-depth 50 --solver-timeout 60",

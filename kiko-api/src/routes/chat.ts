@@ -14,6 +14,7 @@ import { sanitizedErrorResponse } from '../utils/securityUtils.js';
 import { evaluateUsageAccess } from '../services/usageAccess.js';
 import { getWalletBalance } from '../services/alchemy.js';
 import { ethers } from 'ethers';
+import cacheClient from '../cache/cacheClient.js';
 
 // Request body types
 interface CreateSessionBody {
@@ -627,8 +628,12 @@ export async function chatRoutes(fastify: FastifyInstance) {
                     });
                 }
 
-                // Mark task as cancelled
+                // Mark task as cancelled in database
                 const updatedTask = await chatRepo.updateTaskStatus(taskId, 'cancelled');
+
+                // Set fast-signaling cancellation flag in Redis (1 minute TTL)
+                // This allows the worker to stop mid-stream within milliseconds
+                await cacheClient.set(`chat:cancel:${taskId}`, '1', 60);
 
                 // Mark assistant message as complete (with partial content)
                 if (task.assistant_message_id) {

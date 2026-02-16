@@ -1,6 +1,6 @@
 import { Tool } from '../../../tooling/registry.js';
 import { env } from '../../../config/env.js';
-import { get, set } from '../../../cache/redis.js';
+import { get, set } from '../../../cache/cacheClient.js';
 import { getContractSourceCode, getSolscanVerification, getSourcifyData } from '../../../services/etherscan.js';
 import { scanContract, SecurityFinding } from '../../../services/contractScanner.js';
 import { callRpc, callRpcCustom } from '../../../services/rpcManager.js';

@@ -3,7 +3,7 @@ import { withRetry } from '../db/prisma.js';
 import { normalizeAddress } from '../utils/address.js';
 import { getWalletTransactions } from './alchemy.js';
 import { calculateTargetPnlSummary } from './targetWalletPnl.js';
-import { setIfNotExists } from '../cache/redis.js';
+import { setIfNotExists } from '../cache/cacheClient.js';
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
 import { getChainConfig } from '../config/chainConfig.js';

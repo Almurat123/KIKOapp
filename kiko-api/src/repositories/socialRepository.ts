@@ -1,5 +1,5 @@
 import prisma, { withRetry } from '../db/prisma.js';
-import { get, set, del } from '../cache/redis.js';
+import { get, set, del } from '../cache/cacheClient.js';
 import { TrendingCast } from '../types/social.js';
 import { Decimal } from 'decimal.js';
 import { logger } from '../utils/logger.js';

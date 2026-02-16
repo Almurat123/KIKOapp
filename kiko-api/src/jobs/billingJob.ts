@@ -7,7 +7,7 @@ import { LogCode } from '../config/logRegistry.js';
 import { getBillingTokenPriceUsd } from '../services/billing/priceService.js';
 import { getUtcDateString } from '../services/billing/billingService.js';
 import { sendTransaction } from '../services/privyWallet.js';
-import { acquireLock, releaseLock } from '../cache/redis.js';
+import { acquireLock, releaseLock } from '../cache/cacheClient.js';
 import {
     createBillingBlock,
     getDailyAggregates,

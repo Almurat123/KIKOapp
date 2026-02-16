@@ -1,4 +1,4 @@
-import { get as cacheGet, set as cacheSet, incrBy as cacheIncrBy, setIfNotExists } from '../cache/redis.js';
+import { get as cacheGet, set as cacheSet, incrBy as cacheIncrBy, setIfNotExists } from '../cache/cacheClient.js';
 import { getDailyTotalUsageCount, getDailyUsageCount } from '../repositories/billingRepository.js';
 
 export type UsageCounts = {
