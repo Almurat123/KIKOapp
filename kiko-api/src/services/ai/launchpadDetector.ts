@@ -83,8 +83,8 @@ const PUMPFUN_FRONTEND_BASES = (process.env.PUMPFUN_FRONTEND_BASES
 const DOPPLER_INDEXER_BASES = (process.env.DOPPLER_INDEXER_BASES
     ? process.env.DOPPLER_INDEXER_BASES.split(',').map((v) => v.trim()).filter(Boolean)
     : [
-        'https://indexer.doppler.lol',
-        'https://testnet-indexer.doppler.lol',
+        'https://indexer-prod.marble.live/graphql',
+        'https://testnet-indexer.doppler.lol/graphql',
     ]);
 const DOPPLER_INDEXER_API_KEY = process.env.DOPPLER_INDEXER_API_KEY || process.env.DOPPLER_API_KEY || '';
 const DOPPLER_INDEXER_BEARER = process.env.DOPPLER_INDEXER_BEARER || process.env.DOPPLER_BEARER_TOKEN || '';
@@ -112,6 +112,8 @@ const LAUNCHPAD_NEGATIVE_CACHE_PREFIX = 'launchpad:detected:none:v1';
 const LAUNCHPAD_NEGATIVE_CACHE_TTL_HOURS = Math.max(1, Number(process.env.LAUNCHPAD_NEGATIVE_CACHE_TTL_HOURS || '24'));
 const LAUNCHPAD_RETRY_CACHE_PREFIX = 'launchpad:detected:retry:v1';
 const LAUNCHPAD_RETRY_CACHE_TTL_SECONDS = Math.max(60, Number(process.env.LAUNCHPAD_RETRY_CACHE_TTL_SECONDS || '1200'));
+const LAUNCHPAD_RAW_CACHE_PREFIX = 'launchpad:raw:v1';
+const LAUNCHPAD_RAW_CACHE_TTL_SECONDS = Math.max(10 * 60, Number(process.env.LAUNCHPAD_RAW_CACHE_TTL_SECONDS || `${60 * 60}`));
 const ZORA_INDEX_TTL_MS = 10 * 60 * 1000;
 
 let zoraAddressIndexCache: { set: Set<string>; expiry: number } | null = null;
@@ -129,6 +131,10 @@ function buildRetryCacheKey(address: string, chainId?: number): string {
     return `${LAUNCHPAD_RETRY_CACHE_PREFIX}:${chainId || 'any'}:${address.toLowerCase()}`;
 }
 
+function buildRawCacheKey(provider: string, address: string, chainId?: number): string {
+    return `${LAUNCHPAD_RAW_CACHE_PREFIX}:${provider}:${chainId || 'any'}:${address.toLowerCase()}`;
+}
+
 function isLaunchpadProvider(value: unknown): value is LaunchpadResult['provider'] {
     return value === 'zora'
         || value === 'fourmeme'
@@ -144,6 +150,7 @@ function isLaunchpadProvider(value: unknown): value is LaunchpadResult['provider
 function buildDopplerHeaders(): Record<string, string> {
     const headers: Record<string, string> = {
         'Accept': 'application/json',
+        'Content-Type': 'application/json',
         'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
     };
     if (DOPPLER_INDEXER_API_KEY) {
@@ -264,6 +271,29 @@ async function writeRetryLaunchpadCache(address: string, chainId?: number): Prom
     }
 }
 
+async function readRawLaunchpadCache<T = any>(provider: string, address: string, chainId?: number): Promise<T | null> {
+    try {
+        const raw = await getCache(buildRawCacheKey(provider, address, chainId));
+        if (!raw) return null;
+        const parsed = JSON.parse(raw) as { data?: T };
+        return (parsed?.data ?? null) as T | null;
+    } catch {
+        return null;
+    }
+}
+
+async function writeRawLaunchpadCache(provider: string, address: string, chainId: number | undefined, data: any): Promise<void> {
+    try {
+        await setCache(
+            buildRawCacheKey(provider, address, chainId),
+            JSON.stringify({ data, cachedAt: Date.now() }),
+            LAUNCHPAD_RAW_CACHE_TTL_SECONDS
+        );
+    } catch {
+        // Ignore raw cache errors
+    }
+}
+
 function isRateLimitedError(error: unknown): boolean {
     const msg = String((error as any)?.message || error || '').toLowerCase();
     return msg.includes('429') || msg.includes('rate limit') || msg.includes('too many requests');
@@ -378,11 +408,21 @@ async function getFourMemeToken(address: string): Promise<any | null> {
                 || data.data.creator
                 || data.data.deployer
             ) || undefined;
+            const twitterUrl = typeof data.data.twitterUrl === 'string' ? data.data.twitterUrl : undefined;
+            let creatorLabel: string | undefined;
+            if (twitterUrl) {
+                const user = extractXUsernameFromUrl(twitterUrl);
+                if (user) creatorLabel = `@${user}`;
+            }
+            if (!creatorLabel) {
+                creatorLabel = creatorAddress || undefined;
+            }
             return {
                 ...data.data,
                 creatorAddress,
-                creatorUrl: data.data.twitterUrl || data.data.webUrl || undefined,
-                creatorLabel: data.data.userName || undefined,
+                // four.meme creator rule: twitter first, fallback to creator wallet
+                creatorUrl: twitterUrl || undefined,
+                creatorLabel,
                 createdAt: data.data.createDate ? parseInt(data.data.createDate) : undefined
             };
         }
@@ -402,6 +442,26 @@ function normalizeEvmAddress(value: unknown): string | null {
     if (typeof value !== 'string') return null;
     const addr = value.trim().toLowerCase();
     return /^0x[0-9a-f]{40}$/.test(addr) ? addr : null;
+}
+
+function extractXUsernameFromUrl(raw?: string): string | null {
+    if (!raw) return null;
+    try {
+        const u = new URL(raw.trim());
+        const host = u.hostname.replace(/^www\./, '').toLowerCase();
+        if (!host.includes('x.com') && !host.includes('twitter.com')) return null;
+        const parts = u.pathname.split('/').filter(Boolean);
+        const user = (parts[0] || '').trim().replace(/^@/, '');
+        if (!user) return null;
+        const reserved = new Set([
+            'i', 'intent', 'share', 'home', 'explore', 'search', 'messages',
+            'notifications', 'settings', 'tos', 'privacy', 'status'
+        ]);
+        if (reserved.has(user.toLowerCase())) return null;
+        return user;
+    } catch {
+        return null;
+    }
 }
 
 async function getZoraAddressIndex(): Promise<Set<string>> {
@@ -440,6 +500,64 @@ async function getZoraAddressIndex(): Promise<Set<string>> {
 async function getClankerToken(address: string): Promise<any | null> {
     try {
         if (isProviderBackoffActive('clanker')) return null;
+        const lower = address.toLowerCase();
+
+        const cachedPayload = await readRawLaunchpadCache<any>('clanker', lower, 8453);
+        if (cachedPayload) {
+            const tokenAddress = normalizeEvmAddress(
+                cachedPayload?.contract_address
+                || cachedPayload?.token_address
+                || cachedPayload?.tokenAddress
+                || cachedPayload?.address
+                || cachedPayload?.clanker?.tokenAddress
+                || cachedPayload?.clanker?.address
+            );
+            if (tokenAddress === lower) {
+                const requestorFid = Number(cachedPayload?.requestor_fid || cachedPayload?.requestorFid || 0);
+                const socialContext = cachedPayload?.social_context || {};
+                const socialCandidates: string[] = [
+                    socialContext?.messageId,
+                    socialContext?.message_id,
+                    socialContext?.twitter,
+                    socialContext?.x,
+                    socialContext?.url,
+                    socialContext?.link,
+                    socialContext?.profile,
+                    cachedPayload?.twitter,
+                    cachedPayload?.twitterUrl,
+                    cachedPayload?.x,
+                    cachedPayload?.xUrl,
+                ].filter((v): v is string => typeof v === 'string' && !!v.trim());
+                const xUrl = socialCandidates.find((raw) => {
+                    try {
+                        const u = new URL(raw.trim());
+                        return u.hostname.includes('x.com') || u.hostname.includes('twitter.com');
+                    } catch {
+                        return false;
+                    }
+                });
+                const creatorUrl = xUrl || (requestorFid > 0 ? `https://warpcast.com/~/profiles/${requestorFid}` : undefined);
+                let creatorLabel: string | undefined;
+                if (xUrl) {
+                    const user = extractXUsernameFromUrl(xUrl);
+                    if (user) creatorLabel = `@${user}`;
+                }
+                if (!creatorLabel) {
+                    const socialId = typeof socialContext?.id === 'string' ? socialContext.id.trim() : '';
+                    if (socialId) creatorLabel = /^\d+$/.test(socialId) ? 'Farcaster' : `@${socialId.replace(/^@/, '')}`;
+                }
+                markProviderHealthy('clanker');
+                return {
+                    ...cachedPayload,
+                    source: 'clanker_api_cache',
+                    creatorAddress: cachedPayload?.msg_sender || cachedPayload?.creator || undefined,
+                    creatorUrl,
+                    creatorLabel,
+                    imageUrl: cachedPayload?.img_url || cachedPayload?.image || undefined,
+                };
+            }
+        }
+
         const apiKey = process.env.CLANKER_API_KEY;
         if (!apiKey) return null;
 
@@ -470,19 +588,51 @@ async function getClankerToken(address: string): Promise<any | null> {
             || (payload as any)?.clanker?.address
         );
         if (tokenAddress && tokenAddress === address.toLowerCase()) {
+            await writeRawLaunchpadCache('clanker', lower, 8453, payload);
             markProviderHealthy('clanker');
             const requestorFid = Number((payload as any)?.requestor_fid || (payload as any)?.requestorFid || 0);
-            const creatorUrl = requestorFid > 0 ? `https://warpcast.com/~/profiles/${requestorFid}` : undefined;
-            const socialId = typeof (payload as any)?.social_context?.id === 'string'
-                ? (payload as any).social_context.id.trim()
-                : '';
+            const socialContext = (payload as any)?.social_context || {};
+            const socialCandidates: string[] = [
+                socialContext?.messageId,
+                socialContext?.message_id,
+                socialContext?.twitter,
+                socialContext?.x,
+                socialContext?.url,
+                socialContext?.link,
+                socialContext?.profile,
+                (payload as any)?.twitter,
+                (payload as any)?.twitterUrl,
+                (payload as any)?.x,
+                (payload as any)?.xUrl,
+            ].filter((v): v is string => typeof v === 'string' && !!v.trim());
+            const xUrl = socialCandidates.find((raw) => {
+                try {
+                    const u = new URL(raw.trim());
+                    return u.hostname.includes('x.com') || u.hostname.includes('twitter.com');
+                } catch {
+                    return false;
+                }
+            });
+            const creatorUrl = xUrl || (requestorFid > 0 ? `https://warpcast.com/~/profiles/${requestorFid}` : undefined);
+
+            let creatorLabel: string | undefined;
+            if (xUrl) {
+                const user = extractXUsernameFromUrl(xUrl);
+                if (user) creatorLabel = `@${user}`;
+            }
+            if (!creatorLabel) {
+                const socialId = typeof socialContext?.id === 'string' ? socialContext.id.trim() : '';
+                if (socialId) {
+                    creatorLabel = /^\d+$/.test(socialId) ? 'Farcaster' : `@${socialId.replace(/^@/, '')}`;
+                }
+            }
 
             return {
                 ...(payload as any),
                 source: 'clanker_api',
                 creatorAddress: (payload as any)?.msg_sender || (payload as any)?.creator || undefined,
                 creatorUrl,
-                creatorLabel: socialId ? `@${socialId.replace(/^@/, '')}` : undefined,
+                creatorLabel,
                 imageUrl: (payload as any)?.img_url || (payload as any)?.image || undefined,
             };
         }
@@ -571,78 +721,86 @@ async function getVirtualsToken(address: string, _mode: DetectMode = 'full'): Pr
     }
 }
 
-function collectObjectNodes(input: unknown, out: any[] = [], depth = 0): any[] {
-    if (!input || depth > 5) return out;
-    if (Array.isArray(input)) {
-        for (const item of input) collectObjectNodes(item, out, depth + 1);
-        return out;
-    }
-    if (typeof input === 'object') {
-        const obj = input as Record<string, unknown>;
-        out.push(obj);
-        for (const value of Object.values(obj)) {
-            if (value && typeof value === 'object') collectObjectNodes(value, out, depth + 1);
-        }
-    }
-    return out;
-}
-
 async function getDopplerToken(address: string, chainId?: number): Promise<any | null> {
     try {
         if (isProviderBackoffActive('doppler')) return null;
         const lower = address.toLowerCase();
         const cid = Number(chainId || 8453);
         const headers = buildDopplerHeaders();
+        const query = `query DopplerToken($address: String!, $chainId: Float!) {
+  token(address: $address, chainId: $chainId) {
+    address
+    chainId
+    name
+    symbol
+    image
+    creatorAddress
+    isDerc20
+    isCreatorCoin
+    firstSeenAt
+    pool {
+      address
+      fee
+      volumeUsd
+    }
+  }
+}`;
+        const isUsableDopplerHit = (hit: any): boolean => {
+            if (!hit || typeof hit !== 'object') return false;
+            const hasPool = !!normalizeEvmAddress(hit?.pool?.address || '');
+            const isDerc20 = hit?.isDerc20 === true;
+            const isCreatorCoin = hit?.isCreatorCoin === true;
+            // Strict Doppler signal only: explicit launchpad flags/pool presence.
+            // Do not trust generic creatorAddress because indexer can return broad token matches.
+            return hasPool || isDerc20 || isCreatorCoin;
+        };
+
+        const cachedHit = await readRawLaunchpadCache<any>('doppler', lower, cid);
+        if (cachedHit && normalizeEvmAddress(cachedHit?.address) === lower && isUsableDopplerHit(cachedHit)) {
+            markProviderHealthy('doppler');
+            return {
+                ...cachedHit,
+                source: 'doppler_graphql_token_cache',
+                creatorAddress: cachedHit?.creatorAddress || undefined,
+                creatorUrl: undefined,
+                creatorLabel: undefined,
+                imageUrl: cachedHit?.image || undefined,
+                poolAddress: cachedHit?.pool?.address || undefined,
+            };
+        }
+
         for (const base of DOPPLER_INDEXER_BASES) {
             try {
-                const baseUrl = String(base || '').replace(/\/+$/, '');
-                const endpointCandidates = [
-                    `${baseUrl}/search/${encodeURIComponent(address)}?chain_ids=${encodeURIComponent(String(cid))}`,
-                    `${baseUrl}/search?query=${encodeURIComponent(address)}&chain_ids=${encodeURIComponent(String(cid))}`,
-                ];
-
-                let data: any = null;
-                for (const url of endpointCandidates) {
-                    try {
-                        data = await fetchJson({
-                            url,
-                            timeout: 8000,
-                            headers
-                        }) as any;
-                        if (data) break;
-                    } catch (e) {
-                        const msg = String((e as any)?.message || '').toLowerCase();
-                        if (isRateLimitedError(e) || msg.includes('fetch failed') || msg.includes('enotfound')) {
-                            markProviderRateLimited('doppler');
+                const url = String(base || '').replace(/\/+$/, '').endsWith('/graphql')
+                    ? String(base || '').replace(/\/+$/, '')
+                    : `${String(base || '').replace(/\/+$/, '')}/graphql`;
+                const data = await fetchJson({
+                    url,
+                    method: 'POST',
+                    timeout: 5000,
+                    headers,
+                    body: JSON.stringify({
+                        query,
+                        variables: {
+                            address,
+                            chainId: cid
                         }
-                        // Continue to next endpoint candidate under same host.
-                    }
-                }
-                if (!data) continue;
+                    })
+                }) as any;
 
-                const nodes = collectObjectNodes(data);
-                const hit = nodes.find((row: any) => {
-                    const tokenAddress = normalizeEvmAddress(
-                        row?.token_address
-                        || row?.tokenAddress
-                        || row?.address
-                        || row?.coin_address
-                        || row?.coinAddress
-                    );
-                    if (!tokenAddress || tokenAddress !== lower) return false;
-                    const rowChain = Number(row?.chain_id ?? row?.chainId ?? row?.chain ?? 8453);
-                    return !Number.isFinite(rowChain) || rowChain === cid;
-                });
-
-                if (hit) {
+                const hit = data?.data?.token || null;
+                const normalizedAddress = normalizeEvmAddress(hit?.address);
+                if (hit && normalizedAddress === lower && isUsableDopplerHit(hit)) {
+                    await writeRawLaunchpadCache('doppler', lower, cid, hit);
                     markProviderHealthy('doppler');
                     return {
                         ...hit,
-                        source: 'doppler_indexer',
-                        creatorAddress: hit?.creator_address || hit?.creatorAddress || hit?.deployer || undefined,
-                        creatorUrl: hit?.creator_url || hit?.creatorUrl || undefined,
-                        creatorLabel: hit?.creator_label || hit?.creatorLabel || undefined,
-                        imageUrl: hit?.image_url || hit?.image || undefined,
+                        source: 'doppler_graphql_token',
+                        creatorAddress: hit?.creatorAddress || undefined,
+                        creatorUrl: undefined,
+                        creatorLabel: undefined,
+                        imageUrl: hit?.image || undefined,
+                        poolAddress: hit?.pool?.address || undefined,
                     };
                 }
                 markProviderHealthy('doppler');
@@ -662,6 +820,91 @@ async function getDopplerToken(address: string, chainId?: number): Promise<any |
         });
         return null;
     }
+}
+
+export async function getDopplerTokensBatch(addresses: string[], chainId = 8453): Promise<Map<string, any>> {
+    const result = new Map<string, any>();
+    const normalized = Array.from(new Set(
+        addresses
+            .map((a) => normalizeEvmAddress(a))
+            .filter((a): a is string => !!a)
+    ));
+    if (normalized.length === 0) return result;
+    if (isProviderBackoffActive('doppler')) return result;
+
+    const headers = buildDopplerHeaders();
+    const query = `query DopplerTokens($chainId: Int!, $addresses: [String!], $limit: Int!) {
+  tokens(where: { chainId: $chainId, address_in: $addresses }, limit: $limit) {
+    items {
+      address
+      chainId
+      name
+      symbol
+      image
+      creatorAddress
+      isDerc20
+      isCreatorCoin
+      firstSeenAt
+      pool {
+        address
+        fee
+        volumeUsd
+      }
+    }
+  }
+}`;
+
+    for (const base of DOPPLER_INDEXER_BASES) {
+        try {
+            const url = String(base || '').replace(/\/+$/, '').endsWith('/graphql')
+                ? String(base || '').replace(/\/+$/, '')
+                : `${String(base || '').replace(/\/+$/, '')}/graphql`;
+            const data = await fetchJson({
+                url,
+                method: 'POST',
+                timeout: 5000,
+                headers,
+                body: JSON.stringify({
+                    query,
+                    variables: {
+                        chainId: Number(chainId),
+                        addresses: normalized,
+                        limit: Math.max(20, normalized.length + 10)
+                    }
+                })
+            }) as any;
+
+            const items = Array.isArray(data?.data?.tokens?.items) ? data.data.tokens.items : [];
+            for (const item of items) {
+                const addr = normalizeEvmAddress(item?.address);
+                if (!addr) continue;
+                const hasPool = !!normalizeEvmAddress(item?.pool?.address || '');
+                const isDerc20 = item?.isDerc20 === true;
+                const isCreatorCoin = item?.isCreatorCoin === true;
+                if (!(hasPool || isDerc20 || isCreatorCoin)) continue;
+                await writeRawLaunchpadCache('doppler', addr, chainId, item);
+                result.set(addr, {
+                    ...item,
+                    source: 'doppler_graphql_batch',
+                    creatorAddress: item?.creatorAddress || undefined,
+                    creatorUrl: undefined,
+                    creatorLabel: undefined,
+                    imageUrl: item?.image || undefined,
+                    poolAddress: item?.pool?.address || undefined,
+                });
+            }
+
+            markProviderHealthy('doppler');
+            return result;
+        } catch (e) {
+            const msg = String((e as any)?.message || '').toLowerCase();
+            if (isRateLimitedError(e) || msg.includes('fetch failed') || msg.includes('enotfound')) {
+                markProviderRateLimited('doppler');
+            }
+        }
+    }
+
+    return result;
 }
 
 async function getDopplerTokenByV4Hook(address: string, chainId?: number): Promise<any | null> {
@@ -1025,7 +1268,7 @@ async function getRaydiumToken(mintAddress: string): Promise<any | null> {
             'Cache-Control': 'no-cache'
         };
 
-        // 1. Try Raydium V3 Official
+        // 1. Try Raydium V3 Official mint endpoint
         const raydiumUrl = `https://api-v3.raydium.io/mint/ids?mints=${mintAddress}`;
         try {
             const data = await fetchJson({
@@ -1056,9 +1299,45 @@ async function getRaydiumToken(mintAddress: string): Promise<any | null> {
                     };
                 }
 
-                // Fallback: Check on-chain metadata for authoritative indicator
-                // This uses the Launchpad Auth PDA (WLHv...) found via SDK reverse stats
-                logger.debug(LogCode.SYS_INFO, 'LaunchpadDetector: Token missing API indicators, checking on-chain', { mintAddress });
+                // 2) Migration monitor signal from Raydium pool API:
+                // docs: launchpad migration can be monitored via pool status/migration lifecycle.
+                // In v3 REST this is exposed as launchMigratePool on pools linked by mint.
+                try {
+                    const poolsByMintUrl = `https://api-v3.raydium.io/pools/info/mint?mint1=${mintAddress}&poolType=all&poolSortField=default&sortType=desc&pageSize=20&page=1`;
+                    const poolData = await fetchJson({
+                        url: poolsByMintUrl,
+                        timeout: 3000,
+                        suppressError: true,
+                        headers
+                    });
+                    const rows = Array.isArray(poolData?.data?.data) ? poolData.data.data : [];
+                    const migratedLaunchLabPool = rows.find((row: any) => {
+                        if (!row || row.launchMigratePool !== true) return false;
+                        const mintA = row?.mintA?.address;
+                        const mintB = row?.mintB?.address;
+                        return mintA === mintAddress || mintB === mintAddress;
+                    });
+                    if (migratedLaunchLabPool) {
+                        const creatorAddress = pickSolanaCreatorAddress(t) || pickSolanaCreatorAddress(migratedLaunchLabPool);
+                        return {
+                            ...t,
+                            mint: mintAddress,
+                            name: t.name,
+                            symbol: t.symbol,
+                            image_uri: t.logoURI,
+                            decimals: t.decimals,
+                            isBonkFun: true,
+                            source: 'raydium_pool_migration',
+                            poolId: migratedLaunchLabPool.id,
+                            creatorAddress
+                        };
+                    }
+                } catch {
+                    // Continue to on-chain auth fallback
+                }
+
+                // 3) Fallback: check LaunchLab auth PDA on metadata
+                logger.debug(LogCode.SYS_INFO, 'LaunchpadDetector: Token missing API indicators, checking on-chain auth', { mintAddress });
                 const isLaunchpad = await checkLaunchpadAuth(mintAddress);
 
                 if (isLaunchpad) {
@@ -1103,6 +1382,7 @@ export async function detectLaunchpadToken(
     const cacheKey = `${chainId || 'any'}:${mode}:${address.toLowerCase()}`;
     const needsCreator = !!options.requireCreator;
     const forceRefresh = !!options.forceRefresh;
+    const useNegativeCache = Number(chainId || 0) !== 8453;
 
     const cached = DETECTION_CACHE.get(cacheKey);
     if (!forceRefresh && cached && cached.expiry > Date.now()) {
@@ -1122,7 +1402,7 @@ export async function detectLaunchpadToken(
         DETECTION_CACHE.set(cacheKey, { result: null, expiry: Date.now() + Math.min(CACHE_TTL, 60_000) });
         return null;
     }
-    if (!forceRefresh && await readNegativeLaunchpadCache(address, chainId)) {
+    if (!forceRefresh && useNegativeCache && await readNegativeLaunchpadCache(address, chainId)) {
         DETECTION_CACHE.set(cacheKey, { result: null, expiry: Date.now() + CACHE_TTL });
         return null;
     }
@@ -1152,7 +1432,7 @@ export async function detectLaunchpadToken(
             await writePersistentLaunchpadCache(address, chainId, result);
         } else if (hasAnyRelevantBackoff(address, chainId)) {
             await writeRetryLaunchpadCache(address, chainId);
-        } else {
+        } else if (useNegativeCache) {
             await writeNegativeLaunchpadCache(address, chainId);
         }
 
@@ -1184,16 +1464,6 @@ async function handleDetection(
         if (lowerAddress.endsWith('pump') && !options.requireCreator) {
             const result: LaunchpadResult = {
                 provider: 'pumpfun',
-                data: { mint: address, source: 'suffix' },
-                chainId: SOLANA_CONFIG.CHAIN_ID
-            };
-            DETECTION_CACHE.set(cacheKey, { result, expiry: Date.now() + CACHE_TTL });
-            return result;
-        }
-
-        if (lowerAddress.endsWith('bonk') && !options.requireCreator) {
-            const result: LaunchpadResult = {
-                provider: 'bonkfun',
                 data: { mint: address, source: 'suffix' },
                 chainId: SOLANA_CONFIG.CHAIN_ID
             };
@@ -1249,17 +1519,19 @@ async function handleDetection(
                     // continue to suffix fallback
                 }
             }
-            const result: LaunchpadResult = {
-                provider: 'fourmeme',
-                data: {
-                    address,
-                    source: 'suffix',
-                    vanitySuffix: lowerAddress.endsWith('ffff') ? 'ffff' : '4444'
-                },
-                chainId: 56
-            };
-            DETECTION_CACHE.set(cacheKey, { result, expiry: Date.now() + CACHE_TTL });
-            return result;
+            if (!options.requireCreator) {
+                const result: LaunchpadResult = {
+                    provider: 'fourmeme',
+                    data: {
+                        address,
+                        source: 'suffix',
+                        vanitySuffix: lowerAddress.endsWith('ffff') ? 'ffff' : '4444'
+                    },
+                    chainId: 56
+                };
+                DETECTION_CACHE.set(cacheKey, { result, expiry: Date.now() + CACHE_TTL });
+                return result;
+            }
         }
         if (bscPlatforms && FLAP_SUFFIXES.some((s) => lowerAddress.endsWith(s))) {
             if (!cheapMode) {
@@ -1281,13 +1553,15 @@ async function handleDetection(
                     // flap verify failed, continue to other checks
                 }
             }
-            const result: LaunchpadResult = {
-                provider: 'flap',
-                data: { address, source: 'suffix' },
-                chainId: 56
-            };
-            DETECTION_CACHE.set(cacheKey, { result, expiry: Date.now() + CACHE_TTL });
-            return result;
+            if (!options.requireCreator) {
+                const result: LaunchpadResult = {
+                    provider: 'flap',
+                    data: { address, source: 'suffix' },
+                    chainId: 56
+                };
+                DETECTION_CACHE.set(cacheKey, { result, expiry: Date.now() + CACHE_TTL });
+                return result;
+            }
         }
 
         // Clanker must take precedence for b07 addresses to avoid Zora over-labeling.
@@ -1405,70 +1679,46 @@ async function handleDetection(
             }
         }
 
-        // Priority 1.6: Doppler indexer (Base)
+        // Priority 1.6~1.9: Base API checks in parallel; choose by strict priority.
+        // This avoids missing a valid provider due to global timeout when run sequentially.
         if (basePlatforms) {
-            try {
-                const dopplerResult = await getDopplerToken(address, 8453);
-                if (dopplerResult) {
-                    const result: LaunchpadResult = { provider: 'doppler', data: dopplerResult, chainId: 8453 };
-                    DETECTION_CACHE.set(cacheKey, { result, expiry: Date.now() + CACHE_TTL });
-                    return result;
-                }
-            } catch {
-                // Doppler check failed
-            }
-            try {
-                const dopplerByHook = await getDopplerTokenByV4Hook(address, 8453);
-                if (dopplerByHook) {
-                    const result: LaunchpadResult = { provider: 'doppler', data: dopplerByHook, chainId: 8453 };
-                    DETECTION_CACHE.set(cacheKey, { result, expiry: Date.now() + CACHE_TTL });
-                    return result;
-                }
-            } catch {
-                // Doppler hook scan failed
-            }
-        }
+            const allowDopplerHookFallback = String(process.env.DOPPLER_HOOK_FALLBACK_ENABLED || '').toLowerCase() === 'true';
+            const [virtualsResult, paragraphResult, clankerResult, dopplerResult, dopplerByHook] = await Promise.all([
+                getVirtualsToken(address, options.mode || 'full').catch(() => null),
+                getParagraphToken(address).catch(() => null),
+                (!lowerAddress.endsWith(CLANKER_SUFFIX) && !isProviderBackoffActive('clanker'))
+                    ? getClankerToken(address).catch(() => null)
+                    : Promise.resolve(null),
+                getDopplerToken(address, 8453).catch(() => null),
+                allowDopplerHookFallback
+                    ? getDopplerTokenByV4Hook(address, 8453).catch(() => null)
+                    : Promise.resolve(null),
+            ]);
 
-        // Priority 1.7: Virtuals official API (Base only)
-        if (basePlatforms) {
-            try {
-                const virtualsResult = await getVirtualsToken(address, options.mode || 'full');
-                if (virtualsResult) {
-                    const result: LaunchpadResult = { provider: 'virtuals', data: virtualsResult, chainId: 8453 };
-                    DETECTION_CACHE.set(cacheKey, { result, expiry: Date.now() + CACHE_TTL });
-                    return result;
-                }
-            } catch {
-                // Virtuals check failed
+            if (virtualsResult) {
+                const result: LaunchpadResult = { provider: 'virtuals', data: virtualsResult, chainId: 8453 };
+                DETECTION_CACHE.set(cacheKey, { result, expiry: Date.now() + CACHE_TTL });
+                return result;
             }
-        }
-
-        // Priority 1.8: Paragraph (Base)
-        if (basePlatforms) {
-            try {
-                const paragraphResult = await getParagraphToken(address);
-                if (paragraphResult) {
-                    const result: LaunchpadResult = { provider: 'paragraph', data: paragraphResult, chainId: 8453 };
-                    DETECTION_CACHE.set(cacheKey, { result, expiry: Date.now() + CACHE_TTL });
-                    return result;
-                }
-            } catch {
-                // Paragraph check failed
+            if (paragraphResult) {
+                const result: LaunchpadResult = { provider: 'paragraph', data: paragraphResult, chainId: 8453 };
+                DETECTION_CACHE.set(cacheKey, { result, expiry: Date.now() + CACHE_TTL });
+                return result;
             }
-        }
-
-        // Priority 1.9: Clanker API for non-b07 addresses (older Clanker contracts)
-        // b07 addresses are already handled above with suffix detection.
-        if (basePlatforms && !lowerAddress.endsWith(CLANKER_SUFFIX) && !isProviderBackoffActive('clanker')) {
-            try {
-                const clankerResult = await getClankerToken(address);
-                if (clankerResult) {
-                    const result: LaunchpadResult = { provider: 'clanker', data: clankerResult, chainId: 8453 };
-                    DETECTION_CACHE.set(cacheKey, { result, expiry: Date.now() + CACHE_TTL });
-                    return result;
-                }
-            } catch {
-                // Clanker API check failed for non-b07 address
+            if (clankerResult) {
+                const result: LaunchpadResult = { provider: 'clanker', data: clankerResult, chainId: 8453 };
+                DETECTION_CACHE.set(cacheKey, { result, expiry: Date.now() + CACHE_TTL });
+                return result;
+            }
+            if (dopplerResult) {
+                const result: LaunchpadResult = { provider: 'doppler', data: dopplerResult, chainId: 8453 };
+                DETECTION_CACHE.set(cacheKey, { result, expiry: Date.now() + CACHE_TTL });
+                return result;
+            }
+            if (allowDopplerHookFallback && dopplerByHook) {
+                const result: LaunchpadResult = { provider: 'doppler', data: dopplerByHook, chainId: 8453 };
+                DETECTION_CACHE.set(cacheKey, { result, expiry: Date.now() + CACHE_TTL });
+                return result;
             }
         }
 

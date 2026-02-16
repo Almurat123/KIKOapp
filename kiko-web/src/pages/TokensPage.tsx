@@ -1,9 +1,9 @@
-import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { LaunchpadCapsule } from '../components/Launchpad/LaunchpadCapsule';
 
 import { Activity, ChevronDown, ChevronUp, Droplets, Search, TrendingUp, X } from 'lucide-react';
 import { usePrivy } from '@privy-io/react-auth';
-import { TokenDetailPage } from './TokenDetailPage';
 import { tokenApi, type TokenSearchResult } from '../services/api';
 import { favoriteApi } from '../services/favoriteService';
 import { PageContainer } from '../components/Layout/PageContainer';
@@ -14,8 +14,7 @@ import { requestManager } from '../utils/requestManager';
 import { proxyImageUrl } from '../utils/imageProxy';
 import {
   calculateTrendingScore,
-  loadFromCache,
-  saveToCache,
+  clearTrendingLocalCache,
   type TrendingTimeframe
 } from '../services/trendingService';
 import dexScreenerLogo from '../assets/images/dex-screener.png';
@@ -242,16 +241,138 @@ function shortAddress(address?: string): string {
   return `${trimmed.slice(0, 4)}...${trimmed.slice(-4)}`;
 }
 
-function creatorText(label?: string, address?: string, url?: string): string {
-  if (label && label.trim()) return label.trim();
+function extractXHandleFromUrl(raw?: string): string | null {
+  if (!raw) return null;
+  try {
+    const u = new URL(raw);
+    const host = u.hostname.replace(/^www\./, '');
+    if (!host.includes('x.com') && !host.includes('twitter.com')) return null;
+    const parts = u.pathname.split('/').filter(Boolean);
+    const user = (parts[0] || '').replace(/^@/, '');
+    if (!user) return null;
+    const reserved = new Set([
+      'i', 'intent', 'share', 'home', 'explore', 'search', 'messages',
+      'notifications', 'settings', 'tos', 'privacy', 'status'
+    ]);
+    if (reserved.has(user.toLowerCase())) return null;
+    return user.replace(/^@/, '');
+  } catch {
+    return null;
+  }
+}
+
+function isLowQualityCreatorLabelValue(raw?: string): boolean {
+  if (!raw || typeof raw !== 'string') return false;
+  const value = raw.trim();
+  if (!value) return false;
+  return /^fid:\d+$/i.test(value) || /^@?\d+$/.test(value) || /^@?(i|status)$/i.test(value);
+}
+
+function creatorText(label?: string, address?: string, url?: string, website?: string): string {
+  const isDigits = (v?: string) => !!v && /^\d+$/.test(v.trim());
+  const normalizeFromUrl = (raw?: string): string => {
+    if (!raw) return '';
+    try {
+      const u = new URL(raw);
+      const host = u.hostname.replace(/^www\./, '');
+      const parts = u.pathname.split('/').filter(Boolean);
+      const isX = host.includes('x.com') || host.includes('twitter.com');
+      if (isX) {
+        // x.com/{user}/status/{id} => show @user
+        const xUser = (parts[0] || '').replace(/^@/, '');
+        const reserved = new Set([
+          'i', 'intent', 'share', 'home', 'explore', 'search', 'messages',
+          'notifications', 'settings', 'tos', 'privacy', 'status'
+        ]);
+        if (xUser && !reserved.has(xUser.toLowerCase())) {
+          return `@${xUser.replace(/^@/, '')}`;
+        }
+      }
+      if (host.includes('warpcast.com')) {
+        if (parts.length >= 3 && parts[0] === '~' && parts[1] === 'profiles') {
+          return 'Farcaster';
+        }
+        const handle = (parts[0] || '').replace(/^@/, '');
+        if (handle && handle !== '~') return `@${handle}`;
+        return 'Farcaster';
+      }
+      const last = parts[parts.length - 1];
+      if (last) {
+        if (host.includes('x.com') || host.includes('twitter.com') || host.includes('warpcast.com')) {
+          return `@${last.replace(/^@/, '')}`;
+        }
+      }
+      return host || '';
+    } catch {
+      return '';
+    }
+  };
+
+  const byUrl = normalizeFromUrl(url);
+  if (byUrl) return byUrl;
+
+  // x.com/i/status/... has no username in path; show platform instead of noisy fallback (e.g. fid).
+  if (url) {
+    try {
+      const u = new URL(url);
+      const host = u.hostname.replace(/^www\./, '').toLowerCase();
+      if (host.includes('x.com') || host.includes('twitter.com')) return 'X';
+      if (host.includes('warpcast.com')) return 'Farcaster';
+    } catch {
+      // ignore
+    }
+  }
+
+  const cleanLabel = (label || '').trim();
+  if (cleanLabel) {
+    if ((cleanLabel.startsWith('http://') || cleanLabel.startsWith('https://'))) {
+      const byLabelUrl = normalizeFromUrl(cleanLabel);
+      if (byLabelUrl) return byLabelUrl;
+    }
+    if (/^@?\d+$/i.test(cleanLabel)) {
+      if (url) {
+        try {
+          const u = new URL(url);
+          const host = u.hostname.replace(/^www\./, '').toLowerCase();
+          if (host.includes('x.com') || host.includes('twitter.com')) return 'X';
+          if (host.includes('warpcast.com')) return 'Farcaster';
+        } catch {
+          // ignore
+        }
+      }
+      return address ? shortAddress(address) : '';
+    }
+    if (/^@?(i|status)$/i.test(cleanLabel)) {
+      return 'X';
+    }
+    if (cleanLabel.startsWith('@')) return cleanLabel;
+    if (/^fid:\d+$/i.test(cleanLabel)) {
+      // If URL indicates X, keep X as higher-priority creator source.
+      if (url) {
+        try {
+          const u = new URL(url);
+          const host = u.hostname.replace(/^www\./, '').toLowerCase();
+          if (host.includes('x.com') || host.includes('twitter.com')) return 'X';
+        } catch {
+          // ignore
+        }
+      }
+      return 'Farcaster';
+    }
+    if (isDigits(cleanLabel) && address) return shortAddress(address);
+    return cleanLabel;
+  }
+
+  const byWebsite = normalizeFromUrl(website);
+  if (byWebsite) return byWebsite;
+
   if (address && address.trim()) return shortAddress(address);
   if (!url) return '';
   try {
     const u = new URL(url);
     const parts = u.pathname.split('/').filter(Boolean);
     if (u.hostname.includes('warpcast.com') && parts.length >= 2 && parts[0] === '~' && parts[1] === 'profiles') {
-      const fid = parts[2];
-      return fid ? `fid:${fid}` : 'creator';
+      return 'Farcaster';
     }
     const last = parts[parts.length - 1];
     if (last) {
@@ -488,6 +609,39 @@ function formatNetworkName(network: string): string {
 // Convert API TokenSearchResult to internal Token format
 function convertApiTokenToToken(apiToken: TokenSearchResult, id: number): Token {
   const networkName = formatNetworkName(apiToken.network);
+  const socialContext = (apiToken as any).social_context || {};
+  const socialContextId = typeof socialContext?.id === 'string' ? socialContext.id.trim() : '';
+  const socialContextHandle = typeof socialContext?.handle === 'string' ? socialContext.handle.trim() : '';
+  const socialContextMessageId = typeof socialContext?.messageId === 'string'
+    ? socialContext.messageId
+    : (typeof socialContext?.message_id === 'string' ? socialContext.message_id : '');
+  const xHandleFromMessage = extractXHandleFromUrl(socialContextMessageId);
+  const xHandleFromSocial = extractXHandleFromUrl(
+    (typeof socialContext?.x === 'string' && socialContext.x)
+    || (typeof socialContext?.twitter === 'string' && socialContext.twitter)
+    || undefined
+  );
+  const preferredXHandle = xHandleFromMessage || xHandleFromSocial || null;
+  const preferredXUrl = preferredXHandle ? `https://x.com/${preferredXHandle}` : undefined;
+  const preferredXLabel = preferredXHandle ? `@${preferredXHandle}` : undefined;
+  const apiCreatorLabelRaw = (apiToken as any).creatorLabel as string | undefined;
+  const apiCreatorLabel = typeof apiCreatorLabelRaw === 'string' ? apiCreatorLabelRaw.trim() : undefined;
+  const apiCreatorLabelIsLowQuality = isLowQualityCreatorLabelValue(apiCreatorLabel);
+  const apiCreatorUrlRaw = (apiToken as any).creatorUrl as string | undefined;
+  const socialContextHandleLabel = (() => {
+    const handle = socialContextHandle.replace(/^@/, '');
+    if (!handle) return undefined;
+    if (/^\d+$/.test(handle)) return undefined;
+    if (/^(i|status)$/i.test(handle)) return undefined;
+    return `@${handle}`;
+  })();
+  const socialContextIdLabel = (() => {
+    const raw = socialContextId.startsWith('@') ? socialContextId.slice(1) : socialContextId;
+    if (!raw) return undefined;
+    if (/^\d+$/.test(raw)) return undefined;
+    if (/^(i|status)$/i.test(raw)) return undefined;
+    return `@${raw.replace(/^@/, '')}`;
+  })();
 
   // Ensure numeric values are properly converted (handle string, number, null, undefined)
   const price = typeof apiToken.price === 'number'
@@ -553,14 +707,32 @@ function convertApiTokenToToken(apiToken: TokenSearchResult, id: number): Token 
     c24hRaw: priceChange24h || 0,
     ageRaw: apiToken.poolCreatedAt ? new Date(apiToken.poolCreatedAt).getTime() : 0,
     socialLinks: {
-      website: apiToken.websites?.[0]?.url || apiToken.socials?.find(s => s.type === 'website')?.url,
-      twitter: apiToken.socials?.find(s => s.type === 'twitter')?.url,
+      website: apiToken.websites?.[0]?.url || apiToken.socials?.find(s => s.type === 'website')?.url || socialContext?.website,
+      twitter: apiToken.socials?.find(s => s.type === 'twitter')?.url || socialContext?.x || socialContext?.twitter,
       telegram: apiToken.socials?.find(s => s.type === 'telegram')?.url,
       discord: apiToken.socials?.find(s => s.type === 'discord')?.url,
     },
     creatorAddress: (apiToken as any).creatorAddress || (apiToken as any).creator || (apiToken as any).userAddress || undefined,
-    creatorUrl: (apiToken as any).creatorUrl || undefined,
-    creatorLabel: (apiToken as any).creatorLabel || undefined,
+    creatorUrl:
+      apiCreatorUrlRaw
+      || preferredXUrl
+      || socialContextMessageId
+      || socialContext?.message_id
+      || socialContext?.url
+      || socialContext?.profile
+      || socialContext?.link
+      || socialContext?.x
+      || socialContext?.twitter
+      || socialContext?.farcaster
+      || socialContext?.website
+      || undefined,
+    creatorLabel:
+      // Keep backend label first unless it's low-quality placeholder/noise.
+      (!apiCreatorLabelIsLowQuality ? apiCreatorLabel : undefined)
+      || preferredXLabel
+      || socialContextHandleLabel
+      || socialContextIdLabel
+      || undefined,
     launchMultipleRaw: (() => {
       const v = typeof apiToken.launchMultiple === 'number' ? apiToken.launchMultiple : (apiToken.launchMultiple ? parseFloat(String(apiToken.launchMultiple)) : undefined);
       // Guard: suppress absurd multiples that indicate bad baseline data
@@ -626,8 +798,8 @@ const TokenRow = React.memo(({
   const buyPct = t.buys + t.sells > 0 ? (t.buys / (t.buys + t.sells)) * 100 : 50;
   const showRank = !isMobile && !t.isNew && !t.isHot;
   const tokenSignals = getTokenSignals(t);
-  const creatorDisplay = creatorText(t.creatorLabel, t.creatorAddress, t.creatorUrl);
-  const creatorHref = t.creatorUrl || chainExplorerAddressUrl(t.chain, t.creatorAddress);
+  const creatorDisplay = creatorText(t.creatorLabel, t.creatorAddress, t.creatorUrl, t.socialLinks?.website);
+  const creatorHref = t.creatorUrl || t.socialLinks?.website || chainExplorerAddressUrl(t.chain, t.creatorAddress);
 
   return (
     <React.Fragment>
@@ -800,7 +972,7 @@ const TokenRow = React.memo(({
             <div className={styles.subRowCapsuleWrap}>
               <div className={styles.subRowLaunchpadWrap}>
                 <LaunchpadCapsule
-                  address={t.address || t.poolAddress || ''}
+                  address={t.address || ''}
                   chain={t.chain}
                   launchpad={t.launchpad}
                   websiteUrl={t.socialLinks?.website}
@@ -902,19 +1074,19 @@ const CHAIN_OPTIONS = [
 
 // Chains to fetch data from
 const FETCH_CHAINS = CHAIN_OPTIONS.filter(c => c.apiKey).map(c => c.apiKey);
-const USE_LOCAL_TRENDING_CACHE = false;
 
 export const TokensPage: React.FC<TokensPageProps> = ({
   searchQuery: externalSearchQuery,
   onSearchChange: externalOnSearchChange,
 }) => {
   const { authenticated } = usePrivy();
+  const navigate = useNavigate(); // Hook for navigation
   // Page visibility detection
   const { isVisible } = usePageVisibility();
   const isTabVisible = useTabVisibility();
   const isPageActive = isVisible && isTabVisible;
 
-  const [selectedToken, setSelectedToken] = useState<Token | null>(null);
+
   const [internalSearchQuery, setInternalSearchQuery] = useState('');
   const [allTokens, setAllTokens] = useState<Token[]>([]); // All chains cached data
   const [tokens, setTokens] = useState<Token[]>([]); // Currently displayed tokens (for search)
@@ -943,6 +1115,11 @@ export const TokensPage: React.FC<TokensPageProps> = ({
   const chainRequestIdsRef = useRef<Map<string, string>>(new Map());
   const mountedRef = useRef(true);
 
+  // Token page should always read fresh DB-backed API payloads.
+  useEffect(() => {
+    clearTrendingLocalCache();
+  }, []);
+
   // Load all chains data on initial mount - with queue and batching
   useEffect(() => {
     // Reset mounted ref on each mount (important for StrictMode)
@@ -956,44 +1133,15 @@ export const TokensPage: React.FC<TokensPageProps> = ({
 
 
 
-        // Keep track of all loaded tokens
-        let currentTokens: Token[] = [];
-        let tokenId = 1;
-
-        // 1. Load from Cache first (Instant display)
-        if (USE_LOCAL_TRENDING_CACHE) {
-          FETCH_CHAINS.forEach((chain) => {
-            const cached = loadFromCache(chain, timeframe);
-            if (cached && cached.length > 0) {
-              const cachedTokens = cached.map((token) => convertApiTokenToToken(token, tokenId++));
-              currentTokens = [...currentTokens, ...cachedTokens];
-            }
-          });
-        }
-
-        if (currentTokens.length > 0) {
-          // Rank by selected timeframe
-          currentTokens.sort((a, b) => computeTimeframeScore(b, timeframe) - computeTimeframeScore(a, timeframe));
-
-          // Assign unique IDs for the table display AFTER sorting
-          const displayTokens = currentTokens.map((t, idx) => ({ ...t, id: idx + 1 }));
-          setAllTokens(displayTokens);
-          // INSTANT LOAD: If we have cache, hide loading immediately
-          setInitialLoading(false);
-        }
-
-        // 2. Fetch Fresh Data (Parallel)
+        // Fetch fresh data (DB-backed API)
         const fetchPromises = FETCH_CHAINS.map(async (chain) => {
           if (!mountedRef.current) return [];
 
           try {
             // Use cache-first live endpoint for multi-chain screen to avoid strict-mode timeout storm.
-            const data = await tokenApi.getTrendingLive(chain, timeframe, 100, false);
+            const data = await tokenApi.getTrendingLive(chain, timeframe, 100, true);
 
             if (mountedRef.current && data && data.length > 0) {
-              // Save to cache
-              saveToCache(chain, data, timeframe);
-
               // Convert to internal tokens
               // We'll assign IDs later after aggregation
               return data.map((token) => convertApiTokenToToken(token, 0));
@@ -1021,7 +1169,7 @@ export const TokensPage: React.FC<TokensPageProps> = ({
 
         if (mountedRef.current) {
           setInitialLoading(false);
-          if (freshTokens.length === 0 && currentTokens.length === 0) {
+          if (freshTokens.length === 0) {
             setError('No trending tokens available. The data may still be loading.');
           }
         }
@@ -1066,7 +1214,7 @@ export const TokensPage: React.FC<TokensPageProps> = ({
           if (!mountedRef.current) return [];
           try {
             // Polling should stay lightweight and cache-friendly.
-            const data = await tokenApi.getTrendingLive(chain, timeframe, 100, false);
+            const data = await tokenApi.getTrendingLive(chain, timeframe, 100, true);
             if (mountedRef.current && data && data.length > 0) {
               return data.map((token) => convertApiTokenToToken(token, 0));
             }
@@ -1175,7 +1323,7 @@ export const TokensPage: React.FC<TokensPageProps> = ({
     };
   }, [searchQuery]);
 
-  const selectedTokenRef = useRef<Token | null>(null);
+
 
   // Persist selected chain
   useEffect(() => {
@@ -1367,18 +1515,7 @@ export const TokensPage: React.FC<TokensPageProps> = ({
     }
   };
 
-  // Refresh favorites callback - called when returning from detail page
-  const refreshFavorites = useCallback(async () => {
-    if (!authenticated) return;
 
-    try {
-      const favs = await favoriteApi.getFavorites();
-      const addresses = new Set(favs.map(f => f.address.toLowerCase()));
-      setFavoriteAddresses(addresses);
-    } catch (err) {
-      console.error('Failed to refresh favorites', err);
-    }
-  }, [authenticated]);
 
   // Infinite scroll observer
   useEffect(() => {
@@ -1449,110 +1586,25 @@ export const TokensPage: React.FC<TokensPageProps> = ({
     };
   };
 
-  const convertTokenToDetail = async (token: Token) => {
-    // Map chain display name to API network slug
-    const apiNetwork = token.network || token.chain.toLowerCase();
 
-    // If we have address and network, fetch full details
-    if (token.address && apiNetwork) {
-      try {
-        const details = await tokenApi.getDetails(apiNetwork, token.address);
-
-        // Use API data if available
-        const symbol = details.symbol || token.symbol || details.name || token.name || 'UNKNOWN';
-        const name = details.name || token.name || 'Unknown Token';
-
-        // Ensure price is a number
-        const priceNum = typeof details.price === 'number'
-          ? details.price
-          : typeof details.price === 'string'
-            ? parseFloat(details.price) || 0
-            : 0;
-        const priceChange = typeof details.priceChange24h === 'number'
-          ? details.priceChange24h
-          : typeof details.priceChange24h === 'string'
-            ? parseFloat(details.priceChange24h) || 0
-            : 0;
-
-        return {
-          name: name,
-          symbol: symbol,
-          pair: `${symbol} / ${getNativeTokenSymbol(details.network || apiNetwork)}`,
-          chain: formatNetworkName(details.network || apiNetwork),
-          price: isNaN(priceNum) ? '0.000000' : priceNum.toFixed(18),
-          priceChange24h: isNaN(priceChange) ? 0 : priceChange,
-          address: details.address || token.address,
-          fdv: formatCurrency(details.fdv),
-          mcap: formatCurrency(details.fdv),
-          liquidity: formatCurrency(details.liquidity),
-          volume24h: formatCurrency(details.volume24h),
-          holders: details.holders || token.holders || 0,
-          imageUrl: details.imageUrl || token.imageUrl,
-          poolAddress: details.poolAddress || token.poolAddress,
-          riskScore: Math.floor(Math.random() * 50) + 50,
-          audit: {
-            status: "Unverified",
-            warnings: (typeof details.liquidity === 'string' ? parseFloat(details.liquidity.replace(/[^0-9.]/g, '')) : (details.liquidity || 0)) < 10000 ? ["Low Liquidity"] : ["Mintable"],
-          },
-          socialLinks: {
-            website: details.websites?.[0]?.url || details.socials?.find(s => s.type === 'website')?.url,
-            twitter: details.socials?.find(s => s.type === 'twitter')?.url,
-            telegram: details.socials?.find(s => s.type === 'telegram')?.url,
-            discord: details.socials?.find(s => s.type === 'discord')?.url,
-          },
-        };
-      } catch (err) {
-        console.error('Error fetching token details, using fallback:', err);
-      }
-    }
-
-    // Fallback to basic info from list
-    return getFallbackDetail(token);
-  };
-
-  const [detailToken, setDetailToken] = useState<any>(null);
 
 
   const handleTokenClick = (token: Token) => {
-    // 1. Set fallback data immediately to trigger navigation
+    if (!token.chain || !token.address) return;
+
+    // Optimistic fallback data to pass via state
     const fallback = getFallbackDetail(token);
-    selectedTokenRef.current = token;
-    setDetailToken(fallback);
-    setSelectedToken(token);
 
-    // 2. Fetch full details in the background and update
-    const updateDetails = async () => {
-      try {
-        const detail = await convertTokenToDetail(token);
-        // Only update if the user hasn't switched to another token or closed details
-        if (detail && selectedTokenRef.current?.address === token.address) {
-          setDetailToken(detail);
-        }
-      } catch (err) {
-        console.error('[TokensPage] Background update error:', err);
-      }
-    };
-
-    updateDetails();
+    // Navigate to the detail page route
+    const chainSlug = token.network || token.chain.toLowerCase();
+    navigate(`/tokens/${chainSlug}/${token.address}`, {
+      state: { token: fallback }
+    });
   };
 
-  // useCallback to prevent infinite render loops when passed to child components affecting Layout state
-  const handleBack = useCallback(() => {
-    // Refresh favorites when returning from detail page (user may have toggled)
-    refreshFavorites();
-    selectedTokenRef.current = null;
-    setSelectedToken(null);
-    setDetailToken(null);
-  }, [refreshFavorites]);
+  // Removed conditional rendering of TokenDetailPage
 
-  if (selectedToken && detailToken) {
-    return (
-      <TokenDetailPage
-        token={detailToken}
-        onBack={handleBack}
-      />
-    );
-  }
+
 
   const getChangeColumn = () => getTimeframeChangeColumn(timeframe);
 

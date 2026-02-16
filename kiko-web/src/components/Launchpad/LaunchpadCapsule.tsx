@@ -19,9 +19,6 @@ export const LaunchpadCapsule: React.FC<LaunchpadCapsuleProps> = ({
     address,
     chain,
     launchpad: backendLaunchpad,
-    websiteUrl,
-    creatorUrl,
-    creatorLabel,
     onAskAI
 }) => {
     const { resolvedTheme } = useThemeContext();
@@ -44,33 +41,8 @@ export const LaunchpadCapsule: React.FC<LaunchpadCapsuleProps> = ({
 
     const detectedLaunchpad = useMemo(() => {
         const normalizedBackend = normalizeLaunchpad(backendLaunchpad);
-        if (normalizedBackend) return normalizedBackend;
-
-        const lowerAddr = address?.toLowerCase() || '';
-        const lowerChain = chain?.toLowerCase() || '';
-
-        // Only deterministic suffix fallback; API verification happens in backend.
-        if (lowerChain === 'sol' || lowerChain === 'solana') {
-            if (lowerAddr.endsWith('pump')) return 'pump.fun';
-            if (lowerAddr.endsWith('bonk')) return 'bonk.fun';
-        }
-        if (lowerChain === 'base' || lowerChain === '8453') {
-            if (lowerAddr.endsWith('b07')) return 'clanker';
-        }
-        if (lowerChain === 'bsc' || lowerChain === 'bnb' || lowerChain === '56') {
-            if (lowerAddr.endsWith('4444') || lowerAddr.endsWith('ffff')) return 'four.meme';
-            if (lowerAddr.endsWith('8888') || lowerAddr.endsWith('7777')) return 'flap';
-        }
-
-        // Metadata fallback: Doppler tokens often expose doppler links before backend tag is hydrated.
-        const dopplerHints = [websiteUrl, creatorUrl, creatorLabel]
-            .filter(Boolean)
-            .map((v) => String(v).toLowerCase())
-            .join(' ');
-        if (dopplerHints.includes('doppler.lol') || dopplerHints.includes('doppler')) return 'doppler';
-
-        return null;
-    }, [address, chain, backendLaunchpad, websiteUrl, creatorUrl, creatorLabel]);
+        return normalizedBackend;
+    }, [backendLaunchpad]);
 
     // 2. URL Generation
     const getLaunchpadUrl = () => {
@@ -102,7 +74,10 @@ export const LaunchpadCapsule: React.FC<LaunchpadCapsuleProps> = ({
         // Four.meme
         if (provider === 'four.meme') return `https://four.meme/token/${address}`;
         if (provider === 'flap') return `https://flap.sh/board`;
-        if (provider === 'doppler') return `https://doppler.lol`;
+        if (provider === 'doppler') {
+            const chainRoute = String(chain || '').toLowerCase() === 'base' || String(chain || '') === '8453' ? 'base' : String(chain || '').toLowerCase();
+            return `https://app.doppler.lol/tokens/${chainRoute}/${address}`;
+        }
 
         // Fallback
         return '#';

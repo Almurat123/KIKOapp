@@ -64,8 +64,9 @@ export function calculateTrendingScore(metrics: TrendingMetrics): number {
 }
 
 // Local Storage Keys
-const CACHE_KEY_PREFIX = 'kiko_trending_tokens_';
+const CACHE_KEY_PREFIX = 'kiko_trending_tokens_v2_';
 const CACHE_TTL_MS = 1 * 60 * 1000; // 1 minute (reduced for fresher data)
+const ENABLE_LOCAL_TRENDING_CACHE = false;
 
 export interface CachedData {
     tokens: TokenSearchResult[];
@@ -83,6 +84,7 @@ function cacheKey(chain: string, timeframe?: TrendingTimeframe): string {
  * Save tokens to local storage with timestamp
  */
 export function saveToCache(chain: string, tokens: TokenSearchResult[], timeframe?: TrendingTimeframe) {
+    if (!ENABLE_LOCAL_TRENDING_CACHE) return;
     const key = cacheKey(chain, timeframe);
     const data: CachedData = {
         tokens,
@@ -99,6 +101,7 @@ export function saveToCache(chain: string, tokens: TokenSearchResult[], timefram
  * Load tokens from local storage if valid
  */
 export function loadFromCache(chain: string, timeframe?: TrendingTimeframe): TokenSearchResult[] | null {
+    if (!ENABLE_LOCAL_TRENDING_CACHE) return null;
     const key = cacheKey(chain, timeframe);
     try {
         const item = localStorage.getItem(key);
@@ -115,6 +118,19 @@ export function loadFromCache(chain: string, timeframe?: TrendingTimeframe): Tok
     } catch (error) {
         console.warn('[TrendingService] Failed to load from localStorage:', error);
         return null;
+    }
+}
+
+export function clearTrendingLocalCache() {
+    try {
+        const keysToDelete: string[] = [];
+        for (let i = 0; i < localStorage.length; i += 1) {
+            const k = localStorage.key(i);
+            if (k && k.startsWith(CACHE_KEY_PREFIX)) keysToDelete.push(k);
+        }
+        keysToDelete.forEach((k) => localStorage.removeItem(k));
+    } catch {
+        // ignore storage errors
     }
 }
 
@@ -143,5 +159,3 @@ export function sortTokensByTrending(tokens: TokenSearchResult[]): TokenSearchRe
         return scoreB - scoreA;
     });
 }
-
-

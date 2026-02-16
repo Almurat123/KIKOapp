@@ -219,6 +219,7 @@
     background: transparent;
     border: none;
     cursor: pointer;
+    text-decoration: none;
 }
 
 .light .navItem {
@@ -301,6 +302,7 @@
     background: transparent;
     border: none;
     cursor: pointer;
+    text-decoration: none;
 }
 
 .light .subItem {

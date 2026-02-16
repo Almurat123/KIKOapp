@@ -1,6 +1,8 @@
+
 import React, { useState, createContext, useContext, useCallback } from 'react';
 import { PanelLeftOpen, ArrowLeft } from 'lucide-react';
 import { usePrivy } from '@privy-io/react-auth';
+import { useLocation } from 'react-router-dom';
 import { Sidebar } from './Sidebar';
 import { useThemeContext } from '../../contexts/ThemeContext';
 import { getUserInfo } from '../../utils/privyUtils';
@@ -8,6 +10,7 @@ import styles from './Layout.module.css';
 import type { Conversation } from '../../hooks/useConversations';
 import { PreLoginWarningModal } from '../Privy/PreLoginWarningModal';
 import { useSecureLogin } from '../../hooks/useSecureLogin';
+import { useNavigate } from 'react-router-dom'; // Import useNavigate for profile click
 
 interface SidebarContextType {
     onOpenSidebar: () => void;
@@ -30,11 +33,10 @@ export const useSidebar = () => {
 
 interface LayoutProps {
     children: React.ReactNode;
-    activeTab: string;
-    onTabChange: (tab: string) => void;
+    // activeTab and onTabChange removed - internal location used
     conversations?: Conversation[];
     activeConversationId?: string | null;
-    onConversationClick?: (id: string) => void;
+    // onConversationClick removed - handled by Sidebar NavLink
     onNewChat?: () => void;
     onConversationRename?: (id: string, newTitle: string) => void;
     onConversationDelete?: (id: string) => void;
@@ -45,11 +47,8 @@ interface LayoutProps {
 
 export const Layout: React.FC<LayoutProps> = ({
     children,
-    activeTab,
-    onTabChange,
     conversations,
     activeConversationId,
-    onConversationClick,
     onNewChat,
     onConversationRename,
     onConversationDelete,
@@ -65,6 +64,13 @@ export const Layout: React.FC<LayoutProps> = ({
     const { user, authenticated, ready } = usePrivy();
     const { secureLogin, isWarningOpen, closeWarning, confirmLogin } = useSecureLogin();
 
+    // Router hooks
+    const location = useLocation();
+    const navigate = useNavigate();
+
+    const isChatActive = location.pathname === '/' || location.pathname.startsWith('/chat');
+    // We assume explicit activeTab prop is no longer needed for internal logic beyond this check
+
     // Handle profile click - check authentication status
     const handleProfileClick = useCallback(() => {
         if (!ready) return; // Wait for Privy to be ready
@@ -75,14 +81,14 @@ export const Layout: React.FC<LayoutProps> = ({
                 secureLogin();
             } else {
                 // Embedded wallets are created on login; just open wallet page
-                onTabChange('wallet');
+                navigate('/wallet');
             }
         } catch (error) {
             if (import.meta.env.DEV) {
                 console.error('Error in handleProfileClick:', error);
             }
         }
-    }, [ready, authenticated, secureLogin, onTabChange]);
+    }, [ready, authenticated, secureLogin, navigate]);
 
     // Get user info and avatar
     const { name: userName, initials: userInitials, avatarUrl } = getUserInfo(user);
@@ -113,8 +119,6 @@ export const Layout: React.FC<LayoutProps> = ({
             />
             <div className={`${styles.layout} ${styles[resolvedTheme]}`}>
                 <Sidebar
-                    activeTab={activeTab}
-                    onTabChange={onTabChange}
                     isOpen={isSidebarOpen}
                     onClose={() => setIsSidebarOpen(false)}
                     isDesktopOpen={isDesktopSidebarOpen}
@@ -122,7 +126,6 @@ export const Layout: React.FC<LayoutProps> = ({
                     onProfileClick={handleProfileClick}
                     conversations={conversations}
                     activeConversationId={activeConversationId}
-                    onConversationClick={onConversationClick}
                     onNewChat={onNewChat}
                     onConversationRename={onConversationRename}
                     onConversationDelete={onConversationDelete}
@@ -132,7 +135,7 @@ export const Layout: React.FC<LayoutProps> = ({
                 <main className={styles.main}>
                     {/* Mobile Floating Buttons (no header container) */}
                     <div className={styles.mobileFloatingLeft}>
-                        {(onBack || onBackHandler) || (activeTab === 'chat' && (activeConversationId || chatStarted) && onNewChat) ? (
+                        {(onBack || onBackHandler) || (isChatActive && (activeConversationId || chatStarted) && onNewChat) ? (
                             <button
                                 className={styles.mobileBackBtn}
                                 onClick={onBack || onBackHandler || onNewChat}
@@ -151,7 +154,7 @@ export const Layout: React.FC<LayoutProps> = ({
                         )}
                     </div>
 
-                    {activeTab !== 'wallet' && activeTab !== 'wallet-settings' && (
+                    {location.pathname !== '/wallet' && location.pathname !== '/settings' && location.pathname !== '/wallet/settings' && (
                         <div className={styles.mobileFloatingRight}>
                             <button
                                 className={styles.mobileProfileBtn}
@@ -179,7 +182,7 @@ export const Layout: React.FC<LayoutProps> = ({
                             </button>
                         )}
                         {/* Desktop Back Button - show when there's an active conversation OR chat has started */}
-                        {activeTab === 'chat' && (activeConversationId || chatStarted) && onNewChat && (
+                        {isChatActive && (activeConversationId || chatStarted) && onNewChat && (
                             <button
                                 className={styles.desktopBackBtn}
                                 onClick={onNewChat}
@@ -191,7 +194,7 @@ export const Layout: React.FC<LayoutProps> = ({
                     </div>
 
                     {/* Desktop Top Right Profile */}
-                    {activeTab !== 'wallet' && activeTab !== 'wallet-settings' && (
+                    {location.pathname !== '/wallet' && location.pathname !== '/settings' && location.pathname !== '/wallet/settings' && (
                         <div className={styles.desktopProfileContainer}>
                             <button
                                 className={styles.desktopProfileBtn}

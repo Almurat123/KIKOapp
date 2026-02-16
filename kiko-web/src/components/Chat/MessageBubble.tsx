@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Copy, Check, ThumbsDown, ThumbsUp, Share2, X as XIcon, ExternalLink, Flame, ChevronUp, ChevronDown } from 'lucide-react';
+import { Copy, Check, ThumbsDown, ThumbsUp, Share2, X as XIcon, ExternalLink, Flame } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkBreaks from 'remark-breaks';
@@ -13,6 +13,7 @@ import { preprocessMarkdown } from '../../utils/markdownUtils';
 import { StrategyCard } from './StrategyCard';
 import { UnifiedChartCard } from '../Chart/UnifiedChartCard';
 import { TransactionStatusCard } from './TransactionStatusCard';
+import { ThinkingTimer } from './ThinkingTimer';
 import { TokenCapsule } from './TokenCapsule';
 import { CitationRenderer } from './CitationRenderer';
 import { XPostCard } from './XPostCard';
@@ -33,6 +34,7 @@ interface MessageBubbleProps {
     chainId?: number;
     sessionId?: string;
     thinkingText?: string;
+    thinkingStartTime?: number;
     modelId?: string;
     onFeedback?: (messageId: string, feedback: 'like' | 'dislike' | null) => void;
 }
@@ -100,6 +102,7 @@ const MarkdownComponents = {
 // Memoized MessageBubble to prevent re-renders during streaming
 const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({ message, isGrouped, onContinue, canContinue, onCardAction, chainId, sessionId,
     thinkingText,
+    thinkingStartTime,
     modelId,
     onFeedback
 }: MessageBubbleProps) => {
@@ -111,83 +114,7 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({ message, isGroup
     const [feedback, setFeedback] = useState<'like' | 'dislike' | null>(message.feedback || null); // Initial state from message if available
     const { resolvedTheme } = useThemeContext();
 
-    // Thinking timer state
-    const [elapsedTenths, setElapsedTenths] = useState(0);
-    const startTimeRef = useRef<number | null>(null);
-    const intervalRef = useRef<NodeJS.Timeout | null>(null);
-
-    // Timer effect: start/stop based on thinking status
-    useEffect(() => {
-        // Timer should run when:
-        // 1. Initial thinking phase (thinkingText exists, no content yet)
-        // 2. Reasoning phase (reasoning_content exists, no final content yet)
-        const isComplete = message.status === 'complete' || message.status === 'error';
-        const isStuck = message.timestamp && (Date.now() - new Date(message.timestamp).getTime() > 5 * 60 * 1000);
-        const hasContent = !!(message.content && message.content.trim().length > 0);
-        const hasReasoning = !!(message.reasoning_content && message.reasoning_content.trim().length > 0);
-
-        const isInitialThinking = !!thinkingText && !hasContent && !hasReasoning;
-        const isReasoningPhase = hasReasoning &&
-            !hasContent &&
-            !isComplete &&
-            !isStuck &&
-            !hasInlineCard;
-
-        const shouldRunTimer = !hasInlineCard && (isInitialThinking || isReasoningPhase);
-
-        if (shouldRunTimer) {
-            if (intervalRef.current) {
-                clearInterval(intervalRef.current);
-                intervalRef.current = null;
-            }
-
-            // Use server-side timestamp for persistence across page reloads
-            // Determine start time: timestamp > local ref > now
-            let startTime = 0;
-            if (message.timestamp) {
-                const parsed = new Date(message.timestamp).getTime();
-                if (!isNaN(parsed)) startTime = parsed;
-            }
-
-            if (!startTime) {
-                if (!startTimeRef.current) startTimeRef.current = Date.now();
-                startTime = startTimeRef.current;
-            }
-
-            const computeTenths = () => Math.max(0, Math.floor((Date.now() - startTime) / 100));
-            setElapsedTenths(computeTenths());
-
-            // Update elapsed time every 100ms for smooth display
-            intervalRef.current = setInterval(() => {
-                const nextTenths = computeTenths();
-                setElapsedTenths(prev => (prev === nextTenths ? prev : nextTenths));
-            }, 100);
-        } else {
-            // Stop timer when thinking is complete
-            if (intervalRef.current) {
-                clearInterval(intervalRef.current);
-                intervalRef.current = null;
-            }
-            // Reset local ref
-            startTimeRef.current = null;
-        }
-
-        return () => {
-            if (intervalRef.current) {
-                clearInterval(intervalRef.current);
-                intervalRef.current = null;
-            }
-        };
-    }, [
-        thinkingText,
-        message.status,
-        message.timestamp,
-        !!(message.content && message.content.trim().length > 0),
-        !!(message.reasoning_content && message.reasoning_content.trim().length > 0),
-        hasInlineCard,
-    ]);
-
-    const elapsedTime = (elapsedTenths / 10).toFixed(1);
+    // elapsedTime variable removed as it is now handled by ThinkingTimer component
 
     const handleCopy = () => {
         navigator.clipboard.writeText(message.content);
@@ -319,21 +246,16 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({ message, isGroup
                             <>
                                 {((!message.content || message.content.trim().length === 0) && message.status !== 'complete') ? (
                                     // 思考中：显示shimmer Thinking标签 + 计时器 + 当前状态
-                                    <span className={clsx(styles.reasoningLabel, styles.thinking)}>
-                                        {thinkingText || 'Thinking'} ({elapsedTime}s)
-                                    </span>
+                                    <ThinkingTimer startTime={thinkingStartTime || Date.now()} status="thinking" text={thinkingText} />
                                 ) : (
                                     // 思考完成：显示可展开的Thinking按钮
-                                    <button
-                                        className={clsx(styles.reasoningToggle, styles.reasoningToggleButton)}
-                                        onClick={() => setShowReasoning(!showReasoning)}
-                                        title={showReasoning ? 'Collapse thinking' : 'Expand thinking'}
-                                    >
-                                        <span className={styles.reasoningLabel}>
-                                            Thinking ({elapsedTime}s)
-                                            {showReasoning ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-                                        </span>
-                                    </button>
+                                    <ThinkingTimer
+                                        startTime={thinkingStartTime || (message.timestamp ? new Date(message.timestamp).getTime() : Date.now())}
+                                        status="complete"
+                                        text="Thinking"
+                                        expanded={showReasoning}
+                                        onToggle={() => setShowReasoning(!showReasoning)}
+                                    />
                                 )}
                             </>
                         )}
@@ -351,7 +273,7 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({ message, isGroup
                                 {thinkingText && !message.content && !message.reasoning_content && !hasInlineCard && (
                                     <div className={styles.thinkingBubble}>
                                         <span className={styles.thinkingText}>
-                                            {thinkingText} ({elapsedTime}s)
+                                            <ThinkingTimer startTime={thinkingStartTime || Date.now()} status="thinking" text={thinkingText} />
                                         </span>
                                     </div>
                                 )}
@@ -457,7 +379,7 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({ message, isGroup
                                             modelId,
                                             message.usage.prompt_tokens,
                                             message.usage.completion_tokens,
-                                            message.tool_calls?.length || 0
+                                            message.tool_calls || 0
                                         );
                                         return <span>{formatCost(cost.amount, cost.currency)}</span>;
                                     })()}
@@ -678,9 +600,9 @@ const areEqual = (prevProps: MessageBubbleProps, nextProps: MessageBubbleProps) 
         JSON.stringify(prevProps.message.citations) === JSON.stringify(nextProps.message.citations) &&
         prevProps.isGrouped === nextProps.isGrouped &&
         prevProps.canContinue === nextProps.canContinue &&
-        prevProps.userAddress === nextProps.userAddress &&
         prevProps.chainId === nextProps.chainId &&
-        prevProps.thinkingText === nextProps.thinkingText
+        prevProps.thinkingText === nextProps.thinkingText &&
+        prevProps.thinkingStartTime === nextProps.thinkingStartTime
     );
 };
 

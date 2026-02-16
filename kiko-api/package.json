@@ -28,7 +28,6 @@
     "test:chat-evals": "tsx src/scripts/chatEvalGate.ts",
     "cleanup:target-outliers": "tsx src/scripts/cleanupTargetWalletOutliers.ts",
     "backfill:target-history": "tsx src/scripts/backfillTargetWalletHistory.ts",
-    "calibrate:launchpad-start": "tsx src/scripts/calibrateLaunchpadStartPrices.ts",
     "sec:slither": "slither contracts/**/*.sol --exclude-dependencies --json slither.json",
     "sec:myth": "myth analyze contracts/Token.sol --max-depth 50 --solver-timeout 60",
     "sec:fuzz": "forge test --mc TokenTest --ffi",

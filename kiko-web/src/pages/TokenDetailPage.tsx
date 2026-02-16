@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import {
   ArrowLeft,
   Copy,
@@ -10,6 +11,7 @@ import {
   MessageSquare,
 } from 'lucide-react';
 import { favoriteApi } from '../services/favoriteService';
+import { tokenApi } from '../services/api'; // Added tokenApi
 import { usePrivy } from '@privy-io/react-auth';
 import { useSidebar } from '../components/Layout/Layout';
 import { proxyImageUrl } from '../utils/imageProxy';
@@ -61,8 +63,8 @@ interface TokenInfo {
 }
 
 interface TokenDetailPageProps {
-  token: TokenInfo;
-  onBack: () => void;
+  token?: TokenInfo; // Made optional for routing
+  onBack?: () => void; // Made optional for routing
 }
 
 
@@ -120,19 +122,53 @@ const TwitterIcon = () => (
   </svg>
 );
 
-export const TokenDetailPage: React.FC<TokenDetailPageProps> = ({ token, onBack }) => {
+export const TokenDetailPage: React.FC<TokenDetailPageProps> = ({ token: propToken, onBack: propOnBack }) => {
   const { authenticated } = usePrivy();
   const sidebar = useSidebar();
+  const navigate = useNavigate();
+  const { chain, address } = useParams<{ chain: string; address: string }>();
+  const location = useLocation();
+
+  // State
+  const [fetchedToken, setFetchedToken] = useState<TokenInfo | null>(null);
+  const [fetchLoading, setFetchLoading] = useState(false);
+  const [fetchError, setFetchError] = useState<string | null>(null);
+
+  // Derived state to use either prop or fetched token
+  // Priority: Prop > Location State > Fetched
+  const token = propToken || (location.state as any)?.token || fetchedToken;
+
+  // Handle back navigation
+  const handleBack = useCallback(() => {
+    if (propOnBack) {
+      propOnBack();
+    } else {
+      // If we have history, go back, otherwise go to tokens list
+      if (window.history.length > 2) {
+        navigate(-1);
+      } else {
+        navigate('/tokens');
+      }
+    }
+  }, [propOnBack, navigate]);
 
   const [copied, setCopied] = useState(false);
   const [imageModalOpen, setImageModalOpen] = useState(false);
 
   // Quick Trade Handler
   const handleTradeAction = (action: 'buy' | 'sell') => {
+    if (!token) return;
     const query = `${action === 'buy' ? 'Buy' : 'Sell'} ${token.symbol} on ${token.chain}`;
-    window.dispatchEvent(new CustomEvent('kiko-prefill-chat', {
-      detail: { query: query }
-    }));
+
+    // If we have a conversation context or createConversation method available, use it
+    // For now, navigating to home/chat with prefill query is the safest migration parameter
+    // We can also use navigate with state if we want to avoid window.dispatchEvent in the future
+
+    navigate('/', {
+      state: {
+        prompt: query
+      }
+    });
   };
 
   // Favorites State
@@ -144,18 +180,97 @@ export const TokenDetailPage: React.FC<TokenDetailPageProps> = ({ token, onBack 
   const { resolvedTheme } = useThemeContext();
   const [loading, setLoading] = useState(true);
 
+  // Helper to convert API result to TokenInfo
+  const mapApiToTokenInfo = useCallback((details: any, chainparam: string, addrparam: string): TokenInfo => {
+    // Helper to safely get number
+    const getNum = (v: any) => {
+      if (typeof v === 'number') return v;
+      if (typeof v === 'string') return parseFloat(v) || 0;
+      return 0;
+    };
+
+    return {
+      name: details.name || 'Unknown',
+      symbol: details.symbol || 'UNK',
+      pair: `${details.symbol || 'UNK'} / -`, // We might not have pair info easily
+      chain: details.network || chainparam,
+      price: (details.price || 0).toString(),
+      priceChange24h: getNum(details.priceChange24h),
+      priceChange6h: getNum(details.priceChange6h),
+      priceChange1h: getNum(details.priceChange1h),
+      priceChange5m: getNum(details.priceChange5m),
+      address: details.address || addrparam,
+      fdv: (details.fdv || 0).toString(),
+      mcap: (details.fdv || 0).toString(), // approx
+      liquidity: (details.liquidity || 0).toString(),
+      volume24h: (details.volume24h || 0).toString(),
+      holders: details.holders,
+      poolAddress: details.poolAddress,
+      riskScore: 50, // default
+      audit: {
+        status: "Unverified",
+        warnings: [],
+      },
+      imageUrl: details.imageUrl,
+      socialLinks: {
+        website: details.websites?.[0]?.url,
+        twitter: details.socials?.find((s: any) => s.type === 'twitter')?.url,
+        telegram: details.socials?.find((s: any) => s.type === 'telegram')?.url,
+        discord: details.socials?.find((s: any) => s.type === 'discord')?.url,
+      }
+    };
+  }, []);
+
+  // Effect: Fetch data if no token provided but we have params
+  useEffect(() => {
+    let isMounted = true;
+    const tokenFromState = (location.state as any)?.token;
+
+    if (!propToken && !tokenFromState && chain && address) {
+      const loadData = async () => {
+        setFetchLoading(true);
+        try {
+          const data = await tokenApi.getDetails(chain, address);
+          if (data && isMounted) {
+            setFetchedToken(mapApiToTokenInfo(data, chain, address));
+          } else if (isMounted) {
+            setFetchError("Token not found");
+          }
+        } catch (err) {
+          if (isMounted) {
+            console.error("Failed to load token details route", err);
+            setFetchError("Failed to load token details");
+          }
+        } finally {
+          if (isMounted) setFetchLoading(false);
+        }
+      };
+      loadData();
+    }
+    return () => { isMounted = false; };
+  }, [chain, address, propToken, mapApiToTokenInfo, !!(location.state as any)?.token]); // Stabilize location.state dependency
+
   // Scroll to top and handle mock loading on mount
   useEffect(() => {
-    // Force mock loading for 800ms to show the beautiful skeleton transition
-    const timer = setTimeout(() => setLoading(false), 800);
+    // Force mock loading for 800ms only if we have data or are not fetching
+    // If fetching, we let fetchLoading handle it
+    if (token) {
+      const timer = setTimeout(() => setLoading(false), 800);
+      return () => clearTimeout(timer);
+    } else if (!fetchLoading && fetchError) {
+      setLoading(false);
+    } else if (!fetchLoading && !token && !chain) {
+      // No data, no params
+      setLoading(false);
+    }
+  }, [token, fetchLoading, fetchError, chain]);
 
+  useEffect(() => {
     if (containerRef.current) {
       containerRef.current.scrollIntoView({ block: 'start' });
     } else {
       window.scrollTo(0, 0);
     }
-
-    return () => clearTimeout(timer);
   }, []);
 
   // Register back handler with global mobile header
@@ -164,14 +279,14 @@ export const TokenDetailPage: React.FC<TokenDetailPageProps> = ({ token, onBack 
       // IMPORTANT: Since setOnBackHandler is a useState setter, passing a function directly
       // is treated as a functional update (prev => newValue).
       // We must wrap our function in another function to store the function itself.
-      sidebar.setOnBackHandler(() => onBack);
+      sidebar.setOnBackHandler(() => handleBack);
     }
     return () => {
       if (sidebar?.setOnBackHandler) {
         sidebar.setOnBackHandler(null);
       }
     };
-  }, [onBack, sidebar]);
+  }, [handleBack, sidebar]);
 
   // Check Favorite status on mount (NO auto security scan - user triggers via Ask AI)
   useEffect(() => {
@@ -237,9 +352,13 @@ export const TokenDetailPage: React.FC<TokenDetailPageProps> = ({ token, onBack 
     // Navigate to Chat page with token info as context query
     const query = `Check risk for token ${token.address} on ${token.chain}. Analyze security and potential issues for ${token.symbol} (${token.name}).`;
     // Store in sessionStorage so ChatInterface can pick it up
-    sessionStorage.setItem('ai_prefill_query', query);
-    // Navigate to the Chat page
-    window.location.href = '/';  // Or wherever your Chat tab is
+    // Use navigate for client-side routing instead of window.location
+    // This preserves state and avoids full page reload
+    navigate('/', {
+      state: {
+        prompt: query
+      }
+    });  // Or wherever your Chat tab is
   };
 
   const getChainColor = (chain: string): string => {
@@ -351,7 +470,7 @@ export const TokenDetailPage: React.FC<TokenDetailPageProps> = ({ token, onBack 
         <div className={styles.tokenTitleRow}>
           <div className={styles.tokenIdentity}>
             {/* Back Button - Visible only on desktop */}
-            <button onClick={onBack} className={styles.backButton}>
+            <button onClick={handleBack} className={styles.backButton}>
               <ArrowLeft size={18} />
             </button>
 

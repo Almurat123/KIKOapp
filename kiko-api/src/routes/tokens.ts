@@ -68,6 +68,8 @@ const SEARCH_ALLOWED_NETWORKS = [
   'solana',
 ];
 
+const TRENDING_LIVE_CACHE_VERSION = 'v2';
+
 function sanitizeTrendingPayload(chain: string, rows: any[]): any[] {
   if (!Array.isArray(rows)) return [];
   return rows.filter((token) => validateTrendingTokenForListing(chain, token).ok);
@@ -75,6 +77,19 @@ function sanitizeTrendingPayload(chain: string, rows: any[]): any[] {
 
 function stripLaunchMultiples(rows: any[]): any[] {
   return rows;
+}
+
+function hasLaunchpadOrCreatorMetadata(rows: any[]): boolean {
+  if (!Array.isArray(rows)) return false;
+  return rows.some((row) => {
+    if (!row || typeof row !== 'object') return false;
+    return Boolean(
+      (row as any).launchpad
+      || (row as any).creatorAddress
+      || (row as any).creatorUrl
+      || (row as any).creatorLabel
+    );
+  });
 }
 
 function tokenMetaCacheKey(chain: string, address: string): string {
@@ -102,11 +117,9 @@ async function hydrateTrendingMetadata(chain: string, rows: any[]): Promise<any[
       if (!raw) raw = await get(tokenMetaLegacyCacheKey(chain, address));
       if (raw) {
         const meta = JSON.parse(raw) as { creatorAddress?: string; creatorUrl?: string; creatorLabel?: string; launchMultiple?: number; cacheVersion?: number };
-        if (!(row.creatorAddress && row.creatorUrl)) {
-          if (meta?.creatorAddress && !row.creatorAddress) row.creatorAddress = meta.creatorAddress;
-          if (meta?.creatorUrl && !row.creatorUrl) row.creatorUrl = meta.creatorUrl;
-          if (meta?.creatorLabel && !row.creatorLabel) row.creatorLabel = meta.creatorLabel;
-        }
+        if (meta?.creatorAddress && !row.creatorAddress) row.creatorAddress = meta.creatorAddress;
+        if (meta?.creatorUrl && !row.creatorUrl) row.creatorUrl = meta.creatorUrl;
+        if (meta?.creatorLabel && !row.creatorLabel) row.creatorLabel = meta.creatorLabel;
       }
       const initialPoolRaw = await get(initialPoolCacheKey(chain, address));
       if (initialPoolRaw) {
@@ -167,10 +180,8 @@ export async function tokenRoutes(fastify: FastifyInstance) {
         limit?: string;
         strict?: string;
       };
-      const strictRaw = String((request.query as any)?.strict || '').toLowerCase();
-      // Default to strict to prevent stale cache payloads from leaking into UI.
-      // Explicit strict=0/false can re-enable cache for debugging/perf checks.
-      const strictMode = !(strictRaw === '0' || strictRaw === 'false');
+      // Token page path: DB-first only. Do not serve Redis response-cache payloads.
+      const strictMode = true;
 
       // Validate duration
       const validDuration = SUPPORTED_DURATIONS.includes(duration as TrendingDuration)
@@ -179,41 +190,13 @@ export async function tokenRoutes(fastify: FastifyInstance) {
 
       const tokenLimit = Math.min(parseInt(limit, 10) || 50, 100);
 
-      // Step 1: Check Redis cache first (fastest path)
-      const cacheKey = `trending:live:${chain}:${validDuration}`;
-      if (!strictMode) {
-        const cached = await get(cacheKey);
-        if (cached) {
-          const tokens = sanitizeTrendingPayload(chain, JSON.parse(cached));
-          await hydrateTrendingMetadata(chain, tokens);
-          if (tokens.length > 0) {
-            stripLaunchMultiples(tokens);
-            await set(cacheKey, JSON.stringify(tokens), 180);
-            return reply.send({
-              success: true,
-              data: tokens.slice(0, tokenLimit),
-              count: Math.min(tokens.length, tokenLimit),
-              duration: validDuration,
-              chain: chain,
-              cached: true,
-              source: 'cache',
-            });
-          }
-        }
-      }
-
-      // Step 2: Fallback to PostgreSQL database (populated by background job)
+      // Step 1: PostgreSQL database (populated by background job)
       let dbTokens = await getTrendingTokens(chain, tokenLimit, {
         bypassMemoryCache: strictMode,
         lightweight: true,
       });
       stripLaunchMultiples(dbTokens);
-
-      // Step 2.5: Fallback to 5m cache if DB is empty but refresh job filled short-term cache
       if (dbTokens.length > 0) {
-        // Update cache for next request
-        await set(cacheKey, JSON.stringify(dbTokens), 180);
-
         return reply.send({
           success: true,
           data: dbTokens,
@@ -225,29 +208,7 @@ export async function tokenRoutes(fastify: FastifyInstance) {
         });
       }
 
-      if (!strictMode && validDuration !== '5m') {
-        const fallbackKey = `trending:live:${chain}:5m`;
-        const fallback = await get(fallbackKey);
-        if (fallback) {
-          const tokens = sanitizeTrendingPayload(chain, JSON.parse(fallback));
-          await hydrateTrendingMetadata(chain, tokens);
-          if (tokens.length > 0) {
-            stripLaunchMultiples(tokens);
-            await set(cacheKey, JSON.stringify(tokens), 180);
-            return reply.send({
-              success: true,
-              data: tokens.slice(0, tokenLimit),
-              count: Math.min(tokens.length, tokenLimit),
-              duration: validDuration,
-              chain: chain,
-              cached: true,
-              source: 'cache-5m-fallback',
-            });
-          }
-        }
-      }
-
-      // Step 3: Database is empty or stale - refresh once and return DB results
+      // Step 2: Database is empty or stale - refresh once and return DB results
       const lastUpdate = await getTrendingUpdateTime(chain);
       const isStale = !lastUpdate || (Date.now() - lastUpdate.getTime()) > 10 * 60 * 1000;
       if (isStale) {
@@ -262,7 +223,6 @@ export async function tokenRoutes(fastify: FastifyInstance) {
       }
 
       if (dbTokens.length > 0) {
-        await set(cacheKey, JSON.stringify(dbTokens), 180);
         return reply.send({
           success: true,
           data: dbTokens,
@@ -274,7 +234,7 @@ export async function tokenRoutes(fastify: FastifyInstance) {
         });
       }
 
-      // Step 4: Still empty
+      // Step 3: Still empty
       return reply.send({
         success: true,
         data: [],

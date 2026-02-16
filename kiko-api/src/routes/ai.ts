@@ -320,6 +320,7 @@ async function persistProxyUsage(params: {
     model: string;
     usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } | null;
     toolCallsCount?: number;
+    toolCallNames?: string[];
     isFree?: boolean;
 }): Promise<void> {
     if (!params.userId) return;
@@ -331,7 +332,13 @@ async function persistProxyUsage(params: {
     const totalTokens = Number(usage.total_tokens || promptTokens + completionTokens);
     const modelCategory = getBillingCategory(params.model);
     const toolCallsCount = Number(params.toolCallsCount || 0);
-    const usdCost = computeUsdCost(params.usage, params.model, toolCallsCount);
+    const usdCost = computeUsdCost(
+        params.usage,
+        params.model,
+        Array.isArray(params.toolCallNames) && params.toolCallNames.length > 0
+            ? params.toolCallNames
+            : toolCallsCount
+    );
     const dateUtc = getUtcDateString();
 
     try {
@@ -530,7 +537,8 @@ export async function aiRoutes(fastify: FastifyInstance) {
                             const decoder = new TextDecoder();
                             let grokBuffer = '';
                             let grokUsage: any = null;
-                            let grokToolCallsCount = 0;
+                            const grokToolCallsById = new Map<string, string>();
+                            let grokToolCallSeq = 0;
 
                             try {
                                 while (true) {
@@ -551,7 +559,14 @@ export async function aiRoutes(fastify: FastifyInstance) {
                                             if (parsed.usage) grokUsage = parsed.usage;
                                             const deltaToolCalls = parsed?.choices?.[0]?.delta?.tool_calls;
                                             if (Array.isArray(deltaToolCalls)) {
-                                                grokToolCallsCount += deltaToolCalls.length;
+                                                for (const tc of deltaToolCalls) {
+                                                    const name = String(tc?.function?.name || '').trim().toLowerCase();
+                                                    if (!name) continue;
+                                                    const key = String(tc?.id || `idx_${tc?.index ?? grokToolCallSeq++}`);
+                                                    if (!grokToolCallsById.has(key)) {
+                                                        grokToolCallsById.set(key, name);
+                                                    }
+                                                }
                                             }
                                         } catch {
                                             // ignore malformed intermediate chunks
@@ -565,7 +580,8 @@ export async function aiRoutes(fastify: FastifyInstance) {
                                     userId,
                                     model: normalizedModel,
                                     usage: grokUsage,
-                                    toolCallsCount: grokToolCallsCount,
+                                    toolCallsCount: grokToolCallsById.size,
+                                    toolCallNames: Array.from(grokToolCallsById.values()),
                                     isFree: true
                                 });
                                 reply.raw.end();
@@ -578,7 +594,14 @@ export async function aiRoutes(fastify: FastifyInstance) {
                                 userId,
                                 model: normalizedModel,
                                 usage: data?.usage,
-                                toolCallsCount: 0,
+                                toolCallsCount: Array.isArray(data?.choices?.[0]?.message?.tool_calls)
+                                    ? data.choices[0].message.tool_calls.length
+                                    : 0,
+                                toolCallNames: Array.isArray(data?.choices?.[0]?.message?.tool_calls)
+                                    ? data.choices[0].message.tool_calls
+                                        .map((tc: any) => String(tc?.function?.name || '').trim().toLowerCase())
+                                        .filter(Boolean)
+                                    : [],
                                 isFree: true
                             });
                             return reply.send(data);
@@ -649,6 +672,7 @@ export async function aiRoutes(fastify: FastifyInstance) {
                 const collectedClientActions: any[] = [];
                 let iteration = 0;
                 let totalToolCallsCount = 0;
+                const totalToolCallNames: string[] = [];
                 let lastUsage: any = null;
                 // Set up streaming response headers
                 if (stream) {
@@ -809,6 +833,10 @@ export async function aiRoutes(fastify: FastifyInstance) {
 
                     if (hasToolCalls && toolCalls.length > 0) {
                         totalToolCallsCount += toolCalls.length;
+                        for (const tc of toolCalls) {
+                            const name = String(tc?.function?.name || '').trim().toLowerCase();
+                            if (name) totalToolCallNames.push(name);
+                        }
                         logger.info(LogCode.AI_TOOL_USED, `[AI Routes] Tool calls detected`, { count: toolCalls.length });
 
                         // Send tool call status to client
@@ -900,6 +928,7 @@ export async function aiRoutes(fastify: FastifyInstance) {
                             model: normalizedModel,
                             usage: lastUsage,
                             toolCallsCount: totalToolCallsCount,
+                            toolCallNames: totalToolCallNames,
                             isFree: true
                         });
                         // Send [DONE] marker to indicate stream completion
@@ -911,6 +940,7 @@ export async function aiRoutes(fastify: FastifyInstance) {
                             model: normalizedModel,
                             usage: lastUsage,
                             toolCallsCount: totalToolCallsCount,
+                            toolCallNames: totalToolCallNames,
                             isFree: true
                         });
                         // Non-streaming response
@@ -984,6 +1014,7 @@ export async function aiRoutes(fastify: FastifyInstance) {
                         model: normalizedModel,
                         usage: lastUsage,
                         toolCallsCount: totalToolCallsCount,
+                        toolCallNames: totalToolCallNames,
                         isFree: true
                     });
                     reply.raw.write('data: [DONE]\n\n');
@@ -994,6 +1025,7 @@ export async function aiRoutes(fastify: FastifyInstance) {
                         model: normalizedModel,
                         usage: lastUsage,
                         toolCallsCount: totalToolCallsCount,
+                        toolCallNames: totalToolCallNames,
                         isFree: true
                     });
                     return reply.code(500).send({

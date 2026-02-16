@@ -95,12 +95,14 @@ const FollowKikoButton: React.FC = () => {
 };
 
 interface SettingsPageProps {
-    onDisconnect: () => void;
+    onDisconnect?: () => void;
 }
 
 // [Logic]: Primary settings page component, converted from Modal.
 // [Ref]: Replaced WalletSettingsModal.tsx with standalone page implementation.
 export default function SettingsPage({ onDisconnect }: SettingsPageProps) {
+    const { logout } = usePrivy();
+    const handleLogout = onDisconnect || logout;
     return (
         <PageContainer title="Settings">
             <div className={styles.settingsPage}>
@@ -138,7 +140,7 @@ export default function SettingsPage({ onDisconnect }: SettingsPageProps) {
                     </div>
 
                     <div className={styles.dangerZone}>
-                        <button onClick={onDisconnect} className={styles.disconnectButton}>Logout</button>
+                        <button onClick={handleLogout} className={styles.disconnectButton}>Logout</button>
                     </div>
                 </div>
             </div>

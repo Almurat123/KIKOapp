@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { MessageSquare, Newspaper, BarChart2, Layers, Plus, PanelLeftClose, ChevronDown, ChevronRight, Pencil, Trash2, Users, RefreshCw, Coins, Network } from 'lucide-react';
 import { usePrivy } from '@privy-io/react-auth';
 import type { WalletWithMetadata } from '@privy-io/react-auth';
+import { NavLink, useNavigate, useLocation } from 'react-router-dom';
 import clsx from 'clsx';
 import kikoLogoDark from '../../assets/images/KIKOdark.png';
 import kikoLogoLight from '../../assets/images/KIKOlight.png';
@@ -14,8 +15,7 @@ import styles from './Sidebar.module.css';
 import type { Conversation } from '../../hooks/useConversations';
 
 interface SidebarProps {
-  activeTab: string;
-  onTabChange: (tab: string) => void;
+  // activeTab and onTabChange removed - utilizing router
   isOpen: boolean;
   onClose: () => void;
   isDesktopOpen: boolean;
@@ -23,7 +23,7 @@ interface SidebarProps {
   onProfileClick: () => void;
   conversations?: Conversation[];
   activeConversationId?: string | null;
-  onConversationClick?: (id: string) => void;
+  // onConversationClick removed - utilizing router
   onNewChat?: () => void;
   onConversationRename?: (id: string, newTitle: string) => void;
   onConversationDelete?: (id: string) => void;
@@ -34,21 +34,18 @@ interface NavItem {
   id: string;
   icon: React.ComponentType<any>;
   label: string;
-  subItems?: { id: string; label: string }[];
+  path: string; // Added path
+  subItems?: { id: string; label: string; path: string }[];
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
-  activeTab,
-  onTabChange,
   isOpen,
   onClose,
   isDesktopOpen,
   onDesktopClose,
   onProfileClick,
-
   conversations = [],
   activeConversationId,
-  onConversationClick,
   onNewChat,
   onConversationRename,
   onConversationDelete,
@@ -56,6 +53,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
 }) => {
   const { resolvedTheme } = useThemeContext();
   const { user, authenticated, ready, getAccessToken } = usePrivy();
+  const navigate = useNavigate();
+  const location = useLocation();
   const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set(['chat']));
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState<string>('');
@@ -147,9 +146,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
     id: 'chat',
     icon: MessageSquare,
     label: 'Chat',
+    path: '/',
     subItems: visibleConversations.map(conv => ({
       id: conv.id,
       label: conv.title,
+      path: `/chat/${conv.id}`
     })),
   };
 
@@ -159,36 +160,43 @@ export const Sidebar: React.FC<SidebarProps> = ({
       id: 'social',
       icon: Users,
       label: 'Social',
+      path: '/social'
     },
     {
       id: 'market-tokens',
       icon: Coins,
       label: 'Tokens',
+      path: '/tokens'
     },
     {
       id: 'trade',
       icon: RefreshCw,
       label: 'Trade',
+      path: '/trade'
     },
     {
       id: 'news',
       icon: Newspaper,
       label: 'News',
+      path: '/news'
     },
     {
       id: 'market-overview',
       icon: BarChart2,
       label: 'Overview',
+      path: '/market'
     },
     {
       id: 'market-chains',
       icon: Network,
       label: 'Chains',
+      path: '/chains'
     },
     {
       id: 'defi',
       icon: Layers,
       label: 'SuperDefi',
+      path: '/defi'
     },
   ];
 
@@ -200,6 +208,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
       newExpanded.add(id);
     }
     setExpandedItems(newExpanded);
+  };
+
+  // Check if a path is active (handling sub-paths for some)
+  const isPathActive = (path: string, exact = false) => {
+    if (path === '/' && location.pathname !== '/' && !location.pathname.startsWith('/chat')) return false;
+    if (path === '/' && (location.pathname === '/' || location.pathname.startsWith('/chat'))) return true;
+
+    if (exact) return location.pathname === path;
+    return location.pathname.startsWith(path);
   };
 
   return (
@@ -221,7 +238,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             className={styles.logo}
             onClick={() => {
               if (onNewChat) onNewChat();
-              onTabChange('chat');
+              navigate('/');
               if (isMobile) onClose();
             }}
             style={{ cursor: 'pointer' }}
@@ -231,7 +248,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <ThemeToggle />
           </div>
 
-          {/* Corrected: Using Sidebar icon for both mobile and desktop (as per user screen) */}
           <button
             className={styles.collapseBtn}
             onClick={isMobile ? onClose : onDesktopClose}
@@ -246,7 +262,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             className={styles.newChatBtn}
             onClick={() => {
               if (onNewChat) onNewChat();
-              onTabChange('chat');
+              navigate('/');
               if (isMobile) onClose();
             }}
           >
@@ -256,137 +272,153 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
 
         <nav className={styles.nav}>
-          {navItems.map((item) => (
-            <div key={item.id} className={styles.navGroup}>
-              <button
-                className={clsx(styles.navItem, activeTab.startsWith(item.id) && styles.active)}
-                onClick={() => {
-                  if (!item.subItems) {
-                    onTabChange(item.id);
-                    if (isMobile) onClose();
-                  } else {
-                    toggleExpand(item.id);
-                  }
-                }}
-              >
-                <item.icon size={18} />
-                <span className={styles.navLabel}>{item.label}</span>
-                {item.subItems && (
-                  <span className={styles.chevron}>
-                    {expandedItems.has(item.id) ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                  </span>
+          {navItems.map((item) => {
+            // Determine if item is active based on path
+            // For chat, it's active if on / or /chat/...
+            const isActive = isPathActive(item.path);
+
+            return (
+              <div key={item.id} className={styles.navGroup}>
+                {/* If item has subitems (like Chat), click toggles expand or navigates to main path */}
+                {!item.subItems ? (
+                  <NavLink
+                    to={item.path}
+                    className={({ isActive }) => clsx(styles.navItem, isActive && styles.active)}
+                    onClick={() => {
+                      if (isMobile) onClose();
+                    }}
+                  >
+                    <item.icon size={18} />
+                    <span className={styles.navLabel}>{item.label}</span>
+                  </NavLink>
+                ) : (
+                  <button
+                    className={clsx(styles.navItem, isActive && styles.active)}
+                    onClick={() => {
+                      // For Chat, clicking the header should probably just toggle or go to new chat?
+                      // Current behavior seems to be toggle expand if subItems exist
+                      toggleExpand(item.id);
+                    }}
+                  >
+                    <item.icon size={18} />
+                    <span className={styles.navLabel}>{item.label}</span>
+                    <span className={styles.chevron}>
+                      {expandedItems.has(item.id) ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                    </span>
+                  </button>
                 )}
-              </button>
 
-              {item.subItems && expandedItems.has(item.id) && (
-                <div className={styles.subItems}>
-                  {item.subItems.map((sub) => {
-                    const isChatItem = item.id === 'chat';
-                    const isEditing = editingId === sub.id;
-                    const isHovered = hoveredId === sub.id;
+                {item.subItems && expandedItems.has(item.id) && (
+                  <div className={styles.subItems}>
+                    {item.subItems.map((sub) => {
+                      const isChatItem = item.id === 'chat';
+                      const isEditing = editingId === sub.id;
+                      const isHovered = hoveredId === sub.id;
 
-                    return (
-                      <div
-                        key={sub.id}
-                        className={clsx(
-                          styles.subItemWrapper,
-                          isChatItem && sub.id === activeConversationId && styles.active
-                        )}
-                        onMouseEnter={() => isChatItem && setHoveredId(sub.id)}
-                        onMouseLeave={() => isChatItem && setHoveredId(null)}
-                      >
-                        {isEditing ? (
-                          <input
-                            className={styles.editInput}
-                            value={editValue}
-                            onChange={(e) => setEditValue(e.target.value)}
-                            onBlur={() => {
-                              if (editValue.trim() && onConversationRename) {
-                                onConversationRename(sub.id, editValue.trim());
-                              }
-                              setEditingId(null);
-                              setEditValue('');
-                            }}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') {
+                      return (
+                        <div
+                          key={sub.id}
+                          className={clsx(
+                            styles.subItemWrapper,
+                            // NavLink handles active, but we need custom styling wrapper
+                            location.pathname === sub.path && styles.active
+                          )}
+                          onMouseEnter={() => isChatItem && setHoveredId(sub.id)}
+                          onMouseLeave={() => isChatItem && setHoveredId(null)}
+                        >
+                          {isEditing ? (
+                            <input
+                              className={styles.editInput}
+                              value={editValue}
+                              onChange={(e) => setEditValue(e.target.value)}
+                              onBlur={() => {
                                 if (editValue.trim() && onConversationRename) {
                                   onConversationRename(sub.id, editValue.trim());
                                 }
                                 setEditingId(null);
                                 setEditValue('');
-                              } else if (e.key === 'Escape') {
-                                setEditingId(null);
-                                setEditValue('');
-                              }
-                            }}
-                            autoFocus
-                            onClick={(e) => e.stopPropagation()}
-                          />
-                        ) : (
-                          <>
-                            <button
-                              className={styles.subItem}
-                              onClick={() => {
-                                if (isChatItem && onConversationClick) {
-                                  onConversationClick(sub.id);
-                                } else {
-                                  onTabChange(sub.id);
-                                }
-                                if (isMobile) onClose();
                               }}
-                            >
-                              <span className={styles.subItemLabel}>{sub.label}</span>
-                              {generatingConversationId === sub.id && (
-                                <div className={styles.loadingSpinner} />
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  if (editValue.trim() && onConversationRename) {
+                                    onConversationRename(sub.id, editValue.trim());
+                                  }
+                                  setEditingId(null);
+                                  setEditValue('');
+                                } else if (e.key === 'Escape') {
+                                  setEditingId(null);
+                                  setEditValue('');
+                                }
+                              }}
+                              autoFocus
+                              onClick={(e) => e.stopPropagation()}
+                            />
+                          ) : (
+                            <>
+                              <NavLink
+                                to={sub.path}
+                                className={({ isActive }) => clsx(styles.subItem, isActive && styles.activeText)}
+                                onClick={() => {
+                                  if (isMobile) onClose();
+                                }}
+                              >
+                                <span className={styles.subItemLabel}>{sub.label}</span>
+                                {(() => {
+                                  const conv = conversations.find(c => c.id === sub.id);
+                                  const isActive = !!conv?.activeTask;
+                                  return isActive ? <div className={styles.loadingSpinner} /> : null;
+                                })()}
+                              </NavLink>
+                              {isChatItem && (isMobile || isHovered || isEditing) && (
+                                <div className={styles.subItemActions}>
+                                  <button
+                                    className={styles.actionBtn}
+                                    onClick={(e) => {
+                                      e.preventDefault();
+                                      e.stopPropagation();
+                                      const conv = conversations.find(c => c.id === sub.id);
+                                      if (conv) {
+                                        setEditingId(sub.id);
+                                        setEditValue(conv.title);
+                                      }
+                                    }}
+                                    title="Rename"
+                                  >
+                                    <Pencil size={14} />
+                                  </button>
+                                  <button
+                                    className={styles.actionBtn}
+                                    onClick={(e) => {
+                                      e.preventDefault();
+                                      e.stopPropagation();
+                                      if (onConversationDelete) {
+                                        onConversationDelete(sub.id);
+                                      }
+                                    }}
+                                    title="Delete"
+                                  >
+                                    <Trash2 size={14} />
+                                  </button>
+                                </div>
                               )}
-                            </button>
-                            {isChatItem && (isMobile || isHovered || isEditing) && (
-                              <div className={styles.subItemActions}>
-                                <button
-                                  className={styles.actionBtn}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    const conv = conversations.find(c => c.id === sub.id);
-                                    if (conv) {
-                                      setEditingId(sub.id);
-                                      setEditValue(conv.title);
-                                    }
-                                  }}
-                                  title="Rename"
-                                >
-                                  <Pencil size={14} />
-                                </button>
-                                <button
-                                  className={styles.actionBtn}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    if (onConversationDelete) {
-                                      onConversationDelete(sub.id);
-                                    }
-                                  }}
-                                  title="Delete"
-                                >
-                                  <Trash2 size={14} />
-                                </button>
-                              </div>
-                            )}
-                          </>
-                        )}
-                      </div>
-                    );
-                  })}
-                  {item.id === 'chat' && hasMoreConversations && (
-                    <button
-                      className={styles.showMoreButton}
-                      onClick={() => setShowAllConversations(prev => !prev)}
-                    >
-                      {showAllConversations ? 'Show less' : 'Show more'}
-                    </button>
-                  )}
-                </div>
-              )}
-            </div>
-          ))}
+                            </>
+                          )}
+                        </div>
+                      );
+                    })}
+                    {item.id === 'chat' && hasMoreConversations && (
+                      <button
+                        className={styles.showMoreButton}
+                        onClick={() => setShowAllConversations(prev => !prev)}
+                      >
+                        {showAllConversations ? 'Show less' : 'Show more'}
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </nav>
 
         <div className={styles.footer}>

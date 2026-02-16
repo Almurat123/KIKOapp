@@ -38,6 +38,7 @@ export interface Conversation {
     status: 'queued' | 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
     [key: string]: any;
   } | null;
+  pendingAIPrompt?: string;
 }
 
 export const useConversations = () => {
@@ -147,7 +148,7 @@ export const useConversations = () => {
     }
   }, []);
 
-  const loadConversation = useCallback(async (id: string) => {
+  const loadConversation = useCallback(async (id: string | null) => {
     if (!id) {
       setActiveConversationId(null);
       return null;

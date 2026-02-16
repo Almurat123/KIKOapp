@@ -2159,6 +2159,8 @@ Do NOT estimate or guess USD values.`;
 
         // Declare toolCalls outside main loop so it can be accessed in finally/cleanup
         let toolCalls: any[] = [];
+        let totalToolCallsCount = 0;
+        const totalToolCallNames: string[] = [];
 
         while (iteration < maxIterations) {
             iteration++;
@@ -3418,13 +3420,20 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
 
             // Process tool results
             if (hasToolCalls) {
+                const currentToolCalls = toolCalls.filter(Boolean);
+                totalToolCallsCount += currentToolCalls.length;
+                for (const tc of currentToolCalls) {
+                    const name = String(tc?.function?.name || '').trim().toLowerCase();
+                    if (name) totalToolCallNames.push(name);
+                }
+
                 // CRITICAL FIX: Add the assistant message to in-memory history 
                 // so the following tool messages have a valid predecessor for the LLM API.
                 history.push({
                     role: 'assistant',
                     content: iterContent,
                     reasoning_content: iterReasoning,
-                    tool_calls: toolCalls.filter(Boolean)
+                    tool_calls: currentToolCalls
                 });
 
                 // Wait for all pre-fetches to complete
@@ -3587,7 +3596,8 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
                 model: task.model,
                 usage: lastUsage,
                 toolContext: task.toolContext,
-                toolCallsCount: toolCalls.length
+                toolCallsCount: totalToolCallsCount,
+                toolCallNames: totalToolCallNames
             });
 
             // CRITICAL: Broadcast message_complete to frontend so it stops showing "Thinking"
@@ -3643,7 +3653,8 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
                 model: task.model,
                 usage: lastUsage,
                 toolContext: task.toolContext,
-                toolCallsCount: toolCalls.length
+                toolCallsCount: totalToolCallsCount,
+                toolCallNames: totalToolCallNames
             });
 
             // Broadcast error to frontend
@@ -3945,13 +3956,20 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
         usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } | null;
         toolContext?: any;
         toolCallsCount?: number;
+        toolCallNames?: string[];
     }): Promise<void> {
         if (!params.userId || !params.usage) return;
 
         const billingContext = params.toolContext?.billing || {};
         const modelCategory = billingContext.modelCategory || getBillingCategory(params.model);
         const isFree = typeof billingContext.isFree === 'boolean' ? billingContext.isFree : false;
-        const usdCost = computeUsdCost(params.usage, params.model, params.toolCallsCount || 0);
+        const usdCost = computeUsdCost(
+            params.usage,
+            params.model,
+            Array.isArray(params.toolCallNames) && params.toolCallNames.length > 0
+                ? params.toolCallNames
+                : (params.toolCallsCount || 0)
+        );
         const promptTokens = Number(params.usage.prompt_tokens || 0);
         const completionTokens = Number(params.usage.completion_tokens || 0);
         const totalTokens = Number(params.usage.total_tokens || promptTokens + completionTokens);

@@ -4,7 +4,7 @@
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || (
     import.meta.env.PROD
-        ? 'https://api.kiko.app' // Production: must use HTTPS
+        ? 'https://api.kikoapp.app' // Production: must use HTTPS
         : 'http://localhost:3001'
 );
 

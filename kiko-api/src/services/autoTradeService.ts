@@ -1126,13 +1126,36 @@ async function processSingleUserBuy(
         try {
             const effectiveMaxDelayMs = turboMode ? COPYTRADE_TURBO_MAX_DELAY_MS : COPYTRADE_MAX_DELAY_MS;
             if (detectedAt && Date.now() - detectedAt > effectiveMaxDelayMs) {
-                logger.info(LogCode.WTC_TX_SKIPPED, 'Skipping trade: copytrade delay exceeded', {
+                const delayMs = Date.now() - detectedAt;
+                const txRef = swap?.txHash ? String(swap.txHash).slice(0, 12) : 'nohash';
+                logger.info(
+                    LogCode.WTC_TX_SKIPPED,
+                    `Skipping trade: copytrade delay exceeded (tx=${txRef} delayMs=${Math.round(delayMs)} maxMs=${effectiveMaxDelayMs})`,
+                    {
                     userId: config.userId,
                     token: tokenToBuy,
-                    delayMs: Date.now() - detectedAt,
+                    delayMs,
                     maxDelayMs: effectiveMaxDelayMs,
                     turboMode
-                });
+                    }
+                );
+
+                sendNotificationAsync({
+                    userId: config.userId,
+                    farcasterFid: config.user.farcasterFid,
+                    type: 'COPY_TRADE_SKIPPED',
+                    data: {
+                        tokenSymbol: tokenInfo?.symbol || tokenToBuy.slice(0, 10),
+                        tokenAddress: tokenToBuy,
+                        targetWallet: targetWallet,
+                        chainId: chainId,
+                        skipReason: `Signal delayed ${Math.round(delayMs)}ms > max ${effectiveMaxDelayMs}ms`,
+                        targetBuyValue: targetSwapValueUsd > 0 ? targetSwapValueUsd.toFixed(2) : undefined,
+                        marketCap: tokenInfo?.marketCap ? tokenInfo.marketCap.toFixed(0) : undefined,
+                        liquidity: tokenInfo?.liquidity ? tokenInfo.liquidity.toFixed(0) : undefined,
+                    }
+                }, 'copytrade_skip_delay_exceeded');
+
                 return;
             }
 

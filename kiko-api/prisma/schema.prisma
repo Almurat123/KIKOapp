@@ -8,45 +8,6 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-enum CopyTradeConfigStatus {
-  active
-  paused
-}
-
-enum PolymarketConfigStatus {
-  active
-  paused
-}
-
-enum PolymarketPositionStatus {
-  open
-  closed
-  failed
-}
-
-enum PolymarketActionStatus {
-  pending
-  success
-  failed
-  cancelled
-}
-
-enum PositionStatus {
-  pending
-  open
-  closing
-  closed
-  failed
-}
-
-enum SwapHistoryStatus {
-  pending
-  success
-  failed
-  confirmed
-  cancelled
-}
-
 model Chain {
   id          Int      @id
   name        String   @unique
@@ -58,20 +19,6 @@ model Chain {
   createdAt   DateTime @default(now())
 }
 
-model Token {
-  id        String   @id @default(cuid())
-  chainId   Int
-  address   String
-  symbol    String
-  name      String?
-  decimals  Int?
-  logoUrl   String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@unique([chainId, address])
-  @@index([symbol])
-}
 
 model User {
   id                  String                 @id @default(cuid())
@@ -84,22 +31,22 @@ model User {
   email               String?                @unique
   referralCode        String?                @unique
   referredBy          String?
-  billingBlocks       BillingBlock[]
-  billingConsents     BillingConsent[]
-  billingUsage        BillingUsageLedger[]
   chatSessions        ChatSession[]
   configs             CopyTradeConfig[]
-  dailyBilling        DailyBilling[]
   favorites           FavoriteToken[]
   polymarketActions   PolymarketAction[]
   polymarketApiCreds  PolymarketApiCreds?
   polymarketConfigs   PolymarketCopyConfig[]
   polymarketPositions PolymarketPosition[]
   positions           Position[]
-  settings            UserSettings?
   swapHistory         SwapHistory[]
   userActivities      UserActivity[]
+  settings            UserSettings?
   walletExports       WalletExport[]
+  billingBlocks       BillingBlock[]
+  billingConsents     BillingConsent[]
+  billingUsage        BillingUsageLedger[]
+  dailyBilling        DailyBilling[]
 }
 
 model WalletExport {
@@ -115,10 +62,8 @@ model WalletExport {
 }
 
 model UserSettings {
-  id     String @id @default(cuid())
-  userId String @unique
-
-  // userRole removed
+  id                            String   @id @default(cuid())
+  userId                        String   @unique
   defaultSwapAmount             Float    @default(100)
   defaultSwapUnit               String   @default("native")
   checkTokenBeforeSwap          Boolean  @default(true)
@@ -150,21 +95,21 @@ model CopyTradeConfig {
   minMarketCapUsd               Float?
   minLiquidityUsd               Float?
   minTargetValueUsd             Float?
-  copyTradeTokenCooldownMinutes Int?
-  executionMode                 String                @default("balanced")
-  disableTokenInfo              Boolean               @default(false)
   takeProfitPct                 Float?
   stopLossPct                   Float?
   mirrorSell                    Boolean               @default(true)
-  enableDynamicTP               Boolean               @default(false)
-  dynamicTPMinProfitPct         Float                 @default(100)
   status                        CopyTradeConfigStatus @default(active)
   aiAnalysisMode                String                @default("disabled")
   createdAt                     DateTime              @default(now())
   updatedAt                     DateTime              @updatedAt
+  dynamicTPMinProfitPct         Float                 @default(100)
+  enableDynamicTP               Boolean               @default(false)
+  copyTradeTokenCooldownMinutes Int?
+  disableTokenInfo              Boolean               @default(false)
+  executionMode                 String                @default("balanced")
   analyses                      CopyTradeAnalysis[]
-  positions                     Position[]
   user                          User                  @relation(fields: [userId], references: [privyDid], onDelete: Cascade)
+  positions                     Position[]
 
   @@index([targetWallet])
   @@index([userId])
@@ -216,36 +161,37 @@ model PolymarketCopyConfig {
 }
 
 model WalletTransaction {
-  id             Int      @id @default(autoincrement())
-  walletAddress  String   @map("wallet_address")
-  chain          String   @default("eth")
-  chainId        Int?     @map("chain_id")
-  txHash         String   @map("tx_hash")
-  txType         String   @map("tx_type")
-  fromAddress    String?  @map("from_address")
-  toAddress      String?  @map("to_address")
-  tokenSymbol    String?  @map("token_symbol")
-  tokenAddress   String?  @map("token_address")
-  tokenInSymbol  String?  @map("token_in_symbol")
-  tokenOutSymbol String?  @map("token_out_symbol")
-  tokenInAddress String?  @map("token_in_address")
-  tokenOutAddress String? @map("token_out_address")
-  amount         String?
-  amountIn       String?  @map("amount_in")
-  amountOut      String?  @map("amount_out")
-  valueUsd       Float?   @map("value_usd")
-  valueInUsd     Float?   @map("value_in_usd")
-  valueOutUsd    Float?   @map("value_out_usd")
-  parseReason    String?  @map("parse_reason")
-  source         String?  @map("source")
-  blockNumber    BigInt?  @map("block_number")
-  blockTimestamp DateTime @map("block_timestamp")
-  createdAt      DateTime @default(now()) @map("created_at")
+  id              Int      @id @default(autoincrement())
+  walletAddress   String   @map("wallet_address")
+  chain           String   @default("eth")
+  txHash          String   @map("tx_hash")
+  txType          String   @map("tx_type")
+  fromAddress     String?  @map("from_address")
+  toAddress       String?  @map("to_address")
+  tokenSymbol     String?  @map("token_symbol")
+  tokenAddress    String?  @map("token_address")
+  tokenInSymbol   String?  @map("token_in_symbol")
+  tokenOutSymbol  String?  @map("token_out_symbol")
+  amount          String?
+  valueUsd        Float?   @map("value_usd")
+  blockNumber     BigInt?  @map("block_number")
+  blockTimestamp  DateTime @map("block_timestamp")
+  createdAt       DateTime @default(now()) @map("created_at")
+  chainId         Int?     @map("chain_id")
+  tokenInAddress  String?  @map("token_in_address")
+  tokenOutAddress String?  @map("token_out_address")
+  amountIn        String?  @map("amount_in")
+  amountOut       String?  @map("amount_out")
+  valueInUsd      Float?   @map("value_in_usd")
+  valueOutUsd     Float?   @map("value_out_usd")
+  parseReason     String?  @map("parse_reason")
+  source          String?  @map("source")
 
   @@unique([txHash, walletAddress])
   @@index([walletAddress])
   @@index([blockTimestamp])
   @@index([chain])
+  @@index([chainId])
   @@map("wallet_transactions")
 }
 
@@ -398,31 +344,20 @@ model Position {
   tokenSymbol        String?
   chainId            Int
   entryPrice         Float
-  entryPriceDec      Decimal?        @db.Decimal(38, 18)
   entryAmount        String
-  entryAmountDec     Decimal?        @db.Decimal(38, 18)
   entryTxHash        String
   entryUsdValue      Float
-  entryUsdValueDec   Decimal?        @db.Decimal(38, 18)
   currentPrice       Float?
-  currentPriceDec    Decimal?        @db.Decimal(38, 18)
-  peakPrice          Float? // For dynamic TP
-  priceHistory       Json?           @default("[]") // For ATR/Rapid decline
-  dynamicTPTriggered Boolean?        @default(false)
   profitLossPct      Float?
   exitTxHash         String?
   exitReason         String?
   status             PositionStatus  @default(open)
   createdAt          DateTime        @default(now())
-  updatedAt          DateTime        @updatedAt
   closedAt           DateTime?
   executionDelayMs   Int?
   exitAmount         String?
-  exitAmountDec      Decimal?        @db.Decimal(38, 18)
   exitPrice          Float?
-  exitPriceDec       Decimal?        @db.Decimal(38, 18)
   exitUsdValue       Float?
-  exitUsdValueDec    Decimal?        @db.Decimal(38, 18)
   holdDurationHours  Float?
   leaderBuyAmount    Float?
   leaderBuyPrice     Float?
@@ -432,11 +367,22 @@ model Position {
   ourGasUsed         String?
   ourSlippageBps     Int?
   realizedPnlPct     Float?
-  realizedPnlPctDec  Decimal?        @db.Decimal(38, 18)
   realizedPnlUsd     Float?
-  realizedPnlUsdDec  Decimal?        @db.Decimal(38, 18)
   exitRetryCount     Int             @default(0)
   lastExitAttempt    DateTime?
+  dynamicTPTriggered Boolean?        @default(false)
+  peakPrice          Float?
+  priceHistory       Json?           @default("[]")
+  updatedAt          DateTime        @updatedAt
+  entryPriceDec      Decimal?        @db.Decimal(38, 18)
+  entryAmountDec     Decimal?        @db.Decimal(38, 18)
+  entryUsdValueDec   Decimal?        @db.Decimal(38, 18)
+  currentPriceDec    Decimal?        @db.Decimal(38, 18)
+  exitAmountDec      Decimal?        @db.Decimal(38, 18)
+  exitPriceDec       Decimal?        @db.Decimal(38, 18)
+  exitUsdValueDec    Decimal?        @db.Decimal(38, 18)
+  realizedPnlPctDec  Decimal?        @db.Decimal(38, 18)
+  realizedPnlUsdDec  Decimal?        @db.Decimal(38, 18)
   config             CopyTradeConfig @relation(fields: [configId], references: [id], onDelete: Cascade)
   user               User            @relation(fields: [userId], references: [privyDid], onDelete: Cascade)
 
@@ -453,19 +399,19 @@ model Position {
 }
 
 model ChatSession {
-  id        String        @id @default(cuid())
-  userId    String
-  title     String
-  model     String        @default("grok-4-1-fast-reasoning")
-  status    String        @default("active")
-  lastResponseId String? 
-  compactionCursor String?
-  conversationStateVersion Int @default(1)
-  createdAt DateTime      @default(now())
-  updatedAt DateTime      @updatedAt
-  tasks     AITask[]
-  messages  ChatMessage[]
-  user      User          @relation(fields: [userId], references: [privyDid], onDelete: Cascade)
+  id                       String        @id @default(cuid())
+  userId                   String
+  title                    String
+  model                    String        @default("grok-4-1-fast-reasoning")
+  status                   String        @default("active")
+  createdAt                DateTime      @default(now())
+  updatedAt                DateTime      @updatedAt
+  lastResponseId           String?
+  compactionCursor         String?
+  conversationStateVersion Int           @default(1)
+  tasks                    AITask[]
+  messages                 ChatMessage[]
+  user                     User          @relation(fields: [userId], references: [privyDid], onDelete: Cascade)
 
   @@index([userId])
 }
@@ -484,11 +430,11 @@ model ChatMessage {
   usage             String?
   toolCalls         String?
   toolCallId        String?
-  compactedData     String?
   messageIndex      Int
   status            String         @default("complete")
   createdAt         DateTime       @default(now())
   feedback          String?
+  compactedData     String?
   session           ChatSession    @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   chunks            MessageChunk[]
 
@@ -497,21 +443,26 @@ model ChatMessage {
 }
 
 model AITask {
-  id                 String      @id @default(cuid())
+  id                 String               @id @default(cuid())
   sessionId          String
   userMessageId      String?
   assistantMessageId String?
   model              String
-  status             String      @default("queued")
+  status             String               @default("queued")
   errorMessage       String?
   toolContext        String?
   startedAt          DateTime?
   completedAt        DateTime?
-  createdAt          DateTime    @default(now())
-  session            ChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  createdAt          DateTime             @default(now())
+  executionMode      String               @default("standard")
+  sandboxJobId       String?
+  session            ChatSession          @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  sandbox_artifacts  sandbox_artifacts[]
+  sandbox_job_events sandbox_job_events[]
 
   @@index([sessionId])
   @@index([status])
+  @@index([sandboxJobId])
 }
 
 model MessageChunk {
@@ -625,11 +576,11 @@ model MarketOverview {
   evix                    Decimal?
   liquidityStressIndex    Decimal?
   liquidityStressStatus   String?  @db.VarChar(20)
-  stablecoinsMcap         Decimal?
-  btcDomChange24h         Decimal?
-  mcapChange24h           Decimal?
   updatedAt               DateTime @default(now())
   createdAt               DateTime @default(now())
+  btcDomChange24h         Decimal?
+  mcapChange24h           Decimal?
+  stablecoinsMcap         Decimal?
 
   @@index([updatedAt(sort: Desc)])
 }
@@ -680,9 +631,6 @@ model TrendingToken {
   name           String
   symbol         String
   imageUrl       String?   @map("image_url")
-  creatorAddress String?   @map("creator_address")
-  creatorUrl     String?   @map("creator_url")
-  creatorLabel   String?   @map("creator_label")
   price          Decimal?
   priceChange5m  Decimal?  @map("price_change_5m")
   priceChange1h  Decimal?  @map("price_change_1h")
@@ -696,53 +644,32 @@ model TrendingToken {
   createdAt      DateTime  @default(now())
   poolCreatedAt  DateTime? @map("pool_created_at")
   launchpad      String?   @map("launchpad")
+  creatorAddress String?   @map("creator_address")
+  creatorUrl     String?   @map("creator_url")
+  creatorLabel   String?   @map("creator_label")
 
   @@unique([chain, address])
   @@index([rank])
   @@index([updatedAt(sort: Desc)])
 }
 
-model TokenLaunchBaseline {
-  id            String   @id @default(cuid())
-  chain         String
-  address       String
-  baselinePrice Decimal? @map("baseline_price")
-  baselineSource String? @map("baseline_source")
-  baselineBlockNumber BigInt? @map("baseline_block_number")
-  baselineTxHash String? @map("baseline_tx_hash")
-  baselinePoolAddress String? @map("baseline_pool_address")
-  baselineNativeUsd Decimal? @map("baseline_native_usd")
-  baselineQuotedAt DateTime? @map("baseline_quoted_at")
-  status        String   @default("pending")
-  firstSeenAt   DateTime? @map("first_seen_at")
-  lastCheckedAt DateTime? @map("last_checked_at")
-  retryAfter    DateTime? @map("retry_after")
-  attempts      Int      @default(0)
-  lastError     String?  @map("last_error")
-  createdAt     DateTime @default(now()) @map("created_at")
-  updatedAt     DateTime @updatedAt @map("updated_at")
-
-  @@unique([chain, address])
-  @@index([chain, status])
-  @@index([updatedAt(sort: Desc)])
-}
 
 model TokenLaunchpadProfile {
-  id             String   @id @default(cuid())
+  id             String    @id @default(cuid())
   chain          String
   address        String
-  launchpad      String?  @map("launchpad")
-  creatorAddress String?  @map("creator_address")
-  creatorUrl     String?  @map("creator_url")
-  creatorLabel   String?  @map("creator_label")
-  source         String?  @map("source")
+  launchpad      String?   @map("launchpad")
+  creatorAddress String?   @map("creator_address")
+  creatorUrl     String?   @map("creator_url")
+  creatorLabel   String?   @map("creator_label")
+  source         String?   @map("source")
   verifiedAt     DateTime? @map("verified_at")
   lastCheckedAt  DateTime? @map("last_checked_at")
   retryAfter     DateTime? @map("retry_after")
-  attempts       Int      @default(0)
-  lastError      String?  @map("last_error")
-  createdAt      DateTime @default(now()) @map("created_at")
-  updatedAt      DateTime @updatedAt @map("updated_at")
+  attempts       Int       @default(0)
+  lastError      String?   @map("last_error")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @default(now()) @updatedAt @map("updated_at")
 
   @@unique([chain, address])
   @@index([chain, launchpad])
@@ -773,9 +700,9 @@ model TrendingCast {
   mentions            Json?     @default("[]")
   authorCreatorCoin   String?   @map("author_creator_coin")
   authorTwitter       String?   @map("author_twitter")
-  statsLastUpdatedAt  DateTime? @map("stats_last_updated_at")
   updatedAt           DateTime  @updatedAt @map("updated_at")
   createdAt           DateTime  @default(now()) @map("created_at")
+  statsLastUpdatedAt  DateTime? @map("stats_last_updated_at")
 
   @@index([statsLastUpdatedAt])
   @@index([timestamp])
@@ -787,9 +714,6 @@ model QualityFarcasterUser {
   fid                Int       @unique
   username           String?   @db.VarChar(100)
   displayName        String?   @map("display_name") @db.VarChar(200)
-  pfp                String?   @db.VarChar(500)
-  bio                String?   @db.Text
-  verifications      Json?     @default("[]")
   followers          Int       @default(0)
   following          Int       @default(0)
   totalCasts         Int       @default(0) @map("total_casts")
@@ -802,6 +726,9 @@ model QualityFarcasterUser {
   lastVerifiedAt     DateTime? @map("last_verified_at")
   createdAt          DateTime  @default(now()) @map("created_at")
   updatedAt          DateTime  @default(now()) @updatedAt @map("updated_at")
+  pfp                String?   @db.VarChar(500)
+  bio                String?
+  verifications      Json?     @default("[]")
 
   @@index([fid])
   @@index([followers(sort: Desc)])
@@ -827,6 +754,8 @@ model TokenRule {
 
   @@map("token_rules")
 }
+
+
 
 model LeaderWalletStats {
   id               String    @id @default(cuid())
@@ -881,15 +810,11 @@ model SwapHistory {
   tokenInAddress    String
   tokenInSymbol     String?
   tokenInAmount     String
-  tokenInAmountDec  Decimal?          @db.Decimal(38, 18)
   tokenInUsd        Float?
-  tokenInUsdDec     Decimal?          @db.Decimal(38, 18)
   tokenOutAddress   String
   tokenOutSymbol    String?
   tokenOutAmount    String?
-  tokenOutAmountDec Decimal?          @db.Decimal(38, 18)
   tokenOutUsd       Float?
-  tokenOutUsdDec    Decimal?          @db.Decimal(38, 18)
   slippageBps       Int?
   status            SwapHistoryStatus @default(pending)
   failureReason     String?
@@ -897,6 +822,10 @@ model SwapHistory {
   aiSessionId       String?
   createdAt         DateTime          @default(now())
   confirmedAt       DateTime?
+  tokenInAmountDec  Decimal?          @db.Decimal(38, 18)
+  tokenInUsdDec     Decimal?          @db.Decimal(38, 18)
+  tokenOutAmountDec Decimal?          @db.Decimal(38, 18)
+  tokenOutUsdDec    Decimal?          @db.Decimal(38, 18)
   user              User              @relation(fields: [userId], references: [privyDid], onDelete: Cascade)
 
   @@index([userId])
@@ -932,4 +861,146 @@ model DataRetentionPolicy {
   description      String?
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
+}
+
+model ai_tasks {
+  id                   String        @id @db.VarChar
+  session_id           String        @db.VarChar
+  user_message_id      String?       @db.VarChar
+  assistant_message_id String?       @db.VarChar
+  model                String        @db.VarChar
+  provider             String?       @db.VarChar
+  status               String        @db.VarChar
+  error_message        String?
+  tool_context         Json?         @db.Json
+  cancelled_by         String?       @db.VarChar
+  started_at           DateTime?     @db.Timestamp(6)
+  completed_at         DateTime?     @db.Timestamp(6)
+  created_at           DateTime      @db.Timestamp(6)
+  chat_sessions        chat_sessions @relation(fields: [session_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([session_id], map: "ix_ai_tasks_session_id")
+}
+
+model chat_messages {
+  id                      String           @id @db.VarChar
+  session_id              String           @db.VarChar
+  role                    String           @db.VarChar
+  content                 String
+  reasoning_content       String
+  usage_json              Json?            @db.Json
+  citations_json          Json?            @db.Json
+  tool_trace_json         Json?            @db.Json
+  provider                String?          @db.VarChar
+  provider_request_id     String?          @db.VarChar
+  stream_protocol_version String           @db.VarChar
+  first_token_ms          Int?
+  end_to_end_ms           Int?
+  type                    String           @db.VarChar
+  status                  String           @db.VarChar
+  message_index           Int
+  feedback                String?          @db.VarChar
+  created_at              DateTime         @db.Timestamp(6)
+  chat_sessions           chat_sessions    @relation(fields: [session_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  message_chunks          message_chunks[]
+
+  @@index([session_id], map: "ix_chat_messages_session_id")
+}
+
+model chat_sessions {
+  id                         String          @id @db.VarChar
+  user_id                    String          @db.VarChar
+  title                      String          @db.VarChar
+  model                      String          @db.VarChar
+  status                     String          @db.VarChar
+  provider                   String?         @db.VarChar
+  last_response_id           String?         @db.VarChar
+  compaction_cursor          String?         @db.VarChar
+  conversation_state_version Int
+  created_at                 DateTime        @db.Timestamp(6)
+  updated_at                 DateTime        @db.Timestamp(6)
+  ai_tasks                   ai_tasks[]
+  chat_messages              chat_messages[]
+
+  @@index([user_id], map: "ix_chat_sessions_user_id")
+}
+
+model message_chunks {
+  id                Int           @id @default(autoincrement())
+  message_id        String        @db.VarChar
+  chunk_index       Int
+  chunk_type        String        @db.VarChar
+  content           String?
+  reasoning_content String?
+  metadata_json     Json?         @db.Json
+  created_at        DateTime      @db.Timestamp(6)
+  chat_messages     chat_messages @relation(fields: [message_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([message_id, chunk_index], map: "idx_message_chunks_message_index")
+  @@index([message_id], map: "ix_message_chunks_message_id")
+}
+
+model sandbox_artifacts {
+  id         String   @id
+  task_id    String
+  kind       String
+  uri        String
+  meta       Json?
+  created_at DateTime @default(now())
+  AITask     AITask   @relation(fields: [task_id], references: [id], onDelete: Cascade)
+
+  @@index([kind])
+  @@index([task_id])
+}
+
+model sandbox_job_events {
+  id         String   @id
+  task_id    String
+  seq        Int
+  phase      String?
+  payload    Json
+  created_at DateTime @default(now())
+  AITask     AITask   @relation(fields: [task_id], references: [id], onDelete: Cascade)
+
+  @@unique([task_id, seq])
+  @@index([task_id])
+}
+
+enum CopyTradeConfigStatus {
+  active
+  paused
+}
+
+enum PolymarketConfigStatus {
+  active
+  paused
+}
+
+enum PolymarketPositionStatus {
+  open
+  closed
+  failed
+}
+
+enum PolymarketActionStatus {
+  pending
+  success
+  failed
+  cancelled
+}
+
+enum PositionStatus {
+  pending
+  open
+  closing
+  closed
+  failed
+}
+
+enum SwapHistoryStatus {
+  pending
+  success
+  failed
+  confirmed
+  cancelled
 }

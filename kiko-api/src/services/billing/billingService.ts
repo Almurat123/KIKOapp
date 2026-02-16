@@ -33,10 +33,48 @@ export function getDailyFreeQuota(category: BillingCategory): number {
     return 0;
 }
 
+type ToolCallLike = string | { name?: string | null } | null | undefined;
+
+// xAI official tool invocation pricing (USD per 1 call)
+// Source: https://docs.x.ai/developers/models#tool-invocation-costs
+const XAI_TOOL_PRICE_USD: Record<string, number> = {
+    web_search: 0.005,          // $5 / 1k
+    x_search: 0.005,            // $5 / 1k
+    code_execution: 0.005,      // $5 / 1k
+    code_interpreter: 0.005,    // $5 / 1k
+    attachment_search: 0.01,    // $10 / 1k
+    collections_search: 0.0025, // $2.50 / 1k
+    file_search: 0.0025,        // $2.50 / 1k
+    view_image: 0,              // token-based only
+    view_x_video: 0,            // token-based only
+};
+const XAI_TOOL_DEFAULT_USD_PER_CALL = 0.005;
+
+function getToolName(input: ToolCallLike): string | null {
+    if (!input) return null;
+    if (typeof input === 'string') {
+        const normalized = input.trim().toLowerCase();
+        return normalized || null;
+    }
+    const raw = String(input.name || '').trim().toLowerCase();
+    return raw || null;
+}
+
+export function computeXaiToolInvocationUsd(toolCalls: ToolCallLike[] = []): number {
+    if (!Array.isArray(toolCalls) || toolCalls.length === 0) return 0;
+    let total = 0;
+    for (const toolCall of toolCalls) {
+        const name = getToolName(toolCall);
+        if (!name) continue;
+        total += XAI_TOOL_PRICE_USD[name] || 0;
+    }
+    return Math.max(total, 0);
+}
+
 export function computeUsdCost(
     usage: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } | null | undefined,
     model: string,
-    toolCallsCount: number = 0
+    toolCallsCountOrList: number | ToolCallLike[] = 0
 ): number {
     if (!usage) return 0;
     const normalized = normalizeModelForPricing(model);
@@ -51,8 +89,14 @@ export function computeUsdCost(
     const promptCost = (promptTokens / 1_000_000) * pricing.promptUsdPer1M;
     const completionCost = (completionTokens / 1_000_000) * pricing.completionUsdPer1M;
     let total = promptCost + completionCost;
-    if (toolCallsCount > 0 && normalized.includes('grok')) {
-        total += toolCallsCount * env.billing.toolPricePerCall;
+    if (normalized.includes('grok')) {
+        if (Array.isArray(toolCallsCountOrList)) {
+            total += computeXaiToolInvocationUsd(toolCallsCountOrList);
+        } else if (Number(toolCallsCountOrList) > 0) {
+            // Backward compatibility for paths that only have a count.
+            // Uses official baseline invocation price ($5 / 1k) for count-only legacy paths.
+            total += Number(toolCallsCountOrList) * XAI_TOOL_DEFAULT_USD_PER_CALL;
+        }
     }
     return Math.max(total, 0);
 }

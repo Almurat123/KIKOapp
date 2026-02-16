@@ -71,10 +71,9 @@ export class ChatWebSocketClient {
     constructor() { }
 
     public connect(token: string) {
-        // Don't reconnect if already connecting or connected with the same token
         if (this.socket && this.token === token &&
             (this.socket.readyState === WebSocket.OPEN || this.socket.readyState === WebSocket.CONNECTING)) {
-            console.log(`[ChatWS] Already connecting/connected to user WebSocket`);
+            // Already connected, silent return to prevent console span
             return;
         }
 

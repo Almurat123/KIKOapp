@@ -9,6 +9,7 @@ import { Prisma } from '@prisma/client';
 const TRENDING_SAVE_TX_MAX_WAIT_MS = Math.max(1_000, Number(process.env.TRENDING_SAVE_TX_MAX_WAIT_MS || '10000'));
 const TRENDING_SAVE_TX_TIMEOUT_MS = Math.max(10_000, Number(process.env.TRENDING_SAVE_TX_TIMEOUT_MS || '30000'));
 const TRENDING_SAVE_BATCH_SIZE = Math.max(25, Number(process.env.TRENDING_SAVE_BATCH_SIZE || '120'));
+const ENABLE_TRENDING_REDIS_METADATA = String(process.env.ENABLE_TRENDING_REDIS_METADATA || '').toLowerCase() === 'true';
 
 export interface TrendingToken extends TokenSearchResult {
   chain: string;
@@ -27,6 +28,114 @@ function toOptionalNumber(value: unknown): number | undefined {
   if (value === null || value === undefined) return undefined;
   const n = Number(value);
   return Number.isFinite(n) ? n : undefined;
+}
+
+function isFidLabel(value?: string | null): boolean {
+  return typeof value === 'string' && /^fid:\d+$/i.test(value.trim());
+}
+
+function isXUrl(value?: string | null): boolean {
+  if (!value || typeof value !== 'string') return false;
+  try {
+    const u = new URL(value);
+    const host = u.hostname.replace(/^www\./, '').toLowerCase();
+    return host.includes('x.com') || host.includes('twitter.com');
+  } catch {
+    return false;
+  }
+}
+
+function isAddressLike(value?: string | null): boolean {
+  if (!value || typeof value !== 'string') return false;
+  const v = value.trim();
+  return /^0x[a-fA-F0-9]{40}$/.test(v) || /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(v);
+}
+
+function shouldReplaceCreatorUrl(existing?: string | null, incoming?: string | null): boolean {
+  if (!incoming) return false;
+  if (!existing) return true;
+  if (isXUrl(existing)) return false;
+  if (isXUrl(incoming)) return true;
+  return false;
+}
+
+function shouldReplaceCreatorLabel(existing?: string | null, incoming?: string | null): boolean {
+  if (!incoming) return false;
+  if (!existing) return true;
+  const lowQualityExisting = /^@?(i|status)$/i.test(existing.trim());
+  if (lowQualityExisting) return true;
+  if (isFidLabel(existing) && !isFidLabel(incoming)) return true;
+  if (isAddressLike(existing) && !isAddressLike(incoming)) return true;
+  return false;
+}
+
+function normalizeCreatorPresentation(creatorUrl?: string | null, creatorLabel?: string | null): { creatorUrl?: string; creatorLabel?: string } {
+  const label = typeof creatorLabel === 'string' ? creatorLabel.trim() : '';
+  const isFid = /^fid:\d+$/i.test(label);
+  const isAtDigits = /^@\d+$/.test(label);
+  const isAddr = isAddressLike(label);
+  const isLowQualityXLabel = /^@?(i|status)$/i.test(label);
+
+  if (!creatorUrl || typeof creatorUrl !== 'string') {
+    if (isFid) {
+      return {
+        creatorUrl: undefined,
+        creatorLabel: 'Farcaster',
+      };
+    }
+    if (isAtDigits) {
+      return {
+        creatorUrl: undefined,
+        creatorLabel: undefined,
+      };
+    }
+    if (isLowQualityXLabel) {
+      return {
+        creatorUrl: undefined,
+        creatorLabel: 'X',
+      };
+    }
+    return {
+      creatorUrl: creatorUrl || undefined,
+      creatorLabel: label || undefined,
+    };
+  }
+
+  try {
+    const u = new URL(creatorUrl);
+    const host = u.hostname.replace(/^www\./, '').toLowerCase();
+    const parts = u.pathname.split('/').filter(Boolean);
+    const isX = host.includes('x.com') || host.includes('twitter.com');
+    const isWarpcast = host.includes('warpcast.com') || host.includes('farcaster');
+
+    if (isX) {
+      const first = (parts[0] || '').replace(/^@/, '');
+      const reserved = new Set(['i', 'intent', 'share', 'home', 'explore', 'search', 'messages', 'notifications', 'settings', 'tos', 'privacy', 'status']);
+      const labelHandle = label.replace(/^@/, '').toLowerCase();
+      const labelIsReservedHandle = !!labelHandle && reserved.has(labelHandle);
+      if (first && !reserved.has(first.toLowerCase())) {
+        return { creatorUrl, creatorLabel: `@${first}` };
+      }
+      if (!label || isFid || isAtDigits || isAddr || labelIsReservedHandle) {
+        return { creatorUrl, creatorLabel: 'X' };
+      }
+      return { creatorUrl, creatorLabel: label };
+    }
+
+    if (isWarpcast) {
+      if (!label || isFid || isAtDigits || isAddr) {
+        return { creatorUrl, creatorLabel: 'Farcaster' };
+      }
+      return { creatorUrl, creatorLabel: label };
+    }
+  } catch {
+    // ignore malformed url
+  }
+
+  return {
+    creatorUrl,
+    creatorLabel: label || undefined,
+  };
 }
 
 function chunkArray<T>(items: T[], size: number): T[][] {
@@ -176,6 +285,9 @@ function pickCreatorMetaFromLaunchpadCache(raw: string): { creatorAddress?: stri
       if (typeof c !== 'string') continue;
       const v = c.trim();
       if (!v) continue;
+      const digitsOnly = /^\d+$/.test(v.replace(/^@/, ''));
+      const lowQuality = /^@?(i|status)$/i.test(v);
+      if (digitsOnly || lowQuality) continue;
       creatorLabel = v.startsWith('@') ? v : (creatorUrl?.includes('x.com') || creatorUrl?.includes('warpcast.com') ? `@${v}` : v);
       break;
     }
@@ -200,6 +312,9 @@ let tokenLaunchpadProfileTableCache:
   | { checkedAt: number; exists: boolean }
   | null = null;
 
+const SCHEMA_EXISTS_CACHE_TTL_MS = 10 * 60 * 1000;
+const SCHEMA_MISSING_CACHE_TTL_MS = 30 * 1000;
+
 function normalizeLaunchpadTag(value?: string | null): string | undefined {
   const v = String(value || '').trim().toLowerCase();
   if (!v) return undefined;
@@ -210,10 +325,25 @@ function normalizeLaunchpadTag(value?: string | null): string | undefined {
   return v;
 }
 
+function shouldCarryForwardLaunchpadTag(
+  launchpad?: string | null,
+  creator?: { creatorAddress?: string | null; creatorUrl?: string | null; creatorLabel?: string | null }
+): boolean {
+  const normalized = normalizeLaunchpadTag(launchpad);
+  if (!normalized) return false;
+  if (creator?.creatorAddress || creator?.creatorUrl || creator?.creatorLabel) return true;
+  // Deterministic/vanity-suffix launchpads can be safely preserved.
+  const deterministic = new Set(['clanker', 'four.meme', 'flap', 'pump.fun', 'bonk.fun']);
+  return deterministic.has(normalized);
+}
+
 async function hasTrendingLaunchpadColumn(): Promise<boolean> {
   const now = Date.now();
-  if (trendingLaunchpadColumnCache && now - trendingLaunchpadColumnCache.checkedAt < 10 * 60 * 1000) {
-    return trendingLaunchpadColumnCache.exists;
+  if (trendingLaunchpadColumnCache) {
+    const ttl = trendingLaunchpadColumnCache.exists ? SCHEMA_EXISTS_CACHE_TTL_MS : SCHEMA_MISSING_CACHE_TTL_MS;
+    if (now - trendingLaunchpadColumnCache.checkedAt < ttl) {
+      return trendingLaunchpadColumnCache.exists;
+    }
   }
 
   try {
@@ -238,8 +368,11 @@ async function hasTrendingLaunchpadColumn(): Promise<boolean> {
 
 async function hasTrendingCreatorColumns(): Promise<boolean> {
   const now = Date.now();
-  if (trendingCreatorColumnCache && now - trendingCreatorColumnCache.checkedAt < 10 * 60 * 1000) {
-    return trendingCreatorColumnCache.exists;
+  if (trendingCreatorColumnCache) {
+    const ttl = trendingCreatorColumnCache.exists ? SCHEMA_EXISTS_CACHE_TTL_MS : SCHEMA_MISSING_CACHE_TTL_MS;
+    if (now - trendingCreatorColumnCache.checkedAt < ttl) {
+      return trendingCreatorColumnCache.exists;
+    }
   }
 
   try {
@@ -264,8 +397,11 @@ async function hasTrendingCreatorColumns(): Promise<boolean> {
 
 async function hasTokenLaunchpadProfileTable(): Promise<boolean> {
   const now = Date.now();
-  if (tokenLaunchpadProfileTableCache && now - tokenLaunchpadProfileTableCache.checkedAt < 10 * 60 * 1000) {
-    return tokenLaunchpadProfileTableCache.exists;
+  if (tokenLaunchpadProfileTableCache) {
+    const ttl = tokenLaunchpadProfileTableCache.exists ? SCHEMA_EXISTS_CACHE_TTL_MS : SCHEMA_MISSING_CACHE_TTL_MS;
+    if (now - tokenLaunchpadProfileTableCache.checkedAt < ttl) {
+      return tokenLaunchpadProfileTableCache.exists;
+    }
   }
 
   try {
@@ -311,6 +447,14 @@ export async function saveTrendingTokenCreator(
 
     const canWriteProfile = await hasTokenLaunchpadProfileTable();
     if (canWriteProfile) {
+      // Normalize historical mixed-case duplicates to avoid split-brain profile reads.
+      await prisma.tokenLaunchpadProfile.deleteMany({
+        where: {
+          chain,
+          address: { in: [address, lower] },
+          NOT: { address: lower },
+        },
+      });
       await prisma.tokenLaunchpadProfile.upsert({
         where: { chain_address: { chain, address: lower } },
         update: {
@@ -336,20 +480,24 @@ export async function saveTrendingTokenCreator(
 
     const canWriteCreator = await hasTrendingCreatorColumns();
     if (!canWriteCreator) return;
-    const existing = await prisma.trendingToken.findUnique({
-      where: { chain_address: { chain, address: lower } },
-      select: { creatorAddress: true, creatorUrl: true, creatorLabel: true },
+    const existing = await prisma.trendingToken.findFirst({
+      where: {
+        chain,
+        address: { in: [lower, address] },
+      },
+      select: { address: true, creatorAddress: true, creatorUrl: true, creatorLabel: true },
     });
     if (!existing) return;
 
     const updateData: { creatorAddress?: string | null; creatorUrl?: string | null; creatorLabel?: string | null } = {};
     if (!existing.creatorAddress && creator.creatorAddress) updateData.creatorAddress = creator.creatorAddress;
-    if (!existing.creatorUrl && creator.creatorUrl) updateData.creatorUrl = creator.creatorUrl;
-    if (!existing.creatorLabel && creator.creatorLabel) updateData.creatorLabel = creator.creatorLabel;
+    if (shouldReplaceCreatorUrl(existing.creatorUrl, creator.creatorUrl)) updateData.creatorUrl = creator.creatorUrl || null;
+    if (shouldReplaceCreatorLabel(existing.creatorLabel, creator.creatorLabel)) updateData.creatorLabel = creator.creatorLabel || null;
     if (Object.keys(updateData).length === 0) return;
 
-    await prisma.trendingToken.update({
-      where: { chain_address: { chain, address: lower } },
+    // Non-throwing update: row may be deleted/reinserted by refresh transaction between read and write.
+    await prisma.trendingToken.updateMany({
+      where: { chain, address: existing.address },
       data: updateData,
     });
   } catch (error) {
@@ -364,17 +512,28 @@ export async function saveTrendingTokenCreator(
 export async function saveTokenLaunchpadProfile(
   chain: string,
   address: string,
-  profile: { launchpad?: string; creatorAddress?: string; creatorUrl?: string; creatorLabel?: string; source?: string }
+  profile: { launchpad?: string | null; creatorAddress?: string; creatorUrl?: string; creatorLabel?: string; source?: string }
 ): Promise<void> {
   try {
     const lower = address.toLowerCase();
     const canWriteProfile = await hasTokenLaunchpadProfileTable();
     if (!canWriteProfile) return;
+    // Normalize historical mixed-case duplicates to avoid stale row wins.
+    await prisma.tokenLaunchpadProfile.deleteMany({
+      where: {
+        chain,
+        address: { in: [address, lower] },
+        NOT: { address: lower },
+      },
+    });
+    const normalizedLaunchpad = profile.launchpad === null
+      ? null
+      : normalizeLaunchpadTag(profile.launchpad);
 
     await prisma.tokenLaunchpadProfile.upsert({
       where: { chain_address: { chain, address: lower } },
       update: {
-        launchpad: normalizeLaunchpadTag(profile.launchpad),
+        launchpad: normalizedLaunchpad,
         creatorAddress: profile.creatorAddress || undefined,
         creatorUrl: profile.creatorUrl || undefined,
         creatorLabel: profile.creatorLabel || undefined,
@@ -386,7 +545,7 @@ export async function saveTokenLaunchpadProfile(
       create: {
         chain,
         address: lower,
-        launchpad: normalizeLaunchpadTag(profile.launchpad),
+        launchpad: normalizedLaunchpad,
         creatorAddress: profile.creatorAddress || undefined,
         creatorUrl: profile.creatorUrl || undefined,
         creatorLabel: profile.creatorLabel || undefined,
@@ -477,7 +636,13 @@ export async function saveTrendingTokens(chain: string, tokens: TokenSearchResul
             poolCreatedAt: poolCreatedAt ? poolCreatedAt.toISOString() : undefined,
           };
           if (existingCreator) {
-            if (!merged.launchpad && existingCreator.launchpad) merged.launchpad = normalizeLaunchpadTag(existingCreator.launchpad);
+            if (
+              !merged.launchpad
+              && existingCreator.launchpad
+              && shouldCarryForwardLaunchpadTag(existingCreator.launchpad, existingCreator)
+            ) {
+              merged.launchpad = normalizeLaunchpadTag(existingCreator.launchpad);
+            }
             if (!merged.creatorAddress && existingCreator.creatorAddress) merged.creatorAddress = existingCreator.creatorAddress;
             if (!merged.creatorUrl && existingCreator.creatorUrl) merged.creatorUrl = existingCreator.creatorUrl;
             if (!merged.creatorLabel && existingCreator.creatorLabel) merged.creatorLabel = existingCreator.creatorLabel;
@@ -496,7 +661,7 @@ export async function saveTrendingTokens(chain: string, tokens: TokenSearchResul
           const mappedRows = mergedTokens.map((token, index) => {
             const baseData: Record<string, unknown> = {
               chain,
-              address: token.address,
+              address: token.address.toLowerCase(),
               name: token.name,
               symbol: token.symbol,
               imageUrl: token.imageUrl || null,
@@ -631,24 +796,46 @@ export async function getTrendingTokens(
         const addresses = buildAddressVariants(tokens.map((t) => t.address));
         const profiles = await prisma.tokenLaunchpadProfile.findMany({
           where: { chain, address: { in: addresses } },
+          orderBy: { updatedAt: 'desc' },
           select: {
             address: true,
             launchpad: true,
             creatorAddress: true,
             creatorUrl: true,
             creatorLabel: true,
+            source: true,
+            lastCheckedAt: true,
           },
         });
-        const byAddress = new Map(
-          profiles.map((p) => [p.address.toLowerCase(), p])
-        );
+        const byAddress = new Map<string, typeof profiles[number]>();
+        for (const p of profiles) {
+          const key = p.address.toLowerCase();
+          if (!byAddress.has(key)) byAddress.set(key, p);
+        }
+        const deterministicLaunchpads = new Set(['clanker', 'four.meme', 'flap', 'pump.fun', 'bonk.fun']);
         for (const token of tokens) {
           const profile = byAddress.get(token.address.toLowerCase());
           if (!profile) continue;
-          if (!token.launchpad && profile.launchpad) token.launchpad = normalizeLaunchpadTag(profile.launchpad);
+          const profileLaunchpad = normalizeLaunchpadTag(profile.launchpad);
+          const tokenLaunchpad = normalizeLaunchpadTag((token as any).launchpad);
+
+          // If profile explicitly has no launchpad and no creator metadata, clear stale non-deterministic tags
+          // from TrendingToken rows (e.g. historical false-positive doppler labels).
+          if (!profileLaunchpad && tokenLaunchpad) {
+            const hasProfileCreator = !!profile.creatorAddress || !!profile.creatorUrl || !!profile.creatorLabel;
+            if (!hasProfileCreator && !deterministicLaunchpads.has(tokenLaunchpad)) {
+              delete (token as any).launchpad;
+            }
+          }
+
+          // Fill missing launchpad from persisted profile when TrendingToken row has no tag.
+          // This unblocks capsules for tokens detected asynchronously by background verifier.
+          if (!token.launchpad) {
+            if (profileLaunchpad) token.launchpad = profileLaunchpad as any;
+          }
           if (!token.creatorAddress && profile.creatorAddress) token.creatorAddress = profile.creatorAddress;
-          if (!(token as any).creatorUrl && profile.creatorUrl) (token as any).creatorUrl = profile.creatorUrl;
-          if (!(token as any).creatorLabel && profile.creatorLabel) (token as any).creatorLabel = profile.creatorLabel;
+          if (shouldReplaceCreatorUrl((token as any).creatorUrl, profile.creatorUrl)) (token as any).creatorUrl = profile.creatorUrl;
+          if (shouldReplaceCreatorLabel((token as any).creatorLabel, profile.creatorLabel)) (token as any).creatorLabel = profile.creatorLabel;
         }
       }
     } catch {
@@ -665,7 +852,7 @@ export async function getTrendingTokens(
       }
     }
 
-    if (!opts?.lightweight) {
+    if (!opts?.lightweight && ENABLE_TRENDING_REDIS_METADATA) {
       await Promise.all(tokens.map(async (token) => {
         try {
           let raw = await getRedisCache(tokenMetaCacheKey(chain, token.address));
@@ -677,8 +864,8 @@ export async function getTrendingTokens(
           if (!raw) return;
           const meta = JSON.parse(raw) as { creatorAddress?: string; creatorUrl?: string; creatorLabel?: string; launchMultiple?: number; cacheVersion?: number };
           if (meta?.creatorAddress && !token.creatorAddress) token.creatorAddress = meta.creatorAddress;
-          if (meta?.creatorUrl && !(token as any).creatorUrl) (token as any).creatorUrl = meta.creatorUrl;
-          if (meta?.creatorLabel && !(token as any).creatorLabel) (token as any).creatorLabel = meta.creatorLabel;
+          if (shouldReplaceCreatorUrl((token as any).creatorUrl, meta?.creatorUrl)) (token as any).creatorUrl = meta?.creatorUrl;
+          if (shouldReplaceCreatorLabel((token as any).creatorLabel, meta?.creatorLabel)) (token as any).creatorLabel = meta?.creatorLabel;
           // Preserve fixed-launchpad multiple as source of truth; only backfill if absent.
           if (!Number.isFinite(Number((token as any).launchMultiple || 0))) {
             const multiple = Number(meta?.launchMultiple || 0);
@@ -723,8 +910,8 @@ export async function getTrendingTokens(
           if (!raw) return;
           const creator = pickCreatorMetaFromLaunchpadCache(raw);
           if (creator.creatorAddress && !token.creatorAddress) token.creatorAddress = creator.creatorAddress;
-          if (creator.creatorUrl && !(token as any).creatorUrl) (token as any).creatorUrl = creator.creatorUrl;
-          if (creator.creatorLabel && !(token as any).creatorLabel) (token as any).creatorLabel = creator.creatorLabel;
+          if (shouldReplaceCreatorUrl((token as any).creatorUrl, creator.creatorUrl)) (token as any).creatorUrl = creator.creatorUrl;
+          if (shouldReplaceCreatorLabel((token as any).creatorLabel, creator.creatorLabel)) (token as any).creatorLabel = creator.creatorLabel;
         } catch {
           // ignore launchpad cache parse/read errors
         }
@@ -732,6 +919,12 @@ export async function getTrendingTokens(
     }
 
     const listedTokens = tokens.filter(shouldKeepListedToken);
+
+    for (const token of listedTokens) {
+      const normalized = normalizeCreatorPresentation((token as any).creatorUrl, (token as any).creatorLabel);
+      if (normalized.creatorUrl !== undefined) (token as any).creatorUrl = normalized.creatorUrl;
+      if (normalized.creatorLabel !== undefined) (token as any).creatorLabel = normalized.creatorLabel;
+    }
 
     if (tokens.length > 0) {
       memoryCache.set(

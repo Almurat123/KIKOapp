@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Shield } from 'lucide-react';
 import { createPortal } from 'react-dom';
+import { useNavigate } from 'react-router-dom'; // Added useNavigate
 import { ReceiveModal } from '../components/Wallet/ReceiveModal';
 import { SendModal } from '../components/Wallet/SendModal';
 import { SwapCardIntegrated } from '../components/Swap/SwapCardIntegrated';
@@ -13,11 +14,8 @@ import { TransactionList } from '../components/Wallet/TransactionList';
 import { PolymarketOrderCard, PolymarketHistoryItem } from '../components/Wallet/PolymarketSection';
 import styles from './WalletPage.module.css';
 
-interface WalletPageProps {
-  onTabChange?: (tab: string) => void;
-}
-
-export default function WalletPage({ onTabChange }: WalletPageProps) {
+export default function WalletPage() {
+  const navigate = useNavigate(); // Hook for navigation
   const {
     authenticated, user, walletAddress, isSolana, chainId, currentChain,
     holdings, loading, transactions, transactionsLoading,
@@ -87,7 +85,7 @@ export default function WalletPage({ onTabChange }: WalletPageProps) {
       <div className={styles.contentWrapper}>
         <WalletHeader
           user={user} loading={loading} totalValue={portfolioStats.totalValue}
-          onSettingsClick={() => onTabChange?.('wallet-settings')}
+          onSettingsClick={() => navigate('/settings')}
           onSendClick={() => {
             const defaultToken = holdings.find(h => h.isNative && h.chainId === currentChain.id) || holdings.find(h => h.isNative);
             setSelectedToken(defaultToken || null);
@@ -104,7 +102,7 @@ export default function WalletPage({ onTabChange }: WalletPageProps) {
             </div>
             <button
               className={styles.authorizationButton}
-              onClick={() => onTabChange?.('wallet-settings')}
+              onClick={() => navigate('/settings')}
             >
               Authorize
             </button>
