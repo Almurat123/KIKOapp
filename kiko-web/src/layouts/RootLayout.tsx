@@ -79,21 +79,52 @@ export const RootLayout: React.FC = () => {
                         if (currentId) {
                             const resp = await chatApi.getSession(currentId);
                             if (resp.success && resp.messages) {
-                                const dbMessages = resp.messages.map((m: any) => ({
-                                    id: m.id,
-                                    role: m.role,
-                                    content: m.content,
-                                    reasoning_content: m.reasoning_content,
-                                    citations: m.citations,
-                                    usage: m.usage,
-                                    tool_calls: m.tool_calls,
-                                    tool_call_id: m.tool_call_id,
-                                    status: m.status,
-                                    message_index: m.message_index,
-                                    timestamp: m.created_at ?? m.timestamp ?? Date.now(),
-                                    type: (m.data?.type || 'text') as Message['type'],
-                                    data: m.data,
-                                }));
+                                // Get current local messages to preserve richer card data
+                                const localConv = conversationsRef.current.find(c => c.id === currentId);
+                                const localById = new Map((localConv?.messages || []).map(msg => [msg.id, msg]));
+
+                                const dbMessages = resp.messages.map((m: any) => {
+                                    // CRITICAL: Use m.type (top-level DB field), NOT m.data?.type which is card payload
+                                    const dbType = (m.type || 'text') as Message['type'];
+                                    const localMsg = localById.get(m.id);
+
+                                    // Preserve local card data when DB row might be stale
+                                    const localIsTxCard = localMsg?.type === 'transaction-status-card';
+                                    const dbIsPlainText = !m.type || m.type === 'text';
+                                    if (localIsTxCard && dbIsPlainText) {
+                                        return {
+                                            id: m.id,
+                                            role: m.role,
+                                            content: m.content,
+                                            reasoning_content: m.reasoning_content,
+                                            citations: m.citations,
+                                            usage: m.usage,
+                                            tool_calls: m.tool_calls,
+                                            tool_call_id: m.tool_call_id,
+                                            status: m.status,
+                                            message_index: m.message_index,
+                                            timestamp: m.created_at ?? m.timestamp ?? Date.now(),
+                                            type: localMsg.type,
+                                            data: localMsg.data ?? m.data,
+                                        };
+                                    }
+
+                                    return {
+                                        id: m.id,
+                                        role: m.role,
+                                        content: m.content,
+                                        reasoning_content: m.reasoning_content,
+                                        citations: m.citations,
+                                        usage: m.usage,
+                                        tool_calls: m.tool_calls,
+                                        tool_call_id: m.tool_call_id,
+                                        status: m.status,
+                                        message_index: m.message_index,
+                                        timestamp: m.created_at ?? m.timestamp ?? Date.now(),
+                                        type: dbType,
+                                        data: m.data,
+                                    };
+                                });
                                 updateConversation(currentId, { messages: dbMessages });
                             }
                         }
@@ -185,13 +216,18 @@ export const RootLayout: React.FC = () => {
                 const messageId = event.data.messageId || event.data.message_id;
                 if (!messageId) return;
 
-                // Zombie Guard: Discard chunks if the task has been locally stopped
                 const targetConvForChunk = conversationsRef.current.find(c => c.id === targetSessionId);
-                const localActiveTaskId = targetConvForChunk?.activeTask?.id;
-                // Note: implicit task ID is `task-${messageId}` (see message_start logic)
-                const expectedTaskId = `task-${messageId}`;
+                if (!targetConvForChunk) return;
 
-                if (!targetConvForChunk?.activeTask || (localActiveTaskId !== expectedTaskId && !localActiveTaskId?.includes(messageId))) {
+                const localActiveTaskId = targetConvForChunk?.activeTask?.id;
+                const expectedTaskId = `task-${messageId}`;
+                const hasMatchingActiveTask = targetConvForChunk.activeTask && (localActiveTaskId === expectedTaskId || localActiveTaskId?.includes(messageId));
+
+                // Allow late chunks: if message_complete arrived before the last chunk(s), we still apply content for the target message
+                const lastAssistantMsg = [...targetConvForChunk.messages].reverse().find(m => m.role === 'assistant');
+                const isLateChunkForCurrentMessage = lastAssistantMsg?.id === messageId;
+
+                if (!hasMatchingActiveTask && !isLateChunkForCurrentMessage) {
                     console.warn('[RootLayout] Zombie chunk detected, discarding:', messageId);
                     return;
                 }
@@ -245,16 +281,23 @@ export const RootLayout: React.FC = () => {
                     updateConversation(targetSessionId, { messages: updatedMessages });
                 });
             }
-            // --- Complete ---
-            else if (event.type === 'message_complete' || (event.type === 'task_status' && event.data.status === 'done')) {
-                const completionId = event.data.messageId || event.data.message_id || event.data.taskId;
+            // --- Task done (only clear task indicator; message completion is handled by message_complete) ---
+            else if (event.type === 'task_status' && (event.data.status === 'done' || event.data.status === 'completed')) {
+                const c = conversationsRef.current.find(c => c.id === targetSessionId);
+                if (c?.activeTask) updateConversation(targetSessionId, { activeTask: null });
+                if (generatingConversationId === targetSessionId) setGeneratingConversationId(null);
+                return;
+            }
+            // --- Complete (use only messageId so we don't process the same completion twice with messageId vs taskId) ---
+            else if (event.type === 'message_complete') {
+                const completionId = event.data.messageId || event.data.message_id;
+                if (!completionId) return;
                 const dedupKey = `${targetSessionId}:${completionId}`;
                 console.log('[RootLayout] message_complete:', completionId, 'Pending:', sessionPending.size);
 
                 // Dedup: skip only if we already processed AND state is already clean
                 if (lastProcessedCompletionRef.current === dedupKey && sessionPending.size === 0) {
                     console.log('[RootLayout] Skipping duplicate complete with empty pending');
-                    // Still ensure activeTask is cleared (idempotent maintenance)
                     const c = conversationsRef.current.find(c => c.id === targetSessionId);
                     if (c?.activeTask) updateConversation(targetSessionId, { activeTask: null });
                     if (generatingConversationId === targetSessionId) setGeneratingConversationId(null);
@@ -283,9 +326,42 @@ export const RootLayout: React.FC = () => {
                     });
                     updateConversation(targetSessionId, { messages: updatedMessages, activeTask: null });
                     sessionPending.clear();
+
+                    // Also refetch content when the completed message is empty after pending flush.
+                    // This handles the bypass flow where no content chunks were streamed — the content was
+                    // persisted to DB but never broadcast, so the assistant message stays empty after flush.
+                    const flushedMsg = updatedMessages.find(m => m.id === completionId);
+                    if (flushedMsg && flushedMsg.type !== 'transaction-status-card'
+                        && (flushedMsg.content || '').trim() === ''
+                        && (flushedMsg.reasoning_content || '').trim() === '') {
+                        console.log('[RootLayout] message_complete pending-flush: empty content after flush, refetching from DB', { completionId });
+                        chatApi.getSession(targetSessionId).then((resp: { success: boolean; messages?: any[] }) => {
+                            if (!resp.success || !resp.messages?.length) return;
+                            const fromDb = resp.messages.find((m: any) => m.id === completionId);
+                            if (fromDb && ((fromDb.content || '').trim() !== '' || (fromDb.reasoning_content || '').trim() !== '')) {
+                                const latest = conversationsRef.current.find(c => c.id === targetSessionId);
+                                if (!latest) return;
+                                const merged = latest.messages.map(m => {
+                                    if (m.id !== completionId) return m;
+                                    if (m.type === 'transaction-status-card') return m;
+                                    return { ...m, content: fromDb.content ?? m.content, reasoning_content: fromDb.reasoning_content ?? m.reasoning_content, status: 'complete' as const };
+                                });
+                                updateConversation(targetSessionId, { messages: merged });
+                                console.log('[RootLayout] message_complete pending-flush: refetch merged content', { completionId, contentLen: (fromDb.content || '').length });
+                            }
+                        }).catch(() => {});
+                    }
                 } else if (tConv) {
                     // No pending chunks — just finalize message status and clear task
                     // This fixes the bug where "Stop" button stays active if all chunks were already flushed
+                    const txCardCount = tConv.messages.filter(m => m.type === 'transaction-status-card').length;
+                    console.log('[RootLayout] message_complete fallback:', {
+                        completionId,
+                        messageCount: tConv.messages.length,
+                        txCardCount,
+                        messageIds: tConv.messages.map(m => ({ id: m.id, type: m.type })),
+                    });
+
                     const updatedMessages = tConv.messages.map(m =>
                         (m.id === completionId || (m.role === 'assistant' && m.status === 'streaming'))
                             ? { ...m, status: 'complete' as const }
@@ -293,6 +369,29 @@ export const RootLayout: React.FC = () => {
                     );
                     updateConversation(targetSessionId, { messages: updatedMessages, activeTask: null });
                     console.log('[RootLayout] Cleared activeTask (fallback path)');
+
+                    // Fallback: if the completed message still has no content (e.g. late chunks were lost), refetch from server
+                    // Do NOT refetch/overwrite transaction-status-card — that would replace the card with DB text and make it disappear
+                    const completedMsg = updatedMessages.find(m => m.id === completionId);
+                    if (completedMsg && completedMsg.type === 'transaction-status-card') {
+                        console.log('[RootLayout] Skipping empty-content refetch for transaction-status-card', { completionId });
+                    } else if (completedMsg && (completedMsg.content || '').trim() === '' && (completedMsg.reasoning_content || '').trim() === '') {
+                        chatApi.getSession(targetSessionId).then((resp: { success: boolean; messages?: any[] }) => {
+                            if (!resp.success || !resp.messages?.length) return;
+                            const fromDb = resp.messages.find((m: any) => m.id === completionId);
+                            if (fromDb && ((fromDb.content || '').trim() !== '' || (fromDb.reasoning_content || '').trim() !== '')) {
+                                const latest = conversationsRef.current.find(c => c.id === targetSessionId);
+                                if (!latest) return;
+                                // Preserve transaction-status-card: never replace a card message with DB text
+                                const merged = latest.messages.map(m => {
+                                    if (m.id !== completionId) return m;
+                                    if (m.type === 'transaction-status-card') return m;
+                                    return { ...m, content: fromDb.content ?? m.content, reasoning_content: fromDb.reasoning_content ?? m.reasoning_content, status: 'complete' as const };
+                                });
+                                updateConversation(targetSessionId, { messages: merged });
+                            }
+                        }).catch(() => {});
+                    }
                 }
 
                 if (generatingConversationId === targetSessionId) {

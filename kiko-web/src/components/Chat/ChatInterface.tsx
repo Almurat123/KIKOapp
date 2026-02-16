@@ -671,26 +671,48 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                         const targetMessageId = event.data.targetMessageId || event.data.message_id || event.data.messageId;
                         const actionType = normalizedAction.type;
                         const actionData = normalizedAction.data || normalizedAction.payload || {};
-                        // ... (keep data normalization logic)
                         const newCardType = ACTION_CARD_TYPE_MAP[actionType] || 'text';
 
                         if (conversationId) {
-                            let updated = [...messages];
+                            // CRITICAL: Use messagesRef.current for fresh state, not stale `messages` closure.
+                            // The effect closure captures `messages` at creation time. Without the ref,
+                            // every card update would push a NEW card because the closure never sees the card we just added.
+                            const freshMessages = messagesRef.current;
+                            let updated = [...freshMessages];
                             const targetIdx = targetMessageId ? updated.findIndex(m => m.id === targetMessageId) : -1;
 
+                            logger.debug('[Card] show_card received', {
+                                type: actionType,
+                                conversationId,
+                                targetMessageId,
+                                messageCount: freshMessages.length,
+                                targetIdx,
+                                action: targetIdx !== -1 ? 'update_existing' : (targetMessageId ? 'push_new' : 'skip_no_target'),
+                                status: actionData?.status,
+                            });
+
                             if (targetIdx !== -1) {
+                                // Merge new data into existing card data so we don't lose symbols/amounts from earlier events
+                                const existingData = updated[targetIdx].data || {};
                                 updated = replaceMessageAtIndex(updated, targetIdx, {
                                     ...updated[targetIdx],
                                     type: newCardType as Message['type'],
-                                    data: actionData
+                                    data: { ...existingData, ...actionData }
                                 });
+                                logger.debug('[Card] Replaced message at index', { targetIdx, newCardType });
                             } else if (targetMessageId) {
                                 updated.push({
                                     id: targetMessageId, role: 'assistant', content: '', reasoning_content: '',
                                     status: 'complete', timestamp: new Date().toISOString(),
                                     type: newCardType as Message['type'], data: actionData
                                 } as Message);
+                                logger.debug('[Card] Pushed new card message', { targetMessageId, newCardType, newLength: updated.length });
                             }
+                            // CRITICAL: Immediately update messagesRef so the NEXT event in the same tick
+                            // sees the card we just added/updated. Without this, rapid-fire events
+                            // (e.g., two client_actions in the same microtask) both read stale messagesRef
+                            // and push duplicate cards.
+                            messagesRef.current = updated;
                             updateConversation(conversationId, {
                                 messages: updated,
                                 activeTask: null // Business cards end thinking
@@ -702,7 +724,8 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                 case 'content_block':
                     if (conversationId) {
                         const blockMessageId = event.data.message_id || event.data.messageId;
-                        const updated = messages.map(m => m.id === blockMessageId ? {
+                        const freshMsgs = messagesRef.current;
+                        const updated = freshMsgs.map(m => m.id === blockMessageId ? {
                             ...m, content: (m.content || '') + (event.data.content || '')
                         } : m);
                         updateConversation(conversationId, {
@@ -717,7 +740,8 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                     // Handled by updating context
                     if (conversationId && (event.data.messageId || event.data.message_id)) {
                         const mid = event.data.messageId || event.data.message_id;
-                        const updated = messages.map(m => {
+                        const freshMsgs = messagesRef.current;
+                        const updated = freshMsgs.map(m => {
                             if (m.id === mid && m.type === 'transaction-status-card') {
                                 return {
                                     ...m,
@@ -730,6 +754,9 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                             }
                             return m;
                         });
+                        const found = freshMsgs.some(m => m.id === mid && m.type === 'transaction-status-card');
+                        logger.debug('[Card] transaction status event', { eventType: event.type, messageId: mid, foundCard: found });
+                        messagesRef.current = updated;
                         updateConversation(conversationId, {
                             messages: updated,
                             activeTask: null
@@ -1917,10 +1944,13 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                                     isGrouped={isGrouped}
                                     thinkingText={
                                         // Only show thinking on the LAST text-type assistant message
-                                        // Never show on special cards (transaction-status-card, etc.)
+                                        // AND only when there is actually an active task (isThinking/isStreaming).
+                                        // Without the isBusy guard, bypass flows that leave content empty
+                                        // show "Thinking" indefinitely after task_status:done clears activeTask.
                                         msg.role === 'assistant' &&
                                             msg.id === lastTextAssistantId &&
-                                            (!msg.type || msg.type === 'text')
+                                            (!msg.type || msg.type === 'text') &&
+                                            isBusy
                                             ? thinkingText
                                             : undefined
                                     }

@@ -1,6 +1,7 @@
 export const TRADING_POLICY = `
 Trading policy (v2):
 - Result-first: if the user clearly wants execution (buy/sell/swap), prioritize preparing the trade over analysis.
+- Amount semantics: "buy X USDC" means the user wants X units of the OUTPUT token. Calculate the required input amount (e.g., ETH) using available price context. Do NOT use the full wallet balance when a specific target amount is given.
 - Language: reply in the same language as the user.
 - Language lock: use the most recent user message language; do not auto-switch.
 - Ask at most one question if parameters are missing.

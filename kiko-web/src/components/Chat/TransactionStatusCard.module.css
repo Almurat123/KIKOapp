@@ -29,6 +29,108 @@
     color: #111111;
 }
 
+/* Light theme: token capsule/pill — visible border and background on white card */
+:global(.light) .card .tokenPill {
+    border: 1px solid rgba(0, 0, 0, 0.12);
+    background: rgba(0, 0, 0, 0.05);
+}
+
+:global(.light) .card .tokenPillIcon {
+    border-color: rgba(0, 0, 0, 0.14);
+}
+
+:global(.light) .card .tokenPillFallback {
+    color: rgba(0, 0, 0, 0.75);
+    background: rgba(0, 0, 0, 0.1);
+}
+
+:global(.light) .card .tokenSymbol {
+    color: rgba(0, 0, 0, 0.85);
+}
+
+:global(.light) .card .amountLabel {
+    color: rgba(0, 0, 0, 0.45);
+}
+
+:global(.light) .card .amountValue {
+    color: #111111;
+}
+
+:global(.light) .card .amountValueEst {
+    color: rgba(37, 99, 235, 0.9);
+}
+
+:global(.light) .card .divider {
+    background: linear-gradient(to right, rgba(0, 0, 0, 0.1), rgba(0, 0, 0, 0.05), transparent);
+}
+
+:global(.light) .card .footer {
+    border-top-color: rgba(0, 0, 0, 0.08);
+    color: rgba(0, 0, 0, 0.5);
+}
+
+:global(.light) .card .viewHashBtn:hover {
+    color: rgba(0, 0, 0, 0.7);
+}
+
+:global(.light) .card .hashValue {
+    opacity: 0.5;
+}
+
+:global(.light) .card .statusIconWrapper.pending {
+    background: rgba(0, 0, 0, 0.04);
+    border-color: rgba(0, 0, 0, 0.08);
+}
+
+:global(.light) .card .pendingIconSvg {
+    color: rgba(0, 0, 0, 0.4);
+}
+
+:global(.light) .card .statusLabelPending {
+    color: rgba(0, 0, 0, 0.65);
+}
+
+:global(.light) .card .statusSubPending {
+    color: rgba(0, 0, 0, 0.4);
+}
+
+:global(.light) .card .spinLoader {
+    color: rgba(0, 0, 0, 0.35);
+}
+
+/* Keep success circle icon fixed size and green in light theme */
+:global(.light) .card .statusIconWrapper.success {
+    background: rgba(16, 185, 129, 0.1);
+    border-color: rgba(16, 185, 129, 0.35);
+    color: rgba(5, 150, 105, 0.95);
+}
+
+:global(.light) .card .statusIconWrapper.success .statusIconSvg {
+    width: 14px;
+    height: 14px;
+    min-width: 14px;
+    min-height: 14px;
+}
+
+/* Keep failed X circle icon fixed size and red in light theme */
+:global(.light) .card .statusIconWrapper.failed {
+    background: rgba(239, 68, 68, 0.08);
+    border-color: rgba(239, 68, 68, 0.35);
+    color: rgba(220, 38, 38, 0.95);
+}
+
+:global(.light) .card .statusIconWrapper.failed .statusIconSvg {
+    width: 14px;
+    height: 14px;
+    min-width: 14px;
+    min-height: 14px;
+}
+
+:global(.light) .card .skeletonRect,
+:global(.light) .card .skeletonHash {
+    background: rgba(0, 0, 0, 0.06);
+}
+
 :global(.dark) .card {
     background: #09090b;
     border-color: rgba(255, 255, 255, 0.08);
@@ -192,9 +294,10 @@
 /* Status Icon Wrapper */
 .statusIconWrapper {
     width: 32px;
-    /* w-8 */
     height: 32px;
-    /* h-8 */
+    min-width: 32px;
+    min-height: 32px;
+    flex-shrink: 0;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -226,6 +329,10 @@
 .statusIconSvg {
     width: 14px;
     height: 14px;
+    min-width: 14px;
+    min-height: 14px;
+    flex-shrink: 0;
+    display: block;
 }
 
 .pendingIconSvg {

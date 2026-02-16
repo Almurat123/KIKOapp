@@ -792,31 +792,44 @@ export class ChatWorker {
 
         const errorMessage = !result?.success ? (result?.error || result?.message) : null;
         if (errorMessage && params.userId) {
+            // Patch the existing tx card (by txMessageId) with failure only; do NOT send tokenInSymbol/tokenOutSymbol
+            // from addresses (tokenIn/tokenOut) or we overwrite good display data with raw addresses after refresh.
+            const failurePayload = {
+                status: 'failed',
+                errorMessage: String(errorMessage),
+                isLoading: false,
+            };
             this.ws.broadcastToUser(params.userId, {
                 type: 'client_action',
                 sessionId: params.task.sessionId,
                 data: {
                     message_id: params.assistantMessageId,
+                    targetMessageId: txMessageId ?? params.assistantMessageId,
                     action: {
                         type: 'show_transaction_status_card',
-                        data: {
-                            status: 'failed',
-                            tokenInSymbol: tokenIn,
-                            tokenOutSymbol: tokenOut,
+                        data: txMessageId ? failurePayload : {
+                            ...failurePayload,
+                            tokenIn: tokenIn,
+                            tokenOut: tokenOut,
                             amountIn,
                             chainId,
-                            errorMessage: String(errorMessage),
-                            isLoading: false,
                         }
                     }
                 }
             });
         }
 
-        const finalText = result?.summary
-            || (result?.success
-                ? `Proceed confirmed. Executed ${amountIn} ${tokenIn} -> ${tokenOut}.`
-                : `Proceed confirmed, but execution failed: ${String(errorMessage || 'unknown error')}`);
+        // When a dedicated transaction card exists, the card already shows success/failure status,
+        // token symbols, amounts, and error messages. Persisting a redundant text message to the
+        // assistant message would display duplicate information above the card.
+        // Only persist text when there is NO dedicated card (fallback for edge cases).
+        // txMessageId already declared above from result?.messageId
+        const finalText = txMessageId
+            ? '' // Card handles all display; keep assistant message empty so it stays invisible
+            : (result?.summary
+                || (result?.success
+                    ? `Proceed confirmed. Executed ${amountIn} ${tokenIn} -> ${tokenOut}.`
+                    : `Proceed confirmed, but execution failed: ${String(errorMessage || 'unknown error')}`));
 
         await this.persistAssistantMessageSafe({
             assistantMessageId: params.assistantMessageId,
@@ -4460,22 +4473,38 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
                     else if (clientAction.type === 'show_token_card') dbMessageType = 'token-card';
                     else if (clientAction.type === 'show_transaction_status_card' || clientAction.type === 'show_cross_chain_status_card') dbMessageType = 'transaction-status-card';
 
-                    // Save card metadata to DB
-                    const actionData = clientAction.data || clientAction.payload;
-                    await this.repo.updateMessage(messageId, {
-                        type: dbMessageType,
-                        data: actionData,
-                        transactionStatus: dbMessageType === 'transaction-status-card' ? actionData?.status : undefined,
-                        transactionHash: dbMessageType === 'transaction-status-card' ? actionData?.txHash : undefined,
-                    });
-                    if (dbMessageType === 'transaction-status-card') {
-                        logger.info(LogCode.AI_API_CALL, '[CARD-BACKLOG] ChatWorker persisted tx card action', {
+                    // For transaction cards: prepareSwap already creates and persists its own dedicated
+                    // transaction message (with its own ID). If the tool result includes a messageId,
+                    // that means a separate DB row already has the card data. Do NOT also overwrite the
+                    // assistant message to card type — it should remain 'text' with the LLM summary.
+                    // Otherwise on reload the assistant message would show as a half-broken card with
+                    // stale data (contract addresses instead of symbols, amount 0, etc.).
+                    const hasDedicatedTxMessage = dbMessageType === 'transaction-status-card' && result?.messageId && result.messageId !== messageId;
+
+                    if (!hasDedicatedTxMessage) {
+                        // Save card metadata to DB
+                        const actionData = clientAction.data || clientAction.payload;
+                        await this.repo.updateMessage(messageId, {
+                            type: dbMessageType,
+                            data: actionData,
+                            transactionStatus: dbMessageType === 'transaction-status-card' ? actionData?.status : undefined,
+                            transactionHash: dbMessageType === 'transaction-status-card' ? actionData?.txHash : undefined,
+                        });
+                        if (dbMessageType === 'transaction-status-card') {
+                            logger.info(LogCode.AI_API_CALL, '[CARD-BACKLOG] ChatWorker persisted tx card action', {
+                                sessionId,
+                                messageId,
+                                actionType: clientAction.type,
+                                status: actionData?.status || null,
+                                txHash: actionData?.txHash || null,
+                                chainId: actionData?.chainId || null,
+                            });
+                        }
+                    } else {
+                        logger.info(LogCode.AI_API_CALL, '[CARD-BACKLOG] Skipping assistant msg persist - dedicated tx message exists', {
                             sessionId,
-                            messageId,
-                            actionType: clientAction.type,
-                            status: actionData?.status || null,
-                            txHash: actionData?.txHash || null,
-                            chainId: actionData?.chainId || null,
+                            assistantMessageId: messageId,
+                            txMessageId: result.messageId,
                         });
                     }
 
@@ -4713,17 +4742,30 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
                     : `CONFIRMED_SWAP: User confirmed swap after simulation. You MUST call prepare_swap_transaction now with: token_in=${confirmedSwap.token_in}, token_out=${confirmedSwap.token_out}, amount_in=${confirmedSwap.amount_in}, chain_id=${confirmedSwap.chain_id}, execute=true. Do NOT call simulate_swap again or use web search.`;
             }
         } else if (parsedIntent?.detailed?.action === 'swap') {
-            const tokenIn = String(parsedIntent?.detailed?.token_in || '').toUpperCase();
+            let tokenIn = String(parsedIntent?.detailed?.token_in || '').toUpperCase();
             const tokenOut = String(parsedIntent?.detailed?.token_out || '').toUpperCase();
             const amount = String(parsedIntent?.detailed?.amount || '').trim();
             const hasAmount = !!amount && !Number.isNaN(Number(amount));
-            const isOutStable = ['USDC', 'USDT', 'DAI'].includes(tokenOut);
+            const isOutStable = ['USDC', 'USDT', 'DAI', 'FDUSD', 'BUSD', 'USD1'].includes(tokenOut);
+
+            // When token_in isn't specified (e.g. "buy 1 USDC"), infer from chain's native currency.
+            // The user implicitly means "use my native token (ETH/SOL/BNB) to buy X stablecoin".
+            if (!tokenIn && isOutStable) {
+                try {
+                    const chainId = parsedIntent?.chainId || task.toolContext?.chainId;
+                    if (chainId) {
+                        const chainCfg = getChainConfig(Number(chainId));
+                        tokenIn = chainCfg.nativeCurrency.symbol.toUpperCase();
+                    }
+                } catch { /* ignore unsupported chain */ }
+            }
+
             const isInNative = ['ETH', 'BNB', 'SOL', 'POL', 'MATIC'].includes(tokenIn);
             const lowerMsg = lastUserMessage.toLowerCase();
-            const hasBuySemantics = /\b(buy|get|receive)\b/i.test(lastUserMessage);
+            const hasBuySemantics = /\b(buy|get|receive|购买|买)\b/i.test(lastUserMessage);
             const outMentioned = tokenOut && lowerMsg.includes(tokenOut.toLowerCase());
             if (hasAmount && isOutStable && isInNative && hasBuySemantics && outMentioned) {
-                (task as any).systemInjection = `AMOUNT_SEMANTICS_RULE: In this request, numeric amount ${amount} refers to target output ${tokenOut}, NOT input ${tokenIn}. Do NOT treat ${amount} as amount_in ${tokenIn}. First estimate required ${tokenIn} for receiving about ${amount} ${tokenOut}, then simulate/prepare using that estimated amount_in.`;
+                (task as any).systemInjection = `AMOUNT_SEMANTICS_RULE: In this request, numeric amount ${amount} refers to target output ${tokenOut}, NOT input ${tokenIn}. Do NOT treat ${amount} as amount_in ${tokenIn}. You MUST first estimate the required ${tokenIn} input for receiving approximately ${amount} ${tokenOut} (use current price context or simulate with a small reference amount), then call simulate_swap with that estimated amount_in. NEVER use the user's full balance when a specific target output amount is requested.`;
             }
         }
         await this.recordIntentTrace(task, sessionMessages, parsedIntent, lastUserMessage);

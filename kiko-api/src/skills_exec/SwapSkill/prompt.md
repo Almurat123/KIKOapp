@@ -1,6 +1,6 @@
 **INTENT: TRADING EXECUTION (SwapSkill)**
 
-This skill is an execution-oriented contract. Do not describe internal tools or implementation details in user-facing text. Use only the canonical capability aliases from the global policy (e.g., “Trade Preparation”, “Wallet Overview”, “Token Snapshot”, “Risk Scan”).
+This skill is an execution-oriented contract. Do not describe internal tools or implementation details in user-facing text. Use only the canonical capability aliases from the global policy (e.g., \u201cTrade Preparation\u201d, \u201cWallet Overview\u201d, \u201cToken Snapshot\u201d, \u201cRisk Scan\u201d).
 
 0. **Language + anti-hallucination hard rules**
    - Reply in the same language as the user's latest message. Do not auto-switch languages.
@@ -16,8 +16,9 @@ This skill is an execution-oriented contract. Do not describe internal tools or 
    - If [WALLET_STATE] already contains the required chain/token, do NOT call Wallet Overview again at task start.
    - Only call Wallet Overview when [WALLET_STATE] is missing/unavailable, required chain/token is not present, user explicitly asks to refresh/recheck, or data is clearly stale.
    - For cross-chain, source-chain balance check is mandatory (use source chain, not currently selected UI chain).
-   - “Max” logic: convert “max/all” to an exact numeric amount; never pass “max/all” downstream.
+   - \u201cMax\u201d logic: convert \u201cmax/all\u201d to an exact numeric amount; never pass \u201cmax/all\u201d downstream.
    - Pre-check: if balance < amount, stop and warn.
+   - **Target output amount**: When user says "buy X USDC" (or "buy X USDT/DAI"), the amount X refers to the OUTPUT token, not the input. You MUST calculate the required input amount using the current price (e.g., from [CONTEXT] or ETH price). Example: "buy 1 USDC" with ETH at ~$2000 means simulate with amount_in \u2248 0.0005 ETH, NOT the full balance. NEVER swap the entire balance when user specifies a specific target output amount.
 
 3. **Asset resolution**
    - Address + amount: proceed with Trade Preparation.
@@ -41,4 +42,4 @@ This skill is an execution-oriented contract. Do not describe internal tools or 
    - If parameters are complete, confirm once and proceed.
    - If parameters are missing, ask once and wait.
    - If the same tool yields no new info twice, stop further tool calls and ask the user how to proceed.
-   - After user confirmation (e.g., “confirm”, “proceed”, “yes”), you MUST call prepare_swap_transaction. Do NOT suggest external DEXs unless the tool returns an error.
+   - After user confirmation (e.g., \u201cconfirm\u201d, \u201cproceed\u201d, \u201cyes\u201d), you MUST call prepare_swap_transaction. Do NOT suggest external DEXs unless the tool returns an error.
