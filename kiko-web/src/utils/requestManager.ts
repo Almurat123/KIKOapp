@@ -43,7 +43,7 @@ class RequestManager {
    */
   async execute<T>(
     id: string,
-    requestFn: () => Promise<T>,
+    requestFn: (signal: AbortSignal) => Promise<T>,
     options: RequestOptions = {}
   ): Promise<T> {
     // Check cache first
@@ -80,7 +80,7 @@ class RequestManager {
 
             // Execute request with timeout
             const result = await this.withTimeout(
-              requestFn(),
+              requestFn(abortController.signal),
               options.timeout || 30000
             );
 
@@ -219,12 +219,15 @@ class RequestManager {
    * Timeout wrapper
    */
   private withTimeout<T>(promise: Promise<T>, timeout: number): Promise<T> {
-    return Promise.race([
-      promise,
-      new Promise<T>((_, reject) =>
-        setTimeout(() => reject(new Error('Request timeout')), timeout)
-      ),
-    ]);
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    const timeoutPromise = new Promise<T>((_, reject) => {
+      timeoutId = setTimeout(() => reject(new Error('Request timeout')), timeout);
+    });
+    return Promise.race([promise, timeoutPromise]).finally(() => {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+    });
   }
 }
 
@@ -233,4 +236,3 @@ export const requestManager = new RequestManager(3);
 
 // Export class for custom instances
 export { RequestManager };
-

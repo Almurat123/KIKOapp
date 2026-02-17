@@ -1007,7 +1007,8 @@ function shouldUpgradeToFast(endpoints: RpcEndpointConfig[]): boolean {
  */
 export async function getNativeBalance(
     address: string,
-    chainIdOrName: number | string
+    chainIdOrName: number | string,
+    blockTag: string | number = 'latest'
 ): Promise<string> {
     const chainName = typeof chainIdOrName === 'number'
         ? CHAIN_ID_TO_NAME[chainIdOrName]
@@ -1017,7 +1018,7 @@ export async function getNativeBalance(
         const result = await callRpc<{ value: number }>('solana', 'getBalance', [address]);
         return result.value.toString();
     } else {
-        return await callRpc<string>(chainIdOrName, 'eth_getBalance', [address, 'latest']);
+        return await callRpc<string>(chainIdOrName, 'eth_getBalance', [address, blockTag]);
     }
 }
 
@@ -1027,14 +1028,15 @@ export async function getNativeBalance(
 export async function getErc20Balance(
     tokenAddress: string,
     ownerAddress: string,
-    chainIdOrName: number | string
+    chainIdOrName: number | string,
+    blockTag: string | number = 'latest'
 ): Promise<bigint> {
     const iface = new ethers.Interface(['function balanceOf(address) view returns (uint256)']);
     const data = iface.encodeFunctionData('balanceOf', [ownerAddress]);
     const result = await callRpc<string>(chainIdOrName, 'eth_call', [{
         to: tokenAddress,
         data
-    }, 'latest']);
+    }, blockTag]);
 
     if (!result || result === '0x') return 0n;
     const [balance] = iface.decodeFunctionResult('balanceOf', result);
@@ -1046,14 +1048,15 @@ export async function getErc20Balance(
  */
 export async function getErc20Decimals(
     tokenAddress: string,
-    chainIdOrName: number | string
+    chainIdOrName: number | string,
+    blockTag: string | number = 'latest'
 ): Promise<number> {
     const iface = new ethers.Interface(['function decimals() view returns (uint8)']);
     const data = iface.encodeFunctionData('decimals', []);
     const result = await callRpc<string>(chainIdOrName, 'eth_call', [{
         to: tokenAddress,
         data
-    }, 'latest']);
+    }, blockTag]);
 
     if (!result || result === '0x') return 18;
     const [decimals] = iface.decodeFunctionResult('decimals', result);
@@ -1067,14 +1070,15 @@ export async function getErc20Allowance(
     tokenAddress: string,
     ownerAddress: string,
     spenderAddress: string,
-    chainIdOrName: number | string
+    chainIdOrName: number | string,
+    blockTag: string | number = 'latest'
 ): Promise<bigint> {
     const iface = new ethers.Interface(['function allowance(address owner, address spender) view returns (uint256)']);
     const data = iface.encodeFunctionData('allowance', [ownerAddress, spenderAddress]);
     const result = await callRpc<string>(chainIdOrName, 'eth_call', [{
         to: tokenAddress,
         data
-    }, 'latest']);
+    }, blockTag]);
 
     if (!result || result === '0x') return 0n;
     const [allowance] = iface.decodeFunctionResult('allowance', result);

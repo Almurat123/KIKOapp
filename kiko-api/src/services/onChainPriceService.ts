@@ -295,10 +295,10 @@ function buildStableQuoteTokens(chainId: number): QuoteToken[] {
     return quotes;
 }
 
-async function buildNativeQuoteToken(chainId: number): Promise<QuoteToken | null> {
+async function buildNativeQuoteToken(chainId: number, blockTag: string | number = 'latest'): Promise<QuoteToken | null> {
     const chainConfig = getChainConfig(chainId);
     const wrappedNative = chainConfig.wrappedNativeAddress;
-    const nativePrice = await getNativeTokenPriceUsd(chainId);
+    const nativePrice = await getNativeTokenPriceUsd(chainId, blockTag);
     if (!nativePrice || nativePrice <= 0) return null;
     return {
         address: wrappedNative,
@@ -317,16 +317,18 @@ async function buildNativeQuoteToken(chainId: number): Promise<QuoteToken | null
 export async function getOnChainPrice(
     tokenAddress: string,
     chainId: number,
-    options: { rpcStrategy?: 'fast' | 'cheap' } = {}
+    options: { rpcStrategy?: 'fast' | 'cheap'; blockTag?: string | number } = {}
 ): Promise<OnChainPriceData | null> {
     const rpcStrategy = options.rpcStrategy || 'cheap';
+    const blockTag = options.blockTag ?? 'latest';
+    const isLatestTag = blockTag === 'latest';
     const chainConfig = getChainConfig(chainId);
     const wrappedNative = chainConfig.wrappedNativeAddress;
     const tokenLower = tokenAddress.toLowerCase();
 
     // Native/Wrapped native fast-path
     if (tokenLower === NATIVE_PLACEHOLDER || tokenLower === wrappedNative.toLowerCase()) {
-        const nativePriceUsd = await getNativeTokenPriceUsd(chainId);
+        const nativePriceUsd = await getNativeTokenPriceUsd(chainId, blockTag);
         if (nativePriceUsd && nativePriceUsd > 0) {
             return {
                 price: nativePriceUsd,
@@ -339,30 +341,32 @@ export async function getOnChainPrice(
 
     // ⚡ CACHE CHECK: Return instantly if cached (<1ms)
     const cacheKey = `${chainId}:${tokenAddress.toLowerCase()}`;
-    const cached = priceCache.get(cacheKey);
-    if (cached && Date.now() - cached.timestamp < PRICE_CACHE_TTL) {
-        return {
-            price: cached.price,
-            marketCap: cached.marketCap,
-            pairAddress: '',
-            dexName: `${cached.dexName} (cached)`
-        };
-    }
-    const redisCached = await cacheGet(onChainPriceRedisKey(cacheKey)).catch(() => null);
-    if (redisCached) {
-        try {
-            const parsed = JSON.parse(redisCached) as PriceCache;
-            if (parsed && Date.now() - parsed.timestamp < PRICE_CACHE_TTL) {
-                priceCache.set(cacheKey, parsed);
-                return {
-                    price: parsed.price,
-                    marketCap: parsed.marketCap,
-                    pairAddress: '',
-                    dexName: `${parsed.dexName} (cached)`
-                };
+    if (isLatestTag) {
+        const cached = priceCache.get(cacheKey);
+        if (cached && Date.now() - cached.timestamp < PRICE_CACHE_TTL) {
+            return {
+                price: cached.price,
+                marketCap: cached.marketCap,
+                pairAddress: '',
+                dexName: `${cached.dexName} (cached)`
+            };
+        }
+        const redisCached = await cacheGet(onChainPriceRedisKey(cacheKey)).catch(() => null);
+        if (redisCached) {
+            try {
+                const parsed = JSON.parse(redisCached) as PriceCache;
+                if (parsed && Date.now() - parsed.timestamp < PRICE_CACHE_TTL) {
+                    priceCache.set(cacheKey, parsed);
+                    return {
+                        price: parsed.price,
+                        marketCap: parsed.marketCap,
+                        pairAddress: '',
+                        dexName: `${parsed.dexName} (cached)`
+                    };
+                }
+            } catch {
+                // ignore parse errors
             }
-        } catch {
-            // ignore parse errors
         }
     }
 
@@ -376,7 +380,7 @@ export async function getOnChainPrice(
 
     const stableQuotes = buildStableQuoteTokens(chainId);
     const quoteAttempts: QuoteToken[] = [...stableQuotes];
-    const nativeQuote = await buildNativeQuoteToken(chainId);
+    const nativeQuote = await buildNativeQuoteToken(chainId, blockTag);
     if (nativeQuote) quoteAttempts.push(nativeQuote);
 
     for (const quote of quoteAttempts) {
@@ -385,19 +389,21 @@ export async function getOnChainPrice(
         // ⚡ V4 QUOTER: Try Uniswap V4 quoter first (fast, no log scan)
         if (QUOTER_V4_ADDRESSES[chainId]) {
             try {
-                const v4Result = await fetchPriceFromUniswapV4(tokenAddress, quote, chainId, rpcStrategy);
+                const v4Result = await fetchPriceFromUniswapV4(tokenAddress, quote, chainId, rpcStrategy, blockTag);
                 if (v4Result && v4Result.price > 0) {
-                    priceCache.set(cacheKey, {
-                        price: v4Result.price,
-                        marketCap: v4Result.marketCap,
-                        timestamp: Date.now(),
-                        dexName: v4Result.dexName
-                    });
-                    await cacheSet(
-                        onChainPriceRedisKey(cacheKey),
-                        JSON.stringify(priceCache.get(cacheKey)),
-                        Math.ceil(PRICE_CACHE_TTL / 1000)
-                    ).catch(() => { });
+                    if (isLatestTag) {
+                        priceCache.set(cacheKey, {
+                            price: v4Result.price,
+                            marketCap: v4Result.marketCap,
+                            timestamp: Date.now(),
+                            dexName: v4Result.dexName
+                        });
+                        await cacheSet(
+                            onChainPriceRedisKey(cacheKey),
+                            JSON.stringify(priceCache.get(cacheKey)),
+                            Math.ceil(PRICE_CACHE_TTL / 1000)
+                        ).catch(() => { });
+                    }
                     return v4Result;
                 }
             } catch {
@@ -408,19 +414,21 @@ export async function getOnChainPrice(
         // ⚡ V4 poolId-based fallback (supports hooks; slower due to logs)
         if (V4_STATE_VIEW[chainId]) {
             try {
-                const v4PoolResult = await fetchPriceFromUniswapV4PoolId(tokenAddress, quote, chainId, rpcStrategy);
+                const v4PoolResult = await fetchPriceFromUniswapV4PoolId(tokenAddress, quote, chainId, rpcStrategy, blockTag);
                 if (v4PoolResult && v4PoolResult.price > 0) {
-                    priceCache.set(cacheKey, {
-                        price: v4PoolResult.price,
-                        marketCap: v4PoolResult.marketCap,
-                        timestamp: Date.now(),
-                        dexName: v4PoolResult.dexName
-                    });
-                    await cacheSet(
-                        onChainPriceRedisKey(cacheKey),
-                        JSON.stringify(priceCache.get(cacheKey)),
-                        Math.ceil(PRICE_CACHE_TTL / 1000)
-                    ).catch(() => { });
+                    if (isLatestTag) {
+                        priceCache.set(cacheKey, {
+                            price: v4PoolResult.price,
+                            marketCap: v4PoolResult.marketCap,
+                            timestamp: Date.now(),
+                            dexName: v4PoolResult.dexName
+                        });
+                        await cacheSet(
+                            onChainPriceRedisKey(cacheKey),
+                            JSON.stringify(priceCache.get(cacheKey)),
+                            Math.ceil(PRICE_CACHE_TTL / 1000)
+                        ).catch(() => { });
+                    }
                     return v4PoolResult;
                 }
             } catch {
@@ -440,7 +448,8 @@ export async function getOnChainPrice(
                         factory.address,
                         factory.name,
                         chainId,
-                        rpcStrategy
+                        rpcStrategy,
+                        blockTag
                     );
                 } else if (factory.version === 'bonding') {
                     priceData = await fetchPriceFromBondingCurve(
@@ -448,7 +457,8 @@ export async function getOnChainPrice(
                         factory.address,
                         factory.name,
                         chainId,
-                        rpcStrategy
+                        rpcStrategy,
+                        blockTag
                     );
                 } else {
                     priceData = await fetchPriceFromDex(
@@ -457,7 +467,8 @@ export async function getOnChainPrice(
                         factory.address,
                         factory.name,
                         chainId,
-                        rpcStrategy
+                        rpcStrategy,
+                        blockTag
                     );
                 }
 
@@ -474,17 +485,19 @@ export async function getOnChainPrice(
         for (const result of results) {
             if (result.status === 'fulfilled' && result.value.success && result.value.data) {
                 const data = result.value.data;
-                priceCache.set(cacheKey, {
-                    price: data.price,
-                    marketCap: data.marketCap,
-                    timestamp: Date.now(),
-                    dexName: result.value.factory
-                });
-                await cacheSet(
-                    onChainPriceRedisKey(cacheKey),
-                    JSON.stringify(priceCache.get(cacheKey)),
-                    Math.ceil(PRICE_CACHE_TTL / 1000)
-                ).catch(() => { });
+                if (isLatestTag) {
+                    priceCache.set(cacheKey, {
+                        price: data.price,
+                        marketCap: data.marketCap,
+                        timestamp: Date.now(),
+                        dexName: result.value.factory
+                    });
+                    await cacheSet(
+                        onChainPriceRedisKey(cacheKey),
+                        JSON.stringify(priceCache.get(cacheKey)),
+                        Math.ceil(PRICE_CACHE_TTL / 1000)
+                    ).catch(() => { });
+                }
                 logger.info(LogCode.API_FETCH_SUCCESS, `On-chain price fetched from ${result.value.factory}`, {
                     token: tokenAddress,
                     price: data.price,
@@ -506,7 +519,8 @@ export async function getOnChainPrice(
                         quote,
                         router.address,
                         chainId,
-                        rpcStrategy
+                        rpcStrategy,
+                        blockTag
                     );
                 } else if (router.type === 'v2') {
                     routerData = await fetchPriceFromV2Router(
@@ -515,22 +529,25 @@ export async function getOnChainPrice(
                         router.address,
                         router.name,
                         chainId,
-                        rpcStrategy
+                        rpcStrategy,
+                        blockTag
                     );
                 }
 
                 if (routerData && routerData.price > 0) {
-                    priceCache.set(cacheKey, {
-                        price: routerData.price,
-                        marketCap: routerData.marketCap,
-                        timestamp: Date.now(),
-                        dexName: router.name
-                    });
-                    await cacheSet(
-                        onChainPriceRedisKey(cacheKey),
-                        JSON.stringify(priceCache.get(cacheKey)),
-                        Math.ceil(PRICE_CACHE_TTL / 1000)
-                    ).catch(() => { });
+                    if (isLatestTag) {
+                        priceCache.set(cacheKey, {
+                            price: routerData.price,
+                            marketCap: routerData.marketCap,
+                            timestamp: Date.now(),
+                            dexName: router.name
+                        });
+                        await cacheSet(
+                            onChainPriceRedisKey(cacheKey),
+                            JSON.stringify(priceCache.get(cacheKey)),
+                            Math.ceil(PRICE_CACHE_TTL / 1000)
+                        ).catch(() => { });
+                    }
                     logger.info(LogCode.API_FETCH_SUCCESS, `🔗 Router fallback succeeded: ${router.name}`, {
                         token: tokenAddress,
                         price: routerData.price,
@@ -558,7 +575,8 @@ async function fetchPriceFromDex(
     factoryAddress: string,
     dexName: string,
     chainId: number,
-    rpcStrategy: RpcStrategy
+    rpcStrategy: RpcStrategy,
+    blockTag: string | number
 ): Promise<OnChainPriceData | null> {
     // Step 1: Get pair address from factory
     const pairAddress = await callEthCall<string>(
@@ -567,7 +585,8 @@ async function fetchPriceFromDex(
         FACTORY_V2_ABI,
         'getPair',
         [tokenAddress, quote.address],
-        rpcStrategy
+        rpcStrategy,
+        blockTag
     );
 
     // Check if pair exists
@@ -582,7 +601,8 @@ async function fetchPriceFromDex(
         PAIR_V2_ABI,
         'getReserves',
         [],
-        rpcStrategy
+        rpcStrategy,
+        blockTag
     );
 
     // Step 3: Determine which reserve is token vs quote
@@ -592,7 +612,8 @@ async function fetchPriceFromDex(
         PAIR_V2_ABI,
         'token0',
         [],
-        rpcStrategy
+        rpcStrategy,
+        blockTag
     );
 
     const isToken0 = token0.toLowerCase() === tokenAddress.toLowerCase();
@@ -606,7 +627,8 @@ async function fetchPriceFromDex(
         ERC20_ABI,
         'decimals',
         [],
-        rpcStrategy
+        rpcStrategy,
+        blockTag
     );
 
     const quoteDecimals = quote.decimals;
@@ -631,7 +653,8 @@ async function fetchPriceFromDex(
             ERC20_ABI,
             'totalSupply',
             [],
-            rpcStrategy
+            rpcStrategy,
+            blockTag
         );
         const totalSupplyFloat = Number(totalSupply) / Math.pow(10, tokenDecimals);
         marketCap = totalSupplyFloat * priceUsd;
@@ -658,7 +681,8 @@ async function fetchPriceFromV2Router(
     routerAddress: string,
     dexName: string,
     chainId: number,
-    rpcStrategy: RpcStrategy
+    rpcStrategy: RpcStrategy,
+    blockTag: string | number
 ): Promise<OnChainPriceData | null> {
     try {
         // [Logic]: Query how much token we get for quote token
@@ -672,7 +696,7 @@ async function fetchPriceFromV2Router(
         const result = await callRpcWithStrategy<string>(chainId, 'eth_call', [{
             to: routerAddress,
             data: callData
-        }, 'latest'], rpcStrategy);
+        }, blockTag], rpcStrategy);
 
         if (!result || result === '0x') {
             return null; // No pool or error
@@ -693,7 +717,8 @@ async function fetchPriceFromV2Router(
             ERC20_ABI,
             'decimals',
             [],
-            rpcStrategy
+            rpcStrategy,
+            blockTag
         );
 
         const tokenAmountOut = Number(amounts[1]) / Math.pow(10, tokenDecimals);
@@ -710,7 +735,8 @@ async function fetchPriceFromV2Router(
                 ERC20_ABI,
                 'totalSupply',
                 [],
-                rpcStrategy
+                rpcStrategy,
+                blockTag
             );
             const totalSupplyFloat = Number(totalSupply) / Math.pow(10, tokenDecimals);
             marketCap = totalSupplyFloat * priceUsd;
@@ -752,7 +778,8 @@ async function fetchPriceFromAerodrome(
     quote: QuoteToken,
     routerAddress: string,
     chainId: number,
-    rpcStrategy: RpcStrategy
+    rpcStrategy: RpcStrategy,
+    blockTag: string | number
 ): Promise<OnChainPriceData | null> {
     try {
         // [Logic]: Try both stable=false (volatile) and stable=true pools
@@ -775,7 +802,7 @@ async function fetchPriceFromAerodrome(
         const result = await callRpcWithStrategy<string>(chainId, 'eth_call', [{
             to: routerAddress,
             data: callData
-        }, 'latest'], rpcStrategy);
+        }, blockTag], rpcStrategy);
 
         if (!result || result === '0x') {
             // Try stable pool as fallback
@@ -784,7 +811,7 @@ async function fetchPriceFromAerodrome(
             const stableResult = await callRpcWithStrategy<string>(chainId, 'eth_call', [{
                 to: routerAddress,
                 data: stableCallData
-            }, 'latest'], rpcStrategy);
+            }, blockTag], rpcStrategy);
 
             if (!stableResult || stableResult === '0x') {
                 return null;
@@ -792,12 +819,12 @@ async function fetchPriceFromAerodrome(
 
             // Decode stable result
             const decoded = aerodromeRouterInterface.decodeFunctionResult('getAmountsOut', stableResult);
-            return await calculatePriceFromAmounts(decoded, tokenAddress, chainId, 'Aerodrome (stable)', rpcStrategy, quote, amountInFloat);
+            return await calculatePriceFromAmounts(decoded, tokenAddress, chainId, 'Aerodrome (stable)', rpcStrategy, quote, amountInFloat, blockTag);
         }
 
         // Decode volatile result
         const decoded = aerodromeRouterInterface.decodeFunctionResult('getAmountsOut', result);
-        return await calculatePriceFromAmounts(decoded, tokenAddress, chainId, 'Aerodrome', rpcStrategy, quote, amountInFloat);
+        return await calculatePriceFromAmounts(decoded, tokenAddress, chainId, 'Aerodrome', rpcStrategy, quote, amountInFloat, blockTag);
 
     } catch (err: any) {
         logger.debug(LogCode.API_FETCH_FAILED, 'Aerodrome Router query failed', {
@@ -818,7 +845,8 @@ async function calculatePriceFromAmounts(
     dexName: string,
     rpcStrategy: RpcStrategy,
     quote: QuoteToken,
-    quoteAmountIn: number
+    quoteAmountIn: number,
+    blockTag: string | number
 ): Promise<OnChainPriceData | null> {
     const amounts = decoded[0] as bigint[];
 
@@ -833,7 +861,8 @@ async function calculatePriceFromAmounts(
         ERC20_ABI,
         'decimals',
         [],
-        rpcStrategy
+        rpcStrategy,
+        blockTag
     );
 
     // Calculate price
@@ -850,7 +879,8 @@ async function calculatePriceFromAmounts(
             ERC20_ABI,
             'totalSupply',
             [],
-            rpcStrategy
+            rpcStrategy,
+            blockTag
         );
         const totalSupplyFloat = Number(totalSupply) / Math.pow(10, tokenDecimals);
         marketCap = totalSupplyFloat * priceUsd;
@@ -873,10 +903,11 @@ async function calculatePriceFromAmounts(
 
 /**
  * Get native token price in USD (ETH, BNB, SOL, etc.)
- * ⚡ OPTIMIZED: 10-minute cache + background refresh using Coinbase API (stable, no rate limit)
+ * ⚡ OPTIMIZED: 10-minute cache + background refresh using Coinbase primary + multi-source fallback
  */
 let nativePriceCache: { [chainId: number]: { price: number; timestamp: number } } = {};
 const NATIVE_PRICE_CACHE_TTL = 600000; // 10 minutes cache
+const NATIVE_LAST_PRICE_CACHE_TTL_SEC = Number(process.env.NATIVE_LAST_PRICE_CACHE_TTL_SEC || 30 * 24 * 60 * 60); // 30 days
 
 // Native token symbols for Coinbase API
 const NATIVE_COINBASE_SYMBOLS: Record<number, string> = {
@@ -889,16 +920,102 @@ const NATIVE_COINBASE_SYMBOLS: Record<number, string> = {
     900: 'SOL',     // Solana ✅ NEW
 };
 
-// Fallback prices (updated 2026-02)
-const NATIVE_PRICE_ESTIMATES: Record<number, number> = {
-    1: 2450,    // ETH ~$2450
-    8453: 2450, // Base (ETH)
-    56: 780,    // BNB ~$780
-    42161: 2450, // Arbitrum (ETH)
-    10: 2450,   // Optimism (ETH)
-    137: 0.11,  // MATIC ~$0.11
-    900: 105,   // SOL ~$105 ✅ NEW
+const NATIVE_COINGECKO_IDS: Record<number, string> = {
+    1: 'ethereum',
+    8453: 'ethereum',
+    56: 'binancecoin',
+    42161: 'ethereum',
+    10: 'ethereum',
+    137: 'matic-network',
+    900: 'solana',
 };
+
+function nativeLastPriceRedisKey(chainId: number): string {
+    return `native:last_price:${chainId}`;
+}
+
+async function persistNativePrice(chainId: number, price: number): Promise<void> {
+    if (!Number.isFinite(price) || price <= 0) return;
+    nativePriceCache[chainId] = { price, timestamp: Date.now() };
+    await cacheSet(nativeLastPriceRedisKey(chainId), String(price), NATIVE_LAST_PRICE_CACHE_TTL_SEC).catch(() => { });
+}
+
+async function getLastKnownNativePrice(chainId: number): Promise<number | null> {
+    const cached = nativePriceCache[chainId];
+    if (cached && Number.isFinite(cached.price) && cached.price > 0) {
+        return cached.price;
+    }
+    const redisVal = await cacheGet(nativeLastPriceRedisKey(chainId)).catch(() => null);
+    const n = Number(redisVal);
+    if (Number.isFinite(n) && n > 0) {
+        nativePriceCache[chainId] = { price: n, timestamp: Date.now() };
+        return n;
+    }
+    return null;
+}
+
+/**
+ * Read-only native USD price getter for hot paths (trade-card persistence).
+ * It never triggers external APIs and only reads memory/redis last-known cache.
+ */
+export async function getCachedNativeTokenPriceUsd(chainId: number): Promise<number> {
+    const price = await getLastKnownNativePrice(chainId);
+    return price && price > 0 ? price : 0;
+}
+
+async function fetchNativePriceFromCoinbase(symbol: string): Promise<number | null> {
+    try {
+        const response = await fetch(
+            `https://api.coinbase.com/v2/prices/${symbol}-USD/spot`,
+            { signal: AbortSignal.timeout(3000) }
+        );
+        if (!response.ok) return null;
+        const data = await response.json();
+        const price = Number.parseFloat(data?.data?.amount);
+        return Number.isFinite(price) && price > 0 ? price : null;
+    } catch {
+        return null;
+    }
+}
+
+async function fetchNativePriceFromCoinGecko(chainId: number): Promise<number | null> {
+    const coinId = NATIVE_COINGECKO_IDS[chainId] || 'ethereum';
+    const demoKey = process.env.COINGECKO_API_KEY?.trim();
+    const url = `https://api.coingecko.com/api/v3/simple/price?ids=${encodeURIComponent(coinId)}&vs_currencies=usd${demoKey ? `&x_cg_demo_api_key=${encodeURIComponent(demoKey)}` : ''}`;
+    try {
+        const response = await fetch(url, { signal: AbortSignal.timeout(3000) });
+        if (!response.ok) return null;
+        const data = await response.json() as Record<string, { usd?: number }>;
+        const price = Number(data?.[coinId]?.usd ?? 0);
+        return Number.isFinite(price) && price > 0 ? price : null;
+    } catch {
+        return null;
+    }
+}
+
+async function fetchNativePriceFromCoinMarketCap(symbol: string): Promise<number | null> {
+    const apiKey = process.env.CMC_PRO_API_KEY?.trim();
+    if (!apiKey) return null;
+    const url = `https://pro-api.coinmarketcap.com/v1/cryptocurrency/quotes/latest?symbol=${encodeURIComponent(symbol)}&convert=USD`;
+    try {
+        const response = await fetch(url, {
+            method: 'GET',
+            headers: {
+                'Accept': 'application/json',
+                'X-CMC_PRO_API_KEY': apiKey
+            },
+            signal: AbortSignal.timeout(3000)
+        });
+        if (!response.ok) return null;
+        const data = await response.json() as any;
+        const row = data?.data?.[symbol];
+        const quote = Array.isArray(row) ? row[0]?.quote : row?.quote;
+        const price = Number(quote?.USD?.price ?? 0);
+        return Number.isFinite(price) && price > 0 ? price : null;
+    } catch {
+        return null;
+    }
+}
 
 /**
  * ⚡ PRELOAD: Fetch all native token prices at startup using Coinbase API
@@ -939,9 +1056,12 @@ export async function preloadNativeTokenPrices(): Promise<void> {
             const price = priceMap[symbol];
             if (price && price > 0) {
                 nativePriceCache[chainId] = { price, timestamp: now };
+                await cacheSet(nativeLastPriceRedisKey(chainId), String(price), NATIVE_LAST_PRICE_CACHE_TTL_SEC).catch(() => { });
             } else {
-                // Use fallback if Coinbase failed
-                nativePriceCache[chainId] = { price: NATIVE_PRICE_ESTIMATES[chainId] || 2450, timestamp: now };
+                const lastKnown = await getLastKnownNativePrice(chainId);
+                if (lastKnown) {
+                    nativePriceCache[chainId] = { price: lastKnown, timestamp: now };
+                }
             }
         }
 
@@ -952,15 +1072,13 @@ export async function preloadNativeTokenPrices(): Promise<void> {
             chains: chainIds.length
         });
     } catch (error: any) {
-        logger.warn(LogCode.API_FETCH_FAILED, 'Failed to preload native prices, using fallbacks', { error: error.message });
-
-        // Use fallback prices
+        logger.warn(LogCode.API_FETCH_FAILED, 'Failed to preload native prices, preserving last-known cache', { error: error.message });
         const now = Date.now();
         for (const chainId of chainIds) {
-            nativePriceCache[chainId] = {
-                price: NATIVE_PRICE_ESTIMATES[chainId] || 2450,
-                timestamp: now
-            };
+            const lastKnown = await getLastKnownNativePrice(chainId);
+            if (lastKnown) {
+                nativePriceCache[chainId] = { price: lastKnown, timestamp: now };
+            }
         }
     }
 }
@@ -980,11 +1098,13 @@ export function startNativePriceRefresh(): void {
     logger.info(LogCode.API_FETCH_SUCCESS, '⚡ Native price refresh started (10 min interval)');
 }
 
-export async function getNativeTokenPriceUsd(chainId: number): Promise<number> {
-    // Check memory cache first (should always hit after preload)
-    const cached = nativePriceCache[chainId];
-    if (cached && Date.now() - cached.timestamp < NATIVE_PRICE_CACHE_TTL) {
-        return cached.price;
+export async function getNativeTokenPriceUsd(chainId: number, blockTag: string | number = 'latest'): Promise<number> {
+    // Check memory cache first (should always hit after preload) - only for 'latest'
+    if (blockTag === 'latest') {
+        const cached = nativePriceCache[chainId];
+        if (cached && Date.now() - cached.timestamp < NATIVE_PRICE_CACHE_TTL) {
+            return cached.price;
+        }
     }
 
     // ⚡ RPC-first: derive native price from on-chain stable pairs (USDC/USDT)
@@ -999,17 +1119,21 @@ export async function getNativeTokenPriceUsd(chainId: number): Promise<number> {
             if (quote.address.toLowerCase() === wrappedNative.toLowerCase()) continue;
 
             if (QUOTER_V4_ADDRESSES[chainId]) {
-                const v4Result = await fetchPriceFromUniswapV4(wrappedNative, quote, chainId, 'fast');
+                const v4Result = await fetchPriceFromUniswapV4(wrappedNative, quote, chainId, 'fast', blockTag);
                 if (v4Result?.price) {
-                    nativePriceCache[chainId] = { price: v4Result.price, timestamp: Date.now() };
+                    if (blockTag === 'latest') {
+                        await persistNativePrice(chainId, v4Result.price);
+                    }
                     return v4Result.price;
                 }
             }
 
             if (V4_STATE_VIEW[chainId]) {
-                const v4PoolResult = await fetchPriceFromUniswapV4PoolId(wrappedNative, quote, chainId, 'fast');
+                const v4PoolResult = await fetchPriceFromUniswapV4PoolId(wrappedNative, quote, chainId, 'fast', blockTag);
                 if (v4PoolResult?.price) {
-                    nativePriceCache[chainId] = { price: v4PoolResult.price, timestamp: Date.now() };
+                    if (blockTag === 'latest') {
+                        await persistNativePrice(chainId, v4PoolResult.price);
+                    }
                     return v4PoolResult.price;
                 }
             }
@@ -1017,12 +1141,14 @@ export async function getNativeTokenPriceUsd(chainId: number): Promise<number> {
             for (const factory of factories) {
                 let priceData: OnChainPriceData | null = null;
                 if (factory.version === 'v3') {
-                    priceData = await fetchPriceFromUniswapV3(wrappedNative, quote, factory.address, factory.name, chainId, 'fast');
+                    priceData = await fetchPriceFromUniswapV3(wrappedNative, quote, factory.address, factory.name, chainId, 'fast', blockTag);
                 } else {
-                    priceData = await fetchPriceFromDex(wrappedNative, quote, factory.address, factory.name, chainId, 'fast');
+                    priceData = await fetchPriceFromDex(wrappedNative, quote, factory.address, factory.name, chainId, 'fast', blockTag);
                 }
                 if (priceData?.price) {
-                    nativePriceCache[chainId] = { price: priceData.price, timestamp: Date.now() };
+                    if (blockTag === 'latest') {
+                        await persistNativePrice(chainId, priceData.price);
+                    }
                     return priceData.price;
                 }
             }
@@ -1030,12 +1156,14 @@ export async function getNativeTokenPriceUsd(chainId: number): Promise<number> {
             for (const router of routers) {
                 let routerData: OnChainPriceData | null = null;
                 if (router.type === 'aerodrome') {
-                    routerData = await fetchPriceFromAerodrome(wrappedNative, quote, router.address, chainId, 'fast');
+                    routerData = await fetchPriceFromAerodrome(wrappedNative, quote, router.address, chainId, 'fast', blockTag);
                 } else if (router.type === 'v2') {
-                    routerData = await fetchPriceFromV2Router(wrappedNative, quote, router.address, router.name, chainId, 'fast');
+                    routerData = await fetchPriceFromV2Router(wrappedNative, quote, router.address, router.name, chainId, 'fast', blockTag);
                 }
                 if (routerData?.price) {
-                    nativePriceCache[chainId] = { price: routerData.price, timestamp: Date.now() };
+                    if (blockTag === 'latest') {
+                        await persistNativePrice(chainId, routerData.price);
+                    }
                     return routerData.price;
                 }
             }
@@ -1046,29 +1174,34 @@ export async function getNativeTokenPriceUsd(chainId: number): Promise<number> {
 
     const symbol = NATIVE_COINBASE_SYMBOLS[chainId] || 'ETH';
 
-    try {
-        // Fast Coinbase API (stable, no rate limit)
-        const response = await fetch(
-            `https://api.coinbase.com/v2/prices/${symbol}-USD/spot`,
-            { signal: AbortSignal.timeout(3000) }
-        );
-
-        if (response.ok) {
-            const data = await response.json();
-            const price = parseFloat(data.data.amount);
-            if (price && price > 0) {
-                nativePriceCache[chainId] = { price, timestamp: Date.now() };
-                return price;
-            }
+    // For historical blockTag, only RPC path is semantically correct.
+    // Do not use live API spot as fallback for historical points.
+    if (blockTag === 'latest') {
+        const coinbasePrice = await fetchNativePriceFromCoinbase(symbol);
+        if (coinbasePrice) {
+            await persistNativePrice(chainId, coinbasePrice);
+            return coinbasePrice;
         }
-    } catch {
-        // Fallthrough to estimates
+
+        const coingeckoPrice = await fetchNativePriceFromCoinGecko(chainId);
+        if (coingeckoPrice) {
+            await persistNativePrice(chainId, coingeckoPrice);
+            return coingeckoPrice;
+        }
+
+        const cmcPrice = await fetchNativePriceFromCoinMarketCap(symbol);
+        if (cmcPrice) {
+            await persistNativePrice(chainId, cmcPrice);
+            return cmcPrice;
+        }
     }
 
-    // Fallback: Use estimate
-    const fallbackPrice = NATIVE_PRICE_ESTIMATES[chainId] || 2450;
-    nativePriceCache[chainId] = { price: fallbackPrice, timestamp: Date.now() };
-    return fallbackPrice;
+    // Final fallback: last-known successful API/on-chain native price (memory/redis).
+    const lastKnown = await getLastKnownNativePrice(chainId);
+    if (lastKnown) return lastKnown;
+
+    logger.warn(LogCode.API_FETCH_FAILED, 'Native price unavailable: no live source and no last-known cache', { chainId, blockTag });
+    return 0;
 }
 
 /**
@@ -1080,7 +1213,8 @@ async function callEthCall<T>(
     abi: any,
     functionName: string,
     args: any[],
-    rpcStrategy: RpcStrategy
+    rpcStrategy: RpcStrategy,
+    blockTag: string | number = 'latest'
 ): Promise<T> {
     const data = encodeFunctionData({
         abi,
@@ -1091,7 +1225,7 @@ async function callEthCall<T>(
     const resultHex = await callRpcWithStrategy<string>(chainId, 'eth_call', [{
         to,
         data
-    }, 'latest'], rpcStrategy);
+    }, blockTag], rpcStrategy);
 
     const decoded = decodeFunctionResult({
         abi,
@@ -1106,7 +1240,8 @@ async function fetchPriceFromUniswapV4PoolId(
     tokenAddress: string,
     quote: QuoteToken,
     chainId: number,
-    rpcStrategy: RpcStrategy
+    rpcStrategy: RpcStrategy,
+    blockTag: string | number
 ): Promise<OnChainPriceData | null> {
     if (!V4_STATE_VIEW[chainId]) return null;
 
@@ -1117,7 +1252,7 @@ async function fetchPriceFromUniswapV4PoolId(
     const getDecimals = async (address: string): Promise<number> => {
         const key = address.toLowerCase();
         if (decimalsCache.has(key)) return decimalsCache.get(key)!;
-        const dec = await getErc20Decimals(address, chainId).catch(() => 18);
+        const dec = await getErc20Decimals(address, chainId, blockTag).catch(() => 18);
         decimalsCache.set(key, dec);
         return dec;
     };
@@ -1153,7 +1288,8 @@ async function fetchPriceFromUniswapV4PoolId(
                     ERC20_ABI,
                     'totalSupply',
                     [],
-                    rpcStrategy
+                    rpcStrategy,
+                    blockTag
                 );
                 const tokenDecimals = await getDecimals(tokenAddress);
                 const totalSupplyFormatted = Number(totalSupply) / Math.pow(10, tokenDecimals);
@@ -1185,7 +1321,8 @@ async function fetchPriceFromUniswapV4(
     tokenAddress: string,
     quote: QuoteToken,
     chainId: number,
-    rpcStrategy: RpcStrategy
+    rpcStrategy: RpcStrategy,
+    blockTag: string | number
 ): Promise<OnChainPriceData | null> {
     const quoterAddress = QUOTER_V4_ADDRESSES[chainId];
     if (!quoterAddress) return null;
@@ -1225,7 +1362,7 @@ async function fetchPriceFromUniswapV4(
                 const result = await callRpcWithStrategy<string>(chainId, 'eth_call', [{
                     to: quoterAddress,
                     data: callData
-                }, 'latest'], rpcStrategy);
+                }, blockTag], rpcStrategy);
 
                 if (!result || result === '0x' || result.length < 66) {
                     continue; // Try next fee tier
@@ -1246,7 +1383,8 @@ async function fetchPriceFromUniswapV4(
                     ERC20_ABI,
                     'decimals',
                     [],
-                    rpcStrategy
+                    rpcStrategy,
+                    blockTag
                 );
 
                 // Calculate price
@@ -1266,7 +1404,8 @@ async function fetchPriceFromUniswapV4(
                         ERC20_ABI,
                         'totalSupply',
                         [],
-                        rpcStrategy
+                        rpcStrategy,
+                        blockTag
                     );
                     marketCap = Number(totalSupply) / Math.pow(10, tokenDecimals) * priceUsd;
                 } catch {
@@ -1312,7 +1451,8 @@ async function fetchPriceFromUniswapV3(
     factoryAddress: string,
     dexName: string,
     chainId: number,
-    rpcStrategy: RpcStrategy
+    rpcStrategy: RpcStrategy,
+    blockTag: string | number
 ): Promise<OnChainPriceData | null> {
     const FEE_TIERS = [10000, 3000, 500]; // 1%, 0.3%, 0.05%
     const quoterAddress = QUOTER_V2_ADDRESSES[chainId];
@@ -1320,7 +1460,7 @@ async function fetchPriceFromUniswapV3(
     // Try QuoterV2 first (fastest path)
     if (quoterAddress) {
         try {
-            const result = await tryQuoterV2(tokenAddress, quote, quoterAddress, dexName, chainId, FEE_TIERS, rpcStrategy);
+            const result = await tryQuoterV2(tokenAddress, quote, quoterAddress, dexName, chainId, FEE_TIERS, rpcStrategy, blockTag);
             if (result) return result;
         } catch {
             // QuoterV2 failed, try fallback
@@ -1328,7 +1468,7 @@ async function fetchPriceFromUniswapV3(
     }
 
     // 🔄 FALLBACK: getPool + slot0 method (2 Multicalls)
-    return tryGetPoolSlot0Fallback(tokenAddress, quote, factoryAddress, dexName, chainId, FEE_TIERS, rpcStrategy);
+    return tryGetPoolSlot0Fallback(tokenAddress, quote, factoryAddress, dexName, chainId, FEE_TIERS, rpcStrategy, blockTag);
 }
 
 /**
@@ -1341,7 +1481,8 @@ async function tryQuoterV2(
     dexName: string,
     chainId: number,
     FEE_TIERS: number[],
-    rpcStrategy: RpcStrategy
+    rpcStrategy: RpcStrategy,
+    blockTag: string | number
 ): Promise<OnChainPriceData | null> {
     const amountIn = BigInt(10) ** BigInt(18);
 
@@ -1380,7 +1521,7 @@ async function tryQuoterV2(
     const batchResult = await callRpcWithStrategy<string>(
         chainId,
         'eth_call',
-        [{ to: MULTICALL3_ADDRESS, data: batchData }, 'latest'],
+        [{ to: MULTICALL3_ADDRESS, data: batchData }, blockTag],
         rpcStrategy
     );
 
@@ -1441,7 +1582,8 @@ async function tryGetPoolSlot0Fallback(
     dexName: string,
     chainId: number,
     FEE_TIERS: number[],
-    rpcStrategy: RpcStrategy
+    rpcStrategy: RpcStrategy,
+    blockTag: string | number
 ): Promise<OnChainPriceData | null> {
     try {
         // Multicall 1: getPool for each fee tier + decimals + totalSupply
@@ -1472,7 +1614,7 @@ async function tryGetPoolSlot0Fallback(
         const batchResult = await callRpcWithStrategy<string>(
             chainId,
             'eth_call',
-            [{ to: MULTICALL3_ADDRESS, data: batchData }, 'latest'],
+            [{ to: MULTICALL3_ADDRESS, data: batchData }, blockTag],
             rpcStrategy
         );
 
@@ -1504,7 +1646,7 @@ async function tryGetPoolSlot0Fallback(
         ];
 
         const poolBatchData = multicall3Interface.encodeFunctionData('aggregate3', [poolCalls]);
-        const poolResult = await callRpcWithStrategy<string>(chainId, 'eth_call', [{ to: MULTICALL3_ADDRESS, data: poolBatchData }, 'latest'], rpcStrategy);
+        const poolResult = await callRpcWithStrategy<string>(chainId, 'eth_call', [{ to: MULTICALL3_ADDRESS, data: poolBatchData }, blockTag], rpcStrategy);
 
         const poolDecoded = multicall3Interface.decodeFunctionResult('aggregate3', poolResult);
         const poolResults = poolDecoded[0] as { success: boolean; returnData: string }[];
@@ -1550,7 +1692,8 @@ async function fetchPriceFromBondingCurve(
     tokenManagerAddress: string,
     dexName: string,
     chainId: number,
-    rpcStrategy: RpcStrategy
+    rpcStrategy: RpcStrategy,
+    blockTag: string | number
 ): Promise<OnChainPriceData | null> {
     try {
         // FourMeme TokenManagerHelper3 ABI (minimal)
@@ -1567,7 +1710,8 @@ async function fetchPriceFromBondingCurve(
             HELPER_ABI,
             'getTokenInfo',
             [tokenAddress],
-            rpcStrategy
+            rpcStrategy,
+            blockTag
         );
 
         const lastPrice = tokenInfo[3]; // lastPrice from return values
@@ -1579,11 +1723,11 @@ async function fetchPriceFromBondingCurve(
         // If quote is not BNB (address(0)), need to get quote token price
         if (quote !== '0x0000000000000000000000000000000000000000') {
             // Quote is BEP20, need to convert to USD
-            const quotePriceUsd = await getNativeTokenPriceUsd(chainId);
+            const quotePriceUsd = await getNativeTokenPriceUsd(chainId, blockTag);
             priceUsd = priceUsd * quotePriceUsd;
         } else {
             // Quote is BNB
-            const bnbPrice = await getNativeTokenPriceUsd(chainId);
+            const bnbPrice = await getNativeTokenPriceUsd(chainId, blockTag);
             priceUsd = priceUsd * bnbPrice;
         }
 
@@ -1596,7 +1740,8 @@ async function fetchPriceFromBondingCurve(
                 ERC20_ABI,
                 'totalSupply',
                 [],
-                rpcStrategy
+                rpcStrategy,
+                blockTag
             );
             const decimals = await callEthCall<number>(
                 chainId,
@@ -1604,7 +1749,8 @@ async function fetchPriceFromBondingCurve(
                 ERC20_ABI,
                 'decimals',
                 [],
-                rpcStrategy
+                rpcStrategy,
+                blockTag
             );
             const totalSupplyFloat = Number(totalSupply) / Math.pow(10, decimals);
             marketCap = totalSupplyFloat * priceUsd;

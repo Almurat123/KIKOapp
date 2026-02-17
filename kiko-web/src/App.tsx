@@ -1,19 +1,28 @@
+import React, { Suspense, lazy } from 'react';
 import { createBrowserRouter, RouterProvider } from 'react-router-dom';
 import { RootLayout } from './layouts/RootLayout';
 import { ErrorPage } from './pages/ErrorPage';
 
 // Pages
-import { ChatInterface } from './components/Chat/ChatInterface';
-import { SocialPage } from './pages/SocialPage';
-import { OverviewPage } from './pages/OverviewPage';
-import { TokensPage } from './pages/TokensPage';
-import { TokenDetailPage } from './pages/TokenDetailPage';
-import { ChainsPage } from './pages/ChainsPage';
-import { SuperDefiPage } from './pages/SuperDefiPage';
-import { TradePage } from './pages/TradePage';
-import WalletPage from './pages/WalletPage';
-import SettingsPage from './pages/SettingsPage';
-import NewsPage from './pages/NewsPage';
+const ChatInterface = lazy(() => import('./components/Chat/ChatInterface').then((m) => ({ default: m.ChatInterface })));
+const SocialPage = lazy(() => import('./pages/SocialPage').then((m) => ({ default: m.SocialPage })));
+const OverviewPage = lazy(() => import('./pages/OverviewPage').then((m) => ({ default: m.OverviewPage })));
+const TokensPage = lazy(() => import('./pages/TokensPage').then((m) => ({ default: m.TokensPage })));
+const TokenDetailPage = lazy(() => import('./pages/TokenDetailPage').then((m) => ({ default: m.TokenDetailPage })));
+const ChainsPage = lazy(() => import('./pages/ChainsPage').then((m) => ({ default: m.ChainsPage })));
+const SuperDefiPage = lazy(() => import('./pages/SuperDefiPage').then((m) => ({ default: m.SuperDefiPage })));
+const TradePage = lazy(() => import('./pages/TradePage').then((m) => ({ default: m.TradePage })));
+const WalletPage = lazy(() => import('./pages/WalletPage'));
+const SettingsPage = lazy(() => import('./pages/SettingsPage'));
+const NewsPage = lazy(() => import('./pages/NewsPage'));
+
+function RouteFallback() {
+  return <div style={{ minHeight: '100vh', background: 'var(--bg-primary, #0b0b0c)' }} />;
+}
+
+function withSuspense(element: React.ReactNode) {
+  return <Suspense fallback={<RouteFallback />}>{element}</Suspense>;
+}
 
 // Contexts & Utils
 
@@ -27,56 +36,56 @@ const router = createBrowserRouter([
     children: [
       {
         index: true,
-        element: <ChatInterface />,
+        element: withSuspense(<ChatInterface />),
       },
       {
         path: 'chat/:conversationId',
-        element: <ChatInterface />,
+        element: withSuspense(<ChatInterface />),
       },
       {
         path: 'news',
-        element: <NewsPage />,
+        element: withSuspense(<NewsPage />),
       },
       {
         path: 'market',
-        element: <OverviewPage />,
+        element: withSuspense(<OverviewPage />),
       },
       {
         path: 'tokens',
         children: [
           {
             index: true,
-            element: <TokensPage />,
+            element: withSuspense(<TokensPage />),
           },
           {
             path: ':chain/:address',
-            element: <TokenDetailPage />,
+            element: withSuspense(<TokenDetailPage />),
           }
         ]
       },
       {
         path: 'chains',
-        element: <ChainsPage />,
+        element: withSuspense(<ChainsPage />),
       },
       {
         path: 'defi/*',
-        element: <SuperDefiPage />,
+        element: withSuspense(<SuperDefiPage />),
       },
       {
         path: 'social',
-        element: <SocialPage />,
+        element: withSuspense(<SocialPage />),
       },
       {
         path: 'trade',
-        element: <TradePage />,
+        element: withSuspense(<TradePage />),
       },
       {
         path: 'wallet',
-        element: <WalletPage />,
+        element: withSuspense(<WalletPage />),
       },
       {
         path: 'settings',
-        element: <SettingsPage />,
+        element: withSuspense(<SettingsPage />),
       },
       // Fallback for unknown routes
       {

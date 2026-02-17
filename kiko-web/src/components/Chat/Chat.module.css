@@ -871,17 +871,17 @@
     max-width: 100%;
 
     /* Nearly transparent glass background */
-    background: rgba(20, 20, 30, 0.04);
+    background: rgba(20, 20, 30, 0.03);
 
     /* Subtle frost */
-    backdrop-filter: blur(2px) saturate(180%);
-    -webkit-backdrop-filter: blur(2px) saturate(180%);
+    backdrop-filter: blur(1px) saturate(165%);
+    -webkit-backdrop-filter: blur(1px) saturate(165%);
 
     border-radius: 32px;
     padding: 0;
 
-    /* Thin edge border for structure */
-    border: 0.5px solid rgba(255, 255, 255, 0.08);
+    /* Use pseudo-element rim only */
+    border: none;
 
     display: flex;
     flex-direction: column;
@@ -946,12 +946,10 @@
 }
 
 .textareaContainer {
-    padding: 16px 24px;
-    /* Restored Figure 1 padding */
+    padding: 12px 20px;
     display: flex;
     flex-direction: column;
-    gap: 16px;
-    /* Balanced Figure 1 gap */
+    gap: 12px;
     width: 100%;
 }
 
@@ -963,14 +961,14 @@
 
 .light .inputWrapper {
     /* Step 4: Micro Blur */
-    background: rgba(255, 255, 255, 0.4);
+    background: rgba(255, 255, 255, 0.09);
 
     /* Micro Glass Blur */
-    backdrop-filter: blur(2px) saturate(160%);
-    -webkit-backdrop-filter: blur(2px) saturate(160%);
+    backdrop-filter: blur(1px) saturate(150%);
+    -webkit-backdrop-filter: blur(1px) saturate(150%);
 
-    /* Subtle border for definition */
-    border: 1px solid rgba(0, 0, 0, 0.06);
+    /* Keep pseudo-element rim in light mode as well */
+    border: none;
 
     /* Clean shadow */
     box-shadow: 0 8px 32px -8px rgba(0, 0, 0, 0.1);
@@ -999,10 +997,10 @@
 }
 
 .inputWrapper:focus-within {
-    border-color: rgba(255, 255, 255, 0.18);
+    border-color: transparent;
 
     /* Slightly more visible on focus */
-    background: rgba(35, 35, 40, 0.08);
+    background: rgba(35, 35, 40, 0.06);
 
     /* Enhanced outer shadow */
     box-shadow: 0 12px 48px rgba(0, 0, 0, 0.4);
@@ -1025,14 +1023,15 @@
 }
 
 .light .inputWrapper:focus-within {
-    /* Slightly more opaque neutral white on focus */
-    background: rgba(255, 255, 255, 0.8);
+    /* Keep liquid effect visible in light mode */
+    background: rgba(255, 255, 255, 0.18);
 
     box-shadow: 0 12px 40px -8px rgba(0, 0, 0, 0.12);
 
-    border-color: rgba(0, 0, 0, 0.1);
+    border-color: transparent;
     transform: translateY(-1px) scale(1.002);
 }
+
 
 
 
@@ -1077,10 +1076,10 @@
     border: none;
     background: transparent;
     resize: none;
-    max-height: 120px;
-    min-height: 42px;
+    max-height: 180px;
+    min-height: 64px;
     height: auto;
-    padding: 10px 14px;
+    padding: 4px 0;
     font-family: inherit;
     /* SF Pro */
     overflow-wrap: anywhere;
@@ -1088,7 +1087,7 @@
     white-space: pre-wrap;
     overflow-y: auto;
     transition: height 0.1s ease;
-    font-size: 15px;
+    font-size: 1rem;
     outline: none;
     line-height: 1.6;
     color: #e4e4e7;

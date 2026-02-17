@@ -54,13 +54,18 @@ export async function socialRoutes(fastify: FastifyInstance) {
       const sortBy = query.sortBy || 'trending';
 
       const result = await getTrendingCastsWithCursor(limit, timeRange, cursor, sortBy);
-
-      return reply.send({
-        success: true,
-        data: result.casts,
+      const payload = {
+        casts: result.casts,
         count: result.casts.length,
         nextCursor: result.nextCursor,
         hasMore: result.hasMore,
+      };
+
+      return reply.send({
+        success: true,
+        data: payload,
+        // Backward compatibility for older clients
+        ...payload,
       });
     } catch (error) {
       throw handleDatabaseError(error as Error);
@@ -86,16 +91,21 @@ export async function socialRoutes(fastify: FastifyInstance) {
 
       // Use hybrid search (local + Neynar)
       const casts = await hybridSearchCasts(searchQuery, Math.min(limit, 50), useNeynar);
-
-      return reply.send({
-        success: true,
+      const searchData = {
         query: searchQuery,
-        casts: casts,
+        casts,
         count: casts.length,
         sources: {
           local: casts.filter((c: any) => !c.source || c.source !== 'neynar').length,
           neynar: casts.filter((c: any) => c.source === 'neynar').length
         }
+      };
+
+      return reply.send({
+        success: true,
+        data: searchData,
+        // Backward compatibility for older clients
+        ...searchData
       });
     } catch (error) {
       throw handleDatabaseError(error as Error);
@@ -145,7 +155,11 @@ export async function socialRoutes(fastify: FastifyInstance) {
     try {
       const { url } = request.query as { url: string };
       if (!url) {
-        return reply.status(400).send({ error: 'URL is required' });
+        return reply.status(400).send({
+          success: false,
+          error: 'URL is required',
+          message: 'Please provide a URL query parameter.',
+        });
       }
 
       const metadata = await ogpService.fetchOGP(decodedUrl(url), request.headers.origin);
@@ -154,7 +168,11 @@ export async function socialRoutes(fastify: FastifyInstance) {
     } catch (error) {
       // Silent fail or minimal error
       reply.header('Cache-Control', 'public, max-age=60');
-      return reply.send({ success: false, data: null });
+      return reply.send({
+        success: false,
+        data: null,
+        error: 'Failed to fetch OGP metadata',
+      });
     }
   });
 
@@ -164,12 +182,18 @@ export async function socialRoutes(fastify: FastifyInstance) {
     try {
       const { url } = request.query as { url: string };
       if (!url) {
-        return reply.status(400).send({ error: 'Tweet URL is required' });
+        return reply.status(400).send({
+          success: false,
+          error: 'Tweet URL is required',
+        });
       }
 
       // Validate it's a Twitter/X URL
       if (!url.includes('twitter.com') && !url.includes('x.com')) {
-        return reply.status(400).send({ error: 'Invalid Twitter/X URL' });
+        return reply.status(400).send({
+          success: false,
+          error: 'Invalid Twitter/X URL',
+        });
       }
 
       // Use Twitter's official oEmbed API
@@ -186,10 +210,16 @@ export async function socialRoutes(fastify: FastifyInstance) {
       }
 
       const data = await response.json();
-      return reply.send(data);
+      return reply.send({
+        success: true,
+        data,
+        // Backward compatibility for clients reading raw oEmbed fields
+        ...data,
+      });
     } catch (error) {
       console.error('[social] tweet-oembed error:', error);
       return reply.status(500).send({
+        success: false,
         error: 'Failed to fetch tweet data',
         message: (error as Error).message
       });
@@ -291,12 +321,16 @@ export async function socialRoutes(fastify: FastifyInstance) {
 
       if (cached) {
         const parsed = JSON.parse(cached);
-        return reply.send({
-          success: true,
-          source: 'cache',
+        const responseData = {
           user: parsed.user,
           casts: parsed.casts,
           totalCasts: parsed.totalCasts,
+        };
+        return reply.send({
+          success: true,
+          source: 'cache',
+          data: responseData,
+          ...responseData,
         });
       }
 
@@ -330,6 +364,7 @@ export async function socialRoutes(fastify: FastifyInstance) {
       return reply.send({
         success: true,
         source: 'hub',
+        data: responseData,
         ...responseData,
       });
     } catch (error) {

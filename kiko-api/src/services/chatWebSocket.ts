@@ -1,5 +1,6 @@
 import { FastifyInstance } from 'fastify';
 import { WebSocket } from 'ws';
+import { randomUUID } from 'node:crypto';
 import { verifyPrivyToken } from '../middleware/auth.js';
 import { decodeJwt } from 'jose';
 import { logger } from '../utils/logger.js';
@@ -9,6 +10,9 @@ import * as chatRepo from '../repositories/chatRepository.js';
 export interface ChatEvent {
     type: 'chunk' | 'task_status' | 'message_complete' | 'message_start' | 'error' | 'usage' | 'citations' | 'content_block' | 'client_action' | 'transaction_update' | 'transaction_confirmed' | 'transaction_complete' | 'latency_metrics';
     sessionId?: string; // Optional because some events are user-level
+    requestId?: string;
+    ts?: string;
+    payload?: any;
     messageId?: string;
     status?: string;
     txHash?: string;
@@ -67,6 +71,15 @@ export class ChatWebSocketService {
             ChatWebSocketService.instance = new ChatWebSocketService();
         }
         return ChatWebSocketService.instance;
+    }
+
+    private normalizeEvent(event: ChatEvent): ChatEvent {
+        return {
+            ...event,
+            requestId: event.requestId || randomUUID(),
+            ts: event.ts || new Date().toISOString(),
+            payload: event.payload ?? event.data,
+        };
     }
 
     /**
@@ -201,9 +214,10 @@ export class ChatWebSocketService {
     public broadcastToUser(userId: string, event: ChatEvent) {
         const userClients = this.clients.get(userId);
         if (userClients) {
+            const normalizedEvent = this.normalizeEvent(event);
             // Skip logging for high-frequency 'chunk' events to prevent console flooding
-            const isHighFreq = event.type === 'chunk';
-            const timerLabel = `ws_broadcast_${userId}_${event.type}`;
+            const isHighFreq = normalizedEvent.type === 'chunk';
+            const timerLabel = `ws_broadcast_${userId}_${normalizedEvent.type}`;
 
             if (!isHighFreq) {
                 logger.startTimer(timerLabel);
@@ -211,15 +225,15 @@ export class ChatWebSocketService {
 
             // Add sequence number if session-scoped
             let payload: string;
-            if (event.sessionId) {
-                const seq = this.getNextSequence(event.sessionId);
-                const sequencedEvent: SequencedChatEvent = { ...event, seq };
+            if (normalizedEvent.sessionId) {
+                const seq = this.getNextSequence(normalizedEvent.sessionId);
+                const sequencedEvent: SequencedChatEvent = { ...normalizedEvent, seq };
                 payload = JSON.stringify(sequencedEvent);
 
                 // Buffer for potential retransmission
-                this.bufferMessage(event.sessionId, sequencedEvent);
+                this.bufferMessage(normalizedEvent.sessionId, sequencedEvent);
             } else {
-                payload = JSON.stringify(event);
+                payload = JSON.stringify(normalizedEvent);
             }
 
             userClients.forEach((socket) => {
@@ -229,7 +243,7 @@ export class ChatWebSocketService {
             });
 
             if (!isHighFreq) {
-                logger.endTimer(timerLabel, LogCode.WS_MESSAGE_SENT, { userId, eventType: event.type, connectionCount: userClients.size });
+                logger.endTimer(timerLabel, LogCode.WS_MESSAGE_SENT, { userId, eventType: normalizedEvent.type, connectionCount: userClients.size });
             }
         }
     }

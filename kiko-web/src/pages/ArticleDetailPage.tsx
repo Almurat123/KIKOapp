@@ -4,6 +4,7 @@ import { Calendar, ArrowLeft, ExternalLink, Share2 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import styles from './ArticleDetailPage.module.css';
+import { resolveCoreApiBase } from '../utils/coreApiBase';
 
 interface NewsArticle {
     id: string;
@@ -16,9 +17,8 @@ interface NewsArticle {
     chains: string;
 }
 
-// Ensure API_URL always ends with /api
-const rawApiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001';
-const API_URL = rawApiUrl.endsWith('/api') ? rawApiUrl : `${rawApiUrl}/api`;
+const coreApiBase = resolveCoreApiBase();
+const API_URL = coreApiBase.endsWith('/api') ? coreApiBase : `${coreApiBase}/api`;
 
 interface ArticleDetailPageProps {
     id: string;

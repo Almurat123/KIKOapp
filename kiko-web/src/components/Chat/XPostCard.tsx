@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { ExternalLink, X as XIcon, RefreshCw } from 'lucide-react';
 import clsx from 'clsx';
 import styles from './XPostCard.module.css';
+import { resolveCoreApiBase } from '../../utils/coreApiBase';
 
 interface XPostCardProps {
     url: string;
@@ -51,7 +52,7 @@ export const XPostCard: React.FC<XPostCardProps> = ({ url, avatarUrl, className 
         const fetchTweetData = async () => {
             try {
                 // Use Twitter oEmbed API via our backend proxy
-                const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+                const API_BASE = resolveCoreApiBase();
                 const response = await fetch(
                     `${API_BASE}/api/social/tweet-oembed?url=${encodeURIComponent(url)}`
                 );
@@ -60,7 +61,8 @@ export const XPostCard: React.FC<XPostCardProps> = ({ url, avatarUrl, className 
                     throw new Error('Failed to fetch tweet');
                 }
 
-                const data = await response.json();
+                const responseBody = await response.json();
+                const data = (responseBody && responseBody.data) ? responseBody.data : responseBody;
 
                 // Parse HTML to extract text content
                 const htmlContent = data.html || '';

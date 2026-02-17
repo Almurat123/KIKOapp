@@ -40,9 +40,10 @@ function resolveWsBaseUrl(): string {
             const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
             return `${proto}//${window.location.host}`;
         }
+        return 'wss://api.kikoapp.app';
     }
 
-    return 'ws://localhost:3001';
+    return import.meta.env.PROD ? 'wss://api.kikoapp.app' : 'ws://localhost:3001';
 }
 
 const WS_BASE_URL = resolveWsBaseUrl();
@@ -53,6 +54,9 @@ export interface ChatEvent {
     type: ChatEventType;
     sessionId: string;
     data: any;
+    payload?: any;
+    requestId?: string;
+    ts?: string;
     seq?: number;  // Sequence number for reliable delivery
 }
 
@@ -155,8 +159,15 @@ export class ChatWebSocketClient {
     }
 
     private normalizeIncomingEvent(raw: any): ChatEvent | null {
+        const withEnvelope = (event: ChatEvent): ChatEvent => ({
+            ...event,
+            payload: event.payload ?? event.data,
+            requestId: event.requestId || raw?.requestId || '',
+            ts: event.ts || raw?.ts || new Date().toISOString(),
+        });
+
         // Legacy format passthrough
-        if (raw?.type && raw?.data && raw?.sessionId) return raw as ChatEvent;
+        if (raw?.type && raw?.data && raw?.sessionId) return withEnvelope(raw as ChatEvent);
 
         // New unified format from chat-v2
         if (!raw?.type || !raw?.session_id) return null;
@@ -167,7 +178,7 @@ export class ChatWebSocketClient {
         const seq = raw.seq as number | undefined;
 
         if (t === 'message_start') {
-            return {
+            return withEnvelope({
                 type: 'message_start',
                 sessionId,
                 seq,
@@ -177,14 +188,14 @@ export class ChatWebSocketClient {
                     task_id: payload.task_id,
                     taskId: payload.taskId || payload.task_id,
                 }
-            };
+            });
         }
         if (t === 'status') {
             const normalizedStatus =
                 payload.status === 'completed' ? 'done'
                     : payload.status === 'stopped' ? 'done'
                         : payload.status;
-            return {
+            return withEnvelope({
                 type: 'task_status',
                 sessionId,
                 seq,
@@ -198,24 +209,24 @@ export class ChatWebSocketClient {
                     iteration: payload.iteration,
                     maxIterations: payload.maxIterations,
                 }
-            };
+            });
         }
         if (t === 'delta_text') {
             const txt = payload.text || '';
-            return { type: 'chunk', sessionId, seq, data: { message_id: messageId, messageId, type: 'content', content: txt, delta: txt } };
+            return withEnvelope({ type: 'chunk', sessionId, seq, data: { message_id: messageId, messageId, type: 'content', content: txt, delta: txt } });
         }
         if (t === 'delta_reasoning') {
             const txt = payload.text || '';
-            return { type: 'chunk', sessionId, seq, data: { message_id: messageId, messageId, type: 'reasoning', reasoning_content: txt } };
+            return withEnvelope({ type: 'chunk', sessionId, seq, data: { message_id: messageId, messageId, type: 'reasoning', reasoning_content: txt } });
         }
         if (t === 'tool_call') {
-            return { type: 'client_action', sessionId, seq, data: { message_id: messageId, action: { type: 'tool_call', payload } } };
+            return withEnvelope({ type: 'client_action', sessionId, seq, data: { message_id: messageId, action: { type: 'tool_call', payload } } });
         }
         if (t === 'tool_result') {
-            return { type: 'client_action', sessionId, seq, data: { message_id: messageId, action: { type: 'tool_result', payload } } };
+            return withEnvelope({ type: 'client_action', sessionId, seq, data: { message_id: messageId, action: { type: 'tool_result', payload } } });
         }
         if (t === 'client_action') {
-            return {
+            return withEnvelope({
                 type: 'client_action',
                 sessionId,
                 seq,
@@ -224,22 +235,22 @@ export class ChatWebSocketClient {
                     messageId: payload.message_id || payload.messageId || messageId,
                     action: payload.action || payload,
                 }
-            };
+            });
         }
         if (t === 'usage') {
-            return { type: 'usage', sessionId, seq, data: { message_id: messageId, messageId, usage: payload.usage || payload } };
+            return withEnvelope({ type: 'usage', sessionId, seq, data: { message_id: messageId, messageId, usage: payload.usage || payload } });
         }
         if (t === 'citation') {
-            return { type: 'citations', sessionId, seq, data: { message_id: messageId, messageId, citations: payload.citations || [] } };
+            return withEnvelope({ type: 'citations', sessionId, seq, data: { message_id: messageId, messageId, citations: payload.citations || [] } });
         }
         if (t === 'message_complete') {
-            return { type: 'message_complete', sessionId, seq, data: { message_id: payload.message_id || messageId, messageId: payload.message_id || messageId } };
+            return withEnvelope({ type: 'message_complete', sessionId, seq, data: { message_id: payload.message_id || messageId, messageId: payload.message_id || messageId } });
         }
         if (t === 'error') {
-            return { type: 'error', sessionId, seq, data: { error: payload.message || 'Unknown error' } };
+            return withEnvelope({ type: 'error', sessionId, seq, data: { error: payload.message || 'Unknown error' } });
         }
         if (t === 'latency_metrics') {
-            return { type: 'latency_metrics', sessionId, seq, data: payload };
+            return withEnvelope({ type: 'latency_metrics', sessionId, seq, data: payload });
         }
         return null;
     }

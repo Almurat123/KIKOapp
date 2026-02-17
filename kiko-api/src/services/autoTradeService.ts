@@ -30,7 +30,7 @@ import { PrivyClient } from '@privy-io/server-auth';
 import { recordNewTrade } from './leaderWalletStatsService.js';
 import { trackCopyTrade, trackSwap } from './userActivityService.js';
 import { getTokenDetails } from './geckoTerminal.js';
-import { getNativeTokenPriceUsd } from './onChainPriceService.js';
+import { getNativeTokenPriceUsd, getCachedNativeTokenPriceUsd } from './onChainPriceService.js';
 import { normalizeAddress } from '../utils/address.js';
 import { moralisService } from './moralisService.js';
 import { warpcastService } from './warpcastService.js';
@@ -372,7 +372,7 @@ export async function handleSwapDetected(
             let valueOutUsd: number | undefined;
             try {
                 const stableSet = new Set(chainConfig.stablecoins.map((s) => normalizeAddress(s)));
-                const nativePrice = await getNativeTokenPriceUsd(chainId).catch(() => 0);
+                const nativePrice = await getCachedNativeTokenPriceUsd(chainId).catch(() => 0);
                 const estimateLegUsd = async (tokenAddr: string, rawAmount: string | undefined): Promise<number | undefined> => {
                     if (!rawAmount) return undefined;
                     const amountBn = BigInt(rawAmount);
@@ -386,7 +386,7 @@ export async function handleSwapDetected(
                     }
                     if (norm === normalizeAddress(chainConfig.wrappedNativeAddress) || norm === NATIVE_ETH) {
                         const usd = Number(ethers.formatUnits(amountBn, 18)) * (Number(nativePrice) || 0);
-                        return Number.isFinite(usd) ? usd : undefined;
+                        return Number.isFinite(usd) && usd > 0 ? usd : undefined;
                     }
                     return undefined;
                 };
@@ -405,9 +405,9 @@ export async function handleSwapDetected(
                 valueOutUsd = undefined;
             }
 
-            const normalizedValueIn = Number.isFinite(valueInUsd as number) ? Number(valueInUsd) : undefined;
-            const normalizedValueOut = Number.isFinite(valueOutUsd as number) ? Number(valueOutUsd) : undefined;
-            let normalizedValueUsd = Number.isFinite(valueUsd as number) ? Number(valueUsd) : undefined;
+            const normalizedValueIn = Number.isFinite(valueInUsd as number) && Number(valueInUsd) > 0 ? Number(valueInUsd) : undefined;
+            const normalizedValueOut = Number.isFinite(valueOutUsd as number) && Number(valueOutUsd) > 0 ? Number(valueOutUsd) : undefined;
+            let normalizedValueUsd = Number.isFinite(valueUsd as number) && Number(valueUsd) > 0 ? Number(valueUsd) : undefined;
             if (!normalizedValueUsd) {
                 normalizedValueUsd = isBuy ? normalizedValueIn : isSell ? normalizedValueOut : undefined;
             }

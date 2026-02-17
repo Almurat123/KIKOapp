@@ -49,6 +49,7 @@ export const RootLayout: React.FC = () => {
     const pendingByConversationRef = useRef<Map<string, Map<string, Message>>>(new Map());
     const lastProcessedCompletionRef = useRef<string | null>(null);
     const pendingFlushTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+    const rafScheduledByConversationRef = useRef<Map<string, number>>(new Map());
 
     // --- WebSocket & Sync Logic (Identical to App.tsx) ---
 
@@ -65,7 +66,15 @@ export const RootLayout: React.FC = () => {
                 const inactiveDuration = Date.now() - lastHiddenTime;
 
                 if (inactiveDuration >= RELOAD_STALE_MS) {
-                    window.location.reload();
+                    try {
+                        const token = await getAccessToken();
+                        if (token) {
+                            chatWSClient.connect(token);
+                        }
+                    } catch (error) {
+                        console.error('[RootLayout] Reconnect after long background failed:', error);
+                    }
+                    lastHiddenTime = 0;
                     return;
                 }
 
@@ -251,8 +260,13 @@ export const RootLayout: React.FC = () => {
 
                 sessionPending.set(messageId, msg);
 
-                // CONTINUOUS RAF FLUSH: NO GUARD - each chunk schedules its own RAF
-                requestAnimationFrame(() => {
+                const existingRaf = rafScheduledByConversationRef.current.get(targetSessionId);
+                if (existingRaf) {
+                    return;
+                }
+
+                const rafId = requestAnimationFrame(() => {
+                    rafScheduledByConversationRef.current.delete(targetSessionId);
                     const tConv = conversationsRef.current.find(c => c.id === targetSessionId);
                     if (!tConv || sessionPending.size === 0) return;
 
@@ -280,6 +294,7 @@ export const RootLayout: React.FC = () => {
                     sessionPending.clear();
                     updateConversation(targetSessionId, { messages: updatedMessages });
                 });
+                rafScheduledByConversationRef.current.set(targetSessionId, rafId);
             }
             // --- Task done (only clear task indicator; message completion is handled by message_complete) ---
             else if (event.type === 'task_status' && (event.data.status === 'done' || event.data.status === 'completed')) {
@@ -451,6 +466,8 @@ export const RootLayout: React.FC = () => {
             unsubscribe();
             pendingFlushTimersRef.current.forEach(t => clearTimeout(t));
             pendingFlushTimersRef.current.clear();
+            rafScheduledByConversationRef.current.forEach((id) => cancelAnimationFrame(id));
+            rafScheduledByConversationRef.current.clear();
         };
     }, [authenticated, ready, activeConversationId, updateConversation]);
 

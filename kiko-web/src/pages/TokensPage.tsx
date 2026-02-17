@@ -1044,6 +1044,7 @@ export const TokensPage: React.FC<TokensPageProps> = ({
   const [loading, setLoading] = useState(false);
   const [initialLoading, setInitialLoading] = useState(true); // Initial multi-chain load
   const [error, setError] = useState<string | null>(null);
+  const [reloadNonce, setReloadNonce] = useState(0);
   const [selectedChain, setSelectedChain] = useState<string>(
     localStorage.getItem('kiko-selected-chain') || 'all'
   );
@@ -1146,7 +1147,7 @@ export const TokensPage: React.FC<TokensPageProps> = ({
       });
       chainRequestIdsRef.current.clear();
     };
-  }, [timeframe]); // Reload when timeframe changes
+  }, [timeframe, reloadNonce]); // Reload when timeframe changes or manual retry is triggered
 
   // 30-second polling for real-time updates
   useEffect(() => {
@@ -1709,14 +1710,12 @@ export const TokensPage: React.FC<TokensPageProps> = ({
                   <button
                     onClick={() => {
                       setError(null);
-                      setTimeout(() => {
-                        // Reload the page to retry
-                        window.location.reload();
-                      }, 5000);
+                      setInitialLoading(true);
+                      setReloadNonce((prev) => prev + 1);
                     }}
                     className={styles.retryBtn}
                   >
-                    Auto refresh in 5s
+                    Retry now
                   </button>
                 )}
               </div>

@@ -14,10 +14,19 @@ export function resolveCoreApiBase(): string {
     if (typeof window !== 'undefined' && window.location?.origin) {
         const host = window.location.hostname.toLowerCase();
         const isLocal = host === 'localhost' || host === '127.0.0.1';
+        if (!isLocal) {
+            // Production-safe default when runtime config is missing.
+            return 'https://api.kikoapp.app';
+        }
+    }
+
+    if (typeof window !== 'undefined' && window.location?.origin) {
+        const host = window.location.hostname.toLowerCase();
+        const isLocal = host === 'localhost' || host === '127.0.0.1';
         if (isLocal) {
             return window.location.origin.replace(/\/+$/, '');
         }
     }
 
-    return 'http://localhost:3001';
+    return import.meta.env.PROD ? 'https://api.kikoapp.app' : 'http://localhost:3001';
 }

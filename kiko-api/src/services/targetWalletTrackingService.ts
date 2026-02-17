@@ -7,7 +7,7 @@ import { setIfNotExists } from '../cache/cacheClient.js';
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
 import { getChainConfig } from '../config/chainConfig.js';
-import { getNativeTokenPriceUsd } from './onChainPriceService.js';
+import { getCachedNativeTokenPriceUsd } from './onChainPriceService.js';
 import { getTokenMetadata } from './rpcService.js';
 import { ethers } from 'ethers';
 import { getTokenDetails } from './dexscreener.js';
@@ -93,6 +93,13 @@ export async function persistTargetSwapEvent(params: {
   const walletAddress = normalizeAddress(params.walletAddress);
   const txHash = params.txHash.toLowerCase();
   const amount = params.txType === 'TARGET_SELL' ? (params.amountIn || null) : (params.amountOut || params.amountIn || null);
+  const normUsd = (v?: number): number | null => {
+    const n = Number(v);
+    return Number.isFinite(n) && n > 0 ? n : null;
+  };
+  const normalizedValueUsd = normUsd(params.valueUsd);
+  const normalizedValueInUsd = normUsd(params.valueInUsd);
+  const normalizedValueOutUsd = normUsd(params.valueOutUsd);
 
   await withRetry(() => prisma.walletTransaction.upsert({
     where: {
@@ -117,9 +124,9 @@ export async function persistTargetSwapEvent(params: {
       amount,
       amountIn: params.amountIn || null,
       amountOut: params.amountOut || null,
-      valueUsd: params.valueUsd ?? null,
-      valueInUsd: params.valueInUsd ?? null,
-      valueOutUsd: params.valueOutUsd ?? null,
+      valueUsd: normalizedValueUsd,
+      valueInUsd: normalizedValueInUsd,
+      valueOutUsd: normalizedValueOutUsd,
       parseReason: params.parseReason ?? null,
       source: params.source ?? 'webhook',
       blockTimestamp: params.blockTimestamp || new Date(),
@@ -135,9 +142,9 @@ export async function persistTargetSwapEvent(params: {
       amount,
       amountIn: params.amountIn || null,
       amountOut: params.amountOut || null,
-      valueUsd: params.valueUsd ?? undefined,
-      valueInUsd: params.valueInUsd ?? undefined,
-      valueOutUsd: params.valueOutUsd ?? undefined,
+      valueUsd: normalizedValueUsd ?? undefined,
+      valueInUsd: normalizedValueInUsd ?? undefined,
+      valueOutUsd: normalizedValueOutUsd ?? undefined,
       parseReason: params.parseReason ?? undefined,
       source: params.source ?? undefined,
       blockTimestamp: params.blockTimestamp || new Date(),
@@ -172,7 +179,7 @@ async function fillUsdFromDecodedLeg(params: {
 
   const isNativeLike = tokenAddress === normalizeAddress(chainCfg.wrappedNativeAddress) || tokenAddress === normalizeAddress('0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee');
   if (isNativeLike) {
-    const nativePrice = Number(await getNativeTokenPriceUsd(params.chainId).catch(() => 0));
+    const nativePrice = Number(await getCachedNativeTokenPriceUsd(params.chainId).catch(() => 0));
     if (!Number.isFinite(nativePrice) || nativePrice <= 0) return null;
     const usd = Number(ethers.formatUnits(amountBn, 18)) * nativePrice;
     return Number.isFinite(usd) ? usd : null;

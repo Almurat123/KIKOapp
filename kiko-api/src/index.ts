@@ -54,6 +54,7 @@ import fastifyRawBody from 'fastify-raw-body';
 import helmet from '@fastify/helmet';
 import { tracingHook } from './middleware/tracing.js';
 import { startRpcHealthMonitor, startRpcBenchmarkSampling } from './services/rpcManager.js';
+import { startNativePriceRefresh } from './services/onChainPriceService.js';
 
 const fastify = Fastify({
     logger: {
@@ -69,9 +70,39 @@ const fastify = Fastify({
 installConsoleInterception();
 
 // Register CORS
-const corsOrigins = env.corsOrigin.split(',').map(o => o.trim());
+const corsOrigins = env.corsOrigin
+    .split(',')
+    .map((o) => o.trim().replace(/\/+$/, ''))
+    .filter(Boolean);
+const corsOriginsSet = new Set(corsOrigins);
+
+function isAllowedCorsOrigin(origin?: string): boolean {
+    if (!origin) {
+        return true;
+    }
+    const normalized = origin.replace(/\/+$/, '');
+    if (corsOriginsSet.has(normalized)) {
+        return true;
+    }
+    try {
+        const parsed = new URL(normalized);
+        const host = parsed.hostname.toLowerCase();
+        if (host === 'kikoapp.app' || host.endsWith('.kikoapp.app')) {
+            return true;
+        }
+        if (env.nodeEnv !== 'production' && (host === 'localhost' || host === '127.0.0.1')) {
+            return true;
+        }
+    } catch {
+        return false;
+    }
+    return false;
+}
+
 fastify.register(cors, {
-    origin: corsOrigins,
+    origin: (origin, cb) => {
+        cb(null, isAllowedCorsOrigin(origin));
+    },
     credentials: true,
 });
 
@@ -131,6 +162,38 @@ logger.info(LogCode.SYS_STARTUP, 'Build SHA', { buildSha });
 
 // Register tracing middleware (must be first)
 fastify.addHook('onRequest', tracingHook);
+
+// Add unified response metadata for API-style envelopes.
+fastify.addHook('preSerialization', async (request, _reply, payload) => {
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+        return payload;
+    }
+    if (Buffer.isBuffer(payload)) {
+        return payload;
+    }
+
+    const data = payload as Record<string, unknown>;
+    const looksLikeApiEnvelope =
+        Object.prototype.hasOwnProperty.call(data, 'success') ||
+        Object.prototype.hasOwnProperty.call(data, 'error') ||
+        Object.prototype.hasOwnProperty.call(data, 'message');
+
+    // Do not alter protocol payloads such as JSON-RPC.
+    if (!looksLikeApiEnvelope || Object.prototype.hasOwnProperty.call(data, 'jsonrpc')) {
+        return payload;
+    }
+
+    if (!Object.prototype.hasOwnProperty.call(data, 'meta')) {
+        const traceId = ((request as any).traceId as string | undefined) || request.id;
+        data.meta = {
+            requestId: traceId,
+            timestamp: new Date().toISOString(),
+            version: buildSha,
+        };
+    }
+
+    return data;
+});
 
 // Register rate limiter for all routes
 fastify.addHook('onRequest', rateLimiter);
@@ -285,6 +348,14 @@ async function start() {
             }
         } catch (redisError: any) {
             logger.error(LogCode.SYS_ERROR, 'Redis initialization failed, but continuing...', { error: redisError.message });
+        }
+
+        // Start native token USD price refresh loop (Coinbase/CoinGecko/CMC + cache)
+        try {
+            startNativePriceRefresh();
+            logger.info(LogCode.SYS_STARTUP, 'Native price refresh started');
+        } catch (nativePriceError: any) {
+            logger.error(LogCode.SYS_ERROR, 'Native price refresh failed to start', { error: nativePriceError.message });
         }
 
         // START SERVER FIRST

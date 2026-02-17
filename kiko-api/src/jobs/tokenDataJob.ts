@@ -97,6 +97,16 @@ const LAUNCHPAD_CREATOR_DISCOVERY_BUDGET_PER_RUN = Math.max(
   Number(process.env.LAUNCHPAD_CREATOR_DISCOVERY_BUDGET_PER_RUN || '6')
 );
 
+function resolveChainId(chainId: string): number | null {
+  if (chainId === 'eth') return 1;
+  if (chainId === 'base') return 8453;
+  if (chainId === 'bsc') return 56;
+  if (chainId === 'arbitrum') return 42161;
+  if (chainId === 'optimism') return 10;
+  if (chainId === 'polygon') return 137;
+  return null;
+}
+
 function pickVerifyTargets<T>(rows: T[], budget: number): T[] {
   if (rows.length <= budget) return rows;
   const windowSizeMs = 5 * 60 * 1000; // rotate with refresh cadence
@@ -964,6 +974,8 @@ async function enrichLaunchpadsForTrending(
   tokens: Array<{ address: string; launchpad?: string; imageUrl?: string; creatorAddress?: string; creatorUrl?: string; creatorLabel?: string; launchMultiple?: number; poolAddress?: string; poolCreatedAt?: string; price?: number }>
 ): Promise<void> {
   if (tokens.length === 0) return;
+  const evmChainId = resolveChainId(chainId);
+  const isSolana = chainId === 'solana';
 
   const persistLaunchpad = async (
     token: { address: string; launchpad?: string | null; creatorAddress?: string; creatorUrl?: string; creatorLabel?: string },
@@ -971,13 +983,21 @@ async function enrichLaunchpadsForTrending(
   ) => {
     try {
       sanitizeCreatorForLaunchpad(token);
+      const normalizedLaunchpad = normalizeLaunchpadProvider(token.launchpad || null);
       await saveTokenLaunchpadProfile(chainId, token.address, {
-        launchpad: token.launchpad,
+        launchpad: normalizedLaunchpad,
         creatorAddress: token.creatorAddress,
         creatorUrl: token.creatorUrl,
         creatorLabel: token.creatorLabel,
         source,
       });
+      // DB-first safety: persist launchpad tag directly even when cache layer is unavailable.
+      if (normalizedLaunchpad !== undefined) {
+        await prisma.trendingToken.updateMany({
+          where: { chain: chainId, address: token.address.toLowerCase() },
+          data: { launchpad: normalizedLaunchpad || null }
+        });
+      }
       if (token.creatorAddress || token.creatorUrl || token.creatorLabel) {
         await saveTrendingTokenCreator(chainId, token.address, {
           creatorAddress: token.creatorAddress,
@@ -1063,16 +1083,15 @@ async function enrichLaunchpadsForTrending(
     }
   }
 
-  // Step 3: API verification for Base tokens without deterministic suffix
-  if (chainId === 'base') {
-    // Resource-safe path: only verify non-clanker EVM candidates in tiny batches.
-    const unresolved = tokens.filter((t) => {
-      if (t.launchpad || !t.address.startsWith('0x')) return false;
-      return !t.address.toLowerCase().endsWith('b07');
-    });
+  // Step 3: API verification for unresolved EVM tokens (rotation + budgeted).
+  // DB-first enrichment: any successful detection is persisted to profile + trending rows.
+  if (evmChainId) {
+    const unresolved = tokens.filter((t) => !t.launchpad && t.address.startsWith('0x'));
     if (unresolved.length > 0) {
-      const verifyLimit = Math.min(LAUNCHPAD_API_VERIFY_BUDGET_PER_RUN, BASE_DOPPLER_VERIFY_BUDGET_PER_RUN);
-      const verifyTargets = unresolved.slice(0, verifyLimit);
+      const chainVerifyBudget = chainId === 'base'
+        ? Math.min(LAUNCHPAD_API_VERIFY_BUDGET_PER_RUN, BASE_DOPPLER_VERIFY_BUDGET_PER_RUN)
+        : LAUNCHPAD_API_VERIFY_BUDGET_PER_RUN;
+      const verifyTargets = pickVerifyTargets(unresolved, chainVerifyBudget);
       if (unresolved.length > verifyTargets.length) {
         logger.info(LogCode.API_FETCH_SUCCESS, 'Launchpad verify budget applied', {
           chain: chainId,
@@ -1084,7 +1103,7 @@ async function enrichLaunchpadsForTrending(
       const limiter = pLimit(BASE_DOPPLER_VERIFY_CONCURRENCY);
       await Promise.all(verifyTargets.map((token) => limiter(async () => {
         try {
-          const detected = await detectLaunchpadToken(token.address, 8453, {
+          const detected = await detectLaunchpadToken(token.address, evmChainId, {
             mode: 'full',
             forceRefresh: true
           });
@@ -1112,10 +1131,46 @@ async function enrichLaunchpadsForTrending(
     }
   }
 
+  // Step 3b: API verification for unresolved Solana tokens.
+  if (isSolana) {
+    const unresolved = tokens.filter((t) => !t.launchpad && !t.address.startsWith('0x'));
+    if (unresolved.length > 0) {
+      const verifyTargets = pickVerifyTargets(unresolved, LAUNCHPAD_API_VERIFY_BUDGET_PER_RUN);
+      const limiter = pLimit(LAUNCHPAD_DETECT_CONCURRENCY);
+      await Promise.all(verifyTargets.map((token) => limiter(async () => {
+        try {
+          const detected = await detectLaunchpadToken(token.address, undefined, {
+            mode: 'full',
+            forceRefresh: true
+          });
+          const normalized = normalizeLaunchpadProvider(detected?.provider || null);
+          if (!normalized) return;
+          token.launchpad = normalized;
+          const creatorMeta = pickCreatorMeta(detected);
+          token.creatorAddress = creatorMeta.creatorAddress;
+          (token as any).creatorUrl = creatorMeta.creatorUrl;
+          (token as any).creatorLabel = creatorMeta.creatorLabel;
+          await writeTokenMetaCache(chainId, token.address, {
+            creatorAddress: token.creatorAddress,
+            creatorUrl: (token as any).creatorUrl,
+            creatorLabel: (token as any).creatorLabel,
+            launchMultiple: token.launchMultiple
+          });
+          await persistLaunchpad(token as any, 'detector_solana');
+          await delCacheKey(launchpadClearFailKey(chainId, token.address)).catch(() => undefined);
+          if (!token.imageUrl && typeof (detected as any)?.data?.imageUrl === 'string') {
+            token.imageUrl = (detected as any).data.imageUrl;
+          }
+        } catch {
+          // Keep unresolved token without launchpad tag
+        }
+      })));
+    }
+  }
+
   // Step 4: creator backfill for already-classified launchpad tokens.
   // This keeps request cost bounded while repairing "launchpad exists but creator missing".
-  const chainIdNum = chainId === 'base' ? 8453 : chainId === 'bsc' ? 56 : null;
-  const isSolana = chainId === 'solana';
+  const chainIdNum = evmChainId;
   if (!chainIdNum && !isSolana) return;
 
   const backfillCandidates = tokens.filter((t) => {

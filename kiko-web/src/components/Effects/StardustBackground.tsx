@@ -1,16 +1,34 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { useThemeContext } from '../../contexts/ThemeContext';
+
+function hasWebGLSupport(): boolean {
+    if (typeof window === 'undefined') return false;
+    try {
+        const canvas = document.createElement('canvas');
+        return !!(
+            canvas.getContext('webgl2', { failIfMajorPerformanceCaveat: true }) ||
+            canvas.getContext('webgl', { failIfMajorPerformanceCaveat: true })
+        );
+    } catch {
+        return false;
+    }
+}
 
 export const StardustBackground: React.FC = () => {
     const containerRef = useRef<HTMLDivElement>(null);
     const { resolvedTheme } = useThemeContext();
+    const [useFallback, setUseFallback] = useState(false);
 
     // Safety guard to prevent double-initialization (Fixes "Browser Freeze" in StrictMode)
     const initializedRef = useRef(false);
 
     useEffect(() => {
         if (!containerRef.current || initializedRef.current) return;
+        if (!hasWebGLSupport()) {
+            setUseFallback(true);
+            return;
+        }
         initializedRef.current = true;
 
         const container = containerRef.current;
@@ -28,11 +46,19 @@ export const StardustBackground: React.FC = () => {
         const camera = new THREE.PerspectiveCamera(aspect < 1 ? 85 : 60, aspect, 1, 10000);
         camera.position.set(0, 0, 1400);
 
-        const renderer = new THREE.WebGLRenderer({
-            antialias: true,
-            alpha: true,
-            powerPreference: 'high-performance'
-        });
+        let renderer: THREE.WebGLRenderer;
+        try {
+            renderer = new THREE.WebGLRenderer({
+                antialias: true,
+                alpha: true,
+                powerPreference: 'high-performance'
+            });
+        } catch (error) {
+            console.warn('[StardustBackground] WebGL init failed, using fallback background.', error);
+            initializedRef.current = false;
+            setUseFallback(true);
+            return;
+        }
         renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
         renderer.setSize(width, height);
         container.appendChild(renderer.domElement);
@@ -226,6 +252,27 @@ export const StardustBackground: React.FC = () => {
             initializedRef.current = false;
         };
     }, [resolvedTheme]);
+
+    if (useFallback) {
+        return (
+            <div
+                id="webgl-background-fallback"
+                style={{
+                    position: 'fixed',
+                    top: 0,
+                    left: 0,
+                    width: '100vw',
+                    height: '100vh',
+                    zIndex: 0,
+                    pointerEvents: 'none',
+                    overflow: 'hidden',
+                    background: resolvedTheme === 'light'
+                        ? 'radial-gradient(120% 120% at 0% 0%, #f8fbff 0%, #ffffff 45%, #eef2f7 100%)'
+                        : 'radial-gradient(120% 120% at 0% 0%, #111827 0%, #030712 45%, #000103 100%)',
+                }}
+            />
+        );
+    }
 
     return (
         <div

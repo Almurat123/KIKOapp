@@ -1,12 +1,9 @@
 /**
  * API Service for KIKO Backend
  */
+import { resolveCoreApiBase } from '../utils/coreApiBase';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || (
-    import.meta.env.PROD
-        ? 'https://api.kikoapp.app' // Production: must use HTTPS
-        : 'http://localhost:3001'
-);
+const API_BASE_URL = resolveCoreApiBase();
 
 /**
  * Get optimized image URL via backend proxy (Efficiency Protocol)
@@ -206,9 +203,14 @@ export interface TokenSearchResult {
  */
 interface ApiResponse<T> {
     success: boolean;
-    data: T;
-    error?: string;
+    data?: T;
+    error?: string | { code?: string; message?: string; retryable?: boolean };
     message?: string;
+    meta?: {
+        requestId?: string;
+        timestamp?: string;
+        version?: string;
+    };
 }
 
 /**
@@ -263,7 +265,20 @@ export async function fetchApi<T>(endpoint: string, options?: RequestInit): Prom
     }
 
     const controller = new AbortController();
+    const externalSignal = options?.signal;
     const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+
+    if (externalSignal) {
+        if (externalSignal.aborted) {
+            clearTimeout(timeoutId);
+            controller.abort();
+        } else {
+            externalSignal.addEventListener('abort', () => {
+                clearTimeout(timeoutId);
+                controller.abort();
+            }, { once: true });
+        }
+    }
 
     // Get Privy access token if available
     const authToken = await getAuthToken();
@@ -289,7 +304,10 @@ export async function fetchApi<T>(endpoint: string, options?: RequestInit): Prom
 
             if (!response.ok) {
                 const errorData = await response.json().catch(() => ({ error: response.statusText }));
-                const errorMessage = errorData.message || errorData.error || `HTTP ${response.status}`;
+                const structuredError = typeof errorData.error === 'object' && errorData.error !== null
+                    ? errorData.error.message
+                    : errorData.error;
+                const errorMessage = errorData.message || structuredError || `HTTP ${response.status}`;
 
                 // Provide more helpful error messages
                 if (response.status === 0 || response.status === 503) {
@@ -304,24 +322,45 @@ export async function fetchApi<T>(endpoint: string, options?: RequestInit): Prom
                 throw new Error(errorMessage);
             }
 
-            const data: ApiResponse<T> = await response.json();
+            const parsed = await response.json();
+            let result: T;
 
-            if (!data.success) {
-                throw new Error(data.message || data.error || 'API request failed');
-            }
+            // Backward compatibility: some endpoints may return raw payload without { success, data }
+            if (typeof parsed !== 'object' || parsed === null || !('success' in parsed)) {
+                result = parsed as T;
+            } else {
+                const data = parsed as ApiResponse<T> & Record<string, unknown>;
 
-            // Handle null/undefined data
-            let result = data.data;
-            if (result === null || result === undefined) {
-                // For array types, return empty array; for object types, return null
-                const isArrayEndpoint = endpoint.includes('/chains') ||
-                    endpoint.includes('/protocols') ||
-                    endpoint.includes('/trending') ||
-                    endpoint.includes('/gainers') ||
-                    endpoint.includes('/articles') ||
-                    endpoint.includes('/flash') ||
-                    endpoint.includes('/tokens');
-                result = (isArrayEndpoint ? [] : null) as T;
+                if (!data.success) {
+                    const structuredError = typeof data.error === 'object' && data.error !== null
+                        ? data.error.message
+                        : data.error;
+                    throw new Error(data.message || structuredError || 'API request failed');
+                }
+
+                // Prefer envelope data field
+                if (data.data !== null && data.data !== undefined) {
+                    result = data.data;
+                } else {
+                    // Fallback: use root payload when endpoint returns { success: true, ...payload }
+                    const hasLegacyPayloadFields = Object.keys(data).some((key) =>
+                        !['success', 'error', 'message', 'meta', 'data'].includes(key)
+                    );
+
+                    if (hasLegacyPayloadFields) {
+                        result = data as unknown as T;
+                    } else {
+                        // Handle null/undefined data
+                        const isArrayEndpoint = endpoint.includes('/chains') ||
+                            endpoint.includes('/protocols') ||
+                            endpoint.includes('/trending') ||
+                            endpoint.includes('/gainers') ||
+                            endpoint.includes('/articles') ||
+                            endpoint.includes('/flash') ||
+                            endpoint.includes('/tokens');
+                        result = (isArrayEndpoint ? [] : null) as T;
+                    }
+                }
             }
 
             // 3. Cache the successful result
@@ -674,12 +713,15 @@ export const socialApi = {
         const response = await fetch(`${API_BASE_URL}/api/social/trending/cursor?${params.toString()}`, {
             headers: { 'Content-Type': 'application/json' }
         });
-        const data = await response.json();
+        const body = await response.json();
+        const payload = body?.data && !Array.isArray(body.data) ? body.data : body;
 
         return {
-            casts: data.data || [],
-            nextCursor: data.nextCursor || null,
-            hasMore: data.hasMore ?? false,
+            casts: Array.isArray(payload?.casts)
+                ? payload.casts
+                : (Array.isArray(body?.data) ? body.data : []),
+            nextCursor: payload?.nextCursor || body?.nextCursor || null,
+            hasMore: payload?.hasMore ?? body?.hasMore ?? false,
         };
     },
 
@@ -779,9 +821,10 @@ function resolveChatApiBase(): string {
         if (isLocal) {
             return window.location.origin.replace(/\/+$/, '');
         }
+        return 'https://api.kikoapp.app';
     }
 
-    return 'http://localhost:3001';
+    return import.meta.env.PROD ? 'https://api.kikoapp.app' : 'http://localhost:3001';
 }
 
 const CHAT_API_BASE = resolveChatApiBase();

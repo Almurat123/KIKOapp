@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import styles from './NewsPage.module.css';
 import { PageContainer } from '../components/Layout/PageContainer';
+import { resolveCoreApiBase } from '../utils/coreApiBase';
 
 interface NewsArticle {
     id: string;
@@ -11,9 +12,8 @@ interface NewsArticle {
     author?: string;
 }
 
-// Ensure API_URL always ends with /api
-const rawApiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001';
-const API_URL = rawApiUrl.endsWith('/api') ? rawApiUrl : `${rawApiUrl}/api`;
+const coreApiBase = resolveCoreApiBase();
+const API_URL = coreApiBase.endsWith('/api') ? coreApiBase : `${coreApiBase}/api`;
 
 export default function NewsPage() {
     const [articles, setArticles] = useState<NewsArticle[]>([]);
