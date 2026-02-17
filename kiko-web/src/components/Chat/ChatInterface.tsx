@@ -901,7 +901,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
     }, []);
 
     /** Scenario B: User switched to another conversation or opened /chat/:id — load if needed, clear prev task, reset UI. */
-    const handleConversationSwitch = useCallback(async (prevId: string | null, newId: string) => {
+    const handleConversationSwitch = useCallback(async (prevId: string | null, newId: string | null) => {
         logger.debug('⚠️ CONVERSATION CHANGED:', { prevId, newId });
         setIsLoadingConversation(true);
         let loadPromise: Promise<unknown> | null = null;
@@ -993,11 +993,11 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
             handleBackgroundMessageSync();
             return;
         }
-        if (isSendingRef.current) {
-            handleNewConversationNavigation(newId!);
+        if (isSendingRef.current && newId) {
+            handleNewConversationNavigation(newId);
             return;
         }
-        handleConversationSwitch(prevId, newId!);
+        handleConversationSwitch(prevId, newId || null);
     }, [conversationId, handleNewConversationNavigation, handleConversationSwitch, handleBackgroundMessageSync]);
 
     useEffect(() => {
@@ -1012,10 +1012,25 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
         const conv = conversations.find(c => c.id === conversationId);
         if ((conv?.messages?.length ?? 0) > 0) return;
         setIsLoadingConversation(true);
-        loadConversation(conversationId)
-            .catch(() => { })
+        Promise.race([
+            loadConversation(conversationId),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('load_conversation_timeout')), 8000)),
+        ])
+            .catch((error) => {
+                logger.warn('[ChatInterface] reliability load failed:', error);
+            })
             .finally(() => setIsLoadingConversation(false));
     }, [ready, authenticated, conversationId, conversations, loadConversation]);
+
+    // Failsafe: never keep interaction blocked in loading overlay forever.
+    useEffect(() => {
+        if (!isLoadingConversation) return;
+        const timer = setTimeout(() => {
+            logger.warn('[ChatInterface] forcing loading overlay reset after timeout');
+            setIsLoadingConversation(false);
+        }, 12000);
+        return () => clearTimeout(timer);
+    }, [isLoadingConversation]);
 
     // Sync thinking text with active task message
     useEffect(() => {
@@ -1895,32 +1910,6 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                 ref={scrollContainerRef}
                 onScroll={handleScroll}
             >
-                {/* Loading overlay for conversation switching */}
-                {isLoadingConversation && (
-                    <div style={{
-                        position: 'absolute',
-                        top: 0,
-                        left: 0,
-                        right: 0,
-                        bottom: 0,
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        background: 'rgba(0, 0, 0, 0.3)',
-                        backdropFilter: 'blur(4px)',
-                        zIndex: 100,
-                        borderRadius: 'inherit'
-                    }}>
-                        <div style={{
-                            width: '32px',
-                            height: '32px',
-                            border: '3px solid rgba(255, 255, 255, 0.2)',
-                            borderTopColor: 'var(--color-accent, #7c3aed)',
-                            borderRadius: '50%',
-                            animation: 'spin 0.8s linear infinite'
-                        }} />
-                    </div>
-                )}
                 {/* Find the last text-type assistant message for thinking indicator */}
                 {(() => {
                     // Find the ID of the last text-type assistant message

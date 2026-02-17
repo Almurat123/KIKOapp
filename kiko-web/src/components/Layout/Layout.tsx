@@ -66,6 +66,9 @@ export const Layout: React.FC<LayoutProps> = ({
     const navigate = useNavigate();
 
     const isChatActive = location.pathname === '/' || location.pathname.startsWith('/chat');
+    const mobileBackAction = isChatActive && onNewChat
+        ? onNewChat
+        : (onBack || onBackHandler || onNewChat);
     // We assume explicit activeTab prop is no longer needed for internal logic beyond this check
 
     // Handle profile click - check authentication status
@@ -134,7 +137,7 @@ export const Layout: React.FC<LayoutProps> = ({
                         {(onBack || onBackHandler) || (isChatActive && (activeConversationId || chatStarted) && onNewChat) ? (
                             <button
                                 className={styles.mobileBackBtn}
-                                onClick={onBack || onBackHandler || onNewChat}
+                                onClick={mobileBackAction}
                                 title="Go back"
                             >
                                 <ArrowLeft size={18} />

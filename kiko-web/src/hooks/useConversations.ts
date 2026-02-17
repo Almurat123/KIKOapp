@@ -42,6 +42,25 @@ export interface Conversation {
   pendingAIPrompt?: string;
 }
 
+function toMillis(value: unknown): number | null {
+  if (!value) return null;
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  const parsed = new Date(value as string).getTime();
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+type ConversationActiveTaskStatus = 'queued' | 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
+
+function normalizeActiveTaskStatus(status: unknown): ConversationActiveTaskStatus {
+  const normalized = String(status || '').toLowerCase();
+  if (normalized === 'queued') return 'queued';
+  if (normalized === 'pending') return 'pending';
+  if (normalized === 'running') return 'running';
+  if (normalized === 'completed' || normalized === 'done') return 'completed';
+  if (normalized === 'failed' || normalized === 'error') return 'failed';
+  return 'cancelled';
+}
+
 export const useConversations = () => {
   const { authenticated, ready, getAccessToken } = usePrivy();
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -303,7 +322,42 @@ export const useConversations = () => {
           mergedMessages.push(localMsg as typeof dbMessages[number]);
         }
 
-        updateConversation(id, mergedMessages);
+        const activeTask = resp.activeTask
+          ? {
+            ...resp.activeTask,
+            status: normalizeActiveTaskStatus((resp.activeTask as any).status),
+          }
+          : null;
+
+        const existing = conversationsRef.current.find(c => c.id === id);
+        const session: any = resp.session || {};
+        const nextConversation: Conversation = {
+          id,
+          title: session.title || existing?.title || 'New Chat',
+          messages: mergedMessages,
+          createdAt: existing?.createdAt ?? toMillis(session.createdAt || session.created_at) ?? Date.now(),
+          updatedAt: toMillis(session.updatedAt || session.updated_at) ?? Date.now(),
+          model: session.model || existing?.model,
+          activeTask,
+          pendingAIPrompt: existing?.pendingAIPrompt,
+        };
+
+        if (existing) {
+          updateConversation(id, {
+            title: nextConversation.title,
+            messages: nextConversation.messages,
+            model: nextConversation.model,
+            activeTask: nextConversation.activeTask,
+            pendingAIPrompt: nextConversation.pendingAIPrompt,
+          });
+        } else {
+          const nextConversations = [
+            nextConversation,
+            ...conversationsRef.current.filter(c => c.id !== id),
+          ];
+          conversationsRef.current = nextConversations;
+          setConversations(nextConversations);
+        }
 
         if (pendingLocalUsers.length > 0) {
           const dbUserContents = new Set(
