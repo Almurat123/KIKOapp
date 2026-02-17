@@ -10,7 +10,7 @@ import { TOKEN_PROGRAM_ID } from '../utils/solanaToken.js';
 import { PublicKey, SystemProgram } from '@solana/web3.js';
 import { notificationService } from '../services/notificationService.js';
 import { isErc20ContractAddress } from '../utils/evmTokenCheck.js';
-import { bootstrapTrackedWalletHistory, getTargetWalletStatus } from '../services/targetWalletTrackingService.js';
+import { getTargetWalletStatus } from '../services/targetWalletTrackingService.js';
 
 interface CreateConfigBody {
     targetWallet: string;
@@ -304,11 +304,6 @@ export default async function copyTradeRoutes(fastify: FastifyInstance) {
                 .catch(err => {
                     console.warn('[CopyTrade] ❌ Alchemy webhook error:', err.message);
                 });
-
-            // Bootstrap target wallet history so trade card has context immediately.
-            bootstrapTrackedWalletHistory(normalizedTarget, chainId, 120, { force: true, source: 'copytrade_create' }).catch((err) => {
-                console.warn('[CopyTrade] Failed to bootstrap target history:', err.message);
-            });
 
             // Notify user that copy trade is active
             if (user.farcasterFid) {
@@ -674,9 +669,6 @@ export default async function copyTradeRoutes(fastify: FastifyInstance) {
                 });
                 addAddressToWebhook(normalizedNextTarget, config.chainId).catch(err => {
                     console.warn('[CopyTrade] Failed to add new webhook address on update:', err.message);
-                });
-                bootstrapTrackedWalletHistory(normalizedNextTarget, config.chainId, 120, { force: true, source: 'copytrade_update' }).catch((err) => {
-                    console.warn('[CopyTrade] Failed to bootstrap target history on update:', err.message);
                 });
             }
 

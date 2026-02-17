@@ -43,7 +43,7 @@ import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
 import { getNativeBalance as rpcGetNativeBalance, getErc20Balance, getErc20Decimals } from './rpcManager.js';
 import { startCopyTradePendingWatcher, stopCopyTradePendingWatcher } from './copyTradePendingService.js';
-import { persistTargetSwapEvent, backfillMissingTargetUsd } from './targetWalletTrackingService.js';
+import { persistTargetSwapEvent } from './targetWalletTrackingService.js';
 
 export { getTokenInfo } from './tokenService.js';
 
@@ -445,13 +445,6 @@ export async function handleSwapDetected(
                 source: 'webhook'
             });
 
-            if (!normalizedValueUsd) {
-                void backfillMissingTargetUsd({
-                    walletAddress: targetWallet,
-                    chainId,
-                    limit: 3
-                }).catch(() => undefined);
-            }
         })().catch((err: any) => {
             logger.warn(LogCode.SYS_ERROR, 'Failed to persist target swap event', {
                 wallet: targetWallet,

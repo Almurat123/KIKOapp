@@ -3,7 +3,7 @@ import { withRetry } from '../db/prisma.js';
 import { normalizeAddress } from '../utils/address.js';
 import { getWalletTransactions } from './alchemy.js';
 import { calculateTargetPnlSummary } from './targetWalletPnl.js';
-import { setIfNotExists } from '../cache/cacheClient.js';
+import { del as cacheDel, setIfNotExists } from '../cache/cacheClient.js';
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
 import { getChainConfig } from '../config/chainConfig.js';
@@ -143,81 +143,90 @@ function buildTargetBuySellRows(targetTradeTxs: TargetTradeTxRow[]) {
   return { buySellRows, rawBuyCount, rawSellCount, tokenSwaps };
 }
 
-export async function recomputeTargetMetricsForConfig(configId: string): Promise<void> {
+export async function recomputeTargetMetricsForConfig(configId: string, attempt = 0): Promise<void> {
   const lockKey = `target_metrics:recompute:${configId}`;
   const claimed = await setIfNotExists(lockKey, String(Date.now()), 20).catch(() => true);
-  if (!claimed) return;
+  if (!claimed) {
+    if (attempt >= 4) return;
+    await new Promise((resolve) => setTimeout(resolve, 150 * (attempt + 1)));
+    return recomputeTargetMetricsForConfig(configId, attempt + 1);
+  }
 
-  const cfg = await withRetry(() => prisma.copyTradeConfig.findUnique({ where: { id: configId } }), 4, 200);
-  if (!cfg) return;
+  try {
+    const cfg = await withRetry(() => prisma.copyTradeConfig.findUnique({ where: { id: configId } }), 4, 200);
+    if (!cfg) return;
 
-  const walletAddress = normalizeAddress(cfg.targetWallet);
-  const chain = chainIdToLabel(cfg.chainId);
-  const since = cfg.createdAt;
+    const walletAddress = normalizeAddress(cfg.targetWallet);
+    const chain = chainIdToLabel(cfg.chainId);
+    const since = cfg.createdAt;
 
-  const [targetTradeTxs, walletTxCount] = await Promise.all([
-    withRetry(() => prisma.walletTransaction.findMany({
-      where: {
-        walletAddress,
-        chain,
-        blockTimestamp: { gte: since },
-        txType: { in: ['TARGET_BUY', 'TARGET_SELL', 'BUY', 'SELL', 'TARGET_TOKEN_SWAP', 'SWAP'] }
+    const [targetTradeTxs, walletTxCount] = await Promise.all([
+      withRetry(() => prisma.walletTransaction.findMany({
+        where: {
+          walletAddress,
+          chain,
+          blockTimestamp: { gte: since },
+          txType: { in: ['TARGET_BUY', 'TARGET_SELL', 'BUY', 'SELL', 'TARGET_TOKEN_SWAP', 'SWAP'] }
+        },
+        select: {
+          id: true,
+          txType: true,
+          valueUsd: true,
+          tokenAddress: true,
+          amount: true,
+          amountIn: true,
+          amountOut: true,
+          tokenInAddress: true,
+          tokenOutAddress: true,
+          valueInUsd: true,
+          valueOutUsd: true,
+          source: true,
+          blockTimestamp: true,
+        },
+        orderBy: { blockTimestamp: 'asc' },
+      }), 4, 200),
+      withRetry(() => prisma.walletTransaction.count({
+        where: {
+          walletAddress,
+          chain,
+          blockTimestamp: { gte: since },
+        },
+      }), 4, 200),
+    ]);
+
+    const { buySellRows, rawBuyCount, rawSellCount, tokenSwaps } = buildTargetBuySellRows(targetTradeTxs);
+    const pnl = await calculateTargetPnlSummary(buySellRows, {
+      minTxUsd: TARGET_STATUS_MIN_TX_USD,
+      maxTxUsd: TARGET_STATUS_MAX_TX_USD,
+      chain,
+      chainId: cfg.chainId,
+    });
+    const trackedTxCount = rawBuyCount + rawSellCount + tokenSwaps;
+    // Card-level Profit/Loss should reflect realized performance only.
+    const targetProfitUsd = safeNum(pnl.targetRealizedProfitUsd);
+    const targetLossUsd = safeNum(pnl.targetRealizedLossUsd);
+
+    await withRetry(() => prisma.copyTradeConfig.update({
+      where: { id: cfg.id },
+      data: {
+        targetTrackedTxCount: trackedTxCount,
+        targetWalletTxCount: walletTxCount,
+        targetBuyCount: rawBuyCount,
+        targetSellCount: rawSellCount,
+        targetTokenSwapCount: tokenSwaps,
+        targetRealizedPnlUsd: safeNum(pnl.targetRealizedPnlUsd),
+        targetRealizedProfitUsd: safeNum(pnl.targetRealizedProfitUsd),
+        targetRealizedLossUsd: safeNum(pnl.targetRealizedLossUsd),
+        targetUnrealizedPnlUsd: safeNum(pnl.targetUnrealizedPnlUsd),
+        targetTotalPnlUsd: safeNum(pnl.targetTotalPnlUsd),
+        targetProfitUsd: safeNum(targetProfitUsd),
+        targetLossUsd: safeNum(targetLossUsd),
+        targetMetricsUpdatedAt: new Date(),
       },
-      select: {
-        id: true,
-        txType: true,
-        valueUsd: true,
-        tokenAddress: true,
-        amount: true,
-        amountIn: true,
-        amountOut: true,
-        tokenInAddress: true,
-        tokenOutAddress: true,
-        valueInUsd: true,
-        valueOutUsd: true,
-        source: true,
-        blockTimestamp: true,
-      },
-      orderBy: { blockTimestamp: 'asc' },
-    }), 4, 200),
-    withRetry(() => prisma.walletTransaction.count({
-      where: {
-        walletAddress,
-        chain,
-        blockTimestamp: { gte: since },
-      },
-    }), 4, 200),
-  ]);
-
-  const { buySellRows, rawBuyCount, rawSellCount, tokenSwaps } = buildTargetBuySellRows(targetTradeTxs);
-  const pnl = await calculateTargetPnlSummary(buySellRows, {
-    minTxUsd: TARGET_STATUS_MIN_TX_USD,
-    maxTxUsd: TARGET_STATUS_MAX_TX_USD,
-    chain,
-    chainId: cfg.chainId,
-  });
-  const trackedTxCount = rawBuyCount + rawSellCount + tokenSwaps;
-  const targetProfitUsd = safeNum(pnl.targetRealizedProfitUsd) + Math.max(0, safeNum(pnl.targetUnrealizedPnlUsd));
-  const targetLossUsd = safeNum(pnl.targetRealizedLossUsd) + Math.max(0, -safeNum(pnl.targetUnrealizedPnlUsd));
-
-  await withRetry(() => prisma.copyTradeConfig.update({
-    where: { id: cfg.id },
-    data: {
-      targetTrackedTxCount: trackedTxCount,
-      targetWalletTxCount: walletTxCount,
-      targetBuyCount: rawBuyCount,
-      targetSellCount: rawSellCount,
-      targetTokenSwapCount: tokenSwaps,
-      targetRealizedPnlUsd: safeNum(pnl.targetRealizedPnlUsd),
-      targetRealizedProfitUsd: safeNum(pnl.targetRealizedProfitUsd),
-      targetRealizedLossUsd: safeNum(pnl.targetRealizedLossUsd),
-      targetUnrealizedPnlUsd: safeNum(pnl.targetUnrealizedPnlUsd),
-      targetTotalPnlUsd: safeNum(pnl.targetTotalPnlUsd),
-      targetProfitUsd: safeNum(targetProfitUsd),
-      targetLossUsd: safeNum(targetLossUsd),
-      targetMetricsUpdatedAt: new Date(),
-    },
-  }), 4, 200);
+    }), 4, 200);
+  } finally {
+    void cacheDel(lockKey).catch(() => undefined);
+  }
 }
 
 export async function recomputeTargetMetricsForWallet(walletAddressRaw: string, chainId: number): Promise<void> {
@@ -263,9 +272,10 @@ export async function persistTargetSwapEvent(params: {
 
   await withRetry(() => prisma.walletTransaction.upsert({
     where: {
-      txHash_walletAddress: {
+      txHash_walletAddress_chain: {
         txHash,
         walletAddress,
+        chain: chainIdToLabel(params.chainId),
       },
     },
     create: {
@@ -653,9 +663,10 @@ export async function bootstrapTrackedWalletHistory(
 
         await withRetry(() => prisma.walletTransaction.upsert({
           where: {
-            txHash_walletAddress: {
+            txHash_walletAddress_chain: {
               txHash: tx.txHash.toLowerCase(),
               walletAddress,
+              chain,
             },
           },
           create: {

@@ -44,6 +44,8 @@ export interface TargetPnlSummaryOptions extends TargetPnlOptions {
 }
 
 const EPS = 1e-12;
+const TARGET_UNREALIZED_MAX_PRICE_MULT = Number(process.env.TARGET_UNREALIZED_MAX_PRICE_MULT || 50);
+const TARGET_UNREALIZED_MIN_PRICE_MULT = Number(process.env.TARGET_UNREALIZED_MIN_PRICE_MULT || 0.02);
 
 function safeNum(v: number | string | null | undefined): number {
   if (v === null || v === undefined) return 0;
@@ -167,15 +169,19 @@ async function getCurrentTokenPriceUsd(chain: string, tokenAddress: string): Pro
 }
 
 async function getTokenDecimals(chainId: number, tokenAddress: string): Promise<number> {
+  const fallback = chainId === 900 ? 9 : 18;
   try {
     const meta = await getTokenMetadata(chainId, tokenAddress, { rpcStrategy: 'cheap' });
-    const decimals = Number(meta?.decimals ?? 0);
+    if (meta?.decimals === null || meta?.decimals === undefined) {
+      return fallback;
+    }
+    const decimals = Number(meta.decimals);
     if (Number.isFinite(decimals) && decimals >= 0 && decimals <= 30) {
       return decimals;
     }
-    return chainId === 900 ? 9 : 18;
+    return fallback;
   } catch {
-    return chainId === 900 ? 9 : 18;
+    return fallback;
   }
 }
 
@@ -297,6 +303,15 @@ export async function calculateTargetPnlSummary(
     if (priceUsd <= 0) {
       unpricedOpenTokenCount += 1;
       continue;
+    }
+    const unitCostUsd = pos.qty > EPS ? (pos.costUsd / pos.qty) : 0;
+    if (unitCostUsd > 0) {
+      const priceRatio = priceUsd / unitCostUsd;
+      // Ignore implausible price jumps for low-liquidity tokens to avoid unrealized PnL spikes.
+      if (!Number.isFinite(priceRatio) || priceRatio > TARGET_UNREALIZED_MAX_PRICE_MULT || priceRatio < TARGET_UNREALIZED_MIN_PRICE_MULT) {
+        unpricedOpenTokenCount += 1;
+        continue;
+      }
     }
 
     // pos.qty is already normalized to human units in this function.

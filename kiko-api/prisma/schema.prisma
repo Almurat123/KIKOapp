@@ -200,7 +200,7 @@ model WalletTransaction {
   parseReason     String?  @map("parse_reason")
   source          String?  @map("source")
 
-  @@unique([txHash, walletAddress])
+  @@unique([txHash, walletAddress, chain])
   @@index([walletAddress])
   @@index([blockTimestamp])
   @@index([chain])
