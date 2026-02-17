@@ -222,10 +222,17 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
     const [firstSendPending, setFirstSendPending] = useState(false);
     const [showJumpToBottom, setShowJumpToBottom] = useState(false);
     const [isComposing, setIsComposing] = useState(false);
+    const [welcomePendingMessages, setWelcomePendingMessages] = useState<Message[]>([]);
     const hasAssistantTextMessage = useMemo(
         () => messages.some(m => m.role === 'assistant' && (!m.type || m.type === 'text')),
         [messages]
     );
+    const displayMessages = useMemo(() => {
+        if (conversationId || welcomePendingMessages.length === 0) return messages;
+        const existingIds = new Set(messages.map(m => m.id));
+        const append = welcomePendingMessages.filter(m => !existingIds.has(m.id));
+        return append.length > 0 ? [...messages, ...append] : messages;
+    }, [conversationId, messages, welcomePendingMessages]);
     const isBusy = isThinking || isStreaming || firstSendPending;
 
 
@@ -280,6 +287,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
     // Farcaster Follow Modal state
     const [showFollowModal, setShowFollowModal] = useState(false);
+    const disableChatTransitions = true;
 
     // showChatUI removed. Visibility is driven by sidebar.chatStarted (Layout).
     // The previous buffering logic is replaced by CSS animations (messageListHidden/chatUiEnter)
@@ -936,8 +944,14 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
         justSwitchedConversationRef.current = true;
         try {
             if (loadPromise) {
-                await loadPromise;
+                await Promise.race([
+                    loadPromise,
+                    new Promise((_, reject) => setTimeout(() => reject(new Error('load_conversation_timeout')), 8000))
+                ]);
             }
+        } catch (error) {
+            logger.warn('[ChatInterface] conversation switch load failed:', error);
+            toast.warning('Loading this chat is taking longer than expected. Please try again.');
         } finally {
             requestAnimationFrame(() => setIsLoadingConversation(false));
             logger.debug('Conversation switch complete. New ID:', newId, 'Marked', initialMessages.length, 'messages as processed');
@@ -985,6 +999,12 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
         }
         handleConversationSwitch(prevId, newId!);
     }, [conversationId, handleNewConversationNavigation, handleConversationSwitch, handleBackgroundMessageSync]);
+
+    useEffect(() => {
+        if (conversationId) {
+            setWelcomePendingMessages([]);
+        }
+    }, [conversationId]);
 
     // Reliability: after auth becomes ready, ensure direct /chat/:id refresh always loads history.
     useEffect(() => {
@@ -1416,11 +1436,14 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
             } else {
                 updated = [...messages, userMsg];
             }
+            messagesRef.current = updated;
             updateConversation(conversationId, {
                 messages: updated,
                 activeTask: { id: `task-${Date.now()}`, status: 'pending' }
             });
             registerPendingLocalUserMessage(conversationId, userMsg);
+        } else if (!existingMessageId && !conversationId) {
+            setWelcomePendingMessages(prev => [...prev.filter(m => m.id !== userMsg.id), userMsg]);
         }
 
         // 4. Clear input immediately
@@ -1468,6 +1491,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                     });
                 }
                 if (!conversationId) sidebar?.setChatStarted(false);
+                if (!conversationId) setWelcomePendingMessages(prev => prev.filter(m => m.id !== userMsg.id));
                 setFirstSendPending(false);
                 return;
             }
@@ -1484,6 +1508,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                 if (conversationId) clearActiveTask(conversationId, updateConversation, 'user_stop');
                 // If stopping a new conversation (no ID yet), just reset local state
                 if (!conversationId) sidebar?.setChatStarted(false);
+                if (!conversationId) setWelcomePendingMessages(prev => prev.filter(m => m.id !== userMsg.id));
                 setFirstSendPending(false);
                 return;
             }
@@ -1515,8 +1540,10 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                     currentConversationIdRef.current = newId;
 
                     // CRITICAL: Persist user message to the new conversation immediately
+                    messagesRef.current = [userMsg];
                     updateConversation(newId, { messages: [userMsg] });
                     registerPendingLocalUserMessage(newId, userMsg);
+                    setWelcomePendingMessages([]);
 
                     // Navigate to new URL
                     navigate(`/chat/${newId}`);
@@ -1533,6 +1560,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                     });
                 } else {
                     sidebar?.setChatStarted(false);
+                    setWelcomePendingMessages(prev => prev.filter(m => m.id !== userMsg.id));
                 }
                 if (conversationId && messages.length > 0) {
                     updateConversation(conversationId, { messages: [] });
@@ -1797,7 +1825,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
     // Process messages with strategy data - MOVED to top level to avoid conditional hook call
     const enrichedMessages = useMemo(() => {
-        return messages.map(msg => {
+        return displayMessages.map(msg => {
             if (msg.type === 'strategy-card' && msg.data?.id) {
                 const liveStrat = strategies.find(s => s.id === msg.data.id);
                 if (liveStrat) {
@@ -1815,7 +1843,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
             }
             return msg;
         });
-    }, [messages, strategies]);
+    }, [displayMessages, strategies]);
 
     return (
         <div className={`${styles.chatContainer} ${styles[resolvedTheme]}`}>
@@ -1829,7 +1857,10 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                     <motion.div
                         key="welcome-screen"
                         initial={{ opacity: 1, y: 0, scale: 1 }}
-                        exit={{
+                        exit={disableChatTransitions ? {
+                            opacity: 0,
+                            transition: { duration: 0.01 }
+                        } : {
                             opacity: 0,
                             y: -120,    // Move up significantly
                             scale: 0.95, // Slight shrink
@@ -1859,7 +1890,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                 className={clsx(
                     styles.messageList,
                     !(sidebar?.chatStarted ?? false) && styles.messageListHidden, // Hide when welcome screen is active
-                    (sidebar?.chatStarted ?? false) && styles.chatUiEnter         // Animate in when started
+                    !disableChatTransitions && (sidebar?.chatStarted ?? false) && styles.chatUiEnter // Animate in when started
                 )}
                 ref={scrollContainerRef}
                 onScroll={handleScroll}
@@ -2024,7 +2055,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
             {
                 (sidebar?.chatStarted ?? false) && (
                     <div
-                        className={clsx(styles.inputArea, styles.inputBottom, styles.chatUiEnterDelayed)}
+                        className={clsx(styles.inputArea, styles.inputBottom, !disableChatTransitions && styles.chatUiEnterDelayed)}
                         style={safariKeyboard.isKeyboardVisible && safariKeyboard.inputTop !== null ? {
                             bottom: 'auto',
                             top: `${safariKeyboard.inputTop}px`,
