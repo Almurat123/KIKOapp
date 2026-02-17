@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { ArrowDown, ChevronDown, Settings } from 'lucide-react';
 import { LiquidGlassEffect } from '../Effects/LiquidGlassEffect';
 import { motion, AnimatePresence } from 'framer-motion';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 
 import { usePrivy, useWallets } from '@privy-io/react-auth';
 import type { WalletWithMetadata } from '@privy-io/react-auth';
@@ -158,9 +158,13 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
     const params = useParams();
     const navigate = useNavigate();
+    const location = useLocation();
 
-    // Determine conversation ID from URL or active context
-    const conversationId = params.conversationId || activeConversationId;
+    // Route is the source of truth for chat context.
+    // On "/" we must never inherit a stale activeConversationId (iOS Safari background restore issue).
+    const routeConversationId = params.conversationId || null;
+    const isChatRoute = location.pathname.startsWith('/chat/');
+    const conversationId = isChatRoute ? (routeConversationId || activeConversationId || null) : null;
 
     // Get current conversation from context
     const currentConv = conversations.find(c => c.id === conversationId);
@@ -903,6 +907,23 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
     /** Scenario B: User switched to another conversation or opened /chat/:id — load if needed, clear prev task, reset UI. */
     const handleConversationSwitch = useCallback(async (prevId: string | null, newId: string | null) => {
         logger.debug('⚠️ CONVERSATION CHANGED:', { prevId, newId });
+        if (!newId) {
+            if (prevId) {
+                const prevConv = conversations.find(c => c.id === prevId);
+                if (prevConv?.activeTask) clearActiveTask(prevId, updateConversation, 'conversation_switch_to_welcome');
+            }
+            setThinkingText('Thinking');
+            setFirstSendPending(false);
+            setInput('');
+            processedMessagesRef.current.clear();
+            processedStrategyIdsRef.current.clear();
+            currentConversationIdRef.current = null;
+            if (onTaskUpdate) onTaskUpdate(null);
+            sidebar?.setChatStarted(false);
+            requestAnimationFrame(() => setIsLoadingConversation(false));
+            return;
+        }
+
         setIsLoadingConversation(true);
         let loadPromise: Promise<unknown> | null = null;
 
@@ -999,6 +1020,14 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
         }
         handleConversationSwitch(prevId, newId || null);
     }, [conversationId, handleNewConversationNavigation, handleConversationSwitch, handleBackgroundMessageSync]);
+
+    // Safety net: if we're on "/", there is no conversation, and nothing is pending, force welcome state.
+    useEffect(() => {
+        if (conversationId) return;
+        if (isThinking || isStreaming || firstSendPending) return;
+        if (messages.length > 0 || welcomePendingMessages.length > 0) return;
+        sidebar?.setChatStarted(false);
+    }, [conversationId, isThinking, isStreaming, firstSendPending, messages.length, welcomePendingMessages.length, sidebar]);
 
     useEffect(() => {
         if (conversationId) {

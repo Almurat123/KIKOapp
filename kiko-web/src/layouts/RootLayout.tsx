@@ -97,9 +97,10 @@ export const RootLayout: React.FC = () => {
                         const routeConversationId = location.pathname.startsWith('/chat/')
                             ? location.pathname.slice('/chat/'.length).split(/[/?#]/)[0] || null
                             : null;
-                        const currentId = routeConversationId || activeConversationId;
-                        if (currentId) {
-                            await loadConversation(currentId);
+                        // Only sync if user is currently on /chat/:id.
+                        // On "/" do not revive stale activeConversationId from a backgrounded tab.
+                        if (routeConversationId) {
+                            await loadConversation(routeConversationId);
                         }
                     } catch (error) {
                         console.error('[RootLayout] Sync failed:', error);
@@ -110,7 +111,7 @@ export const RootLayout: React.FC = () => {
         };
         document.addEventListener('visibilitychange', handleVisibilityChange);
         return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
-    }, [getAccessToken, activeConversationId, loadConversation, location.pathname]);
+    }, [getAccessToken, loadConversation, location.pathname]);
 
     // 2. Global WebSocket Listener
     // Use a ref to track if we've already initiated connection for the current auth state

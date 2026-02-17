@@ -7,7 +7,7 @@ import { del as cacheDel, setIfNotExists } from '../cache/cacheClient.js';
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
 import { getChainConfig } from '../config/chainConfig.js';
-import { getCachedNativeTokenPriceUsd } from './onChainPriceService.js';
+import { getCachedNativeTokenPriceUsd, getNativeTokenPriceUsd } from './onChainPriceService.js';
 import { getTokenMetadata } from './rpcService.js';
 import { ethers } from 'ethers';
 import { getTokenDetails } from './dexscreener.js';
@@ -350,7 +350,10 @@ async function fillUsdFromDecodedLeg(params: {
 
   const isNativeLike = tokenAddress === normalizeAddress(chainCfg.wrappedNativeAddress) || tokenAddress === normalizeAddress('0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee');
   if (isNativeLike) {
-    const nativePrice = Number(await getCachedNativeTokenPriceUsd(params.chainId).catch(() => 0));
+    let nativePrice = Number(await getCachedNativeTokenPriceUsd(params.chainId).catch(() => 0));
+    if (!Number.isFinite(nativePrice) || nativePrice <= 0) {
+      nativePrice = Number(await getNativeTokenPriceUsd(params.chainId).catch(() => 0));
+    }
     if (!Number.isFinite(nativePrice) || nativePrice <= 0) return null;
     const usd = Number(ethers.formatUnits(amountBn, 18)) * nativePrice;
     return Number.isFinite(usd) ? usd : null;
@@ -467,24 +470,55 @@ export async function backfillMissingTargetUsd(params: {
         if (tx && receipt) {
           const swap = await parseSwapTransaction(tx, receipt, cid, row.walletAddress);
           if (swap) {
-            const legUsd = row.txType === 'TARGET_BUY'
-              ? await fillUsdFromDecodedLeg({ chainId: cid, tokenAddress: swap.tokenIn, amountRaw: swap.amountIn })
-              : await fillUsdFromDecodedLeg({ chainId: cid, tokenAddress: swap.tokenOut, amountRaw: swap.amountOut });
+            const chainCfg = getChainConfig(cid);
+            const wrappedNative = normalizeAddress(chainCfg.wrappedNativeAddress);
+            const nativePlaceholder = normalizeAddress('0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee');
+            const stableSet = new Set((chainCfg.stablecoins || []).map((s) => normalizeAddress(s)));
+            const tokenIn = normalizeAddress(swap.tokenIn);
+            const tokenOut = normalizeAddress(swap.tokenOut);
+            const tokenInIsCash = stableSet.has(tokenIn) || tokenIn === wrappedNative || tokenIn === nativePlaceholder;
+            const tokenOutIsCash = stableSet.has(tokenOut) || tokenOut === wrappedNative || tokenOut === nativePlaceholder;
+            const decodedTxType: 'TARGET_BUY' | 'TARGET_SELL' | 'TARGET_TOKEN_SWAP' = tokenInIsCash && !tokenOutIsCash
+              ? 'TARGET_BUY'
+              : !tokenInIsCash && tokenOutIsCash
+                ? 'TARGET_SELL'
+                : 'TARGET_TOKEN_SWAP';
+
+            const decodedValueInUsd = await fillUsdFromDecodedLeg({ chainId: cid, tokenAddress: swap.tokenIn, amountRaw: swap.amountIn });
+            const decodedValueOutUsd = await fillUsdFromDecodedLeg({ chainId: cid, tokenAddress: swap.tokenOut, amountRaw: swap.amountOut });
+            const legUsd = decodedTxType === 'TARGET_BUY'
+              ? decodedValueInUsd
+              : decodedTxType === 'TARGET_SELL'
+                ? decodedValueOutUsd
+                : null;
+
+            await withRetry(() => prisma.walletTransaction.update({
+              where: { id: row.id },
+              data: {
+                chainId: cid,
+                txType: decodedTxType,
+                tokenInAddress: tokenIn,
+                tokenOutAddress: tokenOut,
+                tokenAddress: decodedTxType === 'TARGET_SELL' ? tokenIn : tokenOut,
+                amount: decodedTxType === 'TARGET_SELL'
+                  ? (swap.amountIn || null)
+                  : (swap.amountOut || swap.amountIn || null),
+                amountIn: swap.amountIn || null,
+                amountOut: swap.amountOut || null,
+                valueInUsd: decodedValueInUsd || null,
+                valueOutUsd: decodedValueOutUsd || null,
+                valueUsd: legUsd || null,
+                parseReason: decodedTxType === 'TARGET_BUY'
+                  ? 'backfill_decode_buy'
+                  : decodedTxType === 'TARGET_SELL'
+                    ? 'backfill_decode_sell'
+                    : 'backfill_decode_swap',
+                source: 'backfill',
+              },
+            }), 4, 200);
+
             if (legUsd && legUsd > 0) {
               valueUsd = legUsd;
-              await withRetry(() => prisma.walletTransaction.update({
-                where: { id: row.id },
-                data: {
-                  chainId: cid,
-                  tokenInAddress: normalizeAddress(swap.tokenIn),
-                  tokenOutAddress: normalizeAddress(swap.tokenOut),
-                  amountIn: swap.amountIn || null,
-                  amountOut: swap.amountOut || null,
-                  valueUsd: legUsd,
-                  parseReason: 'backfill_decode',
-                  source: 'backfill',
-                },
-              }), 4, 200);
               updated += 1;
               continue;
             }

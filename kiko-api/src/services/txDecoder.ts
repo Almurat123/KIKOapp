@@ -902,38 +902,79 @@ export async function parseSwapTransaction(
     // Cache Pancake Infinity pool keys (non-blocking)
     cacheInfinityPoolKeysFromLogs(receipt.logs, chainId);
 
+    const toPositiveBigInt = (value?: string): bigint => {
+        try {
+            const v = BigInt(value || '0');
+            return v > 0n ? v : 0n;
+        } catch {
+            return 0n;
+        }
+    };
+    const hasMissingLegAmount = (swap: DecodedSwap): boolean =>
+        toPositiveBigInt(swap.amountIn) <= 0n || toPositiveBigInt(swap.amountOut) <= 0n;
+
     // 1) Prefer transfer-based decode for the target wallet (wallet perspective)
     const tTransferStart = Date.now();
     const transferSwap = decodeSwapFromLogs(receipt.logs, effectiveWallet, tx.value);
     if (transferSwap) {
-        if (hasV4Swap) {
+        let finalTransferSwap = transferSwap;
+        let decodePath = 'transfer_logs';
+
+        // If transfer-based decoding misses one leg amount (commonly native out),
+        // repair amounts using pool swap events before persisting.
+        if (hasMissingLegAmount(finalTransferSwap)) {
+            if (hasV4Swap) {
+                const hintedV4 = await decodeSwapFromV4Events(receipt.logs, chainId);
+                if (hintedV4?.resolvedPoolHint) {
+                    finalTransferSwap.resolvedPoolHint = hintedV4.resolvedPoolHint;
+                }
+                if (hintedV4 && !hasMissingLegAmount(hintedV4)) {
+                    finalTransferSwap.tokenIn = hintedV4.tokenIn;
+                    finalTransferSwap.tokenOut = hintedV4.tokenOut;
+                    finalTransferSwap.amountIn = hintedV4.amountIn;
+                    finalTransferSwap.amountOut = hintedV4.amountOut;
+                    decodePath = 'transfer_logs_repaired_v4';
+                }
+            }
+            if (hasMissingLegAmount(finalTransferSwap)) {
+                const hintedPool = await decodeSwapFromPoolEvents(receipt.logs, chainId);
+                if (hintedPool && !hasMissingLegAmount(hintedPool)) {
+                    finalTransferSwap.tokenIn = hintedPool.tokenIn;
+                    finalTransferSwap.tokenOut = hintedPool.tokenOut;
+                    finalTransferSwap.amountIn = hintedPool.amountIn;
+                    finalTransferSwap.amountOut = hintedPool.amountOut;
+                    decodePath = 'transfer_logs_repaired_pool';
+                }
+            }
+        } else if (hasV4Swap) {
             const hintedV4 = await decodeSwapFromV4Events(receipt.logs, chainId);
             if (hintedV4?.resolvedPoolHint) {
-                transferSwap.resolvedPoolHint = hintedV4.resolvedPoolHint;
+                finalTransferSwap.resolvedPoolHint = hintedV4.resolvedPoolHint;
             }
         }
-        transferSwap.router = tx.to;
-        transferSwap.dexName = hasV4Swap ? 'Uniswap v4' : getDexName(tx.to, chainId);
-        transferSwap.txHash = tx.hash;
+
+        finalTransferSwap.router = tx.to;
+        finalTransferSwap.dexName = hasV4Swap ? 'Uniswap v4' : getDexName(tx.to, chainId);
+        finalTransferSwap.txHash = tx.hash;
         // Normalize Wrapped Native to Native for display
         const NATIVE_ADDRESS = '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
         const chainConfig = getChainConfig(chainId);
         const WRAPPED_NATIVE = chainConfig.wrappedNativeAddress;
-        if (transferSwap.tokenIn.toLowerCase() === WRAPPED_NATIVE.toLowerCase()) {
-            transferSwap.tokenIn = NATIVE_ADDRESS;
+        if (finalTransferSwap.tokenIn.toLowerCase() === WRAPPED_NATIVE.toLowerCase()) {
+            finalTransferSwap.tokenIn = NATIVE_ADDRESS;
         }
-        if (transferSwap.tokenOut.toLowerCase() === WRAPPED_NATIVE.toLowerCase()) {
-            transferSwap.tokenOut = NATIVE_ADDRESS;
+        if (finalTransferSwap.tokenOut.toLowerCase() === WRAPPED_NATIVE.toLowerCase()) {
+            finalTransferSwap.tokenOut = NATIVE_ADDRESS;
         }
         if (PROFILE) {
             logger.info(LogCode.DEC_SWAP_DETECTION, '[Profile] parseSwapTransaction', {
                 tx: tx.hash?.slice(0, 12),
-                path: 'transfer_logs',
+                path: decodePath,
                 transferMs: Date.now() - tTransferStart,
                 totalMs: Date.now() - t0
             });
         }
-        return transferSwap;
+        return finalTransferSwap;
     }
 
     // 2) If V4 swap exists, decode from V4 events as fallback

@@ -6,7 +6,7 @@
 import { ethers } from 'ethers';
 import prisma, { withRetry } from '../db/prisma.js';
 import { DecodedSwap } from './txDecoder.js';
-import { onSwapDetected } from './watcherService.js';
+import { onSwapDetected, fetchTransactionReceipt } from './watcherService.js';
 import { enqueueCopyTradeTask } from './copyTradeQueue.js';
 import { MainSwapService, type DirectSwapHint } from './MainSwapService.js';
 import { detectLaunchpadToken } from './ai/launchpadDetector.js';
@@ -35,6 +35,7 @@ import { normalizeAddress } from '../utils/address.js';
 import { moralisService } from './moralisService.js';
 import { warpcastService } from './warpcastService.js';
 import { notificationService, type TradeNotificationParams } from './notificationService.js';
+import { getAssetTransfers, type AssetTransfer } from './alchemy.js';
 import { getTokenInfo } from './tokenService.js';
 import { getTokenMetadata } from './rpcService.js';
 import { getDexPrice } from './dexPriceService.js';
@@ -119,6 +120,7 @@ let zombieCleanupInterval: NodeJS.Timeout | null = null;
 const userTokenLocks = new Map<string, number>(); // key -> timestamp
 const USER_TOKEN_LOCK_DURATION_MS = 30000; // 30 seconds
 const MAX_COPY_TRADE_USD = 1_000_000; // Hard safety cap to prevent absurd buy amounts
+const NATIVE_TOKEN_PLACEHOLDER = normalizeAddress('0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee');
 type CopyTradeExecutionMode = 'safe' | 'balanced' | 'turbo';
 
 function resolveExecutionModeForConfig(config: any): CopyTradeExecutionMode {
@@ -237,6 +239,135 @@ function isDuplicateSwap(targetWallet: string, swap: DecodedSwap, chainId: numbe
     return false;
 }
 
+function toAlchemyChainLabel(chainId: number): string | null {
+    if (chainId === 8453) return 'base';
+    if (chainId === 56) return 'bsc';
+    if (chainId === 42161) return 'arbitrum';
+    if (chainId === 10) return 'optimism';
+    if (chainId === 137) return 'polygon';
+    if (chainId === 1) return 'eth';
+    return null;
+}
+
+function parseFlexibleInt(raw: unknown, fallback: number): number {
+    if (raw === null || raw === undefined) return fallback;
+    const text = String(raw).trim();
+    if (!text) return fallback;
+    const parsed = text.startsWith('0x') ? Number.parseInt(text, 16) : Number.parseInt(text, 10);
+    return Number.isFinite(parsed) && parsed >= 0 && parsed <= 36 ? parsed : fallback;
+}
+
+function parseFlexibleBigInt(raw: unknown): bigint | null {
+    if (raw === null || raw === undefined) return null;
+    const text = String(raw).trim();
+    if (!text) return null;
+    try {
+        return BigInt(text);
+    } catch {
+        return null;
+    }
+}
+
+function extractTransferAmountRaw(transfer: AssetTransfer, defaultDecimals: number): { amountRaw: bigint | null; decimals: number } {
+    const decimals = parseFlexibleInt(transfer?.rawContract?.decimal, defaultDecimals);
+    const byRawValue = parseFlexibleBigInt(transfer?.rawContract?.value);
+    if (byRawValue && byRawValue > 0n) {
+        return { amountRaw: byRawValue, decimals };
+    }
+
+    const valueNum = Number(transfer?.value || 0);
+    if (!Number.isFinite(valueNum) || valueNum <= 0) {
+        return { amountRaw: null, decimals };
+    }
+
+    try {
+        const fixed = valueNum.toFixed(Math.min(8, decimals));
+        const parsed = ethers.parseUnits(fixed, decimals);
+        return { amountRaw: parsed > 0n ? parsed : null, decimals };
+    } catch {
+        return { amountRaw: null, decimals };
+    }
+}
+
+async function getAlchemyCashLegUsd(params: {
+    walletAddress: string;
+    chainId: number;
+    txHash: string;
+    wrappedNativeAddress: string;
+    stablecoinAddresses: string[];
+}): Promise<{
+    cashSpentUsd?: number;
+    cashReceivedUsd?: number;
+    inferredTxType?: 'TARGET_BUY' | 'TARGET_SELL' | 'TARGET_TOKEN_SWAP';
+} | null> {
+    const chain = toAlchemyChainLabel(params.chainId);
+    if (!chain) return null;
+
+    const walletAddress = normalizeAddress(params.walletAddress);
+    const txHash = String(params.txHash || '').toLowerCase();
+    if (!walletAddress || !txHash) return null;
+
+    const wrappedNative = normalizeAddress(params.wrappedNativeAddress);
+    const stableSet = new Set(params.stablecoinAddresses.map((s) => normalizeAddress(s)));
+    const cashSet = new Set<string>([NATIVE_TOKEN_PLACEHOLDER, wrappedNative, ...stableSet]);
+    const nativePrice = Number(await getCachedNativeTokenPriceUsd(params.chainId).catch(() => 0));
+
+    const transfers = await getAssetTransfers(walletAddress, chain, {
+        ...(await (async () => {
+            const receipt = await fetchTransactionReceipt(txHash, params.chainId).catch(() => null);
+            const blockNumber = typeof receipt?.blockNumber === 'string' ? receipt.blockNumber : undefined;
+            if (!blockNumber) return {};
+            return { fromBlock: blockNumber, toBlock: blockNumber };
+        })()),
+        category: ['external', 'internal', 'erc20'],
+        maxCount: 120,
+        order: 'desc',
+        source: 'copytrade_cash_leg'
+    }).catch(() => []);
+    if (!Array.isArray(transfers) || transfers.length === 0) return null;
+
+    const txTransfers = transfers.filter((t) => String(t?.hash || '').toLowerCase() === txHash);
+    if (txTransfers.length === 0) return null;
+
+    let cashSpentUsd = 0;
+    let cashReceivedUsd = 0;
+    for (const transfer of txTransfers) {
+        const from = normalizeAddress(transfer?.from || '');
+        const to = normalizeAddress(transfer?.to || '');
+        const tokenAddress = normalizeAddress(transfer?.rawContract?.address || NATIVE_TOKEN_PLACEHOLDER);
+        if (!cashSet.has(tokenAddress)) continue;
+
+        const isNativeLike = tokenAddress === NATIVE_TOKEN_PLACEHOLDER || tokenAddress === wrappedNative;
+        const defaultDecimals = isNativeLike ? 18 : 6;
+        const { amountRaw, decimals } = extractTransferAmountRaw(transfer, defaultDecimals);
+        if (!amountRaw || amountRaw <= 0n) continue;
+
+        let usd = 0;
+        if (stableSet.has(tokenAddress)) {
+            usd = Number(ethers.formatUnits(amountRaw, decimals));
+        } else if (isNativeLike && nativePrice > 0) {
+            usd = Number(ethers.formatUnits(amountRaw, 18)) * nativePrice;
+        }
+        if (!Number.isFinite(usd) || usd <= 0) continue;
+
+        if (from === walletAddress) cashSpentUsd += usd;
+        if (to === walletAddress) cashReceivedUsd += usd;
+    }
+
+    if (cashSpentUsd <= 0 && cashReceivedUsd <= 0) return null;
+
+    let inferredTxType: 'TARGET_BUY' | 'TARGET_SELL' | 'TARGET_TOKEN_SWAP' | undefined;
+    if (cashSpentUsd > 0 && cashReceivedUsd <= cashSpentUsd * 0.05) inferredTxType = 'TARGET_BUY';
+    else if (cashReceivedUsd > 0 && cashSpentUsd <= cashReceivedUsd * 0.05) inferredTxType = 'TARGET_SELL';
+    else inferredTxType = 'TARGET_TOKEN_SWAP';
+
+    return {
+        cashSpentUsd: cashSpentUsd > 0 ? cashSpentUsd : undefined,
+        cashReceivedUsd: cashReceivedUsd > 0 ? cashReceivedUsd : undefined,
+        inferredTxType,
+    };
+}
+
 async function resolveLaunchpad(
     launchpadPromise: Promise<any> | null | undefined,
     chainId: number
@@ -330,7 +461,7 @@ export async function handleSwapDetected(
     const chainConfig = getChainConfig(chainId);
 
     // Stablecoin/ETH addresses (what we consider "cash out")
-    const NATIVE_ETH = '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
+    const NATIVE_ETH = NATIVE_TOKEN_PLACEHOLDER;
     const ZORA_TOKEN = '0x1111111111166b7fe7bd91427724b487980afc69';
     const { SOLANA_CONFIG } = await import('../config/solanaConfig.js');
 
@@ -375,7 +506,7 @@ export async function handleSwapDetected(
 
     // Persist every detected target-wallet swap event for PnL/trade-count accuracy.
     if (swap.txHash) {
-        const txType: 'TARGET_BUY' | 'TARGET_SELL' | 'TARGET_TOKEN_SWAP' = isBuy
+        const parserTxType: 'TARGET_BUY' | 'TARGET_SELL' | 'TARGET_TOKEN_SWAP' = isBuy
             ? 'TARGET_BUY'
             : isSell
                 ? 'TARGET_SELL'
@@ -384,8 +515,26 @@ export async function handleSwapDetected(
             let valueUsd: number | undefined;
             let valueInUsd: number | undefined;
             let valueOutUsd: number | undefined;
+            let persistedTxType: 'TARGET_BUY' | 'TARGET_SELL' | 'TARGET_TOKEN_SWAP' = parserTxType;
+            let persistTokenIn = swap.tokenIn;
+            let persistTokenOut = swap.tokenOut;
+            let persistAmountIn = swap.amountIn;
+            let persistAmountOut = swap.amountOut;
+            let parseReason = isBuy ? 'cash_to_token' : isSell ? 'token_to_cash' : 'token_to_token';
             try {
                 const stableSet = new Set(chainConfig.stablecoins.map((s) => normalizeAddress(s)));
+                const swapCashHint = (swap as any)?.cashLegHint as {
+                    cashSpentUsd?: number;
+                    cashReceivedUsd?: number;
+                    inferredTxType?: 'TARGET_BUY' | 'TARGET_SELL' | 'TARGET_TOKEN_SWAP';
+                } | undefined;
+                const alchemyCash = swapCashHint || await getAlchemyCashLegUsd({
+                    walletAddress: targetWallet,
+                    chainId,
+                    txHash: swap.txHash!,
+                    wrappedNativeAddress: chainConfig.wrappedNativeAddress,
+                    stablecoinAddresses: chainConfig.stablecoins,
+                }).catch(() => null);
                 const nativePrice = await getCachedNativeTokenPriceUsd(chainId).catch(() => 0);
                 const estimateLegUsd = async (tokenAddr: string, rawAmount: string | undefined): Promise<number | undefined> => {
                     if (!rawAmount) return undefined;
@@ -405,12 +554,31 @@ export async function handleSwapDetected(
                     return undefined;
                 };
 
-                valueInUsd = await estimateLegUsd(swap.tokenIn, swap.amountIn);
-                valueOutUsd = await estimateLegUsd(swap.tokenOut, swap.amountOut);
+                if (alchemyCash?.inferredTxType) {
+                    persistedTxType = alchemyCash.inferredTxType;
+                    parseReason = swapCashHint
+                        ? `cash_leg_webhook_${persistedTxType === 'TARGET_BUY' ? 'buy' : persistedTxType === 'TARGET_SELL' ? 'sell' : 'swap'}`
+                        : `cash_leg_alchemy_${persistedTxType === 'TARGET_BUY' ? 'buy' : persistedTxType === 'TARGET_SELL' ? 'sell' : 'swap'}`;
+                }
 
-                if (isBuy) {
+                // If parser legs are reversed, align storage legs with inferred cash direction.
+                const tokenInCash = CASH_TOKENS.includes(normalizeAddress(persistTokenIn));
+                const tokenOutCash = CASH_TOKENS.includes(normalizeAddress(persistTokenOut));
+                const parserLooksSell = !tokenInCash && tokenOutCash;
+                const parserLooksBuy = tokenInCash && !tokenOutCash;
+                if ((persistedTxType === 'TARGET_BUY' && parserLooksSell) || (persistedTxType === 'TARGET_SELL' && parserLooksBuy)) {
+                    [persistTokenIn, persistTokenOut] = [persistTokenOut, persistTokenIn];
+                    [persistAmountIn, persistAmountOut] = [persistAmountOut, persistAmountIn];
+                }
+
+                valueInUsd = alchemyCash?.cashSpentUsd;
+                valueOutUsd = alchemyCash?.cashReceivedUsd;
+                if (!valueInUsd) valueInUsd = await estimateLegUsd(persistTokenIn, persistAmountIn);
+                if (!valueOutUsd) valueOutUsd = await estimateLegUsd(persistTokenOut, persistAmountOut);
+
+                if (persistedTxType === 'TARGET_BUY') {
                     valueUsd = valueInUsd;
-                } else if (isSell) {
+                } else if (persistedTxType === 'TARGET_SELL') {
                     valueUsd = valueOutUsd;
                 }
             } catch {
@@ -423,25 +591,29 @@ export async function handleSwapDetected(
             const normalizedValueOut = Number.isFinite(valueOutUsd as number) && Number(valueOutUsd) > 0 ? Number(valueOutUsd) : undefined;
             let normalizedValueUsd = Number.isFinite(valueUsd as number) && Number(valueUsd) > 0 ? Number(valueUsd) : undefined;
             if (!normalizedValueUsd) {
-                normalizedValueUsd = isBuy ? normalizedValueIn : isSell ? normalizedValueOut : undefined;
+                normalizedValueUsd = persistedTxType === 'TARGET_BUY'
+                    ? normalizedValueIn
+                    : persistedTxType === 'TARGET_SELL'
+                        ? normalizedValueOut
+                        : undefined;
             }
 
             await persistTargetSwapEvent({
                 walletAddress: targetWallet,
                 chainId,
                 txHash: swap.txHash,
-                txType,
-                tokenIn: swap.tokenIn,
-                tokenOut: swap.tokenOut,
-                tokenInAddress: swap.tokenIn,
-                tokenOutAddress: swap.tokenOut,
-                amountIn: swap.amountIn,
-                amountOut: swap.amountOut,
+                txType: persistedTxType,
+                tokenIn: persistTokenIn,
+                tokenOut: persistTokenOut,
+                tokenInAddress: persistTokenIn,
+                tokenOutAddress: persistTokenOut,
+                amountIn: persistAmountIn,
+                amountOut: persistAmountOut,
                 valueInUsd: normalizedValueIn,
                 valueOutUsd: normalizedValueOut,
                 valueUsd: normalizedValueUsd,
                 blockTimestamp: new Date(),
-                parseReason: isBuy ? 'cash_to_token' : isSell ? 'token_to_cash' : 'token_to_token',
+                parseReason,
                 source: 'webhook'
             });
 

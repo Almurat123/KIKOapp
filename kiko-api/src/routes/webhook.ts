@@ -18,6 +18,9 @@ import { parseSwapTransaction } from '../services/txDecoder.js';
 import { env } from '../config/env.js';
 import crypto from 'node:crypto';
 import { getPendingPredecodedSwap, getPendingTxHint, markCopyTradeTxState } from '../services/copyTradeTxStateService.js';
+import { getChainConfig } from '../config/chainConfig.js';
+import { getCachedNativeTokenPriceUsd } from '../services/onChainPriceService.js';
+import { ethers } from 'ethers';
 
 interface ProcessTxBody {
     wallet: string;
@@ -52,6 +55,13 @@ const WEBHOOK_RECEIPT_RECOVERY_DELAYS_MS = String(process.env.COPYTRADE_WEBHOOK_
     .filter((v) => Number.isFinite(v) && v > 0);
 const localTxInflight = new Map<string, number>();
 const receiptRecoveryInflight = new Set<string>();
+const NATIVE_TOKEN_PLACEHOLDER = normalizeAddress('0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee');
+
+type ActivityCashHint = {
+    cashSpentUsd?: number;
+    cashReceivedUsd?: number;
+    inferredTxType?: 'TARGET_BUY' | 'TARGET_SELL' | 'TARGET_TOKEN_SWAP';
+};
 
 function normalizeTxHash(txHash: string): string {
     return String(txHash || '').toLowerCase();
@@ -259,6 +269,96 @@ function buildTxSkeletonFromAlchemyActivity(item: any, txHash: string): {
         to,
         input: '0x',
         value
+    };
+}
+
+function parseFlexibleInt(raw: unknown, fallback: number): number {
+    if (raw === null || raw === undefined) return fallback;
+    const text = String(raw).trim();
+    if (!text) return fallback;
+    const parsed = text.startsWith('0x') ? Number.parseInt(text, 16) : Number.parseInt(text, 10);
+    return Number.isFinite(parsed) && parsed >= 0 && parsed <= 36 ? parsed : fallback;
+}
+
+function parseFlexibleBigInt(raw: unknown): bigint | null {
+    if (raw === null || raw === undefined) return null;
+    const text = String(raw).trim();
+    if (!text) return null;
+    try {
+        return BigInt(text);
+    } catch {
+        return null;
+    }
+}
+
+function getActivityRawAmount(item: any, decimals: number): bigint | null {
+    const fromRaw = parseFlexibleBigInt(item?.rawContract?.rawValue ?? item?.rawContract?.value);
+    if (fromRaw && fromRaw > 0n) return fromRaw;
+
+    const amountNum = Number(item?.value || 0);
+    if (!Number.isFinite(amountNum) || amountNum <= 0) return null;
+    try {
+        return ethers.parseUnits(amountNum.toFixed(Math.min(8, decimals)), decimals);
+    } catch {
+        return null;
+    }
+}
+
+function pickBestActivity(activities: any[]): any {
+    if (!activities.length) return null;
+    let best = activities[0];
+    let bestScore = -1;
+    for (const activity of activities) {
+        const score = Number(!!activity?.rawContract?.address) + Number(!!activity?.fromAddress) + Number(!!activity?.toAddress);
+        if (score >= bestScore) {
+            best = activity;
+            bestScore = score;
+        }
+    }
+    return best;
+}
+
+async function buildActivityCashHint(activities: any[], walletAddressRaw: string, chainId: number): Promise<ActivityCashHint | null> {
+    if (!activities.length) return null;
+    const walletAddress = normalizeAddress(walletAddressRaw);
+    const chainConfig = getChainConfig(chainId);
+    const wrappedNative = normalizeAddress(chainConfig.wrappedNativeAddress);
+    const stableSet = new Set(chainConfig.stablecoins.map((s) => normalizeAddress(s)));
+    const cashSet = new Set<string>([NATIVE_TOKEN_PLACEHOLDER, wrappedNative, ...stableSet]);
+    const nativePrice = Number(await getCachedNativeTokenPriceUsd(chainId).catch(() => 0));
+
+    let cashSpentUsd = 0;
+    let cashReceivedUsd = 0;
+    for (const item of activities) {
+        const from = normalizeAddress(item?.fromAddress || '');
+        const to = normalizeAddress(item?.toAddress || '');
+        const tokenAddress = normalizeAddress(item?.rawContract?.address || NATIVE_TOKEN_PLACEHOLDER);
+        if (!cashSet.has(tokenAddress)) continue;
+        const isNativeLike = tokenAddress === NATIVE_TOKEN_PLACEHOLDER || tokenAddress === wrappedNative;
+        const decimals = parseFlexibleInt(item?.rawContract?.decimal, isNativeLike ? 18 : 6);
+        const amountRaw = getActivityRawAmount(item, decimals);
+        if (!amountRaw || amountRaw <= 0n) continue;
+
+        let usd = 0;
+        if (stableSet.has(tokenAddress)) {
+            usd = Number(ethers.formatUnits(amountRaw, decimals));
+        } else if (isNativeLike && nativePrice > 0) {
+            usd = Number(ethers.formatUnits(amountRaw, 18)) * nativePrice;
+        }
+        if (!Number.isFinite(usd) || usd <= 0) continue;
+
+        if (from === walletAddress) cashSpentUsd += usd;
+        if (to === walletAddress) cashReceivedUsd += usd;
+    }
+
+    if (cashSpentUsd <= 0 && cashReceivedUsd <= 0) return null;
+    const inferBuy = cashSpentUsd > 0 && cashReceivedUsd <= cashSpentUsd * 0.05;
+    const inferSell = cashReceivedUsd > 0 && cashSpentUsd <= cashReceivedUsd * 0.05;
+
+    return {
+        cashSpentUsd: cashSpentUsd > 0 ? cashSpentUsd : undefined,
+        cashReceivedUsd: cashReceivedUsd > 0 ? cashReceivedUsd : undefined,
+        inferredTxType: inferBuy ? 'TARGET_BUY' : inferSell ? 'TARGET_SELL' : 'TARGET_TOKEN_SWAP'
     };
 }
 
@@ -647,25 +747,24 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
                 let isSolanaItems = false;
 
                 if (eventData?.activity) {
-                    items = Array.isArray(eventData.activity) ? eventData.activity : [eventData.activity];
-                    const byTxHash = new Map<string, any>();
-                    for (const activity of items) {
+                    const rawActivities = Array.isArray(eventData.activity) ? eventData.activity : [eventData.activity];
+                    const groupedByTx = new Map<string, any[]>();
+                    for (const activity of rawActivities) {
                         const hash = String(activity?.hash || '').toLowerCase();
                         if (!hash) continue;
-                        const prev = byTxHash.get(hash);
-                        if (!prev) {
-                            byTxHash.set(hash, activity);
-                            continue;
-                        }
-                        const prevScore = Number(!!prev?.rawContract?.address) + Number(!!prev?.fromAddress) + Number(!!prev?.toAddress);
-                        const currScore = Number(!!activity?.rawContract?.address) + Number(!!activity?.fromAddress) + Number(!!activity?.toAddress);
-                        if (currScore >= prevScore) byTxHash.set(hash, activity);
+                        const list = groupedByTx.get(hash) || [];
+                        list.push(activity);
+                        groupedByTx.set(hash, list);
                     }
-                    if (byTxHash.size > 0 && byTxHash.size !== items.length) {
-                        console.log(`[Webhook] Deduped EVM activities from ${items.length} to ${byTxHash.size}`);
-                        items = Array.from(byTxHash.values());
+                    items = Array.from(groupedByTx.entries()).map(([hash, activities]) => ({
+                        hash,
+                        activities,
+                        sample: pickBestActivity(activities),
+                    }));
+                    if (items.length > 0 && items.length !== rawActivities.length) {
+                        console.log(`[Webhook] Grouped EVM activities from ${rawActivities.length} to ${items.length} tx groups`);
                     }
-                    console.log(`[Webhook] Processing as EVM activity (${items.length} items)`);
+                    console.log(`[Webhook] Processing as EVM activity groups (${items.length} tx groups)`);
                 } else if (eventData?.transaction) {
                     items = Array.isArray(eventData.transaction) ? eventData.transaction : [eventData.transaction];
                     isSolanaItems = true;
@@ -703,11 +802,19 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
                             console.log(`[Webhook] Solana candidate extraction debug: signature=${txHash}, item keys=${Object.keys(item)}, solTx keys=${solTx ? Object.keys(solTx) : 'null'}, solMsg keys=${solMsg ? Object.keys(solMsg) : 'null'}`);
                         }
                     } else {
-                        // EVM Structure
-                        txHash = item.hash;
-                        const fromAddr = normalizeAddress(item.fromAddress);
-                        const toAddr = normalizeAddress(item.toAddress);
-                        candidates = [fromAddr, toAddr].filter(Boolean);
+                        // EVM Structure (grouped by tx hash)
+                        txHash = String(item?.hash || '');
+                        const evmActivities: any[] = Array.isArray(item?.activities) && item.activities.length
+                            ? item.activities
+                            : (item ? [item] : []);
+                        const candidateSet = new Set<string>();
+                        for (const activity of evmActivities) {
+                            const fromAddr = normalizeAddress(activity?.fromAddress || '');
+                            const toAddr = normalizeAddress(activity?.toAddress || '');
+                            if (fromAddr) candidateSet.add(fromAddr);
+                            if (toAddr) candidateSet.add(toAddr);
+                        }
+                        candidates = Array.from(candidateSet);
                     }
 
                     txHash = normalizeTxHash(txHash);
@@ -814,7 +921,12 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
                         }
 
                         // EVM Logic (Base, BSC, etc.)
-                        const txSkeleton = buildTxSkeletonFromAlchemyActivity(item, txHash);
+                        const evmActivities: any[] = isSolanaItems
+                            ? []
+                            : (Array.isArray(item?.activities) && item.activities.length
+                                ? item.activities
+                                : (item ? [item] : []));
+                        const txSkeleton = buildTxSkeletonFromAlchemyActivity(item?.sample || evmActivities[0] || item, txHash);
                         const predecodedRows = await Promise.all(
                             trackedWallets.map(async (walletRecord) => ({
                                 wallet: walletRecord.address,
@@ -945,11 +1057,20 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
                             }
 
                             if (swap) swapsDetected += 1;
+                            const activityCashHint = await buildActivityCashHint(evmActivities, trackedTarget, chainId).catch(() => null);
+                            if (activityCashHint) {
+                                (swap as any).cashLegHint = activityCashHint;
+                            }
                             console.log(`[Webhook] ✅ Swap detected for tracked wallet ${trackedTarget.slice(0, 10)}:`, {
                                 tokenIn: swap.tokenIn,
                                 tokenOut: swap.tokenOut,
                                 dex: swap.dexName,
-                                source: cached ? 'pending_prefetch' : 'webhook_decode'
+                                source: cached ? 'pending_prefetch' : 'webhook_decode',
+                                cashHint: activityCashHint ? {
+                                    spent: activityCashHint.cashSpentUsd,
+                                    received: activityCashHint.cashReceivedUsd,
+                                    inferred: activityCashHint.inferredTxType
+                                } : undefined
                             });
                             await markCopyTradeTxState(chainId, txHash, 'swap_decoded', {
                                 wallet: trackedTarget,

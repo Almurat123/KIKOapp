@@ -66,8 +66,14 @@ export const Layout: React.FC<LayoutProps> = ({
     const navigate = useNavigate();
 
     const isChatActive = location.pathname === '/' || location.pathname.startsWith('/chat');
+    const handleBackToWelcome = useCallback(() => {
+        setChatStarted(false);
+        setOnBackHandler(null);
+        onNewChat?.();
+    }, [onNewChat]);
+
     const mobileBackAction = isChatActive && onNewChat
-        ? onNewChat
+        ? handleBackToWelcome
         : (onBack || onBackHandler || onNewChat);
     // We assume explicit activeTab prop is no longer needed for internal logic beyond this check
 
@@ -184,7 +190,7 @@ export const Layout: React.FC<LayoutProps> = ({
                         {isChatActive && (activeConversationId || chatStarted) && onNewChat && (
                             <button
                                 className={styles.desktopBackBtn}
-                                onClick={onNewChat}
+                                onClick={handleBackToWelcome}
                                 title="Back to welcome"
                             >
                                 <ArrowLeft size={20} strokeWidth={2} />
