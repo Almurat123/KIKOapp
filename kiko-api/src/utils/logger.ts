@@ -276,12 +276,17 @@ class Logger {
         this.timers.set(label, Date.now());
     }
 
-    public endTimer(label: string, code: LogCode = LogCode.PERF_METRIC, metadata: LogMetadata = {}) {
+    public endTimer(label: string, code: LogCode = LogCode.PERF_METRIC, metadata: LogMetadata = {}, level: 'info' | 'debug' = 'info') {
         const startTime = this.timers.get(label);
         if (!startTime) return;
         const durationMs = Date.now() - startTime;
         this.timers.delete(label);
-        this.info(code, `Timer finished: ${label}`, { ...metadata, durationMs, timerLabel: label });
+        const payload = { ...metadata, durationMs, timerLabel: label };
+        if (level === 'debug') {
+            this.debug(code, `Timer finished: ${label}`, payload);
+        } else {
+            this.info(code, `Timer finished: ${label}`, payload);
+        }
     }
 
     private shouldThrottle(code: LogCode, message: string): boolean {

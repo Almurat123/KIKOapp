@@ -1520,7 +1520,7 @@ export async function detectLaunchpadToken(
             await writeNegativeLaunchpadCache(address, chainId);
         }
 
-        logger.endTimer(timerLabel, LogCode.AI_LAUNCHPAD_DETECTED, { address, chainId, found: !!result });
+        logger.endTimer(timerLabel, LogCode.AI_LAUNCHPAD_DETECTED, { address, chainId, found: !!result }, 'debug');
         return result;
     } catch (err) {
         if (timeoutId) clearTimeout(timeoutId);

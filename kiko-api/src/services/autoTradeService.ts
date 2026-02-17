@@ -148,6 +148,14 @@ function sendNotificationAsync(params: TradeNotificationParams, context: string)
         });
 }
 
+function logCopyTradeDecision(
+    stage: string,
+    outcome: string,
+    details: Record<string, any>
+): void {
+    logger.info(LogCode.SYS_INFO, `[CopyTradeDecision] ${stage}:${outcome}`, details);
+}
+
 function buildDirectSwapHintFromSwap(swap: DecodedSwap): DirectSwapHint | undefined {
     const sourceTxHash = String(swap?.txHash || '').toLowerCase();
     const sourceRouter = String(swap?.router || '').toLowerCase();
@@ -358,6 +366,13 @@ export async function handleSwapDetected(
         tokenInIsCash: isTokenInCash,
         tokenOutIsCash: isTokenOutCash
     });
+    logCopyTradeDecision('handleSwapDetected.classify', isBuy ? 'buy' : isSell ? 'sell' : isTokenToToken ? 'token_to_token' : 'ignore', {
+        targetWallet,
+        chainId,
+        sourceTxHash: swap.txHash || null,
+        tokenIn: swap.tokenIn,
+        tokenOut: swap.tokenOut
+    });
 
     // Persist every detected target-wallet swap event for PnL/trade-count accuracy.
     if (swap.txHash) {
@@ -449,7 +464,11 @@ export async function handleSwapDetected(
     }
 
     if (isSell) {
-        logger.info(LogCode.EXE_TX_BROADCAST, 'Target is selling - triggering mirror sell', { targetWallet, token: swap.tokenIn });
+        logger.info(LogCode.EXE_TX_BROADCAST, 'Target is selling - triggering mirror sell', {
+            targetWallet,
+            token: swap.tokenIn,
+            sourceTxHash: swap.txHash || null
+        });
         await handleTargetSell(targetWallet, swap, chainId);
     } else if (isBuy) {
         logger.info(LogCode.EXE_TX_BROADCAST, 'Target is buying - triggering copy trade', { targetWallet, token: swap.tokenOut });
@@ -489,6 +508,13 @@ async function handleTargetBuy(
         detectedAt,
         elapsedMs: Date.now() - detectedAt
     });
+    logCopyTradeDecision('handleTargetBuy.start', 'received', {
+        targetWallet,
+        token: tokenToBuy,
+        chainId,
+        sourceTxHash: swap.txHash || null,
+        detectedAt
+    });
 
     logger.debug(LogCode.EXE_QUOTE_FETCHED, `Fast path execution started for ${tokenToBuy}`, { targetWallet, token: tokenToBuy });
 
@@ -503,6 +529,12 @@ async function handleTargetBuy(
 
     if (rawConfigs.length === 0) {
         logger.throttled(LogCode.WTC_TX_SKIPPED, 'No active configurations found for this wallet', { targetWallet, chainId });
+        logCopyTradeDecision('handleTargetBuy.configs', 'skip_no_active_configs', {
+            targetWallet,
+            token: tokenToBuy,
+            chainId,
+            sourceTxHash: swap.txHash || null
+        });
         return;
     }
 
@@ -523,6 +555,12 @@ async function handleTargetBuy(
 
     if (configs.length === 0) {
         logger.throttled(LogCode.WTC_TX_SKIPPED, 'No valid user records for configs', { targetWallet, chainId });
+        logCopyTradeDecision('handleTargetBuy.configs', 'skip_no_valid_users', {
+            targetWallet,
+            token: tokenToBuy,
+            chainId,
+            sourceTxHash: swap.txHash || null
+        });
         return;
     }
 
@@ -556,6 +594,12 @@ async function handleTargetBuy(
                 token: tokenToBuy,
                 chainId
             });
+            logCopyTradeDecision('handleTargetBuy.tokenInfo', 'turbo_metadata_fallback', {
+                targetWallet,
+                token: tokenToBuy,
+                chainId,
+                sourceTxHash: swap.txHash || null
+            });
 
             await processBuyWithInfo(targetWallet, tokenToBuy, swap, chainId, configs, fallbackInfo, true, launchpadPromise, tokenInfoCache, detectedAt);
             return;
@@ -563,6 +607,13 @@ async function handleTargetBuy(
             logger.warn(LogCode.API_FETCH_FAILED, '[CopyTrade] Token info disabled but metadata fallback failed', {
                 token: tokenToBuy,
                 error: err?.message?.slice(0, 120)
+            });
+            logCopyTradeDecision('handleTargetBuy.tokenInfo', 'turbo_metadata_fallback_failed', {
+                targetWallet,
+                token: tokenToBuy,
+                chainId,
+                sourceTxHash: swap.txHash || null,
+                error: err?.message || String(err)
             });
             // Fall through to standard flow
         }
@@ -581,6 +632,13 @@ async function handleTargetBuy(
             logger.warn(LogCode.DEC_FAILED_UNKNOWN_DEX, `${tokenToBuy} missing DexScreener info - using Launchpad fallback`, {
                 provider: launchpadResult.provider,
                 token: tokenToBuy
+            });
+            logCopyTradeDecision('handleTargetBuy.tokenInfo', 'launchpad_fallback', {
+                targetWallet,
+                token: tokenToBuy,
+                chainId,
+                sourceTxHash: swap.txHash || null,
+                provider: launchpadResult.provider
             });
 
             // Construct fallback token info using launchpad data when available
@@ -638,15 +696,34 @@ async function handleTargetBuy(
                     token: tokenToBuy,
                     chainId
                 });
+                logCopyTradeDecision('handleTargetBuy.tokenInfo', 'fast_metadata_fallback', {
+                    targetWallet,
+                    token: tokenToBuy,
+                    chainId,
+                    sourceTxHash: swap.txHash || null
+                });
 
                 await processBuyWithInfo(targetWallet, tokenToBuy, swap, chainId, configs, fallbackInfo, true, launchpadPromise, tokenInfoCache, detectedAt);
                 return;
             } catch (metaErr: any) {
                 logger.warn(LogCode.API_FETCH_FAILED, 'Metadata fallback failed', { token: tokenToBuy, error: metaErr.message });
+                logCopyTradeDecision('handleTargetBuy.tokenInfo', 'fast_metadata_fallback_failed', {
+                    targetWallet,
+                    token: tokenToBuy,
+                    chainId,
+                    sourceTxHash: swap.txHash || null,
+                    error: metaErr?.message || String(metaErr)
+                });
             }
         }
 
         logger.info(LogCode.WTC_TX_SKIPPED, 'Skipping trade: No valid token information or price found', { targetWallet, token: tokenToBuy });
+        logCopyTradeDecision('handleTargetBuy.tokenInfo', 'skip_no_valid_token_info', {
+            targetWallet,
+            token: tokenToBuy,
+            chainId,
+            sourceTxHash: swap.txHash || null
+        });
         return;
     }
 
@@ -1122,6 +1199,7 @@ async function processSingleUserBuy(
         let judgeDecisionId: string | null = null;
         const executionMode = resolveExecutionModeForConfig(config);
         const turboMode = executionMode === 'turbo';
+        const sourceTxHash = swap.txHash || null;
 
         try {
             const effectiveMaxDelayMs = turboMode ? COPYTRADE_TURBO_MAX_DELAY_MS : COPYTRADE_MAX_DELAY_MS;
@@ -1139,6 +1217,16 @@ async function processSingleUserBuy(
                     turboMode
                     }
                 );
+                logCopyTradeDecision('processSingleUserBuy.delay_gate', 'skip_delay_exceeded', {
+                    userId: config.userId,
+                    configId: config.id,
+                    token: tokenToBuy,
+                    chainId,
+                    sourceTxHash,
+                    delayMs,
+                    maxDelayMs: effectiveMaxDelayMs,
+                    executionMode
+                });
 
                 sendNotificationAsync({
                     userId: config.userId,
@@ -1163,6 +1251,14 @@ async function processSingleUserBuy(
                 logger.throttled(LogCode.WTC_TX_SKIPPED, 'Skipping trade: token lock active', {
                     userId: config.userId,
                     token: tokenToBuy
+                });
+                logCopyTradeDecision('processSingleUserBuy.lock', 'skip_token_lock_active', {
+                    userId: config.userId,
+                    configId: config.id,
+                    token: tokenToBuy,
+                    chainId,
+                    sourceTxHash,
+                    executionMode
                 });
                 return;
             }
@@ -1202,6 +1298,16 @@ async function processSingleUserBuy(
                     liquidity: tokenInfo.liquidity ? tokenInfo.liquidity.toFixed(0) : undefined,
                 }
             }, 'copytrade_skip_min_target_value');
+            logCopyTradeDecision('processSingleUserBuy.min_target_value', 'skip_below_min_target_value', {
+                userId: config.userId,
+                configId: config.id,
+                token: tokenToBuy,
+                chainId,
+                sourceTxHash,
+                targetSwapValueUsd,
+                minTargetValueUsd,
+                executionMode
+            });
 
             return;
         }
@@ -1212,6 +1318,14 @@ async function processSingleUserBuy(
         const isFastMode = config.fastExecutionEnabled !== false;
         if ((!tokenInfo || !tokenInfo.price) && !isFastMode) {
             logger.warn(LogCode.WTC_TX_SKIPPED, 'Skipping trade: Token info invalid and Fast Mode disabled', { userId: config.userId, token: tokenToBuy });
+            logCopyTradeDecision('processSingleUserBuy.token_info', 'skip_invalid_token_info', {
+                userId: config.userId,
+                configId: config.id,
+                token: tokenToBuy,
+                chainId,
+                sourceTxHash,
+                executionMode
+            });
             return;
         }
 
@@ -1242,6 +1356,15 @@ async function processSingleUserBuy(
                     marketCap: tokenInfo.marketCap ? tokenInfo.marketCap.toFixed(0) : undefined,
                     liquidity: tokenInfo.liquidity ? tokenInfo.liquidity.toFixed(0) : undefined,
                 }
+            });
+            logCopyTradeDecision('processSingleUserBuy.amount', 'skip_invalid_buy_amount', {
+                userId: config.userId,
+                configId: config.id,
+                token: tokenToBuy,
+                chainId,
+                sourceTxHash,
+                rawUsdAmount,
+                executionMode
             });
 
             return;
@@ -1806,6 +1929,15 @@ async function processSingleUserBuy(
         }
 
         logger.info(LogCode.EXE_TX_CONFIRMED, 'Copy trade completed and position created', { userId: config.userId, token: tokenToBuy, txHash });
+        logCopyTradeDecision('processSingleUserBuy.execute', 'buy_success', {
+            userId: config.userId,
+            configId: config.id,
+            token: tokenToBuy,
+            chainId,
+            sourceTxHash,
+            executionMode,
+            txHash
+        });
 
         // Track User Activity (Copy Trade + Swap Volume)
         trackCopyTrade(config.userId);
@@ -2424,7 +2556,11 @@ async function executePositionExit(params: {
                 remainingQty -= takeQty;
             }
 
-            logger.info(LogCode.EXE_TX_CONFIRMED, 'Position exit executed successfully', { userId, token: tokenAddress, reason: exitReason, txHash });
+            logger.info(
+                LogCode.EXE_TX_CONFIRMED,
+                `Position exit executed successfully (reason=${exitReason})`,
+                { userId, token: tokenAddress, reason: exitReason, txHash }
+            );
 
             // Tracking
             trackCopyTrade(userId);
@@ -2558,7 +2694,15 @@ async function handleTargetSell(
         },
     }));
 
-    if (rawConfigs.length === 0) return;
+    if (rawConfigs.length === 0) {
+        logCopyTradeDecision('handleTargetSell.configs', 'skip_no_active_mirror_configs', {
+            targetWallet,
+            token: tokenToSell,
+            chainId,
+            sourceTxHash: swap.txHash || null
+        });
+        return;
+    }
 
     const userIds = [...new Set(rawConfigs.map(c => c.userId))];
     const users = await prisma.user.findMany({
@@ -2569,7 +2713,15 @@ async function handleTargetSell(
         .map(c => ({ ...c, user: userMap.get(c.userId) }))
         .filter((c): c is typeof rawConfigs[number] & { user: NonNullable<(typeof users)[number]> } => Boolean(c.user));
 
-    if (configs.length === 0) return;
+    if (configs.length === 0) {
+        logCopyTradeDecision('handleTargetSell.configs', 'skip_no_valid_users', {
+            targetWallet,
+            token: tokenToSell,
+            chainId,
+            sourceTxHash: swap.txHash || null
+        });
+        return;
+    }
 
     let mirrorSellFraction: number | undefined;
     try {
@@ -2647,7 +2799,8 @@ async function handleTargetSell(
         token: tokenToSell,
         configCount: configs.length,
         targetWallet,
-        mirrorSellFraction: mirrorSellFraction ?? null
+        mirrorSellFraction: mirrorSellFraction ?? null,
+        sourceTxHash: swap.txHash || null
     });
 
     await Promise.all(configs.map(async (config) => {
@@ -2700,7 +2853,15 @@ async function handleTargetSell(
             logger.info(LogCode.WTC_TX_SKIPPED, 'Mirror sell skipped: no open positions after reconciliation', {
                 userId: config.userId,
                 token: tokenToSell,
-                chainId
+                chainId,
+                sourceTxHash: swap.txHash || null
+            });
+            logCopyTradeDecision('handleTargetSell.positions', 'skip_no_open_positions', {
+                userId: config.userId,
+                configId: config.id,
+                token: tokenToSell,
+                chainId,
+                sourceTxHash: swap.txHash || null
             });
             return;
         }
