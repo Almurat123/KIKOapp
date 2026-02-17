@@ -186,21 +186,19 @@ export async function calculateTargetPnlSummary(
   const lots = new Map<string, Array<{ qty: number; unitCostUsd: number }>>();
   const decimalsCache = new Map<string, number>();
 
-  const normalizeQtyHuman = async (tokenAddress: string, qtyRaw: number, usd: number): Promise<number> => {
+  const normalizeQtyHuman = async (tokenAddress: string, qtyRaw: number): Promise<number> => {
     if (qtyRaw <= EPS) return 0;
-    // Mixed-source data can store token amount as raw base units OR human units.
-    // If implied unit price is absurdly tiny, treat qty as raw and scale by decimals.
-    const impliedUnitPrice = usd > 0 ? (usd / qtyRaw) : 0;
-    const looksRaw = impliedUnitPrice > 0 && impliedUnitPrice < 1e-9;
-    if (!looksRaw) return qtyRaw;
-
+    if (!tokenAddress) return 0;
     let decimals = decimalsCache.get(tokenAddress);
     if (decimals === undefined) {
       decimals = await getTokenDecimals(options.chainId, tokenAddress);
       decimalsCache.set(tokenAddress, decimals);
     }
     const qtyHuman = qtyRaw / Math.pow(10, decimals);
-    return qtyHuman > EPS ? qtyHuman : 0;
+    if (!Number.isFinite(qtyHuman) || qtyHuman <= EPS) return 0;
+    // Defensive guard for corrupted amounts.
+    if (qtyHuman > 1e15) return 0;
+    return qtyHuman;
   };
 
   let buyCount = 0;
@@ -218,7 +216,7 @@ export async function calculateTargetPnlSummary(
     const tokenAddress = row.tokenAddress?.trim().toLowerCase() || '';
     const usd = safeNum(row.valueUsd);
     const qtyRaw = safePositive(row.amount);
-    const qty = await normalizeQtyHuman(tokenAddress, qtyRaw, usd);
+    const qty = await normalizeQtyHuman(tokenAddress, qtyRaw);
     const isUsdPlausible = usd >= options.minTxUsd && usd <= options.maxTxUsd;
 
     if (!tokenAddress || !isUsdPlausible || qty <= EPS) {

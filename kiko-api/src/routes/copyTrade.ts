@@ -32,6 +32,16 @@ const MAX_COPY_TRADE_USD = 1_000_000;
 const SUPPORTED_COPYTRADE_CHAINS = new Set([1, 10, 56, 137, 8453, 42161, 900]);
 type CopyTradeExecutionMode = 'safe' | 'balanced' | 'turbo';
 
+function chainIdToWalletTxChain(chainId: number): string {
+    if (chainId === 8453) return 'base';
+    if (chainId === 56) return 'bsc';
+    if (chainId === 900) return 'solana';
+    if (chainId === 42161) return 'arbitrum';
+    if (chainId === 10) return 'optimism';
+    if (chainId === 137) return 'polygon';
+    return 'eth';
+}
+
 function coerceExecutionMode(mode: unknown): CopyTradeExecutionMode | null {
     if (typeof mode !== 'string') return null;
     const normalized = mode.trim().toLowerCase();
@@ -384,6 +394,21 @@ export default async function copyTradeRoutes(fastify: FastifyInstance) {
             if (remainingConfigs === 0) {
                 removeAddressFromWebhook(config.targetWallet, config.chainId).catch(err => {
                     console.warn('[CopyTrade] Failed to remove from Alchemy webhook:', err.message);
+                });
+                const chain = chainIdToWalletTxChain(config.chainId);
+                const txDeleteResult = await prisma.walletTransaction.deleteMany({
+                    where: {
+                        walletAddress: normalizeAddress(config.targetWallet),
+                        OR: [
+                            { chainId: config.chainId },
+                            { chainId: null, chain },
+                        ],
+                    },
+                });
+                console.log('[CopyTrade] Removed wallet tx history for deleted target', {
+                    targetWallet: config.targetWallet,
+                    chainId: config.chainId,
+                    deletedRows: txDeleteResult.count,
                 });
             }
 

@@ -71,6 +71,166 @@ function sanitizeTxUsd(row: {
   return usd;
 }
 
+type TargetTradeTxRow = {
+  id: number;
+  txType: string;
+  valueUsd: number | null;
+  tokenAddress: string | null;
+  amount: string | null;
+  amountIn: string | null;
+  amountOut: string | null;
+  tokenInAddress: string | null;
+  tokenOutAddress: string | null;
+  valueInUsd: number | null;
+  valueOutUsd: number | null;
+  source: string | null;
+  blockTimestamp: Date;
+};
+
+function buildTargetBuySellRows(targetTradeTxs: TargetTradeTxRow[]) {
+  let tokenSwaps = 0;
+  let rawBuyCount = 0;
+  let rawSellCount = 0;
+  const buySellRows = targetTradeTxs.flatMap((row) => {
+    if (row.txType === 'TARGET_BUY' || row.txType === 'TARGET_SELL' || row.txType === 'BUY' || row.txType === 'SELL') {
+      if (row.txType === 'TARGET_BUY' || row.txType === 'BUY') rawBuyCount += 1;
+      if (row.txType === 'TARGET_SELL' || row.txType === 'SELL') rawSellCount += 1;
+      return [{
+        id: row.id,
+        txType: row.txType as 'TARGET_BUY' | 'TARGET_SELL' | 'BUY' | 'SELL',
+        tokenAddress: row.tokenAddress,
+        amount: row.amount,
+        valueUsd: sanitizeTxUsd(row),
+        blockTimestamp: row.blockTimestamp,
+      }];
+    }
+
+    if (row.txType === 'TARGET_TOKEN_SWAP' || row.txType === 'SWAP') {
+      tokenSwaps += 1;
+      const synthetic: Array<{
+        id: number;
+        txType: 'TARGET_BUY' | 'TARGET_SELL';
+        tokenAddress: string | null;
+        amount: string | null;
+        valueUsd: number | null;
+        blockTimestamp: Date;
+      }> = [];
+      const inferredSellUsd = choosePositive(row.valueInUsd, row.valueUsd, row.valueOutUsd);
+      const inferredBuyUsd = choosePositive(row.valueOutUsd, row.valueUsd, row.valueInUsd);
+      if (inferredSellUsd && inferredBuyUsd) {
+        synthetic.push({
+          id: row.id,
+          txType: 'TARGET_SELL',
+          tokenAddress: row.tokenInAddress || null,
+          amount: row.amountIn || null,
+          valueUsd: inferredSellUsd,
+          blockTimestamp: row.blockTimestamp,
+        });
+        synthetic.push({
+          id: row.id,
+          txType: 'TARGET_BUY',
+          tokenAddress: row.tokenOutAddress || null,
+          amount: row.amountOut || null,
+          valueUsd: inferredBuyUsd,
+          blockTimestamp: row.blockTimestamp,
+        });
+      }
+      return synthetic;
+    }
+    return [];
+  });
+
+  return { buySellRows, rawBuyCount, rawSellCount, tokenSwaps };
+}
+
+export async function recomputeTargetMetricsForConfig(configId: string): Promise<void> {
+  const lockKey = `target_metrics:recompute:${configId}`;
+  const claimed = await setIfNotExists(lockKey, String(Date.now()), 20).catch(() => true);
+  if (!claimed) return;
+
+  const cfg = await withRetry(() => prisma.copyTradeConfig.findUnique({ where: { id: configId } }), 4, 200);
+  if (!cfg) return;
+
+  const walletAddress = normalizeAddress(cfg.targetWallet);
+  const chain = chainIdToLabel(cfg.chainId);
+  const since = cfg.createdAt;
+
+  const [targetTradeTxs, walletTxCount] = await Promise.all([
+    withRetry(() => prisma.walletTransaction.findMany({
+      where: {
+        walletAddress,
+        chain,
+        blockTimestamp: { gte: since },
+        txType: { in: ['TARGET_BUY', 'TARGET_SELL', 'BUY', 'SELL', 'TARGET_TOKEN_SWAP', 'SWAP'] }
+      },
+      select: {
+        id: true,
+        txType: true,
+        valueUsd: true,
+        tokenAddress: true,
+        amount: true,
+        amountIn: true,
+        amountOut: true,
+        tokenInAddress: true,
+        tokenOutAddress: true,
+        valueInUsd: true,
+        valueOutUsd: true,
+        source: true,
+        blockTimestamp: true,
+      },
+      orderBy: { blockTimestamp: 'asc' },
+    }), 4, 200),
+    withRetry(() => prisma.walletTransaction.count({
+      where: {
+        walletAddress,
+        chain,
+        blockTimestamp: { gte: since },
+      },
+    }), 4, 200),
+  ]);
+
+  const { buySellRows, rawBuyCount, rawSellCount, tokenSwaps } = buildTargetBuySellRows(targetTradeTxs);
+  const pnl = await calculateTargetPnlSummary(buySellRows, {
+    minTxUsd: TARGET_STATUS_MIN_TX_USD,
+    maxTxUsd: TARGET_STATUS_MAX_TX_USD,
+    chain,
+    chainId: cfg.chainId,
+  });
+  const trackedTxCount = rawBuyCount + rawSellCount + tokenSwaps;
+  const targetProfitUsd = safeNum(pnl.targetRealizedProfitUsd) + Math.max(0, safeNum(pnl.targetUnrealizedPnlUsd));
+  const targetLossUsd = safeNum(pnl.targetRealizedLossUsd) + Math.max(0, -safeNum(pnl.targetUnrealizedPnlUsd));
+
+  await withRetry(() => prisma.copyTradeConfig.update({
+    where: { id: cfg.id },
+    data: {
+      targetTrackedTxCount: trackedTxCount,
+      targetWalletTxCount: walletTxCount,
+      targetBuyCount: rawBuyCount,
+      targetSellCount: rawSellCount,
+      targetTokenSwapCount: tokenSwaps,
+      targetRealizedPnlUsd: safeNum(pnl.targetRealizedPnlUsd),
+      targetRealizedProfitUsd: safeNum(pnl.targetRealizedProfitUsd),
+      targetRealizedLossUsd: safeNum(pnl.targetRealizedLossUsd),
+      targetUnrealizedPnlUsd: safeNum(pnl.targetUnrealizedPnlUsd),
+      targetTotalPnlUsd: safeNum(pnl.targetTotalPnlUsd),
+      targetProfitUsd: safeNum(targetProfitUsd),
+      targetLossUsd: safeNum(targetLossUsd),
+      targetMetricsUpdatedAt: new Date(),
+    },
+  }), 4, 200);
+}
+
+export async function recomputeTargetMetricsForWallet(walletAddressRaw: string, chainId: number): Promise<void> {
+  const walletAddress = normalizeAddress(walletAddressRaw);
+  const cfgs = await withRetry(() => prisma.copyTradeConfig.findMany({
+    where: { targetWallet: walletAddress, chainId },
+    select: { id: true }
+  }), 4, 200);
+  for (const cfg of cfgs) {
+    await recomputeTargetMetricsForConfig(cfg.id).catch(() => undefined);
+  }
+}
+
 export async function persistTargetSwapEvent(params: {
   walletAddress: string;
   chainId: number;
@@ -150,6 +310,7 @@ export async function persistTargetSwapEvent(params: {
       blockTimestamp: params.blockTimestamp || new Date(),
     },
   }), 4, 250);
+  void recomputeTargetMetricsForWallet(walletAddress, params.chainId).catch(() => undefined);
 }
 
 async function fillUsdFromDecodedLeg(params: {
@@ -369,6 +530,10 @@ export async function backfillMissingTargetUsd(params: {
     }
   }
 
+  if (updated > 0 && params.walletAddress && params.chainId) {
+    void recomputeTargetMetricsForWallet(params.walletAddress, params.chainId).catch(() => undefined);
+  }
+
   return { scanned: rows.length, updated };
 }
 
@@ -562,6 +727,7 @@ export async function bootstrapTrackedWalletHistory(
     upserted: ok,
     failed
   });
+  void recomputeTargetMetricsForWallet(walletAddress, chainId).catch(() => undefined);
 }
 
 export async function getTargetWalletStatus(params: {
@@ -582,14 +748,7 @@ export async function getTargetWalletStatus(params: {
   const since = cfg.createdAt;
   const recentLimit = params.recentLimit ?? 80;
 
-  // Refresh latest wallet activity before aggregating so card data stays current.
-  await bootstrapTrackedWalletHistory(walletAddress, cfg.chainId, Math.max(120, recentLimit), {
-    source: 'target_status'
-  }).catch(() => undefined);
-  // Non-blocking best-effort repair for missing USD values (does not affect trading path).
-  void backfillMissingTargetUsd({ walletAddress, chainId: cfg.chainId, limit: 8 }).catch(() => undefined);
-
-  const [leaderStats, recentTx, copiedPositions, targetTradeTxs, walletTxCount] = await Promise.all([
+  const [leaderStats, recentTx, copiedPositions] = await Promise.all([
     db(() => prisma.leaderWalletStats.findUnique({
       where: { address_chainId: { address: walletAddress, chainId: cfg.chainId } },
     })),
@@ -605,103 +764,7 @@ export async function getTargetWalletStatus(params: {
     db(() => prisma.position.count({
       where: { configId: cfg.id },
     })),
-    db(() => prisma.walletTransaction.findMany({
-      where: {
-        walletAddress,
-        chain,
-        blockTimestamp: { gte: since },
-        txType: { in: ['TARGET_BUY', 'TARGET_SELL', 'BUY', 'SELL', 'TARGET_TOKEN_SWAP', 'SWAP'] }
-      },
-      select: {
-        id: true,
-        txType: true,
-        valueUsd: true,
-        tokenAddress: true,
-        amount: true,
-        amountIn: true,
-        amountOut: true,
-        tokenInAddress: true,
-        tokenOutAddress: true,
-        valueInUsd: true,
-        valueOutUsd: true,
-        source: true,
-        blockTimestamp: true,
-      },
-      orderBy: { blockTimestamp: 'asc' },
-    })),
-    db(() => prisma.walletTransaction.count({
-      where: {
-        walletAddress,
-        chain,
-        blockTimestamp: { gte: since },
-      },
-    })),
   ]);
-
-  let tokenSwaps = 0;
-  let rawBuyCount = 0;
-  let rawSellCount = 0;
-  const buySellRows = targetTradeTxs.flatMap((row) => {
-    if (row.txType === 'TARGET_BUY' || row.txType === 'TARGET_SELL' || row.txType === 'BUY' || row.txType === 'SELL') {
-      if (row.txType === 'TARGET_BUY' || row.txType === 'BUY') rawBuyCount += 1;
-      if (row.txType === 'TARGET_SELL' || row.txType === 'SELL') rawSellCount += 1;
-      return [{
-        id: row.id,
-        txType: row.txType as 'TARGET_BUY' | 'TARGET_SELL' | 'BUY' | 'SELL',
-        tokenAddress: row.tokenAddress,
-        amount: row.amount,
-        valueUsd: sanitizeTxUsd(row),
-        blockTimestamp: row.blockTimestamp,
-      }];
-    }
-
-    if (row.txType === 'TARGET_TOKEN_SWAP' || row.txType === 'SWAP') {
-      tokenSwaps += 1;
-      const synthetic: Array<{
-        id: number;
-        txType: 'TARGET_BUY' | 'TARGET_SELL';
-        tokenAddress: string | null;
-        amount: string | null;
-        valueUsd: number | null;
-        blockTimestamp: Date;
-      }> = [];
-      // Fallback layer:
-      // even if one leg USD is missing (common on non-standard routers/DEXes),
-      // still synthesize sell+buy from tokenIn/tokenOut so cross-DEX exits are not dropped from PnL.
-      const inferredSellUsd = choosePositive(row.valueInUsd, row.valueUsd, row.valueOutUsd);
-      const inferredBuyUsd = choosePositive(row.valueOutUsd, row.valueUsd, row.valueInUsd);
-      if (inferredSellUsd && inferredBuyUsd) {
-        synthetic.push({
-          id: row.id,
-          txType: 'TARGET_SELL',
-          tokenAddress: row.tokenInAddress || null,
-          amount: row.amountIn || null,
-          valueUsd: inferredSellUsd,
-          blockTimestamp: row.blockTimestamp,
-        });
-        synthetic.push({
-          id: row.id,
-          txType: 'TARGET_BUY',
-          tokenAddress: row.tokenOutAddress || null,
-          amount: row.amountOut || null,
-          valueUsd: inferredBuyUsd,
-          blockTimestamp: row.blockTimestamp,
-        });
-      }
-      return synthetic;
-    }
-    return [];
-  });
-
-  const pnl = await calculateTargetPnlSummary(buySellRows, {
-    minTxUsd: TARGET_STATUS_MIN_TX_USD,
-    maxTxUsd: TARGET_STATUS_MAX_TX_USD,
-    chain,
-    chainId: cfg.chainId,
-  });
-  const trackedTxCount = rawBuyCount + rawSellCount + tokenSwaps;
-  const targetProfitUsd = safeNum(pnl.targetRealizedProfitUsd) + Math.max(0, safeNum(pnl.targetUnrealizedPnlUsd));
-  const targetLossUsd = safeNum(pnl.targetRealizedLossUsd) + Math.max(0, -safeNum(pnl.targetUnrealizedPnlUsd));
 
   return {
     config: {
@@ -715,30 +778,31 @@ export async function getTargetWalletStatus(params: {
       windowStartAt: since,
       windowEndAt: new Date(),
       windowDays: 30,
-      trackedTxCount,
-      walletTxCount,
-      buyCount: rawBuyCount,
-      sellCount: rawSellCount,
-      tokenSwapCount: tokenSwaps,
-      buyVolumeUsd: pnl.buyVolumeUsd,
-      sellVolumeUsd: pnl.sellVolumeUsd,
-      netFlowUsd: pnl.netFlowUsd,
-      targetRealizedPnlUsd: pnl.targetRealizedPnlUsd,
-      targetRealizedProfitUsd: pnl.targetRealizedProfitUsd,
-      targetRealizedLossUsd: pnl.targetRealizedLossUsd,
-      targetProfitUsd,
-      targetLossUsd,
-      targetUnrealizedPnlUsd: pnl.targetUnrealizedPnlUsd,
-      targetTotalPnlUsd: pnl.targetTotalPnlUsd,
-      openPositionCostUsd: pnl.openPositionCostUsd,
-      openPositionValueUsd: pnl.openPositionValueUsd,
-      pricedOpenTokenCount: pnl.pricedOpenTokenCount,
-      unpricedOpenTokenCount: pnl.unpricedOpenTokenCount,
-      ignoredTxCount: pnl.ignoredTxCount,
-      unmatchedSellCount: pnl.unmatchedSellCount,
-      unmatchedSellUsd: pnl.unmatchedSellUsd,
+      trackedTxCount: cfg.targetTrackedTxCount ?? 0,
+      walletTxCount: cfg.targetWalletTxCount ?? 0,
+      buyCount: cfg.targetBuyCount ?? 0,
+      sellCount: cfg.targetSellCount ?? 0,
+      tokenSwapCount: cfg.targetTokenSwapCount ?? 0,
+      targetRealizedPnlUsd: cfg.targetRealizedPnlUsd ?? 0,
+      targetRealizedProfitUsd: cfg.targetRealizedProfitUsd ?? 0,
+      targetRealizedLossUsd: cfg.targetRealizedLossUsd ?? 0,
+      targetProfitUsd: cfg.targetProfitUsd ?? 0,
+      targetLossUsd: cfg.targetLossUsd ?? 0,
+      targetUnrealizedPnlUsd: cfg.targetUnrealizedPnlUsd ?? 0,
+      targetTotalPnlUsd: cfg.targetTotalPnlUsd ?? 0,
+      buyVolumeUsd: 0,
+      sellVolumeUsd: 0,
+      netFlowUsd: 0,
+      openPositionCostUsd: 0,
+      openPositionValueUsd: 0,
+      pricedOpenTokenCount: 0,
+      unpricedOpenTokenCount: 0,
+      ignoredTxCount: 0,
+      unmatchedSellCount: 0,
+      unmatchedSellUsd: 0,
       copyPositionsCount: copiedPositions,
       latestTxAt: recentTx[0]?.blockTimestamp || null,
+      metricsUpdatedAt: cfg.targetMetricsUpdatedAt ?? null,
     },
     leaderStats,
     recentTransactions: recentTx,

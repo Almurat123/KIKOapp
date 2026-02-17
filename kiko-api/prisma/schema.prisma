@@ -107,6 +107,19 @@ model CopyTradeConfig {
   copyTradeTokenCooldownMinutes Int?
   disableTokenInfo              Boolean               @default(false)
   executionMode                 String                @default("balanced")
+  targetTrackedTxCount          Int                   @default(0)
+  targetWalletTxCount           Int                   @default(0)
+  targetBuyCount                Int                   @default(0)
+  targetSellCount               Int                   @default(0)
+  targetTokenSwapCount          Int                   @default(0)
+  targetRealizedPnlUsd          Float                 @default(0)
+  targetRealizedProfitUsd       Float                 @default(0)
+  targetRealizedLossUsd         Float                 @default(0)
+  targetUnrealizedPnlUsd        Float                 @default(0)
+  targetTotalPnlUsd             Float                 @default(0)
+  targetProfitUsd               Float                 @default(0)
+  targetLossUsd                 Float                 @default(0)
+  targetMetricsUpdatedAt        DateTime?
   analyses                      CopyTradeAnalysis[]
   user                          User                  @relation(fields: [userId], references: [privyDid], onDelete: Cascade)
   positions                     Position[]

@@ -85,13 +85,19 @@ export const RootLayout: React.FC = () => {
                 if (inactiveDuration >= MIN_BACKGROUND_MS) {
                     try {
                         const token = await getAccessToken();
-                        if (token) chatWSClient.connect(token);
+                        if (!token) {
+                            lastHiddenTime = 0;
+                            return;
+                        }
+                        chatWSClient.connect(token);
 
-                        // Sync current conversation: use loadConversation so we MERGE DB with local.
-                        // Replacing with db-only (getSession + updateConversation) caused "message disappears"
-                        // when user sent from welcome and then switched tab — DB hadn't persisted the user
-                        // message yet, so we overwrote local [userMsg] with [].
-                        const currentId = activeConversationId || conversationsRef.current[0]?.id;
+                        // Only sync the current conversation context.
+                        // Do NOT fall back to conversations[0], otherwise iOS Safari background/foreground
+                        // can unexpectedly open a chat when user was on home or another page.
+                        const routeConversationId = location.pathname.startsWith('/chat/')
+                            ? location.pathname.slice('/chat/'.length).split(/[/?#]/)[0] || null
+                            : null;
+                        const currentId = routeConversationId || activeConversationId;
                         if (currentId) {
                             await loadConversation(currentId);
                         }
@@ -104,7 +110,7 @@ export const RootLayout: React.FC = () => {
         };
         document.addEventListener('visibilitychange', handleVisibilityChange);
         return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
-    }, [getAccessToken, activeConversationId, loadConversation]);
+    }, [getAccessToken, activeConversationId, loadConversation, location.pathname]);
 
     // 2. Global WebSocket Listener
     // Use a ref to track if we've already initiated connection for the current auth state
