@@ -55,6 +55,7 @@ type DetectOptions = {
 
 // Simple In-Memory Cache
 const DETECTION_CACHE = new Map<string, { result: LaunchpadResult | null, expiry: number }>();
+const INFLIGHT_MAP = new Map<string, Promise<LaunchpadResult | null>>();
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 const ZORA_PLATFORM_TOKEN = '0x1111111111166b7fe7bd91427724b487980afc69';
 const CLANKER_SUFFIX = 'b07';
@@ -1489,43 +1490,59 @@ export async function detectLaunchpadToken(
         return null;
     }
 
-    // Cheap mode must stay lightweight to avoid API/log storms.
-    const globalTimeoutMs = mode === 'cheap' ? 1500 : 6000;
-    // Global timeout for all detection
-    let timeoutId: NodeJS.Timeout | null = null;
-    const timeoutPromise = new Promise<null>((resolve) => {
-        timeoutId = setTimeout(() => {
-            logger.info(LogCode.API_TIMEOUT, 'LaunchpadDetector: Global timeout reached', { address });
-            resolve(null);
-        }, globalTimeoutMs);
-    });
-
-    const timerLabel = `launchpad_det_${address}`;
-    logger.startTimer(timerLabel);
-
-    try {
-        const result = await Promise.race([
-            handleDetection(address, chainId, cacheKey, options),
-            timeoutPromise
-        ]);
-        if (timeoutId) clearTimeout(timeoutId);
-
-        if (result) {
-            await writePersistentLaunchpadDecision(address, chainId, result);
-            await delCache(buildNegativeCacheKey(address, chainId)).catch(() => {});
-            await delCache(buildRetryCacheKey(address, chainId)).catch(() => {});
-        } else if (hasAnyRelevantBackoff(address, chainId)) {
-            await writeRetryLaunchpadCache(address, chainId);
-        } else if (useNegativeCache) {
-            await writeNegativeLaunchpadCache(address, chainId);
-        }
-
-        logger.endTimer(timerLabel, LogCode.AI_LAUNCHPAD_DETECTED, { address, chainId, found: !!result }, 'debug');
-        return result;
-    } catch (err) {
-        if (timeoutId) clearTimeout(timeoutId);
-        throw err;
+    // Inflight dedup: coalesce concurrent calls for same semantic request when not force-refreshing.
+    // Include mode + requireCreator to avoid mixing incompatible caller expectations.
+    const inflightKey = `${chainId ?? 'any'}:${mode}:${needsCreator ? 'creator' : 'no_creator'}:${address.toLowerCase()}`;
+    if (!forceRefresh) {
+        const existing = INFLIGHT_MAP.get(inflightKey);
+        if (existing) return existing;
     }
+
+    const doDetect = async (): Promise<LaunchpadResult | null> => {
+        // Cheap mode must stay lightweight to avoid API/log storms.
+        const globalTimeoutMs = mode === 'cheap' ? 1500 : 6000;
+        // Global timeout for all detection
+        let timeoutId: NodeJS.Timeout | null = null;
+        const timeoutPromise = new Promise<null>((resolve) => {
+            timeoutId = setTimeout(() => {
+                logger.info(LogCode.API_TIMEOUT, 'LaunchpadDetector: Global timeout reached', { address });
+                resolve(null);
+            }, globalTimeoutMs);
+        });
+
+        const timerLabel = `launchpad_det_${address}`;
+        logger.startTimer(timerLabel);
+
+        try {
+            const result = await Promise.race([
+                handleDetection(address, chainId, cacheKey, options),
+                timeoutPromise
+            ]);
+            if (timeoutId) clearTimeout(timeoutId);
+
+            if (result) {
+                await writePersistentLaunchpadDecision(address, chainId, result);
+                await delCache(buildNegativeCacheKey(address, chainId)).catch(() => {});
+                await delCache(buildRetryCacheKey(address, chainId)).catch(() => {});
+            } else if (hasAnyRelevantBackoff(address, chainId)) {
+                await writeRetryLaunchpadCache(address, chainId);
+            } else if (useNegativeCache) {
+                await writeNegativeLaunchpadCache(address, chainId);
+            }
+
+            logger.endTimer(timerLabel, LogCode.AI_LAUNCHPAD_DETECTED, { address, chainId, found: !!result }, 'debug');
+            return result;
+        } catch (err) {
+            if (timeoutId) clearTimeout(timeoutId);
+            throw err;
+        }
+    };
+
+    const promise = doDetect().finally(() => {
+        INFLIGHT_MAP.delete(inflightKey);
+    });
+    INFLIGHT_MAP.set(inflightKey, promise);
+    return promise;
 }
 
 async function refreshLaunchpadDecisionInBackground(

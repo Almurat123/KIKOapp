@@ -1,6 +1,7 @@
 import { Tool } from '../../../tooling/registry.js';
 import * as etherscan from '../../../services/etherscan.js';
 import * as infuraGas from '../../../services/infuraGas.js';
+import { chainSlugToId, resolveChainInput } from '../../../utils/chainParam.js';
 
 export const GetGasPriceTool: Tool = {
     definition: {
@@ -13,13 +14,24 @@ export const GetGasPriceTool: Tool = {
                     type: 'string',
                     description: 'Blockchain network (eth, bsc, polygon, arbitrum, optimism, base, avalanche). Default is eth.',
                     default: 'eth'
+                },
+                chain_id: {
+                    type: 'number',
+                    description: 'Numeric chain ID (preferred when available), e.g. 1, 8453, 56.',
                 }
             }
         }
     },
-    handler: async (args) => {
+    handler: async (args, context) => {
         try {
-            const chain = args.chain || 'eth';
+            const resolved = resolveChainInput(args, {
+                contextChainId: context?.chainId,
+                defaultChain: 'eth',
+            });
+            if (resolved.invalidChainId) {
+                return { error: `Unsupported chain_id: ${String(args.chain_id)}` };
+            }
+            const chain = resolved.chain;
             console.log(`[GetGasPrice] Fetching gas price for ${chain}...`);
 
             // 1. Try Infura Gas API first (if configured)
@@ -70,7 +82,11 @@ export const GetGasPriceTool: Tool = {
             console.log(`[GetGasPrice] Etherscan failed, trying RPC fallback for ${chain}`);
             try {
                 const { getGasPrice } = await import('../../../services/rpcManager.js');
-                const gasPriceWei = await getGasPrice(chain);
+                const chainId = chainSlugToId(chain);
+                if (!chainId) {
+                    throw new Error(`Unsupported chain for RPC fallback: ${chain}`);
+                }
+                const gasPriceWei = await getGasPrice(chainId);
                 const gasPriceGwei = (parseInt(gasPriceWei) / 1e9).toFixed(2);
 
                 return {
@@ -97,7 +113,7 @@ export const GetGasPriceTool: Tool = {
             // Even in outer catch, return something safe
             return {
                 source: 'Emergency Fallback',
-                chain: args.chain || 'eth',
+                chain: resolveChainInput(args, { contextChainId: context?.chainId, defaultChain: 'eth' }).chain,
                 standard: 'Unknown',
                 error: 'Service temporarily unavailable'
             };

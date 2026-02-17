@@ -1139,10 +1139,11 @@ async function enrichLaunchpadsForTrending(
       const limiter = pLimit(LAUNCHPAD_DETECT_CONCURRENCY);
       await Promise.all(verifyTargets.map((token) => limiter(async () => {
         try {
-          const detected = await detectLaunchpadToken(token.address, undefined, {
-            mode: 'full',
-            forceRefresh: true
-          });
+      const detected = await detectLaunchpadToken(token.address, undefined, {
+        mode: 'full',
+        forceRefresh: true,
+        requireCreator: true
+      });
           const normalized = normalizeLaunchpadProvider(detected?.provider || null);
           if (!normalized) return;
           token.launchpad = normalized;
@@ -1192,7 +1193,7 @@ async function enrichLaunchpadsForTrending(
       const detected = await detectLaunchpadToken(token.address, chainIdNum || undefined, {
         mode: 'full',
         requireCreator: true,
-        forceRefresh: true,
+        forceRefresh: false,
       });
         if (!detected) {
           const suffixLaunchpad = detectBySuffix(chainId, token.address);
@@ -1264,62 +1265,6 @@ async function enrichLaunchpadsForTrending(
       // Best-effort metadata backfill only.
     }
   })));
-
-  // Step 5: proactive creator discovery for Base tokens missing creator.
-  // This is budgeted and runs in job context (not request path) to keep UI stable.
-  if (chainId === 'solana') {
-    const unresolvedCreator = tokens.filter((t) => {
-      const missingCreator = !t.creatorAddress && !(t as any).creatorUrl && !(t as any).creatorLabel;
-      if (!missingCreator) return false;
-      return chainId === 'solana' ? !t.address.startsWith('0x') : t.address.startsWith('0x');
-    });
-    if (unresolvedCreator.length > 0) {
-      const creatorTargets = pickVerifyTargets(
-        unresolvedCreator,
-        Math.min(LAUNCHPAD_CREATOR_DISCOVERY_BUDGET_PER_RUN, LAUNCHPAD_API_VERIFY_BUDGET_PER_RUN)
-      );
-      const creatorLimiter = pLimit(2);
-      await Promise.all(creatorTargets.map((token) => creatorLimiter(async () => {
-        try {
-          const detected = await detectLaunchpadToken(token.address, undefined, {
-            mode: 'full',
-            requireCreator: true
-          });
-          if (!detected) return;
-          const normalized = normalizeLaunchpadProvider(detected?.provider || null);
-          if (normalized && !token.launchpad) token.launchpad = normalized;
-          const creatorMeta = pickCreatorMeta(detected);
-          if (creatorMeta.creatorAddress && !token.creatorAddress) token.creatorAddress = creatorMeta.creatorAddress;
-          if (creatorMeta.creatorUrl && !(token as any).creatorUrl) (token as any).creatorUrl = creatorMeta.creatorUrl;
-          if (creatorMeta.creatorLabel && !(token as any).creatorLabel) (token as any).creatorLabel = creatorMeta.creatorLabel;
-          const launchpadTag = String(token.launchpad || '').toLowerCase();
-          const shouldUseDexCreatorFallback = launchpadTag === 'bonk.fun';
-          if (shouldUseDexCreatorFallback) {
-            const dexFallback = pickDexCreatorMetaFromToken(token as any);
-            if (dexFallback.creatorUrl && !(token as any).creatorUrl) {
-              (token as any).creatorUrl = dexFallback.creatorUrl;
-            }
-            if (dexFallback.creatorLabel && !(token as any).creatorLabel) {
-              (token as any).creatorLabel = dexFallback.creatorLabel;
-            }
-          }
-          if (!token.imageUrl && typeof (detected as any)?.data?.imageUrl === 'string') {
-            token.imageUrl = (detected as any).data.imageUrl;
-          }
-          await writeTokenMetaCache(chainId, token.address, {
-            creatorAddress: token.creatorAddress,
-            creatorUrl: (token as any).creatorUrl,
-            creatorLabel: (token as any).creatorLabel,
-            launchMultiple: token.launchMultiple
-          });
-          await persistLaunchpad(token as any, 'detector_discovery');
-          await delCacheKey(launchpadClearFailKey(chainId, token.address)).catch(() => undefined);
-        } catch {
-          // best-effort creator discovery only
-        }
-      })));
-    }
-  }
 }
 
 async function enrichLaunchMultiplesForTrending(

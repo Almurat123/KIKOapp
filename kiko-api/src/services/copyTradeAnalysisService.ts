@@ -27,7 +27,8 @@ export async function analyzeTradeOpportunity(
     tokenAddress: string,
     chainId: number,
     targetWallet: string,
-    userAmountUsd: number = 100
+    userAmountUsd: number = 100,
+    knownLaunchpadType?: string
 ): Promise<AnalysisResult> {
     console.log(`[AI Analysis] Using Judge Engine for ${tokenAddress} on chain ${chainId}`);
 
@@ -36,7 +37,8 @@ export async function analyzeTradeOpportunity(
             tokenAddress,
             chainId,
             userAmountUsd,
-            targetWallet
+            targetWallet,
+            knownLaunchpadType
         );
 
         const engine = judgeOutput.decision_engine;

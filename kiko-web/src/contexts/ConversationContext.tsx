@@ -13,6 +13,7 @@ interface ConversationContextType {
     deleteConversation: (id: string) => Promise<void>;
     clearAllConversations: () => void;
     conversationsRef: React.MutableRefObject<Conversation[]>;
+    registerPendingLocalUserMessage: (conversationId: string, message: Pick<Message, 'id' | 'content' | 'clientCreatedAt' | 'timestamp'>) => void;
 }
 
 const ConversationContext = createContext<ConversationContextType | undefined>(undefined);

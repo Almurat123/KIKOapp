@@ -19,7 +19,6 @@ interface SidebarContextType {
     setChatStarted: (started: boolean) => void;
     chatStarted: boolean;
     refreshUsageSummary: () => void;
-    setGeneratingConversationId: (id: string | null) => void;
     onBackHandler: (() => void) | null;
     setOnBackHandler: (handler: (() => void) | null) => void;
 }
@@ -41,7 +40,6 @@ interface LayoutProps {
     onConversationRename?: (id: string, newTitle: string) => void;
     onConversationDelete?: (id: string) => void;
     generatingConversationId?: string | null;
-    setGeneratingConversationId?: (id: string | null) => void;
     onBack?: () => void; // Generic back button handler (for TokenDetailPage, etc.)
 }
 
@@ -53,7 +51,6 @@ export const Layout: React.FC<LayoutProps> = ({
     onConversationRename,
     onConversationDelete,
     generatingConversationId,
-    setGeneratingConversationId,
     onBack,
 }) => {
     const [isSidebarOpen, setIsSidebarOpen] = useState(false); // Mobile
@@ -105,10 +102,9 @@ export const Layout: React.FC<LayoutProps> = ({
                 window.dispatchEvent(new CustomEvent('kiko-usage-refresh'));
             }
         },
-        setGeneratingConversationId: setGeneratingConversationId || (() => { }),
         onBackHandler,
         setOnBackHandler,
-    }), [isDesktopSidebarOpen, handleProfileClick, chatStarted, setGeneratingConversationId, onBackHandler]);
+    }), [isDesktopSidebarOpen, handleProfileClick, chatStarted, onBackHandler]);
 
     return (
         <SidebarContext.Provider value={sidebarContextValue}>

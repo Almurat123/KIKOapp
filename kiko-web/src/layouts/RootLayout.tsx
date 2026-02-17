@@ -1,10 +1,11 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { usePrivy } from '@privy-io/react-auth';
 import { Layout } from '../components/Layout/Layout';
 import { useConversations, type Message } from '../hooks/useConversations';
 import { ConversationProvider } from '../contexts/ConversationContext';
 import { chatWSClient, type ChatEvent } from '../utils/chatWebSocket';
+import { clearActiveTask } from '../utils/taskLifecycle';
 import { chatApi } from '../services/api';
 import { ToastContainer, useToast } from '../components/Toast';
 
@@ -42,8 +43,11 @@ export const RootLayout: React.FC = () => {
         }
     }
 
-    // Global state moved from App.tsx
-    const [generatingConversationId, setGeneratingConversationId] = useState<string | null>(null);
+    // Derived: session with activeTask is "generating" (sidebar highlight)
+    const generatingConversationId = useMemo(
+        () => conversations.find(c => c.activeTask != null)?.id ?? null,
+        [conversations]
+    );
 
     // WebSocket message buffering refs
     const pendingByConversationRef = useRef<Map<string, Map<string, Message>>>(new Map());
@@ -83,59 +87,13 @@ export const RootLayout: React.FC = () => {
                         const token = await getAccessToken();
                         if (token) chatWSClient.connect(token);
 
-                        // Sync current conversation if active
-                        const currentId = conversationsRef.current.find(c => c.id === activeConversationId)?.id;
+                        // Sync current conversation: use loadConversation so we MERGE DB with local.
+                        // Replacing with db-only (getSession + updateConversation) caused "message disappears"
+                        // when user sent from welcome and then switched tab — DB hadn't persisted the user
+                        // message yet, so we overwrote local [userMsg] with [].
+                        const currentId = activeConversationId || conversationsRef.current[0]?.id;
                         if (currentId) {
-                            const resp = await chatApi.getSession(currentId);
-                            if (resp.success && resp.messages) {
-                                // Get current local messages to preserve richer card data
-                                const localConv = conversationsRef.current.find(c => c.id === currentId);
-                                const localById = new Map((localConv?.messages || []).map(msg => [msg.id, msg]));
-
-                                const dbMessages = resp.messages.map((m: any) => {
-                                    // CRITICAL: Use m.type (top-level DB field), NOT m.data?.type which is card payload
-                                    const dbType = (m.type || 'text') as Message['type'];
-                                    const localMsg = localById.get(m.id);
-
-                                    // Preserve local card data when DB row might be stale
-                                    const localIsTxCard = localMsg?.type === 'transaction-status-card';
-                                    const dbIsPlainText = !m.type || m.type === 'text';
-                                    if (localIsTxCard && dbIsPlainText) {
-                                        return {
-                                            id: m.id,
-                                            role: m.role,
-                                            content: m.content,
-                                            reasoning_content: m.reasoning_content,
-                                            citations: m.citations,
-                                            usage: m.usage,
-                                            tool_calls: m.tool_calls,
-                                            tool_call_id: m.tool_call_id,
-                                            status: m.status,
-                                            message_index: m.message_index,
-                                            timestamp: m.created_at ?? m.timestamp ?? Date.now(),
-                                            type: localMsg.type,
-                                            data: localMsg.data ?? m.data,
-                                        };
-                                    }
-
-                                    return {
-                                        id: m.id,
-                                        role: m.role,
-                                        content: m.content,
-                                        reasoning_content: m.reasoning_content,
-                                        citations: m.citations,
-                                        usage: m.usage,
-                                        tool_calls: m.tool_calls,
-                                        tool_call_id: m.tool_call_id,
-                                        status: m.status,
-                                        message_index: m.message_index,
-                                        timestamp: m.created_at ?? m.timestamp ?? Date.now(),
-                                        type: dbType,
-                                        data: m.data,
-                                    };
-                                });
-                                updateConversation(currentId, { messages: dbMessages });
-                            }
+                            await loadConversation(currentId);
                         }
                     } catch (error) {
                         console.error('[RootLayout] Sync failed:', error);
@@ -146,7 +104,7 @@ export const RootLayout: React.FC = () => {
         };
         document.addEventListener('visibilitychange', handleVisibilityChange);
         return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
-    }, [getAccessToken, activeConversationId, updateConversation]);
+    }, [getAccessToken, activeConversationId, loadConversation]);
 
     // 2. Global WebSocket Listener
     // Use a ref to track if we've already initiated connection for the current auth state
@@ -216,9 +174,6 @@ export const RootLayout: React.FC = () => {
                         activeTask: { id: `task-${messageId}`, status: 'running' } // Implicit task
                     });
                 }
-                // Ensure sidebar spinner is active
-                if (targetSessionId) setGeneratingConversationId(targetSessionId);
-
             }
             // --- Chunk ---
             else if (event.type === 'chunk') {
@@ -299,8 +254,7 @@ export const RootLayout: React.FC = () => {
             // --- Task done (only clear task indicator; message completion is handled by message_complete) ---
             else if (event.type === 'task_status' && (event.data.status === 'done' || event.data.status === 'completed')) {
                 const c = conversationsRef.current.find(c => c.id === targetSessionId);
-                if (c?.activeTask) updateConversation(targetSessionId, { activeTask: null });
-                if (generatingConversationId === targetSessionId) setGeneratingConversationId(null);
+                if (c?.activeTask) clearActiveTask(targetSessionId, updateConversation, 'task_status_done');
                 return;
             }
             // --- Complete (use only messageId so we don't process the same completion twice with messageId vs taskId) ---
@@ -314,8 +268,7 @@ export const RootLayout: React.FC = () => {
                 if (lastProcessedCompletionRef.current === dedupKey && sessionPending.size === 0) {
                     console.log('[RootLayout] Skipping duplicate complete with empty pending');
                     const c = conversationsRef.current.find(c => c.id === targetSessionId);
-                    if (c?.activeTask) updateConversation(targetSessionId, { activeTask: null });
-                    if (generatingConversationId === targetSessionId) setGeneratingConversationId(null);
+                    if (c?.activeTask) clearActiveTask(targetSessionId, updateConversation, 'message_complete_dedup');
                     return;
                 }
                 lastProcessedCompletionRef.current = dedupKey;
@@ -339,6 +292,7 @@ export const RootLayout: React.FC = () => {
                             updatedMessages.push({ ...pMsg, status: 'complete' });
                         }
                     });
+                    // Atomic: clear activeTask with messages (task_lifecycle: message_complete_pending_flush)
                     updateConversation(targetSessionId, { messages: updatedMessages, activeTask: null });
                     sessionPending.clear();
 
@@ -382,6 +336,7 @@ export const RootLayout: React.FC = () => {
                             ? { ...m, status: 'complete' as const }
                             : m
                     );
+                    // Atomic: clear activeTask with messages (task_lifecycle: message_complete_fallback)
                     updateConversation(targetSessionId, { messages: updatedMessages, activeTask: null });
                     console.log('[RootLayout] Cleared activeTask (fallback path)');
 
@@ -408,10 +363,6 @@ export const RootLayout: React.FC = () => {
                         }).catch(() => {});
                     }
                 }
-
-                if (generatingConversationId === targetSessionId) {
-                    setGeneratingConversationId(null);
-                }
             }
             // --- Task Status ---
             else if (event.type === 'task_status') {
@@ -421,7 +372,7 @@ export const RootLayout: React.FC = () => {
                     const taskId = event.data.taskId || event.data.task_id;
 
                     if (status === 'done' || status === 'completed') {
-                        updateConversation(targetSessionId, { activeTask: null });
+                        clearActiveTask(targetSessionId, updateConversation, 'task_status_done');
                     } else if (status === 'running' || status === 'pending') {
                         updateConversation(targetSessionId, {
                             activeTask: { id: taskId, status: 'running', message: event.data.message }
@@ -502,7 +453,6 @@ export const RootLayout: React.FC = () => {
                 onConversationRename={handleConversationRename}
                 onConversationDelete={handleConversationDelete}
                 generatingConversationId={generatingConversationId}
-                setGeneratingConversationId={setGeneratingConversationId}
                 onBack={location.pathname === '/settings' ? () => navigate('/wallet') : undefined}
             >
                 <Outlet />

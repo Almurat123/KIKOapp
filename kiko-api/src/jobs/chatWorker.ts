@@ -982,10 +982,13 @@ export class ChatWorker {
 
         const normalizedBalance = this.normalizeBalanceSnapshot(ctx.balance);
         const nativeBalance = ctx.nativeBalance;
+        const tokens = this.parseBalanceEntries(ctx.balance) || [];
+        // Important: do NOT short-circuit get_wallet_info from context when we only have native balance.
+        // In that case, allow real tool execution to fetch full token balances from providers.
         if (!normalizedBalance && !nativeBalance) return null;
+        if (tokens.length === 0) return null;
 
         const chainName = this.resolveChainNameForContext(chainId) || String(chainId);
-        const tokens = this.parseBalanceEntries(ctx.balance) || [];
 
         return {
             address: walletAddress,

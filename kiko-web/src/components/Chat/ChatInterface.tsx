@@ -27,6 +27,7 @@ import clsx from 'clsx';
 import { chatApi } from '../../services/api';
 import { getWalletBalance } from '../../services/walletApi';
 import { chatWSClient, type ChatEvent } from '../../utils/chatWebSocket';
+import { clearActiveTask } from '../../utils/taskLifecycle';
 import type { Message } from '../../hooks/useConversations';
 import { useConversationContext } from '../../contexts/ConversationContext';
 import { moderationService } from '../../services/moderation';
@@ -142,9 +143,10 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
         createConversation,
         loadConversation,
         isLoading,
+        registerPendingLocalUserMessage,
     } = useConversationContext();
 
-    const { user, authenticated, login, getAccessToken } = usePrivy();
+    const { user, authenticated, ready, login, getAccessToken } = usePrivy();
     const { wallets } = useWallets();
     const { currentChain } = useChain();
     const { strategies, refreshUserStrategies, deleteStrategy, toggleStrategyStatus, createStrategy } = useStrategies();
@@ -214,16 +216,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
     const [isStopping, setIsStopping] = useState(false);
     const [isLoadingConversation, setIsLoadingConversation] = useState(false);
 
-    // Initialize hasStarted based on whether we have messages OR we are loading a specific ID
-    // validIdCheck: if conversationId is present, we are likely loading it, so start as true to avoid Welcome Screen flash
-    const [hasStarted, setHasStartedLocal] = useState(initialMessages.length > 0 || !!conversationId || isLoading);
-    // showChatUI removed - entirely driven by hasStarted now
-
-    // Wrapper to sync hasStarted with Layout's chatStarted
-    const setHasStarted = (value: boolean) => {
-        setHasStartedLocal(value);
-        sidebar?.setChatStarted(value);
-    };
+    // chatStarted lives in Layout (SidebarContext); we read via sidebar?.chatStarted and write via sidebar?.setChatStarted
     const [thinkingText, setThinkingText] = useState('Thinking');
     const [thinkingStartTime, setThinkingStartTime] = useState<number>(0);
     const [firstSendPending, setFirstSendPending] = useState(false);
@@ -288,7 +281,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
     // Farcaster Follow Modal state
     const [showFollowModal, setShowFollowModal] = useState(false);
 
-    // showChatUI effect removed as state is gone. Logic is now direct via hasStarted.
+    // showChatUI removed. Visibility is driven by sidebar.chatStarted (Layout).
     // The previous buffering logic is replaced by CSS animations (messageListHidden/chatUiEnter)
 
     const handleDismissFollow = () => {
@@ -555,9 +548,10 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                             } else {
                                 updated = [...messages, txCardMsg];
                             }
+                            // card_displayed: activeTask cleared with messages
                             updateConversation(conversationId, {
                                 messages: updated,
-                                activeTask: null // Hard-stop thinking
+                                activeTask: null
                             });
                         }
 
@@ -627,10 +621,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                     } else if (normalizedAction.type === 'show_strategy_card') {
                         // Card has arrived: hard-stop any residual thinking/streaming state
                         if (conversationId) {
-                            updateConversation(conversationId, { activeTask: null });
-                        }
-                        if (sidebar?.setGeneratingConversationId) {
-                            sidebar.setGeneratingConversationId(null);
+                            clearActiveTask(conversationId, updateConversation, 'strategy_card');
                         }
                         if (onTaskUpdate) {
                             onTaskUpdate(null);
@@ -713,9 +704,10 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                             // (e.g., two client_actions in the same microtask) both read stale messagesRef
                             // and push duplicate cards.
                             messagesRef.current = updated;
+                            // card_displayed: activeTask cleared with messages
                             updateConversation(conversationId, {
                                 messages: updated,
-                                activeTask: null // Business cards end thinking
+                                activeTask: null
                             });
                         }
                     }
@@ -757,6 +749,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                         const found = freshMsgs.some(m => m.id === mid && m.type === 'transaction-status-card');
                         logger.debug('[Card] transaction status event', { eventType: event.type, messageId: mid, foundCard: found });
                         messagesRef.current = updated;
+                        // card_displayed: activeTask cleared with messages
                         updateConversation(conversationId, {
                             messages: updated,
                             activeTask: null
@@ -846,7 +839,8 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
         }
     }, [selectedModel]);
 
-    const currentConversationIdRef = useRef<string | null>(conversationId || null);
+    // Start from null so first mount on /chat/:id is treated as a switch and triggers loadConversation.
+    const currentConversationIdRef = useRef<string | null>(null);
     const processedMessagesRef = useRef<Set<string>>(new Set());
     const modelSelectorRef = useRef<HTMLDivElement>(null);
 
@@ -869,9 +863,9 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
         }
     }, []);
 
-    // Sync chatStarted state with Layout on mount
+    // Sync chatStarted with Layout on mount (single source: Layout's chatStarted)
     useEffect(() => {
-        sidebar?.setChatStarted(hasStarted);
+        sidebar?.setChatStarted(initialMessages.length > 0 || !!conversationId || isLoading);
     }, []);
 
     // Close model dropdown when clicking outside
@@ -891,139 +885,117 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
         };
     }, [isModelDropdownOpen]);
 
+    /** Scenario A: Sending first message, URL just navigated to new conversation — no load, no clear. */
+    const handleNewConversationNavigation = useCallback((newId: string) => {
+        logger.debug('Skipping stopGeneration - active send in progress');
+        currentConversationIdRef.current = newId || null;
+        setIsLoadingConversation(false);
+    }, []);
+
+    /** Scenario B: User switched to another conversation or opened /chat/:id — load if needed, clear prev task, reset UI. */
+    const handleConversationSwitch = useCallback(async (prevId: string | null, newId: string) => {
+        logger.debug('⚠️ CONVERSATION CHANGED:', { prevId, newId });
+        setIsLoadingConversation(true);
+        let loadPromise: Promise<unknown> | null = null;
+
+        if (prevId) {
+            const prevConv = conversations.find(c => c.id === prevId);
+            if (prevConv?.activeTask) clearActiveTask(prevId, updateConversation, 'conversation_switch');
+        }
+
+        if (newId && (!currentConv || !currentConv.messages || currentConv.messages.length === 0)) {
+            loadPromise = loadConversation(newId);
+        }
+
+        logger.debug('Resetting UI states (backend continues generating)...');
+        const lastAssistantMsg = initialMessages.filter(m => m.role === 'assistant').pop();
+        const isTargetStreaming = lastAssistantMsg?.status === 'streaming';
+
+        if (isTargetStreaming && newId) {
+            logger.debug('Target conversation has streaming message, ensuring activeTask state');
+            if (!currentConv?.activeTask) {
+                updateConversation(newId, {
+                    activeTask: { id: lastAssistantMsg!.id, status: 'streaming' as any }
+                });
+            }
+        } else if (newId && currentConv?.activeTask) {
+            processedMessagesRef.current.clear();
+            processedStrategyIdsRef.current.clear();
+        }
+
+        setThinkingText('Thinking');
+        setFirstSendPending(false);
+        setInput('');
+        const hasMessages = (currentConv?.messages?.length ?? initialMessages.length) > 0;
+        sidebar?.setChatStarted(!!newId || isLoading || isSendingRef.current || hasMessages);
+        processedMessagesRef.current.clear();
+        processedStrategyIdsRef.current.clear();
+        currentConversationIdRef.current = newId || null;
+        if (onTaskUpdate) onTaskUpdate(null);
+        initialMessages.forEach(msg => processedMessagesRef.current.add(msg.id));
+        justSwitchedConversationRef.current = true;
+        try {
+            if (loadPromise) {
+                await loadPromise;
+            }
+        } finally {
+            requestAnimationFrame(() => setIsLoadingConversation(false));
+            logger.debug('Conversation switch complete. New ID:', newId, 'Marked', initialMessages.length, 'messages as processed');
+        }
+    }, [conversations, currentConv, initialMessages, updateConversation, loadConversation, sidebar, isLoading, onTaskUpdate]);
+
+    /** Scenario C: Same conversationId, background message sync from loadConversation or streaming. */
+    const handleBackgroundMessageSync = useCallback(() => {
+        if (initialMessages.length === 0) return;
+        if (messages.length === 0 && initialMessages.length > 0) {
+            logger.debug('Syncing - local empty but props has messages');
+            sidebar?.setChatStarted(true);
+            initialMessages.forEach(msg => processedMessagesRef.current.add(msg.id));
+            return;
+        }
+        if (activeTaskId || isStreaming || isThinking) return;
+        if (!isStreaming && !isThinking) {
+            const lastLocal = messages[messages.length - 1];
+            const lastInitial = initialMessages[initialMessages.length - 1];
+            const hasSubstantialDiff =
+                messages.length !== initialMessages.length ||
+                (lastLocal?.id === lastInitial?.id && (
+                    lastLocal?.status !== lastInitial?.status ||
+                    (lastInitial?.content || '').length > (lastLocal?.content || '').length
+                ));
+            if (hasSubstantialDiff) {
+                logger.debug('Syncing messages from props - background update detected');
+                sidebar?.setChatStarted(initialMessages.length > 0);
+            }
+        }
+    }, [initialMessages, messages, activeTaskId, isStreaming, isThinking, sidebar]);
 
     // Sync messages when conversationId or initialMessages change
     useEffect(() => {
         const prevId = currentConversationIdRef.current;
         const newId = conversationId;
-        const conversationIdChanged = prevId !== newId;
 
-        // Case 1: Conversation ID changed
-        if (conversationIdChanged) {
-            logger.debug('⚠️ CONVERSATION CHANGED:', { prevId, newId });
-
-            // Show loading state during conversation switch
-            setIsLoadingConversation(true);
-
-            // If we're actively sending a message (creating new conversation), don't interrupt
-            // Use context createConversation
-            if (isSendingRef.current) {
-                logger.debug('Skipping stopGeneration - active send in progress');
-                currentConversationIdRef.current = newId || null;
-                setIsLoadingConversation(false);
-                return;
-            }
-
-            // Fetch messages from backend if we don't have them or the conversation is missing from context
-            // This handles direct URL access (e.g. /chat/:id) where context might not have it yet
-            if (newId && (!currentConv || !currentConv.messages || currentConv.messages.length === 0)) {
-                loadConversation(newId);
-            }
-
-            // IMPORTANT: Do NOT cancel backend task when switching conversations!
-            // The generation should continue in the background.
-            // We only reset local UI state here.
-            logger.debug('Resetting UI states (backend continues generating)...');
-
-            // Check if target conversation has streaming messages
-            const lastAssistantMsg = initialMessages.filter(m => m.role === 'assistant').pop();
-            const isTargetStreaming = lastAssistantMsg?.status === 'streaming';
-
-            // CRITICAL: If target conversation has streaming message, ensure context matches
-            // (Handled by RootLayout and Derived State, but we can double check)
-            if (isTargetStreaming && conversationId) {
-                logger.debug('Target conversation has streaming message, ensuring activeTask state');
-                if (!currentConv?.activeTask) {
-                    updateConversation(conversationId, {
-                        activeTask: { id: lastAssistantMsg.id, status: 'streaming' as any }
-                    });
-                }
-            } else if (conversationId && currentConv?.activeTask) {
-                updateConversation(conversationId, { activeTask: null });
-                // Ensure button state resets by clearing internal refs
-                processedMessagesRef.current.clear();
-                processedStrategyIdsRef.current.clear();
-            }
-            setThinkingText('Thinking');
-            setFirstSendPending(false);
-            setInput('');
-            logger.debug('UI states reset, loading messages from context');
-
-            // If we are sending a message (new conversation), we should show the chat interface
-            // If we have a valid ID (loading or loaded), we also show it (don't show welcome screen)
-            // effectiveHasStarted handles the "loading" case visually, but strictly:
-            const hasMessages = (currentConv?.messages?.length ?? initialMessages.length) > 0;
-            // If we have an ID or are loading, treat as "started" to avoid Welcome Screen.
-            // isSendingRef handles new chat creation.
-            setHasStarted(!!newId || isLoading || isSendingRef.current || hasMessages);
-            processedMessagesRef.current.clear();
-            processedStrategyIdsRef.current.clear();
-            currentConversationIdRef.current = newId || null;
-
-            // Clear active task when switching conversations
-            if (conversationId && currentConv?.activeTask) {
-                updateConversation(conversationId, { activeTask: null });
-            }
-            if (onTaskUpdate) {
-                onTaskUpdate(null);
-            }
-
-            // CRITICAL: Mark all initial messages as processed to prevent auto-send
-            initialMessages.forEach(msg => {
-                processedMessagesRef.current.add(msg.id);
-            });
-
-            // Set flag to skip auto-send on next render cycle
-            justSwitchedConversationRef.current = true;
-
-            // Use requestAnimationFrame to ensure UI has rendered before hiding loading
-            requestAnimationFrame(() => {
-                setIsLoadingConversation(false);
-            });
-
-            logger.debug('Conversation switch complete. New ID:', newId, 'Marked', initialMessages.length, 'messages as processed');
-        } else if (initialMessages.length > 0) {
-            // Case 2: Conversation ID is same, check for background updates from App.tsx
-            // This can happen when:
-            // a) loadConversation completes and updates initialMessages (async loading)
-            // b) Background streaming accumulated messages
-
-            // CRITICAL: If our local messages are empty but initialMessages arrived, always sync
-            // This fixes the "welcome screen appears instead of conversation" bug
-            if (messages.length === 0 && initialMessages.length > 0) {
-                logger.debug('Syncing - local empty but props has messages');
-                setHasStarted(true);
-                // Mark as processed to prevent auto-send
-                initialMessages.forEach(msg => processedMessagesRef.current.add(msg.id));
-                return;
-            }
-
-            // CRITICAL FIX: Do NOT sync during active AI tasks to prevent race conditions
-            // If there's an active task, our local WebSocket state is the source of truth
-            if (activeTaskId || isStreaming || isThinking) {
-                return;
-            }
-
-            // Only sync background updates if we are NOT currently streaming
-            // (If we ARE streaming, our local state is more up-to-date)
-            if (!isStreaming && !isThinking) {
-                const lastLocal = messages[messages.length - 1];
-                const lastInitial = initialMessages[initialMessages.length - 1];
-
-                const hasSubstantialDiff =
-                    messages.length !== initialMessages.length ||
-                    (lastLocal?.id === lastInitial?.id && (
-                        lastLocal?.status !== lastInitial?.status ||
-                        (lastInitial?.content || '').length > (lastLocal?.content || '').length
-                    ));
-
-                if (hasSubstantialDiff) {
-                    logger.debug('Syncing messages from props - background update detected');
-                    setHasStarted(initialMessages.length > 0);
-                }
-            }
+        if (prevId === newId) {
+            handleBackgroundMessageSync();
+            return;
         }
-    }, [conversationId, initialMessages, isStreaming, isThinking, setHasStarted, messages.length, activeTaskId, conversationId, currentConv?.activeTask, onTaskUpdate, updateConversation]);
+        if (isSendingRef.current) {
+            handleNewConversationNavigation(newId!);
+            return;
+        }
+        handleConversationSwitch(prevId, newId!);
+    }, [conversationId, handleNewConversationNavigation, handleConversationSwitch, handleBackgroundMessageSync]);
+
+    // Reliability: after auth becomes ready, ensure direct /chat/:id refresh always loads history.
+    useEffect(() => {
+        if (!ready || !authenticated || !conversationId) return;
+        const conv = conversations.find(c => c.id === conversationId);
+        if ((conv?.messages?.length ?? 0) > 0) return;
+        setIsLoadingConversation(true);
+        loadConversation(conversationId)
+            .catch(() => { })
+            .finally(() => setIsLoadingConversation(false));
+    }, [ready, authenticated, conversationId, conversations, loadConversation]);
 
     // Sync thinking text with active task message
     useEffect(() => {
@@ -1056,7 +1028,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
             } else {
                 // Task is done/failed/cancelled, clear UI state
                 if (conversationId && currentConv?.activeTask) {
-                    updateConversation(conversationId, { activeTask: null });
+                    clearActiveTask(conversationId, updateConversation, 'prop_task_done');
                 }
                 if (onTaskUpdate) {
                     onTaskUpdate(null);
@@ -1375,7 +1347,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
         }
 
         if (conversationId) {
-            updateConversation(conversationId, { activeTask: null });
+            clearActiveTask(conversationId, updateConversation, 'user_stop');
         }
 
         if (activeTaskId) {
@@ -1418,7 +1390,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
         // ============================================
 
         // 1. Switch to chat view immediately
-        setHasStarted(true);
+        sidebar?.setChatStarted(true);
 
         // 2. Prepare and show user message immediately
         const now = new Date();
@@ -1426,6 +1398,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
             id: existingMessageId || Date.now().toString(),
             role: 'user',
             content: text,
+            clientCreatedAt: now.toISOString(),
             timestamp: now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
             date: now.toISOString().split('T')[0],
             type: 'text',
@@ -1447,6 +1420,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                 messages: updated,
                 activeTask: { id: `task-${Date.now()}`, status: 'pending' }
             });
+            registerPendingLocalUserMessage(conversationId, userMsg);
         }
 
         // 4. Clear input immediately
@@ -1493,7 +1467,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                         activeTask: null
                     });
                 }
-                if (!conversationId) setHasStarted(false);
+                if (!conversationId) sidebar?.setChatStarted(false);
                 setFirstSendPending(false);
                 return;
             }
@@ -1507,9 +1481,9 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
             // Prevent sending new messages while stopping
             if (isStopping) {
                 logger.debug('Blocked send - currently stopping');
-                if (conversationId) updateConversation(conversationId, { activeTask: null });
+                if (conversationId) clearActiveTask(conversationId, updateConversation, 'user_stop');
                 // If stopping a new conversation (no ID yet), just reset local state
-                if (!conversationId) setHasStarted(false);
+                if (!conversationId) sidebar?.setChatStarted(false);
                 setFirstSendPending(false);
                 return;
             }
@@ -1542,6 +1516,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
                     // CRITICAL: Persist user message to the new conversation immediately
                     updateConversation(newId, { messages: [userMsg] });
+                    registerPendingLocalUserMessage(newId, userMsg);
 
                     // Navigate to new URL
                     navigate(`/chat/${newId}`);
@@ -1557,11 +1532,11 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                         activeTask: null
                     });
                 } else {
-                    setHasStarted(false);
+                    sidebar?.setChatStarted(false);
                 }
                 if (conversationId && messages.length > 0) {
                     updateConversation(conversationId, { messages: [] });
-                    setHasStarted(false);
+                    sidebar?.setChatStarted(false);
                 }
                 if (!authenticated) {
                     toast.error('Session expired. Login to KIKO to create chat session.');
@@ -1622,11 +1597,6 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
             if (resp.success) {
                 const { assistantMessage, task } = resp;
-
-                // CRITICAL: Immediately set generating conversation ID so WebSocket stays connected
-                if (sidebar?.setGeneratingConversationId) {
-                    sidebar.setGeneratingConversationId(currentConvId);
-                }
 
                 // Add assistant message placeholder
                 const createdAt = (assistantMessage as any).created_at ?? assistantMessage.timestamp ?? Date.now();
@@ -1855,7 +1825,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
             {/* Hero / Welcome Content with Jelly Exit Animation */}
             {/* Remove mode="wait" to allow overlapping animations (Jelly effect) */}
             <AnimatePresence initial={false}>
-                {!hasStarted && (
+                {!(sidebar?.chatStarted ?? false) && (
                     <motion.div
                         key="welcome-screen"
                         initial={{ opacity: 1, y: 0, scale: 1 }}
@@ -1888,8 +1858,8 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
             <div
                 className={clsx(
                     styles.messageList,
-                    !hasStarted && styles.messageListHidden, // Hide when welcome screen is active
-                    hasStarted && styles.chatUiEnter         // Animate in when started
+                    !(sidebar?.chatStarted ?? false) && styles.messageListHidden, // Hide when welcome screen is active
+                    (sidebar?.chatStarted ?? false) && styles.chatUiEnter         // Animate in when started
                 )}
                 ref={scrollContainerRef}
                 onScroll={handleScroll}
@@ -2052,7 +2022,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
             {/* Input Area - Only show when conversation has started */}
             {
-                hasStarted && (
+                (sidebar?.chatStarted ?? false) && (
                     <div
                         className={clsx(styles.inputArea, styles.inputBottom, styles.chatUiEnterDelayed)}
                         style={safariKeyboard.isKeyboardVisible && safariKeyboard.inputTop !== null ? {

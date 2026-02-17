@@ -402,6 +402,31 @@ export async function bootstrapTrackedWalletHistory(
   });
   if (!txs?.length) return;
 
+  const chainCfg = getChainConfig(chainId);
+  const nativePlaceholder = normalizeAddress('0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee');
+  const wrappedNative = normalizeAddress(chainCfg.wrappedNativeAddress);
+  const stableSet = new Set((chainCfg.stablecoins || []).map((s) => normalizeAddress(s)));
+  const isTradeType = (txType?: string | null): boolean =>
+    txType === 'TARGET_BUY' || txType === 'TARGET_SELL' || txType === 'TARGET_TOKEN_SWAP' ||
+    txType === 'BUY' || txType === 'SELL' || txType === 'SWAP';
+  let decodeDeps:
+    | {
+        fetchTransaction: (txHash: string, chainId: number) => Promise<any>;
+        fetchTransactionReceipt: (txHash: string, chainId: number) => Promise<any>;
+        parseSwapTransaction: (tx: any, receipt: any, chainId: number, walletAddress: string) => Promise<any>;
+      }
+    | null
+    = null;
+  const ensureDecodeDeps = async () => {
+    if (decodeDeps) return decodeDeps;
+    const [{ fetchTransaction, fetchTransactionReceipt }, { parseSwapTransaction }] = await Promise.all([
+      import('./watcherService.js'),
+      import('./txDecoder.js'),
+    ]);
+    decodeDeps = { fetchTransaction, fetchTransactionReceipt, parseSwapTransaction };
+    return decodeDeps;
+  };
+
   const CHUNK_SIZE = 20;
   let ok = 0;
   let failed = 0;
@@ -409,8 +434,58 @@ export async function bootstrapTrackedWalletHistory(
   for (let i = 0; i < txs.length; i += CHUNK_SIZE) {
     const chunk = txs.slice(i, i + CHUNK_SIZE);
     for (const tx of chunk) {
-      if (!tx.txHash) continue;
+      const raw: any = tx as any;
+      if (!raw.txHash) continue;
       try {
+        let txType: string = raw.txType || 'TRANSFER_OUT';
+        let tokenAddress = raw.tokenAddress ? normalizeAddress(raw.tokenAddress) : null;
+        let tokenInAddress: string | null = raw.tokenInAddress ? normalizeAddress(raw.tokenInAddress) : null;
+        let tokenOutAddress: string | null = raw.tokenOutAddress ? normalizeAddress(raw.tokenOutAddress) : null;
+        let amountIn: string | null = raw.amountIn || null;
+        let amountOut: string | null = raw.amountOut || null;
+        let amount: string | null = raw.amount || null;
+        let valueUsd: number | null = safeNum(raw.valueUsd) || null;
+        let valueInUsd: number | null = safeNum(raw.valueInUsd) || null;
+        let valueOutUsd: number | null = safeNum(raw.valueOutUsd) || null;
+        let parseReason: string | null = raw.parseReason || null;
+
+        // History API often stores swaps as TRANSFER_IN/TRANSFER_OUT.
+        // Decode tx hash here so target-status aggregation can classify BUY/SELL/SWAP.
+        if (!isTradeType(txType)) {
+          try {
+            const deps = await ensureDecodeDeps();
+            const [rawTx, receipt] = await Promise.all([
+              deps.fetchTransaction(tx.txHash, chainId),
+              deps.fetchTransactionReceipt(tx.txHash, chainId),
+            ]);
+            if (rawTx && receipt) {
+              const swap = await deps.parseSwapTransaction(rawTx, receipt, chainId, walletAddress);
+              if (swap?.tokenIn && swap?.tokenOut) {
+                const tokenIn = normalizeAddress(swap.tokenIn);
+                const tokenOut = normalizeAddress(swap.tokenOut);
+                const tokenInIsCash = stableSet.has(tokenIn) || tokenIn === wrappedNative || tokenIn === nativePlaceholder;
+                const tokenOutIsCash = stableSet.has(tokenOut) || tokenOut === wrappedNative || tokenOut === nativePlaceholder;
+                const isBuy = tokenInIsCash && !tokenOutIsCash;
+                const isSell = !tokenInIsCash && tokenOutIsCash;
+
+                txType = isBuy ? 'TARGET_BUY' : isSell ? 'TARGET_SELL' : 'TARGET_TOKEN_SWAP';
+                tokenInAddress = tokenIn;
+                tokenOutAddress = tokenOut;
+                amountIn = swap.amountIn || null;
+                amountOut = swap.amountOut || null;
+                amount = txType === 'TARGET_SELL' ? amountIn : (amountOut || amountIn);
+                tokenAddress = txType === 'TARGET_SELL' ? tokenIn : tokenOut;
+                valueInUsd = await fillUsdFromDecodedLeg({ chainId, tokenAddress: tokenInAddress, amountRaw: amountIn });
+                valueOutUsd = await fillUsdFromDecodedLeg({ chainId, tokenAddress: tokenOutAddress, amountRaw: amountOut });
+                valueUsd = txType === 'TARGET_BUY' ? valueInUsd : txType === 'TARGET_SELL' ? valueOutUsd : null;
+                parseReason = isBuy ? 'history_decode_buy' : isSell ? 'history_decode_sell' : 'history_decode_swap';
+              }
+            }
+          } catch {
+            // best-effort only
+          }
+        }
+
         await withRetry(() => prisma.walletTransaction.upsert({
           where: {
             txHash_walletAddress: {
@@ -421,28 +496,46 @@ export async function bootstrapTrackedWalletHistory(
           create: {
             walletAddress,
             chain,
-            txHash: tx.txHash.toLowerCase(),
-            txType: tx.txType || 'TRANSFER_OUT',
-            fromAddress: tx.fromAddress || null,
-            toAddress: tx.toAddress || null,
-            tokenSymbol: tx.tokenSymbol || null,
-            tokenAddress: tx.tokenAddress ? normalizeAddress(tx.tokenAddress) : null,
-            tokenInSymbol: tx.tokenInSymbol || null,
-            tokenOutSymbol: tx.tokenOutSymbol || null,
-            amount: tx.amount || null,
-            valueUsd: safeNum(tx.valueUsd) || null,
+            chainId,
+            txHash: raw.txHash.toLowerCase(),
+            txType,
+            fromAddress: raw.fromAddress || null,
+            toAddress: raw.toAddress || null,
+            tokenSymbol: raw.tokenSymbol || null,
+            tokenAddress,
+            tokenInSymbol: raw.tokenInSymbol || null,
+            tokenOutSymbol: raw.tokenOutSymbol || null,
+            tokenInAddress,
+            tokenOutAddress,
+            amount,
+            amountIn,
+            amountOut,
+            valueUsd,
+            valueInUsd,
+            valueOutUsd,
+            parseReason,
+            source,
             blockTimestamp: tx.blockTimestamp ? new Date(tx.blockTimestamp) : new Date(),
           },
           update: {
-            txType: tx.txType || 'TRANSFER_OUT',
-            fromAddress: tx.fromAddress || null,
-            toAddress: tx.toAddress || null,
-            tokenSymbol: tx.tokenSymbol || null,
-            tokenAddress: tx.tokenAddress ? normalizeAddress(tx.tokenAddress) : null,
-            tokenInSymbol: tx.tokenInSymbol || null,
-            tokenOutSymbol: tx.tokenOutSymbol || null,
-            amount: tx.amount || null,
-            valueUsd: safeNum(tx.valueUsd) || null,
+            chainId,
+            txType,
+            fromAddress: raw.fromAddress || null,
+            toAddress: raw.toAddress || null,
+            tokenSymbol: raw.tokenSymbol || null,
+            tokenAddress,
+            tokenInSymbol: raw.tokenInSymbol || null,
+            tokenOutSymbol: raw.tokenOutSymbol || null,
+            tokenInAddress,
+            tokenOutAddress,
+            amount,
+            amountIn,
+            amountOut,
+            valueUsd,
+            valueInUsd,
+            valueOutUsd,
+            parseReason,
+            source,
             blockTimestamp: tx.blockTimestamp ? new Date(tx.blockTimestamp) : new Date(),
           },
         }), 4, 250);
@@ -452,7 +545,7 @@ export async function bootstrapTrackedWalletHistory(
         console.warn('[TargetTracking] Failed to upsert history tx:', {
           walletAddress,
           chainId,
-          txHash: tx.txHash?.slice(0, 10),
+          txHash: raw.txHash?.slice(0, 10),
           error: err?.message || err
         });
       }

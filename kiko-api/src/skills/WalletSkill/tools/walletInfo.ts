@@ -2,6 +2,7 @@ import { Tool } from '../../../tooling/registry.js';
 import * as alchemy from '../../../services/alchemy.js';
 import * as quicknode from '../../../services/quicknode.js';
 import * as coinbaseCdp from '../../../services/coinbaseCdp.js';
+import { resolveChainInput } from '../../../utils/chainParam.js';
 
 export const GetWalletInfoTool: Tool = {
     definition: {
@@ -17,6 +18,10 @@ export const GetWalletInfoTool: Tool = {
                 chain: {
                     type: 'string',
                     description: 'Blockchain network (eth, base, arbitrum, optimism, polygon, bsc). If not specified, defaults to the user\'s currently connected chain.',
+                },
+                chain_id: {
+                    type: 'number',
+                    description: 'Numeric chain ID (preferred when available), e.g. 1, 8453, 56, 900.',
                 },
                 includeHistory: {
                     type: 'boolean',
@@ -40,24 +45,14 @@ export const GetWalletInfoTool: Tool = {
                 return { error: 'No wallet address provided and no connected wallet found.' };
             }
 
-            // Map chainId to name if available
-            let contextChain = 'eth';
-            if (context?.chainId) {
-                const chainMap: Record<number, string> = {
-                    1: 'eth',
-                    8453: 'base',
-                    56: 'bsc',
-                    42161: 'arbitrum',
-                    10: 'optimism',
-                    137: 'polygon',
-                    900: 'solana',
-                    43114: 'avalanche',
-                    250: 'fantom',
-                };
-                contextChain = chainMap[context.chainId] || 'eth';
+            const resolved = resolveChainInput(args, {
+                contextChainId: context?.chainId,
+                defaultChain: 'eth',
+            });
+            if (resolved.invalidChainId) {
+                return { error: `Unsupported chain_id: ${String(args.chain_id)}` };
             }
-
-            const chain = args.chain || contextChain;
+            const chain = resolved.chain;
             if ((chain.toLowerCase() === 'solana' || chain.toLowerCase() === 'sol') && context?.solanaAddress) {
                 if (!targetAddress || targetAddress.startsWith('0x')) {
                     targetAddress = context.solanaAddress;

@@ -32,18 +32,20 @@ import { evaluateRiskSignals } from './modules/riskSignals.js';
 
 /**
  * Main Judge Engine Entry Point
- * 
+ *
  * @param tokenAddress - Token contract address
  * @param chainId - Chain ID
  * @param userAmountUsd - User's trade amount in USD
  * @param targetWallet - Optional: Smart money wallet being copied
+ * @param knownLaunchpadType - Optional: Pre-detected launchpad provider (e.g. from copy-trade flow), skips detectLaunchpadType
  * @returns Complete decision engine output with all layer breakdowns
  */
 export async function runJudgeEngine(
     tokenAddress: string,
     chainId: number,
     userAmountUsd: number,
-    targetWallet?: string
+    targetWallet?: string,
+    knownLaunchpadType?: string
 ): Promise<DecisionEngineOutput> {
     // Check if Judge Engine is globally disabled via ENV
     if (process.env.DISABLE_JUDGE_ENGINE === 'true') {
@@ -79,8 +81,8 @@ export async function runJudgeEngine(
         // === PHASE 1: Data Gathering ===
         const { tokenData, securityData } = await gatherTokenData(tokenAddress, chainId);
 
-        // Detect launchpad
-        input.launchpad_type = await detectLaunchpadType(
+        // Detect launchpad (or use pre-detected value from copy-trade flow)
+        input.launchpad_type = knownLaunchpadType ?? await detectLaunchpadType(
             tokenAddress,
             tokenData.poolAddress,
             input.chain.toLowerCase()

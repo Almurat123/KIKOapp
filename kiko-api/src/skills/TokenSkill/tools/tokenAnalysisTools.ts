@@ -1,6 +1,7 @@
 import { Tool } from '../../../tooling/registry.js';
 import * as tokenAnalysis from '../../../services/tokenAnalysis.js';
 import * as creatorAnalysis from '../../../services/creatorAnalysis.js';
+import { resolveChainInput } from '../../../utils/chainParam.js';
 
 /**
  * Tool to get early buyers of a token
@@ -21,6 +22,10 @@ export const GetEarlyBuyersTool: Tool = {
                     description: 'The blockchain (eth, base, bsc, solana, arbitrum, polygon, optimism)',
                     enum: ['eth', 'base', 'bsc', 'solana', 'arbitrum', 'polygon', 'optimism']
                 },
+                chain_id: {
+                    type: 'number',
+                    description: 'Numeric chain ID (preferred when available), e.g. 1, 8453, 56, 900'
+                },
                 limit: {
                     type: 'number',
                     description: 'Number of early buyers to return (default 10, max 20)',
@@ -35,11 +40,19 @@ export const GetEarlyBuyersTool: Tool = {
                     description: 'Optional end time (ISO string or unix seconds) to filter buyers by time range.'
                 }
             },
-            required: ['address', 'chain']
+            required: ['address']
         }
     },
-    handler: async ({ address, chain, limit = 10, start_time, end_time }) => {
+    handler: async ({ address, chain, chain_id, limit = 10, start_time, end_time }, context) => {
         try {
+            const resolved = resolveChainInput({ chain, chain_id }, {
+                contextChainId: context?.chainId,
+                defaultChain: 'eth',
+            });
+            if (resolved.invalidChainId) {
+                return { success: false, error: `Unsupported chain_id: ${String(chain_id)}` };
+            }
+
             const parseTime = (value?: string) => {
                 if (!value) return undefined;
                 const num = Number(value);
@@ -53,7 +66,7 @@ export const GetEarlyBuyersTool: Tool = {
             const startTimeMs = parseTime(start_time);
             const endTimeMs = parseTime(end_time);
 
-            const buyers = await tokenAnalysis.getEarlyBuyers(address, chain, Math.min(limit, 20), {
+            const buyers = await tokenAnalysis.getEarlyBuyers(address, resolved.chain, Math.min(limit, 20), {
                 startTimeMs,
                 endTimeMs
             });
@@ -61,14 +74,14 @@ export const GetEarlyBuyersTool: Tool = {
             if (!buyers || buyers.length === 0) {
                 return {
                     success: false,
-                    message: `No early buyers found for ${address} on ${chain}. Token may be too new or not have trading activity yet.`
+                    message: `No early buyers found for ${address} on ${resolved.chain}. Token may be too new or not have trading activity yet.`
                 };
             }
 
             return {
                 success: true,
                 token: address,
-                chain,
+                chain: resolved.chain,
                 buyerCount: buyers.length,
                 earlyBuyers: buyers.map((b, i) => ({
                     rank: i + 1,
@@ -104,14 +117,26 @@ export const AnalyzeCreatorTool: Tool = {
                     type: 'string',
                     description: 'The blockchain (eth, base, bsc, arbitrum, polygon, optimism)',
                     enum: ['eth', 'base', 'bsc', 'arbitrum', 'polygon', 'optimism']
+                },
+                chain_id: {
+                    type: 'number',
+                    description: 'Numeric chain ID (preferred when available), e.g. 1, 8453, 56'
                 }
             },
-            required: ['creatorAddress', 'chain']
+            required: ['creatorAddress']
         }
     },
-    handler: async ({ creatorAddress, chain }) => {
+    handler: async ({ creatorAddress, chain, chain_id }, context) => {
         try {
-            const profile = await creatorAnalysis.analyzeDeployer(creatorAddress, chain);
+            const resolved = resolveChainInput({ chain, chain_id }, {
+                contextChainId: context?.chainId,
+                defaultChain: 'eth',
+            });
+            if (resolved.invalidChainId) {
+                return { success: false, error: `Unsupported chain_id: ${String(chain_id)}` };
+            }
+
+            const profile = await creatorAnalysis.analyzeDeployer(creatorAddress, resolved.chain);
 
             if (!profile) {
                 return {
@@ -123,7 +148,7 @@ export const AnalyzeCreatorTool: Tool = {
             return {
                 success: true,
                 creatorAddress: profile.address,
-                chain,
+                chain: resolved.chain,
                 riskLevel: profile.riskLevel,
                 riskScore: profile.riskScore,
                 tags: profile.tags,

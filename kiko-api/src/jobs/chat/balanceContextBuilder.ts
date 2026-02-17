@@ -39,7 +39,7 @@ export type BuildBalanceContextResult = {
 export function buildBalanceContextBlock(params: BuildBalanceContextParams): BuildBalanceContextResult {
     const toolContext = params.toolContext || {};
     const chainId = toolContext?.chainId;
-    const walletAddress = toolContext?.walletAddress;
+    const walletAddress = toolContext?.walletAddress || toolContext?.userAddress;
     const includePortfolioBlock = !!params.includePortfolioBlock;
     const includeRequestedTokenBlock = !!params.includeRequestedTokenBlock;
     const includeExecutionRule = !!params.includeExecutionRule;
@@ -135,7 +135,12 @@ export function buildBalanceContextBlock(params: BuildBalanceContextParams): Bui
             const requestLower = request.toLowerCase();
             const requestIsAddress = requestLower.startsWith('0x') || requestLower.length >= 32;
             const requestSymbol = requestIsAddress ? '' : request.toUpperCase();
-            if (!requestIsAddress && !params.isStableSymbolForChain(chainId, requestSymbol) && !params.isNativeSymbol(requestSymbol)) {
+            const symbolMatches = !requestIsAddress
+                ? rawTokens.filter((t: any) => String(t?.symbol || '').toUpperCase() === requestSymbol)
+                : [];
+            // Allow non-stable symbols if they already exist in the user's wallet snapshot.
+            // This keeps anti-fake behavior for unknown symbols while enabling "sell XYZ" flows.
+            if (!requestIsAddress && !params.isStableSymbolForChain(chainId, requestSymbol) && !params.isNativeSymbol(requestSymbol) && symbolMatches.length === 0) {
                 requestedLines.push(`- ${request}: hidden (provide contract address)`);
                 result.requestedMissing.push(request);
                 continue;

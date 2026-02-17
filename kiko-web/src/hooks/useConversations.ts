@@ -7,6 +7,7 @@ export interface Message {
   role: 'user' | 'assistant' | 'system' | 'tool';
   content: string;
   timestamp?: string;
+  clientCreatedAt?: string;
   date?: string;
   type?: 'text' | 'swap-card' | 'token-card' | 'strategy-card' | 'chart-card' | 'transaction-status-card';
   data?: any;
@@ -51,6 +52,8 @@ export const useConversations = () => {
   // This fixes the race condition where ChatInterface unmount saves messages,
   // but state update is async and remount reads stale data.
   const conversationsRef = useRef<Conversation[]>([]);
+  const pendingLocalUserMessagesRef = useRef<Map<string, Array<{ id: string; content: string; createdAt: number }>>>(new Map());
+  const inFlightConversationLoadsRef = useRef<Map<string, Promise<any>>>(new Map());
   useEffect(() => {
     conversationsRef.current = conversations;
   }, [conversations]);
@@ -105,11 +108,11 @@ export const useConversations = () => {
           updatedAt: new Date((s as any).updatedAt || (s as any).updated_at).getTime(),
           model: s.model,
         };
-        setConversations(prev => {
-          const updated = [newConv, ...prev];
-          conversationsRef.current = updated; // Sync ref immediately
-          return updated;
-        });
+        // Sync ref synchronously before returning so immediate follow-up updates
+        // (e.g. updateConversation(newId, { messages: [...] })) don't race and get dropped.
+        const updated = [newConv, ...conversationsRef.current.filter(c => c.id !== newConv.id)];
+        conversationsRef.current = updated;
+        setConversations(updated);
         setActiveConversationId(newConv.id);
         return newConv.id;
       }
@@ -118,6 +121,13 @@ export const useConversations = () => {
     }
     return null;
   }, [authenticated]);
+
+  const registerPendingLocalUserMessage = useCallback((conversationId: string, message: Pick<Message, 'id' | 'content' | 'clientCreatedAt' | 'timestamp'>) => {
+    const createdAt = Date.parse(message.clientCreatedAt || message.timestamp || '') || Date.now();
+    const current = pendingLocalUserMessagesRef.current.get(conversationId) || [];
+    const next = [...current.filter(m => m.id !== message.id), { id: message.id, content: message.content, createdAt }];
+    pendingLocalUserMessagesRef.current.set(conversationId, next.slice(-10));
+  }, []);
 
   const updateConversation = useCallback((id: string, updates: Message[] | Partial<Conversation>) => {
     // Handle both legacy (Message[]) and new (Partial<Conversation>) signatures
@@ -156,6 +166,13 @@ export const useConversations = () => {
 
     setActiveConversationId(id);
 
+    const inFlight = inFlightConversationLoadsRef.current.get(id);
+    if (inFlight) {
+      return inFlight;
+    }
+
+    const loadPromise = (async () => {
+
     // CRITICAL: Get current local messages BEFORE loading from database
     // This preserves messages that haven't been saved to DB yet (e.g., during AI thinking)
     const currentConv = conversationsRef.current.find(c => c.id === id);
@@ -163,7 +180,14 @@ export const useConversations = () => {
 
     // Fetch full session with messages
     try {
-      const resp = await chatApi.getSession(id);
+      let resp;
+      try {
+        resp = await chatApi.getSession(id);
+      } catch (firstError) {
+        // Retry once for transient auth/network races on route refresh.
+        await new Promise(resolve => setTimeout(resolve, 250));
+        resp = await chatApi.getSession(id);
+      }
       console.log('[useConversations] loadConversation response:', {
         success: resp.success,
         messageCount: resp.messages?.length,
@@ -217,6 +241,7 @@ export const useConversations = () => {
         // This preserves user messages and AI placeholders that haven't been saved yet
         // IMPORTANT: Check by content+role too, not just ID, because local temp IDs differ from DB IDs
         const mergedMessages = [...dbMessages];
+        const pendingLocalUsers = pendingLocalUserMessagesRef.current.get(id) || [];
 
         // Check if DB has any assistant message (to know if processing is complete)
         const hasAssistantInDb = dbMessages.some((m: any) => m.role === 'assistant');
@@ -262,10 +287,13 @@ export const useConversations = () => {
           // 1. Timestamp check: If local message is older than the last DB message, it's likely stale/orphaned
           const lastDbMsg = dbMessages[dbMessages.length - 1];
           if (lastDbMsg && lastDbMsg.timestamp) {
-            const localTime = new Date(localMsg.timestamp || 0).getTime();
+            const localTime = new Date(localMsg.clientCreatedAt || localMsg.timestamp || 0).getTime();
             const dbTime = new Date(lastDbMsg.timestamp).getTime();
             // Allow 5s buffer for clock skew, but if local is >5s older than latest DB msg, drop it
-            if (localTime < dbTime - 5000) {
+            const isPendingLocalUser = localMsg.role === 'user' && pendingLocalUsers.some(
+              p => p.id === localMsg.id || (p.content || '').trim() === (localMsg.content || '').trim()
+            );
+            if (!isPendingLocalUser && localTime < dbTime - 5000) {
               console.log('[useConversations] Dropping stale local message:', localMsg.id, localMsg.role);
               continue;
             }
@@ -277,6 +305,20 @@ export const useConversations = () => {
 
         updateConversation(id, mergedMessages);
 
+        if (pendingLocalUsers.length > 0) {
+          const dbUserContents = new Set(
+            dbMessages
+              .filter((m: any) => m.role === 'user')
+              .map((m: any) => (m.content || '').trim())
+          );
+          const remaining = pendingLocalUsers.filter(p => !dbUserContents.has((p.content || '').trim()));
+          if (remaining.length > 0) {
+            pendingLocalUserMessagesRef.current.set(id, remaining);
+          } else {
+            pendingLocalUserMessagesRef.current.delete(id);
+          }
+        }
+
         // Return activeTask if exists for UI state restoration
         return resp.activeTask || null;
       }
@@ -284,6 +326,14 @@ export const useConversations = () => {
       console.error('[useConversations] Failed to load session messages:', error);
     }
     return null;
+    })();
+
+    inFlightConversationLoadsRef.current.set(id, loadPromise);
+    try {
+      return await loadPromise;
+    } finally {
+      inFlightConversationLoadsRef.current.delete(id);
+    }
   }, [updateConversation]);
 
   const getActiveConversation = useCallback(() => {
@@ -323,5 +373,6 @@ export const useConversations = () => {
     deleteConversation,
     clearAllConversations,
     conversationsRef,
+    registerPendingLocalUserMessage,
   };
 };

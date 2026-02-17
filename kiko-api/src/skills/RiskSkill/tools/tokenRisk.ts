@@ -8,6 +8,7 @@ import fs from 'fs';
 import path from 'path';
 import { fetchJson } from '../../../config/unifiedApiService.js';
 import { analyzeSnipers, analyzeTransferNetwork, analyzeHolderDistribution } from '../../../services/sniperAnalysis.js';
+import { resolveChainInput } from '../../../utils/chainParam.js';
 
 const CHAIN_IDS: Record<string, string | number> = {
     eth: 1,
@@ -726,13 +727,25 @@ export const CheckTokenRiskTool: Tool = {
                     description: 'Blockchain network (eth, bsc, polygon, solana, arbitrum, base, etc.)',
                     enum: ['eth', 'bsc', 'polygon', 'solana', 'arbitrum', 'optimism', 'avalanche', 'base', 'fantom'],
                 },
+                chain_id: {
+                    type: 'number',
+                    description: 'Numeric chain ID (preferred when available), e.g. 1, 8453, 56, 900.',
+                },
             },
             required: ['address'],
         },
     },
-    handler: async (args) => {
+    handler: async (args, context) => {
         try {
-            const { address, chain = 'eth' } = args;
+            const { address } = args;
+            const resolved = resolveChainInput(args, {
+                contextChainId: context?.chainId,
+                defaultChain: 'eth',
+            });
+            if (resolved.invalidChainId) {
+                return { error: `Unsupported chain_id: ${String(args.chain_id)}` };
+            }
+            const chain = resolved.chain;
             const chainId = CHAIN_IDS[chain.toLowerCase()] || 1;
 
             console.log(`[CheckTokenRisk] Scanning ${address} on ${chain} (chainId: ${chainId})`);
@@ -1072,4 +1085,3 @@ function getChainName(chainId: number): string {
     const map: Record<number, string> = { 1: 'eth', 56: 'bsc', 8453: 'base', 137: 'polygon', 42161: 'arbitrum', 10: 'optimism', 43114: 'avalanche', 250: 'fantom', 900: 'solana' };
     return map[chainId] || 'eth';
 }
-

@@ -130,8 +130,10 @@ export async function chatRoutes(fastify: FastifyInstance) {
                     return reply.code(403).send({ error: 'Access denied' });
                 }
 
-                const messages = await chatRepo.getSessionMessages(sessionId);
-                const activeTask = await chatRepo.getSessionActiveTask(sessionId);
+                const [messages, activeTask] = await Promise.all([
+                    chatRepo.getSessionMessages(sessionId),
+                    chatRepo.getSessionActiveTask(sessionId)
+                ]);
 
                 return reply.send({
                     success: true,

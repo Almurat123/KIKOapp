@@ -2,6 +2,7 @@ import { Tool } from '../../../tooling/registry.js';
 import * as dunePnlService from '../../../services/dunePnlService.js';
 import { logger } from '../../../utils/logger.js';
 import { LogCode } from '../../../config/logRegistry.js';
+import { resolveChainInput } from '../../../utils/chainParam.js';
 
 function normalizePnlChain(chain: string): string {
     const lower = chain.toLowerCase();
@@ -38,6 +39,10 @@ export const AnalyzeWalletPnlTool: Tool = {
                     type: 'string',
                     description: 'Blockchain network (ethereum, base, bnb, polygon, arbitrum, optimism). If not provided, will check Ethereum or the current context chain.',
                 },
+                chain_id: {
+                    type: 'number',
+                    description: 'Numeric chain ID (preferred when available), e.g. 1, 8453, 56.',
+                },
                 days: {
                     type: 'number',
                     description: 'Time range for analysis in days: 1 (=24H), 7 (=7D), 30 (=30D). Default is 30.',
@@ -51,7 +56,14 @@ export const AnalyzeWalletPnlTool: Tool = {
     handler: async (args, context) => {
         try {
             const address = args.address;
-            const chain = args.chain || 'ethereum';
+            const resolved = resolveChainInput(args, {
+                contextChainId: context?.chainId,
+                defaultChain: 'eth',
+            });
+            if (resolved.invalidChainId) {
+                return { error: `Unsupported chain_id: ${String(args.chain_id)}` };
+            }
+            const chain = resolved.chain;
             const days = args.days ?? 30;
 
             logger.info(LogCode.AI_TOOL_USED, `Analyzing PNL via Dune`, { address, chain, days });

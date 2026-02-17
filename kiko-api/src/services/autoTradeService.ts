@@ -325,7 +325,6 @@ export async function handleSwapDetected(
         getTokenInfo(swap.tokenIn, chainId, { priority: 'high', rpcStrategy: 'fast', fastMode: true }),
         getTokenInfo(swap.tokenOut, chainId, { priority: 'high', rpcStrategy: 'fast', fastMode: true }),
         getNativeTokenPriceUsd(chainId),
-        detectLaunchpadToken(swap.tokenOut, chainId),
     ]).catch(() => undefined);
 
     const chainConfig = getChainConfig(chainId);
@@ -1600,6 +1599,9 @@ async function processSingleUserBuy(
         });
         let txHash = '';
 
+        // Resolve launchpad once for routing (EVM) and post-trade Judge analysis
+        const launchpadResult = turboMode ? null : await resolveLaunchpad(launchpadPromise, chainId);
+
         if (chainId === 900) {
             // Dynamically fetch Solana wallet from Privy (not from database field)
             let solAddress: string | null = null;
@@ -1658,11 +1660,7 @@ async function processSingleUserBuy(
 
         } else {
             // EVM Logic - nativePrice already fetched at top
-
-
-            // SPECIALIZED ZORA INTERACTION - Use async launchpad detection (non-blocking)
-            // Turbo mode skips launchpad detection on critical path for lower latency.
-            const launchpad = turboMode ? null : await resolveLaunchpad(launchpadPromise, chainId);
+            const launchpad = launchpadResult;
             const isFastExecutionEnabled = userSettings?.fastSwapMode === true;
 
             let useStandardSwap = true;
@@ -1956,7 +1954,8 @@ async function processSingleUserBuy(
                 tokenToBuy,
                 chainId,
                 targetWallet,
-                config.buyAmountUsd  // Pass real user amount for proper L1-L4 risk assessment
+                config.buyAmountUsd,  // Pass real user amount for proper L1-L4 risk assessment
+                launchpadResult?.provider
             );
             judgeDecisionId = analysis.judgeDecisionId ?? null;
 

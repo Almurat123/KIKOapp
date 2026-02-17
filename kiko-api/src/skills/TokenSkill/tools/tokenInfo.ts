@@ -1,6 +1,7 @@
 import { Tool } from '../../../tooling/registry.js';
 import * as geckoTerminal from '../../../services/geckoTerminal.js';
 import * as dexscreener from '../../../services/dexscreener.js';
+import { resolveChainInput } from '../../../utils/chainParam.js';
 
 export const GetTokenInfoTool: Tool = {
     definition: {
@@ -17,52 +18,49 @@ export const GetTokenInfoTool: Tool = {
                     type: 'string',
                     description: 'The blockchain network ID (e.g. eth, solana, base, bsc)',
                     enum: ['eth', 'solana', 'base', 'bsc', 'arbitrum', 'polygon', 'optimism', 'avalanche']
+                },
+                chain_id: {
+                    type: 'number',
+                    description: 'Numeric chain ID (preferred when available), e.g. 1, 8453, 56, 900',
                 }
             },
-            required: ['address', 'chain']
+            required: ['address']
         }
     },
-    handler: async (args) => {
+    handler: async (args, context) => {
         try {
             // Map common chain names if necessary, but GeckoTerminal uses standard slugs mostly
             // 1. Try GeckoTerminal first
             // 3. Check if it is a launchpad token
             const { detectLaunchpadToken } = await import('../../../services/ai/launchpadDetector.js');
-            if (!args.chain) {
-                return { error: 'Chain is required' };
+            const { chain, chainId, invalidChainId } = resolveChainInput(args, {
+                contextChainId: context?.chainId,
+                defaultChain: 'eth',
+            });
+            if (invalidChainId) {
+                return { error: `Unsupported chain_id: ${String(args.chain_id)}` };
             }
-
-            const chainIdMap: Record<string, number> = {
-                'eth': 1, 'ethereum': 1,
-                'base': 8453,
-                'bsc': 56,
-                'arbitrum': 42161,
-                'polygon': 137,
-                'optimism': 10,
-                'avalanche': 43114,
-                'solana': 900
-            };
-            const chainId = chainIdMap[args.chain.toLowerCase()] || 8453;
-            const launchpad = await detectLaunchpadToken(args.address, chainId);
+            const resolvedChainId = chainId ?? 1;
+            const launchpad = await detectLaunchpadToken(args.address, resolvedChainId);
 
             // 1. Try GeckoTerminal first
             let tokenData: any = null;
             try {
-                tokenData = await geckoTerminal.getTokenDetails(args.chain, args.address);
+                tokenData = await geckoTerminal.getTokenDetails(chain, args.address);
             } catch (gtError) {
                 console.warn('[GetTokenInfo] GeckoTerminal failed, trying fallback...', gtError);
             }
 
             // 2. Fallback to DexScreener
             console.log('[GetTokenInfo] Attempting DexScreener fallback...');
-            const dexData = await dexscreener.getTokenDetails(args.chain, args.address);
+            const dexData = await dexscreener.getTokenDetails(chain, args.address);
 
             if (dexData) {
                 const launchpadProvider = (launchpad as any)?.provider;
                 return {
                     source: 'DexScreener',
                     ...dexData,
-                    chainId: chainId, // Ensure numeric chainId
+                    chainId: resolvedChainId, // Ensure numeric chainId
                     launchpad,
                     isLaunchpad: !!launchpad,
                     launchpadProvider,
@@ -83,7 +81,7 @@ export const GetTokenInfoTool: Tool = {
                 const launchpadProvider = (launchpad as any)?.provider;
                 return {
                     ...tokenData,
-                    chainId: chainId, // Ensure numeric chainId
+                    chainId: resolvedChainId, // Ensure numeric chainId
                     launchpad,
                     isLaunchpad: !!launchpad,
                     launchpadProvider,
@@ -103,7 +101,7 @@ export const GetTokenInfoTool: Tool = {
             if (launchpad) {
                 return {
                     address: args.address,
-                    chainId,
+                    chainId: resolvedChainId,
                     launchpad,
                     isLaunchpad: true,
                     launchpadProvider: (launchpad as any)?.provider,

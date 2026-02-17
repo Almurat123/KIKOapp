@@ -1,5 +1,6 @@
 import { Tool, ToolContext } from '../../../tooling/registry.js';
 import { getTrendingTokens as getCachedTrendingTokens } from '../../../repositories/tokenRepository.js';
+import { resolveChainInput } from '../../../utils/chainParam.js';
 
 export const GetTrendingTokensTool: Tool = {
     definition: {
@@ -13,18 +14,28 @@ export const GetTrendingTokensTool: Tool = {
                     description: 'The blockchain network (e.g. eth, base, solana, bsc, arbitrum)',
                     default: 'eth'
                 },
+                chain_id: {
+                    type: 'number',
+                    description: 'Numeric chain ID (preferred when available), e.g. 1, 8453, 56, 900'
+                },
                 limit: {
                     type: 'number',
                     description: 'Number of results to return (default 10, max 20)',
                     default: 10
                 }
-            },
-            required: ['chain']
+            }
         }
     },
     handler: async (args, context) => {
         try {
-            const chain = args.chain || 'eth';
+            const resolved = resolveChainInput(args, {
+                contextChainId: (context as ToolContext | undefined)?.chainId,
+                defaultChain: 'eth',
+            });
+            if (resolved.invalidChainId) {
+                return { error: `Unsupported chain_id: ${String((args as any).chain_id)}` };
+            }
+            const chain = resolved.chain;
             const limit = Math.min(args.limit || 10, 20); // Cap at 20 for this heavy operation
             console.log(`[GetTrendingTokens] Fetching trending tokens for ${chain} from cached database...`);
 

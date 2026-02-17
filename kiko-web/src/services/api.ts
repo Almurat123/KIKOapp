@@ -832,15 +832,30 @@ const CHAT_API_BASE = resolveChatApiBase();
 async function chatFetch<T>(endpoint: string, options?: RequestInit): Promise<T> {
     const doRequest = async (token: string | null) => {
         const appKey = import.meta.env.VITE_APP_KEY || '';
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 15000);
+        const externalSignal = options?.signal;
+        if (externalSignal) {
+            if (externalSignal.aborted) {
+                clearTimeout(timeoutId);
+                controller.abort();
+            } else {
+                externalSignal.addEventListener('abort', () => {
+                    clearTimeout(timeoutId);
+                    controller.abort();
+                }, { once: true });
+            }
+        }
         return fetch(`${CHAT_API_BASE}${endpoint}`, {
             ...options,
+            signal: controller.signal,
             headers: {
                 ...(appKey ? { 'X-App-Key': appKey } : {}),
                 ...(options?.body ? { 'Content-Type': 'application/json' } : {}),
                 ...(token ? { Authorization: `Bearer ${token}` } : {}),
                 ...options?.headers,
             },
-        });
+        }).finally(() => clearTimeout(timeoutId));
     };
 
     try {
@@ -860,7 +875,11 @@ async function chatFetch<T>(endpoint: string, options?: RequestInit): Promise<T>
         }
 
         return await response.json();
-    } catch (error) {
+    } catch (error: any) {
+        if (error?.name === 'AbortError') {
+            logger.error(`[chatApi] Timeout ${endpoint}`);
+            throw new Error('Chat request timeout. Please try again.');
+        }
         logger.error(`[chatApi] Error ${endpoint}:`, error);
         throw error;
     }
