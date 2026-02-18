@@ -76,6 +76,7 @@ export interface Token {
 }
 
 export interface SwapState {
+    status: SwapStatus;
     tokenIn: Token | null;
     tokenOut: Token | null;
     amountIn: string;
@@ -87,7 +88,48 @@ export interface SwapState {
     priceImpactUSD: number;
     gasCostUSD: number;
     isApproved: boolean;
+    lastTxHash?: string;
     availableQuotes?: SwapQuote[];
     selectedDex?: string;
     mevProtection?: any;
+}
+
+export type SwapStatus =
+    | 'idle'
+    | 'quoting'
+    | 'quote_ready'
+    | 'approval_checking'
+    | 'needs_approval'
+    | 'submitting'
+    | 'success'
+    | 'error';
+
+export interface SwapDisplayInfo {
+    status: SwapStatus;
+    tokenInSymbol: string;
+    tokenOutSymbol: string;
+    tokenInEmoji: string;
+    tokenOutEmoji: string;
+    amountIn: string;
+    amountOut: string;
+    amountInUSD: string;
+    amountOutUSD: string;
+    isLoading: boolean;
+    isExecuting: boolean;
+    error: string | null;
+    isApproved: boolean;
+    needsApproval: boolean;
+    actionLabel: string;
+    isActionDisabled: boolean;
+    priceImpact: number;
+    gasEstimate: number;
+    gasCostUSD: string;
+    minAmountOut: string;
+    dexName: string;
+    userBalance: string;
+    isBalanceLoading: boolean;
+    hasEnoughBalance: boolean;
+    availableQuotes: SwapQuote[];
+    selectedDex?: string;
+    mevProtection: any;
 }

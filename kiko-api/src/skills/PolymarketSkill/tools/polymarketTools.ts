@@ -154,18 +154,51 @@ export const SearchPolymarketTool: Tool = {
     handler: async (args: { query: string; limit?: number }) => {
         const limit = Math.min(args.limit || 10, 20);
         const result = await searchEvents(args.query, limit);
+        const query = String(args.query || '').trim();
+        const queryTerms = query
+            .toLowerCase()
+            .split(/[^a-z0-9$]+/i)
+            .map(t => t.trim())
+            .filter(t => t.length >= 3);
+
+        const mapped = result.events.map(e => ({
+            id: e.id,
+            title: e.title,
+            vol24h: `$${e.volume.toLocaleString()}`,
+            endDate: e.endDate.slice(0, 10)
+        }));
+
+        const related = queryTerms.length === 0
+            ? mapped
+            : mapped.filter((e) => {
+                const title = String(e.title || '').toLowerCase();
+                return queryTerms.some(term => title.includes(term));
+            });
+
+        if (mapped.length === 0 || related.length === 0) {
+            return {
+                source: 'Polymarket',
+                query,
+                exactMatch: false,
+                results: [],
+                events: [],
+                count: 0,
+                suggestion: 'No markets found matching your query. The market may not exist on Polymarket.'
+            };
+        }
+
+        const exactMatch = related.some(e => String(e.title || '').toLowerCase() === query.toLowerCase());
 
         return {
             source: 'Polymarket',
-            query: args.query,
-            count: result.events.length,
-            events: result.events.map(e => ({
-                id: e.id,
-                title: e.title,
-                vol24h: `$${e.volume.toLocaleString()}`,
-                endDate: e.endDate.slice(0, 10)
-            })),
-            note: 'Use get_polymarket_event with an ID to see detailed odds.'
+            query,
+            exactMatch,
+            count: related.length,
+            results: related,
+            events: related,
+            note: exactMatch
+                ? 'Use get_polymarket_event with an ID to see detailed odds.'
+                : 'No exact title match found. You can refine the query or provide a market link.'
         };
     },
     permissions: 'public'

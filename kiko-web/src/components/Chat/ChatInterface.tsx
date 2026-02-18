@@ -178,9 +178,28 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
         messagesRef.current = messages;
     }, [messages]);
 
-    // Derived streaming states from context.activeTask
-    const isThinking = !!currentConv?.activeTask && (currentConv.activeTask.status === 'running' || currentConv.activeTask.status === 'pending') && !messages.some(m => m.role === 'assistant' && (m.status as string) === 'streaming' && m.content.length > 0);
-    const isStreaming = !!currentConv?.activeTask && ((currentConv.activeTask.status as any) === 'streaming' || messages.some(m => m.role === 'assistant' && (m.status as string) === 'streaming' && m.content.length > 0));
+    // Derived streaming states from message + task state.
+    // Do NOT require activeTask for streaming detection, otherwise a premature
+    // task_status:done can briefly hide Thinking while chunks are still arriving.
+    const hasStreamingAssistant = messages.some(
+        m => m.role === 'assistant' && (m.status as string) === 'streaming'
+    );
+    const hasStreamingAssistantContent = messages.some(
+        m =>
+            m.role === 'assistant' &&
+            (m.status as string) === 'streaming' &&
+            (((m.content || '').length > 0) || ((m.reasoning_content || '').length > 0))
+    );
+    const activeTaskStatus = (currentConv?.activeTask?.status as string | undefined) || '';
+    const hasActiveTaskInProgress =
+        activeTaskStatus === 'queued' ||
+        activeTaskStatus === 'pending' ||
+        activeTaskStatus === 'running' ||
+        activeTaskStatus === 'streaming';
+    const isStreaming = hasStreamingAssistantContent || activeTaskStatus === 'streaming';
+    const isThinking =
+        !isStreaming &&
+        (hasActiveTaskInProgress || (hasStreamingAssistant && !hasStreamingAssistantContent));
     const activeTaskId = currentConv?.activeTask?.id || null;
 
 
@@ -553,13 +572,15 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                         };
 
                         if (conversationId) {
-                            const idx = messages.findIndex(m => m.id === targetMessageId);
+                            const currentMessages = messagesRef.current;
+                            const idx = currentMessages.findIndex(m => m.id === targetMessageId);
                             let updated: Message[];
                             if (idx >= 0) {
-                                updated = messages.map((m, i) => i === idx ? { ...m, ...txCardMsg } : m);
+                                updated = currentMessages.map((m, i) => i === idx ? { ...m, ...txCardMsg } : m);
                             } else {
-                                updated = [...messages, txCardMsg];
+                                updated = [...currentMessages, txCardMsg];
                             }
+                            messagesRef.current = updated;
                             // card_displayed: activeTask cleared with messages
                             updateConversation(conversationId, {
                                 messages: updated,
@@ -648,7 +669,9 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
                         const targetMessageId = event.data.message_id || event.data.messageId;
                         if (conversationId) {
-                            let updated = [...messages];
+                            // CRITICAL: use ref snapshot, not stale closure `messages`,
+                            // otherwise late card events can overwrite the conversation with old state.
+                            let updated = [...messagesRef.current];
                             const targetIdx = targetMessageId ? updated.findIndex(m => m.id === targetMessageId) : -1;
                             if (targetIdx !== -1) {
                                 updated = updated.map((m, idx) => idx === targetIdx ? {
@@ -668,6 +691,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                                     } : m);
                                 }
                             }
+                            messagesRef.current = updated;
                             updateConversation(conversationId, { messages: updated });
                         }
                     } else if (['show_chart_card', 'show_transaction_status_card', 'show_cross_chain_status_card'].includes(normalizedAction.type)) {

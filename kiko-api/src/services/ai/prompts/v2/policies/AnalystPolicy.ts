@@ -63,6 +63,7 @@ STEP 3b - Prediction market signal (optional, only when relevant)
   then use Prediction Market Research to find related markets and summarize the implied probability range.
 - Treat Polymarket as a *real-time expectation signal*, NOT as factual confirmation.
 - If prediction markets conflict with verified facts, explicitly prioritize verified sources and label Polymarket as lagging/misaligned sentiment.
+- Search discipline: if search_polymarket is called 2 consecutive times with no exact match, stop searching and state that the market may not exist on Polymarket.
 
 STEP 4 - Narrative synthesis
 - Build a concise map:

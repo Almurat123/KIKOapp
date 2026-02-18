@@ -97,6 +97,7 @@ const THINKING_TOOL_ALLOWLIST = new Set<string>([
     'get_market_activity',
     'get_whale_watch',
     'get_polymarket_trader_stats',
+    'x_search',
     'external_web_search'
 ]);
 
@@ -114,9 +115,9 @@ function getApiKey(model: string): string {
 /**
  * Execute tool calls and return results
  */
-async function executeToolCalls(toolCalls: any[]): Promise<{ toolMessages: ChatMessage[]; citations: string[]; clientActions: any[] }> {
+async function executeToolCalls(toolCalls: any[]): Promise<{ toolMessages: ChatMessage[]; citations: any[]; clientActions: any[] }> {
     const toolMessages: any[] = [];
-    const allCitations: string[] = [];
+    const allCitations: any[] = [];
     const clientActions: any[] = [];
 
     for (const toolCall of toolCalls) {
@@ -147,6 +148,10 @@ async function executeToolCalls(toolCalls: any[]): Promise<{ toolMessages: ChatM
                 timeoutPromise
             ]) as any;
 
+            if (result && typeof result === 'object' && Array.isArray(result.citations)) {
+                allCitations.push(...result.citations);
+            }
+
             // Check for client action (Protocol: tool returns { __client_action: ... })
             if (result && typeof result === 'object' && result.__client_action) {
                 logger.info(LogCode.AI_TOOL_USED, `[AI Routes] Tool ${functionName} returned client action`);
@@ -164,9 +169,6 @@ async function executeToolCalls(toolCalls: any[]): Promise<{ toolMessages: ChatM
 
             // Special handling for external web search citations
             if (functionName === 'external_web_search' && result && typeof result === 'object' && result.citations) {
-                if (Array.isArray(result.citations)) {
-                    allCitations.push(...result.citations);
-                }
                 result = result.results || JSON.stringify(result);
             }
 

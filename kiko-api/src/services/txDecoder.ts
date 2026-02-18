@@ -48,14 +48,40 @@ const DEX_SIGNATURES = {
     exactInputV3Alt: '0xb858183f',
     exactOutputSingleV3Alt: '0x5023b4df',
     exactOutputV3Alt: '0x09b81346',
+    // Aerodrome/Base router variants observed in production traces
+    aeroRouteA: '0x0ddd588d',
+    aeroRouteB: '0xcac88ea9',
+    aeroRouteC: '0x95435ac9',
+    aeroRouteD: '0x24856bc3',
+    aeroRouteE: '0xc6b7f1b6',
+    aeroRouteF: '0x7129bae2',
+    aeroRouteG: '0x903638a4',
+    aeroRouteH: '0x088890dc',
+    aeroRouteI: '0x5c20f68c',
+    aeroRouteJ: '0xf2c42696',
+    aeroRouteK: '0x1dcee3c8',
+    aeroRouteL: '0x0f27c5c1',
+    aeroRouteM: '0xe9ae5c53',
+    aeroRouteN: '0x73fc4457',
+    aeroRouteO: '0xc7a76969',
+    aeroRouteP: '0x1c5cf072',
+    aeroRouteQ: '0x09c182c3',
+    aeroRouteR: '0x4dbe83ed',
+    aeroRouteS: '0xbc61b9ce',
 };
 
 
 
 // ERC20 Transfer event signature
 const TRANSFER_EVENT = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
-const V2_SWAP_EVENT = '0xd78ad95fa46c994b6551d0da85fc275fe613c2f8a6a7256f1b4c5db0b03d9e10';
+// UniswapV2/PancakeV2 Swap(address,uint256,uint256,uint256,uint256,address)
+const V2_SWAP_EVENT = '0xd78ad95fa46c994b6551d0da85fc275fe613ce37657fb8d5e3d130840159d822';
+// Aerodrome/Velodrome-style pair swap topic seen on Base launchpad routes.
+const V2_SWAP_EVENT_ALT = '0xb3e2773606abfd36b5bd91394b3a54d1398336c65005baf7bf7a05efeffaf75b';
 const V3_SWAP_EVENT = '0xc42079f94a6350d7e6235f29174924f928cc2ac818eb64fed8004e115fbcca67';
+// Pancake/Algebra-style extended V3 swap event:
+// Swap(address,address,int256,int256,uint160,uint128,int24,uint128,uint128)
+const V3_SWAP_EVENT_EXT = '0x19b47279256b2a23a1665c810c8d55a1758940ee09377d4f8d26497a3577dc83';
 const V4_SWAP_EVENT = ethers.id('Swap(bytes32,address,int128,int128,uint160,uint128,int24,uint24)');
 const V4_INIT_EVENT = ethers.id('Initialize(bytes32,address,address,uint24,int24,address,uint160,int24)');
 const USER_OP_EVENT = '0x49628fd1471006c1482da88028e9ce4dbb080b815c9b0344d39e5a8e6ec1419f';
@@ -175,6 +201,43 @@ function inferSwapFromPoolTransfers(
         amountIn: tokenInEntry[1].in,
         amountOut: tokenOutEntry[1].out
     };
+}
+
+function inferSwapFromAnyPoolLikeAddress(
+    logs: Array<{ address: string; topics: string[]; data: string }>
+): { tokenIn: string; tokenOut: string; amountIn: bigint; amountOut: bigint; poolAddress: string } | null {
+    const transfers = extractTransfersFromLogs(logs);
+    if (transfers.length < 2) return null;
+
+    // Find addresses that both receive and send token transfers in the same tx.
+    const flow = new Map<string, { in: number; out: number }>();
+    for (const t of transfers) {
+        const to = t.to.toLowerCase();
+        const from = t.from.toLowerCase();
+        if (to !== ZERO_ADDRESS) {
+            const entry = flow.get(to) || { in: 0, out: 0 };
+            entry.in += 1;
+            flow.set(to, entry);
+        }
+        if (from !== ZERO_ADDRESS) {
+            const entry = flow.get(from) || { in: 0, out: 0 };
+            entry.out += 1;
+            flow.set(from, entry);
+        }
+    }
+
+    // Prefer addresses with strongest bi-directional transfer footprint.
+    const candidates = [...flow.entries()]
+        .filter(([, v]) => v.in > 0 && v.out > 0)
+        .sort((a, b) => (b[1].in + b[1].out) - (a[1].in + a[1].out));
+
+    for (const [candidate] of candidates) {
+        const inferred = inferSwapFromPoolTransfers(logs, candidate);
+        if (inferred) {
+            return { ...inferred, poolAddress: candidate };
+        }
+    }
+    return null;
 }
 
 function normalizeCurrencyAddress(address: string): string {
@@ -461,10 +524,10 @@ async function decodeSwapFromPoolEvents(
 
     for (const log of logs) {
         const topic0 = log.topics?.[0]?.toLowerCase();
-        if (topic0 === V3_SWAP_EVENT) {
+        if (topic0 === V3_SWAP_EVENT || topic0 === V3_SWAP_EVENT_EXT) {
             lastSwapLog = log;
             swapType = 'v3';
-        } else if (topic0 === V2_SWAP_EVENT) {
+        } else if (topic0 === V2_SWAP_EVENT || topic0 === V2_SWAP_EVENT_ALT) {
             lastSwapLog = log;
             swapType = 'v2';
         }
@@ -495,10 +558,24 @@ async function decodeSwapFromPoolEvents(
 
     if (swapType === 'v3') {
         try {
-            const iface = new ethers.Interface([
-                'event Swap(address indexed sender, address indexed recipient, int256 amount0, int256 amount1, uint160 sqrtPriceX96, uint128 liquidity, int24 tick)',
-            ]);
-            const parsed = iface.parseLog({ topics: lastSwapLog.topics, data: lastSwapLog.data });
+            // Support both canonical UniswapV3 Swap and extended Pancake/Algebra Swap.
+            const ifaces = [
+                new ethers.Interface([
+                    'event Swap(address indexed sender, address indexed recipient, int256 amount0, int256 amount1, uint160 sqrtPriceX96, uint128 liquidity, int24 tick)',
+                ]),
+                new ethers.Interface([
+                    'event Swap(address indexed sender, address indexed recipient, int256 amount0, int256 amount1, uint160 sqrtPriceX96, uint128 liquidity, int24 tick, uint128 protocolFeesToken0, uint128 protocolFeesToken1)',
+                ]),
+            ];
+            let parsed: ethers.LogDescription | null = null;
+            for (const iface of ifaces) {
+                try {
+                    parsed = iface.parseLog({ topics: lastSwapLog.topics, data: lastSwapLog.data });
+                    if (parsed) break;
+                } catch {
+                    // Try next ABI variant.
+                }
+            }
             if (!parsed) return null;
             const amount0 = BigInt(parsed.args.amount0.toString());
             const amount1 = BigInt(parsed.args.amount1.toString());
@@ -545,10 +622,23 @@ async function decodeSwapFromPoolEvents(
 
     if (swapType === 'v2') {
         try {
-            const iface = new ethers.Interface([
-                'event Swap(address indexed sender, uint256 amount0In, uint256 amount1In, uint256 amount0Out, uint256 amount1Out, address indexed to)',
-            ]);
-            const parsed = iface.parseLog({ topics: lastSwapLog.topics, data: lastSwapLog.data });
+            const ifaces = [
+                new ethers.Interface([
+                    'event Swap(address indexed sender, uint256 amount0In, uint256 amount1In, uint256 amount0Out, uint256 amount1Out, address indexed to)',
+                ]),
+                new ethers.Interface([
+                    'event Swap(address indexed sender, address indexed to, uint256 amount0In, uint256 amount1In, uint256 amount0Out, uint256 amount1Out)',
+                ]),
+            ];
+            let parsed: ethers.LogDescription | null = null;
+            for (const iface of ifaces) {
+                try {
+                    parsed = iface.parseLog({ topics: lastSwapLog.topics, data: lastSwapLog.data });
+                    if (parsed) break;
+                } catch {
+                    // Try next ABI variant.
+                }
+            }
             if (!parsed) return null;
             const amount0In = BigInt(parsed.args.amount0In.toString());
             const amount1In = BigInt(parsed.args.amount1In.toString());
@@ -643,6 +733,20 @@ export function getDexName(routerAddress: string, chainId: number): string {
             '0x6ff5693b99212da76ad316178a184ab56d299b43': 'Uniswap Universal Router (v4)',
             '0x498581ff718922c3f8e6a244956af099b2652b2b': 'Uniswap v4 PoolManager',
             '0xcf77a3ba9a5ca399b7c97c74d54e5b1beb874e43': 'Aerodrome Router',
+            '0x0b75c6ec0b855abb3b0e01c84ec1122e982c1a79': 'Aerodrome Router',
+            '0x278d858f05b94576c1e6f73285886876ff6ef8d2': 'Aerodrome Router',
+            '0x6cb442acf35158d5eda88fe602221b67b400be3e': 'Aerodrome Router',
+            '0xecdbefd25ff60725cb0ee3419706b0d42137fa41': 'Aerodrome Router',
+            '0x013bb8a204499523ddf717e0abaa14e6dc849060': 'Aerodrome Router',
+            '0xf9cfb8a62f50e10adde5aa888b44cf01c5957055': 'Aerodrome Router',
+            '0x4409921ae43a39a11d90f7b7f96cfd0b8093d9fc': 'Aerodrome Router',
+            '0x6df1c91424f79e40e33b1a48f0687b666be71075': 'Aerodrome Router',
+            '0xc681a700adf9821461a935acb56422b2cbd926b8': 'Aerodrome Router',
+            '0x21e99b325d53fe3d574ac948b9cb1519da03e518': 'Aerodrome Router',
+            '0xf57129eb376998de8513ea4e996c1334930b02cb': 'Aerodrome Router',
+            '0x5e766616aabfb588e23a8ea854e9dbd1042affd3': 'Aerodrome Router',
+            '0x663dc15d3c1ac63ff12e45ab68fea3f0a883c251': 'Aerodrome Router',
+            '0xbc0663ef63add180609944c58ba7d4851890ca45': 'Aerodrome Router',
             '0x420dd381b31aef6683db6b902084cb0ffece40da': 'Aerodrome Slipstream Router',
             '0x4752ba5dbc23f44d87826276bf6fd6b1c372ad24': 'BaseSwap Router',
             '0x1111111254eeb25477b68fb85ed929f73a960582': '1inch Router',
@@ -870,12 +974,20 @@ export async function parseSwapTransaction(
     }
 
     const v2SwapTopic = V2_SWAP_EVENT.toLowerCase();
+    const v2SwapAltTopic = V2_SWAP_EVENT_ALT.toLowerCase();
     const v3SwapTopic = V3_SWAP_EVENT.toLowerCase();
     const v4SwapTopic = V4_SWAP_EVENT.toLowerCase();
     const infinityClSwapTopic = INFINITY_CL_SWAP_EVENT.toLowerCase();
     const infinityBinSwapTopic = INFINITY_BIN_SWAP_EVENT.toLowerCase();
-    const hasV2Swap = receipt.logs.some((log) => log.topics?.[0]?.toLowerCase() === v2SwapTopic);
-    const hasV3Swap = receipt.logs.some((log) => log.topics?.[0]?.toLowerCase() === v3SwapTopic);
+    const hasV2Swap = receipt.logs.some((log) => {
+        const topic0 = log.topics?.[0]?.toLowerCase();
+        return topic0 === v2SwapTopic || topic0 === v2SwapAltTopic;
+    });
+    const v3SwapExtTopic = V3_SWAP_EVENT_EXT.toLowerCase();
+    const hasV3Swap = receipt.logs.some((log) => {
+        const topic0 = log.topics?.[0]?.toLowerCase();
+        return topic0 === v3SwapTopic || topic0 === v3SwapExtTopic;
+    });
     const hasV4Swap = receipt.logs.some((log) => log.topics?.[0]?.toLowerCase() === v4SwapTopic);
     const hasInfinitySwap = receipt.logs.some((log) => {
         const topic0 = log.topics?.[0]?.toLowerCase();
@@ -1033,6 +1145,35 @@ export async function parseSwapTransaction(
             });
         }
         return poolSwap;
+    }
+
+    // 4) Router-intent fallback: infer pool-like token flow when router tx has no explicit swap topic.
+    if (hasDexIntentEvidence) {
+        const inferred = inferSwapFromAnyPoolLikeAddress(receipt.logs);
+        if (inferred) {
+            const swap: DecodedSwap = {
+                tokenIn: inferred.tokenIn,
+                tokenOut: inferred.tokenOut,
+                amountIn: inferred.amountIn.toString(),
+                amountOut: inferred.amountOut.toString(),
+                router: tx.to,
+                dexName: getDexName(tx.to, chainId),
+                txHash: tx.hash,
+                resolvedPoolHint: {
+                    kind: 'v2',
+                    dex: chainId === 56 ? 'pancake' : 'aerodrome',
+                    poolAddress: inferred.poolAddress
+                }
+            };
+            if (PROFILE) {
+                logger.info(LogCode.DEC_SWAP_DETECTION, '[Profile] parseSwapTransaction', {
+                    tx: tx.hash?.slice(0, 12),
+                    path: 'pool_like_infer',
+                    totalMs: Date.now() - t0
+                });
+            }
+            return swap;
+        }
     }
 
     // OLD: Check if it's a swap transaction based on method signature

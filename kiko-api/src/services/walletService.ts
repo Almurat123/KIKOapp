@@ -1,6 +1,6 @@
 import { getWalletTransactions as fetchAlchemyTransactions, WalletBalance, getPortfolio, getNativeBalances } from './alchemy.js';
 import prisma from '../db/prisma.js';
-import { getNativeBalance } from './rpcManager.js';
+import { getNativeBalance, getErc20Balance, getErc20Decimals } from './rpcManager.js';
 import { ethers } from 'ethers';
 import { get as cacheGet, set as cacheSet } from '../cache/cacheClient.js';
 
@@ -19,13 +19,6 @@ function accessRedisKey(cacheKey: string): string {
     return `wallet:access:${cacheKey}`;
 }
 
-const TRUSTED_SYMBOLS = new Set([
-    'USDC', 'USDT', 'DAI', 'USDBC', 'USDbC',
-    'ETH', 'WETH', 'BTC', 'WBTC',
-    'MATIC', 'WMATIC', 'SOL', 'BNB',
-    'POL', 'OP', 'ARB'
-]);
-const MIN_VALUE_USD = 0.05; // Lowered to $0.05 to catch small but real balances (e.g. dust)
 const SPAM_PATTERNS = [
     't.me', 'telegram', 'reward', 'airdrop', 'claim',
     'visit', 'bonus', 'promo', 'http', 'www', '.com',
@@ -36,7 +29,9 @@ function filterSpamTokens(balance: WalletBalance): WalletBalance {
     if (!balance.tokens || balance.tokens.length === 0) return balance;
 
     const filteredTokens = balance.tokens.filter((t: any) => {
-        const symbol = (t.symbol || '').toUpperCase();
+        const tokenBalanceNum = parseFloat(String(t.tokenBalance || '0'));
+        if (!Number.isFinite(tokenBalanceNum) || tokenBalanceNum <= 0) return false;
+
         const name = (t.name || '').toString();
         const symbolRaw = (t.symbol || '').toString();
 
@@ -45,20 +40,19 @@ function filterSpamTokens(balance: WalletBalance): WalletBalance {
         const lowerName = name.toLowerCase();
         if (SPAM_PATTERNS.some(p => lowerSymbol.includes(p) || lowerName.includes(p))) return false;
 
-        // 2. Always keep trusted tokens/stables regardless of value
-        if (TRUSTED_SYMBOLS.has(symbol)) return true;
-
-        // 3. Keep tokens with meaningful USD value
-        if (t.valueUsd && t.valueUsd >= MIN_VALUE_USD) return true;
-
-        // 4. If legacy 'price' field exists and value > threshold
-        const usd = typeof t.valueUsd === 'number' ? t.valueUsd : (parseFloat(t.tokenBalance) * (t.price || 0));
-        if (usd >= MIN_VALUE_USD) return true;
-
-        return false;
+        // Balance-first behavior: keep non-spam tokens with positive balances.
+        return true;
     });
 
     return { ...balance, tokens: filteredTokens };
+}
+
+function isNativeTokenAddress(tokenAddress: string, chain: string): boolean {
+    const lower = String(tokenAddress || '').toLowerCase();
+    if (chain === 'solana') {
+        return lower === 'so11111111111111111111111111111111111111111' || lower === 'so11111111111111111111111111111111111111112';
+    }
+    return lower === '0x0000000000000000000000000000000000000000' || lower === '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
 }
 
 export const walletService = {
@@ -91,26 +85,29 @@ export const walletService = {
     /**
      * Get real-time balance for all supported chains
      */
-    async getAllChainBalances(address: string, solanaAddress?: string): Promise<Record<string, WalletBalance>> {
+    async getAllChainBalances(address: string, solanaAddress?: string, options?: { forceRefresh?: boolean }): Promise<Record<string, WalletBalance>> {
         const chains = ['eth', 'base', 'arbitrum', 'optimism', 'polygon', 'bsc', 'solana'];
         const cacheKey = `${address.toLowerCase()}::${(solanaAddress || '').toLowerCase()}`;
+        const forceRefresh = options?.forceRefresh === true;
         const cached = allBalancesCache.get(cacheKey);
-        if (cached && Date.now() - cached.timestamp < ALL_BALANCES_CACHE_TTL_MS) {
+        if (!forceRefresh && cached && Date.now() - cached.timestamp < ALL_BALANCES_CACHE_TTL_MS) {
             return cached.data;
         }
-        const redisCached = await cacheGet(allBalancesRedisKey(cacheKey)).catch(() => null);
-        if (redisCached) {
-            try {
-                const parsed = JSON.parse(redisCached) as Record<string, WalletBalance>;
-                allBalancesCache.set(cacheKey, { timestamp: Date.now(), data: parsed });
-                return parsed;
-            } catch {
-                // ignore redis parse error and continue
+        if (!forceRefresh) {
+            const redisCached = await cacheGet(allBalancesRedisKey(cacheKey)).catch(() => null);
+            if (redisCached) {
+                try {
+                    const parsed = JSON.parse(redisCached) as Record<string, WalletBalance>;
+                    allBalancesCache.set(cacheKey, { timestamp: Date.now(), data: parsed });
+                    return parsed;
+                } catch {
+                    // ignore redis parse error and continue
+                }
             }
         }
 
         const inflight = allBalancesInflight.get(cacheKey);
-        if (inflight) return inflight;
+        if (!forceRefresh && inflight) return inflight;
 
         // [Change]: Use getPortfolio instead of getNativeBalances to ensure all tokens are fetched
         // [Ref]: User request to fix missing tokens in balance view
@@ -136,6 +133,45 @@ export const walletService = {
         } finally {
             allBalancesInflight.delete(cacheKey);
         }
+    },
+
+    /**
+     * Get balance for a specific token address, bypassing portfolio-level token filtering.
+     */
+    async getTokenBalance(address: string, chain: string, tokenAddress: string, fallbackDecimals?: number): Promise<{ rawBalance: string; decimals: number; formatted: string }> {
+        if (isNativeTokenAddress(tokenAddress, chain)) {
+            const raw = await getNativeBalance(address, chain);
+            const decimals = chain === 'solana' ? 9 : 18;
+            const formatted = chain === 'solana'
+                ? (Number(raw) / 1e9).toString()
+                : ethers.formatUnits(raw, decimals);
+            return { rawBalance: raw, decimals, formatted };
+        }
+
+        if (chain !== 'solana') {
+            const rawBigInt = await getErc20Balance(tokenAddress, address, chain);
+            const decimals = await getErc20Decimals(tokenAddress, chain).catch(() => fallbackDecimals ?? 18);
+            const formatted = ethers.formatUnits(rawBigInt, decimals);
+            return {
+                rawBalance: `0x${rawBigInt.toString(16)}`,
+                decimals,
+                formatted,
+            };
+        }
+
+        // Solana SPL fallback via portfolio lookup.
+        const portfolio = await getPortfolio(address, ['solana'], address);
+        const sol = portfolio.solana || { tokens: [] as any[] };
+        const token = (sol.tokens || []).find((t: any) => String(t.contractAddress || '').toLowerCase() === tokenAddress.toLowerCase());
+        const decimals = typeof token?.decimals === 'number' ? token.decimals : (fallbackDecimals ?? 9);
+        const formatted = String(token?.tokenBalance || '0');
+        let rawBalance = '0';
+        try {
+            rawBalance = `0x${ethers.parseUnits(formatted, decimals).toString(16)}`;
+        } catch {
+            rawBalance = '0';
+        }
+        return { rawBalance, decimals, formatted };
     },
 
     /**

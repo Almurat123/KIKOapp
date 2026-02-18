@@ -15,10 +15,11 @@ export interface SolanaSwapParams {
     slippageBps?: number;
     feeContext?: 'swap' | 'copyTrade';
     accessToken?: string;
+    waitForConfirmation?: boolean;
 }
 
 export async function executeSolanaSwap(params: SolanaSwapParams): Promise<string> {
-    const { userId, tokenInMint, tokenOutMint, amountIn, slippageBps = 300, accessToken } = params;
+    const { userId, tokenInMint, tokenOutMint, amountIn, slippageBps = 300, accessToken, waitForConfirmation = true } = params;
 
     // === SIMULATION MODE ===
     if (process.env.SIMULATION_MODE === 'true') {
@@ -96,6 +97,11 @@ export async function executeSolanaSwap(params: SolanaSwapParams): Promise<strin
     const signature = await sendSolanaTransaction(userId, freshTransactionBase64);
 
     logger.info(LogCode.EXE_TX_BROADCAST, 'SolanaExecutor: Transaction sent', { signature });
+
+    // Fast path for copytrade/sniper: return immediately after broadcast.
+    if (!waitForConfirmation) {
+        return signature;
+    }
 
     // Alchemy HTTP RPC doesn't support WebSocket methods like signatureSubscribe
     const connection = getSolanaConnection();

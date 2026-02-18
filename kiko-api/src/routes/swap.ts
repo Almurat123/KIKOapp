@@ -897,12 +897,7 @@ export async function swapRoutes(fastify: FastifyInstance) {
                     const isStableOut = resolvedTokenOut === usdcMint || resolvedTokenOut === usdtMint;
                     const isNativeOut = resolvedTokenOut === solMint;
 
-                    // REMOVED: Judge Engine should ONLY run for Copy Trade, NOT for regular swaps
-                    // Judge Engine with Grok costs money and should only be used when:
-                    // 1. User is copy trading (following smart wallets)
-                    // 2. User has explicitly enabled copy trade AI analysis
-                    // For regular chat swaps (including Solana), we skip Judge entirely to save costs
-                    console.log('[Swap Execute Instant] Solana swap - Judge engine skipped (only runs for copy trade)');
+                    console.log('[Swap Execute Instant] Solana swap path (swap-card mode)');
 
                     // Detect launchpad provider (use resolved address)
                     const tokenInfo = await findTokenOnAnyChain(resolvedTokenOut);
@@ -1066,12 +1061,7 @@ export async function swapRoutes(fastify: FastifyInstance) {
                 const isNativeTokenIn = actualTokenIn.toLowerCase() === '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
                 const isNativeTokenOut = actualTokenOut.toLowerCase() === '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
 
-                // REMOVED: Judge Engine should ONLY run for Copy Trade, NOT for regular swaps
-                // Judge Engine with Grok costs money and should only be used when:
-                // 1. User is copy trading (following smart wallets)
-                // 2. User has explicitly enabled copy trade AI analysis
-                // For regular chat swaps, we skip Judge entirely to save costs
-                console.log('[Swap Execute Instant] Judge engine skipped - only runs for copy trade');
+                console.log('[Swap Execute Instant] EVM swap path (swap-card mode)');
 
                 // =================================================================
                 // ⚡ UNIFIED SWAP EXECUTION via MainSwapService

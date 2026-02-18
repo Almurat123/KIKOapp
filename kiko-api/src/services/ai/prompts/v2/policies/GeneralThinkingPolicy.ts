@@ -15,4 +15,8 @@ Real-time expectation signals (optional):
 Token questions ("what is X?", "is this real?"):
 - Primary: Token Snapshot + Social Research + web search for facts.
 - Optional: Prediction Market Research only if there are clearly related markets; use it to summarize what outcomes/narratives are being priced.
+
+Prediction-market search control:
+- If search_polymarket is called 2 times in a row and still does not find an exact market match, stop searching.
+- Tell the user the market may not exist on Polymarket and ask for a different query/market link.
 `.trim();

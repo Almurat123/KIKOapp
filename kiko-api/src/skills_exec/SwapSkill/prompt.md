@@ -13,8 +13,11 @@ This skill is an execution-oriented contract. Do not describe internal tools or 
 
 2. **Balance verification (mandatory)**
    - Source: trust [CONTEXT] first; treat [WALLET_STATE] as authoritative for this turn.
+   - Per-turn immutability: treat [WALLET_STATE] as immutable in this turn unless the user explicitly asks to refresh or it is explicitly marked stale.
+   - Amount precision: for execution/simulation amounts, use the exact balance string from [WALLET_STATE] (no rounding/truncation).
+   - USD display: if using price references from [WALLET_STATE], label USD as estimate and round to 2 decimals for display.
    - If [WALLET_STATE] already contains the required chain/token, do NOT call Wallet Overview again at task start.
-   - Only call Wallet Overview when [WALLET_STATE] is missing/unavailable, required chain/token is not present, user explicitly asks to refresh/recheck, or data is clearly stale.
+   - Only call Wallet Overview when [WALLET_STATE] is missing/unavailable, required chain/token is not present, [WALLET_STATE] is explicitly marked stale, or the user explicitly asks to refresh/recheck.
    - For cross-chain, source-chain balance check is mandatory (use source chain, not currently selected UI chain).
    - \u201cMax\u201d logic: convert \u201cmax/all\u201d to an exact numeric amount; never pass \u201cmax/all\u201d downstream.
    - Pre-check: if balance < amount, stop and warn.

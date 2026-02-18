@@ -6,7 +6,7 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { usePrivy } from '@privy-io/react-auth';
 import { formatUnits } from 'viem';
-import type { Token, SwapState, PriceData, SwapQuote } from '@/types/swap';
+import type { Token, SwapState, PriceData, SwapQuote, SwapDisplayInfo, SwapStatus } from '@/types/swap';
 import {
   checkApproval,
   getUserBalance,
@@ -91,6 +91,12 @@ function normalizeAggregatorQuote(
     value: aggAny.value || '0',
     allowanceTarget: aggAny.allowanceTarget,
   };
+}
+
+function isNativeTokenAddress(address?: string | null): boolean {
+  if (!address) return false;
+  const lower = address.toLowerCase();
+  return lower === '0x0000000000000000000000000000000000000000' || lower === '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
 }
 
 export interface UseSwapOptions {
@@ -185,6 +191,7 @@ export function useSwap(options: UseSwapOptions = {}) {
     }
 
     return {
+      status: initialQuote ? 'quote_ready' : 'idle',
       tokenIn,
       tokenOut,
       amountIn: initialAmountIn,
@@ -197,6 +204,7 @@ export function useSwap(options: UseSwapOptions = {}) {
       priceImpactUSD: 0,
       gasCostUSD: 0,
       isApproved: false,
+      lastTxHash: undefined,
       availableQuotes: initialQuote ? [initialQuote] : [],
       selectedDex: initialQuote?.dexName || initialQuote?.dex,
     };
@@ -208,6 +216,7 @@ export function useSwap(options: UseSwapOptions = {}) {
       // Set error state if no tokens available
       setState(prev => ({
         ...prev,
+        status: 'error',
         error: `No tokens available for chain ${chainId}. Please ensure COMMON_TOKENS is defined for this chain.`,
         tokenIn: null,
         tokenOut: null,
@@ -222,6 +231,7 @@ export function useSwap(options: UseSwapOptions = {}) {
       if (!prev.tokenIn || !prev.tokenOut) {
         return {
           ...prev,
+          status: prev.amountIn && parseFloat(prev.amountIn) > 0 ? 'quoting' : 'idle',
           tokenIn: prev.tokenIn || commonTokens[0],
           tokenOut: prev.tokenOut || (commonTokens[1] || commonTokens[0]),
           quote: null,
@@ -238,7 +248,9 @@ export function useSwap(options: UseSwapOptions = {}) {
 
   const [priceData, setPriceData] = useState<PriceData | null>(null);
   const [userBalance, setUserBalance] = useState<string>('0');
+  const [isBalanceLoading, setIsBalanceLoading] = useState<boolean>(false);
   const quoteTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const quoteRequestIdRef = useRef(0);
 
   useEffect(() => {
     if (quoteTimeoutRef.current) {
@@ -247,16 +259,26 @@ export function useSwap(options: UseSwapOptions = {}) {
 
     const amountVal = parseFloat(state.amountIn);
     if (!state.tokenIn || !state.tokenOut || !state.amountIn || isNaN(amountVal) || amountVal <= 0) {
-      setState(prev => ({ ...prev, quote: null, amountOut: '0' }));
+      quoteRequestIdRef.current += 1;
+      setState(prev => ({
+        ...prev,
+        status: 'idle',
+        quote: null,
+        amountOut: '0',
+        isLoading: false,
+        error: null,
+      }));
       return;
     }
 
+    const requestId = ++quoteRequestIdRef.current;
     quoteTimeoutRef.current = setTimeout(async () => {
       // Early return if tokens are the same (prevents invalid API calls)
       if (state.tokenIn!.address.toLowerCase() === state.tokenOut!.address.toLowerCase()) {
         console.warn('[useSwap] tokenIn and tokenOut are the same, skipping quote fetch');
         setState(prev => ({
           ...prev,
+          status: 'error',
           isLoading: false,
           error: 'Cannot swap the same token',
           quote: null,
@@ -265,12 +287,13 @@ export function useSwap(options: UseSwapOptions = {}) {
         return;
       }
 
-      setState(prev => ({ ...prev, isLoading: true, error: null }));
+      setState(prev => ({ ...prev, status: 'quoting', isLoading: true, error: null }));
 
       // SKIP FETCH if we just initialized with a valid quote (Instant Swap)
       if (initialQuote && state.quote === initialQuote && state.amountIn === initialQuote.amountIn) {
         console.log('[useSwap] Skipping fetch - using pre-warmed initial quote');
-        setState(prev => ({ ...prev, isLoading: false }));
+        if (requestId !== quoteRequestIdRef.current) return;
+        setState(prev => ({ ...prev, status: 'quote_ready', isLoading: false }));
         return;
       }
 
@@ -322,16 +345,17 @@ export function useSwap(options: UseSwapOptions = {}) {
         });
         const normalizedBest = normalizeAggregatorQuote(aggQuoteResult.best as any, state.amountIn);
         const normalizedQuotes = (aggQuoteResult.quotes || []).map(q => normalizeAggregatorQuote(q as any, state.amountIn));
-        // Backend returns amountOut as human-readable format, no need to convert
-        const amountOutNum = parseFloat(normalizedBest.amountOut);
-        const formattedAmount = amountOutNum > 0 ? amountOutNum.toFixed(6) : '0';
+        // Keep full precision for execution checks; UI can format separately.
+        const rawAmountOut = normalizedBest.amountOut || '0';
+        if (requestId !== quoteRequestIdRef.current) return;
 
         setState(prev => ({
           ...prev,
+          status: 'quote_ready',
           quote: normalizedBest,
           availableQuotes: normalizedQuotes,
           selectedDex: normalizedBest.dex || normalizedBest.dexName,
-          amountOut: formattedAmount,
+          amountOut: rawAmountOut,
           isLoading: false,
           priceImpactUSD: normalizedBest.priceImpact,
         }));
@@ -359,9 +383,11 @@ export function useSwap(options: UseSwapOptions = {}) {
         const userMessage = isLiquidityIssue
           ? `No liquidity for ${state.tokenIn?.symbol} → ${state.tokenOut?.symbol} on ${chainName}. Try: 1) Different tokens 2) Larger amount 3) Switch to Ethereum/Base`
           : message;
+        if (requestId !== quoteRequestIdRef.current) return;
 
         setState(prev => ({
           ...prev,
+          status: 'error',
           error: userMessage,
           isLoading: false,
           quote: null,
@@ -380,19 +406,20 @@ export function useSwap(options: UseSwapOptions = {}) {
 
 
 
-  const fetchUserBalance = useCallback(async (retryCount = 0) => {
+  const fetchUserBalance = useCallback(async (token: Token, fetchId: number, retryCount = 0) => {
 
-    if (!userAddress || !state.tokenIn) {
+    if (!userAddress) {
       setUserBalance('0');
+      setIsBalanceLoading(false);
       return;
     }
 
     // Store the token address we're fetching for to prevent race conditions
-    const fetchingForToken = state.tokenIn.address;
+    const fetchingForToken = token.address;
 
     try {
       let balance = 0n;
-      const apiBalance = await getUserBalance(userAddress, fetchingForToken, chainId, state.tokenIn.decimals);
+      const apiBalance = await getUserBalance(userAddress, fetchingForToken, chainId, token.decimals);
       if (apiBalance) {
         balance = BigInt(apiBalance);
       }
@@ -403,11 +430,15 @@ export function useSwap(options: UseSwapOptions = {}) {
         return; // Token changed during fetch, discard result
       }
 
-      const decimals = state.tokenIn.decimals || 18;
+      if (fetchId !== balanceFetchIdRef.current) {
+        return;
+      }
+
+      const decimals = token.decimals || 18;
       const formatted = formatUnits(balance, decimals);
 
       console.log('[useSwap] Balance Fetched (Direct RPC):', {
-        token: state.tokenIn.symbol,
+        token: token.symbol,
         balance: balance.toString(),
         formatted,
         isRPC: false
@@ -420,6 +451,7 @@ export function useSwap(options: UseSwapOptions = {}) {
         }
         return prev;
       });
+      setIsBalanceLoading(false);
 
     } catch (error) {
       // Only log non-network errors as errors
@@ -433,21 +465,45 @@ export function useSwap(options: UseSwapOptions = {}) {
         const delay = Math.pow(2, retryCount) * 1000; // 1s, 2s, 4s
         console.log(`[useSwap] Retrying fetchUserBalance in ${delay}ms (attempt ${retryCount + 1}/${MAX_RETRIES})`);
         setTimeout(() => {
-          fetchUserBalance(retryCount + 1);
+          if (fetchId === balanceFetchIdRef.current && currentTokenInAddressRef.current === fetchingForToken) {
+            fetchUserBalance(token, fetchId, retryCount + 1);
+          }
         }, delay);
+      } else if (fetchId === balanceFetchIdRef.current) {
+        setIsBalanceLoading(false);
       }
     }
-  }, [userAddress, state.tokenIn?.address, chainId]);
+  }, [userAddress, chainId]);
 
 
   const checkUserApproval = useCallback(async () => {
-    if (!userAddress || !state.tokenIn || !state.quote?.allowanceTarget) return;
+    if (!userAddress || !state.tokenIn) return;
+    if (isNativeTokenAddress(state.tokenIn.address)) {
+      setState(prev => {
+        if (prev.status === 'submitting' || prev.status === 'success') return prev;
+        const nextStatus: SwapStatus = prev.quote ? 'quote_ready' : prev.status;
+        return { ...prev, isApproved: true, status: nextStatus };
+      });
+      return;
+    }
+    const spender = state.quote?.allowanceTarget || state.quote?.to;
+    if (!spender) return;
 
     // Don't check approval if amount is empty or zero (would cause 400 error)
     const amountNum = parseFloat(state.amountIn || '0');
     if (!state.amountIn || isNaN(amountNum) || amountNum <= 0) {
+      setState(prev => ({ ...prev, isApproved: false }));
       return;
     }
+
+    const checkId = ++approvalCheckIdRef.current;
+    const checkingToken = state.tokenIn.address.toLowerCase();
+    const checkingAmount = state.amountIn;
+    const checkingSpender = spender.toLowerCase();
+    setState(prev => {
+      if (prev.status === 'submitting' || prev.status === 'success') return prev;
+      return { ...prev, status: 'approval_checking' };
+    });
 
     try {
       const isApproved = await checkApproval(
@@ -455,25 +511,40 @@ export function useSwap(options: UseSwapOptions = {}) {
         state.tokenIn.address,
         state.amountIn,
         chainId,
-        state.quote.allowanceTarget
+        spender
       );
+      if (
+        checkId !== approvalCheckIdRef.current ||
+        currentTokenInAddressRef.current?.toLowerCase() !== checkingToken ||
+        currentAmountInRef.current !== checkingAmount ||
+        currentSpenderRef.current !== checkingSpender
+      ) {
+        return;
+      }
+
       setState(prev => {
-        // Only update if approval status actually changed
-        if (prev.isApproved !== isApproved) {
-          return { ...prev, isApproved };
+        if (prev.status === 'submitting' || prev.status === 'success') return prev;
+        const nextStatus: SwapStatus = isApproved ? 'quote_ready' : 'needs_approval';
+        if (prev.isApproved !== isApproved || prev.status !== nextStatus) {
+          return { ...prev, isApproved, status: nextStatus };
         }
         return prev;
       });
     } catch (error) {
       console.error('[useSwap] checkUserApproval failed', error);
+      setState(prev => {
+        if (prev.status === 'submitting' || prev.status === 'success') return prev;
+        return { ...prev, status: 'error' };
+      });
     }
-  }, [userAddress, state.tokenIn?.address, state.amountIn, chainId]); // Only depend on address
+  }, [userAddress, state.tokenIn?.address, state.amountIn, chainId, state.quote?.allowanceTarget, state.quote?.to]);
 
-  // Use refs to track if we're already fetching to prevent duplicate requests
-  const fetchingBalanceRef = useRef(false);
-  const lastBalanceKeyRef = useRef<string>('');
+  const balanceFetchIdRef = useRef(0);
+  const approvalCheckIdRef = useRef(0);
   // Track current tokenIn address for race condition detection (avoids stale closure)
   const currentTokenInAddressRef = useRef<string | null>(null);
+  const currentAmountInRef = useRef<string>('');
+  const currentSpenderRef = useRef<string>('');
 
   // Store function refs to avoid re-triggering useEffect when functions are recreated
 
@@ -486,42 +557,56 @@ export function useSwap(options: UseSwapOptions = {}) {
     checkUserApprovalRef.current = checkUserApproval;
   }, [fetchUserBalance, checkUserApproval]);
 
+  useEffect(() => {
+    currentAmountInRef.current = state.amountIn || '';
+    currentSpenderRef.current = (state.quote?.allowanceTarget || state.quote?.to || '').toLowerCase();
+  }, [state.amountIn, state.quote?.allowanceTarget, state.quote?.to]);
+
   // Removed independent price fetching - price is fetched as part of quote request
   // This ensures only ONE request per swap card (the quote request)
   useEffect(() => {
     // CRITICAL: Only fetch balance when user is authenticated
     // This prevents race condition where balance is fetched before token is ready
     if (!userAddress || !state.tokenIn || !authenticated) {
+      setUserBalance('0');
+      setIsBalanceLoading(false);
       return;
     }
 
-    // Only fetch balance and approval, not price
-    // Price will be fetched as part of quote request when user enters amount
-    const balanceKey = `${chainId}_${userAddress}_${state.tokenIn.address.toLowerCase()}_${authenticated}`;
+    // CRITICAL: Update refs before async calls to prevent stale updates.
+    const tokenSnapshot = state.tokenIn;
+    currentTokenInAddressRef.current = tokenSnapshot.address;
+    const fetchId = ++balanceFetchIdRef.current;
+    setIsBalanceLoading(true);
 
-    // Only fetch if the key changed and we're not already fetching
-    if (balanceKey !== lastBalanceKeyRef.current && !fetchingBalanceRef.current) {
-      fetchingBalanceRef.current = true;
-      lastBalanceKeyRef.current = balanceKey;
+    // Always fetch for latest token snapshot; stale responses are discarded by fetchId/token guards.
+    fetchUserBalanceRef.current(tokenSnapshot, fetchId);
 
-      // CRITICAL: Update the ref BEFORE fetching to prevent race condition
-      currentTokenInAddressRef.current = state.tokenIn.address;
+    // Check approval separately with debounce
+    const approvalTimeout = setTimeout(() => {
+      checkUserApprovalRef.current();
+    }, 1000);
 
-      // Use ref to get latest function without causing re-renders
-      fetchUserBalanceRef.current().finally(() => {
-        fetchingBalanceRef.current = false;
-      });
-
-      // Check approval separately with debounce
-      const approvalTimeout = setTimeout(() => {
-        checkUserApprovalRef.current();
-      }, 1000);
-
-      return () => {
-        clearTimeout(approvalTimeout);
-      };
-    }
+    return () => {
+      clearTimeout(approvalTimeout);
+    };
   }, [state.tokenIn?.address, userAddress, chainId, authenticated]);
+
+  useEffect(() => {
+    if (!authenticated || !userAddress || !state.tokenIn || !(state.quote?.allowanceTarget || state.quote?.to)) return;
+
+    const amountNum = parseFloat(state.amountIn || '0');
+    if (!state.amountIn || isNaN(amountNum) || amountNum <= 0) {
+      setState(prev => ({ ...prev, isApproved: isNativeTokenAddress(state.tokenIn?.address) }));
+      return;
+    }
+
+    const timeout = setTimeout(() => {
+      checkUserApprovalRef.current();
+    }, 300);
+
+    return () => clearTimeout(timeout);
+  }, [authenticated, userAddress, state.tokenIn?.address, state.amountIn, state.quote?.allowanceTarget, state.quote?.to]);
 
   // Removed enrichToken effect that caused infinite loops
   // Token metadata is now loaded by tokenDataService when tokens are selected
@@ -541,15 +626,20 @@ export function useSwap(options: UseSwapOptions = {}) {
       // while the new balance is being fetched
       if (prev.tokenIn?.address !== token.address) {
         setUserBalance('0');
+        setIsBalanceLoading(true);
       }
 
       return {
         ...prev,
+        status: prev.amountIn && parseFloat(prev.amountIn) > 0 ? 'quoting' : 'idle',
         tokenIn: {
           ...token,
           // Preserve logoUrl if new token doesn't have one but previous token does
           logoUrl: token.logoUrl || prev.tokenIn?.logoUrl,
         },
+        quote: null,
+        amountOut: '0',
+        isApproved: false,
         error: null,
       };
     });
@@ -563,31 +653,64 @@ export function useSwap(options: UseSwapOptions = {}) {
     });
     setState(prev => ({
       ...prev,
+      status: prev.amountIn && parseFloat(prev.amountIn) > 0 ? 'quoting' : 'idle',
       tokenOut: {
         ...token,
         // Preserve logoUrl if new token doesn't have one but previous token does
         logoUrl: token.logoUrl || prev.tokenOut?.logoUrl,
       },
+      quote: null,
+      amountOut: '0',
       error: null,
     }));
   }, []);
 
   const setAmountIn = useCallback((amount: string) => {
-    const sanitized = amount.replace(/[^\d.]/g, '');
+    let normalizedInput = amount
+      // Normalize full-width/locale decimal separators to standard dot.
+      .replace(/[。．｡]/g, '.')
+      .replace(/\s+/g, '');
+
+    const commaMatches = normalizedInput.match(/[，,]/g);
+    if (commaMatches?.length) {
+      // If comma is the only decimal separator and appears once, treat as decimal point.
+      if (!normalizedInput.includes('.') && commaMatches.length === 1) {
+        normalizedInput = normalizedInput.replace(/[，,]/g, '.');
+      } else {
+        // Otherwise commas are considered thousands separators and removed.
+        normalizedInput = normalizedInput.replace(/[，,]/g, '');
+      }
+    }
+
+    const sanitized = normalizedInput.replace(/[^\d.]/g, '');
     const parts = sanitized.split('.');
-    const normalized = parts.length > 2
+    let normalized = parts.length > 2
       ? `${parts[0]}.${parts.slice(1).join('')}`
       : sanitized;
-    setState(prev => ({ ...prev, amountIn: normalized, error: null }));
+
+    if (normalized === '.') normalized = '0.';
+    if (normalized.startsWith('.')) normalized = `0${normalized}`;
+    normalized = normalized.replace(/^0+(?=\d)/, '');
+
+    setState(prev => ({
+      ...prev,
+      status: normalized && parseFloat(normalized) > 0 ? 'quoting' : 'idle',
+      amountIn: normalized,
+      isApproved: false,
+      error: null,
+    }));
   }, []);
 
   const swapTokens = useCallback(() => {
     setState(prev => ({
       ...prev,
+      status: prev.amountOut && parseFloat(prev.amountOut) > 0 ? 'quoting' : 'idle',
       tokenIn: prev.tokenOut,
       tokenOut: prev.tokenIn,
       amountIn: prev.amountOut,
       amountOut: prev.amountIn,
+      quote: null,
+      isApproved: false,
       error: null,
     }));
 
@@ -603,22 +726,27 @@ export function useSwap(options: UseSwapOptions = {}) {
   }, []);
 
   const approveToken = useCallback(async () => {
-    setState(prev => ({ ...prev, error: 'Approvals are handled automatically during swap execution.' }));
-    return { success: false, error: 'Approvals are handled automatically during swap execution.' };
-  }, []);
+    await checkUserApproval();
+    if (state.isApproved) {
+      return { success: true };
+    }
+    const message = 'Manual approve is not supported here. Use "Swap" to let backend handle approval + swap.';
+    setState(prev => ({ ...prev, status: 'error', error: message }));
+    return { success: false, error: message };
+  }, [checkUserApproval, state.isApproved]);
 
   const executeSwap = useCallback(async () => {
     if (!state.quote || !userAddress) {
-      setState(prev => ({ ...prev, error: 'Missing quote or wallet address' }));
+      setState(prev => ({ ...prev, status: 'error', error: 'Missing quote or wallet address' }));
       return { success: false, error: 'Missing quote or wallet address' };
     }
 
     if (!state.tokenIn || !state.tokenOut) {
-      setState(prev => ({ ...prev, error: 'Missing token information' }));
+      setState(prev => ({ ...prev, status: 'error', error: 'Missing token information' }));
       return { success: false, error: 'Missing token information' };
     }
 
-    setState(prev => ({ ...prev, isExecuting: true, error: null }));
+    setState(prev => ({ ...prev, status: 'submitting', isExecuting: true, error: null }));
     logger.swap('init', {
       tokenIn: state.tokenIn.symbol,
       tokenOut: state.tokenOut.symbol,
@@ -641,8 +769,18 @@ export function useSwap(options: UseSwapOptions = {}) {
 
       if (instantResult.success && instantResult.txHash) {
         console.log('[useSwap] Instant swap successful:', instantResult.txHash);
-        setState(prev => ({ ...prev, isExecuting: false, amountIn: '0', amountOut: '0', quote: null }));
-        await fetchUserBalance();
+        setState(prev => ({
+          ...prev,
+          status: 'success',
+          isExecuting: false,
+          amountIn: '0',
+          amountOut: '0',
+          quote: null,
+          isApproved: false,
+          lastTxHash: instantResult.txHash,
+        }));
+        const nextFetchId = ++balanceFetchIdRef.current;
+        await fetchUserBalance(state.tokenIn, nextFetchId);
         return {
           success: true,
           txHash: instantResult.txHash,
@@ -651,18 +789,18 @@ export function useSwap(options: UseSwapOptions = {}) {
 
       const errorMessage = instantResult.error || 'Instant swap failed. Please try again later.';
       console.log('[useSwap] Instant swap failed:', errorMessage);
-      setState(prev => ({ ...prev, isExecuting: false, error: errorMessage }));
+      setState(prev => ({ ...prev, status: 'error', isExecuting: false, error: errorMessage }));
       return { success: false, error: errorMessage };
     } catch (error) {
       console.error('[executeSwap] Transaction failed:', error);
       const message = error instanceof Error ? error.message : 'Failed to execute swap';
-      setState(prev => ({ ...prev, error: message, isExecuting: false }));
+      setState(prev => ({ ...prev, status: 'error', error: message, isExecuting: false }));
       logger.swap('fail', { error: message });
       return { success: false, error: message };
     }
   }, [state.quote, state.tokenIn, state.tokenOut, state.amountIn, userAddress, chainId, fetchUserBalance, slippageBps, maxPriceImpact]);
 
-  const getDisplayInfo = useCallback(() => {
+  const getDisplayInfo = useCallback((): SwapDisplayInfo => {
     // Ensure we have valid token symbols - never show 'UNKNOWN' or empty
     const tokenInSymbol = (state.tokenIn?.symbol && state.tokenIn.symbol !== 'UNKNOWN')
       ? state.tokenIn.symbol
@@ -708,9 +846,10 @@ export function useSwap(options: UseSwapOptions = {}) {
 
     if (isNativeToken) {
       // Logic for Native tokens (ETH, MATIC, BNB, etc.)
-      const isL2 = chainId === 8453 || chainId === 42161 || chainId === 10; // Base, Arb, OP
-      // For L2s, gas is cheap (use 0.0001). For Mainnet use 0.001.
-      const gasBuffer = isL2 ? 0.0001 : 0.001;
+      // Align with backend native precheck reserve to prevent UI false-positive executability.
+      const gasBuffer = chainId === 8453
+        ? 0.0003
+        : (chainId === 42161 || chainId === 10 ? 0.002 : 0.001);
 
       // If user is swapping MAX (amountIn ~ balance), we don't apply buffer on top of amount
       // because amountIn is likely already (balance - buffer) calculated by the Max button logic.
@@ -738,7 +877,39 @@ export function useSwap(options: UseSwapOptions = {}) {
       ? ((gasEstimate * 21000 / 1e9) * nativePrice).toFixed(4)
       : '0.00';
 
+    const amountInValid = amountInNum > 0;
+    const amountOutValid = amountOutNum > 0;
+    const spender = state.quote?.allowanceTarget || state.quote?.to;
+    const needsApproval = !!(
+      amountInValid &&
+      state.tokenIn &&
+      !isNativeTokenAddress(state.tokenIn.address) &&
+      spender &&
+      !state.isApproved
+    );
+    const status: SwapStatus =
+      state.status === 'quote_ready' && needsApproval ? 'needs_approval' : state.status;
+
+    let actionLabel = 'Swap';
+    if (!authenticated) actionLabel = 'Connect Wallet';
+    else if (!amountInValid) actionLabel = 'Enter Amount';
+    else if (status === 'quoting') actionLabel = 'Getting Quote...';
+    else if (status === 'approval_checking') actionLabel = 'Checking Approval...';
+    else if (status === 'needs_approval') actionLabel = `Approve & Swap ${tokenInSymbol}`;
+    else if (status === 'submitting') actionLabel = needsApproval ? 'Approving & Swapping...' : 'Swapping...';
+    else if (!hasEnoughBalance) actionLabel = 'Insufficient Balance';
+    else if (status === 'error') actionLabel = 'Swap Unavailable';
+
+    const isActionDisabled = status === 'submitting' ||
+      status === 'quoting' ||
+      status === 'approval_checking' ||
+      !amountInValid ||
+      !amountOutValid ||
+      !hasEnoughBalance ||
+      !!state.error;
+
     return {
+      status,
       tokenInSymbol,
       tokenOutSymbol,
       tokenInEmoji: state.tokenIn?.emoji || '🔄',
@@ -751,19 +922,23 @@ export function useSwap(options: UseSwapOptions = {}) {
       isExecuting: state.isExecuting,
       error: state.error,
       isApproved: state.isApproved,
+      needsApproval,
+      actionLabel,
+      isActionDisabled,
       priceImpact: state.quote?.priceImpact || 0,
       gasEstimate: state.quote?.gasEstimate || 0,
       gasCostUSD,
       minAmountOut: state.quote?.minAmountOut || '0',
       dexName: state.quote?.dex || state.quote?.dexName || 'N/A',
       userBalance: formattedBalance,
+      isBalanceLoading,
       hasEnoughBalance,
       availableQuotes: state.availableQuotes || [],
       selectedDex: state.selectedDex,
       // MEV Protection info
       mevProtection: getMEVProtectionInfo(),
     };
-  }, [state, priceData, userBalance, chainId, mevProtectionEnabled]);
+  }, [state, priceData, userBalance, isBalanceLoading, chainId, mevProtectionEnabled, authenticated]);
 
   // Get MEV protection information
   const getMEVProtectionInfo = useCallback(() => {
@@ -811,6 +986,7 @@ export function useSwap(options: UseSwapOptions = {}) {
       if (found) {
         return {
           ...prev,
+          status: 'quote_ready',
           quote: found,
           amountOut: found.amountOut || prev.amountOut,
           selectedDex: dex,
@@ -819,6 +995,15 @@ export function useSwap(options: UseSwapOptions = {}) {
       return prev;
     });
   }, []);
+
+  const refreshSwapState = useCallback(async () => {
+    if (!authenticated || !userAddress || !state.tokenIn) return;
+    currentTokenInAddressRef.current = state.tokenIn.address;
+    const fetchId = ++balanceFetchIdRef.current;
+    setIsBalanceLoading(true);
+    await fetchUserBalance(state.tokenIn, fetchId);
+    checkUserApprovalRef.current();
+  }, [authenticated, userAddress, state.tokenIn, fetchUserBalance]);
 
   return {
     state,
@@ -840,6 +1025,7 @@ export function useSwap(options: UseSwapOptions = {}) {
     // Degen Mode controls
     degenMode,
     setDegenMode,
+    refreshSwapState,
     // Price validation
     priceValidation,
     validatePrice: async () => {

@@ -5,6 +5,12 @@ import { getAddress, type Address } from 'viem';
 import type { WalletWithMetadata } from '@privy-io/react-auth';
 import { formatUsd } from '../utils/format';
 import { getAllChainBalances, getWalletTransactions, type WalletTransaction } from '../services/walletApi';
+import {
+    IMPORTED_TOKENS_STORAGE_KEY,
+    IMPORTED_TOKENS_UPDATED_EVENT,
+    readImportedSwapTokensFromStorage,
+    type ImportedSwapToken
+} from '../utils/importedSwapTokens';
 
 // [Logic]: Define standard TokenHolding interface to ensure type safety.
 // [Ref]: Verified against WalletPage.tsx original implementation.
@@ -35,6 +41,18 @@ interface WalletCache {
 let globalBalanceCache: WalletCache | null = null;
 const TX_CACHE_TTL_MS = 60_000;
 const txCache = new Map<string, { timestamp: number; data: WalletTransaction[] }>();
+const CHAIN_ID_BY_KEY: Record<string, number> = {
+    'eth': 1, 'base': 8453, 'arbitrum': 42161, 'optimism': 10, 'polygon': 137, 'bsc': 56, 'solana': 900
+};
+
+const normalizeTokenAddress = (address: string, chainId: number) => {
+    return chainId === 900 ? address : address.toLowerCase();
+};
+
+const toNumberOrZero = (value: unknown) => {
+    const num = typeof value === 'number' ? value : parseFloat(String(value ?? 0));
+    return Number.isFinite(num) ? num : 0;
+};
 
 // [Logic]: Shared utility for fetching token logos with multiple fallbacks.
 // [Ref]: Verbatim migration from WalletPage.tsx:L64-L114.
@@ -107,6 +125,7 @@ export function useWalletPageData() {
 
     const [holdings, setHoldings] = useState<TokenHolding[]>([]);
     const [cachedHoldings, setCachedHoldings] = useState<TokenHolding[]>([]);
+    const [importedTokensByChain, setImportedTokensByChain] = useState<Record<string, ImportedSwapToken[]>>(() => readImportedSwapTokensFromStorage());
     const [loading, setLoading] = useState(true);
     const [transactions, setTransactions] = useState<WalletTransaction[]>([]);
     const [, setCachedTransactions] = useState<WalletTransaction[]>([]);
@@ -122,6 +141,21 @@ export function useWalletPageData() {
     const balanceReqId = useRef(0);
     const txReqId = useRef(0);
     const ordersReqId = useRef(0);
+
+    useEffect(() => {
+        const refreshImportedTokens = () => setImportedTokensByChain(readImportedSwapTokensFromStorage());
+        const handleCustomUpdate = () => refreshImportedTokens();
+        const handleStorageUpdate = (event: StorageEvent) => {
+            if (event.key && event.key !== IMPORTED_TOKENS_STORAGE_KEY) return;
+            refreshImportedTokens();
+        };
+        window.addEventListener(IMPORTED_TOKENS_UPDATED_EVENT, handleCustomUpdate as EventListener);
+        window.addEventListener('storage', handleStorageUpdate);
+        return () => {
+            window.removeEventListener(IMPORTED_TOKENS_UPDATED_EVENT, handleCustomUpdate as EventListener);
+            window.removeEventListener('storage', handleStorageUpdate);
+        };
+    }, []);
     // [Logic]: Automated data fetching on auth/chain changes.
     useEffect(() => {
         if (!ready || !authenticated || !walletAddress) return;
@@ -130,6 +164,14 @@ export function useWalletPageData() {
         fetchBalances(reqB, cancelled); fetchTransactions(reqT, cancelled); fetchOrdersAndHistory(reqO, cancelled);
         return () => { cancelled.value = true; };
     }, [ready, authenticated, walletAddress, chainId]);
+
+    useEffect(() => {
+        if (!ready || !authenticated || !walletAddress) return;
+        const reqB = ++balanceReqId.current;
+        const cancelled = { value: false };
+        fetchBalances(reqB, cancelled);
+        return () => { cancelled.value = true; };
+    }, [importedTokensByChain, ready, authenticated, walletAddress]);
 
     // [Logic]: Calculate total portfolio value and simplified PnL.
     const portfolioStats = useMemo(() => {
@@ -226,8 +268,7 @@ export function useWalletPageData() {
         (data.tokens || []).forEach((t: any) => {
             const usd = typeof t.valueUsd === 'number' ? t.valueUsd : (parseFloat(t.tokenBalance) * (t.price || 0));
 
-            // [Logic]: Only show tokens with confirmed pricing and value > $0.05
-            // Removed fallback to "Price Pending" to avoid noise and respect user's "abandon fallback" rule.
+            // Keep wallet asset list quality high: require pricing and minimum value.
             if (!t.price || usd < 0.05) return;
 
             holdings.push({
@@ -241,25 +282,68 @@ export function useWalletPageData() {
         return holdings;
     };
 
-    const processBalances = (allBalances: any) => {
-        const chainMap: Record<string, number> = { 'eth': 1, 'base': 8453, 'arbitrum': 42161, 'optimism': 10, 'polygon': 137, 'bsc': 56, 'solana': 900 };
-        return Object.entries(allBalances).flatMap(([c, d]) => extractHoldings(c, d, chainMap[c] || 1))
-            .sort((a, b) => (b.usdValueNum || 0) - (a.usdValueNum || 0));
+    const processBalances = (allBalances: any, importedByChain: Record<string, ImportedSwapToken[]>) => {
+        const chainHoldings = Object.entries(allBalances).flatMap(([chainKey, data]) => {
+            const chainHoldings = extractHoldings(chainKey, data, CHAIN_ID_BY_KEY[chainKey] || 1);
+            const chainId = CHAIN_ID_BY_KEY[chainKey];
+            if (!chainId) return chainHoldings;
+
+            const importedTokens = importedByChain[String(chainId)] || [];
+            if (importedTokens.length === 0) return chainHoldings;
+
+            const existingKeys = new Set(chainHoldings.map(h => normalizeTokenAddress(h.address, chainId)));
+            const chainTokens = Array.isArray((data as any)?.tokens) ? (data as any).tokens : [];
+
+            importedTokens.forEach((token) => {
+                if (!token?.address) return;
+                const key = normalizeTokenAddress(token.address, chainId);
+                if (existingKeys.has(key)) return;
+
+                const tokenBalanceData = chainTokens.find((t: any) => normalizeTokenAddress(String(t.contractAddress || ''), chainId) === key);
+                const decimals = typeof tokenBalanceData?.decimals === 'number'
+                    ? tokenBalanceData.decimals
+                    : (typeof token.decimals === 'number' ? token.decimals : 18);
+                const balance = String(tokenBalanceData?.tokenBalance ?? '0');
+                const usd = tokenBalanceData
+                    ? (typeof tokenBalanceData.valueUsd === 'number'
+                        ? tokenBalanceData.valueUsd
+                        : toNumberOrZero(tokenBalanceData.tokenBalance) * toNumberOrZero(tokenBalanceData.price))
+                    : 0;
+
+                chainHoldings.push({
+                    address: token.address as Address,
+                    symbol: tokenBalanceData?.symbol || token.symbol || 'UNK',
+                    name: tokenBalanceData?.name || token.name || 'Unknown Token',
+                    balance,
+                    value: formatUsd(usd),
+                    usdValueNum: usd,
+                    change: '+0.00%',
+                    decimals,
+                    logo: tokenBalanceData?.logo || token.logoUrl || getTokenLogoUrl(token.address, chainId, token.symbol),
+                    chainId,
+                });
+                existingKeys.add(key);
+            });
+
+            return chainHoldings;
+        });
+
+        return chainHoldings.sort((a, b) => (b.usdValueNum || 0) - (a.usdValueNum || 0));
     };
 
     // [Logic]: Main balance fetch coordinator with smart caching & fingerprinting
-    const fetchBalances = async (reqId: number, cancelled: { value: boolean }) => {
+    const fetchBalances = async (reqId: number, cancelled: { value: boolean }, forceRefresh = false) => {
         const cached = globalBalanceCache;
-        if (cached && cached.address === walletAddress) {
+        if (!forceRefresh && cached && cached.address === walletAddress) {
             setHoldings(cached.holdings); setCachedHoldings(cached.holdings); setLoading(false);
         } else setLoading(true);
         try {
             const primaryAddress = walletAddress;
             const fp = await fetchFingerprint(primaryAddress!);
-            if (cached && fp.fetched && cached.fingerprint.nonce === fp.nonce && cached.fingerprint.nativeBalanceWei === fp.balance.toString()) return;
-            const allBalances = await getAllChainBalances(primaryAddress!, solanaWallet?.address);
+            if (!forceRefresh && cached && fp.fetched && cached.fingerprint.nonce === fp.nonce && cached.fingerprint.nativeBalanceWei === fp.balance.toString()) return;
+            const allBalances = await getAllChainBalances(primaryAddress!, solanaWallet?.address, forceRefresh);
             if (!allBalances || cancelled.value || reqId !== balanceReqId.current) return;
-            const result = processBalances(allBalances);
+            const result = processBalances(allBalances, importedTokensByChain);
             setHoldings(result); setCachedHoldings(result);
             if (!isSolana) globalBalanceCache = {
                 address: walletAddress!, holdings: result,
@@ -288,12 +372,12 @@ export function useWalletPageData() {
         } catch (e) { console.error('Error fetching tx', e); } finally { if (reqId === txReqId.current) setTransactionsLoading(false); }
     };
 
-    const refreshData = () => {
+    const refreshData = (forceRefresh = false) => {
         const reqB = ++balanceReqId.current;
         const reqT = ++txReqId.current;
         const reqO = ++ordersReqId.current;
         const cancelled = { value: false };
-        fetchBalances(reqB, cancelled);
+        fetchBalances(reqB, cancelled, forceRefresh);
         fetchTransactions(reqT, cancelled);
         fetchOrdersAndHistory(reqO, cancelled);
     };

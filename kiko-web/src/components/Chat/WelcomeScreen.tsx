@@ -30,6 +30,7 @@ interface WelcomeScreenProps {
 }
 
 export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onSuggestionClick }) => {
+  const [isFocused, setIsFocused] = useState(false);
   const [inputValue, setInputValue] = useState('');
 
 
@@ -144,7 +145,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onSuggestionClick 
         {/* Floating Input with Liquid Glass Effect */}
         <div className={styles.inputContainer}>
           <LiquidGlassEffect
-            className={styles.inputWrapper}
+            className={`${styles.inputWrapper} ${isFocused ? styles.inputFocused : ''}`}
             enabled={true}
           >
             <ChatInputSuggestions
@@ -160,8 +161,10 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onSuggestionClick 
                 value={inputValue}
                 onChange={handleInput}
                 onFocus={() => {
+                  setIsFocused(true);
                   if (!inputValue || inputValue.trim().length === 0) openSuggestions();
                 }}
+                onBlur={() => setIsFocused(false)}
                 onKeyDown={handleKeyDown}
                 placeholder="Ask anything..."
                 rows={1}

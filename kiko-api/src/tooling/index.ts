@@ -3,6 +3,7 @@ import { GetCrossChainQuoteTool, PrepareCrossChainTxTool } from '../skills/Cross
 import { GetTokenInfoTool } from '../skills/TokenSkill/index.js';
 import { GetTrendingTokensTool } from '../skills/TokenSkill/index.js';
 import { ExternalWebSearchTool } from '../skills/MarketSkill/index.js';
+import { XSearchTool } from '../skills/MarketSkill/index.js';
 import { PrepareSwapTransactionTool, SimulateSwapTool } from '../skills/SwapSkill/index.js';
 
 import { GetWalletInfoTool } from '../skills/WalletSkill/index.js';
@@ -42,6 +43,7 @@ import { SetTokenAlertTool, ListTokenAlertsTool, RemoveTokenAlertTool } from '..
 toolRegistry.register(GetTokenInfoTool);
 toolRegistry.register(GetTrendingTokensTool);
 toolRegistry.register(ExternalWebSearchTool);
+toolRegistry.register(XSearchTool);
 toolRegistry.register(PrepareSwapTransactionTool);
 toolRegistry.register(SimulateSwapTool);
 toolRegistry.register(GetMarketOverviewTool);

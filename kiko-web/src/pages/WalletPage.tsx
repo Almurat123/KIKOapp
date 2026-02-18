@@ -31,6 +31,7 @@ export default function WalletPage() {
   const [viewMode, setViewMode] = useState<'assets' | 'orders'>('assets');
   const [showAllAssets, setShowAllAssets] = useState(false);
   const [confirmDialog, setConfirmDialog] = useState<{ isOpen: boolean; order: any | null }>({ isOpen: false, order: null });
+  const swapScopedHoldings = holdings.filter(h => h.chainId === chainId);
 
   const needsAuthorization = (() => {
     const linked = (user?.linkedAccounts || []) as any[];
@@ -147,11 +148,11 @@ export default function WalletPage() {
         tokenBalance={selectedToken?.balance}
         isNative={selectedToken?.isNative}
         isSolana={isSolana}
-        holdings={holdings}
+        holdings={holdings.filter(h => h.chainId === chainId)}
         onSelectToken={(token) => setSelectedToken(token)}
         onSuccess={refreshData}
       />
-      {isSwapOpen && createPortal(<div className={styles.modalOverlay} onClick={() => setIsSwapOpen(false)}><div onClick={e => e.stopPropagation()}><SwapCardIntegrated userAddress={walletAddress} chainId={chainId} onClose={() => setIsSwapOpen(false)} userHoldings={holdings} /></div></div>, document.body)}
+      {isSwapOpen && createPortal(<div className={styles.modalOverlay} onClick={() => setIsSwapOpen(false)}><div onClick={e => e.stopPropagation()}><SwapCardIntegrated userAddress={walletAddress} chainId={chainId} onClose={() => setIsSwapOpen(false)} onSwapSuccess={() => refreshData(true)} userHoldings={swapScopedHoldings} /></div></div>, document.body)}
       <ConfirmDialog isOpen={confirmDialog.isOpen} title="Close Position" message={`Sell shares of "${confirmDialog.order?.title}"?`} onConfirm={handleClosePosition} onCancel={() => setConfirmDialog({ isOpen: false, order: null })} />
     </div>
   );

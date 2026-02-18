@@ -43,6 +43,49 @@ export default async function walletRoutes(fastify: FastifyInstance, options: Fa
     });
 
     /**
+     * Get real-time balance for a specific token (bypasses list filtering)
+     */
+    fastify.get('/:address/token-balance', async (request: any, reply) => {
+        try {
+            const userId = getUserId(request);
+            if (!userId) {
+                return reply.status(401).send({ success: false, message: 'Unauthorized' });
+            }
+            const { address } = request.params as any;
+            const { chain = 'eth', tokenAddress, decimals } = request.query as any;
+            if (!tokenAddress) {
+                return reply.status(400).send({ success: false, message: 'tokenAddress is required' });
+            }
+
+            const hasAccess = await walletService.verifyAccess(userId, address);
+            if (!hasAccess) {
+                return reply.status(403).send({
+                    success: false,
+                    message: 'Access denied'
+                });
+            }
+
+            const tokenBalance = await walletService.getTokenBalance(
+                address,
+                chain,
+                tokenAddress,
+                typeof decimals === 'string' ? Number(decimals) : undefined
+            );
+
+            return reply.send({
+                success: true,
+                data: tokenBalance
+            });
+        } catch (error: any) {
+            fastify.log.error(error);
+            return reply.status(500).send({
+                success: false,
+                message: 'Failed to fetch token balance'
+            });
+        }
+    });
+
+    /**
      * Get real-time balance for all supported chains
      */
     fastify.get('/:address/all-balances', async (request: any, reply) => {
@@ -52,7 +95,7 @@ export default async function walletRoutes(fastify: FastifyInstance, options: Fa
                 return reply.status(401).send({ success: false, message: 'Unauthorized' });
             }
             const { address } = request.params as any;
-            const { solanaAddress } = request.query as any;
+            const { solanaAddress, forceRefresh } = request.query as any;
 
             // Verify ownership/monitoring
             const hasAccess = await walletService.verifyAccess(userId, address);
@@ -63,7 +106,9 @@ export default async function walletRoutes(fastify: FastifyInstance, options: Fa
                 });
             }
 
-            const balances = await walletService.getAllChainBalances(address, solanaAddress);
+            const balances = await walletService.getAllChainBalances(address, solanaAddress, {
+                forceRefresh: forceRefresh === '1' || forceRefresh === 'true' || forceRefresh === 1 || forceRefresh === true
+            });
 
             return reply.send({
                 success: true,

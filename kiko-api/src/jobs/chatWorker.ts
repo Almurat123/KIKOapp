@@ -46,6 +46,8 @@ const OPENAI_API_URL = process.env.OPENAI_API_URL || 'https://api.openai.com/v1/
 const GROK_SERVICE_URL = process.env.GROK_SERVICE_URL || 'http://localhost:8001';
 const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+const GROK_PREFER_SDK_GATEWAY = !['0', 'false', 'no', 'off']
+    .includes(String(process.env.GROK_PREFER_SDK_GATEWAY || 'true').toLowerCase());
 const CHAT_ORCHESTRATOR_MODE = (process.env.CHAT_ORCHESTRATOR_MODE || 'unified').toLowerCase();
 const CHAT_CONTEXT_RECENT_WINDOW = Math.max(4, parseInt(process.env.CHAT_CONTEXT_RECENT_WINDOW || '12', 10) || 12);
 const CHAT_CONTEXT_MAX_INPUT_TOKENS = Math.max(2048, parseInt(process.env.CHAT_CONTEXT_MAX_INPUT_TOKENS || '16000', 10) || 16000);
@@ -94,6 +96,14 @@ const THINKING_TOOL_ALLOWLIST = new Set<string>([
     'external_web_search'
 ]);
 
+// xAI provider-managed built-in search tools (should not be executed via toolRegistry).
+const GROK_PROVIDER_MANAGED_SEARCH_TOOL_NAMES = new Set<string>([
+    'live_search',
+]);
+
+const GROK_ENABLE_PROVIDER_SEARCH_TOOLS = ['1', 'true', 'yes', 'on']
+    .includes(String(process.env.GROK_ENABLE_PROVIDER_SEARCH_TOOLS || '').toLowerCase());
+
 // In thinking mode, we restrict skills to a small "clean" subset to prevent
 // execution-oriented prompts/tools from affecting analysis quality.
 const THINKING_SKILL_ID_ALLOWLIST = new Set<string>([
@@ -124,6 +134,9 @@ type ToolTraceState = {
     shouldExitImmediately?: boolean;
     toolFailures: Record<string, number>;
     toolRepeats: Record<string, number>;
+    lastToolName?: string;
+    consecutiveToolCalls: number;
+    polymarketSearchNoMatchStreak: number;
     stopReasons: string[];
     blockedKeys: Set<string>;
     lastResultByKey: Map<string, string>;
@@ -136,8 +149,9 @@ export class ChatWorker {
     private ws = chatWS;
     private grokResponseIdBySession = new Map<string, string>();
     private readonly maxConcurrentTasks = Math.max(1, parseInt(process.env.CHAT_WORKER_MAX_CONCURRENCY || '40', 10) || 40);
-    private readonly maxToolCallsPerTask = Math.max(1, parseInt(process.env.CHAT_WORKER_MAX_TOOL_CALLS || '12', 10) || 12);
-    private readonly maxToolCallsPerTool = Math.max(1, parseInt(process.env.CHAT_WORKER_MAX_TOOL_CALLS_PER_TOOL || '3', 10) || 3);
+    private readonly maxToolCallsPerTask = Math.max(1, parseInt(process.env.CHAT_WORKER_MAX_TOOL_CALLS || '24', 10) || 24);
+    private readonly maxToolCallsPerTool = Math.max(1, parseInt(process.env.CHAT_WORKER_MAX_TOOL_CALLS_PER_TOOL || '6', 10) || 6);
+    private readonly maxConsecutiveToolCallsPerTool = Math.max(1, parseInt(process.env.CHAT_WORKER_MAX_CONSECUTIVE_TOOL_CALLS_PER_TOOL || '6', 10) || 6);
     private runningTasks = new Set<string>();
 
     private buildToolKey(name: string, args: any): string {
@@ -273,6 +287,93 @@ export class ChatWorker {
         }
     }
 
+    private normalizeCitations(raw: any): Array<{ url: string; avatar_url?: string; title?: string; snippet?: string }> {
+        if (raw === null || raw === undefined) return [];
+        const queue: any[] = Array.isArray(raw) ? [...raw] : [raw];
+        const normalized: Array<{ url: string; avatar_url?: string; title?: string; snippet?: string }> = [];
+
+        while (queue.length > 0) {
+            const item = queue.shift();
+            if (item === null || item === undefined) continue;
+
+            if (Array.isArray(item)) {
+                queue.push(...item);
+                continue;
+            }
+
+            if (typeof item === 'string') {
+                const value = item.trim();
+                if (!value) continue;
+                if ((value.startsWith('[') && value.endsWith(']')) || (value.startsWith('{') && value.endsWith('}'))) {
+                    try {
+                        const parsed = JSON.parse(value.replace(/'/g, '"'));
+                        queue.push(parsed);
+                        continue;
+                    } catch {
+                        // Not JSON, treat as URL string.
+                    }
+                }
+                normalized.push({ url: value });
+                continue;
+            }
+
+            if (typeof item === 'object') {
+                const citationObj = item as Record<string, any>;
+                const urlRaw = citationObj.url || citationObj.uri || citationObj.href || citationObj.link;
+                if (!urlRaw) {
+                    if (Array.isArray(citationObj.urls)) queue.push(...citationObj.urls);
+                    continue;
+                }
+                const url = String(urlRaw).trim();
+                if (!url) continue;
+
+                const entry: { url: string; avatar_url?: string; title?: string; snippet?: string } = { url };
+                const avatarRaw = citationObj.avatar_url || citationObj.avatarUrl || citationObj.avatar;
+                if (avatarRaw) {
+                    const avatar = String(avatarRaw).trim();
+                    if (avatar) entry.avatar_url = avatar;
+                }
+                if (citationObj.title) {
+                    const title = String(citationObj.title).trim();
+                    if (title) entry.title = title;
+                }
+                const snippetRaw = citationObj.snippet || citationObj.description || citationObj.content;
+                if (snippetRaw) {
+                    const snippet = String(snippetRaw).trim();
+                    if (snippet) entry.snippet = snippet;
+                }
+                normalized.push(entry);
+            }
+        }
+
+        return normalized;
+    }
+
+    private appendUniqueCitations(
+        allCitations: any[],
+        citationUrlSet: Set<string>,
+        raw: any
+    ): any[] {
+        const incoming = this.normalizeCitations(raw);
+        if (incoming.length === 0) return [];
+
+        const appended: any[] = [];
+        for (const citation of incoming) {
+            const key = String(citation.url || '').trim();
+            if (!key) continue;
+            if (citationUrlSet.has(key)) continue;
+            citationUrlSet.add(key);
+            appended.push(citation);
+            allCitations.push(citation);
+        }
+        return appended;
+    }
+
+    private isGrokProviderManagedSearchTool(toolName: unknown): boolean {
+        const normalized = String(toolName || '').trim().toLowerCase();
+        return normalized.length > 0 && GROK_PROVIDER_MANAGED_SEARCH_TOOL_NAMES.has(normalized);
+    }
+
     private isConfirmationMessage(message: string): boolean {
         const normalized = message.trim().toLowerCase();
         if (!normalized) return false;
@@ -282,6 +383,103 @@ export class ChatWorker {
             '继续', '确认', '执行', '下单', '成交', '好的', '可以'
         ];
         return keywords.some(k => compact === k || compact.includes(k) || normalized === k || normalized.includes(k));
+    }
+
+    private isSetupProceedMessage(message: string): boolean {
+        const text = String(message || '').trim().toLowerCase();
+        if (!text) return false;
+        const patterns = [
+            /\bjust\s+create\b/,
+            /\bcreate\s+it\b/,
+            /\bgo\s+ahead\b/,
+            /\buse\s+default\b/,
+            /直接创建/,
+            /就创建/,
+            /按默认/,
+            /不用了.*创建/,
+        ];
+        return patterns.some((p) => p.test(text)) || this.isConfirmationMessage(text);
+    }
+
+    private parseCopyTradeRequestFromText(text: string): {
+        target_wallet?: string;
+        buy_amount_usd?: number;
+        chain_id?: number;
+        mirror_sell?: boolean;
+        take_profit_pct?: number;
+        stop_loss_pct?: number;
+    } | null {
+        const raw = String(text || '');
+        if (!raw) return null;
+        const lower = raw.toLowerCase();
+        const hasCopyTradeSignal =
+            /\bcopy[\s-]*trade|copy[\s-]*trading|copytrade|copy trader|follow this trader|copy strategy\b/i.test(lower)
+            || /\bcopy\b.*\bwallet\b/i.test(lower);
+        if (!hasCopyTradeSignal) return null;
+
+        const walletMatch = raw.match(/0x[a-fA-F0-9]{40}/);
+        if (!walletMatch) return null;
+
+        const parsed: {
+            target_wallet?: string;
+            buy_amount_usd?: number;
+            chain_id?: number;
+            mirror_sell?: boolean;
+            take_profit_pct?: number;
+            stop_loss_pct?: number;
+        } = {
+            target_wallet: walletMatch[0],
+        };
+
+        const amountPatterns = [
+            /\$\s*([0-9]+(?:\.[0-9]+)?)\s*(?:per\s*trade|each\s*trade)/i,
+            /with\s*\$\s*([0-9]+(?:\.[0-9]+)?)/i,
+            /\b([0-9]+(?:\.[0-9]+)?)\s*usd\s*(?:per\s*trade|each\s*trade)?/i,
+        ];
+        for (const pattern of amountPatterns) {
+            const m = raw.match(pattern);
+            if (m) {
+                parsed.buy_amount_usd = Number(m[1]);
+                break;
+            }
+        }
+
+        if (/\bbase\b/i.test(raw)) parsed.chain_id = 8453;
+        else if (/\b(bnb|bsc)\b/i.test(raw)) parsed.chain_id = 56;
+        else if (/\bsolana\b|\bsol\b/i.test(raw)) parsed.chain_id = 900;
+
+        const autoSell = raw.match(/auto\s*sell\s*[:=]?\s*(yes|no|true|false|on|off)/i);
+        if (autoSell) {
+            parsed.mirror_sell = ['yes', 'true', 'on'].includes(autoSell[1].toLowerCase());
+        }
+
+        const tpMatch = raw.match(/(?:\bTP\b|take\s*profit)\s*[:=]?\s*([0-9]+(?:\.[0-9]+)?)\s*%/i);
+        if (tpMatch) parsed.take_profit_pct = Number(tpMatch[1]);
+        const slMatch = raw.match(/(?:\bSL\b|stop\s*loss)\s*[:=]?\s*([0-9]+(?:\.[0-9]+)?)\s*%/i);
+        if (slMatch) parsed.stop_loss_pct = Number(slMatch[1]);
+
+        return parsed;
+    }
+
+    private findRecentCopyTradeSetup(sessionMessages: any[]): {
+        target_wallet?: string;
+        buy_amount_usd?: number;
+        chain_id?: number;
+        mirror_sell?: boolean;
+        take_profit_pct?: number;
+        stop_loss_pct?: number;
+    } | null {
+        const sorted = [...(sessionMessages || [])]
+            .sort((a, b) => (a.message_index || a.messageIndex || 0) - (b.message_index || b.messageIndex || 0));
+        for (let i = sorted.length - 1; i >= 0; i -= 1) {
+            const msg = sorted[i];
+            if (msg.role !== 'user') continue;
+            const parsed = this.parseCopyTradeRequestFromText(String(msg.content || ''));
+            if (parsed?.target_wallet && Number.isFinite(parsed.buy_amount_usd || NaN)) {
+                return parsed;
+            }
+        }
+        return null;
     }
 
     private isChainStatusQuery(message: string): boolean {
@@ -2182,6 +2380,8 @@ Do NOT estimate or guess USD values.`;
             toolArgsCounts: {},
             toolFailures: {},
             toolRepeats: {},
+            consecutiveToolCalls: 0,
+            polymarketSearchNoMatchStreak: 0,
             stopReasons: [],
             blockedKeys: new Set(),
             lastResultByKey: new Map(),
@@ -2314,6 +2514,32 @@ Do NOT estimate or guess USD values.`;
                     } else {
                         (task as any).systemInjection = `CONFIRMED_SWAP: User confirmed swap after simulation. You MUST call prepare_swap_transaction now with: token_in=${confirmedSwap.token_in}, token_out=${confirmedSwap.token_out}, amount_in=${confirmedSwap.amount_in}, chain_id=${confirmedSwap.chain_id}. Do NOT call simulate_swap again or use web search.`;
                     }
+                }
+            }
+            if (!confirmedSwap && this.isSetupProceedMessage(lastUserMessage)) {
+                const recentCopySetup = this.findRecentCopyTradeSetup(sessionMessages);
+                if (recentCopySetup?.target_wallet && Number.isFinite(recentCopySetup.buy_amount_usd || NaN)) {
+                    parsedIntent.highLevel.type = 'COPY_TRADING';
+                    parsedIntent.highLevel.confidence = 1;
+                    parsedIntent.decision = {
+                        primary: 'COPY_TRADING',
+                        confidence: 1,
+                        labels: [{ label: 'COPY_TRADING', confidence: 1 }],
+                        evidence: [],
+                        routing: { stage: 'rule', reason: 'copy_trade_followup_confirmation' },
+                        hardRule: { label: 'COPY_TRADING', reason: 'user_confirmation_after_copy_trade_setup' },
+                        signals: { hasAction: true, hasAmount: true, hasAsset: true } as any,
+                        slots: { action: true, amount: true, asset: true, target: true, complete: true } as any,
+                    };
+                    (task as any).systemInjection =
+                        `CONFIRMED_COPY_TRADE_SETUP: User confirmed to proceed with copy trade setup. ` +
+                        `You MUST call create_copy_trade_config now with target_wallet=${recentCopySetup.target_wallet}, ` +
+                        `buy_amount_usd=${recentCopySetup.buy_amount_usd}` +
+                        `${recentCopySetup.chain_id ? `, chain_id=${recentCopySetup.chain_id}` : ''}` +
+                        `${typeof recentCopySetup.mirror_sell === 'boolean' ? `, mirror_sell=${recentCopySetup.mirror_sell}` : ''}` +
+                        `${Number.isFinite(recentCopySetup.take_profit_pct as any) ? `, take_profit_pct=${recentCopySetup.take_profit_pct}` : ''}` +
+                        `${Number.isFinite(recentCopySetup.stop_loss_pct as any) ? `, stop_loss_pct=${recentCopySetup.stop_loss_pct}` : ''}` +
+                        `. Do NOT switch to Polymarket flow. Do NOT ask for optional risk filters; use tool defaults when missing.`;
                 }
             }
             if (iteration === 1) {
@@ -3530,10 +3756,17 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
                 }
 
                 const loopStopReasons = toolTrace.stopReasons.filter(r =>
-                    r.startsWith('tool_call_limit') || r.startsWith('tool_repeat_limit') || r.startsWith('tool_failure_limit')
+                    r.startsWith('tool_call_limit')
+                    || r.startsWith('tool_repeat_limit')
+                    || r.startsWith('tool_failure_limit')
+                    || r.startsWith('tool_consecutive_limit')
+                    || r.startsWith('polymarket_search_no_match_limit')
                 );
                 if (loopStopReasons.length > 0) {
-                    const notice = `\n\n⚠️ *Tool usage limit reached. Please refine your request or provide more specific inputs.*`;
+                    const isPolymarketNoMatch = loopStopReasons.some(r => r.startsWith('polymarket_search_no_match_limit'));
+                    const notice = isPolymarketNoMatch
+                        ? `\n\n⚠️ *No exact Polymarket market found after repeated searches. The market may not exist on Polymarket. Please refine the query or share a direct market link.*`
+                        : `\n\n⚠️ *Tool usage limit reached. Please refine your request or provide more specific inputs.*`;
                     totalContent = (totalContent || '') + notice;
                     iterContent += notice;
                     this.ws.broadcastToUser(userId!, {
@@ -4112,6 +4345,7 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
     private async executeTools(sessionId: string, messageId: string, toolCalls: any[], context: any = {}, userId: string | null = null, cache?: Map<string, any>, trace?: ToolTraceState, execState?: { chunkIndex: number; totalContent: string; shouldContinue: boolean; task: any }): Promise<{ results: any[], citations: any[] }> {
         const results: any[] = [];
         const allCitations: any[] = [];
+        const citationUrlSet = new Set<string>();
         logger.info(LogCode.AI_ORCHESTRATOR, 'ChatWorker: executing tools batch', {
             sessionId,
             messageId,
@@ -4143,6 +4377,32 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
             }
 
             const toolName = tc.function.name;
+            if (trace) {
+                if (toolName !== 'search_polymarket') {
+                    trace.polymarketSearchNoMatchStreak = 0;
+                }
+                if (trace.lastToolName === toolName) {
+                    trace.consecutiveToolCalls += 1;
+                } else {
+                    trace.lastToolName = toolName;
+                    trace.consecutiveToolCalls = 1;
+                }
+                if (trace.consecutiveToolCalls > this.maxConsecutiveToolCallsPerTool) {
+                    trace.stopReasons.push(`tool_consecutive_limit:${toolName}`);
+                    trace.toolCalls.push({
+                        tool: toolName,
+                        argsKey: this.buildToolKey(toolName, args),
+                        status: 'blocked',
+                        error: 'Consecutive tool call limit reached',
+                    });
+                    results.push({
+                        role: 'tool',
+                        tool_call_id: tc.id,
+                        content: `Consecutive call limit reached for ${toolName}. Stop calling this tool repeatedly and respond to the user.`,
+                    });
+                    continue;
+                }
+            }
             logger.info(LogCode.AI_API_CALL, 'ChatWorker: tool start', {
                 tool: toolName,
                 sessionId,
@@ -4327,6 +4587,25 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
 
 
                 const result = await toolRegistry.execute(tc.function.name, args, context);
+
+                if (trace && toolName === 'search_polymarket') {
+                    const noExactMatch = (() => {
+                        if (!result || typeof result !== 'object') return false;
+                        if ((result as any).exactMatch === true) return false;
+                        if (Array.isArray((result as any).results)) return (result as any).results.length === 0;
+                        if (Array.isArray((result as any).events)) return (result as any).events.length === 0;
+                        if (typeof (result as any).count === 'number') return (result as any).count === 0;
+                        return false;
+                    })();
+                    trace.polymarketSearchNoMatchStreak = noExactMatch
+                        ? trace.polymarketSearchNoMatchStreak + 1
+                        : 0;
+                    if (trace.polymarketSearchNoMatchStreak >= 2) {
+                        trace.stopReasons.push('polymarket_search_no_match_limit');
+                        // Force subsequent search_polymarket calls to hit per-tool limit block.
+                        trace.toolCallCounts[toolName] = Math.max(trace.toolCallCounts[toolName] || 0, this.maxToolCallsPerTool + 1);
+                    }
+                }
                 logger.info(LogCode.AI_API_CALL, 'ChatWorker: tool success', {
                     tool: toolName,
                     sessionId,
@@ -4334,6 +4613,15 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
                     userId: userId || undefined,
                     durationMs: Date.now() - toolStart
                 });
+
+                // Collect citations from any tool that returns `{ citations: [...] }`.
+                if (result && typeof result === 'object') {
+                    this.appendUniqueCitations(
+                        allCitations,
+                        citationUrlSet,
+                        (result as any).citations
+                    );
+                }
 
                 // CRITICAL: Check for _final flag - tool completed, AI should stop iterating
                 if (result && typeof result === 'object' && result._final) {
@@ -4524,8 +4812,7 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
                     });
 
                 } else if (tc.function.name === 'external_web_search' && result && typeof result === 'object' && result.citations) {
-                    // Special handling for external web search - extract citations
-                    allCitations.push(...result.citations);
+                    // Keep LLM content concise: only pass textual search summary, not full citation payload object.
                     // Only send the results text to the LLM, not the full object
                     const contentForLLM = typeof result.results === 'string' ? result.results : JSON.stringify(result.results);
                     results.push({
@@ -4618,12 +4905,14 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
         let chunkIndex = 0;
         let lastUsage: any = null;  // Track usage for DB persistence
         let allCitations: any[] = [];  // Track citations for DB persistence
+        let latestProviderResponseId: string | undefined;
         const citationUrlSet = new Set<string>();
         let lastDbSave = 0; // Periodic DB sync to prevent data loss on refresh
         let lastBudgetMetrics: { inputTokensEstimated: number; historyKept: number; historyCompacted: number; compactionHits: number } | null = null;
         const taskProcessStartedAt = Date.now();
         let iteration = 0;
         const maxIterations = 5;
+        const seenLocalToolKeys = new Set<string>();
         let currentHistory = [...history];
 
         const toolTrace: ToolTraceState = {
@@ -4634,6 +4923,8 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
             toolArgsCounts: {},
             toolFailures: {},
             toolRepeats: {},
+            consecutiveToolCalls: 0,
+            polymarketSearchNoMatchStreak: 0,
             stopReasons: [],
             blockedKeys: new Set(),
             lastResultByKey: new Map(),
@@ -4744,6 +5035,31 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
                     ? `CONFIRMED_CROSS_CHAIN_SWAP: User confirmed cross-chain swap. You MUST call prepare_cross_chain_tx now with: fromToken=${confirmedSwap.token_in}, toToken=${confirmedSwap.token_out}, fromAmount=${confirmedSwap.amount_in}, fromChain=${confirmedSwap.chain_id}, toChain=${confirmedSwap.toChain}. Do NOT call get_cross_chain_quote again.`
                     : `CONFIRMED_SWAP: User confirmed swap after simulation. You MUST call prepare_swap_transaction now with: token_in=${confirmedSwap.token_in}, token_out=${confirmedSwap.token_out}, amount_in=${confirmedSwap.amount_in}, chain_id=${confirmedSwap.chain_id}, execute=true. Do NOT call simulate_swap again or use web search.`;
             }
+        } else if (this.isSetupProceedMessage(lastUserMessage)) {
+            const recentCopySetup = this.findRecentCopyTradeSetup(sessionMessages);
+            if (recentCopySetup?.target_wallet && Number.isFinite(recentCopySetup.buy_amount_usd || NaN)) {
+                parsedIntent.highLevel.type = 'COPY_TRADING';
+                parsedIntent.highLevel.confidence = 1;
+                parsedIntent.decision = {
+                    primary: 'COPY_TRADING',
+                    confidence: 1,
+                    labels: [{ label: 'COPY_TRADING', confidence: 1 }],
+                    evidence: [],
+                    routing: { stage: 'rule', reason: 'copy_trade_followup_confirmation' },
+                    hardRule: { label: 'COPY_TRADING', reason: 'user_confirmation_after_copy_trade_setup' },
+                    signals: { hasAction: true, hasAmount: true, hasAsset: true } as any,
+                    slots: { action: true, amount: true, asset: true, target: true, complete: true } as any,
+                };
+                (task as any).systemInjection =
+                    `CONFIRMED_COPY_TRADE_SETUP: User confirmed to proceed with copy trade setup. ` +
+                    `You MUST call create_copy_trade_config now with target_wallet=${recentCopySetup.target_wallet}, ` +
+                    `buy_amount_usd=${recentCopySetup.buy_amount_usd}` +
+                    `${recentCopySetup.chain_id ? `, chain_id=${recentCopySetup.chain_id}` : ''}` +
+                    `${typeof recentCopySetup.mirror_sell === 'boolean' ? `, mirror_sell=${recentCopySetup.mirror_sell}` : ''}` +
+                    `${Number.isFinite(recentCopySetup.take_profit_pct as any) ? `, take_profit_pct=${recentCopySetup.take_profit_pct}` : ''}` +
+                    `${Number.isFinite(recentCopySetup.stop_loss_pct as any) ? `, stop_loss_pct=${recentCopySetup.stop_loss_pct}` : ''}` +
+                    `. Do NOT switch to Polymarket flow. Do NOT ask for optional risk filters; use tool defaults when missing.`;
+            }
         } else if (parsedIntent?.detailed?.action === 'swap') {
             let tokenIn = String(parsedIntent?.detailed?.token_in || '').toUpperCase();
             const tokenOut = String(parsedIntent?.detailed?.token_out || '').toUpperCase();
@@ -4806,8 +5122,10 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
                 allowedToolNames.add(name);
             }
         }
-        // Always keep `external_web_search` as a safe fallback.
+        // Keep fallback search tools available in Grok branch.
+        // xAI provider-managed search is unstable/deprecated in chat/completions and may fail by region/account.
         allowedToolNames.add('external_web_search');
+        allowedToolNames.add('x_search');
 
         if (matchedSkills.length > 0 && allowedToolNames.size > 0) {
             const gated = baseToolDefs.filter(def => allowedToolNames.has(def.name));
@@ -4833,9 +5151,6 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
             } else {
                 logger.warn(LogCode.AI_TOOL_FILTERED, 'Grok: skill gating produced 0 tools; no fallback - skills control tool availability', { intent: intentStr });
             }
-        }
-        if (!isFreeIntent) {
-            toolDefinitions = toolDefinitions.filter(def => def.function?.name !== 'external_web_search');
         }
         if (forceChainContextAnswer) {
             toolDefinitions = [];
@@ -5118,6 +5433,21 @@ Chain: ${chainName}${chainId ? ` (${chainId})` : ''}
         const now = Date.now();
         const last7dIso = new Date(now - 7 * 24 * 60 * 60 * 1000).toISOString();
 
+        const modelLower = String(task.model || '').toLowerCase();
+        const isNonReasoningModel = modelLower.includes('non-reasoning');
+        // xAI changed chat/completions tool schema (expects live_search) and now deprecates live_search for many accounts.
+        // Disable provider-managed search by default and rely on function tools (`x_search`/`external_web_search`) for stability.
+        // If needed, can be re-enabled with GROK_ENABLE_PROVIDER_SEARCH_TOOLS=true.
+        const providerManagedSearchTools: any[] = (!forceChainContextAnswer && routingMode === 'thinking' && GROK_ENABLE_PROVIDER_SEARCH_TOOLS)
+            ? [{
+                type: 'live_search' as const,
+                sources: [
+                    { type: 'web' as const },
+                    ...(isNonReasoningModel ? [] : [{ type: 'x' as const }]),
+                ],
+            }]
+            : [];
+
         // Broadcast state before API call
         this.broadcastTaskStatus(userId, task, { status: 'running', message: this.getIntentStatusMessage(preProcessed?.parsedIntent) });
 
@@ -5131,31 +5461,141 @@ Chain: ${chainName}${chainId ? ` (${chainId})` : ''}
                 message: iteration > 1 ? `Processing tool results (${iteration}/${maxIterations})` : this.getIntentStatusMessage(preProcessed?.parsedIntent)
             });
 
-            // Call xAI directly
+            // Call Grok provider (prefer Python SDK gateway, then fallback to direct xAI)
             const previousResponseId = this.grokResponseIdBySession.get(task.sessionId);
             const apiRequestStartedAt = Date.now();
             let firstTokenAt: number | null = null;
             let currentToolCalls: any[] = [];
 
-            const response = await fetch(XAI_API_URL, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${XAI_API_KEY}`,
-                },
-                body: JSON.stringify({
-                    model: task.model,
-                    messages: grokMessages,
-                    stream: true,
-                    tools: toolDefinitions, // Use Kiko tools
-                }),
-            });
+            const directRequestBody: any = {
+                model: task.model,
+                messages: grokMessages,
+                stream: true,
+                tools: [...providerManagedSearchTools, ...toolDefinitions],
+                tool_choice: 'auto',
+            };
+            const sdkGatewayBody: any = {
+                model: task.model,
+                messages: grokMessages,
+                stream: true,
+                // SDK gateway: keep native tools broadly available unless hard-disabled by chain-context guardrail.
+                enable_search: !forceChainContextAnswer,
+                previous_response_id: previousResponseId,
+                // SDK gateway executes tools with its own native + custom registry.
+                // Do not pass Node tool schemas to avoid duplicate tool ecosystems.
+                tool_context: task.toolContext || undefined,
+                tool_config: {
+                    web_search: {},
+                    x_search: {
+                        from_date: last7dIso,
+                        ...(xSeedHandles.length > 0 ? { allowed_x_handles: xSeedHandles.slice(0, 5).map(h => String(h).replace(/^@/, '')) } : {}),
+                    }
+                }
+            };
 
-            if (!response.ok) {
-                const errText = await response.text();
-                logger.error(LogCode.AI_API_CALL, 'Grok API error', { status: response.status, error: errText });
-                throw new Error(`Grok API error: ${response.status} ${errText}`);
+            let response: Response | null = null;
+            let activeTransport: 'sdk_gateway' | 'xai_direct' = 'xai_direct';
+            const transportOrder: Array<'sdk_gateway' | 'xai_direct'> = GROK_PREFER_SDK_GATEWAY
+                ? ['sdk_gateway', 'xai_direct']
+                : ['xai_direct'];
+            let lastTransportError = '';
+
+            for (const transport of transportOrder) {
+                try {
+                    if (transport === 'sdk_gateway') {
+                        const sdkHeaders: Record<string, string> = {
+                            'Content-Type': 'application/json',
+                        };
+                        if (process.env.INTERNAL_SERVICE_KEY) {
+                            sdkHeaders['X-Service-Key'] = process.env.INTERNAL_SERVICE_KEY;
+                        }
+                        const sdkResponse = await fetch(`${GROK_SERVICE_URL}/v1/chat/completions`, {
+                            method: 'POST',
+                            headers: sdkHeaders,
+                            body: JSON.stringify(sdkGatewayBody),
+                        });
+                        if (sdkResponse.ok) {
+                            response = sdkResponse;
+                            activeTransport = 'sdk_gateway';
+                            break;
+                        }
+                        lastTransportError = await sdkResponse.text();
+                        logger.warn(LogCode.AI_API_CALL, 'Grok SDK gateway request failed, fallback to direct xAI', {
+                            status: sdkResponse.status,
+                            error: lastTransportError,
+                        });
+                        continue;
+                    }
+
+                    const directResponse = await fetch(XAI_API_URL, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${XAI_API_KEY}`,
+                        },
+                        body: JSON.stringify(directRequestBody),
+                    });
+
+                    // Compatibility fallback: if xAI rejects built-in tool schema, retry once with function tools only.
+                    if (!directResponse.ok && providerManagedSearchTools.length > 0) {
+                        const firstErrorText = await directResponse.text();
+                        const shouldFallback = directResponse.status === 400 || directResponse.status === 410 || directResponse.status === 422;
+                        if (shouldFallback) {
+                            logger.warn(LogCode.AI_API_CALL, 'Grok built-in search tool schema rejected, retrying without provider tools', {
+                                status: directResponse.status,
+                                error: firstErrorText,
+                            });
+                            const fallbackBody = {
+                                ...directRequestBody,
+                                tools: toolDefinitions,
+                            };
+                            const retried = await fetch(XAI_API_URL, {
+                                method: 'POST',
+                                headers: {
+                                    'Content-Type': 'application/json',
+                                    'Authorization': `Bearer ${XAI_API_KEY}`,
+                                },
+                                body: JSON.stringify(fallbackBody),
+                            });
+                            if (retried.ok) {
+                                response = retried;
+                                activeTransport = 'xai_direct';
+                                break;
+                            }
+                            lastTransportError = await retried.text();
+                            logger.error(LogCode.AI_API_CALL, 'Grok direct fallback failed', {
+                                status: retried.status,
+                                error: lastTransportError,
+                            });
+                        } else {
+                            lastTransportError = firstErrorText;
+                            logger.error(LogCode.AI_API_CALL, 'Grok API error', { status: directResponse.status, error: firstErrorText });
+                        }
+                    } else if (directResponse.ok) {
+                        response = directResponse;
+                        activeTransport = 'xai_direct';
+                        break;
+                    } else {
+                        lastTransportError = await directResponse.text();
+                        logger.error(LogCode.AI_API_CALL, 'Grok API error', { status: directResponse.status, error: lastTransportError });
+                    }
+                } catch (e: any) {
+                    lastTransportError = e?.message || String(e);
+                    logger.warn(LogCode.AI_API_CALL, 'Grok transport attempt failed', { transport, error: lastTransportError });
+                }
             }
+
+            if (!response || !response.ok) {
+                const status = response ? response.status : 'no_response';
+                const errText = response ? await response.text() : lastTransportError || 'Unknown transport failure';
+                logger.error(LogCode.AI_API_CALL, 'Grok API error', { status, error: errText });
+                throw new Error(`Grok API error: ${status} ${errText}`);
+            }
+
+            logger.debug(LogCode.AI_API_CALL, 'Grok transport selected', {
+                transport: activeTransport,
+                sessionId: task.sessionId,
+            });
 
             const reader = response.body!.getReader();
             const decoder = new TextDecoder();
@@ -5165,6 +5605,7 @@ Chain: ${chainName}${chainId ? ` (${chainId})` : ''}
 
             let assistantContent = '';
             let toolCalls: any[] = [];
+            const providerToolStatusBroadcasted = new Set<string>();
 
             while (true) {
                 const { done, value } = await reader.read();
@@ -5191,11 +5632,34 @@ Chain: ${chainName}${chainId ? ` (${chainId})` : ''}
 
                     try {
                         const data = JSON.parse(line.slice(6));
-                        const delta = data.choices?.[0]?.delta;
+                        if (typeof data?.response_id === 'string') latestProviderResponseId = data.response_id;
+                        if (typeof data?.id === 'string') latestProviderResponseId = data.id;
+                        const choice = data.choices?.[0];
+                        const delta = choice?.delta;
 
                         // Handle usage data if present
                         if (data.usage) {
                             lastUsage = data.usage;
+                        }
+
+                        // xAI may emit citations in different locations depending on tool/search path.
+                        // Collect all known shapes and broadcast only newly discovered citations.
+                        const newCitations = [
+                            ...this.appendUniqueCitations(allCitations, citationUrlSet, choice?.message?.citations),
+                            ...this.appendUniqueCitations(allCitations, citationUrlSet, choice?.delta?.citations),
+                            ...this.appendUniqueCitations(allCitations, citationUrlSet, data?.citations),
+                            ...this.appendUniqueCitations(allCitations, citationUrlSet, data?.sources),
+                            ...this.appendUniqueCitations(allCitations, citationUrlSet, data?.references),
+                        ];
+                        if (newCitations.length > 0) {
+                            this.ws.broadcastToUser(userId!, {
+                                type: 'citations',
+                                sessionId: task.sessionId,
+                                data: {
+                                    message_id: assistantMessageId,
+                                    citations: newCitations,
+                                }
+                            });
                         }
 
                         if (!delta) continue;
@@ -5206,9 +5670,29 @@ Chain: ${chainName}${chainId ? ` (${chainId})` : ''}
                                 if (!toolCalls[tc.index]) {
                                     toolCalls[tc.index] = { ...tc, function: { ...tc.function } };
                                 } else {
-                                    if (tc.function?.arguments) {
-                                        toolCalls[tc.index].function.arguments += tc.function.arguments;
+                                    if (!toolCalls[tc.index].function) {
+                                        toolCalls[tc.index].function = {};
                                     }
+                                    if (tc.id) {
+                                        toolCalls[tc.index].id = tc.id;
+                                    }
+                                    if (tc.function?.name) {
+                                        toolCalls[tc.index].function.name = tc.function.name;
+                                    }
+                                    if (tc.function?.arguments) {
+                                        toolCalls[tc.index].function.arguments = (toolCalls[tc.index].function.arguments || '') + tc.function.arguments;
+                                    }
+                                }
+
+                                const mergedToolName = String(toolCalls[tc.index]?.function?.name || '').trim().toLowerCase();
+                                if (this.isGrokProviderManagedSearchTool(mergedToolName) && !providerToolStatusBroadcasted.has(mergedToolName)) {
+                                    providerToolStatusBroadcasted.add(mergedToolName);
+                                    this.broadcastTaskStatus(userId, task, {
+                                        status: 'running',
+                                        iteration,
+                                        maxIterations,
+                                        message: this.getToolStatusMessage(mergedToolName),
+                                    });
                                 }
                             }
                         }
@@ -5249,10 +5733,33 @@ Chain: ${chainName}${chainId ? ` (${chainId})` : ''}
             }
 
             // After stream: Add assistant message to history
+            const compactToolCalls = toolCalls.filter(Boolean);
+            const shouldExecuteLocalTools = activeTransport === 'xai_direct';
+            const localToolCalls = shouldExecuteLocalTools
+                ? compactToolCalls.filter(tc => !this.isGrokProviderManagedSearchTool(tc?.function?.name))
+                : [];
+            const providerToolCalls = shouldExecuteLocalTools
+                ? compactToolCalls.filter(tc => this.isGrokProviderManagedSearchTool(tc?.function?.name))
+                : compactToolCalls;
+            if (providerToolCalls.length > 0) {
+                logger.info(LogCode.AI_API_CALL, 'Grok provider-managed search tool calls observed', {
+                    sessionId: task.sessionId,
+                    count: providerToolCalls.length,
+                    names: providerToolCalls.map(tc => String(tc?.function?.name || '').trim().toLowerCase()).filter(Boolean),
+                });
+            }
+            if (!shouldExecuteLocalTools && compactToolCalls.length > 0) {
+                logger.info(LogCode.AI_API_CALL, 'Grok sdk_gateway tool calls handled upstream; skipping Node local tool execution', {
+                    sessionId: task.sessionId,
+                    count: compactToolCalls.length,
+                    names: compactToolCalls.map(tc => String(tc?.function?.name || '').trim().toLowerCase()).filter(Boolean),
+                });
+            }
+
             const assistantMsg = {
                 role: 'assistant',
                 content: assistantContent || '',
-                tool_calls: toolCalls.length > 0 ? toolCalls.map(tc => ({
+                tool_calls: localToolCalls.length > 0 ? localToolCalls.map(tc => ({
                     id: tc.id,
                     type: 'function',
                     function: tc.function
@@ -5261,10 +5768,23 @@ Chain: ${chainName}${chainId ? ` (${chainId})` : ''}
             (grokMessages as any[]).push(assistantMsg);
 
             // Execute tools if any
-            if (toolCalls.length > 0) {
-                const toolResults = await Promise.all(toolCalls.map(async (tc) => {
+            if (localToolCalls.length > 0) {
+                const toolResults = await Promise.all(localToolCalls.map(async (tc) => {
                     const name = tc.function.name;
                     const args = JSON.parse(tc.function.arguments || '{}');
+                    const toolKey = `${String(name || '').trim().toLowerCase()}:${this.stableStringify(args)}`;
+                    if (seenLocalToolKeys.has(toolKey)) {
+                        return {
+                            toolMessage: {
+                                role: 'tool',
+                                tool_call_id: tc.id,
+                                name: name,
+                                content: `No further tool calls (duplicate tool+args: ${name})`
+                            },
+                            citations: []
+                        };
+                    }
+                    seenLocalToolKeys.add(toolKey);
 
                     this.broadcastTaskStatus(userId, task, {
                         status: 'running',
@@ -5278,26 +5798,65 @@ Chain: ${chainName}${chainId ? ` (${chainId})` : ''}
                             task,
                             toolResultsCache
                         });
+
+                        const toolCitations = this.appendUniqueCitations(
+                            allCitations,
+                            citationUrlSet,
+                            (result && typeof result === 'object') ? (result as any).citations : undefined
+                        );
+
                         return {
-                            role: 'tool',
-                            tool_call_id: tc.id,
-                            name: name,
-                            content: typeof result === 'string' ? result : JSON.stringify(result)
+                            toolMessage: {
+                                role: 'tool',
+                                tool_call_id: tc.id,
+                                name: name,
+                                content: typeof result === 'string' ? result : JSON.stringify(result)
+                            },
+                            citations: toolCitations
                         };
                     } catch (err: any) {
                         return {
-                            role: 'tool',
-                            tool_call_id: tc.id,
-                            name: name,
-                            content: `Error: ${err.message || String(err)}`
+                            toolMessage: {
+                                role: 'tool',
+                                tool_call_id: tc.id,
+                                name: name,
+                                content: `Error: ${err.message || String(err)}`
+                            },
+                            citations: []
                         };
                     }
                 }));
 
-                grokMessages.push(...toolResults);
+                const newToolCitations = toolResults.flatMap(r => r.citations || []);
+                if (newToolCitations.length > 0) {
+                    this.ws.broadcastToUser(userId!, {
+                        type: 'citations',
+                        sessionId: task.sessionId,
+                        data: {
+                            message_id: assistantMessageId,
+                            citations: newToolCitations,
+                        }
+                    });
+                }
+
+                grokMessages.push(...toolResults.map(r => r.toolMessage));
             } else {
                 // No more tool calls, we are done
                 break;
+            }
+        }
+
+        if (latestProviderResponseId) {
+            this.grokResponseIdBySession.set(task.sessionId, latestProviderResponseId);
+            if (this.isUnifiedOrchestrator()) {
+                try {
+                    await this.persistConversationRef(task, { previousResponseId: latestProviderResponseId });
+                } catch (e: any) {
+                    logger.warn(LogCode.DB_TRANSACTION_FAILED, 'Grok: failed to persist previous_response_id (non-critical)', {
+                        taskId: task.id,
+                        error: e?.message || String(e),
+                    });
+                }
             }
         }
 
@@ -5327,7 +5886,11 @@ Chain: ${chainName}${chainId ? ` (${chainId})` : ''}
             totalTokens: lastUsage?.total_tokens,
             toolRounds: iteration,
         });
-        this.broadcastAssistantMessageComplete(userId, task.sessionId, assistantMessageId, { status: 'success', totalIterations: iteration });
+        this.broadcastAssistantMessageComplete(userId, task.sessionId, assistantMessageId, {
+            status: 'success',
+            totalIterations: iteration,
+            usage: lastUsage || undefined,
+        });
 
         logger.throttled(LogCode.AI_API_CALL, 'Grok: task completed', { taskId: task.id, chunks: chunkIndex });
     }

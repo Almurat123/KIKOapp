@@ -373,6 +373,35 @@ export async function getUserBalance(
                     '0x0d500b1d8e8ef31e21c99d1db9a6444d3adf1270': true, // WMATIC on Polygon
                 };
                 const isNativeToken = !tokenAddress || WRAPPED_NATIVE_TOKENS[tokenAddress.toLowerCase()];
+                if (!isNativeToken && tokenAddress) {
+                    // For user-imported/whitelisted tokens, query exact token balance endpoint first.
+                    const tokenBalanceResponse = await fetch(
+                        `${API_BASE_URL}/api/wallets/${sanitizedAddress}/token-balance?chain=${encodeURIComponent(chain)}&tokenAddress=${encodeURIComponent(tokenAddress)}&decimals=${encodeURIComponent(String(fallbackDecimals ?? 18))}`,
+                        {
+                            method: 'GET',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+                            },
+                            signal: (() => {
+                                if (typeof AbortSignal !== 'undefined' && AbortSignal.timeout) {
+                                    return AbortSignal.timeout(30000);
+                                }
+                                const controller = new AbortController();
+                                setTimeout(() => controller.abort(), 30000);
+                                return controller.signal;
+                            })(),
+                        }
+                    );
+                    if (tokenBalanceResponse.ok) {
+                        const tokenBalanceData = await tokenBalanceResponse.json();
+                        const raw = tokenBalanceData?.data?.rawBalance;
+                        if (typeof raw === 'string' && raw.length > 0) {
+                            return raw;
+                        }
+                    }
+                }
+
                 if (isNativeToken && data.data?.ethBalance) {
                     return data.data.ethBalance; // Returns hex string like "0x..."
                 }

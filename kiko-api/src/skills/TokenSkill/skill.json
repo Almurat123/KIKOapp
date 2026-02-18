@@ -8,6 +8,8 @@
     "tools": [
         "get_token_info",
         "get_trending_tokens",
+        "x_search",
+        "external_web_search",
         "get_token_price",
         "get_historical_price",
         "get_early_buyers",

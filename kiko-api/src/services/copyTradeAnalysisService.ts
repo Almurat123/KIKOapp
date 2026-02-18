@@ -17,6 +17,19 @@ export interface AnalysisResult {
     };
     rawAnalysis: string;
     judgeDecisionId?: string;
+    binding?: {
+        source: 'copytrade';
+        copyTradeConfigId: string;
+        copyTradeTxHash: string;
+        aiAnalysisMode: 'analyze_only' | 'auto_decide';
+    };
+}
+
+interface CopyTradeJudgeBinding {
+    source: 'copytrade';
+    copyTradeConfigId: string;
+    copyTradeTxHash: string;
+    aiAnalysisMode: 'analyze_only' | 'auto_decide';
 }
 
 /**
@@ -28,9 +41,22 @@ export async function analyzeTradeOpportunity(
     chainId: number,
     targetWallet: string,
     userAmountUsd: number = 100,
-    knownLaunchpadType?: string
+    knownLaunchpadType?: string,
+    binding?: CopyTradeJudgeBinding
 ): Promise<AnalysisResult> {
+    if (!binding || binding.source !== 'copytrade' || !binding.copyTradeConfigId || !binding.copyTradeTxHash) {
+        throw new Error('Judge analysis requires copytrade binding context (configId + txHash)');
+    }
+    if (binding.aiAnalysisMode !== 'analyze_only' && binding.aiAnalysisMode !== 'auto_decide') {
+        throw new Error('Judge analysis requires enabled copytrade aiAnalysisMode');
+    }
+
     console.log(`[AI Analysis] Using Judge Engine for ${tokenAddress} on chain ${chainId}`);
+    console.log('[AI Analysis] Copytrade binding:', {
+        configId: binding.copyTradeConfigId,
+        txHash: `${binding.copyTradeTxHash.slice(0, 10)}...`,
+        aiMode: binding.aiAnalysisMode,
+    });
 
     try {
         const judgeOutput: DecisionEngineOutput = await runJudgeEngine(
@@ -60,6 +86,7 @@ export async function analyzeTradeOpportunity(
             },
             rawAnalysis: final.ai_rationale || 'Analysis completed by multi-layer judge engine.',
             judgeDecisionId: engine.decision_id,
+            binding,
         };
 
     } catch (error: any) {

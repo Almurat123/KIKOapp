@@ -3,15 +3,16 @@ import { createPortal } from 'react-dom';
 import { X, ArrowRight, AlertCircle, Loader2 } from 'lucide-react';
 import { isAddress, parseUnits, encodeFunctionData } from 'viem';
 import { useWallets } from '@privy-io/react-auth';
+import { useWallets as useSolanaWallets } from '@privy-io/react-auth/solana';
 import {
     Connection,
     PublicKey,
     Transaction,
-    SystemProgram,
-    LAMPORTS_PER_SOL
+    SystemProgram
 } from '@solana/web3.js';
 import {
     TOKEN_PROGRAM_ID,
+    createAssociatedTokenAccountInstruction,
     createTransferInstruction,
     getAssociatedTokenAddress
 } from '@solana/spl-token';
@@ -51,6 +52,7 @@ interface SendModalProps {
 export const SendModal: React.FC<SendModalProps> = ({
     isOpen,
     onClose,
+    walletAddress,
     chainId = 1,
     tokenAddress,
     tokenSymbol = 'ETH',
@@ -70,6 +72,7 @@ export const SendModal: React.FC<SendModalProps> = ({
     const [txHash, setTxHash] = useState<string | null>(null);
 
     const { wallets } = useWallets();
+    const { wallets: solanaWallets } = useSolanaWallets();
     const [step, setStep] = useState<'input' | 'confirm' | 'processing' | 'success'>('input');
     const [isSelectingToken, setIsSelectingToken] = useState(false);
 
@@ -124,15 +127,26 @@ export const SendModal: React.FC<SendModalProps> = ({
 
     const handleNext = () => {
         setError(null);
+        const to = recipient.trim();
 
         // Validation
-        if (!recipient) {
+        if (!to) {
             setError('Please enter a recipient address');
             return;
         }
-        if (!isSolana && !isAddress(recipient)) {
+        if (!isSolana && !isAddress(to)) {
             setError('Invalid wallet address');
             return;
+        }
+        if (isSolana) {
+            try {
+                // Validate base58 address format
+                // eslint-disable-next-line no-new
+                new PublicKey(to);
+            } catch {
+                setError('Invalid Solana address');
+                return;
+            }
         }
         if (!amount || parseFloat(amount) <= 0) {
             setError('Please enter a valid amount');
@@ -150,16 +164,19 @@ export const SendModal: React.FC<SendModalProps> = ({
         setIsSending(true);
         setError(null);
         try {
-            const wallet = wallets.find(w =>
-                isSolana ? w.chainId.includes('solana') : w.chainId.includes('eip155')
-            );
-
-            if (!wallet) throw new Error('Wallet not connected');
-
             if (isSolana) {
-                await handleSolanaSend(wallet);
+                const solWallet = solanaWallets.find((w: any) =>
+                    walletAddress ? w.address?.toLowerCase() === walletAddress.toLowerCase() : true
+                ) || solanaWallets[0];
+                if (!solWallet) throw new Error('Solana wallet not connected');
+                await handleSolanaSend(solWallet);
             } else {
-                await handleEvmSend(wallet);
+                const evmWallet = wallets.find((w: any) =>
+                    w.chainId?.includes?.('eip155') &&
+                    (walletAddress ? w.address?.toLowerCase() === walletAddress.toLowerCase() : true)
+                ) || wallets.find((w: any) => w.chainId?.includes?.('eip155'));
+                if (!evmWallet) throw new Error('EVM wallet not connected');
+                await handleEvmSend(evmWallet);
             }
             setStep('success');
             onSuccess?.();
@@ -173,6 +190,7 @@ export const SendModal: React.FC<SendModalProps> = ({
 
     const handleEvmSend = async (wallet: any) => {
         // [Logic]: wallet.sendTransaction is used directly, no need for provider/signer here.
+        const to = recipient.trim();
 
         // Ensure correct chain
         if (wallet.chainId !== `eip155:${chainId}`) {
@@ -182,13 +200,13 @@ export const SendModal: React.FC<SendModalProps> = ({
         let hash;
         if (isNative) {
             hash = await wallet.sendTransaction({
-                to: recipient,
+                to,
                 value: parseUnits(amount, 18).toString(),
             });
         } else {
             const data = encodeFunctionData({
                 abi: [{ name: 'transfer', type: 'function', inputs: [{ name: 'to', type: 'address' }, { name: 'value', type: 'uint256' }], outputs: [{ name: 'success', type: 'bool' }] }],
-                args: [recipient as `0x${string}`, parseUnits(amount, tokenDecimals || 18)]
+                args: [to as `0x${string}`, parseUnits(amount, tokenDecimals || 18)]
             });
             hash = await wallet.sendTransaction({
                 to: tokenAddress as `0x${string}`,
@@ -200,30 +218,57 @@ export const SendModal: React.FC<SendModalProps> = ({
     };
 
     const handleSolanaSend = async (wallet: any) => {
-        const connection = new Connection(import.meta.env.VITE_SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com');
+        const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+        const connection = new Connection(`${API_BASE_URL}/api/rpc/solana`, 'confirmed');
         const fromPubkey = new PublicKey(wallet.address);
-        const toPubkey = new PublicKey(recipient);
+        const toPubkey = new PublicKey(recipient.trim());
         const transaction = new Transaction();
 
         if (isNative) {
+            const lamports = parseUnits(amount, 9);
+            const lamportsNum = Number(lamports);
+            if (!Number.isFinite(lamportsNum) || lamportsNum <= 0) {
+                throw new Error('Invalid SOL amount');
+            }
             transaction.add(
                 SystemProgram.transfer({
                     fromPubkey,
                     toPubkey,
-                    lamports: Math.floor(parseFloat(amount) * LAMPORTS_PER_SOL),
+                    lamports: lamportsNum,
                 })
             );
         } else {
+            if (!tokenAddress) {
+                throw new Error('Missing token address');
+            }
             const mint = new PublicKey(tokenAddress!);
             const fromAta = await getAssociatedTokenAddress(mint, fromPubkey);
             const toAta = await getAssociatedTokenAddress(mint, toPubkey);
+            const toAtaInfo = await connection.getAccountInfo(toAta);
+
+            // Create recipient ATA if it doesn't exist (required for many first-time SPL recipients).
+            if (!toAtaInfo) {
+                transaction.add(
+                    createAssociatedTokenAccountInstruction(
+                        fromPubkey,
+                        toAta,
+                        toPubkey,
+                        mint
+                    )
+                );
+            }
+
+            const amountRaw = parseUnits(amount, tokenDecimals || 9);
+            if (amountRaw <= 0n) {
+                throw new Error('Invalid token amount');
+            }
 
             transaction.add(
                 createTransferInstruction(
                     fromAta,
                     toAta,
                     fromPubkey,
-                    BigInt(Math.floor(parseFloat(amount) * Math.pow(10, tokenDecimals || 9))),
+                    amountRaw,
                     [],
                     TOKEN_PROGRAM_ID
                 )
@@ -234,9 +279,17 @@ export const SendModal: React.FC<SendModalProps> = ({
         transaction.recentBlockhash = blockhash;
         transaction.feePayer = fromPubkey;
 
+        // Prefer wallet-managed send when available (Privy Solana wallet path).
+        if (wallet.signAndSendTransaction) {
+            const signature = await wallet.signAndSendTransaction(transaction);
+            setTxHash(signature?.signature || signature);
+            return;
+        }
+
         const signedTx = await wallet.signTransaction(transaction);
-        const signature = await connection.sendRawTransaction(signedTx.serialize());
-        await connection.confirmTransaction(signature);
+        const serialized = typeof signedTx.serialize === 'function' ? signedTx.serialize() : signedTx;
+        const signature = await connection.sendRawTransaction(serialized);
+        await connection.confirmTransaction(signature, 'confirmed');
         setTxHash(signature);
     };
 

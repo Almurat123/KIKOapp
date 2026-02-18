@@ -18,7 +18,14 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from dotenv import load_dotenv
 from xai_sdk.chat import user, system, tool, tool_result
-from xai_sdk.tools import web_search, x_search, get_tool_call_type
+from xai_sdk.tools import (
+    web_search,
+    x_search,
+    code_execution,
+    collections_search,
+    mcp,
+    get_tool_call_type
+)
 from xai_sdk.aio import chat as aio_chat
 from jose import jwt
 
@@ -1404,6 +1411,12 @@ class ChatRequest(BaseModel):
     usage: Optional[dict] = None
 
 
+def _is_truthy(value: Optional[str], default: bool = False) -> bool:
+    if value is None:
+        return default
+    return str(value).strip().lower() in ("1", "true", "yes", "on")
+
+
 class ChatResponse(BaseModel):
     content: str
     citations: Optional[List[str]] = None
@@ -1499,9 +1512,7 @@ async def chat_completions(
                         break
         
         # Add tools if enabled
-        # For "fast" models: Enable ONLY web_search (disable x_search which returns unreliable data)
-        # For "thinking" models: Enable both web_search and x_search
-        is_fast_model = "fast" in normalized_model
+        # By default, expose native xAI SDK tools in addition to Node-provided client tools.
         tools = []  # Initialize tools to empty list first
         available_tools = set()  # Custom tool names for manual execution
 
@@ -1516,6 +1527,70 @@ async def chat_completions(
             if 'to_date' in x_search_config and isinstance(x_search_config['to_date'], str):
                 x_search_config['to_date'] = datetime.fromisoformat(x_search_config['to_date'])
 
+        native_tool_names = set()
+
+        def get_attached_tool_name(attached_tool) -> str:
+            try:
+                oneof = attached_tool.WhichOneof("tool")
+                if oneof:
+                    return str(oneof)
+            except Exception:
+                pass
+            try:
+                if hasattr(attached_tool, "function") and hasattr(attached_tool.function, "name"):
+                    n = str(attached_tool.function.name or "").strip()
+                    if n:
+                        return n
+            except Exception:
+                pass
+            return ""
+
+        def add_native_tool(native_tool_obj):
+            try:
+                n = get_attached_tool_name(native_tool_obj)
+                if n:
+                    if n in native_tool_names:
+                        return
+                    native_tool_names.add(n)
+                tools.append(native_tool_obj)
+            except Exception as e:
+                print(f"[Tools] Failed to attach native tool: {e}")
+
+        expose_all_sdk_tools = _is_truthy(os.getenv("GROK_EXPOSE_ALL_XAI_SDK_TOOLS"), default=True)
+
+        if request.enable_search:
+            add_native_tool(web_search(**web_search_config) if web_search_config else web_search())
+            add_native_tool(x_search(**x_search_config) if x_search_config else x_search())
+
+        if expose_all_sdk_tools and request.enable_search:
+            # 1) code_execution: always available when enabled.
+            try:
+                add_native_tool(code_execution())
+            except Exception as e:
+                print(f"[Tools] code_execution unavailable: {e}")
+
+            # 2) collections_search: enabled only when collection ids are configured.
+            collection_ids_raw = os.getenv("XAI_COLLECTION_IDS", "")
+            collection_ids = [x.strip() for x in collection_ids_raw.split(",") if x.strip()]
+            if collection_ids:
+                try:
+                    add_native_tool(collections_search(collection_ids=collection_ids))
+                except Exception as e:
+                    print(f"[Tools] collections_search unavailable: {e}")
+
+            # 3) mcp: enabled when an MCP server URL is configured.
+            mcp_server_url = (os.getenv("XAI_MCP_SERVER_URL") or "").strip()
+            if mcp_server_url:
+                try:
+                    add_native_tool(mcp(
+                        server_url=mcp_server_url,
+                        server_label=(os.getenv("XAI_MCP_SERVER_LABEL") or None),
+                        server_description=(os.getenv("XAI_MCP_SERVER_DESCRIPTION") or None),
+                        authorization=(os.getenv("XAI_MCP_AUTHORIZATION") or None),
+                    ))
+                except Exception as e:
+                    print(f"[Tools] mcp unavailable: {e}")
+
         if request.tools:
             for raw_tool in request.tools:
                 tool_def = raw_tool.get("function") if isinstance(raw_tool, dict) and "function" in raw_tool else raw_tool
@@ -1524,13 +1599,8 @@ async def chat_completions(
                 tool_name = tool_def.get("name")
                 if not tool_name:
                     continue
-                if tool_name == "web_search":
-                    if request.enable_search:
-                        tools.append(web_search(**web_search_config) if web_search_config else web_search())
-                    continue
-                if tool_name == "x_search":
-                    if request.enable_search:
-                        tools.append(x_search(**x_search_config) if x_search_config else x_search())
+                # Native SDK tools are already attached above; avoid duplicates.
+                if tool_name in {"web_search", "x_search", "code_execution", "collections_search", "mcp"}:
                     continue
                 tools.append(tool(
                     name=tool_name,
@@ -1538,39 +1608,19 @@ async def chat_completions(
                     parameters=tool_def.get("parameters", {"type": "object", "properties": {}})
                 ))
                 available_tools.add(tool_name)
-            # IMPORTANT: Node passes OpenAI-style tool schemas and does not include x_search.
-            # For Grok, we still want built-in search tools available when enabled.
-            if request.enable_search:
-                existing = set()
-                for t in tools:
-                    if hasattr(t, "function") and hasattr(t.function, "name"):
-                        existing.add(t.function.name)
-                if "web_search" not in existing:
-                    tools.insert(0, web_search(**web_search_config) if web_search_config else web_search())
-                if "x_search" not in existing:
-                    tools.insert(0, x_search(**x_search_config) if x_search_config else x_search())
-            log_tools(f"[Tools] Dynamic tool set from Node: {len(tools)} tool(s) ({len(available_tools)} custom)")
+            log_tools(f"[Tools] Dynamic tool set from Node + SDK natives: {len(tools)} tool(s) ({len(available_tools)} custom)")
         elif request.enable_search:
-            if is_fast_model:
-                tools = [
-                    web_search(**web_search_config) if web_search_config else web_search(),
-                    x_search(**x_search_config) if x_search_config else x_search(),
-                ] + CUSTOM_TOOLS
-                log_tools(f"[Tools] Fast model: Enabled web_search + x_search + {len(CUSTOM_TOOLS)} custom tools")
-            else:
-                tools = [
-                    web_search(**web_search_config) if web_search_config else web_search(),
-                    x_search(**x_search_config) if x_search_config else x_search(),
-                ] + CUSTOM_TOOLS
-                log_tools(f"[Tools] Thinking model: web_search + x_search + {len(CUSTOM_TOOLS)} custom tools enabled")
+            tools = tools + CUSTOM_TOOLS
+            log_tools(f"[Tools] SDK native tools + {len(CUSTOM_TOOLS)} custom tools enabled")
             available_tools = {t.function.name for t in CUSTOM_TOOLS if hasattr(t, "function")}
         else:
             log_tools(f"[Tools] Search tools disabled by request")
 
         tool_names = set()
         for t in tools:
-            if hasattr(t, "function") and hasattr(t.function, "name"):
-                tool_names.add(t.function.name)
+            name = get_attached_tool_name(t)
+            if name:
+                tool_names.add(name)
 
         has_search_tools = "web_search" in tool_names or "x_search" in tool_names
         force_search = (
@@ -1599,8 +1649,9 @@ async def chat_completions(
             if force_search:
                 include_options.extend(["web_search_call_output", "x_search_call_output"])
                 def tool_priority(t):
-                    if hasattr(t, "function") and hasattr(t.function, "name"):
-                        return 0 if t.function.name in ("web_search", "x_search") else 1
+                    name = get_attached_tool_name(t)
+                    if name:
+                        return 0 if name in ("web_search", "x_search") else 1
                     return 1
                 tools = sorted(tools, key=tool_priority)
 
@@ -1609,10 +1660,8 @@ async def chat_completions(
         if tools:
             tool_names = []
             for t in tools:
-                if hasattr(t, 'function'):
-                    tool_names.append(t.function.name)
-                else:
-                    tool_names.append(str(t))
+                n = get_attached_tool_name(t)
+                tool_names.append(n or str(t))
             log_tools(f"[Chat] Creating chat with {len(tools)} tool(s): {', '.join(tool_names)}")
             if force_search:
                 log_tools("[Chat] Force search enabled: tool_choice=required for CA analysis")
@@ -2116,6 +2165,19 @@ async def chat_completions(
                                         if is_client_tool and tool_name in available_tools:
                                             try:
                                                 tool_args = tool_call.function.arguments if hasattr(tool_call.function, 'arguments') else '{}'
+                                                tool_args_str = str(tool_args) if tool_args else ''
+                                                tool_call_signature = f"{tool_name}:{hash(tool_args_str)}"
+                                                if tool_call_signature in processed_tool_call_ids:
+                                                    continue
+                                                processed_tool_call_ids.add(tool_call_signature)
+                                                tool_call_repeat_counts[tool_call_signature] = tool_call_repeat_counts.get(tool_call_signature, 0) + 1
+                                                if tool_call_repeat_counts[tool_call_signature] >= 2:
+                                                    pending_tool_results.append(
+                                                        f"No further tool calls (repeat limit reached for {tool_name}). Respond without additional tools."
+                                                    )
+                                                    has_tool_calls_this_turn = True
+                                                    custom_tool_executed = True
+                                                    continue
                                                 args, args_ready = parse_tool_args_safe(tool_args)
                                                 if not args_ready:
                                                     pending_tool_results.append(
@@ -2146,6 +2208,8 @@ async def chat_completions(
                                                 custom_tool_executed = True
                                             except Exception as e:
                                                 print(f"[Client Action] Error executing tool {tool_name}: {e}")
+                            # Recompute after fallback processing in case custom_tool_executed changed above.
+                            final_tool_call_check = custom_tool_executed
                             
                             if force_stop_after_turn is not None and tool_turn >= force_stop_after_turn:
                                 final_tool_call_check = False

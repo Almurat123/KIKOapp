@@ -11,8 +11,14 @@ import { usePrivy } from '@privy-io/react-auth';
 import { useSwap } from '@/hooks/useSwap';
 import { useSolanaSwap } from '@/hooks/useSolanaSwap';
 import type { Token } from '@/types/swap';
+import { findTokenOnAnyChain, getTokenData } from '@/services/tokenDataService';
 import { MEVProtectionBadge } from './MEVProtectionBadge';
 import { executeSwapInstant } from '../../services/swapService';
+import {
+  emitImportedTokensUpdated,
+  readImportedSwapTokensFromStorage,
+  writeImportedSwapTokensToStorage
+} from '@/utils/importedSwapTokens';
 import styles from './SwapCardIntegrated.module.css';
 
 // Base Container Component
@@ -36,6 +42,7 @@ interface UserHolding {
   logo?: string;
   usdValueNum?: number;
   isNative?: boolean;
+  chainId?: number;
 }
 
 interface SwapCardIntegratedProps {
@@ -55,6 +62,7 @@ interface SwapCardIntegratedProps {
   maxPriceImpact?: number; // AI provided limit
   autoExecute?: boolean;
   useServerExecution?: boolean;
+  executionMode?: 'instant';
   // User holdings for token selector
   userHoldings?: UserHolding[];
   // Pre-calculated quote for instant display
@@ -74,7 +82,9 @@ export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
   maxPriceImpact: _initialMaxPriceImpact = 5,
   autoExecute = false,
   useServerExecution = true,
+  executionMode = 'instant',
   userHoldings = [],
+  initialQuote,
 }) => {
   // State for settings
   // State for settings
@@ -95,6 +105,8 @@ export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
 
   const [showSettings, setShowSettings] = useState(false);
   const [fastSwapMode, setFastSwapMode] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [actionMessage, setActionMessage] = useState<string | null>(null);
 
   // Load Fast Swap setting
   useEffect(() => {
@@ -125,7 +137,7 @@ export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
 
   // Use Solana swap hook for Solana (chainId 900), otherwise use EVM swap hook
   const isSolana = chainId === 900;
-  const serverExecutionEnabled = !isSolana && useServerExecution;
+  const serverExecutionEnabled = !isSolana && useServerExecution && executionMode === 'instant';
 
   const evmSwap = useSwap({
     chainId: isSolana ? 1 : chainId, // Fallback to Ethereum if Solana
@@ -135,6 +147,7 @@ export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
     // This ensures the hook initializes with correct tokens from the start
     initialTokenIn: !isSolana ? (initialTokenIn ?? undefined) : undefined,
     initialTokenOut: !isSolana ? (initialTokenOut ?? undefined) : undefined,
+    initialQuote: !isSolana ? (initialQuote ?? undefined) : undefined,
     maxPriceImpact: 5, // Fixed safety max impact
   });
 
@@ -234,8 +247,16 @@ export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
   // Token selector state
   const [showTokenSelector, setShowTokenSelector] = useState<'in' | 'out' | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [importedTokens, setImportedTokens] = useState<Token[]>([]);
 
   const { login, authenticated, getAccessToken } = usePrivy();
+  const getNativeGasBuffer = React.useCallback(() => {
+    if (isSolana) return 0.01;
+    // Keep frontend guard aligned with backend gasReserve.
+    if (chainId === 8453) return 0.0003; // Base
+    if (chainId === 42161 || chainId === 10) return 0.002; // Arbitrum / Optimism
+    return 0.001;
+  }, [chainId, isSolana]);
 
   useEffect(() => {
     // Confirmation modal removed - no need to reset anything
@@ -247,100 +268,120 @@ export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
   ]);
 
   const executeSwapNow = async () => {
-    // Always require auth for embedded wallet execution
-    if (!authenticated) {
-      login();
-      return;
-    }
+    setIsSubmitting(true);
+    setActionMessage(null);
 
-    // ⚡ FAST SWAP MODE Check (Base Chain Only for now)
-    if (fastSwapMode && chainId === 8453 && !isSolana) {
-      if (import.meta.env.DEV) {
-        console.log('[SwapCard] ⚡ Fast Swap Mode Executing...');
-      }
-      try {
-        const token = await getAccessToken();
-        const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001';
-        const res = await fetch(`${apiUrl}/api/zora/swap`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-          },
-          body: JSON.stringify({
-            tokenAddress: swapState?.tokenOut?.address,
-            buyAmountEth: swapState?.amountIn,
-            maxSlippage: 0.5 // Default fast slippage
-          })
-        });
-
-        const data = await res.json();
-
-        if (data.success && data.txHash) {
-          onSwapSuccess?.(data.txHash);
-          return;
-        } else {
-          if (import.meta.env.DEV) {
-            console.warn('[FastSwap] Failed, falling back to standard execution:', data.error);
-          }
-        }
-      } catch (_e) {
-        if (import.meta.env.DEV) {
-          console.error('[FastSwap] Error:', _e);
-        }
-      }
-    }
-
-    if (serverExecutionEnabled) {
-      // Server-side Execution Mode
-      if (!userAddress || !swapState?.tokenIn || !swapState?.tokenOut) {
-        onSwapError?.('Missing swap parameters');
+    try {
+      // Always require auth for embedded wallet execution
+      if (!authenticated) {
+        login();
         return;
       }
 
-      try {
-        const result = await executeSwapInstant({
-          tokenIn: swapState.tokenIn.address,
-          tokenOut: swapState.tokenOut.address,
-          amountIn: swapState.amountIn,
-          chainId: chainId,
-          slippageBps: 50 // Default
-        });
-
-        if (result.success && result.txHash) {
-          onSwapSuccess?.(result.txHash);
-        } else {
-          onSwapError?.(result.error || 'Server execution failed');
+      // ⚡ FAST SWAP MODE Check (Base Chain Only for now)
+      if (fastSwapMode && chainId === 8453 && !isSolana) {
+        if (import.meta.env.DEV) {
+          console.log('[SwapCard] ⚡ Fast Swap Mode Executing...');
         }
-      } catch (e: any) {
-        onSwapError?.(e.message || 'Server execution error');
+        try {
+          const token = await getAccessToken();
+          const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+          const res = await fetch(`${apiUrl}/api/zora/swap`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({
+              tokenAddress: swapState?.tokenOut?.address,
+              buyAmountEth: swapState?.amountIn,
+              maxSlippage: 0.5 // Default fast slippage
+            })
+          });
+
+          const data = await res.json();
+
+          if (data.success && data.txHash) {
+            setActionMessage(`Swap sent: ${data.txHash.slice(0, 10)}...`);
+            onSwapSuccess?.(data.txHash);
+            return;
+          } else if (import.meta.env.DEV) {
+            console.warn('[FastSwap] Failed, falling back to standard execution:', data.error);
+          }
+        } catch (_e) {
+          if (import.meta.env.DEV) {
+            console.error('[FastSwap] Error:', _e);
+          }
+        }
       }
-      return;
-    }
 
-    // Client-side Execution Mode
-    const result = isSolana && solanaSwapTyped
-      ? await solanaSwapTyped.executeSwap()
-      : evmSwapTyped
-        ? await evmSwapTyped.executeSwap()
-        : { success: false, error: 'Swap not available' };
+      if (serverExecutionEnabled) {
+        // Server-side Execution Mode
+        if (!userAddress || !swapState?.tokenIn || !swapState?.tokenOut) {
+          onSwapError?.('Missing swap parameters');
+          return;
+        }
 
-    if (result?.success && result?.txHash) {
-      onSwapSuccess?.(result.txHash);
-    } else if (result?.error) {
-      onSwapError?.(result.error);
+        try {
+          setActionMessage('Submitting transaction...');
+          const result = await executeSwapInstant({
+            tokenIn: swapState.tokenIn.address,
+            tokenOut: swapState.tokenOut.address,
+            amountIn: swapState.amountIn,
+            chainId: chainId,
+            slippageBps: Math.round(slippage * 100),
+          });
+
+          if (result.success && result.txHash) {
+            setActionMessage(`Swap sent: ${result.txHash.slice(0, 10)}...`);
+            if (isSolana && solanaSwapTyped) {
+              solanaSwapTyped.setAmountIn('');
+            } else if (evmSwapTyped) {
+              evmSwapTyped.setAmountIn('');
+              if (evmSwapTyped.refreshSwapState) {
+                await evmSwapTyped.refreshSwapState();
+              }
+            }
+            onSwapSuccess?.(result.txHash);
+          } else {
+            setActionMessage(null);
+            onSwapError?.(result.error || 'Server execution failed');
+          }
+        } catch (e: any) {
+          setActionMessage(null);
+          onSwapError?.(e.message || 'Server execution error');
+        }
+        return;
+      }
+
+      // Client-side Execution Mode
+      const result = isSolana && solanaSwapTyped
+        ? await solanaSwapTyped.executeSwap()
+        : evmSwapTyped
+          ? await evmSwapTyped.executeSwap()
+          : { success: false, error: 'Swap not available' };
+
+      if (result?.success && result?.txHash) {
+        setActionMessage(`Swap sent: ${result.txHash.slice(0, 10)}...`);
+        if (isSolana && solanaSwapTyped) {
+          solanaSwapTyped.setAmountIn('');
+        } else if (evmSwapTyped?.refreshSwapState) {
+          evmSwapTyped.setAmountIn('');
+          await evmSwapTyped.refreshSwapState();
+        }
+        onSwapSuccess?.(result.txHash);
+      } else if (result?.error) {
+        setActionMessage(null);
+        onSwapError?.(result.error);
+      }
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
   const handleExecuteSwap = async () => {
-    // If approval is needed, do that first - NO separate confirmation modal needed for approval
-    // (Wallet will provide the confirmation UI)
-    // SKIP if using server execution (server handles allowance verification/error)
-    if (!serverExecutionEnabled && needsApproval && evmSwapTyped?.approveToken) {
-      const result = await evmSwapTyped.approveToken();
-      if (result?.error) {
-        onSwapError?.(result.error);
-      }
+    if (!authenticated) {
+      await executeSwapNow();
       return;
     }
 
@@ -368,12 +409,13 @@ export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
   const tokenOutSymbol = swapState?.tokenOut?.symbol || displayInfo?.tokenOutSymbol || 'Select';
   const tokenInEmoji = swapState?.tokenIn?.emoji || displayInfo?.tokenInEmoji || '🔄';
   const tokenOutEmoji = swapState?.tokenOut?.emoji || displayInfo?.tokenOutEmoji || '🔄';
-  const amountIn = swapState?.amountIn || displayInfo?.amountIn || '0';
+  const amountIn = swapState?.amountIn ?? displayInfo?.amountIn ?? '';
   const amountOut = swapState?.amountOut || displayInfo?.amountOut || '0';
   const amountInUSD = displayInfo?.amountInUSD || '0';
   const amountOutUSD = displayInfo?.amountOutUSD || '0';
   const isLoading = swapState?.isLoading || displayInfo?.isLoading || false;
   const isExecuting = swapState?.isExecuting || displayInfo?.isExecuting || false;
+  const effectiveIsExecuting = isExecuting || isSubmitting;
   const error = swapState?.error || displayInfo?.error || null;
   const priceImpact = displayInfo?.priceImpact || 0;
   const dexName = displayInfo?.dexName || 'N/A';
@@ -381,63 +423,50 @@ export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
   const hasEnoughBalance = displayInfo?.hasEnoughBalance || false;
   const availableQuotes = (displayInfo as any)?.availableQuotes || [];
   const selectedDex = (displayInfo as any)?.selectedDex || dexName;
+  const isBalanceLoading = displayInfo?.isBalanceLoading || false;
 
 
 
   const canExecute =
-    amountIn !== '0' &&
+    amountIn.trim() !== '' &&
     parseFloat(amountIn) > 0 &&
     amountOut !== '0' &&
     parseFloat(amountOut) > 0 &&
     !isLoading &&
-    !isExecuting &&
+    !effectiveIsExecuting &&
     hasEnoughBalance &&
     !error;
+  const buttonDisabled = authenticated ? !canExecute : false;
 
   // DEBUG: Diagnose why button is disabled
-  if (!canExecute && !isLoading && !isExecuting && amountIn !== '0') {
+  if (!canExecute && !isLoading && !effectiveIsExecuting && amountIn.trim() !== '') {
     console.log('[SwapCard] Button disabled because:', {
       amountIn,
       amountOut,
       isLoading,
-      isExecuting,
+      isExecuting: effectiveIsExecuting,
       hasEnoughBalance,
       error,
       canExecute
     });
   }
 
-  // Check if approval is needed (only for EVM chains, Solana doesn't need approval)
-  const needsApproval = !serverExecutionEnabled &&
-    !isSolana &&
-    swapState?.tokenIn?.address &&
-    swapState.tokenIn.address !== '0x0000000000000000000000000000000000000000' &&
-    swapState.tokenIn.address !== '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE' &&
-    !(evmSwapTyped?.state?.isApproved) &&
-    parseFloat(amountIn) > 0;
+  const needsApproval = displayInfo?.needsApproval || false;
+
+  const actionButtonLabel = React.useMemo(() => {
+    if (effectiveIsExecuting) return needsApproval ? 'Approving & Swapping...' : 'Swapping...';
+    return displayInfo?.actionLabel || 'Swap';
+  }, [displayInfo?.actionLabel, effectiveIsExecuting, needsApproval]);
 
   // Auto-execution logic
   useEffect(() => {
     // Only proceed if autoExecute is true and we haven't executed yet (or reset)
-    if (!autoExecute || isExecuting || isLoading) return;
+    if (!autoExecute || effectiveIsExecuting || isLoading) return;
 
-    if (canExecute && !hasAutoExecutedRef.current) {
+    const swapStatus = (displayInfo as any)?.status || (swapState as any)?.status;
+    if (swapStatus === 'quote_ready' && canExecute && !hasAutoExecutedRef.current) {
       // Special handling for approval
       // SKIP if using server execution
-      if (!serverExecutionEnabled && needsApproval && evmSwapTyped?.approveToken) {
-        if (import.meta.env.DEV) {
-          console.log('[SwapCard] Auto-triggering approval...');
-        }
-        hasAutoExecutedRef.current = true; // Prevent loop
-        evmSwapTyped.approveToken().then((res: any) => {
-          if (!res?.error) {
-            // Reset flag so we can execute swap in next pass
-            hasAutoExecutedRef.current = false;
-          }
-        });
-        return;
-      }
-
       if (import.meta.env.DEV) {
         console.log('[SwapCard] Auto-executing swap...');
       }
@@ -445,7 +474,7 @@ export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
       // Bypassing confirmation modal for auto execution
       executeSwapNow();
     }
-  }, [autoExecute, canExecute, isExecuting, isLoading, needsApproval, serverExecutionEnabled, evmSwapTyped]);
+  }, [autoExecute, canExecute, effectiveIsExecuting, isLoading, needsApproval, serverExecutionEnabled, evmSwapTyped, displayInfo, swapState]);
 
   // Normalize Solana native token addresses (both So11111111111111111111111111111111111111111 and So11111111111111111111111111111111111111112 represent SOL)
   const normalizeAddress = React.useCallback((address: string): string => {
@@ -457,7 +486,61 @@ export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
     return address.toLowerCase();
   }, []);
 
-  // Get available tokens - prioritize user holdings (value > $1), then common tokens
+  const chainScopedUserHoldings = React.useMemo(() => {
+    return userHoldings.filter(h => {
+      return typeof h.chainId === 'number' && h.chainId === chainId;
+    });
+  }, [userHoldings, chainId]);
+
+  const isLowQualityLogoUrl = React.useCallback((logoUrl?: string) => {
+    if (!logoUrl) return true;
+    const lower = logoUrl.toLowerCase();
+    return lower.includes('img-v1.raydium.io/icon/') ||
+      lower.includes('placeholder') ||
+      lower.includes('unknown') ||
+      lower.includes('default');
+  }, []);
+
+  useEffect(() => {
+    try {
+      const parsed = readImportedSwapTokensFromStorage() as Record<string, Token[]>;
+      const chainTokens = Array.isArray(parsed?.[String(chainId)]) ? parsed[String(chainId)] : [];
+      setImportedTokens(chainTokens);
+    } catch {
+      setImportedTokens([]);
+    }
+  }, [chainId]);
+
+  const persistImportedToken = React.useCallback((token: Token) => {
+    if (!token?.address) return;
+    setImportedTokens(prev => {
+      const normalizedAddress = normalizeAddress(token.address);
+      const filtered = prev.filter(t => normalizeAddress(t.address) !== normalizedAddress);
+      const next = [
+        {
+          address: token.address,
+          symbol: token.symbol || 'UNK',
+          name: token.name || 'Unknown Token',
+          decimals: typeof token.decimals === 'number' ? token.decimals : 18,
+          chainId,
+          logoUrl: token.logoUrl,
+        } as Token,
+        ...filtered,
+      ].slice(0, 30);
+
+      try {
+        const parsed = readImportedSwapTokensFromStorage() as Record<string, Token[]>;
+        parsed[String(chainId)] = next;
+        writeImportedSwapTokensToStorage(parsed);
+        emitImportedTokensUpdated(chainId);
+      } catch {
+        // Ignore persistence errors
+      }
+      return next;
+    });
+  }, [chainId, normalizeAddress]);
+
+  // Get available tokens - prioritize user holdings, then imported whitelist, then common tokens
   const availableTokens = React.useMemo(() => {
     // Get base tokens from hooks
     let baseTokens: Token[] = [];
@@ -467,9 +550,12 @@ export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
       baseTokens = evmSwapTyped?.getAvailableTokens() || [];
     }
 
-    // Convert user holdings to Token format and filter by value > $1
-    const userTokens: Token[] = userHoldings
-      .filter(h => (h.usdValueNum ?? 0) >= 1) // Only tokens with value >= $1
+    // Balance-first: any token with positive balance should be selectable.
+    const userTokens: Token[] = chainScopedUserHoldings
+      .filter(h => {
+        const balance = parseFloat(String(h.balance || '0'));
+        return Number.isFinite(balance) && balance > 0;
+      })
       .map(h => ({
         address: h.address,
         symbol: h.symbol,
@@ -478,10 +564,16 @@ export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
         chainId: chainId,
         logoUrl: h.logo,
       }));
+    const chainImportedTokens = importedTokens
+      .filter(t => t.chainId === chainId)
+      .map(t => ({
+        ...t,
+        chainId,
+      }));
 
     const tokenMap = new Map<string, Token>();
 
-    // First add base tokens to the map (for logo reference)
+    // First add base tokens to the map (trusted metadata baseline).
     baseTokens.forEach(token => {
       const normalizedKey = normalizeAddress(token.address);
       if (!tokenMap.has(normalizedKey)) {
@@ -493,6 +585,15 @@ export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
         });
       }
     });
+    const baseTokenKeys = new Set(baseTokens.map(t => normalizeAddress(t.address)));
+
+    // Then add/update with user tokens (prioritized, but merge logo if missing)
+    chainImportedTokens.forEach(token => {
+      const normalizedKey = normalizeAddress(token.address);
+      if (!tokenMap.has(normalizedKey)) {
+        tokenMap.set(normalizedKey, token);
+      }
+    });
 
     // Then add/update with user tokens (prioritized, but merge logo if missing)
     userTokens.forEach(token => {
@@ -500,13 +601,23 @@ export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
       const existing = tokenMap.get(normalizedKey);
 
       if (existing) {
-        // Merge: keep user token data but use base token's logoUrl if user token's logo is missing
+        const isNative = normalizedKey === '0x0000000000000000000000000000000000000000' ||
+          normalizedKey === '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee' ||
+          normalizedKey === 'So11111111111111111111111111111111111111112'.toLowerCase();
+        const isBaseToken = baseTokenKeys.has(normalizedKey);
+        const preferExistingMetadata = isNative || isBaseToken;
+        const mergedLogo = token.logoUrl && !isLowQualityLogoUrl(token.logoUrl)
+          ? token.logoUrl
+          : existing.logoUrl;
+
+        // Merge: for native tokens, keep base token metadata to avoid cross-chain display pollution.
+        // For ERC20/SPL, keep user token metadata and merge logo fallback.
         tokenMap.set(normalizedKey, {
-          ...token,
-          logoUrl: token.logoUrl || existing.logoUrl, // Use user logo if available, otherwise use base token logo
+          ...(preferExistingMetadata ? existing : token),
+          logoUrl: mergedLogo || token.logoUrl || existing.logoUrl,
           address: normalizedKey === 'So11111111111111111111111111111111111111112'
             ? 'So11111111111111111111111111111111111111112'
-            : token.address
+            : (preferExistingMetadata ? existing.address : token.address)
         });
       } else {
         // New user token, add it
@@ -528,13 +639,17 @@ export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
       const bNormalized = normalizeAddress(b.address);
       const aIsUser = userTokens.some(ut => normalizeAddress(ut.address) === aNormalized);
       const bIsUser = userTokens.some(ut => normalizeAddress(ut.address) === bNormalized);
+      const aIsImported = chainImportedTokens.some(ut => normalizeAddress(ut.address) === aNormalized);
+      const bIsImported = chainImportedTokens.some(ut => normalizeAddress(ut.address) === bNormalized);
 
       if (aIsUser && !bIsUser) return -1;
       if (!aIsUser && bIsUser) return 1;
+      if (aIsImported && !bIsImported) return -1;
+      if (!aIsImported && bIsImported) return 1;
 
       if (aIsUser && bIsUser) {
-        const aHolding = userHoldings.find(h => normalizeAddress(h.address) === aNormalized);
-        const bHolding = userHoldings.find(h => normalizeAddress(h.address) === bNormalized);
+        const aHolding = chainScopedUserHoldings.find(h => normalizeAddress(h.address) === aNormalized);
+        const bHolding = chainScopedUserHoldings.find(h => normalizeAddress(h.address) === bNormalized);
         return (bHolding?.usdValueNum ?? 0) - (aHolding?.usdValueNum ?? 0);
       }
 
@@ -542,7 +657,7 @@ export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
     });
 
     return result;
-  }, [chainId, isSolana, evmSwapTyped, solanaSwapTyped, userHoldings, normalizeAddress]); // Include normalizeAddress in deps
+  }, [chainId, isSolana, evmSwapTyped, solanaSwapTyped, chainScopedUserHoldings, importedTokens, normalizeAddress, isLowQualityLogoUrl]); // Include normalizeAddress in deps
 
   // Filter tokens based on search query
   const filteredTokens = React.useMemo(() => {
@@ -552,7 +667,8 @@ export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
     const query = searchQuery.toLowerCase();
     const filtered = availableTokens.filter(token =>
       token.symbol.toLowerCase().includes(query) ||
-      token.name.toLowerCase().includes(query)
+      token.name.toLowerCase().includes(query) ||
+      token.address.toLowerCase().includes(query)
     );
     if (import.meta.env.DEV) {
       console.log('[SwapCard] Filtered tokens:', filtered.length, 'for query:', searchQuery);
@@ -578,6 +694,11 @@ export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
         evmSwapTyped.setTokenOut(token);
       }
     }
+    const selectedResolvedToken = resolvedSearchToken &&
+      normalizeAddress(resolvedSearchToken.address) === normalizeAddress(token.address);
+    if (isAddressLikeQuery || selectedResolvedToken) {
+      persistImportedToken(token);
+    }
     setShowTokenSelector(null);
     setSearchQuery('');
   };
@@ -599,6 +720,8 @@ export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
   }, [showTokenSelector]);
 
   const [showRouteSelector, setShowRouteSelector] = useState(false);
+  const [resolvedSearchToken, setResolvedSearchToken] = useState<Token | null>(null);
+  const [isResolvingSearchToken, setIsResolvingSearchToken] = useState(false);
 
   const handleSelectRoute = (dex: string) => {
     if (isSolana && solanaSwapTyped?.selectQuote) {
@@ -644,6 +767,73 @@ export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
     const timer = setTimeout(() => setForceShow(true), 3000);
     return () => clearTimeout(timer);
   }, []);
+
+  const isAddressLikeQuery = React.useMemo(() => {
+    const query = searchQuery.trim();
+    if (!query) return false;
+    const evmAddress = /^0x[a-fA-F0-9]{40}$/.test(query);
+    const solAddress = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(query);
+    return evmAddress || (isSolana && solAddress);
+  }, [searchQuery, isSolana]);
+
+  React.useEffect(() => {
+    const query = searchQuery.trim();
+    if (!query || !isAddressLikeQuery) {
+      setResolvedSearchToken(null);
+      setIsResolvingSearchToken(false);
+      return;
+    }
+
+    let cancelled = false;
+    setIsResolvingSearchToken(true);
+
+    const timer = setTimeout(async () => {
+      try {
+        let tokenData: any = null;
+        if (isSolana) {
+          tokenData = await getTokenData(query, chainId);
+        } else {
+          tokenData = await getTokenData(query, chainId);
+          if (!tokenData || tokenData.symbol === 'UNK' || tokenData.symbol === 'UNKNOWN') {
+            tokenData = await findTokenOnAnyChain(query);
+          }
+        }
+
+        if (cancelled || !tokenData) return;
+
+        const resolved: Token = {
+          address: tokenData.address,
+          symbol: tokenData.symbol || 'UNK',
+          name: tokenData.name || 'Unknown Token',
+          decimals: typeof tokenData.decimals === 'number' ? tokenData.decimals : 18,
+          chainId: tokenData.chainId || chainId,
+          logoUrl: tokenData.logoURI || undefined,
+        };
+        setResolvedSearchToken(resolved);
+      } catch {
+        if (!cancelled) {
+          setResolvedSearchToken(null);
+        }
+      } finally {
+        if (!cancelled) {
+          setIsResolvingSearchToken(false);
+        }
+      }
+    }, 250);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [searchQuery, chainId, isAddressLikeQuery, isSolana]);
+
+  const displayTokens = React.useMemo(() => {
+    if (!resolvedSearchToken) return filteredTokens;
+    const key = normalizeAddress(resolvedSearchToken.address);
+    const hasToken = filteredTokens.some(t => normalizeAddress(t.address) === key);
+    if (hasToken) return filteredTokens;
+    return [resolvedSearchToken, ...filteredTokens];
+  }, [filteredTokens, resolvedSearchToken, normalizeAddress]);
 
   if (isInitializing && !forceShow) {
     return (
@@ -746,8 +936,8 @@ export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
             <div className={styles.swapLabelRow}>
               <span>You pay</span>
               <div className={styles.tokenBalance}>
-                Bal: {displayInfo.userBalance}
-                {parseFloat(displayInfo.userBalance) > 0 && (
+                Bal: {isBalanceLoading ? '...' : displayInfo.userBalance}
+                {!isBalanceLoading && parseFloat(displayInfo.userBalance) > 0 && (
                   <button
                     className={styles.maxButton}
                     onClick={() => {
@@ -765,7 +955,7 @@ export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
                       if (isNative) {
                         // For native tokens, we must subtract gas
                         const balance = parseFloat(displayInfo.userBalance);
-                        const gasBuffer = 0.01; // Reserve 0.01 ETH/SOL for gas
+                        const gasBuffer = getNativeGasBuffer();
                         const maxAmount = Math.max(0, balance - gasBuffer);
 
                         // Use high precision (9 for Solana, 18 for EVM)
@@ -928,18 +1118,16 @@ export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
 
           <button
             onClick={handleExecuteSwap}
-            disabled={!canExecute}
+            disabled={buttonDisabled}
             className={styles.swapConfirmBtn}
           >
-            {isExecuting ? (
+            {effectiveIsExecuting ? (
               <>
                 <Zap size={16} />
-                <span>{needsApproval ? 'Approving...' : 'Swapping...'}</span>
+                <span>{actionButtonLabel}</span>
               </>
-            ) : needsApproval ? (
-              <span>Approve {tokenInSymbol}</span>
             ) : (
-              <span>Swap</span>
+              <span>{actionButtonLabel}</span>
             )}
           </button>
         </div>
@@ -1054,35 +1242,17 @@ export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
 
               {/* Token List */}
               <div className={styles.tokenList}>
-                <div className={styles.tokenBalance}>
-                  Bal: {displayInfo.userBalance}
-                  {parseFloat(displayInfo.userBalance) > 0 && (
-                    <button
-                      className={styles.maxButton}
-                      onClick={() => {
-                        // Reserve some SOL for gas fees
-                        const balance = parseFloat(displayInfo.userBalance);
-                        let maxAmount = balance;
-
-                        // For SOL, reserve 0.01 SOL for transaction fees
-                        if (displayInfo.tokenInSymbol === 'SOL') {
-                          maxAmount = Math.max(0, balance - 0.01);
-                        }
-
-                        const maxAmountStr = maxAmount.toFixed(6).replace(/\.?0+$/, '');
-
-                        if (isSolana && solanaSwapTyped) {
-                          solanaSwapTyped.setAmountIn(maxAmountStr);
-                        } else if (evmSwapTyped) {
-                          evmSwapTyped.setAmountIn(maxAmountStr);
-                        }
-                      }}
-                    >
-                      Max
-                    </button>
-                  )}
-                </div>
-                {filteredTokens.length === 0 ? (
+                {displayTokens.length === 0 ? (
+                  isResolvingSearchToken ? (
+                    <div style={{
+                      padding: '20px',
+                      textAlign: 'center',
+                      color: 'var(--text-tertiary)',
+                      fontSize: '13px',
+                    }}>
+                      Resolving token contract...
+                    </div>
+                  ) : (
                   <div style={{
                     padding: '40px 20px',
                     textAlign: 'center',
@@ -1091,14 +1261,15 @@ export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
                   }}>
                     No tokens found
                   </div>
+                  )
                 ) : (
-                  filteredTokens.map((token) => {
+                  displayTokens.map((token) => {
                     const isSelected = showTokenSelector === 'in'
                       ? swapState?.tokenIn?.address === token.address
                       : swapState?.tokenOut?.address === token.address;
 
                     // Find user holding for this token (use normalized address for matching)
-                    const userHolding = userHoldings.find(
+                    const userHolding = chainScopedUserHoldings.find(
                       h => normalizeAddress(h.address) === normalizeAddress(token.address)
                     );
 
@@ -1134,6 +1305,9 @@ export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
                             )}
                           </div>
                           <span className={styles.tokenItemName}>{token.name}</span>
+                          <span className={styles.tokenItemName} style={{ opacity: 0.7 }}>
+                            {token.address.slice(0, 6)}...{token.address.slice(-4)}
+                          </span>
                           {userHolding && (
                             <div style={{
                               fontSize: '12px',
@@ -1165,6 +1339,17 @@ export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
             </div>
           </div>,
           document.body
+        )}
+
+        {actionMessage && (
+          <div style={{
+            marginTop: '10px',
+            fontSize: '12px',
+            color: 'var(--text-secondary)',
+            textAlign: 'center',
+          }}>
+            {actionMessage}
+          </div>
         )}
       </div>
     </CardWrapper>

@@ -1,0 +1,1707 @@
+{
+  "summary": {
+    "count": 100
+  },
+  "samples": [
+    {
+      "chainId": 8453,
+      "network": "base",
+      "bucket": "old",
+      "txHash": "0x1eab1101223a25b7d757f475db3020435810065c28c5263cf73ea607efe24775",
+      "tokenAddress": "0x20429f731096e359910921994a267d32ef576720",
+      "poolAddress": "0x2a0f410422951f53cd2f3e9f6d0f29fccb1426e9",
+      "poolCreatedAt": "2025-03-04T12:55:35.000Z",
+      "discoverySource": [
+        "dexscreener"
+      ],
+      "txSource": "gecko_trades",
+      "collectedAt": "2026-02-18T06:41:41.772Z",
+      "fallbackUsed": false,
+      "tradeKind": "buy",
+      "blockTimestamp": "2026-02-18T06:40:29Z"
+    },
+    {
+      "chainId": 8453,
+      "network": "base",
+      "bucket": "old",
+      "txHash": "0xd3e9de161b79418481aea55c4ed9b666bab15d330a2ae9ae10573ffc08dd867f",
+      "tokenAddress": "0x20429f731096e359910921994a267d32ef576720",
+      "poolAddress": "0x2a0f410422951f53cd2f3e9f6d0f29fccb1426e9",
+      "poolCreatedAt": "2025-03-04T12:55:35.000Z",
+      "discoverySource": [
+        "dexscreener"
+      ],
+      "txSource": "gecko_trades",
+      "collectedAt": "2026-02-18T06:41:41.772Z",
+      "fallbackUsed": false,
+      "tradeKind": "buy",
+      "blockTimestamp": "2026-02-18T06:40:29Z"
+    },
+    {
+      "chainId": 8453,
+      "network": "base",
+      "bucket": "old",
+      "txHash": "0x75a0d28987bd9aedb0c001c9bc05a206ed14197713468526ebddff84a8ebd78b",
+      "tokenAddress": "0x20429f731096e359910921994a267d32ef576720",
+      "poolAddress": "0x2a0f410422951f53cd2f3e9f6d0f29fccb1426e9",
+      "poolCreatedAt": "2025-03-04T12:55:35.000Z",
+      "discoverySource": [
+        "dexscreener"
+      ],
+      "txSource": "gecko_trades",
+      "collectedAt": "2026-02-18T06:41:41.772Z",
+      "fallbackUsed": false,
+      "tradeKind": "buy",
+      "blockTimestamp": "2026-02-18T06:40:19Z"
+    },
+    {
+      "chainId": 8453,
+      "network": "base",
+      "bucket": "old",
+      "txHash": "0x4a935486266ac404eec8534cdbd76b7531d1815ed70d9cdbee2c004c20413399",
+      "tokenAddress": "0x20429f731096e359910921994a267d32ef576720",
+      "poolAddress": "0x2a0f410422951f53cd2f3e9f6d0f29fccb1426e9",
+      "poolCreatedAt": "2025-03-04T12:55:35.000Z",
+      "discoverySource": [
+        "dexscreener"
+      ],
+      "txSource": "gecko_trades",
+      "collectedAt": "2026-02-18T06:41:41.772Z",
+      "fallbackUsed": false,
+      "tradeKind": "buy",
+      "blockTimestamp": "2026-02-18T06:40:19Z"
+    },
+    {
+      "chainId": 8453,
+      "network": "base",
+      "bucket": "old",
+      "txHash": "0x76e7feda240bef49d6c1af6d6bef8b4e7d96bbffda8dd819e73aff45e5bd4821",
+      "tokenAddress": "0x20429f731096e359910921994a267d32ef576720",
+      "poolAddress": "0x2a0f410422951f53cd2f3e9f6d0f29fccb1426e9",
+      "poolCreatedAt": "2025-03-04T12:55:35.000Z",
+      "discoverySource": [
+        "dexscreener"
+      ],
+      "txSource": "gecko_trades",
+      "collectedAt": "2026-02-18T06:41:41.772Z",
+      "fallbackUsed": false,
+      "tradeKind": "buy",
+      "blockTimestamp": "2026-02-18T06:40:19Z"
+    },
+    {
+      "chainId": 8453,
+      "network": "base",
+      "bucket": "old",
+      "txHash": "0x499951b67d9df8990c40b495bec9c255d2f2be94a0ff24b297bd6bd14435e91c",
+      "tokenAddress": "0x20429f731096e359910921994a267d32ef576720",
+      "poolAddress": "0x2a0f410422951f53cd2f3e9f6d0f29fccb1426e9",
+      "poolCreatedAt": "2025-03-04T12:55:35.000Z",
+      "discoverySource": [
+        "dexscreener"
+      ],
+      "txSource": "gecko_trades",
+      "collectedAt": "2026-02-18T06:41:41.772Z",
+      "fallbackUsed": false,
+      "tradeKind": "buy",
+      "blockTimestamp": "2026-02-18T06:40:11Z"
+    },
+    {
+      "chainId": 8453,
+      "network": "base",
+      "bucket": "old",
+      "txHash": "0xf23c6359ea43775e1b96e9923d63cfcd4aa51591f61859d4406e4571a2873d04",
+      "tokenAddress": "0x20429f731096e359910921994a267d32ef576720",
+      "poolAddress": "0x2a0f410422951f53cd2f3e9f6d0f29fccb1426e9",
+      "poolCreatedAt": "2025-03-04T12:55:35.000Z",
+      "discoverySource": [
+        "dexscreener"
+      ],
+      "txSource": "gecko_trades",
+      "collectedAt": "2026-02-18T06:41:41.772Z",
+      "fallbackUsed": false,
+      "tradeKind": "buy",
+      "blockTimestamp": "2026-02-18T06:40:11Z"
+    },
+    {
+      "chainId": 8453,
+      "network": "base",
+      "bucket": "old",
+      "txHash": "0x2cdf83ceeb181d35890a1935b2c847301a5736800b66370c6f62b5752f0259da",
+      "tokenAddress": "0x20429f731096e359910921994a267d32ef576720",
+      "poolAddress": "0x2a0f410422951f53cd2f3e9f6d0f29fccb1426e9",
+      "poolCreatedAt": "2025-03-04T12:55:35.000Z",
+      "discoverySource": [
+        "dexscreener"
+      ],
+      "txSource": "gecko_trades",
+      "collectedAt": "2026-02-18T06:41:41.772Z",
+      "fallbackUsed": false,
+      "tradeKind": "buy",
+      "blockTimestamp": "2026-02-18T06:40:11Z"
+    },
+    {
+      "chainId": 8453,
+      "network": "base",
+      "bucket": "old",
+      "txHash": "0x926c3272de0c6c5c757bf4f6dce0269f1ff596174409120f0471b85682b6f943",
+      "tokenAddress": "0x20429f731096e359910921994a267d32ef576720",
+      "poolAddress": "0x2a0f410422951f53cd2f3e9f6d0f29fccb1426e9",
+      "poolCreatedAt": "2025-03-04T12:55:35.000Z",
+      "discoverySource": [
+        "dexscreener"
+      ],
+      "txSource": "gecko_trades",
+      "collectedAt": "2026-02-18T06:41:41.772Z",
+      "fallbackUsed": false,
+      "tradeKind": "buy",
+      "blockTimestamp": "2026-02-18T06:40:01Z"
+    },
+    {
+      "chainId": 8453,
+      "network": "base",
+      "bucket": "old",
+      "txHash": "0xda3bfbc0adfa1fbb439006b46d5a5bc7ea6b43e58fd933f4b1dc56d49de0fc86",
+      "tokenAddress": "0x20429f731096e359910921994a267d32ef576720",
+      "poolAddress": "0x2a0f410422951f53cd2f3e9f6d0f29fccb1426e9",
+      "poolCreatedAt": "2025-03-04T12:55:35.000Z",
+      "discoverySource": [
+        "dexscreener"
+      ],
+      "txSource": "gecko_trades",
+      "collectedAt": "2026-02-18T06:41:41.772Z",
+      "fallbackUsed": false,
+      "tradeKind": "buy",
+      "blockTimestamp": "2026-02-18T06:40:01Z"
+    },
+    {
+      "chainId": 8453,
+      "network": "base",
+      "bucket": "old",
+      "txHash": "0x55a41744a30d479b98ce240462f1191b0ea0b44eba7e11a481e12683d63fae01",
+      "tokenAddress": "0x20429f731096e359910921994a267d32ef576720",
+      "poolAddress": "0x2a0f410422951f53cd2f3e9f6d0f29fccb1426e9",
+      "poolCreatedAt": "2025-03-04T12:55:35.000Z",
+      "discoverySource": [
+        "dexscreener"
+      ],
+      "txSource": "gecko_trades",
+      "collectedAt": "2026-02-18T06:41:41.772Z",
+      "fallbackUsed": false,
+      "tradeKind": "buy",
+      "blockTimestamp": "2026-02-18T06:40:01Z"
+    },
+    {
+      "chainId": 8453,
+      "network": "base",
+      "bucket": "old",
+      "txHash": "0x0ade95192fe6e4e383fce4edbfbc61028e10ecf88fc6935c388c0513314783bb",
+      "tokenAddress": "0x20429f731096e359910921994a267d32ef576720",
+      "poolAddress": "0x2a0f410422951f53cd2f3e9f6d0f29fccb1426e9",
+      "poolCreatedAt": "2025-03-04T12:55:35.000Z",
+      "discoverySource": [
+        "dexscreener"
+      ],
+      "txSource": "gecko_trades",
+      "collectedAt": "2026-02-18T06:41:41.772Z",
+      "fallbackUsed": false,
+      "tradeKind": "buy",
+      "blockTimestamp": "2026-02-18T06:39:51Z"
+    },
+    {
+      "chainId": 8453,
+      "network": "base",
+      "bucket": "old",
+      "txHash": "0x529af14cdb908b1ac49fdc6e674ae2bbfeb9b8a3e97f2cdb3083cb5664cae809",
+      "tokenAddress": "0x20429f731096e359910921994a267d32ef576720",
+      "poolAddress": "0x2a0f410422951f53cd2f3e9f6d0f29fccb1426e9",
+      "poolCreatedAt": "2025-03-04T12:55:35.000Z",
+      "discoverySource": [
+        "dexscreener"
+      ],
+      "txSource": "gecko_trades",
+      "collectedAt": "2026-02-18T06:41:41.772Z",
+      "fallbackUsed": false,
+      "tradeKind": "buy",
+      "blockTimestamp": "2026-02-18T06:39:51Z"
+    },
+    {
+      "chainId": 8453,
+      "network": "base",
+      "bucket": "old",
+      "txHash": "0x9c5bb64d20c535bb92d91811924df01e63b415ef4dd8a73e06d8afb5e980348c",
+      "tokenAddress": "0x20429f731096e359910921994a267d32ef576720",
+      "poolAddress": "0x2a0f410422951f53cd2f3e9f6d0f29fccb1426e9",
+      "poolCreatedAt": "2025-03-04T12:55:35.000Z",
+      "discoverySource": [
+        "dexscreener"
+      ],
+      "txSource": "gecko_trades",
+      "collectedAt": "2026-02-18T06:41:41.772Z",
+      "fallbackUsed": false,
+      "tradeKind": "buy",
+      "blockTimestamp": "2026-02-18T06:39:51Z"
+    },
+    {
+      "chainId": 8453,
+      "network": "base",
+      "bucket": "old",
+      "txHash": "0x4a187cc7b0cd68410c00f8f927ea7c9559cbeacfee6096acde5862a0c2554ca7",
+      "tokenAddress": "0x20429f731096e359910921994a267d32ef576720",
+      "poolAddress": "0x2a0f410422951f53cd2f3e9f6d0f29fccb1426e9",
+      "poolCreatedAt": "2025-03-04T12:55:35.000Z",
+      "discoverySource": [
+        "dexscreener"
+      ],
+      "txSource": "gecko_trades",
+      "collectedAt": "2026-02-18T06:41:41.772Z",
+      "fallbackUsed": false,
+      "tradeKind": "buy",
+      "blockTimestamp": "2026-02-18T06:39:45Z"
+    },
+    {
+      "chainId": 8453,
+      "network": "base",
+      "bucket": "old",
+      "txHash": "0x2f4a52979568cec2eef32a6415cf58dd753d105383908926c2b67b83bc9d0725",
+      "tokenAddress": "0x20429f731096e359910921994a267d32ef576720",
+      "poolAddress": "0x2a0f410422951f53cd2f3e9f6d0f29fccb1426e9",
+      "poolCreatedAt": "2025-03-04T12:55:35.000Z",
+      "discoverySource": [
+        "dexscreener"
+      ],
+      "txSource": "gecko_trades",
+      "collectedAt": "2026-02-18T06:41:41.772Z",
+      "fallbackUsed": false,
+      "tradeKind": "buy",
+      "blockTimestamp": "2026-02-18T06:39:45Z"
+    },
+    {
+      "chainId": 8453,
+      "network": "base",
+      "bucket": "old",
+      "txHash": "0xbfc6b803e1922da5097d3ee07d1df85bf4abb0949e507ce3c6b7ac41bfabf5c6",
+      "tokenAddress": "0x20429f731096e359910921994a267d32ef576720",
+      "poolAddress": "0x2a0f410422951f53cd2f3e9f6d0f29fccb1426e9",
+      "poolCreatedAt": "2025-03-04T12:55:35.000Z",
+      "discoverySource": [
+        "dexscreener"
+      ],
+      "txSource": "gecko_trades",
+      "collectedAt": "2026-02-18T06:41:41.772Z",
+      "fallbackUsed": false,
+      "tradeKind": "buy",
+      "blockTimestamp": "2026-02-18T06:39:45Z"
+    },
+    {
+      "chainId": 8453,
+      "network": "base",
+      "bucket": "old",
+      "txHash": "0xf114eabb974b46abd78411db908868724d686c22f62def059345c9d25a4e6b4f",
+      "tokenAddress": "0x20429f731096e359910921994a267d32ef576720",
+      "poolAddress": "0x2a0f410422951f53cd2f3e9f6d0f29fccb1426e9",
+      "poolCreatedAt": "2025-03-04T12:55:35.000Z",
+      "discoverySource": [
+        "dexscreener"
+      ],
+      "txSource": "gecko_trades",
+      "collectedAt": "2026-02-18T06:41:41.772Z",
+      "fallbackUsed": false,
+      "tradeKind": "buy",
+      "blockTimestamp": "2026-02-18T06:39:35Z"
+    },
+    {
+      "chainId": 8453,
+      "network": "base",
+      "bucket": "old",
+      "txHash": "0x527b840312604f67616abbf868fcb3bf0a8ab42dbe6131341dfe6294b3db5838",
+      "tokenAddress": "0x20429f731096e359910921994a267d32ef576720",
+      "poolAddress": "0x2a0f410422951f53cd2f3e9f6d0f29fccb1426e9",
+      "poolCreatedAt": "2025-03-04T12:55:35.000Z",
+      "discoverySource": [
+        "dexscreener"
+      ],
+      "txSource": "gecko_trades",
+      "collectedAt": "2026-02-18T06:41:41.772Z",
+      "fallbackUsed": false,
+      "tradeKind": "buy",
+      "blockTimestamp": "2026-02-18T06:39:35Z"
+    },
+    {
+      "chainId": 8453,
+      "network": "base",
+      "bucket": "old",
+      "txHash": "0xd9628689e85cb2115ac3be1154b49fa0699e5c4bfa441a8ddfc7422788be1940",
+      "tokenAddress": "0x20429f731096e359910921994a267d32ef576720",
+      "poolAddress": "0x2a0f410422951f53cd2f3e9f6d0f29fccb1426e9",
+      "poolCreatedAt": "2025-03-04T12:55:35.000Z",
+      "discoverySource": [
+        "dexscreener"
+      ],
+      "txSource": "gecko_trades",
+      "collectedAt": "2026-02-18T06:41:41.772Z",
+      "fallbackUsed": false,
+      "tradeKind": "buy",
+      "blockTimestamp": "2026-02-18T06:39:35Z"
+    },
+    {
+      "chainId": 8453,
+      "network": "base",
+      "bucket": "old",
+      "txHash": "0xa1dd7a4d9260230e1cea54b9bd6eb4a1e0a4f16c29fc890b90655c12076de2c4",
+      "tokenAddress": "0x20429f731096e359910921994a267d32ef576720",
+      "poolAddress": "0x2a0f410422951f53cd2f3e9f6d0f29fccb1426e9",
+      "poolCreatedAt": "2025-03-04T12:55:35.000Z",
+      "discoverySource": [
+        "dexscreener"
+      ],
+      "txSource": "gecko_trades",
+      "collectedAt": "2026-02-18T06:41:41.772Z",
+      "fallbackUsed": false,
+      "tradeKind": "buy",
+      "blockTimestamp": "2026-02-18T06:39:25Z"
+    },
+    {
+      "chainId": 8453,
+      "network": "base",
+      "bucket": "old",
+      "txHash": "0xbc7ad453391b54f681a7749197b996a452635edba6c6dade4c7246b6403d5e02",
+      "tokenAddress": "0x20429f731096e359910921994a267d32ef576720",
+      "poolAddress": "0x2a0f410422951f53cd2f3e9f6d0f29fccb1426e9",
+      "poolCreatedAt": "2025-03-04T12:55:35.000Z",
+      "discoverySource": [
+        "dexscreener"
+      ],
+      "txSource": "gecko_trades",
+      "collectedAt": "2026-02-18T06:41:41.772Z",
+      "fallbackUsed": false,
+      "tradeKind": "buy",
+      "blockTimestamp": "2026-02-18T06:39:25Z"
+    },
+    {
+      "chainId": 8453,
+      "network": "base",
+      "bucket": "old",
+      "txHash": "0x62319883909f90dec66123df5c689a04cc8fa82071ed5c82c6dbe3112661cc82",
+      "tokenAddress": "0x20429f731096e359910921994a267d32ef576720",
+      "poolAddress": "0x2a0f410422951f53cd2f3e9f6d0f29fccb1426e9",
+      "poolCreatedAt": "2025-03-04T12:55:35.000Z",
+      "discoverySource": [
+        "dexscreener"
+      ],
+      "txSource": "gecko_trades",
+      "collectedAt": "2026-02-18T06:41:41.772Z",
+      "fallbackUsed": false,
+      "tradeKind": "buy",
+      "blockTimestamp": "2026-02-18T06:39:25Z"
+    },
+    {
+      "chainId": 8453,
+      "network": "base",
+      "bucket": "old",
+      "txHash": "0xa2d12476353af70dfba7ad0443258b92bd84c5448812a7bc7a40950270147803",
+      "tokenAddress": "0x20429f731096e359910921994a267d32ef576720",
+      "poolAddress": "0x2a0f410422951f53cd2f3e9f6d0f29fccb1426e9",
+      "poolCreatedAt": "2025-03-04T12:55:35.000Z",
+      "discoverySource": [
+        "dexscreener"
+      ],
+      "txSource": "gecko_trades",
+      "collectedAt": "2026-02-18T06:41:41.772Z",
+      "fallbackUsed": false,
+      "tradeKind": "buy",
+      "blockTimestamp": "2026-02-18T06:39:17Z"
+    },
+    {
+      "chainId": 8453,
+      "network": "base",
+      "bucket": "old",
+      "txHash": "0x5a1df2e2e0ec990d16804ef1f82c75a63706f1b1450223fb22931a7412568c6f",
+      "tokenAddress": "0x20429f731096e359910921994a267d32ef576720",
+      "poolAddress": "0x2a0f410422951f53cd2f3e9f6d0f29fccb1426e9",
+      "poolCreatedAt": "2025-03-04T12:55:35.000Z",
+      "discoverySource": [
+        "dexscreener"
+      ],
+      "txSource": "gecko_trades",
+      "collectedAt": "2026-02-18T06:41:41.772Z",
+      "fallbackUsed": false,
+      "tradeKind": "buy",
+      "blockTimestamp": "2026-02-18T06:39:17Z"
+    },
+    {
+      "chainId": 8453,
+      "network": "base",
+      "bucket": "old",
+      "txHash": "0x12c7386810baf88ede6fdd1bfef6a12c6406710706956bfa171dba1c59b60537",
+      "tokenAddress": "0x20429f731096e359910921994a267d32ef576720",
+      "poolAddress": "0x2a0f410422951f53cd2f3e9f6d0f29fccb1426e9",
+      "poolCreatedAt": "2025-03-04T12:55:35.000Z",
+      "discoverySource": [
+        "dexscreener"
+      ],
+      "txSource": "gecko_trades",
+      "collectedAt": "2026-02-18T06:41:41.772Z",
+      "fallbackUsed": false,
+      "tradeKind": "buy",
+      "blockTimestamp": "2026-02-18T06:39:17Z"
+    },
+    {
+      "chainId": 8453,
+      "network": "base",
+      "bucket": "old",
+      "txHash": "0xf2d0f65120f5e61f350024245ca764b2b20f92dffbb579e7a15cd2e9ada8aa8c",
+      "tokenAddress": "0x20429f731096e359910921994a267d32ef576720",
+      "poolAddress": "0x2a0f410422951f53cd2f3e9f6d0f29fccb1426e9",
+      "poolCreatedAt": "2025-03-04T12:55:35.000Z",
+      "discoverySource": [
+        "dexscreener"
+      ],
+      "txSource": "gecko_trades",
+      "collectedAt": "2026-02-18T06:41:41.772Z",
+      "fallbackUsed": false,
+      "tradeKind": "buy",
+      "blockTimestamp": "2026-02-18T06:39:07Z"
+    },
+    {
+      "chainId": 8453,
+      "network": "base",
+      "bucket": "old",
+      "txHash": "0x50fb29b53736cc796b78a00a13036c4434753ccbb8f34a798642ec9a5c9d8da6",
+      "tokenAddress": "0x20429f731096e359910921994a267d32ef576720",
+      "poolAddress": "0x2a0f410422951f53cd2f3e9f6d0f29fccb1426e9",
+      "poolCreatedAt": "2025-03-04T12:55:35.000Z",
+      "discoverySource": [
+        "dexscreener"
+      ],
+      "txSource": "gecko_trades",
+      "collectedAt": "2026-02-18T06:41:41.772Z",
+      "fallbackUsed": false,
+      "tradeKind": "buy",
+      "blockTimestamp": "2026-02-18T06:39:07Z"
+    },
+    {
+      "chainId": 8453,
+      "network": "base",
+      "bucket": "old",
+      "txHash": "0x5ccf88423ec97078e88e19e6c64cd83af3ad78b1fe01a77dfc0cb16078b63cac",
+      "tokenAddress": "0x20429f731096e359910921994a267d32ef576720",
+      "poolAddress": "0x2a0f410422951f53cd2f3e9f6d0f29fccb1426e9",
+      "poolCreatedAt": "2025-03-04T12:55:35.000Z",
+      "discoverySource": [
+        "dexscreener"
+      ],
+      "txSource": "gecko_trades",
+      "collectedAt": "2026-02-18T06:41:41.772Z",
+      "fallbackUsed": false,
+      "tradeKind": "buy",
+      "blockTimestamp": "2026-02-18T06:39:07Z"
+    },
+    {
+      "chainId": 8453,
+      "network": "base",
+      "bucket": "old",
+      "txHash": "0xb6a205d40e0462e6d073f9a39c93144bb915c92e11845660329bf10ccb7d85fb",
+      "tokenAddress": "0x20429f731096e359910921994a267d32ef576720",
+      "poolAddress": "0x2a0f410422951f53cd2f3e9f6d0f29fccb1426e9",
+      "poolCreatedAt": "2025-03-04T12:55:35.000Z",
+      "discoverySource": [
+        "dexscreener"
+      ],
+      "txSource": "gecko_trades",
+      "collectedAt": "2026-02-18T06:41:41.772Z",
+      "fallbackUsed": false,
+      "tradeKind": "buy",
+      "blockTimestamp": "2026-02-18T06:38:57Z"
+    },
+    {
+      "chainId": 8453,
+      "network": "base",
+      "bucket": "old",
+      "txHash": "0x92e4bace6176c4f897332a135d17179e7a8f5f523afa00ea2fbdba98c0de410d",
+      "tokenAddress": "0x20429f731096e359910921994a267d32ef576720",
+      "poolAddress": "0x2a0f410422951f53cd2f3e9f6d0f29fccb1426e9",
+      "poolCreatedAt": "2025-03-04T12:55:35.000Z",
+      "discoverySource": [
+        "dexscreener"
+      ],
+      "txSource": "gecko_trades",
+      "collectedAt": "2026-02-18T06:41:41.772Z",
+      "fallbackUsed": false,
+      "tradeKind": "buy",
+      "blockTimestamp": "2026-02-18T06:38:57Z"
+    },
+    {
+      "chainId": 8453,
+      "network": "base",
+      "bucket": "old",
+      "txHash": "0x2930ff233ae80dcb60561ce8c3e3f49ddc19a696b9ecd4bec9ced6d174e3d40d",
+      "tokenAddress": "0x20429f731096e359910921994a267d32ef576720",
+      "poolAddress": "0x2a0f410422951f53cd2f3e9f6d0f29fccb1426e9",
+      "poolCreatedAt": "2025-03-04T12:55:35.000Z",
+      "discoverySource": [
+        "dexscreener"
+      ],
+      "txSource": "gecko_trades",
+      "collectedAt": "2026-02-18T06:41:41.772Z",
+      "fallbackUsed": false,
+      "tradeKind": "buy",
+      "blockTimestamp": "2026-02-18T06:38:57Z"
+    },
+    {
+      "chainId": 8453,
+      "network": "base",
+      "bucket": "old",
+      "txHash": "0x6b4941d188e05d436399c664de61c5befa5240e40bf0dffeb86d5327c8a4071f",
+      "tokenAddress": "0x20429f731096e359910921994a267d32ef576720",
+      "poolAddress": "0x2a0f410422951f53cd2f3e9f6d0f29fccb1426e9",
+      "poolCreatedAt": "2025-03-04T12:55:35.000Z",
+      "discoverySource": [
+        "dexscreener"
+      ],
+      "txSource": "gecko_trades",
+      "collectedAt": "2026-02-18T06:41:41.772Z",
+      "fallbackUsed": false,
+      "tradeKind": "buy",
+      "blockTimestamp": "2026-02-18T06:38:47Z"
+    },
+    {
+      "chainId": 8453,
+      "network": "base",
+      "bucket": "old",
+      "txHash": "0xe342b53d73f7c8bf2c209b1ac8b22172f16c1c8c98a783a9b60cc9225da99964",
+      "tokenAddress": "0x20429f731096e359910921994a267d32ef576720",
+      "poolAddress": "0x2a0f410422951f53cd2f3e9f6d0f29fccb1426e9",
+      "poolCreatedAt": "2025-03-04T12:55:35.000Z",
+      "discoverySource": [
+        "dexscreener"
+      ],
+      "txSource": "gecko_trades",
+      "collectedAt": "2026-02-18T06:41:41.772Z",
+      "fallbackUsed": false,
+      "tradeKind": "buy",
+      "blockTimestamp": "2026-02-18T06:38:47Z"
+    },
+    {
+      "chainId": 8453,
+      "network": "base",
+      "bucket": "old",
+      "txHash": "0x7d9d1ff01631a9ee30a50f7faa13b06f92d4ef4ba2c042a7ea55f88e4532043b",
+      "tokenAddress": "0x20429f731096e359910921994a267d32ef576720",
+      "poolAddress": "0x2a0f410422951f53cd2f3e9f6d0f29fccb1426e9",
+      "poolCreatedAt": "2025-03-04T12:55:35.000Z",
+      "discoverySource": [
+        "dexscreener"
+      ],
+      "txSource": "gecko_trades",
+      "collectedAt": "2026-02-18T06:41:41.772Z",
+      "fallbackUsed": false,
+      "tradeKind": "buy",
+      "blockTimestamp": "2026-02-18T06:38:47Z"
+    },
+    {
+      "chainId": 8453,
+      "network": "base",
+      "bucket": "old",
+      "txHash": "0x2b9e77f8c109289d01b60c9c617da7fcb5f4163844341d083fe42abc4c1624fd",
+      "tokenAddress": "0x20429f731096e359910921994a267d32ef576720",
+      "poolAddress": "0x2a0f410422951f53cd2f3e9f6d0f29fccb1426e9",
+      "poolCreatedAt": "2025-03-04T12:55:35.000Z",
+      "discoverySource": [
+        "dexscreener"
+      ],
+      "txSource": "gecko_trades",
+      "collectedAt": "2026-02-18T06:41:41.772Z",
+      "fallbackUsed": false,
+      "tradeKind": "buy",
+      "blockTimestamp": "2026-02-18T06:38:37Z"
+    },
+    {
+      "chainId": 8453,
+      "network": "base",
+      "bucket": "old",
+      "txHash": "0x6af610cfa4f4da8aafa1757ebd501caab49b747031546a160260a68cb1f9dedf",
+      "tokenAddress": "0x20429f731096e359910921994a267d32ef576720",
+      "poolAddress": "0x2a0f410422951f53cd2f3e9f6d0f29fccb1426e9",
+      "poolCreatedAt": "2025-03-04T12:55:35.000Z",
+      "discoverySource": [
+        "dexscreener"
+      ],
+      "txSource": "gecko_trades",
+      "collectedAt": "2026-02-18T06:41:41.772Z",
+      "fallbackUsed": false,
+      "tradeKind": "buy",
+      "blockTimestamp": "2026-02-18T06:38:37Z"
+    },
+    {
+      "chainId": 8453,
+      "network": "base",
+      "bucket": "old",
+      "txHash": "0x5f1664823d3eee253eff5cab54f10ee06740af311be37de7cb040cbc035eca3a",
+      "tokenAddress": "0x20429f731096e359910921994a267d32ef576720",
+      "poolAddress": "0x2a0f410422951f53cd2f3e9f6d0f29fccb1426e9",
+      "poolCreatedAt": "2025-03-04T12:55:35.000Z",
+      "discoverySource": [
+        "dexscreener"
+      ],
+      "txSource": "gecko_trades",
+      "collectedAt": "2026-02-18T06:41:41.772Z",
+      "fallbackUsed": false,
+      "tradeKind": "buy",
+      "blockTimestamp": "2026-02-18T06:38:37Z"
+    },
+    {
+      "chainId": 8453,
+      "network": "base",
+      "bucket": "old",
+      "txHash": "0x716bdb49ff46a0824a85fbf39c61a12e0b6eb8a066f97d552e94d155041bdd86",
+      "tokenAddress": "0x20429f731096e359910921994a267d32ef576720",
+      "poolAddress": "0x2a0f410422951f53cd2f3e9f6d0f29fccb1426e9",
+      "poolCreatedAt": "2025-03-04T12:55:35.000Z",
+      "discoverySource": [
+        "dexscreener"
+      ],
+      "txSource": "gecko_trades",
+      "collectedAt": "2026-02-18T06:41:41.772Z",
+      "fallbackUsed": false,
+      "tradeKind": "buy",
+      "blockTimestamp": "2026-02-18T06:38:29Z"
+    },
+    {
+      "chainId": 8453,
+      "network": "base",
+      "bucket": "old",
+      "txHash": "0x705944a6e690434db02a8f8915b4e0df1d3d141604da82f8b4d19986840a9443",
+      "tokenAddress": "0x20429f731096e359910921994a267d32ef576720",
+      "poolAddress": "0x2a0f410422951f53cd2f3e9f6d0f29fccb1426e9",
+      "poolCreatedAt": "2025-03-04T12:55:35.000Z",
+      "discoverySource": [
+        "dexscreener"
+      ],
+      "txSource": "gecko_trades",
+      "collectedAt": "2026-02-18T06:41:41.773Z",
+      "fallbackUsed": false,
+      "tradeKind": "buy",
+      "blockTimestamp": "2026-02-18T06:38:29Z"
+    },
+    {
+      "chainId": 8453,
+      "network": "base",
+      "bucket": "old",
+      "txHash": "0xb5de4591110f7e416d7e7e6a6ffb36cfe67066fe856e039f0145f8680466b36c",
+      "tokenAddress": "0x20429f731096e359910921994a267d32ef576720",
+      "poolAddress": "0x2a0f410422951f53cd2f3e9f6d0f29fccb1426e9",
+      "poolCreatedAt": "2025-03-04T12:55:35.000Z",
+      "discoverySource": [
+        "dexscreener"
+      ],
+      "txSource": "gecko_trades",
+      "collectedAt": "2026-02-18T06:41:41.773Z",
+      "fallbackUsed": false,
+      "tradeKind": "buy",
+      "blockTimestamp": "2026-02-18T06:38:29Z"
+    },
+    {
+      "chainId": 8453,
+      "network": "base",
+      "bucket": "old",
+      "txHash": "0x6de6db8cbbb466a609f4a2981c4c187dca5cce011f5f27a02ae25135e6a2e191",
+      "tokenAddress": "0x20429f731096e359910921994a267d32ef576720",
+      "poolAddress": "0x2a0f410422951f53cd2f3e9f6d0f29fccb1426e9",
+      "poolCreatedAt": "2025-03-04T12:55:35.000Z",
+      "discoverySource": [
+        "dexscreener"
+      ],
+      "txSource": "gecko_trades",
+      "collectedAt": "2026-02-18T06:41:41.773Z",
+      "fallbackUsed": false,
+      "tradeKind": "buy",
+      "blockTimestamp": "2026-02-18T06:38:19Z"
+    },
+    {
+      "chainId": 8453,
+      "network": "base",
+      "bucket": "old",
+      "txHash": "0xbe417d5c3a4ca14979a7e9d3d422372527490091b05f93d41e81b57d3983bb4b",
+      "tokenAddress": "0x20429f731096e359910921994a267d32ef576720",
+      "poolAddress": "0x2a0f410422951f53cd2f3e9f6d0f29fccb1426e9",
+      "poolCreatedAt": "2025-03-04T12:55:35.000Z",
+      "discoverySource": [
+        "dexscreener"
+      ],
+      "txSource": "gecko_trades",
+      "collectedAt": "2026-02-18T06:41:41.773Z",
+      "fallbackUsed": false,
+      "tradeKind": "buy",
+      "blockTimestamp": "2026-02-18T06:38:19Z"
+    },
+    {
+      "chainId": 8453,
+      "network": "base",
+      "bucket": "old",
+      "txHash": "0x5efc05779b5cd29323d1f4736b8e54aa5fe6c7780916a643f1a6b0a1310d3efd",
+      "tokenAddress": "0x20429f731096e359910921994a267d32ef576720",
+      "poolAddress": "0x2a0f410422951f53cd2f3e9f6d0f29fccb1426e9",
+      "poolCreatedAt": "2025-03-04T12:55:35.000Z",
+      "discoverySource": [
+        "dexscreener"
+      ],
+      "txSource": "gecko_trades",
+      "collectedAt": "2026-02-18T06:41:41.773Z",
+      "fallbackUsed": false,
+      "tradeKind": "buy",
+      "blockTimestamp": "2026-02-18T06:38:19Z"
+    },
+    {
+      "chainId": 8453,
+      "network": "base",
+      "bucket": "old",
+      "txHash": "0x7e64d96e1bb03f2fe06ff19d5a5cf9401e9d3c0152c62c0f450884b2eeea3d88",
+      "tokenAddress": "0x20429f731096e359910921994a267d32ef576720",
+      "poolAddress": "0x2a0f410422951f53cd2f3e9f6d0f29fccb1426e9",
+      "poolCreatedAt": "2025-03-04T12:55:35.000Z",
+      "discoverySource": [
+        "dexscreener"
+      ],
+      "txSource": "gecko_trades",
+      "collectedAt": "2026-02-18T06:41:41.773Z",
+      "fallbackUsed": false,
+      "tradeKind": "buy",
+      "blockTimestamp": "2026-02-18T06:38:09Z"
+    },
+    {
+      "chainId": 8453,
+      "network": "base",
+      "bucket": "old",
+      "txHash": "0x210f9d51c5298ec8752630031e8759781c69dc59f7a9ff82f6e0f2d1e2b5ad0e",
+      "tokenAddress": "0x20429f731096e359910921994a267d32ef576720",
+      "poolAddress": "0x2a0f410422951f53cd2f3e9f6d0f29fccb1426e9",
+      "poolCreatedAt": "2025-03-04T12:55:35.000Z",
+      "discoverySource": [
+        "dexscreener"
+      ],
+      "txSource": "gecko_trades",
+      "collectedAt": "2026-02-18T06:41:41.773Z",
+      "fallbackUsed": false,
+      "tradeKind": "buy",
+      "blockTimestamp": "2026-02-18T06:38:09Z"
+    },
+    {
+      "chainId": 8453,
+      "network": "base",
+      "bucket": "old",
+      "txHash": "0xa05935a41027a5a84d02c878f0070aa208a9ad1f4e7ea01161bf71d0eaf3214b",
+      "tokenAddress": "0x20429f731096e359910921994a267d32ef576720",
+      "poolAddress": "0x2a0f410422951f53cd2f3e9f6d0f29fccb1426e9",
+      "poolCreatedAt": "2025-03-04T12:55:35.000Z",
+      "discoverySource": [
+        "dexscreener"
+      ],
+      "txSource": "gecko_trades",
+      "collectedAt": "2026-02-18T06:41:41.773Z",
+      "fallbackUsed": false,
+      "tradeKind": "buy",
+      "blockTimestamp": "2026-02-18T06:38:09Z"
+    },
+    {
+      "chainId": 8453,
+      "network": "base",
+      "bucket": "old",
+      "txHash": "0xbd3805be4c9b6ab02138afd21be8b4162067f5dc013a07255c7e3e5fa7f5493e",
+      "tokenAddress": "0x20429f731096e359910921994a267d32ef576720",
+      "poolAddress": "0x2a0f410422951f53cd2f3e9f6d0f29fccb1426e9",
+      "poolCreatedAt": "2025-03-04T12:55:35.000Z",
+      "discoverySource": [
+        "dexscreener"
+      ],
+      "txSource": "gecko_trades",
+      "collectedAt": "2026-02-18T06:41:41.773Z",
+      "fallbackUsed": false,
+      "tradeKind": "buy",
+      "blockTimestamp": "2026-02-18T06:37:59Z"
+    },
+    {
+      "chainId": 8453,
+      "network": "base",
+      "bucket": "old",
+      "txHash": "0x9f3e2e188a6de15eaee9dfc2076d65460c718ce9df2a5ea9e301ef64a6a95724",
+      "tokenAddress": "0x20429f731096e359910921994a267d32ef576720",
+      "poolAddress": "0x2a0f410422951f53cd2f3e9f6d0f29fccb1426e9",
+      "poolCreatedAt": "2025-03-04T12:55:35.000Z",
+      "discoverySource": [
+        "dexscreener"
+      ],
+      "txSource": "gecko_trades",
+      "collectedAt": "2026-02-18T06:41:41.773Z",
+      "fallbackUsed": false,
+      "tradeKind": "buy",
+      "blockTimestamp": "2026-02-18T06:37:59Z"
+    },
+    {
+      "chainId": 8453,
+      "network": "base",
+      "bucket": "old",
+      "txHash": "0x264a3fbf6aec187b97a82521d088abf815b6278f1c3972ad7f63635b570ef109",
+      "tokenAddress": "0x20429f731096e359910921994a267d32ef576720",
+      "poolAddress": "0x2a0f410422951f53cd2f3e9f6d0f29fccb1426e9",
+      "poolCreatedAt": "2025-03-04T12:55:35.000Z",
+      "discoverySource": [
+        "dexscreener"
+      ],
+      "txSource": "gecko_trades",
+      "collectedAt": "2026-02-18T06:41:41.773Z",
+      "fallbackUsed": false,
+      "tradeKind": "buy",
+      "blockTimestamp": "2026-02-18T06:37:59Z"
+    },
+    {
+      "chainId": 8453,
+      "network": "base",
+      "bucket": "old",
+      "txHash": "0x9652c9bcaf59580720dd2502a4307e61d24fca3e03efeeb27307caea50054665",
+      "tokenAddress": "0x20429f731096e359910921994a267d32ef576720",
+      "poolAddress": "0x2a0f410422951f53cd2f3e9f6d0f29fccb1426e9",
+      "poolCreatedAt": "2025-03-04T12:55:35.000Z",
+      "discoverySource": [
+        "dexscreener"
+      ],
+      "txSource": "gecko_trades",
+      "collectedAt": "2026-02-18T06:41:41.773Z",
+      "fallbackUsed": false,
+      "tradeKind": "sell",
+      "blockTimestamp": "2026-02-18T06:23:23Z"
+    },
+    {
+      "chainId": 8453,
+      "network": "base",
+      "bucket": "old",
+      "txHash": "0x5a4a919730355ba73dce869a29dc2b4fb4f0b0753cc296e36b5da38f63fc464b",
+      "tokenAddress": "0xc0634090f2fe6c6d75e61be2b949464abb498973",
+      "poolAddress": "0xd9edc75a3a797ec92ca370f19051babebfb2edee",
+      "poolCreatedAt": "2025-03-05T18:32:33.000Z",
+      "discoverySource": [
+        "dexscreener"
+      ],
+      "txSource": "gecko_trades",
+      "collectedAt": "2026-02-18T06:41:42.944Z",
+      "fallbackUsed": false,
+      "tradeKind": "sell",
+      "blockTimestamp": "2026-02-18T06:31:59Z"
+    },
+    {
+      "chainId": 8453,
+      "network": "base",
+      "bucket": "old",
+      "txHash": "0xb50a4aecd3c9acb1716e821f878c898601cb49b0aac477fca1544e29c7332b6c",
+      "tokenAddress": "0xc0634090f2fe6c6d75e61be2b949464abb498973",
+      "poolAddress": "0xd9edc75a3a797ec92ca370f19051babebfb2edee",
+      "poolCreatedAt": "2025-03-05T18:32:33.000Z",
+      "discoverySource": [
+        "dexscreener"
+      ],
+      "txSource": "gecko_trades",
+      "collectedAt": "2026-02-18T06:41:42.944Z",
+      "fallbackUsed": false,
+      "tradeKind": "sell",
+      "blockTimestamp": "2026-02-18T05:19:33Z"
+    },
+    {
+      "chainId": 8453,
+      "network": "base",
+      "bucket": "old",
+      "txHash": "0xc1d7716221b954a0d626ef3211ac7ba6d26dfebff703cc2fc697e196c4a41411",
+      "tokenAddress": "0xc0634090f2fe6c6d75e61be2b949464abb498973",
+      "poolAddress": "0xd9edc75a3a797ec92ca370f19051babebfb2edee",
+      "poolCreatedAt": "2025-03-05T18:32:33.000Z",
+      "discoverySource": [
+        "dexscreener"
+      ],
+      "txSource": "gecko_trades",
+      "collectedAt": "2026-02-18T06:41:42.944Z",
+      "fallbackUsed": false,
+      "tradeKind": "sell",
+      "blockTimestamp": "2026-02-18T05:12:55Z"
+    },
+    {
+      "chainId": 8453,
+      "network": "base",
+      "bucket": "old",
+      "txHash": "0x5cdfc498d5499920688903bfff641a2a1efa9d3b88af05a30ab03f76b6a61982",
+      "tokenAddress": "0xc0634090f2fe6c6d75e61be2b949464abb498973",
+      "poolAddress": "0xd9edc75a3a797ec92ca370f19051babebfb2edee",
+      "poolCreatedAt": "2025-03-05T18:32:33.000Z",
+      "discoverySource": [
+        "dexscreener"
+      ],
+      "txSource": "gecko_trades",
+      "collectedAt": "2026-02-18T06:41:42.944Z",
+      "fallbackUsed": false,
+      "tradeKind": "sell",
+      "blockTimestamp": "2026-02-18T05:10:59Z"
+    },
+    {
+      "chainId": 8453,
+      "network": "base",
+      "bucket": "old",
+      "txHash": "0x294aeb2e4e7bff8252fc8e2e30e030ec88904984154ee69382aa109b422df97b",
+      "tokenAddress": "0xc0634090f2fe6c6d75e61be2b949464abb498973",
+      "poolAddress": "0xd9edc75a3a797ec92ca370f19051babebfb2edee",
+      "poolCreatedAt": "2025-03-05T18:32:33.000Z",
+      "discoverySource": [
+        "dexscreener"
+      ],
+      "txSource": "gecko_trades",
+      "collectedAt": "2026-02-18T06:41:42.944Z",
+      "fallbackUsed": false,
+      "tradeKind": "sell",
+      "blockTimestamp": "2026-02-18T05:10:37Z"
+    },
+    {
+      "chainId": 8453,
+      "network": "base",
+      "bucket": "old",
+      "txHash": "0x1491d718f0fe7381192ffd9f914232992de1dfd24e788ecde4f8eb25b5653db8",
+      "tokenAddress": "0xc0634090f2fe6c6d75e61be2b949464abb498973",
+      "poolAddress": "0xd9edc75a3a797ec92ca370f19051babebfb2edee",
+      "poolCreatedAt": "2025-03-05T18:32:33.000Z",
+      "discoverySource": [
+        "dexscreener"
+      ],
+      "txSource": "gecko_trades",
+      "collectedAt": "2026-02-18T06:41:42.944Z",
+      "fallbackUsed": false,
+      "tradeKind": "sell",
+      "blockTimestamp": "2026-02-18T05:09:25Z"
+    },
+    {
+      "chainId": 8453,
+      "network": "base",
+      "bucket": "old",
+      "txHash": "0x1785906e79109ec95af266c62ca569c082ed8cfcc892f9ca66e716479167f395",
+      "tokenAddress": "0xc0634090f2fe6c6d75e61be2b949464abb498973",
+      "poolAddress": "0xd9edc75a3a797ec92ca370f19051babebfb2edee",
+      "poolCreatedAt": "2025-03-05T18:32:33.000Z",
+      "discoverySource": [
+        "dexscreener"
+      ],
+      "txSource": "gecko_trades",
+      "collectedAt": "2026-02-18T06:41:42.944Z",
+      "fallbackUsed": false,
+      "tradeKind": "sell",
+      "blockTimestamp": "2026-02-18T05:02:05Z"
+    },
+    {
+      "chainId": 8453,
+      "network": "base",
+      "bucket": "old",
+      "txHash": "0xd6bf11a0880c90a68f2aa5a9ef4344ecb47c85ae76d5011c65b82b58b683d966",
+      "tokenAddress": "0xc0634090f2fe6c6d75e61be2b949464abb498973",
+      "poolAddress": "0xd9edc75a3a797ec92ca370f19051babebfb2edee",
+      "poolCreatedAt": "2025-03-05T18:32:33.000Z",
+      "discoverySource": [
+        "dexscreener"
+      ],
+      "txSource": "gecko_trades",
+      "collectedAt": "2026-02-18T06:41:42.944Z",
+      "fallbackUsed": false,
+      "tradeKind": "sell",
+      "blockTimestamp": "2026-02-18T04:35:57Z"
+    },
+    {
+      "chainId": 8453,
+      "network": "base",
+      "bucket": "old",
+      "txHash": "0x457de773575993fd9da57e8e822eeefa3dd66d1dc12405904ca1669873bd6383",
+      "tokenAddress": "0xc0634090f2fe6c6d75e61be2b949464abb498973",
+      "poolAddress": "0xd9edc75a3a797ec92ca370f19051babebfb2edee",
+      "poolCreatedAt": "2025-03-05T18:32:33.000Z",
+      "discoverySource": [
+        "dexscreener"
+      ],
+      "txSource": "gecko_trades",
+      "collectedAt": "2026-02-18T06:41:42.944Z",
+      "fallbackUsed": false,
+      "tradeKind": "sell",
+      "blockTimestamp": "2026-02-18T04:11:25Z"
+    },
+    {
+      "chainId": 8453,
+      "network": "base",
+      "bucket": "old",
+      "txHash": "0x06676441f3e30fe0e99e95062a54c35769bf55762833844c4e9b25c32f14fccf",
+      "tokenAddress": "0xc0634090f2fe6c6d75e61be2b949464abb498973",
+      "poolAddress": "0xd9edc75a3a797ec92ca370f19051babebfb2edee",
+      "poolCreatedAt": "2025-03-05T18:32:33.000Z",
+      "discoverySource": [
+        "dexscreener"
+      ],
+      "txSource": "gecko_trades",
+      "collectedAt": "2026-02-18T06:41:42.944Z",
+      "fallbackUsed": false,
+      "tradeKind": "sell",
+      "blockTimestamp": "2026-02-18T04:10:51Z"
+    },
+    {
+      "chainId": 8453,
+      "network": "base",
+      "bucket": "old",
+      "txHash": "0xd10a3c96f3b085b35342a52874a24694a5a2acefd70e465801e3f1215bd150f6",
+      "tokenAddress": "0xc0634090f2fe6c6d75e61be2b949464abb498973",
+      "poolAddress": "0xd9edc75a3a797ec92ca370f19051babebfb2edee",
+      "poolCreatedAt": "2025-03-05T18:32:33.000Z",
+      "discoverySource": [
+        "dexscreener"
+      ],
+      "txSource": "gecko_trades",
+      "collectedAt": "2026-02-18T06:41:42.944Z",
+      "fallbackUsed": false,
+      "tradeKind": "sell",
+      "blockTimestamp": "2026-02-18T04:10:33Z"
+    },
+    {
+      "chainId": 8453,
+      "network": "base",
+      "bucket": "old",
+      "txHash": "0x5f0ba455dfd6000fe1c2ebdeb8270e357387ac61978df0f7b84f96c6939f5a45",
+      "tokenAddress": "0xc0634090f2fe6c6d75e61be2b949464abb498973",
+      "poolAddress": "0xd9edc75a3a797ec92ca370f19051babebfb2edee",
+      "poolCreatedAt": "2025-03-05T18:32:33.000Z",
+      "discoverySource": [
+        "dexscreener"
+      ],
+      "txSource": "gecko_trades",
+      "collectedAt": "2026-02-18T06:41:42.944Z",
+      "fallbackUsed": false,
+      "tradeKind": "sell",
+      "blockTimestamp": "2026-02-18T04:08:37Z"
+    },
+    {
+      "chainId": 8453,
+      "network": "base",
+      "bucket": "old",
+      "txHash": "0x27fc448e22a57e35fecb2f3b718bc47feee822527d656d760536a03b8441e299",
+      "tokenAddress": "0xc0634090f2fe6c6d75e61be2b949464abb498973",
+      "poolAddress": "0xd9edc75a3a797ec92ca370f19051babebfb2edee",
+      "poolCreatedAt": "2025-03-05T18:32:33.000Z",
+      "discoverySource": [
+        "dexscreener"
+      ],
+      "txSource": "gecko_trades",
+      "collectedAt": "2026-02-18T06:41:42.944Z",
+      "fallbackUsed": false,
+      "tradeKind": "sell",
+      "blockTimestamp": "2026-02-18T04:04:15Z"
+    },
+    {
+      "chainId": 8453,
+      "network": "base",
+      "bucket": "old",
+      "txHash": "0x1251de00a9f3c2b4121c74aa0daf649b525e6aa3decffbb8e4ce130debaf6654",
+      "tokenAddress": "0xc0634090f2fe6c6d75e61be2b949464abb498973",
+      "poolAddress": "0xd9edc75a3a797ec92ca370f19051babebfb2edee",
+      "poolCreatedAt": "2025-03-05T18:32:33.000Z",
+      "discoverySource": [
+        "dexscreener"
+      ],
+      "txSource": "gecko_trades",
+      "collectedAt": "2026-02-18T06:41:42.944Z",
+      "fallbackUsed": false,
+      "tradeKind": "sell",
+      "blockTimestamp": "2026-02-18T04:03:33Z"
+    },
+    {
+      "chainId": 8453,
+      "network": "base",
+      "bucket": "old",
+      "txHash": "0x025121f732838be2a1328fb44ee258df6d7fc28047ae8c412c332f97990bdab3",
+      "tokenAddress": "0xc0634090f2fe6c6d75e61be2b949464abb498973",
+      "poolAddress": "0xd9edc75a3a797ec92ca370f19051babebfb2edee",
+      "poolCreatedAt": "2025-03-05T18:32:33.000Z",
+      "discoverySource": [
+        "dexscreener"
+      ],
+      "txSource": "gecko_trades",
+      "collectedAt": "2026-02-18T06:41:42.944Z",
+      "fallbackUsed": false,
+      "tradeKind": "sell",
+      "blockTimestamp": "2026-02-18T04:00:15Z"
+    },
+    {
+      "chainId": 8453,
+      "network": "base",
+      "bucket": "old",
+      "txHash": "0x4d188d6e5e4282a602430249ef919e368c67c5e818d32ae2e61ea7134af61b63",
+      "tokenAddress": "0xc0634090f2fe6c6d75e61be2b949464abb498973",
+      "poolAddress": "0xd9edc75a3a797ec92ca370f19051babebfb2edee",
+      "poolCreatedAt": "2025-03-05T18:32:33.000Z",
+      "discoverySource": [
+        "dexscreener"
+      ],
+      "txSource": "gecko_trades",
+      "collectedAt": "2026-02-18T06:41:42.944Z",
+      "fallbackUsed": false,
+      "tradeKind": "sell",
+      "blockTimestamp": "2026-02-18T03:55:43Z"
+    },
+    {
+      "chainId": 8453,
+      "network": "base",
+      "bucket": "old",
+      "txHash": "0xa55288a7e1d3583f45c1a5d287556c7155ff733e4cd9cbeb24e6d03c65c2f072",
+      "tokenAddress": "0xc0634090f2fe6c6d75e61be2b949464abb498973",
+      "poolAddress": "0xd9edc75a3a797ec92ca370f19051babebfb2edee",
+      "poolCreatedAt": "2025-03-05T18:32:33.000Z",
+      "discoverySource": [
+        "dexscreener"
+      ],
+      "txSource": "gecko_trades",
+      "collectedAt": "2026-02-18T06:41:42.944Z",
+      "fallbackUsed": false,
+      "tradeKind": "sell",
+      "blockTimestamp": "2026-02-18T03:53:17Z"
+    },
+    {
+      "chainId": 8453,
+      "network": "base",
+      "bucket": "old",
+      "txHash": "0x3c412aeed28d747f1f1fe37ec04f616ea590141e5df383f496d8491f529595af",
+      "tokenAddress": "0xc0634090f2fe6c6d75e61be2b949464abb498973",
+      "poolAddress": "0xd9edc75a3a797ec92ca370f19051babebfb2edee",
+      "poolCreatedAt": "2025-03-05T18:32:33.000Z",
+      "discoverySource": [
+        "dexscreener"
+      ],
+      "txSource": "gecko_trades",
+      "collectedAt": "2026-02-18T06:41:42.944Z",
+      "fallbackUsed": false,
+      "tradeKind": "sell",
+      "blockTimestamp": "2026-02-18T03:38:01Z"
+    },
+    {
+      "chainId": 8453,
+      "network": "base",
+      "bucket": "old",
+      "txHash": "0x3ad683dbd37b1d1b42f578c306f162b322e7b9358923a8aa394f39b3ac0dbcd8",
+      "tokenAddress": "0xc0634090f2fe6c6d75e61be2b949464abb498973",
+      "poolAddress": "0xd9edc75a3a797ec92ca370f19051babebfb2edee",
+      "poolCreatedAt": "2025-03-05T18:32:33.000Z",
+      "discoverySource": [
+        "dexscreener"
+      ],
+      "txSource": "gecko_trades",
+      "collectedAt": "2026-02-18T06:41:42.944Z",
+      "fallbackUsed": false,
+      "tradeKind": "sell",
+      "blockTimestamp": "2026-02-18T03:37:25Z"
+    },
+    {
+      "chainId": 8453,
+      "network": "base",
+      "bucket": "old",
+      "txHash": "0xf30d9dfe3e449725324e89cedc549652c03cd29b246be5466075990bcc535b72",
+      "tokenAddress": "0xc0634090f2fe6c6d75e61be2b949464abb498973",
+      "poolAddress": "0xd9edc75a3a797ec92ca370f19051babebfb2edee",
+      "poolCreatedAt": "2025-03-05T18:32:33.000Z",
+      "discoverySource": [
+        "dexscreener"
+      ],
+      "txSource": "gecko_trades",
+      "collectedAt": "2026-02-18T06:41:42.944Z",
+      "fallbackUsed": false,
+      "tradeKind": "sell",
+      "blockTimestamp": "2026-02-18T03:34:27Z"
+    },
+    {
+      "chainId": 8453,
+      "network": "base",
+      "bucket": "old",
+      "txHash": "0x4ed1afeea5556ef8cf3604a823f309e24e2d74a596e047784b8f71342c1f5816",
+      "tokenAddress": "0xc0634090f2fe6c6d75e61be2b949464abb498973",
+      "poolAddress": "0xd9edc75a3a797ec92ca370f19051babebfb2edee",
+      "poolCreatedAt": "2025-03-05T18:32:33.000Z",
+      "discoverySource": [
+        "dexscreener"
+      ],
+      "txSource": "gecko_trades",
+      "collectedAt": "2026-02-18T06:41:42.944Z",
+      "fallbackUsed": false,
+      "tradeKind": "sell",
+      "blockTimestamp": "2026-02-18T03:34:11Z"
+    },
+    {
+      "chainId": 8453,
+      "network": "base",
+      "bucket": "old",
+      "txHash": "0x23aa4f79ce1ae4db98af2a2885dfcfff84ee1f485dfe4bc542b5cc97d85e67b4",
+      "tokenAddress": "0xc0634090f2fe6c6d75e61be2b949464abb498973",
+      "poolAddress": "0xd9edc75a3a797ec92ca370f19051babebfb2edee",
+      "poolCreatedAt": "2025-03-05T18:32:33.000Z",
+      "discoverySource": [
+        "dexscreener"
+      ],
+      "txSource": "gecko_trades",
+      "collectedAt": "2026-02-18T06:41:42.944Z",
+      "fallbackUsed": false,
+      "tradeKind": "sell",
+      "blockTimestamp": "2026-02-18T03:09:25Z"
+    },
+    {
+      "chainId": 8453,
+      "network": "base",
+      "bucket": "old",
+      "txHash": "0xf63d033cc318d4bf67dd1a2aac94bb526270064eb58510f5c0dec9b8a41cf268",
+      "tokenAddress": "0xc0634090f2fe6c6d75e61be2b949464abb498973",
+      "poolAddress": "0xd9edc75a3a797ec92ca370f19051babebfb2edee",
+      "poolCreatedAt": "2025-03-05T18:32:33.000Z",
+      "discoverySource": [
+        "dexscreener"
+      ],
+      "txSource": "gecko_trades",
+      "collectedAt": "2026-02-18T06:41:42.944Z",
+      "fallbackUsed": false,
+      "tradeKind": "sell",
+      "blockTimestamp": "2026-02-18T02:58:31Z"
+    },
+    {
+      "chainId": 8453,
+      "network": "base",
+      "bucket": "old",
+      "txHash": "0x7de2b8c9f91e2aa954ad2b494962626af0b9035e458b54403fdfb5151ed33694",
+      "tokenAddress": "0xc0634090f2fe6c6d75e61be2b949464abb498973",
+      "poolAddress": "0xd9edc75a3a797ec92ca370f19051babebfb2edee",
+      "poolCreatedAt": "2025-03-05T18:32:33.000Z",
+      "discoverySource": [
+        "dexscreener"
+      ],
+      "txSource": "gecko_trades",
+      "collectedAt": "2026-02-18T06:41:42.944Z",
+      "fallbackUsed": false,
+      "tradeKind": "sell",
+      "blockTimestamp": "2026-02-18T02:56:11Z"
+    },
+    {
+      "chainId": 8453,
+      "network": "base",
+      "bucket": "old",
+      "txHash": "0xbbcf3e5c9529ceb2a44efeff45937c8bfaa52616abf3b2c318dc40a5f4e10f4b",
+      "tokenAddress": "0xc0634090f2fe6c6d75e61be2b949464abb498973",
+      "poolAddress": "0xd9edc75a3a797ec92ca370f19051babebfb2edee",
+      "poolCreatedAt": "2025-03-05T18:32:33.000Z",
+      "discoverySource": [
+        "dexscreener"
+      ],
+      "txSource": "gecko_trades",
+      "collectedAt": "2026-02-18T06:41:42.944Z",
+      "fallbackUsed": false,
+      "tradeKind": "sell",
+      "blockTimestamp": "2026-02-18T02:38:11Z"
+    },
+    {
+      "chainId": 8453,
+      "network": "base",
+      "bucket": "old",
+      "txHash": "0xc47d930fd9f2bf6159aea6a8218bf95db9e6e24ec03682c6c5a7f10aed48ee80",
+      "tokenAddress": "0xc0634090f2fe6c6d75e61be2b949464abb498973",
+      "poolAddress": "0xd9edc75a3a797ec92ca370f19051babebfb2edee",
+      "poolCreatedAt": "2025-03-05T18:32:33.000Z",
+      "discoverySource": [
+        "dexscreener"
+      ],
+      "txSource": "gecko_trades",
+      "collectedAt": "2026-02-18T06:41:42.944Z",
+      "fallbackUsed": false,
+      "tradeKind": "sell",
+      "blockTimestamp": "2026-02-18T02:36:49Z"
+    },
+    {
+      "chainId": 8453,
+      "network": "base",
+      "bucket": "old",
+      "txHash": "0x7fc8518e343e5125cb5cb46659dd8fa209112af0312cec95d36380cfa04a3802",
+      "tokenAddress": "0xc0634090f2fe6c6d75e61be2b949464abb498973",
+      "poolAddress": "0xd9edc75a3a797ec92ca370f19051babebfb2edee",
+      "poolCreatedAt": "2025-03-05T18:32:33.000Z",
+      "discoverySource": [
+        "dexscreener"
+      ],
+      "txSource": "gecko_trades",
+      "collectedAt": "2026-02-18T06:41:42.944Z",
+      "fallbackUsed": false,
+      "tradeKind": "sell",
+      "blockTimestamp": "2026-02-18T02:11:11Z"
+    },
+    {
+      "chainId": 8453,
+      "network": "base",
+      "bucket": "old",
+      "txHash": "0x5e54999dbaea2c5dd00ea83c6b59a196b267fc1a86436768e847b6256252024d",
+      "tokenAddress": "0xc0634090f2fe6c6d75e61be2b949464abb498973",
+      "poolAddress": "0xd9edc75a3a797ec92ca370f19051babebfb2edee",
+      "poolCreatedAt": "2025-03-05T18:32:33.000Z",
+      "discoverySource": [
+        "dexscreener"
+      ],
+      "txSource": "gecko_trades",
+      "collectedAt": "2026-02-18T06:41:42.944Z",
+      "fallbackUsed": false,
+      "tradeKind": "sell",
+      "blockTimestamp": "2026-02-18T02:09:57Z"
+    },
+    {
+      "chainId": 8453,
+      "network": "base",
+      "bucket": "old",
+      "txHash": "0xcf00d84d58356edc54e63ff38113694e091a0ea0c3a44fe1f30f56230660afb8",
+      "tokenAddress": "0xc0634090f2fe6c6d75e61be2b949464abb498973",
+      "poolAddress": "0xd9edc75a3a797ec92ca370f19051babebfb2edee",
+      "poolCreatedAt": "2025-03-05T18:32:33.000Z",
+      "discoverySource": [
+        "dexscreener"
+      ],
+      "txSource": "gecko_trades",
+      "collectedAt": "2026-02-18T06:41:42.944Z",
+      "fallbackUsed": false,
+      "tradeKind": "sell",
+      "blockTimestamp": "2026-02-18T02:09:25Z"
+    },
+    {
+      "chainId": 8453,
+      "network": "base",
+      "bucket": "old",
+      "txHash": "0x85a02943d1be4d7ba98b3e132eaf521310d35f90f499ca948583717a0879d0be",
+      "tokenAddress": "0xc0634090f2fe6c6d75e61be2b949464abb498973",
+      "poolAddress": "0xd9edc75a3a797ec92ca370f19051babebfb2edee",
+      "poolCreatedAt": "2025-03-05T18:32:33.000Z",
+      "discoverySource": [
+        "dexscreener"
+      ],
+      "txSource": "gecko_trades",
+      "collectedAt": "2026-02-18T06:41:42.944Z",
+      "fallbackUsed": false,
+      "tradeKind": "sell",
+      "blockTimestamp": "2026-02-18T02:09:07Z"
+    },
+    {
+      "chainId": 8453,
+      "network": "base",
+      "bucket": "old",
+      "txHash": "0xc24b978c1486cd61009c1cd41ed8ad1ed64657db82ccb05a577411ceaf0e69ab",
+      "tokenAddress": "0xc0634090f2fe6c6d75e61be2b949464abb498973",
+      "poolAddress": "0xd9edc75a3a797ec92ca370f19051babebfb2edee",
+      "poolCreatedAt": "2025-03-05T18:32:33.000Z",
+      "discoverySource": [
+        "dexscreener"
+      ],
+      "txSource": "gecko_trades",
+      "collectedAt": "2026-02-18T06:41:42.944Z",
+      "fallbackUsed": false,
+      "tradeKind": "sell",
+      "blockTimestamp": "2026-02-18T01:30:43Z"
+    },
+    {
+      "chainId": 8453,
+      "network": "base",
+      "bucket": "old",
+      "txHash": "0xe01de039256050eab05f670f7640c50a4ac72ccb1ac10a35634fe1dd46f7f979",
+      "tokenAddress": "0xc0634090f2fe6c6d75e61be2b949464abb498973",
+      "poolAddress": "0xd9edc75a3a797ec92ca370f19051babebfb2edee",
+      "poolCreatedAt": "2025-03-05T18:32:33.000Z",
+      "discoverySource": [
+        "dexscreener"
+      ],
+      "txSource": "gecko_trades",
+      "collectedAt": "2026-02-18T06:41:42.944Z",
+      "fallbackUsed": false,
+      "tradeKind": "sell",
+      "blockTimestamp": "2026-02-18T01:27:39Z"
+    },
+    {
+      "chainId": 8453,
+      "network": "base",
+      "bucket": "old",
+      "txHash": "0x7f123c02e346bac7e5564d5fa386b358218c07868ba6e068a8564ecffee17bcb",
+      "tokenAddress": "0xc0634090f2fe6c6d75e61be2b949464abb498973",
+      "poolAddress": "0xd9edc75a3a797ec92ca370f19051babebfb2edee",
+      "poolCreatedAt": "2025-03-05T18:32:33.000Z",
+      "discoverySource": [
+        "dexscreener"
+      ],
+      "txSource": "gecko_trades",
+      "collectedAt": "2026-02-18T06:41:42.944Z",
+      "fallbackUsed": false,
+      "tradeKind": "sell",
+      "blockTimestamp": "2026-02-18T01:22:31Z"
+    },
+    {
+      "chainId": 8453,
+      "network": "base",
+      "bucket": "old",
+      "txHash": "0x4da2a1fe264ddbb6850d402e250fb9862e3f2493332264c1cf8ead1a95eff45c",
+      "tokenAddress": "0xc0634090f2fe6c6d75e61be2b949464abb498973",
+      "poolAddress": "0xd9edc75a3a797ec92ca370f19051babebfb2edee",
+      "poolCreatedAt": "2025-03-05T18:32:33.000Z",
+      "discoverySource": [
+        "dexscreener"
+      ],
+      "txSource": "gecko_trades",
+      "collectedAt": "2026-02-18T06:41:42.944Z",
+      "fallbackUsed": false,
+      "tradeKind": "sell",
+      "blockTimestamp": "2026-02-18T01:19:47Z"
+    },
+    {
+      "chainId": 8453,
+      "network": "base",
+      "bucket": "old",
+      "txHash": "0x175e2ddd8fcaf31adf31134e9124f6959f467fc62a42974fe54d6053d9576053",
+      "tokenAddress": "0xc0634090f2fe6c6d75e61be2b949464abb498973",
+      "poolAddress": "0xd9edc75a3a797ec92ca370f19051babebfb2edee",
+      "poolCreatedAt": "2025-03-05T18:32:33.000Z",
+      "discoverySource": [
+        "dexscreener"
+      ],
+      "txSource": "gecko_trades",
+      "collectedAt": "2026-02-18T06:41:42.944Z",
+      "fallbackUsed": false,
+      "tradeKind": "sell",
+      "blockTimestamp": "2026-02-18T01:12:11Z"
+    },
+    {
+      "chainId": 8453,
+      "network": "base",
+      "bucket": "old",
+      "txHash": "0xf99ada115626df8e31b05641acf56f221b39f63503a370e13dc0e19676e67866",
+      "tokenAddress": "0xc0634090f2fe6c6d75e61be2b949464abb498973",
+      "poolAddress": "0xd9edc75a3a797ec92ca370f19051babebfb2edee",
+      "poolCreatedAt": "2025-03-05T18:32:33.000Z",
+      "discoverySource": [
+        "dexscreener"
+      ],
+      "txSource": "gecko_trades",
+      "collectedAt": "2026-02-18T06:41:42.944Z",
+      "fallbackUsed": false,
+      "tradeKind": "sell",
+      "blockTimestamp": "2026-02-18T01:12:05Z"
+    },
+    {
+      "chainId": 8453,
+      "network": "base",
+      "bucket": "old",
+      "txHash": "0x0cb80c680c98e27e537dceb5863c35ce3082f859b8ea8c7633178ed8d942f929",
+      "tokenAddress": "0xc0634090f2fe6c6d75e61be2b949464abb498973",
+      "poolAddress": "0xd9edc75a3a797ec92ca370f19051babebfb2edee",
+      "poolCreatedAt": "2025-03-05T18:32:33.000Z",
+      "discoverySource": [
+        "dexscreener"
+      ],
+      "txSource": "gecko_trades",
+      "collectedAt": "2026-02-18T06:41:42.944Z",
+      "fallbackUsed": false,
+      "tradeKind": "sell",
+      "blockTimestamp": "2026-02-18T01:11:13Z"
+    },
+    {
+      "chainId": 8453,
+      "network": "base",
+      "bucket": "old",
+      "txHash": "0x3a19062f21d3e809d4e9227d3407d28dc6ab53c3f2abde2d64181e6f939f1b4a",
+      "tokenAddress": "0xc0634090f2fe6c6d75e61be2b949464abb498973",
+      "poolAddress": "0xd9edc75a3a797ec92ca370f19051babebfb2edee",
+      "poolCreatedAt": "2025-03-05T18:32:33.000Z",
+      "discoverySource": [
+        "dexscreener"
+      ],
+      "txSource": "gecko_trades",
+      "collectedAt": "2026-02-18T06:41:42.944Z",
+      "fallbackUsed": false,
+      "tradeKind": "sell",
+      "blockTimestamp": "2026-02-18T01:10:47Z"
+    },
+    {
+      "chainId": 8453,
+      "network": "base",
+      "bucket": "old",
+      "txHash": "0x4067ed1da2e13c0f5339f3fa3c52fe194a789838c155cfdee48429e89cb1575d",
+      "tokenAddress": "0xc0634090f2fe6c6d75e61be2b949464abb498973",
+      "poolAddress": "0xd9edc75a3a797ec92ca370f19051babebfb2edee",
+      "poolCreatedAt": "2025-03-05T18:32:33.000Z",
+      "discoverySource": [
+        "dexscreener"
+      ],
+      "txSource": "gecko_trades",
+      "collectedAt": "2026-02-18T06:41:42.944Z",
+      "fallbackUsed": false,
+      "tradeKind": "sell",
+      "blockTimestamp": "2026-02-18T01:09:45Z"
+    },
+    {
+      "chainId": 8453,
+      "network": "base",
+      "bucket": "old",
+      "txHash": "0xe0e4846484d73401db9d8584bfae3def2922facac7e7e5d91c61c96dcedc47ba",
+      "tokenAddress": "0xc0634090f2fe6c6d75e61be2b949464abb498973",
+      "poolAddress": "0xd9edc75a3a797ec92ca370f19051babebfb2edee",
+      "poolCreatedAt": "2025-03-05T18:32:33.000Z",
+      "discoverySource": [
+        "dexscreener"
+      ],
+      "txSource": "gecko_trades",
+      "collectedAt": "2026-02-18T06:41:42.944Z",
+      "fallbackUsed": false,
+      "tradeKind": "sell",
+      "blockTimestamp": "2026-02-18T01:09:37Z"
+    },
+    {
+      "chainId": 8453,
+      "network": "base",
+      "bucket": "old",
+      "txHash": "0xa92149df4a3f82cb5adff121115054295a5b276d65cda7084657290f2582b9e7",
+      "tokenAddress": "0xc0634090f2fe6c6d75e61be2b949464abb498973",
+      "poolAddress": "0xd9edc75a3a797ec92ca370f19051babebfb2edee",
+      "poolCreatedAt": "2025-03-05T18:32:33.000Z",
+      "discoverySource": [
+        "dexscreener"
+      ],
+      "txSource": "gecko_trades",
+      "collectedAt": "2026-02-18T06:41:42.944Z",
+      "fallbackUsed": false,
+      "tradeKind": "sell",
+      "blockTimestamp": "2026-02-18T01:08:51Z"
+    },
+    {
+      "chainId": 8453,
+      "network": "base",
+      "bucket": "old",
+      "txHash": "0x45dc1a2012d918966199227e7d883ea09295ac9fb3b59c641d0a34f4875c9713",
+      "tokenAddress": "0xc0634090f2fe6c6d75e61be2b949464abb498973",
+      "poolAddress": "0xd9edc75a3a797ec92ca370f19051babebfb2edee",
+      "poolCreatedAt": "2025-03-05T18:32:33.000Z",
+      "discoverySource": [
+        "dexscreener"
+      ],
+      "txSource": "gecko_trades",
+      "collectedAt": "2026-02-18T06:41:42.944Z",
+      "fallbackUsed": false,
+      "tradeKind": "sell",
+      "blockTimestamp": "2026-02-18T01:08:27Z"
+    },
+    {
+      "chainId": 8453,
+      "network": "base",
+      "bucket": "old",
+      "txHash": "0x2f920704dab66c5d34f5f70d7f039fb61922971046a553b889265af5cb17d4c9",
+      "tokenAddress": "0xc0634090f2fe6c6d75e61be2b949464abb498973",
+      "poolAddress": "0xd9edc75a3a797ec92ca370f19051babebfb2edee",
+      "poolCreatedAt": "2025-03-05T18:32:33.000Z",
+      "discoverySource": [
+        "dexscreener"
+      ],
+      "txSource": "gecko_trades",
+      "collectedAt": "2026-02-18T06:41:42.944Z",
+      "fallbackUsed": false,
+      "tradeKind": "sell",
+      "blockTimestamp": "2026-02-18T01:08:05Z"
+    },
+    {
+      "chainId": 8453,
+      "network": "base",
+      "bucket": "old",
+      "txHash": "0xb267daf1bd659f1a7216e7d6429670903d03cf633626a980a2221834cd4cd2ce",
+      "tokenAddress": "0xc0634090f2fe6c6d75e61be2b949464abb498973",
+      "poolAddress": "0xd9edc75a3a797ec92ca370f19051babebfb2edee",
+      "poolCreatedAt": "2025-03-05T18:32:33.000Z",
+      "discoverySource": [
+        "dexscreener"
+      ],
+      "txSource": "gecko_trades",
+      "collectedAt": "2026-02-18T06:41:42.944Z",
+      "fallbackUsed": false,
+      "tradeKind": "sell",
+      "blockTimestamp": "2026-02-18T01:05:57Z"
+    },
+    {
+      "chainId": 8453,
+      "network": "base",
+      "bucket": "old",
+      "txHash": "0x843ba87380b9310d636533d7bf0186456f06ec33fc646c4e798593accd1b75e4",
+      "tokenAddress": "0xc0634090f2fe6c6d75e61be2b949464abb498973",
+      "poolAddress": "0xd9edc75a3a797ec92ca370f19051babebfb2edee",
+      "poolCreatedAt": "2025-03-05T18:32:33.000Z",
+      "discoverySource": [
+        "dexscreener"
+      ],
+      "txSource": "gecko_trades",
+      "collectedAt": "2026-02-18T06:41:42.944Z",
+      "fallbackUsed": false,
+      "tradeKind": "sell",
+      "blockTimestamp": "2026-02-18T01:05:45Z"
+    },
+    {
+      "chainId": 8453,
+      "network": "base",
+      "bucket": "old",
+      "txHash": "0x0d999afedfbc76df7d4bb55e6b50b02b8245d2a5c1d85da41a37d4125dece79b",
+      "tokenAddress": "0xc0634090f2fe6c6d75e61be2b949464abb498973",
+      "poolAddress": "0xd9edc75a3a797ec92ca370f19051babebfb2edee",
+      "poolCreatedAt": "2025-03-05T18:32:33.000Z",
+      "discoverySource": [
+        "dexscreener"
+      ],
+      "txSource": "gecko_trades",
+      "collectedAt": "2026-02-18T06:41:42.944Z",
+      "fallbackUsed": false,
+      "tradeKind": "sell",
+      "blockTimestamp": "2026-02-18T01:05:03Z"
+    },
+    {
+      "chainId": 8453,
+      "network": "base",
+      "bucket": "old",
+      "txHash": "0x52533daacd11bdf099dff37d29b1440ae2276e96bca4d3cec3cfe116ce1630b7",
+      "tokenAddress": "0xc0634090f2fe6c6d75e61be2b949464abb498973",
+      "poolAddress": "0xd9edc75a3a797ec92ca370f19051babebfb2edee",
+      "poolCreatedAt": "2025-03-05T18:32:33.000Z",
+      "discoverySource": [
+        "dexscreener"
+      ],
+      "txSource": "gecko_trades",
+      "collectedAt": "2026-02-18T06:41:42.944Z",
+      "fallbackUsed": false,
+      "tradeKind": "sell",
+      "blockTimestamp": "2026-02-18T01:04:43Z"
+    },
+    {
+      "chainId": 8453,
+      "network": "base",
+      "bucket": "old",
+      "txHash": "0x879997f26ce202b42c1427af387d051bace8b43c5fc36cf7663e86b8c70d9f9d",
+      "tokenAddress": "0xc0634090f2fe6c6d75e61be2b949464abb498973",
+      "poolAddress": "0xd9edc75a3a797ec92ca370f19051babebfb2edee",
+      "poolCreatedAt": "2025-03-05T18:32:33.000Z",
+      "discoverySource": [
+        "dexscreener"
+      ],
+      "txSource": "gecko_trades",
+      "collectedAt": "2026-02-18T06:41:42.944Z",
+      "fallbackUsed": false,
+      "tradeKind": "sell",
+      "blockTimestamp": "2026-02-18T01:03:07Z"
+    },
+    {
+      "chainId": 8453,
+      "network": "base",
+      "bucket": "old",
+      "txHash": "0x936dab9f0e4f512bfe6bc7c8fc0db132bdd6ae1dffe0267816628fe7de8ad249",
+      "tokenAddress": "0xc0634090f2fe6c6d75e61be2b949464abb498973",
+      "poolAddress": "0xd9edc75a3a797ec92ca370f19051babebfb2edee",
+      "poolCreatedAt": "2025-03-05T18:32:33.000Z",
+      "discoverySource": [
+        "dexscreener"
+      ],
+      "txSource": "gecko_trades",
+      "collectedAt": "2026-02-18T06:41:42.944Z",
+      "fallbackUsed": false,
+      "tradeKind": "sell",
+      "blockTimestamp": "2026-02-18T01:00:41Z"
+    }
+  ]
+}

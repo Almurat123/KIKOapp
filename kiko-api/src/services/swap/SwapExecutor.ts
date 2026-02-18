@@ -1289,7 +1289,8 @@ export class SwapExecutor {
             amountIn: amountAtomic,
             slippageBps,
             feeContext: params.feeContext || 'swap',
-            accessToken
+            accessToken,
+            waitForConfirmation: params.waitForConfirmation ?? false
         });
 
         return {

@@ -17,7 +17,7 @@ export interface DegenModeConfig {
  */
 export const DEFAULT_DEGEN_CONFIG: DegenModeConfig = {
     enabled: false,
-    quoteRefreshInterval: 3000, // 3s (vs 10s normal) - increased to avoid API rate limits
+    quoteRefreshInterval: 250, // ultra fast in degen mode
     maxRetries: 3,
     aggressiveSlippage: 3.0, // 3% default
     autoRetryOnFailure: true,
@@ -28,7 +28,7 @@ export const DEFAULT_DEGEN_CONFIG: DegenModeConfig = {
  * Normal mode settings for comparison
  */
 export const NORMAL_MODE_CONFIG = {
-    quoteRefreshInterval: 10000, // 10s - increased to avoid API rate limits (100 req/60s)
+    quoteRefreshInterval: 600, // near real-time quote refresh for swap card UX
     maxRetries: 1,
     defaultSlippage: 0.5, // 0.5%
     autoRetryOnFailure: false,

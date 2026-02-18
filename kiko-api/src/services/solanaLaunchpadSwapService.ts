@@ -64,7 +64,8 @@ const RAYDIUM_SELL_DISCRIMINATOR = Buffer.from([149, 39, 222, 155, 211, 124, 152
 export interface SolanaLaunchpadSwapParams {
     userId: string;
     mint: string;
-    amount: string; // Atomic units (tokens for sell, SOL for buy)
+    // Atomic units of input token: lamports for SOL buys, token base units for sells.
+    amount: string;
     isBuy: boolean;
     slippageBps?: number;
     provider: 'pumpfun' | 'bonkfun';
@@ -214,13 +215,16 @@ export class SolanaLaunchpadSwapService {
 
         // Buy instruction data: [disc, amountTokens, maxSol]
         // Sell instruction data: [disc, amountTokens, minSol]
-        // Convert amount from SOL (string like '0.01') to lamports (BigInt)
-        // 1 SOL = 1,000,000,000 lamports (1e9)
-        const solAmount = parseFloat(amount);
-        if (isNaN(solAmount) || solAmount <= 0) {
-            throw new Error(`Invalid SOL amount: ${amount}`);
+        // IMPORTANT: amount is already atomic units.
+        let amountBI: bigint;
+        try {
+            amountBI = BigInt(amount);
+        } catch {
+            throw new Error(`Invalid atomic amount: ${amount}`);
         }
-        const amountBI = BigInt(Math.floor(solAmount * 1e9));
+        if (amountBI <= 0n) {
+            throw new Error(`Invalid atomic amount (<=0): ${amount}`);
+        }
         let data: Buffer;
 
         if (isBuy) {
@@ -356,12 +360,16 @@ export class SolanaLaunchpadSwapService {
 
         const instructions: TransactionInstruction[] = [];
 
-        // Convert amount from SOL (string like '0.01') to lamports (BigInt)
-        const solAmount = parseFloat(amount);
-        if (isNaN(solAmount) || solAmount <= 0) {
-            throw new Error(`Invalid SOL amount: ${amount}`);
+        // IMPORTANT: amount is already atomic units.
+        let amountBI: bigint;
+        try {
+            amountBI = BigInt(amount);
+        } catch {
+            throw new Error(`Invalid atomic amount: ${amount}`);
         }
-        const amountBI = BigInt(Math.floor(solAmount * 1e9));
+        if (amountBI <= 0n) {
+            throw new Error(`Invalid atomic amount (<=0): ${amount}`);
+        }
         let ixData: Buffer;
 
         // Discriminator & Data Layout

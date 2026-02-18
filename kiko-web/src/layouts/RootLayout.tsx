@@ -160,7 +160,8 @@ export const RootLayout: React.FC = () => {
                     content: '',
                     reasoning_content: '',
                     status: 'streaming',
-                    citations: [] // Initialize citations
+                    citations: [], // Initialize citations
+                    usage: undefined
                 });
 
                 // Update Conversation State
@@ -209,7 +210,8 @@ export const RootLayout: React.FC = () => {
                     content: '',
                     reasoning_content: '',
                     status: 'streaming',
-                    citations: []
+                    citations: [],
+                    usage: undefined
                 };
 
                 if (event.data.type === 'reasoning') {
@@ -244,6 +246,8 @@ export const RootLayout: React.FC = () => {
                                 ...updatedMessages[idx],
                                 content: updatedMessages[idx].content + (pMsg.content || ''),
                                 reasoning_content: (updatedMessages[idx].reasoning_content || '') + (pMsg.reasoning_content || ''),
+                                usage: pMsg.usage ?? updatedMessages[idx].usage,
+                                citations: pMsg.citations ?? updatedMessages[idx].citations,
                                 status: 'streaming'
                             };
                         } else {
@@ -261,7 +265,15 @@ export const RootLayout: React.FC = () => {
             // --- Task done (only clear task indicator; message completion is handled by message_complete) ---
             else if (event.type === 'task_status' && (event.data.status === 'done' || event.data.status === 'completed')) {
                 const c = conversationsRef.current.find(c => c.id === targetSessionId);
-                if (c?.activeTask) clearActiveTask(targetSessionId, updateConversation, 'task_status_done');
+                const hasStreamingAssistant = !!c?.messages?.some(
+                    m => m.role === 'assistant' && (m.status as string) === 'streaming'
+                );
+                const hasPendingChunks = sessionPending.size > 0;
+                // Defer task clear if response is still visibly streaming.
+                // This prevents transient UI "end -> resume" flicker on out-of-order events.
+                if (c?.activeTask && !hasStreamingAssistant && !hasPendingChunks) {
+                    clearActiveTask(targetSessionId, updateConversation, 'task_status_done');
+                }
                 return;
             }
             // --- Complete (use only messageId so we don't process the same completion twice with messageId vs taskId) ---
@@ -293,6 +305,7 @@ export const RootLayout: React.FC = () => {
                                 content: updatedMessages[idx].content + (pMsg.content || ''),
                                 reasoning_content: (updatedMessages[idx].reasoning_content || '') + (pMsg.reasoning_content || ''),
                                 status: 'complete',
+                                usage: pMsg.usage ?? event.data.usage ?? updatedMessages[idx].usage,
                                 citations: pMsg.citations ?? updatedMessages[idx].citations
                             };
                         } else {
@@ -340,7 +353,7 @@ export const RootLayout: React.FC = () => {
 
                     const updatedMessages = tConv.messages.map(m =>
                         (m.id === completionId || (m.role === 'assistant' && m.status === 'streaming'))
-                            ? { ...m, status: 'complete' as const }
+                            ? { ...m, status: 'complete' as const, usage: event.data.usage ?? m.usage }
                             : m
                     );
                     // Atomic: clear activeTask with messages (task_lifecycle: message_complete_fallback)
@@ -390,12 +403,30 @@ export const RootLayout: React.FC = () => {
             // --- Usage ---
             else if (event.type === 'usage') {
                 const targetConv = conversationsRef.current.find(c => c.id === targetSessionId);
+                const msgId = event.data.message_id || event.data.messageId;
+                if (!msgId) return;
                 if (targetConv) {
-                    const msgId = event.data.message_id || event.data.messageId;
-                    const updatedMessages = targetConv.messages.map(m =>
-                        m.id === msgId ? { ...m, usage: event.data.usage } : m
-                    );
-                    updateConversation(targetSessionId, { messages: updatedMessages });
+                    const hasTarget = targetConv.messages.some(m => m.id === msgId);
+                    if (hasTarget) {
+                        const updatedMessages = targetConv.messages.map(m =>
+                            m.id === msgId ? { ...m, usage: event.data.usage } : m
+                        );
+                        updateConversation(targetSessionId, { messages: updatedMessages });
+                    } else {
+                        // Buffer usage if message not yet created (out-of-order WS events).
+                        const pMsg: Message = sessionPending.get(msgId) || {
+                            id: msgId, role: 'assistant', content: '', reasoning_content: '', status: 'streaming', citations: [], usage: undefined
+                        };
+                        pMsg.usage = event.data.usage;
+                        sessionPending.set(msgId, pMsg);
+                    }
+                } else {
+                    // Buffer usage if conversation is not loaded yet.
+                    const pMsg: Message = sessionPending.get(msgId) || {
+                        id: msgId, role: 'assistant', content: '', reasoning_content: '', status: 'streaming', citations: [], usage: undefined
+                    };
+                    pMsg.usage = event.data.usage;
+                    sessionPending.set(msgId, pMsg);
                 }
             }
             // --- Citations ---
@@ -410,8 +441,8 @@ export const RootLayout: React.FC = () => {
                 } else {
                     // Buffer citations if message not yet created
                     const msgId = event.data.message_id || event.data.messageId;
-                    const pMsg = sessionPending.get(msgId) || {
-                        id: msgId, role: 'assistant', content: '', reasoning_content: '', status: 'streaming', citations: []
+                    const pMsg: Message = sessionPending.get(msgId) || {
+                        id: msgId, role: 'assistant', content: '', reasoning_content: '', status: 'streaming', citations: [], usage: undefined
                     };
                     pMsg.citations = event.data.citations;
                     sessionPending.set(msgId, pMsg);

@@ -78,18 +78,24 @@ export function buildBalanceContextBlock(params: BuildBalanceContextParams): Bui
     const hasNativePrice = Number.isFinite(params.nativePriceUsd || NaN) && (params.nativePriceUsd || 0) > 0;
     const nativeBalanceNum = Number(nativeBalanceRaw);
     const nativeUsdStr = hasNativePrice && Number.isFinite(nativeBalanceNum)
-        ? ` ≈ $${(nativeBalanceNum * Number(params.nativePriceUsd)).toFixed(2)}`
+        ? ` ≈ ~$${(nativeBalanceNum * Number(params.nativePriceUsd)).toFixed(2)} (estimate)`
         : '';
     const nativePriceStr = hasNativePrice
-        ? `1 ${nativeSymbol} ≈ $${Number(params.nativePriceUsd).toFixed(2)}`
+        ? `1 ${nativeSymbol} ≈ $${Number(params.nativePriceUsd).toFixed(2)} (estimate)`
         : '';
+    const snapshotMs = params.balanceSnapshotAt ? Date.parse(params.balanceSnapshotAt) : NaN;
+    const hasValidSnapshot = Number.isFinite(snapshotMs);
+    const staleThresholdMs = 5 * 60 * 1000;
+    const isStale = hasValidSnapshot ? (Date.now() - snapshotMs) > staleThresholdMs : false;
 
     // ── Single [WALLET_STATE] block (replaces old NATIVE_PRICE_CONTEXT + USER_BALANCE_CONTEXT) ──
     // Wallet address & chain are already in [CONTEXT], so we only emit balance data here.
     const lines: string[] = [
         `\n\n[WALLET_STATE]`,
+        `Chain: ${params.chainLabel || chainId || 'unknown'}`,
         `Native: ${nativeBalanceRaw} ${nativeSymbol}${nativeUsdStr}`,
-        `Rule: Use this as the default balance source for this turn. Do not re-fetch wallet balances unless missing/stale or user explicitly asks to refresh.`,
+        `Stale: ${isStale ? 'yes' : 'no'}`,
+        `Rule: Use this as the default balance source for this turn. Treat this block as immutable in this turn; do not re-fetch balances unless this block is missing, flagged stale, or user explicitly asks to refresh.`,
     ];
     if (nativePriceStr) lines.push(`Price ref: ${nativePriceStr}`);
     if (params.balanceSnapshotAt) lines.push(`Snapshot: ${params.balanceSnapshotAt}`);

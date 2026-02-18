@@ -36,6 +36,9 @@
     "sec:fuzz": "forge test --mc TokenTest --ffi",
     "sec:storage": "forge inspect Proxy implementation && forge inspect Impl storage",
     "analyze-api-unification": "tsx scripts/analyze-api-unification.ts"
+    ,
+    "samples:prepare:10k": "tsx src/scripts/prepareSamples10kMultiChain.ts",
+    "replay:webhook:10k": "tsx src/scripts/replayWebhook10k.ts"
   },
   "dependencies": {
     "@coinbase/cdp-sdk": "^1.40.0",

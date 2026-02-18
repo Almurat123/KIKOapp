@@ -186,31 +186,32 @@ export function useSolanaSwap({
     error: null,
   });
 
-  // Initialize with common tokens - DISABLED to prevent overwriting parent-provided tokens
-  // useEffect(() => {
-  //   const commonTokens = getCommonTokens(SOLANA_CHAIN_ID);
-  //   if (commonTokens.length >= 2 && !state.tokenIn && !state.tokenOut) {
-  //     setState(prev => ({
-  //       ...prev,
-  //       tokenIn: {
-  //         address: commonTokens[0].address,
-  //         symbol: commonTokens[0].symbol,
-  //         name: commonTokens[0].name,
-  //         decimals: commonTokens[0].decimals,
-  //         logoUrl: commonTokens[0].logoURI,
-  //         chainId: SOLANA_CHAIN_ID,
-  //       },
-  //       tokenOut: {
-  //         address: commonTokens[1].address,
-  //         symbol: commonTokens[1].symbol,
-  //         name: commonTokens[1].name,
-  //         decimals: commonTokens[1].decimals,
-  //         logoUrl: commonTokens[1].logoURI,
-  //         chainId: SOLANA_CHAIN_ID,
-  //       },
-  //     }));
-  //   }
-  // }, []);
+  // Initialize with common tokens only when both sides are empty.
+  // This keeps the first render usable on Solana while still allowing parent overrides.
+  useEffect(() => {
+    const commonTokens = getCommonTokens(SOLANA_CHAIN_ID);
+    if (commonTokens.length >= 2 && !state.tokenIn && !state.tokenOut) {
+      setState(prev => ({
+        ...prev,
+        tokenIn: {
+          address: commonTokens[0].address,
+          symbol: commonTokens[0].symbol,
+          name: commonTokens[0].name,
+          decimals: commonTokens[0].decimals,
+          logoUrl: commonTokens[0].logoURI,
+          chainId: SOLANA_CHAIN_ID,
+        },
+        tokenOut: {
+          address: commonTokens[1].address,
+          symbol: commonTokens[1].symbol,
+          name: commonTokens[1].name,
+          decimals: commonTokens[1].decimals,
+          logoUrl: commonTokens[1].logoURI,
+          chainId: SOLANA_CHAIN_ID,
+        },
+      }));
+    }
+  }, [state.tokenIn, state.tokenOut]);
 
   // Fetch Solana balance (SOL and SPL tokens)
   const [solanaBalance, setSolanaBalance] = useState<string>('0');

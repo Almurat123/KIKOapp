@@ -91,11 +91,19 @@ export async function getWalletBalance(address: string, chain: string = 'eth'): 
 /**
  * Fetch wallet balance for all supported chains
  */
-export async function getAllChainBalances(address: string, solanaAddress?: string): Promise<Record<string, WalletBalance> | null> {
+export async function getAllChainBalances(address: string, solanaAddress?: string, forceRefresh?: boolean): Promise<Record<string, WalletBalance> | null> {
     try {
         let url = `${API_URL}/${address}/all-balances`;
+        const params = new URLSearchParams();
         if (solanaAddress) {
-            url += `?solanaAddress=${solanaAddress}`;
+            params.set('solanaAddress', solanaAddress);
+        }
+        if (forceRefresh) {
+            params.set('forceRefresh', '1');
+        }
+        const qs = params.toString();
+        if (qs) {
+            url += `?${qs}`;
         }
         const headers = await getAuthHeaders();
         const response = await fetchWithTimeout(url, { method: 'GET', headers }, WALLET_ALL_BALANCES_TIMEOUT_MS);

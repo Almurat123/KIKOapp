@@ -47,21 +47,6 @@ export async function runJudgeEngine(
     targetWallet?: string,
     knownLaunchpadType?: string
 ): Promise<DecisionEngineOutput> {
-    // Check if Judge Engine is globally disabled via ENV
-    if (process.env.DISABLE_JUDGE_ENGINE === 'true') {
-        logger.info(LogCode.SYS_INFO, 'Judge Engine: Disabled via ENV variable');
-        // Return ALLOW decision when disabled
-        return {
-            decision_engine: {
-                input: { user_amount: userAmountUsd, token_address: tokenAddress, launchpad_type: 'unknown', chain: getChainName(chainId), chain_id: chainId, timestamp: new Date().toISOString(), target_wallet: targetWallet },
-                layers: {} as any,
-                final_decision: { decision: 'ALLOW_WITH_RISK', reasons: ['Judge engine disabled'], overall_risk_level: 'medium', overall_risk_score: 50, slippage_estimate: 0 },
-                decision_id: 'disabled',
-
-            }
-        };
-    }
-
     logger.info(LogCode.SYS_INFO, 'Judge Engine: Starting analysis', { tokenAddress, chainId, userAmountUsd, targetWallet: targetWallet || 'N/A' });
 
     const startTime = Date.now();
