@@ -2,7 +2,7 @@
 import { getSolanaConnection, SOLANA_CONFIG } from '../config/solanaConfig.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { getServerSolanaWalletAddress, sendSolanaTransaction, getDelegatedSolanaWallet } from './privyWallet.js';
-import { getSolanaQuote } from './solanaSwap.js';
+import { getSolanaQuote, getSolanaQuoteFromAggregator, SolanaAggregator } from './solanaSwap.js';
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
 import { PublicKey, VersionedTransaction } from '@solana/web3.js';
@@ -16,10 +16,24 @@ export interface SolanaSwapParams {
     feeContext?: 'swap' | 'copyTrade';
     accessToken?: string;
     waitForConfirmation?: boolean;
+    executionMode?: 'safe' | 'balanced' | 'turbo';
+    launchpadProvider?: 'pumpfun' | 'pumpswap' | 'bonkfun' | 'zora' | 'fourmeme' | 'flap' | 'clanker' | 'virtuals' | 'doppler';
+    preferredAggregator?: Exclude<SolanaAggregator, 'auto'>;
 }
 
 export async function executeSolanaSwap(params: SolanaSwapParams): Promise<string> {
-    const { userId, tokenInMint, tokenOutMint, amountIn, slippageBps = 300, accessToken, waitForConfirmation = true } = params;
+    const {
+        userId,
+        tokenInMint,
+        tokenOutMint,
+        amountIn,
+        slippageBps = 300,
+        accessToken,
+        waitForConfirmation = true,
+        executionMode = 'balanced',
+        launchpadProvider,
+        preferredAggregator
+    } = params;
 
     // === SIMULATION MODE ===
     if (process.env.SIMULATION_MODE === 'true') {
@@ -42,18 +56,36 @@ export async function executeSolanaSwap(params: SolanaSwapParams): Promise<strin
     logger.info(LogCode.EXE_TX_BROADCAST, 'SolanaExecutor: Executing Swap', { tokenInMint, tokenOutMint, amountIn });
     const blockhashConnection = getSolanaConnection();
 
-    // 1. Get Quote & Transaction (Unified)
-    // using 'auto' aggregator to try Jupiter first, then Raydium
-    const quote = await getSolanaQuote(
-        tokenInMint,
-        tokenOutMint,
-        amountIn,
-        slippageBps,
-        'auto', // Try all aggregators
-        walletAddress, // Build transaction for the SAME wallet that will sign
-        undefined,
-        params.feeContext
-    );
+    // 1. Get Quote & Transaction (mode-aware)
+    // - turbo: single-route Jupiter for lowest latency (skip Ultra balance check path)
+    // - balanced/safe: auto route comparison
+    const selectedAggregator: SolanaAggregator =
+        preferredAggregator
+            || (executionMode === 'turbo' || launchpadProvider === 'pumpswap' ? 'jupiter' : 'auto');
+
+    const quote = selectedAggregator === 'auto'
+        ? await getSolanaQuote(
+            tokenInMint,
+            tokenOutMint,
+            amountIn,
+            slippageBps,
+            'auto',
+            walletAddress,
+            undefined,
+            params.feeContext
+        )
+        : await getSolanaQuoteFromAggregator(
+            selectedAggregator,
+            tokenInMint,
+            tokenOutMint,
+            amountIn,
+            slippageBps,
+            walletAddress,
+            undefined,
+            params.feeContext,
+            // For turbo, always avoid Ultra taker balance gate and use public quote path directly.
+            executionMode === 'turbo' ? { forcePublicApi: true } : undefined
+        );
 
     // [Expert Logic]: Add explicit priority fee context for copytrading
     // Competitive environment requires > 50th percentile of recent fees
@@ -62,7 +94,7 @@ export async function executeSolanaSwap(params: SolanaSwapParams): Promise<strin
     }
 
     if (!quote) {
-        throw new AppError(400, 'Solana Swap Failed: No valid quotes found from Jupiter or Raydium', 'QUOTE_FAILED');
+        throw new AppError(400, 'Solana Swap Failed: No valid quotes found from Jupiter/Raydium/Meteora', 'QUOTE_FAILED');
     }
 
     if (!quote.swapTransaction) {

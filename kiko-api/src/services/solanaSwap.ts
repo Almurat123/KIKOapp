@@ -2,6 +2,7 @@
  * Solana Swap Service
  * Aggregates multiple Solana DEX aggregators:
  * - Jupiter Ultra Swap API (primary) - Aggregates 20+ DEXs including Orca, Raydium, Serum, etc.
+ * - Jupiter (DEX-filtered) for Meteora routes
  * - Raydium API (alternative)
  * 
  * **Note**: Jupiter aggregator already includes Orca Whirlpools and 20+ other DEXs,
@@ -33,7 +34,7 @@ export interface SolanaQuote {
   inAmount: string;
   outAmount: string;
   priceImpact: string;
-  aggregator: 'jupiter' | 'raydium' | 'orca';
+  aggregator: 'jupiter' | 'raydium' | 'meteora' | 'orca';
   swapTransaction?: string; // Base64 encoded transaction (for Jupiter)
   routePlan?: any;
   fee?: string;
@@ -44,6 +45,8 @@ export interface SolanaQuote {
   rawQuoteResponse?: any;        // Raw quote response from API (for swap endpoint)
   computeUnitPriceMicroLamports?: number; // Priority fee rate
 }
+
+export type SolanaAggregator = 'jupiter' | 'raydium' | 'meteora' | 'auto';
 
 export interface SolanaPrice {
   inputMint: string;
@@ -88,7 +91,12 @@ async function getJupiterQuote(
   slippageBps: number = 50,
   userAddress?: string,
   computeUnitPriceMicroLamports?: number,
-  feeContext?: string
+  feeContext?: string,
+  options?: {
+    dexes?: string[];
+    forcePublicApi?: boolean;
+    aggregatorLabel?: SolanaQuote['aggregator'];
+  }
 ): Promise<SolanaQuote | null> {
   try {
     // Build headers with API key if available
@@ -97,7 +105,11 @@ async function getJupiterQuote(
     };
 
     const apiKey = getJupiterApiKey();
-    if (apiKey) {
+    const dexesParam = options?.dexes?.length
+      ? `&dexes=${encodeURIComponent(options.dexes.join(','))}`
+      : '';
+
+    if (apiKey && !options?.forcePublicApi) {
       headers['x-api-key'] = apiKey;
     }
 
@@ -108,7 +120,7 @@ async function getJupiterQuote(
     let quoteUrl: string;
     let isUltra = false;
 
-    if (apiKey) {
+    if (apiKey && !options?.forcePublicApi) {
       // ULTRA API: /order
       isUltra = true;
       const takerParam = userAddress ? `&taker=${userAddress}` : '';
@@ -121,8 +133,13 @@ async function getJupiterQuote(
       logger.debug(LogCode.EXE_QUOTE_FETCHED, 'Fetching Jupiter Ultra quote', { inputMint, outputMint, amount });
     } else {
       // PUBLIC API: /quote
-      quoteUrl = `${JUPITER_PUBLIC_API}/quote?inputMint=${inputMint}&outputMint=${outputMint}&amount=${amount}&slippageBps=${slippageBps}`;
-      logger.debug(LogCode.EXE_QUOTE_FETCHED, 'Fetching Jupiter Public quote', { inputMint, outputMint, amount });
+      quoteUrl = `${JUPITER_PUBLIC_API}/quote?inputMint=${inputMint}&outputMint=${outputMint}&amount=${amount}&slippageBps=${slippageBps}${dexesParam}`;
+      logger.debug(LogCode.EXE_QUOTE_FETCHED, 'Fetching Jupiter Public quote', {
+        inputMint,
+        outputMint,
+        amount,
+        dexes: options?.dexes
+      });
     }
 
     const controller = new AbortController();
@@ -144,8 +161,27 @@ async function getJupiterQuote(
       // Parse ULTRA response
       const ultraData = quoteData as any;
       if (ultraData.error) {
-        logger.error(LogCode.API_FETCH_FAILED, 'Jupiter Ultra API error', { error: ultraData.error });
-        return null;
+        const ultraErr = String(ultraData.error || '');
+        logger.warn(LogCode.API_FETCH_FAILED, 'Jupiter Ultra API error, falling back to Public Quote', {
+          error: ultraErr,
+          inputMint,
+          outputMint
+        });
+
+        // Fallback path: use Public Quote endpoint (optionally with dex filters)
+        return getJupiterQuote(
+          inputMint,
+          outputMint,
+          amount,
+          slippageBps,
+          userAddress,
+          computeUnitPriceMicroLamports,
+          feeContext,
+          {
+            ...(options || {}),
+            forcePublicApi: true
+          }
+        );
       }
       quoteData = {
         inputMint: ultraData.inputMint,
@@ -215,7 +251,7 @@ async function getJupiterQuote(
       swapMode: quoteData.swapMode,
       slippageBps: quoteData.slippageBps,
       priceImpact: quoteData.priceImpactPct || '0',
-      aggregator: 'jupiter',
+      aggregator: options?.aggregatorLabel || 'jupiter',
       routePlan: quoteData.routePlan,
       swapTransaction,
       rawQuoteResponse: quoteData, // Store full response for /swap endpoint
@@ -473,18 +509,51 @@ async function getRaydiumSwapTransaction(
  * Get Solana swap quote from a specific aggregator
  */
 export async function getSolanaQuoteFromAggregator(
-  aggregator: 'jupiter' | 'raydium',
+  aggregator: 'jupiter' | 'raydium' | 'meteora',
   inputMint: string,
   outputMint: string,
   amount: string,
   slippageBps: number = 50,
   userAddress?: string,
   computeUnitPriceMicroLamports?: number,
-  feeContext?: string
+  feeContext?: string,
+  options?: {
+    forcePublicApi?: boolean;
+    dexes?: string[];
+  }
 ): Promise<SolanaQuote | null> {
   switch (aggregator) {
     case 'jupiter':
-      return getJupiterQuote(inputMint, outputMint, amount, slippageBps, userAddress, computeUnitPriceMicroLamports, feeContext);
+      return getJupiterQuote(
+        inputMint,
+        outputMint,
+        amount,
+        slippageBps,
+        userAddress,
+        computeUnitPriceMicroLamports,
+        feeContext,
+        {
+          forcePublicApi: options?.forcePublicApi,
+          dexes: options?.dexes
+        }
+      );
+    case 'meteora':
+      // Jupiter supports DEX filtering via `dexes`.
+      // [Ref] https://dev.jup.ag/api-reference/swap/quote
+      return getJupiterQuote(
+        inputMint,
+        outputMint,
+        amount,
+        slippageBps,
+        userAddress,
+        computeUnitPriceMicroLamports,
+        feeContext,
+        {
+          dexes: ['Meteora DLMM', 'Meteora'],
+          forcePublicApi: true,
+          aggregatorLabel: 'meteora'
+        }
+      );
     case 'raydium':
       return getRaydiumQuote(inputMint, outputMint, amount, slippageBps, userAddress);
     default:
@@ -497,6 +566,7 @@ export async function getSolanaQuoteFromAggregator(
  * 
  * **Aggregator options**:
  * - 'jupiter': Jupiter aggregator (includes 20+ DEXs: Orca, Raydium, Serum, etc.)
+ * - 'meteora': Jupiter quote constrained to Meteora DLMM/Meteora pools
  * - 'raydium': Raydium only
  * - 'auto': Try all available aggregators and pick best quote
  * 
@@ -508,7 +578,7 @@ export async function getSolanaQuote(
   outputMint: string,
   amount: string,
   slippageBps: number = 50,
-  aggregator?: 'jupiter' | 'raydium' | 'auto',
+  aggregator?: 'jupiter' | 'raydium' | 'meteora' | 'auto',
   userAddress?: string,
   computeUnitPriceMicroLamports?: number,
   feeContext?: string
@@ -530,6 +600,7 @@ export async function getSolanaQuote(
     const startTime = Date.now();
     const quotes = await Promise.allSettled([
       getJupiterQuote(inputMint, outputMint, amount, slippageBps, undefined, computeUnitPriceMicroLamports, feeContext),
+      getSolanaQuoteFromAggregator('meteora', inputMint, outputMint, amount, slippageBps, undefined, computeUnitPriceMicroLamports, feeContext),
       getRaydiumQuote(inputMint, outputMint, amount, slippageBps, undefined),
     ]);
 
@@ -558,13 +629,13 @@ export async function getSolanaQuote(
     if (userAddress) {
       logger.debug(LogCode.EXE_TX_BROADCAST, `Solana Swap: Building transaction for best quote (${bestQuote.aggregator})`);
 
-      if (bestQuote.aggregator === 'jupiter') {
+      if (bestQuote.aggregator === 'jupiter' || bestQuote.aggregator === 'meteora') {
         const tx = await getJupiterSwapTransaction(bestQuote, userAddress, true, feeContext);
         if (tx) {
           bestQuote.swapTransaction = tx;
         } else {
-          // Jupiter TX build failed - fallback to Raydium if available
-          logger.warn(LogCode.EXE_TX_BROADCAST, 'Solana Swap: Jupiter transaction build failed, trying Raydium fallback');
+          // Jupiter/Meteora TX build failed - fallback to Raydium if available
+          logger.warn(LogCode.EXE_TX_BROADCAST, 'Solana Swap: Jupiter/Meteora transaction build failed, trying Raydium fallback');
 
           // CRITICAL: Don't use the stale raydium quote from the parallel fetch!
           // It might be 5-10 seconds old by now, causing 0x9ca deadline errors.
@@ -578,7 +649,7 @@ export async function getSolanaQuote(
             if (raydiumTx) {
               freshRaydiumQuote.swapTransaction = raydiumTx;
               bestQuote = freshRaydiumQuote; // Switch to Raydium
-              logger.info(LogCode.EXE_TX_BROADCAST, 'Solana Swap: Successfully fell back to FRESH Raydium quote');
+              logger.info(LogCode.EXE_TX_BROADCAST, 'Solana Swap: Successfully fell back to fresh Raydium quote');
             }
           }
         }

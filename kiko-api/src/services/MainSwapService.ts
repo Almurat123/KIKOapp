@@ -104,7 +104,7 @@ export interface MainSwapRequest {
   };
 
   // Launchpad-specific
-  launchpadProvider?: 'pumpfun' | 'bonkfun' | 'zora' | 'fourmeme' | 'flap' | 'clanker' | 'virtuals' | 'doppler';
+  launchpadProvider?: 'pumpfun' | 'pumpswap' | 'bonkfun' | 'zora' | 'fourmeme' | 'flap' | 'clanker' | 'virtuals' | 'doppler';
 
   // Copytrade execution hint from target wallet decoded tx
   directSwapHint?: DirectSwapHint;
@@ -135,7 +135,7 @@ export interface MainSwapResult {
  * Launchpad token detection result
  */
 interface LaunchpadDetection {
-  provider: 'pumpfun' | 'bonkfun' | 'zora' | 'fourmeme' | 'flap' | 'clanker' | 'virtuals' | 'doppler';
+  provider: 'pumpfun' | 'pumpswap' | 'bonkfun' | 'zora' | 'fourmeme' | 'flap' | 'clanker' | 'virtuals' | 'doppler';
   data: any;
   chainId: number;
 }
@@ -485,7 +485,20 @@ export class MainSwapService {
         }
 
         case 'pumpfun':
+        case 'pumpswap':
         case 'bonkfun': {
+          // Solana launchpads:
+          // - pumpfun/bonkfun: native launchpad program path
+          // - pumpswap: treat as post-bonding AMM and route via fast Solana swap path
+          if (provider === 'pumpswap') {
+            const result = await this.executeSolanaSwap(request, feeContext, trace, ctx);
+            result.metadata = {
+              ...(result.metadata || {}),
+              launchpad: 'pumpswap'
+            };
+            return result;
+          }
+
           // Solana - Pump.fun or Bonk.fun (LaunchLab)
           const service = new SolanaLaunchpadSwapService();
           // ⚡ Use TradeContext-aware data fetching (auto-caches)
@@ -1027,6 +1040,7 @@ export class MainSwapService {
       tokenOut: request.tokenOut.slice(0, 12)
     });
 
+    const executionMode = request.userSettings?.copyTradeExecutionMode || 'balanced';
     const swapParams: SwapParams = {
       userId: request.userId,
       walletAddress: request.walletAddress,
@@ -1039,7 +1053,9 @@ export class MainSwapService {
       isSell: false,
       accessToken: request.accessToken,
       // OPTIMIZATION: Copytrade fires immediately for speed (confirmation tracked separately)
-      waitForConfirmation: false
+      waitForConfirmation: executionMode === 'safe',
+      executionMode,
+      launchpadProvider: request.launchpadProvider
     };
 
     const result = await SwapExecutor.execute(swapParams);

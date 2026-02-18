@@ -96,6 +96,7 @@ export async function decodeSolanaSwap(
         const programIds = tx.transaction.message.instructions.map(ix => ix.programId.toBase58());
         if (programIds.includes(SOLANA_CONFIG.PROGRAMS.JUPITER_V6)) dexName = 'Jupiter';
         else if (programIds.includes(SOLANA_CONFIG.PROGRAMS.RAYDIUM_V4)) dexName = 'Raydium';
+        else if (programIds.includes(SOLANA_CONFIG.PROGRAMS.PUMP_SWAP)) dexName = 'PumpSwap';
         else if (programIds.includes(SOLANA_CONFIG.PROGRAMS.PUMP_FUN)) dexName = 'Pump.fun';
 
         console.log(`[SolanaDecoder] ✅ Swap identified: ${tokenIn.slice(0, 6)} -> ${tokenOut.slice(0, 6)} (${dexName})`);

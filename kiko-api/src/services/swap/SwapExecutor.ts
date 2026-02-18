@@ -36,6 +36,9 @@ export interface SwapParams {
     speedUpAfterMs?: number; // Attempt replacement if tx is still pending
     speedUpBumpBps?: number; // Gas bump in bps for replacement
     transferRetry?: boolean; // Internal: prevent repeat retry after transfer failure
+    executionMode?: 'safe' | 'balanced' | 'turbo';
+    launchpadProvider?: 'pumpfun' | 'pumpswap' | 'bonkfun' | 'zora' | 'fourmeme' | 'flap' | 'clanker' | 'virtuals' | 'doppler';
+    preferredSolanaAggregator?: 'jupiter' | 'raydium' | 'meteora';
 }
 
 export interface SwapResult {
@@ -1290,7 +1293,10 @@ export class SwapExecutor {
             slippageBps,
             feeContext: params.feeContext || 'swap',
             accessToken,
-            waitForConfirmation: params.waitForConfirmation ?? false
+            waitForConfirmation: params.waitForConfirmation ?? false,
+            executionMode: params.executionMode,
+            launchpadProvider: params.launchpadProvider,
+            preferredAggregator: params.preferredSolanaAggregator
         });
 
         return {

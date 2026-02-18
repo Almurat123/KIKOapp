@@ -22,6 +22,9 @@ export const SOLANA_CONFIG = {
     // Program IDs
     PROGRAMS: {
         PUMP_FUN: '6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P',
+        // Pump.fun AMM / PumpSwap
+        // [Ref]: Jupiter station program-id labels (Pump.fun AMM)
+        PUMP_SWAP: 'pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA',
         RAYDIUM_V4: '675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8',
         JUPITER_V6: 'JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4',
     }

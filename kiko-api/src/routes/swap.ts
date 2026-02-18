@@ -887,6 +887,7 @@ export async function swapRoutes(fastify: FastifyInstance) {
 
                     // Import launchpad service
                     const { solanaLaunchpadSwapService } = await import('../services/solanaLaunchpadSwapService.js');
+                    const { executeSolanaSwap } = await import('../services/solanaExecutor.js');
                     const { findTokenOnAnyChain } = await import('../services/ai/tokenDetector.js');
                     const { getSolanaTokenMetadata } = await import('../utils/solanaToken.js');
 
@@ -909,7 +910,7 @@ export async function swapRoutes(fastify: FastifyInstance) {
                         const txHash = await solanaLaunchpadSwapService.fastSwap({
                             userId,
                             mint: resolvedTokenOut,
-                            amount: resolvedAmountIn,
+                            amount: amountInAtomic,
                             isBuy: true, // For Solana instant swap, we assume buy (SOL -> token)
                             provider: launchpadProvider === 'pumpfun' ? 'pumpfun' : 'bonkfun',
                             slippageBps,
@@ -925,10 +926,32 @@ export async function swapRoutes(fastify: FastifyInstance) {
                         });
                     }
 
+                    if (launchpadProvider === 'pumpswap') {
+                        const txHash = await executeSolanaSwap({
+                            userId,
+                            tokenInMint: resolvedTokenIn,
+                            tokenOutMint: resolvedTokenOut,
+                            amountIn: amountInAtomic,
+                            slippageBps,
+                            feeContext: 'swap',
+                            accessToken,
+                            waitForConfirmation: false,
+                            executionMode: 'turbo',
+                            launchpadProvider: 'pumpswap'
+                        });
+
+                        return reply.send({
+                            success: true,
+                            data: {
+                                txHash,
+                                method: 'solana_pumpswap_fast',
+                            },
+                        });
+                    }
+
                     // Non-launchpad Solana token - use Jupiter aggregator
                     console.log('[Swap Execute Instant] Standard Solana token, using Jupiter aggregator...');
 
-                    const { executeSolanaSwap } = await import('../services/solanaExecutor.js');
                     // Get metadata for BOTH tokens to determine decimals (use resolved addresses)
                     const tokenOutMetadata = await getSolanaTokenMetadata(resolvedTokenOut);
                     const tokenOutDecimals = tokenOutMetadata?.decimals || 9;
@@ -949,6 +972,7 @@ export async function swapRoutes(fastify: FastifyInstance) {
                         slippageBps,
                         feeContext: 'swap',
                         accessToken,
+                        executionMode: 'balanced',
                     });
 
                     return reply.send({

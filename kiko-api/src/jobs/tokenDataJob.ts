@@ -130,6 +130,7 @@ function detectBySuffix(chainId: string, address: string): string | null {
 function normalizeLaunchpadProvider(provider?: string | null): string | null {
   if (!provider) return null;
   if (provider === 'pumpfun') return 'pump.fun';
+  if (provider === 'pumpswap') return 'pump.swap';
   if (provider === 'bonkfun') return 'bonk.fun';
   if (provider === 'fourmeme') return 'four.meme';
   if (provider === 'doppler finance' || provider === 'dopplerfinance') return 'doppler';

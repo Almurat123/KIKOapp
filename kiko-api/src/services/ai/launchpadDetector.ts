@@ -40,7 +40,7 @@ async function checkLaunchpadAuth(mintAddress: string): Promise<boolean> {
 }
 
 export interface LaunchpadResult {
-    provider: 'zora' | 'fourmeme' | 'flap' | 'pumpfun' | 'bonkfun' | 'virtuals' | 'clanker' | 'paragraph' | 'doppler';
+    provider: 'zora' | 'fourmeme' | 'flap' | 'pumpfun' | 'pumpswap' | 'bonkfun' | 'virtuals' | 'clanker' | 'paragraph' | 'doppler';
     data: any;
     chainId: number;
 }
@@ -184,6 +184,7 @@ function isLaunchpadProvider(value: unknown): value is LaunchpadResult['provider
         || value === 'fourmeme'
         || value === 'flap'
         || value === 'pumpfun'
+        || value === 'pumpswap'
         || value === 'bonkfun'
         || value === 'virtuals'
         || value === 'clanker'
@@ -1611,10 +1612,22 @@ async function handleDetection(
             getRaydiumToken(address).catch(() => null)
         ]);
 
-        // Priority 1: Pump.fun
+        // Priority 1: Pump.fun / PumpSwap
         if (pumpResult) {
-            DETECTION_CACHE.set(cacheKey, { result: { provider: 'pumpfun', data: pumpResult, chainId: SOLANA_CONFIG.CHAIN_ID }, expiry: Date.now() + CACHE_TTL });
-            return { provider: 'pumpfun', data: pumpResult, chainId: SOLANA_CONFIG.CHAIN_ID };
+            const completeFlag = Boolean((pumpResult as any)?.complete === true || (pumpResult as any)?.bonding_curve_complete === true);
+            const hasPumpAmmSignal = Boolean(
+                normalizeSolanaAddress((pumpResult as any)?.amm_pool)
+                || normalizeSolanaAddress((pumpResult as any)?.ammPool)
+                || normalizeSolanaAddress((pumpResult as any)?.pool)
+                || normalizeSolanaAddress((pumpResult as any)?.pool_id)
+                || String((pumpResult as any)?.dex || '').toLowerCase().includes('pump')
+                || String((pumpResult as any)?.market_type || '').toLowerCase().includes('amm')
+            );
+            // Be conservative: only mark as PumpSwap when completion + AMM signal are both present.
+            const isPumpSwap = completeFlag && hasPumpAmmSignal;
+            const provider: LaunchpadResult['provider'] = isPumpSwap ? 'pumpswap' : 'pumpfun';
+            DETECTION_CACHE.set(cacheKey, { result: { provider, data: pumpResult, chainId: SOLANA_CONFIG.CHAIN_ID }, expiry: Date.now() + CACHE_TTL });
+            return { provider, data: pumpResult, chainId: SOLANA_CONFIG.CHAIN_ID };
         }
 
         // Priority 2: BonkFun (LaunchLab tokens on Raydium)
