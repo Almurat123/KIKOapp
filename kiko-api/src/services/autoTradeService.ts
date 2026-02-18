@@ -121,6 +121,7 @@ const userTokenLocks = new Map<string, number>(); // key -> timestamp
 const USER_TOKEN_LOCK_DURATION_MS = 30000; // 30 seconds
 const MAX_COPY_TRADE_USD = 1_000_000; // Hard safety cap to prevent absurd buy amounts
 const NATIVE_TOKEN_PLACEHOLDER = normalizeAddress('0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee');
+const ERC20_TRANSFER_TOPIC = ethers.id('Transfer(address,address,uint256)').toLowerCase();
 type CopyTradeExecutionMode = 'safe' | 'balanced' | 'turbo';
 
 function resolveExecutionModeForConfig(config: any): CopyTradeExecutionMode {
@@ -368,6 +369,56 @@ async function getAlchemyCashLegUsd(params: {
     };
 }
 
+async function inferTxTypeFromReceiptTokenFlow(params: {
+    txHash: string;
+    chainId: number;
+    walletAddress: string;
+    wrappedNativeAddress: string;
+    stablecoinAddresses: string[];
+}): Promise<'TARGET_BUY' | 'TARGET_SELL' | null> {
+    const receipt = await fetchTransactionReceipt(params.txHash, params.chainId).catch(() => null as any);
+    if (!receipt?.logs?.length) return null;
+
+    const wallet = normalizeAddress(params.walletAddress);
+    const wrappedNative = normalizeAddress(params.wrappedNativeAddress);
+    const stableSet = new Set(params.stablecoinAddresses.map((s) => normalizeAddress(s)));
+    const isCashToken = (token: string) => token === wrappedNative || stableSet.has(token);
+
+    const tokenFlow = new Map<string, { inAmt: bigint; outAmt: bigint }>();
+    for (const log of receipt.logs as Array<{ address?: string; topics?: string[]; data?: string }>) {
+        const topics = log.topics || [];
+        if (topics.length < 3) continue;
+        if (String(topics[0] || '').toLowerCase() !== ERC20_TRANSFER_TOPIC) continue;
+        const token = normalizeAddress(log.address || '');
+        if (!token || isCashToken(token)) continue;
+        const from = normalizeAddress('0x' + String(topics[1] || '').slice(26));
+        const to = normalizeAddress('0x' + String(topics[2] || '').slice(26));
+        let amount = 0n;
+        try {
+            amount = BigInt(String(log.data || '0x0'));
+        } catch {
+            amount = 0n;
+        }
+        if (amount <= 0n) continue;
+        const flow = tokenFlow.get(token) || { inAmt: 0n, outAmt: 0n };
+        if (to === wallet) flow.inAmt += amount;
+        if (from === wallet) flow.outAmt += amount;
+        tokenFlow.set(token, flow);
+    }
+
+    let incomingNonCash = 0n;
+    let outgoingNonCash = 0n;
+    for (const flow of tokenFlow.values()) {
+        incomingNonCash += flow.inAmt;
+        outgoingNonCash += flow.outAmt;
+    }
+
+    if (incomingNonCash === 0n && outgoingNonCash === 0n) return null;
+    if (outgoingNonCash > incomingNonCash * 2n) return 'TARGET_SELL';
+    if (incomingNonCash > outgoingNonCash * 2n) return 'TARGET_BUY';
+    return null;
+}
+
 async function resolveLaunchpad(
     launchpadPromise: Promise<any> | null | undefined,
     chainId: number
@@ -480,14 +531,53 @@ export async function handleSwapDetected(
     // Determine if this is a BUY or SELL
     // BUY: tokenOut is NOT cash (buying a token), tokenIn IS cash (paying with stable/eth)
     // SELL: tokenIn is NOT cash (selling a token), tokenOut IS cash (receiving stable/eth)
+    // Prefer webhook cash-leg inference when available to avoid parser leg direction errors on complex routes.
+    const hintTxType = ((swap as any)?.cashLegHint?.inferredTxType || null) as
+        'TARGET_BUY' | 'TARGET_SELL' | 'TARGET_TOKEN_SWAP' | null;
 
-    // Check if In/Out are "Cash"
-    const isTokenInCash = CASH_TOKENS.includes(normalizeAddress(swap.tokenIn));
-    const isTokenOutCash = CASH_TOKENS.includes(normalizeAddress(swap.tokenOut));
+    let routeTokenIn = swap.tokenIn;
+    let routeTokenOut = swap.tokenOut;
+    let routeAmountIn = swap.amountIn;
+    let routeAmountOut = swap.amountOut;
 
-    const isBuy = isTokenInCash && !isTokenOutCash;
-    const isSell = !isTokenInCash && isTokenOutCash;
-    const isTokenToToken = !isTokenInCash && !isTokenOutCash;
+    const parserTokenInCash = CASH_TOKENS.includes(normalizeAddress(routeTokenIn));
+    const parserTokenOutCash = CASH_TOKENS.includes(normalizeAddress(routeTokenOut));
+    const parserLooksBuy = parserTokenInCash && !parserTokenOutCash;
+    const parserLooksSell = !parserTokenInCash && parserTokenOutCash;
+
+    const hintLooksBuy = hintTxType === 'TARGET_BUY';
+    const hintLooksSell = hintTxType === 'TARGET_SELL';
+    const hasDirectionConflict =
+        (hintLooksBuy && parserLooksSell) ||
+        (hintLooksSell && parserLooksBuy);
+
+    if (hasDirectionConflict) {
+        [routeTokenIn, routeTokenOut] = [routeTokenOut, routeTokenIn];
+        [routeAmountIn, routeAmountOut] = [routeAmountOut, routeAmountIn];
+        logger.warn(LogCode.DEC_SWAP_DETECTION, '[CopyTrade] Direction conflict resolved by cash hint', {
+            targetWallet,
+            chainId,
+            txHash: swap.txHash,
+            parserTokenIn: swap.tokenIn,
+            parserTokenOut: swap.tokenOut,
+            hintedTxType: hintTxType,
+            routeTokenIn,
+            routeTokenOut
+        });
+    }
+
+    const isTokenInCash = CASH_TOKENS.includes(normalizeAddress(routeTokenIn));
+    const isTokenOutCash = CASH_TOKENS.includes(normalizeAddress(routeTokenOut));
+
+    let isBuy = isTokenInCash && !isTokenOutCash;
+    let isSell = !isTokenInCash && isTokenOutCash;
+    let isTokenToToken = !isTokenInCash && !isTokenOutCash;
+
+    if (hintLooksBuy || hintLooksSell) {
+        isBuy = hintLooksBuy;
+        isSell = hintLooksSell;
+        isTokenToToken = !isBuy && !isSell;
+    }
 
     logger.debug(LogCode.WTC_SWAP_DETECTED, 'Detection analysis complete', {
         isBuy,
@@ -500,12 +590,23 @@ export async function handleSwapDetected(
         targetWallet,
         chainId,
         sourceTxHash: swap.txHash || null,
-        tokenIn: swap.tokenIn,
-        tokenOut: swap.tokenOut
+        tokenIn: routeTokenIn,
+        tokenOut: routeTokenOut,
+        parserTokenIn: swap.tokenIn,
+        parserTokenOut: swap.tokenOut,
+        hintedTxType: hintTxType
     });
 
+    const routedSwap: DecodedSwap = {
+        ...swap,
+        tokenIn: routeTokenIn,
+        tokenOut: routeTokenOut,
+        amountIn: routeAmountIn,
+        amountOut: routeAmountOut
+    };
+
     // Persist every detected target-wallet swap event for PnL/trade-count accuracy.
-    if (swap.txHash) {
+    if (routedSwap.txHash) {
         const parserTxType: 'TARGET_BUY' | 'TARGET_SELL' | 'TARGET_TOKEN_SWAP' = isBuy
             ? 'TARGET_BUY'
             : isSell
@@ -516,14 +617,14 @@ export async function handleSwapDetected(
             let valueInUsd: number | undefined;
             let valueOutUsd: number | undefined;
             let persistedTxType: 'TARGET_BUY' | 'TARGET_SELL' | 'TARGET_TOKEN_SWAP' = parserTxType;
-            let persistTokenIn = swap.tokenIn;
-            let persistTokenOut = swap.tokenOut;
-            let persistAmountIn = swap.amountIn;
-            let persistAmountOut = swap.amountOut;
+            let persistTokenIn = routedSwap.tokenIn;
+            let persistTokenOut = routedSwap.tokenOut;
+            let persistAmountIn = routedSwap.amountIn;
+            let persistAmountOut = routedSwap.amountOut;
             let parseReason = isBuy ? 'cash_to_token' : isSell ? 'token_to_cash' : 'token_to_token';
             try {
                 const stableSet = new Set(chainConfig.stablecoins.map((s) => normalizeAddress(s)));
-                const swapCashHint = (swap as any)?.cashLegHint as {
+                const swapCashHint = (routedSwap as any)?.cashLegHint as {
                     cashSpentUsd?: number;
                     cashReceivedUsd?: number;
                     inferredTxType?: 'TARGET_BUY' | 'TARGET_SELL' | 'TARGET_TOKEN_SWAP';
@@ -531,7 +632,7 @@ export async function handleSwapDetected(
                 const alchemyCash = swapCashHint || await getAlchemyCashLegUsd({
                     walletAddress: targetWallet,
                     chainId,
-                    txHash: swap.txHash!,
+                    txHash: routedSwap.txHash!,
                     wrappedNativeAddress: chainConfig.wrappedNativeAddress,
                     stablecoinAddresses: chainConfig.stablecoins,
                 }).catch(() => null);
@@ -559,6 +660,18 @@ export async function handleSwapDetected(
                     parseReason = swapCashHint
                         ? `cash_leg_webhook_${persistedTxType === 'TARGET_BUY' ? 'buy' : persistedTxType === 'TARGET_SELL' ? 'sell' : 'swap'}`
                         : `cash_leg_alchemy_${persistedTxType === 'TARGET_BUY' ? 'buy' : persistedTxType === 'TARGET_SELL' ? 'sell' : 'swap'}`;
+                }
+
+                const receiptFlowTxType = await inferTxTypeFromReceiptTokenFlow({
+                    txHash: swap.txHash!,
+                    chainId,
+                    walletAddress: targetWallet,
+                    wrappedNativeAddress: chainConfig.wrappedNativeAddress,
+                    stablecoinAddresses: chainConfig.stablecoins,
+                }).catch(() => null);
+                if (receiptFlowTxType && receiptFlowTxType !== persistedTxType) {
+                    persistedTxType = receiptFlowTxType;
+                    parseReason = `receipt_flow_${persistedTxType === 'TARGET_BUY' ? 'buy' : 'sell'}`;
                 }
 
                 // If parser legs are reversed, align storage legs with inferred cash direction.
@@ -601,7 +714,7 @@ export async function handleSwapDetected(
             await persistTargetSwapEvent({
                 walletAddress: targetWallet,
                 chainId,
-                txHash: swap.txHash,
+                txHash: routedSwap.txHash,
                 txType: persistedTxType,
                 tokenIn: persistTokenIn,
                 tokenOut: persistTokenOut,
@@ -621,7 +734,7 @@ export async function handleSwapDetected(
             logger.warn(LogCode.SYS_ERROR, 'Failed to persist target swap event', {
                 wallet: targetWallet,
                 chainId,
-                txHash: swap.txHash,
+                txHash: routedSwap.txHash,
                 error: err?.message || String(err)
             });
         });
@@ -630,18 +743,18 @@ export async function handleSwapDetected(
     if (isSell) {
         logger.info(LogCode.EXE_TX_BROADCAST, 'Target is selling - triggering mirror sell', {
             targetWallet,
-            token: swap.tokenIn,
-            sourceTxHash: swap.txHash || null
+            token: routedSwap.tokenIn,
+            sourceTxHash: routedSwap.txHash || null
         });
-        await handleTargetSell(targetWallet, swap, chainId);
+        await handleTargetSell(targetWallet, routedSwap, chainId);
     } else if (isBuy) {
-        logger.info(LogCode.EXE_TX_BROADCAST, 'Target is buying - triggering copy trade', { targetWallet, token: swap.tokenOut });
-        await handleTargetBuy(targetWallet, swap, chainId, { detectedAt });
+        logger.info(LogCode.EXE_TX_BROADCAST, 'Target is buying - triggering copy trade', { targetWallet, token: routedSwap.tokenOut });
+        await handleTargetBuy(targetWallet, routedSwap, chainId, { detectedAt });
     } else if (isTokenToToken) {
         logger.info(LogCode.EXE_TX_BROADCAST, 'Parallel lightning trigger: SELL and BUY starting simultaneously', { targetWallet });
         await Promise.all([
-            handleTargetSell(targetWallet, swap, chainId).catch(e => logger.error(LogCode.EXE_TX_REVERTED, 'Parallel sell error', { error: e.message })),
-            handleTargetBuy(targetWallet, swap, chainId, { detectedAt }).catch(e => logger.error(LogCode.EXE_TX_REVERTED, 'Parallel buy error', { error: e.message }))
+            handleTargetSell(targetWallet, routedSwap, chainId).catch(e => logger.error(LogCode.EXE_TX_REVERTED, 'Parallel sell error', { error: e.message })),
+            handleTargetBuy(targetWallet, routedSwap, chainId, { detectedAt }).catch(e => logger.error(LogCode.EXE_TX_REVERTED, 'Parallel buy error', { error: e.message }))
         ]);
     } else {
         // logger.throttled(LogCode.WTC_TX_SKIPPED, 'Cash-to-Cash or ignored swap type detected', { tokenIn: swap.tokenIn, tokenOut: swap.tokenOut });
@@ -2248,6 +2361,8 @@ async function executePositionExit(params: {
     config: any;
     userSettings?: any;
     mirrorSellFraction?: number;
+    /** Override slippage (bps). Used for DynamicTP emergency exits (rug pull) */
+    slippageBpsOverride?: number;
 }): Promise<string | null> {
     const { userId, tokenAddress, chainId, exitReason, config } = params;
     const tokenInfo = params.tokenInfo ?? { price: 0, symbol: 'UNKNOWN' };
@@ -2266,9 +2381,10 @@ async function executePositionExit(params: {
     let executedExitAmountRaw: bigint | undefined;
     const user = config.user;
 
-    // Fetch universal global slippage from UserSettings
+    // Fetch universal global slippage from UserSettings (or use override for DynamicTP emergency)
     const settings = params.userSettings || await prisma.userSettings.findUnique({ where: { userId } });
     const universalSlippageBps = getSlippageBps(settings);
+    const effectiveSlippageBps = params.slippageBpsOverride ?? universalSlippageBps;
 
     try {
         if (chainId === 900) {
@@ -2350,8 +2466,7 @@ async function executePositionExit(params: {
                     tokenInMint: tokenAddress,
                     tokenOutMint: SOLANA_CONFIG.TOKENS.SOL,
                     amountIn: balance.toString(),
-                    // Use universal global slippage
-                    slippageBps: universalSlippageBps
+                    slippageBps: effectiveSlippageBps
                 });
             } catch (e: any) {
                 logger.warn(LogCode.EXE_TX_REVERTED, 'Solana 100% sell failed, retrying with AGGRESSIVE slippage', { userId, error: e.message });
@@ -2484,8 +2599,7 @@ async function executePositionExit(params: {
                     });
                     return null;
                 }
-                // Use universal global slippage
-                const initialSlippage = universalSlippageBps;
+                const initialSlippage = effectiveSlippageBps;
                 logger.debug(LogCode.EXE_TX_BROADCAST, 'Attempting EVM sell with slippage', { userId, slippageBps: initialSlippage });
 
                 // [Logic]: Use ethers.formatUnits to prevent precision loss when converting BigInt to string.
@@ -2514,8 +2628,8 @@ async function executePositionExit(params: {
                 logger.warn(LogCode.EXE_TX_REVERTED, 'EVM sell failed, retrying partial sell', { userId, error: e.message });
                 try {
                     const safeBalance999 = (amountToSellRaw * 999n) / 1000n;
-                    // Retry with 1.5x of global slippage, capped at 25%
-                    const retrySlippage = Math.min(Math.floor(universalSlippageBps * 1.5), 2500);
+                    // Retry with 1.5x of effective slippage, capped at 25%
+                    const retrySlippage = Math.min(Math.floor(effectiveSlippageBps * 1.5), 2500);
                     logger.debug(LogCode.EXE_TX_BROADCAST, 'Retrying EVM sell with higher slippage', { userId, slippageBps: retrySlippage });
 
                     const amountToSellHuman999 = ethers.formatUnits(safeBalance999, decimals);
@@ -3477,7 +3591,7 @@ export async function checkPositionsForExits(): Promise<void> {
                                 profitLossPct: profitLossPct.toFixed(2)
                             });
 
-                            // Use higher slippage for emergency exits (rug pull detection)
+                            // Use 50% slippage for emergency exits (rug pull), normal user slippage otherwise
                             const dynamicSlippage = dtpResult.urgency === 'emergency' ? 5000 : getSlippageBps(position.user.settings);
 
                             if (dtpResult.urgency === 'emergency') {
@@ -3496,8 +3610,7 @@ export async function checkPositionsForExits(): Promise<void> {
                                     exitReason: 'dynamic_take_profit',
                                     tokenInfo: tokenInfo,
                                     config: { ...config, user: position.user },
-                                    // Pass overriding slippage if needed (requires support in executePositionExit, 
-                                    // otherwise it uses default. For now assume default is okay or logic inside handles it)
+                                    slippageBpsOverride: dynamicSlippage
                                 });
                             } finally {
                                 positionsBeingExited.delete(position.id);

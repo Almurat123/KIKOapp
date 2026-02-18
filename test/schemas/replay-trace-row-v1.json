@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "replay-trace-row-v1",
+  "title": "ReplayTraceRowV1",
+  "type": "object",
+  "required": [
+    "traceId",
+    "chainId",
+    "network",
+    "txHash",
+    "status",
+    "stage",
+    "timingMs",
+    "failureCode",
+    "rootCauseSummary",
+    "createdAt"
+  ],
+  "properties": {
+    "traceId": { "type": "string", "minLength": 6 },
+    "chainId": { "type": "integer", "enum": [8453, 56] },
+    "network": { "type": "string", "enum": ["base", "bsc"] },
+    "txHash": { "type": "string", "pattern": "^0x[a-fA-F0-9]{64}$" },
+    "status": {
+      "type": "string",
+      "enum": ["ok", "missing", "not_swap", "not_buy", "direct_failed", "webhook_failed", "decode_failed", "skipped"]
+    },
+    "stage": {
+      "type": "string",
+      "enum": ["webhook", "receipt_fetch", "decode", "decision", "direct", "fallback", "queue", "unknown"]
+    },
+    "timingMs": {
+      "type": "object",
+      "required": ["total"],
+      "properties": {
+        "webhook": { "type": ["number", "null"] },
+        "fetch": { "type": ["number", "null"] },
+        "parse": { "type": ["number", "null"] },
+        "decision": { "type": ["number", "null"] },
+        "direct": { "type": ["number", "null"] },
+        "total": { "type": "number" }
+      },
+      "additionalProperties": false
+    },
+    "failureCode": { "type": ["string", "null"] },
+    "rootCauseSummary": { "type": ["string", "null"] },
+    "provider": { "type": ["string", "null"] },
+    "executionMode": { "type": ["string", "null"], "enum": ["safe", "balanced", "turbo", null] },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "meta": { "type": "object" }
+  },
+  "additionalProperties": true
+}

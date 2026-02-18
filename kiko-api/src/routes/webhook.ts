@@ -21,6 +21,12 @@ import { getPendingPredecodedSwap, getPendingTxHint, markCopyTradeTxState } from
 import { getChainConfig } from '../config/chainConfig.js';
 import { getCachedNativeTokenPriceUsd } from '../services/onChainPriceService.js';
 import { ethers } from 'ethers';
+import {
+    enqueueAlchemyWebhookEvent,
+    ensureAlchemyWebhookInboxTable,
+    processAlchemyWebhookInboxEventById,
+    startAlchemyWebhookInboxWorker
+} from '../services/alchemyWebhookInboxService.js';
 
 interface ProcessTxBody {
     wallet: string;
@@ -329,6 +335,7 @@ async function buildActivityCashHint(activities: any[], walletAddressRaw: string
 
     let cashSpentUsd = 0;
     let cashReceivedUsd = 0;
+    let netCashUsd = 0;
     for (const item of activities) {
         const from = normalizeAddress(item?.fromAddress || '');
         const to = normalizeAddress(item?.toAddress || '');
@@ -347,13 +354,24 @@ async function buildActivityCashHint(activities: any[], walletAddressRaw: string
         }
         if (!Number.isFinite(usd) || usd <= 0) continue;
 
-        if (from === walletAddress) cashSpentUsd += usd;
-        if (to === walletAddress) cashReceivedUsd += usd;
+        if (from === walletAddress) {
+            cashSpentUsd += usd;
+            netCashUsd -= usd;
+        }
+        if (to === walletAddress) {
+            cashReceivedUsd += usd;
+            netCashUsd += usd;
+        }
     }
 
     if (cashSpentUsd <= 0 && cashReceivedUsd <= 0) return null;
-    const inferBuy = cashSpentUsd > 0 && cashReceivedUsd <= cashSpentUsd * 0.05;
-    const inferSell = cashReceivedUsd > 0 && cashSpentUsd <= cashReceivedUsd * 0.05;
+    // Use net cash flow to avoid misclassification when webhook bundles multiple
+    // internal/external activity rows for one tx (gross in/out can both be large).
+    const netAbs = Math.abs(netCashUsd);
+    const turnover = cashSpentUsd + cashReceivedUsd;
+    const hasDirectionalNet = netAbs > 0.01 && (turnover <= 0 || (netAbs / turnover) >= 0.2);
+    const inferBuy = hasDirectionalNet && netCashUsd < 0;
+    const inferSell = hasDirectionalNet && netCashUsd > 0;
 
     return {
         cashSpentUsd: cashSpentUsd > 0 ? cashSpentUsd : undefined,
@@ -362,7 +380,350 @@ async function buildActivityCashHint(activities: any[], walletAddressRaw: string
     };
 }
 
+async function processAlchemyWebhookPayload(payload: any): Promise<void> {
+    // Alchemy Address Activity webhook structure:
+    // EVM: payload.event.network, payload.event.activity
+    // Solana: payload.event.event.network, payload.event.event.transaction
+    let current = payload;
+    let network = undefined;
+    let eventData = undefined;
+
+    // Max 5 levels of recursion to avoid infinite loops
+    for (let i = 0; i < 5; i++) {
+        if (current.network) network = current.network;
+        if (current.event && typeof current.event === 'object') {
+            current = current.event;
+            continue;
+        }
+        eventData = current;
+        break;
+    }
+
+    const chainId = NETWORK_TO_CHAIN_ID[network] || (network ? NETWORK_TO_CHAIN_ID[network.toUpperCase()] : undefined);
+    if (!chainId) {
+        console.warn(`[Webhook] Unknown network: ${network}. Payload snippet: ${JSON.stringify(payload).slice(0, 200)}`);
+        return;
+    }
+
+    // Extract items to process (Activity or Transaction)
+    let items: any[] = [];
+    let isSolanaItems = false;
+
+    if (eventData?.activity) {
+        const rawActivities = Array.isArray(eventData.activity) ? eventData.activity : [eventData.activity];
+        const groupedByTx = new Map<string, any[]>();
+        for (const activity of rawActivities) {
+            const hash = String(activity?.hash || '').toLowerCase();
+            if (!hash) continue;
+            const list = groupedByTx.get(hash) || [];
+            list.push(activity);
+            groupedByTx.set(hash, list);
+        }
+        items = Array.from(groupedByTx.entries()).map(([hash, activities]) => ({
+            hash,
+            activities,
+            sample: pickBestActivity(activities),
+        }));
+        if (items.length > 0 && items.length !== rawActivities.length) {
+            console.log(`[Webhook] Grouped EVM activities from ${rawActivities.length} to ${items.length} tx groups`);
+        }
+        console.log(`[Webhook] Processing as EVM activity groups (${items.length} tx groups)`);
+    } else if (eventData?.transaction) {
+        items = Array.isArray(eventData.transaction) ? eventData.transaction : [eventData.transaction];
+        isSolanaItems = true;
+        console.log(`[Webhook] Processing as Solana transaction (${items.length} items)`);
+    } else {
+        console.log(`[Webhook] No recognizable activity or transaction array in eventData`);
+    }
+
+    const payloadTxDedup = new Set<string>();
+    const processItem = async (item: any) => {
+        const itemStart = Date.now();
+        let txHash = '';
+        let candidates: string[] = [];
+        let receiptMs = 0;
+        let fullTxMs = 0;
+        let parseSkeletonMs = 0;
+        let parseFullMs = 0;
+        let swapsDetected = 0;
+        let usedPredecoded = 0;
+
+        if (isSolanaItems) {
+            txHash = item.signature;
+
+            const solTx = Array.isArray(item.transaction) ? item.transaction[0] : item.transaction;
+            if (!txHash && solTx?.signatures) {
+                txHash = solTx.signatures[0];
+            }
+
+            const solMsg = Array.isArray(solTx?.message) ? solTx.message[0] : solTx?.message;
+            const keys = solMsg?.account_keys || solMsg?.accountKeys || [];
+            candidates = keys.map((k: any) => normalizeAddress(typeof k === 'string' ? k : k.pubkey || k.toString()));
+
+            if (candidates.length === 0) {
+                console.log(`[Webhook] Solana candidate extraction debug: signature=${txHash}, item keys=${Object.keys(item)}, solTx keys=${solTx ? Object.keys(solTx) : 'null'}, solMsg keys=${solMsg ? Object.keys(solMsg) : 'null'}`);
+            }
+        } else {
+            txHash = String(item?.hash || '');
+            const evmActivities: any[] = Array.isArray(item?.activities) && item.activities.length
+                ? item.activities
+                : (item ? [item] : []);
+            const candidateSet = new Set<string>();
+            for (const activity of evmActivities) {
+                const fromAddr = normalizeAddress(activity?.fromAddress || '');
+                const toAddr = normalizeAddress(activity?.toAddress || '');
+                if (fromAddr) candidateSet.add(fromAddr);
+                if (toAddr) candidateSet.add(toAddr);
+            }
+            candidates = Array.from(candidateSet);
+        }
+
+        txHash = normalizeTxHash(txHash);
+        if (!txHash) return;
+        if (payloadTxDedup.has(txHash)) return;
+        payloadTxDedup.add(txHash);
+        if (!tryClaimLocalInflight(chainId, txHash)) {
+            console.log(`[Webhook] Tx already local in-flight: ${txHash.slice(0, 16)}`);
+            return;
+        }
+
+        if (await isTxProcessedDistributed(txHash, chainId)) {
+            console.log(`[Webhook] Tx already in processedTxs cache: ${txHash.slice(0, 16)}`);
+            releaseLocalInflight(chainId, txHash);
+            return;
+        }
+        const txLockValue = await claimTxProcessingLockDistributed(txHash, chainId);
+        if (!txLockValue) {
+            console.log(`[Webhook] Tx already in-flight: ${txHash.slice(0, 16)}`);
+            releaseLocalInflight(chainId, txHash);
+            return;
+        }
+        await markCopyTradeTxState(chainId, txHash, 'confirmed_seen', { source: 'alchemy_webhook' }).catch(() => { });
+
+        try {
+            const pendingHint = await getPendingTxHint(chainId, txHash).catch(() => null);
+            const trackedWallets = await prisma.trackedWallet.findMany({
+                where: {
+                    address: { in: candidates, mode: 'insensitive' },
+                    chainId,
+                }
+            });
+
+            if (trackedWallets.length === 0) {
+                console.log(
+                    `[Webhook] Ignore tx ${txHash.slice(0, 12)}: no tracked wallets (from/to ${candidates.map(c => c.slice(0, 6)).join(', ')})`
+                );
+                return;
+            }
+
+            console.log(`[Webhook] Found ${trackedWallets.length} tracked wallets for tx ${txHash.slice(0, 8)}`);
+
+            if (chainId === 900) {
+                try {
+                    const { getSolanaConnection } = await import('../services/rpcManager.js');
+                    const { decodeSolanaSwap } = await import('../services/solanaDecoder.js');
+
+                    let tx: any = null;
+                    const strategies: Array<'fast' | 'cheap'> = ['fast', 'cheap'];
+                    for (const strategy of strategies) {
+                        try {
+                            const connection = getSolanaConnection(strategy, 'critical');
+                            tx = await connection.getParsedTransaction(txHash, {
+                                maxSupportedTransactionVersion: 0,
+                                commitment: 'confirmed'
+                            });
+                            if (tx) break;
+                        } catch {
+                            // try other endpoint
+                        }
+                    }
+                    if (!tx) {
+                        console.error(`[Webhook] Failed to fetch Solana tx details after trying all RPCs: ${txHash.slice(0, 16)}`);
+                        return;
+                    }
+
+                    await markTxAsProcessedDistributed(txHash, chainId);
+                    const { handleSwapDetected } = await import('../services/autoTradeService.js');
+                    await Promise.allSettled(trackedWallets.map(async (walletRecord) => {
+                        const trackedTarget = walletRecord.address;
+                        const swap = await decodeSolanaSwap(tx, trackedTarget);
+                        if (swap) await handleSwapDetected(trackedTarget, swap, chainId);
+                    }));
+                } catch (err) {
+                    console.error(`[Webhook] Error fetching Solana tx details:`, err);
+                }
+                return;
+            }
+
+            const evmActivities: any[] = isSolanaItems
+                ? []
+                : (Array.isArray(item?.activities) && item.activities.length
+                    ? item.activities
+                    : (item ? [item] : []));
+            const txSkeleton = buildTxSkeletonFromAlchemyActivity(item?.sample || evmActivities[0] || item, txHash);
+            const predecodedRows = await Promise.all(
+                trackedWallets.map(async (walletRecord) => ({
+                    wallet: walletRecord.address,
+                    predecoded: await getPendingPredecodedSwap(chainId, txHash, walletRecord.address).catch(() => null)
+                }))
+            );
+            const predecodedByWallet = new Map(
+                predecodedRows
+                    .filter((r) => !!r.predecoded?.swap)
+                    .map((r) => [r.wallet.toLowerCase(), r.predecoded!])
+            );
+
+            const decodeStart = Date.now();
+            const decodeDeadline = decodeStart + WEBHOOK_FETCH_PARSE_BUDGET_MS;
+            let receipt: any = null;
+            if (predecodedByWallet.size !== trackedWallets.length) {
+                const fetchReceiptWithRetry = async () => {
+                    const maxAttempts = Math.max(1, Number(process.env.COPYTRADE_WEBHOOK_RECEIPT_MAX_ATTEMPTS || 2));
+                    const baseDelayMs = Math.max(40, Number(process.env.COPYTRADE_WEBHOOK_RECEIPT_RETRY_BASE_MS || 120));
+                    let current: any = null;
+                    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+                        if (Date.now() > decodeDeadline) break;
+                        const remaining = Math.max(120, Math.min(WEBHOOK_FULL_TX_TIMEOUT_MS, decodeDeadline - Date.now()));
+                        current = await withTimeout(fetchTransactionReceipt(txHash, chainId), remaining, 'receipt_fetch').catch(() => null);
+                        if (current) break;
+                        if (attempt < maxAttempts && Date.now() < decodeDeadline) {
+                            await new Promise((resolve) => setTimeout(resolve, baseDelayMs * attempt));
+                        }
+                    }
+                    return { receipt: current, attempts: maxAttempts };
+                };
+                const receiptStart = Date.now();
+                const fetched = await fetchReceiptWithRetry();
+                receiptMs = Date.now() - receiptStart;
+                receipt = fetched.receipt;
+                if (!receipt) {
+                    if (predecodedByWallet.size === 0) {
+                        console.warn(`[Webhook] Could not fetch receipt after retries: ${txHash.slice(0, 16)}`, {
+                            receiptMissing: true,
+                            attempts: fetched.attempts
+                        });
+                        scheduleReceiptRecovery(
+                            chainId,
+                            txHash,
+                            trackedWallets.map((w) => w.address),
+                            pendingHint?.detectedAt
+                        );
+                        return;
+                    }
+                    console.warn(`[Webhook] Receipt missing, continuing with pending predecode only: ${txHash.slice(0, 16)}`, {
+                        cachedWallets: predecodedByWallet.size,
+                        trackedWallets: trackedWallets.length
+                    });
+                }
+            }
+
+            await markTxAsProcessedDistributed(txHash, chainId);
+            let fullTxPromise: Promise<any | null> | null = null;
+            const fetchFullTxOnce = () => {
+                if (!fullTxPromise) {
+                    const fullTxStart = Date.now();
+                    const remaining = Math.max(120, Math.min(WEBHOOK_FULL_TX_TIMEOUT_MS, decodeDeadline - Date.now()));
+                    fullTxPromise = withTimeout(fetchTransaction(txHash, chainId), remaining, 'tx_fetch')
+                        .catch(() => null)
+                        .finally(() => { fullTxMs = Date.now() - fullTxStart; });
+                }
+                return fullTxPromise;
+            };
+
+            await Promise.allSettled(trackedWallets.map(async (walletRecord) => {
+                const trackedTarget = walletRecord.address;
+                const cached = predecodedByWallet.get(trackedTarget.toLowerCase());
+                let swap = cached?.swap || null;
+                if (cached?.swap) usedPredecoded += 1;
+
+                if (!swap && receipt) {
+                    const parseSkeletonStart = Date.now();
+                    swap = await withTimeout(parseSwapTransaction(
+                        txSkeleton,
+                        {
+                            logs: receipt.logs,
+                            status: parseInt(receipt.status, 16),
+                        },
+                        chainId,
+                        trackedTarget
+                    ), WEBHOOK_PARSE_TIMEOUT_MS, 'parse_skeleton').catch(() => null);
+                    parseSkeletonMs += Date.now() - parseSkeletonStart;
+
+                    if (!swap) {
+                        const skipFullTxFallback = Boolean(cached || pendingHint);
+                        if (!skipFullTxFallback && Date.now() < decodeDeadline) {
+                            const fullTx = await fetchFullTxOnce();
+                            if (fullTx) {
+                                const parseFullStart = Date.now();
+                                swap = await withTimeout(parseSwapTransaction(
+                                    {
+                                        hash: txHash,
+                                        from: fullTx.from,
+                                        to: fullTx.to,
+                                        input: fullTx.input,
+                                        value: fullTx.value,
+                                    },
+                                    {
+                                        logs: receipt.logs,
+                                        status: parseInt(receipt.status, 16),
+                                    },
+                                    chainId,
+                                    trackedTarget
+                                ), WEBHOOK_PARSE_TIMEOUT_MS, 'parse_fulltx').catch(() => null);
+                                parseFullMs += Date.now() - parseFullStart;
+                            }
+                        }
+                    }
+                }
+
+                if (!swap) return;
+                swapsDetected += 1;
+                const activityCashHint = await buildActivityCashHint(evmActivities, trackedTarget, chainId).catch(() => null);
+                if (activityCashHint) {
+                    (swap as any).cashLegHint = activityCashHint;
+                }
+                await markCopyTradeTxState(chainId, txHash, 'swap_decoded', {
+                    wallet: trackedTarget,
+                    dex: swap.dexName,
+                    source: cached ? 'pending_prefetch' : 'webhook_decode'
+                }).catch(() => { });
+
+                const { enqueueCopyTradeTask } = await import('../services/copyTradeQueue.js');
+                enqueueCopyTradeTask(trackedTarget, swap, chainId, {
+                    detectedAt: pendingHint?.detectedAt || cached?.detectedAt
+                });
+            }));
+            logWebhookTiming('alchemy', txHash, {
+                wallets: trackedWallets.length,
+                swaps: swapsDetected,
+                predecoded: usedPredecoded,
+                receiptMs: receiptMs || undefined,
+                parseSkeletonMs: parseSkeletonMs || undefined,
+                fullTxMs: fullTxMs || undefined,
+                parseFullMs: parseFullMs || undefined,
+                totalMs: Date.now() - itemStart
+            });
+        } finally {
+            await releaseTxProcessingLockDistributed(txHash, chainId, txLockValue);
+            releaseLocalInflight(chainId, txHash);
+        }
+    };
+
+    const BATCH_SIZE = 5;
+    for (let i = 0; i < items.length; i += BATCH_SIZE) {
+        const batch = items.slice(i, i + BATCH_SIZE);
+        await Promise.allSettled(batch.map(processItem));
+    }
+}
+
 export default async function webhookRoutes(fastify: FastifyInstance) {
+    await ensureAlchemyWebhookInboxTable().catch((err) => {
+        console.error('[Webhook] Failed to ensure webhook inbox table:', err);
+    });
+    startAlchemyWebhookInboxWorker(async (payload) => {
+        await processAlchemyWebhookPayload(payload);
+    }, { intervalMs: 4000, batchSize: 8, maxAttempts: 20 });
+
     /**
      * POST /api/webhook/process-tx
      * Called by Go webhook service when Alchemy detects a transaction
@@ -703,412 +1064,50 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
             `[Webhook] Alchemy payload: network=${rawNetwork} hash=${String(sampleHash).slice(0, 12)} category=${sampleCategory} asset=${sampleAsset}`
         );
 
-        // Respond immediately with 200 (Alchemy expects this)
-        reply.send({ success: true });
-
         // Handle Alchemy test ping (no event data)
         if (!payload?.event || payload?.type === 'GRAPHQL') {
+            reply.send({ success: true });
             console.log(`[Webhook] Alchemy test ping or non-activity webhook, ignoring`);
             return;
         }
 
-        // Process activities asynchronously in background to prevent Alchemy timeouts
+        const payloadHashSource = content && String(content).length > 0
+            ? String(content)
+            : JSON.stringify(payload || {});
+        const payloadHash = crypto.createHash('sha256').update(payloadHashSource).digest('hex');
+
+        let inboxEventId: number | null = null;
+        try {
+            const queued = await enqueueAlchemyWebhookEvent({
+                payloadHash,
+                network: rawNetwork,
+                txHash: String(sampleHash || ''),
+                payload,
+            });
+            inboxEventId = queued.id;
+        } catch (err: any) {
+            console.error(`[Webhook] Failed to enqueue Alchemy webhook event:`, err?.message || String(err));
+        }
+
+        // Respond immediately with 200 (Alchemy expects this)
+        reply.send({ success: true });
+
+        // Process asynchronously; prefer inbox row so failures get retried by worker.
         setImmediate(async () => {
             try {
-                // Alchemy Address Activity webhook structure:
-                // EVM: payload.event.network, payload.event.activity
-                // Solana: payload.event.event.network, payload.event.event.transaction
-                // Dig into the payload to find the network and event data
-                // Alchemy likes to nest things differently between test pings and real events
-                let current = payload;
-                let network = undefined;
-                let eventData = undefined;
-
-                // Max 5 levels of recursion to avoid infinite loops
-                for (let i = 0; i < 5; i++) {
-                    if (current.network) network = current.network;
-                    if (current.event && typeof current.event === 'object') {
-                        current = current.event;
-                        continue;
+                if (inboxEventId) {
+                    const accepted = await processAlchemyWebhookInboxEventById(inboxEventId, processAlchemyWebhookPayload);
+                    if (!accepted) {
+                        // Already in progress/processed by another worker.
+                        return;
                     }
-                    eventData = current;
-                    break;
-                }
-
-                const chainId = NETWORK_TO_CHAIN_ID[network] || (network ? NETWORK_TO_CHAIN_ID[network.toUpperCase()] : undefined);
-
-                if (!chainId) {
-                    console.warn(`[Webhook] Unknown network: ${network}. Payload snippet: ${JSON.stringify(payload).slice(0, 200)}`);
                     return;
                 }
-
-                // Extract items to process (Activity or Transaction)
-                let items: any[] = [];
-                let isSolanaItems = false;
-
-                if (eventData?.activity) {
-                    const rawActivities = Array.isArray(eventData.activity) ? eventData.activity : [eventData.activity];
-                    const groupedByTx = new Map<string, any[]>();
-                    for (const activity of rawActivities) {
-                        const hash = String(activity?.hash || '').toLowerCase();
-                        if (!hash) continue;
-                        const list = groupedByTx.get(hash) || [];
-                        list.push(activity);
-                        groupedByTx.set(hash, list);
-                    }
-                    items = Array.from(groupedByTx.entries()).map(([hash, activities]) => ({
-                        hash,
-                        activities,
-                        sample: pickBestActivity(activities),
-                    }));
-                    if (items.length > 0 && items.length !== rawActivities.length) {
-                        console.log(`[Webhook] Grouped EVM activities from ${rawActivities.length} to ${items.length} tx groups`);
-                    }
-                    console.log(`[Webhook] Processing as EVM activity groups (${items.length} tx groups)`);
-                } else if (eventData?.transaction) {
-                    items = Array.isArray(eventData.transaction) ? eventData.transaction : [eventData.transaction];
-                    isSolanaItems = true;
-                    console.log(`[Webhook] Processing as Solana transaction (${items.length} items)`);
-                } else {
-                    console.log(`[Webhook] No recognizable activity or transaction array in eventData`);
-                }
-
-                const payloadTxDedup = new Set<string>();
-                const processItem = async (item: any) => {
-                    const itemStart = Date.now();
-                    let txHash = '';
-                    let candidates: string[] = [];
-                    let receiptMs = 0;
-                    let fullTxMs = 0;
-                    let parseSkeletonMs = 0;
-                    let parseFullMs = 0;
-                    let swapsDetected = 0;
-                    let usedPredecoded = 0;
-
-                    if (isSolanaItems) {
-                        // Solana Structure: Handle cases where transaction/message might be arrays (Alchemy Test Hook)
-                        txHash = item.signature;
-
-                        const solTx = Array.isArray(item.transaction) ? item.transaction[0] : item.transaction;
-                        if (!txHash && solTx?.signatures) {
-                            txHash = solTx.signatures[0];
-                        }
-
-                        const solMsg = Array.isArray(solTx?.message) ? solTx.message[0] : solTx?.message;
-                        const keys = solMsg?.account_keys || solMsg?.accountKeys || [];
-                        candidates = keys.map((k: any) => normalizeAddress(typeof k === 'string' ? k : k.pubkey || k.toString()));
-
-                        if (candidates.length === 0) {
-                            console.log(`[Webhook] Solana candidate extraction debug: signature=${txHash}, item keys=${Object.keys(item)}, solTx keys=${solTx ? Object.keys(solTx) : 'null'}, solMsg keys=${solMsg ? Object.keys(solMsg) : 'null'}`);
-                        }
-                    } else {
-                        // EVM Structure (grouped by tx hash)
-                        txHash = String(item?.hash || '');
-                        const evmActivities: any[] = Array.isArray(item?.activities) && item.activities.length
-                            ? item.activities
-                            : (item ? [item] : []);
-                        const candidateSet = new Set<string>();
-                        for (const activity of evmActivities) {
-                            const fromAddr = normalizeAddress(activity?.fromAddress || '');
-                            const toAddr = normalizeAddress(activity?.toAddress || '');
-                            if (fromAddr) candidateSet.add(fromAddr);
-                            if (toAddr) candidateSet.add(toAddr);
-                        }
-                        candidates = Array.from(candidateSet);
-                    }
-
-                    txHash = normalizeTxHash(txHash);
-                    if (!txHash) return;
-                    if (payloadTxDedup.has(txHash)) return;
-                    payloadTxDedup.add(txHash);
-                    if (!tryClaimLocalInflight(chainId, txHash)) {
-                        console.log(`[Webhook] Tx already local in-flight: ${txHash.slice(0, 16)}`);
-                        return;
-                    }
-
-                    // FAST in-memory deduplication check (shared with watcher)
-                    if (await isTxProcessedDistributed(txHash, chainId)) {
-                        console.log(`[Webhook] Tx already in processedTxs cache: ${txHash.slice(0, 16)}`);
-                        releaseLocalInflight(chainId, txHash);
-                        return;
-                    }
-                    const txLockValue = await claimTxProcessingLockDistributed(txHash, chainId);
-                    if (!txLockValue) {
-                        console.log(`[Webhook] Tx already in-flight: ${txHash.slice(0, 16)}`);
-                        releaseLocalInflight(chainId, txHash);
-                        return;
-                    }
-                    await markCopyTradeTxState(chainId, txHash, 'confirmed_seen', { source: 'alchemy_webhook' }).catch(() => { });
-
-                    try {
-                        const pendingHint = await getPendingTxHint(chainId, txHash).catch(() => null);
-                        const trackedWallets = await prisma.trackedWallet.findMany({
-                            where: {
-                                address: { in: candidates, mode: 'insensitive' },
-                                chainId,
-                            }
-                        });
-
-                        if (trackedWallets.length === 0) {
-                            console.log(
-                                `[Webhook] Ignore tx ${txHash.slice(0, 12)}: no tracked wallets (from/to ${candidates.map(c => c.slice(0, 6)).join(', ')})`
-                            );
-                            return;
-                        }
-
-                        console.log(`[Webhook] 🎯 Found ${trackedWallets.length} tracked wallets for tx ${txHash.slice(0, 8)}`);
-
-                        // Branch by chain type: Solana vs EVM
-                        if (chainId === 900) {
-                            try {
-                                // Solana Logic
-                                const { getSolanaConnection } = await import('../services/rpcManager.js');
-                                const { decodeSolanaSwap } = await import('../services/solanaDecoder.js');
-
-                            let tx: any = null;
-                            const strategies: Array<'fast' | 'cheap'> = ['fast', 'cheap'];
-                            for (const strategy of strategies) {
-                                try {
-                                    const connection = getSolanaConnection(strategy, 'critical');
-                                    tx = await connection.getParsedTransaction(txHash, {
-                                        maxSupportedTransactionVersion: 0,
-                                        commitment: 'confirmed'
-                                    });
-                                    if (tx) {
-                                        console.log(`[Webhook] ✅ Successfully fetched Solana tx via rpcManager (${strategy})`);
-                                        break;
-                                    }
-                                } catch (err: any) {
-                                    const isSslError = err.message?.includes('SSL') || err.cause?.message?.includes('SSL');
-                                    console.warn(`[Webhook] Solana fetch failed via rpcManager (${strategy}): ${err.message}${isSslError ? ' (SSL Error)' : ''}`);
-                                    if (!isSslError && !err.message?.includes('fetch failed')) {
-                                        // If it's not a connection/SSL error, it might be a 404 or something else where retrying won't help as much
-                                        // but we try others anyway
-                                    }
-                                }
-                            }
-
-                            if (!tx) {
-                                console.error(`[Webhook] ❌ Failed to fetch Solana tx details after trying all RPCs: ${txHash.slice(0, 16)}`);
-                                return;
-                            }
-
-                            await markTxAsProcessedDistributed(txHash, chainId);
-
-                            // Trigger copy trade for EACH matched tracked wallet
-                            const { handleSwapDetected } = await import('../services/autoTradeService.js');
-                            await Promise.allSettled(trackedWallets.map(async (walletRecord) => {
-                                const trackedTarget = walletRecord.address;
-
-                                // Decode Solana Swap
-                                const swap = await decodeSolanaSwap(tx, trackedTarget);
-
-                                if (swap) {
-                                    console.log(`[Webhook] ✅ Solana Swap detected for ${trackedTarget.slice(0, 8)}:`, {
-                                        in: swap.tokenIn,
-                                        out: swap.tokenOut,
-                                        dex: swap.dexName
-                                    });
-                                    await handleSwapDetected(trackedTarget, swap, chainId);
-                                } else {
-                                    // console.log(`[Webhook] Solana tx ${txHash.slice(0, 8)} was not a swap for tracked wallet`);
-                                }
-                            }));
-                            } catch (err) {
-                                console.error(`[Webhook] Error fetching Solana tx details:`, err);
-                            }
-                            return;
-                        }
-
-                        // EVM Logic (Base, BSC, etc.)
-                        const evmActivities: any[] = isSolanaItems
-                            ? []
-                            : (Array.isArray(item?.activities) && item.activities.length
-                                ? item.activities
-                                : (item ? [item] : []));
-                        const txSkeleton = buildTxSkeletonFromAlchemyActivity(item?.sample || evmActivities[0] || item, txHash);
-                        const predecodedRows = await Promise.all(
-                            trackedWallets.map(async (walletRecord) => ({
-                                wallet: walletRecord.address,
-                                predecoded: await getPendingPredecodedSwap(chainId, txHash, walletRecord.address).catch(() => null)
-                            }))
-                        );
-                        const predecodedByWallet = new Map(
-                            predecodedRows
-                                .filter((r) => !!r.predecoded?.swap)
-                                .map((r) => [r.wallet.toLowerCase(), r.predecoded!])
-                        );
-
-                        const decodeStart = Date.now();
-                        const decodeDeadline = decodeStart + WEBHOOK_FETCH_PARSE_BUDGET_MS;
-                        let receipt: any = null;
-                        if (predecodedByWallet.size !== trackedWallets.length) {
-                            const fetchReceiptWithRetry = async () => {
-                                const maxAttempts = Math.max(1, Number(process.env.COPYTRADE_WEBHOOK_RECEIPT_MAX_ATTEMPTS || 2));
-                                const baseDelayMs = Math.max(40, Number(process.env.COPYTRADE_WEBHOOK_RECEIPT_RETRY_BASE_MS || 120));
-                                let current: any = null;
-                                for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-                                    if (Date.now() > decodeDeadline) break;
-                                    const remaining = Math.max(120, Math.min(WEBHOOK_FULL_TX_TIMEOUT_MS, decodeDeadline - Date.now()));
-                                    current = await withTimeout(fetchTransactionReceipt(txHash, chainId), remaining, 'receipt_fetch').catch(() => null);
-                                    if (current) break;
-                                    if (attempt < maxAttempts && Date.now() < decodeDeadline) {
-                                        await new Promise((resolve) => setTimeout(resolve, baseDelayMs * attempt));
-                                    }
-                                }
-                                return { receipt: current, attempts: maxAttempts };
-                            };
-                            const receiptStart = Date.now();
-                            const fetched = await fetchReceiptWithRetry();
-                            receiptMs = Date.now() - receiptStart;
-                            receipt = fetched.receipt;
-                            if (!receipt) {
-                                if (predecodedByWallet.size === 0) {
-                                    console.warn(`[Webhook] Could not fetch receipt after retries: ${txHash.slice(0, 16)}`, {
-                                        receiptMissing: true,
-                                        attempts: fetched.attempts
-                                    });
-                                    scheduleReceiptRecovery(
-                                        chainId,
-                                        txHash,
-                                        trackedWallets.map((w) => w.address),
-                                        pendingHint?.detectedAt
-                                    );
-                                    return;
-                                }
-                                console.warn(`[Webhook] Receipt missing, continuing with pending predecode only: ${txHash.slice(0, 16)}`, {
-                                    cachedWallets: predecodedByWallet.size,
-                                    trackedWallets: trackedWallets.length
-                                });
-                            }
-                        } else {
-                            console.log(`[Webhook] Pending predecode hit for all tracked wallets: tx=${txHash.slice(0, 12)}`);
-                        }
-
-                        // Mark as processed only after confirmed path is ready
-                        await markTxAsProcessedDistributed(txHash, chainId);
-                        let fullTxPromise: Promise<any | null> | null = null;
-                        const fetchFullTxOnce = () => {
-                            if (!fullTxPromise) {
-                                const fullTxStart = Date.now();
-                                const remaining = Math.max(120, Math.min(WEBHOOK_FULL_TX_TIMEOUT_MS, decodeDeadline - Date.now()));
-                                fullTxPromise = withTimeout(fetchTransaction(txHash, chainId), remaining, 'tx_fetch')
-                                    .catch(() => null)
-                                    .finally(() => { fullTxMs = Date.now() - fullTxStart; });
-                            }
-                            return fullTxPromise;
-                        };
-
-                        await Promise.allSettled(trackedWallets.map(async (walletRecord) => {
-                            const trackedTarget = walletRecord.address;
-                            const cached = predecodedByWallet.get(trackedTarget.toLowerCase());
-                            let swap = cached?.swap || null;
-                            if (cached?.swap) usedPredecoded += 1;
-
-                            if (!swap && receipt) {
-                                const parseSkeletonStart = Date.now();
-                                swap = await withTimeout(parseSwapTransaction(
-                                    txSkeleton,
-                                    {
-                                        logs: receipt.logs,
-                                        status: parseInt(receipt.status, 16),
-                                    },
-                                    chainId,
-                                    trackedTarget
-                                ), WEBHOOK_PARSE_TIMEOUT_MS, 'parse_skeleton').catch(() => null);
-                                parseSkeletonMs += Date.now() - parseSkeletonStart;
-
-                                // Fallback: only fetch full tx when skeleton-based decode misses swap.
-                                if (!swap) {
-                                    const skipFullTxFallback = Boolean(cached || pendingHint);
-                                    if (!skipFullTxFallback && Date.now() < decodeDeadline) {
-                                        const fullTx = await fetchFullTxOnce();
-                                        if (fullTx) {
-                                            const parseFullStart = Date.now();
-                                            swap = await withTimeout(parseSwapTransaction(
-                                                {
-                                                    hash: txHash,
-                                                    from: fullTx.from,
-                                                    to: fullTx.to,
-                                                    input: fullTx.input,
-                                                    value: fullTx.value,
-                                                },
-                                                {
-                                                    logs: receipt.logs,
-                                                    status: parseInt(receipt.status, 16),
-                                                },
-                                                chainId,
-                                                trackedTarget
-                                            ), WEBHOOK_PARSE_TIMEOUT_MS, 'parse_fulltx').catch(() => null);
-                                            parseFullMs += Date.now() - parseFullStart;
-                                        }
-                                    } else {
-                                        console.log(`[Webhook] Skip full tx fallback: tx=${txHash.slice(0, 12)} source=${cached ? 'pending_predecode' : 'pending_hint'}`);
-                                    }
-                                }
-                            }
-
-                            if (!swap) {
-                                const selector = txSkeleton.input?.slice(0, 10) || '0x';
-                                console.log(
-                                    `[Webhook] Not swap: tx=${txHash.slice(0, 12)} to=${(txSkeleton.to || '').slice(0, 10)} sel=${selector} logs=${receipt?.logs?.length ?? 0}`
-                                );
-                                return;
-                            }
-
-                            if (swap) swapsDetected += 1;
-                            const activityCashHint = await buildActivityCashHint(evmActivities, trackedTarget, chainId).catch(() => null);
-                            if (activityCashHint) {
-                                (swap as any).cashLegHint = activityCashHint;
-                            }
-                            console.log(`[Webhook] ✅ Swap detected for tracked wallet ${trackedTarget.slice(0, 10)}:`, {
-                                tokenIn: swap.tokenIn,
-                                tokenOut: swap.tokenOut,
-                                dex: swap.dexName,
-                                source: cached ? 'pending_prefetch' : 'webhook_decode',
-                                cashHint: activityCashHint ? {
-                                    spent: activityCashHint.cashSpentUsd,
-                                    received: activityCashHint.cashReceivedUsd,
-                                    inferred: activityCashHint.inferredTxType
-                                } : undefined
-                            });
-                            await markCopyTradeTxState(chainId, txHash, 'swap_decoded', {
-                                wallet: trackedTarget,
-                                dex: swap.dexName,
-                                source: cached ? 'pending_prefetch' : 'webhook_decode'
-                            }).catch(() => { });
-
-                            const { enqueueCopyTradeTask } = await import('../services/copyTradeQueue.js');
-                            enqueueCopyTradeTask(trackedTarget, swap, chainId, {
-                                detectedAt: pendingHint?.detectedAt || cached?.detectedAt
-                            });
-                        }));
-                        logWebhookTiming('alchemy', txHash, {
-                            wallets: trackedWallets.length,
-                            swaps: swapsDetected,
-                            predecoded: usedPredecoded,
-                            receiptMs: receiptMs || undefined,
-                            parseSkeletonMs: parseSkeletonMs || undefined,
-                            fullTxMs: fullTxMs || undefined,
-                            parseFullMs: parseFullMs || undefined,
-                            totalMs: Date.now() - itemStart
-                        });
-                    } finally {
-                        await releaseTxProcessingLockDistributed(txHash, chainId, txLockValue);
-                        releaseLocalInflight(chainId, txHash);
-                    }
-                };
-
-                // Process items in parallel batches for speed without overload
-                const BATCH_SIZE = 5;
-                for (let i = 0; i < items.length; i += BATCH_SIZE) {
-                    const batch = items.slice(i, i + BATCH_SIZE);
-                    await Promise.allSettled(batch.map(processItem));
-                }
+                await processAlchemyWebhookPayload(payload);
             } catch (error) {
                 console.error(`[Webhook] Error processing Alchemy webhook:`, error);
             }
-        }); // End setImmediate
+        });
     });
 
 }

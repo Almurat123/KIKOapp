@@ -385,6 +385,7 @@ model Position {
   lastExitAttempt    DateTime?
   dynamicTPTriggered Boolean?        @default(false)
   peakPrice          Float?
+  dynamicTPStopPrice Float?          // Ratcheted Chandelier stop (only moves up for longs)
   priceHistory       Json?           @default("[]")
   updatedAt          DateTime        @updatedAt
   entryPriceDec      Decimal?        @db.Decimal(38, 18)

@@ -196,6 +196,30 @@ interface DirectSwapHint {
 
 type DirectSwapExecutionMode = 'balanced' | 'turbo';
 
+type LiquidityLayerStatus = 'ok' | 'missing' | 'skipped' | 'error' | 'unknown';
+
+interface DirectSwapTraceState {
+    traceId: string;
+    l1PoolStatus: LiquidityLayerStatus;
+    l2RouteStatus: LiquidityLayerStatus;
+    l3MarketStatus: LiquidityLayerStatus;
+    poolCount: number;
+    poolKinds: { v2: number; v3: number; v4: number };
+    referenceSource: string;
+    failureCode?: string;
+}
+
+interface ReferenceQuoteDiagnostics {
+    source: string;
+    l2Status: LiquidityLayerStatus;
+    l3Status: LiquidityLayerStatus;
+}
+
+function createDirectSwapTraceId(chainId: number, hint?: DirectSwapHint): string {
+    const source = (hint?.sourceTxHash || 'nohint').slice(2, 10);
+    return `${chainId}-${source}-${Date.now().toString(36).slice(-6)}`;
+}
+
 function deriveHintStrategy(chainId: number, hint?: DirectSwapHint): DexStrategy | null {
     if (!hint) return null;
     if (hint.preferredStrategy) {
@@ -812,8 +836,19 @@ export async function executeDirectSwap(params: {
     }
     const normalizedTokenIn = normalizeToken(tokenIn, chainId);
     const normalizedTokenOut = normalizeToken(tokenOut, chainId);
+    const traceId = createDirectSwapTraceId(chainId, params.hint);
+    const traceState: DirectSwapTraceState = {
+        traceId,
+        l1PoolStatus: 'unknown',
+        l2RouteStatus: 'unknown',
+        l3MarketStatus: 'unknown',
+        poolCount: 0,
+        poolKinds: { v2: 0, v3: 0, v4: 0 },
+        referenceSource: 'none'
+    };
 
     logger.info(LogCode.EXE_TX_BROADCAST, '[DirectSwap] Starting direct swap', {
+        traceId,
         tokenIn: normalizedTokenIn,
         tokenOut: normalizedTokenOut,
         amount: amountIn,
@@ -838,6 +873,7 @@ export async function executeDirectSwap(params: {
         } else if (result.error) {
             const reasonCode = classifyFailure(result.error);
             result.error = `${reasonCode}: ${result.error}`;
+            traceState.failureCode = reasonCode;
             if (reasonCode.includes('pool_unavailable_hard')) {
                 setNoPoolCache(chainId, poolCacheTokenIn, poolCacheTokenOut, reasonCode);
             }
@@ -856,7 +892,29 @@ export async function executeDirectSwap(params: {
                 return retried;
             }
         }
+        if (!result.success) {
+            logger.warn(LogCode.EXE_TX_REVERTED, '[DirectSwapTrace] Attempt failed', {
+                traceId,
+                chainId,
+                tokenIn: normalizedTokenIn,
+                tokenOut: normalizedTokenOut,
+                executionMode: params.executionMode || 'balanced',
+                failureCode: traceState.failureCode || 'unknown',
+                failureDetail: result.error || 'unknown',
+                layers: {
+                    l1_pool: traceState.l1PoolStatus,
+                    l2_route: traceState.l2RouteStatus,
+                    l3_market: traceState.l3MarketStatus
+                },
+                poolCount: traceState.poolCount,
+                poolKinds: traceState.poolKinds,
+                referenceSource: traceState.referenceSource,
+                hintSourceTx: params.hint?.sourceTxHash || null,
+                hintDex: params.hint?.sourceDexName || null
+            });
+        }
         logger.info(LogCode.SYS_INFO, '[DirectSwap] Finished', {
+            traceId,
             provider: result.provider,
             success: result.success,
             durationMs,
@@ -1211,13 +1269,22 @@ export async function executeDirectSwap(params: {
             }
         }
         logger.info(LogCode.SYS_INFO, '[DirectSwap] Pool discovery complete', {
+            traceId,
             poolCount: pools.length,
             durationMs: Date.now() - poolStart
         });
+        traceState.poolCount = pools.length;
+        traceState.poolKinds = {
+            v2: pools.filter((p) => p.version === 'v2').length,
+            v3: pools.filter((p) => p.version === 'v3').length,
+            v4: pools.filter((p) => p.version === 'v4').length
+        };
+        traceState.l1PoolStatus = skipPoolDiscovery ? 'skipped' : (pools.length > 0 ? 'ok' : 'missing');
         tPoolDiscoveryDone = Date.now();
 
         if (pools.length === 0) {
             logger.warn(LogCode.SYS_INFO, '[DirectSwap] No pool found for token pair', {
+                traceId,
                 tokenIn: tokenIn.slice(0, 12),
                 tokenOut: tokenOut.slice(0, 12),
                 chainId
@@ -1418,6 +1485,11 @@ export async function executeDirectSwap(params: {
             });
         }
 
+        const refDiagnostics: ReferenceQuoteDiagnostics = {
+            source: 'none',
+            l2Status: 'unknown',
+            l3Status: 'unknown'
+        };
         const referenceQuote = skipReferenceQuote
             ? 0n
             : (cachedReferenceQuote ?? await getReferenceExpectedOutput(
@@ -1427,8 +1499,24 @@ export async function executeDirectSwap(params: {
                 chainId,
                 params.slippageBps,
                 params.walletAddress,
-                { enableZoraRoutes: zoraRoutesEnabled }
+                {
+                    enableZoraRoutes: zoraRoutesEnabled,
+                    diagnostics: refDiagnostics,
+                    traceId
+                }
             ));
+        if (skipReferenceQuote) {
+            traceState.referenceSource = 'skipped';
+            traceState.l2RouteStatus = 'skipped';
+            traceState.l3MarketStatus = 'skipped';
+        } else if (cachedReferenceQuote && cachedReferenceQuote > 0n) {
+            traceState.referenceSource = 'cache';
+            traceState.l2RouteStatus = 'ok';
+        } else {
+            traceState.referenceSource = refDiagnostics.source;
+            traceState.l2RouteStatus = refDiagnostics.l2Status;
+            traceState.l3MarketStatus = refDiagnostics.l3Status;
+        }
 
         const canUseSourceHintFallback = !!params.hint?.sourceTxHash;
         if (referenceQuote <= 0n && !canUseSourceHintFallback && !turboMode) {
@@ -1506,7 +1594,7 @@ export async function executeDirectSwap(params: {
                     });
                     return finish(await executeInfinitySwap(normalizedParams, infinityQuote, { executionMode: requestedMode }));
                 }
-                logger.info(LogCode.SYS_INFO, '[DirectSwap] Strategy rejected', {
+                logger.debug(LogCode.SYS_INFO, '[DirectSwap] Strategy rejected', {
                     strategy: 'infinity',
                     reason: !infinityQuote ? 'quote_unavailable' : 'quote_below_threshold',
                     amountOut: infinityQuote?.amountOut?.toString() || '0',
@@ -1518,7 +1606,7 @@ export async function executeDirectSwap(params: {
             if (strategy.kind === 'v4') {
                 if (!isV4SwapSupported(chainId)) continue;
                 if ((preloadedV4Pools?.length || 0) === 0 && !params.hint?.resolvedPoolHint && !earlyHintedPool) {
-                    logger.info(LogCode.SYS_INFO, '[DirectSwap] Strategy rejected', {
+                    logger.debug(LogCode.SYS_INFO, '[DirectSwap] Strategy rejected', {
                         strategy: 'v4',
                         reason: 'pool_unavailable_preloaded_empty',
                         amountOut: '0',
@@ -1591,7 +1679,7 @@ export async function executeDirectSwap(params: {
                 if (forceV4) {
                     return finish({ success: false, error: 'clanker_force_v4_failed', provider: 'uniswap-v4' });
                 }
-                logger.info(LogCode.SYS_INFO, '[DirectSwap] Strategy rejected', {
+                logger.debug(LogCode.SYS_INFO, '[DirectSwap] Strategy rejected', {
                     strategy: 'v4',
                     reason: !v4Best.pool ? 'pool_unavailable' : 'quote_below_threshold',
                     amountOut: v4Best.amountOut.toString(),
@@ -1616,7 +1704,7 @@ export async function executeDirectSwap(params: {
                     });
                     return finish(await executeV3Swap(normalizedParams, v3Pool, strategy.dex, { fastMode: turboMode, executionMode: requestedMode }));
                 }
-                logger.info(LogCode.SYS_INFO, '[DirectSwap] Strategy rejected', {
+                logger.debug(LogCode.SYS_INFO, '[DirectSwap] Strategy rejected', {
                     strategy: `v3:${strategy.dex}`,
                     reason: 'quote_below_threshold',
                     amountOut: v3Quote.toString(),
@@ -1630,7 +1718,7 @@ export async function executeDirectSwap(params: {
                 if (chainId !== 8453) continue;
                 // In no-reference mode, avoid slow Zora API fallback unless source explicitly hints Zora-like flow.
                 if (referenceQuote <= 0n && !zoraLikely) {
-                    logger.info(LogCode.SYS_INFO, '[DirectSwap] Strategy skipped', {
+                    logger.debug(LogCode.SYS_INFO, '[DirectSwap] Strategy skipped', {
                         strategy: 'zora-sdk',
                         reason: 'no_reference_and_not_zora_likely'
                     });
@@ -1654,7 +1742,7 @@ export async function executeDirectSwap(params: {
                     });
                     continue;
                 }
-                logger.info(LogCode.SYS_INFO, '[DirectSwap] Strategy rejected', {
+                logger.debug(LogCode.SYS_INFO, '[DirectSwap] Strategy rejected', {
                     strategy: 'zora-sdk',
                     reason: 'quote_below_threshold',
                     amountOut: zoraQuote.toString(),
@@ -1687,7 +1775,7 @@ export async function executeDirectSwap(params: {
                     });
                     return finish(await executeV3VirtualBridgeSwap(normalizedParams, virtualToken, bridgeQuote));
                 }
-                logger.info(LogCode.SYS_INFO, '[DirectSwap] Strategy rejected', {
+                logger.debug(LogCode.SYS_INFO, '[DirectSwap] Strategy rejected', {
                     strategy: 'virtual-bridge',
                     reason: !bridgeQuote ? 'quote_unavailable' : 'quote_below_threshold',
                     amountOut: quotedOut.toString(),
@@ -1715,7 +1803,7 @@ export async function executeDirectSwap(params: {
                     });
                     return finish(await executeAerodromeSwap(normalizedParams));
                 }
-                logger.info(LogCode.SYS_INFO, '[DirectSwap] Strategy rejected', {
+                logger.debug(LogCode.SYS_INFO, '[DirectSwap] Strategy rejected', {
                     strategy: 'aerodrome',
                     reason: 'quote_below_threshold',
                     amountOut: aeroQuote.toString(),
@@ -1737,7 +1825,7 @@ export async function executeDirectSwap(params: {
                     });
                     return finish(await executeV2Swap(normalizedParams, v2Quote));
                 }
-                logger.info(LogCode.SYS_INFO, '[DirectSwap] Strategy rejected', {
+                logger.debug(LogCode.SYS_INFO, '[DirectSwap] Strategy rejected', {
                     strategy: `v2:${strategy.dex || 'uniswap'}`,
                     reason: 'quote_below_threshold',
                     amountOut: v2Quote.toString(),
@@ -1749,6 +1837,7 @@ export async function executeDirectSwap(params: {
         }
 
         logger.warn(LogCode.EXE_TX_REVERTED, '[DirectSwap] No strategy matched threshold', {
+            traceId,
             chainId,
             tokenIn: normalizedTokenIn,
             tokenOut: normalizedTokenOut,
@@ -3112,8 +3201,10 @@ async function getReferenceExpectedOutput(
     chainId: number,
     slippageBps: number,
     recipient: string,
-    options?: { enableZoraRoutes?: boolean }
+    options?: { enableZoraRoutes?: boolean; diagnostics?: ReferenceQuoteDiagnostics; traceId?: string }
 ): Promise<bigint> {
+    const diagnostics = options?.diagnostics;
+    const traceId = options?.traceId;
     const enableZoraRoutes = options?.enableZoraRoutes === true;
     const zoraRefTimeoutMs = Math.min(REFERENCE_QUOTE_TIMEOUT_MS, ZORA_REFERENCE_TIMEOUT_MS);
     if (process.env.DIRECT_SWAP_REF_MODE === 'onchain-only') {
@@ -3181,6 +3272,7 @@ async function getReferenceExpectedOutput(
         }
 
         logger.info(LogCode.EXE_QUOTE_FETCHED, '[DirectSwap] On-chain reference quote', {
+            traceId,
             chainId,
             tokenIn: tokenIn.slice(0, 12),
             tokenOut: tokenOut.slice(0, 12),
@@ -3190,12 +3282,17 @@ async function getReferenceExpectedOutput(
                 .map(s => `${s.source}:${s.amountOut.toString().slice(0, 12)}`)
                 .join(',')
         });
-
+        diagnostics && (diagnostics.source = best.source);
+        diagnostics && (diagnostics.l2Status = best.amountOut > 0n ? 'ok' : 'missing');
+        diagnostics && (diagnostics.l3Status = 'skipped');
         return best.amountOut > 0n ? best.amountOut : 0n;
     }
     const cacheKey = `${chainId}:${tokenIn.toLowerCase()}:${tokenOut.toLowerCase()}:${amountInWei.toString()}`;
     const cached = referenceQuoteCache.get(cacheKey);
     if (cached && Date.now() - cached.timestamp < REFERENCE_QUOTE_TTL_MS) {
+        diagnostics && (diagnostics.source = 'cache:memory');
+        diagnostics && (diagnostics.l2Status = 'ok');
+        diagnostics && (diagnostics.l3Status = 'skipped');
         return cached.value;
     }
     const redisCached = await cacheGet(referenceQuoteRedisKey(cacheKey)).catch(() => null);
@@ -3205,6 +3302,9 @@ async function getReferenceExpectedOutput(
             if (Date.now() - parsed.timestamp < REFERENCE_QUOTE_TTL_MS) {
                 const value = BigInt(parsed.value);
                 referenceQuoteCache.set(cacheKey, { value, timestamp: parsed.timestamp });
+                diagnostics && (diagnostics.source = 'cache:redis');
+                diagnostics && (diagnostics.l2Status = 'ok');
+                diagnostics && (diagnostics.l3Status = 'skipped');
                 return value;
             }
         } catch {
@@ -3243,6 +3343,7 @@ async function getReferenceExpectedOutput(
         ref0x = zeroExResult.value;
     } else {
         logger.warn(LogCode.API_FETCH_FAILED, '[DirectSwap] 0x reference quote failed', {
+            traceId,
             error: String(zeroExResult.reason?.message || zeroExResult.reason || '').slice(0, 80)
         });
     }
@@ -3250,6 +3351,7 @@ async function getReferenceExpectedOutput(
         refKyber = kyberResult.value;
     } else {
         logger.warn(LogCode.API_FETCH_FAILED, '[DirectSwap] Kyber reference quote failed', {
+            traceId,
             error: String(kyberResult.reason?.message || kyberResult.reason || '').slice(0, 80)
         });
     }
@@ -3263,10 +3365,14 @@ async function getReferenceExpectedOutput(
             Math.max(1, Math.ceil(REFERENCE_QUOTE_TTL_MS / 1000))
         ).catch(() => { });
         logger.info(LogCode.EXE_QUOTE_FETCHED, '[DirectSwap] Reference quote ready', {
+            traceId,
             ref0x: ref0x.toString().slice(0, 15),
             refKyber: refKyber.toString().slice(0, 15),
             durationMs: Date.now() - refStart
         });
+        diagnostics && (diagnostics.source = ref0x >= refKyber ? '0x' : 'kyber');
+        diagnostics && (diagnostics.l2Status = 'ok');
+        diagnostics && (diagnostics.l3Status = 'skipped');
         return bestRef;
     }
 
@@ -3281,9 +3387,13 @@ async function getReferenceExpectedOutput(
                 Math.max(1, Math.ceil(REFERENCE_QUOTE_TTL_MS / 1000))
             ).catch(() => { });
             logger.info(LogCode.EXE_QUOTE_FETCHED, '[DirectSwap] Reference quote fallback (V4 spot)', {
+                traceId,
                 outWei: v4Spot.toString().slice(0, 15),
                 durationMs: Date.now() - refStart
             });
+            diagnostics && (diagnostics.source = 'v4-spot');
+            diagnostics && (diagnostics.l2Status = 'ok');
+            diagnostics && (diagnostics.l3Status = 'skipped');
             return v4Spot;
         }
     }
@@ -3319,21 +3429,30 @@ async function getReferenceExpectedOutput(
                     Math.max(1, Math.ceil(REFERENCE_QUOTE_TTL_MS / 1000))
                 ).catch(() => { });
                 logger.info(LogCode.EXE_QUOTE_FETCHED, '[DirectSwap] Reference quote from Gecko', {
+                    traceId,
                     outWei: outWei.toString().slice(0, 15),
                     durationMs: Date.now() - refStart
                 });
+                diagnostics && (diagnostics.source = 'gecko');
+                diagnostics && (diagnostics.l2Status = 'missing');
+                diagnostics && (diagnostics.l3Status = 'ok');
                 return outWei;
             }
         }
     } catch (err: any) {
         logger.warn(LogCode.API_FETCH_FAILED, '[DirectSwap] Gecko reference failed', {
+            traceId,
             error: err?.message?.slice(0, 80)
         });
     }
 
     logger.warn(LogCode.API_FETCH_FAILED, '[DirectSwap] No reference quote available', {
+        traceId,
         durationMs: Date.now() - refStart
     });
+    diagnostics && (diagnostics.source = 'none');
+    diagnostics && (diagnostics.l2Status = 'missing');
+    diagnostics && (diagnostics.l3Status = 'missing');
     return 0n;
 }
 

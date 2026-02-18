@@ -2,7 +2,6 @@ import { FastifyInstance } from 'fastify';
 import { WebSocket } from 'ws';
 import { randomUUID } from 'node:crypto';
 import { verifyPrivyToken } from '../middleware/auth.js';
-import { decodeJwt } from 'jose';
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
 import * as chatRepo from '../repositories/chatRepository.js';
@@ -27,7 +26,9 @@ export interface SequencedChatEvent extends ChatEvent {
 
 // Client message types
 interface ClientMessage {
-    type: 'ping' | 'ack' | 'sync';
+    type: 'ping' | 'ack' | 'sync' | 'auth';
+    token?: string;
+    appKey?: string;
     sessionId?: string;
     seq?: number;      // For ack: the sequence number being acknowledged
     lastSeq?: number;  // For sync: the last received sequence number
@@ -266,69 +267,116 @@ export class ChatWebSocketService {
 
 export const chatWS = ChatWebSocketService.getInstance();
 
+const VALID_WS_APP_KEYS = new Set([
+    process.env.KIKO_WEB_APP_KEY,
+    process.env.KIKO_MOBILE_APP_KEY,
+].filter(Boolean));
+
+function isValidWsAppKey(appKey?: string): boolean {
+    if (VALID_WS_APP_KEYS.size === 0) {
+        // Keep development ergonomics consistent with HTTP API key middleware.
+        return process.env.NODE_ENV !== 'production';
+    }
+    return !!appKey && VALID_WS_APP_KEYS.has(appKey);
+}
+
 
 /**
  * Fastify plugin to set up WebSocket route
  */
 export async function chatWSRoutes(fastify: FastifyInstance) {
     const handleUserWs = async (connection: any, req: any) => {
-        // Extract token from query params (e.g. /api/chat/ws?token=xxx)
-        const token = req.query.token;
+        let userId: string | null = null;
+        let authenticated = false;
+        const authTimeout = setTimeout(() => {
+            if (!authenticated) {
+                logger.warn(LogCode.API_AUTH_FAILED, 'ChatWS: auth timeout');
+                connection.socket.close(1008, 'Auth timeout');
+            }
+        }, 8000);
 
-        if (!token) {
-            logger.error(LogCode.API_AUTH_FAILED, 'ChatWS: Rejecting connection - No token provided');
-            connection.socket.close(1008, 'Token required');
-            return;
-        }
+        const authenticate = async (token: string, appKey?: string, source: 'message' | 'query' = 'message') => {
+            if (authenticated) return;
 
-        try {
-            // Verify token with full signature + expiration check
-            const payload = await verifyPrivyToken(token);
-            const userId = payload.sub;
-
-            if (!userId) {
-                logger.error(LogCode.API_AUTH_FAILED, 'ChatWS: Token missing sub claim');
-                connection.socket.close(1008, 'Invalid token');
+            if (!isValidWsAppKey(appKey)) {
+                logger.error(LogCode.API_AUTH_FAILED, 'ChatWS: Invalid app key', {
+                    source,
+                    hasAppKey: !!appKey,
+                });
+                connection.socket.close(1008, 'Invalid app key');
                 return;
             }
 
-            chatWS.registerClient(userId, connection.socket);
+            try {
+                const payload = await verifyPrivyToken(token);
+                const resolvedUserId = payload.sub;
 
-            // Log successful connection
-            logger.info(LogCode.WS_CONNECTION_OPENED, 'ChatWS: User connected', {
-                userId: userId.substring(0, 25) + '...',
-                tokenExp: payload.exp
-            });
+                if (!resolvedUserId) {
+                    logger.error(LogCode.API_AUTH_FAILED, 'ChatWS: Token missing sub claim');
+                    connection.socket.close(1008, 'Invalid token');
+                    return;
+                }
 
-        } catch (err: any) {
-            const errorCode = err?.code || 'AUTH_FAILED';
-            const errorMsg = err?.message || 'Auth failed';
-            logger.error(LogCode.API_AUTH_FAILED, 'ChatWS auth error', {
-                error: errorMsg,
-                code: errorCode
-            });
+                userId = resolvedUserId;
+                authenticated = true;
+                clearTimeout(authTimeout);
+                chatWS.registerClient(userId, connection.socket);
 
-            // Send specific error code for expired tokens
-            if (errorCode === 'TOKEN_EXPIRED') {
-                connection.socket.close(4001, 'Token expired - please refresh');
-            } else {
-                connection.socket.close(1008, 'Auth failed');
+                if (connection.socket.readyState === WebSocket.OPEN) {
+                    connection.socket.send(JSON.stringify({ type: 'auth_ok' }));
+                }
+
+                logger.info(LogCode.WS_CONNECTION_OPENED, 'ChatWS: User connected', {
+                    source,
+                    userId: userId.substring(0, 25) + '...',
+                    tokenExp: payload.exp
+                });
+            } catch (err: any) {
+                const errorCode = err?.code || 'AUTH_FAILED';
+                const errorMsg = err?.message || 'Auth failed';
+                logger.error(LogCode.API_AUTH_FAILED, 'ChatWS auth error', {
+                    source,
+                    error: errorMsg,
+                    code: errorCode
+                });
+
+                if (errorCode === 'TOKEN_EXPIRED') {
+                    connection.socket.close(4001, 'Token expired - please refresh');
+                } else {
+                    connection.socket.close(1008, 'Auth failed');
+                }
             }
-            return;
+        };
+
+        // Backward compatibility during rollout: still accept query auth if provided.
+        const queryToken = typeof req.query?.token === 'string' ? req.query.token : '';
+        const queryAppKey = typeof req.query?.appKey === 'string' ? req.query.appKey : '';
+        if (queryToken) {
+            authenticate(queryToken, queryAppKey, 'query');
         }
 
         connection.socket.on('message', (message: any) => {
             try {
                 const data = JSON.parse(message.toString());
-                // Get userId from the connection context (stored during auth)
-                const payload = decodeJwt(token);
-                const userId = payload.sub as string;
+                if (!authenticated) {
+                    if (data?.type === 'auth' && typeof data?.token === 'string' && data.token) {
+                        authenticate(data.token, data.appKey, 'message');
+                    } else {
+                        connection.socket.close(1008, 'Auth required');
+                    }
+                    return;
+                }
 
-                // Handle all message types through the centralized handler
-                chatWS.handleClientMessage(userId, connection.socket, data);
+                if (userId) {
+                    chatWS.handleClientMessage(userId, connection.socket, data);
+                }
             } catch (e) {
                 // Ignore parse errors
             }
+        });
+
+        connection.socket.on('close', () => {
+            clearTimeout(authTimeout);
         });
     };
 

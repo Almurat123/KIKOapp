@@ -10,7 +10,6 @@ import { getChainConfig } from '../config/chainConfig.js';
 import { getCachedNativeTokenPriceUsd, getNativeTokenPriceUsd } from './onChainPriceService.js';
 import { getTokenMetadata } from './rpcService.js';
 import { ethers } from 'ethers';
-import { getTokenDetails } from './dexscreener.js';
 
 const TARGET_STATUS_MIN_TX_USD = Number(process.env.TARGET_STATUS_MIN_TX_USD || 0.000001);
 const TARGET_STATUS_MAX_TX_USD = Number(process.env.TARGET_STATUS_MAX_TX_USD || 250000);
@@ -202,7 +201,7 @@ export async function recomputeTargetMetricsForConfig(configId: string, attempt 
       chainId: cfg.chainId,
     });
     const trackedTxCount = rawBuyCount + rawSellCount + tokenSwaps;
-    // Card-level Profit/Loss should reflect realized performance only.
+    // Card-level Profit/Loss: sum per-closed-trade realized outcomes.
     const targetProfitUsd = safeNum(pnl.targetRealizedProfitUsd);
     const targetLossUsd = safeNum(pnl.targetRealizedLossUsd);
 
@@ -362,35 +361,6 @@ async function fillUsdFromDecodedLeg(params: {
   return null;
 }
 
-async function fillUsdFromTokenSpot(params: {
-  chain: string;
-  chainId: number;
-  tokenAddress?: string | null;
-  amountRaw?: string | null;
-}): Promise<number | null> {
-  const tokenAddress = params.tokenAddress ? normalizeAddress(params.tokenAddress) : '';
-  const amountRaw = params.amountRaw || '';
-  if (!tokenAddress || !amountRaw) return null;
-  let amountBn: bigint;
-  try {
-    amountBn = BigInt(amountRaw);
-  } catch {
-    return null;
-  }
-  if (amountBn <= 0n) return null;
-  const meta = await getTokenMetadata(params.chainId, tokenAddress, { rpcStrategy: 'cheap' }).catch(() => null);
-  const decimals = Number(meta?.decimals ?? 18);
-  if (!Number.isFinite(decimals) || decimals < 0 || decimals > 36) return null;
-  const qty = Number(ethers.formatUnits(amountBn, decimals));
-  if (!Number.isFinite(qty) || qty <= 0) return null;
-  const details = await getTokenDetails(params.chain, tokenAddress).catch(() => null);
-  const px = Number(details?.price || 0);
-  if (!Number.isFinite(px) || px <= 0) return null;
-  const usd = qty * px;
-  if (!Number.isFinite(usd) || usd <= 0) return null;
-  return usd;
-}
-
 export async function backfillMissingTargetUsd(params: {
   walletAddress?: string;
   chainId?: number;
@@ -541,28 +511,8 @@ export async function backfillMissingTargetUsd(params: {
       }), 4, 200);
       updated += 1;
     } else {
-      // final fallback: estimate by current token spot using tokenAddress+amount
-      const spotUsd = await fillUsdFromTokenSpot({
-        chain: row.chain,
-        chainId: cid,
-        tokenAddress: row.tokenAddress,
-        amountRaw: row.amount,
-      });
-      if (spotUsd && Number.isFinite(spotUsd) && spotUsd > 0) {
-        await withRetry(() => prisma.walletTransaction.update({
-          where: { id: row.id },
-          data: {
-            chainId: cid,
-            valueUsd: spotUsd,
-            parseReason: 'backfill_spot',
-            source: 'backfill',
-          },
-        }), 4, 200);
-        updated += 1;
-        continue;
-      }
-
       // Mark as unresolved so repeated status refreshes don't re-run heavy decode forever.
+      // Do NOT write current-spot estimates into historical trade legs; it corrupts realized PnL.
       await withRetry(() => prisma.walletTransaction.update({
         where: { id: row.id },
         data: {

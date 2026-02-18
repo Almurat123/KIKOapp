@@ -66,6 +66,7 @@ export class ChatWebSocketClient {
     private listeners: Set<(event: ChatEvent) => void> = new Set();
     private reconnectTimeout: NodeJS.Timeout | null = null;
     private pingInterval: NodeJS.Timeout | null = null;
+    private authTimeout: NodeJS.Timeout | null = null;
     private connectionPromise: Promise<void> | null = null;
     private connectionResolver: (() => void) | null = null;
 
@@ -89,32 +90,42 @@ export class ChatWebSocketClient {
             this.connectionResolver = resolve;
         });
 
-        // Use query params because browser WebSocket does not allow custom headers during handshake
         const appKey = import.meta.env.VITE_APP_KEY || '';
-        const qs = new URLSearchParams({ token });
-        if (appKey) qs.set('appKey', appKey);
-        const url = `${WS_BASE_URL}/api/chat/ws?${qs.toString()}`;
+        const url = `${WS_BASE_URL}/api/chat/ws`;
         console.log(`[ChatWS] Connecting to user WebSocket...`);
 
         this.socket = new WebSocket(url);
 
         this.socket.onopen = () => {
-            console.log(`[ChatWS] Connected to user WebSocket`);
-            this.startHeartbeat();
-
-            // Request sync for all tracked sessions
-            this.requestSyncForAllSessions();
-
-            // Resolve connection promise
-            if (this.connectionResolver) {
-                this.connectionResolver();
-                this.connectionResolver = null;
-            }
+            console.log(`[ChatWS] Socket opened, sending auth`);
+            this.socket?.send(JSON.stringify({
+                type: 'auth',
+                token,
+                ...(appKey ? { appKey } : {})
+            }));
+            this.authTimeout = setTimeout(() => {
+                console.warn('[ChatWS] Auth timeout, closing socket');
+                this.socket?.close(1008, 'WS auth timeout');
+            }, 8000);
         };
 
         this.socket.onmessage = (event) => {
             try {
                 const raw = JSON.parse(event.data);
+                if (raw?.type === 'auth_ok') {
+                    if (this.authTimeout) {
+                        clearTimeout(this.authTimeout);
+                        this.authTimeout = null;
+                    }
+                    console.log('[ChatWS] Authenticated');
+                    this.startHeartbeat();
+                    this.requestSyncForAllSessions();
+                    if (this.connectionResolver) {
+                        this.connectionResolver();
+                        this.connectionResolver = null;
+                    }
+                    return;
+                }
                 const data = this.normalizeIncomingEvent(raw);
                 if (!data) return;
 
@@ -140,6 +151,10 @@ export class ChatWebSocketClient {
         this.socket.onclose = (event) => {
             console.log(`[ChatWS] Disconnected (code: ${event.code}, reason: ${event.reason})`);
             this.stopHeartbeat();
+            if (this.authTimeout) {
+                clearTimeout(this.authTimeout);
+                this.authTimeout = null;
+            }
             if (this.token === token) {
                 this.reconnectTimeout = setTimeout(async () => {
                     // Always attempt to refresh token on reconnect to avoid loops on expired JWT.
@@ -296,6 +311,10 @@ export class ChatWebSocketClient {
         if (this.reconnectTimeout) {
             clearTimeout(this.reconnectTimeout);
             this.reconnectTimeout = null;
+        }
+        if (this.authTimeout) {
+            clearTimeout(this.authTimeout);
+            this.authTimeout = null;
         }
         if (this.socket) {
             // Unset onclose to avoid reconnection loop during intentional close

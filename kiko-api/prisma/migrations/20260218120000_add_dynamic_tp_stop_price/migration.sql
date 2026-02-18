@@ -1,0 +1,2 @@
+-- AlterTable
+ALTER TABLE "Position" ADD COLUMN IF NOT EXISTS "dynamicTPStopPrice" DOUBLE PRECISION;

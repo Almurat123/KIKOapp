@@ -1,5 +1,67 @@
 # The Alchemy Developer Hub
 
+## KiKo CopyTrade + PnL 实战补充（Alchemy Webhook / Transfers）
+
+### 1) Address Activity 的本质
+- Alchemy `ADDRESS_ACTIVITY` 回调里，`event.activity` 是“转账活动片段数组”，不是“已归因好的 swap 业务事件”。
+- 同一个 `txHash` 可能出现多条 activity（native、erc20、internal 混合），必须先按 `txHash` 聚合后再判断买卖方向。
+- 仅靠单条 activity 直接判定 `BUY/SELL`，在聚合路由或多跳 swap 下高概率误判。
+
+### 2) Webhook 的可靠性边界（必须理解）
+- Alchemy webhook 要求 5 秒内返回 200，否则会按指数退避重试（Free/PAYG 最长约 10 分钟）。
+- 你如果“先返回 200 再异步处理”，可以防超时，但处理失败后不会自动重投；因此要有你自己的补偿机制。
+- 正确做法：至少保存 `event.id + txHash + network + receivedAt + rawPayload` 作为可重放事实层，再异步消费。
+
+### 3) 安全要求（签名）
+- 用 webhook 专属 `signing key` 对“原始请求体”做 HMAC-SHA256，与 `X-Alchemy-Signature` 比较。
+- 不能用 JSON parse 后重序列化字符串验签；必须验 `raw body`。
+
+### 4) 交易分类建议（先事实，后解释）
+- 事实层（immutable）：
+  - `wallet_transactions` 只写事实腿：`txHash, wallet, chainId, blockNum, tokenIn/out, amountIn/out, cashInUsd, cashOutUsd`。
+  - 不在事实层写最终利润字段，利润属于派生层。
+- 解释层（derived）：
+  - `TARGET_BUY` 定义：现金腿流出（`cashSpentUsd > 0`）且获得非现金资产。
+  - `TARGET_SELL` 定义：现金腿流入（`cashReceivedUsd > 0`）且卖出非现金资产。
+  - 无法单值判定时，标记 `TARGET_TOKEN_SWAP`，等待 receipt 或后续回填二次归因。
+
+### 5) 现金腿 USD 的优先级（你现在最关心）
+- 优先级应固定为：
+  1. webhook 同批 activity 归并出的现金净流（最贴近触发时刻）
+  2. `alchemy_getAssetTransfers` 按 `fromBlock=toBlock=receipt.blockNumber` 回查
+  3. 仍失败时，用当时块高附近价格估算（不是硬编码固定价格）
+- 不要把“当前现价”回写成历史成交现金腿，否则会污染 realized PnL。
+
+### 6) Profit / Loss 的口径（交易卡片）
+- 单次平仓 PnL = `卖出现金 - 对应买入成本`。
+- 若单次平仓 PnL > 0，累加到 `targetProfitUsd`。
+- 若单次平仓 PnL < 0，绝对值累加到 `targetLossUsd`。
+- `targetUnrealizedPnlUsd` 仅针对未平仓仓位，且仓位为 0 时应为 0。
+
+### 7) 为什么会出现 0 / null
+- `valueInUsd/valueOutUsd` 都没拿到（现金腿抽取失败）时，卡片只能显示 0/null。
+- 常见原因：只看单 activity、没有按 txHash 聚合、没有 receipt blockTag 回查、stable/native 识别集合不完整。
+
+### 8) 数据清理与重算原则
+- 清空 `wallet_transactions` 后，不要自动“按现价回填历史 valueUsd”。
+- 只允许两种回填来源：
+  - 原始链上可验证数据（receipt/log/transfers）
+  - 当时块高可复现的历史价格源
+- 每次重算必须基于 `configId + targetWallet + chainId` 三元组隔离，避免多用户卡片串数据。
+
+### 9) Alchemy 接口最小闭环（建议）
+- 实时：Address Activity webhook（触发、低延迟）
+- 纠偏：`eth_getTransactionReceipt`（token flow 方向确认）
+- 回补：`alchemy_getAssetTransfers`（现金腿归并 + 历史追溯）
+- 健康：Webhook 失败重放队列 + 幂等键（`chainId:txHash:wallet`）
+
+### 10) KiKo 当前实现要点核查清单
+- 是否按 `txHash` 聚合 activity 再分类。
+- 是否把 `cashLegHint` 与 decoder 方向冲突时进行腿交换修正。
+- 是否有 receipt 二次判定覆盖误分类。
+- 是否只在“可证明”为历史成交现金腿时写 `valueInUsd/valueOutUsd`。
+- 是否把卡片 Profit/Loss 固定为“已平仓 realized 拆分”，而不是总 pnl 或现价估算。
+
 > Learn how to use Node APIs, Data APIs, Webhooks, Smart Wallets and Rollups to create powerful onchain experiences.
 
 {/* Hide anchor links and arrows on links */}

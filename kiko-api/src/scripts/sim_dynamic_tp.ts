@@ -1,9 +1,9 @@
 
 import { DynamicTakeProfitService, DynamicTPConfig } from '../services/dynamicTakeProfitService.js';
 
-// Mock Position and Config
+// Mock Position and Config (id starts with mock- to skip DB writes)
 const mockPosition = {
-    id: 'test-pos-1',
+    id: 'mock-test-pos-1',
     userId: 'user-1',
     tokenAddress: '0x123',
     tokenSymbol: 'TEST',

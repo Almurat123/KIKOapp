@@ -11,8 +11,8 @@ export interface DynamicTPConfig {
     minProfitToActivate: number;      // 默认 100%
 
     // ATR Chandelier 参数
-    atrPeriod: number;                // 默认 14
-    atrMultiplier: number;            // 默认 3.0 (倍数越大越宽松)
+    atrPeriod: number;                // 默认 14 (1-min candles: 7 for faster, 14 for balance)
+    atrMultiplier: number;            // 默认 2.0 (1-min crypto: 1.5-2.0 recommended; 3.0 too loose)
 
     // 快速下跌检测 (Rug Pull 防护)
     rapidDeclineThreshold: number;    // 单周期跌幅阈值 (默认 12%)
@@ -23,10 +23,13 @@ export interface DynamicTPConfig {
 const DEFAULT_CONFIG: DynamicTPConfig = {
     minProfitToActivate: 100,
     atrPeriod: 14,
-    atrMultiplier: 3.0,
+    atrMultiplier: 2.0,  // Tighter for 1-min meme coins (was 3.0)
     rapidDeclineThreshold: 12,
     consecutivePeriods: 3
 };
+
+/** Intra-minute flash crash threshold (drop from bucket high to current within same minute) */
+const INTRAMINUTE_RUG_THRESHOLD_PCT = 50;
 
 /**
  * 价格点接口
@@ -139,33 +142,19 @@ export class DynamicTakeProfitService {
         // 3. 更新 Peak Price
         const peakPrice = Math.max(position.peakPrice || position.entryPrice, currentPrice);
 
-        // 4. 异步更新数据库 (Fire and forget)
-        // [Logic]: 仅在传入了有效 ID 且非 mock ID 时持久化状态
-        if (position.id && !position.id.startsWith('mock-')) {
-            prisma.position.update({
-                where: { id: position.id },
-                data: {
-                    peakPrice: peakPrice,
-                    currentPrice: currentPrice, // 🟢 FIX: Update current price for observability
-                    priceHistory: priceHistory as any
-                }
-            }).catch(err => {
-                // 静默失败，不影响主流程
-                logger.debug(LogCode.SYS_ERROR, 'Optional DB update skipped or failed', {
-                    id: position.id,
-                    error: err.message
-                });
-            });
-        }
-
         const currentPnL = ((currentPrice - position.entryPrice) / position.entryPrice) * 100;
 
         // 5. 检查激活条件
         const minProfit = position.config.dynamicTPMinProfitPct || DEFAULT_CONFIG.minProfitToActivate;
 
-        // 如果还没有达到激活盈利，且之前也没触发过，则直接返回
+        // 如果还没有达到激活盈利，则直接返回
         if (currentPnL < minProfit) {
-            // 🟢 FIX: Log INFO if PnL is high (> 50%) but below threshold, so user knows it's watching
+            if (position.id && !position.id.startsWith('mock-')) {
+                prisma.position.update({
+                    where: { id: position.id },
+                    data: { peakPrice, currentPrice, priceHistory: priceHistory as any }
+                }).catch(err => logger.debug(LogCode.SYS_ERROR, 'Optional DB update skipped', { id: position.id, error: err.message }));
+            }
             if (currentPnL > 50) {
                 logger.info(LogCode.SYS_INFO, `[DynamicTP] Watching... PnL ${currentPnL.toFixed(1)}% < Activation ${minProfit}%`, {
                     token: position.tokenSymbol || position.tokenAddress,
@@ -178,7 +167,19 @@ export class DynamicTakeProfitService {
 
         // === 核心检测逻辑 ===
 
-        // A. 快速下跌检测 (最高优先级 - Rug Pull 防护)
+        // A. 分钟内闪崩检测 (Sub-minute Rug Pull - 单桶内从高点到当前跌幅 > 50%)
+        if (lastPoint && lastPoint.high > 0) {
+            const dropFromHighPct = ((lastPoint.high - currentPrice) / lastPoint.high) * 100;
+            if (dropFromHighPct >= INTRAMINUTE_RUG_THRESHOLD_PCT) {
+                return {
+                    shouldSell: true,
+                    reason: `🚨 Intra-minute flash crash (${dropFromHighPct.toFixed(1)}% drop from bucket high)`,
+                    urgency: 'emergency'
+                };
+            }
+        }
+
+        // B. 快速下跌检测 (多周期 - Rug Pull 防护)
         const rapidDecline = this.detectRapidDecline(priceHistory);
         if (rapidDecline) {
             return {
@@ -188,30 +189,43 @@ export class DynamicTakeProfitService {
             };
         }
 
-        // B. Chandelier Exit (ATR Trailing Stop)
+        // C. Chandelier Exit (ATR Trailing Stop) with Ratcheting
         const atr = this.calculateATR(priceHistory);
         const multiplier = DEFAULT_CONFIG.atrMultiplier;
         const chandelierStop = peakPrice - (atr * multiplier);
+        const prevStop = (position as { dynamicTPStopPrice?: number | null }).dynamicTPStopPrice;
+        const effectiveStop = prevStop != null && prevStop > 0
+            ? Math.max(prevStop, chandelierStop)  // 只能上移，不能下移
+            : chandelierStop;
 
         // 记录状态用于调试
         logger.debug(LogCode.SYS_INFO, `[DynamicTP] Checking ${position.tokenSymbol || position.tokenAddress}`, {
             price: currentPrice.toFixed(8),
             peak: peakPrice.toFixed(8),
             atr: atr.toFixed(8),
-            stop: chandelierStop.toFixed(8),
+            chandelierStop: chandelierStop.toFixed(8),
+            effectiveStop: effectiveStop.toFixed(8),
             pnl: `${currentPnL.toFixed(2)}%`,
             history: priceHistory.length
         });
 
-        if (currentPrice < chandelierStop) {
+        if (currentPrice < effectiveStop) {
             const drawdownPercent = ((peakPrice - currentPrice) / peakPrice) * 100;
             return {
                 shouldSell: true,
                 reason: `Chandelier Exit Triggered (Drawdown ${drawdownPercent.toFixed(1)}% from peak)`,
                 urgency: 'normal',
                 currentDrawdown: drawdownPercent,
-                targetStopPrice: chandelierStop
+                targetStopPrice: effectiveStop
             };
+        }
+
+        // Persist peak, history, and ratcheted stop when holding
+        if (position.id && !position.id.startsWith('mock-')) {
+            prisma.position.update({
+                where: { id: position.id },
+                data: { peakPrice, currentPrice, priceHistory: priceHistory as any, dynamicTPStopPrice: effectiveStop }
+            }).catch(err => logger.debug(LogCode.SYS_ERROR, 'Optional DTP update skipped', { id: position.id, error: err.message }));
         }
 
         return { shouldSell: false, reason: 'Holding', urgency: 'none' };
@@ -268,7 +282,10 @@ export class DynamicTakeProfitService {
             const prevClose = recent[i - 1].close;
             const currClose = recent[i].close;
 
-            if (prevClose === 0) continue; // 避免除零
+            if (prevClose === 0) {
+                consecutiveCount = 0;
+                continue;
+            }
 
             const dropPercent = ((prevClose - currClose) / prevClose) * 100;
 
