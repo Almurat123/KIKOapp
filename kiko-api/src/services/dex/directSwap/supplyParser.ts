@@ -19,6 +19,18 @@ type ParserCacheEntry = {
 const parserCache = createTimedCache<ParserCacheEntry>();
 const parserInflight = new Map<string, Promise<DecodedSwap | null>>();
 
+interface SupplyParserDeps {
+  getTransactionByHash: typeof getTransactionByHash;
+  getTransactionReceipt: typeof getTransactionReceipt;
+  parseSwapTransaction: typeof parseSwapTransaction;
+}
+
+const defaultSupplyParserDeps: SupplyParserDeps = {
+  getTransactionByHash,
+  getTransactionReceipt,
+  parseSwapTransaction
+};
+
 function normalizeForMatching(token: string, chainId: number): string {
   const value = String(token || '').toLowerCase();
   if (!value) return value;
@@ -50,7 +62,11 @@ export async function parseSwapSupplyFromSourceTx(params: {
   sourceTxHash: string;
   tokenIn: string;
   tokenOut: string;
-}): Promise<DecodedSwap | null> {
+}, deps?: Partial<SupplyParserDeps>): Promise<DecodedSwap | null> {
+  const parserDeps: SupplyParserDeps = {
+    ...defaultSupplyParserDeps,
+    ...(deps || {})
+  };
   const { chainId, sourceTxHash, tokenIn, tokenOut } = params;
 
   if (!sourceTxHash || !/^0x[a-fA-F0-9]{64}$/.test(sourceTxHash)) return null;
@@ -67,12 +83,12 @@ export async function parseSwapSupplyFromSourceTx(params: {
   const task = (async (): Promise<DecodedSwap | null> => {
     try {
       const [tx, receipt] = await Promise.all([
-        getTransactionByHash(chainId, sourceTxHash),
-        getTransactionReceipt(chainId, sourceTxHash)
+        parserDeps.getTransactionByHash(chainId, sourceTxHash),
+        parserDeps.getTransactionReceipt(chainId, sourceTxHash)
       ]);
 
       if (!tx || !receipt) return null;
-      const decoded = await parseSwapTransaction(tx, receipt, chainId);
+      const decoded = await parserDeps.parseSwapTransaction(tx, receipt, chainId);
       if (!decoded) return null;
 
       if (!matchesRequestedPair(tokenIn, tokenOut, decoded.tokenIn, decoded.tokenOut, chainId)) {

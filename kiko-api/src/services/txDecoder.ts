@@ -708,6 +708,11 @@ export interface DecodedSwap {
             tickSpacing: number;
         };
     };
+    cashLegHint?: {
+        cashSpentUsd?: number;
+        cashReceivedUsd?: number;
+        inferredTxType?: 'TARGET_BUY' | 'TARGET_SELL' | 'TARGET_TOKEN_SWAP';
+    };
 }
 
 /**

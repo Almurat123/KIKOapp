@@ -10,6 +10,7 @@ import { getChainConfig } from '../config/chainConfig.js';
 import { getCachedNativeTokenPriceUsd, getNativeTokenPriceUsd } from './onChainPriceService.js';
 import { getTokenMetadata } from './rpcService.js';
 import { ethers } from 'ethers';
+import { determineCopyTradeDirection } from './copyTradeDirection.js';
 
 const TARGET_STATUS_MIN_TX_USD = Number(process.env.TARGET_STATUS_MIN_TX_USD || 0.000001);
 const TARGET_STATUS_MAX_TX_USD = Number(process.env.TARGET_STATUS_MAX_TX_USD || 250000);
@@ -440,17 +441,17 @@ export async function backfillMissingTargetUsd(params: {
         if (tx && receipt) {
           const swap = await parseSwapTransaction(tx, receipt, cid, row.walletAddress);
           if (swap) {
-            const chainCfg = getChainConfig(cid);
-            const wrappedNative = normalizeAddress(chainCfg.wrappedNativeAddress);
-            const nativePlaceholder = normalizeAddress('0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee');
-            const stableSet = new Set((chainCfg.stablecoins || []).map((s) => normalizeAddress(s)));
             const tokenIn = normalizeAddress(swap.tokenIn);
             const tokenOut = normalizeAddress(swap.tokenOut);
-            const tokenInIsCash = stableSet.has(tokenIn) || tokenIn === wrappedNative || tokenIn === nativePlaceholder;
-            const tokenOutIsCash = stableSet.has(tokenOut) || tokenOut === wrappedNative || tokenOut === nativePlaceholder;
-            const decodedTxType: 'TARGET_BUY' | 'TARGET_SELL' | 'TARGET_TOKEN_SWAP' = tokenInIsCash && !tokenOutIsCash
+            const direction = determineCopyTradeDirection({
+              chainId: cid,
+              tokenIn,
+              tokenOut,
+              cashLegHint: swap.cashLegHint
+            });
+            const decodedTxType: 'TARGET_BUY' | 'TARGET_SELL' | 'TARGET_TOKEN_SWAP' = direction.isBuy
               ? 'TARGET_BUY'
-              : !tokenInIsCash && tokenOutIsCash
+              : direction.isSell
                 ? 'TARGET_SELL'
                 : 'TARGET_TOKEN_SWAP';
 
@@ -561,10 +562,6 @@ export async function bootstrapTrackedWalletHistory(
   });
   if (!txs?.length) return;
 
-  const chainCfg = getChainConfig(chainId);
-  const nativePlaceholder = normalizeAddress('0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee');
-  const wrappedNative = normalizeAddress(chainCfg.wrappedNativeAddress);
-  const stableSet = new Set((chainCfg.stablecoins || []).map((s) => normalizeAddress(s)));
   const isTradeType = (txType?: string | null): boolean =>
     txType === 'TARGET_BUY' || txType === 'TARGET_SELL' || txType === 'TARGET_TOKEN_SWAP' ||
     txType === 'BUY' || txType === 'SELL' || txType === 'SWAP';
@@ -622,10 +619,14 @@ export async function bootstrapTrackedWalletHistory(
               if (swap?.tokenIn && swap?.tokenOut) {
                 const tokenIn = normalizeAddress(swap.tokenIn);
                 const tokenOut = normalizeAddress(swap.tokenOut);
-                const tokenInIsCash = stableSet.has(tokenIn) || tokenIn === wrappedNative || tokenIn === nativePlaceholder;
-                const tokenOutIsCash = stableSet.has(tokenOut) || tokenOut === wrappedNative || tokenOut === nativePlaceholder;
-                const isBuy = tokenInIsCash && !tokenOutIsCash;
-                const isSell = !tokenInIsCash && tokenOutIsCash;
+                const direction = determineCopyTradeDirection({
+                  chainId,
+                  tokenIn,
+                  tokenOut,
+                  cashLegHint: swap.cashLegHint
+                });
+                const isBuy = direction.isBuy;
+                const isSell = direction.isSell;
 
                 txType = isBuy ? 'TARGET_BUY' : isSell ? 'TARGET_SELL' : 'TARGET_TOKEN_SWAP';
                 tokenInAddress = tokenIn;

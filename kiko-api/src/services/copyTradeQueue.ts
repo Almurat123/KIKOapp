@@ -48,6 +48,17 @@ function processQueue(): void {
                         ? await getPendingTxHint(task.chainId, task.swap.txHash).catch(() => null)
                         : null;
                     const detectedAt = task.detectedAt || pendingHint?.detectedAt;
+                    const queueDelayMs = detectedAt ? Math.max(0, Date.now() - detectedAt) : null;
+                    if (queueDelayMs !== null && queueDelayMs > 500) {
+                        logger.info(LogCode.SYS_INFO, '[CopyTradeTiming] queue dispatch delay', {
+                            chainId: task.chainId,
+                            txHash: task.swap?.txHash,
+                            targetWallet: task.targetWallet,
+                            queueDelayMs,
+                            inFlight,
+                            queued: queue.length
+                        });
+                    }
 
                     await markCopyTradeTxState(task.chainId, task.swap.txHash || 'nohash', 'executing', {
                         wallet: task.targetWallet

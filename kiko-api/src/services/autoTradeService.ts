@@ -44,6 +44,8 @@ import { LogCode } from '../config/logRegistry.js';
 import { getNativeBalance as rpcGetNativeBalance, getErc20Balance, getErc20Decimals } from './rpcManager.js';
 import { startCopyTradePendingWatcher, stopCopyTradePendingWatcher } from './copyTradePendingService.js';
 import { assertConfigExecutable } from './copyTradeConfigSignatureService.js';
+import { determineCopyTradeDirection } from './copyTradeDirection.js';
+import { preheatSellApprovalForToken } from './sellApprovalPreheater.js';
 
 export { getTokenInfo } from './tokenService.js';
 
@@ -104,8 +106,11 @@ const LAUNCHPAD_DET_TIMEOUT_MS = Number(process.env.LAUNCHPAD_DET_TIMEOUT_MS || 
 const COPYTRADE_MAX_DELAY_MS = Number(process.env.COPYTRADE_MAX_DELAY_MS || '5000');
 const COPYTRADE_TURBO_MAX_DELAY_MS = Number(process.env.COPYTRADE_TURBO_MAX_DELAY_MS || '2500');
 const COPYTRADE_PRICE_CHECK_TIMEOUT_MS = Number(process.env.COPYTRADE_PRICE_CHECK_TIMEOUT_MS || '1200');
+const COPYTRADE_LOG_ERROR_SLICE = Math.max(80, Number(process.env.COPYTRADE_LOG_ERROR_SLICE || '240'));
 const NO_OPEN_POSITIONS_LOG_WINDOW_MS = Number(process.env.NO_OPEN_POSITIONS_LOG_WINDOW_MS || '180000');
+const COPYTRADE_ENABLE_DETECTION_PREWARM = (process.env.COPYTRADE_ENABLE_DETECTION_PREWARM || 'false') === 'true';
 const ALLOWED_LAUNCHPAD_PROVIDERS = new Set(['zora', 'fourmeme']);
+const COPYTRADE_FORCE_EXTERNAL_SELL_PATH = (process.env.COPYTRADE_FORCE_EXTERNAL_SELL_PATH || 'true') === 'true';
 const CHAIN_LAUNCHPAD_PROVIDERS: Record<number, Set<string>> = {
     8453: new Set(['zora']),
     56: new Set(['fourmeme'])
@@ -326,6 +331,21 @@ async function getDexPriceWithTimeout(tokenAddress: string, chainId: number | 's
     }
 }
 
+function compactCopyTradeError(error: any): string {
+    return String(error?.message || error || 'unknown_error').slice(0, COPYTRADE_LOG_ERROR_SLICE);
+}
+
+function inferCopyTradeBugHint(error: any): string {
+    const msg = compactCopyTradeError(error).toLowerCase();
+    if (msg.includes('allowance') || msg.includes('approve')) return 'allowance_path';
+    if (msg.includes('slippage') || msg.includes('price impact')) return 'slippage_price';
+    if (msg.includes('nonce') || msg.includes('replacement')) return 'nonce_conflict';
+    if (msg.includes('timeout') || msg.includes('rpc') || msg.includes('network')) return 'rpc_timeout';
+    if (msg.includes('quote') || msg.includes('liquidity')) return 'quote_liquidity';
+    if (msg.includes('revert')) return 'onchain_revert';
+    return 'unknown';
+}
+
 // ... (previous functions remain)
 
 /**
@@ -345,6 +365,7 @@ export async function handleSwapDetected(
     }
 
     logger.info(LogCode.WTC_SWAP_DETECTED, 'Swap detected on target wallet', {
+        event: 'copytrade_detected',
         wallet: targetWallet,
         tokenIn: swap.tokenIn,
         tokenOut: swap.tokenOut,
@@ -360,51 +381,32 @@ export async function handleSwapDetected(
         return; // Skip duplicate
     }
 
-    // 🔥 Pre-warm cache (non-blocking) for faster downstream execution
-    Promise.allSettled([
-        getTokenInfo(swap.tokenIn, chainId, { priority: 'high', rpcStrategy: 'fast', fastMode: true }),
-        getTokenInfo(swap.tokenOut, chainId, { priority: 'high', rpcStrategy: 'fast', fastMode: true }),
-        getNativeTokenPriceUsd(chainId),
-        detectLaunchpadToken(swap.tokenOut, chainId),
-    ]).catch(() => undefined);
+    // Optional pre-warm to avoid adding API pressure/noise on hot webhook paths.
+    if (COPYTRADE_ENABLE_DETECTION_PREWARM) {
+        Promise.allSettled([
+            getTokenInfo(swap.tokenIn, chainId, { priority: 'high', rpcStrategy: 'fast', fastMode: true }),
+            getTokenInfo(swap.tokenOut, chainId, { priority: 'high', rpcStrategy: 'fast', fastMode: true }),
+            getNativeTokenPriceUsd(chainId),
+            detectLaunchpadToken(swap.tokenOut, chainId),
+        ]).catch(() => undefined);
+    }
 
-    const chainConfig = getChainConfig(chainId);
-
-    // Stablecoin/ETH addresses (what we consider "cash out")
-    const NATIVE_ETH = '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
-    const ZORA_TOKEN = '0x1111111111166b7fe7bd91427724b487980afc69';
-    const { SOLANA_CONFIG } = await import('../config/solanaConfig.js');
-
-    // Normalize all to lowercase for comparison
-    const CASH_TOKENS = [
-        NATIVE_ETH,
-        // ZORA_TOKEN, // Remove ZORA from cash tokens so it's treated as a tradable asset
-        chainConfig.wrappedNativeAddress,
-        ...chainConfig.stablecoins,
-        // Add Solana Cash Tokens
-        SOLANA_CONFIG.TOKENS.SOL,
-        SOLANA_CONFIG.TOKENS.USDC,
-        SOLANA_CONFIG.TOKENS.USDT
-    ].map(s => s ? normalizeAddress(s) : '');
-
-    // Determine if this is a BUY or SELL
-    // BUY: tokenOut is NOT cash (buying a token), tokenIn IS cash (paying with stable/eth)
-    // SELL: tokenIn is NOT cash (selling a token), tokenOut IS cash (receiving stable/eth)
-
-    // Check if In/Out are "Cash"
-    const isTokenInCash = CASH_TOKENS.includes(normalizeAddress(swap.tokenIn));
-    const isTokenOutCash = CASH_TOKENS.includes(normalizeAddress(swap.tokenOut));
-
-    const isBuy = isTokenInCash && !isTokenOutCash;
-    const isSell = !isTokenInCash && isTokenOutCash;
-    const isTokenToToken = !isTokenInCash && !isTokenOutCash;
+    const direction = determineCopyTradeDirection({
+        chainId,
+        tokenIn: swap.tokenIn,
+        tokenOut: swap.tokenOut,
+        cashLegHint: swap.cashLegHint
+    });
+    const { isBuy, isSell, isTokenToToken } = direction;
 
     logger.debug(LogCode.WTC_SWAP_DETECTED, 'Detection analysis complete', {
         isBuy,
         isSell,
         isTokenToToken,
-        tokenInIsCash: isTokenInCash,
-        tokenOutIsCash: isTokenOutCash
+        tokenInIsCash: direction.tokenInIsCash,
+        tokenOutIsCash: direction.tokenOutIsCash,
+        source: direction.source,
+        inferredTxType: direction.inferredTxType
     });
 
     if (isSell) {
@@ -416,8 +418,18 @@ export async function handleSwapDetected(
     } else if (isTokenToToken) {
         logger.info(LogCode.EXE_TX_BROADCAST, 'Parallel lightning trigger: SELL and BUY starting simultaneously', { targetWallet });
         await Promise.all([
-            handleTargetSell(targetWallet, swap, chainId).catch(e => logger.error(LogCode.EXE_TX_REVERTED, 'Parallel sell error', { error: e.message })),
-            handleTargetBuy(targetWallet, swap, chainId, { detectedAt }).catch(e => logger.error(LogCode.EXE_TX_REVERTED, 'Parallel buy error', { error: e.message }))
+            handleTargetSell(targetWallet, swap, chainId).catch(e => logger.error(LogCode.EXE_TX_REVERTED, 'Parallel sell error', {
+                error: compactCopyTradeError(e),
+                bugHint: inferCopyTradeBugHint(e),
+                txHash: swap.txHash,
+                chainId
+            })),
+            handleTargetBuy(targetWallet, swap, chainId, { detectedAt }).catch(e => logger.error(LogCode.EXE_TX_REVERTED, 'Parallel buy error', {
+                error: compactCopyTradeError(e),
+                bugHint: inferCopyTradeBugHint(e),
+                txHash: swap.txHash,
+                chainId
+            }))
         ]);
     } else {
         // logger.throttled(LogCode.WTC_TX_SKIPPED, 'Cash-to-Cash or ignored swap type detected', { tokenIn: swap.tokenIn, tokenOut: swap.tokenOut });
@@ -452,7 +464,7 @@ async function handleTargetBuy(
     logger.debug(LogCode.EXE_QUOTE_FETCHED, `Fast path execution started for ${tokenToBuy}`, { targetWallet, token: tokenToBuy });
 
     // 1. FIRST: Check for active configs. If none, exit immediately (No API calls, No Logs)
-    const rawConfigs = await withRetry(() => prisma.copyTradeConfig.findMany({
+    const rawConfigsFound = await withRetry(() => prisma.copyTradeConfig.findMany({
         where: {
             targetWallet: { mode: 'insensitive', equals: normalizedWallet },
             chainId,
@@ -460,9 +472,21 @@ async function handleTargetBuy(
         },
     })) as any[];
 
+    const rawConfigs = rawConfigsFound.filter((config) =>
+        normalizeAddress(config?.targetWallet || '') === normalizedWallet
+    );
+
     if (rawConfigs.length === 0) {
         logger.throttled(LogCode.WTC_TX_SKIPPED, 'No active configurations found for this wallet', { targetWallet, chainId });
         return;
+    }
+    if (rawConfigsFound.length !== rawConfigs.length) {
+        logger.warn(LogCode.WTC_TX_SKIPPED, 'Filtered mismatched target wallet configs on buy path', {
+            targetWallet: normalizedWallet,
+            chainId,
+            found: rawConfigsFound.length,
+            matched: rawConfigs.length
+        });
     }
 
     const userIds = [...new Set(rawConfigs.map(c => c.userId))];
@@ -470,6 +494,7 @@ async function handleTargetBuy(
         where: { privyDid: { in: userIds } }
     });
     const userMap = new Map(users.map(u => [u.privyDid, u]));
+    const allowSelfTarget = (process.env.COPYTRADE_ALLOW_SELF_TARGET || 'false') === 'true';
     const configs = rawConfigs
         .map((c: any) => ({
             ...c,
@@ -478,7 +503,21 @@ async function handleTargetBuy(
             // safe: full path, balanced/turbo: fast path enabled (all EVM chains)
             fastExecutionEnabled: resolveExecutionModeForConfig(c) !== 'safe'
         }))
-        .filter((c) => Boolean(c.user));
+        .filter((c) => Boolean(c.user))
+        .filter((c) => {
+            if (allowSelfTarget) return true;
+            const userWallet = normalizeAddress(c.user?.walletAddress || '');
+            const isSelfTarget = userWallet !== '' && userWallet === normalizedWallet;
+            if (isSelfTarget) {
+                logger.warn(LogCode.WTC_TX_SKIPPED, 'Skipping self-target copytrade config (safety)', {
+                    configId: c.id,
+                    userId: c.userId,
+                    targetWallet: normalizedWallet
+                });
+                return false;
+            }
+            return true;
+        });
 
     if (configs.length === 0) {
         logger.throttled(LogCode.WTC_TX_SKIPPED, 'No valid user records for configs', { targetWallet, chainId });
@@ -498,6 +537,14 @@ async function handleTargetBuy(
         });
         return;
     }
+
+    logger.info(LogCode.EXE_QUOTE_FETCHED, '[CopyTrade] Executable buy configs ready', {
+        chainId,
+        targetWallet: normalizedWallet,
+        token: tokenToBuy,
+        configCount: executableConfigs.length,
+        configIds: executableConfigs.slice(0, 8).map((c: any) => c.id)
+    });
 
     const tokenInfoCache = new Map<string, Promise<any>>();
 
@@ -1097,6 +1144,16 @@ async function processSingleUserBuy(
         const turboMode = executionMode === 'turbo';
 
         try {
+            const inboundDelayMs = detectedAt ? Math.max(0, Date.now() - detectedAt) : null;
+            if (inboundDelayMs !== null && inboundDelayMs > 800) {
+                logger.info(LogCode.EXE_QUOTE_FETCHED, '[CopyTradeTiming] user buy dispatch delay', {
+                    userId: config.userId,
+                    token: tokenToBuy,
+                    chainId,
+                    inboundDelayMs,
+                    executionMode
+                });
+            }
             const effectiveMaxDelayMs = turboMode ? COPYTRADE_TURBO_MAX_DELAY_MS : COPYTRADE_MAX_DELAY_MS;
             if (detectedAt && Date.now() - detectedAt > effectiveMaxDelayMs) {
                 logger.info(LogCode.WTC_TX_SKIPPED, 'Skipping trade: copytrade delay exceeded', {
@@ -1595,12 +1652,19 @@ async function processSingleUserBuy(
                         timingMs: Date.now() - timingDetectedAt
                     });
                 } catch (buyErr1: any) {
-                    logger.warn(LogCode.EXE_TX_REVERTED, 'Buy Step 1 failed', { userId: config.userId, error: buyErr1.message });
+                    logger.warn(LogCode.EXE_TX_REVERTED, 'Buy Step 1 failed', {
+                        userId: config.userId,
+                        error: compactCopyTradeError(buyErr1),
+                        bugHint: inferCopyTradeBugHint(buyErr1),
+                        chainId,
+                        token: tokenToBuy
+                    });
                     if (turboMode) {
                         logger.warn(LogCode.EXE_TX_REVERTED, 'Turbo mode: skip slow multi-step retries after step1 failure', {
                             userId: config.userId,
                             token: tokenToBuy,
-                            error: buyErr1.message
+                            error: compactCopyTradeError(buyErr1),
+                            bugHint: inferCopyTradeBugHint(buyErr1)
                         });
                         // Turbo fail-fast must release pending lock, otherwise mirror-sell/monitor won't see open positions
                         // and stale pending rows can block subsequent buys.
@@ -1672,7 +1736,13 @@ async function processSingleUserBuy(
                         if (!result2.success) throw new Error(result2.error);
                         txHash = result2.txHash!;
                     } catch (buyErr2: any) {
-                        logger.warn(LogCode.EXE_TX_REVERTED, 'Buy Step 2 failed, retrying final step...', { userId: config.userId, error: buyErr2.message });
+                        logger.warn(LogCode.EXE_TX_REVERTED, 'Buy Step 2 failed, retrying final step...', {
+                            userId: config.userId,
+                            error: compactCopyTradeError(buyErr2),
+                            bugHint: inferCopyTradeBugHint(buyErr2),
+                            chainId,
+                            token: tokenToBuy
+                        });
                         await new Promise(resolve => setTimeout(resolve, 500)); // 🚀 Optimized: 1000ms → 500ms
 
                         try {
@@ -1701,7 +1771,13 @@ async function processSingleUserBuy(
                             if (!result3.success) throw new Error(result3.error);
                             txHash = result3.txHash!;
                         } catch (buyErr3: any) {
-                            logger.error(LogCode.EXE_TX_REVERTED, 'All buy steps failed for token', { userId: config.userId, token: tokenToBuy, error: buyErr3.message });
+                            logger.error(LogCode.EXE_TX_REVERTED, 'All buy steps failed for token', {
+                                userId: config.userId,
+                                token: tokenToBuy,
+                                error: compactCopyTradeError(buyErr3),
+                                bugHint: inferCopyTradeBugHint(buyErr3),
+                                chainId
+                            });
                             return; // Skip to next config
                         }
                     }
@@ -1756,6 +1832,16 @@ async function processSingleUserBuy(
         }
 
         logger.info(LogCode.EXE_TX_CONFIRMED, 'Copy trade completed and position created', { userId: config.userId, token: tokenToBuy, txHash });
+
+        // Warm sell approval in the background so later mirror-sell can skip allowance latency.
+        void preheatSellApprovalForToken({
+            userId: effectiveConfig.user.privyDid,
+            walletAddress: effectiveConfig.user.walletAddress,
+            chainId,
+            tokenAddress: tokenToBuy,
+            tokenPriceUsd: tokenInfo.price,
+            tokenDecimals: tokenInfo.decimals
+        });
 
         // Track User Activity (Copy Trade + Swap Volume)
         trackCopyTrade(config.userId);
@@ -1878,7 +1964,8 @@ ${analysis.rawAnalysis}
         logger.error(LogCode.SYS_ERROR, `Error processing trade configuration`, {
             configId: config.id,
             userId: config.userId,
-            error: error.message,
+            error: compactCopyTradeError(error),
+            bugHint: inferCopyTradeBugHint(error),
             stack: error.stack
         });
 
@@ -1891,7 +1978,7 @@ ${analysis.rawAnalysis}
             type: 'TRADE_FAILURE',
             data: {
                 tokenSymbol: tokenInfo.symbol || 'Unknown',
-                error: error.message,
+                error: compactCopyTradeError(error),
                 targetWallet: targetWallet,
                 chainId: chainId
             }
@@ -2124,6 +2211,15 @@ async function executePositionExit(params: {
 
             let isPartialSell = false;
             const executionMode = resolveExecutionModeForConfig(config);
+            const fastSwapModeForSell = COPYTRADE_FORCE_EXTERNAL_SELL_PATH ? false : executionMode !== 'safe';
+            if (COPYTRADE_FORCE_EXTERNAL_SELL_PATH) {
+                logger.debug(LogCode.SYS_INFO, 'Mirror sell forcing external aggregator path', {
+                    userId,
+                    tokenAddress,
+                    chainId,
+                    executionMode
+                });
+            }
             try {
                 const safeBalance = balance > 0n ? balance - 1n : 0n;
                 // Use universal global slippage
@@ -2144,14 +2240,20 @@ async function executePositionExit(params: {
                     slippageBps: initialSlippage,
                     mode: 'copytrade',
                     userSettings: {
-                        fastSwapMode: executionMode !== 'safe',
+                        fastSwapMode: fastSwapModeForSell,
                         copyTradeExecutionMode: executionMode
                     }
                 });
                 if (!sellResult.success) throw new Error(sellResult.error);
                 txHash = sellResult.txHash!;
             } catch (e: any) {
-                logger.warn(LogCode.EXE_TX_REVERTED, 'EVM sell failed, retrying partial sell', { userId, error: e.message });
+                logger.warn(LogCode.EXE_TX_REVERTED, 'EVM sell failed, retrying partial sell', {
+                    userId,
+                    error: compactCopyTradeError(e),
+                    bugHint: inferCopyTradeBugHint(e),
+                    token: tokenAddress,
+                    chainId
+                });
                 try {
                     const safeBalance999 = (balance * 999n) / 1000n;
                     // Retry with 1.5x of global slippage, capped at 25%
@@ -2170,7 +2272,7 @@ async function executePositionExit(params: {
                         slippageBps: retrySlippage,
                         mode: 'copytrade',
                         userSettings: {
-                            fastSwapMode: executionMode !== 'safe',
+                            fastSwapMode: fastSwapModeForSell,
                             copyTradeExecutionMode: executionMode
                         }
                     });
@@ -2190,7 +2292,13 @@ async function executePositionExit(params: {
                                 feeContext: 'copyTrade',
                             });
                         } catch (fmErr: any) {
-                            logger.error(LogCode.EXE_TX_REVERTED, 'Four.meme fallback sell failed', { userId, token: tokenAddress, error: fmErr.message });
+                            logger.error(LogCode.EXE_TX_REVERTED, 'Four.meme fallback sell failed', {
+                                userId,
+                                token: tokenAddress,
+                                error: compactCopyTradeError(fmErr),
+                                bugHint: inferCopyTradeBugHint(fmErr),
+                                chainId
+                            });
                             throw fmErr;
                         } // Re-throw to trigger exit_failed
                     } else { throw e2; } // Re-throw to trigger exit_failed
@@ -2215,7 +2323,7 @@ async function executePositionExit(params: {
                             slippageBps: 2000, // Higher slippage for dust sweep (20%)
                             mode: 'copytrade',
                             userSettings: {
-                                fastSwapMode: executionMode !== 'safe',
+                                fastSwapMode: fastSwapModeForSell,
                                 copyTradeExecutionMode: executionMode
                             }
                         });
@@ -2400,8 +2508,14 @@ async function handleTargetSell(
 ): Promise<void> {
     const tokenToSell = swap.tokenIn;
     const normalizedWallet = normalizeAddress(targetWallet);
+    logger.info(LogCode.EXE_QUOTE_FETCHED, '[CopyTradeTiming] target sell start', {
+        targetWallet: normalizedWallet,
+        token: tokenToSell,
+        chainId,
+        txHash: swap.txHash
+    });
 
-    const rawConfigs = await withRetry(() => prisma.copyTradeConfig.findMany({
+    const rawConfigsFound = await withRetry(() => prisma.copyTradeConfig.findMany({
         where: {
             targetWallet: { mode: 'insensitive', equals: normalizedWallet },
             chainId,
@@ -2410,16 +2524,43 @@ async function handleTargetSell(
         },
     }));
 
+    const rawConfigs = rawConfigsFound.filter((config) =>
+        normalizeAddress(config?.targetWallet || '') === normalizedWallet
+    );
+
     if (rawConfigs.length === 0) return;
+    if (rawConfigsFound.length !== rawConfigs.length) {
+        logger.warn(LogCode.WTC_TX_SKIPPED, 'Filtered mismatched target wallet configs on sell path', {
+            targetWallet: normalizedWallet,
+            chainId,
+            found: rawConfigsFound.length,
+            matched: rawConfigs.length
+        });
+    }
 
     const userIds = [...new Set(rawConfigs.map(c => c.userId))];
     const users = await prisma.user.findMany({
         where: { privyDid: { in: userIds } }
     });
     const userMap = new Map(users.map(u => [u.privyDid, u]));
+    const allowSelfTarget = (process.env.COPYTRADE_ALLOW_SELF_TARGET || 'false') === 'true';
     const configs = rawConfigs
         .map(c => ({ ...c, user: userMap.get(c.userId) }))
-        .filter((c): c is typeof rawConfigs[number] & { user: NonNullable<(typeof users)[number]> } => Boolean(c.user));
+        .filter((c): c is typeof rawConfigs[number] & { user: NonNullable<(typeof users)[number]> } => Boolean(c.user))
+        .filter((c) => {
+            if (allowSelfTarget) return true;
+            const userWallet = normalizeAddress(c.user?.walletAddress || '');
+            const isSelfTarget = userWallet !== '' && userWallet === normalizedWallet;
+            if (isSelfTarget) {
+                logger.warn(LogCode.WTC_TX_SKIPPED, 'Skipping self-target mirror sell config (safety)', {
+                    configId: c.id,
+                    userId: c.userId,
+                    targetWallet: normalizedWallet
+                });
+                return false;
+            }
+            return true;
+        });
 
     if (configs.length === 0) return;
 

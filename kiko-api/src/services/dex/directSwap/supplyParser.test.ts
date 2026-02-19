@@ -111,3 +111,74 @@ test('resolveHintedV4PoolFromSwapSupply maps resolved v4 pool key directly', asy
   assert.equal(pool?.poolAddress.toLowerCase(), '0x5555555555555555555555555555555555555555');
   assert.equal(pool?.poolKey.fee, 3000);
 });
+
+test('parseSwapSupplyFromSourceTx deduplicates inflight decode and serves cached result', async () => {
+  const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+  const txHash = `0x${'a'.repeat(64)}`;
+  const tokenIn = '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
+  const tokenOut = '0x7777777777777777777777777777777777777777';
+
+  let txCalls = 0;
+  let receiptCalls = 0;
+  let parseCalls = 0;
+
+  const deps = {
+    getTransactionByHash: async (_chainId: number, _sourceTxHash: string) => {
+      txCalls += 1;
+      await sleep(25);
+      return {
+        hash: txHash,
+        from: '0x1111111111111111111111111111111111111111',
+        to: '0x2222222222222222222222222222222222222222',
+        input: '0x',
+        value: '0x0'
+      };
+    },
+    getTransactionReceipt: async (_chainId: number, _sourceTxHash: string) => {
+      receiptCalls += 1;
+      await sleep(25);
+      return { logs: [], status: 1 };
+    },
+    parseSwapTransaction: async (_tx: any, _receipt: any, _chainId: number) => {
+      parseCalls += 1;
+      await sleep(25);
+      return {
+        tokenIn,
+        tokenOut,
+        amountIn: '1000',
+        amountOut: '2000',
+        router: '0x3333333333333333333333333333333333333333',
+        dexName: 'mock'
+      };
+    }
+  };
+
+  const params = {
+    chainId: 8453,
+    sourceTxHash: txHash,
+    tokenIn,
+    tokenOut
+  };
+
+  const [a, b, c, d] = await Promise.all([
+    parseSwapSupplyFromSourceTx(params, deps),
+    parseSwapSupplyFromSourceTx(params, deps),
+    parseSwapSupplyFromSourceTx(params, deps),
+    parseSwapSupplyFromSourceTx(params, deps)
+  ]);
+
+  assert.ok(a && b && c && d);
+  assert.equal(txCalls, 1);
+  assert.equal(receiptCalls, 1);
+  assert.equal(parseCalls, 1);
+
+  const cacheStart = Date.now();
+  const cached = await parseSwapSupplyFromSourceTx(params, deps);
+  const cacheMs = Date.now() - cacheStart;
+
+  assert.ok(cached);
+  assert.equal(txCalls, 1);
+  assert.equal(receiptCalls, 1);
+  assert.equal(parseCalls, 1);
+  assert.ok(cacheMs < 15);
+});

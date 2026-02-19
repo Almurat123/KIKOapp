@@ -55,6 +55,7 @@ const WEBHOOK_FETCH_PARSE_BUDGET_MS = Math.max(250, Number(process.env.COPYTRADE
 const WEBHOOK_FULL_TX_TIMEOUT_MS = Math.max(120, Number(process.env.COPYTRADE_WEBHOOK_FULL_TX_TIMEOUT_MS || 450));
 const WEBHOOK_PARSE_TIMEOUT_MS = Math.max(120, Number(process.env.COPYTRADE_WEBHOOK_PARSE_TIMEOUT_MS || 350));
 const WEBHOOK_LOCAL_TX_INFLIGHT_TTL_MS = Math.max(1000, Number(process.env.COPYTRADE_WEBHOOK_LOCAL_TX_INFLIGHT_TTL_MS || 20_000));
+const COPYTRADE_DETECTED_AT_STALE_MS = Math.max(1000, Number(process.env.COPYTRADE_DETECTED_AT_STALE_MS || 4000));
 const WEBHOOK_RECEIPT_RECOVERY_DELAYS_MS = String(process.env.COPYTRADE_WEBHOOK_RECEIPT_RECOVERY_DELAYS_MS || '1200,3000,7000')
     .split(',')
     .map((v) => Number(v.trim()))
@@ -98,6 +99,19 @@ function logWebhookTiming(scope: string, txHash: string, timings: Record<string,
         .map(([k, v]) => `${k}=${v}`)
         .join(' ');
     console.log(`[WebhookTiming][${scope}] tx=${txHash.slice(0, 12)} ${printable}`);
+}
+
+function resolveDetectedAt(...candidates: Array<number | undefined | null>): number {
+    const now = Date.now();
+    for (const candidate of candidates) {
+        if (!Number.isFinite(candidate as number)) continue;
+        const value = Number(candidate);
+        if (value <= 0) continue;
+        if (now - value <= COPYTRADE_DETECTED_AT_STALE_MS) {
+            return value;
+        }
+    }
+    return now;
 }
 
 function waitMs(ms: number): Promise<void> {
@@ -506,6 +520,7 @@ async function processAlchemyWebhookPayload(payload: any): Promise<void> {
                 where: {
                     address: { in: candidates, mode: 'insensitive' },
                     chainId,
+                    activeConfigs: { gt: 0 }
                 }
             });
 
@@ -680,7 +695,7 @@ async function processAlchemyWebhookPayload(payload: any): Promise<void> {
                 swapsDetected += 1;
                 const activityCashHint = await buildActivityCashHint(evmActivities, trackedTarget, chainId).catch(() => null);
                 if (activityCashHint) {
-                    (swap as any).cashLegHint = activityCashHint;
+                    swap.cashLegHint = activityCashHint;
                 }
                 await markCopyTradeTxState(chainId, txHash, 'swap_decoded', {
                     wallet: trackedTarget,
@@ -690,7 +705,7 @@ async function processAlchemyWebhookPayload(payload: any): Promise<void> {
 
                 const { enqueueCopyTradeTask } = await import('../services/copyTradeQueue.js');
                 enqueueCopyTradeTask(trackedTarget, swap, chainId, {
-                    detectedAt: pendingHint?.detectedAt || cached?.detectedAt
+                    detectedAt: resolveDetectedAt(cached?.detectedAt, pendingHint?.detectedAt)
                 });
             }));
             logWebhookTiming('alchemy', txHash, {
@@ -814,7 +829,7 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
                 const pendingHint = await getPendingTxHint(chainId, txHashNormalized).catch(() => null);
                 const { enqueueCopyTradeTask } = await import('../services/copyTradeQueue.js');
                 enqueueCopyTradeTask(wallet, predecoded.swap, chainId, {
-                    detectedAt: pendingHint?.detectedAt || predecoded.detectedAt
+                    detectedAt: resolveDetectedAt(predecoded.detectedAt, pendingHint?.detectedAt)
                 });
                 await markTxAsProcessedDistributed(txHashNormalized, chainId);
                 tEnqueue = Date.now() - enqueueStart;
@@ -911,7 +926,7 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
             const enqueueStart = Date.now();
             const { enqueueCopyTradeTask } = await import('../services/copyTradeQueue.js');
             enqueueCopyTradeTask(wallet, swap, chainId, {
-                detectedAt: pendingHint?.detectedAt
+                detectedAt: resolveDetectedAt(pendingHint?.detectedAt)
             });
             await markTxAsProcessedDistributed(txHashNormalized, chainId);
             tEnqueue = Date.now() - enqueueStart;

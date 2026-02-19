@@ -33,7 +33,10 @@ import { buildV4HookDataCandidates, isClankerHook, resolveV4HookProfile } from '
 import { extractRevertReason } from '../../../utils/evm.js';
 import { SelectedV4Pool } from '../v4ExecutionPlan.js';
 import { zoraService } from '../../zoraService.js';
-import { resolveHintedPoolFromSourceTx, resolveHintedV4PoolFromSourceTx } from '../hintedPoolResolver.js';
+import {
+    resolveHintedPoolFromSwapSupply as resolveHintedPoolFromSourceTx,
+    resolveHintedV4PoolFromSwapSupply as resolveHintedV4PoolFromSourceTx
+} from './supplyParser.js';
 import type { DexFamily, StrategyKind, DexStrategy, HintedSourcePool, DirectSwapHint } from '../directSwapTypes.js';
 import type {
     DirectSwapExecutionMode,
@@ -840,7 +843,12 @@ export async function executeDirectSwap(params: {
                 : 700;
             if (earlyHintBudgetMs > 0) {
                 earlyHintedPool = await withTimeout(
-                    resolveHintedPoolFromSourceTx(poolTokenIn, poolTokenOut, chainId, params.hint),
+                    resolveHintedPoolFromSourceTx({
+                        tokenIn: poolTokenIn,
+                        tokenOut: poolTokenOut,
+                        chainId,
+                        hint: params.hint
+                    }),
                     earlyHintBudgetMs
                 ).catch(() => null);
                 logger.info(LogCode.SYS_INFO, '[DirectSwap] Early hinted source pool probe', {
@@ -1105,7 +1113,12 @@ export async function executeDirectSwap(params: {
             // Sniper safeguard: source tx may carry a resolvable pool even when static discovery misses it.
             if (params.hint?.sourceTxHash) {
                 const hintedPool = earlyHintedPool || await withTimeout(
-                    resolveHintedPoolFromSourceTx(poolTokenIn, poolTokenOut, chainId, params.hint),
+                    resolveHintedPoolFromSourceTx({
+                        tokenIn: poolTokenIn,
+                        tokenOut: poolTokenOut,
+                        chainId,
+                        hint: params.hint
+                    }),
                     turboMode ? Math.max(220, Math.min(1200, turboFastDeadline - Date.now())) : 1200
                 ).catch(() => null);
                 logger.info(LogCode.SYS_INFO, '[DirectSwap] No-pool hinted fallback probe', {
@@ -1437,7 +1450,12 @@ export async function executeDirectSwap(params: {
                 if (turboMode && params.hint?.sourceTxHash) {
                     const turboHintedPool: HintedSourcePool | null = earlyHintedPool
                         || await withTimeout(
-                            resolveHintedPoolFromSourceTx(poolTokenIn, poolTokenOut, chainId, params.hint),
+                            resolveHintedPoolFromSourceTx({
+                                tokenIn: poolTokenIn,
+                                tokenOut: poolTokenOut,
+                                chainId,
+                                hint: params.hint
+                            }),
                             Math.max(200, Math.min(900, turboFastDeadline - Date.now()))
                         ).catch(() => null);
                     if (turboHintedPool?.kind === 'v4') {
@@ -2464,7 +2482,7 @@ async function getV4BestPoolQuote(
 ): Promise<{ pool: SelectedV4Pool | null; amountOut: bigint }> {
     const pools = options?.preloadedPools || await findV4Pools(tokenIn, tokenOut, chainId);
     const hintedPool = pools.length === 0
-        ? await resolveHintedV4PoolFromSourceTx(tokenIn, tokenOut, chainId, hint)
+        ? await resolveHintedV4PoolFromSourceTx({ tokenIn, tokenOut, chainId, hint })
         : null;
     if (!pools.length && !hintedPool) return { pool: null, amountOut: 0n };
 

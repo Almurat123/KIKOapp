@@ -48,7 +48,7 @@ export const PreLoginWarningModal: React.FC<PreLoginWarningModalProps> = ({
                         onChange={(e) => setIsChecked(e.target.checked)}
                     />
                     <span className={styles.checkboxLabel}>
-                        I have read and acknowledged the warning notices and understand the risks involved. By continuing, you agree to our <a href="#" target="_blank" rel="noopener noreferrer" className={styles.link} onClick={(e) => e.stopPropagation()}>Terms of Service</a> and <a href="#" target="_blank" rel="noopener noreferrer" className={styles.link} onClick={(e) => e.stopPropagation()}>Privacy Policy</a>.
+                        I have read and acknowledged the warning notices and understand the risks involved. By continuing, you agree to our <a href="https://docs.kikoapp.app/compliance/terms-of-service" target="_blank" rel="noopener noreferrer" className={styles.link} onClick={(e) => e.stopPropagation()}>Terms of Service</a> and <a href="https://docs.kikoapp.app/compliance/privacy-policy" target="_blank" rel="noopener noreferrer" className={styles.link} onClick={(e) => e.stopPropagation()}>Privacy Policy</a>.
                     </span>
                 </label>
 
