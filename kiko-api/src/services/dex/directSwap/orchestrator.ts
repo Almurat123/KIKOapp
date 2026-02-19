@@ -22,6 +22,7 @@ import { sendTransaction } from '../../privyWallet.js';
 import { getZeroExPrice } from '../../zeroEx.js';
 import { getKyberQuote } from '../../kyberAggregator.js';
 import { getTokenDetails } from '../../geckoTerminal.js';
+import { getNativeTokenPriceUsd } from '../../onChainPriceService.js';
 import { getTokenMetadata } from '../../rpcService.js';
 import { get as getDbCache } from '../../../cache/dbCache.js';
 import { get as cacheGet, set as cacheSet, del as cacheDel } from '../../../cache/cacheClient.js';
@@ -395,25 +396,9 @@ async function parseAmountInWeiByToken(
     return ethers.parseUnits(safe, decimals);
 }
 
-// ETH/Native token USD price cache (fetched from geckoTerminal, updated lazily)
-const nativePriceCache = new Map<number, { priceUsd: number; ts: number }>();
-const NATIVE_PRICE_TTL_MS = 60_000; // refresh every 60s
-
+// Delegates to the single source of truth for native prices (10-min cache, multi-source fallback)
 async function getNativePriceUsd(chainId: number): Promise<number> {
-    const cached = nativePriceCache.get(chainId);
-    if (cached && Date.now() - cached.ts < NATIVE_PRICE_TTL_MS) return cached.priceUsd;
-    const weth = WETH_ADDRESSES[chainId];
-    if (!weth) return 0;
-    const chainName = chainId === 8453 ? 'base' : chainId === 1 ? 'eth' : chainId === 56 ? 'bsc' : '';
-    if (!chainName) return 0;
-    try {
-        const details = await getTokenDetails(chainName, weth, 'high');
-        const priceUsd = details?.price ?? 0;
-        if (priceUsd > 0) nativePriceCache.set(chainId, { priceUsd, ts: Date.now() });
-        return priceUsd;
-    } catch {
-        return cached?.priceUsd ?? 0;
-    }
+    return getNativeTokenPriceUsd(chainId).catch(() => 0);
 }
 
 /**

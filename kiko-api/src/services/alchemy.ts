@@ -5,6 +5,7 @@
  */
 
 import { env } from '../config/env.js';
+import { getNativeTokenPriceUsd } from './onChainPriceService.js';
 import * as rpcManager from './rpcManager.js';
 import * as helius from './helius.js';
 import * as scanApi from './scanApi.js';
@@ -1624,91 +1625,28 @@ async function getTokenMetadataBatch(
  * Only SOL, BNB, MATIC are truly different native tokens.
  * DexScreener is used as fallback only when Coinbase fails.
  *
- * [Perf]: Results cached for 60s in-process — prices don't change fast enough
- * to justify fetching on every portfolio call. This eliminates the 3-4s Coinbase
- * latency from the CRITICAL PATH on all subsequent calls.
+ * [Perf]: onChainPriceService.getNativeTokenPriceUsd() is the single source of truth
+ * for native token prices (10-min cache, Coinbase→CoinGecko→CMC→RPC fallback chain).
+ * getNativePrices() here is a thin adapter that maps chain slugs to chainIds.
  */
-const nativePriceCache: { prices: Record<string, number>; timestamp: number } | null = { prices: {}, timestamp: 0 };
-const NATIVE_PRICE_CACHE_TTL_MS = 60_000;
 
-async function getNativePrices(): Promise<Record<string, number>> {
-  if (nativePriceCache && Date.now() - nativePriceCache.timestamp < NATIVE_PRICE_CACHE_TTL_MS && Object.keys(nativePriceCache.prices).length > 0) {
-    return nativePriceCache.prices;
-  }
+// Slug → chainId mapping used by getNativePrices()
+const NATIVE_SLUG_TO_CHAIN_ID: Record<string, number> = {
+  eth: 1, base: 8453, bsc: 56, solana: 900, polygon: 137, arbitrum: 42161, optimism: 10
+};
 
-  const prices: Record<string, number> = {};
-
-  // Primary: Coinbase spot prices. Timeout 2s — if slow, fall through to DexScreener.
-  const coinbaseSymbols: Array<[string, string[]]> = [
-    ['ETH-USD', ['eth', 'base', 'arbitrum', 'optimism']],
-    ['SOL-USD', ['solana']],
-    ['BNB-USD', ['bsc']],
-    ['POL-USD', ['polygon']],
-  ];
-
-  await Promise.allSettled(coinbaseSymbols.map(async ([pair, chains]) => {
-    try {
-      const res = await fetch(`https://api.coinbase.com/v2/prices/${pair}/spot`, { signal: AbortSignal.timeout(2000) });
-      if (res.ok) {
-        const json = await res.json();
-        const price = parseFloat(json.data?.amount);
-        if (Number.isFinite(price) && price > 0) {
-          for (const chain of chains) prices[chain] = price;
-        }
-      }
-    } catch (e: any) {
-      logger.warn(LogCode.API_FETCH_FAILED, 'Coinbase price fetch failed', { pair, error: e.message });
-    }
-  }));
-
-  // Fallback: DexScreener for any token Coinbase didn't cover
-  const missingChains = ['eth', 'solana', 'bsc', 'polygon'].filter(c => !prices[c]);
-  if (missingChains.length > 0) {
-    const wrappers: Record<string, string> = {
-      'eth': '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2',
-      'solana': 'So11111111111111111111111111111111111111112',
-      'bsc': '0xbb4cdb9cbd36b01bd1cbaebf2de08d9173bc095c',
-      'polygon': '0x0d500b1d8e8ef31e21c99d1db9a6444d3adf1270',
-    };
-    try {
-      const addrs = missingChains.map(c => wrappers[c]).filter(Boolean).join(',');
-      const res = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${addrs}`, { signal: AbortSignal.timeout(5000) });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.pairs && Array.isArray(data.pairs)) {
-          for (const chain of missingChains) {
-            const addr = wrappers[chain];
-            if (!addr) continue;
-            const pair = data.pairs.find((p: any) => p.baseToken?.address?.toLowerCase() === addr.toLowerCase());
-            if (pair?.priceUsd) {
-              const price = parseFloat(pair.priceUsd);
-              prices[chain] = price;
-              if (chain === 'eth') {
-                if (!prices['base']) prices['base'] = price;
-                if (!prices['arbitrum']) prices['arbitrum'] = price;
-                if (!prices['optimism']) prices['optimism'] = price;
-              }
-            }
-          }
-        }
-      }
-    } catch (e: any) {
-      logger.warn(LogCode.API_FETCH_FAILED, 'DexScreener native price fallback failed', { error: e.message });
-    }
-  }
-
-  // Propagate ETH price to L2s
-  if (prices['eth']) {
-    if (!prices['base']) prices['base'] = prices['eth'];
-    if (!prices['arbitrum']) prices['arbitrum'] = prices['eth'];
-    if (!prices['optimism']) prices['optimism'] = prices['eth'];
-  }
-
-  // Update cache (even partial results are better than waiting next time)
-  if (Object.keys(prices).length > 0) {
-    Object.assign(nativePriceCache!, { prices: { ...prices }, timestamp: Date.now() });
-  }
-
+/** Returns native token USD prices keyed by chain slug (eth, base, bsc, solana, …).
+ *  Delegates to onChainPriceService.getNativeTokenPriceUsd() — 10-min cache,
+ *  Coinbase → CoinGecko → CMC → on-chain RPC fallback chain.
+ */
+export async function getNativePrices(): Promise<Record<string, number>> {
+  const entries = await Promise.all(
+    Object.entries(NATIVE_SLUG_TO_CHAIN_ID).map(async ([slug, chainId]) => {
+      const price = await getNativeTokenPriceUsd(chainId).catch(() => 0);
+      return [slug, price] as [string, number];
+    })
+  );
+  const prices = Object.fromEntries(entries.filter(([, p]) => p > 0));
   logger.debug(LogCode.API_FETCH_SUCCESS, 'Native prices resolved', { prices });
   return prices;
 }
@@ -1897,6 +1835,9 @@ async function _getPortfolioInternal(
             let ethBalanceFormatted = 0;
             let ethPrice = NATIVE_PRICES[chainKey] || 0;
             const tokens: TokenBalance[] = [];
+            // [Fix]: Deduplicate by contractAddress — Alchemy Portfolio API occasionally
+            // returns the same token multiple times (pagination overlap / Base USDC bug).
+            const seenTokenAddresses = new Set<string>();
 
             networkGroups[network].forEach((t: any) => {
               const isNative = t.tokenAddress === null;
@@ -1912,7 +1853,14 @@ async function _getPortfolioInternal(
                 ethPrice = t.price || NATIVE_PRICES[chainKey] || 0;
               } else {
                 const tokenAddress = t.tokenAddress as string;
-                const meta = metadataByAddress[tokenAddress.toLowerCase()];
+                const addrLower = tokenAddress.toLowerCase();
+                // Skip if we've already processed this address (Alchemy dupe guard)
+                if (seenTokenAddresses.has(addrLower)) {
+                  logger.debug(LogCode.API_FETCH_SUCCESS, 'Skipping duplicate token from Alchemy response', { chain: chainKey, address: addrLower });
+                  return;
+                }
+                seenTokenAddresses.add(addrLower);
+                const meta = metadataByAddress[addrLower];
                 const override = stablecoinOverrides[chainKey]?.[tokenAddress.toLowerCase()];
                 const decimals = override?.decimals ?? (typeof t.decimals === 'number' ? t.decimals : (meta?.decimals ?? 18));
                 const symbol = override?.symbol || t.symbol || meta?.symbol || 'UNKNOWN';

@@ -7,6 +7,7 @@ import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
 import { type FeeContext } from './platformFeeService.js';
 import { fetchJson } from '../config/unifiedApiService.js';
+import { getNativeTokenPriceUsd } from './onChainPriceService.js';
 import { getEthersProvider } from './rpcManager.js';
 
 const CHAIN_ID = 8453; // Base Mainnet
@@ -446,8 +447,8 @@ export class ZoraSniperService {
             if (!useZoraToken && coin?.tokenPrice?.priceInUsdc && expectedAmountOut !== 'N/A') {
                 try {
                     const marketPrice = parseFloat(coin.tokenPrice.priceInUsdc);
-                    const ethPriceData = await fetchJson({ url: 'https://api.coinbase.com/v2/prices/ETH-USD/spot' }) as any;
-                    const ethPrice = parseFloat(ethPriceData.data.amount);
+                    const ethPrice = await getNativeTokenPriceUsd(8453).catch(() => 0);
+                    if (!ethPrice) throw new Error('ETH price unavailable');
 
                     const quotePrice = (parseFloat(params.amountIn) * ethPrice) / parseFloat(expectedAmountOut);
                     const deviation = (quotePrice - marketPrice) / marketPrice;
@@ -552,8 +553,8 @@ export class ZoraSniperService {
             if (coin?.tokenPrice?.priceInUsdc && expectedAmountOutEth !== 'N/A') {
                 try {
                     const marketPrice = parseFloat(coin.tokenPrice.priceInUsdc);
-                    const ethPriceData = await fetchJson({ url: 'https://api.coinbase.com/v2/prices/ETH-USD/spot' }) as any;
-                    const ethPrice = parseFloat(ethPriceData.data.amount);
+                    const ethPrice = await getNativeTokenPriceUsd(8453).catch(() => 0);
+                    if (!ethPrice) throw new Error('ETH price unavailable');
 
                     // For sell: quotePrice = eth_out * eth_price / tokens_in
                     // We need tokens_in in human readable format. Assuming 18 decimals.

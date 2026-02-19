@@ -7,7 +7,8 @@ import { sendTransaction } from '../privyWallet.js';
 import { AppError } from '../../middleware/errorHandler.js';
 import { getBestQuote, QuoteResult } from '../quoteService.js';
 import { getPlatformFee, isValidEvmAddress, FeeContext } from '../platformFeeService.js';
-import { toWei, getTokenPriceUSD } from '../zeroEx.js';
+import { toWei } from '../zeroEx.js';
+import { getDexPrice } from '../dexPriceService.js';
 import { getTokenInfo } from '../tokenService.js';
 import { executeSolanaSwap } from '../solanaExecutor.js';
 import { walletService } from '../walletService.js';
@@ -242,8 +243,8 @@ export class SwapExecutor {
         let refPrice: number | null = null;
         try {
             const [tokenInPrice, tokenOutPrice] = await Promise.all([
-                getTokenPriceUSD(actualTokenInFixed, chainId),
-                getTokenPriceUSD(actualTokenOutFixed, chainId)
+                getDexPrice(actualTokenInFixed, chainId),
+                getDexPrice(actualTokenOutFixed, chainId)
             ]);
 
             if (tokenInPrice && tokenOutPrice && tokenOutPrice > 0) {

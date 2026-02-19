@@ -194,3 +194,30 @@ test('assertConfigExecutable rejects direct DB parameter tampering', async () =>
   assert.equal(failResult.ok, false);
   assert.equal(failResult.reason, 'buy_amount_mismatch');
 });
+
+test('assertConfigExecutable allows expired intent after it was already persisted', async () => {
+  const wallet = Wallet.createRandom();
+  const payload = buildPayload({
+    signerAddress: wallet.address,
+    expiresAtMs: Date.now() - 10 * 60 * 1000,
+  });
+  const signature = await wallet.signTypedData(DOMAIN, TYPES, payload);
+
+  const config = {
+    id: 'cfg-expired',
+    userId: payload.userId,
+    requiresResign: false,
+    signatureScheme: 'eip712_v1',
+    configPayload: payload,
+    configHash: computeCopyTradeConfigHash(payload),
+    configSignature: signature,
+    signerAddress: wallet.address,
+    targetWallet: payload.targetWallet,
+    chainId: payload.chainId,
+    buyAmountUsd: Number(payload.buyAmountUsd),
+    maxSlippageBps: Number(payload.maxSlippageBps),
+  };
+
+  const result = assertConfigExecutable(config, wallet.address);
+  assert.equal(result.ok, true);
+});

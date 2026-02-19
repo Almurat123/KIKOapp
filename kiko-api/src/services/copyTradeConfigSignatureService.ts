@@ -120,16 +120,20 @@ function parsePayload(raw: unknown): Record<string, unknown> {
   return raw as Record<string, unknown>;
 }
 
-export function normalizeSignedPayload(raw: unknown): CopyTradeSignedPayload {
+export function normalizeSignedPayload(raw: unknown, opts?: { enforceNotExpired?: boolean }): CopyTradeSignedPayload {
   const payload = parsePayload(raw);
   const nonce = Number(payload.nonce);
   const expiresAtMs = Number(payload.expiresAtMs ?? payload.expiresAt);
   const chainId = Number(payload.chainId);
+  const enforceNotExpired = opts?.enforceNotExpired !== false;
 
   if (!Number.isInteger(nonce) || nonce <= 0) {
     throw new AppError(400, 'nonce must be a positive integer', 'SIGNATURE_INVALID');
   }
-  if (!Number.isInteger(expiresAtMs) || expiresAtMs <= Date.now()) {
+  if (!Number.isInteger(expiresAtMs)) {
+    throw new AppError(400, 'signed payload is expired', 'CONFIG_EXPIRED');
+  }
+  if (enforceNotExpired && expiresAtMs <= Date.now()) {
     throw new AppError(400, 'signed payload is expired', 'CONFIG_EXPIRED');
   }
   if (!Number.isInteger(chainId) || chainId <= 0) {
@@ -268,8 +272,7 @@ export function assertConfigExecutable(config: any, userWalletAddress: string): 
     return { ok: false, reason: 'missing_user_wallet' };
   }
 
-  const payload = normalizeSignedPayload(config.configPayload);
-  if (payload.expiresAtMs <= Date.now()) return { ok: false, reason: 'signature_expired' };
+  const payload = normalizeSignedPayload(config.configPayload, { enforceNotExpired: false });
   if (payload.userId !== config.userId) return { ok: false, reason: 'payload_user_mismatch' };
   if (normalizeAddress(payload.signerAddress) !== normalizeAddress(config.signerAddress)) {
     return { ok: false, reason: 'payload_signer_mismatch' };
