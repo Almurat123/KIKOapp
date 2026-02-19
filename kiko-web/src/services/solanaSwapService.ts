@@ -4,6 +4,7 @@
  */
 
 import { VersionedTransaction } from '@solana/web3.js';
+import { getStoredSlippageBps } from '@/config/slippageConfig';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 const SOLANA_RPC_URL = `${API_BASE_URL}/api/rpc/solana`;
@@ -51,7 +52,7 @@ export async function getSolanaSwapQuote(
         tokenOut: params.tokenOut,
         amountIn: params.amountIn,
         chainId: 900, // Solana mainnet
-        slippageBps: params.slippageBps || 50,
+        slippageBps: params.slippageBps ?? getStoredSlippageBps(),
         userAddress: params.userAddress,
         aggregator: params.aggregator || 'auto',
       }),

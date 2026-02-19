@@ -483,18 +483,18 @@ async function processAlchemyWebhookPayload(payload: any): Promise<void> {
         if (payloadTxDedup.has(txHash)) return;
         payloadTxDedup.add(txHash);
         if (!tryClaimLocalInflight(chainId, txHash)) {
-            console.log(`[Webhook] Tx already local in-flight: ${txHash.slice(0, 16)}`);
+            console.log(`[Webhook] Tx already local in-flight: ${txHash}`);
             return;
         }
 
         if (await isTxProcessedDistributed(txHash, chainId)) {
-            console.log(`[Webhook] Tx already in processedTxs cache: ${txHash.slice(0, 16)}`);
+            console.log(`[Webhook] Tx already in processedTxs cache: ${txHash}`);
             releaseLocalInflight(chainId, txHash);
             return;
         }
         const txLockValue = await claimTxProcessingLockDistributed(txHash, chainId);
         if (!txLockValue) {
-            console.log(`[Webhook] Tx already in-flight: ${txHash.slice(0, 16)}`);
+            console.log(`[Webhook] Tx already in-flight: ${txHash}`);
             releaseLocalInflight(chainId, txHash);
             return;
         }
@@ -511,12 +511,12 @@ async function processAlchemyWebhookPayload(payload: any): Promise<void> {
 
             if (trackedWallets.length === 0) {
                 console.log(
-                    `[Webhook] Ignore tx ${txHash.slice(0, 12)}: no tracked wallets (from/to ${candidates.map(c => c.slice(0, 6)).join(', ')})`
+                    `[Webhook] Ignore tx ${txHash}: no tracked wallets (from/to ${candidates.join(', ')})`
                 );
                 return;
             }
 
-            console.log(`[Webhook] Found ${trackedWallets.length} tracked wallets for tx ${txHash.slice(0, 8)}`);
+            console.log(`[Webhook] Found ${trackedWallets.length} tracked wallets for tx ${txHash}`);
 
             if (chainId === 900) {
                 try {
@@ -538,7 +538,7 @@ async function processAlchemyWebhookPayload(payload: any): Promise<void> {
                         }
                     }
                     if (!tx) {
-                        console.error(`[Webhook] Failed to fetch Solana tx details after trying all RPCs: ${txHash.slice(0, 16)}`);
+                        console.error(`[Webhook] Failed to fetch Solana tx details after trying all RPCs: ${txHash}`);
                         return;
                     }
 
@@ -762,7 +762,7 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
         if (!tryClaimLocalInflight(chainId, txHashNormalized)) {
             return reply.send({ success: true, skipped: true, reason: 'local_inflight_dedupe' });
         }
-        console.log(`[Webhook] Processing tx from Go service: wallet=${wallet.slice(0, 10)}, tx=${txHashNormalized.slice(0, 16)}, chain=${chainId}`);
+        console.log(`[Webhook] Processing tx from Go service: wallet=${wallet}, tx=${txHashNormalized}, chain=${chainId}`);
 
         let txLockValue: string | null = null;
         try {
@@ -796,7 +796,7 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
             });
             tExisting = Date.now() - t0 - tClaim;
             if (existingPosition) {
-                console.log(`[Webhook] Tx already processed: ${txHashNormalized.slice(0, 16)}`);
+                console.log(`[Webhook] Tx already processed: ${txHashNormalized}`);
                 await markTxAsProcessedDistributed(txHashNormalized, chainId);
                 return reply.send({ success: true, skipped: true, reason: 'already_processed' });
             }
@@ -1061,7 +1061,7 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
         const sampleCategory = sampleActivity?.category || 'n/a';
         const sampleAsset = sampleActivity?.asset || sampleActivity?.rawContract?.address || 'n/a';
         console.log(
-            `[Webhook] Alchemy payload: network=${rawNetwork} hash=${String(sampleHash).slice(0, 12)} category=${sampleCategory} asset=${sampleAsset}`
+            `[Webhook] Alchemy payload: network=${rawNetwork} hash=${String(sampleHash)} category=${sampleCategory} asset=${sampleAsset}`
         );
 
         // Handle Alchemy test ping (no event data)

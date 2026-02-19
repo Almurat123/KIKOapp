@@ -30,15 +30,12 @@ export interface TokenHolding {
 
 interface WalletCache {
     address: string;
-    fingerprint: {
-        nonce: number;
-        nativeBalanceWei: string;
-        timestamp: number;
-    };
+    cachedAt: number;
     holdings: TokenHolding[];
 }
 
 let globalBalanceCache: WalletCache | null = null;
+const GLOBAL_CACHE_TTL_MS = 30_000; // 30s TTL — stale after this, always re-fetch
 const TX_CACHE_TTL_MS = 60_000;
 const txCache = new Map<string, { timestamp: number; data: WalletTransaction[] }>();
 const CHAIN_ID_BY_KEY: Record<string, number> = {
@@ -128,7 +125,6 @@ export function useWalletPageData() {
     const [importedTokensByChain, setImportedTokensByChain] = useState<Record<string, ImportedSwapToken[]>>(() => readImportedSwapTokensFromStorage());
     const [loading, setLoading] = useState(true);
     const [transactions, setTransactions] = useState<WalletTransaction[]>([]);
-    const [, setCachedTransactions] = useState<WalletTransaction[]>([]);
     const [transactionsLoading, setTransactionsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
@@ -215,10 +211,28 @@ export function useWalletPageData() {
         }
     };
 
-    // [Logic]: Atomically fetch account fingerprint to avoid unnecessary API calls.
-    const fetchFingerprint = async (_addr: string) => {
-        if (isSolana) return { nonce: 0, balance: BigInt(0), fetched: false };
-        return { nonce: 0, balance: BigInt(0), fetched: false };
+    // [Logic]: Main balance fetch coordinator — TTL cache first, then full fetch.
+    // Server-side portfolioCache (30s inflight dedup) prevents duplicate Alchemy calls.
+    // No fingerprint middleman: it added a serial HTTP round-trip and made page slower.
+    const fetchBalances = async (reqId: number, cancelled: { value: boolean }, forceRefresh = false) => {
+        const cached = globalBalanceCache;
+        const cacheStillFresh = !forceRefresh && cached && cached.address === walletAddress &&
+            (Date.now() - cached.cachedAt) < GLOBAL_CACHE_TTL_MS;
+
+        if (cached && cached.address === walletAddress) {
+            // Always show cached data immediately for instant UI
+            setHoldings(cached.holdings); setCachedHoldings(cached.holdings); setLoading(false);
+            if (cacheStillFresh) return; // Fresh enough — skip network call
+        } else {
+            setLoading(true);
+        }
+        try {
+            const allBalances = await getAllChainBalances(walletAddress!, solanaWallet?.address, forceRefresh);
+            if (!allBalances || cancelled.value || reqId !== balanceReqId.current) return;
+            const result = processBalances(allBalances, importedTokensByChain);
+            setHoldings(result); setCachedHoldings(result);
+            globalBalanceCache = { address: walletAddress!, holdings: result, cachedAt: Date.now() };
+        } catch (e) { console.error('Error fetching balances', e); } finally { if (reqId === balanceReqId.current) setLoading(false); }
     };
 
     // [Logic]: Extract native and token holdings from chain data.
@@ -331,42 +345,21 @@ export function useWalletPageData() {
         return chainHoldings.sort((a, b) => (b.usdValueNum || 0) - (a.usdValueNum || 0));
     };
 
-    // [Logic]: Main balance fetch coordinator with smart caching & fingerprinting
-    const fetchBalances = async (reqId: number, cancelled: { value: boolean }, forceRefresh = false) => {
-        const cached = globalBalanceCache;
-        if (!forceRefresh && cached && cached.address === walletAddress) {
-            setHoldings(cached.holdings); setCachedHoldings(cached.holdings); setLoading(false);
-        } else setLoading(true);
-        try {
-            const primaryAddress = walletAddress;
-            const fp = await fetchFingerprint(primaryAddress!);
-            if (!forceRefresh && cached && fp.fetched && cached.fingerprint.nonce === fp.nonce && cached.fingerprint.nativeBalanceWei === fp.balance.toString()) return;
-            const allBalances = await getAllChainBalances(primaryAddress!, solanaWallet?.address, forceRefresh);
-            if (!allBalances || cancelled.value || reqId !== balanceReqId.current) return;
-            const result = processBalances(allBalances, importedTokensByChain);
-            setHoldings(result); setCachedHoldings(result);
-            if (!isSolana) globalBalanceCache = {
-                address: walletAddress!, holdings: result,
-                fingerprint: { nonce: fp.nonce, nativeBalanceWei: fp.balance.toString(), timestamp: Date.now() }
-            };
-        } catch (e) { console.error('Error fetching balances', e); } finally { if (reqId === balanceReqId.current) setLoading(false); }
-    };
-
     // [Logic]: Unified transaction fetching with caching
     const fetchTransactions = async (reqId: number, cancelled: { value: boolean }) => {
         setTransactionsLoading(true);
         try {
             const chain = getChainName(chainId);
-            const addr = chain === 'solana' ? walletAddress : walletAddress;
+            const addr = walletAddress;
             const cacheKey = `${chain}:${addr?.toLowerCase()}`;
             const cached = txCache.get(cacheKey);
             if (cached && Date.now() - cached.timestamp < TX_CACHE_TTL_MS) {
-                setTransactions(cached.data); setCachedTransactions(cached.data);
+                setTransactions(cached.data);
                 return;
             }
             const data = await getWalletTransactions(addr!, { chain, limit: 25 });
             if (reqId === txReqId.current && !cancelled.value) {
-                setTransactions(data || []); setCachedTransactions(data || []);
+                setTransactions(data || []);
                 txCache.set(cacheKey, { data: data || [], timestamp: Date.now() });
             }
         } catch (e) { console.error('Error fetching tx', e); } finally { if (reqId === txReqId.current) setTransactionsLoading(false); }

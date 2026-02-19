@@ -29,8 +29,6 @@ export const PolymarketAuthButton: React.FC<PolymarketAuthButtonProps> = ({
     const { ready, authenticated, getAccessToken } = usePrivy();
     const [isLoading, setIsLoading] = useState(false);
     const [readiness, setReadiness] = useState<ReadinessData | null>(null);
-    const [showWarning, setShowWarning] = useState(false);
-    const [confirmText, setConfirmText] = useState('');
     const [error, setError] = useState<string | null>(null);
 
     // Check trading readiness on mount
@@ -113,18 +111,6 @@ export const PolymarketAuthButton: React.FC<PolymarketAuthButtonProps> = ({
             onError?.(err);
         } finally {
             setIsLoading(false);
-            setShowWarning(false);
-            setConfirmText('');
-        }
-    };
-
-    const handleAuthorizeClick = () => {
-        setShowWarning(true);
-    };
-
-    const handleConfirmAuthorize = () => {
-        if (confirmText === 'Confirm') {
-            executeAuthorize();
         }
     };
 
@@ -169,7 +155,7 @@ export const PolymarketAuthButton: React.FC<PolymarketAuthButtonProps> = ({
 
                 <button
                     className={`${styles.button} ${isAuthorized ? styles.revokeButton : styles.authorizeButton} ${isLoading ? styles.loading : ''}`}
-                    onClick={isAuthorized ? undefined : handleAuthorizeClick}
+                    onClick={isAuthorized ? undefined : executeAuthorize}
                     disabled={isLoading || isAuthorized}
                     style={isAuthorized ? { opacity: 0.6, cursor: 'default' } : undefined}
                 >
@@ -180,66 +166,6 @@ export const PolymarketAuthButton: React.FC<PolymarketAuthButtonProps> = ({
                             : 'Enable Polymarket Trading'
                     }
                 </button>
-
-                {showWarning && (
-                    <div className={styles.modalOverlay} onClick={() => setShowWarning(false)}>
-                        <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
-                            <div className={styles.modalTitle}>Polymarket</div>
-                            <h3 className={styles.modalSubtitle}>
-                                Enable Polymarket Trading
-                            </h3>
-                            <p className={styles.modalDescription}>
-                                This will create API credentials for Polymarket trading on Polygon network.<br /><br />
-                                <strong>Requirements:</strong><br />
-                                • USDC on Polygon for trading<br />
-                                • Token approvals will be required
-                            </p>
-
-                            <div className={styles.modalInputGroup}>
-                                <label className={styles.modalLabel}>
-                                    Type "Confirm" to proceed:
-                                </label>
-                                <input
-                                    type="text"
-                                    className={styles.modalInput}
-                                    value={confirmText}
-                                    onChange={(e) => setConfirmText(e.target.value)}
-                                    placeholder="Confirm"
-                                    autoFocus
-                                />
-                            </div>
-
-                            <div className={styles.modalActions}>
-                                <button
-                                    className={styles.secondaryButton}
-                                    onClick={() => setShowWarning(false)}
-                                    disabled={isLoading}
-                                >
-                                    Cancel
-                                </button>
-                                <button
-                                    className={`${styles.primaryButton} ${confirmText === 'Confirm' && !isLoading ? styles.primaryButtonEnabled : ''}`}
-                                    onClick={handleConfirmAuthorize}
-                                    disabled={confirmText !== 'Confirm' || isLoading}
-                                >
-                                    {isLoading ? (
-                                        <>
-                                            <span style={{
-                                                width: '14px',
-                                                height: '14px',
-                                                border: '2px solid transparent',
-                                                borderTopColor: 'currentColor',
-                                                borderRadius: '50%',
-                                                animation: 'spin 0.8s linear infinite',
-                                            }} />
-                                            Enabling...
-                                        </>
-                                    ) : 'Enable'}
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                )}
             </div>
         </>
     );

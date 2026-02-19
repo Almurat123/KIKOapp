@@ -1363,9 +1363,10 @@ const tokenPriceInFlight = new Map<string, Promise<number | undefined>>();
 const solanaBalanceCache = new Map<string, { tokens: TokenBalance[]; nativeBalance?: number; timestamp: number }>();
 
 // In-memory portfolio cache to avoid redundant Alchemy Portfolio API calls
-// Key: "address:chain", TTL: 15 seconds
-const PORTFOLIO_CACHE_TTL_MS = 15_000;
-const portfolioCache = new Map<string, { data: WalletBalance; timestamp: number }>();
+// Key: "address:solanaAddress", TTL: 30 seconds — prevents duplicate calls within a single page load
+const PORTFOLIO_CACHE_TTL_MS = 30_000;
+const portfolioCache = new Map<string, { data: Record<string, WalletBalance>; timestamp: number }>();
+const portfolioInflight = new Map<string, Promise<Record<string, WalletBalance>>>();
 
 // fetchWithTimeout removed - replaced by fetchJson
 
@@ -1615,96 +1616,137 @@ async function getTokenMetadataBatch(
  * Get portfolio balances for a wallet across multiple networks using Alchemy Portfolio API
  */
 /**
- * Fetch prices from Coinbase API for major native tokens
- */
-async function fetchCoinbasePrices(): Promise<Partial<Record<string, number>>> {
-  const mapping: Record<string, string> = {
-    'ETH': 'eth',
-    'SOL': 'solana',
-    'BNB': 'bsc',
-    'MATIC': 'polygon'
-  };
-
-  const results: Partial<Record<string, number>> = {};
-
-  await Promise.allSettled(Object.keys(mapping).map(async (symbol) => {
-    try {
-      const res = await fetch(`https://api.coinbase.com/v2/prices/${symbol}-USD/spot`);
-      if (res.ok) {
-        const json = await res.json();
-        const price = parseFloat(json.data.amount);
-        const chainKey = mapping[symbol];
-        results[chainKey] = price;
-
-        // Map ETH price to L2s
-        if (symbol === 'ETH') {
-          results['base'] = price;
-          results['arbitrum'] = price;
-          results['optimism'] = price;
-        }
-      }
-    } catch (e: any) {
-      logger.warn(LogCode.API_FETCH_FAILED, 'Failed to fetch Coinbase price', { symbol, error: e.message });
-    }
-  }));
-
-  return results;
-}
-
 /**
- * Fetch accurate prices for native tokens using DexScreener as fallback
+ * Fetch native token prices.
+ *
+ * [Logic]: ETH is the same asset on all EVM L2s (base/arbitrum/optimism).
+ * We fetch ONE price from Coinbase for ETH and share it across all L2s.
+ * Only SOL, BNB, MATIC are truly different native tokens.
+ * DexScreener is used as fallback only when Coinbase fails.
+ *
+ * [Perf]: Results cached for 60s in-process — prices don't change fast enough
+ * to justify fetching on every portfolio call. This eliminates the 3-4s Coinbase
+ * latency from the CRITICAL PATH on all subsequent calls.
  */
+const nativePriceCache: { prices: Record<string, number>; timestamp: number } | null = { prices: {}, timestamp: 0 };
+const NATIVE_PRICE_CACHE_TTL_MS = 60_000;
+
 async function getNativePrices(): Promise<Record<string, number>> {
-  const wrappers: Record<string, string> = {
-    'eth': '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2',
-    'base': '0x4200000000000000000000000000000000000006',
-    'arbitrum': '0x82af49447d8a07e3bd95bd0d56f35241523fbab1',
-    'optimism': '0x4200000000000000000000000000000000000006',
-    'polygon': '0x0d500b1d8e8ef31e21c99d1db9a6444d3adf1270', // WMATIC
-    'bsc': '0xbb4cdb9cbd36b01bd1cbaebf2de08d9173bc095c',
-    'solana': 'So11111111111111111111111111111111111111112'
-  };
+  if (nativePriceCache && Date.now() - nativePriceCache.timestamp < NATIVE_PRICE_CACHE_TTL_MS && Object.keys(nativePriceCache.prices).length > 0) {
+    return nativePriceCache.prices;
+  }
 
   const prices: Record<string, number> = {};
 
-  const dexPromise = (async () => {
+  // Primary: Coinbase spot prices. Timeout 2s — if slow, fall through to DexScreener.
+  const coinbaseSymbols: Array<[string, string[]]> = [
+    ['ETH-USD', ['eth', 'base', 'arbitrum', 'optimism']],
+    ['SOL-USD', ['solana']],
+    ['BNB-USD', ['bsc']],
+    ['POL-USD', ['polygon']],
+  ];
+
+  await Promise.allSettled(coinbaseSymbols.map(async ([pair, chains]) => {
     try {
-      const addresses = Object.values(wrappers).join(',');
-      const url = `https://api.dexscreener.com/latest/dex/tokens/${addresses}`;
-      const response = await fetch(url);
-      if (response.ok) {
-        const data = await response.json();
+      const res = await fetch(`https://api.coinbase.com/v2/prices/${pair}/spot`, { signal: AbortSignal.timeout(2000) });
+      if (res.ok) {
+        const json = await res.json();
+        const price = parseFloat(json.data?.amount);
+        if (Number.isFinite(price) && price > 0) {
+          for (const chain of chains) prices[chain] = price;
+        }
+      }
+    } catch (e: any) {
+      logger.warn(LogCode.API_FETCH_FAILED, 'Coinbase price fetch failed', { pair, error: e.message });
+    }
+  }));
+
+  // Fallback: DexScreener for any token Coinbase didn't cover
+  const missingChains = ['eth', 'solana', 'bsc', 'polygon'].filter(c => !prices[c]);
+  if (missingChains.length > 0) {
+    const wrappers: Record<string, string> = {
+      'eth': '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2',
+      'solana': 'So11111111111111111111111111111111111111112',
+      'bsc': '0xbb4cdb9cbd36b01bd1cbaebf2de08d9173bc095c',
+      'polygon': '0x0d500b1d8e8ef31e21c99d1db9a6444d3adf1270',
+    };
+    try {
+      const addrs = missingChains.map(c => wrappers[c]).filter(Boolean).join(',');
+      const res = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${addrs}`, { signal: AbortSignal.timeout(5000) });
+      if (res.ok) {
+        const data = await res.json();
         if (data.pairs && Array.isArray(data.pairs)) {
-          for (const [key, addr] of Object.entries(wrappers)) {
+          for (const chain of missingChains) {
+            const addr = wrappers[chain];
+            if (!addr) continue;
             const pair = data.pairs.find((p: any) => p.baseToken?.address?.toLowerCase() === addr.toLowerCase());
-            if (pair && pair.priceUsd) {
-              prices[key] = parseFloat(pair.priceUsd);
+            if (pair?.priceUsd) {
+              const price = parseFloat(pair.priceUsd);
+              prices[chain] = price;
+              if (chain === 'eth') {
+                if (!prices['base']) prices['base'] = price;
+                if (!prices['arbitrum']) prices['arbitrum'] = price;
+                if (!prices['optimism']) prices['optimism'] = price;
+              }
             }
           }
         }
       }
     } catch (e: any) {
-      logger.warn(LogCode.API_FETCH_FAILED, 'Failed to fetch native prices from DexScreener', { error: e.message });
+      logger.warn(LogCode.API_FETCH_FAILED, 'DexScreener native price fallback failed', { error: e.message });
     }
-  })();
+  }
 
-  const coinbasePromise = fetchCoinbasePrices();
+  // Propagate ETH price to L2s
+  if (prices['eth']) {
+    if (!prices['base']) prices['base'] = prices['eth'];
+    if (!prices['arbitrum']) prices['arbitrum'] = prices['eth'];
+    if (!prices['optimism']) prices['optimism'] = prices['eth'];
+  }
 
-  const [, coinbasePrices] = await Promise.allSettled([dexPromise, coinbasePromise])
-    .then(results => {
-      const coinbaseResult = results[1];
-      return [
-        results[0],
-        coinbaseResult.status === 'fulfilled' ? coinbaseResult.value : {},
-      ] as const;
-    });
+  // Update cache (even partial results are better than waiting next time)
+  if (Object.keys(prices).length > 0) {
+    Object.assign(nativePriceCache!, { prices: { ...prices }, timestamp: Date.now() });
+  }
 
-  return { ...prices, ...coinbasePrices } as Record<string, number>;
+  logger.debug(LogCode.API_FETCH_SUCCESS, 'Native prices resolved', { prices });
+  return prices;
 }
 
 export async function getPortfolio(
   address: string,
   chains: string[] = ['eth', 'base', 'arbitrum', 'optimism', 'polygon', 'bsc', 'solana'],
+  solanaAddress?: string,
+  forceRefresh = false
+): Promise<Record<string, WalletBalance>> {
+  const cacheKey = `${address.toLowerCase()}:${(solanaAddress || '').toLowerCase()}:${chains.sort().join(',')}`;
+  if (!forceRefresh) {
+    const cached = portfolioCache.get(cacheKey);
+    if (cached && Date.now() - cached.timestamp < PORTFOLIO_CACHE_TTL_MS) {
+      logger.debug(LogCode.API_FETCH_SUCCESS, 'Portfolio served from cache', { address: address.slice(0, 10) });
+      return cached.data;
+    }
+    const inflight = portfolioInflight.get(cacheKey);
+    if (inflight) {
+      logger.debug(LogCode.API_FETCH_SUCCESS, 'Portfolio inflight dedup hit', { address: address.slice(0, 10) });
+      return inflight;
+    }
+  }
+  const promise = _getPortfolioInternal(address, chains, solanaAddress).then(data => {
+    portfolioCache.set(cacheKey, { data, timestamp: Date.now() });
+    portfolioInflight.delete(cacheKey);
+    return data;
+  }).catch(err => {
+    portfolioInflight.delete(cacheKey);
+    throw err;
+  });
+  portfolioInflight.set(cacheKey, promise);
+  return promise;
+}
+
+async function _getPortfolioInternal(
+  address: string,
+  chains: string[],
   solanaAddress?: string
 ): Promise<Record<string, WalletBalance>> {
   try {
@@ -1760,7 +1802,9 @@ export async function getPortfolio(
 
     const startTotal = Date.now();
 
-    // [Optimization]: Start native prices fetch in parallel
+    // [Perf]: Fire BOTH native prices AND Alchemy EVM fetch at the same time.
+    // Previously `await nativePricesPromise` blocked before Alchemy started —
+    // costing 3-4s when Coinbase SOL was slow.
     const nativePricesPromise = getNativePrices();
 
     const targetNetworks = chains.map(c => networkMap[c.toLowerCase()]).filter(Boolean);
@@ -1783,62 +1827,56 @@ export async function getPortfolio(
       return fractionStr ? `${whole}.${fractionStr}` : whole.toString();
     };
 
-    // 1. Fetch EVM Portfolio
-    let evmFetchPromise: Promise<any> | undefined;
+    // 1. Fetch EVM Portfolio (with pagination) — wrapped in IIFE so it races nativePricesPromise
     const startAlchemy = Date.now();
-    if (evmNetworks.length > 0) {
-      // Use generic alchemy endpoint for Portfolio API
+    const evmFetchPromise = (async (): Promise<any[]> => {
+      if (evmNetworks.length === 0) return [];
       const url = `https://api.g.alchemy.com/data/v1/${apiKey}/assets/tokens/balances/by-address`;
-      const body = {
-        addresses: [{ address, networks: evmNetworks }],
-        withMetadata: true,
-        withPrices: true,
-        includeNativeTokens: true
-      };
-
-      try {
-        evmFetchPromise = fetchJson<any>({
-          url,
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${apiKey}`,
-            'Accept-Encoding': 'gzip', // ✅ Enable gzip compression (critical for Portfolio API responses)
-          },
-          body: JSON.stringify(body),
-          requestTimeout: PORTFOLIO_TIMEOUT_MS
-        });
-      } catch (e: any) {
-        logger.warn(LogCode.API_FETCH_FAILED, 'Alchemy Portfolio EVM API call error', { error: e.message });
-      }
-    }
-
-    // Await both promises here to ensure NATIVE_PRICES is available for both EVM and Solana logic
-    const NATIVE_PRICES = await nativePricesPromise;
-    let response: any = null;
-    if (evmFetchPromise) {
-      try {
-        response = await evmFetchPromise;
-      } catch (e: any) {
-        logger.warn(LogCode.API_FETCH_FAILED, 'Alchemy Portfolio EVM API timeout', { error: e.message });
-      }
-    }
-
-    if (evmNetworks.length > 0) {
-
-      if (response && response.data && Array.isArray(response.data.tokens)) {
-        logger.info(LogCode.API_FETCH_SUCCESS, 'Alchemy Portfolio response received', { duration: Date.now() - startAlchemy });
-
-
-
-        const json = response;
-
-        if (json.data && Array.isArray(json.data.tokens)) {
-          const networkGroups: Record<string, any[]> = {};
-          json.data.tokens.forEach((t: any) => {
-            if (!networkGroups[t.network]) networkGroups[t.network] = [];
-            networkGroups[t.network].push(t);
+      const collected: any[] = [];
+      let pageKey: string | undefined;
+      let pageCount = 0;
+      const MAX_PAGES = 5;
+      do {
+        const body: Record<string, any> = {
+          addresses: [{ address, networks: evmNetworks }],
+          withMetadata: true, withPrices: true, includeNativeTokens: true,
+          ...(pageKey ? { pageKey } : {}),
+        };
+        try {
+          const response = await fetchJson<any>({
+            url, method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}`, 'Accept-Encoding': 'gzip' },
+            body: JSON.stringify(body),
+            requestTimeout: PORTFOLIO_TIMEOUT_MS,
           });
+          if (response?.data?.tokens && Array.isArray(response.data.tokens)) {
+            collected.push(...response.data.tokens);
+            pageKey = response.data.pageKey;
+            pageCount++;
+            if (pageCount === 1) logger.info(LogCode.API_FETCH_SUCCESS, 'Alchemy Portfolio EVM page 1 received', { duration: Date.now() - startAlchemy, count: response.data.tokens.length });
+          } else {
+            if (response) logger.warn(LogCode.API_FETCH_FAILED, 'Alchemy Portfolio EVM unexpected response shape');
+            break;
+          }
+        } catch (e: any) {
+          logger.warn(LogCode.API_FETCH_FAILED, 'Alchemy Portfolio EVM fetch failed', { error: e.message, page: pageCount });
+          break;
+        }
+      } while (pageKey && pageCount < MAX_PAGES);
+      if (pageCount > 1) logger.info(LogCode.API_FETCH_SUCCESS, 'Alchemy Portfolio EVM pagination complete', { pages: pageCount, totalTokens: collected.length });
+      return collected;
+    })();
+
+    // [Perf]: True parallel — Alchemy EVM fetch and native prices race each other.
+    // Previously prices were awaited BEFORE Alchemy started, costing 3-4s on cold start.
+    const [allTokens, NATIVE_PRICES] = await Promise.all([evmFetchPromise, nativePricesPromise]);
+
+    if (allTokens.length > 0) {
+        const networkGroups: Record<string, any[]> = {};
+        allTokens.forEach((t: any) => {
+          if (!networkGroups[t.network]) networkGroups[t.network] = [];
+          networkGroups[t.network].push(t);
+        });
 
           await Promise.all(Object.keys(networkGroups).map(async network => {
             // Map matic-mainnet or others back to our standard keys
@@ -1887,11 +1925,8 @@ export async function getPortfolio(
                 const tempToken = {
                   contractAddress: tokenAddress,
                   tokenBalance: formattedBalance,
-                  symbol,
-                  name,
-                  decimals,
-                  logo,
-                  price: tokenPrice // Store Alchemy/stablecoin price if applicable
+                  symbol, name, decimals, logo,
+                  price: tokenPrice
                 };
                 rawBalancesByAddress.set(tokenAddress.toLowerCase(), balanceBigInt);
                 tokens.push(tempToken);
@@ -1911,8 +1946,6 @@ export async function getPortfolio(
                 .slice(0, MAX_METADATA_TOKENS_EVM);
 
               const decimalsResults = await Promise.all(tokensByBalance.map(async token => {
-                // [Optimization]: Only fetch decimals from RPC if they are missing or invalid
-                // Alchemy Portfolio API is usually correct.
                 if (token.decimals !== undefined && token.decimals !== null) {
                   return { token, decimals: token.decimals };
                 }
@@ -1930,11 +1963,7 @@ export async function getPortfolio(
                     const balance = parseFloat(token.tokenBalance || '0');
                     token.valueUsd = balance * token.price;
                   }
-                  logger.info(LogCode.API_FETCH_SUCCESS, 'Token decimals corrected from RPC', {
-                    chain: chainKey,
-                    token: token.contractAddress,
-                    decimals,
-                  });
+                  logger.info(LogCode.API_FETCH_SUCCESS, 'Token decimals corrected from RPC', { chain: chainKey, token: token.contractAddress, decimals });
                 }
               }
 
@@ -1947,6 +1976,7 @@ export async function getPortfolio(
                 })
                 .slice(0, MAX_PRICE_TOKENS_EVM)
                 .map(t => t.contractAddress);
+
 
               if (tokensMissingPrice.length > 0) {
                 const priceMap = await fetchTokenPrices(apiKey, chainKey, network, tokensMissingPrice);
@@ -1964,153 +1994,103 @@ export async function getPortfolio(
                   token.valueUsd = balance * token.price;
                 }
               });
-
             }
           }));
-        }
-      } else if (response?.error) {
-        logger.error(LogCode.API_FETCH_FAILED, 'Alchemy Portfolio EVM API error', { error: response.error });
-      }
-    }
+      } // end allTokens.length > 0
 
     // 2. Fetch Solana Portfolio
+    // [Logic]: Do NOT call Alchemy Portfolio API again for Solana — it's a separate address space
+    // and the EVM call above already submitted 'solana-mainnet' if needed.
+    // Priority: Helius (richest metadata) → fetchSolanaTokenAccounts (direct RPC) → empty
     const solAddr = solanaAddress || (!address.startsWith('0x') ? address : null);
-    if (chains.includes('solana') && !results.solana && solAddr) {
+    if (chains.includes('solana') && solAddr) {
       try {
-        const url = `https://api.g.alchemy.com/data/v1/${apiKey}/assets/tokens/balances/by-address`;
-        const body = {
-          addresses: [{ address: solAddr, networks: ['solana-mainnet'] }],
-          withMetadata: true,
-          withPrices: true,
-          includeNativeTokens: true
-        };
-        let response: any | null = null;
-        try {
-          response = await fetchJson<any>({
-            url,
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${apiKey}`,
-              'Accept-Encoding': 'gzip'
-            },
-            body: JSON.stringify(body),
-            requestTimeout: PORTFOLIO_TIMEOUT_MS
-          });
-        } catch (e: any) {
-          logger.warn(LogCode.API_FETCH_FAILED, 'Alchemy Portfolio Solana timeout', { error: e.message });
-        }
-        if (response && response.data && Array.isArray(response.data.tokens)) {
-          const json = response;
-          if (json.data && Array.isArray(json.data.tokens)) {
-            let ethBalance = '0';
-            let ethBalanceFormatted = 0;
-            let ethPrice = NATIVE_PRICES.solana || 0;
-            const tokens: TokenBalance[] = [];
+        let ethBalance = '0';
+        let ethBalanceFormatted = 0;
+        const ethPrice = NATIVE_PRICES['solana'] || 0;
+        const tokens: TokenBalance[] = [];
 
-            json.data.tokens.forEach((t: any) => {
-              const isNative = t.tokenAddress === null;
-              const hexBalance = t.tokenBalance || '0';
-              const balanceBigInt = parseTokenBalance(hexBalance);
-
-              if (balanceBigInt === 0n) return;
-
-              if (isNative) {
-                ethBalance = hexBalance;
-                ethBalanceFormatted = Number(balanceBigInt) / (10 ** (t.decimals || 9));
-                ethPrice = t.price || NATIVE_PRICES.solana || 0;
-              } else {
-                const cachedMeta = SPL_TOKEN_METADATA[t.tokenAddress as string];
-                const decimals = t.decimals ?? cachedMeta?.decimals ?? 9;
-                const symbol = t.symbol || cachedMeta?.symbol || 'UNKNOWN';
-                const name = t.name || cachedMeta?.name || 'Unknown Token';
-                const stablePrice = getStablecoinPrice(symbol);
-                const formattedBalance = formatTokenBalance(balanceBigInt, decimals);
-                const tempToken = {
-                  contractAddress: t.tokenAddress,
+        // --- Path A: Helius (primary, richest metadata) ---
+        if (helius.isHeliusConfigured()) {
+          const cachedSol = solanaBalanceCache.get(solAddr);
+          if (cachedSol && Date.now() - cachedSol.timestamp < SOL_BALANCE_CACHE_TTL_MS) {
+            logger.debug(LogCode.API_FETCH_SUCCESS, 'Solana balance served from in-memory cache', { addr: solAddr.slice(0, 10) });
+            if (cachedSol.nativeBalance) {
+              ethBalance = `0x${Math.floor(cachedSol.nativeBalance).toString(16)}`;
+              ethBalanceFormatted = cachedSol.nativeBalance / 1e9;
+            }
+            tokens.push(...cachedSol.tokens);
+          } else {
+            try {
+              const heliusBalances = await helius.getFungibleTokenBalances(solAddr, 200);
+              if (heliusBalances.nativeBalance) {
+                ethBalance = `0x${Math.floor(heliusBalances.nativeBalance).toString(16)}`;
+                ethBalanceFormatted = heliusBalances.nativeBalance / 1e9;
+              }
+              heliusBalances.tokens.forEach(token => {
+                const formattedBalance = formatTokenBalance(BigInt(token.balance), token.decimals);
+                tokens.push({
+                  contractAddress: token.mint,
                   tokenBalance: formattedBalance,
-                  symbol,
-                  name,
-                  decimals,
-                  logo: t.metadata?.logo || '',
-                  price: t.price || stablePrice || undefined
-                };
-                tokens.push(tempToken);
-              }
-            });
-            if (tokens.length === 0) {
-              if (helius.isHeliusConfigured()) {
-                const cached = solanaBalanceCache.get(solAddr);
-                if (cached && Date.now() - cached.timestamp < SOL_BALANCE_CACHE_TTL_MS) {
-                  if (cached.nativeBalance && ethBalance === '0') {
-                    ethBalance = `0x${cached.nativeBalance.toString(16)}`;
-                    ethBalanceFormatted = cached.nativeBalance / 1e9;
-                  }
-                  tokens.push(...cached.tokens);
-                } else {
-                  const heliusBalances = await helius.getFungibleTokenBalances(solAddr, 200);
-                  if (heliusBalances.nativeBalance && ethBalance === '0') {
-                    ethBalance = `0x${heliusBalances.nativeBalance.toString(16)}`;
-                    ethBalanceFormatted = heliusBalances.nativeBalance / 1e9;
-                  }
-                  heliusBalances.tokens.forEach(token => {
-                    const formattedBalance = formatTokenBalance(BigInt(token.balance), token.decimals);
-                    tokens.push({
-                      contractAddress: token.mint,
-                      tokenBalance: formattedBalance,
-                      symbol: token.symbol,
-                      name: token.name,
-                      decimals: token.decimals,
-                      logo: token.logo || '',
-                    });
-                  });
-                  solanaBalanceCache.set(solAddr, {
-                    tokens: [...tokens],
-                    nativeBalance: heliusBalances.nativeBalance,
-                    timestamp: Date.now(),
-                  });
-                }
-              }
-            }
-            if (tokens.length === 0) {
-              const fallbackTokens = await fetchSolanaTokenAccounts(solAddr);
-              if (fallbackTokens.length > 0) {
-                tokens.push(...fallbackTokens);
-              }
-            }
-            results.solana = { ethBalance, ethBalanceFormatted, ethPrice, tokens } as any;
-
-            if (tokens.length > 0) {
-              const tokensMissingPrice = tokens
-                .filter(t => t.price === undefined)
-                .sort((a, b) => parseFloat(b.tokenBalance || '0') - parseFloat(a.tokenBalance || '0'))
-                .slice(0, MAX_PRICE_TOKENS_SOLANA)
-                .map(t => t.contractAddress);
-
-              if (tokensMissingPrice.length > 0) {
-                const priceMap = await fetchTokenPrices(apiKey, 'solana', 'solana-mainnet', tokensMissingPrice);
-                tokens.forEach(token => {
-                  const price = priceMap[token.contractAddress.toLowerCase()];
-                  if (price !== undefined) {
-                    token.price = price;
-                  }
+                  symbol: token.symbol,
+                  name: token.name,
+                  decimals: token.decimals,
+                  logo: token.logo || '',
                 });
-              }
-
-              tokens.forEach(token => {
-                if (token.price !== undefined && token.valueUsd === undefined) {
-                  const balance = parseFloat(token.tokenBalance || '0');
-                  token.valueUsd = balance * token.price;
-                }
               });
-
+              solanaBalanceCache.set(solAddr, {
+                tokens: [...tokens],
+                nativeBalance: heliusBalances.nativeBalance,
+                timestamp: Date.now(),
+              });
+              logger.info(LogCode.API_FETCH_SUCCESS, 'Solana balance fetched via Helius', { addr: solAddr.slice(0, 10), tokenCount: tokens.length });
+            } catch (heliusErr: any) {
+              logger.warn(LogCode.API_FETCH_FAILED, 'Helius Solana balance failed, trying RPC fallback', { error: heliusErr.message });
             }
           }
-        } else if (response) {
-          logger.error(LogCode.API_FETCH_FAILED, 'Alchemy Portfolio Solana API error', { status: response.status });
         }
+
+        // --- Path B: Direct RPC fallback (Alchemy Solana RPC / getTokenAccountsByOwner) ---
+        if (tokens.length === 0) {
+          logger.info(LogCode.API_FETCH_SUCCESS, 'Solana: using fetchSolanaTokenAccounts RPC fallback', { addr: solAddr.slice(0, 10) });
+          const fallbackTokens = await fetchSolanaTokenAccounts(solAddr);
+          tokens.push(...fallbackTokens);
+          // Also fetch native SOL balance via RPC
+          try {
+            const nativeResult = await rpcManager.callRpc<{ value: number }>('solana', 'getBalance', [solAddr]) as any;
+            const lamports = typeof nativeResult === 'object' ? nativeResult?.value ?? 0 : Number(nativeResult ?? 0);
+            ethBalance = `0x${Math.floor(lamports).toString(16)}`;
+            ethBalanceFormatted = lamports / 1e9;
+          } catch (rpcErr: any) {
+            logger.warn(LogCode.API_FETCH_FAILED, 'Solana native RPC getBalance failed', { error: rpcErr.message });
+          }
+        }
+
+        // Fetch missing prices for SPL tokens
+        if (tokens.length > 0) {
+          const tokensMissingPrice = tokens
+            .filter(t => t.price === undefined)
+            .sort((a, b) => parseFloat(b.tokenBalance || '0') - parseFloat(a.tokenBalance || '0'))
+            .slice(0, MAX_PRICE_TOKENS_SOLANA)
+            .map(t => t.contractAddress);
+
+          if (tokensMissingPrice.length > 0) {
+            const priceMap = await fetchTokenPrices(apiKey, 'solana', 'solana-mainnet', tokensMissingPrice);
+            tokens.forEach(token => {
+              const price = priceMap[token.contractAddress.toLowerCase()];
+              if (price !== undefined) token.price = price;
+            });
+          }
+          tokens.forEach(token => {
+            if (token.price !== undefined && token.valueUsd === undefined) {
+              token.valueUsd = parseFloat(token.tokenBalance || '0') * token.price;
+            }
+          });
+        }
+
+        results.solana = { ethBalance, ethBalanceFormatted, ethPrice, tokens } as any;
       } catch (e: any) {
-        logger.error(LogCode.API_FETCH_FAILED, 'Alchemy Portfolio Solana fetch failed', { error: e.message });
+        logger.error(LogCode.API_FETCH_FAILED, 'Solana portfolio fetch failed', { error: e.message });
       }
     }
 
@@ -2260,6 +2240,16 @@ export async function getPortfolio(
   }
 }
 
+// Module-level helper — shared by _getPortfolioInternal and getSpecificTokenBalance
+function formatTokenBalanceStr(rawBalance: bigint, decimals: number): string {
+  if (decimals <= 0) return rawBalance.toString();
+  const divisor = 10n ** BigInt(decimals);
+  const whole = rawBalance / divisor;
+  const fraction = rawBalance % divisor;
+  const fractionStr = fraction.toString().padStart(decimals, '0').replace(/0+$/, '');
+  return fractionStr ? `${whole}.${fractionStr}` : whole.toString();
+}
+
 export async function getEthBalance(address: string, chain: string = 'eth'): Promise<string> {
   const portfolio = await getPortfolio(address, [chain]);
   return portfolio[chain]?.ethBalance || '0';
@@ -2271,162 +2261,18 @@ export async function getTokenBalances(address: string, chain: string = 'eth'): 
 }
 
 export async function getWalletBalance(address: string, chain: string = 'eth'): Promise<WalletBalance> {
-  const cacheKey = `${address.toLowerCase()}:${chain.toLowerCase()}`;
-  const cached = portfolioCache.get(cacheKey);
-  if (cached && (Date.now() - cached.timestamp) < PORTFOLIO_CACHE_TTL_MS) {
-    logger.debug(LogCode.CACHE_HIT, 'Portfolio cache hit for getWalletBalance', {
-      address: address.slice(0, 10),
-      chain,
-      ageMs: Date.now() - cached.timestamp,
-    });
-    return cached.data;
-  }
-
   const portfolio = await getPortfolio(address, [chain]);
-  const result = portfolio[chain] || { ethBalance: '0', ethBalanceFormatted: 0, tokens: [] };
-
-  // Cache the result
-  portfolioCache.set(cacheKey, { data: result, timestamp: Date.now() });
-
-  // Evict stale entries periodically (keep cache bounded)
-  if (portfolioCache.size > 200) {
-    const now = Date.now();
-    for (const [key, entry] of portfolioCache) {
-      if (now - entry.timestamp > PORTFOLIO_CACHE_TTL_MS) {
-        portfolioCache.delete(key);
-      }
-    }
-  }
-
-  return result;
+  return portfolio[chain] || { ethBalance: '0', ethBalanceFormatted: 0, tokens: [] };
 }
 
 export async function getNativeBalances(
-  address: string,
-  chains: string[] = ['eth', 'base', 'arbitrum', 'optimism', 'polygon', 'bsc', 'solana'],
-  solanaAddress?: string
+  _address: string,
+  _chains?: string[],
+  _solanaAddress?: string
 ): Promise<Record<string, WalletBalance>> {
-  const NATIVE_PRICES = await getNativePrices();
-  const solAddr = solanaAddress || (!address.startsWith('0x') ? address : null);
-  const stablecoins: Record<string, Array<{ address: string; symbol: string; name: string; decimals: number }>> = {
-    eth: [
-      { address: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48', symbol: 'USDC', name: 'USD Coin', decimals: 6 },
-      { address: '0xdAC17F958D2ee523a2206206994597C13D831ec7', symbol: 'USDT', name: 'Tether USD', decimals: 6 },
-      { address: '0x6B175474E89094C44Da98b954EedeAC495271d0F', symbol: 'DAI', name: 'Dai Stablecoin', decimals: 18 },
-    ],
-    base: [
-      { address: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913', symbol: 'USDC', name: 'USD Coin', decimals: 6 },
-    ],
-    arbitrum: [
-      { address: '0xFF970A61A04b1cA14834A43f5dE4533eBDDB5CC8', symbol: 'USDC', name: 'USD Coin', decimals: 6 },
-      { address: '0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9', symbol: 'USDT', name: 'Tether USD', decimals: 6 },
-      { address: '0xDA10009cBd5D07dd0CeCc66161FC93D7c9000da1', symbol: 'DAI', name: 'Dai Stablecoin', decimals: 18 },
-    ],
-    optimism: [
-      { address: '0x7F5c764cBc14f9669B88837ca1490cCa17c31607', symbol: 'USDC', name: 'USD Coin', decimals: 6 },
-      { address: '0x94b008aA00579c1307B0EF2c499aD98a8ce58e58', symbol: 'USDT', name: 'Tether USD', decimals: 6 },
-      { address: '0xDA10009cBd5D07dd0CeCc66161FC93D7c9000da1', symbol: 'DAI', name: 'Dai Stablecoin', decimals: 18 },
-    ],
-    polygon: [
-      { address: '0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174', symbol: 'USDC', name: 'USD Coin', decimals: 6 },
-      { address: '0xc2132D05D31c914a87C6611C10748AEb04B58e8F', symbol: 'USDT', name: 'Tether USD', decimals: 6 },
-      { address: '0x8f3Cf7ad23Cd3CaDbD9735AFf958023239c6A063', symbol: 'DAI', name: 'Dai Stablecoin', decimals: 18 },
-    ],
-    bsc: [
-      { address: '0x8ac76a51cc950d9822d68b83fe1ad97b32cd580d', symbol: 'USDC', name: 'USD Coin', decimals: 18 },
-      { address: '0x55d398326f99059ff775485246999027b3197955', symbol: 'USDT', name: 'Tether USD', decimals: 18 },
-      { address: '0x1AF3F329e8BE154074D8769D1FFa4eE058B1DBc3', symbol: 'DAI', name: 'Dai Stablecoin', decimals: 18 },
-    ],
-  };
-
-  const readErc20Balance = async (chainKey: string, tokenAddress: string): Promise<bigint> => {
-    try {
-      const data = `0x70a08231${address.toLowerCase().replace('0x', '').padStart(64, '0')}`;
-      const result = await rpcManager.callRpc<string>(chainKey, 'eth_call', [
-        { to: tokenAddress, data },
-        'latest',
-      ]);
-      return BigInt(result);
-    } catch (error: any) {
-      logger.warn(LogCode.API_FETCH_FAILED, 'Stablecoin balance fetch failed', {
-        chain: chainKey,
-        token: tokenAddress,
-        error: error.message,
-      });
-      return 0n;
-    }
-  };
-
-  const formatStableBalance = (raw: bigint, decimals: number): string => {
-    if (decimals <= 0) return raw.toString();
-    const divisor = 10n ** BigInt(decimals);
-    const whole = raw / divisor;
-    const fraction = raw % divisor;
-    const fractionStr = fraction.toString().padStart(decimals, '0').replace(/0+$/, '');
-    return fractionStr ? `${whole}.${fractionStr}` : whole.toString();
-  };
-
-  const entries = await Promise.all(chains.map(async (chain) => {
-    const chainKey = normalizeChainKey(chain);
-    try {
-      if (chainKey === 'solana') {
-        if (!solAddr) {
-          return [chainKey, { ethBalance: '0', ethBalanceFormatted: 0, ethPrice: NATIVE_PRICES.solana || 0, tokens: [] } as any] as const;
-        }
-        const lamportsStr = await rpcManager.getNativeBalance(solAddr, 'solana');
-        const lamports = BigInt(lamportsStr);
-        const ethBalance = `0x${lamports.toString(16)}`;
-        const ethBalanceFormatted = Number(lamports) / 1e9;
-        return [chainKey, {
-          ethBalance,
-          ethBalanceFormatted,
-          ethPrice: NATIVE_PRICES.solana || 0,
-          tokens: [],
-        } as any] as const;
-      }
-
-      const balanceHex = await rpcManager.getNativeBalance(address, chainKey);
-      const balanceWei = BigInt(balanceHex);
-      const ethBalanceFormatted = Number(balanceWei) / 1e18;
-      const result: WalletBalance = {
-        ethBalance: balanceHex,
-        ethBalanceFormatted,
-        ethPrice: NATIVE_PRICES[chainKey] || 0,
-        tokens: [],
-      };
-
-      const stableList = stablecoins[chainKey] || [];
-      if (stableList.length > 0) {
-        const settled = await Promise.all(stableList.map(async (token) => {
-          const raw = await readErc20Balance(chainKey, token.address);
-          if (raw === 0n) return null;
-          const formatted = formatStableBalance(raw, token.decimals);
-          return {
-            contractAddress: token.address,
-            tokenBalance: formatted,
-            symbol: token.symbol,
-            name: token.name,
-            decimals: token.decimals,
-            price: 1,
-            valueUsd: Number(formatted),
-          } as TokenBalance;
-        }));
-        result.tokens = settled.filter(Boolean) as TokenBalance[];
-      }
-
-      return [chainKey, result] as const;
-    } catch (error: any) {
-      logger.warn(LogCode.API_FETCH_FAILED, 'Native balance fetch failed', { chain: chainKey, error: error.message });
-      return [chainKey, {
-        ethBalance: '0',
-        ethBalanceFormatted: 0,
-        ethPrice: NATIVE_PRICES[chainKey] || 0,
-        tokens: [],
-      } as any] as const;
-    }
-  }));
-
-  return Object.fromEntries(entries);
+  // [Deprecated]: Use getPortfolio() instead — it returns full token lists, not just native balances.
+  // Kept as a stub so existing imports do not break at compile time.
+  throw new Error('getNativeBalances is deprecated. Use getPortfolio() directly.');
 }
 
 /**
@@ -2438,15 +2284,6 @@ export async function getSpecificTokenBalance(
   chain: string,
   tokenAddress: string
 ): Promise<{ raw: string; decimals: number; formatted: string }> {
-  const formatTokenBalance = (rawBalance: bigint, decimals: number): string => {
-    if (decimals <= 0) return rawBalance.toString();
-    const divisor = 10n ** BigInt(decimals);
-    const whole = rawBalance / divisor;
-    const fraction = rawBalance % divisor;
-    const fractionStr = fraction.toString().padStart(decimals, '0').replace(/0+$/, '');
-    return fractionStr ? `${whole}.${fractionStr}` : whole.toString();
-  };
-
   // CRITICAL FIX: Ensure we always return a valid object
   try {
     const url = getAlchemyUrl(chain);
@@ -2500,7 +2337,7 @@ export async function getSpecificTokenBalance(
         'latest',
       ]);
       const raw = BigInt(result);
-      const formatted = formatTokenBalance(raw, decimals);
+      const formatted = formatTokenBalanceStr(raw, decimals);
       return { raw: raw.toString(), decimals, formatted };
     } catch (error: any) {
       logger.debug(LogCode.API_FETCH_FAILED, 'RPC balance fetch failed, trying Alchemy fetch', {
@@ -2526,7 +2363,7 @@ export async function getSpecificTokenBalance(
       const balJson = await balRes.json();
       if (balJson.result && balJson.result !== '0x') {
         const raw = BigInt(balJson.result);
-        const formatted = formatTokenBalance(raw, decimals);
+        const formatted = formatTokenBalanceStr(raw, decimals);
         return { raw: raw.toString(), decimals, formatted };
       }
     } catch (error: any) {

@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
-import { usePrivy } from '@privy-io/react-auth';
-import { getConfigs, updateConfigStatus, deleteConfig, updateConfig, getPositions, type CopyTradeConfig } from '../services/copyTradeApi';
+import { usePrivy, useWallets } from '@privy-io/react-auth';
+import { getConfigs, updateConfigStatus, deleteConfig, updateConfig, getPositions, type CopyTradeConfig, CopyTradeApiError } from '../services/copyTradeApi';
 import { getPolymarketCopyConfigs, type PolymarketCopyConfig } from '../services/polymarketCopyApi';
+import { createCopyTradeSignedPayload, signCopyTradeConfigIntent } from '../services/copyTradeSigning';
 import { toast } from 'sonner';
 
 export interface ExecutionRecord {
@@ -56,7 +57,8 @@ export const useStrategies = () => {
   const [strategies, setStrategies] = useState<TradingStrategy[]>([]);
   const [stats, setStats] = useState({ totalExecutions: 0, totalPnL: 0 }); // New stats state
   const [isLoading, setIsLoading] = useState(true);
-  const { ready, authenticated } = usePrivy();
+  const { ready, authenticated, user } = usePrivy();
+  const { wallets } = useWallets();
 
   // Fetch from LocalStorage and Real API
   const fetchAllStrategies = useCallback(async () => {
@@ -241,13 +243,56 @@ export const useStrategies = () => {
     const strategy = strategies.find(s => s.id === id);
     if (strategy?.type === 'copy_trade' && updates.copyTradeConfig) {
       try {
-        await updateConfig(id, updates.copyTradeConfig);
+        const signerWallet = wallets.find((w: any) => w.walletClientType === 'privy' && w.chainId?.includes?.('eip155'))
+          || wallets.find((w: any) => w.chainId?.includes?.('eip155'));
+        const signerAddress = signerWallet?.address || user?.wallet?.address || '';
+        if (!signerWallet || !signerAddress || !user?.id) {
+          throw new Error('SIGNATURE_REQUIRED: EVM embedded wallet is required to update copy trade config');
+        }
+
+        const currentConfig = strategy.copyTradeConfig || ({} as CopyTradeConfig);
+        const mergedConfig = { ...currentConfig, ...updates.copyTradeConfig };
+        const payload = createCopyTradeSignedPayload({
+          action: 'update',
+          userId: user.id,
+          signerAddress,
+          nonce: Number(currentConfig.signedNonce || 0) + 1,
+          configId: id,
+          source: mergedConfig,
+        });
+        const signature = await signCopyTradeConfigIntent({
+          wallet: signerWallet,
+          signerAddress,
+          payload,
+        });
+
+        const updatedConfig = await updateConfig(id, {
+          signedPayload: payload as unknown as Record<string, unknown>,
+          signature,
+          signerAddress,
+          nonce: payload.nonce,
+          expiresAt: payload.expiresAtMs,
+        });
+        setStrategies(prev => prev.map(strat => (
+          strat.id === id
+            ? { ...strat, copyTradeConfig: updatedConfig, updatedAt: Date.now() }
+            : strat
+        )));
       } catch (error) {
         console.error('[useStrategies] Failed to update remote config:', error);
+        if (error instanceof CopyTradeApiError) {
+          if (error.code === 'SIGNATURE_REQUIRED') toast.error('Signature required. Please sign in your Privy wallet.');
+          else if (error.code === 'SIGNATURE_INVALID') toast.error('Signature invalid. Please retry signing.');
+          else if (error.code === 'CONFIG_STALE_NONCE') toast.error('Config is stale. Please refresh and retry.');
+          else if (error.code === 'CONFIG_EXPIRED') toast.error('Signature expired. Please sign again.');
+          else toast.error(error.message || 'Failed to update strategy');
+        } else {
+          toast.error(error instanceof Error ? error.message : 'Failed to update strategy');
+        }
         fetchAllStrategies();
       }
     }
-  }, [strategies, fetchAllStrategies]);
+  }, [strategies, fetchAllStrategies, wallets, user]);
 
   const deleteStrategy = useCallback(async (id: string) => {
     const strategy = strategies.find(s => s.id === id);

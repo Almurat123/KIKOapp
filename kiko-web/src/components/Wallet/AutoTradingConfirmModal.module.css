@@ -1,0 +1,152 @@
+.overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000;
+  padding: 20px;
+}
+
+.modal {
+  background: var(--card-bg, #1a1a1c);
+  border-radius: 20px;
+  padding: 32px;
+  max-width: 440px;
+  width: 100%;
+  position: relative;
+  border: 1px solid var(--border-color, rgba(255, 255, 255, 0.1));
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+}
+
+.title {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--text-primary, #fff);
+  text-align: center;
+  margin: 0 0 12px 0;
+}
+
+.description {
+  font-size: 14px;
+  color: var(--text-secondary, #888);
+  text-align: center;
+  line-height: 1.55;
+  margin: 0 0 20px 0;
+}
+
+.checkboxLabel {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  cursor: pointer;
+  padding: 14px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border-color, rgba(255, 255, 255, 0.1));
+  border-radius: 12px;
+  margin-bottom: 24px;
+}
+
+.checkbox {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  margin-top: 2px;
+  accent-color: #10b981;
+  cursor: pointer;
+}
+
+.checkboxText {
+  font-size: 14px;
+  color: var(--text-secondary, #ccc);
+  line-height: 1.45;
+}
+
+.actions {
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+}
+
+.cancelButton {
+  padding: 12px 20px;
+  background: transparent;
+  color: var(--text-secondary, #888);
+  border: 1px solid var(--border-color, rgba(255, 255, 255, 0.1));
+  border-radius: 12px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.cancelButton:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-primary, #fff);
+}
+
+.cancelButton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.confirmButton {
+  padding: 12px 20px;
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  color: white;
+  border: none;
+  border-radius: 12px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.confirmButton:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(16, 185, 129, 0.3);
+}
+
+.confirmButton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* Light mode */
+:global([data-theme="light"]) .modal {
+  background: #fff;
+  border-color: rgba(0, 0, 0, 0.1);
+}
+
+:global([data-theme="light"]) .title {
+  color: #111;
+}
+
+:global([data-theme="light"]) .description {
+  color: #555;
+}
+
+:global([data-theme="light"]) .checkboxLabel {
+  background: rgba(0, 0, 0, 0.04);
+  border-color: rgba(0, 0, 0, 0.1);
+}
+
+:global([data-theme="light"]) .checkboxText {
+  color: #444;
+}
+
+:global([data-theme="light"]) .cancelButton {
+  color: #555;
+  border-color: rgba(0, 0, 0, 0.15);
+}
+
+:global([data-theme="light"]) .cancelButton:hover:not(:disabled) {
+  background: rgba(0, 0, 0, 0.06);
+  color: #111;
+}

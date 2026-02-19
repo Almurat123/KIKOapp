@@ -5,6 +5,7 @@
 import type { SwapParams, SwapQuote, TradeExecutionResult, PriceData } from '@/types/swap';
 import { priceRateLimiter, balanceRateLimiter } from '@/utils/apiRateLimiter';
 import { getAuthToken } from '../utils/authToken';
+import { getStoredSlippageBps } from '@/config/slippageConfig';
 import { parseUnits } from 'viem';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
@@ -43,7 +44,7 @@ export async function getSwapQuote(params: SwapParams): Promise<SwapQuote | null
                 tokenOut: params.tokenOut,
                 amountIn: params.amountIn,
                 chainId: params.chainId,
-                slippageBps: params.slippageBps || 50,
+                slippageBps: params.slippageBps ?? getStoredSlippageBps(),
             }),
         });
 
@@ -98,7 +99,7 @@ export async function executeSwapInstant(params: {
                 tokenOut: params.tokenOut,
                 amountIn: params.amountIn,
                 chainId: params.chainId,
-                slippageBps: params.slippageBps || 50,
+                slippageBps: params.slippageBps ?? getStoredSlippageBps(),
                 maxPriceImpact: params.maxPriceImpact,
             }),
         });

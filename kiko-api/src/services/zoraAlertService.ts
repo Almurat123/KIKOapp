@@ -11,6 +11,7 @@ const THRESHOLDS = {
     tiktok: 500000
 };
 const POLLING_INTERVAL_MS = 60000; // Poll every 60 seconds to respect API limits
+const ALPHA_DETECTOR_CHECK_LOG_WINDOW_MS = Number(process.env.ALPHA_DETECTOR_CHECK_LOG_WINDOW_MS || 180_000);
 
 /**
  * Global Zora Alpha Alert Service
@@ -110,7 +111,7 @@ export class ZoraAlertService {
      * Process a single coin to check follower count and alert
      */
     private async processCoin(coin: any) {
-        logger.info(LogCode.SYS_INFO, 'Alpha Detector: Checking new coin', { symbol: coin.symbol, creator: coin.creatorAddress });
+        logger.throttled(LogCode.SYS_INFO, 'Alpha Detector: Checking new coin', { symbol: coin.symbol, creator: coin.creatorAddress }, ALPHA_DETECTOR_CHECK_LOG_WINDOW_MS);
 
         try {
             // Step A: Hook Filter - MUST be a Creator Coin Hook

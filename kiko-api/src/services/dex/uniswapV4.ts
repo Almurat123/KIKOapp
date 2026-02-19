@@ -22,12 +22,14 @@ const V4_STATE_VIEW_ABI = [
     'function getLiquidity(bytes32 poolId) view returns (uint128)'
 ];
 
-// StateView 地址
+// StateView 地址 (官方部署地址)
+// [Ref]: https://docs.uniswap.org/contracts/v4/deployments
 export const V4_STATE_VIEW: Record<number, string> = {
-    1: '0x000000002e0D16f0FF88E0bAD58f69B47c8656e9',
-    8453: '0xa3c0c9b65bad0b08107aa264b0f3db444b867a71',
-    42161: '0x76fd297e2D437cd7f76d50F01AfE6160f86e8557',
-    10: '0xc18a3169788f4f75a170290584eca6395c75ecdb',
+    1:     '0x7ffe42c4a5deea5b0fec41c94c136cf115597227', // Ethereum (updated)
+    8453:  '0xa3c0c9b65bad0b08107aa264b0f3db444b867a71', // Base
+    56:    '0xd13dd3d6e93f276fafc9db9e6bb47c1180aee0c4', // BSC (Uniswap V4)
+    42161: '0x76fd297e2d437cd7f76d50f01afe6160f86e9990', // Arbitrum
+    10:    '0xc18a3169788f4f75a170290584eca6395c75ecdb', // Optimism
 };
 
 const stateViewInterface = new ethers.Interface(V4_STATE_VIEW_ABI);
@@ -81,8 +83,17 @@ const V4_CONFIGS: Record<number, V4PoolConfig[]> = {
         { fee: DYNAMIC_FEE_FLAG, tickSpacing: 200, hooks: KNOWN_DYNAMIC_FEE_HOOKS_BASE },
     ],
     1: [ // Ethereum
+        { fee: 100, tickSpacing: 1, hooks: ['0x0000000000000000000000000000000000000000'] },
+        { fee: 500, tickSpacing: 10, hooks: ['0x0000000000000000000000000000000000000000'] },
         { fee: 3000, tickSpacing: 60, hooks: ['0x0000000000000000000000000000000000000000'] },
-    ]
+        { fee: 10000, tickSpacing: 200, hooks: ['0x0000000000000000000000000000000000000000'] },
+    ],
+    56: [ // BSC - Uniswap V4 (deployed separately from PancakeSwap)
+        { fee: 100, tickSpacing: 1, hooks: ['0x0000000000000000000000000000000000000000'] },
+        { fee: 500, tickSpacing: 10, hooks: ['0x0000000000000000000000000000000000000000'] },
+        { fee: 2500, tickSpacing: 50, hooks: ['0x0000000000000000000000000000000000000000'] },
+        { fee: 10000, tickSpacing: 200, hooks: ['0x0000000000000000000000000000000000000000'] },
+    ],
 };
 
 const V4_POOL_CACHE_TTL = 30000; // 30s cache
@@ -177,12 +188,20 @@ export async function getV4PoolInfo(
     const poolId = computePoolId(poolKey);
 
     try {
-        // 查询 Slot0
+        // 并行查询 Slot0 + Liquidity (同一个 stateView，同一个 poolId)
         const slot0Data = stateViewInterface.encodeFunctionData('getSlot0', [poolId]);
-        const slot0Result = await callRpc<string>(chainId, 'eth_call', [{
-            to: stateView,
-            data: slot0Data
-        }, 'latest'], options);
+        const liquidityData = stateViewInterface.encodeFunctionData('getLiquidity', [poolId]);
+
+        const [slot0Result, liquidityResult] = await Promise.all([
+            callRpc<string>(chainId, 'eth_call', [{
+                to: stateView,
+                data: slot0Data
+            }, 'latest'], options),
+            callRpc<string>(chainId, 'eth_call', [{
+                to: stateView,
+                data: liquidityData
+            }, 'latest'], options)
+        ]);
 
         if (!slot0Result || slot0Result === '0x' || slot0Result.length < 66) {
             return null;
@@ -199,13 +218,6 @@ export async function getV4PoolInfo(
         const tick = Number(slot0[1]);
         const protocolFee = Number(slot0[2]);
         const lpFee = Number(slot0[3]);
-
-        // 查询 Liquidity
-        const liquidityData = stateViewInterface.encodeFunctionData('getLiquidity', [poolId]);
-        const liquidityResult = await callRpc<string>(chainId, 'eth_call', [{
-            to: stateView,
-            data: liquidityData
-        }, 'latest'], options);
 
         const liquidity = liquidityResult && liquidityResult !== '0x'
             ? BigInt(liquidityResult)

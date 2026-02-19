@@ -1,6 +1,7 @@
 import type { Message } from '../hooks/useConversations';
 import type { TradingStrategy } from '../hooks/useStrategies';
 import type { Intent } from '../services/intentTypes';
+import { getStoredSlippageBps } from '@/config/slippageConfig';
 
 /**
  * Extract trading strategies from chat messages
@@ -111,7 +112,7 @@ function parseStrategyData(
     conversationId,
     executionHistory: [],
     trigger: data.trigger,
-    slippage_bps: data.slippage_bps || 50,
+    slippage_bps: data.slippage_bps ?? getStoredSlippageBps(),
     allowance_mode: data.allowance_mode || 'one_shot',
   };
 }
@@ -172,7 +173,7 @@ export function parseIntentToStrategy(
     conversationId,
     executionHistory: [],
     trigger: intent.trigger,
-    slippage_bps: intent.slippage_bps || 50,
+    slippage_bps: intent.slippage_bps ?? getStoredSlippageBps(),
     allowance_mode: intent.allowance_mode || 'one_shot',
   };
 }

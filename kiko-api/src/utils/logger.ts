@@ -289,17 +289,18 @@ class Logger {
         }
     }
 
-    private shouldThrottle(code: LogCode, message: string): boolean {
+    private shouldThrottle(code: LogCode, message: string, windowMs?: number): boolean {
         const key = `${code}:${message}`;
         const now = Date.now();
         const entry = this.throttleMap.get(key);
+        const effectiveWindowMs = windowMs && windowMs > 0 ? windowMs : this.throttleWindowMs;
 
         if (!entry) {
             this.throttleMap.set(key, { count: 1, lastTime: now });
             return false;
         }
 
-        if (now - entry.lastTime < this.throttleWindowMs) {
+        if (now - entry.lastTime < effectiveWindowMs) {
             entry.count++;
             return true;
         }
@@ -308,7 +309,7 @@ class Logger {
             this.emit(LogLevel.INFO, LogCode.SYS_INFO, 'Suppressed repeated logs', {
                 repeated: entry.count,
                 original: key,
-                windowMs: this.throttleWindowMs,
+                windowMs: effectiveWindowMs,
             });
         }
 
@@ -343,10 +344,16 @@ class Logger {
         this.emit(LogLevel.ERROR, code, message, metadata);
     }
 
-    public throttled(code: LogCode, message: string, metadata?: LogMetadata) {
+    public throttled(code: LogCode, message: string, metadata?: LogMetadata, windowMs?: number) {
         if (this.logLevel > LogLevel.INFO) return;
-        if (this.shouldThrottle(code, message)) return;
+        if (this.shouldThrottle(code, message, windowMs)) return;
         this.emit(LogLevel.INFO, code, message, metadata);
+    }
+
+    public throttledError(code: LogCode, message: string, metadata?: LogMetadata, windowMs?: number) {
+        if (this.logLevel > LogLevel.ERROR) return;
+        if (this.shouldThrottle(code, message, windowMs)) return;
+        this.emit(LogLevel.ERROR, code, message, metadata);
     }
 
     public aggregate(code: LogCode, message: string, metadata?: LogMetadata) {

@@ -217,7 +217,7 @@ fastify.addHook('preHandler', async (request, reply) => {
     if (skipPaths.some(p => request.url === p || request.url.startsWith(p))) {
         return;
     }
-    const sensitiveEndpoints = ['/api/swap/', '/api/trade/', '/api/wallet/'];
+    const sensitiveEndpoints = ['/api/swap/', '/api/trade/', '/api/wallet/', '/api/copy-trade/config'];
     const isSensitive = sensitiveEndpoints.some(p => request.url.startsWith(p));
     const hasSignature = !!(request.headers['x-signature'] && request.headers['x-timestamp']);
 

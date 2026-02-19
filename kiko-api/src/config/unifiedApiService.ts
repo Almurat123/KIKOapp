@@ -25,6 +25,8 @@ import {
   type RpcEndpointConfig
 } from './apiEndpoints.js';
 
+const UNIFIED_API_FINAL_ERROR_LOG_WINDOW_MS = Number(process.env.UNIFIED_API_FINAL_ERROR_LOG_WINDOW_MS || 180_000);
+
 // ============================================================================
 // HEALTH TRACKING
 // ============================================================================
@@ -233,10 +235,10 @@ export async function fetchJson<T = any>(options: FetchJsonOptions): Promise<T> 
   // Final failure
   if (!suppressError) {
       const logUrl = url.includes('api.coinbase.com') ? url : url.substring(0, 60);
-      logger.error(LogCode.API_FETCH_FAILED, `${endpointName} failed after ${maxRetries + 1} attempts`, {
+      logger.throttledError(LogCode.API_FETCH_FAILED, `${endpointName} failed after ${maxRetries + 1} attempts`, {
       error: lastError?.message,
       url: logUrl
-    });
+    }, UNIFIED_API_FINAL_ERROR_LOG_WINDOW_MS);
   }
 
   throw lastError;

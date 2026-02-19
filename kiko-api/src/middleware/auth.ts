@@ -9,8 +9,17 @@ import { AppError } from './errorHandler.js';
 
 const PRIVY_JWKS_URL = process.env.PRIVY_JWKS_URL || '';
 const PRIVY_APP_ID = process.env.PRIVY_APP_ID || '';
-const isProduction = (process.env.NODE_ENV === 'production' || process.env.NODE_ENV === 'prod');
-const PRIVY_SKIP_VERIFY = process.env.PRIVY_SKIP_VERIFY === 'true' && !isProduction;
+const NODE_ENV = String(process.env.NODE_ENV || '').toLowerCase();
+const RAILWAY_ENVIRONMENT = String(process.env.RAILWAY_ENVIRONMENT || '').toLowerCase();
+const APP_ENV = String(process.env.APP_ENV || '').toLowerCase();
+const isLocalDev =
+  NODE_ENV === 'development' ||
+  NODE_ENV === 'dev' ||
+  NODE_ENV === 'test' ||
+  APP_ENV === 'local' ||
+  RAILWAY_ENVIRONMENT === 'development';
+const ALLOW_DEV_AUTH_BYPASS = process.env.ALLOW_DEV_AUTH_BYPASS === 'true' && isLocalDev;
+const PRIVY_SKIP_VERIFY = process.env.PRIVY_SKIP_VERIFY === 'true' && ALLOW_DEV_AUTH_BYPASS;
 
 // Only create JWKS fetcher if URL is provided
 const jwks = PRIVY_JWKS_URL ? createRemoteJWKSet(new URL(PRIVY_JWKS_URL)) : null;
@@ -85,9 +94,8 @@ export async function verifyPrivyToken(token: string) {
  */
 export async function requireAuth(request: FastifyRequest, _reply: FastifyReply) {
   // DEV ONLY: TEST_MODE bypass for automated testing
-  // Strictly disabled in production
-  const isProduction = (process.env.NODE_ENV === 'production' || process.env.NODE_ENV === 'prod');
-  const TEST_MODE = process.env.TEST_MODE === 'true' && !isProduction;
+  // Strictly disabled unless local dev + explicit opt-in
+  const TEST_MODE = process.env.TEST_MODE === 'true' && ALLOW_DEV_AUTH_BYPASS;
   if (TEST_MODE) {
     console.warn('[auth] TEST_MODE=true, using mock user for testing');
     (request as any).user = {
@@ -142,6 +150,23 @@ export async function requireAuth(request: FastifyRequest, _reply: FastifyReply)
       sub: (request as any).user.sub?.substring(0, 25) + '...',
       exp: (request as any).user.exp
     });
+  }
+}
+
+/**
+ * Route guard for endpoints that must be called by end-users only.
+ * Rejects service-key authenticated requests.
+ */
+export async function requireEndUserAuth(request: FastifyRequest, reply: FastifyReply) {
+  await requireAuth(request, reply);
+  const user = (request as any).user;
+  if (user?.role === 'service' || user?.sub === 'system-service') {
+    console.warn('COPYTRADE_SERVICE_AUTH_BLOCKED', {
+      url: request.url,
+      method: request.method,
+      ip: request.ip,
+    });
+    throw new AppError(403, 'Service authentication is not allowed for this endpoint', 'END_USER_AUTH_REQUIRED');
   }
 }
 

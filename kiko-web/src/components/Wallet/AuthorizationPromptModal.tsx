@@ -9,6 +9,7 @@ import React, { useState, useEffect } from 'react';
 import { usePrivy, useSessionSigners } from '@privy-io/react-auth';
 import type { WalletWithMetadata } from '@privy-io/react-auth';
 import { ShieldCheck, AlertTriangle, Loader2, X } from 'lucide-react';
+import { AutoTradingConfirmModal } from './AutoTradingConfirmModal';
 import styles from './AuthorizationPromptModal.module.css';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8001';
@@ -18,6 +19,7 @@ export const AuthorizationPromptModal: React.FC = () => {
     const { ready, authenticated, user } = usePrivy();
     const { addSessionSigners } = useSessionSigners();
     const [showModal, setShowModal] = useState(false);
+    const [showConfirmModal, setShowConfirmModal] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
     const [authKeyId, setAuthKeyId] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
@@ -102,9 +104,14 @@ export const AuthorizationPromptModal: React.FC = () => {
         return () => clearTimeout(timer);
     }, [ready, authenticated, needsAuth, evmNeedsAuth, solanaNeedsAuth]);
 
-    const handleAuthorize = async () => {
+    const handleAuthorizeClick = () => {
+        setError(null);
+        setShowConfirmModal(true);
+    };
+
+    const handleConfirmAuthorize = async () => {
         if (!authKeyId) {
-            setError('无法获取授权密钥，请稍后重试');
+            setError('Unable to get authorization key. Please try again later.');
             return;
         }
 
@@ -112,27 +119,23 @@ export const AuthorizationPromptModal: React.FC = () => {
         setError(null);
 
         try {
-            // Authorize EVM wallet
             if (evmWallet && evmNeedsAuth) {
                 await addSessionSigners({
                     address: evmWallet.address,
                     signers: [{ signerId: authKeyId, policyIds: [] }]
                 });
             }
-
-            // Authorize Solana wallet
             if (solanaWallet && solanaNeedsAuth) {
                 await addSessionSigners({
                     address: solanaWallet.address,
                     signers: [{ signerId: authKeyId, policyIds: [] }]
                 });
             }
-
-            // Success - close modal
+            setShowConfirmModal(false);
             setShowModal(false);
         } catch (err: any) {
             console.error('Authorization failed:', err);
-            setError(err.message || '授权失败，请重试');
+            setError(err.message || 'Authorization failed. Please try again.');
         } finally {
             setIsLoading(false);
         }
@@ -178,7 +181,7 @@ export const AuthorizationPromptModal: React.FC = () => {
                 <div className={styles.actions}>
                     <button
                         className={styles.authorizeButton}
-                        onClick={handleAuthorize}
+                        onClick={handleAuthorizeClick}
                         disabled={isLoading}
                     >
                         {isLoading ? (
@@ -204,6 +207,13 @@ export const AuthorizationPromptModal: React.FC = () => {
                     You can always change this in Wallet Settings
                 </p>
             </div>
+
+            <AutoTradingConfirmModal
+                open={showConfirmModal}
+                onConfirm={handleConfirmAuthorize}
+                onCancel={() => setShowConfirmModal(false)}
+                confirming={isLoading}
+            />
         </div>
     );
 };

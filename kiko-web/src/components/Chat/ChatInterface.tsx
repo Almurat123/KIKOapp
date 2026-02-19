@@ -6,7 +6,6 @@ import { useParams, useNavigate, useLocation } from 'react-router-dom';
 
 import { usePrivy, useWallets } from '@privy-io/react-auth';
 import type { WalletWithMetadata } from '@privy-io/react-auth';
-import { DelegatedActionRequest } from '../Privy/DelegatedActionRequest';
 import { MessageBubble } from './MessageBubble';
 import { toast } from '../Toast';
 import { WelcomeScreen } from './WelcomeScreen';
@@ -33,6 +32,7 @@ import { useConversationContext } from '../../contexts/ConversationContext';
 import { moderationService } from '../../services/moderation';
 import { logger } from '../../utils/logger';
 import { resolveCoreApiBase } from '../../utils/coreApiBase';
+import { getStoredSlippageBps } from '@/config/slippageConfig';
 
 // Model options
 // DeepSeek models:
@@ -74,14 +74,6 @@ interface TaskState {
     id: string;
     status: string;
     [key: string]: unknown;
-}
-
-interface SwapActionData {
-    tokenIn: string;
-    tokenOut: string;
-    amountIn: string;
-    chainId: number;
-    slippage?: number;
 }
 
 type PendingChunk = {
@@ -288,10 +280,6 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
         () => { }, // onSend is unused in hook now
         setInput
     );
-
-    // Delegation state for instant trades (delegation is handled by DelegatedActionRequest component)
-    const [showDelegationModal, setShowDelegationModal] = useState(false);
-    const [pendingSwapAction, setPendingSwapAction] = useState<SwapActionData | null>(null);
 
     const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false);
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -530,8 +518,8 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                         const tokenInAddress = resolveTokenAddress(actionData.tokenIn || actionData.token_in);
                         const tokenOutAddress = resolveTokenAddress(actionData.tokenOut || actionData.token_out);
                         const amountIn = actionData.amountIn || actionData.amount_in;
-                        const slippageBps = actionData.slippageBps || actionData.slippage_bps ||
-                            (actionData.slippage ? Math.round(actionData.slippage * 100) : 50);
+                        const slippageBps = actionData.slippageBps ?? actionData.slippage_bps ??
+                            (actionData.slippage ? Math.round(Number(actionData.slippage) * 100) : getStoredSlippageBps());
 
                         logger.debug('Executing instant swap:', {
                             tokenIn: tokenInAddress,
@@ -2250,48 +2238,6 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
             {
                 showFollowModal && authenticated && (
                     <FarcasterFollowModal onDismiss={handleDismissFollow} />
-                )
-            }
-
-            {
-                showDelegationModal && (
-                    <DelegatedActionRequest
-                        onSuccess={() => {
-                            setShowDelegationModal(false);
-                            if (pendingSwapAction) {
-                                // Re-import and execute
-                                import('../../services/swapService').then(({ executeSwapInstant }) => {
-                                    const toastId = toast.loading('Executing instant swap...');
-
-                                    // Set local storage flag
-                                    if (user?.wallet?.address) {
-                                        localStorage.setItem(`kiko_delegated_${user.wallet.address.toLowerCase()}`, 'true');
-                                    }
-
-                                    executeSwapInstant({
-                                        tokenIn: pendingSwapAction.tokenIn,
-                                        tokenOut: pendingSwapAction.tokenOut,
-                                        amountIn: pendingSwapAction.amountIn,
-                                        chainId: pendingSwapAction.chainId,
-                                        slippageBps: Math.round((pendingSwapAction.slippage || 0.5) * 100),
-                                    })
-                                        .then((result) => {
-                                            if (result.success && result.txHash) {
-                                                toast.success('Swap executed successfully!', { id: toastId });
-                                            } else {
-                                                toast.error(`Swap failed: ${result.error}`, { id: toastId });
-                                            }
-                                        });
-                                });
-                                setPendingSwapAction(null);
-                            }
-                        }}
-                        onCancel={() => {
-                            setShowDelegationModal(false);
-                            setPendingSwapAction(null);
-                            toast.error("Delegation cancelled");
-                        }}
-                    />
                 )
             }
 

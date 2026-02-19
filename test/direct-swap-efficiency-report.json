@@ -1,0 +1,310 @@
+{
+  "startedAt": "2026-02-19T08:37:08.823Z",
+  "finishedAt": "2026-02-19T08:37:19.515Z",
+  "inputPath": "/Users/almurat/KiKo/test/base-samples-1000-mixed.json",
+  "outputPath": "/Users/almurat/KiKo/test/direct-swap-efficiency-report.json",
+  "config": {
+    "chainId": 8453,
+    "maxTx": 20,
+    "concurrency": 2,
+    "slippageBps": 1500,
+    "simulationMode": "true"
+  },
+  "elapsedMs": 10690,
+  "summary": {
+    "total": 20,
+    "attempted": 7,
+    "success": 3,
+    "failed": 4,
+    "successRatePct": 42.86,
+    "statusBreakdown": {
+      "ok": 3,
+      "missing": 0,
+      "not_swap": 1,
+      "not_native_buy": 12,
+      "direct_failed": 4
+    },
+    "latencyMs": {
+      "all": {
+        "avg": 966.4,
+        "p50": 320,
+        "p95": 3235
+      },
+      "direct": {
+        "avg": 1692.43,
+        "p50": 1083,
+        "p95": 3468
+      },
+      "direct_success": {
+        "avg": 1796,
+        "p50": 1083,
+        "p95": 3468
+      }
+    },
+    "providerBreakdown": [
+      {
+        "provider": "failed",
+        "count": 4
+      },
+      {
+        "provider": "uniswap-v4",
+        "count": 3
+      }
+    ],
+    "failReasons": [
+      {
+        "error": "failed_hook_candidate_failed_pre_sim_failed: hook_candidate_failed:pre_sim_failed",
+        "count": 4
+      }
+    ],
+    "failDomains": [
+      {
+        "domain": "execution",
+        "count": 4
+      }
+    ]
+  },
+  "rows": [
+    {
+      "txHash": "0x7a8f467d00d233f9e081f04b0bcfeec0184106f24d1192536ab387c0f67c250f",
+      "bucket": "new",
+      "status": "not_native_buy",
+      "directAttempted": false,
+      "directSuccess": false,
+      "fetchMs": 1010,
+      "parseMs": 4,
+      "directMs": 0,
+      "totalMs": 1014
+    },
+    {
+      "txHash": "0xc406c4303926ef5e85670fbe90df2e104f98c9b6dab39442dcf6a417f7d07363",
+      "bucket": "new",
+      "status": "not_native_buy",
+      "directAttempted": false,
+      "directSuccess": false,
+      "fetchMs": 315,
+      "parseMs": 3,
+      "directMs": 0,
+      "totalMs": 318
+    },
+    {
+      "txHash": "0x2d62f47635213288bbae14ff21c221235855edf592c2eae8502657439bbf1ce4",
+      "bucket": "new",
+      "status": "ok",
+      "directAttempted": true,
+      "directSuccess": true,
+      "provider": "uniswap-v4",
+      "error": "",
+      "failureDomain": "unknown",
+      "fetchMs": 989,
+      "parseMs": 13,
+      "directMs": 3468,
+      "totalMs": 4470
+    },
+    {
+      "txHash": "0xeff5be200ee41fffcdea8f0530d1ff98bf38b6a4b768a81407805080c1d39733",
+      "bucket": "new",
+      "status": "direct_failed",
+      "directAttempted": true,
+      "directSuccess": false,
+      "provider": "failed",
+      "error": "failed_hook_candidate_failed_pre_sim_failed: hook_candidate_failed:pre_sim_failed",
+      "failureDomain": "execution",
+      "fetchMs": 419,
+      "parseMs": 3,
+      "directMs": 2812,
+      "totalMs": 3235
+    },
+    {
+      "txHash": "0xb4f85382087d5e5f9475f8dbef988961e05ffaf7cd55cfb85778510c47d8c592",
+      "bucket": "new",
+      "status": "not_native_buy",
+      "directAttempted": false,
+      "directSuccess": false,
+      "fetchMs": 279,
+      "parseMs": 5,
+      "directMs": 0,
+      "totalMs": 283
+    },
+    {
+      "txHash": "0xa10f30b97d9bbdfeee271b7adbeccd45c4ee24ecde12008eab2b39891b08006f",
+      "bucket": "new",
+      "status": "not_native_buy",
+      "directAttempted": false,
+      "directSuccess": false,
+      "fetchMs": 359,
+      "parseMs": 4,
+      "directMs": 0,
+      "totalMs": 363
+    },
+    {
+      "txHash": "0x5c5ce2f27f69e7162cae7c655601b7cc38f473e4c538c40efa0c5d2e0ca43d58",
+      "bucket": "new",
+      "status": "not_native_buy",
+      "directAttempted": false,
+      "directSuccess": false,
+      "fetchMs": 316,
+      "parseMs": 4,
+      "directMs": 0,
+      "totalMs": 320
+    },
+    {
+      "txHash": "0x9ae9d9dac1ffb6d34ba9a73c6eb083c472605fce6395281c4a1f468d202af92c",
+      "bucket": "new",
+      "status": "not_native_buy",
+      "directAttempted": false,
+      "directSuccess": false,
+      "fetchMs": 296,
+      "parseMs": 4,
+      "directMs": 0,
+      "totalMs": 300
+    },
+    {
+      "txHash": "0x65e880a2bddc8956b0add0a9163690536d855f18f73e86ccc99b6c25a4baebe9",
+      "bucket": "new",
+      "status": "not_native_buy",
+      "directAttempted": false,
+      "directSuccess": false,
+      "fetchMs": 293,
+      "parseMs": 3,
+      "directMs": 0,
+      "totalMs": 297
+    },
+    {
+      "txHash": "0x5a46679b68e5229b5fdcf080026c29458ab9a37cfd89f361033152f6f045763e",
+      "bucket": "new",
+      "status": "ok",
+      "directAttempted": true,
+      "directSuccess": true,
+      "provider": "uniswap-v4",
+      "error": "",
+      "failureDomain": "unknown",
+      "fetchMs": 296,
+      "parseMs": 4,
+      "directMs": 1083,
+      "totalMs": 1383
+    },
+    {
+      "txHash": "0x0c5fe693f8cea94a959b18ecc4bfa32538a4f3303beaf4101f3194d5e688983b",
+      "bucket": "new",
+      "status": "direct_failed",
+      "directAttempted": true,
+      "directSuccess": false,
+      "provider": "failed",
+      "error": "failed_hook_candidate_failed_pre_sim_failed: hook_candidate_failed:pre_sim_failed",
+      "failureDomain": "execution",
+      "fetchMs": 289,
+      "parseMs": 4,
+      "directMs": 1006,
+      "totalMs": 1299
+    },
+    {
+      "txHash": "0x498094e4661112f5331fd859adf6bb2221513face7c63094a170453ae41517fe",
+      "bucket": "new",
+      "status": "not_native_buy",
+      "directAttempted": false,
+      "directSuccess": false,
+      "fetchMs": 291,
+      "parseMs": 4,
+      "directMs": 0,
+      "totalMs": 295
+    },
+    {
+      "txHash": "0xd195e984b0164d397b654b1512e1ee852293ca9896fc7f71e8906b0af7762d3e",
+      "bucket": "new",
+      "status": "not_native_buy",
+      "directAttempted": false,
+      "directSuccess": false,
+      "fetchMs": 277,
+      "parseMs": 3,
+      "directMs": 0,
+      "totalMs": 281
+    },
+    {
+      "txHash": "0x25aed7e3bb4e9b9b0b444b7c15c81852cd6e6dc31a1eec510289c414c3edbd84",
+      "bucket": "new",
+      "status": "not_native_buy",
+      "directAttempted": false,
+      "directSuccess": false,
+      "fetchMs": 329,
+      "parseMs": 4,
+      "directMs": 0,
+      "totalMs": 333
+    },
+    {
+      "txHash": "0x25dd0c5eff386a7f8c61522f8d2e8d5124324e2099c4e153bb63d85dd7720b19",
+      "bucket": "new",
+      "status": "ok",
+      "directAttempted": true,
+      "directSuccess": true,
+      "provider": "uniswap-v4",
+      "error": "",
+      "failureDomain": "unknown",
+      "fetchMs": 297,
+      "parseMs": 4,
+      "directMs": 837,
+      "totalMs": 1138
+    },
+    {
+      "txHash": "0x3fe8219d06311ee8b2056e58c67b0cbc21f8cfa54afa5c97c2266988c4aac542",
+      "bucket": "new",
+      "status": "not_native_buy",
+      "directAttempted": false,
+      "directSuccess": false,
+      "fetchMs": 268,
+      "parseMs": 5,
+      "directMs": 0,
+      "totalMs": 273
+    },
+    {
+      "txHash": "0x33b2f59374ae6d3d4e341c285b66a3d632e7b991f3e00d4706c7d0621046079c",
+      "bucket": "new",
+      "status": "direct_failed",
+      "directAttempted": true,
+      "directSuccess": false,
+      "provider": "failed",
+      "error": "failed_hook_candidate_failed_pre_sim_failed: hook_candidate_failed:pre_sim_failed",
+      "failureDomain": "execution",
+      "fetchMs": 286,
+      "parseMs": 4,
+      "directMs": 806,
+      "totalMs": 1096
+    },
+    {
+      "txHash": "0xc7d3056fdd1fd159ca82ccaf3d2a3a08a5f038e7f5c2718e5e0a665ae1d54763",
+      "bucket": "new",
+      "status": "not_swap",
+      "directAttempted": false,
+      "directSuccess": false,
+      "fetchMs": 256,
+      "parseMs": 0,
+      "directMs": 0,
+      "totalMs": 256
+    },
+    {
+      "txHash": "0xdc49fdc0d0cd99e299b0a435305679e8eb35dc2a8a46e30eddc7b222c3caa077",
+      "bucket": "new",
+      "status": "not_native_buy",
+      "directAttempted": false,
+      "directSuccess": false,
+      "fetchMs": 261,
+      "parseMs": 3,
+      "directMs": 0,
+      "totalMs": 264
+    },
+    {
+      "txHash": "0xf5b287e6babda1cb935f539561673385778596e2b6a121a385f76679bb61c68d",
+      "bucket": "new",
+      "status": "direct_failed",
+      "directAttempted": true,
+      "directSuccess": false,
+      "provider": "failed",
+      "error": "failed_hook_candidate_failed_pre_sim_failed: hook_candidate_failed:pre_sim_failed",
+      "failureDomain": "execution",
+      "fetchMs": 270,
+      "parseMs": 5,
+      "directMs": 1835,
+      "totalMs": 2110
+    }
+  ]
+}

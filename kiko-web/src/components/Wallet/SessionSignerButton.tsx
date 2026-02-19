@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { usePrivy, useSessionSigners } from '@privy-io/react-auth';
 import type { WalletWithMetadata } from '@privy-io/react-auth';
+import { AutoTradingConfirmModal } from './AutoTradingConfirmModal';
 import styles from './SessionSignerButton.module.css';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8001';
@@ -27,6 +28,7 @@ export const SessionSignerButton: React.FC<SessionSignerButtonProps> = ({
     const [isLoading, setIsLoading] = useState(false);
     const [isDelegated, setIsDelegated] = useState(false);
     const [authKeyId, setAuthKeyId] = useState<string | null>(null);
+    const [showConfirmModal, setShowConfirmModal] = useState(false);
 
     // 获取用户的嵌入式钱包
     const embeddedWallet = user?.linkedAccounts?.find(
@@ -63,8 +65,11 @@ export const SessionSignerButton: React.FC<SessionSignerButtonProps> = ({
         fetchAuthKeyId();
     }, []);
 
-    // 直接执行授权 - 不再显示自定义确认弹窗
-    const handleAuthorize = async () => {
+    const handleAuthorizeClick = () => {
+        setShowConfirmModal(true);
+    };
+
+    const handleConfirmAuthorize = async () => {
         if (!embeddedWallet?.address || !authKeyId) return;
 
         setIsLoading(true);
@@ -76,6 +81,7 @@ export const SessionSignerButton: React.FC<SessionSignerButtonProps> = ({
                     policyIds: []
                 }]
             });
+            setShowConfirmModal(false);
             setIsDelegated(true);
             onSuccess?.();
         } catch (error) {
@@ -134,7 +140,7 @@ export const SessionSignerButton: React.FC<SessionSignerButtonProps> = ({
 
             <button
                 className={`${styles.button} ${isDelegated ? styles.revokeButton : styles.authorizeButton}`}
-                onClick={isDelegated ? handleRevoke : handleAuthorize}
+                onClick={isDelegated ? handleRevoke : handleAuthorizeClick}
                 disabled={isLoading || !authKeyId}
             >
                 {isLoading
@@ -144,6 +150,13 @@ export const SessionSignerButton: React.FC<SessionSignerButtonProps> = ({
                         : 'Authorize Auto-Trading'
                 }
             </button>
+
+            <AutoTradingConfirmModal
+                open={showConfirmModal}
+                onConfirm={handleConfirmAuthorize}
+                onCancel={() => setShowConfirmModal(false)}
+                confirming={isLoading}
+            />
 
             {!authKeyId && (
                 <p className={styles.error}>

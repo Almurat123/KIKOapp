@@ -10,6 +10,7 @@ import { useWallets as useSolanaWallets } from '@privy-io/react-auth/solana';
 import { getSolanaSwapQuote, executeSolanaSwap, type SolanaSwapQuote } from '@/services/solanaSwapService';
 import { getCommonTokens } from '@/services/tokenDataService';
 import type { Token } from '@/types/swap';
+import { getStoredSlippageBps } from '@/config/slippageConfig';
 
 
 const SOLANA_CHAIN_ID = 900;
@@ -53,7 +54,7 @@ export interface UseSolanaSwapReturn {
 }
 
 export function useSolanaSwap({
-  slippageBps = 50,
+  slippageBps = getStoredSlippageBps(),
   userAddress,
   aggregator = 'auto',
 }: UseSolanaSwapParams): UseSolanaSwapReturn {

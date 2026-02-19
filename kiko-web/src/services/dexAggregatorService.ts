@@ -2,6 +2,8 @@
 // const DEXSCREENER_API = 'https://api.dexscreener.com/latest/dex';
 // const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
+import { getStoredSlippageBps } from '@/config/slippageConfig';
+
 export interface TokenInfo {
   symbol: string;
   name: string;
@@ -87,7 +89,8 @@ export async function getZeroExQuote(
   userAddress?: string,
   slippageBps?: number,
 ): Promise<SwapQuote | null> {
-  const cacheKey = `quote_${chainId}_${tokenIn}_${tokenOut}_${amount}_${slippageBps || 50}_${userAddress || 'anon'}`;
+  const effectiveSlippageBps = slippageBps ?? getStoredSlippageBps();
+  const cacheKey = `quote_${chainId}_${tokenIn}_${tokenOut}_${amount}_${effectiveSlippageBps}_${userAddress || 'anon'}`;
 
   // 动态导入 rateLimiter 避免循环依赖
   const { quoteRateLimiter } = await import('@/utils/apiRateLimiter');
@@ -106,7 +109,7 @@ export async function getZeroExQuote(
         tokenOut,
         amountIn,
         chainId,
-        slippageBps: slippageBps || 50,
+        slippageBps: effectiveSlippageBps,
         userAddress,
       };
 
@@ -251,7 +254,7 @@ export async function getBestSwapQuote(
     tokenOut,
     amountIn: amount,
     chainId,
-    slippageBps: slippageBps || 50,
+    slippageBps: slippageBps ?? getStoredSlippageBps(),
     userAddress,
   };
 

@@ -1,10 +1,13 @@
-import { getWalletTransactions as fetchAlchemyTransactions, WalletBalance, getPortfolio, getNativeBalances } from './alchemy.js';
+import { getWalletTransactions as fetchAlchemyTransactions, WalletBalance, getPortfolio } from './alchemy.js';
 import prisma from '../db/prisma.js';
 import { getNativeBalance, getErc20Balance, getErc20Decimals } from './rpcManager.js';
 import { ethers } from 'ethers';
 import { get as cacheGet, set as cacheSet } from '../cache/cacheClient.js';
 
-const ALL_BALANCES_CACHE_TTL_MS = 60_000; // 增加到 60 秒，减少 RPC 调用
+const ALL_BALANCES_CACHE_TTL_MS = 60_000;
+// [Perf]: In-memory mirror of Redis cache for zero-latency repeat reads within same process.
+// The 30s portfolioCache inside alchemy.ts handles dedup of concurrent Alchemy calls.
+// This layer only caches the spam-filtered result from walletService level.
 const allBalancesCache = new Map<string, { timestamp: number; data: Record<string, WalletBalance> }>();
 const allBalancesInflight = new Map<string, Promise<Record<string, WalletBalance>>>();
 
@@ -112,7 +115,7 @@ export const walletService = {
         // [Change]: Use getPortfolio instead of getNativeBalances to ensure all tokens are fetched
         // [Ref]: User request to fix missing tokens in balance view
         const promise = (async () => {
-            const rawData = await getPortfolio(address, chains, solanaAddress);
+            const rawData = await getPortfolio(address, chains, solanaAddress, forceRefresh);
             const filteredData: Record<string, WalletBalance> = {};
 
             for (const [chain, balance] of Object.entries(rawData)) {

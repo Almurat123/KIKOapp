@@ -120,6 +120,14 @@ model CopyTradeConfig {
   targetProfitUsd               Float                 @default(0)
   targetLossUsd                 Float                 @default(0)
   targetMetricsUpdatedAt        DateTime?
+  configPayload                 Json?
+  configHash                    String?
+  configSignature               String?
+  signerAddress                 String?
+  signedNonce                   Int?
+  signatureScheme               String                @default("eip712_v1")
+  signatureVerifiedAt           DateTime?
+  requiresResign                Boolean               @default(false)
   analyses                      CopyTradeAnalysis[]
   user                          User                  @relation(fields: [userId], references: [privyDid], onDelete: Cascade)
   positions                     Position[]

@@ -43,6 +43,7 @@ import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
 import { getNativeBalance as rpcGetNativeBalance, getErc20Balance, getErc20Decimals } from './rpcManager.js';
 import { startCopyTradePendingWatcher, stopCopyTradePendingWatcher } from './copyTradePendingService.js';
+import { assertConfigExecutable } from './copyTradeConfigSignatureService.js';
 
 export { getTokenInfo } from './tokenService.js';
 
@@ -103,6 +104,7 @@ const LAUNCHPAD_DET_TIMEOUT_MS = Number(process.env.LAUNCHPAD_DET_TIMEOUT_MS || 
 const COPYTRADE_MAX_DELAY_MS = Number(process.env.COPYTRADE_MAX_DELAY_MS || '5000');
 const COPYTRADE_TURBO_MAX_DELAY_MS = Number(process.env.COPYTRADE_TURBO_MAX_DELAY_MS || '2500');
 const COPYTRADE_PRICE_CHECK_TIMEOUT_MS = Number(process.env.COPYTRADE_PRICE_CHECK_TIMEOUT_MS || '1200');
+const NO_OPEN_POSITIONS_LOG_WINDOW_MS = Number(process.env.NO_OPEN_POSITIONS_LOG_WINDOW_MS || '180000');
 const ALLOWED_LAUNCHPAD_PROVIDERS = new Set(['zora', 'fourmeme']);
 const CHAIN_LAUNCHPAD_PROVIDERS: Record<number, Set<string>> = {
     8453: new Set(['zora']),
@@ -177,6 +179,36 @@ function buildDirectSwapHintFromSwap(swap: DecodedSwap): DirectSwapHint | undefi
         resolvedPoolHint: swap?.resolvedPoolHint,
         bypassReferencePrice: true
     };
+}
+
+function filterExecutableCopyTradeConfigs(configs: any[], context: { chainId: number; targetWallet: string; token: string }) {
+    const executable: any[] = [];
+    for (const config of configs) {
+        const check = assertConfigExecutable(config, config?.user?.walletAddress || '');
+        if (!check.ok) {
+            if (check.reason === 'requires_resign') {
+                logger.warn(LogCode.WTC_TX_SKIPPED, 'COPYTRADE_LEGACY_CONFIG_REQUIRES_RESIGN', {
+                    configId: config?.id,
+                    userId: config?.userId,
+                    chainId: context.chainId,
+                    targetWallet: context.targetWallet,
+                });
+            }
+            logger.warn(LogCode.WTC_TX_SKIPPED, 'CopyTrade config rejected by signature enforcement', {
+                event: 'COPYTRADE_SIGNATURE_VERIFY_FAILED',
+                configId: config?.id,
+                userId: config?.userId,
+                chainId: context.chainId,
+                targetWallet: context.targetWallet,
+                token: context.token,
+                signatureCheck: 'fail',
+                rejectReason: check.reason || 'unknown'
+            });
+            continue;
+        }
+        executable.push(config);
+    }
+    return executable;
 }
 
 /**
@@ -453,6 +485,20 @@ async function handleTargetBuy(
         return;
     }
 
+    const executableConfigs = filterExecutableCopyTradeConfigs(configs, {
+        chainId,
+        targetWallet: normalizedWallet,
+        token: tokenToBuy,
+    });
+    if (executableConfigs.length === 0) {
+        logger.warn(LogCode.WTC_TX_SKIPPED, 'No executable copy trade configs after signature validation', {
+            chainId,
+            targetWallet: normalizedWallet,
+            token: tokenToBuy,
+        });
+        return;
+    }
+
     const tokenInfoCache = new Map<string, Promise<any>>();
 
     const launchpadPromise = (chainId === 8453 || chainId === 56)
@@ -460,7 +506,7 @@ async function handleTargetBuy(
         : Promise.resolve(null);
 
     // Turbo Mode: only if ALL configs explicitly choose turbo.
-    const skipTokenInfo = configs.every(c => c.executionMode === 'turbo');
+    const skipTokenInfo = executableConfigs.every(c => c.executionMode === 'turbo');
     if (skipTokenInfo) {
         try {
             const meta = await getTokenMetadata(chainId, tokenToBuy, { rpcStrategy: 'fast' });
@@ -484,7 +530,7 @@ async function handleTargetBuy(
                 chainId
             });
 
-            await processBuyWithInfo(targetWallet, tokenToBuy, swap, chainId, configs, fallbackInfo, true, launchpadPromise, tokenInfoCache, detectedAt);
+            await processBuyWithInfo(targetWallet, tokenToBuy, swap, chainId, executableConfigs, fallbackInfo, true, launchpadPromise, tokenInfoCache, detectedAt);
             return;
         } catch (err: any) {
             logger.warn(LogCode.API_FETCH_FAILED, '[CopyTrade] Token info disabled but metadata fallback failed', {
@@ -536,7 +582,7 @@ async function handleTargetBuy(
             // NOTE: We must be careful about price calculations later.
             // If price is 0, we can only do "Buy X ETH worth", not "Buy Y Tokens".
             // Our logic below handles "Target Swap Value" based on Input ETH, so we are safe.
-            await processBuyWithInfo(targetWallet, tokenToBuy, swap, chainId, configs, fallbackInfo, true, launchpadPromise, tokenInfoCache, detectedAt);
+            await processBuyWithInfo(targetWallet, tokenToBuy, swap, chainId, executableConfigs, fallbackInfo, true, launchpadPromise, tokenInfoCache, detectedAt);
             return;
         }
 
@@ -566,7 +612,7 @@ async function handleTargetBuy(
                     chainId
                 });
 
-                await processBuyWithInfo(targetWallet, tokenToBuy, swap, chainId, configs, fallbackInfo, true, launchpadPromise, tokenInfoCache, detectedAt);
+                await processBuyWithInfo(targetWallet, tokenToBuy, swap, chainId, executableConfigs, fallbackInfo, true, launchpadPromise, tokenInfoCache, detectedAt);
                 return;
             } catch (metaErr: any) {
                 logger.warn(LogCode.API_FETCH_FAILED, 'Metadata fallback failed', { token: tokenToBuy, error: metaErr.message });
@@ -577,7 +623,7 @@ async function handleTargetBuy(
         return;
     }
 
-    await processBuyWithInfo(targetWallet, tokenToBuy, swap, chainId, configs, tokenInfo, false, launchpadPromise, tokenInfoCache, detectedAt);
+    await processBuyWithInfo(targetWallet, tokenToBuy, swap, chainId, executableConfigs, tokenInfo, false, launchpadPromise, tokenInfoCache, detectedAt);
 }
 
 /**
@@ -2377,9 +2423,16 @@ async function handleTargetSell(
 
     if (configs.length === 0) return;
 
-    logger.info(LogCode.EXE_TX_BROADCAST, `Mirror sell: Processing open positions for token`, { token: tokenToSell, configCount: configs.length, targetWallet });
+    const executableConfigs = filterExecutableCopyTradeConfigs(configs, {
+        chainId,
+        targetWallet: normalizedWallet,
+        token: tokenToSell,
+    });
+    if (executableConfigs.length === 0) return;
 
-    await Promise.all(configs.map(async (config) => {
+    logger.info(LogCode.EXE_TX_BROADCAST, `Mirror sell: Processing open positions for token`, { token: tokenToSell, configCount: executableConfigs.length, targetWallet });
+
+    await Promise.all(executableConfigs.map(async (config) => {
         // Reconcile rare turbo race: tx settled on-chain but position stayed pending.
         try {
             const pendingPositions = await prisma.position.findMany({
@@ -2631,7 +2684,7 @@ export async function checkPositionsForExits(): Promise<void> {
     });
 
     if (positions.length === 0) {
-        logger.throttled(LogCode.SYS_STARTUP, 'No open positions to monitor');
+        logger.throttled(LogCode.SYS_STARTUP, 'No open positions to monitor', undefined, NO_OPEN_POSITIONS_LOG_WINDOW_MS);
         return;
     }
 

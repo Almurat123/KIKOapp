@@ -83,14 +83,18 @@ export async function getV2PoolInfo(
     chainId: number
 ): Promise<PoolInfo | null> {
     try {
-        // Get reserves
+        // 一次并行拉取: getReserves + token0 + token1
         const reservesData = v2PoolInterface.encodeFunctionData('getReserves');
-        const reservesResult = await callRpc<string>(chainId, 'eth_call', [{
-            to: poolAddress,
-            data: reservesData
-        }, 'latest']);
+        const token0Data = v2PoolInterface.encodeFunctionData('token0');
+        const token1Data = v2PoolInterface.encodeFunctionData('token1');
 
-        if (!reservesResult || reservesResult === '0x') {
+        const [reservesResult, token0Result, token1Result] = await Promise.all([
+            callRpc<string>(chainId, 'eth_call', [{ to: poolAddress, data: reservesData }, 'latest']),
+            callRpc<string>(chainId, 'eth_call', [{ to: poolAddress, data: token0Data }, 'latest']),
+            callRpc<string>(chainId, 'eth_call', [{ to: poolAddress, data: token1Data }, 'latest'])
+        ]);
+
+        if (!reservesResult || reservesResult === '0x' || !token0Result || !token1Result) {
             return null;
         }
 
@@ -98,19 +102,10 @@ export async function getV2PoolInfo(
         const reserve0 = decoded[0] as bigint;
         const reserve1 = decoded[1] as bigint;
 
-        // Get token addresses
-        const token0Data = v2PoolInterface.encodeFunctionData('token0');
-        const token1Data = v2PoolInterface.encodeFunctionData('token1');
-
-        const [token0Result, token1Result] = await Promise.all([
-            callRpc<string>(chainId, 'eth_call', [{ to: poolAddress, data: token0Data }, 'latest']),
-            callRpc<string>(chainId, 'eth_call', [{ to: poolAddress, data: token1Data }, 'latest'])
-        ]);
-
         const token0 = ethers.getAddress('0x' + token0Result!.slice(-40));
         const token1 = ethers.getAddress('0x' + token1Result!.slice(-40));
 
-        // Get token metadata
+        // token metadata 并行
         const [token0Meta, token1Meta] = await Promise.all([
             getTokenMetadata(token0, chainId),
             getTokenMetadata(token1, chainId)
@@ -151,18 +146,22 @@ export async function getV3PoolInfo(
     chainId: number
 ): Promise<PoolInfo | null> {
     try {
-        // Get liquidity and slot0
+        // 一次并行拉取所有静态字段: liquidity, slot0, fee, token0, token1
         const liquidityData = v3PoolInterface.encodeFunctionData('liquidity');
         const slot0Data = v3PoolInterface.encodeFunctionData('slot0');
         const feeData = v3PoolInterface.encodeFunctionData('fee');
+        const token0Data = v3PoolInterface.encodeFunctionData('token0');
+        const token1Data = v3PoolInterface.encodeFunctionData('token1');
 
-        const [liquidityResult, slot0Result, feeResult] = await Promise.all([
+        const [liquidityResult, slot0Result, feeResult, token0Result, token1Result] = await Promise.all([
             callRpc<string>(chainId, 'eth_call', [{ to: poolAddress, data: liquidityData }, 'latest']),
             callRpc<string>(chainId, 'eth_call', [{ to: poolAddress, data: slot0Data }, 'latest']),
-            callRpc<string>(chainId, 'eth_call', [{ to: poolAddress, data: feeData }, 'latest'])
+            callRpc<string>(chainId, 'eth_call', [{ to: poolAddress, data: feeData }, 'latest']),
+            callRpc<string>(chainId, 'eth_call', [{ to: poolAddress, data: token0Data }, 'latest']),
+            callRpc<string>(chainId, 'eth_call', [{ to: poolAddress, data: token1Data }, 'latest'])
         ]);
 
-        if (!liquidityResult || !slot0Result) {
+        if (!liquidityResult || !slot0Result || !token0Result || !token1Result) {
             return null;
         }
 
@@ -171,26 +170,17 @@ export async function getV3PoolInfo(
         const sqrtPriceX96 = slot0[0] as bigint;
         const fee = feeResult ? Number(v3PoolInterface.decodeFunctionResult('fee', feeResult)[0]) : 0;
 
-        // Get token addresses
-        const token0Data = v3PoolInterface.encodeFunctionData('token0');
-        const token1Data = v3PoolInterface.encodeFunctionData('token1');
-
-        const [token0Result, token1Result] = await Promise.all([
-            callRpc<string>(chainId, 'eth_call', [{ to: poolAddress, data: token0Data }, 'latest']),
-            callRpc<string>(chainId, 'eth_call', [{ to: poolAddress, data: token1Data }, 'latest'])
-        ]);
-
         const token0 = ethers.getAddress('0x' + token0Result!.slice(-40));
         const token1 = ethers.getAddress('0x' + token1Result!.slice(-40));
 
-        // Get token metadata
+        // token metadata 并行
         const [token0Meta, token1Meta] = await Promise.all([
             getTokenMetadata(token0, chainId),
             getTokenMetadata(token1, chainId)
         ]);
 
-        // Calculate price from sqrtPriceX96
-        const price = calculatePriceFromSqrtX96(sqrtPriceX96, token0Meta.decimals || 18, token1Meta.decimals || 18);
+        // Calculate price from sqrtPriceX96 (use the BigInt-safe version from uniswapV4)
+        const price = v4CalcPrice(sqrtPriceX96, token0Meta.decimals || 18, token1Meta.decimals || 18);
 
         return {
             poolAddress,
@@ -243,14 +233,6 @@ async function getTokenMetadata(
 /**
  * Calculate price from sqrtPriceX96
  */
-function calculatePriceFromSqrtX96(sqrtPriceX96: bigint, decimals0: number, decimals1: number): number {
-    const Q96 = BigInt(2) ** BigInt(96);
-    const price = Number(sqrtPriceX96) / Number(Q96);
-    const priceSquared = price * price;
-    const decimalAdjustment = Math.pow(10, decimals0 - decimals1);
-    return priceSquared * decimalAdjustment;
-}
-
 /**
  * Find all pools for a token pair across multiple DEXes
  */
@@ -259,8 +241,6 @@ export async function findTokenPools(
     tokenB: string,
     chainId: number
 ): Promise<PoolInfo[]> {
-    const pools: PoolInfo[] = [];
-
     // Normalize addresses to ensure proper checksum
     const normalizedTokenA = ethers.getAddress(tokenA.toLowerCase());
     const normalizedTokenB = ethers.getAddress(tokenB.toLowerCase());
@@ -290,32 +270,34 @@ export async function findTokenPools(
 
     const factory = factories[chainId];
     if (!factory) {
-        return pools;
+        return [];
     }
 
-    // Check V2 pool
-    if (factory.v2) {
+    // 所有 DEX 类型全部并行发起，不再等 V2 完成才查 V3
+    const ZERO_ADDR = '0x' + '0'.repeat(64);
+
+    const v2Promise: Promise<PoolInfo | null> = (async () => {
+        if (!factory.v2) return null;
         try {
             const pairData = v2FactoryInterface.encodeFunctionData('getPair', [normalizedTokenA, normalizedTokenB]);
             const pairResult = await callRpc<string>(chainId, 'eth_call', [{
-                to: factory.v2.address,
+                to: factory.v2!.address,
                 data: pairData
             }, 'latest']);
-
-            if (pairResult && pairResult !== '0x' + '0'.repeat(64)) {
-                const pairAddress = ethers.getAddress('0x' + pairResult.slice(-40));
-                const poolInfo = await getV2PoolInfo(pairAddress, chainId);
-                if (poolInfo && BigInt(poolInfo.reserve0 || '0') > 0) {
-                    poolInfo.dex = factory.v2.dex;
-                    pools.push(poolInfo);
-                }
+            if (!pairResult || pairResult === ZERO_ADDR) return null;
+            const pairAddress = ethers.getAddress('0x' + pairResult.slice(-40));
+            const poolInfo = await getV2PoolInfo(pairAddress, chainId);
+            if (poolInfo && BigInt(poolInfo.reserve0 || '0') > 0) {
+                poolInfo.dex = factory.v2!.dex;
+                return poolInfo;
             }
         } catch { }
-    }
+        return null;
+    })();
 
-    // Check V3 pools (multiple fee tiers) - 并行查询
-    if (factory.v3?.length) {
-        const v3Results = await Promise.all(
+    const v3Promise: Promise<PoolInfo[]> = (async () => {
+        if (!factory.v3?.length) return [];
+        const results = await Promise.all(
             factory.v3.flatMap((v3Factory) =>
                 v3Factory.feeTiers.map(async (fee) => {
                     try {
@@ -324,27 +306,25 @@ export async function findTokenPools(
                             to: v3Factory.address,
                             data: poolData
                         }, 'latest']);
-
-                        if (poolResult && poolResult !== '0x' + '0'.repeat(64)) {
-                            const poolAddress = ethers.getAddress('0x' + poolResult.slice(-40));
-                            const poolInfo = await getV3PoolInfo(poolAddress, chainId);
-                            if (poolInfo && BigInt(poolInfo.liquidity || '0') > 0) {
-                                poolInfo.dex = v3Factory.dex;
-                                return poolInfo;
-                            }
+                        if (!poolResult || poolResult === ZERO_ADDR) return null;
+                        const poolAddress = ethers.getAddress('0x' + poolResult.slice(-40));
+                        const poolInfo = await getV3PoolInfo(poolAddress, chainId);
+                        if (poolInfo && BigInt(poolInfo.liquidity || '0') > 0) {
+                            poolInfo.dex = v3Factory.dex;
+                            return poolInfo;
                         }
                     } catch { }
                     return null;
                 })
             )
         );
-        pools.push(...v3Results.filter((p): p is PoolInfo => p !== null));
-    }
+        return results.filter((p): p is PoolInfo => p !== null);
+    })();
 
-    // Check Aerodrome pools (stable/volatile)
-    if (factory.aerodrome) {
+    const aerodromePromise: Promise<PoolInfo[]> = (async () => {
+        if (!factory.aerodrome) return [];
         const aerodromeFactory = factory.aerodrome;
-        const aeroResults = await Promise.all(
+        const results = await Promise.all(
             [false, true].map(async (stable) => {
                 try {
                     const poolData = aerodromeFactoryInterface.encodeFunctionData('getPool', [
@@ -356,52 +336,53 @@ export async function findTokenPools(
                         to: aerodromeFactory.address,
                         data: poolData
                     }, 'latest']);
-
-                    if (poolResult && poolResult !== '0x' + '0'.repeat(64)) {
-                        const poolAddress = ethers.getAddress('0x' + poolResult.slice(-40));
-                        const poolInfo = await getV2PoolInfo(poolAddress, chainId);
-                        if (poolInfo && BigInt(poolInfo.reserve0 || '0') > 0) {
-                            poolInfo.dex = aerodromeFactory.dex;
-                            return {
-                                ...poolInfo,
-                                version: 'aerodrome'
-                            } as PoolInfo;
-                        }
+                    if (!poolResult || poolResult === ZERO_ADDR) return null;
+                    const poolAddress = ethers.getAddress('0x' + poolResult.slice(-40));
+                    const poolInfo = await getV2PoolInfo(poolAddress, chainId);
+                    if (poolInfo && BigInt(poolInfo.reserve0 || '0') > 0) {
+                        poolInfo.dex = aerodromeFactory.dex;
+                        return { ...poolInfo, version: 'aerodrome' } as PoolInfo;
                     }
                 } catch { }
                 return null;
             })
         );
-        pools.push(...aeroResults.filter((p): p is PoolInfo => p !== null));
-    }
+        return results.filter((p): p is PoolInfo => p !== null);
+    })();
 
-    // Check V4 pools (纯链上 - 计算 PoolId)
-    if (isV4Supported(chainId)) {
+    const v4Promise: Promise<PoolInfo[]> = (async () => {
+        if (!isV4Supported(chainId)) return [];
         try {
             const v4Pools = await findV4Pools(tokenA, tokenB, chainId);
-            for (const v4Pool of v4Pools) {
-                pools.push({
-                    poolAddress: v4Pool.poolId,
-                    token0: v4Pool.poolKey.currency0,
-                    token1: v4Pool.poolKey.currency1,
-                    liquidity: v4Pool.liquidity,
-                    sqrtPriceX96: v4Pool.sqrtPriceX96,
-                    fee: v4Pool.lpFee,
-                    price: v4CalcPrice(
-                        BigInt(v4Pool.sqrtPriceX96),
-                        18,
-                        18
-                    ),
-                    version: 'v4',
-                    dex: 'uniswap'
-                });
-            }
+            return v4Pools.map((v4Pool) => ({
+                poolAddress: v4Pool.poolId,
+                token0: v4Pool.poolKey.currency0,
+                token1: v4Pool.poolKey.currency1,
+                liquidity: v4Pool.liquidity,
+                sqrtPriceX96: v4Pool.sqrtPriceX96,
+                fee: v4Pool.lpFee,
+                price: v4CalcPrice(BigInt(v4Pool.sqrtPriceX96), 18, 18),
+                version: 'v4' as const,
+                dex: 'uniswap' as const
+            }));
         } catch (err) {
             logger.debug(LogCode.API_FETCH_FAILED, 'V4 pool lookup failed', {
                 error: (err as Error).message?.substring(0, 100)
             });
+            return [];
         }
-    }
+    })();
 
+    // 等待所有并行任务完成
+    const [v2Pool, v3Pools, aeroPools, v4Pools] = await Promise.all([
+        v2Promise,
+        v3Promise,
+        aerodromePromise,
+        v4Promise
+    ]);
+
+    const pools: PoolInfo[] = [];
+    if (v2Pool) pools.push(v2Pool);
+    pools.push(...v3Pools, ...aeroPools, ...v4Pools);
     return pools;
 }

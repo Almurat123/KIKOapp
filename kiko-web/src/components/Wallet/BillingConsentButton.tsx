@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { usePrivy, useSessionSigners } from '@privy-io/react-auth';
 import type { WalletWithMetadata } from '@privy-io/react-auth';
+import { AutoTradingConfirmModal } from './AutoTradingConfirmModal';
 import styles from './SessionSignerButton.module.css';
 import { getBillingConsent, grantBillingConsent, revokeBillingConsent } from '../../services/billingApi';
 
@@ -18,6 +19,7 @@ export const BillingConsentButton: React.FC<BillingConsentButtonProps> = ({ onSu
   const [isDelegated, setIsDelegated] = useState(false);
   const [hasConsent, setHasConsent] = useState(false);
   const [authKeyId, setAuthKeyId] = useState<string | null>(null);
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
 
   const embeddedWallet = user?.linkedAccounts?.find(
     (account): account is WalletWithMetadata =>
@@ -58,7 +60,11 @@ export const BillingConsentButton: React.FC<BillingConsentButtonProps> = ({ onSu
       .catch(() => setHasConsent(false));
   }, [authenticated]);
 
-  const handleAuthorize = async () => {
+  const handleAuthorizeClick = () => {
+    setShowConfirmModal(true);
+  };
+
+  const handleConfirmAuthorize = async () => {
     if (!embeddedWallet?.address || !authKeyId) return;
 
     setIsLoading(true);
@@ -70,6 +76,7 @@ export const BillingConsentButton: React.FC<BillingConsentButtonProps> = ({ onSu
       await grantBillingConsent('settings');
       setHasConsent(true);
       setIsDelegated(true);
+      setShowConfirmModal(false);
       onSuccess?.();
     } catch (error) {
       if (import.meta.env.DEV) {
@@ -126,11 +133,18 @@ export const BillingConsentButton: React.FC<BillingConsentButtonProps> = ({ onSu
 
       <button
         className={`${styles.button} ${active ? styles.revokeButton : styles.authorizeButton}`}
-        onClick={active ? handleRevoke : handleAuthorize}
+        onClick={active ? handleRevoke : handleAuthorizeClick}
         disabled={isLoading || !authKeyId}
       >
         {isLoading ? 'Processing...' : active ? 'Revoke Billing Authorization' : 'Authorize Billing'}
       </button>
+
+      <AutoTradingConfirmModal
+        open={showConfirmModal}
+        onConfirm={handleConfirmAuthorize}
+        onCancel={() => setShowConfirmModal(false)}
+        confirming={isLoading}
+      />
 
       {!authKeyId && (
         <p className={styles.error}>

@@ -8,6 +8,7 @@ import React, { useEffect, useState } from 'react';
 import { usePrivy, useSessionSigners } from '@privy-io/react-auth';
 import type { WalletWithMetadata } from '@privy-io/react-auth';
 import { ShieldCheck, AlertTriangle, Loader2, X } from 'lucide-react';
+import { AutoTradingConfirmModal } from './AutoTradingConfirmModal';
 import styles from './AuthorizationPromptModal.module.css';
 import { getBillingConsent, grantBillingConsent } from '../../services/billingApi';
 
@@ -18,6 +19,7 @@ export const BillingConsentPromptModal: React.FC = () => {
   const { ready, authenticated, user } = usePrivy();
   const { addSessionSigners } = useSessionSigners();
   const [showModal, setShowModal] = useState(false);
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [authKeyId, setAuthKeyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -95,7 +97,12 @@ export const BillingConsentPromptModal: React.FC = () => {
     return () => clearTimeout(timer);
   }, [ready, authenticated, user, evmWallet, evmNeedsAuth, hasConsent]);
 
-  const handleAuthorize = async () => {
+  const handleAuthorizeClick = () => {
+    setError(null);
+    setShowConfirmModal(true);
+  };
+
+  const handleConfirmAuthorize = async () => {
     if (!authKeyId || !evmWallet?.address) {
       setError('Authorization configuration unavailable.');
       return;
@@ -110,6 +117,7 @@ export const BillingConsentPromptModal: React.FC = () => {
       });
       await grantBillingConsent('prompt');
       setHasConsent(true);
+      setShowConfirmModal(false);
       setShowModal(false);
     } catch (err: any) {
       setError(err?.message || 'Authorization failed. Please try again.');
@@ -156,7 +164,7 @@ export const BillingConsentPromptModal: React.FC = () => {
         <div className={styles.actions}>
           <button
             className={styles.authorizeButton}
-            onClick={handleAuthorize}
+            onClick={handleAuthorizeClick}
             disabled={isLoading}
           >
             {isLoading ? (
@@ -180,6 +188,13 @@ export const BillingConsentPromptModal: React.FC = () => {
 
         <p className={styles.footer}>You can always change this in Wallet Settings</p>
       </div>
+
+      <AutoTradingConfirmModal
+        open={showConfirmModal}
+        onConfirm={handleConfirmAuthorize}
+        onCancel={() => setShowConfirmModal(false)}
+        confirming={isLoading}
+      />
     </div>
   );
 };

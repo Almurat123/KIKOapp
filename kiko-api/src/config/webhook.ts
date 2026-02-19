@@ -44,7 +44,7 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
             return reply.status(400).send({ error: `Unknown network: ${network}` });
         }
 
-        console.log(`[Webhook] Processing tx from Go service: wallet=${wallet.slice(0, 10)}, tx=${txHash.slice(0, 16)}, chain=${chainId}`);
+        console.log(`[Webhook] Processing tx from Go service: wallet=${wallet}, tx=${txHash}, chain=${chainId}`);
 
         try {
             // Check if already processed
@@ -58,7 +58,7 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
                 }
             });
             if (existingPosition) {
-                console.log(`[Webhook] Tx already processed: ${txHash.slice(0, 16)}`);
+                console.log(`[Webhook] Tx already processed: ${txHash}`);
                 return reply.send({ success: true, skipped: true, reason: 'already_processed' });
             }
 
@@ -69,7 +69,7 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
             ]);
 
             if (!tx || !receipt) {
-                console.warn(`[Webhook] Could not fetch tx/receipt: ${txHash.slice(0, 16)}`);
+                console.warn(`[Webhook] Could not fetch tx/receipt: ${txHash}`);
                 return reply.status(404).send({ error: 'Transaction not found' });
             }
 
@@ -91,7 +91,7 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
             );
 
             if (!swap) {
-                console.log(`[Webhook] Not a swap tx: ${txHash.slice(0, 16)}`);
+                console.log(`[Webhook] Not a swap tx: ${txHash}`);
                 return reply.send({ success: true, skipped: true, reason: 'not_a_swap' });
             }
 
@@ -155,7 +155,7 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
 
                 // FAST in-memory deduplication check (shared with watcher)
                 if (isTxProcessed(txHash)) {
-                    console.log(`[Webhook] Tx already in processedTxs cache: ${txHash.slice(0, 16)}`);
+                    console.log(`[Webhook] Tx already in processedTxs cache: ${txHash}`);
                     continue;
                 }
 
@@ -195,11 +195,11 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
                     }
                 });
                 if (existing) {
-                    console.log(`[Webhook] Tx already in DB: ${txHash.slice(0, 16)}`);
+                    console.log(`[Webhook] Tx already in DB: ${txHash}`);
                     continue;
                 }
 
-                console.log(`[Webhook] Processing tx ${txHash.slice(0, 16)} matching tracked wallet ${trackedTarget.slice(0, 10)} (from: ${fromAddr?.slice(0, 10)}, to: ${toAddr?.slice(0, 10)})`);
+                console.log(`[Webhook] Processing tx ${txHash} matching tracked wallet ${trackedTarget} (from: ${fromAddr}, to: ${toAddr})`);
 
                 // Fetch full transaction details
                 const [tx, receipt] = await Promise.all([
@@ -208,7 +208,7 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
                 ]);
 
                 if (!tx || !receipt) {
-                    console.warn(`[Webhook] Could not fetch tx/receipt: ${txHash.slice(0, 16)}`);
+                    console.warn(`[Webhook] Could not fetch tx/receipt: ${txHash}`);
                     continue;
                 }
 
@@ -230,7 +230,7 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
                 );
 
                 if (!swap) {
-                    console.log(`[Webhook] Not a swap tx: ${txHash.slice(0, 16)}`);
+                    console.log(`[Webhook] Not a swap tx: ${txHash}`);
                     continue;
                 }
 

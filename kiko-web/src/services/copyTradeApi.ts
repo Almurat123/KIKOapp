@@ -23,11 +23,25 @@ export interface CopyTradeConfig {
     aiAnalysisMode: 'disabled' | 'analyze_only' | 'auto_decide';
     enableDynamicTP: boolean;
     dynamicTPMinProfitPct: number;
+    signedNonce?: number | null;
+    signerAddress?: string | null;
+    signatureScheme?: string | null;
+    signatureVerifiedAt?: string | null;
+    requiresResign?: boolean;
     createdAt: string;
     updatedAt: string;
 }
 
+export interface CopyTradeSignedEnvelope {
+    signedPayload: Record<string, unknown> | string;
+    signature: string;
+    signerAddress: string;
+    nonce: number;
+    expiresAt: string | number;
+}
+
 export interface CreateConfigParams {
+    chainId?: number;
     targetWallet: string;
     buyAmountUsd: number;
     maxSlippageBps?: number;
@@ -41,6 +55,20 @@ export interface CreateConfigParams {
     stopLossPct?: number;
     mirrorSell?: boolean;
     aiAnalysisMode?: 'disabled' | 'analyze_only' | 'auto_decide';
+    enableDynamicTP?: boolean;
+    dynamicTPMinProfitPct?: number;
+}
+
+export class CopyTradeApiError extends Error {
+    code?: string;
+    status?: number;
+
+    constructor(message: string, code?: string, status?: number) {
+        super(message);
+        this.name = 'CopyTradeApiError';
+        this.code = code;
+        this.status = status;
+    }
 }
 
 export interface CopyTradeTargetStatusResponse {
@@ -94,6 +122,19 @@ const getHeaders = async () => {
     };
 };
 
+const parseErrorResponse = async (response: Response): Promise<CopyTradeApiError> => {
+    let payload: any = null;
+    try {
+        payload = await response.json();
+    } catch {
+        // ignore json parsing failures
+    }
+
+    const message = payload?.error || payload?.message || `HTTP ${response.status}: ${response.statusText}`;
+    const code = payload?.code || payload?.errorCode;
+    return new CopyTradeApiError(message, code, response.status);
+};
+
 /**
  * Fetch all copy trade configurations
  */
@@ -129,17 +170,23 @@ export const getConfigs = async (): Promise<CopyTradeConfig[]> => {
 /**
  * Create a new copy trade configuration
  */
-export const createConfig = async (params: CreateConfigParams): Promise<CopyTradeConfig> => {
+export const createConfig = async (
+    params: CreateConfigParams,
+    signed: CopyTradeSignedEnvelope
+): Promise<CopyTradeConfig> => {
     try {
         const headers = await getHeaders();
         const response = await fetch(`${API_BASE_URL}/config`, {
             method: 'POST',
             headers,
-            body: JSON.stringify(params)
+            body: JSON.stringify({
+                ...signed,
+                signedPayload: signed.signedPayload || params,
+            })
         });
 
         if (!response.ok) {
-            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            throw await parseErrorResponse(response);
         }
 
         const data = await response.json();
@@ -162,7 +209,7 @@ export const deleteConfig = async (id: string): Promise<void> => {
         });
 
         if (!response.ok) {
-            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            throw await parseErrorResponse(response);
         }
     } catch (error) {
         console.error('[CopyTradeApi] Error deleting config:', error);
@@ -183,7 +230,7 @@ export const updateConfigStatus = async (id: string, status: 'active' | 'paused'
         });
 
         if (!response.ok) {
-            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            throw await parseErrorResponse(response);
         }
     } catch (error) {
         console.error('[CopyTradeApi] Error updating status:', error);
@@ -194,17 +241,17 @@ export const updateConfigStatus = async (id: string, status: 'active' | 'paused'
 /**
  * Update a copy trade config
  */
-export const updateConfig = async (id: string, updates: Partial<CopyTradeConfig>): Promise<CopyTradeConfig> => {
+export const updateConfig = async (id: string, signed: CopyTradeSignedEnvelope): Promise<CopyTradeConfig> => {
     try {
         const headers = await getHeaders();
         const response = await fetch(`${API_BASE_URL}/config/${id}`, {
             method: 'PATCH',
             headers,
-            body: JSON.stringify(updates)
+            body: JSON.stringify(signed)
         });
 
         if (!response.ok) {
-            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            throw await parseErrorResponse(response);
         }
 
         const data = await response.json();
@@ -224,7 +271,7 @@ export const getPositions = async (): Promise<any[]> => {
         const response = await fetch(`${API_BASE_URL}/positions`, { headers });
 
         if (!response.ok) {
-            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            throw await parseErrorResponse(response);
         }
 
         const data = await response.json();
@@ -242,7 +289,7 @@ export const getTargetStatus = async (id: string): Promise<CopyTradeTargetStatus
     const headers = await getHeaders();
     const response = await fetch(`${API_BASE_URL}/config/${id}/target-status`, { headers });
     if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        throw await parseErrorResponse(response);
     }
     return response.json();
 };

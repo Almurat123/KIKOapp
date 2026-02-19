@@ -21,24 +21,18 @@ import { getCommonTokens, COMMON_TOKENS, type TokenData } from '@/services/token
 import { logger } from '@/utils/logger';
 import { getMEVProtectionConfig, estimateMEVSavings } from '@/config/mevProtection';
 import {
-  calculateDynamicSlippage,
-  determineTokenRisk,
+  AUTO_SLIPPAGE_PERCENT,
   slippageToBps,
+  getStoredSlippageBps,
   DEFAULT_SLIPPAGE_CONFIG,
   type SlippageConfig,
 } from '@/config/slippageConfig';
-import {
-  getQuoteRefreshInterval,
-} from '@/config/degenMode';
 import {
   validateSwapPrice,
   type PriceValidationResult,
 } from '@/services/priceValidation';
 
 const DEFAULT_CHAIN_ID = 1;
-const DEFAULT_SLIPPAGE_BPS = 50;
-
-
 
 function tokenDataToToken(tokenData: TokenData): Token {
   return {
@@ -112,7 +106,7 @@ export interface UseSwapOptions {
 export function useSwap(options: UseSwapOptions = {}) {
   const {
     chainId = DEFAULT_CHAIN_ID,
-    slippageBps = DEFAULT_SLIPPAGE_BPS,
+    slippageBps = getStoredSlippageBps(),
     userAddress,
     initialTokenIn: optionTokenIn,
     initialTokenOut: optionTokenOut,
@@ -153,10 +147,6 @@ export function useSwap(options: UseSwapOptions = {}) {
   // Slippage state
   const [slippageConfig, setSlippageConfig] = useState<SlippageConfig>(DEFAULT_SLIPPAGE_CONFIG);
   const [calculatedSlippage, setCalculatedSlippage] = useState<number>(0.5);
-
-  // Degen Mode state
-  const [degenMode, setDegenMode] = useState(false);
-
 
   // Price validation state
   const [priceValidation, setPriceValidation] = useState<PriceValidationResult | null>(null);
@@ -298,30 +288,11 @@ export function useSwap(options: UseSwapOptions = {}) {
       }
 
       try {
-        // Calculate dynamic slippage if in auto mode
+        // Slippage: auto = single constant (no API, no risk calc); custom = user value
         let effectiveSlippageBps = slippageBps;
-
-        if (slippageConfig.mode === 'auto' && priceData) {
-          const amountInNum = parseFloat(state.amountIn);
-          const tokenInPrice = typeof priceData.tokenInPrice === 'number' ? priceData.tokenInPrice : 0;
-          const amountUSD = amountInNum * tokenInPrice;
-
-          // Determine token risk (simplified - can be enhanced with real data)
-          const tokenRisk = determineTokenRisk({
-            liquidityUSD: 100000, // Default, will be updated with real data
-            isVerified: true,
-          });
-
-          // Calculate dynamic slippage
-          const dynamicSlippage = calculateDynamicSlippage({
-            amountUSD,
-            liquidityUSD: 100000, // Will be updated with real pool data
-            priceImpact: 0, // Will be updated after quote
-            tokenRisk,
-          });
-
-          setCalculatedSlippage(dynamicSlippage);
-          effectiveSlippageBps = slippageToBps(dynamicSlippage);
+        if (slippageConfig.mode === 'auto') {
+          setCalculatedSlippage(AUTO_SLIPPAGE_PERCENT);
+          effectiveSlippageBps = slippageToBps(AUTO_SLIPPAGE_PERCENT);
         } else if (slippageConfig.mode === 'custom') {
           effectiveSlippageBps = slippageToBps(slippageConfig.customValue);
         }
@@ -395,7 +366,7 @@ export function useSwap(options: UseSwapOptions = {}) {
         }));
         logger.swap('fail', { error: userMessage });
       }
-    }, getQuoteRefreshInterval(degenMode)); // Use Degen Mode interval (500ms) or normal (2000ms)
+    }, 2000);
 
     return () => {
       if (quoteTimeoutRef.current) {
@@ -1022,9 +993,6 @@ export function useSwap(options: UseSwapOptions = {}) {
     slippageConfig,
     setSlippageConfig,
     calculatedSlippage,
-    // Degen Mode controls
-    degenMode,
-    setDegenMode,
     refreshSwapState,
     // Price validation
     priceValidation,

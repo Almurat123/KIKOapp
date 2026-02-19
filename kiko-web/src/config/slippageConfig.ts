@@ -1,6 +1,5 @@
 /**
- * Dynamic Slippage Configuration
- * Auto-adjusts slippage based on market conditions
+ * Slippage Configuration (minimal: no dynamic calculation, no extra requests)
  */
 
 export type SlippageMode = 'auto' | 'custom';
@@ -8,136 +7,11 @@ export type SlippageMode = 'auto' | 'custom';
 export interface SlippageConfig {
     mode: SlippageMode;
     customValue: number; // in percentage (0.5 = 0.5%)
-    autoValue?: number; // calculated auto value
+    autoValue?: number; // when mode=auto, display value (same as AUTO_SLIPPAGE_PERCENT)
 }
 
-/**
- * Token risk levels based on market cap, liquidity, age
- */
-export type TokenRisk = 'low' | 'medium' | 'high';
-
-/**
- * Slippage calculation parameters
- */
-export interface SlippageParams {
-    amountUSD: number;
-    liquidityUSD: number;
-    priceImpact: number;
-    tokenRisk: TokenRisk;
-    networkCongestion?: number; // 0-1 scale
-    volatility?: number; // 0-1 scale
-}
-
-/**
- * Slippage tiers based on risk
- */
-const SLIPPAGE_TIERS = {
-    low: {
-        min: 0.1,
-        base: 0.5,
-        max: 2.0,
-    },
-    medium: {
-        min: 0.5,
-        base: 1.0,
-        max: 3.0,
-    },
-    high: {
-        min: 1.0,
-        base: 2.0,
-        max: 5.0,
-    },
-};
-
-/**
- * Calculate dynamic slippage based on multiple factors
- */
-export function calculateDynamicSlippage(params: SlippageParams): number {
-    const {
-        amountUSD,
-        liquidityUSD,
-        priceImpact,
-        tokenRisk,
-        networkCongestion = 0,
-        volatility = 0,
-    } = params;
-
-    // Get base slippage for token risk level
-    const tier = SLIPPAGE_TIERS[tokenRisk];
-    let slippage = tier.base;
-
-    // Factor 1: Transaction size vs liquidity
-    const sizeRatio = amountUSD / liquidityUSD;
-    if (sizeRatio > 0.1) {
-        // Large trade (>10% of liquidity)
-        slippage += 1.5;
-    } else if (sizeRatio > 0.05) {
-        // Medium trade (5-10% of liquidity)
-        slippage += 0.8;
-    } else if (sizeRatio > 0.01) {
-        // Small-medium trade (1-5% of liquidity)
-        slippage += 0.3;
-    }
-
-    // Factor 2: Price impact (already calculated by DEX)
-    if (priceImpact > 5) {
-        slippage += 2.0;
-    } else if (priceImpact > 2) {
-        slippage += 1.0;
-    } else if (priceImpact > 1) {
-        slippage += 0.5;
-    }
-
-    // Factor 3: Network congestion (optional)
-    slippage += networkCongestion * 0.5;
-
-    // Factor 4: Token volatility (optional)
-    slippage += volatility * 1.0;
-
-    // Clamp to tier min/max
-    slippage = Math.max(tier.min, Math.min(tier.max, slippage));
-
-    // Round to 1 decimal place
-    return Math.round(slippage * 10) / 10;
-}
-
-/**
- * Determine token risk level based on characteristics
- */
-export function determineTokenRisk(params: {
-    marketCap?: number;
-    liquidityUSD: number;
-    age?: number; // days since creation
-    isVerified?: boolean;
-}): TokenRisk {
-    const { marketCap = 0, liquidityUSD, age = 0, isVerified = false } = params;
-
-    // High risk: Low liquidity, new token, or unverified
-    if (liquidityUSD < 10000 || age < 7 || !isVerified) {
-        return 'high';
-    }
-
-    // Low risk: High market cap and liquidity
-    if (marketCap > 100000000 && liquidityUSD > 1000000) {
-        return 'low';
-    }
-
-    // Medium risk: Everything else
-    return 'medium';
-}
-
-/**
- * Get slippage recommendation message
- */
-export function getSlippageRecommendation(slippage: number, risk: TokenRisk): string {
-    if (slippage >= 3) {
-        return `High slippage (${slippage}%) recommended for ${risk} risk token`;
-    }
-    if (slippage >= 1.5) {
-        return `Medium slippage (${slippage}%) recommended`;
-    }
-    return `Low slippage (${slippage}%) - good conditions`;
-}
+/** When mode is "auto", use this single value (%). No tiers, no API, no risk calc. */
+export const AUTO_SLIPPAGE_PERCENT = 10;
 
 /**
  * Convert slippage percentage to basis points
@@ -160,3 +34,76 @@ export const DEFAULT_SLIPPAGE_CONFIG: SlippageConfig = {
     mode: 'auto',
     customValue: 0.5,
 };
+
+// --- Single source of truth for all trading systems ---
+// 1) Custom settings (CustomAISettingsModal): kiko-custom-ai-settings.slippageMode + customSlippage
+// 2) Fallback: Swap card value in kiko-swap-slippage (percentage number)
+
+export const SLIPPAGE_STORAGE_KEY = 'kiko-swap-slippage';
+const CUSTOM_AI_SETTINGS_KEY = 'kiko-custom-ai-settings';
+const DEFAULT_SLIPPAGE_PERCENT = 0.5;
+const DEFAULT_SLIPPAGE_BPS = 50;
+
+function getSlippagePercentFromCustomSettings(): number | null {
+    try {
+        const saved = localStorage.getItem(CUSTOM_AI_SETTINGS_KEY);
+        if (!saved) return null;
+        const data = JSON.parse(saved) as { slippageMode?: string; customSlippage?: number | '' };
+        if (data.slippageMode !== 'custom') return null;
+        const p = data.customSlippage;
+        const percent = typeof p === 'number' ? p : parseFloat(String(p));
+        if (!Number.isFinite(percent) || percent < 0.1 || percent > 50) return null;
+        return percent;
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * Read user's slippage tolerance in basis points.
+ * Priority: Custom settings (slippageMode=custom, customSlippage) → kiko-swap-slippage → default 50.
+ * Used by: API calls, Chat instant swap, strategies, and all swap execution paths.
+ */
+export function getStoredSlippageBps(): number {
+    const fromCustom = getSlippagePercentFromCustomSettings();
+    if (fromCustom != null) return Math.round(fromCustom * 100);
+    try {
+        const saved = localStorage.getItem(SLIPPAGE_STORAGE_KEY);
+        if (saved == null) return DEFAULT_SLIPPAGE_BPS;
+        const percent = parseFloat(saved);
+        if (!Number.isFinite(percent) || percent < 0.1 || percent > 50) return DEFAULT_SLIPPAGE_BPS;
+        return Math.round(percent * 100);
+    } catch {
+        return DEFAULT_SLIPPAGE_BPS;
+    }
+}
+
+/**
+ * Read user's slippage tolerance in percentage (e.g. 0.5 for 0.5%).
+ * Same priority: Custom settings → kiko-swap-slippage → default.
+ */
+export function getStoredSlippagePercent(): number {
+    const fromCustom = getSlippagePercentFromCustomSettings();
+    if (fromCustom != null) return fromCustom;
+    try {
+        const saved = localStorage.getItem(SLIPPAGE_STORAGE_KEY);
+        if (saved == null) return DEFAULT_SLIPPAGE_PERCENT;
+        const percent = parseFloat(saved);
+        if (!Number.isFinite(percent) || percent < 0.1 || percent > 50) return DEFAULT_SLIPPAGE_PERCENT;
+        return percent;
+    } catch {
+        return DEFAULT_SLIPPAGE_PERCENT;
+    }
+}
+
+/**
+ * Persist user's slippage (percentage). Call this whenever the user changes slippage in the Swap UI.
+ */
+export function setStoredSlippagePercent(percent: number): void {
+    try {
+        const value = Math.max(0.1, Math.min(50, percent));
+        localStorage.setItem(SLIPPAGE_STORAGE_KEY, value.toString());
+    } catch {
+        // ignore
+    }
+}

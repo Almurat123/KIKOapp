@@ -18,6 +18,7 @@ const PREFETCH_MAX_WAIT_MS = Number(process.env.COPYTRADE_PENDING_PREFETCH_MAX_W
 const PREFETCH_POLL_MS = Number(process.env.COPYTRADE_PENDING_PREFETCH_POLL_MS || 120);
 const PREFETCH_MAX_INFLIGHT = Number(process.env.COPYTRADE_PENDING_PREFETCH_MAX_INFLIGHT || 4);
 const PENDING_RPC_MODE = String(process.env.COPYTRADE_PENDING_RPC_MODE || 'free').trim().toLowerCase(); // free | auto
+const COPYTRADE_PENDING_REFRESH_LOG_WINDOW_MS = Number(process.env.COPYTRADE_PENDING_REFRESH_LOG_WINDOW_MS || 180_000);
 
 let running = false;
 let tickInFlight = false;
@@ -141,10 +142,10 @@ async function refreshTrackedWallets(): Promise<void> {
     trackedByChain.clear();
     for (const [chainId, set] of next) trackedByChain.set(chainId, set);
 
-    logger.info(LogCode.SYS_INFO, '[CopyTradePending] Tracked wallet snapshot refreshed', {
+    logger.throttled(LogCode.SYS_INFO, '[CopyTradePending] Tracked wallet snapshot refreshed', {
         chains: Array.from(trackedByChain.keys()),
         totalWallets: rows.length
-    });
+    }, COPYTRADE_PENDING_REFRESH_LOG_WINDOW_MS);
 }
 
 async function pollOneChainPending(chainId: number): Promise<void> {
