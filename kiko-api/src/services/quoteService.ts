@@ -40,6 +40,7 @@ export interface BestQuoteParams {
     excludeDex?: string; // Exclude this DEX from selection (for retry)
     feeContext?: 'swap' | 'copyTrade' | 'copy_trade' | 'launchpad';
     isSell?: boolean;
+    executionMode?: 'safe' | 'balanced' | 'turbo';
 }
 
 /**
@@ -65,6 +66,10 @@ async function getBestQuoteInternal(params: BestQuoteParams): Promise<{ best: Qu
     } = params;
 
     const quotes: QuoteResult[] = [];
+    const turboMode = params.executionMode === 'turbo';
+    const TURBO_ZEROEX_WAIT_MS = Math.max(80, Number(process.env.QUOTE_TURBO_ZEROEX_WAIT_MS || 700));
+    const TURBO_GRACE_WAIT_MS = Math.max(0, Number(process.env.QUOTE_TURBO_GRACE_WAIT_MS || 180));
+    const TURBO_TOTAL_WAIT_MS = Math.max(TURBO_ZEROEX_WAIT_MS, Number(process.env.QUOTE_TURBO_TOTAL_WAIT_MS || 1600));
 
     // Helper to calc price impact vs market
     const calcImpactVsMkt = (amountOutHuman: number): number | null => {
@@ -102,7 +107,7 @@ async function getBestQuoteInternal(params: BestQuoteParams): Promise<{ best: Qu
     };
 
     // 1. 0x Aggregator
-    const fetchZeroEx = async () => {
+    const fetchZeroEx = async (): Promise<QuoteResult | null> => {
         try {
             // For quote-only requests (no userAddress), we can still get prices
             // For actual swap execution, userAddress is REQUIRED
@@ -132,7 +137,7 @@ async function getBestQuoteInternal(params: BestQuoteParams): Promise<{ best: Qu
                     willUse: impactVsMkt ?? parseFloat(q.estimatedPriceImpact || '0') * 100
                 });
 
-                quotes.push({
+                return {
                     dex: '0x',
                     dexName: '0x Aggregator',
                     amountOut: amountOutHuman,
@@ -151,18 +156,20 @@ async function getBestQuoteInternal(params: BestQuoteParams): Promise<{ best: Qu
                     deadline: Math.floor(Date.now() / 1000) + 600,
                     tokenInDecimals,
                     tokenOutDecimals,
-                });
+                };
             }
+            return null;
         } catch (err) {
             console.warn('[QuoteService] 0x failed', err);
+            return null;
         }
     };
 
     // 2. KyberSwap
-    const fetchKyber = async () => {
+    const fetchKyber = async (): Promise<QuoteResult | null> => {
         try {
             // Kyber requires recipient address - skip if not provided
-            if (!userAddress) return;
+            if (!userAddress) return null;
 
             const kyberQuote = await getKyberQuote(
                 actualTokenIn,
@@ -180,7 +187,7 @@ async function getBestQuoteInternal(params: BestQuoteParams): Promise<{ best: Qu
                 const humanOut = ethers.formatUnits(kyberQuote.amountOut || '0', tokenOutDecimals);
                 const impactVsMkt = calcImpactVsMkt(parseFloat(humanOut));
 
-                quotes.push({
+                return {
                     dex: 'kyber',
                     dexName: 'KyberSwap',
                     amountOut: humanOut,
@@ -198,15 +205,65 @@ async function getBestQuoteInternal(params: BestQuoteParams): Promise<{ best: Qu
                     deadline: Math.floor(Date.now() / 1000) + 600,
                     tokenInDecimals,
                     tokenOutDecimals,
-                });
+                };
             }
+            return null;
         } catch (err) {
             console.warn('[QuoteService] Kyber failed', err);
+            return null;
         }
     };
 
-    // Parallel fetch
-    await Promise.all([fetchZeroEx(), fetchKyber()]);
+    const withTimeout = async <T>(promise: Promise<T>, timeoutMs: number): Promise<T | null> => {
+        let timer: NodeJS.Timeout | null = null;
+        try {
+            return await Promise.race([
+                promise,
+                new Promise<null>((resolve) => {
+                    timer = setTimeout(() => resolve(null), timeoutMs);
+                })
+            ]);
+        } finally {
+            if (timer) clearTimeout(timer);
+        }
+    };
+
+    if (turboMode) {
+        const zeroExPromise = fetchZeroEx();
+        const kyberPromise = fetchKyber();
+        const startMs = Date.now();
+
+        const zeroExFast = await withTimeout(zeroExPromise, TURBO_ZEROEX_WAIT_MS);
+        if (zeroExFast) {
+            quotes.push(zeroExFast);
+            const kyberGrace = await withTimeout(kyberPromise, TURBO_GRACE_WAIT_MS);
+            if (kyberGrace) quotes.push(kyberGrace);
+            console.log('[QuoteService] Turbo quote mode fast-return', {
+                picked: '0x_fast',
+                elapsedMs: Date.now() - startMs,
+                graceWaitMs: TURBO_GRACE_WAIT_MS,
+                chainId: params.chainId
+            });
+        } else {
+            const remaining = Math.max(0, TURBO_TOTAL_WAIT_MS - (Date.now() - startMs));
+            const [zeroExSlow, kyberSlow] = await Promise.all([
+                withTimeout(zeroExPromise, remaining),
+                withTimeout(kyberPromise, remaining)
+            ]);
+            if (zeroExSlow) quotes.push(zeroExSlow);
+            if (kyberSlow) quotes.push(kyberSlow);
+            console.log('[QuoteService] Turbo quote mode fallback-wait', {
+                elapsedMs: Date.now() - startMs,
+                totalWaitMs: TURBO_TOTAL_WAIT_MS,
+                chainId: params.chainId
+            });
+        }
+    } else {
+        // Standard mode keeps full quote race semantics.
+        const [zeroExQuote, kyberQuote] = await Promise.all([fetchZeroEx(), fetchKyber()]);
+        if (zeroExQuote) quotes.push(zeroExQuote);
+        if (kyberQuote) quotes.push(kyberQuote);
+    }
 
     if (!quotes.length) {
         return { best: null as any, quotes: [] };

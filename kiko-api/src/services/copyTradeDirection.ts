@@ -27,6 +27,7 @@ export interface CopyTradeDirectionResult {
   tokenOutIsCash: boolean;
   source: 'token_pair' | 'cash_hint';
   inferredTxType?: InferredTxType;
+  hintConflict?: boolean;
 }
 
 function inferTxTypeFromCashFlow(cashLegHint?: CopyTradeCashLegHint): InferredTxType | undefined {
@@ -68,26 +69,42 @@ export function determineCopyTradeDirection(input: CopyTradeDirectionInput): Cop
   let isSell = !tokenInIsCash && tokenOutIsCash;
   let isTokenToToken = !tokenInIsCash && !tokenOutIsCash;
   let source: 'token_pair' | 'cash_hint' = 'token_pair';
+  let hintConflict = false;
   let inferredTxType = cashLegHint?.inferredTxType;
   if (!inferredTxType || inferredTxType === 'TARGET_TOKEN_SWAP') {
     inferredTxType = inferTxTypeFromCashFlow(cashLegHint) || inferredTxType;
   }
 
-  if (inferredTxType === 'TARGET_BUY') {
-    isBuy = true;
-    isSell = false;
-    isTokenToToken = false;
-    source = 'cash_hint';
-  } else if (inferredTxType === 'TARGET_SELL') {
-    isBuy = false;
-    isSell = true;
-    isTokenToToken = false;
-    source = 'cash_hint';
-  } else if (inferredTxType === 'TARGET_TOKEN_SWAP') {
-    isBuy = false;
-    isSell = false;
-    isTokenToToken = true;
-    source = 'cash_hint';
+  // Guardrail: when token pair already determines direction (cash<->token),
+  // never let cash-leg hint override it; hint can be noisy in bundled activity payloads.
+  const tokenPairDeterministic = isBuy || isSell;
+  // Use hint override only for token->token ambiguity. Do not force trades on cash->cash activity.
+  const canUseHintOverride = !tokenPairDeterministic && !tokenInIsCash && !tokenOutIsCash;
+  if (inferredTxType) {
+    if (canUseHintOverride) {
+      if (inferredTxType === 'TARGET_BUY') {
+        isBuy = true;
+        isSell = false;
+        isTokenToToken = false;
+        source = 'cash_hint';
+      } else if (inferredTxType === 'TARGET_SELL') {
+        isBuy = false;
+        isSell = true;
+        isTokenToToken = false;
+        source = 'cash_hint';
+      } else if (inferredTxType === 'TARGET_TOKEN_SWAP') {
+        isBuy = false;
+        isSell = false;
+        isTokenToToken = true;
+        source = 'cash_hint';
+      }
+    } else if (
+      (inferredTxType === 'TARGET_BUY' && isSell)
+      || (inferredTxType === 'TARGET_SELL' && isBuy)
+      || (inferredTxType === 'TARGET_TOKEN_SWAP' && tokenPairDeterministic)
+    ) {
+      hintConflict = true;
+    }
   }
 
   return {
@@ -97,6 +114,7 @@ export function determineCopyTradeDirection(input: CopyTradeDirectionInput): Cop
     tokenInIsCash,
     tokenOutIsCash,
     source,
-    inferredTxType
+    inferredTxType,
+    hintConflict
   };
 }

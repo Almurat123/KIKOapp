@@ -1,9 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { ethers } from 'ethers';
 import { parseSwapTransaction } from './txDecoder.js';
 
 const TRANSFER_EVENT = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
 const V3_SWAP_EVENT = '0xc42079f94a6350d7e6235f29174924f928cc2ac818eb64fed8004e115fbcca67';
+const V4_SWAP_EVENT = ethers.id('Swap(bytes32,address,int128,int128,uint160,uint128,int24,uint24)');
+const V4_INIT_EVENT = ethers.id('Initialize(bytes32,address,address,uint24,int24,address,uint160,int24)');
+const NATIVE_TOKEN = '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
+const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
 
 function topicAddress(address: string): string {
     return `0x${'0'.repeat(24)}${address.slice(2).toLowerCase()}`;
@@ -18,6 +23,26 @@ function transferLog(token: string, from: string, to: string, amount: bigint) {
         address: token,
         topics: [TRANSFER_EVENT, topicAddress(from), topicAddress(to)],
         data: amountData(amount),
+    };
+}
+
+function v4InitLog(poolManager: string, poolId: string, currency0: string, currency1: string) {
+    return {
+        address: poolManager,
+        topics: [V4_INIT_EVENT, poolId, topicAddress(currency0), topicAddress(currency1)],
+        data: '0x',
+    };
+}
+
+function v4SwapLog(poolManager: string, poolId: string, sender: string, amount0: bigint, amount1: bigint) {
+    const data = ethers.AbiCoder.defaultAbiCoder().encode(
+        ['int128', 'int128', 'uint160', 'uint128', 'int24', 'uint24'],
+        [amount0, amount1, 1n, 1n, 0, 500]
+    );
+    return {
+        address: poolManager,
+        topics: [V4_SWAP_EVENT, poolId, topicAddress(sender)],
+        data,
     };
 }
 
@@ -129,4 +154,41 @@ test('parseSwapTransaction accepts known router + known swap selector evidence',
     assert.ok(swap);
     assert.equal(swap?.tokenIn, tokenIn.toLowerCase());
     assert.equal(swap?.tokenOut, tokenOut.toLowerCase());
+});
+
+test('parseSwapTransaction keeps transfer direction when v4 repair direction is opposite', async () => {
+    const wallet = '0xabc0000000000000000000000000000000000001';
+    const token = '0xebecb4e1e3cf94b450d20e9abf50d85cb5579b07';
+    const poolManager = '0x498581ff718922c3f8e6a244956af099b2652b2b';
+    const intermediate = '0xabc0000000000000000000000000000000000002';
+    const poolId = `0x${'11'.repeat(32)}`;
+
+    const tokenSold = 20n;
+    const nativeReceivedFromHint = 10n;
+
+    const swap = await parseSwapTransaction(
+        {
+            hash: '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee',
+            from: wallet,
+            to: poolManager,
+            input: '0x',
+            value: '0x0',
+        },
+        {
+            logs: [
+                transferLog(token, wallet, intermediate, tokenSold),
+                v4InitLog(poolManager, poolId, ZERO_ADDRESS, token),
+                v4SwapLog(poolManager, poolId, wallet, nativeReceivedFromHint, -tokenSold),
+            ],
+            status: 1,
+        },
+        8453,
+        wallet
+    );
+
+    assert.ok(swap);
+    assert.equal(swap?.tokenIn, token.toLowerCase());
+    assert.equal(swap?.tokenOut, NATIVE_TOKEN);
+    assert.equal(swap?.amountIn, tokenSold.toString());
+    assert.equal(swap?.amountOut, nativeReceivedFromHint.toString());
 });

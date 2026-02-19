@@ -277,7 +277,8 @@ export class SwapExecutor {
             refPrice,
             excludeDex: params.excludeDex, // Pass through excludeDex for retry logic
             feeContext,
-            isSell: isSellForFee
+            isSell: isSellForFee,
+            executionMode: params.executionMode
         });
 
         if (!best) {
@@ -430,7 +431,8 @@ export class SwapExecutor {
                         affiliateFee,
                         refPrice,
                         feeContext,
-                        isSell: isSellForFee
+                        isSell: isSellForFee,
+                        executionMode: params.executionMode
                     });
 
                     if (freshQuote && freshQuote.to && freshQuote.data) {

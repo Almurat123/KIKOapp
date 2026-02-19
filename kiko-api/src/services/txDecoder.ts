@@ -1029,6 +1029,78 @@ export async function parseSwapTransaction(
     };
     const hasMissingLegAmount = (swap: DecodedSwap): boolean =>
         toPositiveBigInt(swap.amountIn) <= 0n || toPositiveBigInt(swap.amountOut) <= 0n;
+    const wrappedNative = getChainConfig(chainId).wrappedNativeAddress.toLowerCase();
+    const toToken = (value?: string): string => String(value || '').toLowerCase();
+    const toCanonicalPairToken = (value?: string): string => {
+        const token = toToken(value);
+        if (!token) return token;
+        return token === wrappedNative ? NATIVE_TOKEN_ADDRESS : token;
+    };
+    const hasSameTokenPair = (left: DecodedSwap, right: DecodedSwap): boolean => {
+        const leftIn = toCanonicalPairToken(left.tokenIn);
+        const leftOut = toCanonicalPairToken(left.tokenOut);
+        const rightIn = toCanonicalPairToken(right.tokenIn);
+        const rightOut = toCanonicalPairToken(right.tokenOut);
+        if (!leftIn || !leftOut || !rightIn || !rightOut) return false;
+        return (
+            (leftIn === rightIn && leftOut === rightOut)
+            || (leftIn === rightOut && leftOut === rightIn)
+        );
+    };
+    const repairMissingAmountsFromHint = (
+        baseSwap: DecodedSwap,
+        hintedSwap: DecodedSwap,
+        source: 'v4' | 'pool'
+    ): { repaired: boolean; reversed: boolean } => {
+        if (!hasSameTokenPair(baseSwap, hintedSwap)) {
+            logger.debug(LogCode.DEC_SWAP_DETECTION, 'Swap repair skipped: hinted pair mismatch', {
+                source,
+                baseTokenIn: baseSwap.tokenIn,
+                baseTokenOut: baseSwap.tokenOut,
+                hintedTokenIn: hintedSwap.tokenIn,
+                hintedTokenOut: hintedSwap.tokenOut
+            });
+            return { repaired: false, reversed: false };
+        }
+
+        const baseIn = toCanonicalPairToken(baseSwap.tokenIn);
+        const baseOut = toCanonicalPairToken(baseSwap.tokenOut);
+        const hintedIn = toCanonicalPairToken(hintedSwap.tokenIn);
+        const hintedOut = toCanonicalPairToken(hintedSwap.tokenOut);
+        const sameDirection = baseIn === hintedIn && baseOut === hintedOut;
+        const reversedDirection = baseIn === hintedOut && baseOut === hintedIn;
+
+        if (!sameDirection && !reversedDirection) {
+            return { repaired: false, reversed: false };
+        }
+
+        const baseMissingIn = toPositiveBigInt(baseSwap.amountIn) <= 0n;
+        const baseMissingOut = toPositiveBigInt(baseSwap.amountOut) <= 0n;
+        if (!baseMissingIn && !baseMissingOut) {
+            return { repaired: false, reversed: reversedDirection };
+        }
+
+        const hintedAmountIn = toPositiveBigInt(hintedSwap.amountIn);
+        const hintedAmountOut = toPositiveBigInt(hintedSwap.amountOut);
+        if (sameDirection) {
+            if (baseMissingIn && hintedAmountIn > 0n) baseSwap.amountIn = hintedSwap.amountIn;
+            if (baseMissingOut && hintedAmountOut > 0n) baseSwap.amountOut = hintedSwap.amountOut;
+        } else {
+            // Preserve wallet-perspective direction; only map amounts from opposite pool-direction quote.
+            if (baseMissingIn && hintedAmountOut > 0n) baseSwap.amountIn = hintedSwap.amountOut;
+            if (baseMissingOut && hintedAmountIn > 0n) baseSwap.amountOut = hintedSwap.amountIn;
+        }
+
+        const repaired = !hasMissingLegAmount(baseSwap);
+        if (repaired && reversedDirection) {
+            logger.info(LogCode.DEC_SWAP_DETECTION, 'Swap repair used reversed pool direction while preserving wallet direction', {
+                source,
+                tokenIn: baseSwap.tokenIn,
+                tokenOut: baseSwap.tokenOut
+            });
+        }
+        return { repaired, reversed: reversedDirection };
+    };
 
     // 1) Prefer transfer-based decode for the target wallet (wallet perspective)
     const tTransferStart = Date.now();
@@ -1042,25 +1114,27 @@ export async function parseSwapTransaction(
         if (hasMissingLegAmount(finalTransferSwap)) {
             if (hasV4Swap) {
                 const hintedV4 = await decodeSwapFromV4Events(receipt.logs, chainId);
-                if (hintedV4?.resolvedPoolHint) {
+                if (hintedV4?.resolvedPoolHint && hasSameTokenPair(finalTransferSwap, hintedV4)) {
                     finalTransferSwap.resolvedPoolHint = hintedV4.resolvedPoolHint;
                 }
                 if (hintedV4 && !hasMissingLegAmount(hintedV4)) {
-                    finalTransferSwap.tokenIn = hintedV4.tokenIn;
-                    finalTransferSwap.tokenOut = hintedV4.tokenOut;
-                    finalTransferSwap.amountIn = hintedV4.amountIn;
-                    finalTransferSwap.amountOut = hintedV4.amountOut;
-                    decodePath = 'transfer_logs_repaired_v4';
+                    const repaired = repairMissingAmountsFromHint(finalTransferSwap, hintedV4, 'v4');
+                    if (repaired.repaired) {
+                        decodePath = repaired.reversed
+                            ? 'transfer_logs_repaired_v4_reverse_mapped'
+                            : 'transfer_logs_repaired_v4';
+                    }
                 }
             }
             if (hasMissingLegAmount(finalTransferSwap)) {
                 const hintedPool = await decodeSwapFromPoolEvents(receipt.logs, chainId);
                 if (hintedPool && !hasMissingLegAmount(hintedPool)) {
-                    finalTransferSwap.tokenIn = hintedPool.tokenIn;
-                    finalTransferSwap.tokenOut = hintedPool.tokenOut;
-                    finalTransferSwap.amountIn = hintedPool.amountIn;
-                    finalTransferSwap.amountOut = hintedPool.amountOut;
-                    decodePath = 'transfer_logs_repaired_pool';
+                    const repaired = repairMissingAmountsFromHint(finalTransferSwap, hintedPool, 'pool');
+                    if (repaired.repaired) {
+                        decodePath = repaired.reversed
+                            ? 'transfer_logs_repaired_pool_reverse_mapped'
+                            : 'transfer_logs_repaired_pool';
+                    }
                 }
             }
         } else if (hasV4Swap) {

@@ -8,6 +8,7 @@ interface DefaultPolicy {
 
 const DEFAULT_POLICIES: DefaultPolicy[] = [
     { tableName: 'ChatMessage', retentionDays: 30, description: 'AI chat history' },
+    { tableName: 'ChatSession', retentionDays: 90, description: 'AI chat session metadata' },
     { tableName: 'MessageChunk', retentionDays: 3, description: 'Streaming chunks for messages' },
     { tableName: 'TrendingCast', retentionDays: 7, description: 'Farcaster trending casts' },
     { tableName: 'WalletTransaction', retentionDays: 90, description: 'Tracked wallet transaction history' },
@@ -83,6 +84,17 @@ export async function runCleanup() {
                         where: { createdAt: { lt: cutoffDate } }
                     });
                     deletedCount = chatResult.count;
+                    break;
+                case 'ChatSession':
+                    // Delete sessions older than retentionDays that have no remaining messages
+                    // (messages are cleaned up by the ChatMessage policy first)
+                    const sessionResult = await prisma.chatSession.deleteMany({
+                        where: {
+                            createdAt: { lt: cutoffDate },
+                            messages: { none: {} }
+                        }
+                    });
+                    deletedCount = sessionResult.count;
                     break;
                 case 'MessageChunk':
                     const chunkResult = await prisma.messageChunk.deleteMany({

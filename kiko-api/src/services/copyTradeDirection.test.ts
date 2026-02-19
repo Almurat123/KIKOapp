@@ -100,3 +100,37 @@ test('determineCopyTradeDirection infers sell from cash flow when inferredTxType
   assert.equal(direction.source, 'cash_hint');
   assert.equal(direction.inferredTxType, 'TARGET_SELL');
 });
+
+test('determineCopyTradeDirection does not let conflicting cash hint override deterministic token pair', () => {
+  const direction = determineCopyTradeDirection({
+    chainId: BASE_CHAIN_ID,
+    tokenIn: TOKEN_A,
+    tokenOut: USDC,
+    cashLegHint: {
+      inferredTxType: 'TARGET_BUY',
+      cashSpentUsd: 100
+    }
+  });
+
+  assert.equal(direction.isBuy, false);
+  assert.equal(direction.isSell, true);
+  assert.equal(direction.source, 'token_pair');
+  assert.equal(direction.hintConflict, true);
+});
+
+test('determineCopyTradeDirection ignores cash hint for cash-to-cash swaps', () => {
+  const direction = determineCopyTradeDirection({
+    chainId: BASE_CHAIN_ID,
+    tokenIn: ETH,
+    tokenOut: USDC,
+    cashLegHint: {
+      inferredTxType: 'TARGET_BUY',
+      cashSpentUsd: 100
+    }
+  });
+
+  assert.equal(direction.isBuy, false);
+  assert.equal(direction.isSell, false);
+  assert.equal(direction.isTokenToToken, false);
+  assert.equal(direction.source, 'token_pair');
+});

@@ -109,6 +109,7 @@ const COPYTRADE_PRICE_CHECK_TIMEOUT_MS = Number(process.env.COPYTRADE_PRICE_CHEC
 const COPYTRADE_LOG_ERROR_SLICE = Math.max(80, Number(process.env.COPYTRADE_LOG_ERROR_SLICE || '240'));
 const NO_OPEN_POSITIONS_LOG_WINDOW_MS = Number(process.env.NO_OPEN_POSITIONS_LOG_WINDOW_MS || '180000');
 const COPYTRADE_ENABLE_DETECTION_PREWARM = (process.env.COPYTRADE_ENABLE_DETECTION_PREWARM || 'false') === 'true';
+const COPYTRADE_SKIP_ON_DIRECTION_CONFLICT = (process.env.COPYTRADE_SKIP_ON_DIRECTION_CONFLICT || 'true') === 'true';
 const ALLOWED_LAUNCHPAD_PROVIDERS = new Set(['zora', 'fourmeme']);
 const COPYTRADE_FORCE_EXTERNAL_SELL_PATH = (process.env.COPYTRADE_FORCE_EXTERNAL_SELL_PATH || 'true') === 'true';
 const CHAIN_LAUNCHPAD_PROVIDERS: Record<number, Set<string>> = {
@@ -406,8 +407,22 @@ export async function handleSwapDetected(
         tokenInIsCash: direction.tokenInIsCash,
         tokenOutIsCash: direction.tokenOutIsCash,
         source: direction.source,
-        inferredTxType: direction.inferredTxType
+        inferredTxType: direction.inferredTxType,
+        hintConflict: direction.hintConflict
     });
+
+    if (direction.hintConflict && COPYTRADE_SKIP_ON_DIRECTION_CONFLICT) {
+        logger.warn(LogCode.WTC_TX_SKIPPED, 'Skipping copytrade due to direction conflict', {
+            targetWallet,
+            chainId,
+            txHash: swap.txHash,
+            tokenIn: swap.tokenIn,
+            tokenOut: swap.tokenOut,
+            inferredTxType: direction.inferredTxType,
+            tokenPairDirection: isBuy ? 'buy' : isSell ? 'sell' : 'neutral'
+        });
+        return;
+    }
 
     if (isSell) {
         logger.info(LogCode.EXE_TX_BROADCAST, 'Target is selling - triggering mirror sell', { targetWallet, token: swap.tokenIn });

@@ -1,606 +1,1040 @@
-2026-02-19T11:02:35.826738230Z [inf]  
-2026-02-19T11:02:35.826745104Z [inf]  > kiko-api@1.0.0 start
-2026-02-19T11:02:35.826752796Z [inf]  > node dist/index.js
-2026-02-19T11:02:35.826759519Z [inf]  
-2026-02-19T11:02:35.993242854Z [inf]  Starting Container
-2026-02-19T11:02:36.879212030Z [inf]  [Prisma] Initializing client (Pool: 20, Timeout: 45s, Connect: 20s)
-2026-02-19T11:02:36.930209226Z [inf]  Zora SDK initialized with API Key
-2026-02-19T11:02:37.227156772Z [err]  [SocialJob] Could not find real_hot_users.json in any candidate path
-2026-02-19T11:02:37.809924896Z [inf]  [Warpcast] Loaded 10 API keys. Daily capacity: 50000 messages.
-2026-02-19T11:02:37.809928827Z [inf]  [SkillRegistry:exec] Loading skills from /app/dist/skills_exec...
-2026-02-19T11:02:37.809949376Z [inf]  [SkillRegistry:exec] Skills dir not found, skipping: /app/dist/skills_exec
-2026-02-19T11:02:37.809955034Z [inf]  [SkillRegistry:clean] Loading skills from /app/dist/skills_clean...
-2026-02-19T11:02:37.809959322Z [inf]  [SkillRegistry:clean] Skills dir not found, skipping: /app/dist/skills_clean
-2026-02-19T11:02:37.809964420Z [inf]  Build SHA
-2026-02-19T11:02:37.809968499Z [inf]  Serving static files from:
-2026-02-19T11:02:37.809973553Z [inf]  Initializing services...
-2026-02-19T11:02:37.809977510Z [inf]  [Prisma] DB connection is healthy
-2026-02-19T11:02:37.809983996Z [inf]  Database connection successful
-2026-02-19T11:02:37.810231357Z [inf]  [DataRetention] Checking retention policies...
-2026-02-19T11:02:37.810239400Z [inf]  [DataRetention] Starting cleanup job...
-2026-02-19T11:02:37.810248963Z [inf]  [DataRetention] Scheduler started (every 60 minutes)
-2026-02-19T11:02:37.810259572Z [inf]  Redis initialized
-2026-02-19T11:02:37.810267317Z [inf]  ⚡ Preloading native token prices via Coinbase...
-2026-02-19T11:02:37.810274172Z [inf]  ⚡ Native price refresh started (10 min interval)
-2026-02-19T11:02:37.810281668Z [inf]  Native price refresh started
-2026-02-19T11:02:37.810290510Z [inf]  Starting server on port 8080...
-2026-02-19T11:02:37.912479655Z [inf]  Server listening at http://0.0.0.0:8080
-2026-02-19T11:02:37.912486149Z [inf]  Server listening
-2026-02-19T11:02:37.912493855Z [inf]  RPC health monitor started
-2026-02-19T11:02:37.915273548Z [inf]  RPC benchmark sampling started
-2026-02-19T11:02:37.934954445Z [inf]  [MarketJob] Scheduled: Overview(2:00 UTC), Chains(3:00 UTC), Protocols(4:00 UTC), Trending(Every 5m)
-2026-02-19T11:02:37.937977615Z [inf]  Auto trade service initialized (Solana watcher + EVM webhook + pending prefetch enabled)
-2026-02-19T11:02:37.937988538Z [inf]  Auto trade service started
-2026-02-19T11:02:37.938071194Z [inf]  Scheduled: Primary chains every 5min (Ethereum, Solana, Base, BSC)
-2026-02-19T11:02:37.938078193Z [inf]  Scheduled: Secondary chains every 4h (Arbitrum, Optimism, Polygon)
-2026-02-19T11:02:37.938084749Z [inf]  [SocialJob] Scheduled: Discovery (30m), Refresh (4h), Scoring (5m)
-2026-02-19T11:02:37.938090370Z [inf]  Background jobs started
-2026-02-19T11:02:37.938097717Z [inf]  Initializing auto trade service...
-2026-02-19T11:02:37.938107896Z [inf]  [SolanaWatcher] ⚠️ Watcher disabled in favor of Webhooks. Not starting polling.
-2026-02-19T11:02:37.941638161Z [inf]  [PositionMonitor] Starting position monitor (every 30s)...
-2026-02-19T11:02:37.941643854Z [inf]  Position monitor started
-2026-02-19T11:02:37.941648504Z [inf]  Token Alert Service started
-2026-02-19T11:02:37.941652630Z [inf]  Token alert service started
-2026-02-19T11:02:37.941657240Z [inf]  ChatWorker started polling
-2026-02-19T11:02:37.941662404Z [inf]  Chat worker started
-2026-02-19T11:02:37.941667141Z [inf]  Starting Global Zora Alpha Detector (API Polling)
-2026-02-19T11:02:37.941671262Z [inf]  🎉 All services initialized!
-2026-02-19T11:02:37.974853983Z [inf]  [CopyTradePending] Pending watcher started
-2026-02-19T11:02:37.974923791Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-19T11:02:37.978918684Z [inf]  ⚡ Native token prices cached (Coinbase)
-2026-02-19T11:02:37.984608398Z [inf]  [DataRetention] Cleanup job completed.
-2026-02-19T11:02:42.940619351Z [inf]  [MarketJob] Running startup staleness check...
-2026-02-19T11:02:42.956583348Z [inf]  [SocialJob] Trending casts are fresh, skipping Snapchain API call
-2026-02-19T11:02:42.964073571Z [inf]  No open positions to monitor
-2026-02-19T11:03:12.637198690Z [inf]  Starting initial token refresh...
-2026-02-19T11:03:43.872493845Z [wrn]  RPC health degraded
-2026-02-19T11:03:43.872502423Z [inf]  Alpha Detector: Checking new coin
-2026-02-19T11:04:44.473613630Z [wrn]  RPC health degraded
-2026-02-19T11:04:44.473618525Z [inf]  Refreshed 4 primary chains in 90.0s
-2026-02-19T11:05:03.908314042Z [inf]  Fetching premium trending tokens
-2026-02-19T11:05:03.908325873Z [inf]  SocialRepo: Recalculated heat scores for 1000 casts
-2026-02-19T11:05:03.908332236Z [inf]  WS addresses discovered
-2026-02-19T11:05:03.908337925Z [inf]  Processed DexScreener trending candidates
-2026-02-19T11:05:06.137519662Z [wrn]  GeckoTerminal 429 triggered backoff
-2026-02-19T11:05:07.181621868Z [wrn]  GeckoTerminal 429 triggered backoff
-2026-02-19T11:05:09.206026611Z [wrn]  GeckoTerminal 429 triggered backoff
-2026-02-19T11:05:13.221666282Z [wrn]  GeckoTerminal 429 triggered backoff
-2026-02-19T11:05:13.221674149Z [err]  GeckoTerminal API error after retries
-2026-02-19T11:05:13.221678778Z [err]  Error fetching trending tokens
-2026-02-19T11:05:13.221683524Z [inf]  Premium trending tokens fetch complete
-2026-02-19T11:05:13.221688752Z [inf]  Got 79 trending tokens for Ethereum
-2026-02-19T11:05:13.221693751Z [inf]  Filtered out 4 invalid tokens for Ethereum
-2026-02-19T11:05:14.036975507Z [inf]  Saved 75/75 trending tokens for eth to database and memory cache
-2026-02-19T11:05:14.036982260Z [inf]  Saved 75 tokens for Ethereum to DB + cache
-2026-02-19T11:05:14.036989235Z [inf]  Launchpad verify budget applied
-2026-02-19T11:05:44.416278736Z [wrn]  RPC health degraded
-2026-02-19T11:05:44.416287413Z [inf]  Suppressed repeated logs
-2026-02-19T11:05:44.416293832Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-19T11:05:44.416301921Z [inf]  Suppressed repeated logs
-2026-02-19T11:05:44.416309454Z [inf]  No open positions to monitor
-2026-02-19T11:05:44.417825055Z [inf]  Fetching premium trending tokens
-2026-02-19T11:05:44.417833915Z [inf]  WS addresses discovered
-2026-02-19T11:05:45.349449489Z [inf]  Got 100 trending tokens for Solana
-2026-02-19T11:05:45.349587321Z [inf]  Processed DexScreener trending candidates
-2026-02-19T11:05:45.349594720Z [inf]  Premium trending tokens fetch complete
-2026-02-19T11:05:45.377398117Z [inf]  Saved 100/100 trending tokens for solana to database and memory cache
-2026-02-19T11:05:45.383077124Z [inf]  Saved 100 tokens for Solana to DB + cache
-2026-02-19T11:06:04.960524240Z [inf]  Suppressed repeated logs
-2026-02-19T11:06:04.960532917Z [inf]  Saved 100/100 trending tokens for solana to database and memory cache
-2026-02-19T11:06:24.961350764Z [inf]  Fetching premium trending tokens
-2026-02-19T11:06:24.961363520Z [inf]  WS addresses discovered
-2026-02-19T11:06:24.961369448Z [inf]  Processed DexScreener trending candidates
-2026-02-19T11:06:24.961375365Z [inf]  Premium trending tokens fetch complete
-2026-02-19T11:06:24.961380779Z [inf]  Got 70 trending tokens for Base
-2026-02-19T11:06:24.961386104Z [inf]  Filtered out 1 invalid tokens for Base
-2026-02-19T11:06:24.961394594Z [inf]  Saved 69/69 trending tokens for base to database and memory cache
-2026-02-19T11:06:24.961399881Z [inf]  Saved 69 tokens for Base to DB + cache
-2026-02-19T11:06:24.963268131Z [inf]  Launchpad verify budget applied
-2026-02-19T11:06:24.963276661Z [err]  api failed after 1 attempts
-2026-02-19T11:06:34.097747515Z [inf]  Suppressed repeated logs
-2026-02-19T11:06:34.097756477Z [inf]  Saved 69/69 trending tokens for base to database and memory cache
-2026-02-19T11:06:38.100668545Z [wrn]  RPC health degraded
-2026-02-19T11:06:42.377309444Z [inf]  Suppressed repeated logs
-2026-02-19T11:06:42.377318752Z [inf]  Alpha Detector: Checking new coin
-2026-02-19T11:06:47.961279942Z [inf]  Fetching premium trending tokens
-2026-02-19T11:06:47.961286648Z [inf]  WS addresses discovered
-2026-02-19T11:06:48.758982393Z [inf]  Processed DexScreener trending candidates
-2026-02-19T11:06:48.758986614Z [inf]  Premium trending tokens fetch complete
-2026-02-19T11:06:48.758990873Z [inf]  Got 72 trending tokens for BSC
-2026-02-19T11:06:48.966365724Z [inf]  Saved 72/72 trending tokens for bsc to database and memory cache
-2026-02-19T11:06:48.968216423Z [inf]  Saved 72 tokens for BSC to DB + cache
-2026-02-19T11:06:48.975900630Z [inf]  Refreshed 4 primary chains in 108.0s
-2026-02-19T11:06:49.768215427Z [inf]  Launchpad verify budget applied
-2026-02-19T11:06:50.792577193Z [err]  LaunchpadDetector: Four.meme fetch failed
-2026-02-19T11:06:50.792643971Z [err]  LaunchpadDetector: Four.meme fetch failed
-2026-02-19T11:07:40.681296065Z [wrn]  RPC health degraded
-2026-02-19T11:08:41.093107153Z [wrn]  RPC health degraded
-2026-02-19T11:08:41.093118785Z [inf]  Suppressed repeated logs
-2026-02-19T11:08:41.093138897Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-19T11:08:43.318345653Z [inf]  Suppressed repeated logs
-2026-02-19T11:08:43.318352739Z [inf]  No open positions to monitor
-2026-02-19T11:09:45.230946527Z [wrn]  RPC health degraded
-2026-02-19T11:09:46.383418144Z [inf]  Suppressed repeated logs
-2026-02-19T11:09:46.383423894Z [inf]  Alpha Detector: Checking new coin
-2026-02-19T11:10:05.796511251Z [inf]  Fetching premium trending tokens
-2026-02-19T11:10:05.796523265Z [inf]  SocialRepo: Recalculated heat scores for 1000 casts
-2026-02-19T11:10:05.796532056Z [inf]  WS addresses discovered
-2026-02-19T11:10:05.796540332Z [inf]  Processed DexScreener trending candidates
-2026-02-19T11:10:05.796547681Z [inf]  Skipping low liquidity token
-2026-02-19T11:10:05.796555018Z [wrn]  GeckoTerminal 429 triggered backoff
-2026-02-19T11:10:06.763178002Z [wrn]  GeckoTerminal 429 triggered backoff
-2026-02-19T11:10:09.280204173Z [wrn]  GeckoTerminal 429 triggered backoff
-2026-02-19T11:10:13.429886557Z [wrn]  GeckoTerminal 429 triggered backoff
-2026-02-19T11:10:13.429902940Z [err]  GeckoTerminal API error after retries
-2026-02-19T11:10:13.429911540Z [err]  Error fetching trending tokens
-2026-02-19T11:10:13.429920668Z [inf]  Premium trending tokens fetch complete
-2026-02-19T11:10:13.429930300Z [inf]  Got 82 trending tokens for Ethereum
-2026-02-19T11:10:13.429940509Z [inf]  Filtered out 5 invalid tokens for Ethereum
-2026-02-19T11:10:13.429948304Z [inf]  Saved 77/77 trending tokens for eth to database and memory cache
-2026-02-19T11:10:14.426291511Z [inf]  Saved 77 tokens for Ethereum to DB + cache
-2026-02-19T11:10:14.426306985Z [inf]  Launchpad verify budget applied
-2026-02-19T11:10:44.049853843Z [inf]  Fetching premium trending tokens
-2026-02-19T11:10:44.049864305Z [inf]  WS addresses discovered
-2026-02-19T11:10:44.049892643Z [wrn]  RPC health degraded
-2026-02-19T11:10:44.884692096Z [inf]  Processed DexScreener trending candidates
-2026-02-19T11:10:44.884698339Z [inf]  Premium trending tokens fetch complete
-2026-02-19T11:10:44.884704926Z [inf]  Got 100 trending tokens for Solana
-2026-02-19T11:10:44.884712578Z [inf]  Saved 100/100 trending tokens for solana to database and memory cache
-2026-02-19T11:10:44.884719002Z [inf]  Saved 100 tokens for Solana to DB + cache
-2026-02-19T11:11:04.353366202Z [inf]  Suppressed repeated logs
-2026-02-19T11:11:04.353376577Z [inf]  Saved 100/100 trending tokens for solana to database and memory cache
-2026-02-19T11:11:23.843068520Z [inf]  Fetching premium trending tokens
-2026-02-19T11:11:23.843074370Z [inf]  WS addresses discovered
-2026-02-19T11:11:23.843080689Z [inf]  Processed DexScreener trending candidates
-2026-02-19T11:11:23.843086495Z [inf]  Premium trending tokens fetch complete
-2026-02-19T11:11:23.843092303Z [inf]  Got 69 trending tokens for Base
-2026-02-19T11:11:23.843097643Z [inf]  Filtered out 1 invalid tokens for Base
-2026-02-19T11:11:23.843104573Z [inf]  Saved 68/68 trending tokens for base to database and memory cache
-2026-02-19T11:11:23.843110254Z [inf]  Saved 68 tokens for Base to DB + cache
-2026-02-19T11:11:23.845438121Z [inf]  Launchpad verify budget applied
-2026-02-19T11:11:23.845443607Z [inf]  Suppressed repeated logs
-2026-02-19T11:11:23.845447746Z [err]  api failed after 1 attempts
-2026-02-19T11:11:25.720427838Z [inf]  Suppressed repeated logs
-2026-02-19T11:11:25.720439810Z [inf]  Saved 68/68 trending tokens for base to database and memory cache
-2026-02-19T11:11:45.549362594Z [inf]  No open positions to monitor
-2026-02-19T11:11:45.549415525Z [wrn]  RPC health degraded
-2026-02-19T11:11:45.549424381Z [inf]  Suppressed repeated logs
-2026-02-19T11:11:45.549433294Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-19T11:11:45.549442714Z [inf]  Suppressed repeated logs
-2026-02-19T11:11:46.519161081Z [inf]  Fetching premium trending tokens
-2026-02-19T11:11:46.519167359Z [inf]  WS addresses discovered
-2026-02-19T11:11:47.689320863Z [inf]  Refreshed 4 primary chains in 107.6s
-2026-02-19T11:11:47.689349054Z [inf]  Processed DexScreener trending candidates
-2026-02-19T11:11:47.689365291Z [inf]  Premium trending tokens fetch complete
-2026-02-19T11:11:47.689371895Z [inf]  Got 72 trending tokens for BSC
-2026-02-19T11:11:47.689378362Z [inf]  Suppressed repeated logs
-2026-02-19T11:11:47.689384665Z [inf]  Saved 72/72 trending tokens for bsc to database and memory cache
-2026-02-19T11:11:47.689395122Z [inf]  Saved 72 tokens for BSC to DB + cache
-2026-02-19T11:11:48.472953955Z [inf]  Launchpad verify budget applied
-2026-02-19T11:11:49.442787392Z [err]  LaunchpadDetector: Four.meme fetch failed
-2026-02-19T11:11:49.442796185Z [err]  LaunchpadDetector: Four.meme fetch failed
-2026-02-19T11:12:39.194247631Z [wrn]  RPC health degraded
-2026-02-19T11:12:39.194413300Z [inf]  ⚡ Preloading native token prices via Coinbase...
-2026-02-19T11:12:39.194421846Z [inf]  ⚡ Native token prices cached (Coinbase)
-2026-02-19T11:12:58.661750646Z [inf]  Suppressed repeated logs
-2026-02-19T11:12:58.661758230Z [inf]  Alpha Detector: Checking new coin
-2026-02-19T11:13:37.993832962Z [wrn]  RPC health degraded
-2026-02-19T11:14:38.044882023Z [wrn]  RPC health degraded
-2026-02-19T11:14:38.044889880Z [inf]  Suppressed repeated logs
-2026-02-19T11:14:38.044896863Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-19T11:14:43.360382737Z [inf]  Suppressed repeated logs
-2026-02-19T11:14:43.360400452Z [inf]  No open positions to monitor
-2026-02-19T11:15:03.617670796Z [inf]  Fetching premium trending tokens
-2026-02-19T11:15:03.617680574Z [inf]  SocialRepo: Recalculated heat scores for 1000 casts
-2026-02-19T11:15:03.617690940Z [inf]  WS addresses discovered
-2026-02-19T11:15:03.617701672Z [inf]  Processed DexScreener trending candidates
-2026-02-19T11:15:03.617713401Z [inf]  Skipping low liquidity token
-2026-02-19T11:15:06.582182744Z [wrn]  GeckoTerminal 429 triggered backoff
-2026-02-19T11:15:07.610118345Z [wrn]  GeckoTerminal 429 triggered backoff
-2026-02-19T11:15:09.715493750Z [wrn]  GeckoTerminal 429 triggered backoff
-2026-02-19T11:15:12.954129528Z [err]  GeckoTerminal API error after retries
-2026-02-19T11:15:12.954143925Z [err]  Error fetching trending tokens
-2026-02-19T11:15:12.954154138Z [inf]  Filtered out 4 invalid tokens for Ethereum
-2026-02-19T11:15:12.954168546Z [wrn]  GeckoTerminal 429 triggered backoff
-2026-02-19T11:15:12.954174938Z [inf]  Premium trending tokens fetch complete
-2026-02-19T11:15:12.954182105Z [inf]  Got 77 trending tokens for Ethereum
-2026-02-19T11:15:14.217008873Z [inf]  Saved 73/73 trending tokens for eth to database and memory cache
-2026-02-19T11:15:14.217014467Z [inf]  Saved 73 tokens for Ethereum to DB + cache
-2026-02-19T11:15:14.217019828Z [inf]  Launchpad verify budget applied
-2026-02-19T11:15:43.438151909Z [wrn]  RPC health degraded
-2026-02-19T11:15:43.438158021Z [inf]  Fetching premium trending tokens
-2026-02-19T11:15:43.438164327Z [inf]  WS addresses discovered
-2026-02-19T11:15:44.564402670Z [inf]  Processed DexScreener trending candidates
-2026-02-19T11:15:44.564412216Z [inf]  Premium trending tokens fetch complete
-2026-02-19T11:15:44.564419345Z [inf]  Got 100 trending tokens for Solana
-2026-02-19T11:15:45.550485882Z [inf]  Saved 100/100 trending tokens for solana to database and memory cache
-2026-02-19T11:15:45.550492608Z [inf]  Saved 100 tokens for Solana to DB + cache
-2026-02-19T11:15:54.745298882Z [inf]  Suppressed repeated logs
-2026-02-19T11:15:54.745314164Z [inf]  Alpha Detector: Checking new coin
-2026-02-19T11:15:59.921237400Z [inf]  Suppressed repeated logs
-2026-02-19T11:15:59.921251794Z [inf]  Saved 100/100 trending tokens for solana to database and memory cache
-2026-02-19T11:16:19.505839426Z [inf]  [CopyTrade] GET /configs - Fetching configs for user did:privy:cmk74yj4r03jcl70b8hwyuh2c
-2026-02-19T11:16:19.505847749Z [inf]  [CopyTrade] GET /positions - Fetching positions for did:privy:cmk74yj4r03jcl70b8hwyuh2c
-2026-02-19T11:16:19.505853215Z [inf]  [verifyAccess] Checking access: {"userId":"did:privy:cmk74yj4r03jcl70b8hwyuh2c","userIdLength":35,"userIdPrefix":"did:privy:cmk74yj4r0","requestedAddress":"0xFB64Ce8d64CEC808a8aCb977d3Ee7bE1169f1a2B"}
-2026-02-19T11:16:19.505859986Z [inf]  [verifyAccess] ✅ Access granted
-2026-02-19T11:16:19.505869844Z [inf]  Alchemy Portfolio EVM page 1 received
-2026-02-19T11:16:19.505875528Z [inf]  Alchemy Portfolio EVM pagination complete
-2026-02-19T11:16:19.508798972Z [inf]  ChatWS Client connected
-2026-02-19T11:16:19.508805428Z [inf]  ChatWS: User connected
-2026-02-19T11:16:19.508809428Z [inf]  [CopyTrade] GET /config/:id/target-status {"userId":"did:privy:cmk74yj4r03jcl70b8hwyuh2c","configId":"cml8bdoix00vf8poepupyc86l","trackedTxCount":14,"walletTxCount":14,"buyCount":8,"sellCount":6,"tokenSwapCount":0,"targetProfitUsd":618.4229868316576,"targetLossUsd":233.7275852408028}
-2026-02-19T11:16:19.508813759Z [inf]  [CopyTrade] GET /config/:id/target-status {"userId":"did:privy:cmk74yj4r03jcl70b8hwyuh2c","configId":"cmke90wr11xcuko1oyj98i4u9","trackedTxCount":0,"walletTxCount":0,"buyCount":0,"sellCount":0,"tokenSwapCount":0,"targetProfitUsd":0,"targetLossUsd":0}
-2026-02-19T11:16:19.508817301Z [inf]  [CopyTrade] GET /config/:id/target-status {"userId":"did:privy:cmk74yj4r03jcl70b8hwyuh2c","configId":"cml5i3w0800c3m112bpaat30r","trackedTxCount":0,"walletTxCount":0,"buyCount":0,"sellCount":0,"tokenSwapCount":0,"targetProfitUsd":0,"targetLossUsd":0}
-2026-02-19T11:16:19.511939745Z [inf]  Fetching premium trending tokens
-2026-02-19T11:16:19.511949957Z [inf]  WS addresses discovered
-2026-02-19T11:16:19.511956789Z [inf]  Processed DexScreener trending candidates
-2026-02-19T11:16:19.511962428Z [inf]  Premium trending tokens fetch complete
-2026-02-19T11:16:19.511969318Z [inf]  Got 69 trending tokens for Base
-2026-02-19T11:16:19.511975518Z [inf]  Saved 69/69 trending tokens for base to database and memory cache
-2026-02-19T11:16:19.511981701Z [inf]  Saved 69 tokens for Base to DB + cache
-2026-02-19T11:16:19.514292023Z [inf]  Launchpad verify budget applied
-2026-02-19T11:16:19.514301558Z [inf]  Suppressed repeated logs
-2026-02-19T11:16:19.514308388Z [err]  api failed after 1 attempts
-2026-02-19T11:16:27.827460079Z [inf]  Suppressed repeated logs
-2026-02-19T11:16:27.827464407Z [inf]  Saved 69/69 trending tokens for base to database and memory cache
-2026-02-19T11:16:34.787151165Z [inf]  [CopyTrade] PATCH /config/cml5i3w0800c3m112bpaat30r - User did:privy:cmk74yj4r03jcl70b8hwyuh2c {"signedPayload":{"version":"copytrade_config_intent_v1","action":"update","configId":"cml5i3w0800c3m112bpaat30r","userId":"did:privy:cmk74yj4r03jcl70b8hwyuh2c","signerAddress":"0xFB64Ce8d64CEC808a8aCb977d3Ee7bE1169f1a2B","nonce":1,"expiresAtMs":1771500088561,"chainId":8453,"targetWallet":"0xb4beddf1b828aaed9638601f7145b0f6093f2d3f","buyAmountUsd":"25","maxSlippageBps":"300","minMarketCapUsd":"0","minLiquidityUsd":"0","minTargetValueUsd":"1901","copyTradeTokenCooldownMinutes":"0","executionMode":"turbo","disableTokenInfo":true,"takeProfitPct":"1000","stopLossPct":"70","mirrorSell":true,"aiAnalysisMode":"disabled","enableDynamicTP":true,"dynamicTPMinProfitPct":"500"},"signature":"0xb855bdb5447e850e894dbc55df315e71364e85c7fb9e5305cadf12996ca6e0cb092c7d2835f0695149667a5afd04b89fa5125b8cee89b509df71c813c29114b71c","signerAddress":"0xFB64Ce8d64CEC808a8aCb977d3Ee7bE1169f1a2B","nonce":1,"expiresAt":1771500088561}
-2026-02-19T11:16:35.810109437Z [inf]  [CopyTrade] GET /config/:id/target-status {"userId":"did:privy:cmk74yj4r03jcl70b8hwyuh2c","configId":"cml5i3w0800c3m112bpaat30r","trackedTxCount":0,"walletTxCount":0,"buyCount":0,"sellCount":0,"tokenSwapCount":0,"targetProfitUsd":0,"targetLossUsd":0}
-2026-02-19T11:16:38.727769056Z [wrn]  RPC health degraded
-2026-02-19T11:16:41.806424332Z [inf]  [CopyTrade] PATCH /config/cmke90wr11xcuko1oyj98i4u9/status - User did:privy:cmk74yj4r03jcl70b8hwyuh2c -> active
-2026-02-19T11:16:46.943456575Z [inf]  Fetching premium trending tokens
-2026-02-19T11:16:46.984030128Z [inf]  WS addresses discovered
-2026-02-19T11:16:47.962251009Z [inf]  Processed DexScreener trending candidates
-2026-02-19T11:16:47.962259997Z [inf]  Premium trending tokens fetch complete
-2026-02-19T11:16:47.962268699Z [inf]  Got 75 trending tokens for BSC
-2026-02-19T11:16:48.813472700Z [inf]  Saved 75/75 trending tokens for bsc to database and memory cache
-2026-02-19T11:16:48.813477754Z [inf]  Saved 75 tokens for BSC to DB + cache
-2026-02-19T11:16:48.813481706Z [inf]  Refreshed 4 primary chains in 107.9s
-2026-02-19T11:16:48.813485696Z [inf]  Launchpad verify budget applied
-2026-02-19T11:16:49.659681379Z [err]  LaunchpadDetector: Four.meme fetch failed
-2026-02-19T11:16:49.659688146Z [err]  LaunchpadDetector: Four.meme fetch failed
-2026-02-19T11:16:59.327752003Z [inf]  [CopyTrade] PATCH /config/cmke90wr11xcuko1oyj98i4u9 - User did:privy:cmk74yj4r03jcl70b8hwyuh2c {"signedPayload":{"version":"copytrade_config_intent_v1","action":"update","configId":"cmke90wr11xcuko1oyj98i4u9","userId":"did:privy:cmk74yj4r03jcl70b8hwyuh2c","signerAddress":"0xFB64Ce8d64CEC808a8aCb977d3Ee7bE1169f1a2B","nonce":1,"expiresAtMs":1771500113231,"chainId":8453,"targetWallet":"0x2cd32fb42748774fafde72d8607f16ccc5f5c0ed","buyAmountUsd":"0.1","maxSlippageBps":"300","minMarketCapUsd":"0","minLiquidityUsd":"0","minTargetValueUsd":"1","copyTradeTokenCooldownMinutes":"0","executionMode":"turbo","disableTokenInfo":true,"takeProfitPct":"100","stopLossPct":"20","mirrorSell":true,"aiAnalysisMode":"disabled","enableDynamicTP":false,"dynamicTPMinProfitPct":"100"},"signature":"0xa94bf217937052684613a6feca8be69661fe5d4abd8b5b6cb1deadc44a4286b50bf6586d422a87d78df9c7039c655db21b2b034cffe920480d703196201d4a011c","signerAddress":"0xFB64Ce8d64CEC808a8aCb977d3Ee7bE1169f1a2B","nonce":1,"expiresAt":1771500113231}
-2026-02-19T11:17:01.125927049Z [inf]  [CopyTrade] GET /config/:id/target-status {"userId":"did:privy:cmk74yj4r03jcl70b8hwyuh2c","configId":"cmke90wr11xcuko1oyj98i4u9","trackedTxCount":0,"walletTxCount":0,"buyCount":0,"sellCount":0,"tokenSwapCount":0,"targetProfitUsd":0,"targetLossUsd":0}
-2026-02-19T11:17:20.661680706Z [inf]  ChatWS Client connected
-2026-02-19T11:17:20.661686227Z [inf]  ChatWS: User connected
-2026-02-19T11:17:40.326722458Z [inf]  Aggregated repetitive logs
-2026-02-19T11:17:40.326736231Z [inf]  Aggregated repetitive logs
-2026-02-19T11:17:40.326746493Z [inf]  Aggregated repetitive logs
-2026-02-19T11:17:40.326757024Z [inf]  Aggregated repetitive logs
-2026-02-19T11:17:40.326765973Z [inf]  Aggregated repetitive logs
-2026-02-19T11:17:40.326768865Z [inf]  Aggregated repetitive logs
-2026-02-19T11:17:40.330286621Z [inf]  Aggregated repetitive logs
-2026-02-19T11:17:40.330292458Z [inf]  Aggregated repetitive logs
-2026-02-19T11:17:40.330303513Z [wrn]  RPC health degraded
-2026-02-19T11:17:40.330309549Z [inf]  Suppressed repeated logs
-2026-02-19T11:17:40.330317427Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-19T11:17:43.461169475Z [inf]  Suppressed repeated logs
-2026-02-19T11:17:43.461181363Z [inf]  No open positions to monitor
-2026-02-19T11:18:03.608207139Z [err]  clob.polymarket.com failed after 1 attempts
-2026-02-19T11:18:03.608219089Z [err]  Failed to fetch Polymarket open orders
-2026-02-19T11:18:03.608235999Z [inf]  [verifyAccess] Checking access: {"userId":"did:privy:cmk9grlpm001wkz0dm9eeb6jl","userIdLength":35,"userIdPrefix":"did:privy:cmk9grlpm0","requestedAddress":"0x552ecD151743E8E63e7F487fa07A7996ABB21958"}
-2026-02-19T11:18:03.608248686Z [inf]  [verifyAccess] ✅ Access granted
-2026-02-19T11:18:03.608262653Z [inf]  Alchemy Portfolio EVM page 1 received
-2026-02-19T11:18:03.608276406Z [inf]  PrivyWallet Authorization Key config
-2026-02-19T11:18:03.613721949Z [inf]  [AlchemyUsage] rolling usage snapshot
-2026-02-19T11:18:03.613737082Z [inf]  Wallet transactions filtered and ready
-2026-02-19T11:18:03.613906235Z [err]  data-api.polymarket.com failed after 1 attempts
-2026-02-19T11:18:03.613911421Z [err]  Failed to fetch Polymarket positions
-2026-02-19T11:18:03.613916491Z [inf]  Solana balance fetched via Helius
-2026-02-19T11:18:03.613923969Z [inf]  Solana: using fetchSolanaTokenAccounts RPC fallback
-2026-02-19T11:18:03.616639425Z [inf]  [WalletRoutes] Returning 2 transactions for 0x552ecD151743E8E63e7F487fa07A7996ABB21958
-2026-02-19T11:18:03.616645305Z [err]  All RPC endpoints failed
-2026-02-19T11:18:03.616650734Z [inf]  ChatWS Client connected
-2026-02-19T11:18:03.616657819Z [inf]  ChatWS: User connected
-2026-02-19T11:18:33.152552260Z [inf]  [Profile] fetchReceipt
-2026-02-19T11:18:33.152558876Z [inf]  [Profile] fetchReceipt
-2026-02-19T11:18:33.152563908Z [inf]  [Profile] fetchReceipt
-2026-02-19T11:18:33.152569754Z [inf]  [Profile] fetchReceipt
-2026-02-19T11:18:33.152576370Z [inf]  Swap successfully decoded from logs
-2026-02-19T11:18:33.152581621Z [inf]  [Profile] parseSwapTransaction
-2026-02-19T11:18:33.152588469Z [inf]  [CopyTradePending] Prefetched confirmed swap from pending path
-2026-02-19T11:18:33.153683937Z [inf]  [CopyTradeTiming] target buy start
-2026-02-19T11:18:33.153695623Z [inf]  [CopyTrade] Token info disabled - using RPC metadata fallback
-2026-02-19T11:18:33.153704302Z [inf]  Derived missing token price from swap data
-2026-02-19T11:18:33.153741398Z [inf]  Swap detected on target wallet
-2026-02-19T11:18:33.153748124Z [inf]  Target is buying - triggering copy trade
-2026-02-19T11:18:33.154995345Z [inf]  🔥 Warming up 1 user settings
-2026-02-19T11:18:33.155003487Z [inf]  [CopyTrade] Turbo fast lane enabled
-2026-02-19T11:18:33.155008616Z [inf]  Skipping trade: target value below user minimum
-2026-02-19T11:18:33.155013506Z [inf]  [Warpcast] Sending DM to FID 877398: "⏭️ Copy Trade Skipped: $SELFCLAW
+2026-02-19T15:33:09.562644641Z [inf]  13051:C 19 Feb 2026 15:33:03.137 * Fork CoW for RDB: current 1 MB, peak 1 MB, average 1 MB
+2026-02-19T15:33:09.562736049Z [inf]  1:M 19 Feb 2026 15:33:03.144 * Background saving terminated with success
+2026-02-19T15:33:43.896577579Z [wrn]  RPC health degraded
+2026-02-19T15:33:46.621884016Z [err]  2026-02-19 15:33:38.179 UTC [27] LOG:  checkpoint starting: time
+2026-02-19T15:34:03.901825925Z [inf]  Suppressed repeated logs
+2026-02-19T15:34:03.901834229Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
+2026-02-19T15:34:43.263577226Z [inf]  Suppressed repeated logs
+2026-02-19T15:34:43.263589885Z [inf]  No open positions to monitor
+2026-02-19T15:34:43.263596073Z [wrn]  RPC health degraded
+2026-02-19T15:34:56.948923295Z [err]  2026-02-19 15:34:48.732 UTC [27] LOG:  checkpoint complete: wrote 705 buffers (4.3%); 0 WAL file(s) added, 0 removed, 0 recycled; write=70.501 s, sync=0.021 s, total=70.553 s; sync files=42, longest=0.014 s, average=0.001 s; distance=6337 kB, estimate=6337 kB; lsn=7/2CF9D078, redo lsn=7/2CF9CFE8
+2026-02-19T15:35:03.263141368Z [inf]  Fetching premium trending tokens
+2026-02-19T15:35:03.263146193Z [inf]  SocialRepo: Recalculated heat scores for 1000 casts
+2026-02-19T15:35:03.263150722Z [inf]  WS addresses discovered
+2026-02-19T15:35:03.263154673Z [inf]  Processed DexScreener trending candidates
+2026-02-19T15:35:03.263158990Z [inf]  Skipping low liquidity token
+2026-02-19T15:35:04.098433806Z [wrn]  GeckoTerminal 429 triggered backoff
+2026-02-19T15:35:05.116441865Z [wrn]  GeckoTerminal 429 triggered backoff
+2026-02-19T15:35:07.130418022Z [wrn]  GeckoTerminal 429 triggered backoff
+2026-02-19T15:35:08.052393919Z [inf]  Suppressed repeated logs
+2026-02-19T15:35:08.052403470Z [inf]  Alpha Detector: Checking new coin
+2026-02-19T15:35:09.549677537Z [inf]  1:M 19 Feb 2026 15:35:00.102 * 1 changes in 60 seconds. Saving...
+2026-02-19T15:35:09.549684119Z [inf]  1:M 19 Feb 2026 15:35:00.103 * Background saving started by pid 13052
+2026-02-19T15:35:09.549690992Z [inf]  13052:C 19 Feb 2026 15:35:00.209 * DB saved on disk
+2026-02-19T15:35:09.549697374Z [inf]  13052:C 19 Feb 2026 15:35:00.214 * Fork CoW for RDB: current 2 MB, peak 2 MB, average 1 MB
+2026-02-19T15:35:09.549703943Z [inf]  1:M 19 Feb 2026 15:35:00.305 * Background saving terminated with success
+2026-02-19T15:35:11.145111815Z [wrn]  GeckoTerminal 429 triggered backoff
+2026-02-19T15:35:11.145121267Z [err]  GeckoTerminal API error after retries
+2026-02-19T15:35:11.145126897Z [err]  Error fetching trending tokens
+2026-02-19T15:35:11.145133054Z [inf]  Premium trending tokens fetch complete
+2026-02-19T15:35:11.145137774Z [inf]  Got 83 trending tokens for Ethereum
+2026-02-19T15:35:11.150429995Z [inf]  Filtered out 2 invalid tokens for Ethereum
+2026-02-19T15:35:12.038522930Z [inf]  Suppressed repeated logs
+2026-02-19T15:35:12.038527363Z [inf]  Saved 81/81 trending tokens for eth to database and memory cache
+2026-02-19T15:35:12.038532826Z [inf]  Saved 81 tokens for Ethereum to DB + cache
+2026-02-19T15:35:12.038537595Z [inf]  Launchpad verify budget applied
+2026-02-19T15:35:41.495057474Z [inf]  ⚡ Preloading native token prices via Coinbase...
+2026-02-19T15:35:41.495070675Z [inf]  ⚡ Native token prices cached (Coinbase)
+2026-02-19T15:35:41.495339823Z [wrn]  RPC health degraded
+2026-02-19T15:35:41.495347859Z [inf]  Fetching premium trending tokens
+2026-02-19T15:35:42.614991463Z [inf]  WS addresses discovered
+2026-02-19T15:35:43.683762663Z [inf]  Saved 100/100 trending tokens for solana to database and memory cache
+2026-02-19T15:35:43.683776960Z [inf]  Saved 100 tokens for Solana to DB + cache
+2026-02-19T15:35:43.683944077Z [inf]  Processed DexScreener trending candidates
+2026-02-19T15:35:43.683948741Z [inf]  Premium trending tokens fetch complete
+2026-02-19T15:35:43.683953613Z [inf]  Got 100 trending tokens for Solana
+2026-02-19T15:36:03.647189574Z [inf]  Suppressed repeated logs
+2026-02-19T15:36:03.647203986Z [inf]  Saved 100/100 trending tokens for solana to database and memory cache
+2026-02-19T15:36:10.952921426Z [inf]  1:M 19 Feb 2026 15:36:01.047 * 1 changes in 60 seconds. Saving...
+2026-02-19T15:36:10.952930574Z [inf]  1:M 19 Feb 2026 15:36:01.049 * Background saving started by pid 13053
+2026-02-19T15:36:10.952937459Z [inf]  13053:C 19 Feb 2026 15:36:01.162 * DB saved on disk
+2026-02-19T15:36:10.952947415Z [inf]  13053:C 19 Feb 2026 15:36:01.163 * Fork CoW for RDB: current 2 MB, peak 2 MB, average 1 MB
+2026-02-19T15:36:10.952955898Z [inf]  1:M 19 Feb 2026 15:36:01.251 * Background saving terminated with success
+2026-02-19T15:36:23.037856749Z [inf]  Premium trending tokens fetch complete
+2026-02-19T15:36:23.037866902Z [inf]  Got 69 trending tokens for Base
+2026-02-19T15:36:23.037877166Z [inf]  Saved 69/69 trending tokens for base to database and memory cache
+2026-02-19T15:36:23.037891039Z [inf]  Saved 69 tokens for Base to DB + cache
+2026-02-19T15:36:23.037945529Z [inf]  Fetching premium trending tokens
+2026-02-19T15:36:23.037956503Z [inf]  WS addresses discovered
+2026-02-19T15:36:23.037969185Z [inf]  Processed DexScreener trending candidates
+2026-02-19T15:36:23.038001588Z [inf]  Launchpad verify budget applied
+2026-02-19T15:36:24.049938088Z [inf]  Suppressed repeated logs
+2026-02-19T15:36:24.049944184Z [inf]  Saved 69/69 trending tokens for base to database and memory cache
+2026-02-19T15:36:24.049998292Z [inf]  Suppressed repeated logs
+2026-02-19T15:36:24.050005200Z [err]  api failed after 1 attempts
+2026-02-19T15:36:44.050354923Z [wrn]  RPC health degraded
+2026-02-19T15:36:44.984568378Z [inf]  Fetching premium trending tokens
+2026-02-19T15:36:45.260789984Z [inf]  WS addresses discovered
+2026-02-19T15:36:46.288417931Z [inf]  Processed DexScreener trending candidates
+2026-02-19T15:36:46.288424647Z [inf]  Premium trending tokens fetch complete
+2026-02-19T15:36:46.288432672Z [inf]  Got 77 trending tokens for BSC
+2026-02-19T15:36:46.288438763Z [inf]  Filtered out 1 invalid tokens for BSC
+2026-02-19T15:36:46.920017110Z [inf]  Suppressed repeated logs
+2026-02-19T15:36:46.920022584Z [inf]  Saved 76/76 trending tokens for bsc to database and memory cache
+2026-02-19T15:36:46.920028184Z [inf]  Saved 76 tokens for BSC to DB + cache
+2026-02-19T15:36:46.920142824Z [inf]  Refreshed 4 primary chains in 106.5s
+2026-02-19T15:36:46.970234736Z [inf]  Launchpad verify budget applied
+2026-02-19T15:36:48.060625273Z [err]  LaunchpadDetector: Four.meme fetch failed
+2026-02-19T15:36:48.060641948Z [err]  LaunchpadDetector: Four.meme fetch failed
+2026-02-19T15:37:02.362860105Z [inf]  1:M 19 Feb 2026 15:37:02.087 * 1 changes in 60 seconds. Saving...
+2026-02-19T15:37:02.362866893Z [inf]  1:M 19 Feb 2026 15:37:02.088 * Background saving started by pid 13054
+2026-02-19T15:37:02.362872942Z [inf]  13054:C 19 Feb 2026 15:37:02.180 * DB saved on disk
+2026-02-19T15:37:02.362883587Z [inf]  13054:C 19 Feb 2026 15:37:02.181 * Fork CoW for RDB: current 1 MB, peak 1 MB, average 0 MB
+2026-02-19T15:37:02.362889990Z [inf]  1:M 19 Feb 2026 15:37:02.189 * Background saving terminated with success
+2026-02-19T15:37:07.354694434Z [inf]  Suppressed repeated logs
+2026-02-19T15:37:07.354708946Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
+2026-02-19T15:37:37.364731107Z [inf]  Suppressed repeated logs
+2026-02-19T15:37:37.364739774Z [inf]  No open positions to monitor
+2026-02-19T15:37:40.100037492Z [wrn]  RPC health degraded
+2026-02-19T15:38:19.537771497Z [inf]  Suppressed repeated logs
+2026-02-19T15:38:19.537783308Z [inf]  Alpha Detector: Checking new coin
+2026-02-19T15:38:48.892788247Z [err]  2026-02-19 15:38:38.830 UTC [27] LOG:  checkpoint starting: time
+2026-02-19T15:38:49.539449635Z [wrn]  RPC health degraded
+2026-02-19T15:39:49.568124137Z [wrn]  RPC health degraded
+2026-02-19T15:39:51.917103204Z [err]  2026-02-19 15:39:41.624 UTC [27] LOG:  checkpoint complete: wrote 628 buffers (3.8%); 0 WAL file(s) added, 0 removed, 1 recycled; write=62.707 s, sync=0.012 s, total=62.794 s; sync files=31, longest=0.005 s, average=0.001 s; distance=4403 kB, estimate=6144 kB; lsn=7/2D3EA068, redo lsn=7/2D3E9FC0
+2026-02-19T15:40:08.954319862Z [inf]  Suppressed repeated logs
+2026-02-19T15:40:08.954324888Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
+2026-02-19T15:40:08.954329741Z [inf]  Fetching premium trending tokens
+2026-02-19T15:40:08.954334717Z [inf]  SocialRepo: Recalculated heat scores for 1000 casts
+2026-02-19T15:40:08.954340156Z [inf]  WS addresses discovered
+2026-02-19T15:40:08.954344822Z [inf]  Processed DexScreener trending candidates
+2026-02-19T15:40:08.954350583Z [inf]  Skipping low liquidity token
+2026-02-19T15:40:08.954356509Z [wrn]  GeckoTerminal 429 triggered backoff
+2026-02-19T15:40:08.957537709Z [wrn]  GeckoTerminal 429 triggered backoff
+2026-02-19T15:40:08.957544016Z [wrn]  GeckoTerminal 429 triggered backoff
+2026-02-19T15:40:09.813137336Z [inf]  1:M 19 Feb 2026 15:40:00.207 * 1 changes in 60 seconds. Saving...
+2026-02-19T15:40:09.813143516Z [inf]  1:M 19 Feb 2026 15:40:00.208 * Background saving started by pid 13055
+2026-02-19T15:40:09.813150213Z [inf]  13055:C 19 Feb 2026 15:40:00.287 * DB saved on disk
+2026-02-19T15:40:09.813159596Z [inf]  13055:C 19 Feb 2026 15:40:00.288 * Fork CoW for RDB: current 1 MB, peak 1 MB, average 0 MB
+2026-02-19T15:40:09.813170179Z [inf]  1:M 19 Feb 2026 15:40:00.309 * Background saving terminated with success
+2026-02-19T15:40:11.750579264Z [inf]  Saved 77 tokens for Ethereum to DB + cache
+2026-02-19T15:40:11.750589231Z [wrn]  GeckoTerminal 429 triggered backoff
+2026-02-19T15:40:11.750593143Z [inf]  Launchpad verify budget applied
+2026-02-19T15:40:11.750594828Z [err]  GeckoTerminal API error after retries
+2026-02-19T15:40:11.750599267Z [err]  Error fetching trending tokens
+2026-02-19T15:40:11.750603247Z [inf]  Premium trending tokens fetch complete
+2026-02-19T15:40:11.750609464Z [inf]  Got 79 trending tokens for Ethereum
+2026-02-19T15:40:11.750628850Z [inf]  Filtered out 2 invalid tokens for Ethereum
+2026-02-19T15:40:11.750633837Z [inf]  Saved 77/77 trending tokens for eth to database and memory cache
+2026-02-19T15:40:41.976885899Z [inf]  Suppressed repeated logs
+2026-02-19T15:40:41.976891904Z [inf]  No open positions to monitor
+2026-02-19T15:40:41.976895758Z [wrn]  RPC health degraded
+2026-02-19T15:40:41.976899691Z [inf]  Fetching premium trending tokens
+2026-02-19T15:40:41.976903934Z [inf]  WS addresses discovered
+2026-02-19T15:40:43.025082623Z [inf]  Processed DexScreener trending candidates
+2026-02-19T15:40:43.025094518Z [inf]  Premium trending tokens fetch complete
+2026-02-19T15:40:43.025107196Z [inf]  Got 100 trending tokens for Solana
+2026-02-19T15:40:43.829486720Z [inf]  Saved 100/100 trending tokens for solana to database and memory cache
+2026-02-19T15:40:43.829493331Z [inf]  Saved 100 tokens for Solana to DB + cache
+2026-02-19T15:41:03.138097895Z [inf]  Suppressed repeated logs
+2026-02-19T15:41:03.138104728Z [inf]  Saved 100/100 trending tokens for solana to database and memory cache
+2026-02-19T15:41:10.541819219Z [inf]  1:M 19 Feb 2026 15:41:01.026 * 1 changes in 60 seconds. Saving...
+2026-02-19T15:41:10.541825572Z [inf]  1:M 19 Feb 2026 15:41:01.027 * Background saving started by pid 13056
+2026-02-19T15:41:10.541830424Z [inf]  13056:C 19 Feb 2026 15:41:01.104 * DB saved on disk
+2026-02-19T15:41:10.541835349Z [inf]  13056:C 19 Feb 2026 15:41:01.105 * Fork CoW for RDB: current 1 MB, peak 1 MB, average 0 MB
+2026-02-19T15:41:10.541840046Z [inf]  1:M 19 Feb 2026 15:41:01.128 * Background saving terminated with success
+2026-02-19T15:41:22.300859760Z [inf]  Fetching premium trending tokens
+2026-02-19T15:41:22.300866285Z [inf]  WS addresses discovered
+2026-02-19T15:41:22.300871910Z [inf]  Processed DexScreener trending candidates
+2026-02-19T15:41:22.300877564Z [inf]  Premium trending tokens fetch complete
+2026-02-19T15:41:22.300883936Z [inf]  Got 66 trending tokens for Base
+2026-02-19T15:41:22.300889443Z [inf]  Saved 66/66 trending tokens for base to database and memory cache
+2026-02-19T15:41:22.300895310Z [inf]  Saved 66 tokens for Base to DB + cache
+2026-02-19T15:41:22.300900934Z [inf]  Launchpad verify budget applied
+2026-02-19T15:41:22.303903698Z [inf]  Suppressed repeated logs
+2026-02-19T15:41:22.303909444Z [inf]  Alpha Detector: Checking new coin
+2026-02-19T15:41:22.303913828Z [inf]  Suppressed repeated logs
+2026-02-19T15:41:22.303917694Z [err]  api failed after 1 attempts
+2026-02-19T15:41:22.902824171Z [inf]  Suppressed repeated logs
+2026-02-19T15:41:22.902830460Z [inf]  Saved 66/66 trending tokens for base to database and memory cache
+2026-02-19T15:41:42.343952378Z [wrn]  RPC health degraded
+2026-02-19T15:41:44.982441948Z [inf]  Fetching premium trending tokens
+2026-02-19T15:41:45.033908122Z [inf]  WS addresses discovered
+2026-02-19T15:41:46.002267863Z [inf]  Processed DexScreener trending candidates
+2026-02-19T15:41:46.002276408Z [inf]  Premium trending tokens fetch complete
+2026-02-19T15:41:46.002284458Z [inf]  Got 74 trending tokens for BSC
+2026-02-19T15:41:46.002292730Z [inf]  Filtered out 1 invalid tokens for BSC
+2026-02-19T15:41:46.172542804Z [inf]  Suppressed repeated logs
+2026-02-19T15:41:46.172554358Z [inf]  Saved 73/73 trending tokens for bsc to database and memory cache
+2026-02-19T15:41:46.172561277Z [inf]  Saved 73 tokens for BSC to DB + cache
+2026-02-19T15:41:46.175702213Z [inf]  Refreshed 4 primary chains in 106.0s
+2026-02-19T15:41:48.081048323Z [err]  LaunchpadDetector: Four.meme fetch failed
+2026-02-19T15:41:48.081056106Z [err]  LaunchpadDetector: Four.meme fetch failed
+2026-02-19T15:42:11.880316384Z [inf]  1:M 19 Feb 2026 15:42:02.037 * 1 changes in 60 seconds. Saving...
+2026-02-19T15:42:11.880322606Z [inf]  1:M 19 Feb 2026 15:42:02.038 * Background saving started by pid 13057
+2026-02-19T15:42:11.880328331Z [inf]  13057:C 19 Feb 2026 15:42:02.119 * DB saved on disk
+2026-02-19T15:42:11.880334854Z [inf]  13057:C 19 Feb 2026 15:42:02.120 * Fork CoW for RDB: current 1 MB, peak 1 MB, average 0 MB
+2026-02-19T15:42:11.880341780Z [inf]  1:M 19 Feb 2026 15:42:02.139 * Background saving terminated with success
+2026-02-19T15:42:48.448463620Z [wrn]  RPC health degraded
+2026-02-19T15:43:07.803141257Z [inf]  Suppressed repeated logs
+2026-02-19T15:43:07.803146755Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
+2026-02-19T15:43:37.804898297Z [inf]  Suppressed repeated logs
+2026-02-19T15:43:37.804905344Z [inf]  No open positions to monitor
+2026-02-19T15:43:39.740577836Z [wrn]  RPC health degraded
+2026-02-19T15:43:45.147600323Z [inf]  1:M 19 Feb 2026 15:43:44.812 * 1 changes in 60 seconds. Saving...
+2026-02-19T15:43:45.147608839Z [inf]  1:M 19 Feb 2026 15:43:44.813 * Background saving started by pid 13058
+2026-02-19T15:43:45.147617043Z [inf]  13058:C 19 Feb 2026 15:43:44.887 * DB saved on disk
+2026-02-19T15:43:45.147624488Z [inf]  13058:C 19 Feb 2026 15:43:44.887 * Fork CoW for RDB: current 1 MB, peak 1 MB, average 0 MB
+2026-02-19T15:43:45.147631617Z [inf]  1:M 19 Feb 2026 15:43:44.914 * Background saving terminated with success
+2026-02-19T15:43:45.896652088Z [inf]  Suppressed repeated logs
+2026-02-19T15:43:45.896661056Z [inf]  [verifyAccess] Checking access: {"userId":"did:privy:cmk9grlpm001wkz0dm9eeb6jl","userIdLength":35,"userIdPrefix":"did:privy:cmk9grlpm0","requestedAddress":"0x552ecD151743E8E63e7F487fa07A7996ABB21958"}
+2026-02-19T15:43:45.896667783Z [inf]  Suppressed repeated logs
+2026-02-19T15:43:45.896674812Z [inf]  [verifyAccess] ✅ Access granted
+2026-02-19T15:43:45.896681844Z [inf]  Alchemy Portfolio EVM page 1 received
+2026-02-19T15:43:45.897014257Z [err]  clob.polymarket.com failed after 1 attempts
+2026-02-19T15:43:45.897022645Z [err]  Failed to fetch Polymarket open orders
+2026-02-19T15:43:45.897029501Z [err]  data-api.polymarket.com failed after 1 attempts
+2026-02-19T15:43:45.897032004Z [inf]  [AlchemyUsage] rolling usage snapshot
+2026-02-19T15:43:45.897037554Z [err]  Failed to fetch Polymarket positions
+2026-02-19T15:43:45.902572503Z [inf]  [WalletRoutes] Returning 2 transactions for 0x552ecD151743E8E63e7F487fa07A7996ABB21958
+2026-02-19T15:43:45.902582404Z [inf]  Solana balance fetched via Helius
+2026-02-19T15:43:45.902589386Z [inf]  Solana: using fetchSolanaTokenAccounts RPC fallback
+2026-02-19T15:43:45.902708109Z [inf]  Wallet transactions filtered and ready
+2026-02-19T15:43:47.824291319Z [err]  All RPC endpoints failed
+2026-02-19T15:43:47.878471620Z [err]  2026-02-19 15:43:38.723 UTC [27] LOG:  checkpoint starting: time
+2026-02-19T15:43:48.020682389Z [inf]  ChatWS Client connected
+2026-02-19T15:43:48.020686678Z [inf]  ChatWS: User connected
+2026-02-19T15:43:54.708770793Z [inf]  [CopyTrade] GET /configs - Fetching configs for user did:privy:cmk9grlpm001wkz0dm9eeb6jl
+2026-02-19T15:43:54.825588970Z [inf]  Alchemy Portfolio EVM page 1 received
+2026-02-19T15:43:55.068755804Z [inf]  [CopyTrade] GET /positions - Fetching positions for did:privy:cmk9grlpm001wkz0dm9eeb6jl
+2026-02-19T15:43:57.784222516Z [inf]  [UserSettings] PUT /api/users/settings for user did:privy:cmk9grlpm001wkz0dm9eeb6jl: {
+  "defaultSwapAmount": 100,
+  "defaultSwapUnit": "native",
+  "checkTokenBeforeSwap": true,
+  "showQuoteBeforeSwap": true,
+  "swapMethod": "allowance_trade",
+  "slippageMode": "auto",
+  "customSlippage": 0.5,
+  "mevProtection": true,
+  "priceDeviationCheck": true,
+  "fastSwapMode": false
+}
+2026-02-19T15:43:57.956386680Z [inf]  [UserSettings] PUT /api/users/settings for user did:privy:cmk9grlpm001wkz0dm9eeb6jl: {
+  "defaultSwapAmount": 100,
+  "defaultSwapUnit": "native",
+  "checkTokenBeforeSwap": true,
+  "showQuoteBeforeSwap": true,
+  "swapMethod": "allowance_trade",
+  "slippageMode": "auto",
+  "customSlippage": 0.5,
+  "mevProtection": true,
+  "priceDeviationCheck": true,
+  "fastSwapMode": false,
+  "id": "cml8amz08002wd3rckvjlc5wo",
+  "userId": "did:privy:cmk9grlpm001wkz0dm9eeb6jl",
+  "quickSwapMode": false,
+  "copyTradeAIMode": "disabled",
+  "updatedAt": "2026-02-18T06:46:32.951Z",
+  "createdAt": "2026-02-04T17:20:36.536Z",
+  "copyTradeTokenCooldownMinutes": 60,
+  "minLiquidityUsd": null,
+  "minMarketCapUsd": null,
+  "minTargetValueUsd": null,
+  "zoraNotificationThreshold": 5000
+}
+2026-02-19T15:44:03.895102582Z [inf]  [CopyTrade] GET /configs - Fetching configs for user did:privy:cmk9grlpm001wkz0dm9eeb6jl
+2026-02-19T15:44:03.895115068Z [inf]  [CopyTrade] GET /positions - Fetching positions for did:privy:cmk9grlpm001wkz0dm9eeb6jl
+2026-02-19T15:44:07.012003033Z [inf]  [CopyTrade] GET /config/:id/target-status {"userId":"did:privy:cmk9grlpm001wkz0dm9eeb6jl","configId":"cmlrp6vyd0nv7re0menthayos","trackedTxCount":0,"walletTxCount":0,"buyCount":0,"sellCount":0,"tokenSwapCount":0,"targetProfitUsd":0,"targetLossUsd":0}
+2026-02-19T15:44:07.012009610Z [inf]  [CopyTrade] GET /config/:id/target-status {"userId":"did:privy:cmk9grlpm001wkz0dm9eeb6jl","configId":"cmlrovyk00lv3re0mw6jazyut","trackedTxCount":0,"walletTxCount":0,"buyCount":0,"sellCount":0,"tokenSwapCount":0,"targetProfitUsd":0,"targetLossUsd":0}
+2026-02-19T15:44:26.168524675Z [inf]  Suppressed repeated logs
+2026-02-19T15:44:26.168530494Z [inf]  Alpha Detector: Checking new coin
+2026-02-19T15:44:41.278072465Z [err]  2026-02-19 15:44:39.968 UTC [27] LOG:  checkpoint complete: wrote 612 buffers (3.7%); 0 WAL file(s) added, 0 removed, 0 recycled; write=61.181 s, sync=0.019 s, total=61.246 s; sync files=31, longest=0.009 s, average=0.001 s; distance=4293 kB, estimate=5959 kB; lsn=7/2D82D1A0, redo lsn=7/2D81B488
+2026-02-19T15:44:45.414492411Z [inf]  1:M 19 Feb 2026 15:44:45.024 * 1 changes in 60 seconds. Saving...
+2026-02-19T15:44:45.414498557Z [inf]  1:M 19 Feb 2026 15:44:45.025 * Background saving started by pid 13059
+2026-02-19T15:44:45.414504790Z [inf]  13059:C 19 Feb 2026 15:44:45.118 * DB saved on disk
+2026-02-19T15:44:45.414511195Z [inf]  13059:C 19 Feb 2026 15:44:45.119 * Fork CoW for RDB: current 1 MB, peak 1 MB, average 0 MB
+2026-02-19T15:44:45.414517026Z [inf]  1:M 19 Feb 2026 15:44:45.126 * Background saving terminated with success
+2026-02-19T15:44:46.154469790Z [wrn]  RPC health degraded
+2026-02-19T15:45:06.160036536Z [inf]  Fetching premium trending tokens
+2026-02-19T15:45:06.160046336Z [inf]  SocialRepo: Recalculated heat scores for 1000 casts
+2026-02-19T15:45:06.160052379Z [inf]  WS addresses discovered
+2026-02-19T15:45:06.160057183Z [inf]  Processed DexScreener trending candidates
+2026-02-19T15:45:06.160062281Z [wrn]  GeckoTerminal 429 triggered backoff
+2026-02-19T15:45:06.160067593Z [wrn]  GeckoTerminal 429 triggered backoff
+2026-02-19T15:45:08.097993921Z [wrn]  GeckoTerminal 429 triggered backoff
+2026-02-19T15:45:12.151427546Z [wrn]  GeckoTerminal 429 triggered backoff
+2026-02-19T15:45:12.151436422Z [err]  GeckoTerminal API error after retries
+2026-02-19T15:45:12.151437167Z [inf]  Premium trending tokens fetch complete
+2026-02-19T15:45:12.151444411Z [inf]  Got 86 trending tokens for Ethereum
+2026-02-19T15:45:12.151446325Z [err]  Error fetching trending tokens
+2026-02-19T15:45:12.151453234Z [inf]  Filtered out 2 invalid tokens for Ethereum
+2026-02-19T15:45:12.151458190Z [inf]  Suppressed repeated logs
+2026-02-19T15:45:12.152474619Z [inf]  Saved 84/84 trending tokens for eth to database and memory cache
+2026-02-19T15:45:12.152497003Z [inf]  Saved 84 tokens for Ethereum to DB + cache
+2026-02-19T15:45:12.152503838Z [inf]  Launchpad verify budget applied
+2026-02-19T15:45:42.475870072Z [inf]  Aggregated repetitive logs
+2026-02-19T15:45:42.475874554Z [inf]  Aggregated repetitive logs
+2026-02-19T15:45:42.475878999Z [inf]  Aggregated repetitive logs
+2026-02-19T15:45:42.475883426Z [inf]  ⚡ Preloading native token prices via Coinbase...
+2026-02-19T15:45:42.475887727Z [inf]  ⚡ Native token prices cached (Coinbase)
+2026-02-19T15:45:42.475891845Z [wrn]  RPC health degraded
+2026-02-19T15:45:42.476258707Z [inf]  Fetching premium trending tokens
+2026-02-19T15:45:42.476264886Z [inf]  WS addresses discovered
+2026-02-19T15:45:43.285419125Z [inf]  Processed DexScreener trending candidates
+2026-02-19T15:45:43.285427879Z [inf]  Premium trending tokens fetch complete
+2026-02-19T15:45:43.285435865Z [inf]  Got 100 trending tokens for Solana
+2026-02-19T15:45:44.218031329Z [inf]  Saved 100/100 trending tokens for solana to database and memory cache
+2026-02-19T15:45:44.218035622Z [inf]  Saved 100 tokens for Solana to DB + cache
+2026-02-19T15:45:46.964352505Z [inf]  1:M 19 Feb 2026 15:45:46.054 * 1 changes in 60 seconds. Saving...
+2026-02-19T15:45:46.964360731Z [inf]  1:M 19 Feb 2026 15:45:46.055 * Background saving started by pid 13060
+2026-02-19T15:45:46.964367572Z [inf]  13060:C 19 Feb 2026 15:45:46.143 * DB saved on disk
+2026-02-19T15:45:46.964375016Z [inf]  13060:C 19 Feb 2026 15:45:46.144 * Fork CoW for RDB: current 1 MB, peak 1 MB, average 0 MB
+2026-02-19T15:45:46.964382319Z [inf]  1:M 19 Feb 2026 15:45:46.156 * Background saving terminated with success
+2026-02-19T15:46:03.418755625Z [inf]  Suppressed repeated logs
+2026-02-19T15:46:03.418764254Z [inf]  Saved 100/100 trending tokens for solana to database and memory cache
+2026-02-19T15:46:03.418770692Z [inf]  Suppressed repeated logs
+2026-02-19T15:46:03.418775677Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
+2026-02-19T15:46:22.544260072Z [inf]  Fetching premium trending tokens
+2026-02-19T15:46:22.544269127Z [inf]  WS addresses discovered
+2026-02-19T15:46:22.544276403Z [inf]  Processed DexScreener trending candidates
+2026-02-19T15:46:22.544281998Z [inf]  Premium trending tokens fetch complete
+2026-02-19T15:46:22.544287664Z [inf]  Got 67 trending tokens for Base
+2026-02-19T15:46:22.544293664Z [inf]  Saved 67/67 trending tokens for base to database and memory cache
+2026-02-19T15:46:22.544299311Z [inf]  Saved 67 tokens for Base to DB + cache
+2026-02-19T15:46:22.544305256Z [inf]  Launchpad verify budget applied
+2026-02-19T15:46:22.552485492Z [inf]  Suppressed repeated logs
+2026-02-19T15:46:22.552491414Z [err]  api failed after 1 attempts
+2026-02-19T15:46:26.430000577Z [inf]  Suppressed repeated logs
+2026-02-19T15:46:26.430007376Z [inf]  Saved 67/67 trending tokens for base to database and memory cache
+2026-02-19T15:46:36.364797449Z [inf]  Suppressed repeated logs
+2026-02-19T15:46:36.364807303Z [inf]  No open positions to monitor
+2026-02-19T15:46:39.345320657Z [inf]  ChatWS Client connected
+2026-02-19T15:46:39.345339141Z [inf]  ChatWS: User connected
+2026-02-19T15:46:40.360152400Z [wrn]  RPC health degraded
+2026-02-19T15:46:45.561500171Z [inf]  Fetching premium trending tokens
+2026-02-19T15:46:45.561517707Z [inf]  WS addresses discovered
+2026-02-19T15:46:46.570635860Z [inf]  Processed DexScreener trending candidates
+2026-02-19T15:46:46.570646756Z [inf]  Premium trending tokens fetch complete
+2026-02-19T15:46:46.570653891Z [inf]  Got 76 trending tokens for BSC
+2026-02-19T15:46:46.570660170Z [inf]  Filtered out 1 invalid tokens for BSC
+2026-02-19T15:46:46.597564518Z [inf]  Suppressed repeated logs
+2026-02-19T15:46:46.597578713Z [inf]  Saved 75/75 trending tokens for bsc to database and memory cache
+2026-02-19T15:46:46.603791425Z [inf]  Saved 75 tokens for BSC to DB + cache
+2026-02-19T15:46:46.605988368Z [inf]  Refreshed 4 primary chains in 106.4s
+2026-02-19T15:46:47.402279353Z [inf]  Launchpad verify budget applied
+2026-02-19T15:46:48.149952908Z [inf]  1:M 19 Feb 2026 15:46:47.090 * 1 changes in 60 seconds. Saving...
+2026-02-19T15:46:48.149959482Z [inf]  1:M 19 Feb 2026 15:46:47.090 * Background saving started by pid 13061
+2026-02-19T15:46:48.149966705Z [inf]  13061:C 19 Feb 2026 15:46:47.165 * DB saved on disk
+2026-02-19T15:46:48.149973956Z [inf]  13061:C 19 Feb 2026 15:46:47.166 * Fork CoW for RDB: current 1 MB, peak 1 MB, average 0 MB
+2026-02-19T15:46:48.149980703Z [inf]  1:M 19 Feb 2026 15:46:47.192 * Background saving terminated with success
+2026-02-19T15:46:48.519764218Z [err]  LaunchpadDetector: Four.meme fetch failed
+2026-02-19T15:46:48.519768463Z [err]  LaunchpadDetector: Four.meme fetch failed
+2026-02-19T15:47:27.821337265Z [inf]  ChatWS Client connected
+2026-02-19T15:47:27.821346038Z [inf]  ChatWS: User connected
+2026-02-19T15:47:27.821352552Z [inf]  [CopyTrade] PATCH /config/cmlrp6vyd0nv7re0menthayos - User did:privy:cmk9grlpm001wkz0dm9eeb6jl {"signedPayload":{"version":"copytrade_config_intent_v1","action":"update","configId":"cmlrp6vyd0nv7re0menthayos","userId":"did:privy:cmk9grlpm001wkz0dm9eeb6jl","signerAddress":"0x552ecD151743E8E63e7F487fa07A7996ABB21958","nonce":1,"expiresAtMs":1771516304925,"chainId":8453,"targetWallet":"0x77777351928ce19bee8ff5b4b1406bc4c152827a","buyAmountUsd":"5","maxSlippageBps":"300","minMarketCapUsd":"0","minLiquidityUsd":"0","minTargetValueUsd":"289","copyTradeTokenCooldownMinutes":"0","executionMode":"turbo","disableTokenInfo":true,"takeProfitPct":"1000","stopLossPct":"60","mirrorSell":true,"aiAnalysisMode":"disabled","enableDynamicTP":false,"dynamicTPMinProfitPct":"100"},"signature":"0x258762ece03925d8eedffe05a72b089d8dac11e546a62953a68989d5a7551e874261e44b530be02793e756aef42c3f6ebf5ae6a3c7a24a8c809e7590d5a6f6651b","signerAddress":"0x552ecD151743E8E63e7F487fa07A7996ABB21958","nonce":1,"expiresAt":1771516304925}
+2026-02-19T15:47:28.804316861Z [inf]  [CopyTrade] GET /config/:id/target-status {"userId":"did:privy:cmk9grlpm001wkz0dm9eeb6jl","configId":"cmlrp6vyd0nv7re0menthayos","trackedTxCount":0,"walletTxCount":0,"buyCount":0,"sellCount":0,"tokenSwapCount":0,"targetProfitUsd":0,"targetLossUsd":0}
+2026-02-19T15:47:29.731970684Z [inf]  Suppressed repeated logs
+2026-02-19T15:47:29.731977448Z [inf]  Alpha Detector: Checking new coin
+2026-02-19T15:47:39.716367164Z [wrn]  RPC health degraded
+2026-02-19T15:47:49.811193131Z [inf]  1:M 19 Feb 2026 15:47:48.071 * 1 changes in 60 seconds. Saving...
+2026-02-19T15:47:49.811198652Z [inf]  1:M 19 Feb 2026 15:47:48.072 * Background saving started by pid 13062
+2026-02-19T15:47:49.811205550Z [inf]  13062:C 19 Feb 2026 15:47:48.153 * DB saved on disk
+2026-02-19T15:47:49.811215230Z [inf]  13062:C 19 Feb 2026 15:47:48.153 * Fork CoW for RDB: current 1 MB, peak 1 MB, average 0 MB
+2026-02-19T15:47:49.811223284Z [inf]  1:M 19 Feb 2026 15:47:48.173 * Background saving terminated with success
+2026-02-19T15:47:59.769586113Z [inf]  ChatWS Client connected
+2026-02-19T15:47:59.769590672Z [inf]  ChatWS: User connected
+2026-02-19T15:48:47.117212710Z [err]  2026-02-19 15:48:39.068 UTC [27] LOG:  checkpoint starting: time
+2026-02-19T15:48:49.206854535Z [wrn]  RPC health degraded
+2026-02-19T15:48:51.190701223Z [inf]  1:M 19 Feb 2026 15:48:49.070 * 1 changes in 60 seconds. Saving...
+2026-02-19T15:48:51.190712980Z [inf]  1:M 19 Feb 2026 15:48:49.071 * Background saving started by pid 13063
+2026-02-19T15:48:51.190719390Z [inf]  13063:C 19 Feb 2026 15:48:49.147 * DB saved on disk
+2026-02-19T15:48:51.190725786Z [inf]  13063:C 19 Feb 2026 15:48:49.148 * Fork CoW for RDB: current 1 MB, peak 1 MB, average 0 MB
+2026-02-19T15:48:51.190735001Z [inf]  1:M 19 Feb 2026 15:48:49.171 * Background saving terminated with success
+2026-02-19T15:49:09.208692817Z [inf]  Suppressed repeated logs
+2026-02-19T15:49:09.208702411Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
+2026-02-19T15:49:09.208709306Z [inf]  ChatWS Client connected
+2026-02-19T15:49:09.208715866Z [inf]  ChatWS: User connected
+2026-02-19T15:49:28.448489399Z [inf]  [CopyTrade] PATCH /config/cmlrovyk00lv3re0mw6jazyut - User did:privy:cmk9grlpm001wkz0dm9eeb6jl {"signedPayload":{"version":"copytrade_config_intent_v1","action":"update","configId":"cmlrovyk00lv3re0mw6jazyut","userId":"did:privy:cmk9grlpm001wkz0dm9eeb6jl","signerAddress":"0x552ecD151743E8E63e7F487fa07A7996ABB21958","nonce":1,"expiresAtMs":1771516458583,"chainId":8453,"targetWallet":"0xb4beddf1b828aaed9638601f7145b0f6093f2d3f","buyAmountUsd":"5","maxSlippageBps":"300","minMarketCapUsd":"0","minLiquidityUsd":"0","minTargetValueUsd":"1899","copyTradeTokenCooldownMinutes":"0","executionMode":"turbo","disableTokenInfo":true,"takeProfitPct":"1000","stopLossPct":"65","mirrorSell":true,"aiAnalysisMode":"disabled","enableDynamicTP":false,"dynamicTPMinProfitPct":"100"},"signature":"0xecd9ef42fe6f42b6eac2e40ecd87f4628d3cfe4ba8959cfeaa3f3758131ab4044b9887d59d9c99a781a284a9b13a5d1ce97dd872d58084205bca50af13d839041c","signerAddress":"0x552ecD151743E8E63e7F487fa07A7996ABB21958","nonce":1,"expiresAt":1771516458583}
+2026-02-19T15:49:30.162351597Z [inf]  [CopyTrade] GET /config/:id/target-status {"userId":"did:privy:cmk9grlpm001wkz0dm9eeb6jl","configId":"cmlrovyk00lv3re0mw6jazyut","trackedTxCount":0,"walletTxCount":0,"buyCount":0,"sellCount":0,"tokenSwapCount":0,"targetProfitUsd":0,"targetLossUsd":0}
+2026-02-19T15:49:36.475165829Z [inf]  Suppressed repeated logs
+2026-02-19T15:49:36.475171939Z [inf]  No open positions to monitor
+2026-02-19T15:49:40.181978019Z [wrn]  RPC health degraded
+2026-02-19T15:49:48.837863931Z [err]  2026-02-19 15:49:41.697 UTC [27] LOG:  checkpoint complete: wrote 625 buffers (3.8%); 0 WAL file(s) added, 0 removed, 0 recycled; write=62.567 s, sync=0.017 s, total=62.629 s; sync files=45, longest=0.009 s, average=0.001 s; distance=4377 kB, estimate=5801 kB; lsn=7/2DC6A3E8, redo lsn=7/2DC61BC8
+2026-02-19T15:49:53.136436957Z [inf]  1:M 19 Feb 2026 15:49:50.050 * 1 changes in 60 seconds. Saving...
+2026-02-19T15:49:53.136444463Z [inf]  1:M 19 Feb 2026 15:49:50.051 * Background saving started by pid 13064
+2026-02-19T15:49:53.136451229Z [inf]  13064:C 19 Feb 2026 15:49:50.127 * DB saved on disk
+2026-02-19T15:49:53.136458658Z [inf]  13064:C 19 Feb 2026 15:49:50.127 * Fork CoW for RDB: current 1 MB, peak 1 MB, average 0 MB
+2026-02-19T15:49:53.136465626Z [inf]  1:M 19 Feb 2026 15:49:50.152 * Background saving terminated with success
+2026-02-19T15:50:00.409572060Z [inf]  Fetching premium trending tokens
+2026-02-19T15:50:00.416981225Z [inf]  SocialRepo: Recalculated heat scores for 1000 casts
+2026-02-19T15:50:01.438155414Z [inf]  WS addresses discovered
+2026-02-19T15:50:02.361707014Z [inf]  Processed DexScreener trending candidates
+2026-02-19T15:50:04.507767111Z [wrn]  GeckoTerminal 429 triggered backoff
+2026-02-19T15:50:05.555357862Z [wrn]  GeckoTerminal 429 triggered backoff
+2026-02-19T15:50:07.578946373Z [wrn]  GeckoTerminal 429 triggered backoff
+2026-02-19T15:50:10.429028883Z [inf]  [CopyTrade] PATCH /config/cmlrovyk00lv3re0mw6jazyut/status - User did:privy:cmk9grlpm001wkz0dm9eeb6jl -> active
+2026-02-19T15:50:11.599208339Z [wrn]  GeckoTerminal 429 triggered backoff
+2026-02-19T15:50:11.599223486Z [err]  GeckoTerminal API error after retries
+2026-02-19T15:50:11.599231171Z [err]  Error fetching trending tokens
+2026-02-19T15:50:11.599238596Z [inf]  Premium trending tokens fetch complete
+2026-02-19T15:50:11.599245733Z [inf]  Got 84 trending tokens for Ethereum
+2026-02-19T15:50:11.599254119Z [inf]  Filtered out 3 invalid tokens for Ethereum
+2026-02-19T15:50:12.468016313Z [inf]  Saved 81 tokens for Ethereum to DB + cache
+2026-02-19T15:50:12.468028157Z [inf]  Launchpad verify budget applied
+2026-02-19T15:50:12.468039326Z [inf]  ChatWS Client connected
+2026-02-19T15:50:12.468045703Z [inf]  ChatWS: User connected
+2026-02-19T15:50:12.468089112Z [inf]  Suppressed repeated logs
+2026-02-19T15:50:12.468095762Z [inf]  Saved 81/81 trending tokens for eth to database and memory cache
+2026-02-19T15:50:18.486974125Z [inf]  [CopyTrade] PATCH /config/cmlrovyk00lv3re0mw6jazyut/status - User did:privy:cmk9grlpm001wkz0dm9eeb6jl -> paused
+2026-02-19T15:50:37.663731034Z [inf]  Suppressed repeated logs
+2026-02-19T15:50:37.663735943Z [inf]  Alpha Detector: Checking new coin
+2026-02-19T15:50:37.663740704Z [inf]  [CopyTrade] PATCH /config/cmlrp6vyd0nv7re0menthayos - User did:privy:cmk9grlpm001wkz0dm9eeb6jl {"signedPayload":{"version":"copytrade_config_intent_v1","action":"update","configId":"cmlrp6vyd0nv7re0menthayos","userId":"did:privy:cmk9grlpm001wkz0dm9eeb6jl","signerAddress":"0x552ecD151743E8E63e7F487fa07A7996ABB21958","nonce":2,"expiresAtMs":1771516529492,"chainId":8453,"targetWallet":"0x77777351928ce19bee8ff5b4b1406bc4c152827a","buyAmountUsd":"3","maxSlippageBps":"300","minMarketCapUsd":"0","minLiquidityUsd":"0","minTargetValueUsd":"289","copyTradeTokenCooldownMinutes":"0","executionMode":"turbo","disableTokenInfo":true,"takeProfitPct":"1000","stopLossPct":"60","mirrorSell":true,"aiAnalysisMode":"disabled","enableDynamicTP":false,"dynamicTPMinProfitPct":"100"},"signature":"0x73de77226a785346d27650daa0abd4ef6324740a38d6c250b0fc04e635c732c617c50bdacf1dc6f38aac513f319d842866715caa8192c7e4624505b8891cafca1c","signerAddress":"0x552ecD151743E8E63e7F487fa07A7996ABB21958","nonce":2,"expiresAt":1771516529492}
+2026-02-19T15:50:38.467678117Z [inf]  [CopyTrade] GET /config/:id/target-status {"userId":"did:privy:cmk9grlpm001wkz0dm9eeb6jl","configId":"cmlrp6vyd0nv7re0menthayos","trackedTxCount":0,"walletTxCount":0,"buyCount":0,"sellCount":0,"tokenSwapCount":0,"targetProfitUsd":0,"targetLossUsd":0}
+2026-02-19T15:50:39.665413716Z [wrn]  RPC health degraded
+2026-02-19T15:50:42.694123153Z [inf]  Fetching premium trending tokens
+2026-02-19T15:50:42.694130984Z [inf]  WS addresses discovered
+2026-02-19T15:50:43.772773919Z [inf]  Processed DexScreener trending candidates
+2026-02-19T15:50:43.772780163Z [inf]  Premium trending tokens fetch complete
+2026-02-19T15:50:43.772786195Z [inf]  Got 100 trending tokens for Solana
+2026-02-19T15:50:43.772792290Z [inf]  Saved 100/100 trending tokens for solana to database and memory cache
+2026-02-19T15:50:43.772800154Z [inf]  Saved 100 tokens for Solana to DB + cache
+2026-02-19T15:50:53.544693630Z [inf]  [CopyTrade] PATCH /config/cmlrp6vyd0nv7re0menthayos/status - User did:privy:cmk9grlpm001wkz0dm9eeb6jl -> active
+2026-02-19T15:50:55.527463401Z [inf]  1:M 19 Feb 2026 15:50:51.067 * 1 changes in 60 seconds. Saving...
+2026-02-19T15:50:55.527469182Z [inf]  1:M 19 Feb 2026 15:50:51.067 * Background saving started by pid 13065
+2026-02-19T15:50:55.527474316Z [inf]  13065:C 19 Feb 2026 15:50:51.160 * DB saved on disk
+2026-02-19T15:50:55.527479700Z [inf]  13065:C 19 Feb 2026 15:50:51.161 * Fork CoW for RDB: current 1 MB, peak 1 MB, average 0 MB
+2026-02-19T15:50:55.527488912Z [inf]  1:M 19 Feb 2026 15:50:51.168 * Background saving terminated with success
+2026-02-19T15:50:56.745247712Z [inf]  ChatWS Client connected
+2026-02-19T15:50:56.745253061Z [inf]  ChatWS: User connected
+2026-02-19T15:50:57.491849294Z [inf]  Suppressed repeated logs
+2026-02-19T15:50:57.491854174Z [inf]  Saved 100/100 trending tokens for solana to database and memory cache
+2026-02-19T15:51:16.833685117Z [inf]  Fetching premium trending tokens
+2026-02-19T15:51:16.833691844Z [inf]  WS addresses discovered
+2026-02-19T15:51:16.833702877Z [inf]  Processed DexScreener trending candidates
+2026-02-19T15:51:16.833709386Z [inf]  Premium trending tokens fetch complete
+2026-02-19T15:51:16.833715492Z [inf]  Got 67 trending tokens for Base
+2026-02-19T15:51:16.833721418Z [inf]  Saved 67/67 trending tokens for base to database and memory cache
+2026-02-19T15:51:16.833726962Z [inf]  Saved 67 tokens for Base to DB + cache
+2026-02-19T15:51:16.833733476Z [inf]  Launchpad verify budget applied
+2026-02-19T15:51:16.837198062Z [inf]  Suppressed repeated logs
+2026-02-19T15:51:16.837204411Z [err]  api failed after 1 attempts
+2026-02-19T15:51:18.657747282Z [inf]  [CopyTrade] PATCH /config/cmlrovyk00lv3re0mw6jazyut/status - User did:privy:cmk9grlpm001wkz0dm9eeb6jl -> active
+2026-02-19T15:51:18.657757396Z [inf]  ChatWS Client connected
+2026-02-19T15:51:18.657763677Z [inf]  ChatWS: User connected
+2026-02-19T15:51:23.819655886Z [inf]  Suppressed repeated logs
+2026-02-19T15:51:23.819664665Z [inf]  Saved 67/67 trending tokens for base to database and memory cache
+2026-02-19T15:51:43.818722168Z [wrn]  RPC health degraded
+2026-02-19T15:51:45.640290315Z [inf]  Fetching premium trending tokens
+2026-02-19T15:51:45.640295270Z [inf]  WS addresses discovered
+2026-02-19T15:51:46.790637351Z [inf]  Processed DexScreener trending candidates
+2026-02-19T15:51:46.790645881Z [inf]  Premium trending tokens fetch complete
+2026-02-19T15:51:46.790652865Z [inf]  Got 76 trending tokens for BSC
+2026-02-19T15:51:46.790661125Z [inf]  Filtered out 1 invalid tokens for BSC
+2026-02-19T15:51:46.790668227Z [inf]  Suppressed repeated logs
+2026-02-19T15:51:46.790675449Z [inf]  Saved 75/75 trending tokens for bsc to database and memory cache
+2026-02-19T15:51:46.790687577Z [inf]  Saved 75 tokens for BSC to DB + cache
+2026-02-19T15:51:46.790695404Z [inf]  Refreshed 4 primary chains in 106.3s
+2026-02-19T15:51:47.780394492Z [inf]  Launchpad verify budget applied
+2026-02-19T15:51:48.788400122Z [err]  LaunchpadDetector: Four.meme fetch failed
+2026-02-19T15:51:48.788407092Z [err]  LaunchpadDetector: Four.meme fetch failed
+2026-02-19T15:51:52.761508830Z [inf]  [Webhook] Alchemy payload: network=BASE_MAINNET hash=0x531ad51361b5818dfb2bfbf48981310cf680c678fa787732ae19b36daaacae08 category=token asset=USDC
+2026-02-19T15:51:52.761514261Z [inf]  [Webhook] Processing as EVM activity groups (1 tx groups)
+2026-02-19T15:51:52.761519467Z [inf]  [Webhook] Ignore tx 0x531ad51361b5818dfb2bfbf48981310cf680c678fa787732ae19b36daaacae08: no tracked wallets (from/to 0x3dbe077e7986657e95e1cc50089f17a5a4af0aae, 0xfb64ce8d64cec808a8acb977d3ee7be1169f1a2b)
+2026-02-19T15:51:53.796586189Z [inf]  [Webhook] Alchemy payload: network=BASE_MAINNET hash=0x531ad51361b5818dfb2bfbf48981310cf680c678fa787732ae19b36daaacae08 category=external asset=ETH
+2026-02-19T15:51:53.796598320Z [inf]  [Webhook] Ignore tx 0x531ad51361b5818dfb2bfbf48981310cf680c678fa787732ae19b36daaacae08: no tracked wallets (from/to 0xfb64ce8d64cec808a8acb977d3ee7be1169f1a2b, 0x4409921ae43a39a11d90f7b7f96cfd0b8093d9fc)
+2026-02-19T15:51:58.521797629Z [inf]  1:M 19 Feb 2026 15:51:52.096 * 1 changes in 60 seconds. Saving...
+2026-02-19T15:51:58.521803740Z [inf]  1:M 19 Feb 2026 15:51:52.096 * Background saving started by pid 13066
+2026-02-19T15:51:58.521809598Z [inf]  13066:C 19 Feb 2026 15:51:52.176 * DB saved on disk
+2026-02-19T15:51:58.521815826Z [inf]  13066:C 19 Feb 2026 15:51:52.177 * Fork CoW for RDB: current 1 MB, peak 1 MB, average 0 MB
+2026-02-19T15:51:58.521824540Z [inf]  1:M 19 Feb 2026 15:51:52.199 * Background saving terminated with success
+2026-02-19T15:52:01.072194259Z [inf]  Suppressed repeated logs
+2026-02-19T15:52:01.072201341Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
+2026-02-19T15:52:41.628151588Z [inf]  Suppressed repeated logs
+2026-02-19T15:52:41.628160946Z [inf]  No open positions to monitor
+2026-02-19T15:52:41.628168710Z [wrn]  RPC health degraded
+2026-02-19T15:53:00.121294647Z [inf]  1:M 19 Feb 2026 15:52:53.088 * 1 changes in 60 seconds. Saving...
+2026-02-19T15:53:00.121300820Z [inf]  1:M 19 Feb 2026 15:52:53.088 * Background saving started by pid 13067
+2026-02-19T15:53:00.121306311Z [inf]  13067:C 19 Feb 2026 15:52:53.172 * DB saved on disk
+2026-02-19T15:53:00.121316271Z [inf]  13067:C 19 Feb 2026 15:52:53.173 * Fork CoW for RDB: current 1 MB, peak 1 MB, average 0 MB
+2026-02-19T15:53:00.121321808Z [inf]  1:M 19 Feb 2026 15:52:53.189 * Background saving terminated with success
+2026-02-19T15:53:41.804058184Z [inf]  Suppressed repeated logs
+2026-02-19T15:53:41.804065292Z [inf]  Alpha Detector: Checking new coin
+2026-02-19T15:53:41.804071225Z [wrn]  RPC health degraded
+2026-02-19T15:53:45.618608499Z [err]  2026-02-19 15:53:39.797 UTC [27] LOG:  checkpoint starting: time
+2026-02-19T15:54:42.084365305Z [wrn]  RPC health degraded
+2026-02-19T15:54:47.834941277Z [err]  2026-02-19 15:54:43.559 UTC [27] LOG:  checkpoint complete: wrote 639 buffers (3.9%); 0 WAL file(s) added, 0 removed, 1 recycled; write=63.600 s, sync=0.031 s, total=63.763 s; sync files=41, longest=0.017 s, average=0.001 s; distance=4525 kB, estimate=5673 kB; lsn=7/2E0CD148, redo lsn=7/2E0CD0B8
+2026-02-19T15:55:02.083578402Z [inf]  Suppressed repeated logs
+2026-02-19T15:55:02.083585002Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
+2026-02-19T15:55:02.083591268Z [inf]  Fetching premium trending tokens
+2026-02-19T15:55:02.083597745Z [inf]  SocialRepo: Recalculated heat scores for 1000 casts
+2026-02-19T15:55:02.083604099Z [inf]  WS addresses discovered
+2026-02-19T15:55:02.083611363Z [inf]  Processed DexScreener trending candidates
+2026-02-19T15:55:05.050841373Z [wrn]  GeckoTerminal 429 triggered backoff
+2026-02-19T15:55:05.731912326Z [inf]  1:M 19 Feb 2026 15:55:00.506 * 1 changes in 60 seconds. Saving...
+2026-02-19T15:55:05.731922998Z [inf]  1:M 19 Feb 2026 15:55:00.506 * Background saving started by pid 13068
+2026-02-19T15:55:05.731932039Z [inf]  13068:C 19 Feb 2026 15:55:00.600 * DB saved on disk
+2026-02-19T15:55:05.731939677Z [inf]  13068:C 19 Feb 2026 15:55:00.601 * Fork CoW for RDB: current 1 MB, peak 1 MB, average 0 MB
+2026-02-19T15:55:05.731947445Z [inf]  1:M 19 Feb 2026 15:55:00.607 * Background saving terminated with success
+2026-02-19T15:55:06.071913991Z [wrn]  GeckoTerminal 429 triggered backoff
+2026-02-19T15:55:08.083709256Z [wrn]  GeckoTerminal 429 triggered backoff
+2026-02-19T15:55:12.195717169Z [wrn]  GeckoTerminal 429 triggered backoff
+2026-02-19T15:55:12.195723028Z [err]  GeckoTerminal API error after retries
+2026-02-19T15:55:12.195728491Z [err]  Error fetching trending tokens
+2026-02-19T15:55:12.195739347Z [inf]  Premium trending tokens fetch complete
+2026-02-19T15:55:12.195745898Z [inf]  Got 87 trending tokens for Ethereum
+2026-02-19T15:55:12.195753577Z [inf]  Filtered out 4 invalid tokens for Ethereum
+2026-02-19T15:55:13.190182070Z [inf]  Suppressed repeated logs
+2026-02-19T15:55:13.190187002Z [inf]  Saved 83/83 trending tokens for eth to database and memory cache
+2026-02-19T15:55:13.190191695Z [inf]  Saved 83 tokens for Ethereum to DB + cache
+2026-02-19T15:55:13.190195726Z [inf]  Launchpad verify budget applied
+2026-02-19T15:55:43.354099635Z [inf]  ⚡ Preloading native token prices via Coinbase...
+2026-02-19T15:55:43.354106867Z [inf]  Fetching premium trending tokens
+2026-02-19T15:55:43.354109548Z [inf]  ⚡ Native token prices cached (Coinbase)
+2026-02-19T15:55:43.354121958Z [wrn]  RPC health degraded
+2026-02-19T15:55:43.354178984Z [inf]  Suppressed repeated logs
+2026-02-19T15:55:43.354188764Z [inf]  No open positions to monitor
+2026-02-19T15:55:43.354813669Z [inf]  WS addresses discovered
+2026-02-19T15:55:46.201581149Z [inf]  Processed DexScreener trending candidates
+2026-02-19T15:55:46.201586036Z [inf]  Premium trending tokens fetch complete
+2026-02-19T15:55:46.201593452Z [inf]  Got 100 trending tokens for Solana
+2026-02-19T15:55:46.201599102Z [inf]  Saved 100/100 trending tokens for solana to database and memory cache
+2026-02-19T15:55:46.201608554Z [inf]  Saved 100 tokens for Solana to DB + cache
+2026-02-19T15:56:05.455593030Z [inf]  Suppressed repeated logs
+2026-02-19T15:56:05.455601031Z [inf]  Saved 100/100 trending tokens for solana to database and memory cache
+2026-02-19T15:56:06.854485763Z [inf]  1:M 19 Feb 2026 15:56:01.004 * 1 changes in 60 seconds. Saving...
+2026-02-19T15:56:06.854492253Z [inf]  1:M 19 Feb 2026 15:56:01.005 * Background saving started by pid 13069
+2026-02-19T15:56:06.854497912Z [inf]  13069:C 19 Feb 2026 15:56:01.083 * DB saved on disk
+2026-02-19T15:56:06.854503742Z [inf]  13069:C 19 Feb 2026 15:56:01.084 * Fork CoW for RDB: current 1 MB, peak 1 MB, average 0 MB
+2026-02-19T15:56:06.854511495Z [inf]  1:M 19 Feb 2026 15:56:01.105 * Background saving terminated with success
+2026-02-19T15:56:25.458562994Z [inf]  Fetching premium trending tokens
+2026-02-19T15:56:25.458574236Z [inf]  WS addresses discovered
+2026-02-19T15:56:25.458579960Z [inf]  Processed DexScreener trending candidates
+2026-02-19T15:56:25.458586199Z [inf]  Premium trending tokens fetch complete
+2026-02-19T15:56:25.458593125Z [inf]  Got 70 trending tokens for Base
+2026-02-19T15:56:25.458600187Z [inf]  Saved 70/70 trending tokens for base to database and memory cache
+2026-02-19T15:56:25.458607694Z [inf]  Saved 70 tokens for Base to DB + cache
+2026-02-19T15:56:25.458615753Z [inf]  Launchpad verify budget applied
+2026-02-19T15:56:25.460148026Z [inf]  Suppressed repeated logs
+2026-02-19T15:56:25.460155001Z [err]  api failed after 1 attempts
+2026-02-19T15:56:28.318607395Z [inf]  Suppressed repeated logs
+2026-02-19T15:56:28.318621674Z [inf]  Saved 70/70 trending tokens for base to database and memory cache
+2026-02-19T15:56:47.585615699Z [wrn]  RPC health degraded
+2026-02-19T15:56:47.585622375Z [inf]  Suppressed repeated logs
+2026-02-19T15:56:47.585627830Z [inf]  Alpha Detector: Checking new coin
+2026-02-19T15:56:48.640403644Z [inf]  WS addresses discovered
+2026-02-19T15:56:48.640523137Z [inf]  Fetching premium trending tokens
+2026-02-19T15:56:49.511687749Z [inf]  Premium trending tokens fetch complete
+2026-02-19T15:56:49.511705708Z [inf]  Suppressed repeated logs
+2026-02-19T15:56:49.511706029Z [inf]  Got 73 trending tokens for BSC
+2026-02-19T15:56:49.511720660Z [inf]  Saved 72/72 trending tokens for bsc to database and memory cache
+2026-02-19T15:56:49.511723866Z [inf]  Filtered out 1 invalid tokens for BSC
+2026-02-19T15:56:49.511730631Z [inf]  Saved 72 tokens for BSC to DB + cache
+2026-02-19T15:56:49.511738644Z [inf]  Refreshed 4 primary chains in 108.6s
+2026-02-19T15:56:49.511884235Z [inf]  Processed DexScreener trending candidates
+2026-02-19T15:56:50.315358065Z [err]  LaunchpadDetector: Four.meme fetch failed
+2026-02-19T15:56:50.418673944Z [err]  LaunchpadDetector: Four.meme fetch failed
+2026-02-19T15:57:09.480327762Z [inf]  1:M 19 Feb 2026 15:57:02.024 * 1 changes in 60 seconds. Saving...
+2026-02-19T15:57:09.480334514Z [inf]  1:M 19 Feb 2026 15:57:02.025 * Background saving started by pid 13070
+2026-02-19T15:57:09.480340736Z [inf]  13070:C 19 Feb 2026 15:57:02.107 * DB saved on disk
+2026-02-19T15:57:09.480348445Z [inf]  13070:C 19 Feb 2026 15:57:02.108 * Fork CoW for RDB: current 1 MB, peak 1 MB, average 0 MB
+2026-02-19T15:57:09.480359538Z [inf]  1:M 19 Feb 2026 15:57:02.126 * Background saving terminated with success
+2026-02-19T15:57:40.423822709Z [wrn]  RPC health degraded
+2026-02-19T15:58:09.828912459Z [inf]  Suppressed repeated logs
+2026-02-19T15:58:09.828921980Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
+2026-02-19T15:58:39.835173697Z [inf]  Suppressed repeated logs
+2026-02-19T15:58:39.835179720Z [inf]  No open positions to monitor
+2026-02-19T15:58:39.835185674Z [wrn]  RPC health degraded
+2026-02-19T15:58:42.595929176Z [err]  2026-02-19 15:58:39.659 UTC [27] LOG:  checkpoint starting: time
+2026-02-19T15:59:45.869397409Z [err]  2026-02-19 15:59:41.196 UTC [27] LOG:  checkpoint complete: wrote 615 buffers (3.8%); 0 WAL file(s) added, 0 removed, 0 recycled; write=61.471 s, sync=0.031 s, total=61.537 s; sync files=31, longest=0.019 s, average=0.001 s; distance=4302 kB, estimate=5536 kB; lsn=7/2E500B20, redo lsn=7/2E500A90
+2026-02-19T15:59:49.097564694Z [wrn]  RPC health degraded
+2026-02-19T15:59:49.097571144Z [inf]  Suppressed repeated logs
+2026-02-19T15:59:49.097577286Z [inf]  Alpha Detector: Checking new coin
+2026-02-19T16:00:07.735648011Z [inf]  1:M 19 Feb 2026 16:00:00.573 * 1 changes in 60 seconds. Saving...
+2026-02-19T16:00:07.735654355Z [inf]  1:M 19 Feb 2026 16:00:00.574 * Background saving started by pid 13071
+2026-02-19T16:00:07.735660944Z [inf]  13071:C 19 Feb 2026 16:00:00.782 * DB saved on disk
+2026-02-19T16:00:07.735667164Z [inf]  13071:C 19 Feb 2026 16:00:00.783 * Fork CoW for RDB: current 2 MB, peak 2 MB, average 1 MB
+2026-02-19T16:00:07.735673375Z [inf]  1:M 19 Feb 2026 16:00:00.879 * Background saving terminated with success
+2026-02-19T16:00:09.089736959Z [inf]  [SocialJob] fetchCastsFromUsers starting with 1036 FIDs, target: 1000
+2026-02-19T16:00:09.089746755Z [inf]  WS addresses discovered
+2026-02-19T16:00:09.089752544Z [inf]  Fetching premium trending tokens
+2026-02-19T16:00:09.089778814Z [inf]  Fetching premium trending tokens
+2026-02-19T16:00:09.089785263Z [inf]  [SocialJob] Refreshing stats for 200 posts...
+2026-02-19T16:00:09.089792064Z [inf]  SocialRepo: Recalculated heat scores for 1000 casts
+2026-02-19T16:00:09.089796405Z [inf]  [Job] Real hot users file not found: 
+2026-02-19T16:00:09.089800397Z [inf]  [Job] ✅ Got 1036 quality users from database
+2026-02-19T16:00:09.093663957Z [inf]  Using fallback discovery (Boosts + Organic search)
+2026-02-19T16:00:09.093672013Z [inf]  Processed DexScreener trending candidates
+2026-02-19T16:00:09.093677459Z [inf]  Merged addresses
+2026-02-19T16:00:09.093682752Z [inf]  Processed DexScreener trending candidates
+2026-02-19T16:00:09.093687458Z [wrn]  GeckoTerminal 429 triggered backoff
+2026-02-19T16:00:09.093693582Z [err]  Error fetching trending tokens
+2026-02-19T16:00:09.093697871Z [inf]  Premium trending tokens fetch complete
+2026-02-19T16:00:09.115783076Z [inf]  Got 91 trending tokens for Ethereum
+2026-02-19T16:00:09.115791653Z [inf]  Filtered out 3 invalid tokens for Ethereum
+2026-02-19T16:00:09.115799188Z [wrn]  GeckoTerminal 429 triggered backoff
+2026-02-19T16:00:09.115805854Z [inf]  Saved 88/88 trending tokens for eth to database and memory cache
+2026-02-19T16:00:09.115811224Z [inf]  Saved 88 tokens for Ethereum to DB + cache
+2026-02-19T16:00:09.115816265Z [inf]  Launchpad verify budget applied
+2026-02-19T16:00:09.115822862Z [inf]  [SocialJob] ✅ Refreshed stats for 200/200 posts
+2026-02-19T16:00:09.115827121Z [wrn]  GeckoTerminal 429 triggered backoff
+2026-02-19T16:00:12.090658745Z [inf]  Premium trending tokens fetch complete
+2026-02-19T16:00:12.090663932Z [wrn]  GeckoTerminal 429 triggered backoff
+2026-02-19T16:00:12.090668510Z [err]  GeckoTerminal API error after retries
+2026-02-19T16:00:12.090776939Z [err]  Error fetching trending tokens
+2026-02-19T16:00:12.090786288Z [inf]  Got 4 trending tokens for Arbitrum
+2026-02-19T16:00:12.090795130Z [inf]  Filtered out 2 invalid tokens for Arbitrum
+2026-02-19T16:00:12.090803208Z [inf]  Saved 2/2 trending tokens for arbitrum to database and memory cache
+2026-02-19T16:00:12.096423552Z [inf]  Saved 2 tokens for Arbitrum to DB + cache
+2026-02-19T16:00:41.367887526Z [inf]  Fetching premium trending tokens
+2026-02-19T16:00:41.367896651Z [inf]  WS addresses discovered
+2026-02-19T16:00:41.367903280Z [inf]  Processed DexScreener trending candidates
+2026-02-19T16:00:41.367908404Z [inf]  Premium trending tokens fetch complete
+2026-02-19T16:00:41.367913667Z [inf]  Got 100 trending tokens for Solana
+2026-02-19T16:00:41.367920534Z [inf]  Saved 100/100 trending tokens for solana to database and memory cache
+2026-02-19T16:00:41.367925712Z [inf]  Saved 100 tokens for Solana to DB + cache
+2026-02-19T16:00:41.367930816Z [inf]  Aggregated repetitive logs
+2026-02-19T16:00:41.371637481Z [inf]  Aggregated repetitive logs
+2026-02-19T16:00:41.371649038Z [inf]  Aggregated repetitive logs
+2026-02-19T16:00:41.371657343Z [wrn]  RPC health degraded
+2026-02-19T16:01:01.375812960Z [inf]  Suppressed repeated logs
+2026-02-19T16:01:01.375823961Z [inf]  Saved 100/100 trending tokens for solana to database and memory cache
+2026-02-19T16:01:01.375831279Z [inf]  Suppressed repeated logs
+2026-02-19T16:01:01.375840516Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
+2026-02-19T16:01:01.674186776Z [inf]  1:M 19 Feb 2026 16:01:01.095 * 1 changes in 60 seconds. Saving...
+2026-02-19T16:01:01.674193957Z [inf]  1:M 19 Feb 2026 16:01:01.095 * Background saving started by pid 13072
+2026-02-19T16:01:01.674228707Z [inf]  13072:C 19 Feb 2026 16:01:01.213 * DB saved on disk
+2026-02-19T16:01:01.674238956Z [inf]  13072:C 19 Feb 2026 16:01:01.214 * Fork CoW for RDB: current 2 MB, peak 2 MB, average 1 MB
+2026-02-19T16:01:01.674246332Z [inf]  1:M 19 Feb 2026 16:01:01.298 * Background saving terminated with success
+2026-02-19T16:01:08.216693107Z [inf]  Fetching premium trending tokens
+2026-02-19T16:01:08.216698985Z [inf]  WS addresses discovered
+2026-02-19T16:01:09.357188126Z [inf]  Processed DexScreener trending candidates
+2026-02-19T16:01:09.357196534Z [inf]  Premium trending tokens fetch complete
+2026-02-19T16:01:09.357202227Z [inf]  Got 70 trending tokens for Base
+2026-02-19T16:01:10.144110708Z [inf]  Saved 70/70 trending tokens for base to database and memory cache
+2026-02-19T16:01:10.144115282Z [inf]  Saved 70 tokens for Base to DB + cache
+2026-02-19T16:01:10.144119915Z [inf]  Launchpad verify budget applied
+2026-02-19T16:01:11.270994516Z [inf]  Suppressed repeated logs
+2026-02-19T16:01:11.271003478Z [err]  api failed after 1 attempts
+2026-02-19T16:01:12.363310936Z [inf]  Fetching premium trending tokens
+2026-02-19T16:01:12.363320268Z [inf]  Using fallback discovery (Boosts + Organic search)
+2026-02-19T16:01:13.369102682Z [inf]  Merged addresses
+2026-02-19T16:01:13.369109124Z [inf]  Processed DexScreener trending candidates
+2026-02-19T16:01:14.524616845Z [wrn]  GeckoTerminal 429 triggered backoff
+2026-02-19T16:01:15.531090716Z [wrn]  GeckoTerminal 429 triggered backoff
+2026-02-19T16:01:17.552151166Z [wrn]  GeckoTerminal 429 triggered backoff
+2026-02-19T16:01:21.568642675Z [wrn]  GeckoTerminal 429 triggered backoff
+2026-02-19T16:01:21.568653955Z [err]  GeckoTerminal API error after retries
+2026-02-19T16:01:21.568662176Z [err]  Error fetching trending tokens
+2026-02-19T16:01:21.568670152Z [inf]  Premium trending tokens fetch complete
+2026-02-19T16:01:21.571420068Z [inf]  Got 13 trending tokens for Optimism
+2026-02-19T16:01:21.571424198Z [inf]  Filtered out 1 invalid tokens for Optimism
+2026-02-19T16:01:22.398415271Z [inf]  Saved 12/12 trending tokens for optimism to database and memory cache
+2026-02-19T16:01:22.398419372Z [inf]  Saved 12 tokens for Optimism to DB + cache
+2026-02-19T16:01:22.398424204Z [inf]  Suppressed repeated logs
+2026-02-19T16:01:22.398429545Z [inf]  Saved 70/70 trending tokens for base to database and memory cache
+2026-02-19T16:01:41.619671705Z [inf]  Suppressed repeated logs
+2026-02-19T16:01:41.619676019Z [inf]  No open positions to monitor
+2026-02-19T16:01:41.619680775Z [inf]  Fetching premium trending tokens
+2026-02-19T16:01:41.619685078Z [wrn]  RPC health degraded
+2026-02-19T16:01:41.619689981Z [inf]  WS addresses discovered
+2026-02-19T16:01:41.619697945Z [inf]  Processed DexScreener trending candidates
+2026-02-19T16:01:41.629422115Z [inf]  Got 73 trending tokens for BSC
+2026-02-19T16:01:41.629433494Z [inf]  Filtered out 1 invalid tokens for BSC
+2026-02-19T16:01:41.629441531Z [inf]  Suppressed repeated logs
+2026-02-19T16:01:41.629447986Z [inf]  Saved 72/72 trending tokens for bsc to database and memory cache
+2026-02-19T16:01:41.629456100Z [inf]  Saved 72 tokens for BSC to DB + cache
+2026-02-19T16:01:41.629482131Z [inf]  Refreshed 4 primary chains in 100.5s
+2026-02-19T16:01:41.629494387Z [inf]  Premium trending tokens fetch complete
+2026-02-19T16:01:42.348267902Z [err]  LaunchpadDetector: Four.meme fetch failed
+2026-02-19T16:01:42.348279440Z [err]  LaunchpadDetector: Four.meme fetch failed
+2026-02-19T16:02:05.048902371Z [inf]  1:M 19 Feb 2026 16:02:02.014 * 1 changes in 60 seconds. Saving...
+2026-02-19T16:02:05.048912016Z [inf]  1:M 19 Feb 2026 16:02:02.014 * Background saving started by pid 13073
+2026-02-19T16:02:05.048920860Z [inf]  13073:C 19 Feb 2026 16:02:02.108 * DB saved on disk
+2026-02-19T16:02:05.048990696Z [inf]  13073:C 19 Feb 2026 16:02:02.109 * Fork CoW for RDB: current 1 MB, peak 1 MB, average 0 MB
+2026-02-19T16:02:05.049002546Z [inf]  1:M 19 Feb 2026 16:02:02.117 * Background saving terminated with success
+2026-02-19T16:02:11.699407566Z [inf]  [Webhook] Alchemy payload: network=BASE_MAINNET hash=0x6a40b810eb773bb60f974b9f5485ac82669b937fedf9c33d5be149ccb2b2c178 category=external asset=ETH
+2026-02-19T16:02:11.699419090Z [inf]  Suppressed repeated logs
+2026-02-19T16:02:11.699428923Z [inf]  [Webhook] Processing as EVM activity groups (1 tx groups)
+2026-02-19T16:02:11.699436978Z [inf]  [Webhook] Ignore tx 0x6a40b810eb773bb60f974b9f5485ac82669b937fedf9c33d5be149ccb2b2c178: no tracked wallets (from/to 0xddbcdf710c21219dc5e56a6e1e8576fb4aa99d96, 0x21e99b325d53fe3d574ac948b9cb1519da03e518)
+2026-02-19T16:02:11.699443961Z [inf]  [Webhook] Alchemy payload: network=BASE_MAINNET hash=0x6a40b810eb773bb60f974b9f5485ac82669b937fedf9c33d5be149ccb2b2c178 category=token asset=VIRTERN
+2026-02-19T16:02:11.702464987Z [inf]  [Webhook] Ignore tx 0x6a40b810eb773bb60f974b9f5485ac82669b937fedf9c33d5be149ccb2b2c178: no tracked wallets (from/to 0x21e99b325d53fe3d574ac948b9cb1519da03e518, 0xddbcdf710c21219dc5e56a6e1e8576fb4aa99d96)
+2026-02-19T16:02:13.580011420Z [inf]  [SocialJob] Checking Zora coin status for 998 casts...
+2026-02-19T16:02:15.651822076Z [inf]  [Webhook] Alchemy payload: network=BASE_MAINNET hash=0x0df985afed6db35ca6d4b7cda24790deee959a3879f90099cd957287ed9d44db category=external asset=ETH
+2026-02-19T16:02:15.680408277Z [inf]  Suppressed repeated logs
+2026-02-19T16:02:15.680415950Z [inf]  [Webhook] Processing as EVM activity groups (1 tx groups)
+2026-02-19T16:02:15.695809155Z [inf]  [Webhook] Ignore tx 0x0df985afed6db35ca6d4b7cda24790deee959a3879f90099cd957287ed9d44db: no tracked wallets (from/to 0xddbcdf710c21219dc5e56a6e1e8576fb4aa99d96, 0x740ec7d407e0a4d95756bb74ee0e7c15f6841735)
+2026-02-19T16:02:21.678780654Z [inf]  Fetching premium trending tokens
+2026-02-19T16:02:21.678787743Z [inf]  Using fallback discovery (Boosts + Organic search)
+2026-02-19T16:02:22.673960494Z [inf]  Merged addresses
+2026-02-19T16:02:23.471533352Z [inf]  Processed DexScreener trending candidates
+2026-02-19T16:02:30.534365091Z [err]  GeckoTerminal API error after retries
+2026-02-19T16:02:30.534373228Z [err]  Error fetching trending tokens
+2026-02-19T16:02:30.534388753Z [inf]  Premium trending tokens fetch complete
+2026-02-19T16:02:30.534394921Z [inf]  Got 19 trending tokens for Polygon
+2026-02-19T16:02:30.534400260Z [inf]  Filtered out 3 invalid tokens for Polygon
+2026-02-19T16:02:30.638157557Z [inf]  Saved 16/16 trending tokens for polygon to database and memory cache
+2026-02-19T16:02:30.641753500Z [inf]  Saved 16 tokens for Polygon to DB + cache
+2026-02-19T16:02:30.645423540Z [inf]  Refreshed 3 secondary chains in 150.1s
+2026-02-19T16:02:39.668610019Z [wrn]  RPC health degraded
+2026-02-19T16:02:59.670231208Z [inf]  Suppressed repeated logs
+2026-02-19T16:02:59.670235836Z [inf]  Alpha Detector: Checking new coin
+2026-02-19T16:03:07.343054521Z [inf]  1:M 19 Feb 2026 16:03:03.085 * 1 changes in 60 seconds. Saving...
+2026-02-19T16:03:07.343063836Z [inf]  1:M 19 Feb 2026 16:03:03.086 * Background saving started by pid 13074
+2026-02-19T16:03:07.343070306Z [inf]  13074:C 19 Feb 2026 16:03:03.198 * DB saved on disk
+2026-02-19T16:03:07.343075605Z [inf]  13074:C 19 Feb 2026 16:03:03.199 * Fork CoW for RDB: current 2 MB, peak 2 MB, average 1 MB
+2026-02-19T16:03:07.343080754Z [inf]  1:M 19 Feb 2026 16:03:03.288 * Background saving terminated with success
+2026-02-19T16:03:39.984152727Z [inf]  [SocialRepo] Cleaned up 720 old casts (cap: 1000)
+2026-02-19T16:03:39.984157120Z [inf]  SocialRepo: Updated cache with 500 merged casts
+2026-02-19T16:03:39.984161027Z [inf]  SocialRepo: Saved 998 trending casts to database
+2026-02-19T16:03:39.984164853Z [inf]  [SocialJob] Casts refreshed: 998 saved
+2026-02-19T16:03:39.984168593Z [inf]  [SocialJob] 🚀 Triggering OGP Prefetch for top 50 casts...
+2026-02-19T16:03:39.984172411Z [wrn]  RPC health degraded
+2026-02-19T16:03:40.893000273Z [wrn]  [OGPService] Simple fetch failed
+2026-02-19T16:03:40.893004535Z [inf]  [OGPService] Launching Singleton Browser...
+2026-02-19T16:03:40.893009380Z [err]  [OGPService] Puppeteer failed
+2026-02-19T16:03:40.893013623Z [inf]  [OGPService] No metadata resolved
+2026-02-19T16:03:43.068507711Z [inf]  [SocialJob] ✅ OGP prefetch completed
+2026-02-19T16:03:47.649739325Z [err]  2026-02-19 16:03:39.296 UTC [27] LOG:  checkpoint starting: time
+2026-02-19T16:04:03.058115856Z [inf]  Suppressed repeated logs
+2026-02-19T16:04:03.058130132Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
+2026-02-19T16:04:10.709754534Z [inf]  1:M 19 Feb 2026 16:04:04.047 * 1 changes in 60 seconds. Saving...
+2026-02-19T16:04:10.709760991Z [inf]  1:M 19 Feb 2026 16:04:04.050 * Background saving started by pid 13075
+2026-02-19T16:04:10.709768132Z [inf]  13075:C 19 Feb 2026 16:04:04.135 * DB saved on disk
+2026-02-19T16:04:10.709773786Z [inf]  13075:C 19 Feb 2026 16:04:04.136 * Fork CoW for RDB: current 1 MB, peak 1 MB, average 1 MB
+2026-02-19T16:04:10.709786832Z [inf]  1:M 19 Feb 2026 16:04:04.152 * Background saving terminated with success
+2026-02-19T16:04:42.305806912Z [inf]  Suppressed repeated logs
+2026-02-19T16:04:42.305816187Z [inf]  No open positions to monitor
+2026-02-19T16:04:42.305822719Z [wrn]  RPC health degraded
+2026-02-19T16:05:02.164357485Z [err]  2026-02-19 16:04:54.190 UTC [27] LOG:  checkpoint complete: wrote 747 buffers (4.6%); 0 WAL file(s) added, 0 removed, 0 recycled; write=74.837 s, sync=0.021 s, total=74.894 s; sync files=49, longest=0.009 s, average=0.001 s; distance=6652 kB, estimate=6652 kB; lsn=7/2ED0B840, redo lsn=7/2EB7FC58
+2026-02-19T16:05:02.377187389Z [inf]  Fetching premium trending tokens
+2026-02-19T16:05:02.377193386Z [inf]  SocialRepo: Recalculated heat scores for 1000 casts
+2026-02-19T16:05:02.377200996Z [inf]  WS addresses discovered
+2026-02-19T16:05:02.377207623Z [inf]  Processed DexScreener trending candidates
+2026-02-19T16:05:05.350008087Z [wrn]  GeckoTerminal 429 triggered backoff
+2026-02-19T16:05:06.360890271Z [wrn]  GeckoTerminal 429 triggered backoff
+2026-02-19T16:05:08.449530140Z [wrn]  GeckoTerminal 429 triggered backoff
+2026-02-19T16:05:12.337037529Z [wrn]  GeckoTerminal 429 triggered backoff
+2026-02-19T16:05:12.337043859Z [err]  GeckoTerminal API error after retries
+2026-02-19T16:05:12.337161725Z [err]  Error fetching trending tokens
+2026-02-19T16:05:12.337170759Z [inf]  Premium trending tokens fetch complete
+2026-02-19T16:05:12.337175795Z [inf]  Got 85 trending tokens for Ethereum
+2026-02-19T16:05:12.337180940Z [inf]  Filtered out 2 invalid tokens for Ethereum
+2026-02-19T16:05:12.423705486Z [inf]  Suppressed repeated logs
+2026-02-19T16:05:12.423714790Z [inf]  Saved 83/83 trending tokens for eth to database and memory cache
+2026-02-19T16:05:12.432327972Z [inf]  Saved 83 tokens for Ethereum to DB + cache
+2026-02-19T16:05:12.462422137Z [inf]  Launchpad verify budget applied
+2026-02-19T16:05:13.241683859Z [inf]  1:M 19 Feb 2026 16:05:05.079 * 1 changes in 60 seconds. Saving...
+2026-02-19T16:05:13.241690298Z [inf]  1:M 19 Feb 2026 16:05:05.080 * Background saving started by pid 13076
+2026-02-19T16:05:13.241696581Z [inf]  13076:C 19 Feb 2026 16:05:05.165 * DB saved on disk
+2026-02-19T16:05:13.241702945Z [inf]  13076:C 19 Feb 2026 16:05:05.166 * Fork CoW for RDB: current 1 MB, peak 1 MB, average 1 MB
+2026-02-19T16:05:13.241711463Z [inf]  1:M 19 Feb 2026 16:05:05.181 * Background saving terminated with success
+2026-02-19T16:05:44.685711475Z [inf]  ⚡ Preloading native token prices via Coinbase...
+2026-02-19T16:05:44.685719370Z [inf]  ⚡ Native token prices cached (Coinbase)
+2026-02-19T16:05:44.685725815Z [wrn]  RPC health degraded
+2026-02-19T16:05:44.685733628Z [inf]  Fetching premium trending tokens
+2026-02-19T16:05:44.695882030Z [inf]  WS addresses discovered
+2026-02-19T16:05:44.696109641Z [inf]  Processed DexScreener trending candidates
+2026-02-19T16:05:44.696114541Z [inf]  Premium trending tokens fetch complete
+2026-02-19T16:05:44.696119602Z [inf]  Got 100 trending tokens for Solana
+2026-02-19T16:05:45.492480487Z [inf]  Saved 100/100 trending tokens for solana to database and memory cache
+2026-02-19T16:05:45.492485998Z [inf]  Saved 100 tokens for Solana to DB + cache
+2026-02-19T16:06:04.586431159Z [inf]  Suppressed repeated logs
+2026-02-19T16:06:04.586435852Z [inf]  Saved 100/100 trending tokens for solana to database and memory cache
+2026-02-19T16:06:15.637459303Z [inf]  1:M 19 Feb 2026 16:06:06.026 * 1 changes in 60 seconds. Saving...
+2026-02-19T16:06:15.637466327Z [inf]  1:M 19 Feb 2026 16:06:06.027 * Background saving started by pid 13077
+2026-02-19T16:06:15.637473639Z [inf]  13077:C 19 Feb 2026 16:06:06.152 * DB saved on disk
+2026-02-19T16:06:15.637479792Z [inf]  13077:C 19 Feb 2026 16:06:06.154 * Fork CoW for RDB: current 2 MB, peak 2 MB, average 1 MB
+2026-02-19T16:06:15.637486588Z [inf]  1:M 19 Feb 2026 16:06:06.230 * Background saving terminated with success
+2026-02-19T16:06:23.937242471Z [inf]  Fetching premium trending tokens
+2026-02-19T16:06:23.937247866Z [inf]  WS addresses discovered
+2026-02-19T16:06:23.937253244Z [inf]  Processed DexScreener trending candidates
+2026-02-19T16:06:23.937258702Z [inf]  Premium trending tokens fetch complete
+2026-02-19T16:06:23.937264198Z [inf]  Got 67 trending tokens for Base
+2026-02-19T16:06:23.937270212Z [inf]  Saved 67/67 trending tokens for base to database and memory cache
+2026-02-19T16:06:23.937276162Z [inf]  Saved 67 tokens for Base to DB + cache
+2026-02-19T16:06:23.937281440Z [inf]  Launchpad verify budget applied
+2026-02-19T16:06:23.940465176Z [inf]  Suppressed repeated logs
+2026-02-19T16:06:23.940470603Z [err]  api failed after 1 attempts
+2026-02-19T16:06:25.746578989Z [inf]  Suppressed repeated logs
+2026-02-19T16:06:25.746586345Z [inf]  Saved 67/67 trending tokens for base to database and memory cache
+2026-02-19T16:06:26.720833898Z [inf]  [Webhook] Ignore tx 0x5f7f0c3d5132a6463885745a9f5e2935fa70315f5803815e83c810fb48353769: no tracked wallets (from/to 0xddbcdf710c21219dc5e56a6e1e8576fb4aa99d96, 0x21e99b325d53fe3d574ac948b9cb1519da03e518)
+2026-02-19T16:06:26.721039357Z [inf]  [Webhook] Alchemy payload: network=BASE_MAINNET hash=0x5f7f0c3d5132a6463885745a9f5e2935fa70315f5803815e83c810fb48353769 category=internal asset=ETH
+2026-02-19T16:06:26.721044420Z [inf]  [Webhook] Processing as EVM activity groups (1 tx groups)
+2026-02-19T16:06:26.721051423Z [inf]  [Webhook] Alchemy payload: network=BASE_MAINNET hash=0x5f7f0c3d5132a6463885745a9f5e2935fa70315f5803815e83c810fb48353769 category=token asset=VIRTERN
+2026-02-19T16:06:26.721058728Z [inf]  [Webhook] Ignore tx 0x5f7f0c3d5132a6463885745a9f5e2935fa70315f5803815e83c810fb48353769: no tracked wallets (from/to 0x21e99b325d53fe3d574ac948b9cb1519da03e518, 0xddbcdf710c21219dc5e56a6e1e8576fb4aa99d96)
+2026-02-19T16:06:26.721064698Z [inf]  [Webhook] Alchemy payload: network=BASE_MAINNET hash=0x5f7f0c3d5132a6463885745a9f5e2935fa70315f5803815e83c810fb48353769 category=external asset=ETH
+2026-02-19T16:06:46.718282258Z [wrn]  RPC health degraded
+2026-02-19T16:06:46.718287958Z [inf]  Fetching premium trending tokens
+2026-02-19T16:06:46.718293573Z [inf]  WS addresses discovered
+2026-02-19T16:06:46.781169874Z [inf]  Processed DexScreener trending candidates
+2026-02-19T16:06:46.781181817Z [inf]  Premium trending tokens fetch complete
+2026-02-19T16:06:46.781190172Z [inf]  Got 73 trending tokens for BSC
+2026-02-19T16:06:46.781196293Z [inf]  Filtered out 1 invalid tokens for BSC
+2026-02-19T16:06:47.000533217Z [inf]  Suppressed repeated logs
+2026-02-19T16:06:47.000543095Z [inf]  Saved 72/72 trending tokens for bsc to database and memory cache
+2026-02-19T16:06:47.000549415Z [inf]  Saved 72 tokens for BSC to DB + cache
+2026-02-19T16:06:47.000555975Z [inf]  Refreshed 4 primary chains in 106.0s
+2026-02-19T16:06:48.803468013Z [err]  LaunchpadDetector: Four.meme fetch failed
+2026-02-19T16:06:48.803474959Z [err]  LaunchpadDetector: Four.meme fetch failed
+2026-02-19T16:07:08.116704979Z [inf]  Suppressed repeated logs
+2026-02-19T16:07:08.116710492Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
+2026-02-19T16:07:08.116714976Z [inf]  Suppressed repeated logs
+2026-02-19T16:07:08.116719494Z [inf]  Alpha Detector: Checking new coin
+2026-02-19T16:07:16.543769300Z [inf]  1:M 19 Feb 2026 16:07:07.081 * 1 changes in 60 seconds. Saving...
+2026-02-19T16:07:16.543775252Z [inf]  1:M 19 Feb 2026 16:07:07.082 * Background saving started by pid 13078
+2026-02-19T16:07:16.543785093Z [inf]  13078:C 19 Feb 2026 16:07:07.186 * DB saved on disk
+2026-02-19T16:07:16.543792602Z [inf]  13078:C 19 Feb 2026 16:07:07.187 * Fork CoW for RDB: current 2 MB, peak 2 MB, average 1 MB
+2026-02-19T16:07:16.543799564Z [inf]  1:M 19 Feb 2026 16:07:07.284 * Background saving terminated with success
+2026-02-19T16:07:38.125870872Z [inf]  Suppressed repeated logs
+2026-02-19T16:07:38.125878068Z [inf]  No open positions to monitor
+2026-02-19T16:07:39.873235917Z [wrn]  RPC health degraded
+2026-02-19T16:07:59.285048722Z [inf]  [Profile] fetchReceipt
+2026-02-19T16:07:59.285067305Z [inf]  Swap successfully decoded from logs
+2026-02-19T16:07:59.285076558Z [inf]  [Profile] parseSwapTransaction
+2026-02-19T16:07:59.285084355Z [inf]  [CopyTradePending] Prefetched confirmed swap from pending path
+2026-02-19T16:07:59.285091494Z [inf]  Swap detected on target wallet
+2026-02-19T16:07:59.285099478Z [inf]  Target is buying - triggering copy trade
+2026-02-19T16:07:59.287887096Z [inf]  [CopyTradeTiming] target buy start
+2026-02-19T16:07:59.287896725Z [inf]  [CopyTrade] Executable buy configs ready
+2026-02-19T16:07:59.287902931Z [inf]  [CopyTrade] Token info disabled - using RPC metadata fallback
+2026-02-19T16:07:59.287908744Z [inf]  Derived missing token price from swap data
+2026-02-19T16:07:59.287914140Z [inf]  🔥 Warming up 1 user settings
+2026-02-19T16:07:59.287919682Z [inf]  [CopyTrade] Turbo fast lane enabled
+2026-02-19T16:07:59.290557861Z [inf]  0x API price received successfully
+2026-02-19T16:07:59.290574131Z [inf]  Created PENDING position lock
+2026-02-19T16:07:59.290581292Z [inf]  Buy Step 1: 100% amount, 0.5% slippage
+2026-02-19T16:07:59.290589954Z [inf]  [MainSwapService][1771517275904_lkvtn] Starting unified swap execution
+2026-02-19T16:07:59.290596494Z [inf]  [MainSwapService][1771517275904_lkvtn] Executing EVM swap
+2026-02-19T16:07:59.290603754Z [inf]  [MainSwapService][1771517275904_lkvtn] FastSwapMode enabled - attempting direct swap (buy direction)
+2026-02-19T16:07:59.294605447Z [inf]  [DirectSwap] Starting direct swap
+2026-02-19T16:07:59.294620113Z [inf]  Swap successfully decoded from logs
+2026-02-19T16:07:59.294639356Z [inf]  [Profile] parseSwapTransaction
+2026-02-19T16:07:59.294648304Z [inf]  [DirectSwap] Early hinted source pool probe
+2026-02-19T16:07:59.294658854Z [inf]  [DirectSwap] Skip early v4 bypass: no preloaded v4 pools and no resolved hint
+2026-02-19T16:07:59.294668322Z [err]  All RPC endpoints failed
+2026-02-19T16:07:59.297980330Z [inf]  [Webhook] Alchemy payload: network=BASE_MAINNET hash=0x119ca61bbc922a6efba318c944422563b2c4073de8b44dd9e9de49c0c014dc28 category=external asset=ETH
+2026-02-19T16:07:59.297989638Z [inf]  Suppressed repeated logs
+2026-02-19T16:07:59.297996146Z [inf]  [Webhook] Processing as EVM activity groups (1 tx groups)
+2026-02-19T16:07:59.298003231Z [inf]  [Webhook] Found 1 tracked wallets for tx 0x119ca61bbc922a6efba318c944422563b2c4073de8b44dd9e9de49c0c014dc28
+2026-02-19T16:07:59.298009606Z [inf]  [WebhookTiming][alchemy] tx=0x119ca61bbc wallets=1 swaps=1 predecoded=1 totalMs=15
+2026-02-19T16:07:59.298015729Z [inf]  [Webhook] Alchemy payload: network=BASE_MAINNET hash=0x119ca61bbc922a6efba318c944422563b2c4073de8b44dd9e9de49c0c014dc28 category=token asset=LAUKI
+2026-02-19T16:07:59.299909877Z [inf]  [DirectSwap] Pool discovery complete
+2026-02-19T16:07:59.299921349Z [inf]  [DirectSwap] Bypass reference gate by target hint
+2026-02-19T16:07:59.299930967Z [inf]  [Webhook] Tx already in processedTxs cache: 0x119ca61bbc922a6efba318c944422563b2c4073de8b44dd9e9de49c0c014dc28
+2026-02-19T16:07:59.299938161Z [inf]  [DirectSwap] Bypass strategy unavailable, fallback to reference gate
+2026-02-19T16:07:59.299945905Z [wrn]  [DirectSwap] Reference quote unavailable, continuing with source hint fallback
+2026-02-19T16:07:59.299953278Z [wrn]  [DirectSwap] Turbo mode continuing without reference quote
+2026-02-19T16:07:59.303690493Z [inf]  [DirectSwap] Strategy evaluation start
+2026-02-19T16:07:59.303705640Z [wrn]  [MainSwapService][1771517275904_lkvtn] Turbo direct timeout; waiting late-settle window
+2026-02-19T16:07:59.303714693Z [wrn]  [DirectSwap] No strategy matched threshold
+2026-02-19T16:07:59.303721614Z [wrn]  [DirectSwapTrace] Attempt failed
+2026-02-19T16:07:59.307035758Z [inf]  [DirectSwap] Finished
+2026-02-19T16:07:59.307046153Z [wrn]  [DirectSwap] Turbo budget exceeded
+2026-02-19T16:07:59.307054100Z [inf]  [MainSwapService][1771517275904_lkvtn] Turbo direct late-settle succeeded
+2026-02-19T16:07:59.307060156Z [wrn]  [MainSwapService][1771517275904_lkvtn] Direct swap failed, falling back to 0x/Kyber: failed_pool_unavailable_hard: No suitable pool found
+2026-02-19T16:07:59.307066308Z [inf]  Initiating Unified Swap Execution
+2026-02-19T16:07:59.310878900Z [inf]  ✅ Hybrid fetch complete
+2026-02-19T16:07:59.310891857Z [wrn]  All API liquidity sources failed
+2026-02-19T16:07:59.310900012Z [wrn]  RPC price failed, falling back to full API fetch
+2026-02-19T16:07:59.310951061Z [inf]  0x API price received successfully
+2026-02-19T16:07:59.310959515Z [inf]  Fallback: Got price from DEX aggregator
+2026-02-19T16:07:59.310969164Z [inf]  ✅ Hybrid fetch complete
+2026-02-19T16:07:59.872620867Z [inf]  Alchemy Portfolio EVM page 1 received
+2026-02-19T16:08:01.093270126Z [inf]  Alchemy Portfolio EVM pagination complete
+2026-02-19T16:08:01.108312409Z [inf]  Suppressed repeated logs
+2026-02-19T16:08:01.108322156Z [inf]  [PlatformFee] Fees ENABLED: {"context":"copyTrade","bps":100,"evmRecipient":"0xc5377e6329"}
+2026-02-19T16:08:01.113397253Z [inf]  [Kyber] GET routes {"routesUrl":"https://aggregator-api.kyberswap.com/base/api/v1/routes?tokenIn=0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee&tokenOut=0xebECb4e1e3Cf94b450D20e9AbF50D85CB5579b07&amountIn=521290820329299&saveGas=true&gasInclude=true&clientId=kiko-app&origin=0xFB64Ce8d64CEC808a8aCb977d3Ee7bE1169f1a2B&feeReceiver=0xc5377e6329770Be29Ef938d8aCC11f22398D7E54&feeAmount=100&isInBps=true&chargeFeeBy=currency_in"}
+2026-02-19T16:08:02.095961025Z [inf]  0x API Quote received successfully
+2026-02-19T16:08:02.095965086Z [inf]  0x API Quote successful
+2026-02-19T16:08:02.095969227Z [inf]  [QuoteService] 0x API estimatedPriceImpact: {"parsed":0,"multipliedBy100":0,"impactVsMkt":null,"willUse":0}
+2026-02-19T16:08:03.933773691Z [inf]  [Kyber] routes response {"status":200,"hasData":true,"keys":["code","message","data","requestId"]}
+2026-02-19T16:08:03.933778433Z [inf]  [Kyber] Building route/build request body: {"hasRouteSummary":true,"routeSummaryKeys":["tokenIn","amountIn","amountInUsd","tokenOut","amountOut","amountOutUsd","gas","gasPrice"],"sender":"0xFB64Ce8d","recipient":"0xFB64Ce8d","slippageTolerance":1500,"slippageToleranceType":"number","deadline":1771517883,"deadlineType":"number","allBodyKeys":["routeSummary","sender","recipient","origin","slippageTolerance","deadline"]}
+2026-02-19T16:08:05.041128651Z [inf]  [QuoteService] Quote comparison: {"0x_amount":"210883.1206104598765581","kyber_amount":"214936.586298213441470464","kyber_advantage_pct":"1.00","chainId":8453}
+2026-02-19T16:08:05.041132734Z [inf]  [QuoteService] Preferring 0x for reliability {"reason":"prices within 2%","percentDiff":"1.00"}
+2026-02-19T16:08:05.041138231Z [inf]  Checking approval for swap
+2026-02-19T16:08:05.041143660Z [inf]  Approval not needed or already set
+2026-02-19T16:08:05.041147969Z [inf]  [SwapExecutor] Executing 0x Aggregator swap on chain 8453
+2026-02-19T16:08:05.041152037Z [inf]  [SwapExecutor] ========== TRANSACTION EXECUTION ==========
+2026-02-19T16:08:05.043308197Z [inf]  [SwapExecutor] DEX: 0x Aggregator
+2026-02-19T16:08:05.043314060Z [inf]  [SwapExecutor] Transaction params: {"to":"0x0000000000001ff3684f28c67538d4d072c22734","dataLength":5322,"dataPrefix":"0x2213bc0b000000000000000000000000dc5d8200a030798bc6227240f68b4dd9","value":"521290820329299","router":"0x0000000000001ff3684f28c67538d4d072c22734","allowanceTarget":"0x0000000000001ff3684f28c67538d4d072c22734"}
+2026-02-19T16:08:05.043317974Z [inf]  [SwapExecutor] Swap details: {"tokenIn":"0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee","tokenOut":"0xebECb4e1e3Cf94b450D20e9AbF50D85CB5579b07","amountInBase":"521290820329299","amountInHuman":"0.000521290820329299","amountOut":"210883.1206104598765581","slippageBps":1500,"priceImpact":0,"gasEstimate":344379}
+2026-02-19T16:08:05.043344237Z [inf]  [SwapExecutor] =============================================
+2026-02-19T16:08:05.247193501Z [inf]  [SwapExecutor] Execution params prepared: {"dex":"0x Aggregator","gasEstimate":344379,"gasLimit":"516568","maxFeePerGas":"30374104","maxPriorityFeePerGas":"1000000"}
+2026-02-19T16:08:05.247208978Z [inf]  🚀 CopyTrade Aggressive Gas
+2026-02-19T16:08:06.885979386Z [inf]  Ethereum transaction sent via Privy
+2026-02-19T16:08:06.885983822Z [inf]  Swap Broadcast
+2026-02-19T16:08:06.885989252Z [inf]  [Monitor] Started tracking 0x70f87ac2f9019fae06d02a3710fcae95c48825f46346ccc694098a7398fb1271 on 8453 (0x Aggregator)
+2026-02-19T16:08:06.885994074Z [inf]  [MainSwapService][1771517275904_lkvtn] Fallback swap execution succeeded
+2026-02-19T16:08:06.885999526Z [inf]  [CopyTradeTiming] buy step 1 success
+2026-02-19T16:08:06.886004552Z [inf]  Copy trade completed and position created
+2026-02-19T16:08:06.887372719Z [inf]  Suppressed repeated logs
+2026-02-19T16:08:06.887378327Z [inf]  [PlatformFee] Fees ENABLED: {"context":"copyTrade","bps":100,"evmRecipient":"0xc5377e6329"}
+2026-02-19T16:08:06.887382685Z [inf]  [Kyber] GET routes {"routesUrl":"https://aggregator-api.kyberswap.com/base/api/v1/routes?tokenIn=0xebECb4e1e3Cf94b450D20e9AbF50D85CB5579b07&tokenOut=0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee&amountIn=111557925980320000000000&saveGas=true&gasInclude=true&clientId=kiko-app&origin=0xFB64Ce8d64CEC808a8aCb977d3Ee7bE1169f1a2B&feeReceiver=0xc5377e6329770Be29Ef938d8aCC11f22398D7E54&feeAmount=100&isInBps=true&chargeFeeBy=currency_out"}
+2026-02-19T16:08:06.887387213Z [inf]  [Warpcast] Sending DM to FID 877398: "🚀 Bought $LAUKI @ $1.00
 
-⏭️ COPY TRADE SK..."
-2026-02-19T11:18:33.155018427Z [inf]  [CopyTrade] Turbo fast lane complete
-2026-02-19T11:18:33.155024034Z [wrn]  All API liquidity sources failed
-2026-02-19T11:18:33.155030489Z [inf]  ✅ Hybrid fetch complete
-2026-02-19T11:18:33.156268171Z [inf]  ⚡ Uniswap V4 price fetched
-2026-02-19T11:18:33.156278756Z [inf]  ✅ Hybrid fetch complete
-2026-02-19T11:18:33.156293696Z [inf]  [Warpcast] DM sent successfully. Daily usage: 1/50000
-2026-02-19T11:18:34.217080644Z [inf]  [Webhook] Alchemy payload: network=BASE_MAINNET hash=0x3945c2b2ba31d734e388e2e1e12537ba75df6bb9637ce601d93564509386d868 category=external asset=ETH
-2026-02-19T11:18:34.291933112Z [inf]  [Webhook] Alchemy payload: network=BASE_MAINNET hash=0x3945c2b2ba31d734e388e2e1e12537ba75df6bb9637ce601d93564509386d868 category=token asset=SELFCLAW
-2026-02-19T11:18:34.300146390Z [inf]  [Webhook] Processing as EVM activity groups (1 tx groups)
-2026-02-19T11:18:34.310236428Z [inf]  [Webhook] Found 1 tracked wallets for tx 0x3945c2b2ba31d734e388e2e1e12537ba75df6bb9637ce601d93564509386d868
-2026-02-19T11:18:34.312773831Z [inf]  [WebhookTiming][alchemy] tx=0x3945c2b2ba wallets=1 swaps=1 predecoded=1 totalMs=15
-2026-02-19T11:18:35.103302233Z [inf]  [Webhook] Tx already in processedTxs cache: 0x3945c2b2ba31d734e388e2e1e12537ba75df6bb9637ce601d93564509386d868
-2026-02-19T11:18:38.044367914Z [wrn]  RPC health degraded
-2026-02-19T11:18:46.401832476Z [inf]  [Webhook] Alchemy payload: network=BASE_MAINNET hash=0xe8ac2c96b107f75a2ab4111410c0622183abdce6a33a11677b7c0ba4fedabaa9 category=token asset=0xa5cf9d31276c6e7e5242b1faf8f30ee3a9b102e8
-2026-02-19T11:18:46.410059632Z [inf]  Suppressed repeated logs
-2026-02-19T11:18:46.410069061Z [inf]  [Webhook] Processing as EVM activity groups (1 tx groups)
-2026-02-19T11:18:46.426633850Z [inf]  [Webhook] Found 1 tracked wallets for tx 0xe8ac2c96b107f75a2ab4111410c0622183abdce6a33a11677b7c0ba4fedabaa9
-2026-02-19T11:18:47.190482473Z [inf]  [WebhookTiming][alchemy] tx=0xe8ac2c96b1 wallets=1 swaps=0 predecoded=0 receiptMs=156 parseSkeletonMs=1 fullTxMs=25 totalMs=198
-2026-02-19T11:18:47.190536129Z [inf]  [Profile] parseSwapTransaction
-2026-02-19T11:18:47.190547142Z [inf]  [Profile] fetchTransaction
-2026-02-19T11:18:47.190553068Z [inf]  [Profile] parseSwapTransaction
-2026-02-19T11:18:47.190561290Z [inf]  [Profile] fetchReceipt
-2026-02-19T11:18:52.275031050Z [inf]  ChatWS Client connected
-2026-02-19T11:18:52.275037268Z [inf]  ChatWS: User connected
-2026-02-19T11:18:59.544818677Z [inf]  Suppressed repeated logs
-2026-02-19T11:18:59.544826053Z [inf]  Alpha Detector: Checking new coin
-2026-02-19T11:19:40.068054682Z [inf]  ChatWS Client connected
-2026-02-19T11:19:40.068058887Z [inf]  ChatWS: User connected
-2026-02-19T11:19:40.068062648Z [wrn]  RPC health degraded
-2026-02-19T11:19:59.517431378Z [inf]  Suppressed repeated logs
-2026-02-19T11:19:59.517438615Z [inf]  [CopyTrade] GET /configs - Fetching configs for user did:privy:cmk74yj4r03jcl70b8hwyuh2c
-2026-02-19T11:19:59.517444664Z [inf]  [CopyTrade] GET /config/:id/target-status {"userId":"did:privy:cmk74yj4r03jcl70b8hwyuh2c","configId":"cml5i3w0800c3m112bpaat30r","trackedTxCount":0,"walletTxCount":0,"buyCount":0,"sellCount":0,"tokenSwapCount":0,"targetProfitUsd":0,"targetLossUsd":0}
-2026-02-19T11:19:59.517450333Z [inf]  [CopyTrade] GET /config/:id/target-status {"userId":"did:privy:cmk74yj4r03jcl70b8hwyuh2c","configId":"cmke90wr11xcuko1oyj98i4u9","trackedTxCount":0,"walletTxCount":0,"buyCount":0,"sellCount":0,"tokenSwapCount":0,"targetProfitUsd":0,"targetLossUsd":0}
-2026-02-19T11:19:59.517456423Z [inf]  [CopyTrade] GET /config/:id/target-status {"userId":"did:privy:cmk74yj4r03jcl70b8hwyuh2c","configId":"cml8bdoix00vf8poepupyc86l","trackedTxCount":14,"walletTxCount":14,"buyCount":8,"sellCount":6,"tokenSwapCount":0,"targetProfitUsd":618.4229868316576,"targetLossUsd":233.7275852408028}
-2026-02-19T11:19:59.526579392Z [inf]  ChatWS Client connected
-2026-02-19T11:19:59.526591771Z [inf]  ChatWS: User connected
-2026-02-19T11:20:00.740785475Z [inf]  Fetching premium trending tokens
-2026-02-19T11:20:00.740791517Z [inf]  SocialRepo: Recalculated heat scores for 1000 casts
-2026-02-19T11:20:00.740796929Z [inf]  WS addresses discovered
-2026-02-19T11:20:01.543796572Z [inf]  Processed DexScreener trending candidates
-2026-02-19T11:20:02.594027549Z [inf]  Skipping low liquidity token
-2026-02-19T11:20:04.587597619Z [inf]  [CopyTrade] PATCH /config/cml5i3w0800c3m112bpaat30r/status - User did:privy:cmk74yj4r03jcl70b8hwyuh2c -> active
-2026-02-19T11:20:06.899577571Z [wrn]  GeckoTerminal 429 triggered backoff
-2026-02-19T11:20:06.899786102Z [wrn]  GeckoTerminal 429 triggered backoff
-2026-02-19T11:20:08.979055067Z [wrn]  GeckoTerminal 429 triggered backoff
-2026-02-19T11:20:12.950924363Z [wrn]  GeckoTerminal 429 triggered backoff
-2026-02-19T11:20:12.950935426Z [err]  GeckoTerminal API error after retries
-2026-02-19T11:20:12.950945105Z [err]  Error fetching trending tokens
-2026-02-19T11:20:12.950952485Z [inf]  Premium trending tokens fetch complete
-2026-02-19T11:20:12.950959890Z [inf]  Got 82 trending tokens for Ethereum
-2026-02-19T11:20:12.950967766Z [inf]  Filtered out 5 invalid tokens for Ethereum
-2026-02-19T11:20:14.019136422Z [inf]  Suppressed repeated logs
-2026-02-19T11:20:14.019144220Z [inf]  Saved 77/77 trending tokens for eth to database and memory cache
-2026-02-19T11:20:14.019154285Z [inf]  Saved 77 tokens for Ethereum to DB + cache
-2026-02-19T11:20:14.019165145Z [inf]  Launchpad verify budget applied
-2026-02-19T11:20:34.163935961Z [inf]  [CopyTrade] GET /config/:id/target-status {"userId":"did:privy:cmk74yj4r03jcl70b8hwyuh2c","configId":"cmke90wr11xcuko1oyj98i4u9","trackedTxCount":0,"walletTxCount":0,"buyCount":0,"sellCount":0,"tokenSwapCount":0,"targetProfitUsd":0,"targetLossUsd":0}
-2026-02-19T11:20:34.163975128Z [inf]  [CopyTrade] GET /configs - Fetching configs for user did:privy:cmk74yj4r03jcl70b8hwyuh2c
-2026-02-19T11:20:34.164004054Z [inf]  Suppressed repeated logs
-2026-02-19T11:20:34.164017911Z [inf]  [CopyTrade] GET /positions - Fetching positions for did:privy:cmk74yj4r03jcl70b8hwyuh2c
-2026-02-19T11:20:34.164029581Z [inf]  [CopyTrade] GET /config/:id/target-status {"userId":"did:privy:cmk74yj4r03jcl70b8hwyuh2c","configId":"cml8bdoix00vf8poepupyc86l","trackedTxCount":14,"walletTxCount":14,"buyCount":8,"sellCount":6,"tokenSwapCount":0,"targetProfitUsd":618.4229868316576,"targetLossUsd":233.7275852408028}
-2026-02-19T11:20:34.165620078Z [inf]  [CopyTrade] GET /config/:id/target-status {"userId":"did:privy:cmk74yj4r03jcl70b8hwyuh2c","configId":"cml5i3w0800c3m112bpaat30r","trackedTxCount":0,"walletTxCount":0,"buyCount":0,"sellCount":0,"tokenSwapCount":0,"targetProfitUsd":0,"targetLossUsd":0}
-2026-02-19T11:20:38.148638243Z [wrn]  RPC health degraded
-2026-02-19T11:20:38.148641830Z [inf]  Suppressed repeated logs
-2026-02-19T11:20:38.148645265Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-19T11:20:38.148649585Z [inf]  ChatWS Client connected
-2026-02-19T11:20:38.148653196Z [inf]  ChatWS: User connected
-2026-02-19T11:20:43.838687216Z [inf]  Fetching premium trending tokens
-2026-02-19T11:20:43.838695336Z [inf]  WS addresses discovered
-2026-02-19T11:20:43.838702025Z [inf]  Suppressed repeated logs
-2026-02-19T11:20:43.838709536Z [inf]  No open positions to monitor
-2026-02-19T11:20:44.856540011Z [inf]  Processed DexScreener trending candidates
-2026-02-19T11:20:44.856547928Z [inf]  Premium trending tokens fetch complete
-2026-02-19T11:20:44.856554517Z [inf]  Got 100 trending tokens for Solana
-2026-02-19T11:20:45.673559605Z [inf]  Saved 100/100 trending tokens for solana to database and memory cache
-2026-02-19T11:20:45.673570838Z [inf]  Saved 100 tokens for Solana to DB + cache
-2026-02-19T11:20:48.615245479Z [inf]  [CopyTrade] GET /configs - Fetching configs for user did:privy:cmk74yj4r03jcl70b8hwyuh2c
-2026-02-19T11:20:48.615257130Z [inf]  [CopyTrade] GET /positions - Fetching positions for did:privy:cmk74yj4r03jcl70b8hwyuh2c
-2026-02-19T11:20:48.829880480Z [inf]  [verifyAccess] Checking access: {"userId":"did:privy:cmk74yj4r03jcl70b8hwyuh2c","userIdLength":35,"userIdPrefix":"did:privy:cmk74yj4r0","requestedAddress":"0xFB64Ce8d64CEC808a8aCb977d3Ee7bE1169f1a2B"}
-2026-02-19T11:20:48.829886030Z [inf]  Suppressed repeated logs
-2026-02-19T11:20:48.829891399Z [inf]  [verifyAccess] ✅ Access granted
-2026-02-19T11:20:49.506423639Z [inf]  Alchemy Portfolio EVM page 1 received
-2026-02-19T11:20:49.848692014Z [inf]  ChatWS Client connected
-2026-02-19T11:20:49.848701988Z [inf]  ChatWS: User connected
-2026-02-19T11:20:51.549406245Z [inf]  [CopyTrade] GET /config/:id/target-status {"userId":"did:privy:cmk74yj4r03jcl70b8hwyuh2c","configId":"cml8bdoix00vf8poepupyc86l","trackedTxCount":14,"walletTxCount":14,"buyCount":8,"sellCount":6,"tokenSwapCount":0,"targetProfitUsd":618.4229868316576,"targetLossUsd":233.7275852408028}
-2026-02-19T11:20:51.549414522Z [inf]  [CopyTrade] GET /config/:id/target-status {"userId":"did:privy:cmk74yj4r03jcl70b8hwyuh2c","configId":"cml5i3w0800c3m112bpaat30r","trackedTxCount":0,"walletTxCount":0,"buyCount":0,"sellCount":0,"tokenSwapCount":0,"targetProfitUsd":0,"targetLossUsd":0}
-2026-02-19T11:20:51.549422555Z [inf]  [CopyTrade] GET /config/:id/target-status {"userId":"did:privy:cmk74yj4r03jcl70b8hwyuh2c","configId":"cmke90wr11xcuko1oyj98i4u9","trackedTxCount":0,"walletTxCount":0,"buyCount":0,"sellCount":0,"tokenSwapCount":0,"targetProfitUsd":0,"targetLossUsd":0}
-2026-02-19T11:20:55.886737971Z [inf]  Suppressed repeated logs
-2026-02-19T11:20:55.886747381Z [inf]  [verifyAccess] Checking access: {"userId":"did:privy:cmk9grlpm001wkz0dm9eeb6jl","userIdLength":35,"userIdPrefix":"did:privy:cmk9grlpm0","requestedAddress":"0x552ecD151743E8E63e7F487fa07A7996ABB21958"}
-2026-02-19T11:20:55.886753294Z [inf]  [verifyAccess] ✅ Access granted
-2026-02-19T11:20:56.696884776Z [inf]  [WalletRoutes] Returning 2 transactions for 0x552ecD151743E8E63e7F487fa07A7996ABB21958
-2026-02-19T11:20:56.697102680Z [inf]  Solana: using fetchSolanaTokenAccounts RPC fallback
-2026-02-19T11:20:56.697111588Z [inf]  [AlchemyUsage] rolling usage snapshot
-2026-02-19T11:20:56.697116960Z [inf]  Alchemy Portfolio EVM pagination complete
-2026-02-19T11:20:56.697141888Z [inf]  Wallet transactions filtered and ready
-2026-02-19T11:20:56.697149250Z [inf]  Alchemy Portfolio EVM page 1 received
-2026-02-19T11:20:56.697156288Z [inf]  Solana balance fetched via Helius
-2026-02-19T11:20:56.698734902Z [err]  Failed to fetch Polymarket positions
-2026-02-19T11:20:56.765810068Z [err]  Failed to fetch Polymarket open orders
-2026-02-19T11:20:58.724180200Z [inf]  Suppressed repeated logs
-2026-02-19T11:20:58.724188343Z [inf]  Saved 100/100 trending tokens for solana to database and memory cache
-2026-02-19T11:21:18.990014834Z [inf]  Premium trending tokens fetch complete
-2026-02-19T11:21:18.990015677Z [inf]  Launchpad verify budget applied
-2026-02-19T11:21:18.990018119Z [inf]  Fetching premium trending tokens
-2026-02-19T11:21:18.990023468Z [inf]  Got 75 trending tokens for Base
-2026-02-19T11:21:18.990027473Z [inf]  WS addresses discovered
-2026-02-19T11:21:18.990030096Z [inf]  Saved 75/75 trending tokens for base to database and memory cache
-2026-02-19T11:21:18.990034792Z [inf]  Processed DexScreener trending candidates
-2026-02-19T11:21:18.990038523Z [inf]  Saved 75 tokens for Base to DB + cache
-2026-02-19T11:21:18.991002276Z [inf]  Suppressed repeated logs
-2026-02-19T11:21:18.991008184Z [err]  api failed after 1 attempts
-2026-02-19T11:21:24.984787612Z [inf]  Suppressed repeated logs
-2026-02-19T11:21:24.984792052Z [inf]  Saved 75/75 trending tokens for base to database and memory cache
-2026-02-19T11:21:29.286117436Z [inf]  [CopyTrade] PATCH /config/cmke90wr11xcuko1oyj98i4u9 - User did:privy:cmk74yj4r03jcl70b8hwyuh2c {"signedPayload":{"version":"copytrade_config_intent_v1","action":"update","configId":"cmke90wr11xcuko1oyj98i4u9","userId":"did:privy:cmk74yj4r03jcl70b8hwyuh2c","signerAddress":"0xFB64Ce8d64CEC808a8aCb977d3Ee7bE1169f1a2B","nonce":2,"expiresAtMs":1771500379523,"chainId":8453,"targetWallet":"0x2cd32fb42748774fafde72d8607f16ccc5f5c0ed","buyAmountUsd":"1","maxSlippageBps":"300","minMarketCapUsd":"0","minLiquidityUsd":"0","minTargetValueUsd":"0.1","copyTradeTokenCooldownMinutes":"0","executionMode":"turbo","disableTokenInfo":true,"takeProfitPct":"100","stopLossPct":"20","mirrorSell":true,"aiAnalysisMode":"disabled","enableDynamicTP":false,"dynamicTPMinProfitPct":"100"},"signature":"0x706933903558c6ebd7516e63b34edeae6cd967ada8b284fd9f5993716486c0b76828104728476522ebd0561e85cd387b5c7605f11ee336db75b31734621a56d61b","signerAddress":"0xFB64Ce8d64CEC808a8aCb977d3Ee7bE1169f1a2B","nonce":2,"expiresAt":1771500379523}
-2026-02-19T11:21:31.252266837Z [inf]  [CopyTrade] GET /config/:id/target-status {"userId":"did:privy:cmk74yj4r03jcl70b8hwyuh2c","configId":"cmke90wr11xcuko1oyj98i4u9","trackedTxCount":0,"walletTxCount":0,"buyCount":0,"sellCount":0,"tokenSwapCount":0,"targetProfitUsd":0,"targetLossUsd":0}
-2026-02-19T11:21:36.652663215Z [inf]  ChatWS Client connected
-2026-02-19T11:21:36.652668650Z [inf]  ChatWS: User connected
-2026-02-19T11:21:38.945624786Z [wrn]  RPC health degraded
-2026-02-19T11:21:40.878171292Z [inf]  Suppressed repeated logs
-2026-02-19T11:21:40.878180140Z [inf]  [CopyTrade] GET /configs - Fetching configs for user did:privy:cmk74yj4r03jcl70b8hwyuh2c
-2026-02-19T11:21:40.878187539Z [inf]  Suppressed repeated logs
-2026-02-19T11:21:40.878193834Z [inf]  [CopyTrade] GET /positions - Fetching positions for did:privy:cmk74yj4r03jcl70b8hwyuh2c
-2026-02-19T11:21:40.878199779Z [inf]  Alchemy Portfolio EVM page 1 received
-2026-02-19T11:21:43.501742659Z [inf]  [CopyTrade] GET /config/:id/target-status {"userId":"did:privy:cmk74yj4r03jcl70b8hwyuh2c","configId":"cmke90wr11xcuko1oyj98i4u9","trackedTxCount":0,"walletTxCount":0,"buyCount":0,"sellCount":0,"tokenSwapCount":0,"targetProfitUsd":0,"targetLossUsd":0}
-2026-02-19T11:21:43.501749544Z [inf]  [CopyTrade] GET /config/:id/target-status {"userId":"did:privy:cmk74yj4r03jcl70b8hwyuh2c","configId":"cml8bdoix00vf8poepupyc86l","trackedTxCount":14,"walletTxCount":14,"buyCount":8,"sellCount":6,"tokenSwapCount":0,"targetProfitUsd":618.4229868316576,"targetLossUsd":233.7275852408028}
-2026-02-19T11:21:43.501757903Z [inf]  [CopyTrade] GET /config/:id/target-status {"userId":"did:privy:cmk74yj4r03jcl70b8hwyuh2c","configId":"cml5i3w0800c3m112bpaat30r","trackedTxCount":0,"walletTxCount":0,"buyCount":0,"sellCount":0,"tokenSwapCount":0,"targetProfitUsd":0,"targetLossUsd":0}
-2026-02-19T11:21:47.170441929Z [inf]  Fetching premium trending tokens
-2026-02-19T11:21:47.170450647Z [inf]  WS addresses discovered
-2026-02-19T11:21:48.130107849Z [inf]  Alchemy Portfolio EVM pagination complete
-2026-02-19T11:21:48.130119051Z [inf]  Processed DexScreener trending candidates
-2026-02-19T11:21:48.130126250Z [inf]  Premium trending tokens fetch complete
-2026-02-19T11:21:48.130132664Z [inf]  Got 71 trending tokens for BSC
-2026-02-19T11:21:49.012986108Z [inf]  Saved 71/71 trending tokens for bsc to database and memory cache
-2026-02-19T11:21:49.012997008Z [inf]  Saved 71 tokens for BSC to DB + cache
-2026-02-19T11:21:49.013008536Z [inf]  Refreshed 4 primary chains in 107.9s
-2026-02-19T11:21:49.013018622Z [inf]  Launchpad verify budget applied
-2026-02-19T11:21:49.906025829Z [err]  LaunchpadDetector: Four.meme fetch failed
-2026-02-19T11:21:49.906031029Z [err]  LaunchpadDetector: Four.meme fetch failed
-2026-02-19T11:21:49.906036875Z [inf]  [verifyAccess] Checking access: {"userId":"did:privy:cmk74yj4r03jcl70b8hwyuh2c","userIdLength":35,"userIdPrefix":"did:privy:cmk74yj4r0","requestedAddress":"0xFB64Ce8d64CEC808a8aCb977d3Ee7bE1169f1a2B"}
-2026-02-19T11:21:49.906042136Z [inf]  Suppressed repeated logs
-2026-02-19T11:21:49.906047733Z [inf]  [verifyAccess] ✅ Access granted
-2026-02-19T11:22:10.052856333Z [inf]  Alpha Detector: Checking new coin
-2026-02-19T11:22:10.053024585Z [inf]  Suppressed repeated logs
-2026-02-19T11:22:40.648802752Z [inf]  ⚡ Preloading native token prices via Coinbase...
-2026-02-19T11:22:40.648809375Z [inf]  ⚡ Native token prices cached (Coinbase)
-2026-02-19T11:22:40.648816156Z [wrn]  RPC health degraded
-2026-02-19T11:23:21.422891245Z [inf]  [Profile] fetchReceipt
-2026-02-19T11:23:21.422897549Z [inf]  [Profile] fetchReceipt
-2026-02-19T11:23:21.422902828Z [inf]  Swap successfully decoded from logs
-2026-02-19T11:23:21.422907568Z [inf]  [Profile] parseSwapTransaction
-2026-02-19T11:23:21.422912474Z [inf]  [CopyTradePending] Prefetched confirmed swap from pending path
-2026-02-19T11:23:21.422918177Z [inf]  Swap detected on target wallet
-2026-02-19T11:23:21.422962678Z [inf]  Target is buying - triggering copy trade
-2026-02-19T11:23:21.422969108Z [inf]  [CopyTradeTiming] target buy start
-2026-02-19T11:23:21.449260475Z [wrn]  All API liquidity sources failed
-2026-02-19T11:23:21.449266857Z [inf]  ✅ Hybrid fetch complete
-2026-02-19T11:23:21.601999911Z [inf]  [CopyTrade] Token info disabled - using RPC metadata fallback
-2026-02-19T11:23:21.602005721Z [inf]  Derived missing token price from swap data
-2026-02-19T11:23:21.602011324Z [inf]  🔥 Warming up 1 user settings
-2026-02-19T11:23:21.602016461Z [inf]  [CopyTrade] Turbo fast lane enabled
-2026-02-19T11:23:22.425678512Z [inf]  ⚡ Uniswap V4 price fetched
-2026-02-19T11:23:22.425683627Z [inf]  ✅ Hybrid fetch complete
-2026-02-19T11:23:22.425688554Z [inf]  0x API price received successfully
-2026-02-19T11:23:22.425693758Z [inf]  Created PENDING position lock
-2026-02-19T11:23:22.425698193Z [inf]  Buy Step 1: 100% amount, 0.5% slippage
-2026-02-19T11:23:22.425702293Z [inf]  [MainSwapService][1771500202011_qxne8n] Starting unified swap execution
-2026-02-19T11:23:22.427887023Z [inf]  [MainSwapService][1771500202011_qxne8n] Executing EVM swap
-2026-02-19T11:23:22.427894014Z [inf]  [MainSwapService][1771500202011_qxne8n] FastSwapMode enabled - attempting direct swap (buy direction)
-2026-02-19T11:23:22.427900137Z [inf]  [DirectSwap] Starting direct swap
-2026-02-19T11:23:22.427906375Z [inf]  [DirectSwap] Fast-path resolved pool hint attempt
-2026-02-19T11:23:22.427913656Z [inf]  [DirectSwap] Using V4 pool
-2026-02-19T11:23:22.430553467Z [inf]  [DirectSwap] V4 minAmountOut calculated
-2026-02-19T11:23:22.430559647Z [inf]  [Webhook] Alchemy payload: network=BASE_MAINNET hash=0x821468d5455a8f7d02691d1c1a7e6e895e1294cb7811dc7bc53bfbbf25ca6bff category=external asset=ETH
-2026-02-19T11:23:22.430566143Z [inf]  [Webhook] Alchemy payload: network=BASE_MAINNET hash=0x821468d5455a8f7d02691d1c1a7e6e895e1294cb7811dc7bc53bfbbf25ca6bff category=token asset=SELFCLAW
-2026-02-19T11:23:22.430573517Z [inf]  [Webhook] Processing as EVM activity groups (1 tx groups)
-2026-02-19T11:23:22.430579560Z [inf]  [Webhook] Tx already local in-flight: 0x821468d5455a8f7d02691d1c1a7e6e895e1294cb7811dc7bc53bfbbf25ca6bff
-2026-02-19T11:23:22.430584527Z [inf]  [Webhook] Found 1 tracked wallets for tx 0x821468d5455a8f7d02691d1c1a7e6e895e1294cb7811dc7bc53bfbbf25ca6bff
-2026-02-19T11:23:22.433255987Z [inf]  [WebhookTiming][alchemy] tx=0x821468d545 wallets=1 swaps=1 predecoded=1 totalMs=17
-2026-02-19T11:23:23.418856839Z [wrn]  [MainSwapService][1771500202011_qxne8n] Turbo direct timeout; waiting late-settle window
-2026-02-19T11:23:23.506789835Z [inf]  Ethereum transaction sent via Privy
-2026-02-19T11:23:23.506798254Z [inf]  [DirectSwap] V4 swap executed
-2026-02-19T11:23:23.506803457Z [inf]  [DirectSwap] Finished
-2026-02-19T11:23:23.506808276Z [inf]  [MainSwapService][1771500202011_qxne8n] Turbo direct late-settle succeeded
-2026-02-19T11:23:23.506815699Z [inf]  [PlatformFee] Fees ENABLED: {"context":"copyTrade","bps":100,"evmRecipient":"0xc5377e6329"}
-2026-02-19T11:23:23.506822349Z [wrn]  [MainSwapService][1771500202011_qxne8n] Direct swap fee skipped: missing access token
-2026-02-19T11:23:23.508384806Z [inf]  [MainSwapService][1771500202011_qxne8n] Direct swap successful
-2026-02-19T11:23:23.508400239Z [inf]  [CopyTradeTiming] buy step 1 success
-2026-02-19T11:23:23.509981282Z [inf]  Copy trade completed and position created
-2026-02-19T11:23:23.511962451Z [inf]  [Warpcast] Sending DM to FID 877398: "🚀 Bought $SELFCLAW @ $1.00
+🟢 BOUGHT $LAUKI
+💰 Valu..."
+2026-02-19T16:08:06.887392541Z [inf]  [CopyTrade] Turbo fast lane complete
+2026-02-19T16:08:07.132923518Z [wrn]  Deleting new position with 0 balance (likely reverted buy)
+2026-02-19T16:08:07.183414366Z [inf]  [Warpcast] DM sent successfully. Daily usage: 4/50000
+2026-02-19T16:08:07.255406340Z [inf]  0x API Quote received successfully
+2026-02-19T16:08:07.255413731Z [inf]  0x API Quote successful
+2026-02-19T16:08:07.255419611Z [inf]  [QuoteService] 0x API estimatedPriceImpact: {"parsed":0,"multipliedBy100":0,"impactVsMkt":null,"willUse":0}
+2026-02-19T16:08:08.158322052Z [inf]  [Kyber] Building route/build request body: {"hasRouteSummary":true,"routeSummaryKeys":["tokenIn","amountIn","amountInUsd","tokenOut","amountOut","amountOutUsd","gas","gasPrice"],"sender":"0xFB64Ce8d","recipient":"0xFB64Ce8d","slippageTolerance":2500,"slippageToleranceType":"number","deadline":1771517887,"deadlineType":"number","allBodyKeys":["routeSummary","sender","recipient","origin","slippageTolerance","deadline"]}
+2026-02-19T16:08:08.596489495Z [inf]  1:M 19 Feb 2026 16:08:08.003 * 1 changes in 60 seconds. Saving...
+2026-02-19T16:08:08.596503728Z [inf]  1:M 19 Feb 2026 16:08:08.005 * Background saving started by pid 13079
+2026-02-19T16:08:08.596511731Z [inf]  13079:C 19 Feb 2026 16:08:08.114 * DB saved on disk
+2026-02-19T16:08:08.596519346Z [inf]  13079:C 19 Feb 2026 16:08:08.115 * Fork CoW for RDB: current 2 MB, peak 2 MB, average 1 MB
+2026-02-19T16:08:08.596526681Z [inf]  1:M 19 Feb 2026 16:08:08.209 * Background saving terminated with success
+2026-02-19T16:08:09.101121253Z [inf]  [Webhook] Alchemy payload: network=BASE_MAINNET hash=0x70f87ac2f9019fae06d02a3710fcae95c48825f46346ccc694098a7398fb1271 category=token asset=LAUKI
+2026-02-19T16:08:09.101128133Z [inf]  Suppressed repeated logs
+2026-02-19T16:08:09.101146824Z [inf]  [Webhook] Processing as EVM activity groups (1 tx groups)
+2026-02-19T16:08:09.101153290Z [inf]  [Webhook] Ignore tx 0x70f87ac2f9019fae06d02a3710fcae95c48825f46346ccc694098a7398fb1271: no tracked wallets (from/to 0xdc5d8200a030798bc6227240f68b4dd9542686ef, 0xfb64ce8d64cec808a8acb977d3ee7be1169f1a2b)
+2026-02-19T16:08:09.101159936Z [inf]  [QuoteService] Quote comparison: {"0x_amount":"0.00025976511348025","kyber_amount":"0.000258970295977468","kyber_advantage_pct":"0.00","chainId":8453}
+2026-02-19T16:08:09.105983256Z [inf]  [QuoteService] Preferring 0x for reliability {"reason":"0x has better price","percentDiff":"0.00"}
+2026-02-19T16:08:09.900095808Z [inf]  [Webhook] Alchemy payload: network=BASE_MAINNET hash=0x70f87ac2f9019fae06d02a3710fcae95c48825f46346ccc694098a7398fb1271 category=external asset=ETH
+2026-02-19T16:08:09.900100400Z [inf]  [Webhook] Ignore tx 0x70f87ac2f9019fae06d02a3710fcae95c48825f46346ccc694098a7398fb1271: no tracked wallets (from/to 0xfb64ce8d64cec808a8acb977d3ee7be1169f1a2b, 0x0000000000001ff3684f28c67538d4d072c22734)
+2026-02-19T16:08:09.919360049Z [inf]  [Monitor] Transaction confirmed: 0x70f87ac2f9019fae06d02a3710fcae95c48825f46346ccc694098a7398fb1271
+2026-02-19T16:08:10.061640853Z [inf]  Ethereum transaction sent via Privy
+2026-02-19T16:08:10.943307185Z [inf]  Ethereum transaction sent via Privy
+2026-02-19T16:08:10.943313150Z [wrn]  [SellApprovalPreheat] Approval warmup failed (non-fatal)
+2026-02-19T16:08:12.110498041Z [inf]  [Webhook] Alchemy payload: network=BASE_MAINNET hash=0xf1494664f4b50d76c225f788709080224fade8ffd592852c6f843d301040f8e9 category=external asset=ETH
+2026-02-19T16:08:12.110506065Z [inf]  [Webhook] Processing as EVM activity groups (2 tx groups)
+2026-02-19T16:08:12.117330640Z [inf]  [Webhook] Ignore tx 0xf1494664f4b50d76c225f788709080224fade8ffd592852c6f843d301040f8e9: no tracked wallets (from/to 0xfb64ce8d64cec808a8acb977d3ee7be1169f1a2b, 0xebecb4e1e3cf94b450d20e9abf50d85cb5579b07)
+2026-02-19T16:08:12.117339149Z [inf]  [Webhook] Ignore tx 0xad9883a4d2a368d2606a1adf6263444753c164f34e8c19c8b80ecd9dc8332038: no tracked wallets (from/to 0xfb64ce8d64cec808a8acb977d3ee7be1169f1a2b, 0xebecb4e1e3cf94b450d20e9abf50d85cb5579b07)
+2026-02-19T16:08:41.386963434Z [wrn]  RPC health degraded
+2026-02-19T16:08:49.334813197Z [err]  2026-02-19 16:08:39.290 UTC [27] LOG:  checkpoint starting: time
+2026-02-19T16:09:12.425260967Z [inf]  1:M 19 Feb 2026 16:09:09.028 * 1 changes in 60 seconds. Saving...
+2026-02-19T16:09:12.425266067Z [inf]  1:M 19 Feb 2026 16:09:09.029 * Background saving started by pid 13080
+2026-02-19T16:09:12.425272385Z [inf]  13080:C 19 Feb 2026 16:09:09.116 * DB saved on disk
+2026-02-19T16:09:12.425277733Z [inf]  13080:C 19 Feb 2026 16:09:09.117 * Fork CoW for RDB: current 1 MB, peak 1 MB, average 0 MB
+2026-02-19T16:09:12.425282655Z [inf]  1:M 19 Feb 2026 16:09:09.130 * Background saving terminated with success
+2026-02-19T16:09:18.194459269Z [inf]  [Profile] fetchReceipt
+2026-02-19T16:09:18.194514262Z [inf]  [Profile] fetchReceipt
+2026-02-19T16:09:18.194532878Z [inf]  [Profile] parseSwapTransaction
+2026-02-19T16:09:18.194550691Z [inf]  [CopyTradePending] Prefetched confirmed swap from pending path
+2026-02-19T16:09:18.194556007Z [inf]  Swap detected on target wallet
+2026-02-19T16:09:18.194560365Z [inf]  Target is buying - triggering copy trade
+2026-02-19T16:09:18.194564103Z [inf]  [CopyTradeTiming] target buy start
+2026-02-19T16:09:18.194622068Z [inf]  [CopyTrade] Executable buy configs ready
+2026-02-19T16:09:18.194784527Z [inf]  [CopyTrade] Token info disabled - using RPC metadata fallback
+2026-02-19T16:09:18.194786328Z [inf]  Buy Step 1: 100% amount, 0.5% slippage
+2026-02-19T16:09:18.194789794Z [inf]  Derived missing token price from swap data
+2026-02-19T16:09:18.194794815Z [inf]  🔥 Warming up 1 user settings
+2026-02-19T16:09:18.194795719Z [inf]  [MainSwapService][1771517352048_ej8d4n] Starting unified swap execution
+2026-02-19T16:09:18.194800163Z [inf]  [CopyTrade] Turbo fast lane enabled
+2026-02-19T16:09:18.194805011Z [inf]  0x API price received successfully
+2026-02-19T16:09:18.194809226Z [inf]  Created PENDING position lock
+2026-02-19T16:09:18.194832466Z [inf]  [MainSwapService][1771517352048_ej8d4n] Executing EVM swap
+2026-02-19T16:09:18.194840800Z [inf]  [MainSwapService][1771517352048_ej8d4n] FastSwapMode enabled - attempting direct swap (buy direction)
+2026-02-19T16:09:18.194847115Z [inf]  [DirectSwap] Starting direct swap
+2026-02-19T16:09:18.195359657Z [inf]  [DirectSwap] Fast-path resolved pool hint attempt
+2026-02-19T16:09:18.195365114Z [inf]  [DirectSwap] Using V4 pool
+2026-02-19T16:09:18.195369667Z [inf]  [DirectSwap] V4 minAmountOut calculated
+2026-02-19T16:09:18.196669642Z [inf]  [Webhook] Alchemy payload: network=BASE_MAINNET hash=0xd3be7b72355dd6d032f481d7968d4d969a285086742f410a773bdf66e22a0381 category=external asset=ETH
+2026-02-19T16:09:18.196691596Z [inf]  Suppressed repeated logs
+2026-02-19T16:09:18.196698477Z [inf]  [Webhook] Processing as EVM activity groups (1 tx groups)
+2026-02-19T16:09:18.196721072Z [inf]  [Webhook] Found 1 tracked wallets for tx 0xd3be7b72355dd6d032f481d7968d4d969a285086742f410a773bdf66e22a0381
+2026-02-19T16:09:18.196729061Z [inf]  [WebhookTiming][alchemy] tx=0xd3be7b7235 wallets=1 swaps=1 predecoded=1 totalMs=11
+2026-02-19T16:09:18.196954562Z [inf]  [Webhook] Alchemy payload: network=BASE_MAINNET hash=0xd3be7b72355dd6d032f481d7968d4d969a285086742f410a773bdf66e22a0381 category=internal asset=ETH
+2026-02-19T16:09:18.196959579Z [inf]  [Webhook] Tx already in processedTxs cache: 0xd3be7b72355dd6d032f481d7968d4d969a285086742f410a773bdf66e22a0381
+2026-02-19T16:09:18.197851416Z [inf]  [Webhook] Alchemy payload: network=BASE_MAINNET hash=0xd3be7b72355dd6d032f481d7968d4d969a285086742f410a773bdf66e22a0381 category=token asset=LAUKI
+2026-02-19T16:09:18.202403302Z [wrn]  [MainSwapService][1771517352048_ej8d4n] Turbo direct timeout; waiting late-settle window
+2026-02-19T16:09:18.202712082Z [inf]  Ethereum transaction sent via Privy
+2026-02-19T16:09:18.202718415Z [inf]  [DirectSwap] V4 swap executed
+2026-02-19T16:09:18.202725144Z [inf]  [DirectSwap] Finished
+2026-02-19T16:09:18.202738594Z [inf]  [MainSwapService][1771517352048_ej8d4n] Turbo direct late-settle succeeded
+2026-02-19T16:09:18.202745667Z [inf]  [PlatformFee] Fees ENABLED: {"context":"copyTrade","bps":100,"evmRecipient":"0xc5377e6329"}
+2026-02-19T16:09:18.202751991Z [wrn]  [MainSwapService][1771517352048_ej8d4n] Direct swap fee skipped: missing access token
+2026-02-19T16:09:18.208346446Z [inf]  [MainSwapService][1771517352048_ej8d4n] Direct swap successful
+2026-02-19T16:09:18.208351947Z [inf]  [CopyTradeTiming] buy step 1 success
+2026-02-19T16:09:18.208357792Z [inf]  Copy trade completed and position created
+2026-02-19T16:09:18.208361935Z [inf]  [Kyber] GET routes {"routesUrl":"https://aggregator-api.kyberswap.com/base/api/v1/routes?tokenIn=0xebECb4e1e3Cf94b450D20e9AbF50D85CB5579b07&tokenOut=0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee&amountIn=110935678659890000000000&saveGas=true&gasInclude=true&clientId=kiko-app&origin=0xFB64Ce8d64CEC808a8aCb977d3Ee7bE1169f1a2B&feeReceiver=0xc5377e6329770Be29Ef938d8aCC11f22398D7E54&feeAmount=100&isInBps=true&chargeFeeBy=currency_out"}
+2026-02-19T16:09:18.208365980Z [inf]  [Warpcast] Sending DM to FID 877398: "🚀 Bought $LAUKI @ $1.00
 
-🟢 BOUGHT $SELFCLAW
-..."
-2026-02-19T11:23:23.519264852Z [inf]  [CopyTrade] Turbo fast lane complete
-2026-02-19T11:23:24.357500378Z [inf]  [Warpcast] DM sent successfully. Daily usage: 2/50000
-2026-02-19T11:23:24.357507086Z [inf]  Ethereum transaction sent via Privy
-2026-02-19T11:23:24.357513118Z [inf]  [MainSwapService][1771500202011_qxne8n] Direct path Post-Buy Pre-Approval Sent
-2026-02-19T11:23:26.406506582Z [inf]  [Webhook] Alchemy payload: network=BASE_MAINNET hash=0x621b2e56518a3bffda3b5620924bedcc80a07b47b76a65c699b348dac06765dc category=external asset=ETH
-2026-02-19T11:23:26.406512979Z [inf]  [Webhook] Processing as EVM activity groups (2 tx groups)
-2026-02-19T11:23:26.406518813Z [inf]  [Webhook] Ignore tx 0x01c1c0effd23def50bb71ff091059c63a6683abf99b18ad1ba0385db1f55b6a8: no tracked wallets (from/to 0xfb64ce8d64cec808a8acb977d3ee7be1169f1a2b, 0x6ff5693b99212da76ad316178a184ab56d299b43)
-2026-02-19T11:23:26.406524128Z [inf]  [Webhook] Ignore tx 0x621b2e56518a3bffda3b5620924bedcc80a07b47b76a65c699b348dac06765dc: no tracked wallets (from/to 0xfb64ce8d64cec808a8acb977d3ee7be1169f1a2b, 0x9ae5f51d81ff510bf961218f833f79d57bfbab07)
-2026-02-19T11:23:26.406529912Z [inf]  [Webhook] Alchemy payload: network=BASE_MAINNET hash=0x01c1c0effd23def50bb71ff091059c63a6683abf99b18ad1ba0385db1f55b6a8 category=token asset=SELFCLAW
-2026-02-19T11:23:26.410162744Z [inf]  [Webhook] Ignore tx 0x01c1c0effd23def50bb71ff091059c63a6683abf99b18ad1ba0385db1f55b6a8: no tracked wallets (from/to 0x498581ff718922c3f8e6a244956af099b2652b2b, 0xfb64ce8d64cec808a8acb977d3ee7be1169f1a2b)
-2026-02-19T11:23:46.442574480Z [wrn]  RPC health degraded
-2026-02-19T11:23:46.442582556Z [inf]  Suppressed repeated logs
-2026-02-19T11:23:46.442590677Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-19T11:24:16.759044545Z [inf]  [Webhook] Processing as EVM activity groups (1 tx groups)
-2026-02-19T11:24:16.759053356Z [inf]  [Webhook] Found 1 tracked wallets for tx 0x2e543c7b254838b0767a5d57d6b6d4b0bbe250e0121c115239902f0b4e3d8233
-2026-02-19T11:24:16.759067850Z [inf]  [Webhook] Alchemy payload: network=BASE_MAINNET hash=0x2e543c7b254838b0767a5d57d6b6d4b0bbe250e0121c115239902f0b4e3d8233 category=external asset=ETH
-2026-02-19T11:24:16.759074999Z [inf]  [Profile] fetchReceipt
-2026-02-19T11:24:16.759075300Z [inf]  Suppressed repeated logs
-2026-02-19T11:24:16.759081532Z [inf]  [Profile] parseSwapTransaction
-2026-02-19T11:24:16.763104976Z [inf]  [Profile] parseSwapTransaction
-2026-02-19T11:24:16.763113173Z [inf]  [WebhookTiming][alchemy] tx=0x2e543c7b25 wallets=1 swaps=0 predecoded=0 totalMs=13
-2026-02-19T11:24:16.763119095Z [inf]  0x API price received successfully
-2026-02-19T11:24:16.763124415Z [inf]  ✅ Hybrid fetch complete
-2026-02-19T11:24:24.253183517Z [inf]  [Profile] fetchReceipt
-2026-02-19T11:24:24.253197343Z [inf]  [Profile] parseSwapTransaction
-2026-02-19T11:24:24.253206480Z [inf]  [CopyTradePending] Prefetched confirmed swap from pending path
-2026-02-19T11:24:24.253213372Z [inf]  Swap detected on target wallet
-2026-02-19T11:24:24.253219387Z [inf]  Target is buying - triggering copy trade
-2026-02-19T11:24:24.253226323Z [inf]  [CopyTradeTiming] target buy start
-2026-02-19T11:24:24.910828649Z [wrn]  All API liquidity sources failed
-2026-02-19T11:24:24.910833000Z [inf]  ✅ Hybrid fetch complete
-2026-02-19T11:24:24.910837159Z [inf]  [CopyTrade] Token info disabled - using RPC metadata fallback
-2026-02-19T11:24:24.910841407Z [inf]  Derived missing token price from swap data
-2026-02-19T11:24:24.910849972Z [inf]  🔥 Warming up 1 user settings
-2026-02-19T11:24:24.910855089Z [inf]  [CopyTrade] Turbo fast lane enabled
-2026-02-19T11:24:24.910859804Z [inf]  ⚡ Uniswap V4 price fetched
-2026-02-19T11:24:24.913237878Z [inf]  ✅ Hybrid fetch complete
-2026-02-19T11:24:24.913242998Z [inf]  0x API price received successfully
-2026-02-19T11:24:24.973261364Z [inf]  Created PENDING position lock
-2026-02-19T11:24:24.973268143Z [inf]  Buy Step 1: 100% amount, 0.5% slippage
-2026-02-19T11:24:24.973273125Z [inf]  [MainSwapService][1771500264970_mdd6w] Starting unified swap execution
-2026-02-19T11:24:24.973279693Z [inf]  [MainSwapService][1771500264970_mdd6w] Executing EVM swap
-2026-02-19T11:24:24.973284697Z [inf]  [MainSwapService][1771500264970_mdd6w] FastSwapMode enabled - attempting direct swap (buy direction)
-2026-02-19T11:24:24.973290612Z [inf]  [DirectSwap] Starting direct swap
-2026-02-19T11:24:24.976504777Z [inf]  [DirectSwap] Fast-path resolved pool hint attempt
-2026-02-19T11:24:24.976511881Z [inf]  [DirectSwap] Using V4 pool
-2026-02-19T11:24:24.976517365Z [inf]  [DirectSwap] V4 minAmountOut calculated
-2026-02-19T11:24:26.808941929Z [inf]  [Webhook] Alchemy payload: network=BASE_MAINNET hash=0x9c67bad24dd67bc3dca1bba0708a55d0215b78d84e035b22188f54d1e0bc4b3b category=external asset=ETH
-2026-02-19T11:24:26.808947639Z [inf]  [Webhook] Processing as EVM activity groups (1 tx groups)
-2026-02-19T11:24:26.808953720Z [inf]  [Webhook] Found 1 tracked wallets for tx 0x9c67bad24dd67bc3dca1bba0708a55d0215b78d84e035b22188f54d1e0bc4b3b
-2026-02-19T11:24:26.808959677Z [inf]  [WebhookTiming][alchemy] tx=0x9c67bad24d wallets=1 swaps=1 predecoded=1 totalMs=12
-2026-02-19T11:24:26.808965499Z [wrn]  [MainSwapService][1771500264970_mdd6w] Turbo direct timeout; waiting late-settle window
-2026-02-19T11:24:26.808972795Z [inf]  Ethereum transaction sent via Privy
-2026-02-19T11:24:26.811231485Z [inf]  [MainSwapService][1771500264970_mdd6w] Direct swap successful
-2026-02-19T11:24:26.811259751Z [inf]  [DirectSwap] V4 swap executed
-2026-02-19T11:24:26.811273158Z [inf]  [DirectSwap] Finished
-2026-02-19T11:24:26.811280054Z [inf]  [MainSwapService][1771500264970_mdd6w] Turbo direct late-settle succeeded
-2026-02-19T11:24:26.811293463Z [inf]  [PlatformFee] Fees ENABLED: {"context":"copyTrade","bps":100,"evmRecipient":"0xc5377e6329"}
-2026-02-19T11:24:26.811303617Z [wrn]  [MainSwapService][1771500264970_mdd6w] Direct swap fee skipped: missing access token
-2026-02-19T11:24:26.811550732Z [inf]  [CopyTradeTiming] buy step 1 success
-2026-02-19T11:24:26.811557526Z [inf]  Copy trade completed and position created
-2026-02-19T11:24:26.811562648Z [inf]  [Warpcast] Sending DM to FID 877398: "🚀 Bought $Conway @ $1.00
-
-🟢 BOUGHT $Conway
-💰 Va..."
-2026-02-19T11:24:26.811568810Z [inf]  [CopyTrade] Turbo fast lane complete
-2026-02-19T11:24:26.811574511Z [inf]  [Warpcast] DM sent successfully. Daily usage: 3/50000
-2026-02-19T11:24:27.872967389Z [inf]  Ethereum transaction sent via Privy
-2026-02-19T11:24:27.872973942Z [inf]  [MainSwapService][1771500264970_mdd6w] Direct path Post-Buy Pre-Approval Sent
-2026-02-19T11:24:27.872981170Z [inf]  [Webhook] Alchemy payload: network=BASE_MAINNET hash=0x9c67bad24dd67bc3dca1bba0708a55d0215b78d84e035b22188f54d1e0bc4b3b category=internal asset=ETH
-2026-02-19T11:24:27.872986981Z [inf]  [Webhook] Tx already in processedTxs cache: 0x9c67bad24dd67bc3dca1bba0708a55d0215b78d84e035b22188f54d1e0bc4b3b
-2026-02-19T11:24:27.906720058Z [inf]  [Webhook] Alchemy payload: network=BASE_MAINNET hash=0x9c67bad24dd67bc3dca1bba0708a55d0215b78d84e035b22188f54d1e0bc4b3b category=token asset=SELFCLAW
-2026-02-19T11:24:28.114241380Z [inf]  [Webhook] Alchemy payload: network=BASE_MAINNET hash=0xe79e0790f33ff8d2a3fae39d8b4a9c953bd2c67eb20f6ae87eb629ac88fe09e3 category=external asset=ETH
-2026-02-19T11:24:28.125944525Z [inf]  [Webhook] Alchemy payload: network=BASE_MAINNET hash=0xe79e0790f33ff8d2a3fae39d8b4a9c953bd2c67eb20f6ae87eb629ac88fe09e3 category=token asset=Conway
-2026-02-19T11:24:28.153885192Z [inf]  [Webhook] Tx already local in-flight: 0xe79e0790f33ff8d2a3fae39d8b4a9c953bd2c67eb20f6ae87eb629ac88fe09e3
-2026-02-19T11:24:28.158475816Z [inf]  [Webhook] Ignore tx 0xe79e0790f33ff8d2a3fae39d8b4a9c953bd2c67eb20f6ae87eb629ac88fe09e3: no tracked wallets (from/to 0xfb64ce8d64cec808a8acb977d3ee7be1169f1a2b, 0x6ff5693b99212da76ad316178a184ab56d299b43)
-2026-02-19T11:24:30.195143169Z [inf]  [Webhook] Alchemy payload: network=BASE_MAINNET hash=0x2a52e84316052616a28766f580a78f89374d63ba53c53dde9aaea2d0903f0b33 category=external asset=ETH
-2026-02-19T11:24:30.240797203Z [inf]  [Webhook] Ignore tx 0x2a52e84316052616a28766f580a78f89374d63ba53c53dde9aaea2d0903f0b33: no tracked wallets (from/to 0xfb64ce8d64cec808a8acb977d3ee7be1169f1a2b, 0x86cdd90bc48f7b5a866feaaf5023b8802dc2ab07)
-2026-02-19T11:24:38.048291966Z [wrn]  RPC health degraded
-2026-02-19T11:24:45.622275100Z [inf]  0x API price received successfully
-2026-02-19T11:24:45.622294286Z [inf]  ✅ Hybrid fetch complete
-2026-02-19T11:25:05.004811531Z [inf]  Fetching premium trending tokens
-2026-02-19T11:25:05.004816393Z [inf]  SocialRepo: Recalculated heat scores for 1000 casts
-2026-02-19T11:25:05.004822932Z [inf]  WS addresses discovered
-2026-02-19T11:25:05.004828076Z [inf]  Processed DexScreener trending candidates
-2026-02-19T11:25:05.004833388Z [inf]  Suppressed repeated logs
-2026-02-19T11:25:05.004837494Z [inf]  Skipping low liquidity token
-2026-02-19T11:25:05.678567108Z [wrn]  GeckoTerminal 429 triggered backoff
-2026-02-19T11:25:06.673756921Z [wrn]  GeckoTerminal 429 triggered backoff
-2026-02-19T11:25:08.000309508Z [inf]  Suppressed repeated logs
-2026-02-19T11:25:08.000319663Z [inf]  Alpha Detector: Checking new coin
-2026-02-19T11:25:08.871789116Z [wrn]  GeckoTerminal 429 triggered backoff
-2026-02-19T11:25:12.908434297Z [inf]  Got 85 trending tokens for Ethereum
-2026-02-19T11:25:12.908445981Z [inf]  Filtered out 5 invalid tokens for Ethereum
-2026-02-19T11:25:12.908454145Z [inf]  Saved 80/80 trending tokens for eth to database and memory cache
-2026-02-19T11:25:12.908611024Z [wrn]  GeckoTerminal 429 triggered backoff
-2026-02-19T11:25:12.908617477Z [err]  GeckoTerminal API error after retries
-2026-02-19T11:25:12.908623773Z [err]  Error fetching trending tokens
-2026-02-19T11:25:12.908630179Z [inf]  Premium trending tokens fetch complete
-2026-02-19T11:25:12.912002430Z [inf]  Saved 80 tokens for Ethereum to DB + cache
-2026-02-19T11:25:12.912008754Z [inf]  Launchpad verify budget applied
-2026-02-19T11:25:16.234420361Z [inf]  0x API price received successfully
-2026-02-19T11:25:16.234429418Z [inf]  0x API price received successfully
-2026-02-19T11:25:16.234435797Z [inf]  ✅ Hybrid fetch complete
-2026-02-19T11:25:16.234441490Z [inf]  ✅ Hybrid fetch complete
+🟢 BOUGHT $LAUKI
+💰 Valu..."
+2026-02-19T16:09:18.208576274Z [inf]  [CopyTrade] Turbo fast lane complete
+2026-02-19T16:09:18.208582217Z [inf]  [Warpcast] DM sent successfully. Daily usage: 5/50000
+2026-02-19T16:09:18.208587735Z [inf]  0x API Quote received successfully
+2026-02-19T16:09:18.208591882Z [inf]  0x API Quote successful
+2026-02-19T16:09:18.208772901Z [inf]  [QuoteService] 0x API estimatedPriceImpact: {"parsed":0,"multipliedBy100":0,"impactVsMkt":null,"willUse":0}
+2026-02-19T16:09:18.217744382Z [inf]  [Webhook] Alchemy payload: network=BASE_MAINNET hash=0x51cbd8410ecf41d16873151bca1e0b94d73903b58bab949508e766c0c47d2547 category=token asset=LAUKI
+2026-02-19T16:09:18.217750003Z [inf]  [Webhook] Ignore tx 0x51cbd8410ecf41d16873151bca1e0b94d73903b58bab949508e766c0c47d2547: no tracked wallets (from/to 0x498581ff718922c3f8e6a244956af099b2652b2b, 0xfb64ce8d64cec808a8acb977d3ee7be1169f1a2b)
+2026-02-19T16:09:18.221646822Z [inf]  [Webhook] Alchemy payload: network=BASE_MAINNET hash=0x51cbd8410ecf41d16873151bca1e0b94d73903b58bab949508e766c0c47d2547 category=external asset=ETH
+2026-02-19T16:09:18.221651446Z [inf]  Suppressed repeated logs
+2026-02-19T16:09:18.221656342Z [inf]  [Webhook] Processing as EVM activity groups (1 tx groups)
+2026-02-19T16:09:18.221660775Z [inf]  [Webhook] Ignore tx 0x51cbd8410ecf41d16873151bca1e0b94d73903b58bab949508e766c0c47d2547: no tracked wallets (from/to 0xfb64ce8d64cec808a8acb977d3ee7be1169f1a2b, 0x6ff5693b99212da76ad316178a184ab56d299b43)
+2026-02-19T16:09:18.419556188Z [inf]  Suppressed repeated logs
+2026-02-19T16:09:18.419563935Z [inf]  [Kyber] routes response {"status":200,"hasData":true,"keys":["code","message","data","requestId"]}
+2026-02-19T16:09:18.419572747Z [inf]  [Kyber] Building route/build request body: {"hasRouteSummary":true,"routeSummaryKeys":["tokenIn","amountIn","amountInUsd","tokenOut","amountOut","amountOutUsd","gas","gasPrice"],"sender":"0xFB64Ce8d","recipient":"0xFB64Ce8d","slippageTolerance":2500,"slippageToleranceType":"number","deadline":1771517957,"deadlineType":"number","allBodyKeys":["routeSummary","sender","recipient","origin","slippageTolerance","deadline"]}
+2026-02-19T16:09:18.465176284Z [inf]  [QuoteService] Quote comparison: {"0x_amount":"0.00025773626160983","kyber_amount":"0.000257526630197943","kyber_advantage_pct":"0.00","chainId":8453}
+2026-02-19T16:09:18.465190584Z [inf]  [QuoteService] Preferring 0x for reliability {"reason":"0x has better price","percentDiff":"0.00"}
+2026-02-19T16:09:55.752261263Z [err]  2026-02-19 16:09:46.958 UTC [27] LOG:  checkpoint complete: wrote 674 buffers (4.1%); 0 WAL file(s) added, 0 removed, 1 recycled; write=67.543 s, sync=0.032 s, total=67.668 s; sync files=58, longest=0.013 s, average=0.001 s; distance=4760 kB, estimate=6463 kB; lsn=7/2F04DDD0, redo lsn=7/2F025E80
+2026-02-19T16:10:13.466680158Z [inf]  1:M 19 Feb 2026 16:10:10.082 * 1 changes in 60 seconds. Saving...
+2026-02-19T16:10:13.466686266Z [inf]  1:M 19 Feb 2026 16:10:10.083 * Background saving started by pid 13081
+2026-02-19T16:10:13.466692193Z [inf]  13081:C 19 Feb 2026 16:10:10.168 * DB saved on disk
+2026-02-19T16:10:13.466698454Z [inf]  13081:C 19 Feb 2026 16:10:10.168 * Fork CoW for RDB: current 1 MB, peak 1 MB, average 0 MB
+2026-02-19T16:10:13.467174110Z [inf]  1:M 19 Feb 2026 16:10:10.183 * Background saving terminated with success
+2026-02-19T16:10:15.363037714Z [inf]  ✅ Hybrid fetch complete
+2026-02-19T16:10:16.900298765Z [wrn]  RPC health degraded
+2026-02-19T16:10:26.347583470Z [wrn]  GeckoTerminal 429 triggered backoff
+2026-02-19T16:10:26.347590234Z [inf]  0x API price received successfully
+2026-02-19T16:10:26.347595402Z [inf]  Suppressed repeated logs
+2026-02-19T16:10:26.347602352Z [inf]  Alpha Detector: Checking new coin
+2026-02-19T16:10:26.347609598Z [inf]  ✅ Hybrid fetch complete
+2026-02-19T16:10:26.347757949Z [inf]  Suppressed repeated logs
+2026-02-19T16:10:26.347764325Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
+2026-02-19T16:10:26.347770569Z [inf]  Fetching premium trending tokens
+2026-02-19T16:10:26.347777903Z [inf]  SocialRepo: Recalculated heat scores for 1000 casts
+2026-02-19T16:10:26.347783031Z [inf]  WS addresses discovered
+2026-02-19T16:10:26.347787846Z [inf]  Processed DexScreener trending candidates
+2026-02-19T16:10:26.347792632Z [wrn]  GeckoTerminal 429 triggered backoff
+2026-02-19T16:10:26.347797814Z [wrn]  GeckoTerminal 429 triggered backoff
+2026-02-19T16:10:27.144657881Z [wrn]  GeckoTerminal 429 triggered backoff
+2026-02-19T16:10:27.144665093Z [err]  GeckoTerminal API error after retries
+2026-02-19T16:10:27.144677854Z [err]  Error fetching trending tokens
+2026-02-19T16:10:27.144684476Z [inf]  Premium trending tokens fetch complete
+2026-02-19T16:10:27.144691198Z [inf]  Got 86 trending tokens for Ethereum
+2026-02-19T16:10:27.144699446Z [inf]  Filtered out 3 invalid tokens for Ethereum
+2026-02-19T16:10:27.148589258Z [inf]  Saved 83 tokens for Ethereum to DB + cache
+2026-02-19T16:10:27.148763881Z [inf]  Suppressed repeated logs
+2026-02-19T16:10:27.148768181Z [inf]  Saved 83/83 trending tokens for eth to database and memory cache
+2026-02-19T16:10:27.149370026Z [inf]  Launchpad verify budget applied
+2026-02-19T16:10:41.565021992Z [inf]  0x API price received successfully
+2026-02-19T16:10:41.565033480Z [inf]  ✅ Hybrid fetch complete
+2026-02-19T16:10:41.565040674Z [wrn]  RPC health degraded
+2026-02-19T16:10:41.565047293Z [inf]  Fetching premium trending tokens
+2026-02-19T16:10:41.784209603Z [inf]  WS addresses discovered
+2026-02-19T16:10:43.483866311Z [inf]  Processed DexScreener trending candidates
+2026-02-19T16:10:43.483877969Z [inf]  Premium trending tokens fetch complete
+2026-02-19T16:10:43.483883328Z [inf]  Got 100 trending tokens for Solana
+2026-02-19T16:10:43.483887744Z [inf]  Saved 100/100 trending tokens for solana to database and memory cache
+2026-02-19T16:10:43.483892678Z [inf]  Saved 100 tokens for Solana to DB + cache
+2026-02-19T16:11:03.633318419Z [inf]  Suppressed repeated logs
+2026-02-19T16:11:03.633323367Z [inf]  Saved 100/100 trending tokens for solana to database and memory cache
+2026-02-19T16:11:09.544648593Z [inf]  0x API price received successfully
+2026-02-19T16:11:09.544652945Z [inf]  ✅ Hybrid fetch complete
+2026-02-19T16:11:13.878945678Z [inf]  Fetching premium trending tokens
+2026-02-19T16:11:13.878954404Z [inf]  WS addresses discovered
+2026-02-19T16:11:14.726603748Z [inf]  Processed DexScreener trending candidates
+2026-02-19T16:11:14.726611942Z [inf]  Premium trending tokens fetch complete
+2026-02-19T16:11:14.726618466Z [inf]  Got 64 trending tokens for Base
+2026-02-19T16:11:14.728748530Z [inf]  Saved 64/64 trending tokens for base to database and memory cache
+2026-02-19T16:11:14.728757076Z [inf]  Saved 64 tokens for Base to DB + cache
+2026-02-19T16:11:15.679733564Z [inf]  Launchpad verify budget applied
+2026-02-19T16:11:15.765142851Z [inf]  Suppressed repeated logs
+2026-02-19T16:11:15.765153159Z [err]  api failed after 1 attempts
+2026-02-19T16:11:16.539319774Z [inf]  1:M 19 Feb 2026 16:11:11.059 * 1 changes in 60 seconds. Saving...
+2026-02-19T16:11:16.539331501Z [inf]  1:M 19 Feb 2026 16:11:11.059 * Background saving started by pid 13082
+2026-02-19T16:11:16.539344962Z [inf]  13082:C 19 Feb 2026 16:11:11.141 * DB saved on disk
+2026-02-19T16:11:16.539355769Z [inf]  13082:C 19 Feb 2026 16:11:11.141 * Fork CoW for RDB: current 1 MB, peak 1 MB, average 0 MB
+2026-02-19T16:11:16.539363835Z [inf]  1:M 19 Feb 2026 16:11:11.160 * Background saving terminated with success
+2026-02-19T16:11:23.605334354Z [inf]  Suppressed repeated logs
+2026-02-19T16:11:23.605340493Z [inf]  Saved 64/64 trending tokens for base to database and memory cache
+2026-02-19T16:11:42.957002306Z [inf]  0x API price received successfully
+2026-02-19T16:11:42.957008574Z [inf]  ✅ Hybrid fetch complete
+2026-02-19T16:11:42.957013538Z [wrn]  RPC health degraded
+2026-02-19T16:11:44.741730996Z [inf]  Fetching premium trending tokens
+2026-02-19T16:11:44.986923573Z [inf]  WS addresses discovered
+2026-02-19T16:11:46.791463930Z [inf]  Suppressed repeated logs
+2026-02-19T16:11:46.791476942Z [inf]  Saved 74/74 trending tokens for bsc to database and memory cache
+2026-02-19T16:11:46.791486306Z [inf]  Saved 74 tokens for BSC to DB + cache
+2026-02-19T16:11:46.791493549Z [inf]  Refreshed 4 primary chains in 106.3s
+2026-02-19T16:11:46.791560217Z [inf]  Processed DexScreener trending candidates
+2026-02-19T16:11:46.791566229Z [inf]  Premium trending tokens fetch complete
+2026-02-19T16:11:46.791572123Z [inf]  Got 75 trending tokens for BSC
+2026-02-19T16:11:46.791576932Z [inf]  Filtered out 1 invalid tokens for BSC
+2026-02-19T16:11:46.796291968Z [inf]  Launchpad verify budget applied
+2026-02-19T16:11:47.771122231Z [err]  LaunchpadDetector: Four.meme fetch failed
+2026-02-19T16:11:47.771127906Z [err]  LaunchpadDetector: Four.meme fetch failed
