@@ -863,8 +863,7 @@
     gap: 8px;
   }
 
-  .primaryButton,
-  .ghostButton {
+  .primaryButton {
     padding: 10px 12px;
     border-radius: 10px;
   }
@@ -1507,6 +1506,65 @@
 }
 
 /* Toggle Button Styles */
+.ghostButton {
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  font-size: var(--settings-desc-fs);
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0 4px;
+  margin-left: 12px;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: color 0.2s ease;
+}
+
+.ghostButton:hover {
+  color: var(--text-primary);
+}
+
+:global(.light) .ghostButton {
+  color: #52525b;
+}
+
+:global(.light) .ghostButton:hover {
+  color: #18181b;
+}
+
+.showAllButton {
+  display: block;
+  width: 100%;
+  margin-top: 12px;
+  padding: 12px;
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  color: var(--text-secondary);
+  font-size: var(--settings-desc-fs);
+  font-weight: 600;
+  cursor: pointer;
+  text-align: center;
+  transition: background 0.2s ease, color 0.2s ease;
+}
+
+.showAllButton:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-primary);
+}
+
+:global(.light) .showAllButton {
+  border-color: rgba(0, 0, 0, 0.08);
+  color: #52525b;
+}
+
+:global(.light) .showAllButton:hover {
+  background: rgba(0, 0, 0, 0.04);
+  color: #18181b;
+}
+
 .toggleContainer {
   display: flex;
   align-items: center;
@@ -1514,7 +1572,6 @@
   padding: 4px;
   border-radius: 16px;
   border: 1px solid rgba(255, 255, 255, 0.05);
-  width: 100%;
   flex: 1;
   margin-right: 0;
 }

@@ -115,11 +115,8 @@ export default function WalletPage() {
               <button className={`${styles.toggleButton} ${viewMode === 'assets' ? styles.active : ''}`} onClick={() => setViewMode('assets')}>Assets</button>
               <button className={`${styles.toggleButton} ${viewMode === 'orders' ? styles.active : ''}`} onClick={() => setViewMode('orders')}>Orders</button>
             </div>
-            {viewMode === 'assets' && holdings.length > 10 && (
-              <button className={styles.ghostButton} onClick={() => setShowAllAssets(!showAllAssets)}>{showAllAssets ? 'Show less' : 'Show all'}</button>
-            )}
           </div>
-          {viewMode === 'assets' ? <AssetList loading={loading} displayHoldings={holdings} showAllAssets={showAllAssets} styles={styles} /> : (
+          {viewMode === 'assets' ? <AssetList loading={loading} displayHoldings={holdings} showAllAssets={showAllAssets} onToggleShowAll={() => setShowAllAssets(!showAllAssets)} styles={styles} /> : (
             <div className={styles.ordersContainer}>
               {ordersLoading ? <div className={styles.emptyState}>Loading orders...</div> : (orders.length === 0 && pendingOrders.length === 0 ? <div className={styles.emptyState}>No positions.</div> : (
                 <>

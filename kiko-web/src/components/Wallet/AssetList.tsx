@@ -38,12 +38,13 @@ interface AssetListProps {
     loading: boolean;
     displayHoldings: TokenHolding[];
     showAllAssets: boolean;
+    onToggleShowAll?: () => void;
     styles: any;
 }
 
 // [Logic]: Separated AssetList to manage complex grid/loading states.
 // [Ref]: Migrated from WalletPage.tsx:L1005-L1062.
-export const AssetList: React.FC<AssetListProps> = ({ loading, displayHoldings, showAllAssets, styles }) => {
+export const AssetList: React.FC<AssetListProps> = ({ loading, displayHoldings, showAllAssets, onToggleShowAll, styles }) => {
     if (loading) return (
         <div className={styles.cardsGrid}>
             {Array.from({ length: 6 }).map((_, i) => (
@@ -58,29 +59,38 @@ export const AssetList: React.FC<AssetListProps> = ({ loading, displayHoldings, 
         </div>
     );
     if (!loading && displayHoldings.length === 0) return <div className={styles.emptyState}>No assets found.</div>;
+    const visible = showAllAssets ? displayHoldings : displayHoldings.slice(0, 10);
+    const hasMore = displayHoldings.length > 10;
     return (
-        <div className={styles.cardsGrid}>
-            {(showAllAssets ? displayHoldings : displayHoldings.slice(0, 10)).map((asset, i) => (
-                <div className={styles.assetCard} key={i}>
-                    <div className={styles.assetTop}>
-                        <TokenIcon
-                            src={asset.logo}
-                            alt={asset.symbol}
-                            symbol={asset.symbol}
-                            chainId={asset.chainId}
-                            styles={styles}
-                        />
-                        <div className={styles.tokenInfo}>
-                            <div className={styles.tokenName}>{asset.name}</div>
-                            <div className={styles.assetBalance}>{formatSmartNumber(asset.balance)} {asset.symbol}</div>
+        <>
+            <div className={styles.cardsGrid}>
+                {visible.map((asset, i) => (
+                    <div className={styles.assetCard} key={i}>
+                        <div className={styles.assetTop}>
+                            <TokenIcon
+                                src={asset.logo}
+                                alt={asset.symbol}
+                                symbol={asset.symbol}
+                                chainId={asset.chainId}
+                                styles={styles}
+                            />
+                            <div className={styles.tokenInfo}>
+                                <div className={styles.tokenName}>{asset.name}</div>
+                                <div className={styles.assetBalance}>{formatSmartNumber(asset.balance)} {asset.symbol}</div>
+                            </div>
+                        </div>
+                        <div className={styles.assetRight}>
+                            <div className={styles.assetValue}>{asset.value}</div>
+                            <div className={styles.assetChange}>{asset.change}</div>
                         </div>
                     </div>
-                    <div className={styles.assetRight}>
-                        <div className={styles.assetValue}>{asset.value}</div>
-                        <div className={styles.assetChange}>{asset.change}</div>
-                    </div>
-                </div>
-            ))}
-        </div>
+                ))}
+            </div>
+            {hasMore && (
+                <button className={styles.showAllButton} onClick={onToggleShowAll}>
+                    {showAllAssets ? 'Show less' : `Show all (${displayHoldings.length})`}
+                </button>
+            )}
+        </>
     );
 };
