@@ -874,11 +874,22 @@ function attachRouteContext(
     logs: Array<{ address: string; topics: string[]; data: string }>,
     chainId: number
 ): DecodedSwap {
+    const resolvedPairMismatch = (() => {
+        if (swap.resolvedPoolHint?.kind !== 'v4' || !swap.resolvedPoolHint.v4PoolKey) return false;
+        return !isSamePoolPair(
+            swap.tokenIn,
+            swap.tokenOut,
+            swap.resolvedPoolHint.v4PoolKey.currency0,
+            swap.resolvedPoolHint.v4PoolKey.currency1,
+            chainId
+        );
+    })();
+
     const routeHops = extractRouteHops(logs, chainId);
     if (!routeHops.length) {
         swap.routeHopCount = 0;
         swap.routeHops = undefined;
-        swap.canUseResolvedPoolFastPath = Boolean(swap.resolvedPoolHint);
+        swap.canUseResolvedPoolFastPath = Boolean(swap.resolvedPoolHint) && !resolvedPairMismatch;
         return swap;
     }
 
@@ -886,6 +897,11 @@ function attachRouteContext(
     swap.routeHops = routeHops;
 
     if (!swap.resolvedPoolHint) {
+        swap.canUseResolvedPoolFastPath = false;
+        return swap;
+    }
+
+    if (resolvedPairMismatch) {
         swap.canUseResolvedPoolFastPath = false;
         return swap;
     }

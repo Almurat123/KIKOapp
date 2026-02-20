@@ -72,6 +72,24 @@ export async function executeV4Swap(
     pool
   });
   const { isNativeIn, isNativeOut, normalizedIn, normalizedOut, zeroForOne, hookDataCandidates, hookFamily, poolKey, poolId } = plan;
+  const poolToken0 = poolKey.currency0.toLowerCase();
+  const poolToken1 = poolKey.currency1.toLowerCase();
+  const inToken = normalizedIn.toLowerCase();
+  const outToken = normalizedOut.toLowerCase();
+  const pairMatches =
+    (poolToken0 === inToken && poolToken1 === outToken)
+    || (poolToken0 === outToken && poolToken1 === inToken);
+  if (!pairMatches) {
+    logger.warn(LogCode.SYS_INFO, '[DirectSwap] Reject V4 pool: swap pair mismatch', {
+      chainId,
+      poolId,
+      tokenIn: normalizedIn,
+      tokenOut: normalizedOut,
+      poolToken0: poolKey.currency0,
+      poolToken1: poolKey.currency1
+    });
+    return { success: false, error: 'hint_pool_pair_mismatch:execution_plan', provider: 'failed' };
+  }
 
   logger.info(LogCode.SYS_INFO, '[DirectSwap] Using V4 pool', {
     chainId,
@@ -169,7 +187,7 @@ export async function executeV4Swap(
   const turboTrustedFastPath = executionMode === 'turbo' && trustedHint;
   // Always run pre-simulation — even in fastMode. One eth_call (~50ms) prevents
   // sending transactions that WILL revert (burning gas + wasting retry attempts).
-  if (!turboTrustedFastPath) {
+  {
     try {
       await deps.callRpc<string>(chainId, 'eth_call', [{
         from: params.walletAddress,
@@ -233,6 +251,7 @@ export async function executeV4Swap(
           revertReason: reason,
           errorData: errSummary.dataPreview,
           transientRpcFailure: deps.isTransientRpcFailureForPreSim(errSummary),
+          turboTrustedHint: turboTrustedFastPath,
           hookFamily,
           poolId,
           hook: poolKey.hooks,
@@ -254,17 +273,19 @@ export async function executeV4Swap(
             errorCode: errSummary.code
           });
         } else {
+          const reasonLower = (reason || '').toLowerCase();
+          if (
+            reasonLower.includes('transfer_failed')
+            || reasonLower.includes('insufficient amountout')
+            || reasonLower.includes('safe transfer')
+          ) {
+            return { success: false, error: `v4_pre_sim_revert:${reason || errSummary.shortMessage}`, provider: 'uniswap-v4' };
+          }
           const hookFailurePrefix = hookFamily === 'unknown' ? 'unsupported_hook' : 'hook_candidate_failed';
           return { success: false, error: `${hookFailurePrefix}:${reason || 'pre_sim_failed'}`, provider: 'failed' };
         }
       }
     }
-  } else if (turboTrustedFastPath) {
-    logger.info(LogCode.SYS_INFO, '[DirectSwap] V4 pre-simulation skipped (turbo trusted hint)', {
-      chainId,
-      poolId,
-      hook: poolKey.hooks
-    });
   }
 
   let gasLimit: string;

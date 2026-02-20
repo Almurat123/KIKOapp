@@ -307,6 +307,12 @@ function buildPendingNonceKey(chainId: number, walletAddress: string): string {
     return `${chainId}:${walletAddress.toLowerCase()}`;
 }
 
+function invalidatePendingNonce(chainId: number, walletAddress: string): void {
+    const key = buildPendingNonceKey(chainId, walletAddress);
+    pendingNonceCache.delete(key);
+    pendingNonceInflight.delete(key);
+}
+
 export function isTransactionQueueBusy(userId: string, chainId: number): boolean {
     const chainKey = buildUserChainKey(userId, chainId);
     return (userChainInflightTx.get(chainKey) || 0) > 0 || userTransactionLocks.has(userId);
@@ -456,7 +462,8 @@ export async function sendTransaction(
 
             const client = getPrivyClient();
             const MAX_RETRIES = 3;
-            const RETRY_DELAY_MS = 2000;
+            const NETWORK_RETRY_DELAY_MS = 900;
+            const NONCE_RETRY_DELAY_MS = 250;
 
             // Get user's wallet info (both address and ID)
             const walletInfo = await getEmbeddedWalletInfo(userId, { chainType: 'ethereum' });
@@ -613,13 +620,24 @@ export async function sendTransaction(
                     if ((isNonceError || isNetworkError) && attempt < MAX_RETRIES) {
                         const reason = isNonceError ? 'Nonce error' : 'Network failure';
                         if (isNonceError) {
+                            invalidatePendingNonce(txWithNonce.chainId, walletInfo.address);
+                            const currentNonce = txWithNonce.nonce ? BigInt(txWithNonce.nonce) : null;
+                            const refreshedNonceHex = await getPendingNonce(txWithNonce.chainId, walletInfo.address);
+                            const refreshedNonce = refreshedNonceHex ? BigInt(refreshedNonceHex) : null;
+                            const nextNonce = refreshedNonce !== null
+                                ? (currentNonce !== null && refreshedNonce <= currentNonce ? currentNonce + 1n : refreshedNonce)
+                                : (currentNonce !== null ? currentNonce + 1n : null);
                             txWithNonce = {
                                 ...txWithNonce,
-                                nonce: await getPendingNonce(txWithNonce.chainId, walletInfo.address) || txWithNonce.nonce
+                                nonce: nextNonce !== null ? nextNonce.toString() : txWithNonce.nonce
                             };
                         }
-                        logger.warn(LogCode.EXE_TX_BROADCAST, `${reason} on attempt ${attempt}, retrying in ${RETRY_DELAY_MS}ms...`);
-                        await new Promise(resolve => setTimeout(resolve, RETRY_DELAY_MS));
+                        const retryDelayMs = isNonceError ? NONCE_RETRY_DELAY_MS : NETWORK_RETRY_DELAY_MS;
+                        logger.warn(LogCode.EXE_TX_BROADCAST, `${reason} on attempt ${attempt}, retrying in ${retryDelayMs}ms...`, {
+                            chainId: txWithNonce.chainId,
+                            nextNonce: txWithNonce.nonce
+                        });
+                        await new Promise(resolve => setTimeout(resolve, retryDelayMs));
                         continue;
                     }
 

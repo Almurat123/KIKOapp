@@ -615,15 +615,16 @@ export class MainSwapService {
     trace: (msg: string) => string,
     ctx: TradeContext
   ): Promise<MainSwapResult> {
-    const TURBO_TOTAL_BUDGET_MS = Number(process.env.COPYTRADE_TURBO_TOTAL_BUDGET_MS || '2200');
-    const TURBO_DIRECT_ATTEMPT_TIMEOUT_MS = Number(process.env.COPYTRADE_TURBO_DIRECT_ATTEMPT_TIMEOUT_MS || '1400');
-    const TURBO_DIRECT_MAX_ATTEMPTS = Math.max(1, Number(process.env.COPYTRADE_TURBO_DIRECT_MAX_ATTEMPTS || '2'));
-    const BALANCED_DIRECT_MAX_ATTEMPTS = Math.max(1, Number(process.env.COPYTRADE_BALANCED_DIRECT_MAX_ATTEMPTS || '2'));
-    const TURBO_ADAPTIVE_RETRY_AMOUNT = (process.env.COPYTRADE_TURBO_ADAPTIVE_RETRY_AMOUNT || 'false') === 'true';
-    const TURBO_SKIP_FALLBACK_ON_TIMEOUT = (process.env.COPYTRADE_TURBO_SKIP_FALLBACK_ON_TIMEOUT || 'true') === 'true';
-    const TURBO_DIRECT_LATE_SETTLE_MS = Number(process.env.COPYTRADE_TURBO_DIRECT_LATE_SETTLE_MS || '2200');
+    const TURBO_TOTAL_BUDGET_MS = 6500;
+    const TURBO_DIRECT_ATTEMPT_TIMEOUT_MS = 1800;
+    const TURBO_DIRECT_MAX_ATTEMPTS = 2;
+    const BALANCED_DIRECT_MAX_ATTEMPTS = 2;
+    const TURBO_ADAPTIVE_RETRY_AMOUNT = false;
+    const TURBO_SKIP_FALLBACK_ON_TIMEOUT = true;
+    const TURBO_DIRECT_LATE_SETTLE_MS = 2000;
+    const TURBO_DIRECT_FINAL_SETTLE_MS = 4500;
     // 0x API is typically 10s+; skip fallback in turbo so we fail fast instead of waiting.
-    const TURBO_SKIP_0X_FALLBACK = (process.env.COPYTRADE_TURBO_SKIP_0X_FALLBACK ?? 'true') === 'true';
+    const TURBO_SKIP_0X_FALLBACK = true;
     const withTimeout = async <T,>(promise: Promise<T>, ms: number, label: string): Promise<T> => {
       return new Promise<T>((resolve, reject) => {
         const timer = setTimeout(() => reject(new Error(`timeout_${label}_${ms}ms`)), ms);
@@ -640,6 +641,11 @@ export class MainSwapService {
       const msg = String((err as any)?.message || '').toLowerCase();
       return msg.includes('timeout_');
     };
+    const settleWithin = async <T,>(promise: Promise<T>, ms: number): Promise<T | null> =>
+      Promise.race([
+        promise,
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), ms))
+      ]);
 
     const normalizedTokenIn = this.normalizeEvmTokenInput(request.tokenIn, request.chainId);
     const normalizedTokenOut = this.normalizeEvmTokenInput(request.tokenOut, request.chainId);
@@ -803,10 +809,7 @@ export class MainSwapService {
                 lateSettleMs: TURBO_DIRECT_LATE_SETTLE_MS
               });
 
-              const lateResult = await Promise.race([
-                inflightDirectPromise,
-                new Promise<null>((resolve) => setTimeout(() => resolve(null), TURBO_DIRECT_LATE_SETTLE_MS))
-              ]);
+              const lateResult = await settleWithin(inflightDirectPromise, TURBO_DIRECT_LATE_SETTLE_MS);
 
               if (lateResult) {
                 directResult = lateResult;
@@ -893,6 +896,56 @@ export class MainSwapService {
         }
       } catch (directErr: any) {
         lastDirectError = directErr;
+      }
+
+      if (
+        isTurboCopytrade &&
+        isTimeoutError(lastDirectError) &&
+        inflightDirectPromise
+      ) {
+        logger.warn(LogCode.SYS_INFO, trace('Turbo direct timed out; awaiting final settle window'), {
+          finalSettleMs: TURBO_DIRECT_FINAL_SETTLE_MS,
+          error: lastDirectError?.message
+        });
+        try {
+          const finalResult = await settleWithin(inflightDirectPromise, TURBO_DIRECT_FINAL_SETTLE_MS);
+          if (finalResult) {
+            lastDirectResult = finalResult;
+            if (finalResult.success) {
+              if (checkNativeBalancePromise) await checkNativeBalancePromise;
+              try {
+                await this.collectDirectSwapFee(
+                  request,
+                  normalizedTokenOut,
+                  finalResult.amountOut,
+                  feeContext,
+                  trace
+                );
+              } catch (feeErr: any) {
+                logger.warn(LogCode.SYS_ERROR, trace('Direct swap fee transfer failed (non-fatal)'), {
+                  error: feeErr?.message || String(feeErr)
+                });
+              }
+              logger.info(LogCode.EXE_TX_CONFIRMED, trace(`Direct swap successful after final settle txHash=${finalResult.txHash ?? 'null'}`), {
+                txHash: finalResult.txHash,
+                provider: finalResult.provider,
+                poolInfo: finalResult.poolInfo
+              });
+              return {
+                success: true,
+                txHash: finalResult.txHash,
+                amountOut: finalResult.amountOut,
+                metadata: {
+                  provider: finalResult.provider,
+                  mode: request.mode
+                }
+              };
+            }
+            lastDirectError = new Error(finalResult.error || 'direct_swap_final_settle_failed');
+          }
+        } catch (finalSettleError: any) {
+          lastDirectError = finalSettleError;
+        }
       }
 
       if (
