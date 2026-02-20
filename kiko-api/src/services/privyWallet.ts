@@ -230,6 +230,35 @@ function validatePrivyTransactionShape(tx: TransactionRequest): PrivyTxValidatio
     return { ok: errors.length === 0, errors };
 }
 
+async function fetchPendingNonce(chainId: number, walletAddress: string): Promise<string | undefined> {
+    const countHex = await rpcCall<string>(chainId, 'eth_getTransactionCount', [
+        walletAddress,
+        'pending'
+    ], { strategy: 'fast', importance: 'critical' });
+    return countHex ? BigInt(countHex).toString() : undefined;
+}
+
+async function bumpRetryGasPrice(
+    chainId: number,
+    previousGasPrice: string | undefined,
+    attempt: number
+): Promise<string | undefined> {
+    try {
+        const networkGasHex = await rpcCall<string>(chainId, 'eth_gasPrice', [], {
+            strategy: 'fast',
+            importance: 'critical'
+        });
+        const networkGasPrice = networkGasHex ? BigInt(networkGasHex) : 0n;
+        const baseGasPrice = previousGasPrice ? BigInt(previousGasPrice) : networkGasPrice;
+        if (baseGasPrice <= 0n) return previousGasPrice;
+        const bumpBps = 1200n + BigInt(Math.max(0, attempt - 1)) * 600n; // +12%, +18%, +24%
+        const bumped = baseGasPrice * (10000n + bumpBps) / 10000n;
+        return bumped.toString();
+    } catch {
+        return previousGasPrice;
+    }
+}
+
 /**
  * Send a transaction using user's embedded wallet (server-side signing)
  * @param userId - Privy user ID
@@ -335,11 +364,7 @@ export async function sendTransaction(
         let resolvedNonce = tx.nonce;
         if (resolvedNonce === undefined || resolvedNonce === null || resolvedNonce === '') {
             try {
-                const countHex = await rpcCall<string>(tx.chainId, 'eth_getTransactionCount', [
-                    walletInfo.address,
-                    'pending'
-                ], { strategy: 'fast', importance: 'critical' });
-                resolvedNonce = countHex ? BigInt(countHex).toString() : undefined;
+                resolvedNonce = await fetchPendingNonce(tx.chainId, walletInfo.address);
                 if (resolvedNonce !== undefined) {
                     logger.debug(LogCode.EXE_TX_BROADCAST, 'Fetched chain nonce for wallet', {
                         chainId: tx.chainId,
@@ -354,7 +379,7 @@ export async function sendTransaction(
                 });
             }
         }
-        const txWithNonce: TransactionRequest = { ...tx, nonce: resolvedNonce };
+        let txWithNonce: TransactionRequest = { ...tx, nonce: resolvedNonce };
         const txValidation = validatePrivyTransactionShape(txWithNonce);
         if (!txValidation.ok) {
             logger.error(LogCode.EXE_TX_REVERTED, 'Privy tx payload validation failed before send', {
@@ -399,11 +424,11 @@ export async function sendTransaction(
                 logger.debug(LogCode.EXE_TX_BROADCAST, 'Sending Ethereum transaction via Privy', {
                     attempt,
                     from: walletInfo.address?.slice(0, 10),
-                    to: tx.to?.slice(0, 10),
-                    chainId: tx.chainId,
+                    to: txWithNonce.to?.slice(0, 10),
+                    chainId: txWithNonce.chainId,
                 });
 
-                const preferPrivySendTx = PRIVY_SEND_TX_CHAIN_IDS.has(tx.chainId);
+                const preferPrivySendTx = PRIVY_SEND_TX_CHAIN_IDS.has(txWithNonce.chainId);
                 if (!preferPrivySendTx) {
                     return await signAndBroadcastRawTransaction(client, walletInfo.id, txWithNonce, {
                         userId,
@@ -413,13 +438,13 @@ export async function sendTransaction(
                 }
 
                 const privyTx = {
-                    to: tx.to as `0x${string}`,
-                    data: tx.data as `0x${string}`,
-                    value: toHexQuantity(tx.value),
-                    gasLimit: toHexQuantity(tx.gas),
-                    gasPrice: toHexQuantity(tx.gasPrice),
-                    maxFeePerGas: toHexQuantity(tx.maxFeePerGas),
-                    maxPriorityFeePerGas: toHexQuantity(tx.maxPriorityFeePerGas),
+                    to: txWithNonce.to as `0x${string}`,
+                    data: txWithNonce.data as `0x${string}`,
+                    value: toHexQuantity(txWithNonce.value),
+                    gasLimit: toHexQuantity(txWithNonce.gas),
+                    gasPrice: toHexQuantity(txWithNonce.gasPrice),
+                    maxFeePerGas: toHexQuantity(txWithNonce.maxFeePerGas),
+                    maxPriorityFeePerGas: toHexQuantity(txWithNonce.maxPriorityFeePerGas),
                     nonce: toHexQuantity(txWithNonce.nonce),
                 };
 
@@ -427,11 +452,11 @@ export async function sendTransaction(
                 // The walletId must be the Privy internal ID, not the Ethereum address
                 const response = await client.walletApi.ethereum.sendTransaction({
                     walletId: walletInfo.id,
-                    caip2: `eip155:${tx.chainId}`,
+                    caip2: `eip155:${txWithNonce.chainId}`,
                     transaction: privyTx,
                 });
 
-                logger.info(LogCode.EXE_TX_BROADCAST, 'Ethereum transaction sent via Privy', { txHash: response.hash, chainId: tx.chainId });
+                logger.info(LogCode.EXE_TX_BROADCAST, 'Ethereum transaction sent via Privy', { txHash: response.hash, chainId: txWithNonce.chainId });
 
                 const postSendDelayMs = Math.max(0, Number(process.env.PRIVY_POST_SEND_DELAY_MS || '0'));
                 if (postSendDelayMs > 0) {
@@ -443,7 +468,7 @@ export async function sendTransaction(
                 let effectiveError: any = error;
                 let errorMessage = effectiveError?.message || '';
                 const unsupportedSendOnNonEth =
-                    tx.chainId !== 1 && errorMessage.includes('eth_sendTransaction is only supported for Ethereum');
+                    txWithNonce.chainId !== 1 && errorMessage.includes('eth_sendTransaction is only supported for Ethereum');
                 if (unsupportedSendOnNonEth) {
                     try {
                         return await signAndBroadcastRawTransaction(client, walletInfo.id, txWithNonce, {
@@ -472,15 +497,37 @@ export async function sendTransaction(
                 // Retry on nonce errors or transient network failures
                 if ((isNonceError || isNetworkError) && attempt < MAX_RETRIES) {
                     const reason = isNonceError ? 'Nonce error' : 'Network failure';
+                    if (isNonceError) {
+                        try {
+                            const refreshedNonce = await fetchPendingNonce(txWithNonce.chainId, walletInfo.address);
+                            if (refreshedNonce !== undefined) {
+                                txWithNonce = { ...txWithNonce, nonce: refreshedNonce };
+                            }
+                        } catch {
+                            // keep current nonce
+                        }
+
+                        const bumpedGasPrice = await bumpRetryGasPrice(txWithNonce.chainId, txWithNonce.gasPrice, attempt);
+                        if (bumpedGasPrice) {
+                            txWithNonce = { ...txWithNonce, gasPrice: bumpedGasPrice };
+                        }
+
+                        logger.warn(LogCode.EXE_TX_BROADCAST, 'Nonce retry context refreshed', {
+                            chainId: txWithNonce.chainId,
+                            attempt,
+                            nonce: txWithNonce.nonce,
+                            gasPrice: txWithNonce.gasPrice
+                        });
+                    }
                     logger.warn(LogCode.EXE_TX_BROADCAST, `${reason} on attempt ${attempt}, retrying in ${RETRY_DELAY_MS}ms...`);
                     await new Promise(resolve => setTimeout(resolve, RETRY_DELAY_MS));
                     continue;
                 }
 
-                logger.error(LogCode.EXE_TX_REVERTED, 'Privy Ethereum transaction failed', { error: effectiveError?.message || String(effectiveError), chainId: tx.chainId });
+                logger.error(LogCode.EXE_TX_REVERTED, 'Privy Ethereum transaction failed', { error: effectiveError?.message || String(effectiveError), chainId: txWithNonce.chainId });
                 logger.error(LogCode.EXE_TX_REVERTED, 'Privy tx context on failure', {
                     attempt,
-                    chainId: tx.chainId,
+                    chainId: txWithNonce.chainId,
                     tx: summarizeTxForLog(txWithNonce)
                 });
 

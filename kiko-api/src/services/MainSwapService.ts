@@ -165,6 +165,42 @@ function isCashLikeToken(token: string, chainId: number): boolean {
  */
 export class MainSwapService {
   private static readonly TRACE_PREFIX = '[MainSwapService]';
+  private static readonly directSwapInflight = new Map<string, Promise<Awaited<ReturnType<typeof executeDirectSwap>>>>();
+
+  private static buildDirectSwapInflightKey(
+    request: MainSwapRequest,
+    tokenIn: string,
+    tokenOut: string
+  ): string {
+    return [
+      request.userId,
+      request.chainId,
+      tokenIn.toLowerCase(),
+      tokenOut.toLowerCase(),
+      request.amountIn,
+      request.mode
+    ].join(':');
+  }
+
+  private static getOrCreateDirectSwapInflight(
+    key: string,
+    producer: () => Promise<Awaited<ReturnType<typeof executeDirectSwap>>>
+  ): Promise<Awaited<ReturnType<typeof executeDirectSwap>>> {
+    const existing = this.directSwapInflight.get(key);
+    if (existing) {
+      logger.info(LogCode.SYS_INFO, '[MainSwapService] Reusing in-flight direct swap', {
+        inflightKey: key.slice(0, 48)
+      });
+      return existing;
+    }
+
+    const task = producer().finally(() => {
+      const current = this.directSwapInflight.get(key);
+      if (current === task) this.directSwapInflight.delete(key);
+    });
+    this.directSwapInflight.set(key, task);
+    return task;
+  }
 
   private static normalizeEvmTokenInput(token: string, chainId: number): string {
     const resolved = resolveTokenAddress(token, chainId);
@@ -584,6 +620,7 @@ export class MainSwapService {
     const normalizedTokenOut = this.normalizeEvmTokenInput(request.tokenOut, request.chainId);
     const rawTokenIn = String(request.tokenIn || '').trim().toLowerCase();
     const isTurboCopytrade = request.mode === 'copytrade' && request.userSettings?.copyTradeExecutionMode === 'turbo';
+    const directSwapInflightKey = this.buildDirectSwapInflightKey(request, normalizedTokenIn, normalizedTokenOut);
     if (!isNativeToken(normalizedTokenIn, request.chainId) && !/^0x[0-9a-fA-F]{40}$/.test(normalizedTokenIn)) {
       throw new Error(`Invalid EVM tokenIn: ${request.tokenIn}`);
     }
@@ -676,18 +713,21 @@ export class MainSwapService {
             lastDirectError = new Error(`timeout_turbo_budget_${TURBO_TOTAL_BUDGET_MS}ms`);
             break;
           }
-          inflightDirectPromise = executeDirectSwap({
-            userId: request.userId,
-            accessToken: request.accessToken || '',
-            walletAddress: request.walletAddress,
-            tokenIn: normalizedTokenIn,
-            tokenOut: normalizedTokenOut,
-            amountIn: request.amountIn,
-            chainId: request.chainId,
-            slippageBps: enforcedSlippageBps,
-            hint: request.directSwapHint,
-            executionMode: request.userSettings?.copyTradeExecutionMode
-          });
+          inflightDirectPromise = this.getOrCreateDirectSwapInflight(
+            directSwapInflightKey,
+            () => executeDirectSwap({
+              userId: request.userId,
+              accessToken: request.accessToken || '',
+              walletAddress: request.walletAddress,
+              tokenIn: normalizedTokenIn,
+              tokenOut: normalizedTokenOut,
+              amountIn: request.amountIn,
+              chainId: request.chainId,
+              slippageBps: enforcedSlippageBps,
+              hint: request.directSwapHint,
+              executionMode: request.userSettings?.copyTradeExecutionMode
+            })
+          );
           let directResult: Awaited<ReturnType<typeof executeDirectSwap>>;
           if (isTurboCopytrade) {
             const timeoutMs = Math.max(200, Math.min(TURBO_DIRECT_ATTEMPT_TIMEOUT_MS, remainingTurboBudget));

@@ -1,217 +1,190 @@
-2026-02-20T07:49:57.967196955Z [inf]  Starting Container
-2026-02-20T07:50:00.526646927Z [inf]  
-2026-02-20T07:50:00.526651617Z [inf]  > kiko-api@1.0.0 start
-2026-02-20T07:50:00.526806002Z [inf]  > node dist/index.js
-2026-02-20T07:50:00.526814401Z [inf]  
-2026-02-20T07:50:00.526820760Z [inf]  [Prisma] Initializing client (Pool: 20, Timeout: 45s, Connect: 20s)
-2026-02-20T07:50:00.526827681Z [inf]  Zora SDK initialized with API Key
-2026-02-20T07:50:02.987715499Z [err]  [SocialJob] Could not find real_hot_users.json in any candidate path
-2026-02-20T07:50:02.987912670Z [inf]  [Warpcast] Loaded 10 API keys. Daily capacity: 50000 messages.
-2026-02-20T07:50:02.987920967Z [inf]  [SkillRegistry:exec] Loading skills from /app/dist/skills_exec...
-2026-02-20T07:50:02.987926341Z [inf]  [SkillRegistry:exec] Skills dir not found, skipping: /app/dist/skills_exec
-2026-02-20T07:50:02.987933399Z [inf]  [SkillRegistry:clean] Loading skills from /app/dist/skills_clean...
-2026-02-20T07:50:02.987939204Z [inf]  [SkillRegistry:clean] Skills dir not found, skipping: /app/dist/skills_clean
-2026-02-20T07:50:02.987945312Z [inf]  Build SHA
-2026-02-20T07:50:02.987952880Z [inf]  Serving static files from:
-2026-02-20T07:50:02.987958786Z [inf]  Initializing services...
-2026-02-20T07:50:02.987964795Z [inf]  [Prisma] DB connection is healthy
-2026-02-20T07:50:02.987984757Z [inf]  Database connection successful
-2026-02-20T07:50:04.732888769Z [inf]  [DataRetention] Checking retention policies...
-2026-02-20T07:50:04.732897140Z [inf]  [DataRetention] Starting cleanup job...
-2026-02-20T07:50:04.732906318Z [inf]  [DataRetention] Scheduler started (every 60 minutes)
-2026-02-20T07:50:04.732911876Z [inf]  Redis initialized
-2026-02-20T07:50:04.732918243Z [inf]  ⚡ Preloading native token prices via Coinbase...
-2026-02-20T07:50:04.732924541Z [inf]  ⚡ Native price refresh started (10 min interval)
-2026-02-20T07:50:04.732930895Z [inf]  Native price refresh started
-2026-02-20T07:50:04.732937166Z [inf]  Starting server on port 8080...
-2026-02-20T07:50:06.345677113Z [inf]  Server listening at http://0.0.0.0:8080
-2026-02-20T07:50:06.345682694Z [inf]  Server listening
-2026-02-20T07:50:06.345689138Z [inf]  RPC health monitor started
-2026-02-20T07:50:06.345737132Z [inf]  RPC benchmark sampling started
-2026-02-20T07:50:06.345743960Z [inf]  [MarketJob] Scheduled: Overview(2:00 UTC), Chains(3:00 UTC), Protocols(4:00 UTC), Trending(Every 5m)
-2026-02-20T07:50:06.345750588Z [inf]  Scheduled: Primary chains every 5min (Ethereum, Solana, Base, BSC)
-2026-02-20T07:50:06.345756181Z [inf]  Scheduled: Secondary chains every 4h (Arbitrum, Optimism, Polygon)
-2026-02-20T07:50:06.345761670Z [inf]  [SocialJob] Scheduled: Discovery (30m), Refresh (4h), Scoring (5m)
-2026-02-20T07:50:07.967986244Z [inf]  Background jobs started
-2026-02-20T07:50:07.967993212Z [inf]  Initializing auto trade service...
-2026-02-20T07:50:07.967999705Z [inf]  [SolanaWatcher] ⚠️ Watcher disabled in favor of Webhooks. Not starting polling.
-2026-02-20T07:50:07.968006474Z [inf]  Auto trade service initialized (Solana watcher + EVM webhook + pending prefetch enabled)
-2026-02-20T07:50:07.968012934Z [inf]  Auto trade service started
-2026-02-20T07:50:07.968019382Z [inf]  [PositionMonitor] Starting position monitor (every 30s)...
-2026-02-20T07:50:07.968025957Z [inf]  Position monitor started
-2026-02-20T07:50:07.968032623Z [inf]  Token Alert Service started
-2026-02-20T07:50:10.993157474Z [inf]  ⚡ Native token prices cached (Coinbase)
-2026-02-20T07:50:10.993240438Z [inf]  Token alert service started
-2026-02-20T07:50:10.993246762Z [inf]  ChatWorker started polling
-2026-02-20T07:50:10.993252828Z [inf]  Chat worker started
-2026-02-20T07:50:10.993259570Z [inf]  Starting Global Zora Alpha Detector (API Polling)
-2026-02-20T07:50:10.993266153Z [inf]  🎉 All services initialized!
-2026-02-20T07:50:10.993273564Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-20T07:50:10.993279857Z [inf]  [CopyTradePending] Pending watcher started
-2026-02-20T07:50:13.170440143Z [inf]  [DataRetention] Cleanup job completed.
-2026-02-20T07:50:13.170446483Z [inf]  [MarketJob] Running startup staleness check...
-2026-02-20T07:50:13.170455826Z [inf]  [Job] Real hot users file not found: 
-2026-02-20T07:50:13.170461573Z [inf]  [Job] ✅ Got 1059 quality users from database
-2026-02-20T07:50:13.170467713Z [inf]  [SocialJob] fetchCastsFromUsers starting with 1059 FIDs, target: 1000
-2026-02-20T07:50:13.170473006Z [inf]  No open positions to monitor
-2026-02-20T07:50:35.246203845Z [inf]  Starting initial token refresh...
-2026-02-20T07:51:05.125384620Z [inf]  Alpha Detector: Checking new coin
-2026-02-20T07:51:05.125397151Z [inf]  Processed DexScreener trending candidates
-2026-02-20T07:51:05.125406857Z [inf]  Premium trending tokens fetch complete
-2026-02-20T07:51:05.125627035Z [wrn]  RPC health degraded
-2026-02-20T07:51:05.125635201Z [inf]  Fetching premium trending tokens
-2026-02-20T07:51:05.125672264Z [inf]  WS addresses discovered
-2026-02-20T07:51:07.243808108Z [inf]  Got 100 trending tokens for Solana
-2026-02-20T07:51:07.243820489Z [inf]  Saved 100/100 trending tokens for solana to database and memory cache
-2026-02-20T07:51:07.243826967Z [inf]  Saved 100 tokens for Solana to DB + cache
-2026-02-20T07:51:27.337954143Z [inf]  Suppressed repeated logs
-2026-02-20T07:51:27.337963169Z [inf]  Saved 100/100 trending tokens for solana to database and memory cache
-2026-02-20T07:51:46.943924499Z [inf]  Snapchain timestamp normalized from unix seconds
-2026-02-20T07:51:46.943931416Z [inf]  Fetching premium trending tokens
-2026-02-20T07:51:46.943939031Z [inf]  WS addresses discovered
-2026-02-20T07:51:46.943949581Z [inf]  Processed DexScreener trending candidates
-2026-02-20T07:51:46.944912553Z [inf]  Premium trending tokens fetch complete
-2026-02-20T07:51:46.944919880Z [inf]  Got 73 trending tokens for Base
-2026-02-20T07:51:46.944927493Z [inf]  Filtered out 1 invalid tokens for Base
-2026-02-20T07:51:46.944934459Z [inf]  Saved 72/72 trending tokens for base to database and memory cache
-2026-02-20T07:51:51.986957960Z [inf]  Saved 72 tokens for Base to DB + cache
-2026-02-20T07:51:51.986966298Z [inf]  Launchpad verify budget applied
-2026-02-20T07:51:51.986979168Z [err]  api failed after 1 attempts
-2026-02-20T07:51:51.986986605Z [inf]  Suppressed repeated logs
-2026-02-20T07:51:51.986994236Z [inf]  Saved 72/72 trending tokens for base to database and memory cache
-2026-02-20T07:52:11.491337126Z [wrn]  RPC health degraded
-2026-02-20T07:52:11.491344108Z [inf]  Fetching premium trending tokens
-2026-02-20T07:52:11.491351445Z [inf]  WS addresses discovered
-2026-02-20T07:52:11.491358855Z [inf]  Processed DexScreener trending candidates
-2026-02-20T07:52:11.491366478Z [inf]  Premium trending tokens fetch complete
-2026-02-20T07:52:11.491373938Z [inf]  Got 82 trending tokens for BSC
-2026-02-20T07:52:16.122416810Z [inf]  Filtered out 1 invalid tokens for BSC
-2026-02-20T07:52:16.122424070Z [inf]  Saved 81/81 trending tokens for bsc to database and memory cache
-2026-02-20T07:52:16.122432631Z [inf]  Saved 81 tokens for BSC to DB + cache
-2026-02-20T07:52:16.122439335Z [inf]  Refreshed 4 primary chains in 98.7s
-2026-02-20T07:52:16.122447251Z [inf]  Launchpad verify budget applied
-2026-02-20T07:52:16.122455221Z [err]  LaunchpadDetector: Four.meme fetch failed
-2026-02-20T07:52:16.122463486Z [err]  LaunchpadDetector: Four.meme fetch failed
-2026-02-20T07:52:19.116144206Z [inf]  [SocialJob] Checking Zora coin status for 998 casts...
-2026-02-20T07:52:53.221034046Z [inf]  [SocialJob] 🚀 Triggering OGP Prefetch for top 50 casts...
-2026-02-20T07:52:53.221042346Z [wrn]  [OGPService] Simple fetch failed
-2026-02-20T07:52:53.221049140Z [inf]  [OGPService] Launching Singleton Browser...
-2026-02-20T07:52:53.221055732Z [err]  [OGPService] Puppeteer failed
-2026-02-20T07:52:53.221156143Z [inf]  [SocialRepo] Cleaned up 731 old casts (cap: 1000)
-2026-02-20T07:52:53.221163302Z [inf]  SocialRepo: Updated cache with 500 merged casts
-2026-02-20T07:52:53.221171321Z [inf]  SocialRepo: Saved 998 trending casts to database
-2026-02-20T07:52:53.221177852Z [inf]  [SocialJob] Casts refreshed: 998 saved
-2026-02-20T07:52:57.320333179Z [inf]  [OGPService] No metadata resolved
-2026-02-20T07:52:57.320343294Z [wrn]  [OGPService] Simple fetch failed
-2026-02-20T07:52:57.320353072Z [inf]  [OGPService] Launching Singleton Browser...
-2026-02-20T07:52:57.320363322Z [err]  [OGPService] Puppeteer failed
-2026-02-20T07:52:57.320373481Z [inf]  [OGPService] No metadata resolved
-2026-02-20T07:52:57.320383865Z [wrn]  [OGPService] Simple fetch failed
-2026-02-20T07:53:01.557274290Z [inf]  [OGPService] Launching Singleton Browser...
-2026-02-20T07:53:01.557280324Z [err]  [OGPService] Puppeteer failed
-2026-02-20T07:53:01.557286452Z [inf]  [OGPService] No metadata resolved
-2026-02-20T07:53:04.508589480Z [wrn]  RPC health degraded
-2026-02-20T07:53:04.508596227Z [inf]  Suppressed repeated logs
-2026-02-20T07:53:04.508603371Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-20T07:53:04.508610831Z [inf]  [OGPService] Launching Singleton Browser...
-2026-02-20T07:53:04.508617756Z [wrn]  [OGPService] Microlink fallback failed
-2026-02-20T07:53:07.062921569Z [err]  [OGPService] Puppeteer failed
-2026-02-20T07:53:07.062931532Z [inf]  [OGPService] No metadata resolved
-2026-02-20T07:53:07.062966378Z [inf]  [SocialJob] ✅ OGP prefetch completed
-2026-02-20T07:53:10.006229205Z [inf]  Suppressed repeated logs
-2026-02-20T07:53:10.006243108Z [inf]  No open positions to monitor
-2026-02-20T07:54:08.156626409Z [wrn]  RPC health degraded
-2026-02-20T07:54:08.156632533Z [inf]  Suppressed repeated logs
-2026-02-20T07:54:08.156639184Z [inf]  Alpha Detector: Checking new coin
-2026-02-20T07:55:03.098192002Z [inf]  WS addresses discovered
-2026-02-20T07:55:03.098203702Z [wrn]  RPC health degraded
-2026-02-20T07:55:03.098311340Z [inf]  Processed DexScreener trending candidates
-2026-02-20T07:55:03.098338215Z [inf]  Fetching premium trending tokens
-2026-02-20T07:55:03.098351545Z [inf]  SocialRepo: Recalculated heat scores for 1000 casts
-2026-02-20T07:55:06.596473823Z [wrn]  GeckoTerminal 429 triggered backoff
-2026-02-20T07:55:06.596480691Z [wrn]  GeckoTerminal 429 triggered backoff
-2026-02-20T07:55:10.067542144Z [wrn]  GeckoTerminal 429 triggered backoff
-2026-02-20T07:55:13.125026618Z [wrn]  GeckoTerminal 429 triggered backoff
-2026-02-20T07:55:13.125032280Z [err]  GeckoTerminal API error after retries
-2026-02-20T07:55:13.125039128Z [err]  Error fetching trending tokens
-2026-02-20T07:55:13.125044418Z [inf]  Premium trending tokens fetch complete
-2026-02-20T07:55:13.125049759Z [inf]  Got 81 trending tokens for Ethereum
-2026-02-20T07:55:13.125058323Z [inf]  Filtered out 4 invalid tokens for Ethereum
-2026-02-20T07:55:13.125063957Z [inf]  Saved 77/77 trending tokens for eth to database and memory cache
-2026-02-20T07:55:16.167519447Z [inf]  Saved 77 tokens for Ethereum to DB + cache
-2026-02-20T07:55:16.167532708Z [inf]  Launchpad verify budget applied
-2026-02-20T07:56:12.895518425Z [wrn]  RPC health degraded
-2026-02-20T07:56:12.895522881Z [inf]  Suppressed repeated logs
-2026-02-20T07:56:12.895527822Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-20T07:56:12.895532919Z [inf]  Suppressed repeated logs
-2026-02-20T07:56:12.895741244Z [inf]  No open positions to monitor
-2026-02-20T07:56:18.360070164Z [inf]  [Profile] fetchReceipt
-2026-02-20T07:56:18.360076522Z [inf]  [Profile] fetchReceipt
-2026-02-20T07:56:18.360082658Z [inf]  [Profile] fetchReceipt
-2026-02-20T07:56:18.360139530Z [inf]  [Webhook] Alchemy payload: network=BASE_MAINNET hash=0x40d2237fd889ec65966f3df7cc37d5e3949581f61ef45fd6b4b73de7298a131e category=external asset=ETH
-2026-02-20T07:56:18.360311310Z [inf]  [Webhook] Alchemy payload: network=BASE_MAINNET hash=0x40d2237fd889ec65966f3df7cc37d5e3949581f61ef45fd6b4b73de7298a131e category=token asset=DAIMON
-2026-02-20T07:56:18.360330835Z [inf]  [Webhook] Processing as EVM activity groups (1 tx groups)
-2026-02-20T07:56:18.360355755Z [inf]  [Webhook] Found 1 tracked wallets for tx 0x40d2237fd889ec65966f3df7cc37d5e3949581f61ef45fd6b4b73de7298a131e
-2026-02-20T07:56:23.280210755Z [inf]  [Profile] fetchReceipt
-2026-02-20T07:56:23.280219480Z [inf]  Swap successfully decoded from logs
-2026-02-20T07:56:23.280226603Z [inf]  [Webhook] Tx already local in-flight: 0x40d2237fd889ec65966f3df7cc37d5e3949581f61ef45fd6b4b73de7298a131e
-2026-02-20T07:56:23.280233683Z [inf]  [Profile] parseSwapTransaction
-2026-02-20T07:56:23.280241200Z [inf]  [WebhookTiming][alchemy] tx=0x40d2237fd8 wallets=1 swaps=1 predecoded=0 receiptMs=37 parseSkeletonMs=71 totalMs=163
-2026-02-20T07:56:23.280248249Z [inf]  Swap detected on target wallet
-2026-02-20T07:56:27.577343291Z [inf]  Target is buying - triggering copy trade
-2026-02-20T07:56:27.577349309Z [inf]  [CopyTradeTiming] target buy start
-2026-02-20T07:56:27.577355902Z [inf]  [CopyTrade] Executable buy configs ready
-2026-02-20T07:56:27.577362595Z [inf]  [CopyTrade] Token info disabled - using RPC metadata fallback
-2026-02-20T07:56:27.577387256Z [inf]  Derived missing token price from swap data
-2026-02-20T07:56:31.112793631Z [inf]  🔥 Warming up 1 user settings
-2026-02-20T07:56:31.112799691Z [inf]  [CopyTrade] Turbo fast lane enabled
-2026-02-20T07:56:31.112806323Z [inf]  0x API price received successfully
-2026-02-20T07:56:31.112813196Z [inf]  Created PENDING position lock
-2026-02-20T07:56:31.112820965Z [inf]  Buy Step 1: 100% amount, 0.5% slippage
-2026-02-20T07:56:31.112833068Z [inf]  [MainSwapService][1771574178695_ssozxq] Starting unified swap execution
-2026-02-20T07:56:34.903496939Z [inf]  [MainSwapService][1771574178695_ssozxq] Executing EVM swap
-2026-02-20T07:56:34.903504063Z [inf]  [MainSwapService][1771574178695_ssozxq] FastSwapMode enabled - attempting direct swap (buy direction)
-2026-02-20T07:56:34.903510618Z [inf]  [DirectSwap] Starting direct swap
-2026-02-20T07:56:34.903518078Z [inf]  [DirectSwap] Fast-path resolved pool hint attempt
-2026-02-20T07:56:34.903525613Z [inf]  [DirectSwap] Using V4 pool
-2026-02-20T07:56:38.442426490Z [inf]  [DirectSwap] V4 minAmountOut calculated
-2026-02-20T07:56:38.442433203Z [inf]  PrivyWallet Authorization Key config
-2026-02-20T07:56:38.442440350Z [wrn]  Sending transaction via Privy sign+broadcast path
-2026-02-20T07:56:38.442447085Z [inf]  Ethereum transaction broadcast via signed raw path
-2026-02-20T07:56:38.442454603Z [inf]  [DirectSwap] V4 swap executed
-2026-02-20T07:56:42.253564944Z [inf]  [DirectSwap] Finished
-2026-02-20T07:56:42.253571284Z [inf]  [PlatformFee] Fees ENABLED: {"context":"copyTrade","bps":100,"evmRecipient":"0xc5377e6329"}
-2026-02-20T07:56:42.253578186Z [inf]  [MainSwapService][1771574178695_ssozxq] Direct swap successful
-2026-02-20T07:56:42.253585190Z [inf]  [CopyTradeTiming] buy step 1 success
-2026-02-20T07:56:42.253590973Z [wrn]  [MainSwapService][1771574178695_ssozxq] Direct swap fee skipped: missing access token
-2026-02-20T07:56:46.711040874Z [inf]  Copy trade completed and position created
-2026-02-20T07:56:46.711055584Z [inf]  [Kyber] GET routes {"routesUrl":"https://aggregator-api.kyberswap.com/base/api/v1/routes?tokenIn=0x98c51C8E958ccCD37F798b2B9332d148E2c05D57&tokenOut=0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee&amountIn=254500000000000&saveGas=true&gasInclude=true&clientId=kiko-app&origin=0xFB64Ce8d64CEC808a8aCb977d3Ee7bE1169f1a2B&feeReceiver=0xc5377e6329770Be29Ef938d8aCC11f22398D7E54&feeAmount=100&isInBps=true&chargeFeeBy=currency_out"}
-2026-02-20T07:56:46.711065686Z [inf]  [Warpcast] Sending DM to FID 877398: "🚀 Bought $DAIMON @ $1.00
-
-🟢 BOUGHT $DAIMON
-💰 Va..."
-2026-02-20T07:56:46.711075449Z [inf]  [CopyTrade] Turbo fast lane complete
-2026-02-20T07:56:46.711085221Z [inf]  0x API Quote received successfully
-2026-02-20T07:56:50.516385919Z [inf]  [Kyber] routes response {"status":200,"hasData":true,"keys":["code","message","data","requestId"]}
-2026-02-20T07:56:50.516399502Z [inf]  [Kyber] Building route/build request body: {"hasRouteSummary":true,"routeSummaryKeys":["tokenIn","amountIn","amountInUsd","tokenOut","amountOut","amountOutUsd","gas","gasPrice"],"sender":"0xFB64Ce8d","recipient":"0xFB64Ce8d","slippageTolerance":2500,"slippageToleranceType":"number","deadline":1771574780,"deadlineType":"number","allBodyKeys":["routeSummary","sender","recipient","origin","slippageTolerance","deadline"]}
-2026-02-20T07:56:50.516546687Z [inf]  0x API Quote successful
-2026-02-20T07:56:50.516555805Z [inf]  [QuoteService] 0x API estimatedPriceImpact: {"parsed":0,"multipliedBy100":0,"impactVsMkt":null,"willUse":0}
-2026-02-20T07:56:50.516562946Z [inf]  [Warpcast] DM sent successfully. Daily usage: 1/50000
-2026-02-20T07:56:54.639938833Z [inf]  [QuoteService] Quote comparison: {"0x_amount":"0.000000000002382142","kyber_amount":"0.000000000000000007","kyber_advantage_pct":"99.00","chainId":8453}
-2026-02-20T07:56:54.639946273Z [inf]  [QuoteService] Preferring 0x for reliability {"reason":"0x has better price","percentDiff":"99.00"}
-2026-02-20T07:56:54.639952946Z [wrn]  Sending transaction via Privy sign+broadcast path
-2026-02-20T07:56:54.639961532Z [err]  All RPC endpoints failed
-2026-02-20T07:56:54.639971309Z [err]  Privy Ethereum transaction failed
-2026-02-20T07:56:59.821458769Z [wrn]  Sending transaction via Privy sign+broadcast path
-2026-02-20T07:56:59.821465549Z [err]  Privy Ethereum transaction failed
-2026-02-20T07:56:59.821475304Z [wrn]  [SellApprovalPreheat] Approval warmup failed (non-fatal)
-2026-02-20T07:56:59.821486965Z [wrn]  Sending transaction via Privy sign+broadcast path
-2026-02-20T07:56:59.821498872Z [err]  All RPC endpoints failed
-2026-02-20T07:57:03.297127723Z [err]  Privy Ethereum transaction failed
-2026-02-20T07:57:03.297132866Z [inf]  ✅ Hybrid fetch complete
-2026-02-20T07:57:03.297136395Z [wrn]  Sending transaction via Privy sign+broadcast path
-2026-02-20T07:57:03.297142372Z [wrn]  Deleting new position with 0 balance (likely reverted buy)
-2026-02-20T07:57:03.297150605Z [err]  Privy Ethereum transaction failed
-2026-02-20T07:57:03.297158179Z [wrn]  [SellApprovalPreheat] Approval warmup failed (non-fatal)
-2026-02-20T07:57:06.163011328Z [inf]  Refreshed 4 primary chains in 102.1s
-2026-02-20T07:57:06.163019354Z [wrn]  RPC health degraded
+2026-02-20T08:51:09.167045285Z [inf]  Starting Container
+2026-02-20T08:51:09.416413951Z [inf]  
+2026-02-20T08:51:09.416418209Z [inf]  > kiko-api@1.0.0 start
+2026-02-20T08:51:09.416423013Z [inf]  > node dist/index.js
+2026-02-20T08:51:09.416427705Z [inf]  
+2026-02-20T08:51:09.810691662Z [inf]  [Prisma] Initializing client (Pool: 20, Timeout: 45s, Connect: 20s)
+2026-02-20T08:51:09.950604545Z [inf]  Zora SDK initialized with API Key
+2026-02-20T08:51:10.148634564Z [err]  [SocialJob] Could not find real_hot_users.json in any candidate path
+2026-02-20T08:51:10.186204290Z [inf]  [Warpcast] Loaded 10 API keys. Daily capacity: 50000 messages.
+2026-02-20T08:51:10.470957797Z [inf]  [SkillRegistry:exec] Loading skills from /app/dist/skills_exec...
+2026-02-20T08:51:10.470960911Z [inf]  [SkillRegistry:exec] Skills dir not found, skipping: /app/dist/skills_exec
+2026-02-20T08:51:10.470964292Z [inf]  [SkillRegistry:clean] Loading skills from /app/dist/skills_clean...
+2026-02-20T08:51:10.470967453Z [inf]  [SkillRegistry:clean] Skills dir not found, skipping: /app/dist/skills_clean
+2026-02-20T08:51:10.470970694Z [inf]  Build SHA
+2026-02-20T08:51:10.470973423Z [inf]  Serving static files from:
+2026-02-20T08:51:10.470976225Z [inf]  Initializing services...
+2026-02-20T08:51:10.470979224Z [inf]  [Prisma] DB connection is healthy
+2026-02-20T08:51:10.470982476Z [inf]  Database connection successful
+2026-02-20T08:51:10.471242712Z [inf]  [DataRetention] Checking retention policies...
+2026-02-20T08:51:10.471247430Z [inf]  [DataRetention] Starting cleanup job...
+2026-02-20T08:51:10.471250573Z [inf]  [DataRetention] Scheduler started (every 60 minutes)
+2026-02-20T08:51:10.482531322Z [inf]  Redis initialized
+2026-02-20T08:51:10.482537070Z [inf]  ⚡ Preloading native token prices via Coinbase...
+2026-02-20T08:51:10.505558621Z [inf]  ⚡ Native price refresh started (10 min interval)
+2026-02-20T08:51:10.505563081Z [inf]  Native price refresh started
+2026-02-20T08:51:10.505566488Z [inf]  Starting server on port 8080...
+2026-02-20T08:51:10.626108977Z [inf]  Server listening at http://0.0.0.0:8080
+2026-02-20T08:51:10.626112538Z [inf]  Server listening
+2026-02-20T08:51:10.626115585Z [inf]  RPC health monitor started
+2026-02-20T08:51:10.627219705Z [inf]  RPC benchmark sampling started
+2026-02-20T08:51:10.639796838Z [inf]  [MarketJob] Scheduled: Overview(2:00 UTC), Chains(3:00 UTC), Protocols(4:00 UTC), Trending(Every 5m)
+2026-02-20T08:51:10.640504457Z [inf]  Scheduled: Primary chains every 5min (Ethereum, Solana, Base, BSC)
+2026-02-20T08:51:10.640509056Z [inf]  Scheduled: Secondary chains every 4h (Arbitrum, Optimism, Polygon)
+2026-02-20T08:51:10.644871047Z [inf]  [SocialJob] Scheduled: Discovery (30m), Refresh (4h), Scoring (5m)
+2026-02-20T08:51:10.644876652Z [inf]  Background jobs started
+2026-02-20T08:51:10.644880072Z [inf]  Initializing auto trade service...
+2026-02-20T08:51:10.644883996Z [inf]  [SolanaWatcher] ⚠️ Watcher disabled in favor of Webhooks. Not starting polling.
+2026-02-20T08:51:10.644887049Z [inf]  Auto trade service initialized (Solana watcher + EVM webhook + pending prefetch enabled)
+2026-02-20T08:51:10.644894335Z [inf]  Auto trade service started
+2026-02-20T08:51:10.644899274Z [inf]  [PositionMonitor] Starting position monitor (every 30s)...
+2026-02-20T08:51:10.644902938Z [inf]  Position monitor started
+2026-02-20T08:51:10.645581033Z [inf]  Token Alert Service started
+2026-02-20T08:51:10.645586698Z [inf]  Token alert service started
+2026-02-20T08:51:10.645592241Z [inf]  ChatWorker started polling
+2026-02-20T08:51:10.645596401Z [inf]  Chat worker started
+2026-02-20T08:51:10.645599700Z [inf]  Starting Global Zora Alpha Detector (API Polling)
+2026-02-20T08:51:10.645602519Z [inf]  🎉 All services initialized!
+2026-02-20T08:51:10.656699882Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
+2026-02-20T08:51:10.656704545Z [inf]  [CopyTradePending] Pending watcher started
+2026-02-20T08:51:10.681342454Z [inf]  ⚡ Native token prices cached (Coinbase)
+2026-02-20T08:51:10.728639379Z [inf]  [DataRetention] Cleanup job completed.
+2026-02-20T08:51:15.644381287Z [inf]  [MarketJob] Running startup staleness check...
+2026-02-20T08:51:15.691945962Z [inf]  [Job] Real hot users file not found: 
+2026-02-20T08:51:15.691949341Z [inf]  [Job] ✅ Got 1061 quality users from database
+2026-02-20T08:51:15.691952368Z [inf]  [SocialJob] fetchCastsFromUsers starting with 1061 FIDs, target: 1000
+2026-02-20T08:51:15.691955167Z [inf]  No open positions to monitor
+2026-02-20T08:51:46.024991373Z [inf]  Starting initial token refresh...
+2026-02-20T08:52:16.301183305Z [wrn]  RPC health degraded
+2026-02-20T08:52:16.301187228Z [inf]  Alpha Detector: Checking new coin
+2026-02-20T08:52:22.825093339Z [inf]  Snapchain timestamp normalized from unix seconds
+2026-02-20T08:52:52.852461723Z [inf]  [Profile] fetchReceipt
+2026-02-20T08:52:52.852465856Z [inf]  [Profile] fetchReceipt
+2026-02-20T08:52:52.852469486Z [inf]  [Profile] fetchReceipt
+2026-02-20T08:52:52.852473348Z [inf]  [Profile] fetchReceipt
+2026-02-20T08:52:52.852476870Z [inf]  [Webhook] Alchemy payload: network=BASE_MAINNET hash=0xe0c1789e55359683e10a0f02dca9f667fcc437941ba0b074a8d85f875a867587 category=external asset=ETH
+2026-02-20T08:52:52.852480009Z [inf]  [Webhook] Processing as EVM activity groups (1 tx groups)
+2026-02-20T08:52:52.852483649Z [inf]  [Webhook] Found 1 tracked wallets for tx 0xe0c1789e55359683e10a0f02dca9f667fcc437941ba0b074a8d85f875a867587
+2026-02-20T08:52:52.853342646Z [inf]  [Profile] fetchReceipt
+2026-02-20T08:52:52.853348214Z [inf]  Swap successfully decoded from logs
+2026-02-20T08:52:52.853351984Z [inf]  [Profile] parseSwapTransaction
+2026-02-20T08:52:52.853355571Z [inf]  [WebhookTiming][alchemy] tx=0xe0c1789e55 wallets=1 swaps=1 predecoded=0 receiptMs=20 parseSkeletonMs=50 totalMs=108
+2026-02-20T08:52:52.853359034Z [inf]  Swap detected on target wallet
+2026-02-20T08:52:52.854342023Z [inf]  Target is buying - triggering copy trade
+2026-02-20T08:52:52.854345576Z [inf]  [CopyTradeTiming] target buy start
+2026-02-20T08:52:52.854348794Z [inf]  [CopyTrade] Executable buy configs ready
+2026-02-20T08:52:52.854351710Z [inf]  [CopyTrade] Token info disabled - using RPC metadata fallback
+2026-02-20T08:52:52.854354554Z [inf]  Derived missing token price from swap data
+2026-02-20T08:52:52.855546045Z [inf]  🔥 Warming up 1 user settings
+2026-02-20T08:52:52.855549348Z [inf]  [CopyTrade] Turbo fast lane enabled
+2026-02-20T08:52:52.855552297Z [inf]  0x API price received successfully
+2026-02-20T08:52:52.855555100Z [inf]  Created PENDING position lock
+2026-02-20T08:52:52.855557906Z [inf]  Buy Step 1: 100% amount, 0.5% slippage
+2026-02-20T08:52:52.855560917Z [inf]  [MainSwapService][1771577569367_zetiug] Starting unified swap execution
+2026-02-20T08:52:52.856697331Z [inf]  [MainSwapService][1771577569367_zetiug] Executing EVM swap
+2026-02-20T08:52:52.856700764Z [inf]  [MainSwapService][1771577569367_zetiug] FastSwapMode enabled - attempting direct swap (buy direction)
+2026-02-20T08:52:52.856703666Z [inf]  [DirectSwap] Starting direct swap
+2026-02-20T08:52:52.856706976Z [inf]  Swap successfully decoded from logs
+2026-02-20T08:52:52.856710002Z [inf]  [Profile] parseSwapTransaction
+2026-02-20T08:52:52.857959273Z [inf]  [DirectSwap] Early hinted source pool probe
+2026-02-20T08:52:52.857963605Z [inf]  [DirectSwap] Skip early v4 bypass: no preloaded v4 pools and no resolved hint
+2026-02-20T08:52:52.857966940Z [err]  All RPC endpoints failed
+2026-02-20T08:52:52.857969753Z [inf]  [DirectSwap] Pool discovery complete
+2026-02-20T08:52:52.857972408Z [inf]  [DirectSwap] Bypass reference gate by target hint
+2026-02-20T08:52:52.857975001Z [inf]  [DirectSwap] Bypass strategy unavailable, fallback to reference gate
+2026-02-20T08:52:52.859098939Z [wrn]  [DirectSwap] Reference quote unavailable, continuing with source hint fallback
+2026-02-20T08:52:52.859103721Z [wrn]  [DirectSwap] Continuing without reference quote
+2026-02-20T08:52:52.859106915Z [inf]  [DirectSwap] Strategy evaluation start
+2026-02-20T08:52:52.859110015Z [wrn]  [MainSwapService][1771577569367_zetiug] Turbo direct timeout; waiting late-settle window
+2026-02-20T08:52:52.863721486Z [inf]  [DirectSwap] Strategy selected
+2026-02-20T08:52:52.863725532Z [inf]  [DirectSwap] V3 minAmountOut calculated
+2026-02-20T08:52:52.863730304Z [inf]  PrivyWallet Authorization Key config
+2026-02-20T08:52:52.863733564Z [inf]  [sendTransaction] ========== PRIVY TX PARAMS ==========
+2026-02-20T08:52:52.863737183Z [inf]  [sendTransaction] From: 0xFB64Ce8d64CEC808a8aCb977d3Ee7bE1169f1a2B
+2026-02-20T08:52:52.863740475Z [inf]  [sendTransaction] To: 0x2626664c2603336E57B271c5C0b26F421741e481
+2026-02-20T08:52:52.864796811Z [inf]  [sendTransaction] Value: 510174147945401
+2026-02-20T08:52:52.864802910Z [inf]  [sendTransaction] ValueHex: 0x1d0002cdca3b9
+2026-02-20T08:52:52.864806306Z [inf]  [sendTransaction] Data length: 458
+2026-02-20T08:52:52.864809472Z [inf]  [sendTransaction] Data prefix: 0x04e45aaf000000000000000000000000420000000000000000000000000000000000000600000000
+2026-02-20T08:52:52.864812565Z [inf]  [sendTransaction] ChainId: 8453
+2026-02-20T08:52:52.864815915Z [inf]  [sendTransaction] Gas: 420000
+2026-02-20T08:52:52.864818929Z [inf]  [sendTransaction] MaxFeePerGas: 
+2026-02-20T08:52:52.865897017Z [inf]  [sendTransaction] MaxPriorityFeePerGas: 
+2026-02-20T08:52:52.865904446Z [inf]  [sendTransaction] Nonce: 1681
+2026-02-20T08:52:52.865908876Z [inf]  [sendTransaction] Profile: base-sniper
+2026-02-20T08:52:52.865912590Z [inf]  [sendTransaction] ===========================================
+2026-02-20T08:52:52.865916806Z [wrn]  Sending transaction via Privy sign+broadcast path
+2026-02-20T08:52:52.865922632Z [wrn]  Nonce error on attempt 1, retrying in 2000ms...
+2026-02-20T08:52:52.972718031Z [wrn]  [MainSwapService][1771577569367_zetiug] Turbo direct path timed out, skipping fallback by policy
+2026-02-20T08:52:52.972721457Z [wrn]  Buy Step 1 failed
+2026-02-20T08:52:52.972725248Z [wrn]  Turbo mode: step 1 failed, trying fast retry
+2026-02-20T08:52:53.103583229Z [inf]  [MainSwapService][1771577573091_vjv7c9] Starting unified swap execution
+2026-02-20T08:52:53.103587779Z [inf]  [MainSwapService][1771577573091_vjv7c9] Executing EVM swap
+2026-02-20T08:52:53.103590886Z [inf]  [MainSwapService][1771577573091_vjv7c9] FastSwapMode enabled - attempting direct swap (buy direction)
+2026-02-20T08:52:53.103593736Z [inf]  [DirectSwap] Starting direct swap
+2026-02-20T08:52:53.103596543Z [inf]  [DirectSwap] Early hinted source pool probe
+2026-02-20T08:52:53.104515478Z [inf]  [DirectSwap] Skip early v4 bypass: no preloaded v4 pools and no resolved hint
+2026-02-20T08:52:53.104519828Z [inf]  [DirectSwap] Pool discovery complete
+2026-02-20T08:52:53.104523071Z [inf]  [DirectSwap] Bypass reference gate by target hint
+2026-02-20T08:52:53.168759254Z [inf]  [DirectSwap] Bypass strategy unavailable, fallback to reference gate
+2026-02-20T08:52:53.168763837Z [wrn]  [DirectSwap] Reference quote unavailable, continuing with source hint fallback
+2026-02-20T08:52:53.168767124Z [wrn]  [DirectSwap] Continuing without reference quote
+2026-02-20T08:52:53.168770194Z [inf]  [DirectSwap] Strategy evaluation start
+2026-02-20T08:52:54.040346133Z [wrn]  Sending transaction via Privy sign+broadcast path
+2026-02-20T08:52:54.498229632Z [wrn]  [MainSwapService][1771577573091_vjv7c9] Turbo direct timeout; waiting late-settle window
+2026-02-20T08:52:54.868132606Z [wrn]  Nonce error on attempt 2, retrying in 2000ms...
+2026-02-20T08:52:54.968427885Z [inf]  [DirectSwap] Strategy selected
+2026-02-20T08:52:54.968431141Z [inf]  [DirectSwap] V3 minAmountOut calculated
+2026-02-20T08:52:56.693931184Z [wrn]  [MainSwapService][1771577573091_vjv7c9] Turbo direct path timed out, skipping fallback by policy
+2026-02-20T08:52:56.693935862Z [wrn]  Turbo fast retry failed
+2026-02-20T08:52:56.693938931Z [wrn]  Turbo mode: skip slow multi-step retries after step1 failure
+2026-02-20T08:52:56.705194513Z [inf]  [CopyTrade] Turbo fast lane complete
+2026-02-20T08:52:56.965381537Z [wrn]  Sending transaction via Privy sign+broadcast path
+2026-02-20T08:52:57.672331206Z [err]  Privy Ethereum transaction failed
+2026-02-20T08:52:57.672334394Z [err]  Privy tx context on failure
+2026-02-20T08:52:57.672337557Z [err]  [DirectSwap] Direct swap failed
+2026-02-20T08:52:57.672340593Z [wrn]  [DirectSwapTrace] Attempt failed
+2026-02-20T08:52:57.673390420Z [inf]  [DirectSwap] Finished
+2026-02-20T08:52:57.673394954Z [wrn]  [DirectSwap] Turbo budget exceeded
+2026-02-20T08:52:57.673398254Z [inf]  [sendTransaction] ========== PRIVY TX PARAMS ==========
+2026-02-20T08:52:57.673401793Z [inf]  [sendTransaction] From: 0xFB64Ce8d64CEC808a8aCb977d3Ee7bE1169f1a2B
+2026-02-20T08:52:57.673405016Z [inf]  [sendTransaction] To: 0x2626664c2603336E57B271c5C0b26F421741e481
+2026-02-20T08:52:57.673408271Z [inf]  [sendTransaction] Value: 509153799649510
+2026-02-20T08:52:57.674570337Z [inf]  [sendTransaction] ValueHex: 0x1cf129b5d38e6
+2026-02-20T08:52:57.674574185Z [inf]  [sendTransaction] Data length: 458
+2026-02-20T08:52:57.674577278Z [inf]  [sendTransaction] Data prefix: 0x04e45aaf000000000000000000000000420000000000000000000000000000000000000600000000
+2026-02-20T08:52:57.674580195Z [inf]  [sendTransaction] ChainId: 8453
+2026-02-20T08:52:57.674583192Z [inf]  [sendTransaction] Gas: 420000
+2026-02-20T08:52:57.674586125Z [inf]  [sendTransaction] MaxFeePerGas: 
+2026-02-20T08:52:57.674588912Z [inf]  [sendTransaction] MaxPriorityFeePerGas: 
+2026-02-20T08:52:57.675881376Z [inf]  [sendTransaction] Nonce: 1681
+2026-02-20T08:52:57.675887682Z [inf]  [sendTransaction] Profile: base-sniper
+2026-02-20T08:52:57.675891925Z [inf]  [sendTransaction] ===========================================
+2026-02-20T08:52:57.675895388Z [wrn]  Sending transaction via Privy sign+broadcast path
+2026-02-20T08:52:58.456246493Z [wrn]  Nonce error on attempt 1, retrying in 2000ms...
+2026-02-20T08:53:00.455292018Z [wrn]  Sending transaction via Privy sign+broadcast path
+2026-02-20T08:53:01.093736983Z [wrn]  Nonce error on attempt 2, retrying in 2000ms...
+2026-02-20T08:53:03.102472930Z [wrn]  Sending transaction via Privy sign+broadcast path
+2026-02-20T08:53:04.793211988Z [err]  Privy Ethereum transaction failed
+2026-02-20T08:53:04.793214520Z [err]  Privy tx context on failure
+2026-02-20T08:53:04.793217257Z [err]  [DirectSwap] Direct swap failed
+2026-02-20T08:53:04.793219957Z [wrn]  [DirectSwapTrace] Attempt failed
+2026-02-20T08:53:04.794875961Z [inf]  [DirectSwap] Finished
+2026-02-20T08:53:04.794880168Z [wrn]  [DirectSwap] Turbo budget exceeded
+2026-02-20T08:53:07.394073169Z [inf]  [Webhook] Alchemy payload: network=BASE_MAINNET hash=0xe0c1789e55359683e10a0f02dca9f667fcc437941ba0b074a8d85f875a867587 category=token asset=DAIMON
+2026-02-20T08:53:07.435179787Z [inf]  [Webhook] Processing as EVM activity groups (1 tx groups)
+2026-02-20T08:53:07.435184637Z [inf]  [Webhook] Tx already in processedTxs cache: 0xe0c1789e55359683e10a0f02dca9f667fcc437941ba0b074a8d85f875a867587
+2026-02-20T08:53:10.629948864Z [wrn]  RPC health degraded
+2026-02-20T08:53:10.716831115Z [inf]  Fetching premium trending tokens
+2026-02-20T08:53:10.935251252Z [inf]  WS addresses discovered
+2026-02-20T08:53:11.940663456Z [inf]  Processed DexScreener trending candidates
+2026-02-20T08:53:11.940666828Z [inf]  Premium trending tokens fetch complete
+2026-02-20T08:53:11.940669779Z [inf]  Got 79 trending tokens for BSC
+2026-02-20T08:53:11.940672846Z [inf]  Filtered out 1 invalid tokens for BSC
+2026-02-20T08:53:12.354402986Z [inf]  Saved 78/78 trending tokens for bsc to database and memory cache
+2026-02-20T08:53:12.354405478Z [inf]  Saved 78 tokens for BSC to DB + cache
+2026-02-20T08:53:12.354409117Z [inf]  Refreshed 4 primary chains in 91.6s
+2026-02-20T08:53:12.596259925Z [inf]  Launchpad verify budget applied
+2026-02-20T08:53:13.523070431Z [err]  api failed after 1 attempts
+2026-02-20T08:53:13.523078089Z [err]  LaunchpadDetector: Four.meme fetch failed
+2026-02-20T08:53:13.541242443Z [err]  LaunchpadDetector: Four.meme fetch failed

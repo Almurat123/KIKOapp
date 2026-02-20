@@ -15,9 +15,12 @@ const PREHEAT_MIN_USD = Number(process.env.COPYTRADE_SELL_APPROVAL_PREHEAT_MIN_U
 const PREHEAT_MAX_SPENDERS = Math.max(1, Number(process.env.COPYTRADE_SELL_APPROVAL_PREHEAT_MAX_SPENDERS || '2'));
 const PREHEAT_TIMEOUT_MS = Math.max(8_000, Number(process.env.COPYTRADE_SELL_APPROVAL_PREHEAT_TIMEOUT_MS || '60_000'));
 const PREHEAT_SLIPPAGE_BPS = Math.max(500, Number(process.env.COPYTRADE_SELL_APPROVAL_PREHEAT_SLIPPAGE_BPS || '2500'));
+const PREHEAT_SPENDER_CACHE_TTL_MS = Math.max(10_000, Number(process.env.COPYTRADE_SELL_APPROVAL_SPENDER_CACHE_TTL_MS || '180000'));
 const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
 const MAX_UINT256 = (2n ** 256n) - 1n;
 const ERC20_APPROVE_IFACE = new ethers.Interface(['function approve(address spender, uint256 amount)']);
+const spenderCache = new Map<string, { spenders: string[]; timestamp: number }>();
+const spenderRefreshInflight = new Map<string, Promise<string[]>>();
 
 export interface SellApprovalPreheatParams {
   userId: string;
@@ -91,6 +94,70 @@ function extractSpenders(quoteBundle: { best: any; quotes: any[] }): string[] {
   return output;
 }
 
+function buildSpenderCacheKey(chainId: number, tokenAddress: string): string {
+  return `${chainId}:${tokenAddress.toLowerCase()}`;
+}
+
+function getCachedSpenders(chainId: number, tokenAddress: string): string[] {
+  const key = buildSpenderCacheKey(chainId, tokenAddress);
+  const hit = spenderCache.get(key);
+  if (!hit) return [];
+  if (Date.now() - hit.timestamp > PREHEAT_SPENDER_CACHE_TTL_MS) {
+    spenderCache.delete(key);
+    return [];
+  }
+  return hit.spenders;
+}
+
+function setCachedSpenders(chainId: number, tokenAddress: string, spenders: string[]): void {
+  const key = buildSpenderCacheKey(chainId, tokenAddress);
+  if (!spenders.length) return;
+  spenderCache.set(key, { spenders, timestamp: Date.now() });
+}
+
+async function refreshSpendersFromQuotes(params: {
+  chainId: number;
+  tokenAddress: string;
+  walletAddress: string;
+  probeAmountBase: bigint;
+  decimals: number;
+}): Promise<string[]> {
+  const key = buildSpenderCacheKey(params.chainId, params.tokenAddress);
+  const inflight = spenderRefreshInflight.get(key);
+  if (inflight) return await inflight;
+
+  const task = (async (): Promise<string[]> => {
+    const probeAmountHuman = Number(ethers.formatUnits(params.probeAmountBase, params.decimals));
+    if (!Number.isFinite(probeAmountHuman) || probeAmountHuman <= 0) return [];
+
+    const quoteBundle = await getBestQuote({
+      tokenIn: params.tokenAddress,
+      tokenOut: NATIVE_TOKEN_ADDRESS,
+      actualTokenIn: params.tokenAddress,
+      actualTokenOut: NATIVE_TOKEN_ADDRESS,
+      amountInBase: params.probeAmountBase.toString(),
+      amountInHuman: probeAmountHuman,
+      tokenInDecimals: params.decimals,
+      tokenOutDecimals: 18,
+      chainId: params.chainId,
+      slippageBps: PREHEAT_SLIPPAGE_BPS,
+      userAddress: params.walletAddress,
+      feeContext: 'copyTrade',
+      isSell: true
+    });
+
+    if (!quoteBundle?.best) return [];
+    const spenders = extractSpenders(quoteBundle);
+    setCachedSpenders(params.chainId, params.tokenAddress, spenders);
+    return spenders;
+  })().finally(() => {
+    spenderRefreshInflight.delete(key);
+  });
+
+  spenderRefreshInflight.set(key, task);
+  return await task;
+}
+
 async function approveWithFallback(params: {
   userId: string;
   accessToken?: string;
@@ -147,34 +214,23 @@ export async function preheatSellApprovalForToken(params: SellApprovalPreheatPar
     const probeAmountBase = buildProbeAmountBase(decimals, params.tokenPriceUsd);
     if (probeAmountBase <= 0n) return;
 
-    const probeAmountHuman = Number(ethers.formatUnits(probeAmountBase, decimals));
-    if (!Number.isFinite(probeAmountHuman) || probeAmountHuman <= 0) return;
-
-    const quoteBundle = await getBestQuote({
-      tokenIn: tokenAddress,
-      tokenOut: NATIVE_TOKEN_ADDRESS,
-      actualTokenIn: tokenAddress,
-      actualTokenOut: NATIVE_TOKEN_ADDRESS,
-      amountInBase: probeAmountBase.toString(),
-      amountInHuman: probeAmountHuman,
-      tokenInDecimals: decimals,
-      tokenOutDecimals: 18,
-      chainId: params.chainId,
-      slippageBps: PREHEAT_SLIPPAGE_BPS,
-      userAddress: walletAddress,
-      feeContext: 'copyTrade',
-      isSell: true
-    });
-
-    if (!quoteBundle?.best) {
-      logger.debug(LogCode.SYS_INFO, '[SellApprovalPreheat] No quote for spender preheat', {
+    const cachedSpenders = getCachedSpenders(params.chainId, tokenAddress);
+    if (cachedSpenders.length) {
+      logger.info(LogCode.SYS_INFO, '[SellApprovalPreheat] Spender cache hit', {
         chainId: params.chainId,
-        token: tokenAddress
+        token: tokenAddress,
+        spenderCount: cachedSpenders.length
       });
-      return;
     }
+    const freshSpendersPromise = refreshSpendersFromQuotes({
+      chainId: params.chainId,
+      tokenAddress,
+      walletAddress,
+      probeAmountBase,
+      decimals
+    }).catch(() => []);
 
-    const spenders = extractSpenders(quoteBundle);
+    const spenders = cachedSpenders.length ? cachedSpenders : await freshSpendersPromise;
     if (!spenders.length) return;
 
     for (const spender of spenders) {
@@ -214,6 +270,18 @@ export async function preheatSellApprovalForToken(params: SellApprovalPreheatPar
           error: approval.error
         });
       }
+    }
+
+    // Background refresh may discover a better spender route after cached fast-path.
+    if (cachedSpenders.length) {
+      void freshSpendersPromise.then((freshSpenders) => {
+        if (!freshSpenders.length) return;
+        logger.debug(LogCode.SYS_INFO, '[SellApprovalPreheat] Spender cache refreshed', {
+          chainId: params.chainId,
+          token: tokenAddress,
+          spenderCount: freshSpenders.length
+        });
+      });
     }
   } catch (error: any) {
     logger.warn(LogCode.SYS_ERROR, '[SellApprovalPreheat] Unexpected failure (non-fatal)', {
