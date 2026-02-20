@@ -23,10 +23,11 @@ const PRIVY_SEND_TX_CHAIN_IDS = new Set(
         .map((value) => Number(value.trim()))
         .filter((value) => Number.isInteger(value) && value > 0)
 );
-const PRIVY_TX_VISIBILITY_CHECK_ENABLED = (process.env.PRIVY_TX_VISIBILITY_CHECK_ENABLED || 'true') === 'true';
-const PRIVY_TX_REQUIRE_VISIBILITY = (process.env.PRIVY_TX_REQUIRE_VISIBILITY || 'true') === 'true';
-const PRIVY_TX_VISIBILITY_RETRIES = Math.max(1, Number(process.env.PRIVY_TX_VISIBILITY_RETRIES || '6'));
-const PRIVY_TX_VISIBILITY_DELAY_MS = Math.max(100, Number(process.env.PRIVY_TX_VISIBILITY_DELAY_MS || '500'));
+// Keep visibility probing enabled for observability, but never block trade success on RPC propagation lag.
+const PRIVY_TX_VISIBILITY_CHECK_ENABLED = true;
+const PRIVY_TX_REQUIRE_VISIBILITY = false;
+const PRIVY_TX_VISIBILITY_RETRIES = 6;
+const PRIVY_TX_VISIBILITY_DELAY_MS = 500;
 
 let privyClient: PrivyClient | null = null;
 
@@ -34,6 +35,13 @@ const toHexQuantity = (value?: string) =>
     value !== undefined && value !== null && value !== ''
         ? (`0x${BigInt(value).toString(16)}` as `0x${string}`)
         : undefined;
+
+function isLikelyEvmAddress(value: unknown): boolean {
+    const address = String(value || '');
+    return /^0x[a-fA-F0-9]{40}$/.test(address);
+}
+
+type EmbeddedWalletChainType = 'ethereum' | 'solana' | 'auto';
 
 async function verifyTxVisibility(
     chainId: number,
@@ -134,22 +142,49 @@ function getPrivyClient(): PrivyClient {
  * @param userId - Privy user ID (from JWT sub claim)
  * @returns Wallet info or null if user has no embedded wallet
  */
-export async function getEmbeddedWalletInfo(userId: string): Promise<{ address: string; id: string } | null> {
+export async function getEmbeddedWalletInfo(
+    userId: string,
+    options?: { chainType?: EmbeddedWalletChainType }
+): Promise<{ address: string; id: string } | null> {
     const client = getPrivyClient();
     const maxRetries = 3;
     let lastError: any = null;
+    const chainType = options?.chainType || 'auto';
 
     for (let attempt = 0; attempt < maxRetries; attempt++) {
         try {
             const user = await client.getUser(userId);
 
-            // Find embedded wallet in linked accounts
-            const embeddedWallet = user.linkedAccounts?.find(
-                (account: any) => account.type === 'wallet' && account.walletClientType === 'privy'
+            const linkedWallets = (user.linkedAccounts || []).filter(
+                (account: any) => account?.type === 'wallet' && account?.walletClientType === 'privy'
             );
+            const evmWallet =
+                linkedWallets.find((account: any) =>
+                    String(account?.chainType || '').toLowerCase() === 'ethereum'
+                    && isLikelyEvmAddress(account?.address)
+                )
+                || linkedWallets.find((account: any) => isLikelyEvmAddress(account?.address))
+                || null;
+            const solanaWallet =
+                linkedWallets.find((account: any) =>
+                    String(account?.chainType || '').toLowerCase() === 'solana'
+                )
+                || null;
+
+            const embeddedWallet =
+                chainType === 'ethereum'
+                    ? evmWallet
+                    : chainType === 'solana'
+                        ? solanaWallet
+                        : (evmWallet || solanaWallet || linkedWallets[0] || null);
 
             if (!embeddedWallet) {
-                logger.warn(LogCode.SYS_INFO, 'User has no embedded wallet', { userId });
+                logger.warn(LogCode.SYS_INFO, 'User has no embedded wallet for requested chain', {
+                    userId,
+                    chainType,
+                    linkedWalletCount: linkedWallets.length,
+                    linkedChains: linkedWallets.map((account: any) => String(account?.chainType || 'unknown'))
+                });
                 return null;
             }
 
@@ -189,8 +224,11 @@ export async function getEmbeddedWalletInfo(userId: string): Promise<{ address: 
  * @param userId - Privy user ID (from JWT sub claim)
  * @returns Wallet address or null if user has no embedded wallet
  */
-export async function getEmbeddedWalletAddress(userId: string): Promise<string | null> {
-    const info = await getEmbeddedWalletInfo(userId);
+export async function getEmbeddedWalletAddress(
+    userId: string,
+    chainType: Exclude<EmbeddedWalletChainType, 'auto'> = 'ethereum'
+): Promise<string | null> {
+    const info = await getEmbeddedWalletInfo(userId, { chainType });
     return info?.address || null;
 }
 
@@ -379,8 +417,17 @@ async function signAndBroadcastRawTransaction(
             expectedFrom: context.expectedFrom,
             lastError: visibility.lastError
         });
-        if (PRIVY_TX_REQUIRE_VISIBILITY && !visibility.visible) {
-            throw new Error(`tx_not_visible_after_broadcast:${rawTxHash}:${visibility.lastError || 'unknown'}`);
+        if (!visibility.visible) {
+            logger.warn(LogCode.SYS_INFO, 'Privy tx visibility miss (non-blocking)', {
+                path: 'raw_sign_broadcast',
+                txHash: rawTxHash,
+                chainId: tx.chainId,
+                expectedFrom: context.expectedFrom,
+                lastError: visibility.lastError
+            });
+            if (PRIVY_TX_REQUIRE_VISIBILITY) {
+                throw new Error(`tx_not_visible_after_broadcast:${rawTxHash}:${visibility.lastError || 'unknown'}`);
+            }
         }
     }
     return rawTxHash;
@@ -412,9 +459,12 @@ export async function sendTransaction(
             const RETRY_DELAY_MS = 2000;
 
             // Get user's wallet info (both address and ID)
-            const walletInfo = await getEmbeddedWalletInfo(userId);
+            const walletInfo = await getEmbeddedWalletInfo(userId, { chainType: 'ethereum' });
             if (!walletInfo) {
-                throw new AppError(400, 'User has no embedded wallet', 'NO_WALLET');
+                throw new AppError(400, 'User has no EVM embedded wallet', 'NO_EVM_WALLET');
+            }
+            if (!isLikelyEvmAddress(walletInfo.address)) {
+                throw new AppError(400, 'User has no EVM embedded wallet', 'NO_EVM_WALLET');
             }
 
             let txWithNonce = { ...tx };
@@ -508,8 +558,17 @@ export async function sendTransaction(
                             expectedFrom: walletInfo.address,
                             lastError: visibility.lastError
                         });
-                        if (PRIVY_TX_REQUIRE_VISIBILITY && !visibility.visible) {
-                            throw new Error(`tx_not_visible_after_broadcast:${response.hash}:${visibility.lastError || 'unknown'}`);
+                        if (!visibility.visible) {
+                            logger.warn(LogCode.SYS_INFO, 'Privy tx visibility miss (non-blocking)', {
+                                path: 'privy_sendtx',
+                                txHash: response.hash,
+                                chainId: txWithNonce.chainId,
+                                expectedFrom: walletInfo.address,
+                                lastError: visibility.lastError
+                            });
+                            if (PRIVY_TX_REQUIRE_VISIBILITY) {
+                                throw new Error(`tx_not_visible_after_broadcast:${response.hash}:${visibility.lastError || 'unknown'}`);
+                            }
                         }
                     }
 
@@ -767,9 +826,9 @@ export async function signTypedData(
     const client = getPrivyClient();
 
     // Get user's wallet info
-    const walletInfo = await getEmbeddedWalletInfo(userId);
+    const walletInfo = await getEmbeddedWalletInfo(userId, { chainType: 'ethereum' });
     if (!walletInfo) {
-        throw new AppError(400, 'User has no embedded wallet', 'NO_WALLET');
+        throw new AppError(400, 'User has no EVM embedded wallet', 'NO_EVM_WALLET');
     }
 
     logger.debug(LogCode.SYS_INFO, 'Signing EIP-712 typed data via Privy', {

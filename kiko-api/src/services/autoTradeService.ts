@@ -142,8 +142,8 @@ const CHAIN_LAUNCHPAD_PROVIDERS: Record<number, Set<string>> = {
 let isServiceShuttingDown = false;
 let zombieCleanupInterval: NodeJS.Timeout | null = null;
 
-// Per-user-per-token lock to prevent concurrent duplicate trades
-// This prevents the race condition where two webhooks bypass cooldown before Position is created
+// Per-user-per-token-per-sourceTx lock to suppress duplicate webhook fan-out for the same target swap.
+// Different target tx hashes for the same token should still be allowed to execute.
 const userTokenLocks = new Map<string, number>(); // key -> timestamp
 const USER_TOKEN_LOCK_DURATION_MS = 30000; // 30 seconds
 const MAX_COPY_TRADE_USD = 1_000_000; // Hard safety cap to prevent absurd buy amounts
@@ -282,8 +282,11 @@ function dedupeConfigsByUser(configs: any[]): any[] {
  * Check if a token is currently locked for a user (trade in progress)
  * If not locked, acquires the lock
  */
-function isTokenLockedForUser(userId: string, tokenAddress: string): boolean {
-    const key = `${userId}:${tokenAddress.toLowerCase()}`;
+function isTokenLockedForUser(userId: string, tokenAddress: string, sourceTxHash?: string): boolean {
+    const normalizedTxHash = String(sourceTxHash || '').toLowerCase();
+    const key = normalizedTxHash
+        ? `${userId}:${tokenAddress.toLowerCase()}:${normalizedTxHash}`
+        : `${userId}:${tokenAddress.toLowerCase()}`;
     const lockTime = userTokenLocks.get(key);
     const now = Date.now();
 
@@ -1267,10 +1270,11 @@ async function processSingleUserBuy(
                 return;
             }
 
-            if (isTokenLockedForUser(config.userId, tokenToBuy)) {
+            if (isTokenLockedForUser(config.userId, tokenToBuy, swap?.txHash)) {
                 logger.throttled(LogCode.WTC_TX_SKIPPED, 'Skipping trade: token lock active', {
                     userId: config.userId,
-                    token: tokenToBuy
+                    token: tokenToBuy,
+                    sourceTxHash: swap?.txHash
                 });
                 return;
             }

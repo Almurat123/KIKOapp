@@ -175,7 +175,7 @@ test('[e2e] [base] executeDirectSwap normal WETH→USDC returns SIMULATION txHas
   if (result.amountOut) assert.ok(BigInt(result.amountOut) >= 0n, 'amountOut non-negative');
 });
 
-test('[e2e] [base] executeDirectSwap turbo WETH→USDC without hint fails fast (single-pool mode)', {
+test('[e2e] [base] executeDirectSwap turbo WETH→USDC without hint can execute via turbo rescue', {
   timeout: TIMEOUT_MS,
   ...(hasRpcForChain(8453) ? {} : skip('No RPC for Base (rpcManager)')),
 }, async () => {
@@ -190,9 +190,17 @@ test('[e2e] [base] executeDirectSwap turbo WETH→USDC without hint fails fast (
     slippageBps: 50,
     executionMode: 'turbo',
   });
-  assert.equal(result.success, false);
+  if (result.success) {
+    assert.ok(result.txHash?.startsWith('0xSIMULATION_PRIVY_'));
+    assert.ok(result.provider !== 'failed');
+    return;
+  }
+  // Under degraded public RPC, rescue may fail due temporary no-pool snapshot.
+  // The key assertion here is that turbo no longer hard-fails on single-pool miss.
+  const errorText = String(result.error || '').toLowerCase();
   assert.equal(result.provider, 'failed');
-  assert.ok(String(result.error || '').toLowerCase().includes('single-pool'));
+  assert.ok(errorText.includes('turbo rescue'), `expected turbo rescue path error, got: ${result.error}`);
+  assert.equal(errorText.includes('single-pool mode'), false, `should not fail with single-pool fast-fail anymore: ${result.error}`);
 });
 
 test('[e2e] [base] executeDirectSwap with hint preferredStrategy v3', {

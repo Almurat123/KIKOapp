@@ -1429,6 +1429,208 @@ export async function executeDirectSwap(params: {
         }
 
         if (turboMode) {
+            const runTurboRescue = async (reason: string): Promise<DirectSwapResult> => {
+                const remainingBudgetMs = turboFastDeadline - Date.now();
+                if (remainingBudgetMs <= 80) {
+                    logger.warn(LogCode.SYS_INFO, '[DirectSwap] Turbo rescue skipped: budget exhausted', {
+                        traceId,
+                        chainId,
+                        reason,
+                        elapsedMs: Date.now() - swapStart,
+                        budgetMs: DIRECT_SWAP_FASTPATH_BUDGET_MS
+                    });
+                    return { success: false, error: `Turbo rescue budget exhausted: ${reason}`, provider: 'failed' };
+                }
+
+                const rescuePoolBudgetMs = Math.max(180, Math.min(DIRECT_SWAP_HINT_POOL_TIMEOUT_MS, remainingBudgetMs));
+                let rescuePools: PoolInfo[] = [];
+                try {
+                    rescuePools = await withTimeout(
+                        findTokenPools(poolTokenIn, poolTokenOut, chainId),
+                        rescuePoolBudgetMs
+                    );
+                } catch {
+                    rescuePools = [];
+                }
+
+                const rescueSummary = summarizePools(rescuePools);
+                traceState.poolCount = rescueSummary.poolsFound;
+                traceState.poolKinds = rescueSummary.poolKinds;
+                traceState.l1PoolStatus = rescuePools.length > 0 ? 'ok' : 'missing';
+                logger.info(LogCode.SYS_INFO, '[DirectSwap] Turbo rescue pool discovery', {
+                    traceId,
+                    chainId,
+                    reason,
+                    poolCount: rescuePools.length,
+                    poolKinds: rescueSummary.poolKinds,
+                    timeoutMs: rescuePoolBudgetMs
+                });
+
+                if (rescuePools.length === 0) {
+                    return { success: false, error: `Turbo rescue failed: no pools after ${reason}`, provider: 'failed' };
+                }
+
+                let candidatePools = rescuePools;
+                if (isBuySideStableOrNativeIn(chainId, normalizedTokenIn)) {
+                    const guard = evaluateBuyLiquidityProtection(
+                        rescuePools,
+                        poolTokenIn,
+                        amountInWei,
+                        Math.max(1, DIRECT_SWAP_BUY_LIQ_MULTIPLIER)
+                    );
+                    logger.info(LogCode.SYS_INFO, '[DirectSwap] Turbo rescue liquidity guard', {
+                        traceId,
+                        chainId,
+                        algorithm: 'buy_liquidity_multiplier',
+                        multiplier: DIRECT_SWAP_BUY_LIQ_MULTIPLIER,
+                        requiredReserveInWei: guard.requiredReserveInWei.toString().slice(0, 20),
+                        checkedPools: guard.checkedPools,
+                        matchedPools: guard.matchedPools,
+                        byVersion: guard.byVersion,
+                        sample: guard.sample
+                    });
+                    candidatePools = rescuePools.filter((pool) => {
+                        const version = String(pool.version || '').toLowerCase();
+                        if (version === 'v2' || version === 'aerodrome') {
+                            return resolvePoolInReserve(pool, poolTokenIn) >= guard.requiredReserveInWei;
+                        }
+                        if (version === 'v3' || version === 'v4') {
+                            return BigInt(pool.liquidity || '0') >= guard.requiredReserveInWei;
+                        }
+                        return false;
+                    });
+                    if (candidatePools.length === 0) {
+                        return { success: false, error: `Turbo rescue failed: no pools pass liquidity guard after ${reason}`, provider: 'failed' };
+                    }
+                }
+
+                let lastRescueError = `turbo_rescue_start:${reason}`;
+                logger.info(LogCode.SYS_INFO, '[DirectSwap] Turbo rescue strategy order', {
+                    traceId,
+                    chainId,
+                    order: 'v4 -> v3 -> aerodrome',
+                    candidatePools: candidatePools.length
+                });
+
+                if (isV4SwapSupported(chainId)) {
+                    const rescueV4Pools = candidatePools
+                        .filter((p) => p.version === 'v4')
+                        .map((p) => ({
+                            poolId: p.poolAddress,
+                            poolKey: {
+                                currency0: p.token0,
+                                currency1: p.token1,
+                                hooks: '0x0000000000000000000000000000000000000000',
+                                fee: p.fee ?? 3000,
+                                tickSpacing: 60
+                            },
+                            sqrtPriceX96: p.sqrtPriceX96 || '0',
+                            tick: 0,
+                            liquidity: p.liquidity || '0',
+                            protocolFee: 0,
+                            lpFee: p.fee ?? 3000
+                        })) satisfies V4PoolInfo[];
+                    if (rescueV4Pools.length > 0) {
+                        const v4BudgetMs = Math.max(120, Math.min(700, turboFastDeadline - Date.now()));
+                        if (v4BudgetMs > 0) {
+                            const v4Best = await withTimeout(
+                                getV4BestPoolQuote(
+                                    poolTokenIn,
+                                    poolTokenOut,
+                                    amountInWei,
+                                    chainId,
+                                    params.walletAddress,
+                                    params.hint,
+                                    { preloadedPools: rescueV4Pools }
+                                ),
+                                v4BudgetMs
+                            ).catch(() => ({ pool: null, amountOut: 0n } as { pool: SelectedV4Pool | null; amountOut: bigint }));
+                            if (v4Best.pool && v4Best.amountOut > 0n) {
+                                logger.info(LogCode.SYS_INFO, '[DirectSwap] Turbo rescue selected', {
+                                    traceId,
+                                    chainId,
+                                    strategy: 'v4',
+                                    poolId: v4Best.pool.poolAddress,
+                                    amountOut: v4Best.amountOut.toString()
+                                });
+                                const v4Result = await executeV4Swap(normalizedParams, v4Best.pool, {
+                                    fastMode: true,
+                                    executionMode: 'turbo'
+                                });
+                                if (v4Result.success) return v4Result;
+                                lastRescueError = v4Result.error || 'turbo_rescue_v4_failed';
+                            }
+                        }
+                    }
+                }
+
+                const v3DexOrder: Array<'uniswap' | 'pancake'> = chainId === 56
+                    ? ['pancake', 'uniswap']
+                    : ['uniswap', 'pancake'];
+                for (const dex of v3DexOrder) {
+                    const v3Pool = await pickBestPool(candidatePools, 'v3', chainId, dex);
+                    if (!v3Pool) continue;
+                    const v3QuoteBudgetMs = Math.max(120, Math.min(650, turboFastDeadline - Date.now()));
+                    if (v3QuoteBudgetMs <= 0) break;
+                    const v3Quote = await withTimeout(
+                        getV3BestQuoteOut(poolTokenIn, poolTokenOut, amountInWei, chainId, dex),
+                        v3QuoteBudgetMs
+                    ).catch(() => 0n);
+                    if (v3Quote <= 0n) continue;
+                    logger.info(LogCode.SYS_INFO, '[DirectSwap] Turbo rescue selected', {
+                        traceId,
+                        chainId,
+                        strategy: `v3:${dex}`,
+                        pool: v3Pool.poolAddress,
+                        amountOut: v3Quote.toString()
+                    });
+                    const v3Result = await executeV3Swap(normalizedParams, v3Pool, dex, {
+                        fastMode: true,
+                        executionMode: 'turbo'
+                    });
+                    if (v3Result.success) return v3Result;
+                    lastRescueError = v3Result.error || `turbo_rescue_v3_${dex}_failed`;
+                }
+
+                if (chainId === 8453) {
+                    const aeroPool = await pickBestPool(candidatePools, 'aerodrome', chainId);
+                    if (aeroPool) {
+                        const aeroQuoteBudgetMs = Math.max(120, Math.min(650, turboFastDeadline - Date.now()));
+                        if (aeroQuoteBudgetMs > 0) {
+                            const aeroQuote = await withTimeout(
+                                getAerodromeExpectedOutput(
+                                    normalizedTokenIn,
+                                    normalizedTokenOut,
+                                    amountInWei,
+                                    chainId,
+                                    params.slippageBps,
+                                    params.walletAddress
+                                ),
+                                aeroQuoteBudgetMs
+                            ).catch(() => 0n);
+                            if (aeroQuote > 0n) {
+                                logger.info(LogCode.SYS_INFO, '[DirectSwap] Turbo rescue selected', {
+                                    traceId,
+                                    chainId,
+                                    strategy: 'aerodrome',
+                                    pool: aeroPool.poolAddress,
+                                    amountOut: aeroQuote.toString()
+                                });
+                                const aeroResult = await executeAerodromeSwap(normalizedParams);
+                                if (aeroResult.success) return aeroResult;
+                                lastRescueError = aeroResult.error || 'turbo_rescue_aerodrome_failed';
+                            }
+                        }
+                    }
+                }
+
+                return {
+                    success: false,
+                    error: `Turbo rescue exhausted: ${lastRescueError}`,
+                    provider: 'failed'
+                };
+            };
+
             let sourceHintCandidate = earlyHintedPool;
             if (!sourceHintCandidate && params.hint?.sourceTxHash) {
                 const sourceHintBudgetMs = Math.max(200, Math.min(900, turboFastDeadline - Date.now()));
@@ -1469,11 +1671,11 @@ export async function executeDirectSwap(params: {
             });
 
             if (turboCandidates.length === 0) {
-                return finish({
-                    success: false,
-                    error: 'Turbo single-pool mode: no valid candidate hint',
-                    provider: 'failed'
+                logger.warn(LogCode.SYS_INFO, '[DirectSwap] Turbo single-pool candidates empty, entering rescue', {
+                    traceId,
+                    chainId
                 });
+                return finish(await runTurboRescue('no_valid_candidate_hint'));
             }
 
             let lastTurboError = 'Turbo single-pool attempt failed';
@@ -1510,254 +1712,15 @@ export async function executeDirectSwap(params: {
                 }
             }
 
-            return finish({
-                success: false,
-                error: `Turbo single-pool mode failed: ${lastTurboError}`,
-                provider: 'failed'
+            logger.warn(LogCode.SYS_INFO, '[DirectSwap] Turbo single-pool attempts failed, entering rescue', {
+                traceId,
+                chainId,
+                lastTurboError
             });
+            return finish(await runTurboRescue(lastTurboError));
         }
 
-        // ── TURBO SHORT-CIRCUIT ──
-        // Parallel probes: V4 + general (v2/v3/aerodrome) + Infinity (BSC only).
-        // Wait for ALL, compare quality, pick the best. Never blindly use a garbage-liquidity pool.
-        if (turboMode && !earlyHintedPool) {
-            const turboBudgetMs = Math.max(300, turboFastDeadline - Date.now());
-            logger.info(LogCode.SYS_INFO, '[DirectSwap] Turbo short-circuit: parallel pool race', {
-                traceId,
-                chainId,
-                budgetMs: turboBudgetMs,
-                preferredStrategy: preferredStrategy ? `${preferredStrategy.kind}:${preferredStrategy.dex || ''}` : 'none',
-                hintSourceTx: params.hint?.sourceTxHash
-            });
-
-            type V4Candidate = { kind: 'v4'; pool: SelectedV4Pool; amountOut: bigint };
-            type InfinityCandidate = { kind: 'infinity'; quote: InfinityBestQuote; amountOut: bigint };
-            type GeneralCandidate = { kind: 'v3' | 'v2' | 'aerodrome'; pool: PoolInfo; liquidity: bigint };
-
-            // Probe A: V4 — returns real quoted amountOut (slippage-protected)
-            const v4Probe: Promise<V4Candidate | null> = !isV4SwapSupported(chainId)
-                ? Promise.resolve(null)
-                : getV4BestPoolQuote(
-                    poolTokenIn, poolTokenOut, amountInWei, chainId, params.walletAddress, params.hint
-                ).then((r) => {
-                    if (!r.pool) return null;
-                    // Reject v4 pools where quoter returned 0 — means no real price, unsafe to trade
-                    if (r.amountOut <= 0n) {
-                        logger.debug(LogCode.SYS_INFO, '[DirectSwap] Turbo v4 probe: pool found but amountOut=0, skipping', {
-                            traceId, poolId: r.pool.poolAddress
-                        });
-                        return null;
-                    }
-                    return { kind: 'v4' as const, pool: r.pool, amountOut: r.amountOut };
-                }).catch(() => null);
-
-            const turboPairKey = buildTurboPairKey(chainId, poolTokenIn, poolTokenOut);
-            const requestAmountUsd = await withTimeout(
-                estimateAmountUsdByToken(chainId, poolTokenIn, amountInWei),
-                350
-            ).catch(() => 0);
-            const inflightAmountUsd = getTurboInflightUsd(turboPairKey);
-            const effectiveAmountUsd = requestAmountUsd + inflightAmountUsd;
-            const depthMultiplier = pickDepthMultiplierByUsd(effectiveAmountUsd);
-            const requiredDepthUsd = effectiveAmountUsd > 0 ? effectiveAmountUsd * depthMultiplier : 0;
-            const requiredReserveInWei = requestAmountUsd > 0
-                ? amountInWei * BigInt(Math.max(1, Math.ceil(requiredDepthUsd / requestAmountUsd)))
-                : amountInWei * BigInt(depthMultiplier);
-            turboUsdReservationId = turboUsdReservationId || reserveTurboInflightUsd(turboPairKey, requestAmountUsd);
-
-            logger.info(LogCode.SYS_INFO, '[DirectSwap] Turbo depth model', {
-                traceId,
-                chainId,
-                requestAmountUsd: requestAmountUsd.toFixed(2),
-                inflightAmountUsd: inflightAmountUsd.toFixed(2),
-                effectiveAmountUsd: effectiveAmountUsd.toFixed(2),
-                depthMultiplier,
-                requiredDepthUsd: requiredDepthUsd.toFixed(2),
-                requiredReserveInWei: requiredReserveInWei.toString().slice(0, 20)
-            });
-
-            // Minimum pool depth (tokenIn-side reserve): derived from USD depth model.
-            // For V2/aerodrome we can directly verify reserveIn; for V3 we keep liquidity>0 fallback and
-            // rely on quoter/slippage guard in the executor.
-            // All known base tokens (native wrapped + stablecoins) across supported chains
-            const knownBaseTokens = new Set([
-                (WETH_ADDRESSES[chainId] || '').toLowerCase(),                           // WETH/WBNB
-                (USDC_ADDRESSES[chainId] || '').toLowerCase(),                           // USDC
-                '0x55d398326f99059ff775485246999027b3197955',                             // BSC USDT
-                '0xe9e7cea3dedca5984780bafc599bd69add087d56',                             // BSC BUSD
-                '0xdac17f958d2ee523a2206206994597c13d831ec7',                             // ETH USDT
-                '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913',                             // Base USDC
-                poolTokenIn.toLowerCase()                                                 // The actual input token
-            ].filter(Boolean));
-
-            const poolHasSufficientDepth = (p: PoolInfo): boolean => {
-                if (p.version === 'v2' || p.version === 'aerodrome') {
-                    const t0 = (p.token0 || '').toLowerCase();
-                    const t1 = (p.token1 || '').toLowerCase();
-                    const reserve0 = BigInt(p.reserve0 || '0');
-                    const reserve1 = BigInt(p.reserve1 || '0');
-                    const normalizedPoolIn = poolTokenIn.toLowerCase();
-
-                    if (t0 === normalizedPoolIn) return reserve0 >= requiredReserveInWei;
-                    if (t1 === normalizedPoolIn) return reserve1 >= requiredReserveInWei;
-
-                    const isToken0Base = knownBaseTokens.has(t0);
-                    const isToken1Base = knownBaseTokens.has(t1);
-                    if (isToken0Base) return reserve0 >= requiredReserveInWei;
-                    if (isToken1Base) return reserve1 >= requiredReserveInWei;
-                    // Neither side is a known base token — can't assess depth, let it through
-                    return true;
-                }
-                // V3: liquidity (L) isn't a reserve value, but still use the same required threshold
-                // as a coarse filter to avoid tiny pools passing the turbo probe.
-                return BigInt(p.liquidity || '0') >= requiredReserveInWei;
-            };
-
-            // Probe B: General — returns pool with liquidity metadata
-            const generalProbe: Promise<GeneralCandidate | null> = findTokenPools(poolTokenIn, poolTokenOut, chainId)
-                .then((pools) => {
-                    if (!pools.length) return null;
-                    const nonV4 = pools.filter((p) => p.version !== 'v4');
-                    const candidates = nonV4.filter(poolHasSufficientDepth);
-                    if (nonV4.length > 0 && candidates.length === 0) {
-                        logger.warn(LogCode.SYS_INFO, '[DirectSwap] Turbo general probe: all pools rejected (insufficient depth)', {
-                            traceId,
-                            poolCount: nonV4.length,
-                            requiredReserveInWei: requiredReserveInWei.toString().slice(0, 20),
-                            pools: nonV4.map((p) => ({
-                                version: p.version,
-                                pool: p.poolAddress?.slice(0, 12),
-                                reserve0: (p.reserve0 || '0').slice(0, 12),
-                                reserve1: (p.reserve1 || '0').slice(0, 12),
-                                liquidity: (p.liquidity || '0').slice(0, 12)
-                            }))
-                        });
-                    }
-                    if (!candidates.length) return null;
-                    const preferred = preferredStrategy?.kind;
-                    const preferredDex = preferredStrategy?.dex;
-                    const sorted = [...candidates].sort((a, b) => {
-                        const aMatch = a.version === preferred && (!preferredDex || a.dex === preferredDex) ? 1 : 0;
-                        const bMatch = b.version === preferred && (!preferredDex || b.dex === preferredDex) ? 1 : 0;
-                        if (aMatch !== bMatch) return bMatch - aMatch;
-                        const aLiq = BigInt(a.liquidity || a.reserve0 || '0');
-                        const bLiq = BigInt(b.liquidity || b.reserve0 || '0');
-                        return aLiq > bLiq ? -1 : aLiq < bLiq ? 1 : 0;
-                    });
-                    const best = sorted[0];
-                    const liq = BigInt(best.liquidity || best.reserve0 || '0');
-                    if (liq <= 0n) return null;
-                    return { kind: (best.version || 'v3') as 'v3' | 'v2' | 'aerodrome', pool: best, liquidity: liq };
-                })
-                .catch(() => null);
-
-            // Probe C: PancakeSwap Infinity (BSC only) — CL + Bin pools with quoted amountOut
-            const infinityProbe: Promise<InfinityCandidate | null> = chainId !== 56
-                ? Promise.resolve(null)
-                : getInfinityBestQuoteOut(poolTokenIn, poolTokenOut, amountInWei, chainId)
-                    .then((q) => {
-                        if (!q || q.amountOut <= 0n) return null;
-                        return { kind: 'infinity' as const, quote: q, amountOut: q.amountOut };
-                    })
-                    .catch(() => null);
-
-            type EarlyWinner =
-                | { source: 'v4'; candidate: V4Candidate }
-                | { source: 'infinity'; candidate: InfinityCandidate }
-                | { source: 'general'; candidate: GeneralCandidate };
-
-            const qualifiedWinner = await withTimeout(
-                Promise.any([
-                    v4Probe.then((candidate) => {
-                        if (!candidate) throw new Error('v4_no_candidate');
-                        return { source: 'v4', candidate } as EarlyWinner;
-                    }),
-                    infinityProbe.then((candidate) => {
-                        if (!candidate) throw new Error('infinity_no_candidate');
-                        return { source: 'infinity', candidate } as EarlyWinner;
-                    }),
-                    generalProbe.then((candidate) => {
-                        if (!candidate) throw new Error('general_no_candidate');
-                        return { source: 'general', candidate } as EarlyWinner;
-                    })
-                ]),
-                turboBudgetMs
-            ).catch(() => null);
-
-            if (qualifiedWinner?.source === 'v4') {
-                logger.info(LogCode.SYS_INFO, '[DirectSwap] Turbo short-circuit: v4 selected, executing', {
-                    traceId,
-                    poolId: qualifiedWinner.candidate.pool.poolAddress,
-                    amountOut: qualifiedWinner.candidate.amountOut.toString(),
-                    elapsedMs: Date.now() - swapStart
-                });
-                return finish(await executeV4Swap(normalizedParams, qualifiedWinner.candidate.pool, {
-                    allowZeroQuoteMinOut: false,
-                    fastMode: true,
-                    executionMode: requestedMode,
-                    trustedHint: Boolean(params.hint?.sourceTxHash)
-                }));
-            }
-
-            if (qualifiedWinner?.source === 'infinity') {
-                logger.info(LogCode.SYS_INFO, '[DirectSwap] Turbo short-circuit: infinity selected, executing', {
-                    traceId,
-                    fee: qualifiedWinner.candidate.quote.fee,
-                    kind: qualifiedWinner.candidate.quote.kind,
-                    amountOut: qualifiedWinner.candidate.amountOut.toString(),
-                    elapsedMs: Date.now() - swapStart
-                });
-                return finish(await executeInfinitySwap(normalizedParams, qualifiedWinner.candidate.quote, { executionMode: requestedMode }));
-            }
-
-            if (qualifiedWinner?.source === 'general') {
-                const generalResult = qualifiedWinner.candidate;
-                if (generalResult.kind === 'v3') {
-                    const dex = generalResult.pool.dex === 'pancake' ? 'pancake' : 'uniswap';
-                    logger.info(LogCode.SYS_INFO, '[DirectSwap] Turbo short-circuit: v3 selected, executing', {
-                        traceId,
-                        pool: generalResult.pool.poolAddress,
-                        fee: generalResult.pool.fee,
-                        liquidity: generalResult.liquidity.toString().slice(0, 15),
-                        dex,
-                        elapsedMs: Date.now() - swapStart
-                    });
-                    return finish(await executeV3Swap(normalizedParams, generalResult.pool, dex, {
-                        fastMode: true,
-                        executionMode: requestedMode
-                    }));
-                }
-                if (generalResult.kind === 'aerodrome') {
-                    logger.info(LogCode.SYS_INFO, '[DirectSwap] Turbo short-circuit: aerodrome selected, executing', {
-                        traceId,
-                        pool: generalResult.pool.poolAddress,
-                        liquidity: generalResult.liquidity.toString().slice(0, 15),
-                        elapsedMs: Date.now() - swapStart
-                    });
-                    return finish(await executeAerodromeSwap(normalizedParams));
-                }
-                if (generalResult.kind === 'v2') {
-                    const v2Quote = await getV2ExpectedOutput(poolTokenIn, poolTokenOut, amountInWei, chainId);
-                    if (v2Quote > 0n) {
-                        logger.info(LogCode.SYS_INFO, '[DirectSwap] Turbo short-circuit: v2 selected, executing', {
-                            traceId,
-                            pool: generalResult.pool.poolAddress,
-                            amountOut: v2Quote.toString(),
-                            elapsedMs: Date.now() - swapStart
-                        });
-                        return finish(await executeV2Swap(normalizedParams, v2Quote));
-                    }
-                }
-            }
-
-            logger.warn(LogCode.SYS_INFO, '[DirectSwap] Turbo short-circuit exhausted, no qualified pool found', {
-                traceId,
-                chainId,
-                elapsedMs: Date.now() - swapStart,
-                fallback: 'continue_full_discovery'
-            });
-        }
-        // ── END TURBO SHORT-CIRCUIT ──
+        // Turbo now strictly executes single-pool hints only (resolved/source/cache).
 
         let infinityPrecheckFailed = false;
 
