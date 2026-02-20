@@ -16,7 +16,7 @@ const AI_ANALYSIS_OPTIONS = [
     { value: 'analyze_only', label: 'Analyze Only (Chat Notify)' },
     { value: 'auto_decide', label: 'AI Auto Decide' },
 ];
-type ExecutionMode = 'safe' | 'balanced' | 'turbo';
+type ExecutionMode = 'safe' | 'normal' | 'turbo';
 
 const EXECUTION_MODE_OPTIONS: Array<{ value: ExecutionMode; label: string; desc: string }> = [
     {
@@ -25,9 +25,9 @@ const EXECUTION_MODE_OPTIONS: Array<{ value: ExecutionMode; label: string; desc:
         desc: 'Full checks first. Lowest risk, slower entries.'
     },
     {
-        value: 'balanced',
-        label: 'BALANCED',
-        desc: 'Direct swap first, keeps token-info checks.'
+        value: 'normal',
+        label: 'NORMAL',
+        desc: 'Finds pools and chooses the best executable path.'
     },
     {
         value: 'turbo',
@@ -38,7 +38,7 @@ const EXECUTION_MODE_OPTIONS: Array<{ value: ExecutionMode; label: string; desc:
 
 export const StrategyEditForm: React.FC<StrategyEditFormProps> = ({ config, onSave }) => {
     const initialExecutionMode: ExecutionMode =
-        (config.executionMode as ExecutionMode | undefined) ?? (config.disableTokenInfo ? 'turbo' : 'balanced');
+        (config.executionMode as ExecutionMode | undefined) ?? (config.disableTokenInfo ? 'turbo' : 'normal');
     const [formData, setFormData] = useState<Partial<CopyTradeConfig>>({
         targetWallet: config.targetWallet,
         minTargetValueUsd: config.minTargetValueUsd ?? undefined,
@@ -78,7 +78,7 @@ export const StrategyEditForm: React.FC<StrategyEditFormProps> = ({ config, onSa
         hasChangedRef.current = true;
     };
     const currentExecutionMode: ExecutionMode =
-        (formData.executionMode as ExecutionMode | undefined) ?? (formData.disableTokenInfo ? 'turbo' : 'balanced');
+        (formData.executionMode as ExecutionMode | undefined) ?? (formData.disableTokenInfo ? 'turbo' : 'normal');
     const isTurboMode = currentExecutionMode === 'turbo';
     const updateExecutionMode = (mode: ExecutionMode) => {
         updateFormData({

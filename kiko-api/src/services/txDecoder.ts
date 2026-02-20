@@ -768,6 +768,16 @@ export interface DecodedSwap {
     amountOut: string;
     router: string;
     dexName: string;
+    routeHopCount?: number;
+    routeHops?: Array<{
+        kind: 'v4' | 'v3' | 'v2' | 'aerodrome' | 'infinity';
+        dex?: 'uniswap' | 'pancake' | 'aerodrome' | 'pancake-infinity';
+        poolAddress?: string;
+        tokenIn?: string;
+        tokenOut?: string;
+        fee?: number;
+    }>;
+    canUseResolvedPoolFastPath?: boolean;
     resolvedPoolHint?: {
         kind: 'v4' | 'v3' | 'v2' | 'aerodrome';
         dex?: 'uniswap' | 'pancake' | 'aerodrome' | 'pancake-infinity';
@@ -787,6 +797,120 @@ export interface DecodedSwap {
         cashReceivedUsd?: number;
         inferredTxType?: 'TARGET_BUY' | 'TARGET_SELL' | 'TARGET_TOKEN_SWAP';
     };
+}
+
+function normalizePairToken(token: string, chainId: number): string {
+    const native = NATIVE_TOKEN_ADDRESS.toLowerCase();
+    const wrapped = getChainConfig(chainId).wrappedNativeAddress.toLowerCase();
+    const normalized = String(token || '').toLowerCase();
+    if (!normalized) return normalized;
+    if (normalized === native) return wrapped;
+    return normalized;
+}
+
+function isSamePoolPair(
+    tokenA: string,
+    tokenB: string,
+    tokenX: string,
+    tokenY: string,
+    chainId: number
+): boolean {
+    const a = normalizePairToken(tokenA, chainId);
+    const b = normalizePairToken(tokenB, chainId);
+    const x = normalizePairToken(tokenX, chainId);
+    const y = normalizePairToken(tokenY, chainId);
+    if (!a || !b || !x || !y) return false;
+    return (a === x && b === y) || (a === y && b === x);
+}
+
+type DecodedRouteHopKind = 'v4' | 'v3' | 'v2' | 'aerodrome' | 'infinity';
+
+function classifyHopFromTopic(topic0: string): DecodedRouteHopKind | null {
+    const normalized = topic0.toLowerCase();
+    if (normalized === V4_SWAP_EVENT.toLowerCase()) return 'v4';
+    if (normalized === V3_SWAP_EVENT || normalized === V3_SWAP_EVENT_EXT) return 'v3';
+    if (normalized === V2_SWAP_EVENT || normalized === V2_SWAP_EVENT_ALT) return 'v2';
+    if (normalized === INFINITY_CL_SWAP_EVENT.toLowerCase() || normalized === INFINITY_BIN_SWAP_EVENT.toLowerCase()) return 'infinity';
+    return null;
+}
+
+function dedupeRouteHops(hops: NonNullable<DecodedSwap['routeHops']>): NonNullable<DecodedSwap['routeHops']> {
+    const seen = new Set<string>();
+    const result: NonNullable<DecodedSwap['routeHops']> = [];
+    for (const hop of hops) {
+        const key = `${hop.kind}:${(hop.poolAddress || '').toLowerCase()}:${(hop.tokenIn || '').toLowerCase()}:${(hop.tokenOut || '').toLowerCase()}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        result.push(hop);
+    }
+    return result;
+}
+
+function extractRouteHops(logs: Array<{ address: string; topics: string[]; data: string }>, chainId: number): NonNullable<DecodedSwap['routeHops']> {
+    const routeHops: NonNullable<DecodedSwap['routeHops']> = [];
+    for (const log of logs) {
+        const topic0 = String(log.topics?.[0] || '').toLowerCase();
+        const kind = classifyHopFromTopic(topic0);
+        if (!kind) continue;
+        const poolAddress = String(log.address || '').toLowerCase();
+        const inferred = poolAddress ? inferSwapFromPoolTransfers(logs, poolAddress) : null;
+        routeHops.push({
+            kind,
+            dex: kind === 'infinity'
+                ? 'pancake-infinity'
+                : chainId === 56
+                    ? 'pancake'
+                    : 'uniswap',
+            poolAddress,
+            tokenIn: inferred?.tokenIn,
+            tokenOut: inferred?.tokenOut
+        });
+    }
+    return dedupeRouteHops(routeHops);
+}
+
+function attachRouteContext(
+    swap: DecodedSwap,
+    logs: Array<{ address: string; topics: string[]; data: string }>,
+    chainId: number
+): DecodedSwap {
+    const routeHops = extractRouteHops(logs, chainId);
+    if (!routeHops.length) {
+        swap.routeHopCount = 0;
+        swap.routeHops = undefined;
+        swap.canUseResolvedPoolFastPath = Boolean(swap.resolvedPoolHint);
+        return swap;
+    }
+
+    swap.routeHopCount = routeHops.length;
+    swap.routeHops = routeHops;
+
+    if (!swap.resolvedPoolHint) {
+        swap.canUseResolvedPoolFastPath = false;
+        return swap;
+    }
+
+    // Multi-hop router paths (OKX/aggregators) often expose only a tail pool in resolvedPoolHint.
+    // Disable resolved-pool fast-path to avoid executing ETH->token against a USDC->token tail pool.
+    if (routeHops.length > 1) {
+        swap.canUseResolvedPoolFastPath = false;
+        return swap;
+    }
+
+    const onlyHop = routeHops[0];
+    if (onlyHop?.tokenIn && onlyHop?.tokenOut) {
+        swap.canUseResolvedPoolFastPath = isSamePoolPair(
+            swap.tokenIn,
+            swap.tokenOut,
+            onlyHop.tokenIn,
+            onlyHop.tokenOut,
+            chainId
+        );
+        return swap;
+    }
+
+    swap.canUseResolvedPoolFastPath = true;
+    return swap;
 }
 
 /**
@@ -1249,7 +1373,7 @@ export async function parseSwapTransaction(
                 totalMs: Date.now() - t0
             });
         }
-        return finalTransferSwap;
+        return attachRouteContext(finalTransferSwap, receipt.logs, chainId);
     }
 
     // 2) If V4 swap exists, decode from V4 events as fallback
@@ -1277,7 +1401,7 @@ export async function parseSwapTransaction(
                     totalMs: Date.now() - t0
                 });
             }
-            return v4Swap;
+            return attachRouteContext(v4Swap, receipt.logs, chainId);
         }
     }
 
@@ -1307,7 +1431,7 @@ export async function parseSwapTransaction(
                 totalMs: Date.now() - t0
             });
         }
-        return poolSwap;
+        return attachRouteContext(poolSwap, receipt.logs, chainId);
     }
 
     // 4) Router-intent fallback: infer pool-like token flow when router tx has no explicit swap topic.
@@ -1335,7 +1459,7 @@ export async function parseSwapTransaction(
                     totalMs: Date.now() - t0
                 });
             }
-            return swap;
+            return attachRouteContext(swap, receipt.logs, chainId);
         }
     }
 
@@ -1404,5 +1528,5 @@ export async function parseSwapTransaction(
             totalMs: Date.now() - t0
         });
     }
-    return swap;
+    return attachRouteContext(swap, receipt.logs, chainId);
 }

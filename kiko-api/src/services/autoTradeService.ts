@@ -45,6 +45,10 @@ import { getNativeBalance as rpcGetNativeBalance, getErc20Balance, getErc20Decim
 import { startCopyTradePendingWatcher, stopCopyTradePendingWatcher } from './copyTradePendingService.js';
 import { assertConfigExecutable } from './copyTradeConfigSignatureService.js';
 import { determineCopyTradeDirection } from './copyTradeDirection.js';
+import {
+    resolveExecutionModeFromConfig,
+    type CopyTradeExecutionMode
+} from './copyTradeExecutionMode.js';
 import { preheatSellApprovalForToken } from './sellApprovalPreheater.js';
 
 export { getTokenInfo } from './tokenService.js';
@@ -143,15 +147,14 @@ let zombieCleanupInterval: NodeJS.Timeout | null = null;
 const userTokenLocks = new Map<string, number>(); // key -> timestamp
 const USER_TOKEN_LOCK_DURATION_MS = 30000; // 30 seconds
 const MAX_COPY_TRADE_USD = 1_000_000; // Hard safety cap to prevent absurd buy amounts
-type CopyTradeExecutionMode = 'safe' | 'balanced' | 'turbo';
 type CopyTradeAiAnalysisMode = 'disabled' | 'analyze_only' | 'auto_decide';
 
 function resolveExecutionModeForConfig(config: any): CopyTradeExecutionMode {
-    const raw = String(config?.executionMode || '').trim().toLowerCase();
-    if (raw === 'safe' || raw === 'balanced' || raw === 'turbo') {
-        return raw;
-    }
-    return config?.disableTokenInfo === true ? 'turbo' : 'balanced';
+    return resolveExecutionModeFromConfig({
+        requested: config?.executionMode,
+        legacyDisableTokenInfo: config?.disableTokenInfo,
+        fallback: 'normal'
+    }).mode;
 }
 
 function resolveCopyTradeAiMode(config: any): CopyTradeAiAnalysisMode {
@@ -193,12 +196,22 @@ function buildDirectSwapHintFromSwap(swap: DecodedSwap): DirectSwapHint | undefi
     const sourceTxHash = String(swap?.txHash || '').toLowerCase();
     const sourceRouter = String(swap?.router || '').toLowerCase();
     const sourceDexName = String(swap?.dexName || '').trim();
-    if (!sourceTxHash && !sourceRouter && !sourceDexName && !swap?.resolvedPoolHint) return undefined;
+    if (
+        !sourceTxHash
+        && !sourceRouter
+        && !sourceDexName
+        && !swap?.resolvedPoolHint
+        && !swap?.routeHopCount
+        && !swap?.routeHops?.length
+    ) return undefined;
 
     return {
         sourceDexName: sourceDexName || undefined,
         sourceRouter: sourceRouter || undefined,
         sourceTxHash: sourceTxHash || undefined,
+        routeHopCount: swap?.routeHopCount,
+        routeHops: swap?.routeHops,
+        canUseResolvedPoolFastPath: swap?.canUseResolvedPoolFastPath,
         resolvedPoolHint: swap?.resolvedPoolHint,
         bypassReferencePrice: true
     };
@@ -563,7 +576,7 @@ async function handleTargetBuy(
             ...c,
             user: userMap.get(c.userId),
             executionMode: resolveExecutionModeForConfig(c),
-            // safe: full path, balanced/turbo: fast path enabled (all EVM chains)
+            // safe: full path, normal/turbo: fast path enabled (all EVM chains)
             fastExecutionEnabled: resolveExecutionModeForConfig(c) !== 'safe'
         }))
         .filter((c) => Boolean(c.user))

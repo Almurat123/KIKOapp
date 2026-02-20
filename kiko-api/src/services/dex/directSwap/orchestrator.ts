@@ -61,12 +61,20 @@ import {
     buildSharedExternalReferenceQuoteCacheKey,
     pickBestReferenceQuote
 } from './referenceQuote.js';
-import { computeTurboDeadline, isTurboBudgetExceeded } from './turbo.js';
+import {
+    computeTurboDeadline,
+    isTurboBudgetExceeded,
+    singlePoolTurboResolver,
+    sourcePoolToResolvedHint,
+    type ResolvedPoolHint
+} from './turbo.js';
 import {
     getCachedV4GasLimit as getCachedV4GasLimitFromCache,
     setCachedV4GasLimit as setCachedV4GasLimitInCache,
     getCachedWinningStrategy as getCachedWinningStrategyFromCache,
     setCachedWinningStrategy as setCachedWinningStrategyInCache,
+    getCachedSinglePoolWinnerHint as getCachedSinglePoolWinnerHintFromCache,
+    setCachedSinglePoolWinnerHint as setCachedSinglePoolWinnerHintInCache,
     isFreshNoPoolCache as isFreshNoPoolCacheFromCache,
     setNoPoolCache as setNoPoolCacheInCache,
     clearNoPoolCache as clearNoPoolCacheInCache,
@@ -121,6 +129,10 @@ const v3QuoterInterface = new ethers.Interface([
 ]);
 
 const v2RouterInterface = new ethers.Interface(V2_ROUTER_ABI);
+const poolTokenInterface = new ethers.Interface([
+    'function token0() view returns (address)',
+    'function token1() view returns (address)'
+]);
 const infinityQuoterInterface = new ethers.Interface([
     'function quoteExactInputSingle((tuple(address currency0,address currency1,address hooks,address poolManager,uint24 fee,bytes32 parameters),bool zeroForOne,uint128 exactAmount,bytes hookData) params) returns (uint256 amountOut, uint256 gasEstimate)'
 ]);
@@ -274,6 +286,34 @@ async function setCachedWinningStrategy(chainId: number, tokenIn: string, tokenO
         tokenIn,
         tokenOut,
         strategy,
+        WINNING_ROUTE_CACHE_TTL_MS
+    );
+}
+
+async function getCachedSinglePoolWinnerHint(
+    chainId: number,
+    tokenIn: string,
+    tokenOut: string
+): Promise<ResolvedPoolHint | null> {
+    return await getCachedSinglePoolWinnerHintFromCache(
+        chainId,
+        tokenIn,
+        tokenOut,
+        WINNING_ROUTE_CACHE_TTL_MS * 1000
+    );
+}
+
+async function setCachedSinglePoolWinnerHint(
+    chainId: number,
+    tokenIn: string,
+    tokenOut: string,
+    hint: ResolvedPoolHint
+): Promise<void> {
+    await setCachedSinglePoolWinnerHintInCache(
+        chainId,
+        tokenIn,
+        tokenOut,
+        hint,
         WINNING_ROUTE_CACHE_TTL_MS
     );
 }
@@ -432,6 +472,19 @@ function trimAmountToDecimals(amount: string, decimals: number): string {
     return `${intPart || '0'}.${(fracPart || '').slice(0, decimals)}`;
 }
 
+function isLikelyRawWeiAmount(amount: string, decimals: number): boolean {
+    const normalized = String(amount || '').trim();
+    if (!/^\d+$/.test(normalized)) return false;
+    if (normalized === '0') return false;
+    const stripped = normalized.replace(/^0+/, '') || '0';
+    if (stripped === '0') return false;
+    // Heuristic:
+    // - keep normal integer "human units" (e.g. 1, 10, 1000, 1000000 for 6-decimals) unchanged
+    // - treat very long integer strings as already-smallest-unit values (wei-like)
+    const minDigitsForRaw = Math.max(13, Math.max(0, decimals) + 1);
+    return stripped.length >= minDigitsForRaw;
+}
+
 async function parseAmountInWeiByToken(
     tokenIn: string,
     amountIn: string,
@@ -446,6 +499,16 @@ async function parseAmountInWeiByToken(
         } catch {
             decimals = 18;
         }
+    }
+    if (isLikelyRawWeiAmount(amountIn, decimals)) {
+        const raw = BigInt(amountIn);
+        logger.info(LogCode.SYS_INFO, '[DirectSwap] amountIn interpreted as raw wei amount', {
+            chainId,
+            tokenIn: tokenIn.slice(0, 12),
+            amountIn: String(amountIn).slice(0, 32),
+            decimals
+        });
+        return raw;
     }
     const safe = trimAmountToDecimals(amountIn, decimals);
     return ethers.parseUnits(safe, decimals);
@@ -800,6 +863,139 @@ async function executeInfinitySwap(
     }, options);
 }
 
+function normalizePairTokenForHint(token: string, chainId: number): string {
+    const normalized = String(token || '').toLowerCase();
+    if (!normalized) return normalized;
+    const nativePseudo = '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
+    if (normalized === nativePseudo) {
+        return (WETH_ADDRESSES[chainId] || nativePseudo).toLowerCase();
+    }
+    return normalized;
+}
+
+function isSameHintPair(
+    tokenA: string,
+    tokenB: string,
+    tokenX: string,
+    tokenY: string,
+    chainId: number
+): boolean {
+    const a = normalizePairTokenForHint(tokenA, chainId);
+    const b = normalizePairTokenForHint(tokenB, chainId);
+    const x = normalizePairTokenForHint(tokenX, chainId);
+    const y = normalizePairTokenForHint(tokenY, chainId);
+    if (!a || !b || !x || !y) return false;
+    return (a === x && b === y) || (a === y && b === x);
+}
+
+async function readPoolPairTokens(chainId: number, poolAddress: string): Promise<{ token0: string; token1: string } | null> {
+    if (!poolAddress || !/^0x[a-fA-F0-9]{40}$/.test(poolAddress)) return null;
+    try {
+        const [token0Hex, token1Hex] = await Promise.all([
+            callRpc<string>(
+                chainId,
+                'eth_call',
+                [{ to: poolAddress, data: poolTokenInterface.encodeFunctionData('token0', []) }, 'latest'],
+                { strategy: 'fast', importance: 'critical' }
+            ),
+            callRpc<string>(
+                chainId,
+                'eth_call',
+                [{ to: poolAddress, data: poolTokenInterface.encodeFunctionData('token1', []) }, 'latest'],
+                { strategy: 'fast', importance: 'critical' }
+            )
+        ]);
+        const token0 = ethers.getAddress(`0x${token0Hex.slice(-40)}`).toLowerCase();
+        const token1 = ethers.getAddress(`0x${token1Hex.slice(-40)}`).toLowerCase();
+        return { token0, token1 };
+    } catch {
+        return null;
+    }
+}
+
+async function validateResolvedHintAgainstSwapPair(
+    params: {
+        tokenIn: string;
+        tokenOut: string;
+        chainId: number;
+    },
+    hint: DirectSwapHint['resolvedPoolHint']
+): Promise<{ ok: boolean; reason?: string; details?: Record<string, string | number | null> }> {
+    if (!hint) return { ok: false, reason: 'missing_hint' };
+
+    if (hint.kind === 'aerodrome') {
+        // Aerodrome execution path is router-quoted and not bound to a single pool address.
+        return { ok: true };
+    }
+
+    if (hint.kind === 'v4' && hint.v4PoolKey) {
+        const pairOk = isSameHintPair(
+            params.tokenIn,
+            params.tokenOut,
+            hint.v4PoolKey.currency0,
+            hint.v4PoolKey.currency1,
+            params.chainId
+        );
+        return pairOk
+            ? { ok: true }
+            : {
+                ok: false,
+                reason: 'v4_pair_mismatch',
+                details: {
+                    swapTokenIn: params.tokenIn,
+                    swapTokenOut: params.tokenOut,
+                    poolToken0: hint.v4PoolKey.currency0,
+                    poolToken1: hint.v4PoolKey.currency1,
+                    poolAddress: hint.poolAddress || null
+                }
+            };
+    }
+
+    if ((hint.kind === 'v3' || hint.kind === 'v2') && hint.poolAddress) {
+        const poolTokens = await readPoolPairTokens(params.chainId, hint.poolAddress.toLowerCase());
+        if (!poolTokens) {
+            return {
+                ok: false,
+                reason: 'pool_tokens_unavailable',
+                details: { poolAddress: hint.poolAddress.toLowerCase() }
+            };
+        }
+        const pairOk = isSameHintPair(
+            params.tokenIn,
+            params.tokenOut,
+            poolTokens.token0,
+            poolTokens.token1,
+            params.chainId
+        );
+        return pairOk
+            ? { ok: true }
+            : {
+                ok: false,
+                reason: 'pool_pair_mismatch',
+                details: {
+                    swapTokenIn: params.tokenIn,
+                    swapTokenOut: params.tokenOut,
+                    poolToken0: poolTokens.token0,
+                    poolToken1: poolTokens.token1,
+                    poolAddress: hint.poolAddress.toLowerCase()
+                }
+            };
+    }
+
+    return { ok: false, reason: 'unsupported_hint_shape' };
+}
+
+function shouldSkipResolvedHintRetry(error: string | undefined): boolean {
+    const lower = String(error || '').toLowerCase();
+    if (!lower) return false;
+    return (
+        lower.includes('hint_pool_pair_mismatch')
+        || lower.includes('hint_pool_tokens_unavailable')
+        || lower.includes('hint_fastpath_disallowed')
+        || lower.includes('pre-sim reverted')
+    );
+}
+
 async function tryResolvedPoolHintFastPath(
     params: {
         userId: string;
@@ -812,10 +1008,32 @@ async function tryResolvedPoolHintFastPath(
         chainId: number;
         slippageBps: number;
     },
-    hint?: DirectSwapHint
+    hint?: DirectSwapHint,
+    options?: { executionMode?: DirectSwapExecutionMode; trustedHint?: boolean }
 ): Promise<DirectSwapResult | null> {
     const resolved = hint?.resolvedPoolHint;
     if (!resolved) return null;
+
+    const validation = await validateResolvedHintAgainstSwapPair(
+        {
+            tokenIn: params.tokenIn,
+            tokenOut: params.tokenOut,
+            chainId: params.chainId
+        },
+        resolved
+    );
+    if (!validation.ok) {
+        logger.warn(LogCode.SYS_INFO, '[DirectSwap] Skip resolved pool hint: pair validation failed', {
+            chainId: params.chainId,
+            reason: validation.reason,
+            details: validation.details || null
+        });
+        return {
+            success: false,
+            error: `hint_pool_pair_mismatch:${validation.reason || 'unknown'}`,
+            provider: 'failed'
+        };
+    }
 
     if (resolved.kind === 'v4' && resolved.v4PoolKey) {
         let poolKey = {
@@ -855,7 +1073,12 @@ async function tryResolvedPoolHintFastPath(
             fee: poolKey.fee,
             liquidity: '0'
         };
-        return executeV4Swap(params, selectedPool, { allowZeroQuoteMinOut: true, fastMode: true });
+        return executeV4Swap(params, selectedPool, {
+            allowZeroQuoteMinOut: true,
+            fastMode: true,
+            executionMode: options?.executionMode,
+            trustedHint: options?.trustedHint
+        });
     }
 
     if (resolved.kind === 'aerodrome' || resolved.dex === 'aerodrome') {
@@ -877,7 +1100,10 @@ async function tryResolvedPoolHintFastPath(
         };
         if (resolved.kind === 'v3') {
             const dex = resolved.dex === 'pancake' ? 'pancake' : 'uniswap';
-            return executeV3Swap(params, pool, dex, { fastMode: true });
+            return executeV3Swap(params, pool, dex, {
+                fastMode: true,
+                executionMode: options?.executionMode
+            });
         }
         const expectedOut = await getV2ExpectedOutput(params.tokenIn, params.tokenOut, params.amountInWei, params.chainId);
         if (expectedOut <= 0n) {
@@ -903,7 +1129,7 @@ export async function executeDirectSwap(params: {
     chainId: number;
     slippageBps: number;
     hint?: DirectSwapHint;
-    executionMode?: 'safe' | 'balanced' | 'turbo';
+    executionMode?: 'safe' | 'normal' | 'turbo';
     _externalRetryAttempt?: number;
 }): Promise<DirectSwapResult> {
     const { userId, accessToken, walletAddress, tokenIn, tokenOut, amountIn, chainId, slippageBps } = params;
@@ -945,6 +1171,7 @@ export async function executeDirectSwap(params: {
     let poolCacheTokenIn = normalizedTokenIn;
     let poolCacheTokenOut = normalizedTokenOut;
     let turboUsdReservationId: string | null = null;
+    let selectedResolvedHintForCache: ResolvedPoolHint | null = null;
     const finish = async (result: DirectSwapResult): Promise<DirectSwapResult> => {
         const durationMs = Date.now() - swapStart;
         if (result.success) {
@@ -952,6 +1179,14 @@ export async function executeDirectSwap(params: {
             const successfulStrategy = providerToStrategy(result.provider, chainId);
             if (successfulStrategy) {
                 await setCachedWinningStrategy(chainId, poolCacheTokenIn, poolCacheTokenOut, successfulStrategy);
+            }
+            if (selectedResolvedHintForCache) {
+                await setCachedSinglePoolWinnerHint(
+                    chainId,
+                    poolCacheTokenIn,
+                    poolCacheTokenOut,
+                    selectedResolvedHintForCache
+                );
             }
         } else if (result.error) {
             const reasonCode = classifyFailure(result.error);
@@ -981,7 +1216,7 @@ export async function executeDirectSwap(params: {
                 chainId,
                 tokenIn: normalizedTokenIn,
                 tokenOut: normalizedTokenOut,
-                executionMode: params.executionMode || 'balanced',
+                executionMode: params.executionMode || 'normal',
                 failureCode: traceState.failureCode || 'unknown',
                 failureDetail: result.error || 'unknown',
                 layers: {
@@ -1053,16 +1288,19 @@ export async function executeDirectSwap(params: {
         const cachedWinningStrategy = preferredStrategy
             ? null
             : await getCachedWinningStrategy(chainId, poolTokenIn, poolTokenOut);
-        const requestedMode: DirectSwapExecutionMode = params.executionMode === 'turbo' ? 'turbo' : 'balanced';
+        const requestedMode: DirectSwapExecutionMode = params.executionMode || 'normal';
         const fastHintMode = Boolean(params.hint?.sourceTxHash);
         const turboMode = requestedMode === 'turbo';
+        const safeMode = requestedMode === 'safe';
         const autoBypassReferenceGate = fastHintMode && !!preferredStrategy && (
             preferredStrategy.kind === 'v4'
             || preferredStrategy.kind === 'infinity'
             || preferredStrategy.kind === 'aerodrome'
         );
-        const bypassReferenceGate = (params.hint?.bypassReferencePrice === true && !!preferredStrategy) || autoBypassReferenceGate;
-        let skipReferenceQuote = bypassReferenceGate || turboMode;
+        const bypassReferenceGate = safeMode
+            ? false
+            : ((params.hint?.bypassReferencePrice === true && !!preferredStrategy) || autoBypassReferenceGate);
+        let skipReferenceQuote = safeMode ? false : (bypassReferenceGate || turboMode);
         let skipReferenceQuoteReason: 'bypass' | 'turbo' | 'buy_liquidity_100x' = bypassReferenceGate
             ? 'bypass'
             : turboMode
@@ -1088,7 +1326,23 @@ export async function executeDirectSwap(params: {
         };
         const turboFastDeadline = computeTurboDeadline(swapStart, DIRECT_SWAP_FASTPATH_BUDGET_MS);
         let earlyHintedPool: HintedSourcePool | null = null;
+        let resolvedHintFastPathSkipped = false;
+        let resolvedHintFastPathFailed = false;
         if (params.hint?.resolvedPoolHint) {
+            const hintHopCount = Math.max(
+                Number(params.hint?.routeHopCount || 0),
+                params.hint?.routeHops?.length || 0
+            );
+            const canUseResolvedFastPath = params.hint?.canUseResolvedPoolFastPath !== false && hintHopCount <= 1;
+            if (!canUseResolvedFastPath) {
+                resolvedHintFastPathSkipped = true;
+                logger.warn(LogCode.SYS_INFO, '[DirectSwap] Resolved pool hint fast-path skipped by route context', {
+                    chainId,
+                    canUseResolvedPoolFastPath: params.hint?.canUseResolvedPoolFastPath,
+                    routeHopCount: hintHopCount,
+                    reason: 'multi_hop_or_explicitly_disabled'
+                });
+            } else {
             logger.info(LogCode.SYS_INFO, '[DirectSwap] Fast-path resolved pool hint attempt', {
                 chainId,
                 kind: params.hint.resolvedPoolHint.kind,
@@ -1096,25 +1350,48 @@ export async function executeDirectSwap(params: {
                 poolAddress: params.hint.resolvedPoolHint.poolAddress
             });
 
-            const directTry = await tryResolvedPoolHintFastPath(normalizedParams, params.hint);
+            const directTry = await tryResolvedPoolHintFastPath(
+                normalizedParams,
+                params.hint,
+                { executionMode: requestedMode, trustedHint: turboMode }
+            );
             if (directTry?.success) {
+                if (params.hint?.resolvedPoolHint?.poolAddress) {
+                    selectedResolvedHintForCache = params.hint.resolvedPoolHint as ResolvedPoolHint;
+                }
                 return finish(directTry);
             }
+            resolvedHintFastPathFailed = Boolean(directTry && !directTry.success);
 
             // Balanced mode: one cheap hint attempt then continue normal flow.
             if (!turboMode) {
-                logger.info(LogCode.SYS_INFO, '[DirectSwap] Resolved pool hint unavailable in balanced mode, continue discovery', {
+                logger.info(LogCode.SYS_INFO, '[DirectSwap] Resolved pool hint unavailable in normal mode, continue discovery', {
                     chainId,
                     error: directTry?.error
                 });
             } else {
-                logger.warn(LogCode.SYS_INFO, '[DirectSwap] Fast-path resolved pool hint failed, retry once', {
-                    chainId,
-                    error: directTry?.error
-                });
-                const retryTry = await tryResolvedPoolHintFastPath(normalizedParams, params.hint);
-                if (retryTry?.success) {
-                    return finish(retryTry);
+                if (shouldSkipResolvedHintRetry(directTry?.error)) {
+                    logger.warn(LogCode.SYS_INFO, '[DirectSwap] Fast-path resolved pool hint failed, skip retry for non-retryable hint failure', {
+                        chainId,
+                        error: directTry?.error
+                    });
+                } else {
+                    logger.warn(LogCode.SYS_INFO, '[DirectSwap] Fast-path resolved pool hint failed, retry once', {
+                        chainId,
+                        error: directTry?.error
+                    });
+                    const retryTry = await tryResolvedPoolHintFastPath(
+                        normalizedParams,
+                        params.hint,
+                        { executionMode: requestedMode, trustedHint: true }
+                    );
+                    if (retryTry?.success) {
+                        if (params.hint?.resolvedPoolHint?.poolAddress) {
+                            selectedResolvedHintForCache = params.hint.resolvedPoolHint as ResolvedPoolHint;
+                        }
+                        return finish(retryTry);
+                    }
+                    resolvedHintFastPathFailed = resolvedHintFastPathFailed || Boolean(retryTry && !retryTry.success);
                 }
 
                 if (isTurboBudgetExceeded(swapStart, DIRECT_SWAP_FASTPATH_BUDGET_MS)) {
@@ -1125,8 +1402,9 @@ export async function executeDirectSwap(params: {
                     });
                 }
             }
+            }
         }
-        if (params.hint?.sourceTxHash && !params.hint?.resolvedPoolHint) {
+        if (params.hint?.sourceTxHash && (!params.hint?.resolvedPoolHint || resolvedHintFastPathSkipped || resolvedHintFastPathFailed)) {
             const earlyHintBudgetMs = turboMode
                 ? Math.max(200, Math.min(1200, turboFastDeadline - Date.now()))
                 : 700;
@@ -1148,46 +1426,95 @@ export async function executeDirectSwap(params: {
                     hintedKind: earlyHintedPool?.kind || null
                 });
             }
-            if (turboMode && earlyHintBudgetMs > 0) {
-                if (earlyHintedPool?.kind === 'v4') {
-                    logger.info(LogCode.SYS_INFO, '[DirectSwap] Early hinted source pool selected (v4)', {
-                        chainId,
-                        strategy: 'v4-hinted-source-early',
-                        poolId: earlyHintedPool.pool.poolAddress,
-                        fee: earlyHintedPool.pool.poolKey.fee
-                    });
-                    return finish(await executeV4Swap(normalizedParams, earlyHintedPool.pool, {
-                        allowZeroQuoteMinOut: true,
-                        fastMode: turboMode,
-                        executionMode: requestedMode,
-                        trustedHint: true
-                    }));
-                }
-                if (earlyHintedPool?.kind === 'v3') {
-                    logger.info(LogCode.SYS_INFO, '[DirectSwap] Early hinted source pool selected (v3)', {
-                        chainId,
-                        strategy: `v3-hinted-source-early:${earlyHintedPool.dex}`,
-                        pool: earlyHintedPool.pool.poolAddress,
-                        fee: earlyHintedPool.pool.fee
-                    });
-                    return finish(await executeV3Swap(normalizedParams, earlyHintedPool.pool, earlyHintedPool.dex, {
-                        fastMode: turboMode,
-                        executionMode: requestedMode
-                    }));
-                }
-                if (earlyHintedPool?.kind === 'v2') {
-                    const hintedV2Quote = await getV2ExpectedOutput(poolTokenIn, poolTokenOut, amountInWei, chainId);
-                    if (hintedV2Quote > 0n) {
-                        logger.info(LogCode.SYS_INFO, '[DirectSwap] Early hinted source pool selected (v2)', {
+        }
+
+        if (turboMode) {
+            let sourceHintCandidate = earlyHintedPool;
+            if (!sourceHintCandidate && params.hint?.sourceTxHash) {
+                const sourceHintBudgetMs = Math.max(200, Math.min(900, turboFastDeadline - Date.now()));
+                if (sourceHintBudgetMs > 0) {
+                    sourceHintCandidate = await withTimeout(
+                        resolveHintedPoolFromSourceTx({
+                            tokenIn: poolTokenIn,
+                            tokenOut: poolTokenOut,
                             chainId,
-                            strategy: `v2-hinted-source-early:${earlyHintedPool.dex || 'uniswap'}`,
-                            pool: earlyHintedPool.pool.poolAddress,
-                            amountOut: hintedV2Quote.toString()
-                        });
-                        return finish(await executeV2Swap(normalizedParams, hintedV2Quote));
-                    }
+                            hint: params.hint
+                        }),
+                        sourceHintBudgetMs
+                    ).catch(() => null);
                 }
             }
+
+            const cachedSinglePoolHint = await getCachedSinglePoolWinnerHint(chainId, poolTokenIn, poolTokenOut);
+            const turboCandidates = await singlePoolTurboResolver.resolveCandidates({
+                chainId,
+                tokenIn: poolTokenIn,
+                tokenOut: poolTokenOut,
+                amountInWei,
+                hint: params.hint,
+                sourceHint: sourceHintCandidate,
+                cachedWinnerHint: cachedSinglePoolHint,
+                deadlineMs: turboFastDeadline
+            });
+
+            logger.info(LogCode.SYS_INFO, '[DirectSwap] Turbo single-pool candidates resolved', {
+                chainId,
+                traceId,
+                candidateCount: turboCandidates.length,
+                sources: {
+                    resolvedHint: Boolean(params.hint?.resolvedPoolHint),
+                    sourceTxHint: Boolean(sourceHintCandidate),
+                    cachedHint: Boolean(cachedSinglePoolHint)
+                }
+            });
+
+            if (turboCandidates.length === 0) {
+                return finish({
+                    success: false,
+                    error: 'Turbo single-pool mode: no valid candidate hint',
+                    provider: 'failed'
+                });
+            }
+
+            let lastTurboError = 'Turbo single-pool attempt failed';
+            for (let attempt = 0; attempt < 2; attempt++) {
+                const candidate = turboCandidates[Math.min(attempt, turboCandidates.length - 1)];
+                const turboHint: DirectSwapHint = {
+                    ...(params.hint || {}),
+                    canUseResolvedPoolFastPath: true,
+                    routeHopCount: 1,
+                    resolvedPoolHint: candidate
+                };
+                logger.info(LogCode.SYS_INFO, '[DirectSwap] Turbo single-pool attempt', {
+                    chainId,
+                    traceId,
+                    attempt: attempt + 1,
+                    kind: candidate.kind,
+                    dex: candidate.dex,
+                    poolAddress: candidate.poolAddress
+                });
+                const directTry = await tryResolvedPoolHintFastPath(
+                    normalizedParams,
+                    turboHint,
+                    { executionMode: 'turbo', trustedHint: true }
+                );
+                if (directTry?.success) {
+                    selectedResolvedHintForCache = candidate;
+                    return finish(directTry);
+                }
+                if (directTry?.error) {
+                    lastTurboError = directTry.error;
+                }
+                if (shouldSkipResolvedHintRetry(directTry?.error)) {
+                    break;
+                }
+            }
+
+            return finish({
+                success: false,
+                error: `Turbo single-pool mode failed: ${lastTurboError}`,
+                provider: 'failed'
+            });
         }
 
         // ── TURBO SHORT-CIRCUIT ──
@@ -1225,7 +1552,10 @@ export async function executeDirectSwap(params: {
                 }).catch(() => null);
 
             const turboPairKey = buildTurboPairKey(chainId, poolTokenIn, poolTokenOut);
-            const requestAmountUsd = await estimateAmountUsdByToken(chainId, poolTokenIn, amountInWei);
+            const requestAmountUsd = await withTimeout(
+                estimateAmountUsdByToken(chainId, poolTokenIn, amountInWei),
+                350
+            ).catch(() => 0);
             const inflightAmountUsd = getTurboInflightUsd(turboPairKey);
             const effectiveAmountUsd = requestAmountUsd + inflightAmountUsd;
             const depthMultiplier = pickDepthMultiplierByUsd(effectiveAmountUsd);
@@ -1423,9 +1753,9 @@ export async function executeDirectSwap(params: {
             logger.warn(LogCode.SYS_INFO, '[DirectSwap] Turbo short-circuit exhausted, no qualified pool found', {
                 traceId,
                 chainId,
-                elapsedMs: Date.now() - swapStart
+                elapsedMs: Date.now() - swapStart,
+                fallback: 'continue_full_discovery'
             });
-            return finish({ success: false, error: 'turbo_no_pool_found', provider: 'failed' });
         }
         // ── END TURBO SHORT-CIRCUIT ──
 
@@ -1602,7 +1932,11 @@ export async function executeDirectSwap(params: {
         let pools: PoolInfo[] = [];
         const skipPoolDiscovery = Boolean(earlyHintedPool);
         if (turboMode && isTurboBudgetExceeded(swapStart, DIRECT_SWAP_FASTPATH_BUDGET_MS)) {
-            return finish({ success: false, error: 'Fast-path budget exceeded before pool discovery', provider: 'failed' });
+            logger.warn(LogCode.SYS_INFO, '[DirectSwap] Fast-path budget exceeded before pool discovery, continue with fallback discovery', {
+                chainId,
+                elapsedMs: Date.now() - swapStart,
+                budgetMs: DIRECT_SWAP_FASTPATH_BUDGET_MS
+            });
         }
         if (skipPoolDiscovery) {
             pools = [];
@@ -1685,7 +2019,7 @@ export async function executeDirectSwap(params: {
         });
         tPoolDiscoveryDone = Date.now();
 
-        if (!skipReferenceQuote && isBuySideStableOrNativeIn(chainId, normalizedTokenIn) && pools.length > 0) {
+        if (!safeMode && !skipReferenceQuote && isBuySideStableOrNativeIn(chainId, normalizedTokenIn) && pools.length > 0) {
             const buyLiqGuard = evaluateBuyLiquidityProtection(
                 pools,
                 poolTokenIn,
@@ -2004,6 +2338,13 @@ export async function executeDirectSwap(params: {
         }
 
         const canUseSourceHintFallback = !!params.hint?.sourceTxHash;
+        if (safeMode && referenceQuote <= 0n) {
+            return finish({
+                success: false,
+                error: 'Safe mode requires valid reference price',
+                provider: 'failed'
+            });
+        }
         if (referenceQuote <= 0n && !canUseSourceHintFallback && !turboMode && !referenceCappedToZero && !skipReferenceQuote) {
             return finish({ success: false, error: 'No valid reference price (0x/Kyber/Gecko)', provider: 'failed' });
         }

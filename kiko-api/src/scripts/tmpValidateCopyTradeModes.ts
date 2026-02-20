@@ -78,7 +78,7 @@ async function decodeWithFallbackTargets(chainId: number, txHash: string, prefer
   return null;
 }
 
-async function runModeSwap(swap: DecodedSwap, chainId: number, mode: 'safe' | 'balanced' | 'turbo') {
+async function runModeSwap(swap: DecodedSwap, chainId: number, mode: 'safe' | 'normal' | 'turbo') {
   const amountIn = isNativeToken(swap.tokenIn, chainId)
     ? ethers.formatEther(BigInt(swap.amountIn))
     : ethers.formatUnits(BigInt(swap.amountIn), 18);
@@ -149,9 +149,9 @@ async function main() {
     }
 
     const safe = await runModeSwap(swap, c.chainId, 'safe');
-    const balanced = await runModeSwap(swap, c.chainId, 'balanced');
+    const normal = await runModeSwap(swap, c.chainId, 'normal');
     const turbo = await runModeSwap(swap, c.chainId, 'turbo');
-    const normal = await runNormalSwap(swap, c.chainId);
+    const normalSwap = await runNormalSwap(swap, c.chainId);
 
     report.push({
       txHash: c.txHash,
@@ -162,9 +162,9 @@ async function main() {
       tokenOut: swap.tokenOut,
       dex: swap.dexName,
       safe: { success: safe.success, provider: safe.metadata?.provider, error: safe.error, elapsedMs: safe.elapsedMs },
-      balanced: { success: balanced.success, provider: balanced.metadata?.provider, error: balanced.error, elapsedMs: balanced.elapsedMs },
+      normal: { success: normal.success, provider: normal.metadata?.provider, error: normal.error, elapsedMs: normal.elapsedMs },
       turbo: { success: turbo.success, provider: turbo.metadata?.provider, error: turbo.error, elapsedMs: turbo.elapsedMs },
-      normalSwap: { success: normal.success, provider: normal.metadata?.provider, error: normal.error, elapsedMs: normal.elapsedMs }
+      normalSwap: { success: normalSwap.success, provider: normalSwap.metadata?.provider, error: normalSwap.error, elapsedMs: normalSwap.elapsedMs }
     });
   }
 

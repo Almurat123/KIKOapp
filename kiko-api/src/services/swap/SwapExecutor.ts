@@ -37,7 +37,7 @@ export interface SwapParams {
     speedUpAfterMs?: number; // Attempt replacement if tx is still pending
     speedUpBumpBps?: number; // Gas bump in bps for replacement
     transferRetry?: boolean; // Internal: prevent repeat retry after transfer failure
-    executionMode?: 'safe' | 'balanced' | 'turbo';
+    executionMode?: 'safe' | 'normal' | 'turbo';
     /** Pre-warmed nonce promise (copy-trade path); when set, used for the swap tx to save one RPC round-trip. */
     preWarmedNonce?: Promise<string | undefined>;
     launchpadProvider?: 'pumpfun' | 'pumpswap' | 'bonkfun' | 'zora' | 'fourmeme' | 'flap' | 'clanker' | 'virtuals' | 'doppler';

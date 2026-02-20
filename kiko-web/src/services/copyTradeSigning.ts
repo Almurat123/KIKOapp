@@ -77,6 +77,11 @@ function toBoolean(value: unknown, fallback: boolean): boolean {
 }
 
 function buildPayloadFromSource(source: Partial<CreateConfigParams | CopyTradeConfig>) {
+  const requestedMode = String(source.executionMode || 'normal').toLowerCase();
+  const executionMode =
+    requestedMode === 'safe' || requestedMode === 'normal' || requestedMode === 'turbo'
+      ? requestedMode
+      : 'normal';
   return {
     chainId: Number(source.chainId || 8453),
     targetWallet: String(source.targetWallet || ''),
@@ -86,7 +91,7 @@ function buildPayloadFromSource(source: Partial<CreateConfigParams | CopyTradeCo
     minLiquidityUsd: toNumericString(source.minLiquidityUsd),
     minTargetValueUsd: toNumericString(source.minTargetValueUsd),
     copyTradeTokenCooldownMinutes: toNumericString(source.copyTradeTokenCooldownMinutes),
-    executionMode: String(source.executionMode || 'balanced').toLowerCase(),
+    executionMode,
     disableTokenInfo: toBoolean(source.disableTokenInfo, false),
     takeProfitPct: toNumericString(source.takeProfitPct),
     stopLossPct: toNumericString(source.stopLossPct),

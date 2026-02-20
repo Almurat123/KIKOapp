@@ -16,6 +16,7 @@ import {
     verifyCopyTradeConfigSignature,
     type CopyTradeSignedPayload,
 } from '../services/copyTradeConfigSignatureService.js';
+import { resolveExecutionModeFromConfig } from '../services/copyTradeExecutionMode.js';
 import { getEmbeddedWalletAddress } from '../services/privyWallet.js';
 import { AppError } from '../middleware/errorHandler.js';
 
@@ -29,7 +30,6 @@ interface CreateConfigBody {
 
 const MAX_COPY_TRADE_USD = 1_000_000;
 const SUPPORTED_COPYTRADE_CHAINS = new Set([1, 10, 56, 137, 8453, 42161, 900]);
-type CopyTradeExecutionMode = 'safe' | 'balanced' | 'turbo';
 
 function chainIdToWalletTxChain(chainId: number): string {
     if (chainId === 8453) return 'base';
@@ -39,35 +39,6 @@ function chainIdToWalletTxChain(chainId: number): string {
     if (chainId === 10) return 'optimism';
     if (chainId === 137) return 'polygon';
     return 'eth';
-}
-
-function coerceExecutionMode(mode: unknown): CopyTradeExecutionMode | null {
-    if (typeof mode !== 'string') return null;
-    const normalized = mode.trim().toLowerCase();
-    if (normalized === 'safe' || normalized === 'balanced' || normalized === 'turbo') {
-        return normalized;
-    }
-    return null;
-}
-
-function resolveExecutionMode(args: {
-    requested?: unknown;
-    legacyDisableTokenInfo?: unknown;
-    fallback: CopyTradeExecutionMode;
-}): { mode: CopyTradeExecutionMode; valid: boolean } {
-    if (args.requested !== undefined) {
-        const mode = coerceExecutionMode(args.requested);
-        if (!mode) {
-            return { mode: args.fallback, valid: false };
-        }
-        return { mode, valid: true };
-    }
-
-    if (typeof args.legacyDisableTokenInfo === 'boolean') {
-        return { mode: args.legacyDisableTokenInfo ? 'turbo' : 'balanced', valid: true };
-    }
-
-    return { mode: args.fallback, valid: true };
 }
 
 function toConfigDataFromSignedPayload(payload: CopyTradeSignedPayload) {
@@ -247,13 +218,13 @@ export default async function copyTradeRoutes(fastify: FastifyInstance) {
                 await assertEoaTarget(chainId, normalizedTarget);
             }
 
-            const resolvedMode = resolveExecutionMode({
+            const resolvedMode = resolveExecutionModeFromConfig({
                 requested: configData.executionMode,
                 legacyDisableTokenInfo: configData.disableTokenInfo,
-                fallback: 'balanced',
+                fallback: 'normal',
             });
             if (!resolvedMode.valid) {
-                return reply.status(400).send({ error: 'executionMode must be one of: safe, balanced, turbo' });
+                return reply.status(400).send({ error: 'executionMode must be one of: safe, normal, turbo' });
             }
 
             // Create config
@@ -573,13 +544,13 @@ export default async function copyTradeRoutes(fastify: FastifyInstance) {
                 await assertEoaTarget(chainId, normalizedNextTarget);
             }
 
-            const resolvedMode = resolveExecutionMode({
+            const resolvedMode = resolveExecutionModeFromConfig({
                 requested: configData.executionMode,
                 legacyDisableTokenInfo: configData.disableTokenInfo,
-                fallback: 'balanced',
+                fallback: 'normal',
             });
             if (!resolvedMode.valid) {
-                return reply.status(400).send({ error: 'executionMode must be one of: safe, balanced, turbo' });
+                return reply.status(400).send({ error: 'executionMode must be one of: safe, normal, turbo' });
             }
 
             const dataToUpdate: Record<string, unknown> = {

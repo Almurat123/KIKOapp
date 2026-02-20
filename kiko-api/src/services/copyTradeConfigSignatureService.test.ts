@@ -5,6 +5,7 @@ import {
   COPYTRADE_INTENT_VERSION,
   assertConfigExecutable,
   computeCopyTradeConfigHash,
+  normalizeSignedPayload,
   verifyCopyTradeConfigSignature,
   type CopyTradeSignedPayload,
 } from './copyTradeConfigSignatureService.js';
@@ -68,7 +69,7 @@ function buildPayload(args: {
     minLiquidityUsd: '0',
     minTargetValueUsd: '0',
     copyTradeTokenCooldownMinutes: '0',
-    executionMode: 'balanced',
+    executionMode: 'normal',
     disableTokenInfo: false,
     takeProfitPct: '0',
     stopLossPct: '0',
@@ -159,6 +160,15 @@ test('verifyCopyTradeConfigSignature rejects stale nonce and expired payload', a
     });
   }, (error: unknown) => {
     return error instanceof AppError && error.code === 'CONFIG_EXPIRED';
+  });
+});
+
+test('normalizeSignedPayload rejects legacy balanced execution mode', () => {
+  const wallet = Wallet.createRandom();
+  const payload = buildPayload({ signerAddress: wallet.address }) as any;
+  payload.executionMode = 'balanced';
+  assert.throws(() => normalizeSignedPayload(payload), (error: unknown) => {
+    return error instanceof AppError && error.code === 'SIGNATURE_INVALID';
   });
 });
 

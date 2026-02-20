@@ -107,7 +107,7 @@ async function pickRecentBuySwaps() {
   return selected;
 }
 
-async function runMode(swap: DecodedSwap, mode: 'safe' | 'balanced' | 'turbo') {
+async function runMode(swap: DecodedSwap, mode: 'safe' | 'normal' | 'turbo') {
   const observed = Number(ethers.formatEther(BigInt(swap.amountIn)));
   const capped = Math.min(observed, 0.0015); // keep below simulation wallet balance
   const amountIn = capped.toFixed(6);
@@ -163,9 +163,9 @@ async function main() {
 
   for (const row of buys) {
     const safe = await runMode(row.swap, 'safe');
-    const balanced = await runMode(row.swap, 'balanced');
+    const normal = await runMode(row.swap, 'normal');
     const turbo = await runMode(row.swap, 'turbo');
-    const normal = await runNormalSwap(row.swap);
+    const normalSwap = await runNormalSwap(row.swap);
 
     out.push({
       txHash: row.txHash,
@@ -173,9 +173,9 @@ async function main() {
       tokenOut: row.swap.tokenOut,
       dex: row.swap.dexName,
       safe,
-      balanced,
+      normal,
       turbo,
-      normal
+      normalSwap
     });
   }
 

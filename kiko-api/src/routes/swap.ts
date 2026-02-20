@@ -972,7 +972,7 @@ export async function swapRoutes(fastify: FastifyInstance) {
                         slippageBps,
                         feeContext: 'swap',
                         accessToken,
-                        executionMode: 'balanced',
+                        executionMode: 'normal',
                     });
 
                     return reply.send({

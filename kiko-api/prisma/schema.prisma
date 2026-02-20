@@ -106,7 +106,7 @@ model CopyTradeConfig {
   enableDynamicTP               Boolean               @default(false)
   copyTradeTokenCooldownMinutes Int?
   disableTokenInfo              Boolean               @default(false)
-  executionMode                 String                @default("balanced")
+  executionMode                 String                @default("normal")
   targetTrackedTxCount          Int                   @default(0)
   targetWalletTxCount           Int                   @default(0)
   targetBuyCount                Int                   @default(0)

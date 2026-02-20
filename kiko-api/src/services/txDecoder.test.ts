@@ -26,6 +26,14 @@ function transferLog(token: string, from: string, to: string, amount: bigint) {
     };
 }
 
+function v3SwapMarker(pool: string) {
+    return {
+        address: pool,
+        topics: [V3_SWAP_EVENT],
+        data: '0x'
+    };
+}
+
 function v4InitLog(poolManager: string, poolId: string, currency0: string, currency1: string) {
     return {
         address: poolManager,
@@ -191,4 +199,43 @@ test('parseSwapTransaction keeps transfer direction when v4 repair direction is 
     assert.equal(swap?.tokenOut, NATIVE_TOKEN);
     assert.equal(swap?.amountIn, tokenSold.toString());
     assert.equal(swap?.amountOut, nativeReceivedFromHint.toString());
+});
+
+test('parseSwapTransaction marks resolved hint as non-fast-path for multi-hop route', async () => {
+    const wallet = '0xabc0000000000000000000000000000000000011';
+    const tokenIn = '0x1000000000000000000000000000000000000001';
+    const intermediate = '0x2000000000000000000000000000000000000002';
+    const tokenOut = '0x3000000000000000000000000000000000000003';
+    const pool1 = '0x4000000000000000000000000000000000000004';
+    const pool2 = '0x5000000000000000000000000000000000000005';
+    const router = '0x2626664c2603336e57b271c5c0b26f421741e481';
+
+    const swap = await parseSwapTransaction(
+        {
+            hash: '0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff',
+            from: wallet,
+            to: router,
+            input: '0x414bf389',
+            value: '0x0',
+        },
+        {
+            logs: [
+                v3SwapMarker(pool1),
+                v3SwapMarker(pool2),
+                transferLog(tokenIn, wallet, pool1, 1000n),
+                transferLog(intermediate, pool1, pool2, 700n),
+                transferLog(tokenOut, pool2, wallet, 500n),
+            ],
+            status: 1,
+        },
+        8453,
+        wallet
+    );
+
+    assert.ok(swap);
+    assert.equal(swap?.tokenIn, tokenIn.toLowerCase());
+    assert.equal(swap?.tokenOut, tokenOut.toLowerCase());
+    assert.equal(swap?.routeHopCount, 2);
+    assert.equal(swap?.canUseResolvedPoolFastPath, false);
+    assert.ok((swap?.routeHops?.length || 0) >= 2);
 });

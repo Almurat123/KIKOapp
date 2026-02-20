@@ -16,7 +16,7 @@ export interface SolanaSwapParams {
     feeContext?: 'swap' | 'copyTrade';
     accessToken?: string;
     waitForConfirmation?: boolean;
-    executionMode?: 'safe' | 'balanced' | 'turbo';
+    executionMode?: 'safe' | 'normal' | 'turbo';
     launchpadProvider?: 'pumpfun' | 'pumpswap' | 'bonkfun' | 'zora' | 'fourmeme' | 'flap' | 'clanker' | 'virtuals' | 'doppler';
     preferredAggregator?: Exclude<SolanaAggregator, 'auto'>;
 }
@@ -30,7 +30,7 @@ export async function executeSolanaSwap(params: SolanaSwapParams): Promise<strin
         slippageBps = 300,
         accessToken,
         waitForConfirmation = true,
-        executionMode = 'balanced',
+        executionMode = 'normal',
         launchpadProvider,
         preferredAggregator
     } = params;
@@ -58,7 +58,7 @@ export async function executeSolanaSwap(params: SolanaSwapParams): Promise<strin
 
     // 1. Get Quote & Transaction (mode-aware)
     // - turbo: single-route Jupiter for lowest latency (skip Ultra balance check path)
-    // - balanced/safe: auto route comparison
+    // - normal/safe: auto route comparison
     const selectedAggregator: SolanaAggregator =
         preferredAggregator
             || (executionMode === 'turbo' || launchpadProvider === 'pumpswap' ? 'jupiter' : 'auto');

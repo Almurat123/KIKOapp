@@ -51,6 +51,7 @@ export async function executeV3Swap(
   }
 
   const amountInWei = params.amountInWei;
+  const executionMode: DirectSwapExecutionMode = options?.executionMode || 'normal';
   const ETH_ADDRESS = '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
   const normalizedIn = tokenIn.toLowerCase() === ETH_ADDRESS.toLowerCase()
     ? deps.wethAddresses[chainId]
@@ -198,7 +199,20 @@ export async function executeV3Swap(
         value: isNativeIn ? ethers.toQuantity(amountInWei) : '0x0'
       }]);
       gasLimit = (BigInt(estimate) * 2n).toString();
-    } catch {
+    } catch (simErr: any) {
+      if (executionMode === 'safe') {
+        logger.warn(LogCode.EXE_TX_REVERTED, '[DirectSwap] V3 safe pre-sim failed', {
+          pool: pool.poolAddress?.slice(0, 20),
+          fee: bestFee,
+          router: routerAddress?.slice(0, 12),
+          error: simErr?.message?.slice(0, 150)
+        });
+        return {
+          success: false,
+          error: `V3 safe pre-sim failed: ${simErr?.message?.slice(0, 100) || 'unknown'}`,
+          provider: 'failed'
+        };
+      }
       gasLimit = '450000';
     }
   }

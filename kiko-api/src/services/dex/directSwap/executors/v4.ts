@@ -87,7 +87,7 @@ export async function executeV4Swap(
 
   const amountInWei = params.amountInWei;
   const fastMode = options?.fastMode === true;
-  const executionMode: DirectSwapExecutionMode = options?.executionMode === 'turbo' ? 'turbo' : 'balanced';
+  const executionMode: DirectSwapExecutionMode = options?.executionMode || 'normal';
   const trustedHint = options?.trustedHint === true;
 
   let quoterOutWei = 0n;
@@ -242,6 +242,9 @@ export async function executeV4Swap(
           isNativeOut
         });
         if (deps.isTransientRpcFailureForPreSim(errSummary)) {
+          if (executionMode === 'safe') {
+            return { success: false, error: `safe_pre_sim_failed:${reason || errSummary.shortMessage}`, provider: 'failed' };
+          }
           logger.warn(LogCode.EXE_TX_REVERTED, '[DirectSwap] V4 pre-simulation skipped due to transient RPC failure', {
             poolId,
             hook: poolKey.hooks,

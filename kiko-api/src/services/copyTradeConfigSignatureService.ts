@@ -2,6 +2,10 @@ import crypto from 'crypto';
 import { ethers } from 'ethers';
 import { AppError } from '../middleware/errorHandler.js';
 import { normalizeAddress } from '../utils/address.js';
+import {
+  parseExecutionModeStrict,
+  type CopyTradeExecutionMode
+} from './copyTradeExecutionMode.js';
 
 export const COPYTRADE_SIGNATURE_SCHEME = 'eip712_v1';
 export const COPYTRADE_INTENT_VERSION = 'copytrade_config_intent_v1';
@@ -84,7 +88,7 @@ export interface CopyTradeSignedPayload {
   minLiquidityUsd: string;
   minTargetValueUsd: string;
   copyTradeTokenCooldownMinutes: string;
-  executionMode: string;
+  executionMode: CopyTradeExecutionMode;
   disableTokenInfo: boolean;
   takeProfitPct: string;
   stopLossPct: string;
@@ -152,6 +156,10 @@ export function normalizeSignedPayload(raw: unknown, opts?: { enforceNotExpired?
   if (!targetWallet || !userId || !signerAddress) {
     throw new AppError(400, 'signedPayload missing required identity fields', 'SIGNATURE_REQUIRED');
   }
+  const executionMode = parseExecutionModeStrict(payload.executionMode ?? 'normal');
+  if (!executionMode) {
+    throw new AppError(400, 'executionMode must be one of: safe, normal, turbo', 'SIGNATURE_INVALID');
+  }
 
   return {
     version: String(payload.version || COPYTRADE_INTENT_VERSION),
@@ -169,7 +177,7 @@ export function normalizeSignedPayload(raw: unknown, opts?: { enforceNotExpired?
     minLiquidityUsd: strNum(payload.minLiquidityUsd),
     minTargetValueUsd: strNum(payload.minTargetValueUsd),
     copyTradeTokenCooldownMinutes: strNum(payload.copyTradeTokenCooldownMinutes),
-    executionMode: String(payload.executionMode || 'balanced').trim().toLowerCase(),
+    executionMode,
     disableTokenInfo: boolVal(payload.disableTokenInfo, false),
     takeProfitPct: strNum(payload.takeProfitPct),
     stopLossPct: strNum(payload.stopLossPct),

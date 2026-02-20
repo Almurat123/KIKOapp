@@ -40,7 +40,7 @@ export interface BestQuoteParams {
     excludeDex?: string; // Exclude this DEX from selection (for retry)
     feeContext?: 'swap' | 'copyTrade' | 'copy_trade' | 'launchpad';
     isSell?: boolean;
-    executionMode?: 'safe' | 'balanced' | 'turbo';
+    executionMode?: 'safe' | 'normal' | 'turbo';
 }
 
 /**

@@ -1,5 +1,5 @@
 import { get as cacheGet, set as cacheSet, del as cacheDel } from '../../../cache/cacheClient.js';
-import type { DexStrategy } from './types.js';
+import type { DexStrategy, DirectSwapHint } from './types.js';
 
 interface TimedValue<T> {
   value: T;
@@ -45,6 +45,7 @@ export const sharedExternalReferenceQuoteInflight = new Map<string, Promise<Exte
 export const noPoolNegativeCache = new Map<string, { reason: string; timestamp: number }>();
 export const v4GasLimitCache = new Map<string, { gasLimit: string; timestamp: number }>();
 export const winningRouteCache = new Map<string, { strategy: DexStrategy; timestamp: number }>();
+export const singlePoolWinnerHintCache = new Map<string, { hint: NonNullable<DirectSwapHint['resolvedPoolHint']>; timestamp: number }>();
 
 export function v4SpotRedisKey(cacheKey: string): string {
   return `directswap:v4spot:${cacheKey}`;
@@ -68,6 +69,10 @@ export function winningRouteCacheKey(chainId: number, tokenIn: string, tokenOut:
 
 export function winningRouteRedisKey(cacheKey: string): string {
   return `directswap:winning_route:${cacheKey}`;
+}
+
+export function singlePoolWinnerHintRedisKey(cacheKey: string): string {
+  return `directswap:single_pool_hint:${cacheKey}`;
 }
 
 export function v4GasCacheKey(chainId: number, poolId: string, tokenIn: string, tokenOut: string): string {
@@ -135,6 +140,52 @@ export async function setCachedWinningStrategy(
     await cacheSet(
       winningRouteRedisKey(cacheKey),
       JSON.stringify({ kind: strategy.kind, dex: strategy.dex }),
+      Math.max(30, Math.floor(ttlSeconds))
+    );
+  } catch {
+    // ignore cache errors
+  }
+}
+
+export async function getCachedSinglePoolWinnerHint(
+  chainId: number,
+  tokenIn: string,
+  tokenOut: string,
+  ttlMs: number
+): Promise<NonNullable<DirectSwapHint['resolvedPoolHint']> | null> {
+  const cacheKey = winningRouteCacheKey(chainId, tokenIn, tokenOut);
+  const local = singlePoolWinnerHintCache.get(cacheKey);
+  if (local && isFresh(local.timestamp, ttlMs)) {
+    return local.hint;
+  }
+  if (local) {
+    singlePoolWinnerHintCache.delete(cacheKey);
+  }
+  try {
+    const raw = await cacheGet(singlePoolWinnerHintRedisKey(cacheKey));
+    if (!raw) return null;
+    const fromRedis = JSON.parse(raw) as NonNullable<DirectSwapHint['resolvedPoolHint']>;
+    if (!fromRedis?.kind || !fromRedis?.poolAddress) return null;
+    singlePoolWinnerHintCache.set(cacheKey, { hint: fromRedis, timestamp: Date.now() });
+    return fromRedis;
+  } catch {
+    return null;
+  }
+}
+
+export async function setCachedSinglePoolWinnerHint(
+  chainId: number,
+  tokenIn: string,
+  tokenOut: string,
+  hint: NonNullable<DirectSwapHint['resolvedPoolHint']>,
+  ttlSeconds: number
+): Promise<void> {
+  const cacheKey = winningRouteCacheKey(chainId, tokenIn, tokenOut);
+  singlePoolWinnerHintCache.set(cacheKey, { hint, timestamp: Date.now() });
+  try {
+    await cacheSet(
+      singlePoolWinnerHintRedisKey(cacheKey),
+      JSON.stringify(hint),
       Math.max(30, Math.floor(ttlSeconds))
     );
   } catch {

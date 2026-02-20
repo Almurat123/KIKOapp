@@ -57,6 +57,59 @@ function matchesRequestedPair(
   return false;
 }
 
+function getHintRouteHopCount(hint?: DirectSwapHint): number {
+  if (!hint) return 0;
+  return Math.max(Number(hint.routeHopCount || 0), hint.routeHops?.length || 0);
+}
+
+function mapRouteHopToResolvedHint(
+  hop: NonNullable<DirectSwapHint['routeHops']>[number]
+): NonNullable<DirectSwapHint['resolvedPoolHint']> | null {
+  const kind = hop.kind;
+  if (kind !== 'v4' && kind !== 'v3' && kind !== 'v2' && kind !== 'aerodrome') return null;
+  if (!hop.poolAddress) return null;
+  return {
+    kind,
+    dex: hop.dex,
+    poolAddress: hop.poolAddress,
+    fee: hop.fee
+  };
+}
+
+function pickPairMatchedRouteHint(params: {
+  hint?: DirectSwapHint;
+  tokenIn: string;
+  tokenOut: string;
+  chainId: number;
+}): NonNullable<DirectSwapHint['resolvedPoolHint']> | null {
+  const { hint, tokenIn, tokenOut, chainId } = params;
+  if (!hint?.routeHops?.length) return null;
+  for (const hop of hint.routeHops) {
+    if (!hop.poolAddress || !hop.tokenIn || !hop.tokenOut) continue;
+    if (!matchesRequestedPair(tokenIn, tokenOut, hop.tokenIn, hop.tokenOut, chainId)) continue;
+    const mapped = mapRouteHopToResolvedHint(hop);
+    if (mapped) return mapped;
+  }
+  return null;
+}
+
+function pickPairMatchedDecodedRouteHint(params: {
+  decoded: DecodedSwap;
+  tokenIn: string;
+  tokenOut: string;
+  chainId: number;
+}): NonNullable<DirectSwapHint['resolvedPoolHint']> | null {
+  const { decoded, tokenIn, tokenOut, chainId } = params;
+  if (!decoded.routeHops?.length) return null;
+  for (const hop of decoded.routeHops) {
+    if (!hop.poolAddress || !hop.tokenIn || !hop.tokenOut) continue;
+    if (!matchesRequestedPair(tokenIn, tokenOut, hop.tokenIn, hop.tokenOut, chainId)) continue;
+    const mapped = mapRouteHopToResolvedHint(hop);
+    if (mapped) return mapped;
+  }
+  return null;
+}
+
 export async function parseSwapSupplyFromSourceTx(params: {
   chainId: number;
   sourceTxHash: string;
@@ -195,7 +248,13 @@ export async function resolvePoolHintFromSwapSupply(params: {
   hint?: DirectSwapHint;
 }): Promise<NonNullable<DirectSwapHint['resolvedPoolHint']> | null> {
   const { tokenIn, tokenOut, chainId, hint } = params;
-  if (hint?.resolvedPoolHint) return hint.resolvedPoolHint;
+  const routeHopCount = getHintRouteHopCount(hint);
+  const canUseResolvedFastPath = hint?.canUseResolvedPoolFastPath !== false && routeHopCount <= 1;
+  if (hint?.resolvedPoolHint && canUseResolvedFastPath) return hint.resolvedPoolHint;
+  if (hint?.resolvedPoolHint && !canUseResolvedFastPath) {
+    const fromRoute = pickPairMatchedRouteHint({ hint, tokenIn, tokenOut, chainId });
+    if (fromRoute) return fromRoute;
+  }
 
   const txHash = String(hint?.sourceTxHash || '').trim();
   if (!txHash) return null;
@@ -206,7 +265,13 @@ export async function resolvePoolHintFromSwapSupply(params: {
     tokenIn,
     tokenOut
   });
-  return decoded?.resolvedPoolHint || null;
+  if (!decoded) return null;
+  if (decoded.resolvedPoolHint && decoded.canUseResolvedPoolFastPath !== false) {
+    return decoded.resolvedPoolHint;
+  }
+  const fromDecodedRoute = pickPairMatchedDecodedRouteHint({ decoded, tokenIn, tokenOut, chainId });
+  if (fromDecodedRoute) return fromDecodedRoute;
+  return decoded.resolvedPoolHint || null;
 }
 
 export async function resolveHintedPoolFromSwapSupply(params: {

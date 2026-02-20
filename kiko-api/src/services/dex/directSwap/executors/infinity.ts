@@ -173,7 +173,7 @@ export async function executeInfinitySwap(
   }
 
   const data = deps.infinityRouterInterface.encodeFunctionData('execute', [commands, inputs, deadline]);
-  const executionMode: DirectSwapExecutionMode = options?.executionMode === 'turbo' ? 'turbo' : 'balanced';
+  const executionMode: DirectSwapExecutionMode = options?.executionMode || 'normal';
 
   try {
     await deps.callRpc<string>(chainId, 'eth_call', [{

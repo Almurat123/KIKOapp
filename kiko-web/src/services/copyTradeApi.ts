@@ -1,7 +1,7 @@
 import { getAuthToken } from '../utils/authToken';
 
 // Types matching the Prisma model and API response
-export type CopyTradeExecutionMode = 'safe' | 'balanced' | 'turbo';
+export type CopyTradeExecutionMode = 'safe' | 'normal' | 'turbo';
 
 export interface CopyTradeConfig {
     id: string;

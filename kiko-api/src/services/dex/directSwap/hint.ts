@@ -12,6 +12,15 @@ export function deriveHintStrategy(chainId: number, hint?: DirectSwapHint): DexS
     };
   }
 
+  if (hint.routeHops && hint.routeHops.length > 0) {
+    const firstHop = hint.routeHops[0];
+    if (firstHop.kind === 'aerodrome') return { kind: 'aerodrome', dex: 'aerodrome' };
+    if (firstHop.kind === 'infinity') return { kind: 'infinity', dex: 'pancake-infinity' };
+    if (firstHop.kind === 'v4') return { kind: 'v4', dex: firstHop.dex === 'pancake' ? 'pancake' : (chainId === 56 ? 'pancake' : 'uniswap') };
+    if (firstHop.kind === 'v3') return { kind: 'v3', dex: firstHop.dex === 'pancake' ? 'pancake' : (chainId === 56 ? 'pancake' : 'uniswap') };
+    if (firstHop.kind === 'v2') return { kind: 'v2', dex: firstHop.dex === 'pancake' ? 'pancake' : (chainId === 56 ? 'pancake' : 'uniswap') };
+  }
+
   const dexName = String(hint.sourceDexName || '').toLowerCase().trim();
   const routerRaw = String(hint.sourceRouter || '').trim();
   const routerMatch = routerRaw.match(/0x[a-fA-F0-9]{40}/);

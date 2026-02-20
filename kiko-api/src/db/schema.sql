@@ -258,7 +258,7 @@ CREATE TABLE IF NOT EXISTS "CopyTradeConfig" (
   "minLiquidityUsd" DOUBLE PRECISION,
   "minTargetValueUsd" DOUBLE PRECISION,
   "copyTradeTokenCooldownMinutes" INTEGER,
-  "executionMode" TEXT DEFAULT 'balanced',
+  "executionMode" TEXT DEFAULT 'normal' CHECK ("executionMode" IN ('safe', 'normal', 'turbo')),
   "disableTokenInfo" BOOLEAN DEFAULT FALSE,
   "takeProfitPct" DOUBLE PRECISION,
   "stopLossPct" DOUBLE PRECISION,

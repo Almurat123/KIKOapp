@@ -2,7 +2,7 @@ import type { DexFamily, DexStrategy, DirectSwapHint, HintedSourcePool, Strategy
 
 export type { DexFamily, DexStrategy, DirectSwapHint, HintedSourcePool, StrategyKind };
 
-export type DirectSwapExecutionMode = 'balanced' | 'turbo';
+export type DirectSwapExecutionMode = 'safe' | 'normal' | 'turbo';
 
 export type LiquidityLayerStatus = 'ok' | 'missing' | 'skipped' | 'error' | 'unknown';
 
@@ -65,7 +65,7 @@ export interface DirectSwapExecuteParams {
   chainId: number;
   slippageBps: number;
   hint?: DirectSwapHint;
-  executionMode?: 'safe' | 'balanced' | 'turbo';
+  executionMode?: 'safe' | 'normal' | 'turbo';
   _externalRetryAttempt?: number;
 }
 

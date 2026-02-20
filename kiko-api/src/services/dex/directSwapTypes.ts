@@ -14,10 +14,22 @@ export type HintedSourcePool =
     | { kind: 'v3'; pool: PoolInfo; dex: 'uniswap' | 'pancake' }
     | { kind: 'v2'; pool: PoolInfo; dex: DexFamily };
 
+export interface DirectSwapRouteHop {
+    kind: 'v4' | 'v3' | 'v2' | 'aerodrome' | 'infinity';
+    dex?: DexFamily;
+    poolAddress?: string;
+    tokenIn?: string;
+    tokenOut?: string;
+    fee?: number;
+}
+
 export interface DirectSwapHint {
     sourceDexName?: string;
     sourceRouter?: string;
     sourceTxHash?: string;
+    routeHopCount?: number;
+    routeHops?: DirectSwapRouteHop[];
+    canUseResolvedPoolFastPath?: boolean;
     resolvedPoolHint?: {
         kind: 'v4' | 'v3' | 'v2' | 'aerodrome';
         dex?: DexFamily;
