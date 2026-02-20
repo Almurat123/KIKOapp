@@ -35,8 +35,8 @@
     "sec:myth": "myth analyze contracts/Token.sol --max-depth 50 --solver-timeout 60",
     "sec:fuzz": "forge test --mc TokenTest --ffi",
     "sec:storage": "forge inspect Proxy implementation && forge inspect Impl storage",
-    "analyze-api-unification": "tsx scripts/analyze-api-unification.ts"
-    ,
+    "analyze-api-unification": "tsx scripts/analyze-api-unification.ts",
+    "check-tx": "tsx src/scripts/checkTxOnChain.ts",
     "samples:prepare:10k": "tsx src/scripts/prepareSamples10kMultiChain.ts",
     "replay:webhook:10k": "tsx src/scripts/replayWebhook10k.ts"
   },

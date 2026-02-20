@@ -1971,6 +1971,7 @@ async function processSingleUserBuy(
         logger.info(LogCode.EXE_TX_CONFIRMED, 'Copy trade completed and position created', { userId: config.userId, token: tokenToBuy, txHash });
 
         // Warm sell approval only after buy tx is confirmed to avoid nonce/queue contention.
+        // Turbo: send "Bought" DM only after on-chain confirmation (never on broadcast-only).
         setTimeout(() => {
             void (async () => {
                 if (!txHash) return;
@@ -1982,6 +1983,21 @@ async function processSingleUserBuy(
                         txHash
                     });
                     return;
+                }
+                // Turbo mode: send success DM only after tx confirmed (avoids "Bought" when tx never landed or reverted).
+                if (turboMode) {
+                    sendNotificationAsync({
+                        userId: config.user.privyDid,
+                        farcasterFid: config.user.farcasterFid,
+                        type: 'TRADE_SUCCESS_BUY',
+                        data: {
+                            tokenSymbol: tokenInfo.symbol,
+                            usdValue: usdAmount.toFixed(2),
+                            targetWallet: targetWallet,
+                            txHash: txHash,
+                            chainId: chainId
+                        }
+                    }, 'copytrade_buy_success_confirmed');
                 }
                 await preheatSellApprovalForToken({
                     userId: effectiveConfig.user.privyDid,
@@ -2097,19 +2113,22 @@ ${analysis.rawAnalysis}
 
         // =================================================================
         // 🟣 Send Farcaster Direct Cast (Success)
+        // Turbo: DM is sent only after on-chain confirmation (in setTimeout above), not on broadcast.
         // =================================================================
-        sendNotificationAsync({
-            userId: config.user.privyDid,
-            farcasterFid: config.user.farcasterFid,
-            type: 'TRADE_SUCCESS_BUY',
-            data: {
-                tokenSymbol: tokenInfo.symbol,
-                usdValue: usdAmount.toFixed(2),
-                targetWallet: targetWallet,
-                txHash: txHash,
-                chainId: chainId
-            }
-        }, 'copytrade_buy_success');
+        if (!turboMode) {
+            sendNotificationAsync({
+                userId: config.user.privyDid,
+                farcasterFid: config.user.farcasterFid,
+                type: 'TRADE_SUCCESS_BUY',
+                data: {
+                    tokenSymbol: tokenInfo.symbol,
+                    usdValue: usdAmount.toFixed(2),
+                    targetWallet: targetWallet,
+                    txHash: txHash,
+                    chainId: chainId
+                }
+            }, 'copytrade_buy_success');
+        }
 
     } catch (error: any) {
         logger.error(LogCode.SYS_ERROR, `Error processing trade configuration`, {

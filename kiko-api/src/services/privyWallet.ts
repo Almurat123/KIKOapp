@@ -86,9 +86,13 @@ export async function getEmbeddedWalletInfo(userId: string): Promise<{ address: 
         try {
             const user = await client.getUser(userId);
 
-            // Find embedded wallet in linked accounts
+            // Find EVM embedded wallet in linked accounts.
+            // Must exclude Solana wallets — they share type='wallet' + walletClientType='privy'
+            // but have chainType='solana' and a Base58 address instead of 0x.
             const embeddedWallet = user.linkedAccounts?.find(
-                (account: any) => account.type === 'wallet' && account.walletClientType === 'privy'
+                (account: any) => account.type === 'wallet'
+                    && account.walletClientType === 'privy'
+                    && account.chainType !== 'solana'
             );
 
             if (!embeddedWallet) {
@@ -346,6 +350,33 @@ export async function sendTransaction(
             let txWithNonce = { ...tx };
             if (!txWithNonce.nonce) {
                 txWithNonce.nonce = await getPendingNonce(txWithNonce.chainId, walletInfo.address);
+            }
+
+            // Auto-fill gas pricing if caller didn't provide any.
+            // Without this, signAndBroadcastRawTransaction produces a raw tx with no gas price
+            // which every RPC node rejects outright.
+            if (!txWithNonce.maxFeePerGas && !txWithNonce.gasPrice) {
+                try {
+                    const gasPriceHex = await rpcCall<string>(
+                        txWithNonce.chainId,
+                        'eth_gasPrice',
+                        [],
+                        { strategy: 'fast', importance: 'critical' }
+                    );
+                    if (gasPriceHex) {
+                        const baseGas = BigInt(gasPriceHex);
+                        const profile = txWithNonce.executionProfile || 'default';
+                        const multiplier = profile === 'base-sniper' ? 150n : profile === 'bsc-sniper' ? 130n : 120n;
+                        const boostedGas = (baseGas * multiplier) / 100n;
+                        txWithNonce.maxFeePerGas = boostedGas.toString();
+                        txWithNonce.maxPriorityFeePerGas = (baseGas * 10n / 100n).toString(); // 10% tip
+                    }
+                } catch (gasFetchErr: any) {
+                    logger.warn(LogCode.SYS_ERROR, 'Failed to auto-fill gas price for sendTransaction', {
+                        chainId: txWithNonce.chainId,
+                        error: gasFetchErr?.message?.slice(0, 80)
+                    });
+                }
             }
 
             const verboseTxLog = (process.env.PRIVY_TX_DEBUG || 'false') === 'true';

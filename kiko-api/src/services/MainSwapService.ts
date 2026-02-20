@@ -828,7 +828,7 @@ export class MainSwapService {
                 error: feeErr?.message || String(feeErr)
               });
             }
-            logger.info(LogCode.EXE_TX_CONFIRMED, trace('Direct swap successful'), {
+            logger.info(LogCode.EXE_TX_CONFIRMED, trace(`Direct swap successful txHash=${directResult.txHash ?? 'null'}`), {
               txHash: directResult.txHash,
               provider: directResult.provider,
               poolInfo: directResult.poolInfo,
