@@ -2391,7 +2391,9 @@ async function executePositionExit(params: {
                 });
             }
             try {
-                const safeBalance = balance > 0n ? balance - 1n : 0n;
+                // Use full balance for sell - the 1-wei subtraction caused amountIn=0 when balance=1n.
+                // The router tolerates minor dust on EVM; if it reverts we fall through to the partial-sell retry.
+                const safeBalance = balance;
                 // Use universal global slippage
                 const initialSlippage = universalSlippageBps;
                 logger.debug(LogCode.EXE_TX_BROADCAST, 'Attempting EVM sell with slippage', { userId, slippageBps: initialSlippage });
@@ -2399,6 +2401,18 @@ async function executePositionExit(params: {
                 // [Logic]: Use ethers.formatUnits to prevent precision loss when converting BigInt to string.
                 // [Ref]: ethers.js v6 documentation "formatUnits".
                 const amountToSellHuman = ethers.formatUnits(safeBalance, decimals);
+
+                // Guard: if formatting produced a zero or negative string (e.g. sub-wei dust), skip gracefully.
+                if (!amountToSellHuman || parseFloat(amountToSellHuman) <= 0) {
+                    logger.warn(LogCode.WTC_TX_SKIPPED, 'EVM sell skipped: effective amountIn is zero after formatting; closing dust position', {
+                        userId, tokenAddress, chainId, balance: balance.toString(), decimals
+                    });
+                    await prisma.position.updateMany({
+                        where: { userId, tokenAddress, status: 'open' },
+                        data: { status: 'closed', exitReason: 'balance_dust', closedAt: new Date() }
+                    });
+                    return null;
+                }
 
                 const sellResult = await MainSwapService.executeSwap({
                     userId: user.privyDid,
@@ -2425,7 +2439,9 @@ async function executePositionExit(params: {
                     chainId
                 });
                 try {
-                    const safeBalance999 = (balance * 999n) / 1000n;
+                    // Use 99.9% of balance for retry; clamp to full balance if it would round to 0.
+                    const safeBalance999Raw = (balance * 999n) / 1000n;
+                    const safeBalance999 = safeBalance999Raw > 0n ? safeBalance999Raw : balance;
                     // Retry with 1.5x of global slippage, capped at 25%
                     const retrySlippage = Math.min(Math.floor(universalSlippageBps * 1.5), 2500);
                     logger.debug(LogCode.EXE_TX_BROADCAST, 'Retrying EVM sell with higher slippage', { userId, slippageBps: retrySlippage });

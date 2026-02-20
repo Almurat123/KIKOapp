@@ -167,7 +167,9 @@ export async function executeV4Swap(
   let tx = buildTx(selectedHookData);
 
   const turboTrustedFastPath = executionMode === 'turbo' && trustedHint;
-  if (!fastMode && !turboTrustedFastPath) {
+  // Always run pre-simulation — even in fastMode. One eth_call (~50ms) prevents
+  // sending transactions that WILL revert (burning gas + wasting retry attempts).
+  if (!turboTrustedFastPath) {
     try {
       await deps.callRpc<string>(chainId, 'eth_call', [{
         from: params.walletAddress,
@@ -248,15 +250,6 @@ export async function executeV4Swap(
             error: errSummary.shortMessage,
             errorCode: errSummary.code
           });
-        } else if (executionMode === 'turbo') {
-          logger.warn(LogCode.EXE_TX_REVERTED, '[DirectSwap] V4 pre-simulation soft-fail in turbo mode', {
-            poolId,
-            hook: poolKey.hooks,
-            tokenIn: normalizedIn,
-            tokenOut: normalizedOut,
-            error: errSummary.shortMessage,
-            revertReason: reason
-          });
         } else {
           const hookFailurePrefix = hookFamily === 'unknown' ? 'unsupported_hook' : 'hook_candidate_failed';
           return { success: false, error: `${hookFailurePrefix}:${reason || 'pre_sim_failed'}`, provider: 'failed' };
@@ -275,7 +268,17 @@ export async function executeV4Swap(
   const gasCacheKey = deps.v4GasCacheKey(chainId, poolId, normalizedIn!, normalizedOut!);
   const cachedGasLimit = deps.getCachedV4GasLimit(gasCacheKey);
   if (fastMode) {
-    gasLimit = cachedGasLimit || deps.turboV4GasLimit;
+    try {
+      const estimate = await deps.callRpc<string>(chainId, 'eth_estimateGas', [{
+        from: params.walletAddress,
+        to: tx.to,
+        data: tx.data,
+        value: isNativeIn ? ethers.toQuantity(amountInWei) : '0x0'
+      }]);
+      gasLimit = (BigInt(estimate) * 2n).toString();
+    } catch {
+      gasLimit = cachedGasLimit || deps.turboV4GasLimit;
+    }
   } else {
     if (turboTrustedFastPath && cachedGasLimit) {
       gasLimit = cachedGasLimit;
