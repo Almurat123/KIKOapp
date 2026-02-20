@@ -278,6 +278,32 @@ export async function sendTransaction(
             throw new AppError(400, 'User has no embedded wallet', 'NO_WALLET');
         }
 
+        // Resolve nonce from chain when not provided (prevents "nonce too low" - next nonce N, tx nonce 0)
+        // Use rpcManager with fast + critical so Alchemy/premium is preferred (same as eth_sendRawTransaction)
+        let resolvedNonce = tx.nonce;
+        if (resolvedNonce === undefined || resolvedNonce === null || resolvedNonce === '') {
+            try {
+                const countHex = await rpcCall<string>(tx.chainId, 'eth_getTransactionCount', [
+                    walletInfo.address,
+                    'pending'
+                ], { strategy: 'fast', importance: 'critical' });
+                resolvedNonce = countHex ? BigInt(countHex).toString() : undefined;
+                if (resolvedNonce !== undefined) {
+                    logger.debug(LogCode.EXE_TX_BROADCAST, 'Fetched chain nonce for wallet', {
+                        chainId: tx.chainId,
+                        nonce: resolvedNonce,
+                        address: walletInfo.address?.slice(0, 10)
+                    });
+                }
+            } catch (nonceErr: any) {
+                logger.warn(LogCode.API_FETCH_FAILED, 'Failed to fetch nonce for sendTransaction', {
+                    chainId: tx.chainId,
+                    error: nonceErr?.message?.slice(0, 80)
+                });
+            }
+        }
+        const txWithNonce = { ...tx, nonce: resolvedNonce };
+
         const verboseTxLog = (process.env.PRIVY_TX_DEBUG || 'false') === 'true';
         if (verboseTxLog) {
             console.log('[sendTransaction] ========== PRIVY TX PARAMS ==========');
@@ -316,7 +342,7 @@ export async function sendTransaction(
 
                 const preferPrivySendTx = PRIVY_SEND_TX_CHAIN_IDS.has(tx.chainId);
                 if (!preferPrivySendTx) {
-                    return await signAndBroadcastRawTransaction(client, walletInfo.id, tx, {
+                    return await signAndBroadcastRawTransaction(client, walletInfo.id, txWithNonce, {
                         userId,
                         attempt,
                         reason: 'chain_not_in_privy_sendtx_allowlist'
@@ -331,7 +357,7 @@ export async function sendTransaction(
                     gasPrice: toHexQuantity(tx.gasPrice),
                     maxFeePerGas: toHexQuantity(tx.maxFeePerGas),
                     maxPriorityFeePerGas: toHexQuantity(tx.maxPriorityFeePerGas),
-                    nonce: toHexQuantity(tx.nonce),
+                    nonce: toHexQuantity(txWithNonce.nonce),
                 };
 
                 // Use Privy's wallet API to send transaction
@@ -357,7 +383,7 @@ export async function sendTransaction(
                     tx.chainId !== 1 && errorMessage.includes('eth_sendTransaction is only supported for Ethereum');
                 if (unsupportedSendOnNonEth) {
                     try {
-                        return await signAndBroadcastRawTransaction(client, walletInfo.id, tx, {
+                        return await signAndBroadcastRawTransaction(client, walletInfo.id, txWithNonce, {
                             userId,
                             attempt,
                             reason: 'privy_sendtx_unsupported_for_chain'
