@@ -677,7 +677,7 @@ export async function executeDirectSwap(params: {
             const reasonCode = classifyFailure(result.error);
             result.error = `${reasonCode}: ${result.error}`;
             traceState.failureCode = reasonCode;
-            if (reasonCode.includes('pool_unavailable_hard')) {
+            if (reasonCode.includes('pool_unavailable_hard') && traceState.poolCount === 0) {
                 setNoPoolCache(chainId, poolCacheTokenIn, poolCacheTokenOut, reasonCode);
             }
             const retryAttempt = Number(params._externalRetryAttempt || 0);
@@ -743,6 +743,7 @@ export async function executeDirectSwap(params: {
     try {
         const ETH_ADDRESS = '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
         let cachedReferenceQuote: bigint | null = null;
+        let fastPathReferenceCapped = false;
 
         // 1. 查找所有池子 (V2/V3/V4) - ETH 使用 WETH 地址匹配池子
         const weth = WETH_ADDRESSES[chainId];
@@ -755,7 +756,9 @@ export async function executeDirectSwap(params: {
         poolCacheTokenIn = poolTokenIn;
         poolCacheTokenOut = poolTokenOut;
 
-        const allowNoPoolCache = !params.hint?.sourceTxHash;
+        const preferredStrategy = deriveHintStrategy(chainId, params.hint);
+        const turboOrHintStrategy = params.executionMode === 'turbo' || !!preferredStrategy?.kind;
+        const allowNoPoolCache = !params.hint?.sourceTxHash && !turboOrHintStrategy;
         if (allowNoPoolCache && await isFreshNoPoolCache(chainId, poolTokenIn, poolTokenOut)) {
             return finish({ success: false, error: 'No suitable pool found (cached)', provider: 'failed' });
         }
@@ -765,7 +768,6 @@ export async function executeDirectSwap(params: {
             return finish({ success: false, error: 'amountIn must be > 0', provider: 'failed' });
         }
         const defaultStrategies = CHAIN_STRATEGIES[chainId] || CHAIN_STRATEGIES[1];
-        const preferredStrategy = deriveHintStrategy(chainId, params.hint);
         const cachedWinningStrategy = preferredStrategy
             ? null
             : await getCachedWinningStrategy(chainId, poolTokenIn, poolTokenOut);
@@ -985,11 +987,21 @@ export async function executeDirectSwap(params: {
                     { enableZoraRoutes: zoraRoutesEnabled }
                 )
             ]);
-            cachedReferenceQuote = referenceQuote;
+            const fastPathCap = amountInWei * 1_000_000n;
+            const cappedRef = referenceQuote > fastPathCap ? 0n : referenceQuote;
+            cachedReferenceQuote = cappedRef;
+            if (referenceQuote > fastPathCap) {
+                fastPathReferenceCapped = true;
+                logger.warn(LogCode.API_FETCH_FAILED, '[DirectSwap] Reference quote sanity cap (fast path): exceeds max reasonable', {
+                    traceId,
+                    referenceQuote: referenceQuote.toString().slice(0, 20),
+                    maxReasonable: fastPathCap.toString().slice(0, 20)
+                });
+            }
 
             logger.info(LogCode.EXE_QUOTE_FETCHED, '[DirectSwap] V4 fast path quote check', {
                 v4Quote: v4Best.amountOut.toString().slice(0, 15),
-                referenceQuote: referenceQuote.toString().slice(0, 15),
+                referenceQuote: cappedRef.toString().slice(0, 15),
                 durationMs: Date.now() - fastStart
             });
 
@@ -1006,9 +1018,9 @@ export async function executeDirectSwap(params: {
                 }));
             }
 
-            if (v4Best.pool && v4Best.amountOut > 0n && referenceQuote > 0n) {
+            if (v4Best.pool && v4Best.amountOut > 0n && cappedRef > 0n) {
                 const deviationBps = Math.min(Math.max(REFERENCE_DEVIATION_BPS, 0), 5000);
-                const minReasonable = referenceQuote * BigInt(10000 - deviationBps) / 10000n;
+                const minReasonable = cappedRef * BigInt(10000 - deviationBps) / 10000n;
                 if (v4Best.amountOut >= minReasonable) {
                     logger.info(LogCode.SYS_INFO, '[DirectSwap] V4 fast path accepted', {
                         minReasonable: minReasonable.toString(),
@@ -1026,7 +1038,7 @@ export async function executeDirectSwap(params: {
 
             logger.info(LogCode.SYS_INFO, '[DirectSwap] V4 fast path fallback', {
                 reason: v4Best.amountOut <= 0n ? 'v4_quote_unavailable'
-                    : referenceQuote <= 0n ? 'reference_quote_unavailable'
+                    : cappedRef <= 0n ? 'reference_quote_unavailable'
                         : 'v4_quote_not_reasonable'
             });
             if (forceV4) {
@@ -1323,7 +1335,7 @@ export async function executeDirectSwap(params: {
             l2Status: 'unknown',
             l3Status: 'unknown'
         };
-        const referenceQuote = skipReferenceQuote
+        let referenceQuote = skipReferenceQuote
             ? 0n
             : (cachedReferenceQuote ?? await getReferenceExpectedOutput(
                 normalizedTokenIn,
@@ -1338,11 +1350,48 @@ export async function executeDirectSwap(params: {
                     traceId
                 }
             ));
+        let referenceCappedToZero = false;
+        if (referenceQuote <= 0n && fastPathReferenceCapped) {
+            referenceCappedToZero = true;
+        }
+        if (referenceQuote > 0n) {
+            const fallbackMax = amountInWei * 1_000_000n;
+            if (referenceQuote > fallbackMax) {
+                logger.warn(LogCode.API_FETCH_FAILED, '[DirectSwap] Reference quote sanity cap (use-site): exceeds max reasonable', {
+                    traceId,
+                    referenceQuote: referenceQuote.toString().slice(0, 20),
+                    maxReasonable: fallbackMax.toString().slice(0, 20)
+                });
+                referenceQuote = 0n;
+                referenceCappedToZero = true;
+            } else {
+                try {
+                    const [inMeta, outMeta] = await Promise.all([
+                        getTokenMetadata(chainId, normalizedTokenIn),
+                        getTokenMetadata(chainId, normalizedTokenOut)
+                    ]);
+                    const inDec = inMeta?.decimals ?? 18;
+                    const outDec = outMeta?.decimals ?? 18;
+                    const maxReasonableOut = (amountInWei * BigInt(10 ** outDec) * 1_000_000n) / BigInt(10 ** inDec);
+                    if (referenceQuote > maxReasonableOut) {
+                        logger.warn(LogCode.API_FETCH_FAILED, '[DirectSwap] Reference quote sanity cap (use-site): exceeds max reasonable', {
+                            traceId,
+                            referenceQuote: referenceQuote.toString().slice(0, 20),
+                            maxReasonable: maxReasonableOut.toString().slice(0, 20)
+                        });
+                        referenceQuote = 0n;
+                        referenceCappedToZero = true;
+                    }
+                } catch {
+                    // keep referenceQuote as-is when metadata fails and we didn't already cap via fallbackMax
+                }
+            }
+        }
         if (skipReferenceQuote) {
             traceState.referenceSource = 'skipped';
             traceState.l2RouteStatus = 'skipped';
             traceState.l3MarketStatus = 'skipped';
-        } else if (cachedReferenceQuote && cachedReferenceQuote > 0n) {
+        } else if (cachedReferenceQuote && cachedReferenceQuote > 0n && referenceQuote > 0n) {
             traceState.referenceSource = 'cache';
             traceState.l2RouteStatus = 'ok';
         } else {
@@ -1352,7 +1401,7 @@ export async function executeDirectSwap(params: {
         }
 
         const canUseSourceHintFallback = !!params.hint?.sourceTxHash;
-        if (referenceQuote <= 0n && !canUseSourceHintFallback && !turboMode) {
+        if (referenceQuote <= 0n && !canUseSourceHintFallback && !turboMode && !referenceCappedToZero) {
             return finish({ success: false, error: 'No valid reference price (0x/Kyber/Gecko)', provider: 'failed' });
         }
         if (referenceQuote <= 0n && canUseSourceHintFallback) {
@@ -1361,14 +1410,15 @@ export async function executeDirectSwap(params: {
                 txHash: params.hint?.sourceTxHash
             });
         }
-        if (referenceQuote <= 0n && !preferredStrategy && !turboMode) {
+        if (referenceQuote <= 0n && !preferredStrategy && !turboMode && !referenceCappedToZero) {
             return finish({ success: false, error: 'No valid reference price and no trusted hint strategy', provider: 'failed' });
         }
-        if (referenceQuote <= 0n && turboMode) {
-            logger.warn(LogCode.SYS_INFO, '[DirectSwap] Turbo mode continuing without reference quote', {
+        if (referenceQuote <= 0n && (turboMode || referenceCappedToZero)) {
+            logger.warn(LogCode.SYS_INFO, '[DirectSwap] Continuing without reference quote', {
                 chainId,
                 tokenIn: normalizedTokenIn,
-                tokenOut: normalizedTokenOut
+                tokenOut: normalizedTokenOut,
+                reason: turboMode ? 'turbo' : 'reference_capped'
             });
         }
 

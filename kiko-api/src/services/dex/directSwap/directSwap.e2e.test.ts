@@ -1,13 +1,13 @@
 /**
  * Direct Swap E2E Tests — full flow with SIMULATION_MODE
  *
- * Uses real RPC for reads; transactions are not broadcast (SIMULATION_MODE=true).
- * Covers: pool discovery, executeDirectSwap (balanced/turbo, with/without hints),
- * failure paths, and assertion that txHash starts with 0xSIMULATION_PRIVY_.
- * Includes tests driven by real on-chain tx hashes from the test/ directory
- * (e.g. test/base-samples-smoke.json, test/webhook_arrivals_report.txt).
+ * Uses real RPC for reads (via rpcManager free/public endpoints); transactions are not
+ * broadcast (SIMULATION_MODE=true). Covers: pool discovery, executeDirectSwap
+ * (balanced/turbo, with/without hints), failure paths, and assertion that txHash
+ * starts with 0xSIMULATION_PRIVY_. Includes tests driven by real on-chain tx hashes
+ * from the test/ directory (e.g. test/base-samples-smoke.json).
  *
- * Requirements: BASE_RPC_URL, BSC_RPC_URL, ETH_RPC_URL in environment (or .env)
+ * RPC: provided by rpcManager (config/apiEndpoints free endpoints). No env vars required.
  *
  * Run:
  *   npx tsx --test src/services/dex/directSwap/directSwap.e2e.test.ts
@@ -17,6 +17,7 @@ import assert from 'node:assert/strict';
 import path from 'node:path';
 import fs from 'node:fs';
 
+import { getRpcEndpoints } from '../../rpcManager.js';
 import { executeDirectSwap, isDirectSwapSupported, getTokenLiquidity } from '../directSwapService.js';
 import { findTokenPools } from '../poolInfo.js';
 import { findV4Pools } from '../uniswapV4.js';
@@ -43,12 +44,17 @@ function skip(reason: string) {
   return { skip: reason };
 }
 
-function hasRpc(envKey: string): boolean {
-  return Boolean(process.env[envKey]);
+/** Whether rpcManager has at least one (free) RPC endpoint for the chain */
+function hasRpcForChain(chainId: number): boolean {
+  try {
+    return getRpcEndpoints(chainId, 'cheap').length > 0;
+  } catch {
+    return false;
+  }
 }
 
 function hasAllRpc(): boolean {
-  return hasRpc('BASE_RPC_URL') && hasRpc('BSC_RPC_URL') && hasRpc('ETH_RPC_URL');
+  return hasRpcForChain(8453) && hasRpcForChain(56) && hasRpcForChain(1);
 }
 
 // Real on-chain tx samples from test/ (same shape as base-samples-*.json)
@@ -94,7 +100,7 @@ test.after(() => {
 
 test('[e2e] [base] findTokenPools discovers pools for WETH/USDC', {
   timeout: TIMEOUT_MS,
-  ...(hasRpc('BASE_RPC_URL') ? {} : skip('BASE_RPC_URL not set')),
+  ...(hasRpcForChain(8453) ? {} : skip('No RPC for Base (rpcManager)')),
 }, async () => {
   const pools = await findTokenPools(BASE_WETH, BASE_USDC, 8453);
   assert.ok(pools.length > 0, 'Expected at least one pool on Base');
@@ -102,7 +108,7 @@ test('[e2e] [base] findTokenPools discovers pools for WETH/USDC', {
 
 test('[e2e] [base] findV4Pools returns array for WETH/USDC', {
   timeout: TIMEOUT_MS,
-  ...(hasRpc('BASE_RPC_URL') ? {} : skip('BASE_RPC_URL not set')),
+  ...(hasRpcForChain(8453) ? {} : skip('No RPC for Base (rpcManager)')),
 }, async () => {
   const pools = await findV4Pools(BASE_WETH, BASE_USDC, 8453);
   assert.ok(Array.isArray(pools), 'Expected array of V4 pools');
@@ -110,7 +116,7 @@ test('[e2e] [base] findV4Pools returns array for WETH/USDC', {
 
 test('[e2e] [bsc] findTokenPools discovers pools for WBNB/USDT', {
   timeout: TIMEOUT_MS,
-  ...(hasRpc('BSC_RPC_URL') ? {} : skip('BSC_RPC_URL not set')),
+  ...(hasRpcForChain(56) ? {} : skip('No RPC for BSC (rpcManager)')),
 }, async () => {
   const pools = await findTokenPools(BSC_WBNB, BSC_USDT, 56);
   assert.ok(pools.length > 0, 'Expected at least one pool on BSC');
@@ -118,7 +124,7 @@ test('[e2e] [bsc] findTokenPools discovers pools for WBNB/USDT', {
 
 test('[e2e] [eth] findTokenPools discovers pools for WETH/USDC', {
   timeout: TIMEOUT_MS,
-  ...(hasRpc('ETH_RPC_URL') ? {} : skip('ETH_RPC_URL not set')),
+  ...(hasRpcForChain(1) ? {} : skip('No RPC for ETH (rpcManager)')),
 }, async () => {
   const pools = await findTokenPools(ETH_WETH, ETH_USDC, 1);
   assert.ok(pools.length > 0, 'Expected at least one pool on Ethereum');
@@ -126,7 +132,7 @@ test('[e2e] [eth] findTokenPools discovers pools for WETH/USDC', {
 
 test('[e2e] findTokenPools returns empty or few pools for nonexistent pair', {
   timeout: TIMEOUT_MS,
-  ...(hasRpc('BASE_RPC_URL') ? {} : skip('BASE_RPC_URL not set')),
+  ...(hasRpcForChain(8453) ? {} : skip('No RPC for Base (rpcManager)')),
 }, async () => {
   const fakeToken = '0x0000000000000000000000000000000000000001';
   const pools = await findTokenPools(BASE_WETH, fakeToken, 8453);
@@ -149,7 +155,7 @@ test('[e2e] isDirectSwapSupported false for unsupported chain', () => {
 
 test('[e2e] [base] executeDirectSwap balanced WETH→USDC returns SIMULATION txHash', {
   timeout: TIMEOUT_MS,
-  ...(hasRpc('BASE_RPC_URL') ? {} : skip('BASE_RPC_URL not set')),
+  ...(hasRpcForChain(8453) ? {} : skip('No RPC for Base (rpcManager)')),
 }, async () => {
   const amountIn = '1000000000000000000'; // 1 WETH
   const result = await executeDirectSwap({
@@ -171,7 +177,7 @@ test('[e2e] [base] executeDirectSwap balanced WETH→USDC returns SIMULATION txH
 
 test('[e2e] [base] executeDirectSwap turbo WETH→USDC returns SIMULATION txHash', {
   timeout: TIMEOUT_MS,
-  ...(hasRpc('BASE_RPC_URL') ? {} : skip('BASE_RPC_URL not set')),
+  ...(hasRpcForChain(8453) ? {} : skip('No RPC for Base (rpcManager)')),
 }, async () => {
   const result = await executeDirectSwap({
     userId: FAKE_USER_ID,
@@ -190,7 +196,7 @@ test('[e2e] [base] executeDirectSwap turbo WETH→USDC returns SIMULATION txHash
 
 test('[e2e] [base] executeDirectSwap with hint preferredStrategy v3', {
   timeout: TIMEOUT_MS,
-  ...(hasRpc('BASE_RPC_URL') ? {} : skip('BASE_RPC_URL not set')),
+  ...(hasRpcForChain(8453) ? {} : skip('No RPC for Base (rpcManager)')),
 }, async () => {
   const result = await executeDirectSwap({
     userId: FAKE_USER_ID,
@@ -210,7 +216,7 @@ test('[e2e] [base] executeDirectSwap with hint preferredStrategy v3', {
 
 test('[e2e] [bsc] executeDirectSwap WBNB→USDT returns SIMULATION txHash', {
   timeout: TIMEOUT_MS,
-  ...(hasRpc('BSC_RPC_URL') ? {} : skip('BSC_RPC_URL not set')),
+  ...(hasRpcForChain(56) ? {} : skip('No RPC for BSC (rpcManager)')),
 }, async () => {
   const result = await executeDirectSwap({
     userId: FAKE_USER_ID,
@@ -229,7 +235,7 @@ test('[e2e] [bsc] executeDirectSwap WBNB→USDT returns SIMULATION txHash', {
 
 test('[e2e] [eth] executeDirectSwap WETH→USDC returns SIMULATION txHash', {
   timeout: TIMEOUT_MS,
-  ...(hasRpc('ETH_RPC_URL') ? {} : skip('ETH_RPC_URL not set')),
+  ...(hasRpcForChain(1) ? {} : skip('No RPC for ETH (rpcManager)')),
 }, async () => {
   const result = await executeDirectSwap({
     userId: FAKE_USER_ID,
@@ -267,7 +273,7 @@ test('[e2e] executeDirectSwap unsupported chain returns failure', {
 
 test('[e2e] executeDirectSwap amountIn zero fails or returns no tx', {
   timeout: TIMEOUT_MS,
-  ...(hasRpc('BASE_RPC_URL') ? {} : skip('BASE_RPC_URL not set')),
+  ...(hasRpcForChain(8453) ? {} : skip('No RPC for Base (rpcManager)')),
 }, async () => {
   const result = await executeDirectSwap({
     userId: FAKE_USER_ID,
@@ -284,7 +290,7 @@ test('[e2e] executeDirectSwap amountIn zero fails or returns no tx', {
 
 test('[e2e] executeDirectSwap nonexistent pair fails', {
   timeout: TIMEOUT_MS,
-  ...(hasRpc('BASE_RPC_URL') ? {} : skip('BASE_RPC_URL not set')),
+  ...(hasRpcForChain(8453) ? {} : skip('No RPC for Base (rpcManager)')),
 }, async () => {
   const noPoolToken = '0x0000000000000000000000000000000000000001';
   const result = await executeDirectSwap({
@@ -303,7 +309,7 @@ test('[e2e] executeDirectSwap nonexistent pair fails', {
 
 test('[e2e] executeDirectSwap tiny amount still returns simulation txHash when pool exists', {
   timeout: TIMEOUT_MS,
-  ...(hasRpc('BASE_RPC_URL') ? {} : skip('BASE_RPC_URL not set')),
+  ...(hasRpcForChain(8453) ? {} : skip('No RPC for Base (rpcManager)')),
 }, async () => {
   const result = await executeDirectSwap({
     userId: FAKE_USER_ID,
@@ -327,7 +333,7 @@ test('[e2e] executeDirectSwap tiny amount still returns simulation txHash when p
 
 test('[e2e] [base] getTokenLiquidity returns pools for WETH', {
   timeout: TIMEOUT_MS,
-  ...(hasRpc('BASE_RPC_URL') ? {} : skip('BASE_RPC_URL not set')),
+  ...(hasRpcForChain(8453) ? {} : skip('No RPC for Base (rpcManager)')),
 }, async () => {
   const liquidity = await getTokenLiquidity(BASE_WETH, 8453);
   assert.ok(liquidity.pools.length >= 0);
@@ -336,7 +342,7 @@ test('[e2e] [base] getTokenLiquidity returns pools for WETH', {
 
 test('[e2e] [bsc] getTokenLiquidity returns structure for WBNB', {
   timeout: TIMEOUT_MS,
-  ...(hasRpc('BSC_RPC_URL') ? {} : skip('BSC_RPC_URL not set')),
+  ...(hasRpcForChain(56) ? {} : skip('No RPC for BSC (rpcManager)')),
 }, async () => {
   const liquidity = await getTokenLiquidity(BSC_WBNB, 56);
   assert.ok(Array.isArray(liquidity.pools));
@@ -347,7 +353,7 @@ test('[e2e] [bsc] getTokenLiquidity returns structure for WBNB', {
 
 test('[e2e] [base] resolvePoolHintFromSourceTx decodes real tx hashes from test samples', {
   timeout: TIMEOUT_MS * 2,
-  ...(hasRpc('BASE_RPC_URL') ? {} : skip('BASE_RPC_URL not set')),
+  ...(hasRpcForChain(8453) ? {} : skip('No RPC for Base (rpcManager)')),
 }, async () => {
   const samples = loadRealTxSamples(5);
   if (samples.length === 0) {
@@ -368,7 +374,7 @@ test('[e2e] [base] resolvePoolHintFromSourceTx decodes real tx hashes from test 
 
 test('[e2e] [base] executeDirectSwap with real tx hint from test samples returns simulation txHash', {
   timeout: TIMEOUT_MS * 2,
-  ...(hasRpc('BASE_RPC_URL') ? {} : skip('BASE_RPC_URL not set')),
+  ...(hasRpcForChain(8453) ? {} : skip('No RPC for Base (rpcManager)')),
 }, async () => {
   const samples = loadRealTxSamples(2);
   if (samples.length === 0) {

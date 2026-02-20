@@ -178,6 +178,58 @@ export interface TransactionRequest {
     chainId: number;
 }
 
+interface PrivyTxValidationResult {
+    ok: boolean;
+    errors: string[];
+}
+
+function isHexLike(value?: string): boolean {
+    return typeof value === 'string' && /^0x[0-9a-fA-F]*$/.test(value);
+}
+
+function isAddressLike(value?: string): boolean {
+    return typeof value === 'string' && /^0x[0-9a-fA-F]{40}$/.test(value);
+}
+
+function isIntegerLike(value?: string): boolean {
+    if (value === undefined || value === null || value === '') return true;
+    try {
+        return BigInt(value) >= 0n;
+    } catch {
+        return false;
+    }
+}
+
+function summarizeTxForLog(tx: TransactionRequest): Record<string, any> {
+    return {
+        chainId: tx.chainId,
+        to: tx.to,
+        value: tx.value,
+        gas: tx.gas,
+        gasPrice: tx.gasPrice,
+        maxFeePerGas: tx.maxFeePerGas,
+        maxPriorityFeePerGas: tx.maxPriorityFeePerGas,
+        nonce: tx.nonce,
+        dataLength: tx.data?.length || 0,
+        dataPrefix: tx.data?.slice(0, 18) || null,
+        has0xDataPrefix: typeof tx.data === 'string' ? tx.data.startsWith('0x') : false
+    };
+}
+
+function validatePrivyTransactionShape(tx: TransactionRequest): PrivyTxValidationResult {
+    const errors: string[] = [];
+    if (!Number.isInteger(tx.chainId) || tx.chainId <= 0) errors.push('invalid_chain_id');
+    if (!isAddressLike(tx.to)) errors.push('invalid_to_address');
+    if (!isHexLike(tx.data)) errors.push('invalid_data_hex');
+    if (!isIntegerLike(tx.value)) errors.push('invalid_value');
+    if (!isIntegerLike(tx.gas)) errors.push('invalid_gas');
+    if (!isIntegerLike(tx.gasPrice)) errors.push('invalid_gas_price');
+    if (!isIntegerLike(tx.maxFeePerGas)) errors.push('invalid_max_fee_per_gas');
+    if (!isIntegerLike(tx.maxPriorityFeePerGas)) errors.push('invalid_max_priority_fee_per_gas');
+    if (!isIntegerLike(tx.nonce)) errors.push('invalid_nonce');
+    return { ok: errors.length === 0, errors };
+}
+
 /**
  * Send a transaction using user's embedded wallet (server-side signing)
  * @param userId - Privy user ID
@@ -302,31 +354,42 @@ export async function sendTransaction(
                 });
             }
         }
-        const txWithNonce = { ...tx, nonce: resolvedNonce };
+        const txWithNonce: TransactionRequest = { ...tx, nonce: resolvedNonce };
+        const txValidation = validatePrivyTransactionShape(txWithNonce);
+        if (!txValidation.ok) {
+            logger.error(LogCode.EXE_TX_REVERTED, 'Privy tx payload validation failed before send', {
+                userId: userId.slice(0, 10),
+                errors: txValidation.errors,
+                tx: summarizeTxForLog(txWithNonce)
+            });
+            throw new AppError(400, `Invalid transaction payload: ${txValidation.errors.join(',')}`, 'INVALID_TX_PAYLOAD');
+        }
 
         const verboseTxLog = (process.env.PRIVY_TX_DEBUG || 'false') === 'true';
         if (verboseTxLog) {
             console.log('[sendTransaction] ========== PRIVY TX PARAMS ==========');
             console.log('[sendTransaction] From:', walletInfo.address);
-            console.log('[sendTransaction] To:', tx.to);
-            console.log('[sendTransaction] Value:', tx.value);
-            console.log('[sendTransaction] ValueHex:', tx.value ? `0x${BigInt(tx.value).toString(16)}` : 'undefined');
-            console.log('[sendTransaction] Data length:', tx.data?.length);
-            console.log('[sendTransaction] Data prefix:', tx.data?.slice?.(0, 82));
-            console.log('[sendTransaction] ChainId:', tx.chainId);
-            console.log('[sendTransaction] Gas:', tx.gas);
-            console.log('[sendTransaction] MaxFeePerGas:', tx.maxFeePerGas);
-            console.log('[sendTransaction] MaxPriorityFeePerGas:', tx.maxPriorityFeePerGas);
-            console.log('[sendTransaction] Profile:', tx.executionProfile);
+            console.log('[sendTransaction] To:', txWithNonce.to);
+            console.log('[sendTransaction] Value:', txWithNonce.value);
+            console.log('[sendTransaction] ValueHex:', txWithNonce.value ? `0x${BigInt(txWithNonce.value).toString(16)}` : 'undefined');
+            console.log('[sendTransaction] Data length:', txWithNonce.data?.length);
+            console.log('[sendTransaction] Data prefix:', txWithNonce.data?.slice?.(0, 82));
+            console.log('[sendTransaction] ChainId:', txWithNonce.chainId);
+            console.log('[sendTransaction] Gas:', txWithNonce.gas);
+            console.log('[sendTransaction] MaxFeePerGas:', txWithNonce.maxFeePerGas);
+            console.log('[sendTransaction] MaxPriorityFeePerGas:', txWithNonce.maxPriorityFeePerGas);
+            console.log('[sendTransaction] Nonce:', txWithNonce.nonce);
+            console.log('[sendTransaction] Profile:', txWithNonce.executionProfile);
             console.log('[sendTransaction] ===========================================');
         } else {
             logger.debug(LogCode.EXE_TX_BROADCAST, 'Privy tx prepared', {
-                chainId: tx.chainId,
-                to: tx.to?.slice(0, 10),
-                value: tx.value,
-                gas: tx.gas,
-                profile: tx.executionProfile,
-                dataLength: tx.data?.length || 0,
+                chainId: txWithNonce.chainId,
+                to: txWithNonce.to?.slice(0, 10),
+                value: txWithNonce.value,
+                gas: txWithNonce.gas,
+                nonce: txWithNonce.nonce,
+                profile: txWithNonce.executionProfile,
+                dataLength: txWithNonce.data?.length || 0,
                 sendTxAllowlist: Array.from(PRIVY_SEND_TX_CHAIN_IDS.values())
             });
         }
@@ -415,6 +478,11 @@ export async function sendTransaction(
                 }
 
                 logger.error(LogCode.EXE_TX_REVERTED, 'Privy Ethereum transaction failed', { error: effectiveError?.message || String(effectiveError), chainId: tx.chainId });
+                logger.error(LogCode.EXE_TX_REVERTED, 'Privy tx context on failure', {
+                    attempt,
+                    chainId: tx.chainId,
+                    tx: summarizeTxForLog(txWithNonce)
+                });
 
                 // Handle specific Privy errors
                 if (effectiveError?.code === 'insufficient_funds') {
