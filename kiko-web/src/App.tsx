@@ -15,6 +15,7 @@ const TradePage = lazy(() => import('./pages/TradePage').then((m) => ({ default:
 const WalletPage = lazy(() => import('./pages/WalletPage'));
 const SettingsPage = lazy(() => import('./pages/SettingsPage'));
 const NewsPage = lazy(() => import('./pages/NewsPage'));
+const AgentMapPage = lazy(() => import('./pages/AgentMapPage').then((m) => ({ default: m.AgentMapPage })));
 
 function RouteFallback() {
   return <div style={{ minHeight: '100vh', background: 'var(--bg-primary, #0b0b0c)' }} />;
@@ -86,6 +87,10 @@ const router = createBrowserRouter([
       {
         path: 'settings',
         element: withSuspense(<SettingsPage />),
+      },
+      {
+        path: 'agent-map.json',
+        element: withSuspense(<AgentMapPage />),
       },
       // Fallback for unknown routes
       {

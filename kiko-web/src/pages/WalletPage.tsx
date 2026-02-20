@@ -12,6 +12,7 @@ import { WalletHeader } from '../components/Wallet/WalletHeader';
 import { AssetList } from '../components/Wallet/AssetList';
 import { TransactionList } from '../components/Wallet/TransactionList';
 import { PolymarketOrderCard, PolymarketHistoryItem } from '../components/Wallet/PolymarketSection';
+import { agentAttrs } from '../agent/attrs';
 import styles from './WalletPage.module.css';
 
 export default function WalletPage() {
@@ -103,6 +104,7 @@ export default function WalletPage() {
             </div>
             <button
               className={styles.authorizationButton}
+              {...agentAttrs({ id: 'wallet.authorization.open_settings', role: 'button', action: 'navigate', page: 'wallet' })}
               onClick={() => navigate('/settings')}
             >
               Authorize
@@ -112,8 +114,20 @@ export default function WalletPage() {
         <div className={styles.assetsSection}>
           <div className={styles.sectionHeader}>
             <div className={styles.toggleContainer}>
-              <button className={`${styles.toggleButton} ${viewMode === 'assets' ? styles.active : ''}`} onClick={() => setViewMode('assets')}>Assets</button>
-              <button className={`${styles.toggleButton} ${viewMode === 'orders' ? styles.active : ''}`} onClick={() => setViewMode('orders')}>Orders</button>
+              <button
+                className={`${styles.toggleButton} ${viewMode === 'assets' ? styles.active : ''}`}
+                {...agentAttrs({ id: 'wallet.view.assets', role: 'tab', action: 'select', page: 'wallet' })}
+                onClick={() => setViewMode('assets')}
+              >
+                Assets
+              </button>
+              <button
+                className={`${styles.toggleButton} ${viewMode === 'orders' ? styles.active : ''}`}
+                {...agentAttrs({ id: 'wallet.view.orders', role: 'tab', action: 'select', page: 'wallet' })}
+                onClick={() => setViewMode('orders')}
+              >
+                Orders
+              </button>
             </div>
           </div>
           {viewMode === 'assets' ? <AssetList loading={loading} displayHoldings={holdings} showAllAssets={showAllAssets} onToggleShowAll={() => setShowAllAssets(!showAllAssets)} styles={styles} /> : (

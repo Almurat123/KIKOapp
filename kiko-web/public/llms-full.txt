@@ -1,0 +1,96 @@
+# KIKO App (LLM Full Context)
+
+## 1. Purpose
+KIKO provides chat + dashboard UX for token research, swap execution, wallet tracking, and strategy management.
+
+## 2. Agent mode
+Enable with either:
+1) URL query: ?agent_mode=1
+2) Settings -> Automation -> For Agent Mode
+
+When enabled, the app exposes stable machine-actionable anchors and a live coordinate map.
+
+## 3. Runtime map
+Endpoint: /agent-map.json
+Global: window.__KIKO_AGENT_MAP__
+
+Top-level shape:
+- schema_version
+- app: {name, version, route, agent_mode}
+- viewport: {width, height, devicePixelRatio}
+- actions[]: route-specific recommended actions
+- nodes[]: interactive/anchored DOM nodes
+- timestamp
+
+Node fields:
+- id, role, action, page, key
+- text, value
+- visible, disabled
+- route, timestamp
+- bbox: {x,y,width,height,right,bottom} viewport coordinates
+
+## 4. Key stable IDs (non-exhaustive)
+Chat:
+- chat.input.textarea
+- chat.action.send
+- chat.settings.open
+- chat.model.toggle
+
+Welcome:
+- welcome.input.textarea
+- welcome.action.send
+
+Sidebar:
+- sidebar.nav.trade
+- sidebar.nav.market-tokens
+- sidebar.user.profile
+
+Trade:
+- trade.strategies.list
+- trade.strategy.card.{strategyId}.edit
+- trade.strategy.card.{strategyId}.toggle
+- trade.strategy.card.{strategyId}.delete
+- trade.edit.buy_amount
+- trade.edit.take_profit_pct
+- trade.edit.stop_loss_pct
+
+Wallet:
+- wallet.header.swap
+- wallet.header.send
+- wallet.header.receive
+- wallet.view.assets
+- wallet.view.orders
+
+Token detail:
+- token_detail.copy_address
+- token_detail.trade.buy
+- token_detail.trade.sell
+- token_detail.ask_ai
+
+Settings:
+- settings.agent_mode.toggle
+
+## 5. Typical UI-track sequence
+1) Navigate to /trade
+2) Read /agent-map.json and locate trade.strategy.card.*.edit
+3) Click edit
+4) Fill trade.edit.buy_amount and risk params
+5) Close dialog to trigger autosave
+6) Re-read /agent-map.json and validate expected values changed
+
+## 6. API-track references (blueprint)
+See Kiko.md Agent API section for endpoints such as:
+- POST /agent/tx/preview
+- POST /agent/tx/execute
+- POST /agent/strategies
+
+## 7. Parameter dictionary
+- chainId: number (e.g., 1, 8453, 137, 900)
+- address: chain-native address string
+- amount: decimal string
+- slippage: basis points or decimal percent depending on context
+
+## 8. Recovery strategy
+- If target node missing, re-fetch /agent-map.json after route settle.
+- If node exists but not visible, trigger associated open/toggle action first.
+- If action fails, fall back to route navigation + remap + retry once.

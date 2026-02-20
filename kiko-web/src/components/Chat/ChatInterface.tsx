@@ -32,6 +32,7 @@ import { useConversationContext } from '../../contexts/ConversationContext';
 import { moderationService } from '../../services/moderation';
 import { logger } from '../../utils/logger';
 import { resolveCoreApiBase } from '../../utils/coreApiBase';
+import { agentAttrs } from '../../agent/attrs';
 import { getStoredSlippageBps } from '@/config/slippageConfig';
 
 // Model options
@@ -237,6 +238,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
     const [firstSendPending, setFirstSendPending] = useState(false);
     const [showJumpToBottom, setShowJumpToBottom] = useState(false);
     const [isComposing, setIsComposing] = useState(false);
+    const textareaRef = useRef<HTMLTextAreaElement>(null);
     const [welcomePendingMessages, setWelcomePendingMessages] = useState<Message[]>([]);
     const hasAssistantTextMessage = useMemo(
         () => messages.some(m => m.role === 'assistant' && (!m.type || m.type === 'text')),
@@ -278,7 +280,14 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
         closeSuggestions
     } = useSmartSuggestions(
         () => { }, // onSend is unused in hook now
-        setInput
+        (nextInput: string) => {
+            setInput(nextInput);
+            requestAnimationFrame(() => {
+                if (textareaRef.current) {
+                    autoResizeTextarea(textareaRef.current);
+                }
+            });
+        }
     );
 
     const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false);
@@ -870,7 +879,6 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const scrollContainerRef = useRef<HTMLDivElement>(null);
-    const textareaRef = useRef<HTMLTextAreaElement>(null);
     const isAtBottomRef = useRef(true);
     const userScrolledUpRef = useRef(false);
     const lastScrollTopRef = useRef<number>(0);
@@ -2110,6 +2118,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                             <ChatInputSuggestions
                                 suggestions={suggestions}
                                 isVisible={showSuggestions}
+                                agentId="chat.suggestions.list"
                                 onSelect={(item) => {
                                     item.action();
                                     // DO NOT clear suggestions here. 
@@ -2123,6 +2132,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                                 <textarea
                                     ref={textareaRef}
                                     className={styles.textArea}
+                                    {...agentAttrs({ id: 'chat.input.textarea', role: 'input', action: 'select', page: 'chat', key: 'message' })}
                                     placeholder="Ask anything..."
                                     rows={1}
                                     value={input}
@@ -2141,6 +2151,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                                     <div className={styles.modelSelector} ref={modelSelectorRef}>
                                         <button
                                             className={styles.modelButton}
+                                            {...agentAttrs({ id: 'chat.model.toggle', role: 'button', action: 'open', page: 'chat' })}
                                             onClick={() => setIsModelDropdownOpen(!isModelDropdownOpen)}
                                         >
                                             <span className={styles.modelName}>
@@ -2156,6 +2167,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                                                     <button
                                                         key={model.id}
                                                         className={clsx(styles.modelOption, selectedModel.id === model.id && styles.modelOptionActive)}
+                                                        {...agentAttrs({ id: `chat.model.option.${model.id}`, role: 'button', action: 'select', page: 'chat', key: 'model_id' })}
                                                         onClick={() => {
                                                             setSelectedModel(model);
                                                             setIsModelDropdownOpen(false);
@@ -2172,6 +2184,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
                                     <button
                                         className={styles.settingsButton}
+                                        {...agentAttrs({ id: 'chat.settings.open', role: 'button', action: 'open', page: 'chat' })}
                                         onClick={() => setIsSettingsOpen(true)}
                                         title="Customize AI"
                                     >
@@ -2187,6 +2200,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                                         onClick={() => isBusy ? stopGeneration() : handleSend()}
                                         disabled={(!input.trim() && !isBusy) || isStopping}
                                         title={isBusy ? "Stop generation" : "Send message"}
+                                        {...agentAttrs({ id: 'chat.action.send', role: 'button', action: 'submit', page: 'chat' })}
                                     >
                                         {/* Aurora Background Effect */}
                                         {isBusy && <div className={styles.auroraLayer} />}

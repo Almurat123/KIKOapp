@@ -1,0 +1,72 @@
+skill:
+  id: kiko_ui_trading
+  name: KIKO UI Trading Skill
+  version: 1.0.0
+  description: Operate KIKO trading workflow through UI anchors and live map.
+
+trigger:
+  when:
+    - user requests to edit or execute trade workflow in KIKO web UI
+    - route is available and agent-map can be fetched
+
+inputs:
+  type: object
+  required:
+    - base_url
+    - action
+  properties:
+    base_url:
+      type: string
+      description: KIKO web origin (e.g. https://kikoapp.app)
+    action:
+      type: string
+      enum: [edit_strategy, open_wallet_swap, send_chat]
+    strategy_id:
+      type: string
+    buy_amount_usd:
+      type: number
+    take_profit_pct:
+      type: number
+    stop_loss_pct:
+      type: number
+    chat_message:
+      type: string
+
+steps:
+  - step: fetch_llm_context
+    run: GET {base_url}/llms-full.txt
+  - step: enable_agent_mode
+    run: navigate {base_url}/trade?agent_mode=1
+  - step: fetch_map
+    run: GET {base_url}/agent-map.json
+  - step: execute_action
+    run: |
+      if action == edit_strategy:
+        click node id: trade.strategy.card.{strategy_id}.edit
+        input trade.edit.buy_amount = buy_amount_usd
+        input trade.edit.take_profit_pct = take_profit_pct
+        input trade.edit.stop_loss_pct = stop_loss_pct
+        close dialog to autosave
+      if action == open_wallet_swap:
+        navigate {base_url}/wallet
+        click node id: wallet.header.swap
+      if action == send_chat:
+        navigate {base_url}/?agent_mode=1
+        input welcome.input.textarea OR chat.input.textarea = chat_message
+        click welcome.action.send OR chat.action.send
+  - step: verify
+    run: GET {base_url}/agent-map.json and confirm expected UI state
+
+success_criteria:
+  - requested action is completed and reflected in UI/map
+  - no blocking dialog or disabled critical control remains
+
+retry_policy:
+  max_retries: 1
+  strategy:
+    - refetch /agent-map.json
+    - re-resolve explicit IDs before using auto.* IDs
+
+abort_conditions:
+  - agent_mode cannot be enabled
+  - required explicit node id missing after retry

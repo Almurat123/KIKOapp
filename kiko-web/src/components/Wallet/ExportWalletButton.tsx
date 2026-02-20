@@ -5,12 +5,14 @@ import type { WalletWithMetadata } from '@privy-io/react-auth';
 import clsx from 'clsx';
 import styles from '../../pages/WalletPage.module.css';
 import cardStyles from './ExportWalletButton.module.css';
+import { agentAttrs } from '../../agent/attrs';
 
 interface ExportWalletButtonProps {
     chainType: 'ethereum' | 'solana';
     asMenuItem?: boolean;
     asCard?: boolean;
     asButton?: boolean;
+    agentId?: string;
     onMenuItemClick?: () => void;
     onExportComplete?: () => void;
 }
@@ -25,6 +27,7 @@ export const ExportWalletButton: React.FC<ExportWalletButtonProps> = ({
     asMenuItem = false,
     asCard = false,
     asButton = false,
+    agentId,
     onMenuItemClick,
     onExportComplete
 }) => {
@@ -99,6 +102,7 @@ export const ExportWalletButton: React.FC<ExportWalletButtonProps> = ({
                 }
                 onClick={handleClick}
                 title={`Export ${chainType === 'ethereum' ? 'EVM' : 'Solana'} Recovery Phrase`}
+                {...(agentId ? agentAttrs({ id: agentId, role: 'button', action: 'open', page: 'settings', key: 'export_recovery_phrase' }) : {})}
             >
                 {asButton ? (
                     buttonText
@@ -147,6 +151,7 @@ export const ExportWalletButton: React.FC<ExportWalletButtonProps> = ({
                                 onChange={(e) => setConfirmText(e.target.value)}
                                 placeholder="Confirm"
                                 autoFocus
+                                {...(agentId ? agentAttrs({ id: `${agentId}.confirm_input`, role: 'input', action: 'input', page: 'settings', key: 'confirm_text' }) : {})}
                             />
                         </div>
 
@@ -154,6 +159,7 @@ export const ExportWalletButton: React.FC<ExportWalletButtonProps> = ({
                             <button
                                 className={clsx(cardStyles.warningButton, cardStyles.warningButtonCancel)}
                                 onClick={() => setShowWarning(false)}
+                                {...(agentId ? agentAttrs({ id: `${agentId}.cancel`, role: 'button', action: 'close', page: 'settings' }) : {})}
                             >
                                 Cancel
                             </button>
@@ -164,6 +170,7 @@ export const ExportWalletButton: React.FC<ExportWalletButtonProps> = ({
                                 )}
                                 onClick={handleExport}
                                 disabled={confirmText !== 'Confirm'}
+                                {...(agentId ? agentAttrs({ id: `${agentId}.confirm_export`, role: 'button', action: 'confirm', page: 'settings' }) : {})}
                             >
                                 Export
                             </button>

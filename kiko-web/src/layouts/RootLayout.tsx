@@ -8,6 +8,7 @@ import { chatWSClient, type ChatEvent } from '../utils/chatWebSocket';
 import { clearActiveTask } from '../utils/taskLifecycle';
 import { chatApi } from '../services/api';
 import { ToastContainer, useToast } from '../components/Toast';
+import { AgentRuntime } from '../agent/AgentRuntime';
 
 // Global Toast Component
 function GlobalToast() {
@@ -484,6 +485,7 @@ export const RootLayout: React.FC = () => {
 
     return (
         <ConversationProvider value={conversationUtils}>
+            <AgentRuntime />
             <Layout
                 conversations={conversations}
                 activeConversationId={activeConversationId}

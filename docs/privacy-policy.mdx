@@ -1,0 +1,155 @@
+---
+title: "Privacy Policy"
+description: "KiKo Privacy Policy — how we collect, use, and protect your data."
+---
+
+# Privacy Policy
+
+**Effective Date: February 20, 2026 | Version: v2.0**
+
+This Privacy Policy explains how KIKO MiniApp (the "Service") collects, uses, and protects data as you use it. The Service is developed and maintained by KIKO contributors (the "KIKO Contributors").
+
+---
+
+## 1. What Data We Collect
+
+### 1.1 Information You Provide
+- **Third-party Login Identifiers (OAuth ID)**: When you sign in via Farcaster or other social accounts, we receive the unique identifier from that platform to recognize your account.
+- **Wallet Address**: Your on-chain wallet address, used to associate transaction records and settings.
+- **Chat Input Content**: Natural language instructions you enter in the chat interface, used for AI parsing and on-chain operation execution.
+
+### 1.2 Automatically Generated Data
+- **Session Information**: Session creation time, AI model used, session title, and other metadata.
+- **Transaction Records**: On-chain transaction hashes, token information, transaction amounts, and other data used for history display.
+- **Usage Activity Data**: Message count, copy-trading configuration status, and aggregated statistics used to optimize the service.
+
+### 1.3 Data We Do NOT Collect
+- **IP Addresses**: The Service uses Cloudflare edge network to block access from prohibited regions before requests reach KIKO's servers. KIKO does not store any user IP addresses.
+- **Private Keys or Seed Phrases**: Your private key is independently managed by third-party provider Privy and cannot be accessed or stored by KIKO.
+- **Biometric Data or Identity Documents**: The Service does not require any KYC information.
+
+---
+
+## 2. How We Use Data
+
+| Data Type | Purpose |
+|---|---|
+| OAuth ID / Wallet Address | Account identification, settings sync, security verification |
+| Chat Input Content | AI instruction parsing, on-chain operation execution, context understanding |
+| Session Metadata | History display, service continuity |
+| Transaction Records | Transaction history lookup, copy-trading analysis |
+| Usage Activity Data | Service quality monitoring, quota management |
+
+The Service will **NOT** use your data for advertising, selling to third parties, or any purposes unrelated to providing the Service.
+
+---
+
+## 3. Data Retention Periods
+
+The Service implements automatic data cleanup:
+
+| Data Type | Retention Period |
+|---|---|
+| Chat Message Content | **30 days**, then auto-deleted |
+| Message Streaming Chunks | **3 days**, then auto-deleted |
+| Session Metadata (title, timestamp, etc.) | Deleted within **90 days** after message cleanup |
+| Tracked Wallet Transaction Records | **90 days**, then auto-deleted |
+| Account Basic Info (OAuth ID, wallet address) | Throughout account lifetime |
+| Copy-Trading Configuration | Retained until you delete manually |
+
+Data retention may be extended for legal requirements or security investigations.
+
+---
+
+## 4. Third-Party Service Providers
+
+The Service relies on the following third-party service providers to process data. By using the Service, you are also subject to their privacy policies:
+
+**Wallet & Transaction Infrastructure**
+
+| Provider | Purpose |
+|---|---|
+| **Privy** | Wallet creation & management, transaction signing authorization |
+| **0x Protocol** | EVM token swap quotes and aggregation |
+| **Jupiter** | Solana token swaps |
+
+**Blockchain Data & RPC**
+
+| Provider | Purpose |
+|---|---|
+| **Alchemy** | EVM multi-chain wallet balances, transaction records, Webhook monitoring |
+| **Helius** | Solana wallet data and transaction monitoring |
+| **Etherscan / RouteScan** | Contract data, gas price queries |
+| **QuickNode / Ankr** | Multi-chain RPC backup nodes |
+
+**Market Data**
+
+| Provider | Purpose |
+|---|---|
+| **CoinGecko** | Crypto asset prices, market cap data |
+| **DexScreener** | Real-time DEX trading pair prices |
+| **DefiLlama** | DeFi protocol TVL data |
+| **Dune Analytics** | On-chain macro data analysis |
+| **CryptoCompare** | Crypto asset news aggregation |
+| **Finnhub** | Traditional financial market data |
+| **Alpha Vantage** | Stock and forex data |
+| **FRED (Federal Reserve)** | Macro economic indicators (CPI, GDP, etc.) |
+| **NewsAPI** | Global news aggregation |
+
+**AI Models**
+
+| Provider | Purpose |
+|---|---|
+| **xAI / Grok** | Primary AI conversation model inference |
+| **DeepSeek** | Instruction intent parsing, backup AI conversation model |
+| **OpenAI** | Chat content safety review (Moderation API) |
+
+**Security & Social**
+
+| Provider | Purpose |
+|---|---|
+| **GoPlus Security** | Token security scanning |
+| **Neynar** | Farcaster social data, trending content |
+| **Farcaster / Warpcast** | Social login, MiniApp distribution platform |
+| **Cloudflare** | Edge network, region-based access control |
+
+KIKO Contributors do not control how these third-party service providers process data. The Service only transmits the minimum necessary data to these providers (typically wallet addresses and query parameters) to complete the Service. Chat content is only transmitted to AI model providers.
+
+---
+
+## 5. Data Security
+
+- The Service uses industry-standard encryption protocols (HTTPS/TLS) to transmit data.
+- Data is stored in cloud infrastructure protected by access controls.
+- The Service does not log private keys, seed phrases, or complete transaction signatures.
+- If a data security incident affecting user data occurs, KIKO Contributors will promptly notify affected users via interface announcements or official Farcaster channels.
+
+---
+
+## 6. Your Data Rights
+
+You have the following rights regarding your data:
+
+- **Access**: You can view your chat history, transaction records, and copy-trading configuration in the interface.
+- **Deletion**: You can delete individual sessions in the interface. For account-level data deletion, submit a request through the official Farcaster channel.
+- **Authorization Revocation**: You can disable the auto-trading feature at any time to revoke KIKO's authorization to sign transactions through Privy.
+
+The Service does not operate under any registered legal entity. Data rights requests are processed based on KIKO Contributors' reasonable capability.
+
+---
+
+## 7. Minors
+
+The Service is not intended for users under 18 years old. If you are under 18, please do not use the Service.
+
+---
+
+## 8. Policy Changes
+
+This policy may be updated as the Service evolves. Significant changes will be announced via interface notices. Continued use of the Service after updates constitutes acceptance of the revised policy.
+
+---
+
+**Questions about this Privacy Policy? Contact KIKO Contributors via the official Farcaster channel.**
+
+*Last updated: February 20, 2026*

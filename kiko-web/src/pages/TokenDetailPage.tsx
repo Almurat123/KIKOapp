@@ -19,6 +19,7 @@ import { proxyImageUrl } from '../utils/imageProxy';
 import { GeckoTerminalChart } from '../components/Chart/GeckoTerminalChart';
 import { useThemeContext } from '../contexts/ThemeContext';
 import { Skeleton } from '../components/Skeleton';
+import { agentAttrs } from '../agent/attrs';
 import styles from './TokenDetailPage.module.css';
 
 // --- Types ---
@@ -464,13 +465,21 @@ export const TokenDetailPage: React.FC<TokenDetailPageProps> = ({ token: propTok
   }
 
   return (
-    <div className={`${styles.container} ${styles[resolvedTheme]}`} ref={containerRef}>
+    <div
+      className={`${styles.container} ${styles[resolvedTheme]}`}
+      ref={containerRef}
+      {...agentAttrs({ id: 'token_detail.page', role: 'card', page: 'token_detail' })}
+    >
       {/* Header Section */}
       <div className={styles.headerSection}>
         <div className={styles.tokenTitleRow}>
           <div className={styles.tokenIdentity}>
             {/* Back Button - Visible only on desktop */}
-            <button onClick={handleBack} className={styles.backButton}>
+            <button
+              onClick={handleBack}
+              className={styles.backButton}
+              {...agentAttrs({ id: 'token_detail.back', role: 'button', action: 'navigate', page: 'token_detail' })}
+            >
               <ArrowLeft size={18} />
             </button>
 
@@ -478,6 +487,7 @@ export const TokenDetailPage: React.FC<TokenDetailPageProps> = ({ token: propTok
               className={styles.tokenIconWrapper}
               onClick={() => setImageModalOpen(true)}
               style={{ cursor: 'pointer' }}
+              {...agentAttrs({ id: 'token_detail.image.open', role: 'button', action: 'open', page: 'token_detail' })}
             >
               <img
                 src={proxyImageUrl(token.imageUrl) || proxyImageUrl(`https://ui-avatars.com/api/?name=${encodeURIComponent(token.symbol)}&background=random&color=fff`) || `https://ui-avatars.com/api/?name=${encodeURIComponent(token.symbol)}&background=random&color=fff`}
@@ -524,6 +534,7 @@ export const TokenDetailPage: React.FC<TokenDetailPageProps> = ({ token: propTok
               className={styles.starButton}
               onClick={(e) => { e.stopPropagation(); toggleFavorite(); }}
               disabled={loadingFav}
+              {...agentAttrs({ id: 'token_detail.favorite.toggle', role: 'toggle', action: 'toggle', page: 'token_detail' })}
             >
               <Star
                 size={20}
@@ -544,7 +555,11 @@ export const TokenDetailPage: React.FC<TokenDetailPageProps> = ({ token: propTok
               <span className={styles.addressText}>
                 {token.address.slice(0, 6)}...{token.address.slice(-4)}
               </span>
-              <button className={styles.copyIconBtn} onClick={copyAddress}>
+              <button
+                className={styles.copyIconBtn}
+                onClick={copyAddress}
+                {...agentAttrs({ id: 'token_detail.copy_address', role: 'button', action: 'copy', page: 'token_detail', key: 'token_address' })}
+              >
                 {copied ? <Check size={14} color="#10b981" /> : <Copy size={14} />}
               </button>
             </div>
@@ -553,25 +568,49 @@ export const TokenDetailPage: React.FC<TokenDetailPageProps> = ({ token: propTok
             {token.socialLinks && (
               <div className={styles.socialLinks}>
                 {token.socialLinks.website && (
-                  <a href={token.socialLinks.website} target="_blank" rel="noopener noreferrer" className={styles.socialBtn}>
+                  <a
+                    href={token.socialLinks.website}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={styles.socialBtn}
+                    {...agentAttrs({ id: 'token_detail.social.website', role: 'button', action: 'open', page: 'token_detail', key: 'website' })}
+                  >
                     <Globe size={14} className={styles.socialIcon} />
                     <span className={styles.socialText}>{getHostname(token.socialLinks.website)}</span>
                   </a>
                 )}
                 {token.socialLinks.twitter && (
-                  <a href={token.socialLinks.twitter} target="_blank" rel="noopener noreferrer" className={styles.socialBtn}>
+                  <a
+                    href={token.socialLinks.twitter}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={styles.socialBtn}
+                    {...agentAttrs({ id: 'token_detail.social.twitter', role: 'button', action: 'open', page: 'token_detail', key: 'twitter' })}
+                  >
                     <div className={styles.socialIcon}><TwitterIcon /></div>
                     <span className={styles.socialText}>Twitter</span>
                   </a>
                 )}
                 {token.socialLinks.telegram && (
-                  <a href={token.socialLinks.telegram} target="_blank" rel="noopener noreferrer" className={styles.socialBtn}>
+                  <a
+                    href={token.socialLinks.telegram}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={styles.socialBtn}
+                    {...agentAttrs({ id: 'token_detail.social.telegram', role: 'button', action: 'open', page: 'token_detail', key: 'telegram' })}
+                  >
                     <Send size={14} className={styles.socialIcon} />
                     <span className={styles.socialText}>Telegram</span>
                   </a>
                 )}
                 {token.socialLinks.discord && (
-                  <a href={token.socialLinks.discord} target="_blank" rel="noopener noreferrer" className={styles.socialBtn}>
+                  <a
+                    href={token.socialLinks.discord}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={styles.socialBtn}
+                    {...agentAttrs({ id: 'token_detail.social.discord', role: 'button', action: 'open', page: 'token_detail', key: 'discord' })}
+                  >
                     <MessageSquare size={14} className={styles.socialIcon} />
                     <span className={styles.socialText}>Discord</span>
                   </a>
@@ -583,20 +622,20 @@ export const TokenDetailPage: React.FC<TokenDetailPageProps> = ({ token: propTok
       </div>
 
       {/* Market Stats Grid */}
-      <div className={styles.marketGrid}>
-        <div className={styles.marketCard}>
+      <div className={styles.marketGrid} {...agentAttrs({ id: 'token_detail.stats', role: 'list', page: 'token_detail' })}>
+        <div className={styles.marketCard} {...agentAttrs({ id: 'token_detail.stats.mcap', role: 'card', page: 'token_detail', key: 'mcap' })}>
           <span className={styles.statLabel}>MKT CAP</span>
           <span className={styles.statValue}>{formatNumber(token.mcap)}</span>
         </div>
-        <div className={styles.marketCard}>
+        <div className={styles.marketCard} {...agentAttrs({ id: 'token_detail.stats.fdv', role: 'card', page: 'token_detail', key: 'fdv' })}>
           <span className={styles.statLabel}>FDV</span>
           <span className={styles.statValue}>{formatNumber(token.fdv)}</span>
         </div>
-        <div className={styles.marketCard}>
+        <div className={styles.marketCard} {...agentAttrs({ id: 'token_detail.stats.liquidity', role: 'card', page: 'token_detail', key: 'liquidity' })}>
           <span className={styles.statLabel}>LIQUIDITY</span>
           <span className={styles.statValue}>{formatNumber(token.liquidity)}</span>
         </div>
-        <div className={styles.marketCard}>
+        <div className={styles.marketCard} {...agentAttrs({ id: 'token_detail.stats.volume24h', role: 'card', page: 'token_detail', key: 'volume24h' })}>
           <span className={styles.statLabel}>24H VOL</span>
           <span className={styles.statValue}>{formatNumber(token.volume24h)}</span>
         </div>
@@ -604,16 +643,24 @@ export const TokenDetailPage: React.FC<TokenDetailPageProps> = ({ token: propTok
 
       {/* Quick Trade Actions */}
       <div className={styles.tradeGrid}>
-        <button className={`${styles.tradeBtn} ${styles.buyBtn}`} onClick={() => handleTradeAction('buy')}>
+        <button
+          className={`${styles.tradeBtn} ${styles.buyBtn}`}
+          onClick={() => handleTradeAction('buy')}
+          {...agentAttrs({ id: 'token_detail.trade.buy', role: 'button', action: 'navigate', page: 'token_detail', key: 'trade_action' })}
+        >
           BUY {token.symbol}
         </button>
-        <button className={`${styles.tradeBtn} ${styles.sellBtn}`} onClick={() => handleTradeAction('sell')}>
+        <button
+          className={`${styles.tradeBtn} ${styles.sellBtn}`}
+          onClick={() => handleTradeAction('sell')}
+          {...agentAttrs({ id: 'token_detail.trade.sell', role: 'button', action: 'navigate', page: 'token_detail', key: 'trade_action' })}
+        >
           SELL {token.symbol}
         </button>
       </div>
 
       {/* Security Section */}
-      <div className={styles.sectionHeader}>
+      <div className={styles.sectionHeader} {...agentAttrs({ id: 'token_detail.section.security', role: 'card', page: 'token_detail' })}>
         <h3>SECURITY</h3>
       </div>
 
@@ -623,7 +670,11 @@ export const TokenDetailPage: React.FC<TokenDetailPageProps> = ({ token: propTok
           <p className={styles.securityDesc}>Analyze honeypot, tax, and ownership via KIKO AI.</p>
         </div>
 
-        <button className={styles.askAiActionBtn} onClick={handleAskAI}>
+        <button
+          className={styles.askAiActionBtn}
+          onClick={handleAskAI}
+          {...agentAttrs({ id: 'token_detail.ask_ai', role: 'button', action: 'navigate', page: 'token_detail' })}
+        >
           <Sparkles size={14} /> Analyze with AI
         </button>
 
@@ -631,11 +682,11 @@ export const TokenDetailPage: React.FC<TokenDetailPageProps> = ({ token: propTok
       </div>
 
       {/* Holders Section */}
-      <div className={styles.sectionHeader}>
+      <div className={styles.sectionHeader} {...agentAttrs({ id: 'token_detail.section.holders', role: 'card', page: 'token_detail' })}>
         <h3>HOLDERS</h3>
       </div>
 
-      <div className={styles.holdersCard}>
+      <div className={styles.holdersCard} {...agentAttrs({ id: 'token_detail.holders.total', role: 'card', page: 'token_detail', key: 'holders' })}>
         <div className={styles.holdersMainRow}>
           <span className={styles.holderCountLabel}>Total Holders</span>
           <span className={styles.holderCountValue}>
@@ -646,7 +697,11 @@ export const TokenDetailPage: React.FC<TokenDetailPageProps> = ({ token: propTok
 
       {/* Chart Section */}
       <div className={styles.mainContent}>
-        <div className={styles.chartCard} style={{ padding: 0, overflow: 'hidden' }}>
+        <div
+          className={styles.chartCard}
+          style={{ padding: 0, overflow: 'hidden' }}
+          {...agentAttrs({ id: 'token_detail.chart.geckoterminal', role: 'card', page: 'token_detail' })}
+        >
           <GeckoTerminalChart
             chain={token.chain}
             address={token.address}
@@ -662,6 +717,7 @@ export const TokenDetailPage: React.FC<TokenDetailPageProps> = ({ token: propTok
           <div
             className={styles.imageModal}
             onClick={() => setImageModalOpen(false)}
+            {...agentAttrs({ id: 'token_detail.image.modal', role: 'dialog', action: 'close', page: 'token_detail' })}
           >
             <div className={styles.imageModalContent}>
               <img

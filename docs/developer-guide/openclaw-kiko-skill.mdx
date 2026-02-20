@@ -1,0 +1,75 @@
+---
+title: "OpenClaw + KIKO Agent Mode"
+description: "Integrate OpenClaw with KIKO using For Agent mode, llms.txt, and live agent-map coordinates."
+---
+
+# OpenClaw + KIKO Agent Mode
+
+This guide explains how to operate KIKO with automation agents (for example OpenClaw) using machine-readable anchors and coordinate mapping.
+
+## What is For Agent Mode
+
+For Agent Mode makes the UI machine-friendly by exposing:
+- Stable `data-agent-*` anchors on interactive controls.
+- A live JSON map at `/agent-map.json` (also available via `window.__KIKO_AGENT_MAP__`).
+- Route-level action recommendations (`actions[]`) for UI-track and API-track automation.
+
+## Enable Agent Mode
+
+Use either method:
+1. URL override: `?agent_mode=1`
+2. Settings: `Settings -> Automation -> For Agent Mode`
+
+To force disable, use `?agent_mode=0`.
+
+## Read llms files
+
+Start with:
+- `/llms.txt` for compact route and capability summary.
+- `/llms-full.txt` for detailed action semantics and fallback behavior.
+
+## Read live map
+
+Open:
+- `/agent-map.json`
+
+Key fields:
+- `app.route` and `app.agent_mode`
+- `nodes[]` with `id`, `role`, `action`, `text`, `value`, `bbox`
+- `actions[]` route-specific operation recipes
+
+## UI Track Example (Trade edit)
+
+1. Navigate to `/trade`.
+2. Query `/agent-map.json` and find `trade.strategy.card.*.edit`.
+3. Click edit action node.
+4. Fill `trade.edit.buy_amount`, `trade.edit.take_profit_pct`, `trade.edit.stop_loss_pct`.
+5. Close edit dialog (autosave in current UX).
+6. Re-fetch `/agent-map.json` and verify values changed.
+
+## API Track Example (Blueprint)
+
+For API-driven agents, align to KIKO's agent API blueprint (see `Kiko.md`):
+- `POST /agent/tx/preview`
+- `POST /agent/tx/execute`
+- `POST /agent/strategies`
+
+Use UI map as runtime verification surface after API actions.
+
+## Skill templates
+
+Copy and adapt:
+- `docs/reference/openclaw-skills/kiko-ui-trading-skill.yaml`
+- `docs/reference/openclaw-skills/kiko-agent-api-skill.yaml`
+
+Both templates include trigger conditions, input schema, steps, success criteria, and stop/retry policy.
+
+## Common failures and fallback
+
+- Node not found:
+  - Re-fetch map after route settle, then retry once.
+- Node invisible:
+  - Execute required toggle/open action first.
+- Action uncertain:
+  - Prefer stable explicit IDs (non-`auto.*`) over generated fallback IDs.
+

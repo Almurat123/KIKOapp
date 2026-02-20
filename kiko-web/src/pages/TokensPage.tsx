@@ -18,6 +18,7 @@ import {
   type TrendingTimeframe
 } from '../services/trendingService';
 import dexScreenerLogo from '../assets/images/dex-screener.png';
+import { agentAttrs } from '../agent/attrs';
 
 // --- Types ---
 
@@ -369,6 +370,13 @@ function chainExplorerAddressUrl(chain: string, address?: string): string | unde
     default:
       return `https://etherscan.io/address/${normalized}`;
   }
+}
+
+function toAgentIdSegment(value?: string): string {
+  return (value || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '') || 'unknown';
 }
 
 // Subscript digits for displaying zero count
@@ -754,17 +762,31 @@ const TokenRow = React.memo(({
   const tokenSignals = getTokenSignals(t);
   const creatorDisplay = creatorText(t.creatorLabel, t.creatorAddress, t.creatorUrl, t.socialLinks?.website);
   const creatorHref = t.creatorUrl || t.socialLinks?.website || chainExplorerAddressUrl(t.chain, t.creatorAddress);
+  const rowKey = [
+    toAgentIdSegment(t.chain),
+    toAgentIdSegment(t.address || t.poolAddress || t.symbol),
+    String(t.id || i),
+  ].join('_');
+  const rowBaseId = `tokens.list.row.${rowKey}`;
 
   return (
     <React.Fragment>
       <tr
         onClick={() => onTokenClick(t)}
         className={styles.tr}
+        {...agentAttrs({
+          id: rowBaseId,
+          role: 'row',
+          action: 'navigate',
+          page: 'tokens',
+          key: t.address || t.symbol,
+        })}
       >
         {/* Token Info */}
         <td
           className={styles.td}
           style={{ padding: isMobile ? '10px 8px' : '12px 16px' }}
+          {...agentAttrs({ id: `${rowBaseId}.token`, role: 'card', page: 'tokens' })}
         >
           <div className={styles.tokenInfo}>
             {showRank && (
@@ -850,6 +872,7 @@ const TokenRow = React.memo(({
         <td
           className={`${styles.td} ${styles.tdRight}`}
           style={{ padding: isMobile ? '10px 8px' : '12px 16px' }}
+          {...agentAttrs({ id: `${rowBaseId}.price`, role: 'card', page: 'tokens', key: 'price' })}
         >
           <div className={styles.price}>
             {t.price}
@@ -860,6 +883,7 @@ const TokenRow = React.memo(({
         <td
           className={`${styles.td} ${styles.tdRight} ${isPositive ? styles.changePositive : styles.changeNegative}`}
           style={{ padding: isMobile ? '10px 8px' : '12px 16px', fontSize: isMobile ? '11px' : '12px' }}
+          {...agentAttrs({ id: `${rowBaseId}.change`, role: 'card', page: 'tokens', key: 'price_change' })}
         >
           {changeValue}
         </td>
@@ -868,6 +892,7 @@ const TokenRow = React.memo(({
         <td
           className={`${styles.td} ${styles.tdRight} ${styles.age} ${((t.age.toLowerCase().endsWith('h') || t.age.toLowerCase().endsWith('m')) || t.isNew) ? styles.ageRecent : ''}`}
           style={{ padding: isMobile ? '10px 8px' : '12px 16px', fontSize: isMobile ? '11px' : '12px' }}
+          {...agentAttrs({ id: `${rowBaseId}.age`, role: 'card', page: 'tokens', key: 'age' })}
         >
           {t.age}
         </td>
@@ -876,6 +901,7 @@ const TokenRow = React.memo(({
         <td
           className={`${styles.td} ${styles.tdRight}`}
           style={{ padding: isMobile ? '10px 8px' : '12px 16px' }}
+          {...agentAttrs({ id: `${rowBaseId}.liquidity_volume`, role: 'card', page: 'tokens' })}
         >
           <div style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'flex-start' }}>
             <div className={styles.volume}>
@@ -894,6 +920,7 @@ const TokenRow = React.memo(({
           <td
             className={`${styles.td} ${styles.tdCenter}`}
             style={{ padding: '12px 16px' }}
+            {...agentAttrs({ id: `${rowBaseId}.txns`, role: 'card', page: 'tokens', key: 'txns' })}
           >
             <div className={styles.buySellBar} style={{ flexDirection: 'column' }}>
               <div className={styles.buySellBar} style={{ justifyContent: 'space-between', marginBottom: '2px' }}>
@@ -925,12 +952,14 @@ const TokenRow = React.memo(({
             {showRank && <span className={styles.subRowRankSpacer} aria-hidden="true" />}
             <div className={styles.subRowCapsuleWrap}>
               <div className={styles.subRowLaunchpadWrap}>
-                <LaunchpadCapsule
-                  address={t.address || ''}
-                  chain={t.chain}
-                  launchpad={t.launchpad}
-                  onAskAI={() => console.log('Trigger Ask AI for', t.name)}
-                />
+                <div {...agentAttrs({ id: `${rowBaseId}.launchpad`, role: 'card', page: 'tokens' })}>
+                  <LaunchpadCapsule
+                    address={t.address || ''}
+                    chain={t.chain}
+                    launchpad={t.launchpad}
+                    onAskAI={() => console.log('Trigger Ask AI for', t.name)}
+                  />
+                </div>
                 {creatorDisplay && (t.creatorLabel || t.creatorAddress || t.creatorUrl) && (
                   creatorHref ? (
                     <a
@@ -940,17 +969,27 @@ const TokenRow = React.memo(({
                       rel="noreferrer"
                       title={t.creatorLabel || t.creatorAddress || 'creator'}
                       onClick={(e) => e.stopPropagation()}
+                      {...agentAttrs({ id: `${rowBaseId}.creator_link`, role: 'button', action: 'open', page: 'tokens', key: 'creator_url' })}
                     >
                       {creatorDisplay}
                     </a>
                   ) : (
-                    <span className={styles.subRowCreator} title={t.creatorAddress || t.creatorLabel || 'creator'}>
+                    <span
+                      className={styles.subRowCreator}
+                      title={t.creatorAddress || t.creatorLabel || 'creator'}
+                      {...agentAttrs({ id: `${rowBaseId}.creator_label`, role: 'card', page: 'tokens', key: 'creator' })}
+                    >
                       {creatorDisplay}
                     </span>
                   )
                 )}
               </div>
-              <div className={styles.tokenSignals} role="group" aria-label="Token quality indicators">
+              <div
+                className={styles.tokenSignals}
+                role="group"
+                aria-label="Token quality indicators"
+                {...agentAttrs({ id: `${rowBaseId}.signals`, role: 'list', page: 'tokens' })}
+              >
                 {tokenSignals.map((signal) => (
                   <button
                     key={signal.key}
@@ -961,6 +1000,13 @@ const TokenRow = React.memo(({
                       setActiveSignalKey((prev) => (prev === signal.key ? null : signal.key));
                     }}
                     aria-label={`${signal.label}: ${signal.active ? 'ON' : 'OFF'}`}
+                    {...agentAttrs({
+                      id: `${rowBaseId}.signal.${toAgentIdSegment(signal.key)}`,
+                      role: 'button',
+                      action: 'select',
+                      page: 'tokens',
+                      key: signal.key,
+                    })}
                   >
                     {signal.kind === 'dex' && (
                       <img
@@ -1561,7 +1607,7 @@ export const TokensPage: React.FC<TokensPageProps> = ({
   const getChangeColumn = () => getTimeframeChangeColumn(timeframe);
 
   return (
-    <PageContainer fullWidth className={styles.container}>
+    <PageContainer fullWidth className={styles.container} {...agentAttrs({ id: 'tokens.page', role: 'card', page: 'tokens' })}>
       {/* Token Table */}
       {/* Unified Main Section */}
       <div className={`${styles.content} ${isMobile ? styles.contentMobile : ''}`}>
@@ -1571,12 +1617,14 @@ export const TokensPage: React.FC<TokensPageProps> = ({
             <button
               className={`${styles.filterBtn} ${activeTab === 'trending' ? styles.filterBtnActive : ''}`}
               onClick={() => setActiveTab('trending')}
+              {...agentAttrs({ id: 'tokens.tab.trending', role: 'tab', action: 'select', page: 'tokens', key: 'tab' })}
             >
               Trending
             </button>
             <button
               className={`${styles.filterBtn} ${activeTab === 'favorites' ? styles.filterBtnActive : ''}`}
               onClick={() => setActiveTab('favorites')}
+              {...agentAttrs({ id: 'tokens.tab.favorites', role: 'tab', action: 'select', page: 'tokens', key: 'tab' })}
             >
               Favorites
             </button>
@@ -1591,11 +1639,13 @@ export const TokensPage: React.FC<TokensPageProps> = ({
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className={styles.searchInput}
+                {...agentAttrs({ id: 'tokens.search.input', role: 'input', action: 'input', page: 'tokens', key: 'query' })}
               />
               {searchQuery && (
                 <button
                   onClick={() => setSearchQuery('')}
                   className={styles.clearButton}
+                  {...agentAttrs({ id: 'tokens.search.clear', role: 'button', action: 'close', page: 'tokens' })}
                 >
                   <X size={16} />
                 </button>
@@ -1760,6 +1810,13 @@ export const TokensPage: React.FC<TokensPageProps> = ({
                             key={tf}
                             className={`${styles.timeframeBtn} ${timeframe === tf ? styles.timeframeBtnActive : ''}`}
                             onClick={() => setTimeframe(tf)}
+                            {...agentAttrs({
+                              id: `tokens.timeframe.${tf}`,
+                              role: 'button',
+                              action: 'select',
+                              page: 'tokens',
+                              key: 'timeframe',
+                            })}
                           >
                             {tf.toUpperCase()}
                           </button>
@@ -1770,6 +1827,7 @@ export const TokensPage: React.FC<TokensPageProps> = ({
                         <button
                           className={styles.chainSelectorBtn}
                           onClick={() => setShowChainDropdown(!showChainDropdown)}
+                          {...agentAttrs({ id: 'tokens.chain.dropdown_toggle', role: 'button', action: 'open', page: 'tokens', key: 'chain_id' })}
                         >
                           {selectedChain === 'all' ? (
                             null
@@ -1796,6 +1854,13 @@ export const TokensPage: React.FC<TokensPageProps> = ({
                                   setSelectedChain(chain.id);
                                   setShowChainDropdown(false);
                                 }}
+                                {...agentAttrs({
+                                  id: `tokens.chain.option.${toAgentIdSegment(chain.id)}`,
+                                  role: 'button',
+                                  action: 'select',
+                                  page: 'tokens',
+                                  key: 'chain_id',
+                                })}
                               >
                                 {chain.logo ? (
                                   <img
@@ -1832,6 +1897,7 @@ export const TokensPage: React.FC<TokensPageProps> = ({
                           className={styles.th}
                           style={{ padding: isMobile ? '10px 8px' : '12px 16px' }}
                           onClick={() => handleSort('symbol')}
+                          {...agentAttrs({ id: 'tokens.sort.symbol', role: 'button', action: 'select', page: 'tokens', key: 'symbol' })}
                         >
                           <div className={styles.thContent}>
                             Token Info
@@ -1842,6 +1908,7 @@ export const TokensPage: React.FC<TokensPageProps> = ({
                           className={`${styles.th} ${styles.thRight}`}
                           style={{ padding: isMobile ? '10px 8px' : '12px 16px' }}
                           onClick={() => handleSort('price')}
+                          {...agentAttrs({ id: 'tokens.sort.price', role: 'button', action: 'select', page: 'tokens', key: 'price' })}
                         >
                           <div className={`${styles.thContent} ${styles.thContentRight}`}>
                             Price
@@ -1852,6 +1919,7 @@ export const TokensPage: React.FC<TokensPageProps> = ({
                           className={`${styles.th} ${styles.thRight}`}
                           style={{ padding: isMobile ? '10px 8px' : '12px 16px' }}
                           onClick={() => handleSort(getChangeColumn() as keyof Token)}
+                          {...agentAttrs({ id: 'tokens.sort.change', role: 'button', action: 'select', page: 'tokens', key: 'price_change' })}
                         >
                           <div className={`${styles.thContent} ${styles.thContentRight}`}>
                             {getTimeframeChangeLabel(timeframe)}
@@ -1862,6 +1930,7 @@ export const TokensPage: React.FC<TokensPageProps> = ({
                           className={`${styles.th} ${styles.thRight}`}
                           style={{ padding: isMobile ? '10px 8px' : '12px 16px' }}
                           onClick={() => handleSort('age')}
+                          {...agentAttrs({ id: 'tokens.sort.age', role: 'button', action: 'select', page: 'tokens', key: 'age' })}
                         >
                           <div className={`${styles.thContent} ${styles.thContentRight}`}>
                             Age
@@ -1872,6 +1941,7 @@ export const TokensPage: React.FC<TokensPageProps> = ({
                           className={`${styles.th} ${styles.thRight}`}
                           style={{ padding: isMobile ? '10px 8px' : '12px 16px' }}
                           onClick={() => handleSort('volume')}
+                          {...agentAttrs({ id: 'tokens.sort.volume', role: 'button', action: 'select', page: 'tokens', key: 'volume' })}
                         >
                           <div className={`${styles.thContent} ${styles.thContentRight}`}>
                             Vol / Liq
@@ -1883,6 +1953,7 @@ export const TokensPage: React.FC<TokensPageProps> = ({
                             className={`${styles.th} ${styles.thCenter}`}
                             style={{ padding: '12px 16px' }}
                             onClick={() => handleSort('txns')}
+                            {...agentAttrs({ id: 'tokens.sort.txns', role: 'button', action: 'select', page: 'tokens', key: 'txns' })}
                           >
                             <div className={`${styles.thContent} ${styles.thContentCenter}`}>
                               Txns
@@ -1914,6 +1985,7 @@ export const TokensPage: React.FC<TokensPageProps> = ({
                         type="button"
                         className={styles.loadMoreBtn}
                         onClick={() => setVisibleCount((prev) => prev + 30)}
+                        {...agentAttrs({ id: 'tokens.load_more', role: 'button', action: 'open', page: 'tokens' })}
                       >
                         Load more
                       </button>

@@ -3,6 +3,7 @@ import { ArrowRight } from 'lucide-react';
 import styles from './Chat.module.css';
 import clsx from 'clsx';
 import { useThemeContext } from '../../contexts/ThemeContext';
+import { agentAttrs } from '../../agent/attrs';
 
 export interface SuggestionItem {
     id: string;
@@ -24,12 +25,14 @@ interface ChatInputSuggestionsProps {
     suggestions: SuggestionGroup[] | SuggestionItem[]; // Support both for backward compatibility or transition
     isVisible: boolean;
     onSelect: (item: SuggestionItem) => void;
+    agentId?: string;
 }
 
 export const ChatInputSuggestions: React.FC<ChatInputSuggestionsProps> = ({
     suggestions,
     isVisible,
-    onSelect
+    onSelect,
+    agentId = 'chat.suggestions.list'
 }) => {
     const { resolvedTheme } = useThemeContext();
     const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
@@ -69,6 +72,12 @@ export const ChatInputSuggestions: React.FC<ChatInputSuggestionsProps> = ({
                     styles.suggestionItem,
                     isHovered && styles.suggestionItemSelected
                 )}
+                {...agentAttrs({
+                    id: `chat.suggestion.item.${item.id}`,
+                    role: 'button',
+                    action: 'select',
+                    page: 'chat',
+                })}
                 onClick={() => onSelect(item)}
                 onMouseDown={(e) => {
                     // CRITICAL: Prevent input blur event from firing before click
@@ -149,6 +158,7 @@ export const ChatInputSuggestions: React.FC<ChatInputSuggestionsProps> = ({
     return (
         <div
             className={clsx(styles.suggestionBox, styles[resolvedTheme])}
+            {...agentAttrs({ id: agentId, role: 'list', action: 'select', page: 'chat' })}
         >
             <div className={styles.suggestionList}>
                 {renderGroups()}

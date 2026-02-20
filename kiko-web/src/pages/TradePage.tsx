@@ -10,6 +10,7 @@ import clsx from 'clsx';
 import { Dialog } from '../components/Dialog/Dialog';
 import { StrategyEditForm } from '../components/Trade/StrategyEditForm';
 import { Activity, TrendingUp } from 'lucide-react';
+import { agentAttrs } from '../agent/attrs';
 
 export const TradePage: React.FC = () => {
   const { resolvedTheme } = useThemeContext();
@@ -81,9 +82,9 @@ export const TradePage: React.FC = () => {
         <div className={styles.container}>
           {/* Unified Top Bar (Overview & Stats) */}
           {/* Unified Top Bar (Overview & Stats) */}
-          <div className={styles.topBar}>
+          <div className={styles.topBar} {...agentAttrs({ id: 'trade.topbar', role: 'card', page: 'trade' })}>
             <div className={styles.statsGrid}>
-              <div className={styles.statCard}>
+              <div className={styles.statCard} {...agentAttrs({ id: 'trade.stats.total_trades', role: 'card', page: 'trade' })}>
                 <div className={styles.statHeader}>
                   <span className={styles.statLabel}>Total Executed Trades</span>
                   <Activity size={20} className={styles.statIcon} />
@@ -94,7 +95,7 @@ export const TradePage: React.FC = () => {
                 </div>
               </div>
 
-              <div className={styles.statCard}>
+              <div className={styles.statCard} {...agentAttrs({ id: 'trade.stats.total_pnl', role: 'card', page: 'trade' })}>
                 <div className={styles.statHeader}>
                   <span className={styles.statLabel}>Total PnL</span>
                   <TrendingUp size={20} className={styles.statIcon} />
@@ -122,7 +123,7 @@ export const TradePage: React.FC = () => {
               </p>
             </div>
           ) : (
-            <div className={styles.strategiesList}>
+            <div className={styles.strategiesList} {...agentAttrs({ id: 'trade.strategies.list', role: 'list', page: 'trade' })}>
               {strategies.map((strategy) => (
                 <StrategyCard
                   key={strategy.id}

@@ -11,6 +11,7 @@ import { useThemeContext } from '../../contexts/ThemeContext';
 import { ThemeToggle } from '../ThemeToggle/ThemeToggle';
 import { getUserInfo } from '../../utils/privyUtils';
 import { getUsageSummary } from '../../services/billingApi';
+import { agentAttrs } from '../../agent/attrs';
 import styles from './Sidebar.module.css';
 import type { Conversation } from '../../hooks/useConversations';
 
@@ -260,6 +261,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         <div className={styles.actionArea}>
           <button
             className={styles.newChatBtn}
+            {...agentAttrs({ id: 'sidebar.action.new_chat', role: 'button', action: 'navigate', page: 'sidebar' })}
             onClick={() => {
               if (onNewChat) onNewChat();
               navigate('/');
@@ -284,6 +286,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   <NavLink
                     to={item.path}
                     className={({ isActive }) => clsx(styles.navItem, isActive && styles.active)}
+                    {...agentAttrs({
+                      id: `sidebar.nav.${item.id}`,
+                      role: 'nav',
+                      action: 'navigate',
+                      page: 'sidebar',
+                    })}
                     onClick={() => {
                       if (isMobile) onClose();
                     }}
@@ -294,6 +302,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 ) : (
                   <button
                     className={clsx(styles.navItem, isActive && styles.active)}
+                    {...agentAttrs({
+                      id: `sidebar.nav.${item.id}`,
+                      role: 'nav',
+                      action: 'open',
+                      page: 'sidebar',
+                    })}
                     onClick={() => {
                       // For Chat, clicking the header should probably just toggle or go to new chat?
                       // Current behavior seems to be toggle expand if subItems exist
@@ -358,6 +372,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
                               <NavLink
                                 to={sub.path}
                                 className={({ isActive }) => clsx(styles.subItem, isActive && styles.activeText)}
+                                {...agentAttrs({
+                                  id: `sidebar.chat.item.${sub.id}`,
+                                  role: 'nav',
+                                  action: 'navigate',
+                                  page: 'sidebar',
+                                  key: 'conversation_id',
+                                })}
                                 onClick={() => {
                                   if (isMobile) onClose();
                                 }}
@@ -373,6 +394,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
                                 <div className={styles.subItemActions}>
                                   <button
                                     className={styles.actionBtn}
+                                    {...agentAttrs({
+                                      id: `sidebar.chat.rename.${sub.id}`,
+                                      role: 'button',
+                                      action: 'open',
+                                      page: 'sidebar',
+                                    })}
                                     onClick={(e) => {
                                       e.preventDefault();
                                       e.stopPropagation();
@@ -388,6 +415,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
                                   </button>
                                   <button
                                     className={styles.actionBtn}
+                                    {...agentAttrs({
+                                      id: `sidebar.chat.delete.${sub.id}`,
+                                      role: 'button',
+                                      action: 'confirm',
+                                      page: 'sidebar',
+                                    })}
                                     onClick={(e) => {
                                       e.preventDefault();
                                       e.stopPropagation();
@@ -450,6 +483,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
           <button
             className={styles.userProfile}
+            {...agentAttrs({ id: 'sidebar.user.profile', role: 'button', action: 'navigate', page: 'sidebar' })}
             onClick={() => {
               onProfileClick();
               if (isMobile) onClose();

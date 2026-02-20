@@ -1,0 +1,58 @@
+skill:
+  id: kiko_agent_api_trading
+  name: KIKO Agent API Trading Skill
+  version: 1.0.0
+  description: Execute KIKO trading flow via Agent API blueprint, then verify via UI map.
+
+trigger:
+  when:
+    - user requests programmatic trade strategy or tx execution
+    - API credentials/session are available
+
+inputs:
+  type: object
+  required:
+    - api_base
+    - operation
+  properties:
+    api_base:
+      type: string
+    operation:
+      type: string
+      enum: [preview_tx, execute_tx, create_strategy]
+    payload:
+      type: object
+      description: Endpoint-specific JSON payload.
+    web_base:
+      type: string
+      description: Optional KIKO web origin for post-action UI verification.
+
+steps:
+  - step: choose_endpoint
+    run: |
+      if operation == preview_tx -> POST /agent/tx/preview
+      if operation == execute_tx -> POST /agent/tx/execute
+      if operation == create_strategy -> POST /agent/strategies
+  - step: call_api
+    run: POST {api_base}{endpoint} with payload
+  - step: validate_response
+    run: ensure success flags and required keys exist (e.g., planId or txHash)
+  - step: optional_ui_verify
+    run: |
+      if web_base provided:
+        open {web_base}/agent-map.json?agent_mode=1
+        verify expected route action or strategy card presence
+
+success_criteria:
+  - API returns successful response with endpoint-required fields
+  - optional map verification passes when web_base is supplied
+
+retry_policy:
+  max_retries: 1
+  strategy:
+    - normalize chainId/token params
+    - retry endpoint once
+
+abort_conditions:
+  - 4xx validation failure with missing required business input
+  - response schema mismatch after retry

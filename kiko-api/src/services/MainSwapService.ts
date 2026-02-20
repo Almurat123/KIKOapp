@@ -632,7 +632,7 @@ export class MainSwapService {
     const isCashOut = isCashLikeToken(normalizedTokenOut, request.chainId);
     const isBuyDirection = isCashIn && !isCashOut;
     const enforcedSlippageBps = request.mode === 'copytrade'
-      ? Math.max(request.slippageBps ?? 1500, 1500)
+      ? (request.slippageBps ?? 1500)
       : (request.slippageBps ?? 50);
     const fastSwapEnabled = request.userSettings?.fastSwapMode === true;
     if (!fastSwapEnabled || !isDirectSwapSupported(request.chainId) || !isBuyDirection) {

@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { usePrivy } from '@privy-io/react-auth';
 import styles from './SessionSignerButton.module.css'; // Reuse same styles
+import { agentAttrs } from '../../agent/attrs';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8001';
 
 interface PolymarketAuthButtonProps {
+    agentId?: string;
     onSuccess?: () => void;
     onError?: (error: Error) => void;
 }
@@ -23,6 +25,7 @@ interface ReadinessData {
  * Allows user to authorize and set up Polymarket trading credentials and approvals
  */
 export const PolymarketAuthButton: React.FC<PolymarketAuthButtonProps> = ({
+    agentId,
     onSuccess,
     onError
 }) => {
@@ -158,6 +161,7 @@ export const PolymarketAuthButton: React.FC<PolymarketAuthButtonProps> = ({
                     onClick={isAuthorized ? undefined : executeAuthorize}
                     disabled={isLoading || isAuthorized}
                     style={isAuthorized ? { opacity: 0.6, cursor: 'default' } : undefined}
+                    {...(agentId ? agentAttrs({ id: agentId, role: 'button', action: 'confirm', page: 'settings', key: 'polymarket_trading' }) : {})}
                 >
                     {isLoading
                         ? 'Enabling'

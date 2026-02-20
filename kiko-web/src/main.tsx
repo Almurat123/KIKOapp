@@ -7,6 +7,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import App from './App';
 import { ChainProvider } from './contexts/ChainContext';
 import { ThemeProvider } from './contexts/ThemeContext';
+import { AgentModeProvider } from './contexts/AgentModeContext';
 import { ThemedPrivyProvider } from './components/ThemedPrivyProvider';
 import { AuthTokenBridge } from './components/AuthTokenBridge';
 import { PrivyConfigError } from './components/PrivyConfigError';
@@ -79,15 +80,17 @@ if (!privyAppId || privyAppId === 'your-privy-app-id') {
     <React.StrictMode>
       <ErrorBoundary>
         <ThemeProvider>
-          <ThemedPrivyProvider>
-            <AuthTokenBridge>
-              <QueryClientProvider client={queryClient}>
-                <ChainProvider>
-                  <App />
-                </ChainProvider>
-              </QueryClientProvider>
-            </AuthTokenBridge>
-          </ThemedPrivyProvider>
+          <AgentModeProvider>
+            <ThemedPrivyProvider>
+              <AuthTokenBridge>
+                <QueryClientProvider client={queryClient}>
+                  <ChainProvider>
+                    <App />
+                  </ChainProvider>
+                </QueryClientProvider>
+              </AuthTokenBridge>
+            </ThemedPrivyProvider>
+          </AgentModeProvider>
         </ThemeProvider>
       </ErrorBoundary>
     </React.StrictMode>

@@ -11,13 +11,25 @@ import { AppError } from '../middleware/errorHandler.js';
 import { redact } from '../utils/sanitizer.js';
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
+import { callRpc as rpcCall } from './rpcManager.js';
 
 // Initialize Privy client
 const PRIVY_APP_ID = process.env.VITE_PRIVY_APP_ID || process.env.PRIVY_APP_ID || '';
 const PRIVY_APP_SECRET = process.env.PRIVY_APP_SECRET || '';
 const PRIVY_AUTHORIZATION_KEY = process.env.PRIVY_AUTHORIZATION_KEY || '';
+const PRIVY_SEND_TX_CHAIN_IDS = new Set(
+    String(process.env.PRIVY_SEND_TX_CHAIN_IDS || '1')
+        .split(',')
+        .map((value) => Number(value.trim()))
+        .filter((value) => Number.isInteger(value) && value > 0)
+);
 
 let privyClient: PrivyClient | null = null;
+
+const toHexQuantity = (value?: string) =>
+    value !== undefined && value !== null && value !== ''
+        ? (`0x${BigInt(value).toString(16)}` as `0x${string}`)
+        : undefined;
 
 /**
  * Get or initialize Privy client
@@ -194,6 +206,50 @@ async function withUserLock<T>(userId: string, fn: () => Promise<T>): Promise<T>
     return nextLock;
 }
 
+async function signAndBroadcastRawTransaction(
+    client: PrivyClient,
+    walletId: string,
+    tx: TransactionRequest,
+    context: { userId: string; attempt: number; reason: string }
+): Promise<string> {
+    logger.warn(LogCode.EXE_TX_BROADCAST, 'Sending transaction via Privy sign+broadcast path', {
+        chainId: tx.chainId,
+        userId: context.userId.slice(0, 10),
+        attempt: context.attempt,
+        reason: context.reason
+    });
+
+    const signed = await client.walletApi.ethereum.signTransaction({
+        walletId,
+        transaction: {
+            to: tx.to as `0x${string}`,
+            data: tx.data as `0x${string}`,
+            value: toHexQuantity(tx.value),
+            gasLimit: toHexQuantity(tx.gas),
+            gasPrice: toHexQuantity(tx.gasPrice),
+            maxFeePerGas: toHexQuantity(tx.maxFeePerGas),
+            maxPriorityFeePerGas: toHexQuantity(tx.maxPriorityFeePerGas),
+            nonce: toHexQuantity(tx.nonce),
+            chainId: `0x${BigInt(tx.chainId).toString(16)}`,
+        },
+    });
+
+    const rawTxHash = await rpcCall<string>(
+        tx.chainId,
+        'eth_sendRawTransaction',
+        [signed.signedTransaction],
+        { strategy: 'fast', importance: 'critical' }
+    );
+    if (!rawTxHash) {
+        throw new Error('eth_sendRawTransaction returned empty hash');
+    }
+    logger.info(LogCode.EXE_TX_BROADCAST, 'Ethereum transaction broadcast via signed raw path', {
+        txHash: rawTxHash,
+        chainId: tx.chainId
+    });
+    return rawTxHash;
+}
+
 export async function sendTransaction(
     userId: string,
     accessToken: string,
@@ -244,7 +300,8 @@ export async function sendTransaction(
                 value: tx.value,
                 gas: tx.gas,
                 profile: tx.executionProfile,
-                dataLength: tx.data?.length || 0
+                dataLength: tx.data?.length || 0,
+                sendTxAllowlist: Array.from(PRIVY_SEND_TX_CHAIN_IDS.values())
             });
         }
 
@@ -257,19 +314,32 @@ export async function sendTransaction(
                     chainId: tx.chainId,
                 });
 
+                const preferPrivySendTx = PRIVY_SEND_TX_CHAIN_IDS.has(tx.chainId);
+                if (!preferPrivySendTx) {
+                    return await signAndBroadcastRawTransaction(client, walletInfo.id, tx, {
+                        userId,
+                        attempt,
+                        reason: 'chain_not_in_privy_sendtx_allowlist'
+                    });
+                }
+
+                const privyTx = {
+                    to: tx.to as `0x${string}`,
+                    data: tx.data as `0x${string}`,
+                    value: toHexQuantity(tx.value),
+                    gasLimit: toHexQuantity(tx.gas),
+                    gasPrice: toHexQuantity(tx.gasPrice),
+                    maxFeePerGas: toHexQuantity(tx.maxFeePerGas),
+                    maxPriorityFeePerGas: toHexQuantity(tx.maxPriorityFeePerGas),
+                    nonce: toHexQuantity(tx.nonce),
+                };
+
                 // Use Privy's wallet API to send transaction
                 // The walletId must be the Privy internal ID, not the Ethereum address
                 const response = await client.walletApi.ethereum.sendTransaction({
                     walletId: walletInfo.id,
                     caip2: `eip155:${tx.chainId}`,
-                    transaction: {
-                        to: tx.to as `0x${string}`,
-                        data: tx.data as `0x${string}`,
-                        value: tx.value ? `0x${BigInt(tx.value).toString(16)}` : undefined,
-                        gasLimit: tx.gas ? `0x${BigInt(tx.gas).toString(16)}` : undefined,
-                        maxFeePerGas: tx.maxFeePerGas ? `0x${BigInt(tx.maxFeePerGas).toString(16)}` : undefined,
-                        maxPriorityFeePerGas: tx.maxPriorityFeePerGas ? `0x${BigInt(tx.maxPriorityFeePerGas).toString(16)}` : undefined,
-                    },
+                    transaction: privyTx,
                 });
 
                 logger.info(LogCode.EXE_TX_BROADCAST, 'Ethereum transaction sent via Privy', { txHash: response.hash, chainId: tx.chainId });
@@ -281,7 +351,27 @@ export async function sendTransaction(
 
                 return response.hash;
             } catch (error: any) {
-                const errorMessage = error.message || '';
+                let effectiveError: any = error;
+                let errorMessage = effectiveError?.message || '';
+                const unsupportedSendOnNonEth =
+                    tx.chainId !== 1 && errorMessage.includes('eth_sendTransaction is only supported for Ethereum');
+                if (unsupportedSendOnNonEth) {
+                    try {
+                        return await signAndBroadcastRawTransaction(client, walletInfo.id, tx, {
+                            userId,
+                            attempt,
+                            reason: 'privy_sendtx_unsupported_for_chain'
+                        });
+                    } catch (fallbackError: any) {
+                        logger.error(LogCode.EXE_TX_REVERTED, 'Privy sign+broadcast fallback failed', {
+                            chainId: tx.chainId,
+                            error: fallbackError?.message || String(fallbackError)
+                        });
+                        effectiveError = fallbackError;
+                        errorMessage = effectiveError?.message || String(effectiveError);
+                    }
+                }
+
                 const isNonceError = errorMessage.includes('nonce too low') ||
                     errorMessage.includes('nonce has already been used') ||
                     errorMessage.includes('replacement transaction underpriced');
@@ -298,19 +388,19 @@ export async function sendTransaction(
                     continue;
                 }
 
-                logger.error(LogCode.EXE_TX_REVERTED, 'Privy Ethereum transaction failed', { error: error.message, chainId: tx.chainId });
+                logger.error(LogCode.EXE_TX_REVERTED, 'Privy Ethereum transaction failed', { error: effectiveError?.message || String(effectiveError), chainId: tx.chainId });
 
                 // Handle specific Privy errors
-                if (error.code === 'insufficient_funds') {
+                if (effectiveError?.code === 'insufficient_funds') {
                     throw new AppError(400, 'Insufficient funds for transaction', 'INSUFFICIENT_FUNDS');
                 }
-                if (error.code === 'user_denied') {
+                if (effectiveError?.code === 'user_denied') {
                     throw new AppError(403, 'User denied transaction', 'USER_DENIED');
                 }
 
                 throw new AppError(
                     500,
-                    `Failed to send transaction: ${error.message || 'Unknown error'}`,
+                    `Failed to send transaction: ${effectiveError?.message || 'Unknown error'}`,
                     'TRANSACTION_FAILED'
                 );
             }

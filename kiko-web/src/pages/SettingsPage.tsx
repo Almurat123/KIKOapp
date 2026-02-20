@@ -6,6 +6,8 @@ import { PolymarketAuthButton } from '../components/Wallet/PolymarketAuthButton'
 import { PageContainer } from '../components/Layout/PageContainer';
 import styles from './SettingsPage.module.css';
 import { resolveCoreApiBase } from '../utils/coreApiBase';
+import { useAgentMode } from '../contexts/AgentModeContext';
+import { agentAttrs } from '../agent/attrs';
 
 const CORE_API_BASE_URL = resolveCoreApiBase();
 
@@ -83,13 +85,28 @@ const FollowKikoButton: React.FC = () => {
 
     if (loading) return null;
     return (
-        <div className={styles.groupItem}>
+        <div className={styles.groupItem} {...agentAttrs({ id: 'settings.community.follow_card', role: 'card', page: 'settings' })}>
             <div className={styles.itemHeader}>
                 <span className={styles.itemTitle}>{isFollowing ? 'Community Status' : 'Join Community'}</span>
                 <p className={styles.itemDescription}>{isFollowing ? 'You are following @kikoapp' : 'Follow for real-time alerts'}</p>
             </div>
-            {isFollowing ? <button className={styles.successButton} disabled>Following ✅</button> :
-                <button onClick={handleFollow} className={styles.followButton}>Follow @kikoapp</button>}
+            {isFollowing ? (
+                <button
+                    className={styles.successButton}
+                    disabled
+                    {...agentAttrs({ id: 'settings.community.follow.status', role: 'button', page: 'settings', key: 'community_follow' })}
+                >
+                    Following ✅
+                </button>
+            ) : (
+                <button
+                    onClick={handleFollow}
+                    className={styles.followButton}
+                    {...agentAttrs({ id: 'settings.community.follow.open', role: 'button', action: 'open', page: 'settings', key: 'community_follow' })}
+                >
+                    Follow @kikoapp
+                </button>
+            )}
         </div>
     );
 };
@@ -102,45 +119,80 @@ interface SettingsPageProps {
 // [Ref]: Replaced WalletSettingsModal.tsx with standalone page implementation.
 export default function SettingsPage({ onDisconnect }: SettingsPageProps) {
     const { logout } = usePrivy();
+    const { agentModeEnabled, setAgentModeEnabled, agentModeSource, isQueryOverride } = useAgentMode();
     const handleLogout = onDisconnect || logout;
     return (
-        <PageContainer title="Settings">
-            <div className={styles.settingsPage}>
-                <div className={styles.content}>
-                    <div className={styles.group}>
+        <PageContainer title="Settings" {...agentAttrs({ id: 'settings.page', role: 'card', page: 'settings' })}>
+            <div className={styles.settingsPage} {...agentAttrs({ id: 'settings.layout', role: 'card', page: 'settings' })}>
+                <div className={styles.content} {...agentAttrs({ id: 'settings.content', role: 'list', page: 'settings' })}>
+                    <div className={styles.group} {...agentAttrs({ id: 'settings.group.community', role: 'card', page: 'settings' })}>
                         <h3 className={styles.groupTitle}>Community</h3>
                         <div className={styles.groupList}>
                             <FollowKikoButton />
                         </div>
                     </div>
 
-                    <div className={styles.group}>
+                    <div className={styles.group} {...agentAttrs({ id: 'settings.group.automation', role: 'card', page: 'settings' })}>
+                        <h3 className={styles.groupTitle}>Automation</h3>
+                        <div className={styles.groupList}>
+                            <div className={styles.groupItem} {...agentAttrs({ id: 'settings.automation.agent_mode.card', role: 'card', page: 'settings' })}>
+                                <div className={styles.itemHeader}>
+                                    <span className={styles.itemTitle}>For Agent Mode</span>
+                                    <p className={styles.itemDescription}>
+                                        Expose machine-readable anchors and live coordinate mapping for automation agents.
+                                    </p>
+                                    <p className={styles.itemDescription}>
+                                        Current source: {agentModeSource}{isQueryOverride ? ' (URL override active)' : ''}
+                                    </p>
+                                </div>
+                                <button
+                                    className={agentModeEnabled ? styles.successButton : styles.followButton}
+                                    {...agentAttrs({ id: 'settings.agent_mode.toggle', role: 'toggle', action: 'toggle', page: 'settings', key: 'agent_mode' })}
+                                    onClick={() => {
+                                        if (isQueryOverride) return;
+                                        setAgentModeEnabled(!agentModeEnabled);
+                                    }}
+                                    disabled={isQueryOverride}
+                                >
+                                    {agentModeEnabled ? 'Agent Mode: ON' : 'Agent Mode: OFF'}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className={styles.group} {...agentAttrs({ id: 'settings.group.security', role: 'card', page: 'settings' })}>
                         <h3 className={styles.groupTitle}>Security & Privacy</h3>
                         <div className={styles.groupList}>
-                            <div className={styles.groupItem}>
-                                <SessionSignerButton chainType="ethereum" />
+                            <div className={styles.groupItem} {...agentAttrs({ id: 'settings.security.session_signer.ethereum.card', role: 'card', page: 'settings' })}>
+                                <SessionSignerButton chainType="ethereum" agentId="settings.security.session_signer.ethereum.toggle" />
                             </div>
-                            <div className={styles.groupItem}>
-                                <SessionSignerButton chainType="solana" />
+                            <div className={styles.groupItem} {...agentAttrs({ id: 'settings.security.session_signer.solana.card', role: 'card', page: 'settings' })}>
+                                <SessionSignerButton chainType="solana" agentId="settings.security.session_signer.solana.toggle" />
                             </div>
-                            <div className={styles.groupItem}>
-                                <PolymarketAuthButton />
+                            <div className={styles.groupItem} {...agentAttrs({ id: 'settings.security.polymarket.card', role: 'card', page: 'settings' })}>
+                                <PolymarketAuthButton agentId="settings.security.polymarket.enable" />
                             </div>
-                            <div className={styles.groupItem}>
+                            <div className={styles.groupItem} {...agentAttrs({ id: 'settings.security.export_wallet.card', role: 'card', page: 'settings' })}>
                                 <div className={styles.itemHeader}>
                                     <span className={styles.itemTitle}>Backup Recovery Phrase</span>
                                     <p className={styles.itemDescription}>Export your private key to secure your wallet.</p>
                                 </div>
                                 <div className={styles.recoveryButtons}>
-                                    <ExportWalletButton chainType="ethereum" asButton />
-                                    <ExportWalletButton chainType="solana" asButton />
+                                    <ExportWalletButton chainType="ethereum" asButton agentId="settings.security.export_wallet.ethereum" />
+                                    <ExportWalletButton chainType="solana" asButton agentId="settings.security.export_wallet.solana" />
                                 </div>
                             </div>
                         </div>
                     </div>
 
-                    <div className={styles.dangerZone}>
-                        <button onClick={handleLogout} className={styles.disconnectButton}>Logout</button>
+                    <div className={styles.dangerZone} {...agentAttrs({ id: 'settings.group.danger', role: 'card', page: 'settings' })}>
+                        <button
+                            onClick={handleLogout}
+                            className={styles.disconnectButton}
+                            {...agentAttrs({ id: 'settings.logout', role: 'button', action: 'confirm', page: 'settings' })}
+                        >
+                            Logout
+                        </button>
                     </div>
                 </div>
             </div>

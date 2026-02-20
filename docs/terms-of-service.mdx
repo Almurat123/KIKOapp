@@ -1,0 +1,270 @@
+---
+title: "Terms of Service"
+description: "KiKo Terms of Service — please read carefully before using the platform."
+---
+
+# Terms of Service
+
+**KIKO MiniApp User Service Agreement**  
+**Effective Date: February 20, 2026 | Version: v5.0**
+
+---
+
+## Important Notice
+
+Please read this agreement carefully before using KIKO MiniApp. By using the Service, you acknowledge that you have read, understood, and agree to all terms in this agreement. If you do not agree, please stop using the Service immediately.
+
+## Not a Registered Service Statement
+
+KIKO is developed and maintained by KIKO Contributors (the "KIKO Contributors"). KIKO does not operate under any registered legal entity name. KIKO Contributors have not registered with or obtained licenses from any national or regional securities, futures, financial, or crypto asset regulatory authority. This Service does not constitute a regulated financial service, investment advisory service, or trading platform. No regulatory authority has reviewed or approved this Service.
+
+---
+
+## Section 1: What is KIKO? What KIKO Contributors Do and Do Not Do
+
+**Core Statement: KIKO is an interface maintained by contributor volunteers. KIKO Contributors do not hold your funds, do not control your private keys, and do not make investment decisions for you.**
+
+1. **KIKO MiniApp** (referred to as "the Service" or "KIKO") is a non-custodial Web3 interaction interface that helps you execute operations on-chain through natural language commands via decentralized protocols (such as token swaps, copy-trading, etc.).
+
+2. Your wallet's private key is managed by third-party wallet provider **Privy**. The private key text is stored in Privy's secure infrastructure, and KIKO cannot directly export or retrieve your private key text. KIKO's backend holds Privy's server-side authorization credentials (App Secret) and can sign transactions on your behalf through Privy's server-side API within your authorization scope (particularly for auto-trading features).
+
+3. KIKO Contributors do not provide any investment advice and make no guarantees regarding any transaction results, returns, or prices.
+
+4. KIKO Contributors cannot revoke, cancel, or modify any transactions submitted to the blockchain. Once an on-chain transaction is broadcast, it is final.
+
+---
+
+## Section 2: Wallet and Account — Privy Manages It
+
+### 2.1 Privy Wallet
+
+5. When you use KIKO, your wallet is created and managed by third-party provider **Privy** (privy.io). Privy is an independent third party with its own terms of service and privacy policy.
+
+6. When you register or connect a wallet, you simultaneously establish an independent relationship with Privy and authorize Privy to manage your wallet.
+
+7. For any issues arising from Privy's service (including but not limited to account anomalies, signature failures, service interruptions), KIKO Contributors bear no responsibility.
+
+**Simple Analogy:** KIKO is like an authorized operating terminal, while Privy is the safe that holds your keys. KIKO holds an "admin key" (App Secret) that allows it to instruct Privy to sign transactions within your authorized scope, but cannot open the safe to extract your private key text.
+
+### 2.2 Relationship Between KIKO and Privy
+
+8. KIKO's backend system holds Privy's server-side authorization credentials (App Secret). Through Privy's server-side API, within your authorized scope, KIKO can sign transactions on your behalf and submit them. This capability is used only for auto-trading and copy-trading features that you have enabled, and will not exceed your authorization parameters.
+
+9. KIKO cannot directly export, retrieve, or store offline your private key text or seed phrases. Private key material is always protected by Privy's secure infrastructure.
+
+10. **Analogy:** This is like authorizing a proxy to use a bank's authorized API to transfer funds on your behalf. The proxy (KIKO) cannot obtain your bank password, but within your authorized scope can complete transactions through the bank's interface (Privy).
+
+---
+
+## Section 3: Auto-Trading — You Authorize Once, System Executes Automatically
+
+**Important: Enabling auto-trading means you authorize KIKO to execute transactions automatically within your set parameters without confirming each transaction. Ensure you fully understand this feature before enabling it.**
+
+### 3.1 What is Auto-Trading?
+
+11. The auto-trading feature allows KIKO to automatically trigger transactions based on your settings when conditions are met, including but not limited to: Swap (token exchange), CopyTrade (copy-trading), AI CopyTrade (AI copy-trading), etc.
+
+12. When auto-trading is enabled, the system can sign and submit on-chain transactions on your behalf without requiring confirmation for each individual trade.
+
+### 3.2 Enabling = Authorization
+
+**User Protection: When you click "Enable Auto-Trading" on the interface, this constitutes your explicit authorization for this feature. This is equivalent to signing a continuous delegation of authority.**
+
+13. Before enabling auto-trading, the interface will clearly display: feature description, risk warnings, applicable parameter ranges, and key terms from this agreement.
+
+14. By clicking confirm to enable, you represent that:
+    - You have read, understood, and accept the operation and risks of auto-trading;
+    - You explicitly authorize KIKO to automatically sign and submit transactions on your behalf within your set parameters through Privy;
+    - You do not need to confirm each auto-triggered transaction;
+    - You accept full responsibility for all transaction results within your authorized scope.
+
+### 3.3 You Always Retain Control
+
+15. You may disable auto-trading at any time in the interface to revoke KIKO's automatic signing authority.
+
+16. Disabling only affects future transactions — transactions already submitted on-chain before disabling cannot be retrieved.
+
+17. All CopyTrade parameters (single transaction limit, total limit, allowed tokens/chains, slippage, etc.) can only be modified by you. KIKO cannot modify your parameters.
+
+18. Even if system-level data anomalies occur, if they do not pass your identity verification and signature verification rules, such changes will not be used for auto-execution.
+
+---
+
+## Section 4: CopyTrade — Copy-Trading
+
+19. CopyTrade allows you to automatically replicate a target wallet's on-chain transaction behavior, with all execution within your set parameters.
+
+20. You choose the target wallet. KIKO does not recommend, endorse, or make any guarantees regarding any target wallet's trading strategy, historical performance, or future results.
+
+21. You fully understand that target wallets may employ high-risk strategies, past performance does not predict future results, and you may lose some or all invested capital.
+
+22. CopyTrade is part of the auto-trading feature. Enabling rules are subject to all provisions in Section 3.
+
+---
+
+## Section 5: Service Fees
+
+### 5.1 Service Fee
+
+23. Using the Service will incur service fees. Fees are automatically deducted from transaction amounts during execution and sent to designated blockchain addresses. Current rates are:
+    - **Swap (token exchange):** approximately 0.50% of transaction amount
+    - **CopyTrade (copy-trading):** approximately 1.00% of transaction amount
+    - **AI CopyTrade (AI copy-trading):** approximately 1.50% of transaction amount
+
+24. The actual fee rate and amount for each transaction will be clearly displayed on the authorization page before you confirm. By confirming and executing the transaction, you agree to pay the service fee.
+
+25. Once deducted, service fees are generally non-refundable.
+
+### 5.2 Fee Changes
+
+26. KIKO Contributors may adjust service fees at any time. After adjustment, the fee rate displayed on the confirmation page is the final rate applicable to that transaction.
+
+27. In the future, fee reduction plans based on token holdings may be introduced. Such rules may change, be suspended, or discontinued and do not constitute any guarantee of economic benefit.
+
+### 5.3 Gas Fees
+
+28. On-chain transactions require gas fees paid directly to the blockchain network/validators, separate from KIKO service fees. Third-party protocols may also charge their own fees.
+
+---
+
+## Section 6: Use Eligibility and Prohibited Users
+
+### 6.1 Age and Qualification Requirements
+
+29. You must be at least 18 years old (or the legal age of majority in your jurisdiction, whichever is higher) to use the Service.
+
+30. If you use the Service on behalf of a company or organization, you represent that you have proper authority to bind that entity to this agreement.
+
+### 6.2 Prohibited Users and Regions
+
+The following persons or regions are strictly prohibited from using the Service. If you fall into any of these categories, please stop using immediately:
+
+- **Mainland China:** Any person or entity located in Mainland China;
+- **Legally Prohibited Regions:** Users in regions where local law explicitly prohibits or restricts cryptocurrency trading, DeFi, or similar services.
+
+31. By using the Service, you represent and warrant that you do not fall into any of the above categories.
+
+32. KIKO implements technical blocking of access from Mainland China through Cloudflare edge network. This blocking occurs before requests reach KIKO servers. KIKO does not guarantee it can prevent all bypass attempts.
+
+33. You must not use VPNs, proxies, or other methods to circumvent region restrictions or misrepresent your location.
+
+### 6.3 Prohibited Conduct
+
+When using the Service, you must not engage in:
+
+- Violating any applicable law or regulation, including anti-money laundering and counter-terrorist financing regulations;
+- Using the KIKO interface for market manipulation, sham trading, or fraudulent activities;
+- Using automated scripts, crawlers, robots, or other means to bypass normal interface use or abuse APIs;
+- Attempting to crack, decompile, or attack any component of KIKO's service;
+- Impersonating others or misrepresenting your relationship with KIKO;
+- Developing competitive aggregation or routing products based on the Service without prior written consent from KIKO Contributors.
+
+---
+
+## Section 7: Risk Warnings
+
+**Cryptocurrency and DeFi carry extreme risk. You may lose some or all assets. Do not invest funds you cannot afford to lose.**
+
+34. **Market Risk:** Crypto asset prices fluctuate dramatically and may decline significantly in short periods, causing severe losses.
+
+35. **Auto-Trading Risk:** Auto-trading may trigger multiple transactions in a short period, with losses accumulating rapidly.
+
+36. **Smart Contract Risk:** This Service relies on third-party on-chain protocols. Related contracts may have vulnerabilities, defects, or be subject to attacks. KIKO Contributors bear no responsibility.
+
+37. **Natural Language Parsing Risk:** AI may misinterpret your instructions. Carefully review transaction information on the confirmation page before authorizing.
+
+38. **Irreversibility Risk:** Once broadcast, on-chain transactions cannot be retrieved. KIKO Contributors cannot recover executed transactions.
+
+39. **Third-Party Risk:** Privy, blockchain networks, and other third-party services may experience interruptions, failures, or changes. KIKO Contributors bear no responsibility.
+
+---
+
+## Section 8: Asset Custody Statement
+
+**KIKO does not hold user assets under its own name. Private key text is managed by Privy. KIKO holds Privy's server-side authorization credentials and can sign transactions within user authorization scope, but cannot directly export private keys, arbitrarily transfer assets, or freeze accounts.**
+
+40. User assets are held in user-owned wallets managed by Privy. KIKO signs transactions through Privy's server-side API within your authorized scope, but has no right to operate beyond your set parameters and cannot unilaterally transfer your assets to KIKO-controlled addresses.
+
+41. KIKO Contributors cannot cancel or revoke transactions already submitted to the blockchain.
+
+---
+
+## Section 9: Privacy and Data
+
+42. To provide the Service and conduct risk control and security, the Service may collect: third-party login identifiers (OAuth), wallet addresses, chat input content, and device and session information. KIKO uses Cloudflare edge network technology to block access from prohibited regions before requests reach KIKO servers. KIKO does not store user IP addresses.
+
+43. Chat message content is automatically deleted after approximately 30 days; session metadata (such as session title, creation time) is cleaned up within approximately 90 days after message deletion. Exceptions for legal requirements or security investigations apply.
+
+44. KIKO will not sell your personal information to third parties.
+
+45. If a data security incident affecting users occurs, KIKO Contributors will promptly notify affected users via interface announcements or official Farcaster channels and take reasonable measures to mitigate impact.
+
+---
+
+## Section 10: Disclaimers
+
+46. The Service is provided "as is" and "as available." KIKO makes no representations or warranties regarding service continuity, accuracy, security, or suitability for particular purposes.
+
+47. KIKO makes no guarantees regarding transaction execution prices, volumes, returns, or results.
+
+48. KIKO is not responsible for service interruptions or transaction failures caused by force majeure, blockchain network congestion, or third-party service failures.
+
+---
+
+## Section 11: Limitation of Liability and Release of Claims
+
+**KIKO Contributors bear no monetary compensation responsibility. In any circumstance, contributors' maximum cumulative liability does not exceed the total service fees you actually paid in the 30 days before the event giving rise to the claim (if that amount is zero, contributors bear no compensation responsibility).**
+
+49. To the maximum extent permitted by law, KIKO Contributors bear no responsibility for any indirect, incidental, special, consequential, or punitive damages (including but not limited to profit loss, data loss, business interruption, on-chain trading loss) arising from or related to using or inability to use the Service.
+
+50. **Release of Claims:** To the maximum extent permitted by law, you hereby irrevocably and permanently release and waive all past, present, and future disputes, claims, actions, and causes of action related to the Service against KIKO Contributors. You understand this clause is a prerequisite to using the Service.
+
+51. This limitation is fundamental to the Service relationship. If your jurisdiction does not permit such limitations, the minimum permitted by that jurisdiction's law shall apply.
+
+---
+
+## Section 12: User Indemnification
+
+52. If you violate this agreement or applicable law, or if use of the Service causes KIKO and its contributors to face third-party claims, losses, or expenses (including reasonable attorney fees), you agree to fully indemnify KIKO and hold it harmless.
+
+---
+
+## Section 13: Dispute Resolution
+
+53. For any disputes arising from the Service, you agree to first notify KIKO through official channels in writing. Both parties will attempt to resolve through friendly negotiation within 30 days.
+
+54. KIKO Contributors do not operate under any registered legal entity name and do not accept mandatory jurisdiction from any court. You understand and accept that legal proceedings against KIKO Contributors may be unenforceable in practice.
+
+55. This agreement and Service-related matters are governed by the laws of your actual jurisdiction. You are responsible for ensuring your use of the Service complies with local law.
+
+---
+
+## Section 14: Agreement Changes and Access Restrictions
+
+56. KIKO Contributors may update this agreement at any time. For significant changes, notice will be provided via interface announcements. Continued use constitutes acceptance of updated terms.
+
+57. For security, compliance, or risk management purposes, KIKO may suspend or restrict your access at any time without notice.
+
+---
+
+## Section 15: Third-Party Platforms (Farcaster, etc.)
+
+58. KIKO MiniApp may run on third-party platforms like Farcaster. These platforms are independent third parties. KIKO is not responsible for their actions, policy changes, or service quality.
+
+59. Use of third-party platforms is subject to their own terms of service.
+
+---
+
+## Section 16: General Terms
+
+60. If any term is deemed invalid or unenforceable, it shall be adjusted to the minimum necessary extent, with remaining terms continuing in effect.
+
+61. KIKO's non-exercise of any right under this agreement does not constitute waiver of that right.
+
+62. This agreement constitutes the complete agreement between you and KIKO regarding the Service and supersedes all prior related agreements.
+
+---
+
+**Questions about this agreement? Contact KIKO Contributors via the official Farcaster channel.**
+
+*Last updated: February 20, 2026*

@@ -7,6 +7,7 @@ import { getUserSettings, saveUserSettings } from '../../services/userSettingsAp
 import { logger } from '../../utils/logger';
 import clsx from 'clsx';
 import styles from './CustomAISettingsModal.module.css';
+import { agentAttrs } from '../../agent/attrs';
 
 export interface CustomAISettings {
 
@@ -175,21 +176,22 @@ export const CustomAISettingsModal: React.FC<CustomAISettingsModalProps> = ({
             size="md"
             showCloseButton={false}
         >
-            <div className={styles.container}>
+            <div className={styles.container} {...agentAttrs({ id: 'chat.custom_settings.modal', role: 'dialog', page: 'chat' })}>
                 {/* User Role Section Removed */}
 
                 {/* Fast Swap Section */}
-                <div className={styles.section}>
+                <div className={styles.section} {...agentAttrs({ id: 'chat.custom_settings.section.fast_swap', role: 'card', page: 'chat' })}>
                     <div className={styles.sectionTitle}>Fast Swap Mode</div>
                     <div className={styles.headerRow}>
                         <div className={styles.headerTitle}>
                             Enable Fast Execution
                         </div>
-                        <label className={styles.toggleSwitch}>
+                        <label className={styles.toggleSwitch} {...agentAttrs({ id: 'chat.custom_settings.fast_swap.toggle', role: 'toggle', action: 'toggle', page: 'chat', key: 'fastSwapMode' })}>
                             <input
                                 type="checkbox"
                                 checked={settings.fastSwapMode}
                                 onChange={toggleFastSwapMode}
+                                {...agentAttrs({ id: 'chat.custom_settings.fast_swap.input', role: 'toggle', action: 'toggle', page: 'chat', key: 'fastSwapMode' })}
                             />
                             <span className={styles.slider}></span>
                         </label>
@@ -200,10 +202,10 @@ export const CustomAISettingsModal: React.FC<CustomAISettingsModalProps> = ({
                 </div>
 
                 {/* Trading Preferences Section */}
-                <div className={styles.section}>
+                <div className={styles.section} {...agentAttrs({ id: 'chat.custom_settings.section.trading_preferences', role: 'card', page: 'chat' })}>
                     <div className={styles.sectionTitle}>Trading Preferences</div>
 
-                    <div className={styles.inputGroup}>
+                    <div className={styles.inputGroup} {...agentAttrs({ id: 'chat.custom_settings.default_swap.group', role: 'card', page: 'chat' })}>
                         <label className={styles.label}>Default Swap Amount</label>
                         <div className={styles.amountRow}>
                             <input
@@ -218,12 +220,16 @@ export const CustomAISettingsModal: React.FC<CustomAISettingsModalProps> = ({
                                         defaultSwapAmount: val === '' ? 0 : Number(val)
                                     }));
                                 }}
+                                {...agentAttrs({ id: 'chat.custom_settings.default_swap.amount', role: 'input', action: 'input', page: 'chat', key: 'defaultSwapAmount' })}
                             />
                             <div className={styles.unitSelect}>
                                 <CustomSelect
                                     value={settings.defaultSwapUnit || 'native'}
                                     onChange={val => setSettings(prev => ({ ...prev, defaultSwapUnit: val }))}
                                     options={SWAP_UNIT_OPTIONS}
+                                    agentBaseId="chat.custom_settings.default_swap.unit"
+                                    agentPage="chat"
+                                    agentKey="defaultSwapUnit"
                                 />
                             </div>
                         </div>
@@ -231,13 +237,14 @@ export const CustomAISettingsModal: React.FC<CustomAISettingsModalProps> = ({
 
 
 
-                    <div className={styles.headerRow}>
+                    <div className={styles.headerRow} {...agentAttrs({ id: 'chat.custom_settings.check_token.row', role: 'card', page: 'chat' })}>
                         <div className={styles.headerTitle}>Check token security before swap</div>
-                        <label className={styles.toggleSwitch}>
+                        <label className={styles.toggleSwitch} {...agentAttrs({ id: 'chat.custom_settings.check_token.toggle', role: 'toggle', action: 'toggle', page: 'chat', key: 'checkTokenBeforeSwap' })}>
                             <input
                                 type="checkbox"
                                 checked={settings.checkTokenBeforeSwap}
                                 onChange={e => setSettings(prev => ({ ...prev, checkTokenBeforeSwap: e.target.checked }))}
+                                {...agentAttrs({ id: 'chat.custom_settings.check_token.input', role: 'toggle', action: 'toggle', page: 'chat', key: 'checkTokenBeforeSwap' })}
                             />
                             <span className={styles.slider}></span>
                         </label>
@@ -246,16 +253,20 @@ export const CustomAISettingsModal: React.FC<CustomAISettingsModalProps> = ({
                         Let AI check token risk before swap
                     </p>
 
-                    <div className={styles.headerRow}>
+                    <div className={styles.headerRow} {...agentAttrs({ id: 'chat.custom_settings.show_quote.row', role: 'card', page: 'chat' })}>
                         <div className={clsx(styles.headerTitle, settings.fastSwapMode && styles.disabledText)}>
                             Show quote before swap
                         </div>
-                        <label className={clsx(styles.toggleSwitch, settings.fastSwapMode && styles.disabledToggle)}>
+                        <label
+                            className={clsx(styles.toggleSwitch, settings.fastSwapMode && styles.disabledToggle)}
+                            {...agentAttrs({ id: 'chat.custom_settings.show_quote.toggle', role: 'toggle', action: 'toggle', page: 'chat', key: 'showQuoteBeforeSwap' })}
+                        >
                             <input
                                 type="checkbox"
                                 checked={settings.showQuoteBeforeSwap && !settings.fastSwapMode}
                                 onChange={e => setSettings(prev => ({ ...prev, showQuoteBeforeSwap: e.target.checked }))}
                                 disabled={settings.fastSwapMode}
+                                {...agentAttrs({ id: 'chat.custom_settings.show_quote.input', role: 'toggle', action: 'toggle', page: 'chat', key: 'showQuoteBeforeSwap' })}
                             />
                             <span className={styles.slider}></span>
                         </label>
@@ -270,16 +281,19 @@ export const CustomAISettingsModal: React.FC<CustomAISettingsModalProps> = ({
                 </div>
 
                 {/* Swap Protection Section */}
-                <div className={styles.section}>
+                <div className={styles.section} {...agentAttrs({ id: 'chat.custom_settings.section.swap_protection', role: 'card', page: 'chat' })}>
                     <div className={styles.sectionTitle}>Swap Protection</div>
 
                     {/* Slippage */}
-                    <div className={styles.inputGroup}>
+                    <div className={styles.inputGroup} {...agentAttrs({ id: 'chat.custom_settings.slippage.group', role: 'card', page: 'chat' })}>
                         <label className={styles.label}>Slippage Tolerance</label>
                         <CustomSelect
                             value={settings.slippageMode}
                             onChange={val => setSettings(prev => ({ ...prev, slippageMode: val as 'auto' | 'custom' }))}
                             options={SLIPPAGE_MODE_OPTIONS}
+                            agentBaseId="chat.custom_settings.slippage.mode"
+                            agentPage="chat"
+                            agentKey="slippageMode"
                         />
                         {settings.slippageMode === 'custom' && (
                             <div className={styles.slippageInputRow}>
@@ -298,6 +312,7 @@ export const CustomAISettingsModal: React.FC<CustomAISettingsModalProps> = ({
                                             customSlippage: val === '' ? '' : Number(val)
                                         }));
                                     }}
+                                    {...agentAttrs({ id: 'chat.custom_settings.slippage.custom_value', role: 'input', action: 'input', page: 'chat', key: 'customSlippage' })}
                                 />
                                 <span className={styles.slippagePercent}>%</span>
                             </div>
@@ -311,13 +326,14 @@ export const CustomAISettingsModal: React.FC<CustomAISettingsModalProps> = ({
                     </div>
 
                     {/* MEV Protection */}
-                    <div className={clsx(styles.headerRow, styles.headerRowWithMargin)}>
+                    <div className={clsx(styles.headerRow, styles.headerRowWithMargin)} {...agentAttrs({ id: 'chat.custom_settings.mev.row', role: 'card', page: 'chat' })}>
                         <div className={styles.headerTitle}>MEV Protection</div>
-                        <label className={styles.toggleSwitch}>
+                        <label className={styles.toggleSwitch} {...agentAttrs({ id: 'chat.custom_settings.mev.toggle', role: 'toggle', action: 'toggle', page: 'chat', key: 'mevProtection' })}>
                             <input
                                 type="checkbox"
                                 checked={settings.mevProtection}
                                 onChange={e => setSettings(prev => ({ ...prev, mevProtection: e.target.checked }))}
+                                {...agentAttrs({ id: 'chat.custom_settings.mev.input', role: 'toggle', action: 'toggle', page: 'chat', key: 'mevProtection' })}
                             />
                             <span className={styles.slider}></span>
                         </label>
@@ -327,13 +343,14 @@ export const CustomAISettingsModal: React.FC<CustomAISettingsModalProps> = ({
                     </p>
 
                     {/* Price Deviation Check */}
-                    <div className={clsx(styles.headerRow, styles.headerRowWithMargin)}>
+                    <div className={clsx(styles.headerRow, styles.headerRowWithMargin)} {...agentAttrs({ id: 'chat.custom_settings.price_deviation.row', role: 'card', page: 'chat' })}>
                         <div className={styles.headerTitle}>Price Deviation Check</div>
-                        <label className={styles.toggleSwitch}>
+                        <label className={styles.toggleSwitch} {...agentAttrs({ id: 'chat.custom_settings.price_deviation.toggle', role: 'toggle', action: 'toggle', page: 'chat', key: 'priceDeviationCheck' })}>
                             <input
                                 type="checkbox"
                                 checked={settings.priceDeviationCheck}
                                 onChange={e => setSettings(prev => ({ ...prev, priceDeviationCheck: e.target.checked }))}
+                                {...agentAttrs({ id: 'chat.custom_settings.price_deviation.input', role: 'toggle', action: 'toggle', page: 'chat', key: 'priceDeviationCheck' })}
                             />
                             <span className={styles.slider}></span>
                         </label>

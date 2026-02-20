@@ -1,0 +1,40 @@
+# KIKO App (LLM Index)
+
+KIKO is a chat-first Web3 trading assistant UI.
+
+Primary routes:
+- / (Welcome + Chat)
+- /chat/:conversationId
+- /tokens
+- /tokens/:chain/:address
+- /trade
+- /wallet
+- /settings
+- /market
+- /chains
+- /social
+- /news
+- /defi/*
+
+Agent mode:
+- URL override: ?agent_mode=1 or ?agent_mode=0
+- Settings toggle: Settings -> Automation -> For Agent Mode
+
+Machine-readable runtime:
+- /agent-map.json (live DOM agent map)
+- window.__KIKO_AGENT_MAP__ (in-page snapshot)
+
+Data contract (node attrs):
+- data-agent-id
+- data-agent-role
+- data-agent-action
+- data-agent-page
+- data-agent-key
+
+High-value flows:
+- Chat command execution
+- Trade strategy edit / pause / delete
+- Wallet quick actions (send/receive/swap)
+- Token detail quick buy/sell entry
+
+See /llms-full.txt for full action semantics and examples.

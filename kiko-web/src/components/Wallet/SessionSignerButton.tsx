@@ -3,11 +3,13 @@ import { usePrivy, useSessionSigners } from '@privy-io/react-auth';
 import type { WalletWithMetadata } from '@privy-io/react-auth';
 import { AutoTradingConfirmModal } from './AutoTradingConfirmModal';
 import styles from './SessionSignerButton.module.css';
+import { agentAttrs } from '../../agent/attrs';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8001';
 
 interface SessionSignerButtonProps {
     chainType: 'ethereum' | 'solana';
+    agentId?: string;
     onSuccess?: () => void;
     onError?: (error: Error) => void;
 }
@@ -20,6 +22,7 @@ interface SessionSignerButtonProps {
  */
 export const SessionSignerButton: React.FC<SessionSignerButtonProps> = ({
     chainType,
+    agentId,
     onSuccess,
     onError
 }) => {
@@ -142,6 +145,7 @@ export const SessionSignerButton: React.FC<SessionSignerButtonProps> = ({
                 className={`${styles.button} ${isDelegated ? styles.revokeButton : styles.authorizeButton}`}
                 onClick={isDelegated ? handleRevoke : handleAuthorizeClick}
                 disabled={isLoading || !authKeyId}
+                {...(agentId ? agentAttrs({ id: agentId, role: 'toggle', action: 'toggle', page: 'settings', key: `session_signer_${chainType}` }) : {})}
             >
                 {isLoading
                     ? 'Processing...'

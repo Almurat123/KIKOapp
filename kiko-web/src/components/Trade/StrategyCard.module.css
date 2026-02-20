@@ -7,7 +7,6 @@
   border: 1px solid rgba(255, 255, 255, 0.08);
   background: #09090b;
   overflow: hidden;
-  transition: all 0.2s ease;
   display: flex;
   flex-direction: column;
   margin-bottom: 16px;
@@ -16,13 +15,6 @@
 .strategyCard.rowVariant {
   max-width: 100%;
   margin-bottom: 12px;
-}
-
-.strategyCard:hover {
-  border-color: rgba(255, 255, 255, 0.15);
-  background: #0c0c0e;
-  transform: translateY(-2px);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
 }
 
 /* Header Section */
@@ -275,21 +267,11 @@
   font-weight: 600;
   padding: 12px;
   cursor: pointer;
-  transition: all 0.2s ease;
   border-right: 1px solid rgba(255, 255, 255, 0.03);
 }
 
 .actionBtn:last-child {
   border-right: none;
-}
-
-.actionBtn:hover {
-  background: rgba(255, 255, 255, 0.03);
-  color: #fff;
-}
-
-.deleteBtn:hover {
-  color: #ef4444;
 }
 
 .actionBtn:disabled {
@@ -301,12 +283,6 @@
 :global(.light) .strategyCard {
   background: #ffffff;
   border-color: #f1f1f4;
-}
-
-:global(.light) .strategyCard:hover {
-  background: #f8f8fa;
-  border-color: #e4e4e7;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08);
 }
 
 :global(.light) .header {
@@ -350,6 +326,14 @@
   color: #000000;
 }
 
+:global(.light) .successText {
+  color: #4ade80;
+}
+
+:global(.light) .dangerText {
+  color: #ef4444;
+}
+
 :global(.light) .footerInfo {
   color: #71717a;
 }
@@ -361,13 +345,4 @@
 :global(.light) .actionBtn {
   color: #71717a;
   border-right-color: #f1f1f4;
-}
-
-:global(.light) .actionBtn:hover {
-  background: #f4f4f5;
-  color: #000000;
-}
-
-:global(.light) .deleteBtn:hover {
-  color: #ef4444;
 }

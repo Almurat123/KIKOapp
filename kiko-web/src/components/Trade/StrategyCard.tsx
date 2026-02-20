@@ -7,6 +7,7 @@ import clsx from 'clsx';
 import { useIsMobile } from '../../hooks/useIsMobile';
 import { truncateAddress } from '../../utils/format';
 import { getTargetStatus } from '../../services/copyTradeApi';
+import { agentAttrs } from '../../agent/attrs';
 
 interface StrategyCardProps {
   strategy: TradingStrategy;
@@ -101,15 +102,30 @@ export const StrategyCard: React.FC<StrategyCardProps> = ({
 
   const renderActions = () => (
     <div className={styles.footer}>
-      <button className={styles.actionBtn} onClick={() => onEdit(strategy)} disabled={isDeleted}>
+      <button
+        className={styles.actionBtn}
+        {...agentAttrs({ id: `trade.strategy.card.${strategy.id}.edit`, role: 'button', action: 'open', page: 'trade', key: 'strategy_id' })}
+        onClick={() => onEdit(strategy)}
+        disabled={isDeleted}
+      >
         <Edit size={14} />
         <span>Edit</span>
       </button>
-      <button className={styles.actionBtn} onClick={() => onToggleStatus(strategy.id)} disabled={isDeleted}>
+      <button
+        className={styles.actionBtn}
+        {...agentAttrs({ id: `trade.strategy.card.${strategy.id}.toggle`, role: 'button', action: 'toggle', page: 'trade', key: 'strategy_id' })}
+        onClick={() => onToggleStatus(strategy.id)}
+        disabled={isDeleted}
+      >
         {isActive ? <Pause size={14} /> : <Play size={14} />}
         <span>{isActive ? 'Pause' : 'Resume'}</span>
       </button>
-      <button className={clsx(styles.actionBtn, styles.deleteBtn)} onClick={() => onDelete(strategy.id)} disabled={isDeleted}>
+      <button
+        className={clsx(styles.actionBtn, styles.deleteBtn)}
+        {...agentAttrs({ id: `trade.strategy.card.${strategy.id}.delete`, role: 'button', action: 'confirm', page: 'trade', key: 'strategy_id' })}
+        onClick={() => onDelete(strategy.id)}
+        disabled={isDeleted}
+      >
         <Trash2 size={14} />
         <span>Delete</span>
       </button>
@@ -117,7 +133,10 @@ export const StrategyCard: React.FC<StrategyCardProps> = ({
   );
 
   return (
-    <div className={clsx(styles.strategyCard, styles[resolvedTheme], { [styles.rowVariant]: variant === 'row' })}>
+    <div
+      className={clsx(styles.strategyCard, styles[resolvedTheme], { [styles.rowVariant]: variant === 'row' })}
+      {...agentAttrs({ id: `trade.strategy.card.${strategy.id}`, role: 'card', page: 'trade', key: 'strategy_id' })}
+    >
       <div className={styles.header}>
         <div className={styles.headerLeft}>
           <div className={styles.chainIconWrapper}>
@@ -143,11 +162,15 @@ export const StrategyCard: React.FC<StrategyCardProps> = ({
             <Target size={12} />
             <span>TARGET</span>
           </div>
-          <div className={styles.walletBadge} onClick={() => {
+          <div
+            className={styles.walletBadge}
+            {...agentAttrs({ id: `trade.strategy.card.${strategy.id}.target_wallet`, role: 'button', action: 'copy', page: 'trade', key: 'target_wallet' })}
+            onClick={() => {
             navigator.clipboard.writeText(targetWallet);
             setIsWalletCopied(true);
             setTimeout(() => setIsWalletCopied(false), 2000);
-          }}>
+          }}
+          >
             <span className={styles.fullAddress}>
               {isMobile ? truncateAddress(targetWallet) : targetWallet}
             </span>

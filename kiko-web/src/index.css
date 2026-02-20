@@ -259,6 +259,16 @@ html.dark {
   --safe-area-right: env(safe-area-inset-right);
 }
 
+/* Agent mode visual cues (only when For Agent mode is enabled) */
+html.agent-mode [data-agent-id] {
+  outline: 1px dashed rgba(234, 179, 8, 0.6);
+  outline-offset: 1px;
+}
+
+html.agent-mode [data-agent-id]:hover {
+  outline: 2px solid rgba(234, 179, 8, 0.9);
+}
+
 /* Light Theme overrides */
 :root.light,
 html.light {

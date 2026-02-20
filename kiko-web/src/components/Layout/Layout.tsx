@@ -11,6 +11,8 @@ import type { Conversation } from '../../hooks/useConversations';
 import { PreLoginWarningModal } from '../Privy/PreLoginWarningModal';
 import { useSecureLogin } from '../../hooks/useSecureLogin';
 import { useNavigate } from 'react-router-dom'; // Import useNavigate for profile click
+import { agentAttrs } from '../../agent/attrs';
+import { useAgentMode } from '../../contexts/AgentModeContext';
 
 interface SidebarContextType {
     onOpenSidebar: () => void;
@@ -58,6 +60,7 @@ export const Layout: React.FC<LayoutProps> = ({
     const [chatStarted, setChatStarted] = useState(false); // Track if chat has started
     const [onBackHandler, setOnBackHandler] = useState<(() => void) | null>(null); // Generic back handler from child
     const { resolvedTheme } = useThemeContext();
+    const { agentModeEnabled, agentModeSource } = useAgentMode();
     const { user, authenticated, ready } = usePrivy();
     const { secureLogin, isWarningOpen, closeWarning, confirmLogin } = useSecureLogin();
 
@@ -143,6 +146,7 @@ export const Layout: React.FC<LayoutProps> = ({
                         {(onBack || onBackHandler) || (isChatActive && (activeConversationId || chatStarted) && onNewChat) ? (
                             <button
                                 className={styles.mobileBackBtn}
+                                {...agentAttrs({ id: 'layout.mobile.back', role: 'button', action: 'navigate', page: 'layout' })}
                                 onClick={mobileBackAction}
                                 title="Go back"
                             >
@@ -151,6 +155,7 @@ export const Layout: React.FC<LayoutProps> = ({
                         ) : (
                             <button
                                 className={styles.mobileMenuBtn}
+                                {...agentAttrs({ id: 'layout.mobile.menu', role: 'button', action: 'open', page: 'layout' })}
                                 onClick={() => setIsSidebarOpen(true)}
                                 title="Open menu"
                             >
@@ -163,6 +168,7 @@ export const Layout: React.FC<LayoutProps> = ({
                         <div className={styles.mobileFloatingRight}>
                             <button
                                 className={styles.mobileProfileBtn}
+                                {...agentAttrs({ id: 'layout.mobile.profile', role: 'button', action: 'navigate', page: 'layout' })}
                                 onClick={handleProfileClick}
                                 title={userName}
                             >
@@ -180,6 +186,7 @@ export const Layout: React.FC<LayoutProps> = ({
                         {!isDesktopSidebarOpen && (
                             <button
                                 className={styles.desktopTrigger}
+                                {...agentAttrs({ id: 'layout.desktop.sidebar_open', role: 'button', action: 'open', page: 'layout' })}
                                 onClick={() => setIsDesktopSidebarOpen(true)}
                                 title="Open sidebar"
                             >
@@ -190,6 +197,7 @@ export const Layout: React.FC<LayoutProps> = ({
                         {isChatActive && (activeConversationId || chatStarted) && onNewChat && (
                             <button
                                 className={styles.desktopBackBtn}
+                                {...agentAttrs({ id: 'layout.desktop.back_to_welcome', role: 'button', action: 'navigate', page: 'layout' })}
                                 onClick={handleBackToWelcome}
                                 title="Back to welcome"
                             >
@@ -203,6 +211,7 @@ export const Layout: React.FC<LayoutProps> = ({
                         <div className={styles.desktopProfileContainer}>
                             <button
                                 className={styles.desktopProfileBtn}
+                                {...agentAttrs({ id: 'layout.desktop.profile', role: 'button', action: 'navigate', page: 'layout' })}
                                 onClick={handleProfileClick}
                                 title={authenticated ? "Wallet Profile" : "Login"}
                             >
@@ -214,6 +223,16 @@ export const Layout: React.FC<LayoutProps> = ({
                                     )}
                                 </span>
                             </button>
+                        </div>
+                    )}
+
+                    {agentModeEnabled && (
+                        <div
+                            className={styles.agentModeBadge}
+                            {...agentAttrs({ id: 'layout.agent_mode.badge', role: 'card', page: 'layout' })}
+                            title={`For Agent mode is enabled (${agentModeSource})`}
+                        >
+                            AGENT MODE ON
                         </div>
                     )}
 

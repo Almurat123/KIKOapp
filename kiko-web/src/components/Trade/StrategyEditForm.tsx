@@ -3,6 +3,7 @@ import type { CopyTradeConfig } from '../../services/copyTradeApi';
 import { CustomSelect } from '../Chat/CustomSelect';
 import styles from './StrategyEditForm.module.css';
 import clsx from 'clsx';
+import { agentAttrs } from '../../agent/attrs';
 
 interface StrategyEditFormProps {
     config: CopyTradeConfig;
@@ -89,15 +90,27 @@ export const StrategyEditForm: React.FC<StrategyEditFormProps> = ({ config, onSa
     const handleNumberChange = (
         value: string,
         field: keyof CopyTradeConfig,
-        allowZero = true
+        allowZero = true,
+        isComposing = false
     ) => {
+        const normalizedValue = isComposing
+            ? value
+            : value
+                .replace(/[^\d.]/g, '')
+                .replace(/(\..*)\./g, '$1');
+
         // [Safety]: Allow empty string to clear the value (set to undefined)
-        if (value === '') {
+        if (normalizedValue === '') {
             updateFormData({ [field]: undefined });
             return;
         }
 
-        const num = parseFloat(value);
+        // During IME composition, wait for composition end before parsing.
+        if (isComposing) return;
+
+        if (normalizedValue === '.') return;
+
+        const num = parseFloat(normalizedValue);
 
         // [Safety]: strict NaN check
         if (isNaN(num)) return;
@@ -111,6 +124,27 @@ export const StrategyEditForm: React.FC<StrategyEditFormProps> = ({ config, onSa
         updateFormData({ [field]: num });
     };
 
+    const handleNumericInputChange = (
+        e: React.ChangeEvent<HTMLInputElement>,
+        field: keyof CopyTradeConfig,
+        allowZero = true
+    ) => {
+        handleNumberChange(
+            e.target.value,
+            field,
+            allowZero,
+            Boolean((e.nativeEvent as InputEvent).isComposing)
+        );
+    };
+
+    const handleNumericCompositionEnd = (
+        e: React.CompositionEvent<HTMLInputElement>,
+        field: keyof CopyTradeConfig,
+        allowZero = true
+    ) => {
+        handleNumberChange(e.currentTarget.value, field, allowZero, false);
+    };
+
     const [isReady, setIsReady] = useState(false);
 
     // [Fix]: Enable transitions only after initial mount to prevent "flicker"
@@ -120,7 +154,10 @@ export const StrategyEditForm: React.FC<StrategyEditFormProps> = ({ config, onSa
     }, []);
 
     return (
-        <div className={clsx(styles.container, isReady && styles.ready)}>
+        <div
+            className={clsx(styles.container, isReady && styles.ready)}
+            {...agentAttrs({ id: 'trade.edit.dialog', role: 'dialog', page: 'trade' })}
+        >
             {/* Section 1: Wallet Info */}
             <div className={styles.section}>
                 <div className={styles.inputGroup}>
@@ -161,9 +198,12 @@ export const StrategyEditForm: React.FC<StrategyEditFormProps> = ({ config, onSa
                     <div className={styles.inputGroup}>
                         <label className={styles.label}>Min Follow Amount ($)</label>
                         <input
-                            type="number"
+                            type="text"
+                            inputMode="decimal"
+                            {...agentAttrs({ id: 'trade.edit.min_follow_amount', role: 'input', action: 'select', page: 'trade', key: 'minTargetValueUsd' })}
                             value={formData.minTargetValueUsd ?? ''}
-                            onChange={e => handleNumberChange(e.target.value, 'minTargetValueUsd')}
+                            onChange={e => handleNumericInputChange(e, 'minTargetValueUsd')}
+                            onCompositionEnd={e => handleNumericCompositionEnd(e, 'minTargetValueUsd')}
                             className={styles.input}
                             placeholder="0"
                         />
@@ -171,9 +211,12 @@ export const StrategyEditForm: React.FC<StrategyEditFormProps> = ({ config, onSa
                     <div className={styles.inputGroup}>
                         <label className={styles.label}>My Buy Amount ($)</label>
                         <input
-                            type="number"
+                            type="text"
+                            inputMode="decimal"
+                            {...agentAttrs({ id: 'trade.edit.buy_amount', role: 'input', action: 'select', page: 'trade', key: 'buyAmountUsd' })}
                             value={formData.buyAmountUsd}
-                            onChange={e => handleNumberChange(e.target.value, 'buyAmountUsd', false)}
+                            onChange={e => handleNumericInputChange(e, 'buyAmountUsd', false)}
+                            onCompositionEnd={e => handleNumericCompositionEnd(e, 'buyAmountUsd', false)}
                             className={styles.input}
                             placeholder="100"
                         />
@@ -182,10 +225,13 @@ export const StrategyEditForm: React.FC<StrategyEditFormProps> = ({ config, onSa
                 <div className={styles.inputGroup} style={{ marginTop: '16px' }}>
                     <label className={styles.label}>Repeat Buy Cooldown (minutes)</label>
                     <input
-                        type="number"
+                        type="text"
+                        inputMode="decimal"
+                        {...agentAttrs({ id: 'trade.edit.cooldown', role: 'input', action: 'select', page: 'trade', key: 'copyTradeTokenCooldownMinutes' })}
                         min={0}
                         value={formData.copyTradeTokenCooldownMinutes ?? ''}
-                        onChange={e => handleNumberChange(e.target.value, 'copyTradeTokenCooldownMinutes')}
+                        onChange={e => handleNumericInputChange(e, 'copyTradeTokenCooldownMinutes')}
+                        onCompositionEnd={e => handleNumericCompositionEnd(e, 'copyTradeTokenCooldownMinutes')}
                         className={styles.input}
                         placeholder="60"
                     />
@@ -200,10 +246,13 @@ export const StrategyEditForm: React.FC<StrategyEditFormProps> = ({ config, onSa
                     <div className={styles.inputGroup}>
                         <label className={styles.label}>Min Market Cap (USD)</label>
                         <input
-                            type="number"
+                            type="text"
+                            inputMode="decimal"
+                            {...agentAttrs({ id: 'trade.edit.min_market_cap', role: 'input', action: 'select', page: 'trade', key: 'minMarketCapUsd' })}
                             min={0}
                             value={formData.minMarketCapUsd ?? ''}
-                            onChange={e => handleNumberChange(e.target.value, 'minMarketCapUsd')}
+                            onChange={e => handleNumericInputChange(e, 'minMarketCapUsd')}
+                            onCompositionEnd={e => handleNumericCompositionEnd(e, 'minMarketCapUsd')}
                             className={styles.input}
                             placeholder="Optional"
                             disabled={isTurboMode}
@@ -212,10 +261,13 @@ export const StrategyEditForm: React.FC<StrategyEditFormProps> = ({ config, onSa
                     <div className={styles.inputGroup}>
                         <label className={styles.label}>Min Liquidity (USD)</label>
                         <input
-                            type="number"
+                            type="text"
+                            inputMode="decimal"
+                            {...agentAttrs({ id: 'trade.edit.min_liquidity', role: 'input', action: 'select', page: 'trade', key: 'minLiquidityUsd' })}
                             min={0}
                             value={formData.minLiquidityUsd ?? ''}
-                            onChange={e => handleNumberChange(e.target.value, 'minLiquidityUsd')}
+                            onChange={e => handleNumericInputChange(e, 'minLiquidityUsd')}
+                            onCompositionEnd={e => handleNumericCompositionEnd(e, 'minLiquidityUsd')}
                             className={styles.input}
                             placeholder="Optional"
                             disabled={isTurboMode}
@@ -236,6 +288,7 @@ export const StrategyEditForm: React.FC<StrategyEditFormProps> = ({ config, onSa
                                 key={option.value}
                                 type="button"
                                 className={clsx(styles.modeButton, currentExecutionMode === option.value && styles.modeButtonActive)}
+                                {...agentAttrs({ id: `trade.edit.execution_mode.${option.value}`, role: 'tab', action: 'select', page: 'trade', key: 'executionMode' })}
                                 onClick={() => updateExecutionMode(option.value)}
                                 aria-pressed={currentExecutionMode === option.value}
                             >
@@ -261,9 +314,10 @@ export const StrategyEditForm: React.FC<StrategyEditFormProps> = ({ config, onSa
                     <div className={styles.headerRow}>
                         <div className={styles.headerTitle}>Mirror Sell Mode</div>
                         <label className={styles.toggleSwitch}>
-                            <input
-                                type="checkbox"
-                                checked={!!formData.mirrorSell}
+                        <input
+                            type="checkbox"
+                            {...agentAttrs({ id: 'trade.edit.mirror_sell', role: 'toggle', action: 'toggle', page: 'trade', key: 'mirrorSell' })}
+                            checked={!!formData.mirrorSell}
                                 onChange={e => updateFormData({ mirrorSell: e.target.checked })}
                             />
                             <span className={styles.slider}></span>
@@ -278,9 +332,12 @@ export const StrategyEditForm: React.FC<StrategyEditFormProps> = ({ config, onSa
                     <div className={styles.inputGroup}>
                         <label className={clsx(styles.label, styles.labelTp)}>TAKE PROFIT (%)</label>
                         <input
-                            type="number"
+                            type="text"
+                            inputMode="decimal"
+                            {...agentAttrs({ id: 'trade.edit.take_profit_pct', role: 'input', action: 'select', page: 'trade', key: 'takeProfitPct' })}
                             value={formData.takeProfitPct ?? ''}
-                            onChange={e => handleNumberChange(e.target.value, 'takeProfitPct', false)}
+                            onChange={e => handleNumericInputChange(e, 'takeProfitPct', false)}
+                            onCompositionEnd={e => handleNumericCompositionEnd(e, 'takeProfitPct', false)}
                             className={styles.input}
                             placeholder="100"
                         />
@@ -288,9 +345,12 @@ export const StrategyEditForm: React.FC<StrategyEditFormProps> = ({ config, onSa
                     <div className={styles.inputGroup}>
                         <label className={clsx(styles.label, styles.labelSl)}>STOP LOSS (%)</label>
                         <input
-                            type="number"
+                            type="text"
+                            inputMode="decimal"
+                            {...agentAttrs({ id: 'trade.edit.stop_loss_pct', role: 'input', action: 'select', page: 'trade', key: 'stopLossPct' })}
                             value={formData.stopLossPct ?? ''}
-                            onChange={e => handleNumberChange(e.target.value, 'stopLossPct', false)}
+                            onChange={e => handleNumericInputChange(e, 'stopLossPct', false)}
+                            onCompositionEnd={e => handleNumericCompositionEnd(e, 'stopLossPct', false)}
                             className={styles.input}
                             placeholder="20"
                         />
@@ -305,6 +365,7 @@ export const StrategyEditForm: React.FC<StrategyEditFormProps> = ({ config, onSa
                     <label className={styles.toggleSwitch}>
                         <input
                             type="checkbox"
+                            {...agentAttrs({ id: 'trade.edit.dynamic_tp_enabled', role: 'toggle', action: 'toggle', page: 'trade', key: 'enableDynamicTP' })}
                             checked={!!formData.enableDynamicTP}
                             onChange={e => updateFormData({ enableDynamicTP: e.target.checked })}
                         />
@@ -319,9 +380,12 @@ export const StrategyEditForm: React.FC<StrategyEditFormProps> = ({ config, onSa
                     <div className={styles.inputGroup} style={{ marginTop: '16px' }}>
                         <label className={styles.label}>Activate Dynamic TP at Profit (%)</label>
                         <input
-                            type="number"
+                            type="text"
+                            inputMode="decimal"
+                            {...agentAttrs({ id: 'trade.edit.dynamic_tp_profit_threshold', role: 'input', action: 'select', page: 'trade', key: 'dynamicTPMinProfitPct' })}
                             value={formData.dynamicTPMinProfitPct ?? ''}
-                            onChange={e => handleNumberChange(e.target.value, 'dynamicTPMinProfitPct', false)}
+                            onChange={e => handleNumericInputChange(e, 'dynamicTPMinProfitPct', false)}
+                            onCompositionEnd={e => handleNumericCompositionEnd(e, 'dynamicTPMinProfitPct', false)}
                             className={styles.input}
                             placeholder="100"
                         />

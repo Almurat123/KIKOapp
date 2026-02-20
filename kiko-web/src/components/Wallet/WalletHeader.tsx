@@ -2,6 +2,7 @@ import React from 'react';
 import { Settings, Send, ArrowDownLeft, ArrowRightLeft } from 'lucide-react';
 import { ChainSwitcher } from '../Chain/ChainSwitcher';
 import { Skeleton } from '../Skeleton';
+import { agentAttrs } from '../../agent/attrs';
 
 interface WalletHeaderProps {
     user: any;
@@ -33,13 +34,37 @@ export const WalletHeader: React.FC<WalletHeaderProps> = ({
                 </div>
                 <div className={styles.headerActions}>
                     <ChainSwitcher />
-                    <button className={styles.settingsButton} onClick={onSettingsClick}><Settings size={16} /></button>
+                    <button
+                        className={styles.settingsButton}
+                        {...agentAttrs({ id: 'wallet.header.settings', role: 'button', action: 'navigate', page: 'wallet' })}
+                        onClick={onSettingsClick}
+                    >
+                        <Settings size={16} />
+                    </button>
                 </div>
             </div>
             <div className={styles.actionsRow}>
-                <button className={`${styles.actionButton} ${styles.actionBtnSecondary}`} onClick={onSendClick}><Send size={18} /> Send</button>
-                <button className={`${styles.actionButton} ${styles.actionBtnSecondary}`} onClick={onReceiveClick}><ArrowDownLeft size={18} /> Receive</button>
-                <button className={`${styles.actionButton} ${styles.actionBtnPrimary}`} onClick={onSwapClick}><ArrowRightLeft size={18} /> Swap</button>
+                <button
+                    className={`${styles.actionButton} ${styles.actionBtnSecondary}`}
+                    {...agentAttrs({ id: 'wallet.header.send', role: 'button', action: 'open', page: 'wallet' })}
+                    onClick={onSendClick}
+                >
+                    <Send size={18} /> Send
+                </button>
+                <button
+                    className={`${styles.actionButton} ${styles.actionBtnSecondary}`}
+                    {...agentAttrs({ id: 'wallet.header.receive', role: 'button', action: 'open', page: 'wallet' })}
+                    onClick={onReceiveClick}
+                >
+                    <ArrowDownLeft size={18} /> Receive
+                </button>
+                <button
+                    className={`${styles.actionButton} ${styles.actionBtnPrimary}`}
+                    {...agentAttrs({ id: 'wallet.header.swap', role: 'button', action: 'open', page: 'wallet' })}
+                    onClick={onSwapClick}
+                >
+                    <ArrowRightLeft size={18} /> Swap
+                </button>
             </div>
         </>
     );

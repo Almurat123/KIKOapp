@@ -50,15 +50,10 @@
   justify-content: space-between;
   min-height: 120px;
   position: relative;
-  transition: background 0.15s ease;
 }
 
 .statCard:last-child {
   border-right: none;
-}
-
-.statCard:hover {
-  background: rgba(39, 39, 42, 0.15);
 }
 
 .statHeader {
@@ -143,10 +138,6 @@
 :global(.light) .statCard {
   background: #ffffff;
   border-right-color: #f1f1f4;
-}
-
-:global(.light) .statCard:hover {
-  background: #f8f8fa;
 }
 
 :global(.light) .statValue {

@@ -63,6 +63,7 @@ const WEBHOOK_RECEIPT_RECOVERY_DELAYS_MS = String(process.env.COPYTRADE_WEBHOOK_
 const localTxInflight = new Map<string, number>();
 const receiptRecoveryInflight = new Set<string>();
 const NATIVE_TOKEN_PLACEHOLDER = normalizeAddress('0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee');
+const EVM_ADDRESS_REGEX = /0x[a-fA-F0-9]{40}/g;
 
 type ActivityCashHint = {
     cashSpentUsd?: number;
@@ -91,6 +92,35 @@ function tryClaimLocalInflight(chainId: number, txHash: string): boolean {
 
 function releaseLocalInflight(chainId: number, txHash: string): void {
     localTxInflight.delete(localInflightKey(chainId, txHash));
+}
+
+function collectEvmActivityCandidates(activities: any[]): string[] {
+    const addresses = new Set<string>();
+    const add = (value: any) => {
+        const normalized = normalizeAddress(String(value || ''));
+        if (normalized) addresses.add(normalized);
+    };
+
+    for (const activity of activities) {
+        add(activity?.fromAddress);
+        add(activity?.toAddress);
+        add(activity?.address);
+        add(activity?.walletAddress);
+        add(activity?.owner);
+        add(activity?.sender);
+        add(activity?.recipient);
+        add(activity?.from);
+        add(activity?.to);
+        add(activity?.contractAddress);
+        add(activity?.rawContract?.address);
+
+        // Fallback: collect any embedded EVM addresses from payload fields.
+        const serialized = JSON.stringify(activity || {});
+        const matches = serialized.match(EVM_ADDRESS_REGEX) || [];
+        for (const match of matches) add(match);
+    }
+
+    return Array.from(addresses);
 }
 
 function logWebhookTiming(scope: string, txHash: string, timings: Record<string, number | string | boolean | undefined>): void {
@@ -350,6 +380,14 @@ async function buildActivityCashHint(activities: any[], walletAddressRaw: string
     let cashSpentUsd = 0;
     let cashReceivedUsd = 0;
     let netCashUsd = 0;
+
+    // Track native+WETH spent/received separately to avoid double-counting ETH wraps.
+    // When a Universal Router tx wraps ETH→WETH, Alchemy emits both a native ETH activity
+    // row AND a WETH transfer log — both from the wallet — for the same underlying amount.
+    // We keep only the larger of the two so the real 0.5 ETH doesn't become 1.0 ETH.
+    let nativeLikeSpentUsd = 0;
+    let nativeLikeReceivedUsd = 0;
+
     for (const item of activities) {
         const from = normalizeAddress(item?.fromAddress || '');
         const to = normalizeAddress(item?.toAddress || '');
@@ -368,15 +406,19 @@ async function buildActivityCashHint(activities: any[], walletAddressRaw: string
         }
         if (!Number.isFinite(usd) || usd <= 0) continue;
 
-        if (from === walletAddress) {
-            cashSpentUsd += usd;
-            netCashUsd -= usd;
-        }
-        if (to === walletAddress) {
-            cashReceivedUsd += usd;
-            netCashUsd += usd;
+        if (isNativeLike) {
+            // Accumulate via max to deduplicate ETH + WETH wrap for the same leg
+            if (from === walletAddress) nativeLikeSpentUsd = Math.max(nativeLikeSpentUsd, usd);
+            if (to === walletAddress) nativeLikeReceivedUsd = Math.max(nativeLikeReceivedUsd, usd);
+        } else {
+            if (from === walletAddress) { cashSpentUsd += usd; netCashUsd -= usd; }
+            if (to === walletAddress) { cashReceivedUsd += usd; netCashUsd += usd; }
         }
     }
+
+    // Merge deduplicated native-like amounts
+    if (nativeLikeSpentUsd > 0) { cashSpentUsd += nativeLikeSpentUsd; netCashUsd -= nativeLikeSpentUsd; }
+    if (nativeLikeReceivedUsd > 0) { cashReceivedUsd += nativeLikeReceivedUsd; netCashUsd += nativeLikeReceivedUsd; }
 
     if (cashSpentUsd <= 0 && cashReceivedUsd <= 0) return null;
     // Use net cash flow to avoid misclassification when webhook bundles multiple
@@ -482,14 +524,7 @@ async function processAlchemyWebhookPayload(payload: any): Promise<void> {
             const evmActivities: any[] = Array.isArray(item?.activities) && item.activities.length
                 ? item.activities
                 : (item ? [item] : []);
-            const candidateSet = new Set<string>();
-            for (const activity of evmActivities) {
-                const fromAddr = normalizeAddress(activity?.fromAddress || '');
-                const toAddr = normalizeAddress(activity?.toAddress || '');
-                if (fromAddr) candidateSet.add(fromAddr);
-                if (toAddr) candidateSet.add(toAddr);
-            }
-            candidates = Array.from(candidateSet);
+            candidates = collectEvmActivityCandidates(evmActivities);
         }
 
         txHash = normalizeTxHash(txHash);
@@ -632,7 +667,6 @@ async function processAlchemyWebhookPayload(payload: any): Promise<void> {
                 }
             }
 
-            await markTxAsProcessedDistributed(txHash, chainId);
             let fullTxPromise: Promise<any | null> | null = null;
             const fetchFullTxOnce = () => {
                 if (!fullTxPromise) {
@@ -708,6 +742,11 @@ async function processAlchemyWebhookPayload(payload: any): Promise<void> {
                     detectedAt: resolveDetectedAt(cached?.detectedAt, pendingHint?.detectedAt)
                 });
             }));
+            if (swapsDetected > 0) {
+                await markTxAsProcessedDistributed(txHash, chainId);
+            } else {
+                console.log(`[Webhook] Tx decoded with no swaps; leaving unprocessed for potential follow-up payload: ${txHash}`);
+            }
             logWebhookTiming('alchemy', txHash, {
                 wallets: trackedWallets.length,
                 swaps: swapsDetected,

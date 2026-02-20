@@ -12,6 +12,7 @@ import { ChatInputSuggestions } from './ChatInputSuggestions';
 import { logger } from '../../utils/logger';
 import { LiquidGlassEffect } from '../Effects/LiquidGlassEffect';
 import { StardustBackground } from '../Effects/StardustBackground';
+import { agentAttrs } from '../../agent/attrs';
 
 // Model options
 // According to DeepSeek API docs: https://api-docs.deepseek.com/zh-cn/quick_start/pricing
@@ -32,6 +33,12 @@ interface WelcomeScreenProps {
 export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onSuggestionClick }) => {
   const [isFocused, setIsFocused] = useState(false);
   const [inputValue, setInputValue] = useState('');
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const autoResizeTextarea = (textarea: HTMLTextAreaElement) => {
+    textarea.style.height = 'auto';
+    textarea.style.height = `${Math.min(textarea.scrollHeight, 200)}px`;
+  };
 
 
   // Load selected model from localStorage or use default
@@ -98,18 +105,31 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onSuggestionClick 
     (text) => {
       // Fill the input box instead of sending immediately
       setInputValue(text);
+      requestAnimationFrame(() => {
+        if (textareaRef.current) {
+          autoResizeTextarea(textareaRef.current);
+        }
+      });
     } // onSetInput
   );
 
   const handleInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const newValue = e.target.value;
     setInputValue(newValue);
-    e.target.style.height = 'auto';
-    e.target.style.height = Math.min(e.target.scrollHeight, 200) + 'px';
+    autoResizeTextarea(e.target);
 
     // Trigger detection
     detectIntent(newValue);
   };
+
+  useEffect(() => {
+    if (textareaRef.current && inputValue) {
+      autoResizeTextarea(textareaRef.current);
+    }
+    if (textareaRef.current && !inputValue) {
+      textareaRef.current.style.height = 'auto';
+    }
+  }, [inputValue]);
 
   const handleSend = () => {
     if (inputValue.trim()) {
@@ -151,6 +171,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onSuggestionClick 
             <ChatInputSuggestions
               suggestions={smartSuggestions}
               isVisible={showSmartSuggestions}
+              agentId="welcome.suggestions.list"
               onSelect={(item) => {
                 item.action();
                 setShowSmartSuggestions(false);
@@ -158,6 +179,8 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onSuggestionClick 
             />
             <div className={styles.textareaContainer}>
               <textarea
+                ref={textareaRef}
+                {...agentAttrs({ id: 'welcome.input.textarea', role: 'input', action: 'select', page: 'welcome', key: 'message' })}
                 value={inputValue}
                 onChange={handleInput}
                 onFocus={() => {
@@ -206,6 +229,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onSuggestionClick 
 
                 <button
                   className={styles.settingsButton}
+                  {...agentAttrs({ id: 'welcome.settings.open', role: 'button', action: 'open', page: 'welcome' })}
                   onClick={() => setIsSettingsOpen(true)}
                   title="Customize AI"
                 >
@@ -216,6 +240,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onSuggestionClick 
                   disabled={!inputValue.trim()}
                   className={`${styles.sendButton} ${inputValue.trim() ? styles.sendButtonActive : ''}`}
                   title={inputValue.trim() ? '发送' : '输入内容后可发送'}
+                  {...agentAttrs({ id: 'welcome.action.send', role: 'button', action: 'submit', page: 'welcome' })}
                 >
                   <ArrowUp size={20} strokeWidth={2.5} />
                 </button>
