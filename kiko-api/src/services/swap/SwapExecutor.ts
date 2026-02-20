@@ -38,6 +38,8 @@ export interface SwapParams {
     speedUpBumpBps?: number; // Gas bump in bps for replacement
     transferRetry?: boolean; // Internal: prevent repeat retry after transfer failure
     executionMode?: 'safe' | 'balanced' | 'turbo';
+    /** Pre-warmed nonce promise (copy-trade path); when set, used for the swap tx to save one RPC round-trip. */
+    preWarmedNonce?: Promise<string | undefined>;
     launchpadProvider?: 'pumpfun' | 'pumpswap' | 'bonkfun' | 'zora' | 'fourmeme' | 'flap' | 'clanker' | 'virtuals' | 'doppler';
     preferredSolanaAggregator?: 'jupiter' | 'raydium' | 'meteora';
 }
@@ -349,7 +351,8 @@ export class SwapExecutor {
                         to: actualTokenIn,
                         data: approvalData,
                         value: '0',
-                        chainId
+                        chainId,
+                        txPurpose: 'approval'
                     });
 
                     logger.info(LogCode.EXE_TX_BROADCAST, 'Approval transaction sent', { txHash: approveTxHash });
@@ -618,6 +621,7 @@ export class SwapExecutor {
         }
 
         try {
+            const preWarmedNonce = params.preWarmedNonce ? await params.preWarmedNonce : undefined;
             const txHash = await sendTransaction(userId, params.accessToken || '', {
                 to: best.to,
                 data: best.data,
@@ -625,7 +629,9 @@ export class SwapExecutor {
                 chainId,
                 gas: gasLimit,
                 maxFeePerGas: maxFeePerGasCap?.toString(),
-                maxPriorityFeePerGas: maxPriorityFeeCap?.toString()
+                maxPriorityFeePerGas: maxPriorityFeeCap?.toString(),
+                txPurpose: 'trade',
+                ...(preWarmedNonce !== undefined ? { nonce: preWarmedNonce } : {})
             });
 
             logger.info(LogCode.EXE_TX_BROADCAST, 'Swap Broadcast', { txHash, method: best.dexName });
@@ -1118,7 +1124,8 @@ export class SwapExecutor {
                     gas: tx.gas,
                     gasPrice: gasPrice?.toString(),
                     maxFeePerGas: maxFeePerGas?.toString(),
-                    maxPriorityFeePerGas: maxPriorityFeePerGas?.toString()
+                    maxPriorityFeePerGas: maxPriorityFeePerGas?.toString(),
+                    txPurpose: 'speedup'
                 });
 
                 logger.info(LogCode.EXE_TX_BROADCAST, 'SpeedUp replacement tx sent', { txHash, chainId });
@@ -1381,7 +1388,8 @@ export class SwapExecutor {
             to: token,
             data,
             value: '0',
-            chainId
+            chainId,
+            txPurpose: 'approval'
         });
 
         await SwapExecutor.waitForReceipt(chainId, txHash, 60000); // 1 min timeout

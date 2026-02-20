@@ -87,6 +87,7 @@ export async function executeV2Swap(
     data,
     value: isNativeIn ? amountInWei.toString() : '0',
     chainId: params.chainId,
+    txPurpose: 'trade',
     executionProfile: deps.getTxExecutionProfile(params.chainId),
     gas: gasLimit
   });

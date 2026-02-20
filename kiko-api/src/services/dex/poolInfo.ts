@@ -230,13 +230,42 @@ async function getTokenMetadata(
     }
 }
 
+const POOL_DISCOVERY_CACHE_TTL_MS = Number(process.env.DIRECT_SWAP_POOL_DISCOVERY_CACHE_TTL_MS || '30000'); // 30s
+const poolDiscoveryCache = new Map<string, { pools: PoolInfo[]; ts: number }>();
+const poolDiscoveryInflight = new Map<string, Promise<PoolInfo[]>>();
+
 /**
  * Calculate price from sqrtPriceX96
  */
 /**
- * Find all pools for a token pair across multiple DEXes
+ * Find all pools for a token pair across multiple DEXes.
+ * Results are cached and in-flight requests are deduplicated for the same pair (buy-path optimization).
  */
 export async function findTokenPools(
+    tokenA: string,
+    tokenB: string,
+    chainId: number
+): Promise<PoolInfo[]> {
+    const key = `${chainId}:${tokenA.toLowerCase()}:${tokenB.toLowerCase()}`;
+    const cached = poolDiscoveryCache.get(key);
+    if (cached && Date.now() - cached.ts < POOL_DISCOVERY_CACHE_TTL_MS) {
+        return cached.pools;
+    }
+    const inflight = poolDiscoveryInflight.get(key);
+    if (inflight) return await inflight;
+
+    const promise = doFindTokenPools(tokenA, tokenB, chainId);
+    poolDiscoveryInflight.set(key, promise);
+    try {
+        const pools = await promise;
+        poolDiscoveryCache.set(key, { pools, ts: Date.now() });
+        return pools;
+    } finally {
+        poolDiscoveryInflight.delete(key);
+    }
+}
+
+async function doFindTokenPools(
     tokenA: string,
     tokenB: string,
     chainId: number

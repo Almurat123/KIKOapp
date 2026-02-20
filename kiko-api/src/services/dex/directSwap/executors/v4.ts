@@ -320,6 +320,7 @@ export async function executeV4Swap(
     data: tx.data,
     value: isNativeIn ? amountInWei.toString() : '0',
     chainId,
+    txPurpose: 'trade',
     executionProfile: deps.getTxExecutionProfile(chainId),
     gas: gasLimit
   });

@@ -112,6 +112,9 @@ export interface MainSwapRequest {
   // When true, do not report success until a confirmed successful receipt is observed.
   // Used by position exits to prevent false "sold" states on later reverts.
   requireConfirmedTx?: boolean;
+
+  // Optional pre-warmed nonce promise (copy-trade: start fetch in parallel with quoting).
+  preWarmedNonce?: Promise<string | undefined>;
 }
 
 /**
@@ -170,14 +173,16 @@ export class MainSwapService {
   private static buildDirectSwapInflightKey(
     request: MainSwapRequest,
     tokenIn: string,
-    tokenOut: string
+    tokenOut: string,
+    amountOverride?: string
   ): string {
+    const amount = amountOverride ?? request.amountIn;
     return [
       request.userId,
       request.chainId,
       tokenIn.toLowerCase(),
       tokenOut.toLowerCase(),
-      request.amountIn,
+      amount,
       request.mode
     ].join(':');
   }
@@ -254,7 +259,8 @@ export class MainSwapService {
         to: fee.evmRecipient!,
         data: '0x',
         value: feeAmount.toString(),
-        chainId: request.chainId
+        chainId: request.chainId,
+        txPurpose: 'fee'
       });
       logger.info(LogCode.EXE_TX_CONFIRMED, trace('Direct swap native fee sent'), {
         feeTxHash,
@@ -269,7 +275,8 @@ export class MainSwapService {
       to: normalizedTokenOut,
       data: erc20.encodeFunctionData('transfer', [fee.evmRecipient!, feeAmount]),
       value: '0',
-      chainId: request.chainId
+      chainId: request.chainId,
+      txPurpose: 'fee'
     });
     logger.info(LogCode.EXE_TX_CONFIRMED, trace('Direct swap token fee sent'), {
       feeTxHash,
@@ -599,6 +606,8 @@ export class MainSwapService {
     const TURBO_DIRECT_ATTEMPT_TIMEOUT_MS = Number(process.env.COPYTRADE_TURBO_DIRECT_ATTEMPT_TIMEOUT_MS || '1400');
     const TURBO_SKIP_FALLBACK_ON_TIMEOUT = (process.env.COPYTRADE_TURBO_SKIP_FALLBACK_ON_TIMEOUT || 'true') === 'true';
     const TURBO_DIRECT_LATE_SETTLE_MS = Number(process.env.COPYTRADE_TURBO_DIRECT_LATE_SETTLE_MS || '2200');
+    // 0x API is typically 10s+; skip fallback in turbo so we fail fast instead of waiting.
+    const TURBO_SKIP_0X_FALLBACK = (process.env.COPYTRADE_TURBO_SKIP_0X_FALLBACK ?? 'true') === 'true';
     const withTimeout = async <T,>(promise: Promise<T>, ms: number, label: string): Promise<T> => {
       return new Promise<T>((resolve, reject) => {
         const timer = setTimeout(() => reject(new Error(`timeout_${label}_${ms}ms`)), ms);
@@ -620,7 +629,6 @@ export class MainSwapService {
     const normalizedTokenOut = this.normalizeEvmTokenInput(request.tokenOut, request.chainId);
     const rawTokenIn = String(request.tokenIn || '').trim().toLowerCase();
     const isTurboCopytrade = request.mode === 'copytrade' && request.userSettings?.copyTradeExecutionMode === 'turbo';
-    const directSwapInflightKey = this.buildDirectSwapInflightKey(request, normalizedTokenIn, normalizedTokenOut);
     if (!isNativeToken(normalizedTokenIn, request.chainId) && !/^0x[0-9a-fA-F]{40}$/.test(normalizedTokenIn)) {
       throw new Error(`Invalid EVM tokenIn: ${request.tokenIn}`);
     }
@@ -634,26 +642,28 @@ export class MainSwapService {
       throw new Error('token_input_mismatch: requested stablecoin input but resolved to native token');
     }
 
-    // Precheck native spendable balance before routing; fail fast with clear error instead of deep swap failure.
-    // Keep enabled for all modes (including turbo) to prevent pointless on-chain attempts when balance is insufficient.
-    if (isNativeToken(normalizedTokenIn, request.chainId)) {
-      const amountInWei = ethers.parseUnits(request.amountIn, 18);
-      const chainCfg = getChainConfig(request.chainId);
-      const reserveWei = ethers.parseUnits(chainCfg.gasReserve || '0.003', 18);
-      const balanceHex = await callRpc<string>(
-        request.chainId,
-        'eth_getBalance',
-        [request.walletAddress, 'latest'],
-        { importance: 'critical', strategy: 'fast' }
-      );
-      const balanceWei = BigInt(balanceHex);
-      const requiredWei = amountInWei + reserveWei;
-      if (balanceWei < requiredWei) {
-        throw new Error(
-          `insufficient_native_balance_precheck: have=${ethers.formatEther(balanceWei)} required=${ethers.formatEther(requiredWei)}`
-        );
-      }
-    }
+    // Balance precheck: turbo skips (let on-chain revert handle; saves 50–300ms). Non-turbo runs in parallel with DirectSwap.
+    const checkNativeBalancePromise: Promise<void> | null =
+      isNativeToken(normalizedTokenIn, request.chainId) && !isTurboCopytrade
+        ? (async () => {
+            const amountInWei = ethers.parseUnits(request.amountIn, 18);
+            const chainCfg = getChainConfig(request.chainId);
+            const reserveWei = ethers.parseUnits(chainCfg.gasReserve || '0.003', 18);
+            const balanceHex = await callRpc<string>(
+              request.chainId,
+              'eth_getBalance',
+              [request.walletAddress, 'latest'],
+              { importance: 'critical', strategy: 'fast' }
+            );
+            const balanceWei = BigInt(balanceHex);
+            const requiredWei = amountInWei + reserveWei;
+            if (balanceWei < requiredWei) {
+              throw new Error(
+                `insufficient_native_balance_precheck: have=${ethers.formatEther(balanceWei)} required=${ethers.formatEther(requiredWei)}`
+              );
+            }
+          })()
+        : null;
 
     logger.info(LogCode.EXE_TX_BROADCAST, trace('Executing EVM swap'), {
       chainId: request.chainId,
@@ -692,7 +702,8 @@ export class MainSwapService {
     }
 
     if (fastSwapEnabled && isDirectSwapSupported(request.chainId) && isBuyDirection) {
-      const DIRECT_SWAP_MAX_ATTEMPTS = isTurboCopytrade ? 1 : 2; // turbo: fail fast, balanced: one retry
+      // turbo: 3 consecutive direct attempts; 4th step = 0x fallback. balanced: 2 attempts.
+      const DIRECT_SWAP_MAX_ATTEMPTS = isTurboCopytrade ? 3 : 2;
       const turboBudgetStart = Date.now();
       logger.info(LogCode.SYS_INFO, trace('FastSwapMode enabled - attempting direct swap (buy direction)'), {
         mode: request.mode,
@@ -713,6 +724,27 @@ export class MainSwapService {
             lastDirectError = new Error(`timeout_turbo_budget_${TURBO_TOTAL_BUDGET_MS}ms`);
             break;
           }
+          // 2nd/3rd attempt (光速): same pool cache hot, no sleep; bump slippage and slightly reduce amount per attempt
+          const amountMult = attempt === 1 ? 1 : attempt === 2 ? 0.998 : 0.996;
+          const slippageMult = attempt === 1 ? 1 : attempt === 2 ? 1.2 : 1.5;
+          const attemptAmountIn = attempt === 1
+            ? request.amountIn
+            : (Number(request.amountIn) * amountMult).toFixed(18);
+          const attemptSlippageBps = Math.min(Math.floor(enforcedSlippageBps * slippageMult), 2500);
+          const directSwapInflightKey = this.buildDirectSwapInflightKey(
+            request,
+            normalizedTokenIn,
+            normalizedTokenOut,
+            attemptAmountIn
+          );
+          if (attempt >= 2 && isTurboCopytrade) {
+            logger.info(LogCode.SYS_INFO, trace(`Turbo 光速 retry - immediate direct attempt ${attempt} (no sleep, cache hot)`), {
+              attempt,
+              maxAttempts: DIRECT_SWAP_MAX_ATTEMPTS,
+              amountIn: attemptAmountIn,
+              slippageBps: attemptSlippageBps
+            });
+          }
           inflightDirectPromise = this.getOrCreateDirectSwapInflight(
             directSwapInflightKey,
             () => executeDirectSwap({
@@ -721,9 +753,9 @@ export class MainSwapService {
               walletAddress: request.walletAddress,
               tokenIn: normalizedTokenIn,
               tokenOut: normalizedTokenOut,
-              amountIn: request.amountIn,
+              amountIn: attemptAmountIn,
               chainId: request.chainId,
-              slippageBps: enforcedSlippageBps,
+              slippageBps: attemptSlippageBps,
               hint: request.directSwapHint,
               executionMode: request.userSettings?.copyTradeExecutionMode
             })
@@ -774,6 +806,7 @@ export class MainSwapService {
           lastDirectResult = directResult;
 
           if (directResult.success) {
+            if (checkNativeBalancePromise) await checkNativeBalancePromise;
             try {
               await this.collectDirectSwapFee(
                 request,
@@ -822,7 +855,7 @@ export class MainSwapService {
           }
 
           if (attempt < DIRECT_SWAP_MAX_ATTEMPTS) {
-            logger.warn(LogCode.SYS_INFO, trace('Direct swap failed, retrying once'), {
+            logger.warn(LogCode.SYS_INFO, trace('Direct swap failed, retrying next attempt'), {
               attempt,
               maxAttempts: DIRECT_SWAP_MAX_ATTEMPTS,
               error: directResult.error,
@@ -876,6 +909,21 @@ export class MainSwapService {
           attempts: DIRECT_SWAP_MAX_ATTEMPTS
         });
       }
+
+      if (isTurboCopytrade && TURBO_SKIP_0X_FALLBACK) {
+        logger.warn(LogCode.SYS_INFO, trace('Turbo: skipping 0x fallback (0x API too slow for turbo)'), {
+          error: lastDirectResult?.error || lastDirectError?.message,
+          chainId: request.chainId
+        });
+        return {
+          success: false,
+          error: lastDirectResult?.error || lastDirectError?.message || 'Direct swap failed',
+          metadata: {
+            provider: lastDirectResult?.provider || 'failed',
+            mode: request.mode
+          }
+        };
+      }
     }
 
     const requireConfirmedTx = request.requireConfirmedTx === true;
@@ -907,9 +955,11 @@ export class MainSwapService {
       returnOnConfirmTimeout: requireConfirmedTx ? false : (request.mode === 'allowance' || request.mode === 'copytrade'),
       speedUpAfterMs: request.mode === 'allowance' || request.mode === 'copytrade' ? (isTurboCopytrade ? 1200 : 6000) : undefined,
       speedUpBumpBps: request.mode === 'copytrade' ? (isTurboCopytrade ? 22000 : 15000) : request.mode === 'allowance' ? 13000 : undefined,
-      executionMode: request.userSettings?.copyTradeExecutionMode
+      executionMode: request.userSettings?.copyTradeExecutionMode,
+      preWarmedNonce: request.preWarmedNonce
     };
 
+    if (checkNativeBalancePromise) await checkNativeBalancePromise;
     const executionResult = await SwapExecutor.execute(swapParams);
 
     if (!executionResult.success) {
@@ -1002,7 +1052,8 @@ export class MainSwapService {
             data: approvalData,
             value: '0',
             chainId: request.chainId,
-            nonce: nextNonce
+            nonce: nextNonce,
+            txPurpose: 'approval'
           });
 
           logger.info(LogCode.EXE_TX_CONFIRMED, trace('Post-Buy Pre-Approval Sent'), {

@@ -8,7 +8,7 @@ import {
   getErc20Decimals,
   getTransactionReceipt
 } from './rpcManager.js';
-import { sendTransaction } from './privyWallet.js';
+import { isTransactionQueueBusy, sendTransaction } from './privyWallet.js';
 
 const PREHEAT_ENABLED = (process.env.COPYTRADE_SELL_APPROVAL_PREHEAT_ENABLED || 'true') === 'true';
 const PREHEAT_MIN_USD = Number(process.env.COPYTRADE_SELL_APPROVAL_PREHEAT_MIN_USD || '0.5');
@@ -168,12 +168,16 @@ async function approveWithFallback(params: {
   const { userId, accessToken, chainId, tokenAddress, spender } = params;
   const txHashes: string[] = [];
   const sendApprove = async (amount: bigint): Promise<boolean> => {
+    if (isTransactionQueueBusy(userId, chainId)) {
+      throw new Error('wallet_tx_queue_busy_skip_preheat');
+    }
     const data = ERC20_APPROVE_IFACE.encodeFunctionData('approve', [spender, amount]);
     const txHash = await sendTransaction(userId, accessToken || '', {
       to: tokenAddress,
       data,
       value: '0',
-      chainId
+      chainId,
+      txPurpose: 'preheat'
     });
     txHashes.push(txHash);
     return await waitForReceipt(chainId, txHash, PREHEAT_TIMEOUT_MS);
@@ -182,7 +186,11 @@ async function approveWithFallback(params: {
   try {
     const ok = await sendApprove(MAX_UINT256);
     if (ok) return { success: true, txHashes };
-  } catch {
+  } catch (error: any) {
+    const message = String(error?.message || error || '');
+    if (message.includes('wallet_tx_queue_busy_skip_preheat')) {
+      return { success: false, txHashes, error: 'preheat_skipped_wallet_busy' };
+    }
     // Fallback below.
   }
 
@@ -194,6 +202,10 @@ async function approveWithFallback(params: {
       ? { success: true, txHashes }
       : { success: false, txHashes, error: 'approve_max_after_zero_not_confirmed' };
   } catch (error: any) {
+    const message = String(error?.message || error || '');
+    if (message.includes('wallet_tx_queue_busy_skip_preheat')) {
+      return { success: false, txHashes, error: 'preheat_skipped_wallet_busy' };
+    }
     return { success: false, txHashes, error: String(error?.message || error || 'approve_failed') };
   }
 }
@@ -260,6 +272,12 @@ export async function preheatSellApprovalForToken(params: SellApprovalPreheatPar
           token: tokenAddress,
           spender,
           txHashes: approval.txHashes
+        });
+      } else if (approval.error === 'preheat_skipped_wallet_busy') {
+        logger.info(LogCode.SYS_INFO, '[SellApprovalPreheat] Skipped while wallet tx queue busy', {
+          chainId: params.chainId,
+          token: tokenAddress,
+          spender
         });
       } else {
         logger.warn(LogCode.SYS_ERROR, '[SellApprovalPreheat] Approval warmup failed (non-fatal)', {

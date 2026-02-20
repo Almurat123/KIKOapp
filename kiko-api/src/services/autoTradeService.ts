@@ -20,7 +20,7 @@ import { SOLANA_CONFIG, getSolanaConnection } from '../config/solanaConfig.js';
 import { onSolanaSwapDetected, startSolanaWatcher } from './solanaWatcher.js';
 import { DynamicTakeProfitService } from './dynamicTakeProfitService.js';
 import { PublicKey } from '@solana/web3.js';
-import { getSolanaEmbeddedWalletAddress } from './privyWallet.js';
+import { getSolanaEmbeddedWalletAddress, getPendingNonce } from './privyWallet.js';
 import { analyzeTradeOpportunity } from './copyTradeAnalysisService.js';
 import { updateJudgeOutcome } from '../repositories/judgeRepository.js';
 import { createMessage, createSession } from '../repositories/chatRepository.js';
@@ -128,7 +128,6 @@ const COPYTRADE_ENABLE_DETECTION_PREWARM = (process.env.COPYTRADE_ENABLE_DETECTI
 const COPYTRADE_SKIP_ON_DIRECTION_CONFLICT = (process.env.COPYTRADE_SKIP_ON_DIRECTION_CONFLICT || 'true') === 'true';
 const ALLOWED_LAUNCHPAD_PROVIDERS = new Set(['zora', 'fourmeme']);
 const COPYTRADE_FORCE_EXTERNAL_SELL_PATH = (process.env.COPYTRADE_FORCE_EXTERNAL_SELL_PATH || 'true') === 'true';
-const COPYTRADE_TURBO_FAST_RETRY_ENABLED = (process.env.COPYTRADE_TURBO_FAST_RETRY_ENABLED || 'true') === 'true';
 const COPYTRADE_DISABLE_MIRROR_SELL_DUST_SWEEP = (process.env.COPYTRADE_DISABLE_MIRROR_SELL_DUST_SWEEP || 'true') === 'true';
 const CHAIN_LAUNCHPAD_PROVIDERS: Record<number, Set<string>> = {
     8453: new Set(['zora']),
@@ -1729,7 +1728,8 @@ async function processSingleUserBuy(
                         userSettings: {
                             fastSwapMode: fastSwapOverride || userSettings?.fastSwapMode,
                             copyTradeExecutionMode: executionMode
-                        }
+                        },
+                        preWarmedNonce: getPendingNonce(chainId, effectiveConfig.user.walletAddress)
                     });
                     if (!result1.success) throw new Error(result1.error);
                     txHash = result1.txHash!;
@@ -1748,72 +1748,19 @@ async function processSingleUserBuy(
                         token: tokenToBuy
                     });
                     if (turboMode) {
-                        const fastSwapOverride = true;
-                        let turboRetrySuccess = false;
-                        if (COPYTRADE_TURBO_FAST_RETRY_ENABLED) {
-                            const turboRetryAmount = baseAmount * 0.998;
-                            const turboRetrySlippage = Math.min(Math.floor(baseSlippage * 1.5), 2500);
-                            logger.warn(LogCode.EXE_TX_REVERTED, 'Turbo mode: step 1 failed, trying fast retry', {
-                                userId: config.userId,
-                                token: tokenToBuy,
-                                retryAmountEth: turboRetryAmount.toFixed(6),
-                                retrySlippageBps: turboRetrySlippage,
-                                error: compactCopyTradeError(buyErr1),
-                                bugHint: inferCopyTradeBugHint(buyErr1)
-                            });
-                            await new Promise((resolve) => setTimeout(resolve, 120));
-                            try {
-                                const turboRetry = await MainSwapService.executeSwap({
-                                    userId: effectiveConfig.user.privyDid,
-                                    walletAddress: effectiveConfig.user.walletAddress,
-                                    tokenIn: 'ETH',
-                                    tokenOut: tokenToBuy,
-                                    amountIn: turboRetryAmount.toFixed(18),
-                                    chainId,
-                                    slippageBps: turboRetrySlippage,
-                                    mode: 'copytrade',
-                                    feeBpsOverride: copyTradeFeeBpsOverride,
-                                    directSwapHint: buildDirectSwapHintFromSwap(swap),
-                                    userSettings: {
-                                        fastSwapMode: fastSwapOverride || userSettings?.fastSwapMode,
-                                        copyTradeExecutionMode: executionMode
-                                    }
-                                });
-                                if (!turboRetry.success) throw new Error(turboRetry.error);
-                                txHash = turboRetry.txHash!;
-                                turboRetrySuccess = true;
-                                logger.info(LogCode.EXE_TX_BROADCAST, '[CopyTradeTiming] turbo fast retry success', {
-                                    userId: effectiveConfig.userId,
-                                    token: tokenToBuy,
-                                    txHash,
-                                    timingMs: Date.now() - timingDetectedAt
-                                });
-                            } catch (turboRetryErr: any) {
-                                logger.warn(LogCode.EXE_TX_REVERTED, 'Turbo fast retry failed', {
-                                    userId: config.userId,
-                                    token: tokenToBuy,
-                                    error: compactCopyTradeError(turboRetryErr),
-                                    bugHint: inferCopyTradeBugHint(turboRetryErr),
-                                    chainId
-                                });
-                            }
+                        // MainSwapService already did 2 direct attempts (1st + 光速 2nd, cache hot); no 120ms + second executeSwap here
+                        logger.warn(LogCode.EXE_TX_REVERTED, 'Turbo mode: skip slow multi-step retries after step1 failure', {
+                            userId: config.userId,
+                            token: tokenToBuy,
+                            error: compactCopyTradeError(buyErr1),
+                            bugHint: inferCopyTradeBugHint(buyErr1)
+                        });
+                        if (pendingPositionId) {
+                            await prisma.position.deleteMany({ where: { id: pendingPositionId } }).catch((e) =>
+                                logger.error(LogCode.SYS_ERROR, 'Failed to cleanup pending pos on turbo step1 failure', { error: e })
+                            );
                         }
-                        if (!turboRetrySuccess) {
-                            logger.warn(LogCode.EXE_TX_REVERTED, 'Turbo mode: skip slow multi-step retries after step1 failure', {
-                                userId: config.userId,
-                                token: tokenToBuy,
-                                error: compactCopyTradeError(buyErr1),
-                                bugHint: inferCopyTradeBugHint(buyErr1)
-                            });
-                            // Turbo fail-fast must release pending lock, otherwise mirror-sell/monitor won't see open positions
-                            // and stale pending rows can block subsequent buys.
-                            if (pendingPositionId) {
-                                await prisma.position.deleteMany({ where: { id: pendingPositionId } }).catch((e) =>
-                                    logger.error(LogCode.SYS_ERROR, 'Failed to cleanup pending pos on turbo step1 failure', { error: e })
-                                );
-                            }
-                            return;
-                        }
+                        return;
                     } else {
                         // CHECK: Conservative vs Aggressive Retry Mode
                         // If checkTokenBeforeSwap is TRUE (Conservative), we re-check price stability.

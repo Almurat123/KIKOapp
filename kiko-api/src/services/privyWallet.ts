@@ -26,6 +26,10 @@ const PRIVY_SEND_TX_CHAIN_IDS = new Set(
 
 let privyClient: PrivyClient | null = null;
 
+/** In-memory cache for embedded wallet info (address + id). 5min TTL to avoid Privy API call on every TX. */
+const walletInfoCache = new Map<string, { data: { address: string; id: string }; ts: number }>();
+const WALLET_INFO_CACHE_TTL_MS = Number(process.env.PRIVY_WALLET_CACHE_TTL_MS || '300000'); // 5 minutes
+
 const toHexQuantity = (value?: string) =>
     value !== undefined && value !== null && value !== ''
         ? (`0x${BigInt(value).toString(16)}` as `0x${string}`)
@@ -74,10 +78,16 @@ function getPrivyClient(): PrivyClient {
 
 /**
  * Get user's embedded wallet info (address AND internal ID)
+ * Cached 5min in-memory to avoid Privy API call on every transaction (buy path optimization).
  * @param userId - Privy user ID (from JWT sub claim)
  * @returns Wallet info or null if user has no embedded wallet
  */
 export async function getEmbeddedWalletInfo(userId: string): Promise<{ address: string; id: string } | null> {
+    const cached = walletInfoCache.get(userId);
+    if (cached && Date.now() - cached.ts < WALLET_INFO_CACHE_TTL_MS) {
+        return cached.data;
+    }
+
     const client = getPrivyClient();
     const maxRetries = 3;
     let lastError: any = null;
@@ -97,12 +107,12 @@ export async function getEmbeddedWalletInfo(userId: string): Promise<{ address: 
             }
 
             const walletData = embeddedWallet as any;
-            // Privy embedded wallets have an 'id' field that is the internal wallet ID
-            // and an 'address' field that is the Ethereum address
-            return {
+            const result = {
                 address: walletData.address || '',
                 id: walletData.id || walletData.address // Fallback to address if id not present
             };
+            walletInfoCache.set(userId, { data: result, ts: Date.now() });
+            return result;
         } catch (error: any) {
             lastError = error;
 
@@ -175,6 +185,8 @@ export interface TransactionRequest {
     maxPriorityFeePerGas?: string;
     nonce?: string;
     executionProfile?: string;
+    txPurpose?: 'trade' | 'approval' | 'preheat' | 'speedup' | 'fee' | 'other';
+    txPriority?: number;
     chainId: number;
 }
 
@@ -230,12 +242,17 @@ function validatePrivyTransactionShape(tx: TransactionRequest): PrivyTxValidatio
     return { ok: errors.length === 0, errors };
 }
 
-async function fetchPendingNonce(chainId: number, walletAddress: string): Promise<string | undefined> {
+/** Fetches pending nonce for a wallet (used by sendTransaction and by copy-trade pre-warm). */
+export async function getPendingNonce(chainId: number, walletAddress: string): Promise<string | undefined> {
     const countHex = await rpcCall<string>(chainId, 'eth_getTransactionCount', [
         walletAddress,
         'pending'
     ], { strategy: 'fast', importance: 'critical' });
     return countHex ? BigInt(countHex).toString() : undefined;
+}
+
+async function fetchPendingNonce(chainId: number, walletAddress: string): Promise<string | undefined> {
+    return getPendingNonce(chainId, walletAddress);
 }
 
 async function bumpRetryGasPrice(
@@ -266,25 +283,89 @@ async function bumpRetryGasPrice(
  * @param tx - Transaction to send
  * @returns Transaction hash
  */
-// Queue to manage concurrent transactions per user to prevent nonce collisions
-const userTransactionLocks: Map<string, Promise<any>> = new Map();
+interface QueuedTxTask<T> {
+    priority: number;
+    sequence: number;
+    purpose: string;
+    run: () => Promise<T>;
+    resolve: (value: T) => void;
+    reject: (error: any) => void;
+}
 
-/**
- * Execute a function sequentially for a given user
- */
-async function withUserLock<T>(userId: string, fn: () => Promise<T>): Promise<T> {
-    const currentLock = userTransactionLocks.get(userId) || Promise.resolve();
+const walletTxQueues = new Map<string, QueuedTxTask<any>[]>();
+const walletTxQueueRunning = new Set<string>();
+let walletTxSequence = 0;
 
-    // Create a new promise that chains onto the current lock
-    // We catch errors in the previous lock to ensure the chain continues even if one fails
-    const nextLock = currentLock
-        .catch(() => { })
-        .then(() => fn());
+function buildWalletQueueKey(userId: string, chainId: number): string {
+    return `${userId}:${chainId}`;
+}
 
-    // Update the lock for this user
-    userTransactionLocks.set(userId, nextLock);
+function resolveTxPriority(tx: TransactionRequest): number {
+    if (Number.isFinite(tx.txPriority)) return Number(tx.txPriority);
+    if (tx.txPurpose === 'preheat') return 200;
+    if (tx.txPurpose === 'speedup') return 20;
+    if (tx.txPurpose === 'trade') return 30;
+    if (tx.txPurpose === 'approval') return 70;
+    if (tx.txPurpose === 'fee') return 90;
+    if ((tx.executionProfile || '').includes('sniper')) return 40;
+    if ((tx.data || '').startsWith('0x095ea7b3')) return 80;
+    return 60;
+}
 
-    return nextLock;
+function pumpWalletQueue(queueKey: string): void {
+    if (walletTxQueueRunning.has(queueKey)) return;
+    const queue = walletTxQueues.get(queueKey);
+    if (!queue || queue.length === 0) return;
+
+    walletTxQueueRunning.add(queueKey);
+    const [nextTask] = queue.splice(0, 1);
+
+    nextTask.run()
+        .then((value) => nextTask.resolve(value))
+        .catch((error) => nextTask.reject(error))
+        .finally(() => {
+            walletTxQueueRunning.delete(queueKey);
+            const current = walletTxQueues.get(queueKey);
+            if (!current || current.length === 0) {
+                walletTxQueues.delete(queueKey);
+                return;
+            }
+            pumpWalletQueue(queueKey);
+        });
+}
+
+async function enqueueWalletTx<T>(
+    userId: string,
+    chainId: number,
+    priority: number,
+    purpose: string,
+    run: () => Promise<T>
+): Promise<T> {
+    const queueKey = buildWalletQueueKey(userId, chainId);
+    const queue = walletTxQueues.get(queueKey) || [];
+    walletTxQueues.set(queueKey, queue);
+
+    return await new Promise<T>((resolve, reject) => {
+        queue.push({
+            priority,
+            sequence: ++walletTxSequence,
+            purpose,
+            run,
+            resolve,
+            reject
+        });
+        queue.sort((a, b) => {
+            if (a.priority !== b.priority) return a.priority - b.priority;
+            return a.sequence - b.sequence;
+        });
+        pumpWalletQueue(queueKey);
+    });
+}
+
+export function isTransactionQueueBusy(userId: string, chainId: number): boolean {
+    const key = buildWalletQueueKey(userId, chainId);
+    const queue = walletTxQueues.get(key);
+    return walletTxQueueRunning.has(key) || !!(queue && queue.length > 0);
 }
 
 async function signAndBroadcastRawTransaction(
@@ -336,8 +417,15 @@ export async function sendTransaction(
     accessToken: string,
     tx: TransactionRequest
 ): Promise<string> {
-    // Wrap entire execution in a per-user lock
-    return withUserLock(userId, async () => {
+    const txPriority = resolveTxPriority(tx);
+    const txPurpose = tx.txPurpose || 'other';
+    return await enqueueWalletTx(userId, tx.chainId, txPriority, txPurpose, async () => {
+        logger.debug(LogCode.EXE_TX_BROADCAST, 'Wallet tx dequeued for send', {
+            userId: userId.slice(0, 10),
+            chainId: tx.chainId,
+            txPurpose,
+            txPriority
+        });
         // === SIMULATION MODE ===
         if (process.env.SIMULATION_MODE === 'true') {
             logger.info(LogCode.EXE_TX_BROADCAST, 'SIMULATION MODE: Skipping actual Privy send', {

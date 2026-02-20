@@ -1805,6 +1805,7 @@ async function executeAerodromeSwap(
             data: swapTx.data,
             value: swapTx.value || '0',
             chainId: params.chainId,
+            txPurpose: 'trade',
             executionProfile: getTxExecutionProfile(params.chainId),
             gas: gasLimit
         });
@@ -1869,6 +1870,7 @@ async function executeZoraSdkSwap(
             data,
             value: value ? BigInt(value).toString() : '0',
             chainId: params.chainId,
+            txPurpose: 'trade',
             executionProfile: getTxExecutionProfile(params.chainId)
         });
 
@@ -3138,6 +3140,7 @@ async function executeV3VirtualBridgeSwap(
         data,
         value: isNativeIn ? amountInWei.toString() : '0',
         chainId,
+        txPurpose: 'trade',
         executionProfile: getTxExecutionProfile(chainId),
         gas: gasLimit
     });

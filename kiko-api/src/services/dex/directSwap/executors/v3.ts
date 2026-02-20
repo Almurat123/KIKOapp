@@ -188,6 +188,7 @@ export async function executeV3Swap(
     data,
     value: isNativeIn ? amountInWei.toString() : '0',
     chainId,
+    txPurpose: 'trade',
     executionProfile: deps.getTxExecutionProfile(chainId),
     gas: gasLimit
   });

@@ -91,6 +91,47 @@ function recordUsageEnd(url: string): void {
     usage.inFlight = Math.max(0, usage.inFlight - 1);
 }
 
+/** Check capacity and increment usage in one synchronous block to avoid race under concurrency. */
+function checkAndReserveCapacity(endpoint: RpcEndpointConfig, importance: RpcImportance): { ok: boolean; reason?: string } {
+    const limits = endpoint.limits;
+    if (!limits) return { ok: true };
+    const usage = getOrCreateUsage(endpoint.url);
+    const now = Date.now();
+
+    if (now - usage.lastSecondStart >= 1000) {
+        usage.lastSecondStart = now;
+        usage.secondCount = 0;
+    }
+    if (now - usage.lastMinuteStart >= 60000) {
+        usage.lastMinuteStart = now;
+        usage.minuteCount = 0;
+    }
+
+    if (limits.maxInFlight && usage.inFlight >= limits.maxInFlight) {
+        return { ok: false, reason: 'maxInFlight' };
+    }
+    if (limits.rps && usage.secondCount >= limits.rps) {
+        if (importance === 'critical' && endpoint.type === 'premium') {
+            // allow but still reserve below
+        } else {
+            return { ok: false, reason: 'rps' };
+        }
+    }
+    if (limits.rpm && usage.minuteCount >= limits.rpm) {
+        if (importance === 'critical' && endpoint.type === 'premium') {
+            // allow but still reserve below
+        } else {
+            return { ok: false, reason: 'rpm' };
+        }
+    }
+
+    usage.secondCount += 1;
+    usage.minuteCount += 1;
+    usage.inFlight += 1;
+    usage.lastUsedAt = now;
+    return { ok: true };
+}
+
 function checkEndpointCapacity(endpoint: RpcEndpointConfig, importance: RpcImportance): { ok: boolean; reason?: string } {
     const limits = endpoint.limits;
     if (!limits) return { ok: true };
@@ -295,11 +336,11 @@ export async function callRpc<T = any>(
     // Sort endpoints by health and priority
     const sortedEndpoints = sortEndpointsByScore(endpoints, effectiveImportance);
 
-    // Critical hedge for latency-sensitive copytrade reads: race top-2 endpoints.
+    // Critical hedge: race endpoints for reads and for broadcast (same signed TX to multiple nodes is idempotent).
     const canUseCriticalHedge =
         RPC_CRITICAL_HEDGE_ENABLED &&
         effectiveImportance === 'critical' &&
-        (method === 'eth_getTransactionByHash' || method === 'eth_getTransactionReceipt') &&
+        (method === 'eth_getTransactionByHash' || method === 'eth_getTransactionReceipt' || method === 'eth_sendRawTransaction') &&
         sortedEndpoints.length >= 2;
 
     if (canUseCriticalHedge) {
@@ -311,14 +352,13 @@ export async function callRpc<T = any>(
             if (isCircuitOpen(endpoint.url)) {
                 throw new Error('circuit_open');
             }
-            const capacity = checkEndpointCapacity(endpoint, effectiveImportance);
+            const capacity = checkAndReserveCapacity(endpoint, effectiveImportance);
             if (!capacity.ok) {
                 throw new Error(`capacity_limited:${capacity.reason || 'unknown'}`);
             }
 
             const startTime = Date.now();
             try {
-                recordUsageStart(endpoint.url);
                 recordAttempt(endpoint.url);
 
                 const controller = new AbortController();
@@ -388,7 +428,7 @@ export async function callRpc<T = any>(
             continue;
         }
 
-        const capacity = checkEndpointCapacity(endpoint, effectiveImportance);
+        const capacity = checkAndReserveCapacity(endpoint, effectiveImportance);
         if (!capacity.ok) {
             logger.debug(LogCode.API_FETCH_FAILED, `RPC capacity limited, skipping endpoint`, {
                 endpoint: maskEndpoint(endpoint.url),
@@ -399,7 +439,6 @@ export async function callRpc<T = any>(
 
         const startTime = Date.now();
         try {
-            recordUsageStart(endpoint.url);
             recordAttempt(endpoint.url);
 
             const controller = new AbortController();
@@ -562,7 +601,7 @@ export async function callRpcCustom<T = any>(
             continue;
         }
 
-        const capacity = checkEndpointCapacity(endpoint, effectiveImportance);
+        const capacity = checkAndReserveCapacity(endpoint, effectiveImportance);
         if (!capacity.ok) {
             logger.debug(LogCode.API_FETCH_FAILED, 'RPC capacity limited, skipping endpoint', {
                 endpoint: maskEndpoint(endpoint.url),
@@ -573,7 +612,6 @@ export async function callRpcCustom<T = any>(
 
         const startTime = Date.now();
         try {
-            recordUsageStart(endpoint.url);
             recordAttempt(endpoint.url);
 
             const controller = new AbortController();
@@ -731,7 +769,7 @@ export async function callRpcRaw<T = any>(
             continue;
         }
 
-        const capacity = checkEndpointCapacity(endpoint, effectiveImportance);
+        const capacity = checkAndReserveCapacity(endpoint, effectiveImportance);
         if (!capacity.ok) {
             logger.debug(LogCode.API_FETCH_FAILED, 'RPC capacity limited, skipping endpoint', {
                 endpoint: maskEndpoint(endpoint.url),
@@ -742,7 +780,6 @@ export async function callRpcRaw<T = any>(
 
         const startTime = Date.now();
         try {
-            recordUsageStart(endpoint.url);
             recordAttempt(endpoint.url);
 
             const controller = new AbortController();
