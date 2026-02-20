@@ -49,7 +49,7 @@ export interface DirectSwapHint {
   sourceRouter?: string;
   sourceTxHash?: string;
   resolvedPoolHint?: {
-    kind: 'v4' | 'v3' | 'v2';
+    kind: 'v4' | 'v3' | 'v2' | 'aerodrome';
     dex?: 'uniswap' | 'pancake' | 'aerodrome' | 'pancake-infinity';
     poolAddress?: string;
     fee?: number;

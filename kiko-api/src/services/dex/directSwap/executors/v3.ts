@@ -168,7 +168,27 @@ export async function executeV3Swap(
 
   let gasLimit = '450000';
   if (options?.fastMode) {
-    gasLimit = deps.turboV3GasLimit;
+    try {
+      const estimate = await deps.callRpc<string>(chainId, 'eth_estimateGas', [{
+        from: walletAddress,
+        to: routerAddress,
+        data,
+        value: isNativeIn ? ethers.toQuantity(amountInWei) : '0x0'
+      }]);
+      gasLimit = (BigInt(estimate) * 2n).toString();
+    } catch (simErr: any) {
+      logger.warn(LogCode.EXE_TX_REVERTED, '[DirectSwap] V3 fastMode pre-sim REVERTED — aborting send', {
+        pool: pool.poolAddress?.slice(0, 20),
+        fee: bestFee,
+        router: routerAddress?.slice(0, 12),
+        error: simErr?.message?.slice(0, 150)
+      });
+      return {
+        success: false,
+        error: `V3 pre-sim reverted: ${simErr?.message?.slice(0, 100) || 'unknown'}`,
+        provider: 'failed'
+      };
+    }
   } else {
     try {
       const estimate = await deps.callRpc<string>(chainId, 'eth_estimateGas', [{

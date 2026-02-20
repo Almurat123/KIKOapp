@@ -621,6 +621,14 @@ async function tryResolvedPoolHintFastPath(
         return executeV4Swap(params, selectedPool, { allowZeroQuoteMinOut: true, fastMode: true });
     }
 
+    if (resolved.kind === 'aerodrome' || resolved.dex === 'aerodrome') {
+        logger.info(LogCode.SYS_INFO, '[DirectSwap] Hint fast-path routing to Aerodrome', {
+            poolAddress: resolved.poolAddress,
+            chainId: params.chainId
+        });
+        return executeAerodromeSwap(params);
+    }
+
     if ((resolved.kind === 'v3' || resolved.kind === 'v2') && resolved.poolAddress) {
         const pool: PoolInfo = {
             poolAddress: resolved.poolAddress,

@@ -101,6 +101,47 @@ const v4PoolTokenInflight = new Map<string, Promise<{ token0: string; token1: st
 const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
 const infinityPoolKeyCache = new Set<string>();
 
+const KNOWN_V3_FACTORIES: Record<number, Record<string, 'uniswap' | 'pancake' | 'aerodrome'>> = {
+    8453: {
+        '0x33128a8fc17869897dce68ed026d694621f6fdfd': 'uniswap',
+        '0xade65c38cd4849adba595a4323a8c7ddfe89716a': 'aerodrome',
+    },
+    1: {
+        '0x1f98431c8ad98523631ae4a59f267346ea31f984': 'uniswap',
+    },
+    56: {
+        '0x0bfbcf9fa4f9c56b0f40a671ad40e0805a091865': 'pancake',
+    }
+};
+const poolDexCache = new Map<string, 'uniswap' | 'pancake' | 'aerodrome'>();
+
+async function detectPoolDex(pool: string, chainId: number): Promise<'uniswap' | 'pancake' | 'aerodrome'> {
+    const key = `${chainId}:${pool.toLowerCase()}`;
+    const cached = poolDexCache.get(key);
+    if (cached) return cached;
+
+    const fallback: 'uniswap' | 'pancake' = chainId === 56 ? 'pancake' : 'uniswap';
+    try {
+        const factoryHex = await rpcCall<string>(
+            chainId, 'eth_call',
+            [{ to: pool, data: '0xc45a0155' }, 'latest'],
+            { strategy: 'fast' }
+        );
+        if (factoryHex && factoryHex.length >= 42) {
+            const factory = '0x' + factoryHex.slice(-40).toLowerCase();
+            const mapping = KNOWN_V3_FACTORIES[chainId];
+            if (mapping?.[factory]) {
+                poolDexCache.set(key, mapping[factory]);
+                return mapping[factory];
+            }
+        }
+    } catch {
+        // factory() call failed — use fallback
+    }
+    poolDexCache.set(key, fallback);
+    return fallback;
+}
+
 async function getPoolTokens(chainId: number, pool: string): Promise<{ token0: string; token1: string } | null> {
     const key = `${chainId}:${pool.toLowerCase()}`;
     const cached = poolTokenCache.get(key);
@@ -566,6 +607,9 @@ async function decodeSwapFromPoolEvents(
     if (!lastSwapLog || !swapType) return null;
 
     const pool = lastSwapLog.address.toLowerCase();
+    const poolDex = swapType === 'v3'
+        ? await detectPoolDex(pool, chainId)
+        : (chainId === 56 ? 'pancake' as const : 'uniswap' as const);
     const inferred = inferSwapFromPoolTransfers(logs, pool);
     if (inferred) {
         return {
@@ -576,8 +620,8 @@ async function decodeSwapFromPoolEvents(
             router: '',
             dexName: swapType === 'v3' ? 'V3 Pool' : 'V2 Pair',
             resolvedPoolHint: {
-                kind: swapType,
-                dex: chainId === 56 ? 'pancake' : 'uniswap',
+                kind: poolDex === 'aerodrome' ? 'aerodrome' as const : swapType,
+                dex: poolDex,
                 poolAddress: pool
             }
         };
@@ -636,10 +680,10 @@ async function decodeSwapFromPoolEvents(
                 amountIn: amountIn.toString(),
                 amountOut: amountOut.toString(),
                 router: '',
-                dexName: 'V3 Pool',
+                dexName: poolDex === 'aerodrome' ? 'Aerodrome CL' : 'V3 Pool',
                 resolvedPoolHint: {
-                    kind: 'v3',
-                    dex: chainId === 56 ? 'pancake' : 'uniswap',
+                    kind: poolDex === 'aerodrome' ? 'aerodrome' as const : 'v3',
+                    dex: poolDex,
                     poolAddress: pool,
                     fee: 0
                 }
@@ -725,7 +769,7 @@ export interface DecodedSwap {
     router: string;
     dexName: string;
     resolvedPoolHint?: {
-        kind: 'v4' | 'v3' | 'v2';
+        kind: 'v4' | 'v3' | 'v2' | 'aerodrome';
         dex?: 'uniswap' | 'pancake' | 'aerodrome' | 'pancake-infinity';
         poolAddress?: string;
         fee?: number;
