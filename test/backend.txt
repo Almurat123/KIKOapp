@@ -1,612 +1,196 @@
-2026-02-20T06:00:03.171506597Z [inf]  Starting Container
-2026-02-20T06:00:04.163776430Z [inf]  
-2026-02-20T06:00:04.163781238Z [inf]  > kiko-api@1.0.0 start
-2026-02-20T06:00:04.163785632Z [inf]  > node dist/index.js
-2026-02-20T06:00:04.163790101Z [inf]  
-2026-02-20T06:00:05.134470719Z [inf]  [Prisma] Initializing client (Pool: 20, Timeout: 45s, Connect: 20s)
-2026-02-20T06:00:05.134478006Z [inf]  Zora SDK initialized with API Key
-2026-02-20T06:00:05.134483953Z [err]  [SocialJob] Could not find real_hot_users.json in any candidate path
-2026-02-20T06:00:05.134489622Z [inf]  [Warpcast] Loaded 10 API keys. Daily capacity: 50000 messages.
-2026-02-20T06:00:05.171959348Z [inf]  [SkillRegistry:exec] Loading skills from /app/dist/skills_exec...
-2026-02-20T06:00:05.171965008Z [inf]  [SkillRegistry:exec] Skills dir not found, skipping: /app/dist/skills_exec
-2026-02-20T06:00:05.171970597Z [inf]  [SkillRegistry:clean] Loading skills from /app/dist/skills_clean...
-2026-02-20T06:00:05.171976338Z [inf]  [SkillRegistry:clean] Skills dir not found, skipping: /app/dist/skills_clean
-2026-02-20T06:00:05.240040508Z [inf]  Build SHA
-2026-02-20T06:00:05.240044566Z [inf]  Serving static files from:
-2026-02-20T06:00:05.243294814Z [inf]  Initializing services...
-2026-02-20T06:00:05.987199769Z [inf]  Database connection successful
-2026-02-20T06:00:05.987206004Z [inf]  [DataRetention] Checking retention policies...
-2026-02-20T06:00:05.987213400Z [inf]  [Prisma] DB connection is healthy
-2026-02-20T06:00:05.987218901Z [inf]  [DataRetention] Starting cleanup job...
-2026-02-20T06:00:05.987224377Z [inf]  [DataRetention] Scheduler started (every 60 minutes)
-2026-02-20T06:00:05.987230369Z [inf]  Redis initialized
-2026-02-20T06:00:05.987236688Z [inf]  ⚡ Preloading native token prices via Coinbase...
-2026-02-20T06:00:05.987242306Z [inf]  ⚡ Native price refresh started (10 min interval)
-2026-02-20T06:00:05.989722546Z [inf]  Starting server on port 8080...
-2026-02-20T06:00:05.989734002Z [inf]  Server listening at http://0.0.0.0:8080
-2026-02-20T06:00:05.989741493Z [inf]  Server listening
-2026-02-20T06:00:05.989748503Z [inf]  RPC health monitor started
-2026-02-20T06:00:05.989755099Z [inf]  RPC benchmark sampling started
-2026-02-20T06:00:05.989761787Z [inf]  [MarketJob] Scheduled: Overview(2:00 UTC), Chains(3:00 UTC), Protocols(4:00 UTC), Trending(Every 5m)
-2026-02-20T06:00:05.989767064Z [inf]  Scheduled: Primary chains every 5min (Ethereum, Solana, Base, BSC)
-2026-02-20T06:00:05.989856097Z [inf]  Native price refresh started
-2026-02-20T06:00:05.992117323Z [inf]  [SolanaWatcher] ⚠️ Watcher disabled in favor of Webhooks. Not starting polling.
-2026-02-20T06:00:05.992125080Z [inf]  Auto trade service initialized (Solana watcher + EVM webhook + pending prefetch enabled)
-2026-02-20T06:00:05.992132032Z [inf]  Auto trade service started
-2026-02-20T06:00:05.992138230Z [inf]  [PositionMonitor] Starting position monitor (every 30s)...
-2026-02-20T06:00:05.992253780Z [inf]  Scheduled: Secondary chains every 4h (Arbitrum, Optimism, Polygon)
-2026-02-20T06:00:05.992260488Z [inf]  [SocialJob] Scheduled: Discovery (30m), Refresh (4h), Scoring (5m)
-2026-02-20T06:00:05.992266414Z [inf]  Background jobs started
-2026-02-20T06:00:05.992272127Z [inf]  Initializing auto trade service...
-2026-02-20T06:00:05.997471072Z [inf]  Position monitor started
-2026-02-20T06:00:05.997482071Z [inf]  Token Alert Service started
-2026-02-20T06:00:05.997490146Z [inf]  Token alert service started
-2026-02-20T06:00:05.997494808Z [inf]  ChatWorker started polling
-2026-02-20T06:00:05.997499370Z [inf]  Chat worker started
-2026-02-20T06:00:05.997504386Z [inf]  Starting Global Zora Alpha Detector (API Polling)
-2026-02-20T06:00:05.997508627Z [inf]  🎉 All services initialized!
-2026-02-20T06:00:05.997513752Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-20T06:00:06.000795733Z [inf]  [CopyTradePending] Pending watcher started
-2026-02-20T06:00:06.000803388Z [inf]  ⚡ Native token prices cached (Coinbase)
-2026-02-20T06:00:06.000811618Z [inf]  [DataRetention] Cleanup job completed.
-2026-02-20T06:00:11.117273524Z [inf]  [SocialJob] fetchCastsFromUsers starting with 1058 FIDs, target: 1000
-2026-02-20T06:00:11.117283193Z [inf]  No open positions to monitor
-2026-02-20T06:00:11.117309949Z [inf]  [MarketJob] Running startup staleness check...
-2026-02-20T06:00:11.117325337Z [inf]  [Job] Real hot users file not found: 
-2026-02-20T06:00:11.117334913Z [inf]  [Job] ✅ Got 1058 quality users from database
-2026-02-20T06:00:41.115726432Z [inf]  Starting initial token refresh...
-2026-02-20T06:01:11.117409715Z [wrn]  RPC health degraded
-2026-02-20T06:01:11.117413729Z [inf]  Fetching premium trending tokens
-2026-02-20T06:01:11.117418428Z [inf]  WS addresses discovered
-2026-02-20T06:01:11.117422327Z [inf]  Alpha Detector: Checking new coin
-2026-02-20T06:01:11.117426072Z [inf]  Processed DexScreener trending candidates
-2026-02-20T06:01:11.117429687Z [inf]  Premium trending tokens fetch complete
-2026-02-20T06:01:11.121123151Z [inf]  Got 100 trending tokens for Solana
-2026-02-20T06:01:11.121129530Z [inf]  Saved 100/100 trending tokens for solana to database and memory cache
-2026-02-20T06:01:11.121134128Z [inf]  Saved 100 tokens for Solana to DB + cache
-2026-02-20T06:01:30.510688254Z [inf]  Suppressed repeated logs
-2026-02-20T06:01:30.510695683Z [inf]  Saved 100/100 trending tokens for solana to database and memory cache
-2026-02-20T06:01:37.409830241Z [inf]  Fetching premium trending tokens
-2026-02-20T06:01:38.098376291Z [inf]  WS addresses discovered
-2026-02-20T06:01:39.043701714Z [inf]  Premium trending tokens fetch complete
-2026-02-20T06:01:39.043711194Z [inf]  Got 66 trending tokens for Base
-2026-02-20T06:01:39.043718517Z [inf]  Filtered out 1 invalid tokens for Base
-2026-02-20T06:01:39.043762287Z [inf]  Processed DexScreener trending candidates
-2026-02-20T06:01:39.432113665Z [inf]  Saved 65/65 trending tokens for base to database and memory cache
-2026-02-20T06:01:39.435999310Z [inf]  Saved 65 tokens for Base to DB + cache
-2026-02-20T06:01:40.022567897Z [inf]  Launchpad verify budget applied
-2026-02-20T06:01:41.487575014Z [err]  api failed after 1 attempts
-2026-02-20T06:02:01.486736607Z [inf]  Suppressed repeated logs
-2026-02-20T06:02:01.486742249Z [inf]  Saved 65/65 trending tokens for base to database and memory cache
-2026-02-20T06:02:02.358030578Z [inf]  [SocialJob] Checking Zora coin status for 1000 casts...
-2026-02-20T06:02:05.590369379Z [wrn]  RPC health degraded
-2026-02-20T06:02:09.457290215Z [inf]  Fetching premium trending tokens
-2026-02-20T06:02:10.175013144Z [inf]  WS addresses discovered
-2026-02-20T06:02:11.136402301Z [inf]  Processed DexScreener trending candidates
-2026-02-20T06:02:11.136408460Z [inf]  Premium trending tokens fetch complete
-2026-02-20T06:02:11.136415011Z [inf]  Got 82 trending tokens for BSC
-2026-02-20T06:02:11.136421728Z [inf]  Filtered out 1 invalid tokens for BSC
-2026-02-20T06:02:11.203637345Z [inf]  Saved 81/81 trending tokens for bsc to database and memory cache
-2026-02-20T06:02:11.206231106Z [inf]  Saved 81 tokens for BSC to DB + cache
-2026-02-20T06:02:11.211582211Z [inf]  Refreshed 4 primary chains in 95.6s
-2026-02-20T06:02:11.369337030Z [inf]  Launchpad verify budget applied
-2026-02-20T06:02:12.424681747Z [err]  LaunchpadDetector: Four.meme fetch failed
-2026-02-20T06:02:12.450632761Z [err]  LaunchpadDetector: Four.meme fetch failed
-2026-02-20T06:02:42.514912703Z [inf]  [SocialRepo] Cleaned up 716 old casts (cap: 1000)
-2026-02-20T06:02:42.514919071Z [inf]  SocialRepo: Updated cache with 500 merged casts
-2026-02-20T06:02:42.514925121Z [inf]  SocialRepo: Saved 1000 trending casts to database
-2026-02-20T06:02:42.514931847Z [inf]  [SocialJob] Casts refreshed: 1000 saved
-2026-02-20T06:02:42.514938154Z [inf]  [SocialJob] 🚀 Triggering OGP Prefetch for top 50 casts...
-2026-02-20T06:02:42.514944101Z [wrn]  [OGPService] Simple fetch failed
-2026-02-20T06:02:42.514950179Z [inf]  [OGPService] Launching Singleton Browser...
-2026-02-20T06:02:42.514956010Z [err]  [OGPService] Puppeteer failed
-2026-02-20T06:02:42.522343849Z [inf]  [OGPService] No metadata resolved
-2026-02-20T06:02:43.259199917Z [wrn]  [OGPService] Simple fetch failed
-2026-02-20T06:02:43.641486458Z [inf]  [OGPService] Launching Singleton Browser...
-2026-02-20T06:02:43.641491475Z [err]  [OGPService] Puppeteer failed
-2026-02-20T06:02:43.643024179Z [inf]  [OGPService] No metadata resolved
-2026-02-20T06:02:48.335875675Z [inf]  [SocialJob] ✅ OGP prefetch completed
-2026-02-20T06:03:07.895522128Z [wrn]  RPC health degraded
-2026-02-20T06:03:07.895530324Z [inf]  Suppressed repeated logs
-2026-02-20T06:03:07.895536537Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-20T06:03:10.848460824Z [inf]  Suppressed repeated logs
-2026-02-20T06:03:10.848468195Z [inf]  No open positions to monitor
-2026-02-20T06:04:10.238649013Z [wrn]  RPC health degraded
-2026-02-20T06:04:11.064022993Z [inf]  Alpha Detector: Checking new coin
-2026-02-20T06:04:11.064061531Z [inf]  Suppressed repeated logs
-2026-02-20T06:04:30.664450815Z [inf]  [Webhook] Alchemy payload: network=BASE_MAINNET hash=0xe58f4c15d57a95aec4a6b43cbeda101af31ad8735df82d5e13a5c8ed4c829cf1 category=token asset=TGATE
-2026-02-20T06:04:30.664456383Z [inf]  [Webhook] Processing as EVM activity groups (1 tx groups)
-2026-02-20T06:04:30.664461454Z [inf]  [Webhook] Ignore tx 0xe58f4c15d57a95aec4a6b43cbeda101af31ad8735df82d5e13a5c8ed4c829cf1: no tracked wallets (from/to 0xf71b2719f3e9fe85849819f4c892d60d2f8f1c2c, 0xfb64ce8d64cec808a8acb977d3ee7be1169f1a2b, 0x39148cc07db7c4e68df13347c26567f0dae183f5, 0x0000000000000000000000000000000000000000, 0xddf252ad1be2c89b69c2b068fc378daa952ba7f1, 0x000000000000000000000000f71b2719f3e9fe85, 0x000000000000000000000000fb64ce8d64cec808, 0x6943b983dfcc06fd5e1316cdd2cc6b3ec496fa32, 0xe58f4c15d57a95aec4a6b43cbeda101af31ad873)
-2026-02-20T06:05:00.686199756Z [inf]  Fetching premium trending tokens
-2026-02-20T06:05:00.686203456Z [inf]  SocialRepo: Recalculated heat scores for 1000 casts
-2026-02-20T06:05:00.686207323Z [inf]  WS addresses discovered
-2026-02-20T06:05:01.735781226Z [inf]  Processed DexScreener trending candidates
-2026-02-20T06:05:05.450682801Z [wrn]  GeckoTerminal 429 triggered backoff
-2026-02-20T06:05:05.636779993Z [wrn]  RPC health degraded
-2026-02-20T06:05:06.438572527Z [wrn]  GeckoTerminal 429 triggered backoff
-2026-02-20T06:05:08.505459824Z [wrn]  GeckoTerminal 429 triggered backoff
-2026-02-20T06:05:12.567958002Z [wrn]  GeckoTerminal 429 triggered backoff
-2026-02-20T06:05:12.567974151Z [err]  GeckoTerminal API error after retries
-2026-02-20T06:05:12.567981706Z [err]  Error fetching trending tokens
-2026-02-20T06:05:12.567988690Z [inf]  Premium trending tokens fetch complete
-2026-02-20T06:05:12.567996809Z [inf]  Got 85 trending tokens for Ethereum
-2026-02-20T06:05:12.568004725Z [inf]  Filtered out 5 invalid tokens for Ethereum
-2026-02-20T06:05:12.568010882Z [inf]  Saved 80/80 trending tokens for eth to database and memory cache
-2026-02-20T06:05:12.571274376Z [inf]  Saved 80 tokens for Ethereum to DB + cache
-2026-02-20T06:05:12.571279371Z [inf]  Launchpad verify budget applied
-2026-02-20T06:06:12.292970488Z [wrn]  RPC health degraded
-2026-02-20T06:06:12.292975355Z [inf]  Suppressed repeated logs
-2026-02-20T06:06:12.292979351Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-20T06:06:12.292983406Z [inf]  Suppressed repeated logs
-2026-02-20T06:06:12.292989182Z [inf]  No open positions to monitor
-2026-02-20T06:06:42.413846452Z [inf]  Refreshed 4 primary chains in 102.0s
-2026-02-20T06:07:12.468489264Z [wrn]  RPC health degraded
-2026-02-20T06:07:14.485929104Z [inf]  Suppressed repeated logs
-2026-02-20T06:07:14.485935666Z [inf]  Alpha Detector: Checking new coin
-2026-02-20T06:08:04.376820960Z [inf]  [Webhook] Alchemy payload: network=BASE_MAINNET hash=0x97b9a392439a70743667fe9c28cfddbec5b0e96228c44377ac4aec9b0b4b4113 category=token asset=TGATE
-2026-02-20T06:08:04.376827627Z [inf]  [Webhook] Processing as EVM activity groups (1 tx groups)
-2026-02-20T06:08:04.376831659Z [inf]  [Webhook] Found 1 tracked wallets for tx 0x97b9a392439a70743667fe9c28cfddbec5b0e96228c44377ac4aec9b0b4b4113
-2026-02-20T06:08:04.376836541Z [inf]  [Profile] fetchReceipt
-2026-02-20T06:08:04.376841884Z [inf]  [Profile] parseSwapTransaction
-2026-02-20T06:08:04.376846365Z [inf]  [Profile] fetchTransaction
-2026-02-20T06:08:04.380005449Z [inf]  [Profile] parseSwapTransaction
-2026-02-20T06:08:04.380014777Z [inf]  [Webhook] Tx decoded with no swaps; leaving unprocessed for potential follow-up payload: 0x97b9a392439a70743667fe9c28cfddbec5b0e96228c44377ac4aec9b0b4b4113
-2026-02-20T06:08:04.380020931Z [inf]  [WebhookTiming][alchemy] tx=0x97b9a39243 wallets=1 swaps=0 predecoded=0 receiptMs=187 parseSkeletonMs=2 fullTxMs=31 parseFullMs=1 totalMs=239
-2026-02-20T06:08:06.363624668Z [wrn]  RPC health degraded
-2026-02-20T06:08:35.678334063Z [inf]  [Webhook] Alchemy payload: network=BASE_MAINNET hash=0xb735a58508923e30f3b07bf11e18844517b75c4ad3fc1f326b65bdb62572bd65 category=token asset=TGATE
-2026-02-20T06:08:35.678343987Z [inf]  [Webhook] Processing as EVM activity groups (1 tx groups)
-2026-02-20T06:08:35.678351421Z [inf]  [Webhook] Ignore tx 0xb735a58508923e30f3b07bf11e18844517b75c4ad3fc1f326b65bdb62572bd65: no tracked wallets (from/to 0xf71b2719f3e9fe85849819f4c892d60d2f8f1c2c, 0xfb64ce8d64cec808a8acb977d3ee7be1169f1a2b, 0x39148cc07db7c4e68df13347c26567f0dae183f5, 0x0000000000000000000000000000000000000000, 0xddf252ad1be2c89b69c2b068fc378daa952ba7f1, 0x000000000000000000000000f71b2719f3e9fe85, 0x000000000000000000000000fb64ce8d64cec808, 0x2174b9d4f1aa6c905b23b8479e155b0c17389b0c, 0xb735a58508923e30f3b07bf11e18844517b75c4a)
-2026-02-20T06:09:05.803791975Z [wrn]  RPC health degraded
-2026-02-20T06:09:05.803845279Z [inf]  Suppressed repeated logs
-2026-02-20T06:09:05.803853352Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-20T06:09:10.994745571Z [inf]  Suppressed repeated logs
-2026-02-20T06:09:10.994750222Z [inf]  No open positions to monitor
-2026-02-20T06:10:01.458800022Z [inf]  Fetching premium trending tokens
-2026-02-20T06:10:01.458808466Z [inf]  SocialRepo: Recalculated heat scores for 1000 casts
-2026-02-20T06:10:01.458814268Z [inf]  WS addresses discovered
-2026-02-20T06:10:01.458819785Z [inf]  Saved 15 trending tokens to database via Prisma with retry protection
-2026-02-20T06:10:01.458831740Z [inf]  Trending tokens refreshed: 15 tokens
-2026-02-20T06:10:01.746033067Z [inf]  Processed DexScreener trending candidates
-2026-02-20T06:10:04.720676054Z [wrn]  GeckoTerminal 429 triggered backoff
-2026-02-20T06:10:05.477627983Z [inf]  ⚡ Preloading native token prices via Coinbase...
-2026-02-20T06:10:05.565613349Z [inf]  ⚡ Native token prices cached (Coinbase)
-2026-02-20T06:10:05.594531643Z [wrn]  RPC health degraded
-2026-02-20T06:10:05.722455557Z [wrn]  GeckoTerminal 429 triggered backoff
-2026-02-20T06:10:07.743380776Z [wrn]  GeckoTerminal 429 triggered backoff
-2026-02-20T06:10:11.749722688Z [wrn]  GeckoTerminal 429 triggered backoff
-2026-02-20T06:10:11.752733829Z [err]  GeckoTerminal API error after retries
-2026-02-20T06:10:11.752738319Z [err]  Error fetching trending tokens
-2026-02-20T06:10:11.752742812Z [inf]  Premium trending tokens fetch complete
-2026-02-20T06:10:11.752752729Z [inf]  Got 80 trending tokens for Ethereum
-2026-02-20T06:10:11.752760830Z [inf]  Filtered out 5 invalid tokens for Ethereum
-2026-02-20T06:10:12.449936040Z [inf]  Saved 75/75 trending tokens for eth to database and memory cache
-2026-02-20T06:10:12.449940697Z [inf]  Saved 75 tokens for Ethereum to DB + cache
-2026-02-20T06:10:12.449945169Z [inf]  Launchpad verify budget applied
-2026-02-20T06:10:16.657318114Z [inf]  Suppressed repeated logs
-2026-02-20T06:10:16.657331102Z [inf]  Alpha Detector: Checking new coin
-2026-02-20T06:10:46.139026398Z [inf]  Fetching premium trending tokens
-2026-02-20T06:10:46.139038763Z [inf]  WS addresses discovered
-2026-02-20T06:10:46.139046412Z [inf]  Processed DexScreener trending candidates
-2026-02-20T06:10:46.139052334Z [inf]  Premium trending tokens fetch complete
-2026-02-20T06:10:46.139063543Z [inf]  Got 100 trending tokens for Solana
-2026-02-20T06:10:46.139071954Z [inf]  Saved 100/100 trending tokens for solana to database and memory cache
-2026-02-20T06:10:46.139078067Z [inf]  Saved 100 tokens for Solana to DB + cache
-2026-02-20T06:10:47.637214878Z [inf]  [Profile] fetchReceipt
-2026-02-20T06:10:47.638891294Z [inf]  Swap successfully decoded from logs
-2026-02-20T06:10:47.838187849Z [inf]  [Profile] parseSwapTransaction
-2026-02-20T06:10:47.839699234Z [inf]  [CopyTradePending] Prefetched confirmed swap from pending path
-2026-02-20T06:10:47.846679720Z [inf]  Swap detected on target wallet
-2026-02-20T06:10:47.846685230Z [inf]  Target is buying - triggering copy trade
-2026-02-20T06:10:47.846689233Z [inf]  [CopyTradeTiming] target buy start
-2026-02-20T06:10:47.897096380Z [inf]  [CopyTrade] Executable buy configs ready
-2026-02-20T06:10:48.116864426Z [inf]  [CopyTrade] Token info disabled - using RPC metadata fallback
-2026-02-20T06:10:48.116871501Z [inf]  Derived missing token price from swap data
-2026-02-20T06:10:48.116876371Z [inf]  🔥 Warming up 1 user settings
-2026-02-20T06:10:48.116885192Z [inf]  [CopyTrade] Turbo fast lane enabled
-2026-02-20T06:10:48.775449922Z [inf]  0x API price received successfully
-2026-02-20T06:10:48.775455374Z [inf]  Created PENDING position lock
-2026-02-20T06:10:48.775459448Z [inf]  Buy Step 1: 100% amount, 0.5% slippage
-2026-02-20T06:10:48.775597779Z [inf]  [MainSwapService][1771567848647_7kp9ml] Starting unified swap execution
-2026-02-20T06:10:48.775605859Z [inf]  [DirectSwap] Starting direct swap
-2026-02-20T06:10:48.775607117Z [inf]  [MainSwapService][1771567848647_7kp9ml] Executing EVM swap
-2026-02-20T06:10:48.775615818Z [inf]  [MainSwapService][1771567848647_7kp9ml] FastSwapMode enabled - attempting direct swap (buy direction)
-2026-02-20T06:10:48.810267113Z [inf]  Swap successfully decoded from logs
-2026-02-20T06:10:48.841571134Z [inf]  [Profile] parseSwapTransaction
-2026-02-20T06:10:48.841575554Z [inf]  [DirectSwap] Early hinted source pool probe
-2026-02-20T06:10:48.841579578Z [inf]  [DirectSwap] Skip early v4 bypass: no preloaded v4 pools and no resolved hint
-2026-02-20T06:10:48.947765013Z [err]  All RPC endpoints failed
-2026-02-20T06:10:49.955544350Z [inf]  [DirectSwap] Pool discovery complete
-2026-02-20T06:10:49.955549204Z [inf]  [DirectSwap] Bypass reference gate by target hint
-2026-02-20T06:10:49.961367373Z [inf]  [DirectSwap] Bypass strategy unavailable, fallback to reference gate
-2026-02-20T06:10:49.961372633Z [wrn]  [DirectSwap] Reference quote unavailable, continuing with source hint fallback
-2026-02-20T06:10:49.961377603Z [wrn]  [DirectSwap] Turbo mode continuing without reference quote
-2026-02-20T06:10:49.961381972Z [inf]  [DirectSwap] Strategy evaluation start
-2026-02-20T06:10:50.066046096Z [wrn]  [MainSwapService][1771567848647_7kp9ml] Turbo direct timeout; waiting late-settle window
-2026-02-20T06:10:50.737139176Z [inf]  [Webhook] Alchemy payload: network=BASE_MAINNET hash=0xc0aa3881e0b86c31bc2e9b2a8d10f207a6e513b3227457f8f4e46795356dd47f category=token asset=DAIMON
-2026-02-20T06:10:50.737146696Z [inf]  [Webhook] Processing as EVM activity groups (1 tx groups)
-2026-02-20T06:10:50.737152539Z [inf]  [Webhook] Found 1 tracked wallets for tx 0xc0aa3881e0b86c31bc2e9b2a8d10f207a6e513b3227457f8f4e46795356dd47f
-2026-02-20T06:10:50.737350531Z [inf]  [WebhookTiming][alchemy] tx=0xc0aa3881e0 wallets=1 swaps=1 predecoded=1 totalMs=27
-2026-02-20T06:10:51.873022510Z [inf]  [MainSwapService][1771567848647_7kp9ml] Turbo direct late-settle succeeded
-2026-02-20T06:10:51.873026796Z [wrn]  [MainSwapService][1771567848647_7kp9ml] Direct swap failed, falling back to 0x/Kyber: failed_pool_unavailable_hard: No suitable pool found
-2026-02-20T06:10:51.873030747Z [inf]  Initiating Unified Swap Execution
-2026-02-20T06:10:51.873034760Z [inf]  ✅ Hybrid fetch complete
-2026-02-20T06:10:51.873038787Z [inf]  [Webhook] Alchemy payload: network=BASE_MAINNET hash=0xc0aa3881e0b86c31bc2e9b2a8d10f207a6e513b3227457f8f4e46795356dd47f category=external asset=ETH
-2026-02-20T06:10:51.873505767Z [wrn]  [DirectSwap] No strategy matched threshold
-2026-02-20T06:10:51.873511063Z [wrn]  [DirectSwapTrace] Attempt failed
-2026-02-20T06:10:51.873516736Z [inf]  [DirectSwap] Finished
-2026-02-20T06:10:51.873521785Z [wrn]  [DirectSwap] Turbo budget exceeded
-2026-02-20T06:10:51.876464269Z [inf]  [Webhook] Tx already in processedTxs cache: 0xc0aa3881e0b86c31bc2e9b2a8d10f207a6e513b3227457f8f4e46795356dd47f
-2026-02-20T06:10:51.876469409Z [wrn]  All API liquidity sources failed
-2026-02-20T06:10:51.876473225Z [wrn]  RPC price failed, falling back to full API fetch
-2026-02-20T06:10:51.876477044Z [inf]  0x API price received successfully
-2026-02-20T06:10:51.876480804Z [inf]  Fallback: Got price from DEX aggregator
-2026-02-20T06:10:51.876484731Z [inf]  ✅ Hybrid fetch complete
-2026-02-20T06:10:52.076586380Z [inf]  Alchemy Portfolio EVM page 1 received
-2026-02-20T06:10:52.827233776Z [inf]  Alchemy Portfolio EVM pagination complete
-2026-02-20T06:10:53.839453756Z [inf]  [PlatformFee] Fees ENABLED: {"context":"copyTrade","bps":100,"evmRecipient":"0xc5377e6329"}
-2026-02-20T06:10:53.839458903Z [inf]  [Kyber] GET routes {"routesUrl":"https://aggregator-api.kyberswap.com/base/api/v1/routes?tokenIn=0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee&tokenOut=0x98c51C8E958ccCD37F798b2B9332d148E2c05D57&amountIn=510703059366677&saveGas=true&gasInclude=true&clientId=kiko-app&origin=0xFB64Ce8d64CEC808a8aCb977d3Ee7bE1169f1a2B&feeReceiver=0xc5377e6329770Be29Ef938d8aCC11f22398D7E54&feeAmount=100&isInBps=true&chargeFeeBy=currency_in"}
-2026-02-20T06:10:53.912694200Z [inf]  0x API Quote received successfully
-2026-02-20T06:10:53.912702774Z [inf]  0x API Quote successful
-2026-02-20T06:10:53.912708848Z [inf]  [QuoteService] 0x API estimatedPriceImpact: {"parsed":0,"multipliedBy100":0,"impactVsMkt":null,"willUse":0}
-2026-02-20T06:10:54.095068479Z [inf]  [QuoteService] Turbo quote mode fast-return {"picked":"0x_fast","elapsedMs":568,"graceWaitMs":180,"chainId":8453}
-2026-02-20T06:10:54.095078607Z [inf]  Checking approval for swap
-2026-02-20T06:10:54.095086755Z [inf]  Approval not needed or already set
-2026-02-20T06:10:54.095094098Z [inf]  [SwapExecutor] Executing 0x Aggregator swap on chain 8453
-2026-02-20T06:10:54.095101664Z [inf]  [SwapExecutor] ========== TRANSACTION EXECUTION ==========
-2026-02-20T06:10:54.095108642Z [inf]  [SwapExecutor] DEX: 0x Aggregator
-2026-02-20T06:10:54.095114844Z [inf]  [SwapExecutor] Transaction params: {"to":"0x0000000000001ff3684f28c67538d4d072c22734","dataLength":5322,"dataPrefix":"0x2213bc0b000000000000000000000000dc5d8200a030798bc6227240f68b4dd9","value":"510703059366677","router":"0x0000000000001ff3684f28c67538d4d072c22734","allowanceTarget":"0x0000000000001ff3684f28c67538d4d072c22734"}
-2026-02-20T06:10:54.096293705Z [inf]  [SwapExecutor] Swap details: {"tokenIn":"0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee","tokenOut":"0x98c51C8E958ccCD37F798b2B9332d148E2c05D57","amountInBase":"510703059366677","amountInHuman":"0.000510703059366677","amountOut":"81199.4799347531439354","slippageBps":50,"priceImpact":0,"gasEstimate":345018}
-2026-02-20T06:10:54.096303713Z [inf]  [SwapExecutor] =============================================
-2026-02-20T06:10:54.269063329Z [inf]  [SwapExecutor] Execution params prepared: {"dex":"0x Aggregator","gasEstimate":345018,"gasLimit":"517527","maxFeePerGas":"11000000","maxPriorityFeePerGas":"1000000"}
-2026-02-20T06:10:54.269068584Z [inf]  🚀 CopyTrade Aggressive Gas
-2026-02-20T06:10:54.269074086Z [inf]  PrivyWallet Authorization Key config
-2026-02-20T06:10:54.828985438Z [wrn]  Sending transaction via Privy sign+broadcast path
-2026-02-20T06:10:55.102235131Z [wrn]  Nonce error on attempt 1, retrying in 2000ms...
-2026-02-20T06:10:57.096116585Z [wrn]  Sending transaction via Privy sign+broadcast path
-2026-02-20T06:10:57.816385095Z [inf]  [Kyber] Building route/build request body: {"hasRouteSummary":true,"routeSummaryKeys":["tokenIn","amountIn","amountInUsd","tokenOut","amountOut","amountOutUsd","gas","gasPrice"],"sender":"0xFB64Ce8d","recipient":"0xFB64Ce8d","slippageTolerance":50,"slippageToleranceType":"number","deadline":1771568457,"deadlineType":"number","allBodyKeys":["routeSummary","sender","recipient","origin","slippageTolerance","deadline"]}
-2026-02-20T06:10:57.816472722Z [wrn]  Nonce error on attempt 2, retrying in 2000ms...
-2026-02-20T06:10:57.816476821Z [inf]  [Kyber] routes response {"status":200,"hasData":true,"keys":["code","message","data","requestId"]}
-2026-02-20T06:10:59.058088770Z [inf]  Suppressed repeated logs
-2026-02-20T06:10:59.058096412Z [inf]  Saved 100/100 trending tokens for solana to database and memory cache
-2026-02-20T06:10:59.834757456Z [wrn]  Sending transaction via Privy sign+broadcast path
-2026-02-20T06:11:00.054911822Z [err]  Privy Ethereum transaction failed
-2026-02-20T06:11:00.054922710Z [inf]  [SwapExecutor] ========== EXECUTION FAILED ==========
-2026-02-20T06:11:00.054930601Z [inf]  [SwapExecutor] DEX: 0x Aggregator
-2026-02-20T06:11:00.054937839Z [inf]  [SwapExecutor] Error message: Failed to send transaction: RPC Error: nonce too low: next nonce 1681, tx nonce 0
-2026-02-20T06:11:00.054945835Z [inf]  [SwapExecutor] Error stack: Error: Failed to send transaction: RPC Error: nonce too low: next nonce 1681, tx nonce 0
-    at file:///app/dist/services/privyWallet.js:318:23
-    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
-    at async SwapExecutor.executeEvm (file:///app/dist/services/swap/SwapExecutor.js:538:28)
-    at async SwapExecutor.execute (file:///app/dist/services/swap/SwapExecutor.js:43:24)
-    at async MainSwapService.executeEvmSwap (file:///app/dist/services/MainSwapService.js:681:33)
-    at async MainSwapService.executeSwap (file:///app/dist/services/MainSwapService.js:206:24)
-    at async file:///app/dist/services/autoTradeService.js:1475:41
-    at async withTradeLock (file:///app/dist/services/autoTradeService.js:77:16)
-    at async Promise.allSettled (index 0)
-    at async processBuyWithInfo (file:///app/dist/services/autoTradeService.js:782:30)
-2026-02-20T06:11:00.058022985Z [inf]  [SwapExecutor] Error details: {"name":"Error","code":"TRANSACTION_FAILED"}
-2026-02-20T06:11:00.058027335Z [inf]  [SwapExecutor] Transaction params: {"to":"0x0000000000001ff3684f28c67538d4d072c22734","value":"510703059366677","dataLength":5322,"data":"0x2213bc0b000000000000000000000000dc5d8200a030798bc6227240f68b4dd9542686ef00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001d07b52707315000000000000000000000000dc5d8200a030798bc6227240f68b4dd9542686ef00000000000000000000000000000000000000000000000000000000000000a000000000000000000000000000000000000000000000000000000000000009841fff991f000000000000000000000000fb64ce8d64cec808a8acb977d3ee7be1169f1a2b00000000000000000000000098c51c8e958cccd37f798b2b9332d148e2c05d5700000000000000000000000000000000000000000000111c0bb82e8224d73eca00000000000000000000000000000000000000000000000000000000000000a0b8bd6eb5936c06de3f5346230000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000700000000000000000000000000000000000000000000000000000000000000e00000000000000000000000000000000000000000000000000000000000000160000000000000000000000000000000000000000000000000000000000000026000000000000000000000000000000000000000000000000000000000000003a000000000000000000000000000000000000000000000000000000000000004e000000000000000000000000000000000000000000000000000000000000006a000000000000000000000000000000000000000000000000000000000000007600000000000000000000000000000000000000000000000000000000000000044bd01c226000000000000000000000000000000000000000000000000000000006997fc190000000000000000000000000000000000000000000000000001d07b527073150000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000c438c9c147000000000000000000000000eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee000000000000000000000000000000000000000000000000000000000000000f000000000000000000000000ad01c20d5886137e056775af56915de824c8fce5000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000a0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000010438c9c147000000000000000000000000eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee00000000000000000000000000000000000000000000000000000000000027100000000000000000000000004200000000000000000000000000000000000006000000000000000000000000000000000000000000000000000000000000000400000000000000000000000000000000000000000000000000000000000000a00000000000000000000000000000000000000000000000000000000000000024d0e30db000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000010438c9c147000000000000000000000000420000000000000000000000000000000000000600000000000000000000000000000000000000000000000000000000000027100000000000000000000000004200000000000000000000000000000000000006000000000000000000000000000000000000000000000000000000000000000400000000000000000000000000000000000000000000000000000000000000a000000000000000000000000000000000000000000000000000000000000000242e1a7d4d000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000184af72634f000000000000000000000000dc5d8200a030798bc6227240f68b4dd9542686ef000000000000000000000000eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee000000000000000000000000000000000000000000000000000000000000271000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000000ffffffffffffffc5000000000000000000000000000000000000000000000000000000000000010000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000048271000000000000000000000000000000001000276a40198c51c8e958cccd37f798b2b9332d148e2c05d570027100000c8000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000008434ee90ca000000000000000000000000f5c4f3dc02c3fb9279495a8fef7b0741da95615700000000000000000000000098c51c8e958cccd37f798b2b9332d148e2c05d5700000000000000000000000000000000000000000000116007218d8778b1565a000000000000000000000000000000000000000000000000000000000000271000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000012438c9c14700000000000000000000000098c51c8e958cccd37f798b2b9332d148e2c05d57000000000000000000000000000000000000000000000000000000000000006400000000000000000000000098c51c8e958cccd37f798b2b9332d148e2c05d57000000000000000000000000000000000000000000000000000000000000002400000000000000000000000000000000000000000000000000000000000000a00000000000000000000000000000000000000000000000000000000000000044a9059cbb000000000000000000000000c5377e6329770be29ef938d8acc11f22398d7e540000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000","router":"0x0000000000001ff3684f28c67538d4d072c22734","allowanceTarget":"0x0000000000001ff3684f28c67538d4d072c22734"}
-2026-02-20T06:11:00.059805555Z [inf]  [SwapExecutor] Swap input: {"tokenIn":"0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee","tokenOut":"0x98c51C8E958ccCD37F798b2B9332d148E2c05D57","amountInBase":"510703059366677","slippageBps":50,"expectedAmountOut":"81199.4799347531439354"}
-2026-02-20T06:11:00.059812682Z [inf]  [SwapExecutor] ======================================
-2026-02-20T06:11:00.059818237Z [err]  Swap execution error
-2026-02-20T06:11:00.059831081Z [wrn]  Fast failover: switching DEX after execution error
-2026-02-20T06:11:00.059836091Z [inf]  Suppressed repeated logs
-2026-02-20T06:11:00.059840191Z [inf]  [PlatformFee] Fees ENABLED: {"context":"copyTrade","bps":100,"evmRecipient":"0xc5377e6329"}
-2026-02-20T06:11:00.061872155Z [inf]  [Kyber] GET routes {"routesUrl":"https://aggregator-api.kyberswap.com/base/api/v1/routes?tokenIn=0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee&tokenOut=0x98c51C8E958ccCD37F798b2B9332d148E2c05D57&amountIn=510703059366677&saveGas=true&gasInclude=true&clientId=kiko-app&origin=0xFB64Ce8d64CEC808a8aCb977d3Ee7bE1169f1a2B&feeReceiver=0xc5377e6329770Be29Ef938d8aCC11f22398D7E54&feeAmount=100&isInBps=true&chargeFeeBy=currency_in"}
-2026-02-20T06:11:00.805561413Z [inf]  0x API Quote received successfully
-2026-02-20T06:11:00.805566575Z [inf]  0x API Quote successful
-2026-02-20T06:11:00.805572459Z [inf]  [QuoteService] 0x API estimatedPriceImpact: {"parsed":0,"multipliedBy100":0,"impactVsMkt":null,"willUse":0}
-2026-02-20T06:11:00.816104002Z [inf]  [QuoteService] Turbo quote mode fast-return {"picked":"0x_fast","elapsedMs":749,"graceWaitMs":180,"chainId":8453}
-2026-02-20T06:11:00.816112050Z [inf]  [QuoteService] Excluding DEX on retry: {"excluded":"0x","available":""}
-2026-02-20T06:11:00.816117150Z [inf]  [QuoteService] Excluded DEX left no quotes; falling back to any available quote {"excluded":"0x","available":"0x"}
-2026-02-20T06:11:00.816121792Z [inf]  Checking approval for swap
-2026-02-20T06:11:00.816126002Z [inf]  Approval not needed or already set
-2026-02-20T06:11:00.816131547Z [inf]  [SwapExecutor] Executing 0x Aggregator swap on chain 8453
-2026-02-20T06:11:00.818478194Z [inf]  [SwapExecutor] ========== TRANSACTION EXECUTION ==========
-2026-02-20T06:11:00.818486049Z [inf]  [SwapExecutor] Transaction params: {"to":"0x0000000000001ff3684f28c67538d4d072c22734","dataLength":4618,"dataPrefix":"0x2213bc0b000000000000000000000000dc5d8200a030798bc6227240f68b4dd9","value":"510703059366677","router":"0x0000000000001ff3684f28c67538d4d072c22734","allowanceTarget":"0x0000000000001ff3684f28c67538d4d072c22734"}
-2026-02-20T06:11:00.818492208Z [inf]  [SwapExecutor] Swap details: {"tokenIn":"0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee","tokenOut":"0x98c51C8E958ccCD37F798b2B9332d148E2c05D57","amountInBase":"510703059366677","amountInHuman":"0.000510703059366677","amountOut":"82897.382350542792087","slippageBps":50,"priceImpact":0,"gasEstimate":699322}
-2026-02-20T06:11:00.818498039Z [inf]  [SwapExecutor] =============================================
-2026-02-20T06:11:00.958426208Z [inf]  [SwapExecutor] Execution params prepared: {"dex":"0x Aggregator","gasEstimate":699322,"gasLimit":"1048983","maxFeePerGas":"11000000","maxPriorityFeePerGas":"1000000"}
-2026-02-20T06:11:00.958431576Z [inf]  🚀 CopyTrade Aggressive Gas
-2026-02-20T06:11:01.008808599Z [wrn]  Sending transaction via Privy sign+broadcast path
-2026-02-20T06:11:01.823120278Z [wrn]  Nonce error on attempt 1, retrying in 2000ms...
-2026-02-20T06:11:03.814676990Z [wrn]  Sending transaction via Privy sign+broadcast path
-2026-02-20T06:11:03.946901150Z [wrn]  Nonce error on attempt 2, retrying in 2000ms...
-2026-02-20T06:11:04.409737368Z [inf]  [Kyber] routes response {"status":200,"hasData":true,"keys":["code","message","data","requestId"]}
-2026-02-20T06:11:04.409744538Z [inf]  [Kyber] Building route/build request body: {"hasRouteSummary":true,"routeSummaryKeys":["tokenIn","amountIn","amountInUsd","tokenOut","amountOut","amountOutUsd","gas","gasPrice"],"sender":"0xFB64Ce8d","recipient":"0xFB64Ce8d","slippageTolerance":50,"slippageToleranceType":"number","deadline":1771568464,"deadlineType":"number","allBodyKeys":["routeSummary","sender","recipient","origin","slippageTolerance","deadline"]}
-2026-02-20T06:11:05.852738081Z [wrn]  RPC health degraded
-2026-02-20T06:11:05.959311002Z [wrn]  Sending transaction via Privy sign+broadcast path
-2026-02-20T06:11:06.323461741Z [err]  Privy Ethereum transaction failed
-2026-02-20T06:11:06.323468757Z [inf]  [SwapExecutor] ========== EXECUTION FAILED ==========
-2026-02-20T06:11:06.323475386Z [inf]  Suppressed repeated logs
-2026-02-20T06:11:06.323482211Z [inf]  [SwapExecutor] DEX: 0x Aggregator
-2026-02-20T06:11:06.323489414Z [inf]  [SwapExecutor] Error message: Failed to send transaction: RPC Error: nonce too low: next nonce 1681, tx nonce 0
-2026-02-20T06:11:06.323496657Z [inf]  [SwapExecutor] Error stack: Error: Failed to send transaction: RPC Error: nonce too low: next nonce 1681, tx nonce 0
-    at file:///app/dist/services/privyWallet.js:318:23
-    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
-    at async SwapExecutor.executeEvm (file:///app/dist/services/swap/SwapExecutor.js:538:28)
-    at async SwapExecutor.execute (file:///app/dist/services/swap/SwapExecutor.js:43:24)
-    at async MainSwapService.executeEvmSwap (file:///app/dist/services/MainSwapService.js:681:33)
-    at async MainSwapService.executeSwap (file:///app/dist/services/MainSwapService.js:206:24)
-    at async file:///app/dist/services/autoTradeService.js:1475:41
-    at async withTradeLock (file:///app/dist/services/autoTradeService.js:77:16)
-    at async Promise.allSettled (index 0)
-    at async processBuyWithInfo (file:///app/dist/services/autoTradeService.js:782:30)
-2026-02-20T06:11:06.325932878Z [inf]  [SwapExecutor] Error details: {"name":"Error","code":"TRANSACTION_FAILED"}
-2026-02-20T06:11:06.325943366Z [inf]  [SwapExecutor] Transaction params: {"to":"0x0000000000001ff3684f28c67538d4d072c22734","value":"510703059366677","dataLength":4618,"data":"0x2213bc0b000000000000000000000000dc5d8200a030798bc6227240f68b4dd9542686ef00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001d07b52707315000000000000000000000000dc5d8200a030798bc6227240f68b4dd9542686ef00000000000000000000000000000000000000000000000000000000000000a000000000000000000000000000000000000000000000000000000000000008241fff991f000000000000000000000000fb64ce8d64cec808a8acb977d3ee7be1169f1a2b00000000000000000000000098c51c8e958cccd37f798b2b9332d148e2c05d57000000000000000000000000000000000000000000001177a2392b1e50ec1d1600000000000000000000000000000000000000000000000000000000000000a0415c5db0cf3fc256fa5daa390000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000600000000000000000000000000000000000000000000000000000000000000c0000000000000000000000000000000000000000000000000000000000000014000000000000000000000000000000000000000000000000000000000000002400000000000000000000000000000000000000000000000000000000000000380000000000000000000000000000000000000000000000000000000000000054000000000000000000000000000000000000000000000000000000000000006000000000000000000000000000000000000000000000000000000000000000044bd01c226000000000000000000000000000000000000000000000000000000006997fc200000000000000000000000000000000000000000000000000001d07b527073150000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000c438c9c147000000000000000000000000eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee000000000000000000000000000000000000000000000000000000000000000f000000000000000000000000ad01c20d5886137e056775af56915de824c8fce5000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000a0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000010438c9c147000000000000000000000000eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee00000000000000000000000000000000000000000000000000000000000027100000000000000000000000004200000000000000000000000000000000000006000000000000000000000000000000000000000000000000000000000000000400000000000000000000000000000000000000000000000000000000000000a00000000000000000000000000000000000000000000000000000000000000024d0e30db0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000184af72634f000000000000000000000000dc5d8200a030798bc6227240f68b4dd9542686ef0000000000000000000000004200000000000000000000000000000000000006000000000000000000000000000000000000000000000000000000000000271000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000000ffffffffffffffc5000000000000000000000000000000000000000000000000000000000000010000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000048271000000000000000000000000000000001000276a40198c51c8e958cccd37f798b2b9332d148e2c05d578000000000c8b429d62f8f3bffb98cdb9569533ea23bf0ba28cc00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000008434ee90ca000000000000000000000000f5c4f3dc02c3fb9279495a8fef7b0741da95615700000000000000000000000098c51c8e958cccd37f798b2b9332d148e2c05d570000000000000000000000000000000000000000000011bd0a3000f0f85989fd000000000000000000000000000000000000000000000000000000000000271000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000012438c9c14700000000000000000000000098c51c8e958cccd37f798b2b9332d148e2c05d57000000000000000000000000000000000000000000000000000000000000006400000000000000000000000098c51c8e958cccd37f798b2b9332d148e2c05d57000000000000000000000000000000000000000000000000000000000000002400000000000000000000000000000000000000000000000000000000000000a00000000000000000000000000000000000000000000000000000000000000044a9059cbb000000000000000000000000c5377e6329770be29ef938d8acc11f22398d7e540000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000","router":"0x0000000000001ff3684f28c67538d4d072c22734","allowanceTarget":"0x0000000000001ff3684f28c67538d4d072c22734"}
-2026-02-20T06:11:06.328337027Z [inf]  [SwapExecutor] Swap input: {"tokenIn":"0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee","tokenOut":"0x98c51C8E958ccCD37F798b2B9332d148E2c05D57","amountInBase":"510703059366677","slippageBps":50,"expectedAmountOut":"82897.382350542792087"}
-2026-02-20T06:11:06.328344765Z [inf]  [SwapExecutor] ======================================
-2026-02-20T06:11:06.328349845Z [err]  Swap execution error
-2026-02-20T06:11:06.328354628Z [err]  Swap Execution Failed
-2026-02-20T06:11:06.328359385Z [err]  Raw Swap Error Captured
-2026-02-20T06:11:06.331193244Z [err]  [MainSwapService][1771567848647_7kp9ml] Swap execution failed: Swap failed: Failed to send transaction: RPC Error: nonce too low: next nonce 1681, tx nonce 0
-2026-02-20T06:11:06.331201878Z [wrn]  Buy Step 1 failed
-2026-02-20T06:11:06.331210563Z [wrn]  Turbo mode: step 1 failed, trying fast retry
-2026-02-20T06:11:06.860710001Z [inf]  [DirectSwap] Early hinted source pool probe
-2026-02-20T06:11:06.860734037Z [inf]  [MainSwapService][1771567866439_wv9e8] Starting unified swap execution
-2026-02-20T06:11:06.860741337Z [inf]  [MainSwapService][1771567866439_wv9e8] Executing EVM swap
-2026-02-20T06:11:06.860748659Z [inf]  [MainSwapService][1771567866439_wv9e8] FastSwapMode enabled - attempting direct swap (buy direction)
-2026-02-20T06:11:06.860755949Z [inf]  [DirectSwap] Starting direct swap
-2026-02-20T06:11:06.863465892Z [inf]  [DirectSwap] Skip early v4 bypass: no preloaded v4 pools and no resolved hint
-2026-02-20T06:11:06.863477101Z [inf]  [DirectSwap] Pool discovery complete
-2026-02-20T06:11:06.863484897Z [inf]  [DirectSwap] Bypass reference gate by target hint
-2026-02-20T06:11:06.863491332Z [inf]  [DirectSwap] Bypass strategy unavailable, fallback to reference gate
-2026-02-20T06:11:06.863497731Z [wrn]  [DirectSwap] Reference quote unavailable, continuing with source hint fallback
-2026-02-20T06:11:06.863503943Z [wrn]  [DirectSwap] Turbo mode continuing without reference quote
-2026-02-20T06:11:06.865946187Z [inf]  [DirectSwap] Strategy evaluation start
-2026-02-20T06:11:07.218008825Z [wrn]  [DirectSwap] No strategy matched threshold
-2026-02-20T06:11:07.218018608Z [wrn]  [DirectSwapTrace] Attempt failed
-2026-02-20T06:11:07.218024242Z [inf]  [DirectSwap] Finished
-2026-02-20T06:11:07.218030508Z [wrn]  [MainSwapService][1771567866439_wv9e8] Direct swap failed, falling back to 0x/Kyber: failed_pool_unavailable_hard: No suitable pool found
-2026-02-20T06:11:07.220081112Z [inf]  Initiating Unified Swap Execution
-2026-02-20T06:11:07.220091868Z [inf]  Suppressed repeated logs
-2026-02-20T06:11:07.220097375Z [inf]  [PlatformFee] Fees ENABLED: {"context":"copyTrade","bps":100,"evmRecipient":"0xc5377e6329"}
-2026-02-20T06:11:07.220102260Z [inf]  [Kyber] GET routes {"routesUrl":"https://aggregator-api.kyberswap.com/base/api/v1/routes?tokenIn=0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee&tokenOut=0x98c51C8E958ccCD37F798b2B9332d148E2c05D57&amountIn=509681653247944&saveGas=true&gasInclude=true&clientId=kiko-app&origin=0xFB64Ce8d64CEC808a8aCb977d3Ee7bE1169f1a2B&feeReceiver=0xc5377e6329770Be29Ef938d8aCC11f22398D7E54&feeAmount=100&isInBps=true&chargeFeeBy=currency_in"}
-2026-02-20T06:11:07.839849460Z [inf]  [QuoteService] 0x API estimatedPriceImpact: {"parsed":0,"multipliedBy100":0,"impactVsMkt":null,"willUse":0}
-2026-02-20T06:11:07.839965397Z [inf]  0x API Quote received successfully
-2026-02-20T06:11:07.839972876Z [inf]  0x API Quote successful
-2026-02-20T06:11:07.965282795Z [inf]  [QuoteService] Turbo quote mode fast-return {"picked":"0x_fast","elapsedMs":745,"graceWaitMs":180,"chainId":8453}
-2026-02-20T06:11:07.965288870Z [inf]  Checking approval for swap
-2026-02-20T06:11:07.965294616Z [inf]  Approval not needed or already set
-2026-02-20T06:11:07.965301305Z [inf]  [SwapExecutor] Executing 0x Aggregator swap on chain 8453
-2026-02-20T06:11:07.965306975Z [inf]  [SwapExecutor] ========== TRANSACTION EXECUTION ==========
-2026-02-20T06:11:07.965312805Z [inf]  [SwapExecutor] Transaction params: {"to":"0x0000000000001ff3684f28c67538d4d072c22734","dataLength":4618,"dataPrefix":"0x2213bc0b000000000000000000000000dc5d8200a030798bc6227240f68b4dd9","value":"509681653247944","router":"0x0000000000001ff3684f28c67538d4d072c22734","allowanceTarget":"0x0000000000001ff3684f28c67538d4d072c22734"}
-2026-02-20T06:11:07.967139922Z [inf]  [SwapExecutor] Swap details: {"tokenIn":"0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee","tokenOut":"0x98c51C8E958ccCD37F798b2B9332d148E2c05D57","amountInBase":"509681653247944","amountInHuman":"0.000509681653247944","amountOut":"82741.7781461037454182","slippageBps":75,"priceImpact":0,"gasEstimate":699394}
-2026-02-20T06:11:07.967146618Z [inf]  [SwapExecutor] =============================================
-2026-02-20T06:11:08.060425814Z [inf]  [SwapExecutor] Execution params prepared: {"dex":"0x Aggregator","gasEstimate":699394,"gasLimit":"1049091","maxFeePerGas":"11000000","maxPriorityFeePerGas":"1000000"}
-2026-02-20T06:11:08.060433855Z [inf]  🚀 CopyTrade Aggressive Gas
-2026-02-20T06:11:08.259889212Z [wrn]  Sending transaction via Privy sign+broadcast path
-2026-02-20T06:11:08.898324520Z [wrn]  Nonce error on attempt 1, retrying in 2000ms...
-2026-02-20T06:11:10.899479195Z [wrn]  Sending transaction via Privy sign+broadcast path
-2026-02-20T06:11:11.077157783Z [wrn]  Nonce error on attempt 2, retrying in 2000ms...
-2026-02-20T06:11:13.011100520Z [inf]  [Kyber] routes response {"status":200,"hasData":true,"keys":["code","message","data","requestId"]}
-2026-02-20T06:11:13.011107725Z [inf]  [Kyber] Building route/build request body: {"hasRouteSummary":true,"routeSummaryKeys":["tokenIn","amountIn","amountInUsd","tokenOut","amountOut","amountOutUsd","gas","gasPrice"],"sender":"0xFB64Ce8d","recipient":"0xFB64Ce8d","slippageTolerance":75,"slippageToleranceType":"number","deadline":1771568473,"deadlineType":"number","allBodyKeys":["routeSummary","sender","recipient","origin","slippageTolerance","deadline"]}
-2026-02-20T06:11:13.080166313Z [wrn]  Sending transaction via Privy sign+broadcast path
-2026-02-20T06:11:13.458269878Z [err]  Privy Ethereum transaction failed
-2026-02-20T06:11:13.458278279Z [inf]  [SwapExecutor] ========== EXECUTION FAILED ==========
-2026-02-20T06:11:13.458285463Z [inf]  Suppressed repeated logs
-2026-02-20T06:11:13.458293570Z [inf]  [SwapExecutor] DEX: 0x Aggregator
-2026-02-20T06:11:13.458299489Z [inf]  [SwapExecutor] Error message: Failed to send transaction: RPC Error: nonce too low: next nonce 1681, tx nonce 0
-2026-02-20T06:11:13.458304629Z [inf]  [SwapExecutor] Error stack: Error: Failed to send transaction: RPC Error: nonce too low: next nonce 1681, tx nonce 0
-    at file:///app/dist/services/privyWallet.js:318:23
-    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
-    at async SwapExecutor.executeEvm (file:///app/dist/services/swap/SwapExecutor.js:538:28)
-    at async SwapExecutor.execute (file:///app/dist/services/swap/SwapExecutor.js:43:24)
-    at async MainSwapService.executeEvmSwap (file:///app/dist/services/MainSwapService.js:681:33)
-    at async MainSwapService.executeSwap (file:///app/dist/services/MainSwapService.js:206:24)
-    at async file:///app/dist/services/autoTradeService.js:1526:56
-    at async withTradeLock (file:///app/dist/services/autoTradeService.js:77:16)
-    at async Promise.allSettled (index 0)
-    at async processBuyWithInfo (file:///app/dist/services/autoTradeService.js:782:30)
-2026-02-20T06:11:13.462090253Z [inf]  [SwapExecutor] Error details: {"name":"Error","code":"TRANSACTION_FAILED"}
-2026-02-20T06:11:13.462095555Z [inf]  [SwapExecutor] Transaction params: {"to":"0x0000000000001ff3684f28c67538d4d072c22734","value":"509681653247944","dataLength":4618,"data":"0x2213bc0b000000000000000000000000dc5d8200a030798bc6227240f68b4dd9542686ef00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001cf8d81e3efc8000000000000000000000000dc5d8200a030798bc6227240f68b4dd9542686ef00000000000000000000000000000000000000000000000000000000000000a000000000000000000000000000000000000000000000000000000000000008241fff991f000000000000000000000000fb64ce8d64cec808a8acb977d3ee7be1169f1a2b00000000000000000000000098c51c8e958cccd37f798b2b9332d148e2c05d57000000000000000000000000000000000000000000001163e9ca5a6a524a8a8400000000000000000000000000000000000000000000000000000000000000a029e3ed1ebecebefb6993dfdf0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000600000000000000000000000000000000000000000000000000000000000000c0000000000000000000000000000000000000000000000000000000000000014000000000000000000000000000000000000000000000000000000000000002400000000000000000000000000000000000000000000000000000000000000380000000000000000000000000000000000000000000000000000000000000054000000000000000000000000000000000000000000000000000000000000006000000000000000000000000000000000000000000000000000000000000000044bd01c226000000000000000000000000000000000000000000000000000000006997fc270000000000000000000000000000000000000000000000000001cf8d81e3efc80000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000c438c9c147000000000000000000000000eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee000000000000000000000000000000000000000000000000000000000000000f000000000000000000000000ad01c20d5886137e056775af56915de824c8fce5000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000a0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000010438c9c147000000000000000000000000eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee00000000000000000000000000000000000000000000000000000000000027100000000000000000000000004200000000000000000000000000000000000006000000000000000000000000000000000000000000000000000000000000000400000000000000000000000000000000000000000000000000000000000000a00000000000000000000000000000000000000000000000000000000000000024d0e30db0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000184af72634f000000000000000000000000dc5d8200a030798bc6227240f68b4dd9542686ef0000000000000000000000004200000000000000000000000000000000000006000000000000000000000000000000000000000000000000000000000000271000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000000ffffffffffffffc5000000000000000000000000000000000000000000000000000000000000010000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000048271000000000000000000000000000000001000276a40198c51c8e958cccd37f798b2b9332d148e2c05d578000000000c8b429d62f8f3bffb98cdb9569533ea23bf0ba28cc00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000008434ee90ca000000000000000000000000f5c4f3dc02c3fb9279495a8fef7b0741da95615700000000000000000000000098c51c8e958cccd37f798b2b9332d148e2c05d570000000000000000000000000000000000000000000011b484fd02d0c07a47d7000000000000000000000000000000000000000000000000000000000000271000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000012438c9c14700000000000000000000000098c51c8e958cccd37f798b2b9332d148e2c05d57000000000000000000000000000000000000000000000000000000000000006400000000000000000000000098c51c8e958cccd37f798b2b9332d148e2c05d57000000000000000000000000000000000000000000000000000000000000002400000000000000000000000000000000000000000000000000000000000000a00000000000000000000000000000000000000000000000000000000000000044a9059cbb000000000000000000000000c5377e6329770be29ef938d8acc11f22398d7e540000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000","router":"0x0000000000001ff3684f28c67538d4d072c22734","allowanceTarget":"0x0000000000001ff3684f28c67538d4d072c22734"}
-2026-02-20T06:11:13.947102975Z [inf]  [SwapExecutor] Swap input: {"tokenIn":"0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee","tokenOut":"0x98c51C8E958ccCD37F798b2B9332d148E2c05D57","amountInBase":"509681653247944","slippageBps":75,"expectedAmountOut":"82741.7781461037454182"}
-2026-02-20T06:11:13.947104431Z [inf]  [SwapExecutor] ======================================
-2026-02-20T06:11:13.947121169Z [err]  Swap execution error
-2026-02-20T06:11:13.947129280Z [wrn]  Fast failover: switching DEX after execution error
-2026-02-20T06:11:13.947135820Z [inf]  Suppressed repeated logs
-2026-02-20T06:11:13.947142817Z [inf]  [PlatformFee] Fees ENABLED: {"context":"copyTrade","bps":100,"evmRecipient":"0xc5377e6329"}
-2026-02-20T06:11:13.950222158Z [inf]  [Kyber] GET routes {"routesUrl":"https://aggregator-api.kyberswap.com/base/api/v1/routes?tokenIn=0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee&tokenOut=0x98c51C8E958ccCD37F798b2B9332d148E2c05D57&amountIn=509681653247944&saveGas=true&gasInclude=true&clientId=kiko-app&origin=0xFB64Ce8d64CEC808a8aCb977d3Ee7bE1169f1a2B&feeReceiver=0xc5377e6329770Be29Ef938d8aCC11f22398D7E54&feeAmount=100&isInBps=true&chargeFeeBy=currency_in"}
-2026-02-20T06:11:13.950227020Z [inf]  Fetching premium trending tokens
-2026-02-20T06:11:14.016922902Z [inf]  0x API Quote received successfully
-2026-02-20T06:11:14.016930179Z [inf]  0x API Quote successful
-2026-02-20T06:11:14.016935907Z [inf]  [QuoteService] 0x API estimatedPriceImpact: {"parsed":0,"multipliedBy100":0,"impactVsMkt":null,"willUse":0}
-2026-02-20T06:11:14.025759598Z [inf]  WS addresses discovered
-2026-02-20T06:11:14.155672626Z [inf]  [QuoteService] Turbo quote mode fast-return {"picked":"0x_fast","elapsedMs":693,"graceWaitMs":180,"chainId":8453}
-2026-02-20T06:11:14.155685702Z [inf]  [QuoteService] Excluding DEX on retry: {"excluded":"0x","available":"kyber"}
-2026-02-20T06:11:14.155693759Z [inf]  Checking approval for swap
-2026-02-20T06:11:14.155700419Z [inf]  Approval not needed or already set
-2026-02-20T06:11:14.155706330Z [inf]  [SwapExecutor] Executing KyberSwap swap on chain 8453
-2026-02-20T06:11:14.155717481Z [inf]  [SwapExecutor] ========== TRANSACTION EXECUTION ==========
-2026-02-20T06:11:14.155724230Z [inf]  [SwapExecutor] DEX: KyberSwap
-2026-02-20T06:11:14.157966045Z [inf]  [SwapExecutor] Transaction params: {"to":"0x6131B5fae19EA4f9D964eAc0408E4408b66337b5","dataLength":7306,"dataPrefix":"0xe21fd0e900000000000000000000000000000000000000000000000000000000","value":"509681653247944","router":"0x6131B5fae19EA4f9D964eAc0408E4408b66337b5","allowanceTarget":"0x6131B5fae19EA4f9D964eAc0408E4408b66337b5"}
-2026-02-20T06:11:14.157975361Z [inf]  [SwapExecutor] Swap details: {"tokenIn":"0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee","tokenOut":"0x98c51C8E958ccCD37F798b2B9332d148E2c05D57","amountInBase":"509681653247944","amountInHuman":"0.000509681653247944","amountOut":"83567.980547439127953408","slippageBps":75,"priceImpact":0,"gasEstimate":356167}
-2026-02-20T06:11:14.157982039Z [inf]  [SwapExecutor] =============================================
-2026-02-20T06:11:14.157987362Z [inf]  [SwapExecutor] ===== KYBER ULTRA DEBUG =====
-2026-02-20T06:11:14.157991840Z [inf]  [SwapExecutor] Full calldata: 0xe21fd0e9000000000000000000000000000000000000000000000000000000000000002000000000000000000000000063242a4ea82847b20e506b63b0e2e2eff0cc6cb0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000a000000000000000000000000000000000000000000000000000000000000009200000000000000000000000000000000000000000000000000000000000000b60000000000000000000000000000000000000000000000000000000000000086000000000000000000001caeacff393c900000000000000000001caeacff393c9000000000000000000000000000000000000000000000000000000000000006000000000000000000000000000000000000000000000000000000000000000e00000000000000000000000000000000000000000000000000000000000000041f8fbd7a5e8b2e4f53f1a3965606fd610b37c39c12f5b6ae78a2edfa4491c416f5d927a6ebd1e35c42adde5fec8b7b2db5f70cf0f2352d6b97e103704dfce3d5a1c000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000760000000000000000000000000fb64ce8d64cec808a8acb977d3ee7be1169f1a2b000000000000000000000000000000000000000000000000000000000000014000000000000000000000000000000000000000000000000000000000000001a000000000000000000001b3f8abf432cb00000000000000000001e1dcf3f2f4c600000000000000000001caeacff393c900000000000011b23ab399c24f0000000000000000000000000000000000000128e4a2b3207a170000000f42400000000000000000000000000000004f82e73edb06d29ff62c91ec8f5ff06571bdeb290000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000006997fd590000000000000000000000000000000000000000000000000000000000000740000000000000000000000000000000000000000000000000000000000000000261f598cd00000000000000000e8dc749ff31e5160bd0f828366bcfc7e6464f9791dd734600000000000000000e8dc749ff31e5160bd0f828366bcfc7e6464f970000000000000000000000000000000000000000000000000000000000000003000000000000000000000000000000000000000000000000000000000000006000000000000000000000000000000000000000000000000000000000000001a00000000000000000000000000000000000000000000000000000000000000500000000000000000000000000eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee8000000000000000000000001e135a8400000000000000000001caeacff393c90000000000000000000000000000000000000000000000000000000000000060000000000000000000000000000000000000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000000200000000000000000000000000000000000000000000000000001caeacff393c9000000000000000000000001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000800000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000042000000000000000000000000000000000000068000000000000000000000001e135a8400000000000000000001caeacff393c90000000000000000000000000000000000000000000000000000000000000060000000000000000000000000000000000000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000000200000000000000000000000000000000000000000000000000001caeacff393c9736e774d0000000000000002d1877a31a73c7cb31c02b9e7d7c336531562b21e000000000000000000000000000000000000000000000000000000000000008000000000000000000000000063242a4ea82847b20e506b63b0e2e2eff0cc6cb00000000000000000000000000000000000000000000000000000000000000220000000000000000000000000498581ff718922c3f8e6a244956af099b2652b2b000000000000000000000000000000000000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000000600000000000000000000000000000000000000000000000000000000000000001000000000000000000000000000000000000000000000000000000000000002000000000000000000000000042000000000000000000000000000000000000060000000000000000000000000000000000000000000000000001caeacff393c900000000000000000000000000000000000000000000000000000000000000600000000000000000000000000000000000000000000000000000000000000001000000000000000000000000000000000000000000000000000000000000002000000000000000000000000098c51c8e958cccd37f798b2b9332d148e2c05d57000000000000000000000000000000000000000000000000000000000080000000000000000000000000000000000000000000000000000000000000000000c8000000000000000000000000b429d62f8f3bffb98cdb9569533ea23bf0ba28cc00000000000000000000000000000000000000000000000000000000000000c000000000000000000000000000000000000001934ecb654f53afcff4c4be48af000000000000000000000000000000000000000000000000000000000000000000000000000000000000000098c51c8e958cccd37f798b2b9332d148e2c05d578000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000006000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee00000000000000000000000098c51c8e958cccd37f798b2b9332d148e2c05d570000000000000000000000000000000000000000000000000000000000000160000000000000000000000000000000000000000000000000000000000000018000000000000000000000000000000000000000000000000000000000000001a000000000000000000000000000000000000000000000000000000000000001e0000000000000000000000000fb64ce8d64cec808a8acb977d3ee7be1169f1a2b0000000000000000000000000000000000000000000000000001cf8d81e3efc800000000000000000000000000000000000000000000119040a94b2a73870a3c00000000000000000000000000000000000000000000000000000000000002800000000000000000000000000000000000000000000000000000000000000220000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001000000000000000000000000c5377e6329770be29ef938d8acc11f22398d7e54000000000000000000000000000000000000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000000640000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000028a7b22536f75726365223a226b696b6f2d617070222c22416d6f756e74496e555344223a22302e3939373338333336313139313531222c22416d6f756e744f7574555344223a22302e39383539383938373331393433313931222c22526566657272616c223a22222c22466c616773223a302c22416d6f756e744f7574223a223833353637393830353437343339313237393533343037222c2254696d657374616d70223a313737313536373837342c22526f7574654944223a2237616134383761302d383135642d346235362d623630322d6263363935303430316234653a38363062343063642d396365652d346164632d393632622d356538303461613531346362222c22496e74656772697479496e666f223a7b224b65794944223a2231222c225369676e6174757265223a2256432f4b2f4a675a3737742f77382f6e6a4b6b37576c6e796e7235576c46735052454d55647055376f5336553668632b4b596576617946565068485256474655487533724a6562766d4a7779554f4234656c7a72413073344d6c71735a6b554831625939717870647742416d36325939474c506a766b6336317654494e4375476956665156746e7946457547797670527251655973665744526b38696362737238426236354c434b43513751595763735965364a416354734e4f314d397a6c576e41567337324f6462765a674563733649716e784874477164444a506e4144564d727970686952734a58316168506a482f6f624361792f31726e6645416342496a394c4d366a372f797a72644c3650516c6d796d33516e6579325a6e4a6131677431572f4f5059616d6b457543356c48794b757651464c6d3344586d4d6261536975734f5632676f6e6f3956317a5351454c746e35773d3d227d7d00000000000000000000000000000000000000000000
-2026-02-20T06:11:14.161314881Z [inf]  [SwapExecutor] Calldata length: 7306
-2026-02-20T06:11:14.161323437Z [inf]  [SwapExecutor] Build response (full best): {"dex":"kyber","dexName":"KyberSwap","amountOut":"83567.980547439127953408","amountOutBase":"83567980547439127953408","gasEstimate":356167,"priceImpact":0,"priceImpactVsMkt":null,"path":["0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee","0x98c51C8E958ccCD37F798b2B9332d148E2c05D57"],"router":"0x6131B5fae19EA4f9D964eAc0408E4408b66337b5","data":"0xe21fd0e9000000000000000000000000000000000000000000000000000000000000002000000000000000000000000063242a4ea82847b20e506b63b0e2e2eff0cc6cb0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000a000000000000000000000000000000000000000000000000000000000000009200000000000000000000000000000000000000000000000000000000000000b60000000000000000000000000000000000000000000000000000000000000086000000000000000000001caeacff393c900000000000000000001caeacff393c9000000000000000000000000000000000000000000000000000000000000006000000000000000000000000000000000000000000000000000000000000000e00000000000000000000000000000000000000000000000000000000000000041f8fbd7a5e8b2e4f53f1a3965606fd610b37c39c12f5b6ae78a2edfa4491c416f5d927a6ebd1e35c42adde5fec8b7b2db5f70cf0f2352d6b97e103704dfce3d5a1c000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000760000000000000000000000000fb64ce8d64cec808a8acb977d3ee7be1169f1a2b000000000000000000000000000000000000000000000000000000000000014000000000000000000000000000000000000000000000000000000000000001a000000000000000000001b3f8abf432cb00000000000000000001e1dcf3f2f4c600000000000000000001caeacff393c900000000000011b23ab399c24f0000000000000000000000000000000000000128e4a2b3207a170000000f42400000000000000000000000000000004f82e73edb06d29ff62c91ec8f5ff06571bdeb290000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000006997fd590000000000000000000000000000000000000000000000000000000000000740000000000000000000000000000000000000000000000000000000000000000261f598cd00000000000000000e8dc749ff31e5160bd0f828366bcfc7e6464f9791dd734600000000000000000e8dc749ff31e5160bd0f828366bcfc7e6464f970000000000000000000000000000000000000000000000000000000000000003000000000000000000000000000000000000000000000000000000000000006000000000000000000000000000000000000000000000000000000000000001a00000000000000000000000000000000000000000000000000000000000000500000000000000000000000000eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee8000000000000000000000001e135a8400000000000000000001caeacff393c90000000000000000000000000000000000000000000000000000000000000060000000000000000000000000000000000000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000000200000000000000000000000000000000000000000000000000001caeacff393c9000000000000000000000001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000800000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000042000000000000000000000000000000000000068000000000000000000000001e135a8400000000000000000001caeacff393c90000000000000000000000000000000000000000000000000000000000000060000000000000000000000000000000000000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000000200000000000000000000000000000000000000000000000000001caeacff393c9736e774d0000000000000002d1877a31a73c7cb31c02b9e7d7c336531562b21e000000000000000000000000000000000000000000000000000000000000008000000000000000000000000063242a4ea82847b20e506b63b0e2e2eff0cc6cb00000000000000000000000000000000000000000000000000000000000000220000000000000000000000000498581ff718922c3f8e6a244956af099b2652b2b000000000000000000000000000000000000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000000600000000000000000000000000000000000000000000000000000000000000001000000000000000000000000000000000000000000000000000000000000002000000000000000000000000042000000000000000000000000000000000000060000000000000000000000000000000000000000000000000001caeacff393c900000000000000000000000000000000000000000000000000000000000000600000000000000000000000000000000000000000000000000000000000000001000000000000000000000000000000000000000000000000000000000000002000000000000000000000000098c51c8e958cccd37f798b2b9332d148e2c05d57000000000000000000000000000000000000000000000000000000000080000000000000000000000000000000000000000000000000000000000000000000c8000000000000000000000000b429d62f8f3bffb98cdb9569533ea23bf0ba28cc00000000000000000000000000000000000000000000000000000000000000c000000000000000000000000000000000000001934ecb654f53afcff4c4be48af000000000000000000000000000000000000000000000000000000000000000000000000000000000000000098c51c8e958cccd37f798b2b9332d148e2c05d578000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000006000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee00000000000000000000000098c51c8e958cccd37f798b2b9332d148e2c05d570000000000000000000000000000000000000000000000000000000000000160000000000000000000000000000000000000000000000000000000000000018000000000000000000000000000000000000000000000000000000000000001a000000000000000000000000000000000000000000000000000000000000001e0000000000000000000000000fb64ce8d64cec808a8acb977d3ee7be1169f1a2b0000000000000000000000000000000000000000000000000001cf8d81e3efc800000000000000000000000000000000000000000000119040a94b2a73870a3c00000000000000000000000000000000000000000000000000000000000002800000000000000000000000000000000000000000000000000000000000000220000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001000000000000000000000000c5377e6329770be29ef938d8acc11f22398d7e54000000000000000000000000000000000000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000000640000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000028a7b22536f75726365223a226b696b6f2d617070222c22416d6f756e74496e555344223a22302e3939373338333336313139313531222c22416d6f756e744f7574555344223a22302e39383539383938373331393433313931222c22526566657272616c223a22222c22466c616773223a302c22416d6f756e744f7574223a223833353637393830353437343339313237393533343037222c2254696d657374616d70223a313737313536373837342c22526f7574654944223a2237616134383761302d383135642d346235362d623630322d6263363935303430316234653a38363062343063642d396365652d346164632d393632622d356538303461613531346362222c22496e74656772697479496e666f223a7b224b65794944223a2231222c225369676e6174757265223a2256432f4b2f4a675a3737742f77382f6e6a4b6b37576c6e796e7235576c46735052454d55647055376f5336553668632b4b596576617946565068485256474655487533724a6562766d4a7779554f4234656c7a72413073344d6c71735a6b554831625939717870647742416d36325939474c506a766b6336317654494e4375476956665156746e7946457547797670527251655973665744526b38696362737238426236354c434b43513751595763735965364a416354734e4f314d397a6c576e41567337324f6462765a674563733649716e784874477164444a506e4144564d727970686952734a58316168506a482f6f624361792f31726e6645416342496a394c4d366a372f797a72644c3650516c6d796d33516e6579325a6e4a6131677431572f4f5059616d6b457543356c48794b757651464c6d3344586d4d6261536975734f5632676f6e6f3956317a5351454c746e35773d3d227d7d00000000000000000000000000000000000000000000","to":"0x6131B5fae19EA4f9D964eAc0408E4408b66337b5","value":"509681653247944","allowanceTarget":"0x6131B5fae19EA4f9D964eAc0408E4408b66337b5","deadline":1771568474,"tokenInDecimals":18,"tokenOutDecimals":18}
-2026-02-20T06:11:14.163245227Z [inf]  [SwapExecutor] ===========================
-2026-02-20T06:11:14.233400467Z [inf]  [SwapExecutor] Execution params prepared: {"dex":"KyberSwap","gasEstimate":356167,"gasLimit":"534250","maxFeePerGas":"11000000","maxPriorityFeePerGas":"1000000"}
-2026-02-20T06:11:14.233407708Z [inf]  🚀 CopyTrade Aggressive Gas
-2026-02-20T06:11:14.282437723Z [wrn]  Sending transaction via Privy sign+broadcast path
-2026-02-20T06:11:15.033997971Z [wrn]  Nonce error on attempt 1, retrying in 2000ms...
-2026-02-20T06:11:15.034005839Z [inf]  Processed DexScreener trending candidates
-2026-02-20T06:11:15.034013637Z [inf]  Premium trending tokens fetch complete
-2026-02-20T06:11:15.034022444Z [inf]  Got 70 trending tokens for Base
-2026-02-20T06:11:15.034041581Z [inf]  Filtered out 1 invalid tokens for Base
-2026-02-20T06:11:15.248623473Z [inf]  Saved 69/69 trending tokens for base to database and memory cache
-2026-02-20T06:11:15.250278236Z [inf]  Saved 69 tokens for Base to DB + cache
-2026-02-20T06:11:16.069985477Z [inf]  Launchpad verify budget applied
-2026-02-20T06:11:16.187845740Z [inf]  Suppressed repeated logs
-2026-02-20T06:11:16.187859903Z [err]  api failed after 1 attempts
-2026-02-20T06:11:16.984294229Z [wrn]  Sending transaction via Privy sign+broadcast path
-2026-02-20T06:11:19.031432714Z [wrn]  Nonce error on attempt 2, retrying in 2000ms...
-2026-02-20T06:11:20.829147723Z [wrn]  Sending transaction via Privy sign+broadcast path
-2026-02-20T06:11:21.017966702Z [err]  Privy Ethereum transaction failed
-2026-02-20T06:11:21.017975204Z [inf]  [SwapExecutor] ========== EXECUTION FAILED ==========
-2026-02-20T06:11:21.017981238Z [inf]  [SwapExecutor] DEX: KyberSwap
-2026-02-20T06:11:21.017986844Z [inf]  [SwapExecutor] Error message: Failed to send transaction: RPC Error: nonce too low: next nonce 1681, tx nonce 0
-2026-02-20T06:11:21.017992638Z [inf]  [SwapExecutor] Error stack: Error: Failed to send transaction: RPC Error: nonce too low: next nonce 1681, tx nonce 0
-    at file:///app/dist/services/privyWallet.js:318:23
-    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
-    at async SwapExecutor.executeEvm (file:///app/dist/services/swap/SwapExecutor.js:538:28)
-    at async SwapExecutor.execute (file:///app/dist/services/swap/SwapExecutor.js:43:24)
-    at async MainSwapService.executeEvmSwap (file:///app/dist/services/MainSwapService.js:681:33)
-    at async MainSwapService.executeSwap (file:///app/dist/services/MainSwapService.js:206:24)
-    at async file:///app/dist/services/autoTradeService.js:1526:56
-    at async withTradeLock (file:///app/dist/services/autoTradeService.js:77:16)
-    at async Promise.allSettled (index 0)
-    at async processBuyWithInfo (file:///app/dist/services/autoTradeService.js:782:30)
-2026-02-20T06:11:21.020579035Z [inf]  [SwapExecutor] Error details: {"name":"Error","code":"TRANSACTION_FAILED"}
-2026-02-20T06:11:21.022120243Z [inf]  [SwapExecutor] Transaction params: {"to":"0x6131B5fae19EA4f9D964eAc0408E4408b66337b5","value":"509681653247944","dataLength":7306,"data":"0xe21fd0e9000000000000000000000000000000000000000000000000000000000000002000000000000000000000000063242a4ea82847b20e506b63b0e2e2eff0cc6cb0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000a000000000000000000000000000000000000000000000000000000000000009200000000000000000000000000000000000000000000000000000000000000b60000000000000000000000000000000000000000000000000000000000000086000000000000000000001caeacff393c900000000000000000001caeacff393c9000000000000000000000000000000000000000000000000000000000000006000000000000000000000000000000000000000000000000000000000000000e00000000000000000000000000000000000000000000000000000000000000041f8fbd7a5e8b2e4f53f1a3965606fd610b37c39c12f5b6ae78a2edfa4491c416f5d927a6ebd1e35c42adde5fec8b7b2db5f70cf0f2352d6b97e103704dfce3d5a1c000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000760000000000000000000000000fb64ce8d64cec808a8acb977d3ee7be1169f1a2b000000000000000000000000000000000000000000000000000000000000014000000000000000000000000000000000000000000000000000000000000001a000000000000000000001b3f8abf432cb00000000000000000001e1dcf3f2f4c600000000000000000001caeacff393c900000000000011b23ab399c24f0000000000000000000000000000000000000128e4a2b3207a170000000f42400000000000000000000000000000004f82e73edb06d29ff62c91ec8f5ff06571bdeb290000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000006997fd590000000000000000000000000000000000000000000000000000000000000740000000000000000000000000000000000000000000000000000000000000000261f598cd00000000000000000e8dc749ff31e5160bd0f828366bcfc7e6464f9791dd734600000000000000000e8dc749ff31e5160bd0f828366bcfc7e6464f970000000000000000000000000000000000000000000000000000000000000003000000000000000000000000000000000000000000000000000000000000006000000000000000000000000000000000000000000000000000000000000001a00000000000000000000000000000000000000000000000000000000000000500000000000000000000000000eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee8000000000000000000000001e135a8400000000000000000001caeacff393c90000000000000000000000000000000000000000000000000000000000000060000000000000000000000000000000000000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000000200000000000000000000000000000000000000000000000000001caeacff393c9000000000000000000000001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000800000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000042000000000000000000000000000000000000068000000000000000000000001e135a8400000000000000000001caeacff393c90000000000000000000000000000000000000000000000000000000000000060000000000000000000000000000000000000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000000200000000000000000000000000000000000000000000000000001caeacff393c9736e774d0000000000000002d1877a31a73c7cb31c02b9e7d7c336531562b21e000000000000000000000000000000000000000000000000000000000000008000000000000000000000000063242a4ea82847b20e506b63b0e2e2eff0cc6cb00000000000000000000000000000000000000000000000000000000000000220000000000000000000000000498581ff718922c3f8e6a244956af099b2652b2b000000000000000000000000000000000000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000000600000000000000000000000000000000000000000000000000000000000000001000000000000000000000000000000000000000000000000000000000000002000000000000000000000000042000000000000000000000000000000000000060000000000000000000000000000000000000000000000000001caeacff393c900000000000000000000000000000000000000000000000000000000000000600000000000000000000000000000000000000000000000000000000000000001000000000000000000000000000000000000000000000000000000000000002000000000000000000000000098c51c8e958cccd37f798b2b9332d148e2c05d57000000000000000000000000000000000000000000000000000000000080000000000000000000000000000000000000000000000000000000000000000000c8000000000000000000000000b429d62f8f3bffb98cdb9569533ea23bf0ba28cc00000000000000000000000000000000000000000000000000000000000000c000000000000000000000000000000000000001934ecb654f53afcff4c4be48af000000000000000000000000000000000000000000000000000000000000000000000000000000000000000098c51c8e958cccd37f798b2b9332d148e2c05d578000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000006000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee00000000000000000000000098c51c8e958cccd37f798b2b9332d148e2c05d570000000000000000000000000000000000000000000000000000000000000160000000000000000000000000000000000000000000000000000000000000018000000000000000000000000000000000000000000000000000000000000001a000000000000000000000000000000000000000000000000000000000000001e0000000000000000000000000fb64ce8d64cec808a8acb977d3ee7be1169f1a2b0000000000000000000000000000000000000000000000000001cf8d81e3efc800000000000000000000000000000000000000000000119040a94b2a73870a3c00000000000000000000000000000000000000000000000000000000000002800000000000000000000000000000000000000000000000000000000000000220000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001000000000000000000000000c5377e6329770be29ef938d8acc11f22398d7e54000000000000000000000000000000000000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000000640000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000028a7b22536f75726365223a226b696b6f2d617070222c22416d6f756e74496e555344223a22302e3939373338333336313139313531222c22416d6f756e744f7574555344223a22302e39383539383938373331393433313931222c22526566657272616c223a22222c22466c616773223a302c22416d6f756e744f7574223a223833353637393830353437343339313237393533343037222c2254696d657374616d70223a313737313536373837342c22526f7574654944223a2237616134383761302d383135642d346235362d623630322d6263363935303430316234653a38363062343063642d396365652d346164632d393632622d356538303461613531346362222c22496e74656772697479496e666f223a7b224b65794944223a2231222c225369676e6174757265223a2256432f4b2f4a675a3737742f77382f6e6a4b6b37576c6e796e7235576c46735052454d55647055376f5336553668632b4b596576617946565068485256474655487533724a6562766d4a7779554f4234656c7a72413073344d6c71735a6b554831625939717870647742416d36325939474c506a766b6336317654494e4375476956665156746e7946457547797670527251655973665744526b38696362737238426236354c434b43513751595763735965364a416354734e4f314d397a6c576e41567337324f6462765a674563733649716e784874477164444a506e4144564d727970686952734a58316168506a482f6f624361792f31726e6645416342496a394c4d366a372f797a72644c3650516c6d796d33516e6579325a6e4a6131677431572f4f5059616d6b457543356c48794b757651464c6d3344586d4d6261536975734f5632676f6e6f3956317a5351454c746e35773d3d227d7d00000000000000000000000000000000000000000000","router":"0x6131B5fae19EA4f9D964eAc0408E4408b66337b5","allowanceTarget":"0x6131B5fae19EA4f9D964eAc0408E4408b66337b5"}
-2026-02-20T06:11:21.022126593Z [inf]  [SwapExecutor] Swap input: {"tokenIn":"0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee","tokenOut":"0x98c51C8E958ccCD37F798b2B9332d148E2c05D57","amountInBase":"509681653247944","slippageBps":75,"expectedAmountOut":"83567.980547439127953408"}
-2026-02-20T06:11:21.024751878Z [inf]  [SwapExecutor] ======================================
-2026-02-20T06:11:21.024757047Z [err]  Swap execution error
-2026-02-20T06:11:21.024762397Z [err]  Swap Execution Failed
-2026-02-20T06:11:21.024767481Z [err]  Raw Swap Error Captured
-2026-02-20T06:11:21.024772418Z [err]  [MainSwapService][1771567866439_wv9e8] Swap execution failed: Swap failed: Failed to send transaction: RPC Error: nonce too low: next nonce 1681, tx nonce 0
-2026-02-20T06:11:21.026316609Z [wrn]  Turbo fast retry failed
-2026-02-20T06:11:21.026323656Z [wrn]  Turbo mode: skip slow multi-step retries after step1 failure
-2026-02-20T06:11:21.108855084Z [inf]  [CopyTrade] Turbo fast lane complete
-2026-02-20T06:11:24.949709747Z [inf]  Suppressed repeated logs
-2026-02-20T06:11:24.949720956Z [inf]  Saved 69/69 trending tokens for base to database and memory cache
-2026-02-20T06:11:27.996857337Z [inf]  [Profile] fetchReceipt
-2026-02-20T06:11:27.996863798Z [inf]  [Profile] parseSwapTransaction
-2026-02-20T06:11:30.126856757Z [inf]  [Webhook] Alchemy payload: network=BASE_MAINNET hash=0xbffe7e9c6d018052740fb0505473504bc890a21c2d937f3f37d94a39f7bde87f category=external asset=ETH
-2026-02-20T06:11:30.126862347Z [inf]  Suppressed repeated logs
-2026-02-20T06:11:30.126868606Z [inf]  [Webhook] Processing as EVM activity groups (1 tx groups)
-2026-02-20T06:11:30.126875752Z [inf]  [Webhook] Found 1 tracked wallets for tx 0xbffe7e9c6d018052740fb0505473504bc890a21c2d937f3f37d94a39f7bde87f
-2026-02-20T06:11:30.126883957Z [inf]  [Profile] parseSwapTransaction
-2026-02-20T06:11:30.126890517Z [inf]  [Webhook] Tx decoded with no swaps; leaving unprocessed for potential follow-up payload: 0xbffe7e9c6d018052740fb0505473504bc890a21c2d937f3f37d94a39f7bde87f
-2026-02-20T06:11:30.128095167Z [inf]  [WebhookTiming][alchemy] tx=0xbffe7e9c6d wallets=1 swaps=0 predecoded=0 totalMs=15
-2026-02-20T06:11:36.170835143Z [inf]  [Profile] fetchReceipt
-2026-02-20T06:11:36.170883140Z [inf]  Swap repair used reversed pool direction while preserving wallet direction
-2026-02-20T06:11:36.170893127Z [inf]  [Profile] parseSwapTransaction
-2026-02-20T06:11:36.170901357Z [inf]  [CopyTradePending] Prefetched confirmed swap from pending path
-2026-02-20T06:11:36.170908700Z [inf]  Swap detected on target wallet
-2026-02-20T06:11:36.170915161Z [inf]  Target is selling - triggering mirror sell
-2026-02-20T06:11:36.175211321Z [inf]  [CopyTradeTiming] target sell start
-2026-02-20T06:11:36.175216281Z [inf]  Mirror sell: Processing open positions for token
-2026-02-20T06:11:36.299874239Z [inf]  [Webhook] Alchemy payload: network=BASE_MAINNET hash=0x333b90c4e15a1db5d302ead70607f54e2ffa9b6c8e824daa5394d1245de70162 category=external asset=ETH
-2026-02-20T06:11:36.320765278Z [inf]  [Webhook] Processing as EVM activity groups (1 tx groups)
-2026-02-20T06:11:36.336505169Z [inf]  [Webhook] Found 1 tracked wallets for tx 0x333b90c4e15a1db5d302ead70607f54e2ffa9b6c8e824daa5394d1245de70162
-2026-02-20T06:11:36.336511631Z [inf]  [WebhookTiming][alchemy] tx=0x333b90c4e1 wallets=1 swaps=1 predecoded=1 totalMs=15
-2026-02-20T06:11:36.351456904Z [inf]  [Webhook] Alchemy payload: network=BASE_MAINNET hash=0x333b90c4e15a1db5d302ead70607f54e2ffa9b6c8e824daa5394d1245de70162 category=token asset=DAIMON
-2026-02-20T06:11:36.366639233Z [inf]  [Webhook] Tx already in processedTxs cache: 0x333b90c4e15a1db5d302ead70607f54e2ffa9b6c8e824daa5394d1245de70162
-2026-02-20T06:11:36.579872433Z [err]  All RPC endpoints failed
-2026-02-20T06:11:38.162546147Z [inf]  ✅ Hybrid fetch complete
-2026-02-20T06:11:38.162550347Z [inf]  Mirror sell skipped: no open positions after reconciliation
-2026-02-20T06:11:39.510971515Z [inf]  [Webhook] Alchemy payload: network=BASE_MAINNET hash=0x333b90c4e15a1db5d302ead70607f54e2ffa9b6c8e824daa5394d1245de70162 category=internal asset=ETH
-2026-02-20T06:11:45.264617008Z [inf]  Fetching premium trending tokens
-2026-02-20T06:11:45.524419825Z [inf]  WS addresses discovered
-2026-02-20T06:11:46.620010437Z [inf]  Processed DexScreener trending candidates
-2026-02-20T06:11:46.620017456Z [inf]  Premium trending tokens fetch complete
-2026-02-20T06:11:46.620022296Z [inf]  Got 81 trending tokens for BSC
-2026-02-20T06:11:46.620027849Z [inf]  Filtered out 1 invalid tokens for BSC
-2026-02-20T06:11:47.324746114Z [inf]  Launchpad verify budget applied
-2026-02-20T06:11:47.324793942Z [inf]  Saved 80/80 trending tokens for bsc to database and memory cache
-2026-02-20T06:11:47.324800027Z [inf]  Saved 80 tokens for BSC to DB + cache
-2026-02-20T06:11:47.324806069Z [inf]  Refreshed 4 primary chains in 106.4s
-2026-02-20T06:11:48.257632568Z [err]  LaunchpadDetector: Four.meme fetch failed
-2026-02-20T06:11:48.257637006Z [err]  LaunchpadDetector: Four.meme fetch failed
-2026-02-20T06:12:08.264841082Z [wrn]  RPC health degraded
-2026-02-20T06:12:08.264845317Z [inf]  Suppressed repeated logs
-2026-02-20T06:12:08.264850790Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-20T06:12:11.435674754Z [inf]  Suppressed repeated logs
-2026-02-20T06:12:11.435681973Z [inf]  No open positions to monitor
-2026-02-20T06:13:11.181378744Z [wrn]  RPC health degraded
-2026-02-20T06:13:31.199735607Z [inf]  Suppressed repeated logs
-2026-02-20T06:13:31.199741620Z [inf]  Alpha Detector: Checking new coin
-2026-02-20T06:14:00.859244550Z [inf]  [CopyTrade] GET /positions - Fetching positions for did:privy:cmk74yj4r03jcl70b8hwyuh2c
-2026-02-20T06:14:00.859248893Z [inf]  [verifyAccess] Checking access: {"userId":"did:privy:cmk74yj4r03jcl70b8hwyuh2c","userIdLength":35,"userIdPrefix":"did:privy:cmk74yj4r0","requestedAddress":"0xFB64Ce8d64CEC808a8aCb977d3Ee7bE1169f1a2B"}
-2026-02-20T06:14:00.859253263Z [inf]  [verifyAccess] ✅ Access granted
-2026-02-20T06:14:01.615717710Z [inf]  Alchemy Portfolio EVM page 1 received
-2026-02-20T06:14:02.068266921Z [err]  clob.polymarket.com failed after 1 attempts
-2026-02-20T06:14:02.068277190Z [err]  Failed to fetch Polymarket open orders
-2026-02-20T06:14:02.171065186Z [inf]  ChatWS Client connected
-2026-02-20T06:14:02.173516773Z [inf]  ChatWS: User connected
-2026-02-20T06:14:02.233581859Z [inf]  Alchemy Portfolio EVM pagination complete
-2026-02-20T06:14:02.988114357Z [inf]  [AlchemyUsage] rolling usage snapshot
-2026-02-20T06:14:02.989878924Z [inf]  Wallet transactions filtered and ready
-2026-02-20T06:14:02.989887783Z [inf]  [WalletRoutes] Returning 20 transactions for 0xFB64Ce8d64CEC808a8aCb977d3Ee7bE1169f1a2B
-2026-02-20T06:14:05.772504603Z [wrn]  RPC health degraded
-2026-02-20T06:14:09.982479122Z [inf]  Alchemy Portfolio EVM page 1 received
-2026-02-20T06:14:10.824954111Z [wrn]  Alchemy Prices API failed
-2026-02-20T06:14:10.824963212Z [inf]  Alchemy Portfolio EVM pagination complete
-2026-02-20T06:14:11.795724957Z [inf]  Solana: using fetchSolanaTokenAccounts RPC fallback
-2026-02-20T06:14:11.795735269Z [inf]  Hybrid Fetch recovered missing token
-2026-02-20T06:14:11.795854223Z [inf]  Solana balance fetched via Helius
-2026-02-20T06:14:16.798655315Z [inf]  [CopyTrade] GET /configs - Fetching configs for user did:privy:cmk74yj4r03jcl70b8hwyuh2c
-2026-02-20T06:14:16.798662673Z [inf]  [CopyTrade] GET /positions - Fetching positions for did:privy:cmk74yj4r03jcl70b8hwyuh2c
-2026-02-20T06:14:18.958621372Z [inf]  [CopyTrade] GET /config/:id/target-status {"userId":"did:privy:cmk74yj4r03jcl70b8hwyuh2c","configId":"cml5i3w0800c3m112bpaat30r","trackedTxCount":0,"walletTxCount":0,"buyCount":0,"sellCount":0,"tokenSwapCount":0,"targetProfitUsd":0,"targetLossUsd":0}
-2026-02-20T06:14:18.958627931Z [inf]  [CopyTrade] GET /config/:id/target-status {"userId":"did:privy:cmk74yj4r03jcl70b8hwyuh2c","configId":"cmke90wr11xcuko1oyj98i4u9","trackedTxCount":0,"walletTxCount":0,"buyCount":0,"sellCount":0,"tokenSwapCount":0,"targetProfitUsd":0,"targetLossUsd":0}
-2026-02-20T06:14:20.049099037Z [inf]  [CopyTrade] GET /config/:id/target-status {"userId":"did:privy:cmk74yj4r03jcl70b8hwyuh2c","configId":"cml8bdoix00vf8poepupyc86l","trackedTxCount":14,"walletTxCount":14,"buyCount":8,"sellCount":6,"tokenSwapCount":0,"targetProfitUsd":618.4229868316576,"targetLossUsd":233.7275852408028}
-2026-02-20T06:14:39.654930545Z [err]  Failed to fetch Polymarket open orders
-2026-02-20T06:15:09.658329154Z [inf]  Fetching premium trending tokens
-2026-02-20T06:15:09.658335116Z [inf]  SocialRepo: Recalculated heat scores for 1000 casts
-2026-02-20T06:15:09.658340480Z [inf]  WS addresses discovered
-2026-02-20T06:15:09.658347108Z [inf]  Processed DexScreener trending candidates
-2026-02-20T06:15:09.658352156Z [inf]  [verifyAccess] Checking access: {"userId":"did:privy:cmk74yj4r03jcl70b8hwyuh2c","userIdLength":35,"userIdPrefix":"did:privy:cmk74yj4r0","requestedAddress":"0xFB64Ce8d64CEC808a8aCb977d3Ee7bE1169f1a2B"}
-2026-02-20T06:15:09.658357431Z [inf]  [verifyAccess] ✅ Access granted
-2026-02-20T06:15:09.658362724Z [err]  Failed to fetch Polymarket open orders
-2026-02-20T06:15:09.661200928Z [inf]  [CopyTrade] GET /positions - Fetching positions for did:privy:cmk74yj4r03jcl70b8hwyuh2c
-2026-02-20T06:15:09.661207886Z [inf]  [CopyTrade] GET /configs - Fetching configs for user did:privy:cmk74yj4r03jcl70b8hwyuh2c
-2026-02-20T06:15:09.661212672Z [inf]  Alchemy Portfolio EVM page 1 received
-2026-02-20T06:15:09.661217194Z [inf]  Alchemy Portfolio EVM pagination complete
-2026-02-20T06:15:09.661221651Z [inf]  Aggregated repetitive logs
-2026-02-20T06:15:09.661226048Z [inf]  Aggregated repetitive logs
-2026-02-20T06:15:09.665325368Z [inf]  Aggregated repetitive logs
-2026-02-20T06:15:09.665335738Z [inf]  Aggregated repetitive logs
-2026-02-20T06:15:09.665343403Z [inf]  Aggregated repetitive logs
-2026-02-20T06:15:09.665349880Z [inf]  Aggregated repetitive logs
-2026-02-20T06:15:09.665356275Z [inf]  Aggregated repetitive logs
-2026-02-20T06:15:09.665380501Z [inf]  Aggregated repetitive logs
-2026-02-20T06:15:09.668296498Z [inf]  Aggregated repetitive logs
-2026-02-20T06:15:09.668304727Z [inf]  Aggregated repetitive logs
-2026-02-20T06:15:09.668310987Z [wrn]  GeckoTerminal 429 triggered backoff
-2026-02-20T06:15:09.668316232Z [wrn]  RPC health degraded
-2026-02-20T06:15:09.668320707Z [inf]  Suppressed repeated logs
-2026-02-20T06:15:09.670526802Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-20T06:15:09.670533121Z [wrn]  GeckoTerminal 429 triggered backoff
-2026-02-20T06:15:09.670537271Z [wrn]  GeckoTerminal 429 triggered backoff
-2026-02-20T06:15:11.655805566Z [inf]  No open positions to monitor
-2026-02-20T06:15:11.655872958Z [inf]  Suppressed repeated logs
-2026-02-20T06:15:11.891645603Z [wrn]  GeckoTerminal 429 triggered backoff
-2026-02-20T06:15:11.891652219Z [err]  GeckoTerminal API error after retries
-2026-02-20T06:15:11.891656710Z [err]  Error fetching trending tokens
-2026-02-20T06:15:11.891660763Z [inf]  Premium trending tokens fetch complete
-2026-02-20T06:15:11.891665095Z [inf]  Got 87 trending tokens for Ethereum
-2026-02-20T06:15:11.891669788Z [inf]  Filtered out 5 invalid tokens for Ethereum
-2026-02-20T06:15:12.590744539Z [inf]  Launchpad verify budget applied
-2026-02-20T06:15:12.590825891Z [inf]  Saved 82/82 trending tokens for eth to database and memory cache
-2026-02-20T06:15:12.590833141Z [inf]  Saved 82 tokens for Ethereum to DB + cache
-2026-02-20T06:15:42.771546165Z [inf]  Fetching premium trending tokens
-2026-02-20T06:15:42.771554429Z [inf]  WS addresses discovered
-2026-02-20T06:15:43.254172638Z [inf]  Processed DexScreener trending candidates
-2026-02-20T06:15:43.254181896Z [inf]  Premium trending tokens fetch complete
-2026-02-20T06:15:43.254186309Z [inf]  Got 100 trending tokens for Solana
-2026-02-20T06:15:43.822837086Z [inf]  Saved 100 tokens for Solana to DB + cache
-2026-02-20T06:15:43.822886935Z [inf]  Saved 100/100 trending tokens for solana to database and memory cache
-2026-02-20T06:16:03.466490794Z [inf]  Suppressed repeated logs
-2026-02-20T06:16:03.466497251Z [inf]  Saved 100/100 trending tokens for solana to database and memory cache
-2026-02-20T06:16:05.908616806Z [wrn]  RPC health degraded
-2026-02-20T06:16:13.539460913Z [inf]  Fetching premium trending tokens
-2026-02-20T06:16:14.239957020Z [inf]  WS addresses discovered
-2026-02-20T06:16:15.273322012Z [inf]  Processed DexScreener trending candidates
-2026-02-20T06:16:15.273327596Z [inf]  Premium trending tokens fetch complete
-2026-02-20T06:16:15.273333731Z [inf]  Got 73 trending tokens for Base
-2026-02-20T06:16:15.273339626Z [inf]  Filtered out 1 invalid tokens for Base
-2026-02-20T06:16:15.273345586Z [inf]  Saved 72/72 trending tokens for base to database and memory cache
-2026-02-20T06:16:15.273351305Z [inf]  Saved 72 tokens for Base to DB + cache
-2026-02-20T06:16:15.398785450Z [inf]  Launchpad verify budget applied
-2026-02-20T06:16:17.281969874Z [inf]  Suppressed repeated logs
-2026-02-20T06:16:17.281977060Z [err]  api failed after 1 attempts
-2026-02-20T06:16:23.755010160Z [inf]  Suppressed repeated logs
-2026-02-20T06:16:23.755015548Z [inf]  Alpha Detector: Checking new coin
-2026-02-20T06:16:25.531388849Z [inf]  Suppressed repeated logs
-2026-02-20T06:16:25.531395623Z [inf]  Saved 72/72 trending tokens for base to database and memory cache
-2026-02-20T06:16:54.907896279Z [inf]  Fetching premium trending tokens
-2026-02-20T06:16:54.908591247Z [inf]  Saved 79/79 trending tokens for bsc to database and memory cache
-2026-02-20T06:16:54.910239957Z [err]  LaunchpadDetector: Four.meme fetch failed
-2026-02-20T06:16:54.910244840Z [err]  LaunchpadDetector: Four.meme fetch failed
+2026-02-20T06:33:34.480305747Z [inf]  Starting Container
+2026-02-20T06:33:34.891239478Z [inf]  
+2026-02-20T06:33:34.891246433Z [inf]  > kiko-api@1.0.0 start
+2026-02-20T06:33:34.891253432Z [inf]  > node dist/index.js
+2026-02-20T06:33:34.891259842Z [inf]  
+2026-02-20T06:33:35.535771245Z [inf]  [Prisma] Initializing client (Pool: 20, Timeout: 45s, Connect: 20s)
+2026-02-20T06:33:36.084773628Z [inf]  Zora SDK initialized with API Key
+2026-02-20T06:33:36.084780851Z [err]  [SocialJob] Could not find real_hot_users.json in any candidate path
+2026-02-20T06:33:36.084789989Z [inf]  [Warpcast] Loaded 10 API keys. Daily capacity: 50000 messages.
+2026-02-20T06:33:36.133409637Z [inf]  [SkillRegistry:exec] Loading skills from /app/dist/skills_exec...
+2026-02-20T06:33:36.133415533Z [inf]  [SkillRegistry:exec] Skills dir not found, skipping: /app/dist/skills_exec
+2026-02-20T06:33:36.133421932Z [inf]  [SkillRegistry:clean] Loading skills from /app/dist/skills_clean...
+2026-02-20T06:33:36.133427186Z [inf]  [SkillRegistry:clean] Skills dir not found, skipping: /app/dist/skills_clean
+2026-02-20T06:33:36.202070937Z [inf]  Build SHA
+2026-02-20T06:33:36.202079687Z [inf]  Serving static files from:
+2026-02-20T06:33:36.202084128Z [inf]  Initializing services...
+2026-02-20T06:33:36.267275899Z [inf]  [Prisma] DB connection is healthy
+2026-02-20T06:33:36.286338282Z [inf]  Database connection successful
+2026-02-20T06:33:36.286344729Z [inf]  [DataRetention] Checking retention policies...
+2026-02-20T06:33:36.337705099Z [inf]  [DataRetention] Starting cleanup job...
+2026-02-20T06:33:36.337712276Z [inf]  [DataRetention] Scheduler started (every 60 minutes)
+2026-02-20T06:33:36.388433428Z [inf]  Redis initialized
+2026-02-20T06:33:36.388437678Z [inf]  ⚡ Preloading native token prices via Coinbase...
+2026-02-20T06:33:36.418078723Z [inf]  ⚡ Native price refresh started (10 min interval)
+2026-02-20T06:33:36.418090081Z [inf]  Native price refresh started
+2026-02-20T06:33:36.418096172Z [inf]  Starting server on port 8080...
+2026-02-20T06:33:36.526224769Z [inf]  Server listening at http://0.0.0.0:8080
+2026-02-20T06:33:36.526236585Z [inf]  Server listening
+2026-02-20T06:33:36.526245296Z [inf]  RPC health monitor started
+2026-02-20T06:33:36.528815293Z [inf]  RPC benchmark sampling started
+2026-02-20T06:33:36.547571664Z [inf]  [MarketJob] Scheduled: Overview(2:00 UTC), Chains(3:00 UTC), Protocols(4:00 UTC), Trending(Every 5m)
+2026-02-20T06:33:36.552030442Z [inf]  Scheduled: Primary chains every 5min (Ethereum, Solana, Base, BSC)
+2026-02-20T06:33:36.552047624Z [inf]  Scheduled: Secondary chains every 4h (Arbitrum, Optimism, Polygon)
+2026-02-20T06:33:36.552054600Z [inf]  [SocialJob] Scheduled: Discovery (30m), Refresh (4h), Scoring (5m)
+2026-02-20T06:33:36.552060216Z [inf]  Background jobs started
+2026-02-20T06:33:36.552065478Z [inf]  Initializing auto trade service...
+2026-02-20T06:33:36.552069764Z [inf]  [SolanaWatcher] ⚠️ Watcher disabled in favor of Webhooks. Not starting polling.
+2026-02-20T06:33:36.552073994Z [inf]  Auto trade service initialized (Solana watcher + EVM webhook + pending prefetch enabled)
+2026-02-20T06:33:36.552078035Z [inf]  Auto trade service started
+2026-02-20T06:33:36.554417095Z [inf]  [PositionMonitor] Starting position monitor (every 30s)...
+2026-02-20T06:33:36.554424787Z [inf]  Position monitor started
+2026-02-20T06:33:36.554430603Z [inf]  Token Alert Service started
+2026-02-20T06:33:36.554436182Z [inf]  Token alert service started
+2026-02-20T06:33:36.554440983Z [inf]  ChatWorker started polling
+2026-02-20T06:33:36.554446503Z [inf]  Chat worker started
+2026-02-20T06:33:36.554451455Z [inf]  Starting Global Zora Alpha Detector (API Polling)
+2026-02-20T06:33:36.554456267Z [inf]  🎉 All services initialized!
+2026-02-20T06:33:36.582634526Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
+2026-02-20T06:33:36.582641114Z [inf]  [CopyTradePending] Pending watcher started
+2026-02-20T06:33:37.040398350Z [inf]  [DataRetention] Cleanup job completed.
+2026-02-20T06:33:37.040408409Z [inf]  ⚡ Native token prices cached (Coinbase)
+2026-02-20T06:33:41.552216051Z [inf]  [MarketJob] Running startup staleness check...
+2026-02-20T06:33:41.567925359Z [inf]  [SocialJob] Trending casts are fresh, skipping Snapchain API call
+2026-02-20T06:33:41.567936151Z [inf]  No open positions to monitor
+2026-02-20T06:34:11.605854451Z [inf]  Starting initial token refresh...
+2026-02-20T06:34:41.599723832Z [wrn]  RPC health degraded
+2026-02-20T06:34:41.599788087Z [inf]  Alpha Detector: Checking new coin
+2026-02-20T06:35:01.167249315Z [wrn]  Skipping primary chain refresh - previous run still in progress
+2026-02-20T06:35:01.167255368Z [inf]  SocialRepo: Recalculated heat scores for 1000 casts
+2026-02-20T06:35:41.141346814Z [wrn]  RPC health degraded
+2026-02-20T06:35:41.141353514Z [inf]  Refreshed 4 primary chains in 90.0s
+2026-02-20T06:36:40.791525889Z [wrn]  RPC health degraded
+2026-02-20T06:36:40.791534007Z [inf]  Suppressed repeated logs
+2026-02-20T06:36:40.791539843Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
+2026-02-20T06:36:41.735178206Z [inf]  Suppressed repeated logs
+2026-02-20T06:36:41.735185314Z [inf]  No open positions to monitor
+2026-02-20T06:37:41.569950652Z [wrn]  RPC health degraded
+2026-02-20T06:37:41.569956118Z [inf]  Suppressed repeated logs
+2026-02-20T06:37:41.569962807Z [inf]  Alpha Detector: Checking new coin
+2026-02-20T06:38:41.954843878Z [wrn]  RPC health degraded
+2026-02-20T06:39:41.474556008Z [wrn]  RPC health degraded
+2026-02-20T06:39:41.474562545Z [inf]  Suppressed repeated logs
+2026-02-20T06:39:41.474567156Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
+2026-02-20T06:39:41.711378769Z [inf]  Suppressed repeated logs
+2026-02-20T06:39:41.711382660Z [inf]  No open positions to monitor
+2026-02-20T06:40:01.701914430Z [inf]  Fetching premium trending tokens
+2026-02-20T06:40:01.701919396Z [inf]  SocialRepo: Recalculated heat scores for 1000 casts
+2026-02-20T06:40:01.701924883Z [inf]  WS addresses discovered
+2026-02-20T06:40:01.701929055Z [inf]  Saved 15 trending tokens to database via Prisma with retry protection
+2026-02-20T06:40:01.701933537Z [inf]  Trending tokens refreshed: 15 tokens
+2026-02-20T06:40:01.804853022Z [inf]  Processed DexScreener trending candidates
+2026-02-20T06:40:04.954569500Z [wrn]  GeckoTerminal 429 triggered backoff
+2026-02-20T06:40:05.967809742Z [wrn]  GeckoTerminal 429 triggered backoff
+2026-02-20T06:40:07.989241778Z [wrn]  GeckoTerminal 429 triggered backoff
+2026-02-20T06:40:12.004891134Z [wrn]  GeckoTerminal 429 triggered backoff
+2026-02-20T06:40:12.004924251Z [err]  GeckoTerminal API error after retries
+2026-02-20T06:40:12.004932417Z [err]  Error fetching trending tokens
+2026-02-20T06:40:12.004943570Z [inf]  Premium trending tokens fetch complete
+2026-02-20T06:40:12.004949779Z [inf]  Got 81 trending tokens for Ethereum
+2026-02-20T06:40:12.004956070Z [inf]  Filtered out 5 invalid tokens for Ethereum
+2026-02-20T06:40:12.730735171Z [inf]  Saved 76/76 trending tokens for eth to database and memory cache
+2026-02-20T06:40:12.730741886Z [inf]  Saved 76 tokens for Ethereum to DB + cache
+2026-02-20T06:40:12.730747525Z [inf]  Launchpad verify budget applied
+2026-02-20T06:40:42.934540387Z [wrn]  RPC health degraded
+2026-02-20T06:40:42.934547510Z [inf]  Fetching premium trending tokens
+2026-02-20T06:40:42.934553818Z [inf]  WS addresses discovered
+2026-02-20T06:40:43.048861057Z [inf]  Suppressed repeated logs
+2026-02-20T06:40:43.048866256Z [inf]  Alpha Detector: Checking new coin
+2026-02-20T06:40:43.903673413Z [inf]  Processed DexScreener trending candidates
+2026-02-20T06:40:43.903679903Z [inf]  Premium trending tokens fetch complete
+2026-02-20T06:40:43.903685395Z [inf]  Got 100 trending tokens for Solana
+2026-02-20T06:40:44.123771458Z [inf]  Saved 100/100 trending tokens for solana to database and memory cache
+2026-02-20T06:40:44.123776162Z [inf]  Saved 100 tokens for Solana to DB + cache
+2026-02-20T06:41:04.123314635Z [inf]  Suppressed repeated logs
+2026-02-20T06:41:04.123324505Z [inf]  Saved 100/100 trending tokens for solana to database and memory cache
+2026-02-20T06:41:24.194795456Z [inf]  Fetching premium trending tokens
+2026-02-20T06:41:24.194801407Z [inf]  WS addresses discovered
+2026-02-20T06:41:24.194807139Z [inf]  Processed DexScreener trending candidates
+2026-02-20T06:41:24.194814891Z [inf]  Premium trending tokens fetch complete
+2026-02-20T06:41:24.194820569Z [inf]  Got 72 trending tokens for Base
+2026-02-20T06:41:24.194829510Z [inf]  Filtered out 1 invalid tokens for Base
+2026-02-20T06:41:24.194834826Z [inf]  Saved 71/71 trending tokens for base to database and memory cache
+2026-02-20T06:41:24.194840611Z [inf]  Saved 71 tokens for Base to DB + cache
+2026-02-20T06:41:24.195890459Z [inf]  Launchpad verify budget applied
+2026-02-20T06:41:24.195898459Z [err]  api failed after 1 attempts
+2026-02-20T06:41:27.226871593Z [inf]  Suppressed repeated logs
+2026-02-20T06:41:27.226878604Z [inf]  Saved 71/71 trending tokens for base to database and memory cache
+2026-02-20T06:41:36.536280777Z [wrn]  RPC health degraded
+2026-02-20T06:41:45.979870986Z [inf]  Fetching premium trending tokens
+2026-02-20T06:41:46.603950627Z [inf]  WS addresses discovered
+2026-02-20T06:41:47.602979264Z [inf]  Processed DexScreener trending candidates
+2026-02-20T06:41:47.602984707Z [inf]  Premium trending tokens fetch complete
+2026-02-20T06:41:47.602990067Z [inf]  Got 80 trending tokens for BSC
+2026-02-20T06:41:47.602994879Z [inf]  Filtered out 1 invalid tokens for BSC
+2026-02-20T06:41:47.603000038Z [inf]  Saved 79/79 trending tokens for bsc to database and memory cache
+2026-02-20T06:41:47.603013771Z [inf]  Saved 79 tokens for BSC to DB + cache
+2026-02-20T06:41:47.603018854Z [inf]  Refreshed 4 primary chains in 106.8s
+2026-02-20T06:41:47.767645868Z [inf]  Launchpad verify budget applied
+2026-02-20T06:41:48.643605477Z [err]  LaunchpadDetector: Four.meme fetch failed
+2026-02-20T06:41:48.657376066Z [err]  LaunchpadDetector: Four.meme fetch failed
+2026-02-20T06:42:38.173483407Z [wrn]  RPC health degraded
+2026-02-20T06:42:38.173491682Z [inf]  Suppressed repeated logs
+2026-02-20T06:42:38.173498356Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
+2026-02-20T06:42:41.916261608Z [inf]  Suppressed repeated logs
+2026-02-20T06:42:41.916265513Z [inf]  No open positions to monitor
+2026-02-20T06:43:41.591270802Z [inf]  ⚡ Preloading native token prices via Coinbase...
+2026-02-20T06:43:41.591279155Z [wrn]  RPC health degraded
+2026-02-20T06:43:41.591285325Z [inf]  ⚡ Native token prices cached (Coinbase)
+2026-02-20T06:43:48.845702144Z [inf]  Suppressed repeated logs
+2026-02-20T06:43:48.845713519Z [inf]  Alpha Detector: Checking new coin
+2026-02-20T06:44:39.055713464Z [wrn]  RPC health degraded
+2026-02-20T06:45:08.750162791Z [wrn]  GeckoTerminal 429 triggered backoff
+2026-02-20T06:45:08.750174058Z [wrn]  GeckoTerminal 429 triggered backoff
+2026-02-20T06:45:08.750211950Z [inf]  Fetching premium trending tokens
+2026-02-20T06:45:08.750217019Z [inf]  SocialRepo: Recalculated heat scores for 1000 casts
+2026-02-20T06:45:08.750222771Z [inf]  WS addresses discovered
+2026-02-20T06:45:08.750228335Z [inf]  Processed DexScreener trending candidates
+2026-02-20T06:45:08.750233732Z [wrn]  GeckoTerminal 429 triggered backoff
+2026-02-20T06:45:11.942329516Z [wrn]  GeckoTerminal 429 triggered backoff
+2026-02-20T06:45:11.945220903Z [err]  GeckoTerminal API error after retries
+2026-02-20T06:45:11.945228159Z [err]  Error fetching trending tokens
+2026-02-20T06:45:11.945233019Z [inf]  Premium trending tokens fetch complete
+2026-02-20T06:45:11.945237445Z [inf]  Got 81 trending tokens for Ethereum
+2026-02-20T06:45:11.945242262Z [inf]  Filtered out 5 invalid tokens for Ethereum
+2026-02-20T06:45:12.526391858Z [inf]  Suppressed repeated logs
+2026-02-20T06:45:12.526396458Z [inf]  Saved 76/76 trending tokens for eth to database and memory cache
+2026-02-20T06:45:12.526400556Z [inf]  Saved 76 tokens for Ethereum to DB + cache
+2026-02-20T06:45:12.526406136Z [inf]  Launchpad verify budget applied
+2026-02-20T06:45:42.104714006Z [wrn]  RPC health degraded
+2026-02-20T06:45:42.104722354Z [inf]  Suppressed repeated logs
+2026-02-20T06:45:42.104728221Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
+2026-02-20T06:45:42.104734331Z [inf]  [Profile] fetchReceipt
+2026-02-20T06:45:42.104740143Z [inf]  [Profile] fetchReceipt
+2026-02-20T06:45:42.106470355Z [inf]  [Profile] fetchReceipt
+2026-02-20T06:45:42.106479214Z [inf]  [Webhook] Alchemy payload: network=BASE_MAINNET hash=0xce16239c0d3897be68b4cc1a02064150f9582b195ef4f8642450ee37b6d808b2 category=external asset=ETH
+2026-02-20T06:45:42.106493133Z [inf]  [Webhook] Processing as EVM activity groups (1 tx groups)
+2026-02-20T06:45:42.106499427Z [inf]  [Webhook] Found 1 tracked wallets for tx 0xce16239c0d3897be68b4cc1a02064150f9582b195ef4f8642450ee37b6d808b2
+2026-02-20T06:45:42.106505885Z [inf]  [Profile] fetchReceipt
+2026-02-20T06:45:42.106516623Z [inf]  Swap successfully decoded from logs
+2026-02-20T06:45:42.108269388Z [inf]  Target is buying - triggering copy trade
+2026-02-20T06:45:42.108286324Z [inf]  [Profile] parseSwapTransaction
+2026-02-20T06:45:42.108295836Z [inf]  [WebhookTiming][alchemy] tx=0xce16239c0d wallets=1 swaps=1 predecoded=0 receiptMs=60 parseSkeletonMs=2 totalMs=79
+2026-02-20T06:45:42.108302633Z [inf]  [CopyTradeTiming] queue dispatch delay
+2026-02-20T06:45:42.108309481Z [inf]  Swap detected on target wallet
+2026-02-20T06:45:42.109551581Z [inf]  [CopyTradeTiming] target buy start
+2026-02-20T06:45:42.109559385Z [inf]  [CopyTrade] Executable buy configs ready
+2026-02-20T06:45:42.109565478Z [inf]  [CopyTrade] Token info disabled - using RPC metadata fallback
+2026-02-20T06:45:42.109571057Z [inf]  Derived missing token price from swap data
+2026-02-20T06:45:42.109576541Z [inf]  🔥 Warming up 1 user settings
+2026-02-20T06:45:42.110888640Z [inf]  [CopyTrade] Turbo fast lane enabled
+2026-02-20T06:45:42.110897033Z [inf]  [CopyTradeTiming] user buy dispatch delay
+2026-02-20T06:45:42.110903512Z [inf]  Skipping trade: copytrade delay exceeded
+2026-02-20T06:45:42.110909993Z [inf]  [CopyTrade] Turbo fast lane complete
+2026-02-20T06:45:42.110915374Z [inf]  Suppressed repeated logs
+2026-02-20T06:45:42.110923046Z [inf]  No open positions to monitor
+2026-02-20T06:45:42.168866305Z [inf]  Fetching premium trending tokens
+2026-02-20T06:45:42.680403737Z [inf]  WS addresses discovered
+2026-02-20T06:45:43.754758923Z [inf]  Processed DexScreener trending candidates
+2026-02-20T06:45:43.754763185Z [inf]  Premium trending tokens fetch complete
+2026-02-20T06:45:43.754767150Z [inf]  Got 100 trending tokens for Solana
+2026-02-20T06:45:43.781498847Z [inf]  Saved 100/100 trending tokens for solana to database and memory cache
+2026-02-20T06:45:43.781505391Z [inf]  Saved 100 tokens for Solana to DB + cache
+2026-02-20T06:45:44.200551142Z [inf]  [Webhook] Alchemy payload: network=BASE_MAINNET hash=0xce16239c0d3897be68b4cc1a02064150f9582b195ef4f8642450ee37b6d808b2 category=token asset=DAIMON
+2026-02-20T06:45:44.271208630Z [inf]  [Webhook] Tx already in processedTxs cache: 0xce16239c0d3897be68b4cc1a02064150f9582b195ef4f8642450ee37b6d808b2
+2026-02-20T06:46:04.293885118Z [inf]  Suppressed repeated logs
+2026-02-20T06:46:04.293892845Z [inf]  Saved 100/100 trending tokens for solana to database and memory cache

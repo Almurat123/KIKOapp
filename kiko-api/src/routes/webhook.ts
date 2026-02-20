@@ -738,9 +738,13 @@ async function processAlchemyWebhookPayload(payload: any): Promise<void> {
                 }).catch(() => { });
 
                 const { enqueueCopyTradeTask } = await import('../services/copyTradeQueue.js');
-                enqueueCopyTradeTask(trackedTarget, swap, chainId, {
-                    detectedAt: resolveDetectedAt(cached?.detectedAt, pendingHint?.detectedAt)
-                });
+                // When we decoded from receipt in this request (no cached predecoded), use now as detectedAt
+                // so the turbo delay is measured from "swap ready + enqueued", not from an older pendingHint
+                // (pending watcher may have set pendingHint seconds earlier, which would make delay exceed 2.5s)
+                const detectedAt = cached
+                    ? resolveDetectedAt(cached.detectedAt, pendingHint?.detectedAt)
+                    : Date.now();
+                enqueueCopyTradeTask(trackedTarget, swap, chainId, { detectedAt });
             }));
             if (swapsDetected > 0) {
                 await markTxAsProcessedDistributed(txHash, chainId);

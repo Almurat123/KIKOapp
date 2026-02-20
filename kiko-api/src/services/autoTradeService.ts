@@ -104,6 +104,23 @@ const SWAP_DEDUP_WINDOW_MS = 60000; // 1 minute
 const LAUNCHPAD_DET_TIMEOUT_MS = Number(process.env.LAUNCHPAD_DET_TIMEOUT_MS || '500');
 const COPYTRADE_MAX_DELAY_MS = Number(process.env.COPYTRADE_MAX_DELAY_MS || '5000');
 const COPYTRADE_TURBO_MAX_DELAY_MS = Number(process.env.COPYTRADE_TURBO_MAX_DELAY_MS || '2500');
+
+/**
+ * Pure delay check for copy trade (used in processBuyWithInfo; exported for tests).
+ * @param detectedAt - Timestamp when swap was detected (webhook enqueue or pending prefetch)
+ * @param turboMode - If true use COPYTRADE_TURBO_MAX_DELAY_MS (2.5s), else COPYTRADE_MAX_DELAY_MS (5s)
+ * @param nowMs - Current time (default Date.now(); inject for tests)
+ */
+export function isCopyTradeDelayExceeded(
+    detectedAt: number | undefined,
+    turboMode: boolean,
+    nowMs: number = Date.now()
+): { skip: boolean; delayMs: number; maxDelayMs: number } {
+    const maxDelayMs = turboMode ? COPYTRADE_TURBO_MAX_DELAY_MS : COPYTRADE_MAX_DELAY_MS;
+    const delayMs = detectedAt ? Math.max(0, nowMs - detectedAt) : 0;
+    const skip = !!(detectedAt && delayMs > maxDelayMs);
+    return { skip, delayMs, maxDelayMs };
+}
 const COPYTRADE_PRICE_CHECK_TIMEOUT_MS = Number(process.env.COPYTRADE_PRICE_CHECK_TIMEOUT_MS || '1200');
 const COPYTRADE_LOG_ERROR_SLICE = Math.max(80, Number(process.env.COPYTRADE_LOG_ERROR_SLICE || '240'));
 const NO_OPEN_POSITIONS_LOG_WINDOW_MS = Number(process.env.NO_OPEN_POSITIONS_LOG_WINDOW_MS || '180000');
@@ -1225,14 +1242,15 @@ async function processSingleUserBuy(
                     executionMode
                 });
             }
-            const effectiveMaxDelayMs = turboMode ? COPYTRADE_TURBO_MAX_DELAY_MS : COPYTRADE_MAX_DELAY_MS;
-            if (detectedAt && Date.now() - detectedAt > effectiveMaxDelayMs) {
+            const delayCheck = isCopyTradeDelayExceeded(detectedAt, turboMode);
+            if (delayCheck.skip) {
                 logger.info(LogCode.WTC_TX_SKIPPED, 'Skipping trade: copytrade delay exceeded', {
                     userId: config.userId,
                     token: tokenToBuy,
-                    delayMs: Date.now() - detectedAt,
-                    maxDelayMs: effectiveMaxDelayMs,
-                    turboMode
+                    delayMs: delayCheck.delayMs,
+                    maxDelayMs: delayCheck.maxDelayMs,
+                    turboMode,
+                    hint: 'delay is from detectedAt (webhook enqueue or pending prefetch) to this check'
                 });
                 return;
             }
