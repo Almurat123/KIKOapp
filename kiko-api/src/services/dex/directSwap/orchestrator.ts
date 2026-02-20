@@ -178,9 +178,50 @@ const WINNING_ROUTE_CACHE_TTL_MS = Number(process.env.DIRECT_SWAP_WINNING_ROUTE_
 const DIRECT_SWAP_TURBO_BUDGET_WARN_MS = Number(process.env.DIRECT_SWAP_TURBO_BUDGET_WARN_MS || '2000');
 const DIRECT_SWAP_GAS_CACHE_TTL_MS = Number(process.env.DIRECT_SWAP_GAS_CACHE_TTL_MS || '600000');
 const V4_DYNAMIC_FEE_FLAG = 0x800000;
+const TURBO_INFLIGHT_LIQUIDITY_TTL_MS = Number(process.env.DIRECT_SWAP_TURBO_INFLIGHT_LIQUIDITY_TTL_MS || '8000');
+
+const STABLE_TOKEN_HINTS_BY_CHAIN: Record<number, string[]> = {
+    1: [
+        '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48', // USDC
+        '0xdac17f958d2ee523a2206206994597c13d831ec7', // USDT
+        '0x6b175474e89094c44da98b954eedeac495271d0f'  // DAI
+    ],
+    8453: [
+        '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913', // USDC
+        '0xfde4c96c8593536e31f229ea8f37b2adab90b239', // USDT
+        '0x50c5725949a6f0c72e6c4a641f24049a917db0cb'  // DAI
+    ],
+    56: [
+        '0x8ac76a51cc950d9822d68b83fe1ad97b32cd580d', // USDC
+        '0x55d398326f99059ff775485246999027b3197955', // USDT
+        '0xe9e7cea3dedca5984780bafc599bd69add087d56'  // BUSD
+    ],
+    137: [
+        '0x2791bca1f2de4661ed88a30c99a7a9449aa84174', // USDC
+        '0xc2132d05d31c914a87c6611c10748aeb04b58e8f'  // USDT
+    ],
+    42161: [
+        '0xaf88d065e77c8cc2239327c5edb3a432268e5831', // USDC
+        '0xfd086bc7cd5c481dcc9c85ebe478a1c0b69fcbb9'  // USDT
+    ],
+    10: [
+        '0x0b2c639c533813f4aa9d7837caf62653d097ff85', // USDC
+        '0x94b008aa00579c1307b0ef2b499ad98a8ce58e58'  // USDT
+    ]
+};
+
+const TURBO_USD_DEPTH_TIERS: Array<{ maxUsd: number; multiplier: number }> = [
+    { maxUsd: 100, multiplier: 100 },
+    { maxUsd: 1000, multiplier: 60 },
+    { maxUsd: 5000, multiplier: 30 },
+    { maxUsd: Number.POSITIVE_INFINITY, multiplier: 15 }
+];
+const DIRECT_SWAP_BUY_LIQ_MULTIPLIER = Number(process.env.DIRECT_SWAP_BUY_LIQ_MULTIPLIER || '100');
 
 const infinityPairCache = new Map<string, { poolKeys: InfinityPoolKey[]; timestamp: number }>();
 const zoraRoutableTokenCache = new Map<string, { value: boolean; timestamp: number }>();
+const turboInflightUsdReservations = new Map<string, { pairKey: string; usdAmount: number; expiresAt: number }>();
+const turboInflightUsdByPair = new Map<string, number>();
 
 function createDirectSwapTraceId(chainId: number, hint?: DirectSwapHint): string {
     const source = (hint?.sourceTxHash || 'nohint').slice(2, 10);
@@ -413,6 +454,202 @@ async function parseAmountInWeiByToken(
 // Delegates to the single source of truth for native prices (10-min cache, multi-source fallback)
 async function getNativePriceUsd(chainId: number): Promise<number> {
     return getNativeTokenPriceUsd(chainId).catch(() => 0);
+}
+
+function getChainSlugForUsdLookup(chainId: number): string {
+    if (chainId === 8453) return 'base';
+    if (chainId === 1) return 'eth';
+    if (chainId === 56) return 'bsc';
+    if (chainId === 137) return 'polygon';
+    if (chainId === 42161) return 'arbitrum';
+    if (chainId === 10) return 'optimism';
+    return '';
+}
+
+function isStableTokenAddress(chainId: number, tokenAddress: string): boolean {
+    const normalized = tokenAddress.toLowerCase();
+    return (STABLE_TOKEN_HINTS_BY_CHAIN[chainId] || []).includes(normalized);
+}
+
+function pickDepthMultiplierByUsd(effectiveAmountUsd: number): number {
+    if (!Number.isFinite(effectiveAmountUsd) || effectiveAmountUsd <= 0) {
+        return TURBO_USD_DEPTH_TIERS[0].multiplier;
+    }
+    for (const tier of TURBO_USD_DEPTH_TIERS) {
+        if (effectiveAmountUsd <= tier.maxUsd) return tier.multiplier;
+    }
+    return TURBO_USD_DEPTH_TIERS[TURBO_USD_DEPTH_TIERS.length - 1].multiplier;
+}
+
+function isBuySideStableOrNativeIn(chainId: number, tokenIn: string): boolean {
+    const normalized = tokenIn.toLowerCase();
+    const nativePseudo = '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
+    const wrappedNative = (WETH_ADDRESSES[chainId] || '').toLowerCase();
+    if (normalized === nativePseudo) return true;
+    if (wrappedNative && normalized === wrappedNative) return true;
+    return isStableTokenAddress(chainId, normalized);
+}
+
+function resolvePoolInReserve(pool: PoolInfo, tokenIn: string): bigint {
+    const t0 = (pool.token0 || '').toLowerCase();
+    const t1 = (pool.token1 || '').toLowerCase();
+    const inToken = tokenIn.toLowerCase();
+    const reserve0 = BigInt(pool.reserve0 || '0');
+    const reserve1 = BigInt(pool.reserve1 || '0');
+    if (t0 === inToken) return reserve0;
+    if (t1 === inToken) return reserve1;
+    return reserve0 > reserve1 ? reserve0 : reserve1;
+}
+
+function evaluateBuyLiquidityProtection(
+    pools: PoolInfo[],
+    tokenIn: string,
+    amountInWei: bigint,
+    multiplier: number
+): {
+    eligible: boolean;
+    requiredReserveInWei: bigint;
+    checkedPools: number;
+    matchedPools: number;
+    byVersion: { v2: number; v3: number; v4: number; aerodrome: number };
+    sample: Array<{ version: string; pool: string; reserveLike: string; matched: boolean }>;
+} {
+    const requiredReserveInWei = amountInWei * BigInt(Math.max(1, multiplier));
+    const byVersion = { v2: 0, v3: 0, v4: 0, aerodrome: 0 };
+    let checkedPools = 0;
+    let matchedPools = 0;
+    const sample: Array<{ version: string; pool: string; reserveLike: string; matched: boolean }> = [];
+
+    for (const p of pools) {
+        const version = (p.version || '').toLowerCase();
+        if (version === 'v2' || version === 'aerodrome') {
+            const reserveLike = resolvePoolInReserve(p, tokenIn);
+            const matched = reserveLike >= requiredReserveInWei;
+            byVersion[version] += 1;
+            checkedPools += 1;
+            if (matched) matchedPools += 1;
+            if (sample.length < 8) {
+                sample.push({
+                    version,
+                    pool: String(p.poolAddress || '').slice(0, 12),
+                    reserveLike: reserveLike.toString().slice(0, 20),
+                    matched
+                });
+            }
+            continue;
+        }
+        if (version === 'v3' || version === 'v4') {
+            const reserveLike = BigInt(p.liquidity || '0');
+            const matched = reserveLike >= requiredReserveInWei;
+            byVersion[version] += 1;
+            checkedPools += 1;
+            if (matched) matchedPools += 1;
+            if (sample.length < 8) {
+                sample.push({
+                    version,
+                    pool: String(p.poolAddress || '').slice(0, 12),
+                    reserveLike: reserveLike.toString().slice(0, 20),
+                    matched
+                });
+            }
+        }
+    }
+
+    return {
+        eligible: matchedPools > 0,
+        requiredReserveInWei,
+        checkedPools,
+        matchedPools,
+        byVersion,
+        sample
+    };
+}
+
+function buildTurboPairKey(chainId: number, tokenA: string, tokenB: string): string {
+    const a = tokenA.toLowerCase();
+    const b = tokenB.toLowerCase();
+    const [x, y] = a < b ? [a, b] : [b, a];
+    return `${chainId}:${x}:${y}`;
+}
+
+function cleanupTurboInflightUsdReservations(): void {
+    const now = Date.now();
+    for (const [id, record] of turboInflightUsdReservations.entries()) {
+        if (record.expiresAt > now) continue;
+        turboInflightUsdReservations.delete(id);
+        const next = Math.max(0, (turboInflightUsdByPair.get(record.pairKey) || 0) - record.usdAmount);
+        if (next <= 0) turboInflightUsdByPair.delete(record.pairKey);
+        else turboInflightUsdByPair.set(record.pairKey, next);
+    }
+}
+
+function getTurboInflightUsd(pairKey: string): number {
+    cleanupTurboInflightUsdReservations();
+    return turboInflightUsdByPair.get(pairKey) || 0;
+}
+
+function reserveTurboInflightUsd(pairKey: string, usdAmount: number): string | null {
+    if (!Number.isFinite(usdAmount) || usdAmount <= 0) return null;
+    cleanupTurboInflightUsdReservations();
+    const reservationId = `${pairKey}:${Date.now().toString(36)}:${Math.random().toString(36).slice(2, 10)}`;
+    turboInflightUsdReservations.set(reservationId, {
+        pairKey,
+        usdAmount,
+        expiresAt: Date.now() + TURBO_INFLIGHT_LIQUIDITY_TTL_MS
+    });
+    turboInflightUsdByPair.set(pairKey, (turboInflightUsdByPair.get(pairKey) || 0) + usdAmount);
+    return reservationId;
+}
+
+function releaseTurboInflightUsd(reservationId: string | null): void {
+    if (!reservationId) return;
+    const record = turboInflightUsdReservations.get(reservationId);
+    if (!record) return;
+    turboInflightUsdReservations.delete(reservationId);
+    const next = Math.max(0, (turboInflightUsdByPair.get(record.pairKey) || 0) - record.usdAmount);
+    if (next <= 0) turboInflightUsdByPair.delete(record.pairKey);
+    else turboInflightUsdByPair.set(record.pairKey, next);
+}
+
+async function estimateAmountUsdByToken(
+    chainId: number,
+    tokenAddress: string,
+    amountInWei: bigint
+): Promise<number> {
+    if (amountInWei <= 0n) return 0;
+    const normalized = tokenAddress.toLowerCase();
+    const ETH_ADDRESS = '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
+    const wrappedNative = WETH_ADDRESSES[chainId]?.toLowerCase();
+
+    if (normalized === ETH_ADDRESS || (wrappedNative && normalized === wrappedNative)) {
+        const nativePrice = await getNativePriceUsd(chainId);
+        if (nativePrice > 0) {
+            return Number(ethers.formatUnits(amountInWei, 18)) * nativePrice;
+        }
+    }
+
+    if (isStableTokenAddress(chainId, normalized)) {
+        const decimals = (await getTokenMetadata(chainId, tokenAddress).catch(() => ({ decimals: 18 }))).decimals || 18;
+        return Number(ethers.formatUnits(amountInWei, decimals));
+    }
+
+    try {
+        const chainSlug = getChainSlugForUsdLookup(chainId);
+        if (!chainSlug) return 0;
+        const [meta, tokenDetails] = await withTimeout(
+            Promise.all([
+                getTokenMetadata(chainId, tokenAddress),
+                getTokenDetails(chainSlug, tokenAddress, 'high')
+            ]),
+            900
+        );
+        const priceUsd = Number(tokenDetails?.price || 0);
+        if (!Number.isFinite(priceUsd) || priceUsd <= 0) return 0;
+        const decimals = meta?.decimals || 18;
+        return Number(ethers.formatUnits(amountInWei, decimals)) * priceUsd;
+    } catch {
+        return 0;
+    }
 }
 
 /**
@@ -707,6 +944,7 @@ export async function executeDirectSwap(params: {
     let tExecutionStart = 0;
     let poolCacheTokenIn = normalizedTokenIn;
     let poolCacheTokenOut = normalizedTokenOut;
+    let turboUsdReservationId: string | null = null;
     const finish = async (result: DirectSwapResult): Promise<DirectSwapResult> => {
         const durationMs = Date.now() - swapStart;
         if (result.success) {
@@ -779,6 +1017,8 @@ export async function executeDirectSwap(params: {
                 success: result.success
             });
         }
+        releaseTurboInflightUsd(turboUsdReservationId);
+        turboUsdReservationId = null;
         return result;
     };
 
@@ -822,7 +1062,12 @@ export async function executeDirectSwap(params: {
             || preferredStrategy.kind === 'aerodrome'
         );
         const bypassReferenceGate = (params.hint?.bypassReferencePrice === true && !!preferredStrategy) || autoBypassReferenceGate;
-        const skipReferenceQuote = bypassReferenceGate || turboMode;
+        let skipReferenceQuote = bypassReferenceGate || turboMode;
+        let skipReferenceQuoteReason: 'bypass' | 'turbo' | 'buy_liquidity_100x' = bypassReferenceGate
+            ? 'bypass'
+            : turboMode
+                ? 'turbo'
+                : 'bypass';
         const zoraToken = ZORA_TOKEN_ADDRESSES[chainId]?.toLowerCase();
         const hintDexLower = String(params.hint?.sourceDexName || '').toLowerCase();
         const zoraLikely = chainId === 8453 && Boolean(
@@ -979,12 +1224,31 @@ export async function executeDirectSwap(params: {
                     return { kind: 'v4' as const, pool: r.pool, amountOut: r.amountOut };
                 }).catch(() => null);
 
-            // Minimum pool depth: 10x the user's trade size.
-            // Protects against low-liquidity pools causing massive slippage.
-            // For V2/aerodrome we check the base-asset reserve directly.
-            // For V3 the `liquidity` field is concentrated-L (not ETH), so we rely on executor slippage guard.
-            const MIN_DEPTH_MULTIPLIER = 10n;
-            const minBaseReserve = amountInWei * MIN_DEPTH_MULTIPLIER;
+            const turboPairKey = buildTurboPairKey(chainId, poolTokenIn, poolTokenOut);
+            const requestAmountUsd = await estimateAmountUsdByToken(chainId, poolTokenIn, amountInWei);
+            const inflightAmountUsd = getTurboInflightUsd(turboPairKey);
+            const effectiveAmountUsd = requestAmountUsd + inflightAmountUsd;
+            const depthMultiplier = pickDepthMultiplierByUsd(effectiveAmountUsd);
+            const requiredDepthUsd = effectiveAmountUsd > 0 ? effectiveAmountUsd * depthMultiplier : 0;
+            const requiredReserveInWei = requestAmountUsd > 0
+                ? amountInWei * BigInt(Math.max(1, Math.ceil(requiredDepthUsd / requestAmountUsd)))
+                : amountInWei * BigInt(depthMultiplier);
+            turboUsdReservationId = turboUsdReservationId || reserveTurboInflightUsd(turboPairKey, requestAmountUsd);
+
+            logger.info(LogCode.SYS_INFO, '[DirectSwap] Turbo depth model', {
+                traceId,
+                chainId,
+                requestAmountUsd: requestAmountUsd.toFixed(2),
+                inflightAmountUsd: inflightAmountUsd.toFixed(2),
+                effectiveAmountUsd: effectiveAmountUsd.toFixed(2),
+                depthMultiplier,
+                requiredDepthUsd: requiredDepthUsd.toFixed(2),
+                requiredReserveInWei: requiredReserveInWei.toString().slice(0, 20)
+            });
+
+            // Minimum pool depth (tokenIn-side reserve): derived from USD depth model.
+            // For V2/aerodrome we can directly verify reserveIn; for V3 we keep liquidity>0 fallback and
+            // rely on quoter/slippage guard in the executor.
             // All known base tokens (native wrapped + stablecoins) across supported chains
             const knownBaseTokens = new Set([
                 (WETH_ADDRESSES[chainId] || '').toLowerCase(),                           // WETH/WBNB
@@ -1000,16 +1264,23 @@ export async function executeDirectSwap(params: {
                 if (p.version === 'v2' || p.version === 'aerodrome') {
                     const t0 = (p.token0 || '').toLowerCase();
                     const t1 = (p.token1 || '').toLowerCase();
+                    const reserve0 = BigInt(p.reserve0 || '0');
+                    const reserve1 = BigInt(p.reserve1 || '0');
+                    const normalizedPoolIn = poolTokenIn.toLowerCase();
+
+                    if (t0 === normalizedPoolIn) return reserve0 >= requiredReserveInWei;
+                    if (t1 === normalizedPoolIn) return reserve1 >= requiredReserveInWei;
+
                     const isToken0Base = knownBaseTokens.has(t0);
                     const isToken1Base = knownBaseTokens.has(t1);
-                    if (isToken0Base) return BigInt(p.reserve0 || '0') >= minBaseReserve;
-                    if (isToken1Base) return BigInt(p.reserve1 || '0') >= minBaseReserve;
+                    if (isToken0Base) return reserve0 >= requiredReserveInWei;
+                    if (isToken1Base) return reserve1 >= requiredReserveInWei;
                     // Neither side is a known base token — can't assess depth, let it through
                     return true;
                 }
-                // V3: liquidity (L) isn't directly in ETH/USD terms.
-                // The executor's quote + slippage protection is the real guard.
-                return BigInt(p.liquidity || '0') > 0n;
+                // V3: liquidity (L) isn't a reserve value, but still use the same required threshold
+                // as a coarse filter to avoid tiny pools passing the turbo probe.
+                return BigInt(p.liquidity || '0') >= requiredReserveInWei;
             };
 
             // Probe B: General — returns pool with liquidity metadata
@@ -1022,7 +1293,7 @@ export async function executeDirectSwap(params: {
                         logger.warn(LogCode.SYS_INFO, '[DirectSwap] Turbo general probe: all pools rejected (insufficient depth)', {
                             traceId,
                             poolCount: nonV4.length,
-                            minBaseReserve: minBaseReserve.toString().slice(0, 15),
+                            requiredReserveInWei: requiredReserveInWei.toString().slice(0, 20),
                             pools: nonV4.map((p) => ({
                                 version: p.version,
                                 pool: p.poolAddress?.slice(0, 12),
@@ -1060,130 +1331,91 @@ export async function executeDirectSwap(params: {
                     })
                     .catch(() => null);
 
-            // Wait for ALL probes (not race — we need to compare quality)
-            const [v4Result, generalResult, infinityResult] = await withTimeout(
-                Promise.all([v4Probe, generalProbe, infinityProbe]),
+            type EarlyWinner =
+                | { source: 'v4'; candidate: V4Candidate }
+                | { source: 'infinity'; candidate: InfinityCandidate }
+                | { source: 'general'; candidate: GeneralCandidate };
+
+            const qualifiedWinner = await withTimeout(
+                Promise.any([
+                    v4Probe.then((candidate) => {
+                        if (!candidate) throw new Error('v4_no_candidate');
+                        return { source: 'v4', candidate } as EarlyWinner;
+                    }),
+                    infinityProbe.then((candidate) => {
+                        if (!candidate) throw new Error('infinity_no_candidate');
+                        return { source: 'infinity', candidate } as EarlyWinner;
+                    }),
+                    generalProbe.then((candidate) => {
+                        if (!candidate) throw new Error('general_no_candidate');
+                        return { source: 'general', candidate } as EarlyWinner;
+                    })
+                ]),
                 turboBudgetMs
-            ).catch(() => [null, null, null] as [V4Candidate | null, GeneralCandidate | null, InfinityCandidate | null]);
+            ).catch(() => null);
 
-            logger.info(LogCode.SYS_INFO, '[DirectSwap] Turbo short-circuit: probes complete', {
-                traceId,
-                v4Found: Boolean(v4Result),
-                v4AmountOut: v4Result?.amountOut?.toString()?.slice(0, 15) || '0',
-                infinityFound: Boolean(infinityResult),
-                infinityAmountOut: infinityResult?.amountOut?.toString()?.slice(0, 15) || '0',
-                generalFound: Boolean(generalResult),
-                generalKind: generalResult?.kind || 'none',
-                generalLiquidity: generalResult?.liquidity?.toString()?.slice(0, 15) || '0',
-                elapsedMs: Date.now() - swapStart
-            });
-
-            // Quality-based winner selection:
-            // - V4 / Infinity with real amountOut > 0 is highest confidence (has actual quoter price)
-            // - General pool is usable only if it has meaningful liquidity
-            // - If hint prefers a specific kind, that takes priority
-            // - Never use a pool with zero quote / zero liquidity
-            //
-            // Build a ranked list of candidates with their quoted amountOut for comparison.
-            type QuotedCandidate = { source: 'v4' | 'infinity' | 'general'; amountOut: bigint; hintMatch: boolean };
-            const candidates: QuotedCandidate[] = [];
-
-            if (v4Result) {
-                candidates.push({
-                    source: 'v4',
-                    amountOut: v4Result.amountOut,
-                    hintMatch: preferredStrategy?.kind === 'v4'
+            if (qualifiedWinner?.source === 'v4') {
+                logger.info(LogCode.SYS_INFO, '[DirectSwap] Turbo short-circuit: v4 selected, executing', {
+                    traceId,
+                    poolId: qualifiedWinner.candidate.pool.poolAddress,
+                    amountOut: qualifiedWinner.candidate.amountOut.toString(),
+                    elapsedMs: Date.now() - swapStart
                 });
-            }
-            if (infinityResult) {
-                candidates.push({
-                    source: 'infinity',
-                    amountOut: infinityResult.amountOut,
-                    hintMatch: preferredStrategy?.kind === 'infinity'
-                });
-            }
-            if (generalResult) {
-                candidates.push({
-                    source: 'general',
-                    amountOut: generalResult.liquidity,
-                    hintMatch: !!preferredStrategy && generalResult.kind === preferredStrategy.kind
-                });
+                return finish(await executeV4Swap(normalizedParams, qualifiedWinner.candidate.pool, {
+                    allowZeroQuoteMinOut: false,
+                    fastMode: true,
+                    executionMode: requestedMode,
+                    trustedHint: Boolean(params.hint?.sourceTxHash)
+                }));
             }
 
-            // Sort: hint-matched first, then by amountOut descending
-            candidates.sort((a, b) => {
-                if (a.hintMatch !== b.hintMatch) return a.hintMatch ? -1 : 1;
-                return a.amountOut > b.amountOut ? -1 : a.amountOut < b.amountOut ? 1 : 0;
-            });
+            if (qualifiedWinner?.source === 'infinity') {
+                logger.info(LogCode.SYS_INFO, '[DirectSwap] Turbo short-circuit: infinity selected, executing', {
+                    traceId,
+                    fee: qualifiedWinner.candidate.quote.fee,
+                    kind: qualifiedWinner.candidate.quote.kind,
+                    amountOut: qualifiedWinner.candidate.amountOut.toString(),
+                    elapsedMs: Date.now() - swapStart
+                });
+                return finish(await executeInfinitySwap(normalizedParams, qualifiedWinner.candidate.quote, { executionMode: requestedMode }));
+            }
 
-            for (const winner of candidates) {
-                if (winner.source === 'v4' && v4Result) {
-                    logger.info(LogCode.SYS_INFO, '[DirectSwap] Turbo short-circuit: v4 selected, executing', {
+            if (qualifiedWinner?.source === 'general') {
+                const generalResult = qualifiedWinner.candidate;
+                if (generalResult.kind === 'v3') {
+                    const dex = generalResult.pool.dex === 'pancake' ? 'pancake' : 'uniswap';
+                    logger.info(LogCode.SYS_INFO, '[DirectSwap] Turbo short-circuit: v3 selected, executing', {
                         traceId,
-                        poolId: v4Result.pool.poolAddress,
-                        amountOut: v4Result.amountOut.toString(),
-                        hintMatch: winner.hintMatch,
+                        pool: generalResult.pool.poolAddress,
+                        fee: generalResult.pool.fee,
+                        liquidity: generalResult.liquidity.toString().slice(0, 15),
+                        dex,
                         elapsedMs: Date.now() - swapStart
                     });
-                    return finish(await executeV4Swap(normalizedParams, v4Result.pool, {
-                        allowZeroQuoteMinOut: false,
+                    return finish(await executeV3Swap(normalizedParams, generalResult.pool, dex, {
                         fastMode: true,
-                        executionMode: requestedMode,
-                        trustedHint: Boolean(params.hint?.sourceTxHash)
+                        executionMode: requestedMode
                     }));
                 }
-
-                if (winner.source === 'infinity' && infinityResult) {
-                    logger.info(LogCode.SYS_INFO, '[DirectSwap] Turbo short-circuit: infinity selected, executing', {
+                if (generalResult.kind === 'aerodrome') {
+                    logger.info(LogCode.SYS_INFO, '[DirectSwap] Turbo short-circuit: aerodrome selected, executing', {
                         traceId,
-                        fee: infinityResult.quote.fee,
-                        kind: infinityResult.quote.kind,
-                        amountOut: infinityResult.amountOut.toString(),
-                        hintMatch: winner.hintMatch,
+                        pool: generalResult.pool.poolAddress,
+                        liquidity: generalResult.liquidity.toString().slice(0, 15),
                         elapsedMs: Date.now() - swapStart
                     });
-                    return finish(await executeInfinitySwap(normalizedParams, infinityResult.quote, { executionMode: requestedMode }));
+                    return finish(await executeAerodromeSwap(normalizedParams));
                 }
-
-                if (winner.source === 'general' && generalResult) {
-                    if (generalResult.kind === 'v3') {
-                        const dex = generalResult.pool.dex === 'pancake' ? 'pancake' : 'uniswap';
-                        logger.info(LogCode.SYS_INFO, '[DirectSwap] Turbo short-circuit: v3 selected, executing', {
+                if (generalResult.kind === 'v2') {
+                    const v2Quote = await getV2ExpectedOutput(poolTokenIn, poolTokenOut, amountInWei, chainId);
+                    if (v2Quote > 0n) {
+                        logger.info(LogCode.SYS_INFO, '[DirectSwap] Turbo short-circuit: v2 selected, executing', {
                             traceId,
                             pool: generalResult.pool.poolAddress,
-                            fee: generalResult.pool.fee,
-                            liquidity: generalResult.liquidity.toString().slice(0, 15),
-                            dex,
-                            hintMatch: winner.hintMatch,
+                            amountOut: v2Quote.toString(),
                             elapsedMs: Date.now() - swapStart
                         });
-                        return finish(await executeV3Swap(normalizedParams, generalResult.pool, dex, {
-                            fastMode: true,
-                            executionMode: requestedMode
-                        }));
-                    }
-                    if (generalResult.kind === 'aerodrome') {
-                        logger.info(LogCode.SYS_INFO, '[DirectSwap] Turbo short-circuit: aerodrome selected, executing', {
-                            traceId,
-                            pool: generalResult.pool.poolAddress,
-                            liquidity: generalResult.liquidity.toString().slice(0, 15),
-                            hintMatch: winner.hintMatch,
-                            elapsedMs: Date.now() - swapStart
-                        });
-                        return finish(await executeAerodromeSwap(normalizedParams));
-                    }
-                    if (generalResult.kind === 'v2') {
-                        const v2Quote = await getV2ExpectedOutput(poolTokenIn, poolTokenOut, amountInWei, chainId);
-                        if (v2Quote > 0n) {
-                            logger.info(LogCode.SYS_INFO, '[DirectSwap] Turbo short-circuit: v2 selected, executing', {
-                                traceId,
-                                pool: generalResult.pool.poolAddress,
-                                amountOut: v2Quote.toString(),
-                                hintMatch: winner.hintMatch,
-                                elapsedMs: Date.now() - swapStart
-                            });
-                            return finish(await executeV2Swap(normalizedParams, v2Quote));
-                        }
+                        return finish(await executeV2Swap(normalizedParams, v2Quote));
                     }
                 }
             }
@@ -1191,9 +1423,6 @@ export async function executeDirectSwap(params: {
             logger.warn(LogCode.SYS_INFO, '[DirectSwap] Turbo short-circuit exhausted, no qualified pool found', {
                 traceId,
                 chainId,
-                v4Found: Boolean(v4Result),
-                infinityFound: Boolean(infinityResult),
-                generalFound: Boolean(generalResult),
                 elapsedMs: Date.now() - swapStart
             });
             return finish({ success: false, error: 'turbo_no_pool_found', provider: 'failed' });
@@ -1440,7 +1669,53 @@ export async function executeDirectSwap(params: {
         traceState.poolCount = poolSummary.poolsFound;
         traceState.poolKinds = poolSummary.poolKinds;
         traceState.l1PoolStatus = skipPoolDiscovery ? 'skipped' : (pools.length > 0 ? 'ok' : 'missing');
+        logger.info(LogCode.SYS_INFO, '[DirectSwap] Pool discovery details', {
+            traceId,
+            chainId,
+            poolKinds: poolSummary.poolKinds,
+            pools: pools.slice(0, 8).map((p) => ({
+                version: p.version,
+                dex: p.dex,
+                pool: String(p.poolAddress || '').slice(0, 14),
+                fee: p.fee || 0,
+                reserve0: String(p.reserve0 || '0').slice(0, 18),
+                reserve1: String(p.reserve1 || '0').slice(0, 18),
+                liquidity: String(p.liquidity || '0').slice(0, 18)
+            }))
+        });
         tPoolDiscoveryDone = Date.now();
+
+        if (!skipReferenceQuote && isBuySideStableOrNativeIn(chainId, normalizedTokenIn) && pools.length > 0) {
+            const buyLiqGuard = evaluateBuyLiquidityProtection(
+                pools,
+                poolTokenIn,
+                amountInWei,
+                Math.max(1, DIRECT_SWAP_BUY_LIQ_MULTIPLIER)
+            );
+            logger.info(LogCode.SYS_INFO, '[DirectSwap] Buy liquidity guard evaluation', {
+                traceId,
+                chainId,
+                algorithm: 'buy_liquidity_multiplier',
+                multiplier: DIRECT_SWAP_BUY_LIQ_MULTIPLIER,
+                amountInWei: amountInWei.toString().slice(0, 20),
+                requiredReserveInWei: buyLiqGuard.requiredReserveInWei.toString().slice(0, 20),
+                checkedPools: buyLiqGuard.checkedPools,
+                matchedPools: buyLiqGuard.matchedPools,
+                byVersion: buyLiqGuard.byVersion,
+                sample: buyLiqGuard.sample
+            });
+            if (buyLiqGuard.eligible) {
+                skipReferenceQuote = true;
+                skipReferenceQuoteReason = 'buy_liquidity_100x';
+                logger.warn(LogCode.SYS_INFO, '[DirectSwap] Reference gate bypassed by buy liquidity guard', {
+                    traceId,
+                    chainId,
+                    multiplier: DIRECT_SWAP_BUY_LIQ_MULTIPLIER,
+                    matchedPools: buyLiqGuard.matchedPools,
+                    requiredReserveInWei: buyLiqGuard.requiredReserveInWei.toString().slice(0, 20)
+                });
+            }
+        }
 
         if (pools.length === 0) {
             logger.warn(LogCode.SYS_INFO, '[DirectSwap] No pool found for token pair', {
@@ -1716,7 +1991,7 @@ export async function executeDirectSwap(params: {
             }
         }
         if (skipReferenceQuote) {
-            traceState.referenceSource = 'skipped';
+            traceState.referenceSource = `skipped:${skipReferenceQuoteReason}`;
             traceState.l2RouteStatus = 'skipped';
             traceState.l3MarketStatus = 'skipped';
         } else if (cachedReferenceQuote && cachedReferenceQuote > 0n && referenceQuote > 0n) {
@@ -1729,7 +2004,7 @@ export async function executeDirectSwap(params: {
         }
 
         const canUseSourceHintFallback = !!params.hint?.sourceTxHash;
-        if (referenceQuote <= 0n && !canUseSourceHintFallback && !turboMode && !referenceCappedToZero) {
+        if (referenceQuote <= 0n && !canUseSourceHintFallback && !turboMode && !referenceCappedToZero && !skipReferenceQuote) {
             return finish({ success: false, error: 'No valid reference price (0x/Kyber/Gecko)', provider: 'failed' });
         }
         if (referenceQuote <= 0n && canUseSourceHintFallback) {
@@ -1738,7 +2013,7 @@ export async function executeDirectSwap(params: {
                 txHash: params.hint?.sourceTxHash
             });
         }
-        if (referenceQuote <= 0n && !preferredStrategy && !turboMode && !referenceCappedToZero) {
+        if (referenceQuote <= 0n && !preferredStrategy && !turboMode && !referenceCappedToZero && !skipReferenceQuote) {
             return finish({ success: false, error: 'No valid reference price and no trusted hint strategy', provider: 'failed' });
         }
         if (referenceQuote <= 0n && (turboMode || referenceCappedToZero)) {
@@ -1747,6 +2022,14 @@ export async function executeDirectSwap(params: {
                 tokenIn: normalizedTokenIn,
                 tokenOut: normalizedTokenOut,
                 reason: turboMode ? 'turbo' : 'reference_capped'
+            });
+        }
+        if (referenceQuote <= 0n && skipReferenceQuoteReason === 'buy_liquidity_100x') {
+            logger.warn(LogCode.SYS_INFO, '[DirectSwap] Continuing without reference quote', {
+                chainId,
+                tokenIn: normalizedTokenIn,
+                tokenOut: normalizedTokenOut,
+                reason: 'buy_liquidity_100x'
             });
         }
 

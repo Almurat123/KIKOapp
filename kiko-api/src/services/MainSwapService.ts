@@ -34,7 +34,7 @@ import { ethers } from 'ethers';
 import { TradeContext, getTradeContext } from './TradeContext.js';
 import { getTokenData } from './UnifiedDataLayer.js';
 import { executeDirectSwap, isDirectSwapSupported } from './dex/directSwapService.js';
-import { callRpc } from './rpcManager.js';
+import { callRpc, diffRpcMethodUsageSnapshots, getRpcMethodUsageSnapshot } from './rpcManager.js';
 import { resolveTokenAddress, normalizeTokenAddress } from './tokens.js';
 import { sendTransaction } from './privyWallet.js';
 import { isPostBuyPreApprovalEnabled } from './swapPreApprovalPolicy.js';
@@ -604,6 +604,9 @@ export class MainSwapService {
   ): Promise<MainSwapResult> {
     const TURBO_TOTAL_BUDGET_MS = Number(process.env.COPYTRADE_TURBO_TOTAL_BUDGET_MS || '2200');
     const TURBO_DIRECT_ATTEMPT_TIMEOUT_MS = Number(process.env.COPYTRADE_TURBO_DIRECT_ATTEMPT_TIMEOUT_MS || '1400');
+    const TURBO_DIRECT_MAX_ATTEMPTS = Math.max(1, Number(process.env.COPYTRADE_TURBO_DIRECT_MAX_ATTEMPTS || '2'));
+    const BALANCED_DIRECT_MAX_ATTEMPTS = Math.max(1, Number(process.env.COPYTRADE_BALANCED_DIRECT_MAX_ATTEMPTS || '2'));
+    const TURBO_ADAPTIVE_RETRY_AMOUNT = (process.env.COPYTRADE_TURBO_ADAPTIVE_RETRY_AMOUNT || 'false') === 'true';
     const TURBO_SKIP_FALLBACK_ON_TIMEOUT = (process.env.COPYTRADE_TURBO_SKIP_FALLBACK_ON_TIMEOUT || 'true') === 'true';
     const TURBO_DIRECT_LATE_SETTLE_MS = Number(process.env.COPYTRADE_TURBO_DIRECT_LATE_SETTLE_MS || '2200');
     // 0x API is typically 10s+; skip fallback in turbo so we fail fast instead of waiting.
@@ -702,8 +705,10 @@ export class MainSwapService {
     }
 
     if (fastSwapEnabled && isDirectSwapSupported(request.chainId) && isBuyDirection) {
-      // turbo: 3 consecutive direct attempts; 4th step = 0x fallback. balanced: 2 attempts.
-      const DIRECT_SWAP_MAX_ATTEMPTS = isTurboCopytrade ? 3 : 2;
+      const rpcUsageBefore = getRpcMethodUsageSnapshot(request.chainId);
+      try {
+      // Default: turbo uses 2 direct attempts to avoid bursting RPC under degraded conditions.
+      const DIRECT_SWAP_MAX_ATTEMPTS = isTurboCopytrade ? TURBO_DIRECT_MAX_ATTEMPTS : BALANCED_DIRECT_MAX_ATTEMPTS;
       const turboBudgetStart = Date.now();
       logger.info(LogCode.SYS_INFO, trace('FastSwapMode enabled - attempting direct swap (buy direction)'), {
         mode: request.mode,
@@ -724,8 +729,10 @@ export class MainSwapService {
             lastDirectError = new Error(`timeout_turbo_budget_${TURBO_TOTAL_BUDGET_MS}ms`);
             break;
           }
-          // 2nd/3rd attempt (光速): same pool cache hot, no sleep; bump slippage and slightly reduce amount per attempt
-          const amountMult = attempt === 1 ? 1 : attempt === 2 ? 0.998 : 0.996;
+          // Retry profile: turbo keeps amount stable by default to maximize cache/inflight reuse.
+          const amountMult = (!isTurboCopytrade || TURBO_ADAPTIVE_RETRY_AMOUNT)
+            ? (attempt === 1 ? 1 : attempt === 2 ? 0.998 : 0.996)
+            : 1;
           const slippageMult = attempt === 1 ? 1 : attempt === 2 ? 1.2 : 1.5;
           const attemptAmountIn = attempt === 1
             ? request.amountIn
@@ -931,6 +938,45 @@ export class MainSwapService {
             mode: request.mode
           }
         };
+      }
+      } finally {
+        const rpcUsageAfter = getRpcMethodUsageSnapshot(request.chainId);
+        const delta = diffRpcMethodUsageSnapshots(rpcUsageBefore, rpcUsageAfter);
+        if (delta.length > 0) {
+          const totals = delta.reduce((acc, row) => {
+            acc.requests += row.requests;
+            acc.endpointAttempts += row.endpointAttempts;
+            acc.successes += row.successes;
+            acc.endpointFailures += row.endpointFailures;
+            acc.allFailed += row.allFailed;
+            acc.timeoutErrors += row.timeoutErrors;
+            return acc;
+          }, {
+            requests: 0,
+            endpointAttempts: 0,
+            successes: 0,
+            endpointFailures: 0,
+            allFailed: 0,
+            timeoutErrors: 0
+          });
+          logger.info(LogCode.SYS_INFO, trace('Direct swap RPC usage delta'), {
+            chainId: request.chainId,
+            mode: request.mode,
+            executionMode: request.userSettings?.copyTradeExecutionMode || 'balanced',
+            tokenIn: normalizedTokenIn.slice(0, 12),
+            tokenOut: normalizedTokenOut.slice(0, 12),
+            totals,
+            topMethods: delta.slice(0, 8).map((row) => ({
+              method: row.method,
+              requests: row.requests,
+              endpointAttempts: row.endpointAttempts,
+              successes: row.successes,
+              endpointFailures: row.endpointFailures,
+              allFailed: row.allFailed,
+              timeoutErrors: row.timeoutErrors
+            }))
+          });
+        }
       }
     }
 
