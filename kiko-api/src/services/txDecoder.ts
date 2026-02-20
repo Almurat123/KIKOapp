@@ -486,14 +486,21 @@ async function decodeSwapFromV4Events(
             return null;
         }
 
-        return {
-            tokenIn,
-            tokenOut,
-            amountIn: amountIn.toString(),
-            amountOut: amountOut.toString(),
-            router: '',
-            dexName: 'Uniswap v4',
-            resolvedPoolHint: matchedKey ? {
+        const eventFee = Number(parsed.args.fee ?? 0);
+        const DYNAMIC_FEE_FLAG = 0x800000;
+        const feeToTickSpacing = (fee: number): number => {
+            if (fee === DYNAMIC_FEE_FLAG) return 200;
+            if (fee <= 500) return 10;
+            if (fee <= 1000) return 20;
+            if (fee <= 2500) return 50;
+            if (fee <= 3000) return 60;
+            return 200;
+        };
+
+        // Build resolvedPoolHint from matched key if available, otherwise from event data.
+        // For copy-trade this is critical: it lets us skip pool discovery and use the same pool.
+        const resolvedPoolHint: DecodedSwap['resolvedPoolHint'] = matchedKey
+            ? {
                 kind: 'v4',
                 dex: chainId === 56 ? 'pancake' : 'uniswap',
                 poolAddress: poolId.toLowerCase(),
@@ -506,7 +513,30 @@ async function decodeSwapFromV4Events(
                     fee: matchedKey.fee,
                     tickSpacing: matchedKey.tickSpacing
                 }
-            } : undefined
+            }
+            : {
+                kind: 'v4',
+                dex: chainId === 56 ? 'pancake' : 'uniswap',
+                poolAddress: poolId.toLowerCase(),
+                fee: eventFee,
+                v4PoolKey: {
+                    currency0: tokens.token0,
+                    currency1: tokens.token1,
+                    hooks: '0x0000000000000000000000000000000000000000',
+                    poolManager: poolManager.toLowerCase(),
+                    fee: eventFee,
+                    tickSpacing: feeToTickSpacing(eventFee)
+                }
+            };
+
+        return {
+            tokenIn,
+            tokenOut,
+            amountIn: amountIn.toString(),
+            amountOut: amountOut.toString(),
+            router: '',
+            dexName: 'Uniswap v4',
+            resolvedPoolHint
         };
     } catch (err: any) {
         logger.debug(LogCode.DEC_SWAP_DETECTION, 'Failed to parse V4 swap log', { error: err.message });
@@ -1141,6 +1171,16 @@ export async function parseSwapTransaction(
             const hintedV4 = await decodeSwapFromV4Events(receipt.logs, chainId);
             if (hintedV4?.resolvedPoolHint) {
                 finalTransferSwap.resolvedPoolHint = hintedV4.resolvedPoolHint;
+            }
+        }
+
+        // Always try to extract resolvedPoolHint from V3/V2 Swap events if not already set.
+        // This is critical for copy-trade: the pool address from the target's tx lets us
+        // skip pool discovery entirely and execute through the same pool.
+        if (!finalTransferSwap.resolvedPoolHint && !hasV4Swap) {
+            const poolSwap = await decodeSwapFromPoolEvents(receipt.logs, chainId);
+            if (poolSwap?.resolvedPoolHint) {
+                finalTransferSwap.resolvedPoolHint = poolSwap.resolvedPoolHint;
             }
         }
 

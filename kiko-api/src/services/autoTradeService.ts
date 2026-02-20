@@ -1617,15 +1617,65 @@ async function processSingleUserBuy(
                 return;
             }
 
-            txHash = await executeSolanaSwap({
-                userId: effectiveConfig.user.privyDid,
-                tokenInMint: SOLANA_CONFIG.TOKENS.SOL,
-                tokenOutMint: tokenToBuy,
-                amountIn: amountInLamports,
-                // Use universal global slippage directly
-                slippageBps: effectiveConfig.maxSlippageBps,
-                feeContext: 'copyTrade'
-            });
+            if (turboMode) {
+                // Turbo: up to 3 consecutive attempts with escalating slippage / reduced amount.
+                // Same pattern as EVM turbo retries in MainSwapService.
+                const SOLANA_TURBO_MAX_ATTEMPTS = 3;
+                const baseLamports = BigInt(amountInLamports);
+                const baseSlippage = effectiveConfig.maxSlippageBps;
+                let lastSolErr: Error | null = null;
+
+                for (let attempt = 1; attempt <= SOLANA_TURBO_MAX_ATTEMPTS; attempt++) {
+                    const amountMultiplier = attempt === 1 ? 1 : attempt === 2 ? 0.998 : 0.996;
+                    const slippageMultiplier = attempt === 1 ? 1 : attempt === 2 ? 1.2 : 1.5;
+                    const attemptLamports = (baseLamports * BigInt(Math.floor(amountMultiplier * 1000)) / 1000n).toString();
+                    const attemptSlippage = Math.min(Math.floor(baseSlippage * slippageMultiplier), 4900);
+
+                    if (attempt > 1) {
+                        logger.info(LogCode.SYS_INFO, `[Solana Turbo] 光速 retry attempt ${attempt}`, {
+                            userId: config.userId,
+                            token: tokenToBuy,
+                            lamports: attemptLamports,
+                            slippageBps: attemptSlippage,
+                            prevError: lastSolErr?.message?.slice(0, 80)
+                        });
+                    }
+                    try {
+                        txHash = await executeSolanaSwap({
+                            userId: effectiveConfig.user.privyDid,
+                            tokenInMint: SOLANA_CONFIG.TOKENS.SOL,
+                            tokenOutMint: tokenToBuy,
+                            amountIn: attemptLamports,
+                            slippageBps: attemptSlippage,
+                            feeContext: 'copyTrade',
+                            executionMode: 'turbo',
+                            waitForConfirmation: false
+                        });
+                        break;
+                    } catch (solErr: any) {
+                        lastSolErr = solErr;
+                        logger.warn(LogCode.EXE_TX_REVERTED, `[Solana Turbo] Attempt ${attempt} failed`, {
+                            userId: config.userId,
+                            token: tokenToBuy,
+                            attempt,
+                            error: solErr?.message?.slice(0, 120)
+                        });
+                    }
+                }
+                if (!txHash && lastSolErr) {
+                    throw lastSolErr;
+                }
+            } else {
+                txHash = await executeSolanaSwap({
+                    userId: effectiveConfig.user.privyDid,
+                    tokenInMint: SOLANA_CONFIG.TOKENS.SOL,
+                    tokenOutMint: tokenToBuy,
+                    amountIn: amountInLamports,
+                    slippageBps: effectiveConfig.maxSlippageBps,
+                    feeContext: 'copyTrade',
+                    executionMode
+                });
+            }
 
         } else {
             // EVM Logic - nativePrice already fetched at top

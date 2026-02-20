@@ -790,11 +790,19 @@ export class MainSwapService {
 
               if (lateResult) {
                 directResult = lateResult;
-                logger.info(LogCode.SYS_INFO, trace('Turbo direct late-settle succeeded'), {
-                  attempt,
-                  provider: directResult.provider,
-                  txHash: directResult.txHash
-                });
+                if (directResult.success) {
+                  logger.info(LogCode.SYS_INFO, trace('Turbo direct late-settle succeeded'), {
+                    attempt,
+                    provider: directResult.provider,
+                    txHash: directResult.txHash
+                  });
+                } else {
+                  logger.warn(LogCode.SYS_INFO, trace('Turbo direct late-settle resolved with failure'), {
+                    attempt,
+                    error: directResult.error,
+                    provider: directResult.provider
+                  });
+                }
               } else {
                 lastDirectError = timeoutErr;
                 break;

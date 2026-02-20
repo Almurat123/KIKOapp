@@ -14,7 +14,7 @@ import { ethers } from 'ethers';
 import { logger } from '../../../utils/logger.js';
 import { LogCode } from '../../../config/logRegistry.js';
 import { findTokenPools, PoolInfo } from '../poolInfo.js';
-import { calculatePriceFromSqrtX96, findV4Pools, V4PoolInfo, V4PoolKey } from '../uniswapV4.js';
+import { calculatePriceFromSqrtX96, findV4Pools, V4PoolInfo, V4PoolKey, matchV4PoolKeyById } from '../uniswapV4.js';
 import { isV4SwapSupported } from '../uniswapV4Swap.js';
 import { calculateV3TVL } from '../v3Math.js';
 import { callRpc, callRpcRaw } from '../../rpcManager.js';
@@ -89,6 +89,7 @@ const WETH_ADDRESSES: Record<number, string> = {
 const USDC_ADDRESSES: Record<number, string> = {
     8453: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913', // Base
     1: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48',    // Ethereum
+    56: '0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d',    // BSC (USDC)
 };
 
 const ZORA_TOKEN_ADDRESSES: Record<number, string> = {
@@ -570,18 +571,41 @@ async function tryResolvedPoolHintFastPath(
     if (!resolved) return null;
 
     if (resolved.kind === 'v4' && resolved.v4PoolKey) {
+        let poolKey = {
+            currency0: resolved.v4PoolKey.currency0,
+            currency1: resolved.v4PoolKey.currency1,
+            hooks: resolved.v4PoolKey.hooks,
+            fee: resolved.v4PoolKey.fee,
+            tickSpacing: resolved.v4PoolKey.tickSpacing
+        };
+
+        // If hooks/tickSpacing are missing (event-derived hint), try to resolve from V4 pool scan
+        const isIncomplete = poolKey.hooks === '0x0000000000000000000000000000000000000000'
+            && poolKey.tickSpacing <= 0;
+        if (isIncomplete && resolved.poolAddress) {
+            const resolvedKey = matchV4PoolKeyById(
+                params.chainId,
+                resolved.poolAddress,
+                poolKey.currency0,
+                poolKey.currency1
+            );
+            if (resolvedKey) {
+                poolKey = {
+                    currency0: resolvedKey.currency0,
+                    currency1: resolvedKey.currency1,
+                    hooks: resolvedKey.hooks,
+                    fee: resolvedKey.fee,
+                    tickSpacing: resolvedKey.tickSpacing
+                };
+            }
+        }
+
         const selectedPool: SelectedV4Pool = {
             poolId: resolved.poolAddress || '',
             poolAddress: resolved.poolAddress || '',
-            poolKey: {
-                currency0: resolved.v4PoolKey.currency0,
-                currency1: resolved.v4PoolKey.currency1,
-                hooks: resolved.v4PoolKey.hooks,
-                fee: resolved.v4PoolKey.fee,
-                tickSpacing: resolved.v4PoolKey.tickSpacing
-            },
+            poolKey,
             sqrtPriceX96: '0',
-            fee: resolved.v4PoolKey.fee,
+            fee: poolKey.fee,
             liquidity: '0'
         };
         return executeV4Swap(params, selectedPool, { allowZeroQuoteMinOut: true, fastMode: true });
@@ -902,13 +926,275 @@ export async function executeDirectSwap(params: {
                 }
             }
         }
+
+        // ── TURBO SHORT-CIRCUIT ──
+        // Parallel probes: V4 + general (v2/v3/aerodrome) + Infinity (BSC only).
+        // Wait for ALL, compare quality, pick the best. Never blindly use a garbage-liquidity pool.
+        if (turboMode && !earlyHintedPool) {
+            const turboBudgetMs = Math.max(300, turboFastDeadline - Date.now());
+            logger.info(LogCode.SYS_INFO, '[DirectSwap] Turbo short-circuit: parallel pool race', {
+                traceId,
+                chainId,
+                budgetMs: turboBudgetMs,
+                preferredStrategy: preferredStrategy ? `${preferredStrategy.kind}:${preferredStrategy.dex || ''}` : 'none',
+                hintSourceTx: params.hint?.sourceTxHash
+            });
+
+            type V4Candidate = { kind: 'v4'; pool: SelectedV4Pool; amountOut: bigint };
+            type InfinityCandidate = { kind: 'infinity'; quote: InfinityBestQuote; amountOut: bigint };
+            type GeneralCandidate = { kind: 'v3' | 'v2' | 'aerodrome'; pool: PoolInfo; liquidity: bigint };
+
+            // Probe A: V4 — returns real quoted amountOut (slippage-protected)
+            const v4Probe: Promise<V4Candidate | null> = !isV4SwapSupported(chainId)
+                ? Promise.resolve(null)
+                : getV4BestPoolQuote(
+                    poolTokenIn, poolTokenOut, amountInWei, chainId, params.walletAddress, params.hint
+                ).then((r) => {
+                    if (!r.pool) return null;
+                    // Reject v4 pools where quoter returned 0 — means no real price, unsafe to trade
+                    if (r.amountOut <= 0n) {
+                        logger.debug(LogCode.SYS_INFO, '[DirectSwap] Turbo v4 probe: pool found but amountOut=0, skipping', {
+                            traceId, poolId: r.pool.poolAddress
+                        });
+                        return null;
+                    }
+                    return { kind: 'v4' as const, pool: r.pool, amountOut: r.amountOut };
+                }).catch(() => null);
+
+            // Minimum pool depth: 10x the user's trade size.
+            // Protects against low-liquidity pools causing massive slippage.
+            // For V2/aerodrome we check the base-asset reserve directly.
+            // For V3 the `liquidity` field is concentrated-L (not ETH), so we rely on executor slippage guard.
+            const MIN_DEPTH_MULTIPLIER = 10n;
+            const minBaseReserve = amountInWei * MIN_DEPTH_MULTIPLIER;
+            // All known base tokens (native wrapped + stablecoins) across supported chains
+            const knownBaseTokens = new Set([
+                (WETH_ADDRESSES[chainId] || '').toLowerCase(),                           // WETH/WBNB
+                (USDC_ADDRESSES[chainId] || '').toLowerCase(),                           // USDC
+                '0x55d398326f99059ff775485246999027b3197955',                             // BSC USDT
+                '0xe9e7cea3dedca5984780bafc599bd69add087d56',                             // BSC BUSD
+                '0xdac17f958d2ee523a2206206994597c13d831ec7',                             // ETH USDT
+                '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913',                             // Base USDC
+                poolTokenIn.toLowerCase()                                                 // The actual input token
+            ].filter(Boolean));
+
+            const poolHasSufficientDepth = (p: PoolInfo): boolean => {
+                if (p.version === 'v2' || p.version === 'aerodrome') {
+                    const t0 = (p.token0 || '').toLowerCase();
+                    const t1 = (p.token1 || '').toLowerCase();
+                    const isToken0Base = knownBaseTokens.has(t0);
+                    const isToken1Base = knownBaseTokens.has(t1);
+                    if (isToken0Base) return BigInt(p.reserve0 || '0') >= minBaseReserve;
+                    if (isToken1Base) return BigInt(p.reserve1 || '0') >= minBaseReserve;
+                    // Neither side is a known base token — can't assess depth, let it through
+                    return true;
+                }
+                // V3: liquidity (L) isn't directly in ETH/USD terms.
+                // The executor's quote + slippage protection is the real guard.
+                return BigInt(p.liquidity || '0') > 0n;
+            };
+
+            // Probe B: General — returns pool with liquidity metadata
+            const generalProbe: Promise<GeneralCandidate | null> = findTokenPools(poolTokenIn, poolTokenOut, chainId)
+                .then((pools) => {
+                    if (!pools.length) return null;
+                    const nonV4 = pools.filter((p) => p.version !== 'v4');
+                    const candidates = nonV4.filter(poolHasSufficientDepth);
+                    if (nonV4.length > 0 && candidates.length === 0) {
+                        logger.warn(LogCode.SYS_INFO, '[DirectSwap] Turbo general probe: all pools rejected (insufficient depth)', {
+                            traceId,
+                            poolCount: nonV4.length,
+                            minBaseReserve: minBaseReserve.toString().slice(0, 15),
+                            pools: nonV4.map((p) => ({
+                                version: p.version,
+                                pool: p.poolAddress?.slice(0, 12),
+                                reserve0: (p.reserve0 || '0').slice(0, 12),
+                                reserve1: (p.reserve1 || '0').slice(0, 12),
+                                liquidity: (p.liquidity || '0').slice(0, 12)
+                            }))
+                        });
+                    }
+                    if (!candidates.length) return null;
+                    const preferred = preferredStrategy?.kind;
+                    const preferredDex = preferredStrategy?.dex;
+                    const sorted = [...candidates].sort((a, b) => {
+                        const aMatch = a.version === preferred && (!preferredDex || a.dex === preferredDex) ? 1 : 0;
+                        const bMatch = b.version === preferred && (!preferredDex || b.dex === preferredDex) ? 1 : 0;
+                        if (aMatch !== bMatch) return bMatch - aMatch;
+                        const aLiq = BigInt(a.liquidity || a.reserve0 || '0');
+                        const bLiq = BigInt(b.liquidity || b.reserve0 || '0');
+                        return aLiq > bLiq ? -1 : aLiq < bLiq ? 1 : 0;
+                    });
+                    const best = sorted[0];
+                    const liq = BigInt(best.liquidity || best.reserve0 || '0');
+                    if (liq <= 0n) return null;
+                    return { kind: (best.version || 'v3') as 'v3' | 'v2' | 'aerodrome', pool: best, liquidity: liq };
+                })
+                .catch(() => null);
+
+            // Probe C: PancakeSwap Infinity (BSC only) — CL + Bin pools with quoted amountOut
+            const infinityProbe: Promise<InfinityCandidate | null> = chainId !== 56
+                ? Promise.resolve(null)
+                : getInfinityBestQuoteOut(poolTokenIn, poolTokenOut, amountInWei, chainId)
+                    .then((q) => {
+                        if (!q || q.amountOut <= 0n) return null;
+                        return { kind: 'infinity' as const, quote: q, amountOut: q.amountOut };
+                    })
+                    .catch(() => null);
+
+            // Wait for ALL probes (not race — we need to compare quality)
+            const [v4Result, generalResult, infinityResult] = await withTimeout(
+                Promise.all([v4Probe, generalProbe, infinityProbe]),
+                turboBudgetMs
+            ).catch(() => [null, null, null] as [V4Candidate | null, GeneralCandidate | null, InfinityCandidate | null]);
+
+            logger.info(LogCode.SYS_INFO, '[DirectSwap] Turbo short-circuit: probes complete', {
+                traceId,
+                v4Found: Boolean(v4Result),
+                v4AmountOut: v4Result?.amountOut?.toString()?.slice(0, 15) || '0',
+                infinityFound: Boolean(infinityResult),
+                infinityAmountOut: infinityResult?.amountOut?.toString()?.slice(0, 15) || '0',
+                generalFound: Boolean(generalResult),
+                generalKind: generalResult?.kind || 'none',
+                generalLiquidity: generalResult?.liquidity?.toString()?.slice(0, 15) || '0',
+                elapsedMs: Date.now() - swapStart
+            });
+
+            // Quality-based winner selection:
+            // - V4 / Infinity with real amountOut > 0 is highest confidence (has actual quoter price)
+            // - General pool is usable only if it has meaningful liquidity
+            // - If hint prefers a specific kind, that takes priority
+            // - Never use a pool with zero quote / zero liquidity
+            //
+            // Build a ranked list of candidates with their quoted amountOut for comparison.
+            type QuotedCandidate = { source: 'v4' | 'infinity' | 'general'; amountOut: bigint; hintMatch: boolean };
+            const candidates: QuotedCandidate[] = [];
+
+            if (v4Result) {
+                candidates.push({
+                    source: 'v4',
+                    amountOut: v4Result.amountOut,
+                    hintMatch: preferredStrategy?.kind === 'v4'
+                });
+            }
+            if (infinityResult) {
+                candidates.push({
+                    source: 'infinity',
+                    amountOut: infinityResult.amountOut,
+                    hintMatch: preferredStrategy?.kind === 'infinity'
+                });
+            }
+            if (generalResult) {
+                candidates.push({
+                    source: 'general',
+                    amountOut: generalResult.liquidity,
+                    hintMatch: !!preferredStrategy && generalResult.kind === preferredStrategy.kind
+                });
+            }
+
+            // Sort: hint-matched first, then by amountOut descending
+            candidates.sort((a, b) => {
+                if (a.hintMatch !== b.hintMatch) return a.hintMatch ? -1 : 1;
+                return a.amountOut > b.amountOut ? -1 : a.amountOut < b.amountOut ? 1 : 0;
+            });
+
+            for (const winner of candidates) {
+                if (winner.source === 'v4' && v4Result) {
+                    logger.info(LogCode.SYS_INFO, '[DirectSwap] Turbo short-circuit: v4 selected, executing', {
+                        traceId,
+                        poolId: v4Result.pool.poolAddress,
+                        amountOut: v4Result.amountOut.toString(),
+                        hintMatch: winner.hintMatch,
+                        elapsedMs: Date.now() - swapStart
+                    });
+                    return finish(await executeV4Swap(normalizedParams, v4Result.pool, {
+                        allowZeroQuoteMinOut: false,
+                        fastMode: true,
+                        executionMode: requestedMode,
+                        trustedHint: Boolean(params.hint?.sourceTxHash)
+                    }));
+                }
+
+                if (winner.source === 'infinity' && infinityResult) {
+                    logger.info(LogCode.SYS_INFO, '[DirectSwap] Turbo short-circuit: infinity selected, executing', {
+                        traceId,
+                        fee: infinityResult.quote.fee,
+                        kind: infinityResult.quote.kind,
+                        amountOut: infinityResult.amountOut.toString(),
+                        hintMatch: winner.hintMatch,
+                        elapsedMs: Date.now() - swapStart
+                    });
+                    return finish(await executeInfinitySwap(normalizedParams, infinityResult.quote, { executionMode: requestedMode }));
+                }
+
+                if (winner.source === 'general' && generalResult) {
+                    if (generalResult.kind === 'v3') {
+                        const dex = generalResult.pool.dex === 'pancake' ? 'pancake' : 'uniswap';
+                        logger.info(LogCode.SYS_INFO, '[DirectSwap] Turbo short-circuit: v3 selected, executing', {
+                            traceId,
+                            pool: generalResult.pool.poolAddress,
+                            fee: generalResult.pool.fee,
+                            liquidity: generalResult.liquidity.toString().slice(0, 15),
+                            dex,
+                            hintMatch: winner.hintMatch,
+                            elapsedMs: Date.now() - swapStart
+                        });
+                        return finish(await executeV3Swap(normalizedParams, generalResult.pool, dex, {
+                            fastMode: true,
+                            executionMode: requestedMode
+                        }));
+                    }
+                    if (generalResult.kind === 'aerodrome') {
+                        logger.info(LogCode.SYS_INFO, '[DirectSwap] Turbo short-circuit: aerodrome selected, executing', {
+                            traceId,
+                            pool: generalResult.pool.poolAddress,
+                            liquidity: generalResult.liquidity.toString().slice(0, 15),
+                            hintMatch: winner.hintMatch,
+                            elapsedMs: Date.now() - swapStart
+                        });
+                        return finish(await executeAerodromeSwap(normalizedParams));
+                    }
+                    if (generalResult.kind === 'v2') {
+                        const v2Quote = await getV2ExpectedOutput(poolTokenIn, poolTokenOut, amountInWei, chainId);
+                        if (v2Quote > 0n) {
+                            logger.info(LogCode.SYS_INFO, '[DirectSwap] Turbo short-circuit: v2 selected, executing', {
+                                traceId,
+                                pool: generalResult.pool.poolAddress,
+                                amountOut: v2Quote.toString(),
+                                hintMatch: winner.hintMatch,
+                                elapsedMs: Date.now() - swapStart
+                            });
+                            return finish(await executeV2Swap(normalizedParams, v2Quote));
+                        }
+                    }
+                }
+            }
+
+            logger.warn(LogCode.SYS_INFO, '[DirectSwap] Turbo short-circuit exhausted, no qualified pool found', {
+                traceId,
+                chainId,
+                v4Found: Boolean(v4Result),
+                infinityFound: Boolean(infinityResult),
+                generalFound: Boolean(generalResult),
+                elapsedMs: Date.now() - swapStart
+            });
+            return finish({ success: false, error: 'turbo_no_pool_found', provider: 'failed' });
+        }
+        // ── END TURBO SHORT-CIRCUIT ──
+
         let infinityPrecheckFailed = false;
 
         let forceV4 = false;
         let preloadedV4Pools: V4PoolInfo[] | null = null;
-        if (isV4SwapSupported(chainId) && !turboMode) {
+        if (isV4SwapSupported(chainId)) {
             try {
-                preloadedV4Pools = await findV4Pools(poolTokenIn, poolTokenOut, chainId);
+                const v4BudgetMs = turboMode
+                    ? Math.max(150, Math.min(800, turboFastDeadline - Date.now()))
+                    : 5000;
+                preloadedV4Pools = await withTimeout(
+                    findV4Pools(poolTokenIn, poolTokenOut, chainId),
+                    v4BudgetMs
+                );
                 forceV4 = preloadedV4Pools.some((p) => {
                     const family = resolveV4HookProfile(chainId, p.poolKey.hooks).family;
                     if (family === 'clanker') return true;
@@ -1108,6 +1394,30 @@ export async function executeDirectSwap(params: {
             poolCount: pools.length,
             durationMs: Date.now() - poolStart
         });
+        // Backfill preloadedV4Pools from pool discovery results when the dedicated v4 lookup missed/timed out
+        if (!preloadedV4Pools?.length && pools.some((p) => p.version === 'v4')) {
+            const v4FromDiscovery = pools.filter((p) => p.version === 'v4');
+            preloadedV4Pools = v4FromDiscovery.map((p) => ({
+                poolId: p.poolAddress,
+                poolKey: {
+                    currency0: p.token0,
+                    currency1: p.token1,
+                    hooks: '0x0000000000000000000000000000000000000000',
+                    fee: p.fee ?? 3000,
+                    tickSpacing: 60
+                },
+                sqrtPriceX96: p.sqrtPriceX96 || '0',
+                tick: 0,
+                liquidity: p.liquidity || '0',
+                protocolFee: 0,
+                lpFee: p.fee ?? 3000
+            })) satisfies V4PoolInfo[];
+            logger.info(LogCode.SYS_INFO, '[DirectSwap] Backfilled preloadedV4Pools from pool discovery', {
+                traceId,
+                count: preloadedV4Pools.length,
+                poolIds: preloadedV4Pools.map((p) => p.poolId.slice(0, 12))
+            });
+        }
         const poolSummary = summarizePools(pools);
         traceState.poolCount = poolSummary.poolsFound;
         traceState.poolKinds = poolSummary.poolKinds;
@@ -1488,10 +1798,14 @@ export async function executeDirectSwap(params: {
 
             if (strategy.kind === 'v4') {
                 if (!isV4SwapSupported(chainId)) continue;
-                if ((preloadedV4Pools?.length || 0) === 0 && !params.hint?.resolvedPoolHint && !earlyHintedPool) {
+                const hasV4Sources = (preloadedV4Pools?.length || 0) > 0
+                    || !!params.hint?.resolvedPoolHint
+                    || !!earlyHintedPool
+                    || (turboMode && !!params.hint?.sourceTxHash);
+                if (!hasV4Sources) {
                     logger.debug(LogCode.SYS_INFO, '[DirectSwap] Strategy rejected', {
                         strategy: 'v4',
-                        reason: 'pool_unavailable_preloaded_empty',
+                        reason: 'pool_unavailable_no_v4_sources',
                         amountOut: '0',
                         minReasonable: minReasonable.toString()
                     });
