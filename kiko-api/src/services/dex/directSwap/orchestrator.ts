@@ -56,7 +56,11 @@ import {
 import { deriveHintStrategy, mergeStrategies } from './hint.js';
 import { pickBestPoolByLiveSnapshot } from './onchainPoolSnapshot.js';
 import { summarizePools } from './poolDiscovery.js';
-import { buildReferenceQuoteCacheKey, pickBestReferenceQuote } from './referenceQuote.js';
+import {
+    buildReferenceQuoteCacheKey,
+    buildSharedExternalReferenceQuoteCacheKey,
+    pickBestReferenceQuote
+} from './referenceQuote.js';
 import { computeTurboDeadline, isTurboBudgetExceeded } from './turbo.js';
 import {
     getCachedV4GasLimit as getCachedV4GasLimitFromCache,
@@ -66,13 +70,17 @@ import {
     isFreshNoPoolCache as isFreshNoPoolCacheFromCache,
     setNoPoolCache as setNoPoolCacheInCache,
     clearNoPoolCache as clearNoPoolCacheInCache,
+    getSharedExternalReferenceQuote,
+    setSharedExternalReferenceQuote,
     referenceQuoteCache,
     referenceQuoteRedisKey,
+    sharedExternalReferenceQuoteInflight,
     v4GasCacheKey,
     v4QuoterCache,
     v4QuoterRedisKey,
     v4SpotCache,
-    v4SpotRedisKey
+    v4SpotRedisKey,
+    withInflightSingleflight
 } from './cache.js';
 import { executeV2Swap as executeV2SwapExecutor } from './executors/v2.js';
 import { executeV3Swap as executeV3SwapExecutor } from './executors/v3.js';
@@ -154,6 +162,8 @@ const V4_QUOTER_CACHE_TTL_MS = Number(process.env.V4_QUOTER_CACHE_TTL_MS || '100
 const V4_QUOTER_TIMEOUT_MS = Number(process.env.V4_QUOTER_TIMEOUT_MS || '1200');
 const REFERENCE_QUOTE_TTL_MS = Number(process.env.DIRECT_SWAP_REF_CACHE_TTL_MS || '10000');
 const REFERENCE_QUOTE_TIMEOUT_MS = Number(process.env.DIRECT_SWAP_REF_TIMEOUT_MS || '2000');
+const REFERENCE_SHARED_EXTERNAL_TTL_MS = Number(process.env.DIRECT_SWAP_REF_SHARED_TTL_MS || String(REFERENCE_QUOTE_TTL_MS));
+const REFERENCE_SHARED_EXTERNAL_NEGATIVE_TTL_MS = Number(process.env.DIRECT_SWAP_REF_SHARED_NEGATIVE_TTL_MS || '1500');
 const ZORA_QUOTE_TIMEOUT_MS = Number(process.env.DIRECT_SWAP_ZORA_TIMEOUT_MS || '5000');
 const ZORA_REFERENCE_TIMEOUT_MS = Number(process.env.DIRECT_SWAP_ZORA_REFERENCE_TIMEOUT_MS || '500');
 const DIRECT_SWAP_HINT_POOL_TIMEOUT_MS = Number(process.env.DIRECT_SWAP_HINT_POOL_TIMEOUT_MS || '900');
@@ -3225,44 +3235,98 @@ async function getReferenceExpectedOutput(
 
     let ref0x = 0n;
     let refKyber = 0n;
-    const [zeroExResult, kyberResult] = await Promise.allSettled([
-        withAbortableTimeout(
-            (signal) => get0xExpectedOutput(tokenIn, tokenOut, amountInWei, chainId, signal),
-            REFERENCE_QUOTE_TIMEOUT_MS
-        ),
-        withAbortableTimeout(
-            async (signal) => {
-                const res = await getKyberQuote(
-                    tokenIn,
-                    tokenOut,
-                    amountInWei.toString(),
-                    chainId,
-                    slippageBps,
-                    recipient,
-                    'copyTrade',
-                    undefined,
-                    signal
+    const sharedExternalCacheKey = buildSharedExternalReferenceQuoteCacheKey({
+        chainId,
+        tokenIn,
+        tokenOut,
+        amountInWei
+    });
+    const sharedExternalQuote = await getSharedExternalReferenceQuote(
+        sharedExternalCacheKey,
+        REFERENCE_SHARED_EXTERNAL_TTL_MS
+    );
+
+    if (sharedExternalQuote) {
+        ref0x = sharedExternalQuote.ref0x;
+        refKyber = sharedExternalQuote.refKyber;
+        logger.info(LogCode.SYS_INFO, '[DirectSwap] Shared reference quote cache hit', {
+            traceId,
+            chainId,
+            tokenIn: tokenIn.slice(0, 12),
+            tokenOut: tokenOut.slice(0, 12),
+            amountIn: amountInWei.toString().slice(0, 16)
+        });
+    } else {
+        const { value: resolvedSharedQuote, shared } = await withInflightSingleflight(
+            sharedExternalReferenceQuoteInflight,
+            sharedExternalCacheKey,
+            async () => {
+                let localRef0x = 0n;
+                let localRefKyber = 0n;
+                const [zeroExResult, kyberResult] = await Promise.allSettled([
+                    withAbortableTimeout(
+                        (signal) => get0xExpectedOutput(tokenIn, tokenOut, amountInWei, chainId, signal),
+                        REFERENCE_QUOTE_TIMEOUT_MS
+                    ),
+                    withAbortableTimeout(
+                        async (signal) => {
+                            const res = await getKyberQuote(
+                                tokenIn,
+                                tokenOut,
+                                amountInWei.toString(),
+                                chainId,
+                                slippageBps,
+                                recipient,
+                                'copyTrade',
+                                undefined,
+                                signal
+                            );
+                            return res?.amountOut ? BigInt(res.amountOut) : 0n;
+                        },
+                        REFERENCE_QUOTE_TIMEOUT_MS
+                    )
+                ]);
+                if (zeroExResult.status === 'fulfilled') {
+                    localRef0x = zeroExResult.value;
+                } else {
+                    logger.warn(LogCode.API_FETCH_FAILED, '[DirectSwap] 0x reference quote failed', {
+                        traceId,
+                        error: String(zeroExResult.reason?.message || zeroExResult.reason || '').slice(0, 80)
+                    });
+                }
+                if (kyberResult.status === 'fulfilled') {
+                    localRefKyber = kyberResult.value;
+                } else {
+                    logger.warn(LogCode.API_FETCH_FAILED, '[DirectSwap] Kyber reference quote failed', {
+                        traceId,
+                        error: String(kyberResult.reason?.message || kyberResult.reason || '').slice(0, 80)
+                    });
+                }
+
+                const best = localRef0x > localRefKyber ? localRef0x : localRefKyber;
+                const ttlMs = best > 0n
+                    ? REFERENCE_SHARED_EXTERNAL_TTL_MS
+                    : REFERENCE_SHARED_EXTERNAL_NEGATIVE_TTL_MS;
+                await setSharedExternalReferenceQuote(
+                    sharedExternalCacheKey,
+                    { ref0x: localRef0x, refKyber: localRefKyber, best },
+                    Math.max(1, Math.ceil(ttlMs / 1000))
                 );
-                return res?.amountOut ? BigInt(res.amountOut) : 0n;
-            },
-            REFERENCE_QUOTE_TIMEOUT_MS
-        )
-    ]);
-    if (zeroExResult.status === 'fulfilled') {
-        ref0x = zeroExResult.value;
-    } else {
-        logger.warn(LogCode.API_FETCH_FAILED, '[DirectSwap] 0x reference quote failed', {
-            traceId,
-            error: String(zeroExResult.reason?.message || zeroExResult.reason || '').slice(0, 80)
-        });
-    }
-    if (kyberResult.status === 'fulfilled') {
-        refKyber = kyberResult.value;
-    } else {
-        logger.warn(LogCode.API_FETCH_FAILED, '[DirectSwap] Kyber reference quote failed', {
-            traceId,
-            error: String(kyberResult.reason?.message || kyberResult.reason || '').slice(0, 80)
-        });
+                return { ref0x: localRef0x, refKyber: localRefKyber, best };
+            }
+        );
+
+        ref0x = resolvedSharedQuote.ref0x;
+        refKyber = resolvedSharedQuote.refKyber;
+        if (shared) {
+            logger.info(LogCode.SYS_INFO, '[DirectSwap] Shared reference quote inflight join', {
+                traceId,
+                chainId,
+                tokenIn: tokenIn.slice(0, 12),
+                tokenOut: tokenOut.slice(0, 12),
+                amountIn: amountInWei.toString().slice(0, 16)
+            });
+        }
     }
 
     const bestRef = ref0x > refKyber ? ref0x : refKyber;

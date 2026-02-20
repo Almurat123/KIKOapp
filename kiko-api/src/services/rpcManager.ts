@@ -19,8 +19,22 @@ const RPC_TIMEOUT_MS = Number(process.env.RPC_TIMEOUT_MS || '10000'); // 10s def
 const RPC_TIMEOUT_FAST_MS = Number(process.env.RPC_TIMEOUT_FAST_MS || '2500');
 const RPC_TIMEOUT_CRITICAL_MS = Number(process.env.RPC_TIMEOUT_CRITICAL_MS || '1500');
 const RPC_CRITICAL_HEDGE_ENABLED = (process.env.RPC_CRITICAL_HEDGE_ENABLED || 'true') === 'true';
+const RPC_CRITICAL_HEDGE_ALLOW_WRITE = (process.env.RPC_CRITICAL_HEDGE_ALLOW_WRITE || 'false') === 'true';
 const RPC_CRITICAL_HEDGE_STAGGER_MS = Number(process.env.RPC_CRITICAL_HEDGE_STAGGER_MS || '60');
 const RPC_CRITICAL_HEDGE_FANOUT = Math.max(2, Math.min(4, Number(process.env.RPC_CRITICAL_HEDGE_FANOUT || '3')));
+const RPC_MAX_ENDPOINT_ATTEMPTS_NORMAL = Math.max(1, Number(process.env.RPC_MAX_ENDPOINT_ATTEMPTS_NORMAL || '3'));
+const RPC_MAX_ENDPOINT_ATTEMPTS_CRITICAL = Math.max(1, Number(process.env.RPC_MAX_ENDPOINT_ATTEMPTS_CRITICAL || '4'));
+const RPC_MAX_ENDPOINT_ATTEMPTS_WRITE = Math.max(1, Number(process.env.RPC_MAX_ENDPOINT_ATTEMPTS_WRITE || '2'));
+const RPC_CONCURRENCY_NORMAL = Math.max(1, Number(process.env.RPC_CONCURRENCY_NORMAL || '28'));
+const RPC_CONCURRENCY_CRITICAL = Math.max(1, Number(process.env.RPC_CONCURRENCY_CRITICAL || '56'));
+const RPC_CONCURRENCY_WRITE = Math.max(1, Number(process.env.RPC_CONCURRENCY_WRITE || '10'));
+const RPC_METHOD_COOLDOWN_BASE_MS = Math.max(0, Number(process.env.RPC_METHOD_COOLDOWN_BASE_MS || '250'));
+const RPC_METHOD_COOLDOWN_MAX_MS = Math.max(RPC_METHOD_COOLDOWN_BASE_MS, Number(process.env.RPC_METHOD_COOLDOWN_MAX_MS || '4000'));
+const RPC_METHOD_COOLDOWN_ATTEMPT_CAP = Math.max(1, Number(process.env.RPC_METHOD_COOLDOWN_ATTEMPT_CAP || '1'));
+const RPC_SEND_RAW_TX_HASH_CACHE_TTL_MS = Math.max(10_000, Number(process.env.RPC_SEND_RAW_TX_HASH_CACHE_TTL_MS || '120000'));
+const RPC_INFLIGHT_KEY_MAX_LEN = Math.max(128, Number(process.env.RPC_INFLIGHT_KEY_MAX_LEN || '2048'));
+const RPC_INFLIGHT_MAP_MAX = Math.max(64, Number(process.env.RPC_INFLIGHT_MAP_MAX || '5000'));
+const RPC_SEND_RAW_HASH_CACHE_MAX = Math.max(64, Number(process.env.RPC_SEND_RAW_HASH_CACHE_MAX || '4000'));
 const HEALTH_CHECK_INTERVAL = 60000; // Check endpoint health every 60s
 const CIRCUIT_BREAKER_THRESHOLD = 5; // Open circuit after 5 consecutive failures (more tolerant)
 const CIRCUIT_BREAKER_RESET_TIME = 30000; // Try again after 30s
@@ -261,6 +275,196 @@ interface EndpointUsage {
 }
 
 const endpointUsage = new Map<string, EndpointUsage>();
+interface MethodBackoffState {
+    failures: number;
+    cooldownUntil: number;
+}
+
+interface RpcLimiterState {
+    inFlight: number;
+    queue: Array<() => void>;
+}
+
+const methodBackoff = new Map<string, MethodBackoffState>();
+const methodLimiter = new Map<string, RpcLimiterState>();
+const inflightRpcRequests = new Map<string, Promise<any>>();
+const rawTxHashCache = new Map<string, { txHash: string; timestamp: number }>();
+
+function isWriteMethod(method: string): boolean {
+    return (
+        method === 'eth_sendRawTransaction'
+        || method === 'eth_sendTransaction'
+        || method === 'sendTransaction'
+        || method === 'simulateTransaction'
+    );
+}
+
+function shouldCoalesceMethod(method: string): boolean {
+    return !isWriteMethod(method) || method === 'eth_sendRawTransaction';
+}
+
+function shouldTreatSendRawErrorAsKnown(message: string): boolean {
+    const msg = String(message || '').toLowerCase();
+    if (!msg) return false;
+    return (
+        msg.includes('already known')
+        || msg.includes('known transaction')
+        || msg.includes('already imported')
+        || msg.includes('already exists')
+        || msg.includes('nonce too low')
+    );
+}
+
+function normalizeRawTx(rawTx: string): string | null {
+    if (typeof rawTx !== 'string' || rawTx.length === 0) return null;
+    const normalized = rawTx.startsWith('0x') ? rawTx : `0x${rawTx}`;
+    if (!/^0x[0-9a-fA-F]+$/.test(normalized)) return null;
+    return normalized.toLowerCase();
+}
+
+function tryGetRawTxHash(rawTx: string): string | null {
+    const normalized = normalizeRawTx(rawTx);
+    if (!normalized) return null;
+    try {
+        return ethers.keccak256(normalized as `0x${string}`).toLowerCase();
+    } catch {
+        return null;
+    }
+}
+
+function createStableRequestKey(chainId: number, method: string, params: any): string {
+    const seen = new WeakSet<object>();
+    const serialized = JSON.stringify(params, (_key, value) => {
+        if (typeof value === 'bigint') return `bigint:${value.toString()}`;
+        if (!value || typeof value !== 'object') return value;
+        if (Array.isArray(value)) return value;
+        if (seen.has(value)) return '__cycle__';
+        seen.add(value);
+        return Object.keys(value).sort().reduce((acc, itemKey) => {
+            (acc as Record<string, any>)[itemKey] = (value as Record<string, any>)[itemKey];
+            return acc;
+        }, {} as Record<string, any>);
+    }) || '__no_params__';
+
+    let key = `${chainId}:${method}:${serialized}`;
+    if (key.length > RPC_INFLIGHT_KEY_MAX_LEN) {
+        key = `${chainId}:${method}:${Buffer.from(serialized).toString('base64url').slice(0, RPC_INFLIGHT_KEY_MAX_LEN)}`;
+    }
+    return key;
+}
+
+function buildMethodBackoffKey(chainId: number, method: string): string {
+    return `${chainId}:${method}`;
+}
+
+function getMethodBackoffState(backoffKey: string): MethodBackoffState | null {
+    const state = methodBackoff.get(backoffKey);
+    if (!state) return null;
+    if (Date.now() > state.cooldownUntil) {
+        methodBackoff.delete(backoffKey);
+        return null;
+    }
+    return state;
+}
+
+function markMethodSuccess(backoffKey: string): void {
+    methodBackoff.delete(backoffKey);
+}
+
+function markMethodFailure(backoffKey: string): MethodBackoffState {
+    const current = methodBackoff.get(backoffKey);
+    const failures = Math.min(8, (current?.failures || 0) + 1);
+    const cooldownMs = Math.min(RPC_METHOD_COOLDOWN_MAX_MS, RPC_METHOD_COOLDOWN_BASE_MS * (2 ** (failures - 1)));
+    const next: MethodBackoffState = {
+        failures,
+        cooldownUntil: Date.now() + cooldownMs
+    };
+    methodBackoff.set(backoffKey, next);
+    return next;
+}
+
+function getEndpointAttemptBudget(
+    method: string,
+    importance: RpcImportance,
+    endpointCount: number,
+    cooldownActive: boolean
+): number {
+    const baseBudget = isWriteMethod(method)
+        ? RPC_MAX_ENDPOINT_ATTEMPTS_WRITE
+        : (importance === 'critical' ? RPC_MAX_ENDPOINT_ATTEMPTS_CRITICAL : RPC_MAX_ENDPOINT_ATTEMPTS_NORMAL);
+    let budget = Math.max(1, Math.min(endpointCount, baseBudget));
+
+    if (cooldownActive) {
+        budget = Math.max(1, Math.min(budget, RPC_METHOD_COOLDOWN_ATTEMPT_CAP));
+    }
+
+    return budget;
+}
+
+function getMethodConcurrencyLimit(method: string, importance: RpcImportance, cooldownActive: boolean): number {
+    let base = isWriteMethod(method)
+        ? RPC_CONCURRENCY_WRITE
+        : (importance === 'critical' ? RPC_CONCURRENCY_CRITICAL : RPC_CONCURRENCY_NORMAL);
+    if (cooldownActive) {
+        base = Math.max(1, Math.floor(base / 2));
+    }
+    return base;
+}
+
+function getLimiterState(key: string): RpcLimiterState {
+    let state = methodLimiter.get(key);
+    if (!state) {
+        state = { inFlight: 0, queue: [] };
+        methodLimiter.set(key, state);
+    }
+    return state;
+}
+
+async function withMethodLimiter<T>(key: string, limit: number, fn: () => Promise<T>): Promise<T> {
+    const state = getLimiterState(key);
+
+    if (state.inFlight >= limit) {
+        await new Promise<void>(resolve => {
+            state.queue.push(resolve);
+        });
+    }
+
+    state.inFlight += 1;
+    try {
+        return await fn();
+    } finally {
+        state.inFlight = Math.max(0, state.inFlight - 1);
+        const next = state.queue.shift();
+        if (next) next();
+    }
+}
+
+function getRawTxCache(chainId: number, rawTxHash: string): string | null {
+    const key = `${chainId}:${rawTxHash}`;
+    const hit = rawTxHashCache.get(key);
+    if (!hit) return null;
+    if (Date.now() - hit.timestamp > RPC_SEND_RAW_TX_HASH_CACHE_TTL_MS) {
+        rawTxHashCache.delete(key);
+        return null;
+    }
+    return hit.txHash;
+}
+
+function setRawTxCache(chainId: number, rawTxHash: string, txHash: string): void {
+    if (rawTxHashCache.size >= RPC_SEND_RAW_HASH_CACHE_MAX) {
+        const now = Date.now();
+        for (const [key, value] of rawTxHashCache.entries()) {
+            if (now - value.timestamp > RPC_SEND_RAW_TX_HASH_CACHE_TTL_MS) {
+                rawTxHashCache.delete(key);
+            }
+        }
+        if (rawTxHashCache.size >= RPC_SEND_RAW_HASH_CACHE_MAX) {
+            const oldestKeys = Array.from(rawTxHashCache.keys()).slice(0, Math.floor(RPC_SEND_RAW_HASH_CACHE_MAX * 0.2));
+            for (const key of oldestKeys) rawTxHashCache.delete(key);
+        }
+    }
+    rawTxHashCache.set(`${chainId}:${rawTxHash}`, { txHash, timestamp: Date.now() });
+}
 
 /**
  * Make an RPC call with automatic failover
@@ -275,8 +479,8 @@ export async function callRpc<T = any>(
     let chainName = typeof chainIdOrName === 'string' ? chainIdOrName : `Chain ${chainIdOrName}`;
     let chainId: number;
 
-    // ✅ 缓存检查 - 在任何 RPC 调用前先检查缓存
-    if (isCacheable(method)) {
+    const cacheableMethod = isCacheable(method);
+    if (cacheableMethod) {
         const cacheKey = buildCacheKey(chainIdOrName, method, params);
         const cached = getCachedRpc(cacheKey);
         if (cached !== null) {
@@ -321,30 +525,50 @@ export async function callRpc<T = any>(
         throw new Error(`No RPC endpoints configured for ${chainName}`);
     }
 
-    const request: RpcRequest = {
-        jsonrpc: '2.0',
-        id: Date.now(),
-        method,
-        params,
-    };
-
-    let lastError: Error | null = null;
     const effectiveImportance: RpcImportance =
         options.importance || (options.strategy === 'fast' ? 'critical' : 'normal');
+    const backoffKey = buildMethodBackoffKey(chainId, method);
+    const cooldownState = getMethodBackoffState(backoffKey);
+    const cooldownActive = !!cooldownState;
+    const limiterKey = `${chainId}:${method}`;
+    const concurrencyLimit = getMethodConcurrencyLimit(method, effectiveImportance, cooldownActive);
     const requestTimeoutMs = resolveRpcTimeoutMs(method, options);
+    const rawTxHash = method === 'eth_sendRawTransaction'
+        ? tryGetRawTxHash(String(Array.isArray(params) ? (params[0] || '') : ''))
+        : null;
 
-    // Sort endpoints by health and priority
-    const sortedEndpoints = sortEndpointsByScore(endpoints, effectiveImportance);
+    if (rawTxHash) {
+        const cachedSubmittedHash = getRawTxCache(chainId, rawTxHash);
+        if (cachedSubmittedHash) {
+            return cachedSubmittedHash as T;
+        }
+    }
 
-    // Critical hedge: race endpoints for reads and for broadcast (same signed TX to multiple nodes is idempotent).
-    const canUseCriticalHedge =
-        RPC_CRITICAL_HEDGE_ENABLED &&
-        effectiveImportance === 'critical' &&
-        (method === 'eth_getTransactionByHash' || method === 'eth_getTransactionReceipt' || method === 'eth_sendRawTransaction') &&
-        sortedEndpoints.length >= 2;
+    const coalescingEnabled = shouldCoalesceMethod(method);
+    const inflightKey = rawTxHash
+        ? `${chainId}:${method}:${rawTxHash}`
+        : createStableRequestKey(chainId, method, params);
 
-    if (canUseCriticalHedge) {
-        const runHedgeAttempt = async (endpoint: RpcEndpointConfig, delayMs: number): Promise<T> => {
+    if (coalescingEnabled) {
+        const existing = inflightRpcRequests.get(inflightKey);
+        if (existing) return await existing as T;
+    }
+
+    const runCall = async (): Promise<T> => {
+        const request: RpcRequest = {
+            jsonrpc: '2.0',
+            id: Date.now(),
+            method,
+            params,
+        };
+
+        const sortedEndpoints = sortEndpointsByScore(endpoints, effectiveImportance);
+        const endpointBudget = getEndpointAttemptBudget(method, effectiveImportance, sortedEndpoints.length, cooldownActive);
+        const selectedEndpoints = sortedEndpoints.slice(0, endpointBudget);
+
+        let lastError: Error | null = null;
+
+        const runEndpointAttempt = async (endpoint: RpcEndpointConfig, delayMs = 0): Promise<T> => {
             if (delayMs > 0) {
                 await new Promise(resolve => setTimeout(resolve, delayMs));
             }
@@ -380,14 +604,27 @@ export async function callRpc<T = any>(
                 }
                 const data = await response.json() as RpcResponse<T>;
                 if (data.error) {
+                    if (method === 'eth_sendRawTransaction' && rawTxHash && shouldTreatSendRawErrorAsKnown(data.error.message)) {
+                        const knownHash = rawTxHash;
+                        setRawTxCache(chainId, rawTxHash, knownHash);
+                        recordSuccess(endpoint.url, Date.now() - startTime);
+                        return knownHash as T;
+                    }
                     throw new Error(`RPC Error: ${data.error.message}`);
                 }
                 if (data.result === undefined) {
                     throw new Error('RPC returned undefined result');
                 }
 
-                recordSuccess(endpoint.url, Date.now() - startTime);
-                return data.result;
+                const responseTime = Date.now() - startTime;
+                recordSuccess(endpoint.url, responseTime);
+
+                if (method === 'eth_sendRawTransaction' && rawTxHash) {
+                    const txHash = typeof data.result === 'string' ? data.result : rawTxHash;
+                    setRawTxCache(chainId, rawTxHash, txHash);
+                }
+
+                return data.result as T;
             } catch (error: any) {
                 recordFailure(endpoint.url);
                 throw error;
@@ -396,159 +633,144 @@ export async function callRpc<T = any>(
             }
         };
 
-        try {
-            const fanout = Math.min(RPC_CRITICAL_HEDGE_FANOUT, sortedEndpoints.length);
-            const attempts = Array.from({ length: fanout }, (_, idx) =>
-                runHedgeAttempt(sortedEndpoints[idx], Math.max(0, RPC_CRITICAL_HEDGE_STAGGER_MS) * idx)
-            );
-            const hedged = await Promise.any(attempts);
+        const canHedgeReads = method === 'eth_getTransactionByHash' || method === 'eth_getTransactionReceipt';
+        const canHedgeWrites = method === 'eth_sendRawTransaction' && RPC_CRITICAL_HEDGE_ALLOW_WRITE;
+        const canUseCriticalHedge =
+            RPC_CRITICAL_HEDGE_ENABLED &&
+            !cooldownActive &&
+            effectiveImportance === 'critical' &&
+            selectedEndpoints.length >= 2 &&
+            (canHedgeReads || canHedgeWrites);
 
-            if (isCacheable(method)) {
-                const cacheKey = buildCacheKey(chainIdOrName, method, params);
-                const ttl = getTtlForMethod(method);
-                setCachedRpc(cacheKey, hedged, ttl);
+        if (canUseCriticalHedge) {
+            try {
+                const fanout = Math.min(RPC_CRITICAL_HEDGE_FANOUT, selectedEndpoints.length);
+                const attempts = Array.from({ length: fanout }, (_, idx) =>
+                    runEndpointAttempt(selectedEndpoints[idx], Math.max(0, RPC_CRITICAL_HEDGE_STAGGER_MS) * idx)
+                );
+                const hedged = await Promise.any(attempts);
+                if (cacheableMethod) {
+                    const cacheKey = buildCacheKey(chainIdOrName, method, params);
+                    setCachedRpc(cacheKey, hedged, getTtlForMethod(method));
+                }
+                markMethodSuccess(backoffKey);
+                return hedged;
+            } catch {
+                // Fall through to sequential failover path below.
             }
-            return hedged;
-        } catch {
-            // Fall through to sequential failover path below.
         }
-    }
 
-    // Try each endpoint with circuit breaker check
-    for (let i = 0; i < sortedEndpoints.length; i++) {
-        const endpoint = sortedEndpoints[i];
-        if (!endpoint?.url) continue;
+        for (let i = 0; i < selectedEndpoints.length; i++) {
+            const endpoint = selectedEndpoints[i];
+            if (!endpoint?.url) continue;
 
-        // Check circuit breaker
-        if (isCircuitOpen(endpoint.url)) {
-            logger.debug(LogCode.API_FETCH_FAILED, `RPC circuit open, skipping endpoint`, {
-                endpoint: maskEndpoint(endpoint.url),
+            const isLast = i >= selectedEndpoints.length - 1;
+            const startTime = Date.now();
+
+            try {
+                const result = await runEndpointAttempt(endpoint);
+
+                if (cacheableMethod) {
+                    const cacheKey = buildCacheKey(chainIdOrName, method, params);
+                    setCachedRpc(cacheKey, result, getTtlForMethod(method));
+                }
+
+                if (i > 0) {
+                    logger.debug(LogCode.API_FETCH_SUCCESS, `RPC failover success`, {
+                        chain: chainName,
+                        endpoint: i + 1,
+                        total: selectedEndpoints.length,
+                        endpointBudget,
+                        responseTime: Date.now() - startTime,
+                        role: LogRole.METRIC
+                    });
+                }
+
+                markMethodSuccess(backoffKey);
+                return result;
+            } catch (error: any) {
+                const message = String(error?.message || error || '');
+                if (message === 'circuit_open') {
+                    logger.debug(LogCode.API_FETCH_FAILED, `RPC circuit open, skipping endpoint`, {
+                        chain: chainName,
+                        endpoint: maskEndpoint(endpoint.url),
+                        role: LogRole.METRIC
+                    });
+                    continue;
+                }
+                if (message.startsWith('capacity_limited:')) {
+                    logger.debug(LogCode.API_FETCH_FAILED, `RPC capacity limited, skipping endpoint`, {
+                        chain: chainName,
+                        endpoint: maskEndpoint(endpoint.url),
+                        reason: message.split(':')[1] || 'unknown',
+                        role: LogRole.METRIC
+                    });
+                    continue;
+                }
+
+                lastError = error instanceof Error ? error : new Error(message);
+
+                const isContractError = isNonRetryableRpcErrorMessage(message);
+                if (isContractError) {
+                    throw lastError;
+                }
+
+                if (i < 2) {
+                    logger.aggregate(LogCode.API_FETCH_FAILED, `RPC endpoint failed`, {
+                        chain: chainName,
+                        endpoint: i + 1,
+                        total: selectedEndpoints.length,
+                        endpointBudget,
+                        error: message,
+                        duration: Date.now() - startTime,
+                        role: LogRole.METRIC
+                    });
+                }
+
+                if (!isLast) {
+                    await new Promise(resolve => setTimeout(resolve, 50));
+                    continue;
+                }
+            }
+        }
+
+        const newBackoff = markMethodFailure(backoffKey);
+        const failedLogKey = `${chainName}:${method}`;
+        if (shouldLogAllRpcFailed(failedLogKey)) {
+            logger.error(LogCode.API_FETCH_FAILED, 'All RPC endpoints failed', {
+                chain: chainName,
+                method,
+                totalEndpoints: sortedEndpoints.length,
+                attemptedEndpoints: selectedEndpoints.length,
+                endpointBudget,
+                cooldownMs: Math.max(0, newBackoff.cooldownUntil - Date.now()),
+                lastError: lastError?.message,
                 role: LogRole.METRIC
             });
-            continue;
-        }
-
-        const capacity = checkAndReserveCapacity(endpoint, effectiveImportance);
-        if (!capacity.ok) {
-            logger.debug(LogCode.API_FETCH_FAILED, `RPC capacity limited, skipping endpoint`, {
-                endpoint: maskEndpoint(endpoint.url),
-                reason: capacity.reason
+        } else {
+            logger.debug(LogCode.API_FETCH_FAILED, 'All RPC endpoints failed (suppressed)', {
+                chain: chainName,
+                method
             });
-            continue;
         }
 
-        const startTime = Date.now();
+        throw new Error(
+            `All RPC endpoints failed for ${chainName}. Last error: ${lastError?.message || 'Unknown'}`
+        );
+    };
+
+    const executePromise = withMethodLimiter(limiterKey, concurrencyLimit, runCall);
+
+    if (coalescingEnabled && inflightRpcRequests.size < RPC_INFLIGHT_MAP_MAX) {
+        inflightRpcRequests.set(inflightKey, executePromise);
         try {
-            recordAttempt(endpoint.url);
-
-            const controller = new AbortController();
-            const timeout = setTimeout(() => controller.abort(), requestTimeoutMs);
-            const response = await fetch(endpoint.url, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Accept-Encoding': 'gzip', // ✅ Enable gzip compression (75% speedup for large responses)
-                    'Connection': 'keep-alive', // ✅ Enable connection reuse (Alchemy best practice)
-                },
-                body: JSON.stringify(request),
-                signal: controller.signal,
-                keepalive: true, // ✅ Enable HTTP keep-alive for connection pooling
-            }).finally(() => clearTimeout(timeout));
-
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-            }
-
-            const data = await response.json() as RpcResponse<T>;
-
-            if (data.error) {
-                throw new Error(`RPC Error: ${data.error.message}`);
-            }
-
-            if (data.result === undefined) {
-                throw new Error('RPC returned undefined result');
-            }
-
-            // Success! Record health metrics
-            const responseTime = Date.now() - startTime;
-            recordSuccess(endpoint.url, responseTime);
-
-            // ✅ 缓存写入 - 成功后写入缓存
-            if (isCacheable(method)) {
-                const cacheKey = buildCacheKey(chainIdOrName, method, params);
-                const ttl = getTtlForMethod(method);
-                setCachedRpc(cacheKey, data.result, ttl);
-            }
-
-            // Only log failover, not primary success
-            if (i > 0) {
-                logger.debug(LogCode.API_FETCH_SUCCESS, `RPC failover success`, {
-                    chain: chainName,
-                    endpoint: i + 1,
-                    total: sortedEndpoints.length,
-                    responseTime,
-                    role: LogRole.METRIC
-                });
-            }
-
-            return data.result;
-        } catch (error: any) {
-            lastError = error;
-
-            // ⚡ FAST FAIL: Contract errors should NOT be retried on other endpoints
-            // These are logic errors, not network errors
-            const isContractError = isNonRetryableRpcErrorMessage(error?.message || '');
-
-            if (isContractError) {
-                // Don't retry - throw immediately to save time
-                throw error;
-            }
-
-            recordFailure(endpoint.url);
-
-            // Only log first 2 failures to reduce noise
-            if (i < 2) {
-                logger.aggregate(LogCode.API_FETCH_FAILED, `RPC endpoint failed`, {
-                    chain: chainName,
-                    endpoint: i + 1,
-                    total: sortedEndpoints.length,
-                    error: error.message,
-                    duration: Date.now() - startTime,
-                    role: LogRole.METRIC
-                });
-            }
-
-            // Continue to next endpoint only for network errors
-            if (i < sortedEndpoints.length - 1) {
-                // Minimal delay for network errors
-                await new Promise(resolve => setTimeout(resolve, 50));
-                continue;
-            }
+            return await executePromise;
         } finally {
-            recordUsageEnd(endpoint.url);
+            inflightRpcRequests.delete(inflightKey);
         }
     }
 
-    // All endpoints failed
-    const failedLogKey = `${chainName}:${method}`;
-    if (shouldLogAllRpcFailed(failedLogKey)) {
-        logger.error(LogCode.API_FETCH_FAILED, 'All RPC endpoints failed', {
-            chain: chainName,
-            method,
-            totalEndpoints: sortedEndpoints.length,
-            lastError: lastError?.message,
-            role: LogRole.METRIC
-        });
-    } else {
-        logger.debug(LogCode.API_FETCH_FAILED, 'All RPC endpoints failed (suppressed)', {
-            chain: chainName,
-            method
-        });
-    }
-
-    throw new Error(
-        `All RPC endpoints failed for ${chainName}. Last error: ${lastError?.message || 'Unknown'}`
-    );
+    return await executePromise;
 }
 
 /**
@@ -1435,3 +1657,23 @@ export function startRpcBenchmarkSampling(
         runBenchmarkSample(chainId, tokenAddress).catch(() => undefined);
     }, intervalMs);
 }
+
+export const __rpcManagerTest = {
+    createStableRequestKey,
+    tryGetRawTxHash,
+    shouldTreatSendRawErrorAsKnown,
+    getEndpointAttemptBudget,
+    getMethodConcurrencyLimit,
+    getMethodBackoff: (chainId: number, method: string) =>
+        getMethodBackoffState(buildMethodBackoffKey(chainId, method)),
+    markMethodFailureForTest: (chainId: number, method: string) =>
+        markMethodFailure(buildMethodBackoffKey(chainId, method)),
+    markMethodSuccessForTest: (chainId: number, method: string) =>
+        markMethodSuccess(buildMethodBackoffKey(chainId, method)),
+    resetRuntimeStateForTest: () => {
+        methodBackoff.clear();
+        methodLimiter.clear();
+        inflightRpcRequests.clear();
+        rawTxHashCache.clear();
+    }
+};

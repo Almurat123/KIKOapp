@@ -12,7 +12,11 @@ import type { V4PoolKey } from '../uniswapV4.js';
 import { deriveHintStrategy, mergeStrategies } from './hint.js';
 import { summarizePools } from './poolDiscovery.js';
 import { isTurboBudgetExceeded, computeTurboDeadline } from './turbo.js';
-import { pickBestReferenceQuote, buildReferenceQuoteCacheKey } from './referenceQuote.js';
+import {
+    pickBestReferenceQuote,
+    buildReferenceQuoteCacheKey,
+    buildSharedExternalReferenceQuoteCacheKey
+} from './referenceQuote.js';
 import {
     V4_QUOTER_ADDRESSES,
     UNISWAP_V4_POOL_MANAGER_BY_CHAIN,
@@ -240,6 +244,60 @@ test('[quote] buildReferenceQuoteCacheKey is deterministic and includes all fiel
         enableZoraRoutes: true, // different
     });
     assert.notEqual(key1, key3, 'Zora flag must change cache key');
+});
+
+test('[quote] buildSharedExternalReferenceQuoteCacheKey ignores recipient and zora flags', () => {
+    const sharedKey = buildSharedExternalReferenceQuoteCacheKey({
+        chainId: 8453,
+        tokenIn: '0xAAAA',
+        tokenOut: '0xBBBB',
+        amountInWei: 1000000000000000000n
+    });
+
+    const requestKeyA = buildReferenceQuoteCacheKey({
+        chainId: 8453,
+        tokenIn: '0xAAAA',
+        tokenOut: '0xBBBB',
+        amountInWei: 1000000000000000000n,
+        recipient: '0xWalletA',
+        enableZoraRoutes: false
+    });
+    const requestKeyB = buildReferenceQuoteCacheKey({
+        chainId: 8453,
+        tokenIn: '0xAAAA',
+        tokenOut: '0xBBBB',
+        amountInWei: 1000000000000000000n,
+        recipient: '0xWalletB',
+        enableZoraRoutes: true
+    });
+
+    assert.notEqual(requestKeyA, requestKeyB, 'per-request key should differ by recipient/zora');
+    assert.equal(
+        sharedKey,
+        buildSharedExternalReferenceQuoteCacheKey({
+            chainId: 8453,
+            tokenIn: '0xAAAA',
+            tokenOut: '0xBBBB',
+            amountInWei: 1000000000000000000n
+        }),
+        'shared key should stay stable for same pair+amount'
+    );
+});
+
+test('[quote] buildSharedExternalReferenceQuoteCacheKey changes when amount changes', () => {
+    const key1 = buildSharedExternalReferenceQuoteCacheKey({
+        chainId: 8453,
+        tokenIn: '0xAAAA',
+        tokenOut: '0xBBBB',
+        amountInWei: 1000n
+    });
+    const key2 = buildSharedExternalReferenceQuoteCacheKey({
+        chainId: 8453,
+        tokenIn: '0xAAAA',
+        tokenOut: '0xBBBB',
+        amountInWei: 2000n
+    });
+    assert.notEqual(key1, key2, 'amount should remain part of shared cache key');
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -26,10 +26,6 @@ const PRIVY_SEND_TX_CHAIN_IDS = new Set(
 
 let privyClient: PrivyClient | null = null;
 
-/** In-memory cache for embedded wallet info (address + id). 5min TTL to avoid Privy API call on every TX. */
-const walletInfoCache = new Map<string, { data: { address: string; id: string }; ts: number }>();
-const WALLET_INFO_CACHE_TTL_MS = Number(process.env.PRIVY_WALLET_CACHE_TTL_MS || '300000'); // 5 minutes
-
 const toHexQuantity = (value?: string) =>
     value !== undefined && value !== null && value !== ''
         ? (`0x${BigInt(value).toString(16)}` as `0x${string}`)
@@ -78,16 +74,10 @@ function getPrivyClient(): PrivyClient {
 
 /**
  * Get user's embedded wallet info (address AND internal ID)
- * Cached 5min in-memory to avoid Privy API call on every transaction (buy path optimization).
  * @param userId - Privy user ID (from JWT sub claim)
  * @returns Wallet info or null if user has no embedded wallet
  */
 export async function getEmbeddedWalletInfo(userId: string): Promise<{ address: string; id: string } | null> {
-    const cached = walletInfoCache.get(userId);
-    if (cached && Date.now() - cached.ts < WALLET_INFO_CACHE_TTL_MS) {
-        return cached.data;
-    }
-
     const client = getPrivyClient();
     const maxRetries = 3;
     let lastError: any = null;
@@ -107,12 +97,12 @@ export async function getEmbeddedWalletInfo(userId: string): Promise<{ address: 
             }
 
             const walletData = embeddedWallet as any;
-            const result = {
+            // Privy embedded wallets have an 'id' field that is the internal wallet ID
+            // and an 'address' field that is the Ethereum address
+            return {
                 address: walletData.address || '',
                 id: walletData.id || walletData.address // Fallback to address if id not present
             };
-            walletInfoCache.set(userId, { data: result, ts: Date.now() });
-            return result;
         } catch (error: any) {
             lastError = error;
 
@@ -185,95 +175,9 @@ export interface TransactionRequest {
     maxPriorityFeePerGas?: string;
     nonce?: string;
     executionProfile?: string;
+    chainId: number;
     txPurpose?: 'trade' | 'approval' | 'preheat' | 'speedup' | 'fee' | 'other';
     txPriority?: number;
-    chainId: number;
-}
-
-interface PrivyTxValidationResult {
-    ok: boolean;
-    errors: string[];
-}
-
-function isHexLike(value?: string): boolean {
-    return typeof value === 'string' && /^0x[0-9a-fA-F]*$/.test(value);
-}
-
-function isAddressLike(value?: string): boolean {
-    return typeof value === 'string' && /^0x[0-9a-fA-F]{40}$/.test(value);
-}
-
-function isIntegerLike(value?: string): boolean {
-    if (value === undefined || value === null || value === '') return true;
-    try {
-        return BigInt(value) >= 0n;
-    } catch {
-        return false;
-    }
-}
-
-function summarizeTxForLog(tx: TransactionRequest): Record<string, any> {
-    return {
-        chainId: tx.chainId,
-        to: tx.to,
-        value: tx.value,
-        gas: tx.gas,
-        gasPrice: tx.gasPrice,
-        maxFeePerGas: tx.maxFeePerGas,
-        maxPriorityFeePerGas: tx.maxPriorityFeePerGas,
-        nonce: tx.nonce,
-        dataLength: tx.data?.length || 0,
-        dataPrefix: tx.data?.slice(0, 18) || null,
-        has0xDataPrefix: typeof tx.data === 'string' ? tx.data.startsWith('0x') : false
-    };
-}
-
-function validatePrivyTransactionShape(tx: TransactionRequest): PrivyTxValidationResult {
-    const errors: string[] = [];
-    if (!Number.isInteger(tx.chainId) || tx.chainId <= 0) errors.push('invalid_chain_id');
-    if (!isAddressLike(tx.to)) errors.push('invalid_to_address');
-    if (!isHexLike(tx.data)) errors.push('invalid_data_hex');
-    if (!isIntegerLike(tx.value)) errors.push('invalid_value');
-    if (!isIntegerLike(tx.gas)) errors.push('invalid_gas');
-    if (!isIntegerLike(tx.gasPrice)) errors.push('invalid_gas_price');
-    if (!isIntegerLike(tx.maxFeePerGas)) errors.push('invalid_max_fee_per_gas');
-    if (!isIntegerLike(tx.maxPriorityFeePerGas)) errors.push('invalid_max_priority_fee_per_gas');
-    if (!isIntegerLike(tx.nonce)) errors.push('invalid_nonce');
-    return { ok: errors.length === 0, errors };
-}
-
-/** Fetches pending nonce for a wallet (used by sendTransaction and by copy-trade pre-warm). */
-export async function getPendingNonce(chainId: number, walletAddress: string): Promise<string | undefined> {
-    const countHex = await rpcCall<string>(chainId, 'eth_getTransactionCount', [
-        walletAddress,
-        'pending'
-    ], { strategy: 'fast', importance: 'critical' });
-    return countHex ? BigInt(countHex).toString() : undefined;
-}
-
-async function fetchPendingNonce(chainId: number, walletAddress: string): Promise<string | undefined> {
-    return getPendingNonce(chainId, walletAddress);
-}
-
-async function bumpRetryGasPrice(
-    chainId: number,
-    previousGasPrice: string | undefined,
-    attempt: number
-): Promise<string | undefined> {
-    try {
-        const networkGasHex = await rpcCall<string>(chainId, 'eth_gasPrice', [], {
-            strategy: 'fast',
-            importance: 'critical'
-        });
-        const networkGasPrice = networkGasHex ? BigInt(networkGasHex) : 0n;
-        const baseGasPrice = previousGasPrice ? BigInt(previousGasPrice) : networkGasPrice;
-        if (baseGasPrice <= 0n) return previousGasPrice;
-        const bumpBps = 1200n + BigInt(Math.max(0, attempt - 1)) * 600n; // +12%, +18%, +24%
-        const bumped = baseGasPrice * (10000n + bumpBps) / 10000n;
-        return bumped.toString();
-    } catch {
-        return previousGasPrice;
-    }
 }
 
 /**
@@ -283,89 +187,85 @@ async function bumpRetryGasPrice(
  * @param tx - Transaction to send
  * @returns Transaction hash
  */
-interface QueuedTxTask<T> {
-    priority: number;
-    sequence: number;
-    purpose: string;
-    run: () => Promise<T>;
-    resolve: (value: T) => void;
-    reject: (error: any) => void;
-}
+// Queue to manage concurrent transactions per user to prevent nonce collisions
+const userTransactionLocks: Map<string, Promise<any>> = new Map();
+const userChainInflightTx = new Map<string, number>();
+const pendingNonceInflight = new Map<string, Promise<string | undefined>>();
+const pendingNonceCache = new Map<string, { nonce: string; timestamp: number }>();
+const PENDING_NONCE_CACHE_TTL_MS = Math.max(250, Number(process.env.PENDING_NONCE_CACHE_TTL_MS || '1500'));
 
-const walletTxQueues = new Map<string, QueuedTxTask<any>[]>();
-const walletTxQueueRunning = new Set<string>();
-let walletTxSequence = 0;
-
-function buildWalletQueueKey(userId: string, chainId: number): string {
+function buildUserChainKey(userId: string, chainId: number): string {
     return `${userId}:${chainId}`;
 }
 
-function resolveTxPriority(tx: TransactionRequest): number {
-    if (Number.isFinite(tx.txPriority)) return Number(tx.txPriority);
-    if (tx.txPurpose === 'preheat') return 200;
-    if (tx.txPurpose === 'speedup') return 20;
-    if (tx.txPurpose === 'trade') return 30;
-    if (tx.txPurpose === 'approval') return 70;
-    if (tx.txPurpose === 'fee') return 90;
-    if ((tx.executionProfile || '').includes('sniper')) return 40;
-    if ((tx.data || '').startsWith('0x095ea7b3')) return 80;
-    return 60;
+function bumpInflightUserChainTx(key: string, delta: 1 | -1): void {
+    const current = userChainInflightTx.get(key) || 0;
+    const next = current + delta;
+    if (next <= 0) {
+        userChainInflightTx.delete(key);
+        return;
+    }
+    userChainInflightTx.set(key, next);
 }
 
-function pumpWalletQueue(queueKey: string): void {
-    if (walletTxQueueRunning.has(queueKey)) return;
-    const queue = walletTxQueues.get(queueKey);
-    if (!queue || queue.length === 0) return;
-
-    walletTxQueueRunning.add(queueKey);
-    const [nextTask] = queue.splice(0, 1);
-
-    nextTask.run()
-        .then((value) => nextTask.resolve(value))
-        .catch((error) => nextTask.reject(error))
-        .finally(() => {
-            walletTxQueueRunning.delete(queueKey);
-            const current = walletTxQueues.get(queueKey);
-            if (!current || current.length === 0) {
-                walletTxQueues.delete(queueKey);
-                return;
-            }
-            pumpWalletQueue(queueKey);
-        });
-}
-
-async function enqueueWalletTx<T>(
-    userId: string,
-    chainId: number,
-    priority: number,
-    purpose: string,
-    run: () => Promise<T>
-): Promise<T> {
-    const queueKey = buildWalletQueueKey(userId, chainId);
-    const queue = walletTxQueues.get(queueKey) || [];
-    walletTxQueues.set(queueKey, queue);
-
-    return await new Promise<T>((resolve, reject) => {
-        queue.push({
-            priority,
-            sequence: ++walletTxSequence,
-            purpose,
-            run,
-            resolve,
-            reject
-        });
-        queue.sort((a, b) => {
-            if (a.priority !== b.priority) return a.priority - b.priority;
-            return a.sequence - b.sequence;
-        });
-        pumpWalletQueue(queueKey);
-    });
+function buildPendingNonceKey(chainId: number, walletAddress: string): string {
+    return `${chainId}:${walletAddress.toLowerCase()}`;
 }
 
 export function isTransactionQueueBusy(userId: string, chainId: number): boolean {
-    const key = buildWalletQueueKey(userId, chainId);
-    const queue = walletTxQueues.get(key);
-    return walletTxQueueRunning.has(key) || !!(queue && queue.length > 0);
+    const chainKey = buildUserChainKey(userId, chainId);
+    return (userChainInflightTx.get(chainKey) || 0) > 0 || userTransactionLocks.has(userId);
+}
+
+export async function getPendingNonce(chainId: number, walletAddress: string): Promise<string | undefined> {
+    if (!walletAddress || chainId <= 0) return undefined;
+    const key = buildPendingNonceKey(chainId, walletAddress);
+    const cached = pendingNonceCache.get(key);
+    if (cached && Date.now() - cached.timestamp <= PENDING_NONCE_CACHE_TTL_MS) {
+        return cached.nonce;
+    }
+
+    const inflight = pendingNonceInflight.get(key);
+    if (inflight) return await inflight;
+
+    const task = (async () => {
+        try {
+            const nonce = await rpcCall<string>(
+                chainId,
+                'eth_getTransactionCount',
+                [walletAddress, 'pending'],
+                { strategy: 'fast', importance: 'critical' }
+            );
+            if (!nonce || typeof nonce !== 'string') return undefined;
+            pendingNonceCache.set(key, { nonce, timestamp: Date.now() });
+            return nonce;
+        } catch {
+            return undefined;
+        } finally {
+            pendingNonceInflight.delete(key);
+        }
+    })();
+
+    pendingNonceInflight.set(key, task);
+    return await task;
+}
+
+/**
+ * Execute a function sequentially for a given user
+ */
+async function withUserLock<T>(userId: string, fn: () => Promise<T>): Promise<T> {
+    const currentLock = userTransactionLocks.get(userId) || Promise.resolve();
+
+    // Create a new promise that chains onto the current lock
+    // We catch errors in the previous lock to ensure the chain continues even if one fails
+    const nextLock = currentLock
+        .catch(() => { })
+        .then(() => fn());
+
+    // Update the lock for this user
+    userTransactionLocks.set(userId, nextLock);
+
+    return nextLock;
 }
 
 async function signAndBroadcastRawTransaction(
@@ -417,226 +317,178 @@ export async function sendTransaction(
     accessToken: string,
     tx: TransactionRequest
 ): Promise<string> {
-    const txPriority = resolveTxPriority(tx);
-    const txPurpose = tx.txPurpose || 'other';
-    return await enqueueWalletTx(userId, tx.chainId, txPriority, txPurpose, async () => {
-        logger.debug(LogCode.EXE_TX_BROADCAST, 'Wallet tx dequeued for send', {
-            userId: userId.slice(0, 10),
-            chainId: tx.chainId,
-            txPurpose,
-            txPriority
-        });
+    // Wrap entire execution in a per-user lock
+    return withUserLock(userId, async () => {
+        const chainKey = buildUserChainKey(userId, tx.chainId);
+        bumpInflightUserChainTx(chainKey, 1);
         // === SIMULATION MODE ===
-        if (process.env.SIMULATION_MODE === 'true') {
-            logger.info(LogCode.EXE_TX_BROADCAST, 'SIMULATION MODE: Skipping actual Privy send', {
-                userId,
-                to: tx.to,
-                value: tx.value,
-                chainId: tx.chainId
-            });
-            return `0xSIMULATION_PRIVY_${Date.now()}_${Math.random().toString(36).substring(7)}`;
-        }
+        try {
+            if (process.env.SIMULATION_MODE === 'true') {
+                logger.info(LogCode.EXE_TX_BROADCAST, 'SIMULATION MODE: Skipping actual Privy send', {
+                    userId,
+                    to: tx.to,
+                    value: tx.value,
+                    chainId: tx.chainId
+                });
+                return `0xSIMULATION_PRIVY_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+            }
 
-        const client = getPrivyClient();
-        const MAX_RETRIES = 3;
-        const RETRY_DELAY_MS = 2000;
+            const client = getPrivyClient();
+            const MAX_RETRIES = 3;
+            const RETRY_DELAY_MS = 2000;
 
-        // Get user's wallet info (both address and ID)
-        const walletInfo = await getEmbeddedWalletInfo(userId);
-        if (!walletInfo) {
-            throw new AppError(400, 'User has no embedded wallet', 'NO_WALLET');
-        }
+            // Get user's wallet info (both address and ID)
+            const walletInfo = await getEmbeddedWalletInfo(userId);
+            if (!walletInfo) {
+                throw new AppError(400, 'User has no embedded wallet', 'NO_WALLET');
+            }
 
-        // Resolve nonce from chain when not provided (prevents "nonce too low" - next nonce N, tx nonce 0)
-        // Use rpcManager with fast + critical so Alchemy/premium is preferred (same as eth_sendRawTransaction)
-        let resolvedNonce = tx.nonce;
-        if (resolvedNonce === undefined || resolvedNonce === null || resolvedNonce === '') {
-            try {
-                resolvedNonce = await fetchPendingNonce(tx.chainId, walletInfo.address);
-                if (resolvedNonce !== undefined) {
-                    logger.debug(LogCode.EXE_TX_BROADCAST, 'Fetched chain nonce for wallet', {
-                        chainId: tx.chainId,
-                        nonce: resolvedNonce,
-                        address: walletInfo.address?.slice(0, 10)
-                    });
-                }
-            } catch (nonceErr: any) {
-                logger.warn(LogCode.API_FETCH_FAILED, 'Failed to fetch nonce for sendTransaction', {
-                    chainId: tx.chainId,
-                    error: nonceErr?.message?.slice(0, 80)
+            let txWithNonce = { ...tx };
+            if (!txWithNonce.nonce) {
+                txWithNonce.nonce = await getPendingNonce(txWithNonce.chainId, walletInfo.address);
+            }
+
+            const verboseTxLog = (process.env.PRIVY_TX_DEBUG || 'false') === 'true';
+            if (verboseTxLog) {
+                console.log('[sendTransaction] ========== PRIVY TX PARAMS ==========');
+                console.log('[sendTransaction] From:', walletInfo.address);
+                console.log('[sendTransaction] To:', txWithNonce.to);
+                console.log('[sendTransaction] Value:', txWithNonce.value);
+                console.log('[sendTransaction] ValueHex:', txWithNonce.value ? `0x${BigInt(txWithNonce.value).toString(16)}` : 'undefined');
+                console.log('[sendTransaction] Data length:', txWithNonce.data?.length);
+                console.log('[sendTransaction] Data prefix:', txWithNonce.data?.slice?.(0, 82));
+                console.log('[sendTransaction] ChainId:', txWithNonce.chainId);
+                console.log('[sendTransaction] Gas:', txWithNonce.gas);
+                console.log('[sendTransaction] MaxFeePerGas:', txWithNonce.maxFeePerGas);
+                console.log('[sendTransaction] MaxPriorityFeePerGas:', txWithNonce.maxPriorityFeePerGas);
+                console.log('[sendTransaction] Profile:', txWithNonce.executionProfile);
+                console.log('[sendTransaction] ===========================================');
+            } else {
+                logger.debug(LogCode.EXE_TX_BROADCAST, 'Privy tx prepared', {
+                    chainId: txWithNonce.chainId,
+                    to: txWithNonce.to?.slice(0, 10),
+                    value: txWithNonce.value,
+                    gas: txWithNonce.gas,
+                    nonce: txWithNonce.nonce,
+                    purpose: txWithNonce.txPurpose || 'other',
+                    profile: txWithNonce.executionProfile,
+                    dataLength: txWithNonce.data?.length || 0,
+                    sendTxAllowlist: Array.from(PRIVY_SEND_TX_CHAIN_IDS.values())
                 });
             }
-        }
-        let txWithNonce: TransactionRequest = { ...tx, nonce: resolvedNonce };
-        const txValidation = validatePrivyTransactionShape(txWithNonce);
-        if (!txValidation.ok) {
-            logger.error(LogCode.EXE_TX_REVERTED, 'Privy tx payload validation failed before send', {
-                userId: userId.slice(0, 10),
-                errors: txValidation.errors,
-                tx: summarizeTxForLog(txWithNonce)
-            });
-            throw new AppError(400, `Invalid transaction payload: ${txValidation.errors.join(',')}`, 'INVALID_TX_PAYLOAD');
-        }
 
-        const verboseTxLog = (process.env.PRIVY_TX_DEBUG || 'false') === 'true';
-        if (verboseTxLog) {
-            console.log('[sendTransaction] ========== PRIVY TX PARAMS ==========');
-            console.log('[sendTransaction] From:', walletInfo.address);
-            console.log('[sendTransaction] To:', txWithNonce.to);
-            console.log('[sendTransaction] Value:', txWithNonce.value);
-            console.log('[sendTransaction] ValueHex:', txWithNonce.value ? `0x${BigInt(txWithNonce.value).toString(16)}` : 'undefined');
-            console.log('[sendTransaction] Data length:', txWithNonce.data?.length);
-            console.log('[sendTransaction] Data prefix:', txWithNonce.data?.slice?.(0, 82));
-            console.log('[sendTransaction] ChainId:', txWithNonce.chainId);
-            console.log('[sendTransaction] Gas:', txWithNonce.gas);
-            console.log('[sendTransaction] MaxFeePerGas:', txWithNonce.maxFeePerGas);
-            console.log('[sendTransaction] MaxPriorityFeePerGas:', txWithNonce.maxPriorityFeePerGas);
-            console.log('[sendTransaction] Nonce:', txWithNonce.nonce);
-            console.log('[sendTransaction] Profile:', txWithNonce.executionProfile);
-            console.log('[sendTransaction] ===========================================');
-        } else {
-            logger.debug(LogCode.EXE_TX_BROADCAST, 'Privy tx prepared', {
-                chainId: txWithNonce.chainId,
-                to: txWithNonce.to?.slice(0, 10),
-                value: txWithNonce.value,
-                gas: txWithNonce.gas,
-                nonce: txWithNonce.nonce,
-                profile: txWithNonce.executionProfile,
-                dataLength: txWithNonce.data?.length || 0,
-                sendTxAllowlist: Array.from(PRIVY_SEND_TX_CHAIN_IDS.values())
-            });
-        }
-
-        for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-            try {
-                logger.debug(LogCode.EXE_TX_BROADCAST, 'Sending Ethereum transaction via Privy', {
-                    attempt,
-                    from: walletInfo.address?.slice(0, 10),
-                    to: txWithNonce.to?.slice(0, 10),
-                    chainId: txWithNonce.chainId,
-                });
-
-                const preferPrivySendTx = PRIVY_SEND_TX_CHAIN_IDS.has(txWithNonce.chainId);
-                if (!preferPrivySendTx) {
-                    return await signAndBroadcastRawTransaction(client, walletInfo.id, txWithNonce, {
-                        userId,
+            for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+                try {
+                    logger.debug(LogCode.EXE_TX_BROADCAST, 'Sending Ethereum transaction via Privy', {
                         attempt,
-                        reason: 'chain_not_in_privy_sendtx_allowlist'
+                        from: walletInfo.address?.slice(0, 10),
+                        to: txWithNonce.to?.slice(0, 10),
+                        chainId: txWithNonce.chainId,
                     });
-                }
 
-                const privyTx = {
-                    to: txWithNonce.to as `0x${string}`,
-                    data: txWithNonce.data as `0x${string}`,
-                    value: toHexQuantity(txWithNonce.value),
-                    gasLimit: toHexQuantity(txWithNonce.gas),
-                    gasPrice: toHexQuantity(txWithNonce.gasPrice),
-                    maxFeePerGas: toHexQuantity(txWithNonce.maxFeePerGas),
-                    maxPriorityFeePerGas: toHexQuantity(txWithNonce.maxPriorityFeePerGas),
-                    nonce: toHexQuantity(txWithNonce.nonce),
-                };
-
-                // Use Privy's wallet API to send transaction
-                // The walletId must be the Privy internal ID, not the Ethereum address
-                const response = await client.walletApi.ethereum.sendTransaction({
-                    walletId: walletInfo.id,
-                    caip2: `eip155:${txWithNonce.chainId}`,
-                    transaction: privyTx,
-                });
-
-                logger.info(LogCode.EXE_TX_BROADCAST, 'Ethereum transaction sent via Privy', { txHash: response.hash, chainId: txWithNonce.chainId });
-
-                const postSendDelayMs = Math.max(0, Number(process.env.PRIVY_POST_SEND_DELAY_MS || '0'));
-                if (postSendDelayMs > 0) {
-                    await new Promise(resolve => setTimeout(resolve, postSendDelayMs));
-                }
-
-                return response.hash;
-            } catch (error: any) {
-                let effectiveError: any = error;
-                let errorMessage = effectiveError?.message || '';
-                const unsupportedSendOnNonEth =
-                    txWithNonce.chainId !== 1 && errorMessage.includes('eth_sendTransaction is only supported for Ethereum');
-                if (unsupportedSendOnNonEth) {
-                    try {
+                    const preferPrivySendTx = PRIVY_SEND_TX_CHAIN_IDS.has(txWithNonce.chainId);
+                    if (!preferPrivySendTx) {
                         return await signAndBroadcastRawTransaction(client, walletInfo.id, txWithNonce, {
                             userId,
                             attempt,
-                            reason: 'privy_sendtx_unsupported_for_chain'
+                            reason: 'chain_not_in_privy_sendtx_allowlist'
                         });
-                    } catch (fallbackError: any) {
-                        logger.error(LogCode.EXE_TX_REVERTED, 'Privy sign+broadcast fallback failed', {
-                            chainId: tx.chainId,
-                            error: fallbackError?.message || String(fallbackError)
-                        });
-                        effectiveError = fallbackError;
-                        errorMessage = effectiveError?.message || String(effectiveError);
                     }
-                }
 
-                const isNonceError = errorMessage.includes('nonce too low') ||
-                    errorMessage.includes('nonce has already been used') ||
-                    errorMessage.includes('replacement transaction underpriced');
+                    const privyTx = {
+                        to: txWithNonce.to as `0x${string}`,
+                        data: txWithNonce.data as `0x${string}`,
+                        value: toHexQuantity(txWithNonce.value),
+                        gasLimit: toHexQuantity(txWithNonce.gas),
+                        gasPrice: toHexQuantity(txWithNonce.gasPrice),
+                        maxFeePerGas: toHexQuantity(txWithNonce.maxFeePerGas),
+                        maxPriorityFeePerGas: toHexQuantity(txWithNonce.maxPriorityFeePerGas),
+                        nonce: toHexQuantity(txWithNonce.nonce),
+                    };
 
-                const isNetworkError = errorMessage.includes('fetch failed') ||
-                    errorMessage.includes('ECONNRESET') ||
-                    errorMessage.includes('socket disconnected');
+                    // Use Privy's wallet API to send transaction
+                    // The walletId must be the Privy internal ID, not the Ethereum address
+                    const response = await client.walletApi.ethereum.sendTransaction({
+                        walletId: walletInfo.id,
+                        caip2: `eip155:${txWithNonce.chainId}`,
+                        transaction: privyTx,
+                    });
 
-                // Retry on nonce errors or transient network failures
-                if ((isNonceError || isNetworkError) && attempt < MAX_RETRIES) {
-                    const reason = isNonceError ? 'Nonce error' : 'Network failure';
-                    if (isNonceError) {
+                    logger.info(LogCode.EXE_TX_BROADCAST, 'Ethereum transaction sent via Privy', { txHash: response.hash, chainId: txWithNonce.chainId });
+
+                    const postSendDelayMs = Math.max(0, Number(process.env.PRIVY_POST_SEND_DELAY_MS || '0'));
+                    if (postSendDelayMs > 0) {
+                        await new Promise(resolve => setTimeout(resolve, postSendDelayMs));
+                    }
+
+                    return response.hash;
+                } catch (error: any) {
+                    let effectiveError: any = error;
+                    let errorMessage = effectiveError?.message || '';
+                    const unsupportedSendOnNonEth =
+                        txWithNonce.chainId !== 1 && errorMessage.includes('eth_sendTransaction is only supported for Ethereum');
+                    if (unsupportedSendOnNonEth) {
                         try {
-                            const refreshedNonce = await fetchPendingNonce(txWithNonce.chainId, walletInfo.address);
-                            if (refreshedNonce !== undefined) {
-                                txWithNonce = { ...txWithNonce, nonce: refreshedNonce };
-                            }
-                        } catch {
-                            // keep current nonce
+                            return await signAndBroadcastRawTransaction(client, walletInfo.id, txWithNonce, {
+                                userId,
+                                attempt,
+                                reason: 'privy_sendtx_unsupported_for_chain'
+                            });
+                        } catch (fallbackError: any) {
+                            logger.error(LogCode.EXE_TX_REVERTED, 'Privy sign+broadcast fallback failed', {
+                                chainId: txWithNonce.chainId,
+                                error: fallbackError?.message || String(fallbackError)
+                            });
+                            effectiveError = fallbackError;
+                            errorMessage = effectiveError?.message || String(effectiveError);
                         }
-
-                        const bumpedGasPrice = await bumpRetryGasPrice(txWithNonce.chainId, txWithNonce.gasPrice, attempt);
-                        if (bumpedGasPrice) {
-                            txWithNonce = { ...txWithNonce, gasPrice: bumpedGasPrice };
-                        }
-
-                        logger.warn(LogCode.EXE_TX_BROADCAST, 'Nonce retry context refreshed', {
-                            chainId: txWithNonce.chainId,
-                            attempt,
-                            nonce: txWithNonce.nonce,
-                            gasPrice: txWithNonce.gasPrice
-                        });
                     }
-                    logger.warn(LogCode.EXE_TX_BROADCAST, `${reason} on attempt ${attempt}, retrying in ${RETRY_DELAY_MS}ms...`);
-                    await new Promise(resolve => setTimeout(resolve, RETRY_DELAY_MS));
-                    continue;
-                }
 
-                logger.error(LogCode.EXE_TX_REVERTED, 'Privy Ethereum transaction failed', { error: effectiveError?.message || String(effectiveError), chainId: txWithNonce.chainId });
-                logger.error(LogCode.EXE_TX_REVERTED, 'Privy tx context on failure', {
-                    attempt,
-                    chainId: txWithNonce.chainId,
-                    tx: summarizeTxForLog(txWithNonce)
-                });
+                    const isNonceError = errorMessage.includes('nonce too low') ||
+                        errorMessage.includes('nonce has already been used') ||
+                        errorMessage.includes('replacement transaction underpriced');
 
-                // Handle specific Privy errors
-                if (effectiveError?.code === 'insufficient_funds') {
-                    throw new AppError(400, 'Insufficient funds for transaction', 'INSUFFICIENT_FUNDS');
-                }
-                if (effectiveError?.code === 'user_denied') {
-                    throw new AppError(403, 'User denied transaction', 'USER_DENIED');
-                }
+                    const isNetworkError = errorMessage.includes('fetch failed') ||
+                        errorMessage.includes('ECONNRESET') ||
+                        errorMessage.includes('socket disconnected');
 
-                throw new AppError(
-                    500,
-                    `Failed to send transaction: ${effectiveError?.message || 'Unknown error'}`,
-                    'TRANSACTION_FAILED'
-                );
+                    // Retry on nonce errors or transient network failures
+                    if ((isNonceError || isNetworkError) && attempt < MAX_RETRIES) {
+                        const reason = isNonceError ? 'Nonce error' : 'Network failure';
+                        if (isNonceError) {
+                            txWithNonce = {
+                                ...txWithNonce,
+                                nonce: await getPendingNonce(txWithNonce.chainId, walletInfo.address) || txWithNonce.nonce
+                            };
+                        }
+                        logger.warn(LogCode.EXE_TX_BROADCAST, `${reason} on attempt ${attempt}, retrying in ${RETRY_DELAY_MS}ms...`);
+                        await new Promise(resolve => setTimeout(resolve, RETRY_DELAY_MS));
+                        continue;
+                    }
+
+                    logger.error(LogCode.EXE_TX_REVERTED, 'Privy Ethereum transaction failed', { error: effectiveError?.message || String(effectiveError), chainId: txWithNonce.chainId });
+
+                    // Handle specific Privy errors
+                    if (effectiveError?.code === 'insufficient_funds') {
+                        throw new AppError(400, 'Insufficient funds for transaction', 'INSUFFICIENT_FUNDS');
+                    }
+                    if (effectiveError?.code === 'user_denied') {
+                        throw new AppError(403, 'User denied transaction', 'USER_DENIED');
+                    }
+
+                    throw new AppError(
+                        500,
+                        `Failed to send transaction: ${effectiveError?.message || 'Unknown error'}`,
+                        'TRANSACTION_FAILED'
+                    );
+                }
             }
-        }
 
-        // Should never reach here, but just in case
-        throw new AppError(500, 'Transaction failed after max retries', 'TRANSACTION_FAILED');
+            // Should never reach here, but just in case
+            throw new AppError(500, 'Transaction failed after max retries', 'TRANSACTION_FAILED');
+        } finally {
+            bumpInflightUserChainTx(chainKey, -1);
+        }
     });
 }
 

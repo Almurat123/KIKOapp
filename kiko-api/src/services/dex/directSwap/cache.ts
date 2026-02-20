@@ -35,6 +35,13 @@ export function createTimedCache<T>() {
 export const v4SpotCache = new Map<string, TimedValue<bigint>>();
 export const v4QuoterCache = new Map<string, TimedValue<bigint>>();
 export const referenceQuoteCache = new Map<string, TimedValue<bigint>>();
+export type ExternalReferenceQuoteSnapshot = {
+  ref0x: bigint;
+  refKyber: bigint;
+  best: bigint;
+};
+export const sharedExternalReferenceQuoteCache = new Map<string, TimedValue<ExternalReferenceQuoteSnapshot>>();
+export const sharedExternalReferenceQuoteInflight = new Map<string, Promise<ExternalReferenceQuoteSnapshot>>();
 export const noPoolNegativeCache = new Map<string, { reason: string; timestamp: number }>();
 export const v4GasLimitCache = new Map<string, { gasLimit: string; timestamp: number }>();
 export const winningRouteCache = new Map<string, { strategy: DexStrategy; timestamp: number }>();
@@ -49,6 +56,10 @@ export function v4QuoterRedisKey(cacheKey: string): string {
 
 export function referenceQuoteRedisKey(cacheKey: string): string {
   return `directswap:refquote:${cacheKey}`;
+}
+
+export function sharedExternalReferenceQuoteRedisKey(cacheKey: string): string {
+  return `directswap:refquote_shared:${cacheKey}`;
 }
 
 export function winningRouteCacheKey(chainId: number, tokenIn: string, tokenOut: string): string {
@@ -165,4 +176,80 @@ export function setNoPoolCache(
 export function clearNoPoolCache(chainId: number, tokenIn: string, tokenOut: string): void {
   noPoolNegativeCache.delete(getNoPoolCacheKey(chainId, tokenIn, tokenOut));
   cacheDel(noPoolRedisKey(chainId, tokenIn, tokenOut)).catch(() => { });
+}
+
+export async function getSharedExternalReferenceQuote(
+  cacheKey: string,
+  ttlMs: number
+): Promise<ExternalReferenceQuoteSnapshot | null> {
+  const local = sharedExternalReferenceQuoteCache.get(cacheKey);
+  if (local && isFresh(local.timestamp, ttlMs)) {
+    return local.value;
+  }
+  if (local) {
+    sharedExternalReferenceQuoteCache.delete(cacheKey);
+  }
+
+  try {
+    const raw = await cacheGet(sharedExternalReferenceQuoteRedisKey(cacheKey));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as {
+      ref0x?: string;
+      refKyber?: string;
+      best?: string;
+      timestamp?: number;
+    };
+    if (!parsed?.timestamp || !isFresh(parsed.timestamp, ttlMs)) {
+      return null;
+    }
+    const value: ExternalReferenceQuoteSnapshot = {
+      ref0x: BigInt(parsed.ref0x || '0'),
+      refKyber: BigInt(parsed.refKyber || '0'),
+      best: BigInt(parsed.best || '0')
+    };
+    sharedExternalReferenceQuoteCache.set(cacheKey, { value, timestamp: parsed.timestamp });
+    return value;
+  } catch {
+    return null;
+  }
+}
+
+export async function setSharedExternalReferenceQuote(
+  cacheKey: string,
+  snapshot: ExternalReferenceQuoteSnapshot,
+  ttlSeconds: number
+): Promise<void> {
+  const timestamp = Date.now();
+  sharedExternalReferenceQuoteCache.set(cacheKey, { value: snapshot, timestamp });
+  try {
+    await cacheSet(
+      sharedExternalReferenceQuoteRedisKey(cacheKey),
+      JSON.stringify({
+        ref0x: snapshot.ref0x.toString(),
+        refKyber: snapshot.refKyber.toString(),
+        best: snapshot.best.toString(),
+        timestamp
+      }),
+      Math.max(1, Math.floor(ttlSeconds))
+    );
+  } catch {
+    // ignore cache errors
+  }
+}
+
+export async function withInflightSingleflight<T>(
+  inflightMap: Map<string, Promise<T>>,
+  key: string,
+  loader: () => Promise<T>
+): Promise<{ value: T; shared: boolean }> {
+  const inflight = inflightMap.get(key);
+  if (inflight) {
+    return { value: await inflight, shared: true };
+  }
+
+  const task = loader().finally(() => {
+    inflightMap.delete(key);
+  });
+  inflightMap.set(key, task);
+  return { value: await task, shared: false };
 }

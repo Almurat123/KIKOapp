@@ -4,6 +4,7 @@ import { LogCode } from '../config/logRegistry.js';
 import { NATIVE_TOKEN_ADDRESS, isNativeToken } from '../config/tokenRegistry.js';
 import { getBestQuote } from './quoteService.js';
 import {
+  callRpc,
   getErc20Allowance,
   getErc20Decimals,
   getTransactionReceipt
@@ -43,6 +44,21 @@ async function waitForReceipt(chainId: number, txHash: string, timeoutMs: number
     await new Promise((resolve) => setTimeout(resolve, 1500));
   }
   return false;
+}
+
+async function hasPendingOutgoingTx(chainId: number, walletAddress: string): Promise<boolean> {
+  try {
+    const [latestHex, pendingHex] = await Promise.all([
+      callRpc<string>(chainId, 'eth_getTransactionCount', [walletAddress, 'latest'], { strategy: 'fast', importance: 'critical' }),
+      callRpc<string>(chainId, 'eth_getTransactionCount', [walletAddress, 'pending'], { strategy: 'fast', importance: 'critical' })
+    ]);
+    const latest = latestHex ? BigInt(latestHex) : 0n;
+    const pending = pendingHex ? BigInt(pendingHex) : latest;
+    return pending > latest;
+  } catch {
+    // If nonce state cannot be verified, skip preheat to avoid competing with critical swaps.
+    return true;
+  }
 }
 
 function toAddress(value: string): string | null {
@@ -217,6 +233,14 @@ export async function preheatSellApprovalForToken(params: SellApprovalPreheatPar
   const walletAddress = toAddress(params.walletAddress);
   if (!tokenAddress || !walletAddress) return;
   if (isNativeToken(tokenAddress, params.chainId)) return;
+
+  if (await hasPendingOutgoingTx(params.chainId, walletAddress)) {
+    logger.info(LogCode.SYS_INFO, '[SellApprovalPreheat] Skipped due to pending wallet tx', {
+      chainId: params.chainId,
+      token: tokenAddress
+    });
+    return;
+  }
 
   try {
     const decimals = typeof params.tokenDecimals === 'number'

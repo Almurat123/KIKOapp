@@ -41,7 +41,7 @@ import { getDexPrice } from './dexPriceService.js';
 import { cacheHub } from '../cache/DataCacheHub.js';
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
-import { getNativeBalance as rpcGetNativeBalance, getErc20Balance, getErc20Decimals } from './rpcManager.js';
+import { getNativeBalance as rpcGetNativeBalance, getErc20Balance, getErc20Decimals, getTransactionReceipt } from './rpcManager.js';
 import { startCopyTradePendingWatcher, stopCopyTradePendingWatcher } from './copyTradePendingService.js';
 import { assertConfigExecutable } from './copyTradeConfigSignatureService.js';
 import { determineCopyTradeDirection } from './copyTradeDirection.js';
@@ -1970,15 +1970,29 @@ async function processSingleUserBuy(
 
         logger.info(LogCode.EXE_TX_CONFIRMED, 'Copy trade completed and position created', { userId: config.userId, token: tokenToBuy, txHash });
 
-        // Warm sell approval in the background so later mirror-sell can skip allowance latency.
-        void preheatSellApprovalForToken({
-            userId: effectiveConfig.user.privyDid,
-            walletAddress: effectiveConfig.user.walletAddress,
-            chainId,
-            tokenAddress: tokenToBuy,
-            tokenPriceUsd: tokenInfo.price,
-            tokenDecimals: tokenInfo.decimals
-        });
+        // Warm sell approval only after buy tx is confirmed to avoid nonce/queue contention.
+        setTimeout(() => {
+            void (async () => {
+                if (!txHash) return;
+                const confirmed = await waitTxConfirmedForPreheat(chainId, txHash);
+                if (!confirmed) {
+                    logger.info(LogCode.SYS_INFO, '[SellApprovalPreheat] Skipped: buy tx not confirmed yet', {
+                        chainId,
+                        token: tokenToBuy,
+                        txHash
+                    });
+                    return;
+                }
+                await preheatSellApprovalForToken({
+                    userId: effectiveConfig.user.privyDid,
+                    walletAddress: effectiveConfig.user.walletAddress,
+                    chainId,
+                    tokenAddress: tokenToBuy,
+                    tokenPriceUsd: tokenInfo.price,
+                    tokenDecimals: tokenInfo.decimals
+                });
+            })();
+        }, SELL_PREHEAT_DELAY_MS);
 
         // Track User Activity (Copy Trade + Swap Volume)
         trackCopyTrade(config.userId);
@@ -3475,4 +3489,23 @@ export async function passesFilters(tokenInfo: any, config: any, targetSwapValue
     }
 
     return { passed: true };
+}
+const SELL_PREHEAT_DELAY_MS = Math.max(0, Number(process.env.COPYTRADE_SELL_APPROVAL_PREHEAT_DELAY_MS || '15000'));
+const SELL_PREHEAT_CONFIRM_TIMEOUT_MS = Math.max(5000, Number(process.env.COPYTRADE_SELL_APPROVAL_PREHEAT_CONFIRM_TIMEOUT_MS || '45000'));
+const SELL_PREHEAT_CONFIRM_POLL_MS = Math.max(500, Number(process.env.COPYTRADE_SELL_APPROVAL_PREHEAT_CONFIRM_POLL_MS || '1200'));
+
+async function waitTxConfirmedForPreheat(chainId: number, txHash: string): Promise<boolean> {
+    const started = Date.now();
+    while (Date.now() - started < SELL_PREHEAT_CONFIRM_TIMEOUT_MS) {
+        const receipt = await getTransactionReceipt(chainId, txHash).catch(() => null);
+        if (receipt) {
+            const statusRaw = String((receipt as any)?.status || '0x0');
+            const status = statusRaw.startsWith('0x')
+                ? Number.parseInt(statusRaw, 16)
+                : Number(statusRaw);
+            return status === 1;
+        }
+        await new Promise((resolve) => setTimeout(resolve, SELL_PREHEAT_CONFIRM_POLL_MS));
+    }
+    return false;
 }

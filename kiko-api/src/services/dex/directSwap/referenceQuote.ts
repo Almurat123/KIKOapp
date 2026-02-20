@@ -23,3 +23,14 @@ export function buildReferenceQuoteCacheKey(ctx: ReferenceQuoteContext): string 
     ctx.enableZoraRoutes ? 'zora1' : 'zora0'
   ].join(':');
 }
+
+export function buildSharedExternalReferenceQuoteCacheKey(
+  ctx: Pick<ReferenceQuoteContext, 'chainId' | 'tokenIn' | 'tokenOut' | 'amountInWei'>
+): string {
+  return [
+    ctx.chainId,
+    ctx.tokenIn.toLowerCase(),
+    ctx.tokenOut.toLowerCase(),
+    ctx.amountInWei.toString()
+  ].join(':');
+}
