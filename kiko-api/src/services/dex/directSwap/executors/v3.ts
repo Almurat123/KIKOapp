@@ -25,7 +25,12 @@ interface V3ExecutorDeps {
   v3FeeTiers: readonly number[];
   v3QuoterInterface: ethers.Interface;
   turboV3GasLimit: string;
-  callRpc: <T>(chainId: number, method: string, params: any[]) => Promise<T>;
+  callRpc: <T>(
+    chainId: number,
+    method: string,
+    params: any[],
+    options?: { strategy?: 'fast' | 'cheap'; importance?: 'normal' | 'critical' }
+  ) => Promise<T>;
   sendTransaction: (userId: string, accessToken: string, tx: any) => Promise<string>;
   getTxExecutionProfile: (chainId: number) => 'default' | 'base-sniper' | 'bsc-sniper';
   get0xExpectedOutput: (tokenIn: string, tokenOut: string, amountInWei: bigint, chainId: number) => Promise<bigint>;
@@ -175,7 +180,10 @@ export async function executeV3Swap(
         to: routerAddress,
         data,
         value: isNativeIn ? ethers.toQuantity(amountInWei) : '0x0'
-      }]);
+      }], {
+        strategy: 'fast',
+        importance: 'critical'
+      });
       gasLimit = (BigInt(estimate) * 2n).toString();
     } catch (simErr: any) {
       logger.warn(LogCode.EXE_TX_REVERTED, '[DirectSwap] V3 fastMode pre-sim REVERTED — aborting send', {
@@ -197,7 +205,10 @@ export async function executeV3Swap(
         to: routerAddress,
         data,
         value: isNativeIn ? ethers.toQuantity(amountInWei) : '0x0'
-      }]);
+      }], {
+        strategy: 'fast',
+        importance: 'critical'
+      });
       gasLimit = (BigInt(estimate) * 2n).toString();
     } catch (simErr: any) {
       if (executionMode === 'safe') {

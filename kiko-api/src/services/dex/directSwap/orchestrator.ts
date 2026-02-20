@@ -988,11 +988,16 @@ async function validateResolvedHintAgainstSwapPair(
 function shouldSkipResolvedHintRetry(error: string | undefined): boolean {
     const lower = String(error || '').toLowerCase();
     if (!lower) return false;
+    const transientRpcFailure =
+        lower.includes('all rpc endpoints failed')
+        || lower.includes('capacity_limited')
+        || lower.includes('circuit_open')
+        || lower.includes('timeout');
     return (
         lower.includes('hint_pool_pair_mismatch')
         || lower.includes('hint_pool_tokens_unavailable')
         || lower.includes('hint_fastpath_disallowed')
-        || lower.includes('pre-sim reverted')
+        || (lower.includes('pre-sim reverted') && !transientRpcFailure)
     );
 }
 

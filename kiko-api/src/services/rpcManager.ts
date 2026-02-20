@@ -26,7 +26,7 @@ const RPC_MAX_ENDPOINT_ATTEMPTS_NORMAL = Math.max(1, Number(process.env.RPC_MAX_
 const RPC_MAX_ENDPOINT_ATTEMPTS_CRITICAL = Math.max(1, Number(process.env.RPC_MAX_ENDPOINT_ATTEMPTS_CRITICAL || '4'));
 const RPC_MAX_ENDPOINT_ATTEMPTS_WRITE = Math.max(1, Number(process.env.RPC_MAX_ENDPOINT_ATTEMPTS_WRITE || '2'));
 const RPC_MAX_ENDPOINT_ATTEMPTS_ETH_CALL_NORMAL = Math.max(1, Number(process.env.RPC_MAX_ENDPOINT_ATTEMPTS_ETH_CALL_NORMAL || '2'));
-const RPC_MAX_ENDPOINT_ATTEMPTS_ETH_CALL_CRITICAL = Math.max(1, Number(process.env.RPC_MAX_ENDPOINT_ATTEMPTS_ETH_CALL_CRITICAL || '2'));
+const RPC_MAX_ENDPOINT_ATTEMPTS_ETH_CALL_CRITICAL = Math.max(1, Number(process.env.RPC_MAX_ENDPOINT_ATTEMPTS_ETH_CALL_CRITICAL || '3'));
 const RPC_CONCURRENCY_NORMAL = Math.max(1, Number(process.env.RPC_CONCURRENCY_NORMAL || '28'));
 const RPC_CONCURRENCY_CRITICAL = Math.max(1, Number(process.env.RPC_CONCURRENCY_CRITICAL || '56'));
 const RPC_CONCURRENCY_WRITE = Math.max(1, Number(process.env.RPC_CONCURRENCY_WRITE || '10'));
@@ -403,8 +403,8 @@ function createStableRequestKey(chainId: number, method: string, params: any): s
     return key;
 }
 
-function buildMethodBackoffKey(chainId: number, method: string): string {
-    return `${chainId}:${method}`;
+function buildMethodBackoffKey(chainId: number, method: string, importance: RpcImportance = 'normal'): string {
+    return `${chainId}:${method}:${importance}`;
 }
 
 function getMethodBackoffState(backoffKey: string): MethodBackoffState | null {
@@ -448,7 +448,10 @@ function getEndpointAttemptBudget(
     let budget = Math.max(1, Math.min(endpointCount, baseBudget));
 
     if (cooldownActive) {
-        budget = Math.max(1, Math.min(budget, RPC_METHOD_COOLDOWN_ATTEMPT_CAP));
+        const cooldownAttemptCap = importance === 'critical'
+            ? Math.max(2, RPC_METHOD_COOLDOWN_ATTEMPT_CAP)
+            : RPC_METHOD_COOLDOWN_ATTEMPT_CAP;
+        budget = Math.max(1, Math.min(budget, cooldownAttemptCap));
     }
 
     return budget;
@@ -461,7 +464,11 @@ function getMethodConcurrencyLimit(method: string, importance: RpcImportance, co
         ? RPC_CONCURRENCY_WRITE
         : (importance === 'critical' ? RPC_CONCURRENCY_CRITICAL : RPC_CONCURRENCY_NORMAL));
     if (cooldownActive) {
-        base = Math.max(1, Math.floor(base / 2));
+        if (importance === 'critical') {
+            base = Math.max(2, Math.floor(base * 0.75));
+        } else {
+            base = Math.max(1, Math.floor(base / 2));
+        }
     }
     return base;
 }
@@ -582,10 +589,10 @@ export async function callRpc<T = any>(
 
     const effectiveImportance: RpcImportance =
         options.importance || (options.strategy === 'fast' ? 'critical' : 'normal');
-    const backoffKey = buildMethodBackoffKey(chainId, method);
+    const backoffKey = buildMethodBackoffKey(chainId, method, effectiveImportance);
     const cooldownState = getMethodBackoffState(backoffKey);
     const cooldownActive = !!cooldownState;
-    const limiterKey = `${chainId}:${method}`;
+    const limiterKey = `${chainId}:${method}:${effectiveImportance}`;
     const concurrencyLimit = getMethodConcurrencyLimit(method, effectiveImportance, cooldownActive);
     const requestTimeoutMs = resolveRpcTimeoutMs(method, options);
     const rawTxHash = method === 'eth_sendRawTransaction'
@@ -1791,12 +1798,12 @@ export const __rpcManagerTest = {
     shouldTreatSendRawErrorAsKnown,
     getEndpointAttemptBudget,
     getMethodConcurrencyLimit,
-    getMethodBackoff: (chainId: number, method: string) =>
-        getMethodBackoffState(buildMethodBackoffKey(chainId, method)),
-    markMethodFailureForTest: (chainId: number, method: string) =>
-        markMethodFailure(buildMethodBackoffKey(chainId, method)),
-    markMethodSuccessForTest: (chainId: number, method: string) =>
-        markMethodSuccess(buildMethodBackoffKey(chainId, method)),
+    getMethodBackoff: (chainId: number, method: string, importance: RpcImportance = 'normal') =>
+        getMethodBackoffState(buildMethodBackoffKey(chainId, method, importance)),
+    markMethodFailureForTest: (chainId: number, method: string, importance: RpcImportance = 'normal') =>
+        markMethodFailure(buildMethodBackoffKey(chainId, method, importance)),
+    markMethodSuccessForTest: (chainId: number, method: string, importance: RpcImportance = 'normal') =>
+        markMethodSuccess(buildMethodBackoffKey(chainId, method, importance)),
     resetRuntimeStateForTest: () => {
         methodBackoff.clear();
         methodLimiter.clear();
