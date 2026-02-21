@@ -7,6 +7,7 @@
  */
 
 import { PrivyClient } from '@privy-io/server-auth';
+import { ethers } from 'ethers';
 import { AppError } from '../middleware/errorHandler.js';
 import { redact } from '../utils/sanitizer.js';
 import { logger } from '../utils/logger.js';
@@ -14,6 +15,7 @@ import { LogCode } from '../config/logRegistry.js';
 import {
     callRpc as rpcCall,
     broadcastRawWithQuorum,
+    getEthersProvider,
     probeTxVisibility,
     waitForReceiptStateMachine
 } from './rpcManager.js';
@@ -48,8 +50,90 @@ const PRIVY_FAST_TRADE_BSC_GAS_BUMP_BPS = BigInt(Math.max(10000, Number(process.
 const PRIVY_FAST_TRADE_DEFAULT_GAS_BUMP_BPS = BigInt(Math.max(10000, Number(process.env.PRIVY_FAST_TRADE_DEFAULT_GAS_BUMP_BPS || '14000')));
 const PRIVY_FAST_TRADE_BASE_MIN_GAS_PRICE_WEI = BigInt(Math.max(1, Number(process.env.PRIVY_FAST_TRADE_BASE_MIN_GAS_PRICE_WEI || '25000000')));
 const PRIVY_FAST_TRADE_BSC_MIN_GAS_PRICE_WEI = BigInt(Math.max(1, Number(process.env.PRIVY_FAST_TRADE_BSC_MIN_GAS_PRICE_WEI || '1200000000')));
+const LOCAL_SIGNER_ENABLED = (process.env.LOCAL_SIGNER_ENABLED || 'false').toLowerCase() === 'true';
 
 let privyClient: PrivyClient | null = null;
+
+function getLocalSignerPrivateKey(chainId: number): string {
+    const perChainKey = process.env[`LOCAL_SIGNER_PRIVATE_KEY_${chainId}` as keyof NodeJS.ProcessEnv];
+    const genericKey = process.env.LOCAL_SIGNER_PRIVATE_KEY;
+    return String(perChainKey || genericKey || '').trim();
+}
+
+async function sendWithLocalSigner(tx: TransactionRequest): Promise<TxLifecycleResult> {
+    const privateKey = getLocalSignerPrivateKey(tx.chainId);
+    if (!privateKey) {
+        throw new AppError(500, 'LOCAL_SIGNER_PRIVATE_KEY not configured', 'LOCAL_SIGNER_NOT_CONFIGURED');
+    }
+
+    const localRpcUrl =
+        String(
+            process.env[`LOCAL_SIGNER_RPC_URL_${tx.chainId}` as keyof NodeJS.ProcessEnv]
+            || process.env.LOCAL_SIGNER_RPC_URL
+            || ''
+        ).trim();
+    const provider = localRpcUrl
+        ? new ethers.JsonRpcProvider(localRpcUrl, tx.chainId, { staticNetwork: true })
+        : getEthersProvider(tx.chainId);
+    const wallet = new ethers.Wallet(privateKey, provider);
+
+    const txReq: ethers.TransactionRequest = {
+        to: tx.to as `0x${string}`,
+        data: tx.data as `0x${string}`,
+        value: tx.value ? BigInt(tx.value) : 0n,
+        chainId: tx.chainId
+    };
+
+    if (tx.gas) txReq.gasLimit = BigInt(tx.gas);
+    if (tx.gasPrice) txReq.gasPrice = BigInt(tx.gasPrice);
+    if (tx.maxFeePerGas) txReq.maxFeePerGas = BigInt(tx.maxFeePerGas);
+    if (tx.maxPriorityFeePerGas) txReq.maxPriorityFeePerGas = BigInt(tx.maxPriorityFeePerGas);
+    if (!txReq.gasPrice && !txReq.maxFeePerGas) {
+        const fee = await provider.getFeeData();
+        const latestBlock = await provider.getBlock('latest').catch(() => null);
+        const base = latestBlock?.baseFeePerGas || 0n;
+        const priority = fee.maxPriorityFeePerGas || 1_000_000n;
+        const suggestedMax = fee.maxFeePerGas || (base * 2n + priority);
+        txReq.maxPriorityFeePerGas = priority;
+        txReq.maxFeePerGas = suggestedMax > priority ? suggestedMax : (priority + 1n);
+    }
+    if (tx.nonce) txReq.nonce = Number(BigInt(tx.nonce));
+    else txReq.nonce = await provider.getTransactionCount(wallet.address, 'pending');
+
+    const signedRawTransaction = await wallet.signTransaction(txReq);
+    const sent = await provider.broadcastTransaction(signedRawTransaction);
+    const txHash = sent.hash;
+    const firstSeenAt = Date.now();
+
+    const startedAt = Date.now();
+    const maxWaitMs = 2_500;
+    while (Date.now() - startedAt < maxWaitMs) {
+        const receipt = await provider.getTransactionReceipt(txHash).catch(() => null);
+        if (receipt) {
+            const ok = Number(receipt.status || 0) === 1;
+            return {
+                status: ok ? 'confirmed_success' : 'confirmed_failed',
+                txHash,
+                firstSeenAt,
+                confirmedAt: Date.now(),
+                attempts: 1,
+                chainId: tx.chainId,
+                lastRpcError: ok ? undefined : 'receipt_status_0'
+            };
+        }
+        await new Promise((resolve) => setTimeout(resolve, 220));
+    }
+
+    const visible = await provider.getTransaction(txHash).catch(() => null);
+    return {
+        status: visible ? 'visible_pending' : 'broadcasted_unseen',
+        txHash,
+        firstSeenAt: visible ? firstSeenAt : undefined,
+        attempts: 1,
+        chainId: tx.chainId,
+        lastRpcError: visible ? undefined : 'not_found_by_local_rpc'
+    };
+}
 
 const toHexQuantity = (value?: string) =>
     value !== undefined && value !== null && value !== ''
@@ -591,6 +675,14 @@ export async function sendTransactionLifecycle(
                     attempts: 1,
                     chainId: tx.chainId
                 };
+            }
+
+            if (LOCAL_SIGNER_ENABLED) {
+                logger.warn(LogCode.EXE_TX_BROADCAST, 'LOCAL_SIGNER mode enabled: bypassing Privy and sending via local key', {
+                    chainId: tx.chainId,
+                    txPurpose: tx.txPurpose || 'other'
+                });
+                return await sendWithLocalSigner(tx);
             }
 
             const client = getPrivyClient();
