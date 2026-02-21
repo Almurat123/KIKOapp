@@ -55,8 +55,61 @@ export { getTokenInfo } from './tokenService.js';
 
 // Track positions currently being processed for exit to prevent duplicate attempts
 const positionsBeingExited = new Set<string>();
-const POSITION_LOCK_STATUSES = ['pending', 'pending_broadcast', 'broadcasted_unseen'] as const;
-const POSITION_ACTIVE_OR_LOCKED_STATUSES = ['open', ...POSITION_LOCK_STATUSES] as const;
+
+type PositionStatusCompat = {
+    lockStatuses: string[];
+    activeOrLockedStatuses: string[];
+    pendingCreateStatus: string;
+    broadcastedUnseenStatus: string;
+    failedFinalStatus: string;
+};
+
+let positionStatusCompatCache: { value: PositionStatusCompat; ts: number } | null = null;
+const POSITION_STATUS_COMPAT_TTL_MS = 30_000;
+
+async function getPositionStatusCompat(): Promise<PositionStatusCompat> {
+    const cached = positionStatusCompatCache;
+    if (cached && Date.now() - cached.ts < POSITION_STATUS_COMPAT_TTL_MS) {
+        return cached.value;
+    }
+
+    try {
+        const rows = await prisma.$queryRaw<Array<{ enumlabel: string }>>`
+            SELECT e.enumlabel
+            FROM pg_type t
+            JOIN pg_enum e ON t.oid = e.enumtypid
+            WHERE t.typname = 'PositionStatus'
+        `;
+        const labels = new Set(rows.map((r) => String(r.enumlabel)));
+        const hasPendingBroadcast = labels.has('pending_broadcast');
+        const hasBroadcastedUnseen = labels.has('broadcasted_unseen');
+        const hasFailedFinal = labels.has('failed_final');
+
+        const lockStatuses = ['pending'];
+        if (hasPendingBroadcast) lockStatuses.push('pending_broadcast');
+        if (hasBroadcastedUnseen) lockStatuses.push('broadcasted_unseen');
+
+        const compat: PositionStatusCompat = {
+            lockStatuses,
+            activeOrLockedStatuses: ['open', ...lockStatuses],
+            pendingCreateStatus: hasPendingBroadcast ? 'pending_broadcast' : 'pending',
+            broadcastedUnseenStatus: hasBroadcastedUnseen ? 'broadcasted_unseen' : 'pending',
+            failedFinalStatus: hasFailedFinal ? 'failed_final' : 'failed'
+        };
+        positionStatusCompatCache = { value: compat, ts: Date.now() };
+        return compat;
+    } catch {
+        const fallback: PositionStatusCompat = {
+            lockStatuses: ['pending'],
+            activeOrLockedStatuses: ['open', 'pending'],
+            pendingCreateStatus: 'pending',
+            broadcastedUnseenStatus: 'pending',
+            failedFinalStatus: 'failed'
+        };
+        positionStatusCompatCache = { value: fallback, ts: Date.now() };
+        return fallback;
+    }
+}
 
 // Per-user trade locks to prevent concurrent trade execution for same user
 const userTradeLocks = new Map<string, Promise<any>>();
@@ -1302,6 +1355,7 @@ async function processSingleUserBuy(
         let judgeDecisionId: string | null = null;
         const executionMode = resolveExecutionModeForConfig(config);
         const turboMode = executionMode === 'turbo';
+        const positionStatusCompat = await getPositionStatusCompat();
 
         try {
             const inboundDelayMs = detectedAt ? Math.max(0, Date.now() - detectedAt) : null;
@@ -1598,7 +1652,7 @@ async function processSingleUserBuy(
                 const positionWhere: any = {
                     userId: config.userId,
                     tokenAddress: tokenToBuy,
-                    status: { in: POSITION_ACTIVE_OR_LOCKED_STATUSES as any },
+                    status: { in: positionStatusCompat.activeOrLockedStatuses as any },
                 };
                 if (cooldownMinutes > 0) {
                     positionWhere.createdAt = { gte: new Date(Date.now() - cooldownMinutes * 60 * 1000) };
@@ -1623,7 +1677,7 @@ async function processSingleUserBuy(
                         entryAmount: '0',
                         entryTxHash: `PENDING_${Date.now()}`, // Temporary placeholder
                         entryUsdValue: usdAmount,
-                        status: 'pending_broadcast'
+                        status: positionStatusCompat.pendingCreateStatus as any
                     }
                 });
             });
@@ -2023,7 +2077,7 @@ async function processSingleUserBuy(
             !txLifecycleStatus
             || txLifecycleStatus === 'visible_pending'
             || txLifecycleStatus === 'confirmed_success';
-        const nextPositionStatus = shouldPromoteToOpen ? 'open' : 'broadcasted_unseen';
+        const nextPositionStatus = shouldPromoteToOpen ? 'open' : positionStatusCompat.broadcastedUnseenStatus;
         if (pendingPositionId) {
             await prisma.position.update({
                 where: { id: pendingPositionId },
@@ -2874,6 +2928,7 @@ async function handleTargetSell(
     chainId: number
 ): Promise<void> {
     const tokenToSell = swap.tokenIn;
+    const positionStatusCompat = await getPositionStatusCompat();
     const normalizedWallet = normalizeAddress(targetWallet);
     logger.info(LogCode.EXE_QUOTE_FETCHED, '[CopyTradeTiming] target sell start', {
         targetWallet: normalizedWallet,
@@ -2959,7 +3014,7 @@ async function handleTargetSell(
                     userId: config.userId,
                     tokenAddress: tokenToSell,
                     chainId,
-                    status: { in: POSITION_LOCK_STATUSES as any }
+                    status: { in: positionStatusCompat.lockStatuses as any }
                 },
                 orderBy: { createdAt: 'desc' },
                 take: 3
@@ -2971,7 +3026,7 @@ async function handleTargetSell(
                 if (onChainBal > 0n) {
                     const pendingIds = pendingPositions.map((p) => p.id);
                     await prisma.position.updateMany({
-                        where: { id: { in: pendingIds }, status: { in: POSITION_LOCK_STATUSES as any } },
+                        where: { id: { in: pendingIds }, status: { in: positionStatusCompat.lockStatuses as any } },
                         data: {
                             status: 'open',
                             entryTxHash: `RECOVERED_ONCHAIN_${Date.now()}`
@@ -3085,19 +3140,20 @@ export async function stopAutoTradeService(): Promise<void> {
  */
 async function cleanupPendingPositions() {
     try {
+        const positionStatusCompat = await getPositionStatusCompat();
         const result = await prisma.position.updateMany({
             where: {
-                status: { in: POSITION_LOCK_STATUSES as any },
+                status: { in: positionStatusCompat.lockStatuses as any },
                 createdAt: { lt: new Date(Date.now() - 5 * 60 * 1000) } // Older than 5 mins
             },
             data: {
-                status: 'failed_final' as any,
+                status: positionStatusCompat.failedFinalStatus as any,
                 exitReason: 'pending_timeout',
                 closedAt: new Date()
             }
         });
         if (result.count > 0) {
-            logger.info(LogCode.SYS_INFO, `Marked ${result.count} stale pending positions as failed_final`);
+            logger.info(LogCode.SYS_INFO, `Marked ${result.count} stale pending positions as terminal failed`);
         }
     } catch (err: any) {
         logger.error(LogCode.SYS_ERROR, 'Failed to clean up zombie positions', { error: err.message });
@@ -3109,16 +3165,20 @@ async function cleanupPendingPositions() {
  * Check and execute take profit / stop loss for open positions
  */
 export async function checkPositionsForExits(): Promise<void> {
+    const positionStatusCompat = await getPositionStatusCompat();
+    const lifecycleLockStatuses = positionStatusCompat.lockStatuses.filter((s) => s !== 'pending');
     // STEP -2: Reconcile lifecycle-driven pending states by tx receipt.
-    const lifecyclePending = await prisma.position.findMany({
-        where: {
-            status: { in: ['pending_broadcast', 'broadcasted_unseen'] as any },
-            createdAt: { gte: new Date(Date.now() - 30 * 60 * 1000) },
-            entryTxHash: { startsWith: '0x' }
-        },
-        orderBy: { createdAt: 'desc' },
-        take: 40
-    });
+    const lifecyclePending = lifecycleLockStatuses.length > 0
+        ? await prisma.position.findMany({
+            where: {
+                status: { in: lifecycleLockStatuses as any },
+                createdAt: { gte: new Date(Date.now() - 30 * 60 * 1000) },
+                entryTxHash: { startsWith: '0x' }
+            },
+            orderBy: { createdAt: 'desc' },
+            take: 40
+        })
+        : [];
     if (lifecyclePending.length > 0) {
         await Promise.allSettled(lifecyclePending.map(async (p) => {
             try {
@@ -3127,11 +3187,11 @@ export async function checkPositionsForExits(): Promise<void> {
                 const statusHex = String(receipt?.status || '');
                 const success = statusHex === '0x1' || statusHex === '1';
                 await prisma.position.updateMany({
-                    where: { id: p.id, status: { in: ['pending_broadcast', 'broadcasted_unseen'] as any } },
+                    where: { id: p.id, status: { in: lifecycleLockStatuses as any } },
                     data: success
                         ? { status: 'open' as any }
                         : {
-                            status: 'failed_final' as any,
+                            status: positionStatusCompat.failedFinalStatus as any,
                             exitReason: 'buy_tx_reverted',
                             closedAt: new Date()
                         }
@@ -3141,7 +3201,7 @@ export async function checkPositionsForExits(): Promise<void> {
                     chainId: p.chainId,
                     txHash: p.entryTxHash,
                     from: p.status,
-                    to: success ? 'open' : 'failed_final',
+                    to: success ? 'open' : positionStatusCompat.failedFinalStatus,
                     reason: success ? 'receipt_success' : 'receipt_failed'
                 });
             } catch (err: any) {
@@ -3159,7 +3219,7 @@ export async function checkPositionsForExits(): Promise<void> {
     // This protects TP/SL and mirror-sell flows from rare turbo timeout races.
     const pendingForReconcile = await prisma.position.findMany({
         where: {
-            status: { in: POSITION_LOCK_STATUSES as any },
+            status: { in: positionStatusCompat.lockStatuses as any },
             createdAt: { gte: new Date(Date.now() - 30 * 60 * 1000) } // recent 30m only
         },
         include: { user: true },
@@ -3173,7 +3233,7 @@ export async function checkPositionsForExits(): Promise<void> {
                 const bal = await getErc20Balance(p.tokenAddress, p.user.walletAddress, p.chainId);
                 if (bal <= 0n) return;
                 await prisma.position.updateMany({
-                    where: { id: p.id, status: { in: POSITION_LOCK_STATUSES as any } },
+                    where: { id: p.id, status: { in: positionStatusCompat.lockStatuses as any } },
                     data: {
                         status: 'open',
                         entryTxHash: p.entryTxHash?.startsWith('PENDING_')
