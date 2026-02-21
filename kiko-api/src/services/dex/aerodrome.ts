@@ -49,6 +49,12 @@ export async function getAerodromeQuote(
         const routeTo = isNativeOut ? wrappedNative : params.tokenOut;
 
         let bestQuote: DexQuote | null = null;
+        const attemptDiagnostics: Array<{
+            poolType: 'volatile' | 'stable';
+            stage: 'ok' | 'empty_result' | 'zero_amount' | 'error';
+            amountOut?: string;
+            error?: string;
+        }> = [];
 
         // Try volatile pool first, then stable
         for (const stable of [false, true]) {
@@ -71,6 +77,10 @@ export async function getAerodromeQuote(
                 }, 'latest']);
 
                 if (!result || result === '0x' || result.length < 66) {
+                    attemptDiagnostics.push({
+                        poolType: stable ? 'stable' : 'volatile',
+                        stage: 'empty_result'
+                    });
                     continue;
                 }
 
@@ -79,6 +89,11 @@ export async function getAerodromeQuote(
                 const amountOut = amounts[amounts.length - 1];
 
                 if (amountOut <= BigInt(0)) {
+                    attemptDiagnostics.push({
+                        poolType: stable ? 'stable' : 'volatile',
+                        stage: 'zero_amount',
+                        amountOut: amountOut.toString()
+                    });
                     continue;
                 }
 
@@ -116,6 +131,11 @@ export async function getAerodromeQuote(
                 logger.info(LogCode.API_FETCH_SUCCESS, `✅ Aerodrome quote: ${poolType} pool`, {
                     amountOut: amountOut.toString()
                 });
+                attemptDiagnostics.push({
+                    poolType,
+                    stage: 'ok',
+                    amountOut: amountOut.toString()
+                });
 
                 const quote: DexQuote = {
                     dex: `Aerodrome (${poolType})`,
@@ -135,9 +155,25 @@ export async function getAerodromeQuote(
                 if (!bestQuote || quote.amountOut > bestQuote.amountOut) {
                     bestQuote = quote;
                 }
-            } catch {
+            } catch (err: any) {
+                attemptDiagnostics.push({
+                    poolType: stable ? 'stable' : 'volatile',
+                    stage: 'error',
+                    error: (err?.message || String(err)).slice(0, 180)
+                });
                 continue;
             }
+        }
+
+        if (!bestQuote) {
+            logger.warn(LogCode.API_FETCH_FAILED, '[DirectSwap] Aerodrome quote unavailable', {
+                chainId,
+                tokenIn: params.tokenIn,
+                tokenOut: params.tokenOut,
+                amountIn: params.amountIn.toString(),
+                slippageBps: params.slippageBps,
+                diagnostics: attemptDiagnostics
+            });
         }
 
         return bestQuote;

@@ -628,6 +628,185 @@ function evaluateBuyLiquidityProtection(
     };
 }
 
+function poolPassesRequiredReserve(
+    pool: PoolInfo,
+    tokenIn: string,
+    requiredReserveInWei: bigint
+): boolean {
+    const version = String(pool.version || '').toLowerCase();
+    if (version === 'v2' || version === 'aerodrome') {
+        return resolvePoolInReserve(pool, tokenIn) >= requiredReserveInWei;
+    }
+    if (version === 'v3' || version === 'v4') {
+        return BigInt(pool.liquidity || '0') >= requiredReserveInWei;
+    }
+    return false;
+}
+
+function matchesResolvedHintPool(pool: PoolInfo, hint: NonNullable<DirectSwapHint['resolvedPoolHint']>): boolean {
+    const poolVersion = String(pool.version || '').toLowerCase();
+    const poolDex = String(pool.dex || '').toLowerCase();
+    const hintDex = String(hint.dex || '').toLowerCase();
+    const hintKind = String(hint.kind || '').toLowerCase();
+
+    if (hintKind === 'v4' && poolVersion !== 'v4') return false;
+    if (hintKind === 'v3' && poolVersion !== 'v3') return false;
+    if (hintKind === 'v2' && poolVersion !== 'v2') return false;
+    if (hintKind === 'aerodrome' && !(poolVersion === 'aerodrome' || poolDex === 'aerodrome')) return false;
+
+    if (hintDex) {
+        if (hintKind === 'aerodrome') {
+            if (poolDex && poolDex !== hintDex) return false;
+        } else if (poolDex && poolDex !== hintDex) {
+            return false;
+        }
+    }
+
+    if (hint.poolAddress && hintKind !== 'v4' && hintKind !== 'aerodrome') {
+        const expectedPool = String(hint.poolAddress || '').toLowerCase();
+        const actualPool = String(pool.poolAddress || '').toLowerCase();
+        if (/^0x[a-f0-9]{40}$/.test(expectedPool) && /^0x[a-f0-9]{40}$/.test(actualPool) && expectedPool !== actualPool) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+interface HintLiquidityGateResult {
+    allowed: boolean;
+    reason: string;
+    poolCount: number;
+    matchingPoolCount: number;
+    matchingEligibleCount: number;
+    requiredReserveInWei: string;
+}
+
+async function evaluateResolvedHintFastPathLiquidityGate(params: {
+    chainId: number;
+    tokenIn: string;
+    tokenOut: string;
+    amountInWei: bigint;
+    resolvedHint: NonNullable<DirectSwapHint['resolvedPoolHint']>;
+    budgetMs: number;
+}): Promise<HintLiquidityGateResult> {
+    if (params.budgetMs <= 80) {
+        return {
+            allowed: false,
+            reason: 'hint_liquidity_gate_budget_exhausted',
+            poolCount: 0,
+            matchingPoolCount: 0,
+            matchingEligibleCount: 0,
+            requiredReserveInWei: '0'
+        };
+    }
+
+    let pools: PoolInfo[] = [];
+    try {
+        pools = await withTimeout(
+            findTokenPools(params.tokenIn, params.tokenOut, params.chainId),
+            params.budgetMs
+        );
+    } catch {
+        pools = [];
+    }
+
+    if (pools.length === 0) {
+        return {
+            allowed: false,
+            reason: 'hint_liquidity_gate_no_pools',
+            poolCount: 0,
+            matchingPoolCount: 0,
+            matchingEligibleCount: 0,
+            requiredReserveInWei: '0'
+        };
+    }
+
+    const requiredReserveInWei = params.amountInWei * BigInt(Math.max(1, DIRECT_SWAP_BUY_LIQ_MULTIPLIER));
+    const matchingPools = pools.filter((pool) => matchesResolvedHintPool(pool, params.resolvedHint));
+    const matchingEligiblePools = matchingPools.filter((pool) =>
+        poolPassesRequiredReserve(pool, params.tokenIn, requiredReserveInWei)
+    );
+
+    if (matchingPools.length === 0) {
+        return {
+            allowed: false,
+            reason: 'hint_liquidity_gate_no_matching_pools',
+            poolCount: pools.length,
+            matchingPoolCount: 0,
+            matchingEligibleCount: 0,
+            requiredReserveInWei: requiredReserveInWei.toString()
+        };
+    }
+
+    return {
+        allowed: matchingEligiblePools.length > 0,
+        reason: matchingEligiblePools.length > 0
+            ? 'hint_liquidity_gate_pass'
+            : 'hint_liquidity_gate_matching_pools_insufficient_depth',
+        poolCount: pools.length,
+        matchingPoolCount: matchingPools.length,
+        matchingEligibleCount: matchingEligiblePools.length,
+        requiredReserveInWei: requiredReserveInWei.toString()
+    };
+}
+
+function evaluateAerodromeBuySideDepth(
+    pools: PoolInfo[],
+    tokenIn: string,
+    amountInWei: bigint
+): {
+    eligible: boolean;
+    requiredReserveInWei: bigint;
+    checkedPools: number;
+    matchedPools: number;
+} {
+    const aerodromePools = pools.filter((pool) => {
+        const version = String(pool.version || '').toLowerCase();
+        const dex = String(pool.dex || '').toLowerCase();
+        return version === 'aerodrome' || dex === 'aerodrome';
+    });
+    const guard = evaluateBuyLiquidityProtection(
+        aerodromePools,
+        tokenIn,
+        amountInWei,
+        Math.max(1, DIRECT_SWAP_BUY_LIQ_MULTIPLIER)
+    );
+    return {
+        eligible: guard.eligible,
+        requiredReserveInWei: guard.requiredReserveInWei,
+        checkedPools: guard.checkedPools,
+        matchedPools: guard.matchedPools
+    };
+}
+
+function resolvedHintIdentity(hint: ResolvedPoolHint): string {
+    return `${hint.kind}:${String(hint.dex || '').toLowerCase()}:${String(hint.poolAddress || '').toLowerCase()}:${Number(hint.fee || 0)}`;
+}
+
+function buildTurboSinglePoolAttemptPlan(candidates: ResolvedPoolHint[]): ResolvedPoolHint[] {
+    if (candidates.length === 0) return [];
+    const first = candidates[0];
+    const attempts: ResolvedPoolHint[] = [first];
+    const used = new Set<string>([resolvedHintIdentity(first)]);
+
+    const preferredSecondKinds: StrategyKind[] = first.kind === 'aerodrome'
+        ? ['v4', 'v3', 'v2']
+        : ['v4', 'v3', 'v2', 'aerodrome'];
+
+    let second: ResolvedPoolHint | undefined;
+    for (const kind of preferredSecondKinds) {
+        second = candidates.find((candidate) => candidate.kind === kind && !used.has(resolvedHintIdentity(candidate)));
+        if (second) break;
+    }
+    if (!second) {
+        second = candidates.find((candidate) => !used.has(resolvedHintIdentity(candidate)));
+    }
+    if (second) attempts.push(second);
+
+    return attempts.slice(0, 2);
+}
+
 function buildTurboPairKey(chainId: number, tokenA: string, tokenB: string): string {
     const a = tokenA.toLowerCase();
     const b = tokenB.toLowerCase();
@@ -1348,65 +1527,109 @@ export async function executeDirectSwap(params: {
                     reason: 'multi_hop_or_explicitly_disabled'
                 });
             } else {
-            logger.info(LogCode.SYS_INFO, '[DirectSwap] Fast-path resolved pool hint attempt', {
-                chainId,
-                kind: params.hint.resolvedPoolHint.kind,
-                dex: params.hint.resolvedPoolHint.dex,
-                poolAddress: params.hint.resolvedPoolHint.poolAddress
-            });
-
-            const directTry = await tryResolvedPoolHintFastPath(
-                normalizedParams,
-                params.hint,
-                { executionMode: requestedMode, trustedHint: turboMode }
-            );
-            if (directTry?.success) {
-                if (params.hint?.resolvedPoolHint?.poolAddress) {
-                    selectedResolvedHintForCache = params.hint.resolvedPoolHint as ResolvedPoolHint;
+                const resolvedHint = params.hint.resolvedPoolHint as NonNullable<DirectSwapHint['resolvedPoolHint']>;
+                let liquidityGateBlocked = false;
+                if (isBuySideStableOrNativeIn(chainId, normalizedTokenIn)) {
+                    const gateBudgetMs = turboMode
+                        ? Math.max(180, Math.min(DIRECT_SWAP_HINT_POOL_TIMEOUT_MS, turboFastDeadline - Date.now()))
+                        : Math.min(1200, DIRECT_SWAP_HINT_POOL_TIMEOUT_MS);
+                    const gate = await evaluateResolvedHintFastPathLiquidityGate({
+                        chainId,
+                        tokenIn: poolTokenIn,
+                        tokenOut: poolTokenOut,
+                        amountInWei,
+                        resolvedHint,
+                        budgetMs: gateBudgetMs
+                    });
+                    logger.info(LogCode.SYS_INFO, '[DirectSwap] Resolved hint liquidity gate', {
+                        chainId,
+                        mode: requestedMode,
+                        kind: resolvedHint.kind,
+                        dex: resolvedHint.dex || null,
+                        poolAddress: resolvedHint.poolAddress || null,
+                        gateAllowed: gate.allowed,
+                        gateReason: gate.reason,
+                        gateBudgetMs,
+                        poolCount: gate.poolCount,
+                        matchingPoolCount: gate.matchingPoolCount,
+                        matchingEligibleCount: gate.matchingEligibleCount,
+                        requiredReserveInWei: gate.requiredReserveInWei.slice(0, 20),
+                        multiplier: DIRECT_SWAP_BUY_LIQ_MULTIPLIER
+                    });
+                    if (!gate.allowed) {
+                        liquidityGateBlocked = true;
+                        resolvedHintFastPathSkipped = true;
+                        logger.warn(LogCode.SYS_INFO, '[DirectSwap] Resolved pool hint fast-path skipped by liquidity gate', {
+                            chainId,
+                            gateReason: gate.reason,
+                            kind: resolvedHint.kind,
+                            dex: resolvedHint.dex || null,
+                            poolAddress: resolvedHint.poolAddress || null
+                        });
+                    }
                 }
-                return finish(directTry);
-            }
-            resolvedHintFastPathFailed = Boolean(directTry && !directTry.success);
 
-            // Balanced mode: one cheap hint attempt then continue normal flow.
-            if (!turboMode) {
-                logger.info(LogCode.SYS_INFO, '[DirectSwap] Resolved pool hint unavailable in normal mode, continue discovery', {
-                    chainId,
-                    error: directTry?.error
-                });
-            } else {
-                if (shouldSkipResolvedHintRetry(directTry?.error)) {
-                    logger.warn(LogCode.SYS_INFO, '[DirectSwap] Fast-path resolved pool hint failed, skip retry for non-retryable hint failure', {
+                if (!liquidityGateBlocked) {
+                    logger.info(LogCode.SYS_INFO, '[DirectSwap] Fast-path resolved pool hint attempt', {
                         chainId,
-                        error: directTry?.error
+                        kind: resolvedHint.kind,
+                        dex: resolvedHint.dex,
+                        poolAddress: resolvedHint.poolAddress
                     });
-                } else {
-                    logger.warn(LogCode.SYS_INFO, '[DirectSwap] Fast-path resolved pool hint failed, retry once', {
-                        chainId,
-                        error: directTry?.error
-                    });
-                    const retryTry = await tryResolvedPoolHintFastPath(
+
+                    const directTry = await tryResolvedPoolHintFastPath(
                         normalizedParams,
                         params.hint,
-                        { executionMode: requestedMode, trustedHint: true }
+                        { executionMode: requestedMode, trustedHint: turboMode }
                     );
-                    if (retryTry?.success) {
+                    if (directTry?.success) {
                         if (params.hint?.resolvedPoolHint?.poolAddress) {
                             selectedResolvedHintForCache = params.hint.resolvedPoolHint as ResolvedPoolHint;
                         }
-                        return finish(retryTry);
+                        return finish(directTry);
                     }
-                    resolvedHintFastPathFailed = resolvedHintFastPathFailed || Boolean(retryTry && !retryTry.success);
-                }
+                    resolvedHintFastPathFailed = Boolean(directTry && !directTry.success);
 
-                if (isTurboBudgetExceeded(swapStart, DIRECT_SWAP_FASTPATH_BUDGET_MS)) {
-                    return finish({
-                        success: false,
-                        error: 'Fast-path budget exceeded after resolved-pool attempts',
-                        provider: 'failed'
-                    });
+                    // Balanced mode: one cheap hint attempt then continue normal flow.
+                    if (!turboMode) {
+                        logger.info(LogCode.SYS_INFO, '[DirectSwap] Resolved pool hint unavailable in normal mode, continue discovery', {
+                            chainId,
+                            error: directTry?.error
+                        });
+                    } else {
+                        if (shouldSkipResolvedHintRetry(directTry?.error)) {
+                            logger.warn(LogCode.SYS_INFO, '[DirectSwap] Fast-path resolved pool hint failed, skip retry for non-retryable hint failure', {
+                                chainId,
+                                error: directTry?.error
+                            });
+                        } else {
+                            logger.warn(LogCode.SYS_INFO, '[DirectSwap] Fast-path resolved pool hint failed, retry once', {
+                                chainId,
+                                error: directTry?.error
+                            });
+                            const retryTry = await tryResolvedPoolHintFastPath(
+                                normalizedParams,
+                                params.hint,
+                                { executionMode: requestedMode, trustedHint: true }
+                            );
+                            if (retryTry?.success) {
+                                if (params.hint?.resolvedPoolHint?.poolAddress) {
+                                    selectedResolvedHintForCache = params.hint.resolvedPoolHint as ResolvedPoolHint;
+                                }
+                                return finish(retryTry);
+                            }
+                            resolvedHintFastPathFailed = resolvedHintFastPathFailed || Boolean(retryTry && !retryTry.success);
+                        }
+
+                        if (isTurboBudgetExceeded(swapStart, DIRECT_SWAP_FASTPATH_BUDGET_MS)) {
+                            return finish({
+                                success: false,
+                                error: 'Fast-path budget exceeded after resolved-pool attempts',
+                                provider: 'failed'
+                            });
+                        }
+                    }
                 }
-            }
             }
         }
         if (params.hint?.sourceTxHash && (!params.hint?.resolvedPoolHint || resolvedHintFastPathSkipped || resolvedHintFastPathFailed)) {
@@ -1495,14 +1718,7 @@ export async function executeDirectSwap(params: {
                         sample: guard.sample
                     });
                     candidatePools = rescuePools.filter((pool) => {
-                        const version = String(pool.version || '').toLowerCase();
-                        if (version === 'v2' || version === 'aerodrome') {
-                            return resolvePoolInReserve(pool, poolTokenIn) >= guard.requiredReserveInWei;
-                        }
-                        if (version === 'v3' || version === 'v4') {
-                            return BigInt(pool.liquidity || '0') >= guard.requiredReserveInWei;
-                        }
-                        return false;
+                        return poolPassesRequiredReserve(pool, poolTokenIn, guard.requiredReserveInWei);
                     });
                     if (candidatePools.length === 0) {
                         return { success: false, error: `Turbo rescue failed: no pools pass liquidity guard after ${reason}`, provider: 'failed' };
@@ -1624,8 +1840,30 @@ export async function executeDirectSwap(params: {
                                 const aeroResult = await executeAerodromeSwap(normalizedParams);
                                 if (aeroResult.success) return aeroResult;
                                 lastRescueError = aeroResult.error || 'turbo_rescue_aerodrome_failed';
+                            } else {
+                                logger.warn(LogCode.SYS_INFO, '[DirectSwap] Turbo rescue Aerodrome quote unavailable', {
+                                    traceId,
+                                    chainId,
+                                    strategy: 'aerodrome',
+                                    pool: aeroPool.poolAddress,
+                                    amountOut: aeroQuote.toString(),
+                                    quoteBudgetMs: aeroQuoteBudgetMs
+                                });
                             }
+                        } else {
+                            logger.warn(LogCode.SYS_INFO, '[DirectSwap] Turbo rescue Aerodrome skipped: budget exhausted', {
+                                traceId,
+                                chainId,
+                                strategy: 'aerodrome',
+                                pool: aeroPool.poolAddress,
+                                quoteBudgetMs: aeroQuoteBudgetMs
+                            });
                         }
+                    } else {
+                        logger.info(LogCode.SYS_INFO, '[DirectSwap] Turbo rescue Aerodrome skipped: no pool candidate', {
+                            traceId,
+                            chainId
+                        });
                     }
                 }
 
@@ -1683,9 +1921,21 @@ export async function executeDirectSwap(params: {
                 return finish(await runTurboRescue('no_valid_candidate_hint'));
             }
 
+            const turboAttemptPlan = buildTurboSinglePoolAttemptPlan(turboCandidates);
+            logger.info(LogCode.SYS_INFO, '[DirectSwap] Turbo single-pool attempt plan', {
+                chainId,
+                traceId,
+                attempts: turboAttemptPlan.map((candidate, idx) => ({
+                    idx: idx + 1,
+                    kind: candidate.kind,
+                    dex: candidate.dex || null,
+                    poolAddress: candidate.poolAddress || null
+                }))
+            });
+
             let lastTurboError = 'Turbo single-pool attempt failed';
-            for (let attempt = 0; attempt < 2; attempt++) {
-                const candidate = turboCandidates[Math.min(attempt, turboCandidates.length - 1)];
+            for (let attempt = 0; attempt < turboAttemptPlan.length; attempt++) {
+                const candidate = turboAttemptPlan[attempt];
                 const turboHint: DirectSwapHint = {
                     ...(params.hint || {}),
                     canUseResolvedPoolFastPath: true,
@@ -2151,6 +2401,42 @@ export async function executeDirectSwap(params: {
                 }
                 }
             } else if (preferredStrategy.kind === 'aerodrome' && chainId === 8453) {
+                if (isBuySideStableOrNativeIn(chainId, normalizedTokenIn)) {
+                    const aeroDepth = evaluateAerodromeBuySideDepth(pools, poolTokenIn, amountInWei);
+                    logger.info(LogCode.SYS_INFO, '[DirectSwap] Aerodrome depth gate (bypass)', {
+                        chainId,
+                        strategy: 'aerodrome',
+                        checkedPools: aeroDepth.checkedPools,
+                        matchedPools: aeroDepth.matchedPools,
+                        requiredReserveInWei: aeroDepth.requiredReserveInWei.toString().slice(0, 20),
+                        multiplier: DIRECT_SWAP_BUY_LIQ_MULTIPLIER,
+                        allowed: aeroDepth.eligible
+                    });
+                    if (!aeroDepth.eligible) {
+                        logger.warn(LogCode.SYS_INFO, '[DirectSwap] Bypass Aerodrome skipped: insufficient liquidity depth', {
+                            chainId,
+                            checkedPools: aeroDepth.checkedPools,
+                            matchedPools: aeroDepth.matchedPools
+                        });
+                        // continue other strategies below
+                    } else {
+                        const aeroQuote = await getAerodromeExpectedOutput(
+                            normalizedTokenIn,
+                            normalizedTokenOut,
+                            amountInWei,
+                            chainId,
+                            params.slippageBps,
+                            params.walletAddress
+                        );
+                        if (aeroQuote > 0n) {
+                            logger.info(LogCode.SYS_INFO, '[DirectSwap] Bypass strategy selected', {
+                                strategy: 'aerodrome',
+                                amountOut: aeroQuote.toString()
+                            });
+                            return finish(await executeAerodromeSwap(normalizedParams));
+                        }
+                    }
+                } else {
                 const aeroQuote = await getAerodromeExpectedOutput(
                     normalizedTokenIn,
                     normalizedTokenOut,
@@ -2165,6 +2451,7 @@ export async function executeDirectSwap(params: {
                         amountOut: aeroQuote.toString()
                     });
                     return finish(await executeAerodromeSwap(normalizedParams));
+                }
                 }
             } else if (preferredStrategy.kind === 'v2') {
                 const v2Pool = await pickBestPool(pools, 'v2', chainId, preferredStrategy.dex);
@@ -2598,6 +2885,27 @@ export async function executeDirectSwap(params: {
 
             if (strategy.kind === 'aerodrome') {
                 if (chainId !== 8453) continue;
+                if (isBuySideStableOrNativeIn(chainId, normalizedTokenIn)) {
+                    const aeroDepth = evaluateAerodromeBuySideDepth(pools, poolTokenIn, amountInWei);
+                    logger.info(LogCode.SYS_INFO, '[DirectSwap] Aerodrome depth gate (strategy)', {
+                        chainId,
+                        strategy: 'aerodrome',
+                        checkedPools: aeroDepth.checkedPools,
+                        matchedPools: aeroDepth.matchedPools,
+                        requiredReserveInWei: aeroDepth.requiredReserveInWei.toString().slice(0, 20),
+                        multiplier: DIRECT_SWAP_BUY_LIQ_MULTIPLIER,
+                        allowed: aeroDepth.eligible
+                    });
+                    if (!aeroDepth.eligible) {
+                        logger.debug(LogCode.SYS_INFO, '[DirectSwap] Strategy rejected', {
+                            strategy: 'aerodrome',
+                            reason: 'insufficient_liquidity_depth',
+                            checkedPools: aeroDepth.checkedPools,
+                            matchedPools: aeroDepth.matchedPools
+                        });
+                        continue;
+                    }
+                }
                 const aeroQuote = await getAerodromeExpectedOutput(
                     normalizedTokenIn,
                     normalizedTokenOut,
