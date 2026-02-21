@@ -645,7 +645,7 @@ export class MainSwapService {
     };
     const isTimeoutError = (err: unknown): boolean => {
       const msg = String((err as any)?.message || '').toLowerCase();
-      return msg.includes('timeout_');
+      return msg.startsWith('timeout_direct_swap_') || msg.startsWith('timeout_turbo_budget_');
     };
     const extractFailureCode = (message?: string | null): string | null => {
       const msg = String(message || '').trim();

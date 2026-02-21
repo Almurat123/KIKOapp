@@ -28,7 +28,7 @@ const PRIVY_APP_ID = process.env.VITE_PRIVY_APP_ID || process.env.PRIVY_APP_ID |
 const PRIVY_APP_SECRET = process.env.PRIVY_APP_SECRET || '';
 const PRIVY_AUTHORIZATION_KEY = process.env.PRIVY_AUTHORIZATION_KEY || '';
 const PRIVY_SEND_TX_CHAIN_IDS = new Set(
-    String(process.env.PRIVY_SEND_TX_CHAIN_IDS || '1')
+    String(process.env.PRIVY_SEND_TX_CHAIN_IDS || '1,8453,56')
         .split(',')
         .map((value) => Number(value.trim()))
         .filter((value) => Number.isInteger(value) && value > 0)
@@ -41,8 +41,8 @@ const PRIVY_TX_VISIBILITY_RETRIES = 6;
 const PRIVY_TX_VISIBILITY_DELAY_MS = 500;
 const PRIVY_TX_SYNC_VISIBILITY_RETRIES = 8;
 const PRIVY_TX_SYNC_VISIBILITY_DELAY_MS = 400;
-const PRIVY_FAST_TRADE_SYNC_VISIBILITY_RETRIES = 2;
-const PRIVY_FAST_TRADE_SYNC_VISIBILITY_DELAY_MS = 180;
+const PRIVY_FAST_TRADE_SYNC_VISIBILITY_RETRIES = 4;
+const PRIVY_FAST_TRADE_SYNC_VISIBILITY_DELAY_MS = 220;
 const PRIVY_FAST_TRADE_BASE_GAS_BUMP_BPS = BigInt(Math.max(10000, Number(process.env.PRIVY_FAST_TRADE_BASE_GAS_BUMP_BPS || '22000')));
 const PRIVY_FAST_TRADE_BSC_GAS_BUMP_BPS = BigInt(Math.max(10000, Number(process.env.PRIVY_FAST_TRADE_BSC_GAS_BUMP_BPS || '17000')));
 const PRIVY_FAST_TRADE_DEFAULT_GAS_BUMP_BPS = BigInt(Math.max(10000, Number(process.env.PRIVY_FAST_TRADE_DEFAULT_GAS_BUMP_BPS || '14000')));
