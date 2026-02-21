@@ -187,7 +187,6 @@ const COPYTRADE_ENABLE_DETECTION_PREWARM = (process.env.COPYTRADE_ENABLE_DETECTI
 const COPYTRADE_SKIP_ON_DIRECTION_CONFLICT = (process.env.COPYTRADE_SKIP_ON_DIRECTION_CONFLICT || 'true') === 'true';
 const COPYTRADE_ENABLE_TOKEN_TO_TOKEN_PARALLEL = (process.env.COPYTRADE_ENABLE_TOKEN_TO_TOKEN_PARALLEL || 'false') === 'true';
 const ALLOWED_LAUNCHPAD_PROVIDERS = new Set(['zora', 'fourmeme']);
-const COPYTRADE_FORCE_EXTERNAL_SELL_PATH = (process.env.COPYTRADE_FORCE_EXTERNAL_SELL_PATH || 'false') === 'true';
 const COPYTRADE_DISABLE_MIRROR_SELL_DUST_SWEEP = (process.env.COPYTRADE_DISABLE_MIRROR_SELL_DUST_SWEEP || 'true') === 'true';
 const CHAIN_LAUNCHPAD_PROVIDERS: Record<number, Set<string>> = {
     8453: new Set(['zora']),
@@ -465,20 +464,6 @@ function inferCopyTradeBugHint(error: any): string {
     if (msg.includes('quote') || msg.includes('liquidity')) return 'quote_liquidity';
     if (msg.includes('revert')) return 'onchain_revert';
     return 'unknown';
-}
-
-function shouldAttemptDirectSellFallback(error: any): boolean {
-    const msg = compactCopyTradeError(error).toLowerCase();
-    return (
-        msg.includes('no valid quotes')
-        || msg.includes('failed to get quote')
-        || msg.includes('quote')
-        || msg.includes('failed_external_quote_down')
-        || msg.includes('kyber')
-        || msg.includes('0x')
-        || msg.includes('insufficient liquidity')
-        || msg.includes('all rpc endpoints failed')
-    );
 }
 
 // ... (previous functions remain)
@@ -2533,15 +2518,7 @@ async function executePositionExit(params: {
             let isPartialSell = false;
             const executionMode = resolveExecutionModeForConfig(config);
             const allowDirectSellPath = executionMode !== 'safe';
-            const fastSwapModeForSell = COPYTRADE_FORCE_EXTERNAL_SELL_PATH ? false : allowDirectSellPath;
-            if (COPYTRADE_FORCE_EXTERNAL_SELL_PATH) {
-                logger.debug(LogCode.SYS_INFO, 'Mirror sell forcing external aggregator path', {
-                    userId,
-                    tokenAddress,
-                    chainId,
-                    executionMode
-                });
-            }
+            const fastSwapModeForSell = allowDirectSellPath;
             const runSellRoute = async (amountInHuman: string, slippageBps: number, fastSwapMode: boolean, route: string) => {
                 logger.info(LogCode.EXE_TX_BROADCAST, 'Mirror sell route attempt', {
                     userId,
@@ -2597,7 +2574,7 @@ async function executePositionExit(params: {
                     false,
                     'external_primary'
                 );
-                if (!sellResult.success && allowDirectSellPath && !COPYTRADE_FORCE_EXTERNAL_SELL_PATH && shouldAttemptDirectSellFallback(sellResult.error)) {
+                if (!sellResult.success && allowDirectSellPath) {
                     logger.warn(LogCode.EXE_TX_REVERTED, 'Mirror sell external route failed, trying direct pool fallback', {
                         userId,
                         tokenAddress,
@@ -2610,11 +2587,20 @@ async function executePositionExit(params: {
                         true,
                         'direct_fallback'
                     );
+                } else if (!sellResult.success) {
+                    logger.warn(LogCode.EXE_TX_REVERTED, 'Mirror sell direct fallback skipped by execution mode/policy', {
+                        userId,
+                        tokenAddress,
+                        chainId,
+                        executionMode,
+                        allowDirectSellPath,
+                        error: sellResult.error
+                    });
                 }
                 if (!sellResult.success) throw new Error(sellResult.error);
                 txHash = sellResult.txHash!;
             } catch (e: any) {
-                if (allowDirectSellPath && !COPYTRADE_FORCE_EXTERNAL_SELL_PATH && shouldAttemptDirectSellFallback(e)) {
+                if (allowDirectSellPath) {
                     try {
                         const amountToSellHuman = ethers.formatUnits(balance, decimals);
                         const directResult = await runSellRoute(
@@ -2668,7 +2654,7 @@ async function executePositionExit(params: {
                             'external_retry'
                         );
                     } catch (retryErr: any) {
-                        if (allowDirectSellPath && !COPYTRADE_FORCE_EXTERNAL_SELL_PATH && shouldAttemptDirectSellFallback(retryErr)) {
+                        if (allowDirectSellPath) {
                             retryResult = await runSellRoute(
                                 amountToSellHuman999,
                                 retrySlippage,
@@ -2679,7 +2665,7 @@ async function executePositionExit(params: {
                             throw retryErr;
                         }
                     }
-                    if (!retryResult.success && allowDirectSellPath && !COPYTRADE_FORCE_EXTERNAL_SELL_PATH && shouldAttemptDirectSellFallback(retryResult.error)) {
+                    if (!retryResult.success && allowDirectSellPath) {
                         retryResult = await runSellRoute(
                             amountToSellHuman999,
                             retrySlippage,

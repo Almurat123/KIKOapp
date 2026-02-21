@@ -41,6 +41,7 @@ const RPC_SEND_RAW_TX_HASH_CACHE_TTL_MS = Math.max(10_000, Number(process.env.RP
 const RPC_INFLIGHT_KEY_MAX_LEN = Math.max(128, Number(process.env.RPC_INFLIGHT_KEY_MAX_LEN || '2048'));
 const RPC_INFLIGHT_MAP_MAX = Math.max(64, Number(process.env.RPC_INFLIGHT_MAP_MAX || '5000'));
 const RPC_SEND_RAW_HASH_CACHE_MAX = Math.max(64, Number(process.env.RPC_SEND_RAW_HASH_CACHE_MAX || '4000'));
+const TX_LIFECYCLE_ENDPOINT_FANOUT = 7;
 const HEALTH_CHECK_INTERVAL = 60000; // Check endpoint health every 60s
 const CIRCUIT_BREAKER_THRESHOLD = 5; // Open circuit after 5 consecutive failures (more tolerant)
 const CIRCUIT_BREAKER_RESET_TIME = 30000; // Try again after 30s
@@ -446,6 +447,14 @@ function getEndpointAttemptBudget(
     cooldownActive: boolean,
     forceExhaustive = false
 ): number {
+    const isTxLifecycleMethod = method === 'eth_sendRawTransaction'
+        || method === 'eth_getTransactionByHash'
+        || method === 'eth_getTransactionReceipt';
+    if (isTxLifecycleMethod && importance === 'critical') {
+        const lifecycleBudget = Math.max(1, Math.min(endpointCount, TX_LIFECYCLE_ENDPOINT_FANOUT));
+        return lifecycleBudget;
+    }
+
     if (forceExhaustive) {
         return Math.max(1, endpointCount);
     }
@@ -458,7 +467,7 @@ function getEndpointAttemptBudget(
         : (importance === 'critical' ? RPC_MAX_ENDPOINT_ATTEMPTS_CRITICAL : RPC_MAX_ENDPOINT_ATTEMPTS_NORMAL));
     let budget = Math.max(1, Math.min(endpointCount, baseBudget));
 
-    if (cooldownActive) {
+    if (cooldownActive && !isTxLifecycleMethod) {
         const cooldownAttemptCap = importance === 'critical'
             ? (isWriteMethod(method)
                 ? Math.max(3, RPC_METHOD_COOLDOWN_ATTEMPT_CAP)
@@ -573,6 +582,10 @@ export async function callRpc<T = any>(
 ): Promise<T> {
     let endpoints: RpcEndpointConfig[] = [];
     let chainName = typeof chainIdOrName === 'string' ? chainIdOrName : `Chain ${chainIdOrName}`;
+    let chainSlug = typeof chainIdOrName === 'number'
+        ? (CHAIN_ID_TO_NAME[chainIdOrName] || 'eth')
+        : chainIdOrName.toLowerCase();
+    let primaryUrl: string | undefined;
     let chainId: number;
 
     const cacheableMethod = isCacheable(method);
@@ -596,9 +609,9 @@ export async function callRpc<T = any>(
     try {
         const config = getChainConfig(chainId);
         chainName = config.name;
-        const chainSlug = CHAIN_ID_TO_NAME[chainId] || 'eth';
+        chainSlug = CHAIN_ID_TO_NAME[chainId] || 'eth';
         const strategy = options.strategy || 'cheap';
-        const primaryUrl = getPrimaryRpcUrl(chainSlug);
+        primaryUrl = getPrimaryRpcUrl(chainSlug);
         endpoints = getRpcEndpointsWithStrategy(chainSlug, strategy, primaryUrl);
         endpoints = filterEndpointsByMethod(endpoints, method);
 
@@ -610,6 +623,28 @@ export async function callRpc<T = any>(
                     chain: chainName,
                     role: LogRole.METRIC
                 });
+            }
+        }
+
+        // For tx submission + visibility path, always include cheap-pool endpoints as backup
+        // so fast/premium-only mode cannot starve write/read quorum.
+        const isTxLifecycleMethod = method === 'eth_sendRawTransaction'
+            || method === 'eth_getTransactionByHash'
+            || method === 'eth_getTransactionReceipt';
+        if (isTxLifecycleMethod) {
+            const cheapEndpoints = filterEndpointsByMethod(
+                getRpcEndpointsWithStrategy(chainSlug, 'cheap', primaryUrl),
+                method
+            );
+            if (cheapEndpoints.length > 0) {
+                const seen = new Set<string>();
+                const merged: RpcEndpointConfig[] = [];
+                for (const ep of [...endpoints, ...cheapEndpoints]) {
+                    if (!ep?.url || seen.has(ep.url)) continue;
+                    seen.add(ep.url);
+                    merged.push(ep);
+                }
+                endpoints = merged;
             }
         }
     } catch (e) {
@@ -1992,6 +2027,7 @@ export async function probeTxVisibility(params: {
     const delayMs = Math.max(0, Number(params.delayMs ?? 400));
     const expectedFrom = String(params.expectedFrom || '').toLowerCase();
     let lastError = '';
+    let visibleHits = 0;
 
     for (let i = 1; i <= retries; i++) {
         try {
@@ -2004,6 +2040,14 @@ export async function probeTxVisibility(params: {
             if (tx?.hash) {
                 const from = String(tx.from || '').toLowerCase();
                 if (!expectedFrom || from === expectedFrom) {
+                    visibleHits += 1;
+                    const stableVisible = visibleHits >= 2 || retries <= 1;
+                    if (!stableVisible && i < retries) {
+                        if (delayMs > 0) {
+                            await new Promise((resolve) => setTimeout(resolve, delayMs));
+                        }
+                        continue;
+                    }
                     return {
                         visible: true,
                         checks: i,
@@ -2051,6 +2095,7 @@ export async function waitForReceiptStateMachine(params: {
     let attempts = 0;
     let firstSeenAt: number | undefined;
     let lastRpcError = '';
+    let visibilityHits = 0;
 
     while (Date.now() - startedAt < maxWaitMs) {
         attempts += 1;
@@ -2080,9 +2125,13 @@ export async function waitForReceiptStateMachine(params: {
                 const seenFrom = String(tx.from || '').toLowerCase();
                 if (!expectedFrom || seenFrom === expectedFrom) {
                     firstSeenAt = firstSeenAt || Date.now();
+                    visibilityHits += 1;
                 } else {
+                    visibilityHits = 0;
                     lastRpcError = `from_mismatch expected=${params.expectedFrom} got=${tx.from}`;
                 }
+            } else {
+                visibilityHits = 0;
             }
 
             if (receipt?.transactionHash) {
@@ -2099,7 +2148,8 @@ export async function waitForReceiptStateMachine(params: {
                 };
             }
 
-            if (firstSeenAt) {
+            // Require stable repeated visibility, not a single transient hit.
+            if (firstSeenAt && visibilityHits >= 2) {
                 return {
                     status: 'visible_pending',
                     txHash: params.txHash,

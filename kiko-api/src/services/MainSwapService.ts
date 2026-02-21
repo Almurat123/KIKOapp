@@ -626,7 +626,7 @@ export class MainSwapService {
     const TURBO_SKIP_FALLBACK_ON_TIMEOUT = true;
     const TURBO_DIRECT_LATE_SETTLE_MS = 2000;
     const TURBO_DIRECT_FINAL_SETTLE_MS = 4500;
-    const DIRECT_SWAP_VISIBILITY_GATE_MS_TURBO = 2600;
+    const DIRECT_SWAP_VISIBILITY_GATE_MS_TURBO = 5200;
     const DIRECT_SWAP_VISIBILITY_GATE_MS_NORMAL = 4200;
     const DIRECT_SWAP_VISIBILITY_GATE_POLL_MS = 320;
     // 0x API is typically 10s+; skip fallback in turbo so we fail fast instead of waiting.
@@ -665,7 +665,9 @@ export class MainSwapService {
     ): Promise<Awaited<ReturnType<typeof executeDirectSwap>>> => {
       if (!directResult.success) return directResult;
       if (!directResult.txHash) return directResult;
-      if (directResult.txLifecycle?.status !== 'broadcasted_unseen') return directResult;
+      const lifecycleStatus = directResult.txLifecycle?.status;
+      const needsVisibilityGate = lifecycleStatus === 'broadcasted_unseen' || lifecycleStatus === 'visible_pending';
+      if (!needsVisibilityGate) return directResult;
 
       const visibilityMaxWaitMs = isTurboCopytrade
         ? DIRECT_SWAP_VISIBILITY_GATE_MS_TURBO
@@ -836,12 +838,15 @@ export class MainSwapService {
             ? request.amountIn
             : (Number(request.amountIn) * amountMult).toFixed(18);
           const attemptSlippageBps = Math.min(Math.floor(enforcedSlippageBps * slippageMult), 2500);
-          const directSwapInflightKey = this.buildDirectSwapInflightKey(
+          const directSwapInflightKeyBase = this.buildDirectSwapInflightKey(
             request,
             normalizedTokenIn,
             normalizedTokenOut,
             attemptAmountIn
           );
+          const directSwapInflightKey = isTurboCopytrade
+            ? `${directSwapInflightKeyBase}:attempt_${attempt}`
+            : directSwapInflightKeyBase;
           if (attempt >= 2 && isTurboCopytrade) {
             logger.info(LogCode.SYS_INFO, trace(`Turbo 光速 retry - immediate direct attempt ${attempt} (no sleep, cache hot)`), {
               attempt,
@@ -907,6 +912,13 @@ export class MainSwapService {
                 }
               } else {
                 lastDirectError = timeoutErr;
+                if (attempt < DIRECT_SWAP_MAX_ATTEMPTS) {
+                  logger.warn(LogCode.SYS_INFO, trace('Turbo direct late-settle unavailable; forcing fresh retry attempt'), {
+                    attempt,
+                    maxAttempts: DIRECT_SWAP_MAX_ATTEMPTS
+                  });
+                  continue;
+                }
                 break;
               }
             }
@@ -1058,6 +1070,61 @@ export class MainSwapService {
         TURBO_SKIP_FALLBACK_ON_TIMEOUT &&
         isTimeoutError(lastDirectError)
       ) {
+        if (inflightDirectPromise) {
+          const finalFlushMs = Math.max(TURBO_DIRECT_FINAL_SETTLE_MS + 2500, 6500);
+          logger.warn(LogCode.SYS_INFO, trace('Turbo direct timeout before fallback; forcing final settle flush'), {
+            finalFlushMs,
+            error: lastDirectError?.message
+          });
+          try {
+            const flushedResult = await settleWithin(inflightDirectPromise, finalFlushMs);
+            if (flushedResult) {
+              lastDirectResult = flushedResult;
+              if (flushedResult.success) {
+                const visibleFlushed = await enforceVisibilityGate(flushedResult, 'timeout_flush');
+                lastDirectResult = visibleFlushed;
+                if (visibleFlushed.success) {
+                  if (checkNativeBalancePromise) await checkNativeBalancePromise;
+                  try {
+                    await this.collectDirectSwapFee(
+                      request,
+                      normalizedTokenOut,
+                      visibleFlushed.amountOut,
+                      feeContext,
+                      trace
+                    );
+                  } catch (feeErr: any) {
+                    logger.warn(LogCode.SYS_ERROR, trace('Direct swap fee transfer failed (non-fatal)'), {
+                      error: feeErr?.message || String(feeErr)
+                    });
+                  }
+                  logger.info(LogCode.EXE_TX_CONFIRMED, trace(`Direct swap successful after timeout flush txHash=${visibleFlushed.txHash ?? 'null'}`), {
+                    txHash: visibleFlushed.txHash,
+                    provider: visibleFlushed.provider,
+                    poolInfo: visibleFlushed.poolInfo
+                  });
+                  return {
+                    success: true,
+                    txHash: visibleFlushed.txHash,
+                    amountOut: visibleFlushed.amountOut,
+                    txLifecycle: visibleFlushed.txLifecycle,
+                    metadata: {
+                      provider: visibleFlushed.provider,
+                      mode: request.mode,
+                      txLifecycleStatus: visibleFlushed.txLifecycle?.status
+                    }
+                  };
+                }
+                lastDirectError = new Error(visibleFlushed.error || 'direct_swap_visibility_gate_failed');
+              } else {
+                lastDirectError = new Error(flushedResult.error || 'direct_swap_timeout_flush_failed');
+              }
+            }
+          } catch (flushError: any) {
+            lastDirectError = flushError;
+          }
+        }
+
         logger.warn(LogCode.SYS_INFO, trace('Turbo direct path timed out, skipping fallback by policy'), {
           error: lastDirectError?.message,
           budgetMs: TURBO_TOTAL_BUDGET_MS,

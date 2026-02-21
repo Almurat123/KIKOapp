@@ -57,6 +57,22 @@ test('getEndpointAttemptBudget can force exhaustive failover', () => {
   assert.equal(budget, 7);
 });
 
+test('tx lifecycle methods use widened critical endpoint fanout budget', () => {
+  const sendRawBudget = __rpcManagerTest.getEndpointAttemptBudget('eth_sendRawTransaction', 'critical', 12, false);
+  const txByHashBudget = __rpcManagerTest.getEndpointAttemptBudget('eth_getTransactionByHash', 'critical', 12, false);
+  const receiptBudget = __rpcManagerTest.getEndpointAttemptBudget('eth_getTransactionReceipt', 'critical', 12, false);
+  assert.equal(sendRawBudget, 7);
+  assert.equal(txByHashBudget, 7);
+  assert.equal(receiptBudget, 7);
+});
+
+test('tx lifecycle methods are not reduced by cooldown budget cap', () => {
+  const normal = __rpcManagerTest.getEndpointAttemptBudget('eth_getTransactionByHash', 'critical', 9, false);
+  const cooldown = __rpcManagerTest.getEndpointAttemptBudget('eth_getTransactionByHash', 'critical', 9, true);
+  assert.equal(normal, cooldown);
+  assert.equal(cooldown, 7);
+});
+
 test('getMethodConcurrencyLimit lowers limit during cooldown', () => {
   const normal = __rpcManagerTest.getMethodConcurrencyLimit('eth_call', 'normal', false);
   const cooldown = __rpcManagerTest.getMethodConcurrencyLimit('eth_call', 'normal', true);
