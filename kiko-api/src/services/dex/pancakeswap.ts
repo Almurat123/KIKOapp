@@ -6,7 +6,7 @@
  */
 
 import { ethers } from 'ethers';
-import { callRpc } from '../rpcManager.js';
+import { callRpc as callRpcRaw } from '../rpcManager.js';
 import { logger } from '../../utils/logger.js';
 import { LogCode } from '../../config/logRegistry.js';
 import {
@@ -31,6 +31,14 @@ const quoterV3Interface = new ethers.Interface([
 const swapRouterInterface = new ethers.Interface(V3_SWAP_ROUTER_ABI);
 const v2RouterInterface = new ethers.Interface(V2_ROUTER_ABI);
 const erc20Interface = new ethers.Interface(ERC20_ABI);
+
+async function callRpc<T = any>(chainId: number, method: string, params: any): Promise<T> {
+    return callRpcRaw<T>(chainId, method, params, {
+        strategy: 'fast',
+        importance: 'critical',
+        exhaustiveFailover: true
+    });
+}
 
 // PancakeSwap fee tiers (different from Uniswap)
 const PANCAKE_FEE_TIERS = [100, 500, 2500, 10000] as const;  // 0.01%, 0.05%, 0.25%, 1%

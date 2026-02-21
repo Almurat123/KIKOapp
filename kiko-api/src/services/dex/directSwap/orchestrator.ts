@@ -17,7 +17,7 @@ import { findTokenPools, PoolInfo } from '../poolInfo.js';
 import { calculatePriceFromSqrtX96, findV4Pools, V4PoolInfo, V4PoolKey, matchV4PoolKeyById } from '../uniswapV4.js';
 import { isV4SwapSupported } from '../uniswapV4Swap.js';
 import { calculateV3TVL } from '../v3Math.js';
-import { callRpc, callRpcRaw } from '../../rpcManager.js';
+import { callRpc as callRpcBase, callRpcRaw as callRpcRawBase } from '../../rpcManager.js';
 import { sendTransaction, sendTransactionLifecycle } from '../../privyWallet.js';
 import { getZeroExPrice } from '../../zeroEx.js';
 import { getKyberQuote } from '../../kyberAggregator.js';
@@ -193,6 +193,38 @@ const V4_DYNAMIC_FEE_FLAG = 0x800000;
 const TURBO_INFLIGHT_LIQUIDITY_TTL_MS = Number(process.env.DIRECT_SWAP_TURBO_INFLIGHT_LIQUIDITY_TTL_MS || '8000');
 const TURBO_RESCUE_MAX_CANDIDATES_PER_KIND = Number(process.env.DIRECT_SWAP_TURBO_RESCUE_MAX_PER_KIND || '2');
 const TURBO_RESCUE_MAX_TOTAL_CANDIDATES = Number(process.env.DIRECT_SWAP_TURBO_RESCUE_MAX_TOTAL || '6');
+
+type DirectSwapRpcOptions = {
+    strategy?: 'fast' | 'cheap';
+    importance?: 'normal' | 'critical';
+    exhaustiveFailover?: boolean;
+};
+
+async function callRpc<T = any>(
+    chainIdOrName: number | string,
+    method: string,
+    params: any = [],
+    options: DirectSwapRpcOptions = {}
+): Promise<T> {
+    return callRpcBase<T>(chainIdOrName, method, params, {
+        strategy: options.strategy || 'fast',
+        importance: options.importance || 'critical',
+        exhaustiveFailover: options.exhaustiveFailover ?? true
+    });
+}
+
+async function callRpcRaw<T = any>(
+    chainIdOrName: number | string,
+    method: string,
+    params: any = [],
+    options: DirectSwapRpcOptions = {}
+): Promise<any> {
+    return callRpcRawBase<T>(chainIdOrName, method, params, {
+        strategy: options.strategy || 'fast',
+        importance: options.importance || 'critical',
+        exhaustiveFailover: options.exhaustiveFailover ?? true
+    });
+}
 
 const STABLE_TOKEN_HINTS_BY_CHAIN: Record<number, string[]> = {
     1: [
@@ -877,18 +909,19 @@ function capTurboRescueCandidatePools(
 
 function buildTurboSinglePoolAttemptPlan(candidates: ResolvedPoolHint[], chainId: number): ResolvedPoolHint[] {
     if (candidates.length === 0) return [];
+    const baseOrder: StrategyKind[] = ['v4', 'v3', 'v2', 'aerodrome'];
     let first = candidates[0];
     if (chainId === 8453) {
-        const baseV4Candidate = candidates.find((candidate) => candidate.kind === 'v4');
-        if (baseV4Candidate) {
-            first = baseV4Candidate;
-        }
+        const prioritized = baseOrder
+            .map((kind) => candidates.find((candidate) => candidate.kind === kind))
+            .find(Boolean);
+        if (prioritized) first = prioritized;
     }
     const attempts: ResolvedPoolHint[] = [first];
     const used = new Set<string>([resolvedHintIdentity(first)]);
 
     const preferredSecondKinds: StrategyKind[] = chainId === 8453
-        ? ['v3', 'v2', 'v4']
+        ? ['v4', 'v3', 'v2', 'aerodrome']
         : first.kind === 'aerodrome'
             ? ['v4', 'v3', 'v2']
             : ['v4', 'v3', 'v2', 'aerodrome'];
@@ -1365,6 +1398,18 @@ async function tryResolvedPoolHintFastPath(
     }
 
     if (resolved.kind === 'aerodrome' || resolved.dex === 'aerodrome') {
+        if (params.chainId === 8453 && options?.executionMode === 'turbo') {
+            logger.info(LogCode.SYS_INFO, '[DirectSwap] Hint fast-path Aerodrome deferred in Base turbo', {
+                poolAddress: resolved.poolAddress,
+                chainId: params.chainId,
+                reason: 'prefer_v4_v3_v2_before_aero'
+            });
+            return {
+                success: false,
+                error: 'hint_fastpath_disallowed:aerodrome_turbo_deferred',
+                provider: 'failed'
+            };
+        }
         logger.info(LogCode.SYS_INFO, '[DirectSwap] Hint fast-path routing to Aerodrome', {
             poolAddress: resolved.poolAddress,
             chainId: params.chainId
@@ -1869,6 +1914,12 @@ export async function executeDirectSwap(params: {
                     turboOrder: rescueOrder.join(' -> '),
                     candidatePoolsBeforeCap,
                     candidatePools: candidatePools.length,
+                    candidateByKind: {
+                        v4: candidatePools.filter((pool) => pool.version === 'v4').length,
+                        v3: candidatePools.filter((pool) => pool.version === 'v3').length,
+                        v2: candidatePools.filter((pool) => pool.version === 'v2').length,
+                        aerodrome: candidatePools.filter((pool) => String(pool.version || '').toLowerCase() === 'aerodrome').length
+                    },
                     maxPerKind: TURBO_RESCUE_MAX_CANDIDATES_PER_KIND,
                     maxTotal: TURBO_RESCUE_MAX_TOTAL_CANDIDATES
                 });

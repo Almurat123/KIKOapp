@@ -11,7 +11,7 @@
  */
 
 import { ethers } from 'ethers';
-import { callRpc } from '../rpcManager.js';
+import { callRpc as callRpcRaw } from '../rpcManager.js';
 import { logger } from '../../utils/logger.js';
 import { LogCode } from '../../config/logRegistry.js';
 import { CLANKER_HOOKS_BY_CHAIN, getKnownV4HooksByChain } from './v4Hooks.js';
@@ -100,6 +100,19 @@ const V4_CONFIGS: Record<number, V4PoolConfig[]> = {
 const V4_POOL_CACHE_TTL = 30000; // 30s cache
 const v4PoolCache = new Map<string, { pools: V4PoolInfo[]; timestamp: number }>();
 const v4PoolInflight = new Map<string, Promise<V4PoolInfo[]>>();
+
+async function callRpc<T = any>(
+    chainId: number,
+    method: string,
+    params: any,
+    options?: { strategy?: 'fast' | 'cheap' }
+): Promise<T> {
+    return callRpcRaw<T>(chainId, method, params, {
+        strategy: options?.strategy || 'fast',
+        importance: 'critical',
+        exhaustiveFailover: true
+    });
+}
 
 export interface V4PoolKey {
     currency0: string;

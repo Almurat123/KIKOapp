@@ -4,10 +4,18 @@
  */
 
 import { ethers } from 'ethers';
-import { callRpc } from '../rpcManager.js';
+import { callRpc as callRpcRaw } from '../rpcManager.js';
 
 const ERC20_ABI = ['function symbol() view returns (string)'];
 const erc20Interface = new ethers.Interface(ERC20_ABI);
+
+async function callRpc<T = any>(chainId: number, method: string, params: any): Promise<T> {
+    return callRpcRaw<T>(chainId, method, params, {
+        strategy: 'fast',
+        importance: 'critical',
+        exhaustiveFailover: true
+    });
+}
 
 // Chains to check
 const CHAINS_TO_CHECK = [

@@ -6,7 +6,7 @@
  */
 
 import { ethers } from 'ethers';
-import { callRpc } from '../rpcManager.js';
+import { callRpc as callRpcRaw } from '../rpcManager.js';
 import { getChainConfig } from '../../config/chainConfig.js';
 import { logger } from '../../utils/logger.js';
 import { LogCode } from '../../config/logRegistry.js';
@@ -25,6 +25,14 @@ const ETH_ADDRESS = '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
 
 const aerodromeInterface = new ethers.Interface(AERODROME_ROUTER_ABI);
 const erc20Interface = new ethers.Interface(ERC20_ABI);
+
+async function callRpc<T = any>(chainId: number, method: string, params: any[]): Promise<T> {
+    return await callRpcRaw<T>(chainId, method, params, {
+        strategy: 'fast',
+        importance: 'critical',
+        exhaustiveFailover: true
+    });
+}
 
 /**
  * Get Aerodrome swap quote

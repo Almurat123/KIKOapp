@@ -5,7 +5,7 @@
  */
 
 import { ethers } from 'ethers';
-import { callRpc } from '../rpcManager.js';
+import { callRpc as callRpcRaw } from '../rpcManager.js';
 import { logger } from '../../utils/logger.js';
 import { LogCode } from '../../config/logRegistry.js';
 import { findV4Pools, isV4Supported, V4PoolInfo, calculatePriceFromSqrtX96 as v4CalcPrice } from './uniswapV4.js';
@@ -74,6 +74,14 @@ const v2FactoryInterface = new ethers.Interface(V2_FACTORY_ABI);
 const v3FactoryInterface = new ethers.Interface(V3_FACTORY_ABI);
 const aerodromeFactoryInterface = new ethers.Interface(AERODROME_FACTORY_ABI);
 const erc20Interface = new ethers.Interface(ERC20_ABI);
+
+async function callRpc<T = any>(chainId: number, method: string, params: any[]): Promise<T> {
+    return await callRpcRaw<T>(chainId, method, params, {
+        strategy: 'fast',
+        importance: 'critical',
+        exhaustiveFailover: true
+    });
+}
 
 /**
  * Get V2 pool information
