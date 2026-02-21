@@ -23,11 +23,14 @@ const PRIVY_SEND_TX_CHAIN_IDS = new Set(
         .map((value) => Number(value.trim()))
         .filter((value) => Number.isInteger(value) && value > 0)
 );
-// Keep visibility probing enabled for observability, but never block trade success on RPC propagation lag.
+// Keep visibility probing enabled for observability.
+// For raw-path trade/speedup we also run a short synchronous visibility probe before returning success.
 const PRIVY_TX_VISIBILITY_CHECK_ENABLED = true;
 const PRIVY_TX_REQUIRE_VISIBILITY = false;
 const PRIVY_TX_VISIBILITY_RETRIES = 6;
 const PRIVY_TX_VISIBILITY_DELAY_MS = 500;
+const PRIVY_TX_SYNC_VISIBILITY_RETRIES = 2;
+const PRIVY_TX_SYNC_VISIBILITY_DELAY_MS = 250;
 
 let privyClient: PrivyClient | null = null;
 
@@ -46,7 +49,11 @@ type EmbeddedWalletChainType = 'ethereum' | 'solana' | 'auto';
 async function verifyTxVisibility(
     chainId: number,
     txHash: string,
-    expectedFrom?: string
+    expectedFrom?: string,
+    options?: {
+        retries?: number;
+        delayMs?: number;
+    }
 ): Promise<{
     visible: boolean;
     checks: number;
@@ -55,7 +62,9 @@ async function verifyTxVisibility(
     lastError?: string;
 }> {
     let lastError = '';
-    for (let i = 1; i <= PRIVY_TX_VISIBILITY_RETRIES; i++) {
+    const retries = Math.max(1, options?.retries || PRIVY_TX_VISIBILITY_RETRIES);
+    const delayMs = Math.max(0, options?.delayMs ?? PRIVY_TX_VISIBILITY_DELAY_MS);
+    for (let i = 1; i <= retries; i++) {
         try {
             const tx = await rpcCall<any>(
                 chainId,
@@ -85,13 +94,13 @@ async function verifyTxVisibility(
         } catch (err: any) {
             lastError = err?.message || String(err);
         }
-        if (i < PRIVY_TX_VISIBILITY_RETRIES) {
-            await new Promise(resolve => setTimeout(resolve, PRIVY_TX_VISIBILITY_DELAY_MS));
+        if (i < retries) {
+            await new Promise(resolve => setTimeout(resolve, delayMs));
         }
     }
     return {
         visible: false,
-        checks: PRIVY_TX_VISIBILITY_RETRIES,
+        checks: retries,
         lastError: lastError || 'not_found_by_rpc'
     };
 }
@@ -423,7 +432,7 @@ async function signAndBroadcastRawTransaction(
     client: PrivyClient,
     walletId: string,
     tx: TransactionRequest,
-    context: { userId: string; attempt: number; reason: string; expectedFrom?: string }
+    context: { userId: string; attempt: number; reason: string; expectedFrom?: string; txPurpose?: TransactionRequest['txPurpose'] }
 ): Promise<string> {
     logger.warn(LogCode.EXE_TX_BROADCAST, 'Sending transaction via Privy sign+broadcast path', {
         chainId: tx.chainId,
@@ -460,6 +469,30 @@ async function signAndBroadcastRawTransaction(
         txHash: rawTxHash,
         chainId: tx.chainId
     });
+
+    const mustBeVisibleBeforeReturn = context.txPurpose === 'trade' || context.txPurpose === 'speedup';
+    if (mustBeVisibleBeforeReturn) {
+        const visibility = await verifyTxVisibility(
+            tx.chainId,
+            rawTxHash,
+            context.expectedFrom,
+            {
+                retries: PRIVY_TX_SYNC_VISIBILITY_RETRIES,
+                delayMs: PRIVY_TX_SYNC_VISIBILITY_DELAY_MS
+            }
+        );
+        if (!visibility.visible) {
+            logger.warn(LogCode.EXE_TX_REVERTED, 'Privy raw tx broadcasted but not visible in sync probe', {
+                txHash: rawTxHash,
+                chainId: tx.chainId,
+                txPurpose: context.txPurpose,
+                checks: visibility.checks,
+                lastError: visibility.lastError
+            });
+            throw new Error(`tx_not_visible_after_broadcast:${visibility.lastError || 'not_found_by_rpc'}`);
+        }
+    }
+
     scheduleTxVisibilityCheck({
         path: 'raw_sign_broadcast',
         chainId: tx.chainId,
@@ -509,6 +542,36 @@ export async function sendTransaction(
                 txWithNonce.nonce = await getPendingNonce(txWithNonce.chainId, walletInfo.address);
             }
 
+            const hasExplicitFee =
+                !!txWithNonce.gasPrice
+                || !!txWithNonce.maxFeePerGas
+                || !!txWithNonce.maxPriorityFeePerGas;
+            if (!hasExplicitFee) {
+                try {
+                    const gasPriceHex = await rpcCall<string>(
+                        txWithNonce.chainId,
+                        'eth_gasPrice',
+                        [],
+                        { strategy: 'fast', importance: 'critical' }
+                    );
+                    const baseGasPrice = BigInt(gasPriceHex);
+                    const bumpBps = txWithNonce.txPurpose === 'trade'
+                        ? (txWithNonce.executionProfile === 'base-sniper' || txWithNonce.executionProfile === 'bsc-sniper' ? 13500n : 12500n)
+                        : 11500n;
+                    const bumpedGasPrice = (baseGasPrice * bumpBps + 9999n) / 10000n;
+                    txWithNonce = {
+                        ...txWithNonce,
+                        gasPrice: bumpedGasPrice.toString()
+                    };
+                } catch (gasErr: any) {
+                    logger.warn(LogCode.API_FETCH_FAILED, 'Failed to derive gasPrice for Privy tx; continuing without explicit gas price', {
+                        chainId: txWithNonce.chainId,
+                        txPurpose: txWithNonce.txPurpose || 'other',
+                        error: gasErr?.message || String(gasErr)
+                    });
+                }
+            }
+
             const verboseTxLog = (process.env.PRIVY_TX_DEBUG || 'false') === 'true';
             if (verboseTxLog) {
                 console.log('[sendTransaction] ========== PRIVY TX PARAMS ==========');
@@ -520,6 +583,7 @@ export async function sendTransaction(
                 console.log('[sendTransaction] Data prefix:', txWithNonce.data?.slice?.(0, 82));
                 console.log('[sendTransaction] ChainId:', txWithNonce.chainId);
                 console.log('[sendTransaction] Gas:', txWithNonce.gas);
+                console.log('[sendTransaction] GasPrice:', txWithNonce.gasPrice);
                 console.log('[sendTransaction] MaxFeePerGas:', txWithNonce.maxFeePerGas);
                 console.log('[sendTransaction] MaxPriorityFeePerGas:', txWithNonce.maxPriorityFeePerGas);
                 console.log('[sendTransaction] Profile:', txWithNonce.executionProfile);
@@ -533,6 +597,7 @@ export async function sendTransaction(
                     nonce: txWithNonce.nonce,
                     purpose: txWithNonce.txPurpose || 'other',
                     profile: txWithNonce.executionProfile,
+                    gasPrice: txWithNonce.gasPrice,
                     dataLength: txWithNonce.data?.length || 0,
                     sendTxAllowlist: Array.from(PRIVY_SEND_TX_CHAIN_IDS.values())
                 });
@@ -553,7 +618,8 @@ export async function sendTransaction(
                             userId,
                             attempt,
                             reason: 'chain_not_in_privy_sendtx_allowlist',
-                            expectedFrom: walletInfo.address
+                            expectedFrom: walletInfo.address,
+                            txPurpose: txWithNonce.txPurpose
                         });
                     }
 
@@ -606,7 +672,8 @@ export async function sendTransaction(
                                 userId,
                                 attempt,
                                 reason: 'privy_sendtx_unsupported_for_chain',
-                                expectedFrom: walletInfo.address
+                                expectedFrom: walletInfo.address,
+                                txPurpose: txWithNonce.txPurpose
                             });
                         } catch (fallbackError: any) {
                             logger.error(LogCode.EXE_TX_REVERTED, 'Privy sign+broadcast fallback failed', {
@@ -624,7 +691,8 @@ export async function sendTransaction(
 
                     const isNetworkError = errorMessage.includes('fetch failed') ||
                         errorMessage.includes('ECONNRESET') ||
-                        errorMessage.includes('socket disconnected');
+                        errorMessage.includes('socket disconnected') ||
+                        errorMessage.includes('tx_not_visible_after_broadcast');
 
                     // Retry on nonce errors or transient network failures
                     if ((isNonceError || isNetworkError) && attempt < MAX_RETRIES) {

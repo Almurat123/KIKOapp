@@ -24,7 +24,7 @@ test('tryGetRawTxHash normalizes raw tx input', () => {
 test('shouldTreatSendRawErrorAsKnown identifies idempotent sendRaw errors', () => {
   assert.equal(__rpcManagerTest.shouldTreatSendRawErrorAsKnown('already known'), true);
   assert.equal(__rpcManagerTest.shouldTreatSendRawErrorAsKnown('Known transaction'), true);
-  assert.equal(__rpcManagerTest.shouldTreatSendRawErrorAsKnown('nonce too low'), true);
+  assert.equal(__rpcManagerTest.shouldTreatSendRawErrorAsKnown('nonce too low'), false);
   assert.equal(__rpcManagerTest.shouldTreatSendRawErrorAsKnown('execution reverted'), false);
 });
 
@@ -50,6 +50,11 @@ test('getEndpointAttemptBudget applies cooldown cap', () => {
   const cooldown = __rpcManagerTest.getEndpointAttemptBudget('eth_call', 'normal', 8, true);
   assert.ok(normal >= cooldown);
   assert.equal(cooldown, 1);
+});
+
+test('getEndpointAttemptBudget can force exhaustive failover', () => {
+  const budget = __rpcManagerTest.getEndpointAttemptBudget('eth_call', 'critical', 7, true, true);
+  assert.equal(budget, 7);
 });
 
 test('getMethodConcurrencyLimit lowers limit during cooldown', () => {

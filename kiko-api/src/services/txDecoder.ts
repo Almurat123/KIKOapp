@@ -966,7 +966,7 @@ export function getDexName(routerAddress: string, chainId: number): string {
             '0x5e766616aabfb588e23a8ea854e9dbd1042affd3': 'Aerodrome Router',
             '0x663dc15d3c1ac63ff12e45ab68fea3f0a883c251': 'Aerodrome Router',
             '0xbc0663ef63add180609944c58ba7d4851890ca45': 'Aerodrome Router',
-            '0x420dd381b31aef6683db6b902084cb0ffece40da': 'Aerodrome Slipstream Router',
+            '0x420dd381b31aef6683db6b902084cb0ffece40da': 'Aerodrome Slipstream PoolFactory',
             '0x4752ba5dbc23f44d87826276bf6fd6b1c372ad24': 'BaseSwap Router',
             '0x1111111254eeb25477b68fb85ed929f73a960582': '1inch Router',
             '0x6131b5fae19ea4f9d964eac0408e4408b66337b5': 'KyberSwap',

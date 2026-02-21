@@ -43,7 +43,8 @@ export interface SolanaQuote {
   swapMode?: string;             // Required for Jupiter V6/Ultra swap
   slippageBps?: number;          // Required for Jupiter V6/Ultra swap
   rawQuoteResponse?: any;        // Raw quote response from API (for swap endpoint)
-  computeUnitPriceMicroLamports?: number; // Priority fee rate
+  priorityFeeMaxLamports?: number; // Jupiter /swap prioritizationFeeLamports maxLamports cap
+  computeUnitPriceMicroLamports?: number; // Deprecated alias kept for backward compatibility
 }
 
 export type SolanaAggregator = 'jupiter' | 'raydium' | 'meteora' | 'auto';
@@ -57,9 +58,9 @@ export interface SolanaPrice {
 }
 
 // Jupiter Ultra Swap API base URLs
-// Jupiter V6/V1 Quote API
-// - Public: https://public.jupiterapi.com (No Key)
-const JUPITER_PUBLIC_API = 'https://public.jupiterapi.com';
+// Jupiter Legacy Swap API base (official public endpoint).
+// [Ref] https://dev.jup.ag/api-reference/swap/quote
+const JUPITER_PUBLIC_API = process.env.JUPITER_PUBLIC_API_BASE || 'https://lite-api.jup.ag/swap/v1';
 
 // Jupiter Ultra API (Authenticated)
 // Documentation: https://station.jup.ag/docs/ultra/get-order
@@ -76,6 +77,20 @@ const getJupiterApiKey = (): string | undefined => {
 const RAYDIUM_SWAP_HOST = 'https://transaction-v1.raydium.io';
 const RAYDIUM_BASE_HOST = 'https://api-v3.raydium.io';
 
+function normalizePriorityFeeMaxLamports(value?: number): number | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (!Number.isFinite(value)) return undefined;
+  const normalized = Math.floor(value);
+  if (normalized <= 0) return undefined;
+  return normalized;
+}
+
+function resolvePriorityFeeMaxLamportsFromQuote(quote: SolanaQuote): number | undefined {
+  return normalizePriorityFeeMaxLamports(
+    quote.priorityFeeMaxLamports ?? quote.computeUnitPriceMicroLamports
+  );
+}
+
 /**
  * Get swap quote from Jupiter Ultra API
  * Documentation: https://dev.jup.ag/api-reference/ultra/order
@@ -90,7 +105,7 @@ async function getJupiterQuote(
   amount: string,
   slippageBps: number = 50,
   userAddress?: string,
-  computeUnitPriceMicroLamports?: number,
+  priorityFeeMaxLamports?: number,
   feeContext?: string,
   options?: {
     dexes?: string[];
@@ -99,6 +114,7 @@ async function getJupiterQuote(
   }
 ): Promise<SolanaQuote | null> {
   try {
+    const normalizedPriorityFeeMaxLamports = normalizePriorityFeeMaxLamports(priorityFeeMaxLamports);
     // Build headers with API key if available
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
@@ -175,7 +191,7 @@ async function getJupiterQuote(
           amount,
           slippageBps,
           userAddress,
-          computeUnitPriceMicroLamports,
+          priorityFeeMaxLamports,
           feeContext,
           {
             ...(options || {}),
@@ -227,9 +243,9 @@ async function getJupiterQuote(
               userPublicKey: userAddress,
               wrapAndUnwrapSol: true,
               dynamicComputeUnitLimit: true,
-              // Use explicit microLamports if provided, otherwise fallback to 'auto'
-              prioritizationFeeLamports: computeUnitPriceMicroLamports
-                ? { priorityLevelWithMaxLamports: { priorityLevel: "veryHigh", maxLamports: computeUnitPriceMicroLamports } }
+              // Jupiter /swap expects max lamports cap for prioritizationFeeLamports.
+              prioritizationFeeLamports: normalizedPriorityFeeMaxLamports
+                ? { priorityLevelWithMaxLamports: { priorityLevel: "veryHigh", maxLamports: normalizedPriorityFeeMaxLamports } }
                 : 'auto',
             })
           });
@@ -255,6 +271,8 @@ async function getJupiterQuote(
       routePlan: quoteData.routePlan,
       swapTransaction,
       rawQuoteResponse: quoteData, // Store full response for /swap endpoint
+      priorityFeeMaxLamports: normalizedPriorityFeeMaxLamports,
+      computeUnitPriceMicroLamports: normalizedPriorityFeeMaxLamports,
     };
   } catch (error: any) {
     logger.error(LogCode.API_FETCH_FAILED, 'Jupiter API error fetching quote', { error: error.message });
@@ -272,6 +290,7 @@ export async function getJupiterSwapTransaction(
   feeContext?: string
 ): Promise<string | null> {
   try {
+    const priorityFeeMaxLamports = resolvePriorityFeeMaxLamportsFromQuote(quote);
     // Build headers with API key if available
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
@@ -311,9 +330,8 @@ export async function getJupiterSwapTransaction(
         userPublicKey,
         wrapUnwrapSOL,
         dynamicComputeUnitLimit: true,
-        // Use explicit microLamports if provided, otherwise fallback to 'auto'
-        prioritizationFeeLamports: quote.computeUnitPriceMicroLamports
-          ? { priorityLevelWithMaxLamports: { priorityLevel: "veryHigh", maxLamports: quote.computeUnitPriceMicroLamports * 1000 } }
+        prioritizationFeeLamports: priorityFeeMaxLamports
+          ? { priorityLevelWithMaxLamports: { priorityLevel: "veryHigh", maxLamports: priorityFeeMaxLamports } }
           : 'auto',
       })
     });
@@ -515,7 +533,7 @@ export async function getSolanaQuoteFromAggregator(
   amount: string,
   slippageBps: number = 50,
   userAddress?: string,
-  computeUnitPriceMicroLamports?: number,
+  priorityFeeMaxLamports?: number,
   feeContext?: string,
   options?: {
     forcePublicApi?: boolean;
@@ -530,7 +548,7 @@ export async function getSolanaQuoteFromAggregator(
         amount,
         slippageBps,
         userAddress,
-        computeUnitPriceMicroLamports,
+        priorityFeeMaxLamports,
         feeContext,
         {
           forcePublicApi: options?.forcePublicApi,
@@ -546,7 +564,7 @@ export async function getSolanaQuoteFromAggregator(
         amount,
         slippageBps,
         userAddress,
-        computeUnitPriceMicroLamports,
+        priorityFeeMaxLamports,
         feeContext,
         {
           dexes: ['Meteora DLMM', 'Meteora'],
@@ -580,13 +598,13 @@ export async function getSolanaQuote(
   slippageBps: number = 50,
   aggregator?: 'jupiter' | 'raydium' | 'meteora' | 'auto',
   userAddress?: string,
-  computeUnitPriceMicroLamports?: number,
+  priorityFeeMaxLamports?: number,
   feeContext?: string
 ): Promise<SolanaQuote | null> {
   try {
     // If specific aggregator is requested, use only that one
     if (aggregator && aggregator !== 'auto') {
-      const quote = await getSolanaQuoteFromAggregator(aggregator, inputMint, outputMint, amount, slippageBps, userAddress, computeUnitPriceMicroLamports, feeContext);
+      const quote = await getSolanaQuoteFromAggregator(aggregator, inputMint, outputMint, amount, slippageBps, userAddress, priorityFeeMaxLamports, feeContext);
       if (quote) {
         logger.info(LogCode.EXE_QUOTE_FETCHED, `Solana Swap: Quote from ${aggregator}`, { outAmount: quote.outAmount });
       }
@@ -599,8 +617,8 @@ export async function getSolanaQuote(
 
     const startTime = Date.now();
     const quotes = await Promise.allSettled([
-      getJupiterQuote(inputMint, outputMint, amount, slippageBps, undefined, computeUnitPriceMicroLamports, feeContext),
-      getSolanaQuoteFromAggregator('meteora', inputMint, outputMint, amount, slippageBps, undefined, computeUnitPriceMicroLamports, feeContext),
+      getJupiterQuote(inputMint, outputMint, amount, slippageBps, undefined, priorityFeeMaxLamports, feeContext),
+      getSolanaQuoteFromAggregator('meteora', inputMint, outputMint, amount, slippageBps, undefined, priorityFeeMaxLamports, feeContext),
       getRaydiumQuote(inputMint, outputMint, amount, slippageBps, undefined),
     ]);
 
@@ -715,6 +733,11 @@ export async function getSolanaPrice(
 
 
 export { SOLANA_NATIVE_MINT };
+
+export const __solanaSwapTest = {
+  normalizePriorityFeeMaxLamports,
+  resolvePriorityFeeMaxLamportsFromQuote
+};
 
 /**
  * Convert token symbols to Solana Mint addresses

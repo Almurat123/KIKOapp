@@ -22,6 +22,7 @@ import {
     UNISWAP_V4_POOL_MANAGER_BY_CHAIN,
     CHAIN_STRATEGIES,
 } from './constants.js';
+import { V3_FEE_TIERS } from '../types.js';
 import type { DirectSwapHint } from '../directSwapTypes.js';
 import type { PoolInfo } from '../poolInfo.js';
 
@@ -69,6 +70,10 @@ test('[addresses] Chain strategies exist for Base and BSC', () => {
     // Base should have v4 strategy
     const baseKinds = CHAIN_STRATEGIES[8453].map((s) => s.kind);
     assert.ok(baseKinds.includes('v4'), 'Base missing v4 strategy');
+});
+
+test('[addresses] Uniswap V3 standard fee tiers include 0.01%', () => {
+    assert.deepEqual([...V3_FEE_TIERS], [100, 500, 3000, 10000]);
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -131,6 +136,13 @@ test('[hint] deriveHintStrategy detects aerodrome from dex name', () => {
     const strategy = deriveHintStrategy(8453, { sourceDexName: 'Aerodrome' });
     assert.ok(strategy);
     assert.equal(strategy!.kind, 'aerodrome');
+});
+
+test('[hint] deriveHintStrategy does not treat Aerodrome CL factory as router hint', () => {
+    const strategy = deriveHintStrategy(8453, {
+        sourceRouter: '0x420DD381b31aEf6683db6B902084cB0FFECe40Da'
+    });
+    assert.equal(strategy, null);
 });
 
 test('[hint] deriveHintStrategy detects infinity (PancakeSwap) from dex name on BSC', () => {

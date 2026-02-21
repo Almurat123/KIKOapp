@@ -270,8 +270,6 @@ function isNonRetryableRpcErrorMessage(message: string): boolean {
         || msg.includes('out of gas')
         || msg.includes('insufficient funds for gas * price + value')
         || msg.includes('insufficient funds')
-        || msg.includes('nonce too low')
-        || msg.includes('replacement transaction underpriced')
     );
 }
 
@@ -369,7 +367,6 @@ function shouldTreatSendRawErrorAsKnown(message: string): boolean {
         || msg.includes('known transaction')
         || msg.includes('already imported')
         || msg.includes('already exists')
-        || msg.includes('nonce too low')
     );
 }
 
@@ -445,8 +442,13 @@ function getEndpointAttemptBudget(
     method: string,
     importance: RpcImportance,
     endpointCount: number,
-    cooldownActive: boolean
+    cooldownActive: boolean,
+    forceExhaustive = false
 ): number {
+    if (forceExhaustive) {
+        return Math.max(1, endpointCount);
+    }
+
     const ethCallBudget = method === 'eth_call'
         ? (importance === 'critical' ? RPC_MAX_ENDPOINT_ATTEMPTS_ETH_CALL_CRITICAL : RPC_MAX_ENDPOINT_ATTEMPTS_ETH_CALL_NORMAL)
         : null;
@@ -465,6 +467,19 @@ function getEndpointAttemptBudget(
     }
 
     return budget;
+}
+
+function shouldForceExhaustiveFailover(
+    method: string,
+    importance: RpcImportance,
+    options?: { exhaustiveFailover?: boolean }
+): boolean {
+    if (options?.exhaustiveFailover === true) return true;
+    // Trade-critical path: exhaust all available endpoints for reliability.
+    if (importance !== 'critical') return false;
+    return method === 'eth_call'
+        || method === 'eth_estimateGas'
+        || method === 'eth_sendRawTransaction';
 }
 
 function getMethodConcurrencyLimit(method: string, importance: RpcImportance, cooldownActive: boolean): number {
@@ -545,7 +560,7 @@ export async function callRpc<T = any>(
     chainIdOrName: number | string,
     method: string,
     params: any = [],
-    options: { strategy?: 'fast' | 'cheap'; importance?: RpcImportance } = {}
+    options: { strategy?: 'fast' | 'cheap'; importance?: RpcImportance; exhaustiveFailover?: boolean } = {}
 ): Promise<T> {
     let endpoints: RpcEndpointConfig[] = [];
     let chainName = typeof chainIdOrName === 'string' ? chainIdOrName : `Chain ${chainIdOrName}`;
@@ -637,7 +652,14 @@ export async function callRpc<T = any>(
         };
 
         const sortedEndpoints = sortEndpointsByScore(endpoints, effectiveImportance);
-        const endpointBudget = getEndpointAttemptBudget(method, effectiveImportance, sortedEndpoints.length, cooldownActive);
+        const forceExhaustiveFailover = shouldForceExhaustiveFailover(method, effectiveImportance, options);
+        const endpointBudget = getEndpointAttemptBudget(
+            method,
+            effectiveImportance,
+            sortedEndpoints.length,
+            cooldownActive,
+            forceExhaustiveFailover
+        );
         const selectedEndpoints = sortedEndpoints.slice(0, endpointBudget);
 
         let lastError: Error | null = null;
@@ -826,6 +848,7 @@ export async function callRpc<T = any>(
                 totalEndpoints: sortedEndpoints.length,
                 attemptedEndpoints: selectedEndpoints.length,
                 endpointBudget,
+                exhaustiveFailover: forceExhaustiveFailover,
                 cooldownMs: Math.max(0, newBackoff.cooldownUntil - Date.now()),
                 lastError: lastError?.message,
                 role: LogRole.METRIC
@@ -1012,7 +1035,7 @@ export async function callRpcRaw<T = any>(
     chainIdOrName: number | string,
     method: string,
     params: any = [],
-    options: { strategy?: 'fast' | 'cheap'; importance?: RpcImportance } = {}
+    options: { strategy?: 'fast' | 'cheap'; importance?: RpcImportance; exhaustiveFailover?: boolean } = {}
 ): Promise<RpcResponse<T>> {
     let endpoints: RpcEndpointConfig[] = [];
     let chainName = typeof chainIdOrName === 'string' ? chainIdOrName : `Chain ${chainIdOrName}`;
@@ -1077,7 +1100,14 @@ export async function callRpcRaw<T = any>(
         };
 
         const sortedEndpoints = sortEndpointsByScore(endpoints, effectiveImportance);
-        const endpointBudget = getEndpointAttemptBudget(method, effectiveImportance, sortedEndpoints.length, cooldownActive);
+        const forceExhaustiveFailover = shouldForceExhaustiveFailover(method, effectiveImportance, options);
+        const endpointBudget = getEndpointAttemptBudget(
+            method,
+            effectiveImportance,
+            sortedEndpoints.length,
+            cooldownActive,
+            forceExhaustiveFailover
+        );
         const selectedEndpoints = sortedEndpoints.slice(0, endpointBudget);
         let lastError: Error | null = null;
 
@@ -1189,6 +1219,7 @@ export async function callRpcRaw<T = any>(
                 totalEndpoints: sortedEndpoints.length,
                 attemptedEndpoints: selectedEndpoints.length,
                 endpointBudget,
+                exhaustiveFailover: forceExhaustiveFailover,
                 cooldownMs: Math.max(0, newBackoff.cooldownUntil - Date.now()),
                 lastError: lastError?.message
             });

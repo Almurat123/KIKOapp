@@ -130,6 +130,8 @@ export const ERC20_ABI = [
 
 // ============ Constants ============
 
-export const V3_FEE_TIERS = [500, 3000, 10000] as const;  // 0.05%, 0.3%, 1%
+// Uniswap V3 standard enabled fee tiers (in hundredths of a bip):
+// 100=0.01%, 500=0.05%, 3000=0.3%, 10000=1%
+export const V3_FEE_TIERS = [100, 500, 3000, 10000] as const;
 export const DEFAULT_DEADLINE_SECONDS = 1800;  // 30 minutes
 export const MAX_UINT256 = BigInt('0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff');

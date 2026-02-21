@@ -2,6 +2,7 @@ import type { DexStrategy, DirectSwapHint } from './types.js';
 
 const PANCAKE_V3_ROUTER = '0x1b81d678ffb9c0263b24a97847620c99d213eb14';
 const PANCAKE_INFINITY_ROUTER = '0xd9c500dff816a1da21a48a732d3498bf09dc9aeb';
+const AERODROME_CL_FACTORY = '0x420dd381b31aef6683db6b902084cb0ffece40da';
 
 export function deriveHintStrategy(chainId: number, hint?: DirectSwapHint): DexStrategy | null {
   if (!hint) return null;
@@ -37,7 +38,9 @@ export function deriveHintStrategy(chainId: number, hint?: DirectSwapHint): DexS
 
   if (router === '0x6ff5693b99212da76ad316178a184ab56d299b43' || router === '0x498581ff718922c3f8e6a244956af099b2652b2b') return { kind: 'v4', dex: 'uniswap' };
   if (router === '0x2626664c2603336e57b271c5c0b26f421741e481') return { kind: 'v3', dex: 'uniswap' };
-  if (router === '0xcf77a3ba9a5ca399b7c97c74d54e5b1beb874e43' || router === '0x420dd381b31aef6683db6b902084cb0ffece40da') return { kind: 'aerodrome', dex: 'aerodrome' };
+  // 0x420d.. is Aerodrome CL factory, not a swap router; avoid forcing wrong hint.
+  if (router === '0xcf77a3ba9a5ca399b7c97c74d54e5b1beb874e43') return { kind: 'aerodrome', dex: 'aerodrome' };
+  if (router === AERODROME_CL_FACTORY) return null;
   if (router === '0x4752ba5dbc23f44d87826276bf6fd6b1c372ad24') return { kind: 'v2', dex: 'uniswap' };
   if (
     router === '0x0000000000001ff3684f28c67538d4d072c22734'

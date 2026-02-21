@@ -90,7 +90,9 @@ export async function executeSolanaSwap(params: SolanaSwapParams): Promise<strin
     // [Expert Logic]: Add explicit priority fee context for copytrading
     // Competitive environment requires > 50th percentile of recent fees
     if (quote && params.feeContext === 'copyTrade') {
-        quote.computeUnitPriceMicroLamports = 100000; // 100k microLamports (Aggressive base)
+        // Jupiter /swap uses prioritizationFeeLamports.maxLamports (lamports cap), not micro-lamports.
+        quote.priorityFeeMaxLamports = 100000; // 0.0001 SOL cap as aggressive baseline
+        quote.computeUnitPriceMicroLamports = quote.priorityFeeMaxLamports; // Backward-compatible alias
     }
 
     if (!quote) {

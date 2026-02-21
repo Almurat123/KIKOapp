@@ -76,6 +76,7 @@ const V4_CONFIGS: Record<number, V4PoolConfig[]> = {
         ...CLANKER_FEE_TICK_SPACING.map(cfg => ({ ...cfg, hooks: CLANKER_HOOKS_STATIC_BASE })),
 
         // Common static fee tiers (hookless + known hooks from registry)
+        { fee: 100, tickSpacing: 1, hooks: ['0x0000000000000000000000000000000000000000', ...KNOWN_HOOKS_BASE] },
         { fee: 500, tickSpacing: 10, hooks: ['0x0000000000000000000000000000000000000000', ...KNOWN_HOOKS_BASE] },
         { fee: 3000, tickSpacing: 60, hooks: ['0x0000000000000000000000000000000000000000', ...KNOWN_HOOKS_BASE] },
         { fee: 10000, tickSpacing: 200, hooks: ['0x0000000000000000000000000000000000000000', ...KNOWN_HOOKS_BASE] },
@@ -91,7 +92,7 @@ const V4_CONFIGS: Record<number, V4PoolConfig[]> = {
     56: [ // BSC - Uniswap V4 (deployed separately from PancakeSwap)
         { fee: 100, tickSpacing: 1, hooks: ['0x0000000000000000000000000000000000000000'] },
         { fee: 500, tickSpacing: 10, hooks: ['0x0000000000000000000000000000000000000000'] },
-        { fee: 2500, tickSpacing: 50, hooks: ['0x0000000000000000000000000000000000000000'] },
+        { fee: 3000, tickSpacing: 60, hooks: ['0x0000000000000000000000000000000000000000'] },
         { fee: 10000, tickSpacing: 200, hooks: ['0x0000000000000000000000000000000000000000'] },
     ],
 };
