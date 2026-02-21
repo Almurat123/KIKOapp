@@ -470,7 +470,10 @@ async function signAndBroadcastRawTransaction(
         chainId: tx.chainId
     });
 
-    const mustBeVisibleBeforeReturn = context.txPurpose === 'trade' || context.txPurpose === 'speedup';
+    // Trade path should not be blocked by short visibility probes.
+    // A valid tx hash from eth_sendRawTransaction already means accepted by at least one RPC mempool.
+    // We keep sync visibility blocking only for speedup/replacement flows.
+    const mustBeVisibleBeforeReturn = context.txPurpose === 'speedup';
     if (mustBeVisibleBeforeReturn) {
         const visibility = await verifyTxVisibility(
             tx.chainId,
@@ -491,6 +494,12 @@ async function signAndBroadcastRawTransaction(
             });
             throw new Error(`tx_not_visible_after_broadcast:${visibility.lastError || 'not_found_by_rpc'}`);
         }
+    } else {
+        logger.info(LogCode.SYS_INFO, 'Privy raw tx accepted without sync visibility gate', {
+            txHash: rawTxHash,
+            chainId: tx.chainId,
+            txPurpose: context.txPurpose || 'other'
+        });
     }
 
     scheduleTxVisibilityCheck({
