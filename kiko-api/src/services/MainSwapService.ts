@@ -920,12 +920,15 @@ export class MainSwapService {
         isTimeoutError(lastDirectError) &&
         inflightDirectPromise
       ) {
+        const remainingBudgetForFinalSettle = Math.max(200, TURBO_TOTAL_BUDGET_MS - (Date.now() - turboBudgetStart));
+        const finalSettleMs = Math.max(TURBO_DIRECT_FINAL_SETTLE_MS, remainingBudgetForFinalSettle);
         logger.warn(LogCode.SYS_INFO, trace('Turbo direct timed out; awaiting final settle window'), {
-          finalSettleMs: TURBO_DIRECT_FINAL_SETTLE_MS,
+          finalSettleMs,
+          remainingBudgetForFinalSettle,
           error: lastDirectError?.message
         });
         try {
-          const finalResult = await settleWithin(inflightDirectPromise, TURBO_DIRECT_FINAL_SETTLE_MS);
+          const finalResult = await settleWithin(inflightDirectPromise, finalSettleMs);
           if (finalResult) {
             lastDirectResult = finalResult;
             if (finalResult.success) {

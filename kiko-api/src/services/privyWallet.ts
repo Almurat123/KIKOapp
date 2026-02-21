@@ -41,6 +41,13 @@ const PRIVY_TX_VISIBILITY_RETRIES = 6;
 const PRIVY_TX_VISIBILITY_DELAY_MS = 500;
 const PRIVY_TX_SYNC_VISIBILITY_RETRIES = 8;
 const PRIVY_TX_SYNC_VISIBILITY_DELAY_MS = 400;
+const PRIVY_FAST_TRADE_SYNC_VISIBILITY_RETRIES = 1;
+const PRIVY_FAST_TRADE_SYNC_VISIBILITY_DELAY_MS = 120;
+const PRIVY_FAST_TRADE_BASE_GAS_BUMP_BPS = BigInt(Math.max(10000, Number(process.env.PRIVY_FAST_TRADE_BASE_GAS_BUMP_BPS || '22000')));
+const PRIVY_FAST_TRADE_BSC_GAS_BUMP_BPS = BigInt(Math.max(10000, Number(process.env.PRIVY_FAST_TRADE_BSC_GAS_BUMP_BPS || '17000')));
+const PRIVY_FAST_TRADE_DEFAULT_GAS_BUMP_BPS = BigInt(Math.max(10000, Number(process.env.PRIVY_FAST_TRADE_DEFAULT_GAS_BUMP_BPS || '14000')));
+const PRIVY_FAST_TRADE_BASE_MIN_GAS_PRICE_WEI = BigInt(Math.max(1, Number(process.env.PRIVY_FAST_TRADE_BASE_MIN_GAS_PRICE_WEI || '25000000')));
+const PRIVY_FAST_TRADE_BSC_MIN_GAS_PRICE_WEI = BigInt(Math.max(1, Number(process.env.PRIVY_FAST_TRADE_BSC_MIN_GAS_PRICE_WEI || '1200000000')));
 
 let privyClient: PrivyClient | null = null;
 
@@ -52,6 +59,44 @@ const toHexQuantity = (value?: string) =>
 function isLikelyEvmAddress(value: unknown): boolean {
     const address = String(value || '');
     return /^0x[a-fA-F0-9]{40}$/.test(address);
+}
+
+function isFastTradeExecutionProfile(tx: Pick<TransactionRequest, 'txPurpose' | 'executionProfile'>): boolean {
+    const purpose = tx.txPurpose || 'other';
+    if (purpose !== 'trade' && purpose !== 'speedup') return false;
+    const profile = String(tx.executionProfile || '').toLowerCase();
+    return profile === 'base-sniper' || profile === 'bsc-sniper';
+}
+
+function resolveTradeGasPolicy(tx: Pick<TransactionRequest, 'chainId' | 'txPurpose' | 'executionProfile'>): {
+    bumpBps: bigint;
+    minGasPriceWei: bigint;
+    policy: 'base-sniper' | 'bsc-sniper' | 'trade-default' | 'other';
+} {
+    const purpose = tx.txPurpose || 'other';
+    if (purpose !== 'trade' && purpose !== 'speedup') {
+        return { bumpBps: 11500n, minGasPriceWei: 1n, policy: 'other' };
+    }
+    const profile = String(tx.executionProfile || '').toLowerCase();
+    if (profile === 'base-sniper' || tx.chainId === 8453) {
+        return {
+            bumpBps: PRIVY_FAST_TRADE_BASE_GAS_BUMP_BPS,
+            minGasPriceWei: PRIVY_FAST_TRADE_BASE_MIN_GAS_PRICE_WEI,
+            policy: 'base-sniper'
+        };
+    }
+    if (profile === 'bsc-sniper' || tx.chainId === 56) {
+        return {
+            bumpBps: PRIVY_FAST_TRADE_BSC_GAS_BUMP_BPS,
+            minGasPriceWei: PRIVY_FAST_TRADE_BSC_MIN_GAS_PRICE_WEI,
+            policy: 'bsc-sniper'
+        };
+    }
+    return {
+        bumpBps: PRIVY_FAST_TRADE_DEFAULT_GAS_BUMP_BPS,
+        minGasPriceWei: 1n,
+        policy: 'trade-default'
+    };
 }
 
 type EmbeddedWalletChainType = 'ethereum' | 'solana' | 'auto';
@@ -458,12 +503,13 @@ async function signAndBroadcastRawTransaction(
         },
     });
 
+    const fastTradePath = isFastTradeExecutionProfile(tx);
     const lifecycle = await broadcastRawWithQuorum({
         chainId: tx.chainId,
         signedRawTransaction: signed.signedTransaction,
         expectedFrom: context.expectedFrom,
-        syncVisibilityRetries: PRIVY_TX_SYNC_VISIBILITY_RETRIES,
-        syncVisibilityDelayMs: PRIVY_TX_SYNC_VISIBILITY_DELAY_MS,
+        syncVisibilityRetries: fastTradePath ? PRIVY_FAST_TRADE_SYNC_VISIBILITY_RETRIES : PRIVY_TX_SYNC_VISIBILITY_RETRIES,
+        syncVisibilityDelayMs: fastTradePath ? PRIVY_FAST_TRADE_SYNC_VISIBILITY_DELAY_MS : PRIVY_TX_SYNC_VISIBILITY_DELAY_MS,
         bypassRawTxCache: true
     });
     const rawTxHash = lifecycle.txHash;
@@ -489,6 +535,16 @@ async function signAndBroadcastRawTransaction(
         txHash: rawTxHash,
         expectedFrom: context.expectedFrom
     });
+
+    if (fastTradePath) {
+        logger.info(LogCode.SYS_INFO, 'Privy fast trade lifecycle early return', {
+            chainId: tx.chainId,
+            txHash: rawTxHash,
+            status: lifecycle.status,
+            checks: lifecycle.attempts
+        });
+        return lifecycle;
+    }
 
     if (context.txPurpose === 'trade' || context.txPurpose === 'speedup') {
         const finalState = await waitForReceiptStateMachine({
@@ -566,14 +622,25 @@ export async function sendTransactionLifecycle(
                         { strategy: 'fast', importance: 'critical' }
                     );
                     const baseGasPrice = BigInt(gasPriceHex);
-                    const bumpBps = txWithNonce.txPurpose === 'trade'
-                        ? (txWithNonce.executionProfile === 'base-sniper' || txWithNonce.executionProfile === 'bsc-sniper' ? 13500n : 12500n)
-                        : 11500n;
-                    const bumpedGasPrice = (baseGasPrice * bumpBps + 9999n) / 10000n;
+                    const gasPolicy = resolveTradeGasPolicy(txWithNonce);
+                    const bumpedGasPrice = (baseGasPrice * gasPolicy.bumpBps + 9999n) / 10000n;
+                    const finalGasPrice = bumpedGasPrice > gasPolicy.minGasPriceWei
+                        ? bumpedGasPrice
+                        : gasPolicy.minGasPriceWei;
                     txWithNonce = {
                         ...txWithNonce,
-                        gasPrice: bumpedGasPrice.toString()
+                        gasPrice: finalGasPrice.toString()
                     };
+                    logger.info(LogCode.SYS_INFO, 'Privy gas policy applied', {
+                        chainId: txWithNonce.chainId,
+                        txPurpose: txWithNonce.txPurpose || 'other',
+                        executionProfile: txWithNonce.executionProfile || 'default',
+                        policy: gasPolicy.policy,
+                        baseGasPriceWei: baseGasPrice.toString(),
+                        bumpBps: gasPolicy.bumpBps.toString(),
+                        minGasPriceWei: gasPolicy.minGasPriceWei.toString(),
+                        finalGasPriceWei: finalGasPrice.toString()
+                    });
                 } catch (gasErr: any) {
                     logger.warn(LogCode.API_FETCH_FAILED, 'Failed to derive gasPrice for Privy tx; continuing without explicit gas price', {
                         chainId: txWithNonce.chainId,
@@ -624,6 +691,7 @@ export async function sendTransactionLifecycle(
                     });
 
                     const preferPrivySendTx = PRIVY_SEND_TX_CHAIN_IDS.has(txWithNonce.chainId);
+                    const fastTradePath = isFastTradeExecutionProfile(txWithNonce);
                     if (!preferPrivySendTx) {
                         return await signAndBroadcastRawTransaction(client, walletInfo.id, txWithNonce, {
                             userId,
@@ -670,8 +738,8 @@ export async function sendTransactionLifecycle(
                         response.hash,
                         walletInfo.address,
                         {
-                            retries: PRIVY_TX_SYNC_VISIBILITY_RETRIES,
-                            delayMs: PRIVY_TX_SYNC_VISIBILITY_DELAY_MS
+                            retries: fastTradePath ? PRIVY_FAST_TRADE_SYNC_VISIBILITY_RETRIES : PRIVY_TX_SYNC_VISIBILITY_RETRIES,
+                            delayMs: fastTradePath ? PRIVY_FAST_TRADE_SYNC_VISIBILITY_DELAY_MS : PRIVY_TX_SYNC_VISIBILITY_DELAY_MS
                         }
                     );
 
@@ -694,6 +762,16 @@ export async function sendTransactionLifecycle(
                     const postSendDelayMs = Math.max(0, Number(process.env.PRIVY_POST_SEND_DELAY_MS || '0'));
                     if (postSendDelayMs > 0) {
                         await new Promise(resolve => setTimeout(resolve, postSendDelayMs));
+                    }
+
+                    if (fastTradePath) {
+                        logger.info(LogCode.SYS_INFO, 'Privy fast trade lifecycle early return', {
+                            chainId: txWithNonce.chainId,
+                            txHash: response.hash,
+                            status: lifecycleBase.status,
+                            checks: lifecycleBase.attempts
+                        });
+                        return lifecycleBase;
                     }
 
                     if (txWithNonce.txPurpose === 'trade' || txWithNonce.txPurpose === 'speedup') {
