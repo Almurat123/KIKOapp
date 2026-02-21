@@ -55,6 +55,11 @@ export { getTokenInfo } from './tokenService.js';
 
 // Track positions currently being processed for exit to prevent duplicate attempts
 const positionsBeingExited = new Set<string>();
+const MIN_POSITION_AGE_FOR_TPSL_MS = Math.max(0, Number(process.env.MIN_POSITION_AGE_FOR_TPSL_MS || '90000'));
+const TPSL_CONSECUTIVE_HITS_REQUIRED = Math.max(1, Number(process.env.TPSL_CONSECUTIVE_HITS_REQUIRED || '2'));
+const TPSL_HIT_WINDOW_MS = Math.max(1000, Number(process.env.TPSL_HIT_WINDOW_MS || '90000'));
+const TPSL_TRACKER_PRUNE_MS = 10 * 60 * 1000;
+const tpslHitTracker = new Map<string, { side: 'tp' | 'sl'; hits: number; firstHitAt: number; lastHitAt: number; lastPnlPct: number }>();
 
 type PositionStatusCompat = {
     lockStatuses: string[];
@@ -108,6 +113,43 @@ async function getPositionStatusCompat(): Promise<PositionStatusCompat> {
         };
         positionStatusCompatCache = { value: fallback, ts: Date.now() };
         return fallback;
+    }
+}
+
+function recordTpslHit(positionId: string, side: 'tp' | 'sl', pnlPct: number): number {
+    const now = Date.now();
+    const current = tpslHitTracker.get(positionId);
+    if (!current || current.side !== side || (now - current.lastHitAt) > TPSL_HIT_WINDOW_MS) {
+        tpslHitTracker.set(positionId, {
+            side,
+            hits: 1,
+            firstHitAt: now,
+            lastHitAt: now,
+            lastPnlPct: pnlPct
+        });
+        return 1;
+    }
+    const nextHits = current.hits + 1;
+    tpslHitTracker.set(positionId, {
+        ...current,
+        hits: nextHits,
+        lastHitAt: now,
+        lastPnlPct: pnlPct
+    });
+    return nextHits;
+}
+
+function clearTpslHit(positionId: string): void {
+    tpslHitTracker.delete(positionId);
+}
+
+function pruneTpslTracker(): void {
+    if (tpslHitTracker.size === 0) return;
+    const now = Date.now();
+    for (const [positionId, state] of tpslHitTracker.entries()) {
+        if (now - state.lastHitAt > TPSL_TRACKER_PRUNE_MS) {
+            tpslHitTracker.delete(positionId);
+        }
     }
 }
 
@@ -3151,6 +3193,7 @@ async function cleanupPendingPositions() {
  * Check and execute take profit / stop loss for open positions
  */
 export async function checkPositionsForExits(): Promise<void> {
+    pruneTpslTracker();
     const positionStatusCompat = await getPositionStatusCompat();
     const lifecycleLockStatuses = positionStatusCompat.lockStatuses.filter((s) => s !== 'pending');
     // STEP -2: Reconcile lifecycle-driven pending states by tx receipt.
@@ -3464,11 +3507,13 @@ export async function checkPositionsForExits(): Promise<void> {
 
                 const currentPrice = tokenInfo.price;
                 const profitLossPct = ((currentPrice - position.entryPrice) / position.entryPrice) * 100;
+                const positionAgeMs = Date.now() - new Date(position.createdAt).getTime();
 
                 // Get config
                 const config = configMap.get(position.configId);
                 if (!config) {
                     logger.warn(LogCode.WTC_TX_SKIPPED, 'Orphaned position: Config not found', { positionId: position.id, configId: position.configId });
+                    clearTpslHit(position.id);
                     return;
                 }
 
@@ -3485,8 +3530,31 @@ export async function checkPositionsForExits(): Promise<void> {
                     });
                 }
 
+                if (positionAgeMs < MIN_POSITION_AGE_FOR_TPSL_MS) {
+                    clearTpslHit(position.id);
+                    logger.debug(LogCode.SYS_INFO, 'TP/SL guard: position too new', {
+                        positionId: position.id,
+                        token: position.tokenSymbol || 'Unknown',
+                        ageMs: positionAgeMs,
+                        minAgeMs: MIN_POSITION_AGE_FOR_TPSL_MS,
+                        pnlPct: Number.isFinite(profitLossPct) ? profitLossPct.toFixed(2) : 'NaN'
+                    });
+                    return;
+                }
+
                 // Check take profit
                 if (config.takeProfitPct && profitLossPct >= config.takeProfitPct) {
+                    const hitCount = recordTpslHit(position.id, 'tp', profitLossPct);
+                    if (hitCount < TPSL_CONSECUTIVE_HITS_REQUIRED) {
+                        logger.info(LogCode.EXE_TX_BROADCAST, 'Take Profit armed (awaiting confirmation tick)', {
+                            positionId: position.id,
+                            token: position.tokenSymbol || 'Unknown',
+                            profitLossPct: profitLossPct.toFixed(2),
+                            hitCount,
+                            requiredHits: TPSL_CONSECUTIVE_HITS_REQUIRED
+                        });
+                        return;
+                    }
                     logger.info(LogCode.EXE_TX_BROADCAST, 'Take Profit triggered', {
                         positionId: position.id,
                         token: position.tokenSymbol || 'Unknown',
@@ -3504,11 +3572,23 @@ export async function checkPositionsForExits(): Promise<void> {
                             config: { ...config, user: position.user }
                         });
                     } finally {
+                        clearTpslHit(position.id);
                         positionsBeingExited.delete(position.id);
                     }
                 }
                 // Check stop loss
                 else if (config.stopLossPct && profitLossPct <= -config.stopLossPct) {
+                    const hitCount = recordTpslHit(position.id, 'sl', profitLossPct);
+                    if (hitCount < TPSL_CONSECUTIVE_HITS_REQUIRED) {
+                        logger.info(LogCode.EXE_TX_BROADCAST, 'Stop Loss armed (awaiting confirmation tick)', {
+                            positionId: position.id,
+                            token: position.tokenSymbol || 'Unknown',
+                            profitLossPct: profitLossPct.toFixed(2),
+                            hitCount,
+                            requiredHits: TPSL_CONSECUTIVE_HITS_REQUIRED
+                        });
+                        return;
+                    }
                     logger.info(LogCode.EXE_TX_BROADCAST, 'Stop Loss triggered', {
                         positionId: position.id,
                         token: position.tokenSymbol || 'Unknown',
@@ -3526,9 +3606,11 @@ export async function checkPositionsForExits(): Promise<void> {
                             config: { ...config, user: position.user }
                         });
                     } finally {
+                        clearTpslHit(position.id);
                         positionsBeingExited.delete(position.id);
                     }
                 } else {
+                    clearTpslHit(position.id);
                     // === Dynamic Take Profit Check ===
                     // Cast config to correct type (Prisma types might need reload)
                     const fullConfig = config as any;
