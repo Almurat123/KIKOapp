@@ -705,6 +705,13 @@ export async function callRpc<T = any>(
             forceExhaustiveFailover
         );
         const selectedEndpoints = sortedEndpoints.slice(0, endpointBudget);
+        const txLifecycleCritical =
+            effectiveImportance === 'critical'
+            && (
+                method === 'eth_sendRawTransaction'
+                || method === 'eth_getTransactionByHash'
+                || method === 'eth_getTransactionReceipt'
+            );
 
         let lastError: Error | null = null;
 
@@ -714,12 +721,16 @@ export async function callRpc<T = any>(
             }
 
             markRpcMethodUsage(chainId, method, 'endpointAttempts');
-            if (isCircuitOpen(endpoint.url)) {
+            if (!txLifecycleCritical && isCircuitOpen(endpoint.url)) {
                 throw new Error('circuit_open');
             }
-            const capacity = checkAndReserveCapacity(endpoint, effectiveImportance);
-            if (!capacity.ok) {
-                throw new Error(`capacity_limited:${capacity.reason || 'unknown'}`);
+            if (txLifecycleCritical) {
+                recordUsageStart(endpoint.url);
+            } else {
+                const capacity = checkAndReserveCapacity(endpoint, effectiveImportance);
+                if (!capacity.ok) {
+                    throw new Error(`capacity_limited:${capacity.reason || 'unknown'}`);
+                }
             }
 
             const startTime = Date.now();
@@ -813,6 +824,12 @@ export async function callRpc<T = any>(
             let acceptedCount = 0;
             let failedCount = 0;
             let knownCount = 0;
+            const endpointResults: Array<{
+                endpoint: string;
+                status: 'accepted' | 'known' | 'failed';
+                txHash?: string;
+                error?: string;
+            }> = [];
             for (let i = 0; i < selectedEndpoints.length; i++) {
                 const endpoint = selectedEndpoints[i];
                 if (!endpoint?.url) continue;
@@ -822,6 +839,11 @@ export async function callRpc<T = any>(
                     if (txHash) {
                         if (!acceptedHash) acceptedHash = txHash;
                         acceptedCount += 1;
+                        endpointResults.push({
+                            endpoint: maskEndpoint(endpoint.url),
+                            status: 'accepted',
+                            txHash
+                        });
                     }
                 } catch (error: any) {
                     const message = String(error?.message || error || '');
@@ -829,8 +851,19 @@ export async function callRpc<T = any>(
                     if (message.includes('already known') || message.includes('known transaction') || message.includes('already imported')) {
                         knownCount += 1;
                         if (!acceptedHash && rawTxHash) acceptedHash = rawTxHash;
+                        endpointResults.push({
+                            endpoint: maskEndpoint(endpoint.url),
+                            status: 'known',
+                            txHash: rawTxHash || undefined,
+                            error: message.slice(0, 180)
+                        });
                     } else {
                         failedCount += 1;
+                        endpointResults.push({
+                            endpoint: maskEndpoint(endpoint.url),
+                            status: 'failed',
+                            error: message.slice(0, 180)
+                        });
                     }
                 }
             }
@@ -843,6 +876,7 @@ export async function callRpc<T = any>(
                     knownCount,
                     failedCount,
                     endpointBudget,
+                    endpointResults,
                     role: LogRole.METRIC
                 });
                 markMethodSuccess(backoffKey);
@@ -851,6 +885,16 @@ export async function callRpc<T = any>(
                 }
                 return acceptedHash as T;
             }
+
+            logger.warn(LogCode.API_FETCH_FAILED, 'eth_sendRawTransaction fanout failed with no accepted hash', {
+                chain: chainName,
+                attemptedEndpoints: selectedEndpoints.length,
+                failedCount,
+                knownCount,
+                endpointBudget,
+                endpointResults,
+                role: LogRole.METRIC
+            });
         }
 
         for (let i = 0; i < selectedEndpoints.length; i++) {

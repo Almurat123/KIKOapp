@@ -518,6 +518,9 @@ async function signAndBroadcastRawTransaction(
         txHash: rawTxHash,
         chainId: tx.chainId
     });
+    logger.info(LogCode.EXE_TX_BROADCAST, `Ethereum transaction broadcast via signed raw path txHash=${rawTxHash}`, {
+        chainId: tx.chainId
+    });
 
     if (lifecycle.status === 'broadcasted_unseen') {
         logger.warn(LogCode.EXE_TX_REVERTED, 'Privy raw tx broadcasted but not visible in sync probe', {
@@ -683,6 +686,38 @@ export async function sendTransactionLifecycle(
 
             for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
                 try {
+                    const bumpGasForVisibilityRetry = (reason: string) => {
+                        const nextTx = { ...txWithNonce };
+                        const bumpBps = 12500n; // +25%
+                        if (nextTx.gasPrice) {
+                            const current = BigInt(nextTx.gasPrice);
+                            const bumped = (current * bumpBps + 9999n) / 10000n;
+                            nextTx.gasPrice = (bumped > current ? bumped : (current + 1n)).toString();
+                        } else {
+                            if (nextTx.maxFeePerGas) {
+                                const current = BigInt(nextTx.maxFeePerGas);
+                                const bumped = (current * bumpBps + 9999n) / 10000n;
+                                nextTx.maxFeePerGas = (bumped > current ? bumped : (current + 1n)).toString();
+                            }
+                            if (nextTx.maxPriorityFeePerGas) {
+                                const current = BigInt(nextTx.maxPriorityFeePerGas);
+                                const bumped = (current * bumpBps + 9999n) / 10000n;
+                                nextTx.maxPriorityFeePerGas = (bumped > current ? bumped : (current + 1n)).toString();
+                            }
+                        }
+                        txWithNonce = nextTx;
+                        logger.warn(LogCode.EXE_TX_BROADCAST, 'Privy tx unseen after broadcast; bumping gas and retrying with same nonce', {
+                            chainId: txWithNonce.chainId,
+                            attempt,
+                            maxAttempts: MAX_RETRIES,
+                            reason,
+                            nonce: txWithNonce.nonce,
+                            gasPrice: txWithNonce.gasPrice,
+                            maxFeePerGas: txWithNonce.maxFeePerGas,
+                            maxPriorityFeePerGas: txWithNonce.maxPriorityFeePerGas
+                        });
+                    };
+
                     logger.debug(LogCode.EXE_TX_BROADCAST, 'Sending Ethereum transaction via Privy', {
                         attempt,
                         from: walletInfo.address?.slice(0, 10),
@@ -693,13 +728,23 @@ export async function sendTransactionLifecycle(
                     const preferPrivySendTx = PRIVY_SEND_TX_CHAIN_IDS.has(txWithNonce.chainId);
                     const fastTradePath = isFastTradeExecutionProfile(txWithNonce);
                     if (!preferPrivySendTx) {
-                        return await signAndBroadcastRawTransaction(client, walletInfo.id, txWithNonce, {
+                        const rawLifecycle = await signAndBroadcastRawTransaction(client, walletInfo.id, txWithNonce, {
                             userId,
                             attempt,
                             reason: 'chain_not_in_privy_sendtx_allowlist',
                             expectedFrom: walletInfo.address,
                             txPurpose: txWithNonce.txPurpose
                         });
+                        if (
+                            rawLifecycle.status === 'broadcasted_unseen'
+                            && attempt < MAX_RETRIES
+                            && (fastTradePath || txWithNonce.txPurpose === 'trade' || txWithNonce.txPurpose === 'speedup')
+                        ) {
+                            bumpGasForVisibilityRetry('raw_path_broadcasted_unseen');
+                            await new Promise((resolve) => setTimeout(resolve, NETWORK_RETRY_DELAY_MS));
+                            continue;
+                        }
+                        return rawLifecycle;
                     }
 
                     const privyTx = {
@@ -723,6 +768,11 @@ export async function sendTransactionLifecycle(
 
                     logger.info(LogCode.EXE_TX_BROADCAST, 'Ethereum transaction sent via Privy', {
                         txHash: response.hash,
+                        chainId: txWithNonce.chainId,
+                        walletId: walletInfo.id?.slice?.(0, 12),
+                        expectedFrom: walletInfo.address
+                    });
+                    logger.info(LogCode.EXE_TX_BROADCAST, `Ethereum transaction sent via Privy txHash=${response.hash}`, {
                         chainId: txWithNonce.chainId,
                         walletId: walletInfo.id?.slice?.(0, 12),
                         expectedFrom: walletInfo.address
@@ -764,6 +814,16 @@ export async function sendTransactionLifecycle(
                         await new Promise(resolve => setTimeout(resolve, postSendDelayMs));
                     }
 
+                    if (
+                        lifecycleBase.status === 'broadcasted_unseen'
+                        && attempt < MAX_RETRIES
+                        && (fastTradePath || txWithNonce.txPurpose === 'trade' || txWithNonce.txPurpose === 'speedup')
+                    ) {
+                        bumpGasForVisibilityRetry('privy_sendtx_broadcasted_unseen');
+                        await new Promise((resolve) => setTimeout(resolve, NETWORK_RETRY_DELAY_MS));
+                        continue;
+                    }
+
                     if (fastTradePath) {
                         logger.info(LogCode.SYS_INFO, 'Privy fast trade lifecycle early return', {
                             chainId: txWithNonce.chainId,
@@ -797,13 +857,28 @@ export async function sendTransactionLifecycle(
                         txWithNonce.chainId !== 1 && errorMessage.includes('eth_sendTransaction is only supported for Ethereum');
                     if (unsupportedSendOnNonEth) {
                         try {
-                            return await signAndBroadcastRawTransaction(client, walletInfo.id, txWithNonce, {
+                            const fallbackLifecycle = await signAndBroadcastRawTransaction(client, walletInfo.id, txWithNonce, {
                                 userId,
                                 attempt,
                                 reason: 'privy_sendtx_unsupported_for_chain',
                                 expectedFrom: walletInfo.address,
                                 txPurpose: txWithNonce.txPurpose
                             });
+                            if (
+                                fallbackLifecycle.status === 'broadcasted_unseen'
+                                && attempt < MAX_RETRIES
+                                && (isFastTradeExecutionProfile(txWithNonce) || txWithNonce.txPurpose === 'trade' || txWithNonce.txPurpose === 'speedup')
+                            ) {
+                                const bumpBps = 12500n;
+                                if (txWithNonce.gasPrice) {
+                                    const current = BigInt(txWithNonce.gasPrice);
+                                    const bumped = (current * bumpBps + 9999n) / 10000n;
+                                    txWithNonce = { ...txWithNonce, gasPrice: (bumped > current ? bumped : (current + 1n)).toString() };
+                                }
+                                await new Promise((resolve) => setTimeout(resolve, NETWORK_RETRY_DELAY_MS));
+                                continue;
+                            }
+                            return fallbackLifecycle;
                         } catch (fallbackError: any) {
                             logger.error(LogCode.EXE_TX_REVERTED, 'Privy sign+broadcast fallback failed', {
                                 chainId: txWithNonce.chainId,
@@ -836,13 +911,28 @@ export async function sendTransactionLifecycle(
                                 attempt,
                                 error: errorMessage.slice(0, 200)
                             });
-                            return await signAndBroadcastRawTransaction(client, walletInfo.id, txWithNonce, {
+                            const transientFallback = await signAndBroadcastRawTransaction(client, walletInfo.id, txWithNonce, {
                                 userId,
                                 attempt,
                                 reason: 'privy_sendtx_transient_fallback',
                                 expectedFrom: walletInfo.address,
                                 txPurpose: txWithNonce.txPurpose
                             });
+                            if (
+                                transientFallback.status === 'broadcasted_unseen'
+                                && attempt < MAX_RETRIES
+                                && (isFastTradeExecutionProfile(txWithNonce) || txWithNonce.txPurpose === 'trade' || txWithNonce.txPurpose === 'speedup')
+                            ) {
+                                const bumpBps = 12500n;
+                                if (txWithNonce.gasPrice) {
+                                    const current = BigInt(txWithNonce.gasPrice);
+                                    const bumped = (current * bumpBps + 9999n) / 10000n;
+                                    txWithNonce = { ...txWithNonce, gasPrice: (bumped > current ? bumped : (current + 1n)).toString() };
+                                }
+                                await new Promise((resolve) => setTimeout(resolve, NETWORK_RETRY_DELAY_MS));
+                                continue;
+                            }
+                            return transientFallback;
                         } catch (fallbackError: any) {
                             logger.error(LogCode.EXE_TX_REVERTED, 'Privy transient fallback sign+broadcast failed', {
                                 chainId: txWithNonce.chainId,

@@ -619,7 +619,7 @@ export class MainSwapService {
     ctx: TradeContext
   ): Promise<MainSwapResult> {
     const TURBO_TOTAL_BUDGET_MS = 6500;
-    const TURBO_DIRECT_ATTEMPT_TIMEOUT_MS = 1800;
+    const TURBO_DIRECT_ATTEMPT_TIMEOUT_MS = 4200;
     const TURBO_DIRECT_MAX_ATTEMPTS = 2;
     const BALANCED_DIRECT_MAX_ATTEMPTS = 2;
     const TURBO_ADAPTIVE_RETRY_AMOUNT = false;
@@ -913,11 +913,10 @@ export class MainSwapService {
               } else {
                 lastDirectError = timeoutErr;
                 if (attempt < DIRECT_SWAP_MAX_ATTEMPTS) {
-                  logger.warn(LogCode.SYS_INFO, trace('Turbo direct late-settle unavailable; forcing fresh retry attempt'), {
+                  logger.warn(LogCode.SYS_INFO, trace('Turbo direct late-settle unavailable; keep inflight exclusive and await final settle'), {
                     attempt,
                     maxAttempts: DIRECT_SWAP_MAX_ATTEMPTS
                   });
-                  continue;
                 }
                 break;
               }
