@@ -1,5 +1,7 @@
 import { ethers } from 'ethers';
 import type { DirectSwapResult } from '../types.js';
+import type { TxLifecycleResult } from '../../../txLifecycle.js';
+import { isTxLifecycleSendAccepted } from '../../../txLifecycle.js';
 
 interface ExecuteSwapParams {
   userId: string;
@@ -18,7 +20,7 @@ interface V2ExecutorDeps {
   wethAddresses: Record<number, string>;
   v2RouterInterface: ethers.Interface;
   callRpc: <T>(chainId: number, method: string, params: any[]) => Promise<T>;
-  sendTransaction: (userId: string, accessToken: string, tx: any) => Promise<string>;
+  sendTransaction: (userId: string, accessToken: string, tx: any) => Promise<TxLifecycleResult>;
   getTxExecutionProfile: (chainId: number) => 'default' | 'base-sniper' | 'bsc-sniper';
 }
 
@@ -82,7 +84,7 @@ export async function executeV2Swap(
     gasLimit = '350000';
   }
 
-  const txHash = await deps.sendTransaction(params.userId, params.accessToken, {
+  const txLifecycle = await deps.sendTransaction(params.userId, params.accessToken, {
     to: router,
     data,
     value: isNativeIn ? amountInWei.toString() : '0',
@@ -91,10 +93,20 @@ export async function executeV2Swap(
     executionProfile: deps.getTxExecutionProfile(params.chainId),
     gas: gasLimit
   });
+  const txHash = txLifecycle.txHash;
+  if (!txHash || !isTxLifecycleSendAccepted(txLifecycle)) {
+    return {
+      success: false,
+      error: `failed_to_send_transaction:${txLifecycle.lastRpcError || txLifecycle.status}`,
+      provider: 'failed',
+      txLifecycle
+    };
+  }
 
   return {
     success: true,
     txHash,
+    txLifecycle,
     provider: params.chainId === 56 ? 'pancake-v2' : 'uniswap-v2',
     poolInfo: {
       version: 'v2',

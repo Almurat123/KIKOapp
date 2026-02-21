@@ -11,7 +11,17 @@ import { AppError } from '../middleware/errorHandler.js';
 import { redact } from '../utils/sanitizer.js';
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
-import { callRpc as rpcCall } from './rpcManager.js';
+import {
+    callRpc as rpcCall,
+    broadcastRawWithQuorum,
+    probeTxVisibility,
+    waitForReceiptStateMachine
+} from './rpcManager.js';
+import type { TxLifecycleResult } from './txLifecycle.js';
+import {
+    isTxLifecycleSendAccepted,
+    toTxLifecycleFailureMessage
+} from './txLifecycle.js';
 
 // Initialize Privy client
 const PRIVY_APP_ID = process.env.VITE_PRIVY_APP_ID || process.env.PRIVY_APP_ID || '';
@@ -29,8 +39,8 @@ const PRIVY_TX_VISIBILITY_CHECK_ENABLED = true;
 const PRIVY_TX_REQUIRE_VISIBILITY = false;
 const PRIVY_TX_VISIBILITY_RETRIES = 6;
 const PRIVY_TX_VISIBILITY_DELAY_MS = 500;
-const PRIVY_TX_SYNC_VISIBILITY_RETRIES = 2;
-const PRIVY_TX_SYNC_VISIBILITY_DELAY_MS = 250;
+const PRIVY_TX_SYNC_VISIBILITY_RETRIES = 8;
+const PRIVY_TX_SYNC_VISIBILITY_DELAY_MS = 400;
 
 let privyClient: PrivyClient | null = null;
 
@@ -59,50 +69,16 @@ async function verifyTxVisibility(
     checks: number;
     from?: string;
     nonce?: string;
+    blockNumber?: string;
     lastError?: string;
 }> {
-    let lastError = '';
-    const retries = Math.max(1, options?.retries || PRIVY_TX_VISIBILITY_RETRIES);
-    const delayMs = Math.max(0, options?.delayMs ?? PRIVY_TX_VISIBILITY_DELAY_MS);
-    for (let i = 1; i <= retries; i++) {
-        try {
-            const tx = await rpcCall<any>(
-                chainId,
-                'eth_getTransactionByHash',
-                [txHash],
-                { strategy: 'fast', importance: 'critical' }
-            );
-            if (tx && tx.hash) {
-                const seenFrom = String(tx.from || '').toLowerCase();
-                const expected = String(expectedFrom || '').toLowerCase();
-                if (!expected || seenFrom === expected) {
-                    return {
-                        visible: true,
-                        checks: i,
-                        from: tx.from,
-                        nonce: tx.nonce
-                    };
-                }
-                return {
-                    visible: false,
-                    checks: i,
-                    from: tx.from,
-                    nonce: tx.nonce,
-                    lastError: `from_mismatch expected=${expectedFrom} got=${tx.from}`
-                };
-            }
-        } catch (err: any) {
-            lastError = err?.message || String(err);
-        }
-        if (i < retries) {
-            await new Promise(resolve => setTimeout(resolve, delayMs));
-        }
-    }
-    return {
-        visible: false,
-        checks: retries,
-        lastError: lastError || 'not_found_by_rpc'
-    };
+    return await probeTxVisibility({
+        chainId,
+        txHash,
+        expectedFrom,
+        retries: Math.max(1, options?.retries || PRIVY_TX_VISIBILITY_RETRIES),
+        delayMs: Math.max(0, options?.delayMs ?? PRIVY_TX_VISIBILITY_DELAY_MS)
+    });
 }
 
 function scheduleTxVisibilityCheck(params: {
@@ -347,6 +323,8 @@ const userChainInflightTx = new Map<string, number>();
 const pendingNonceInflight = new Map<string, Promise<string | undefined>>();
 const pendingNonceCache = new Map<string, { nonce: string; timestamp: number }>();
 const PENDING_NONCE_CACHE_TTL_MS = Math.max(250, Number(process.env.PENDING_NONCE_CACHE_TTL_MS || '1500'));
+const CHAIN_SEND_CONCURRENCY_LIMIT = Math.max(1, Number(process.env.PRIVY_CHAIN_SEND_CONCURRENCY || '8'));
+const chainSendLimiter = new Map<number, { inFlight: number; queue: Array<() => void> }>();
 
 function buildUserChainKey(userId: string, chainId: number): string {
     return `${userId}:${chainId}`;
@@ -428,12 +406,36 @@ async function withUserLock<T>(userId: string, fn: () => Promise<T>): Promise<T>
     return nextLock;
 }
 
+function getChainLimiter(chainId: number): { inFlight: number; queue: Array<() => void> } {
+    let state = chainSendLimiter.get(chainId);
+    if (!state) {
+        state = { inFlight: 0, queue: [] };
+        chainSendLimiter.set(chainId, state);
+    }
+    return state;
+}
+
+async function withChainSendLimiter<T>(chainId: number, fn: () => Promise<T>): Promise<T> {
+    const state = getChainLimiter(chainId);
+    if (state.inFlight >= CHAIN_SEND_CONCURRENCY_LIMIT) {
+        await new Promise<void>((resolve) => state.queue.push(resolve));
+    }
+    state.inFlight += 1;
+    try {
+        return await fn();
+    } finally {
+        state.inFlight = Math.max(0, state.inFlight - 1);
+        const next = state.queue.shift();
+        if (next) next();
+    }
+}
+
 async function signAndBroadcastRawTransaction(
     client: PrivyClient,
     walletId: string,
     tx: TransactionRequest,
     context: { userId: string; attempt: number; reason: string; expectedFrom?: string; txPurpose?: TransactionRequest['txPurpose'] }
-): Promise<string> {
+): Promise<TxLifecycleResult> {
     logger.warn(LogCode.EXE_TX_BROADCAST, 'Sending transaction via Privy sign+broadcast path', {
         chainId: tx.chainId,
         userId: context.userId.slice(0, 10),
@@ -456,49 +458,28 @@ async function signAndBroadcastRawTransaction(
         },
     });
 
-    const rawTxHash = await rpcCall<string>(
-        tx.chainId,
-        'eth_sendRawTransaction',
-        [signed.signedTransaction],
-        { strategy: 'fast', importance: 'critical' }
-    );
-    if (!rawTxHash) {
-        throw new Error('eth_sendRawTransaction returned empty hash');
-    }
+    const lifecycle = await broadcastRawWithQuorum({
+        chainId: tx.chainId,
+        signedRawTransaction: signed.signedTransaction,
+        expectedFrom: context.expectedFrom,
+        syncVisibilityRetries: PRIVY_TX_SYNC_VISIBILITY_RETRIES,
+        syncVisibilityDelayMs: PRIVY_TX_SYNC_VISIBILITY_DELAY_MS,
+        bypassRawTxCache: true
+    });
+    const rawTxHash = lifecycle.txHash;
+    if (!rawTxHash) return lifecycle;
     logger.info(LogCode.EXE_TX_BROADCAST, 'Ethereum transaction broadcast via signed raw path', {
         txHash: rawTxHash,
         chainId: tx.chainId
     });
 
-    // Trade path should not be blocked by short visibility probes.
-    // A valid tx hash from eth_sendRawTransaction already means accepted by at least one RPC mempool.
-    // We keep sync visibility blocking only for speedup/replacement flows.
-    const mustBeVisibleBeforeReturn = context.txPurpose === 'speedup';
-    if (mustBeVisibleBeforeReturn) {
-        const visibility = await verifyTxVisibility(
-            tx.chainId,
-            rawTxHash,
-            context.expectedFrom,
-            {
-                retries: PRIVY_TX_SYNC_VISIBILITY_RETRIES,
-                delayMs: PRIVY_TX_SYNC_VISIBILITY_DELAY_MS
-            }
-        );
-        if (!visibility.visible) {
-            logger.warn(LogCode.EXE_TX_REVERTED, 'Privy raw tx broadcasted but not visible in sync probe', {
-                txHash: rawTxHash,
-                chainId: tx.chainId,
-                txPurpose: context.txPurpose,
-                checks: visibility.checks,
-                lastError: visibility.lastError
-            });
-            throw new Error(`tx_not_visible_after_broadcast:${visibility.lastError || 'not_found_by_rpc'}`);
-        }
-    } else {
-        logger.info(LogCode.SYS_INFO, 'Privy raw tx accepted without sync visibility gate', {
+    if (lifecycle.status === 'broadcasted_unseen') {
+        logger.warn(LogCode.EXE_TX_REVERTED, 'Privy raw tx broadcasted but not visible in sync probe', {
             txHash: rawTxHash,
             chainId: tx.chainId,
-            txPurpose: context.txPurpose || 'other'
+            txPurpose: context.txPurpose,
+            checks: lifecycle.attempts,
+            lastError: lifecycle.lastRpcError
         });
     }
 
@@ -508,16 +489,30 @@ async function signAndBroadcastRawTransaction(
         txHash: rawTxHash,
         expectedFrom: context.expectedFrom
     });
-    return rawTxHash;
+
+    if (context.txPurpose === 'trade' || context.txPurpose === 'speedup') {
+        const finalState = await waitForReceiptStateMachine({
+            chainId: tx.chainId,
+            txHash: rawTxHash,
+            expectedFrom: context.expectedFrom,
+            maxWaitMs: 900,
+            pollMs: 300
+        }).catch(() => lifecycle);
+        if (finalState.status === 'dropped_timeout' && lifecycle.status === 'broadcasted_unseen') {
+            return lifecycle;
+        }
+        return finalState;
+    }
+    return lifecycle;
 }
 
-export async function sendTransaction(
+export async function sendTransactionLifecycle(
     userId: string,
     accessToken: string,
     tx: TransactionRequest
-): Promise<string> {
+): Promise<TxLifecycleResult> {
     // Wrap entire execution in a per-user lock
-    return withUserLock(userId, async () => {
+    return withUserLock(userId, async () => withChainSendLimiter(tx.chainId, async () => {
         const chainKey = buildUserChainKey(userId, tx.chainId);
         bumpInflightUserChainTx(chainKey, 1);
         // === SIMULATION MODE ===
@@ -529,7 +524,14 @@ export async function sendTransaction(
                     value: tx.value,
                     chainId: tx.chainId
                 });
-                return `0xSIMULATION_PRIVY_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+                return {
+                    status: 'confirmed_success',
+                    txHash: `0xSIMULATION_PRIVY_${Date.now()}_${Math.random().toString(36).substring(7)}`,
+                    firstSeenAt: Date.now(),
+                    confirmedAt: Date.now(),
+                    attempts: 1,
+                    chainId: tx.chainId
+                };
             }
 
             const client = getPrivyClient();
@@ -663,13 +665,51 @@ export async function sendTransaction(
                         txHash: response.hash,
                         expectedFrom: walletInfo.address
                     });
+                    const visibility = await verifyTxVisibility(
+                        txWithNonce.chainId,
+                        response.hash,
+                        walletInfo.address,
+                        {
+                            retries: PRIVY_TX_SYNC_VISIBILITY_RETRIES,
+                            delayMs: PRIVY_TX_SYNC_VISIBILITY_DELAY_MS
+                        }
+                    );
+
+                    const lifecycleBase: TxLifecycleResult = visibility.visible
+                        ? {
+                            status: 'visible_pending',
+                            txHash: response.hash,
+                            firstSeenAt: Date.now(),
+                            attempts: visibility.checks,
+                            chainId: txWithNonce.chainId
+                        }
+                        : {
+                            status: 'broadcasted_unseen',
+                            txHash: response.hash,
+                            lastRpcError: visibility.lastError || 'not_found_by_rpc',
+                            attempts: visibility.checks,
+                            chainId: txWithNonce.chainId
+                        };
 
                     const postSendDelayMs = Math.max(0, Number(process.env.PRIVY_POST_SEND_DELAY_MS || '0'));
                     if (postSendDelayMs > 0) {
                         await new Promise(resolve => setTimeout(resolve, postSendDelayMs));
                     }
 
-                    return response.hash;
+                    if (txWithNonce.txPurpose === 'trade' || txWithNonce.txPurpose === 'speedup') {
+                        const finalState = await waitForReceiptStateMachine({
+                            chainId: txWithNonce.chainId,
+                            txHash: response.hash,
+                            expectedFrom: walletInfo.address,
+                            maxWaitMs: 900,
+                            pollMs: 300
+                        }).catch(() => lifecycleBase);
+                        if (finalState.status === 'dropped_timeout' && lifecycleBase.status === 'broadcasted_unseen') {
+                            return lifecycleBase;
+                        }
+                        return finalState;
+                    }
+                    return lifecycleBase;
                 } catch (error: any) {
                     let effectiveError: any = error;
                     let errorMessage = effectiveError?.message || '';
@@ -700,8 +740,7 @@ export async function sendTransaction(
 
                     const isNetworkError = errorMessage.includes('fetch failed') ||
                         errorMessage.includes('ECONNRESET') ||
-                        errorMessage.includes('socket disconnected') ||
-                        errorMessage.includes('tx_not_visible_after_broadcast');
+                        errorMessage.includes('socket disconnected');
 
                     // Retry on nonce errors or transient network failures
                     if ((isNonceError || isNetworkError) && attempt < MAX_RETRIES) {
@@ -747,11 +786,32 @@ export async function sendTransaction(
             }
 
             // Should never reach here, but just in case
-            throw new AppError(500, 'Transaction failed after max retries', 'TRANSACTION_FAILED');
+            return {
+                status: 'dropped_timeout',
+                attempts: MAX_RETRIES,
+                chainId: tx.chainId,
+                lastRpcError: 'transaction_failed_after_max_retries'
+            };
         } finally {
             bumpInflightUserChainTx(chainKey, -1);
         }
-    });
+    }));
+}
+
+export async function sendTransaction(
+    userId: string,
+    accessToken: string,
+    tx: TransactionRequest
+): Promise<string> {
+    const lifecycle = await sendTransactionLifecycle(userId, accessToken, tx);
+    if (isTxLifecycleSendAccepted(lifecycle) && lifecycle.txHash) {
+        return lifecycle.txHash;
+    }
+    throw new AppError(
+        500,
+        `Failed to send transaction: ${toTxLifecycleFailureMessage(lifecycle)}`,
+        'TRANSACTION_FAILED'
+    );
 }
 
 /**

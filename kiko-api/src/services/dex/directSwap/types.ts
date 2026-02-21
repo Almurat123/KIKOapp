@@ -1,4 +1,5 @@
 import type { DexFamily, DexStrategy, DirectSwapHint, HintedSourcePool, StrategyKind } from '../directSwapTypes.js';
+import type { TxLifecycleResult } from '../../txLifecycle.js';
 
 export type { DexFamily, DexStrategy, DirectSwapHint, HintedSourcePool, StrategyKind };
 
@@ -11,6 +12,7 @@ export interface DirectSwapResult {
   txHash?: string;
   amountOut?: string;
   error?: string;
+  txLifecycle?: TxLifecycleResult;
   provider:
     | 'uniswap-v2'
     | 'pancake-v2'

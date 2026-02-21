@@ -18,7 +18,7 @@ import { calculatePriceFromSqrtX96, findV4Pools, V4PoolInfo, V4PoolKey, matchV4P
 import { isV4SwapSupported } from '../uniswapV4Swap.js';
 import { calculateV3TVL } from '../v3Math.js';
 import { callRpc, callRpcRaw } from '../../rpcManager.js';
-import { sendTransaction } from '../../privyWallet.js';
+import { sendTransaction, sendTransactionLifecycle } from '../../privyWallet.js';
 import { getZeroExPrice } from '../../zeroEx.js';
 import { getKyberQuote } from '../../kyberAggregator.js';
 import { getTokenDetails } from '../../geckoTerminal.js';
@@ -975,7 +975,7 @@ async function executeV2Swap(
         wethAddresses: WETH_ADDRESSES,
         v2RouterInterface,
         callRpc,
-        sendTransaction,
+        sendTransaction: sendTransactionLifecycle,
         getTxExecutionProfile
     });
 }
@@ -996,7 +996,7 @@ async function executeV3Swap(
         v3QuoterInterface,
         turboV3GasLimit: DIRECT_SWAP_TURBO_V3_GAS_LIMIT,
         callRpc,
-        sendTransaction,
+        sendTransaction: sendTransactionLifecycle,
         getTxExecutionProfile,
         get0xExpectedOutput
     }, options);
@@ -1014,7 +1014,7 @@ async function executeV4Swap(
 ): Promise<DirectSwapResult> {
     return executeV4SwapExecutor(params, pool, {
         callRpc,
-        sendTransaction,
+        sendTransaction: sendTransactionLifecycle,
         callV4QuoterExactOut,
         getV4BestPoolQuote,
         summarizeRpcError,
@@ -1037,7 +1037,7 @@ async function executeInfinitySwap(
         pancakeInfinityRouter: PANCAKE_INFINITY_ROUTER,
         infinityRouterInterface,
         callRpc,
-        sendTransaction,
+        sendTransaction: sendTransactionLifecycle,
         getTxExecutionProfile
     }, options);
 }

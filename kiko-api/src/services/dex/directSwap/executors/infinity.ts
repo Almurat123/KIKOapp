@@ -2,6 +2,8 @@ import { ethers } from 'ethers';
 import { logger } from '../../../../utils/logger.js';
 import { LogCode } from '../../../../config/logRegistry.js';
 import type { DirectSwapExecutionMode, DirectSwapResult } from '../types.js';
+import type { TxLifecycleResult } from '../../../txLifecycle.js';
+import { isTxLifecycleSendAccepted } from '../../../txLifecycle.js';
 
 interface ExecuteSwapParams {
   userId: string;
@@ -41,7 +43,7 @@ interface InfinityExecutorDeps {
   pancakeInfinityRouter: string;
   infinityRouterInterface: ethers.Interface;
   callRpc: <T>(chainId: number, method: string, params: any[]) => Promise<T>;
-  sendTransaction: (userId: string, accessToken: string, tx: any) => Promise<string>;
+  sendTransaction: (userId: string, accessToken: string, tx: any) => Promise<TxLifecycleResult>;
   getTxExecutionProfile: (chainId: number) => 'default' | 'base-sniper' | 'bsc-sniper';
 }
 
@@ -207,7 +209,7 @@ export async function executeInfinitySwap(
     gasLimit = '900000';
   }
 
-  const txHash = await deps.sendTransaction(userId, accessToken, {
+  const txLifecycle = await deps.sendTransaction(userId, accessToken, {
     to: deps.pancakeInfinityRouter,
     data,
     value: isNativeIn ? amountInWei.toString() : '0',
@@ -216,10 +218,20 @@ export async function executeInfinitySwap(
     executionProfile: deps.getTxExecutionProfile(chainId),
     gas: gasLimit
   });
+  const txHash = txLifecycle.txHash;
+  if (!txHash || !isTxLifecycleSendAccepted(txLifecycle)) {
+    return {
+      success: false,
+      error: `failed_to_send_transaction:${txLifecycle.lastRpcError || txLifecycle.status}`,
+      provider: 'failed',
+      txLifecycle
+    };
+  }
 
   return {
     success: true,
     txHash,
+    txLifecycle,
     provider: 'pancake-infinity',
     poolInfo: {
       version: quote.kind === 'cl' ? 'infinity-cl' : 'infinity-bin',

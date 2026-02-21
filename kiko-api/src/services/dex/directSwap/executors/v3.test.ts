@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { ethers } from 'ethers';
 import { executeV3Swap } from './v3.js';
 import type { PoolInfo } from '../../poolInfo.js';
+import type { TxLifecycleResult } from '../../../txLifecycle.js';
 
 const QUOTER_IFACE = new ethers.Interface([
   'function quoteExactInputSingle((address tokenIn,address tokenOut,uint256 amountIn,uint24 fee,uint160 sqrtPriceLimitX96)) returns (uint256 amountOut,uint160 sqrtPriceX96After,uint32 initializedTicksCrossed,uint256 gasEstimate)'
@@ -31,7 +32,7 @@ const BASE_POOL: PoolInfo = {
 
 function buildDeps(
   callRpcImpl: (method: string) => Promise<string>,
-  sendImpl: (tx: any) => Promise<string>
+  sendImpl: (tx: any) => Promise<TxLifecycleResult>
 ) {
   return {
     wethAddresses: { 8453: '0x4200000000000000000000000000000000000006' } as Record<number, string>,
@@ -46,7 +47,7 @@ function buildDeps(
       assert.equal(chainId, 8453);
       return await callRpcImpl(method) as unknown as T;
     },
-    sendTransaction: async (_userId: string, _accessToken: string, tx: any): Promise<string> => {
+    sendTransaction: async (_userId: string, _accessToken: string, tx: any): Promise<TxLifecycleResult> => {
       return await sendImpl(tx);
     },
     getTxExecutionProfile: () => 'base-sniper' as const,
@@ -67,7 +68,13 @@ test('executeV3Swap turbo continues when pre-sim fails due transient RPC error',
     async (tx: any) => {
       sentCount += 1;
       sentGas = String(tx.gas || '');
-      return '0xabc';
+      return {
+        status: 'visible_pending',
+        txHash: '0xabc',
+        firstSeenAt: Date.now(),
+        attempts: 1,
+        chainId: 8453
+      };
     }
   );
 
@@ -93,7 +100,13 @@ test('executeV3Swap normal still fails on transient pre-sim RPC error', async ()
     },
     async () => {
       sent = true;
-      return '0xabc';
+      return {
+        status: 'visible_pending',
+        txHash: '0xabc',
+        firstSeenAt: Date.now(),
+        attempts: 1,
+        chainId: 8453
+      };
     }
   );
 
@@ -118,7 +131,13 @@ test('executeV3Swap turbo still blocks real pre-sim revert', async () => {
     },
     async () => {
       sent = true;
-      return '0xabc';
+      return {
+        status: 'visible_pending',
+        txHash: '0xabc',
+        firstSeenAt: Date.now(),
+        attempts: 1,
+        chainId: 8453
+      };
     }
   );
 

@@ -4,6 +4,8 @@ import { LogCode } from '../../../../config/logRegistry.js';
 import { buildV4SwapTransaction } from '../../uniswapV4Swap.js';
 import { buildV4ExecutionPlan, type SelectedV4Pool } from '../../v4ExecutionPlan.js';
 import type { DirectSwapExecutionMode, DirectSwapResult } from '../types.js';
+import type { TxLifecycleResult } from '../../../txLifecycle.js';
+import { isTxLifecycleSendAccepted } from '../../../txLifecycle.js';
 
 interface ExecuteSwapParams {
   userId: string;
@@ -26,7 +28,7 @@ interface RpcErrorSummary {
 
 interface V4ExecutorDeps {
   callRpc: <T>(chainId: number, method: string, params: any[], options?: any) => Promise<T>;
-  sendTransaction: (userId: string, accessToken: string, tx: any) => Promise<string>;
+  sendTransaction: (userId: string, accessToken: string, tx: any) => Promise<TxLifecycleResult>;
   callV4QuoterExactOut: (
     poolKey: any,
     zeroForOne: boolean,
@@ -342,7 +344,7 @@ export async function executeV4Swap(
     }
   }
 
-  const txHash = await deps.sendTransaction(userId, accessToken, {
+  const txLifecycle = await deps.sendTransaction(userId, accessToken, {
     to: tx.to,
     data: tx.data,
     value: isNativeIn ? amountInWei.toString() : '0',
@@ -351,6 +353,15 @@ export async function executeV4Swap(
     executionProfile: deps.getTxExecutionProfile(chainId),
     gas: gasLimit
   });
+  const txHash = txLifecycle.txHash;
+  if (!txHash || !isTxLifecycleSendAccepted(txLifecycle)) {
+    return {
+      success: false,
+      error: `failed_to_send_transaction:${txLifecycle.lastRpcError || txLifecycle.status}`,
+      provider: 'failed',
+      txLifecycle
+    };
+  }
 
   logger.info(LogCode.EXE_TX_CONFIRMED, '[DirectSwap] V4 swap executed', {
     txHash,
@@ -362,6 +373,7 @@ export async function executeV4Swap(
   return {
     success: true,
     txHash,
+    txLifecycle,
     provider: 'uniswap-v4',
     poolInfo: {
       version: 'v4',

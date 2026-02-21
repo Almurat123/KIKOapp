@@ -43,18 +43,81 @@ export interface BestQuoteParams {
     executionMode?: 'safe' | 'normal' | 'turbo';
 }
 
+const quoteBundleCache = new Map<string, { value: { best: QuoteResult; quotes: QuoteResult[] }; ts: number }>();
+const inflightQuoteBundle = new Map<string, Promise<{ best: QuoteResult; quotes: QuoteResult[] }>>();
+const QUOTE_CACHE_TTL_MS = Math.max(120, Number(process.env.QUOTE_CACHE_TTL_MS || '1200'));
+const QUOTE_CACHE_TTL_TURBO_MS = Math.max(80, Number(process.env.QUOTE_CACHE_TTL_TURBO_MS || '600'));
+const QUOTE_CACHE_MAX = Math.max(256, Number(process.env.QUOTE_CACHE_MAX || '3000'));
+
+function buildQuoteCacheKey(params: BestQuoteParams): string {
+    const amountInBase = String(params.amountInBase || '0').toLowerCase();
+    return [
+        params.chainId,
+        String(params.actualTokenIn || '').toLowerCase(),
+        String(params.actualTokenOut || '').toLowerCase(),
+        amountInBase,
+        params.slippageBps,
+        params.executionMode || 'normal',
+        params.excludeDex || 'none',
+        params.isSell ? 'sell' : 'buy',
+        params.feeContext || 'swap'
+    ].join(':');
+}
+
+function getQuoteCacheTtlMs(params: BestQuoteParams): number {
+    return params.executionMode === 'turbo' ? QUOTE_CACHE_TTL_TURBO_MS : QUOTE_CACHE_TTL_MS;
+}
+
+function getCachedQuoteBundle(key: string, ttlMs: number): { best: QuoteResult; quotes: QuoteResult[] } | null {
+    const hit = quoteBundleCache.get(key);
+    if (!hit) return null;
+    if (Date.now() - hit.ts > ttlMs) {
+        quoteBundleCache.delete(key);
+        return null;
+    }
+    return hit.value;
+}
+
+function setCachedQuoteBundle(key: string, value: { best: QuoteResult; quotes: QuoteResult[] }): void {
+    if (quoteBundleCache.size >= QUOTE_CACHE_MAX) {
+        const now = Date.now();
+        for (const [cacheKey, hit] of quoteBundleCache.entries()) {
+            if (now - hit.ts > QUOTE_CACHE_TTL_MS) quoteBundleCache.delete(cacheKey);
+        }
+        if (quoteBundleCache.size >= QUOTE_CACHE_MAX) {
+            const keysToDelete = Array.from(quoteBundleCache.keys()).slice(0, Math.floor(QUOTE_CACHE_MAX * 0.2));
+            for (const cacheKey of keysToDelete) quoteBundleCache.delete(cacheKey);
+        }
+    }
+    quoteBundleCache.set(key, { value, ts: Date.now() });
+}
+
 /**
  * Fetch quotes from multiple aggregators and return the best one
  */
 export async function getBestQuote(params: BestQuoteParams): Promise<{ best: QuoteResult, quotes: QuoteResult[] }> {
-    const {
-        tokenIn, tokenOut, actualTokenIn, actualTokenOut,
-        amountInBase, amountInHuman,
-        tokenInDecimals, tokenOutDecimals,
-        chainId, slippageBps, userAddress, refPrice, affiliateFee
-    } = params;
+    const key = buildQuoteCacheKey(params);
+    const ttlMs = getQuoteCacheTtlMs(params);
+    const cached = getCachedQuoteBundle(key, ttlMs);
+    if (cached) return cached;
 
-    return getBestQuoteInternal(params);
+    const inflight = inflightQuoteBundle.get(key);
+    if (inflight) return await inflight;
+
+    const task = getBestQuoteInternal(params)
+        .then((result) => {
+            if (result?.best && result?.quotes?.length) {
+                setCachedQuoteBundle(key, result);
+            }
+            return result;
+        })
+        .finally(() => {
+            const current = inflightQuoteBundle.get(key);
+            if (current === task) inflightQuoteBundle.delete(key);
+        });
+
+    inflightQuoteBundle.set(key, task);
+    return await task;
 }
 
 async function getBestQuoteInternal(params: BestQuoteParams): Promise<{ best: QuoteResult, quotes: QuoteResult[] }> {

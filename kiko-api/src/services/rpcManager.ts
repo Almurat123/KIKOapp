@@ -14,6 +14,7 @@ import { callRpc as unifiedCallRpc, fetchJson } from '../config/unifiedApiServic
 import { getRpcEndpointsWithStrategy, RpcEndpointConfig } from '../config/apiEndpoints.js';
 import { getCachedRpc, setCachedRpc, buildCacheKey, getTtlForMethod, isCacheable } from './rpcCache.js';
 import { Connection } from '@solana/web3.js';
+import type { TxLifecycleResult } from './txLifecycle.js';
 
 const RPC_TIMEOUT_MS = Number(process.env.RPC_TIMEOUT_MS || '10000'); // 10s default
 const RPC_TIMEOUT_FAST_MS = Number(process.env.RPC_TIMEOUT_FAST_MS || '2500');
@@ -560,7 +561,13 @@ export async function callRpc<T = any>(
     chainIdOrName: number | string,
     method: string,
     params: any = [],
-    options: { strategy?: 'fast' | 'cheap'; importance?: RpcImportance; exhaustiveFailover?: boolean } = {}
+    options: {
+        strategy?: 'fast' | 'cheap';
+        importance?: RpcImportance;
+        exhaustiveFailover?: boolean;
+        sendRawFanout?: boolean;
+        bypassRawTxCache?: boolean;
+    } = {}
 ): Promise<T> {
     let endpoints: RpcEndpointConfig[] = [];
     let chainName = typeof chainIdOrName === 'string' ? chainIdOrName : `Chain ${chainIdOrName}`;
@@ -624,7 +631,7 @@ export async function callRpc<T = any>(
         ? tryGetRawTxHash(String(Array.isArray(params) ? (params[0] || '') : ''))
         : null;
 
-    if (rawTxHash) {
+    if (rawTxHash && !options.bypassRawTxCache) {
         const cachedSubmittedHash = getRawTxCache(chainId, rawTxHash);
         if (cachedSubmittedHash) {
             return cachedSubmittedHash as T;
@@ -760,6 +767,52 @@ export async function callRpc<T = any>(
                 return hedged;
             } catch {
                 // Fall through to sequential failover path below.
+            }
+        }
+
+        const fanoutSendRaw = method === 'eth_sendRawTransaction' && options.sendRawFanout === true;
+        if (fanoutSendRaw) {
+            let acceptedHash: string | null = null;
+            let acceptedCount = 0;
+            let failedCount = 0;
+            let knownCount = 0;
+            for (let i = 0; i < selectedEndpoints.length; i++) {
+                const endpoint = selectedEndpoints[i];
+                if (!endpoint?.url) continue;
+                try {
+                    const result = await runEndpointAttempt(endpoint);
+                    const txHash = typeof result === 'string' ? result : rawTxHash || '';
+                    if (txHash) {
+                        if (!acceptedHash) acceptedHash = txHash;
+                        acceptedCount += 1;
+                    }
+                } catch (error: any) {
+                    const message = String(error?.message || error || '');
+                    lastError = error instanceof Error ? error : new Error(message);
+                    if (message.includes('already known') || message.includes('known transaction') || message.includes('already imported')) {
+                        knownCount += 1;
+                        if (!acceptedHash && rawTxHash) acceptedHash = rawTxHash;
+                    } else {
+                        failedCount += 1;
+                    }
+                }
+            }
+
+            if (acceptedHash) {
+                logger.info(LogCode.API_FETCH_SUCCESS, 'eth_sendRawTransaction fanout completed', {
+                    chain: chainName,
+                    attemptedEndpoints: selectedEndpoints.length,
+                    acceptedCount,
+                    knownCount,
+                    failedCount,
+                    endpointBudget,
+                    role: LogRole.METRIC
+                });
+                markMethodSuccess(backoffKey);
+                if (rawTxHash) {
+                    setRawTxCache(chainId, rawTxHash, acceptedHash);
+                }
+                return acceptedHash as T;
             }
         }
 
@@ -1889,6 +1942,242 @@ export function diffRpcMethodUsageSnapshots(
     }
     deltas.sort((x, y) => y.endpointAttempts - x.endpointAttempts);
     return deltas;
+}
+
+export interface RpcUsageSnapshot {
+    timestamp: number;
+    methods: Record<string, RpcMethodUsageSnapshotRow>;
+    endpoints: Array<{
+        url: string;
+        inFlight: number;
+        secondCount: number;
+        minuteCount: number;
+        lastUsedAt: number;
+    }>;
+}
+
+export function getUsageSnapshot(chainId?: number): RpcUsageSnapshot {
+    const methods = getRpcMethodUsageSnapshot(chainId);
+    const endpoints = Array.from(endpointUsage.values()).map((usage) => ({
+        url: maskEndpoint(usage.url),
+        inFlight: usage.inFlight,
+        secondCount: usage.secondCount,
+        minuteCount: usage.minuteCount,
+        lastUsedAt: usage.lastUsedAt
+    }));
+    return {
+        timestamp: Date.now(),
+        methods,
+        endpoints
+    };
+}
+
+export async function probeTxVisibility(params: {
+    chainId: number;
+    txHash: string;
+    expectedFrom?: string;
+    retries?: number;
+    delayMs?: number;
+}): Promise<{
+    visible: boolean;
+    checks: number;
+    from?: string;
+    nonce?: string;
+    blockNumber?: string;
+    lastError?: string;
+}> {
+    const retries = Math.max(1, Number(params.retries || 6));
+    const delayMs = Math.max(0, Number(params.delayMs ?? 400));
+    const expectedFrom = String(params.expectedFrom || '').toLowerCase();
+    let lastError = '';
+
+    for (let i = 1; i <= retries; i++) {
+        try {
+            const tx = await callRpc<any>(
+                params.chainId,
+                'eth_getTransactionByHash',
+                [params.txHash],
+                { strategy: 'fast', importance: 'critical' }
+            );
+            if (tx?.hash) {
+                const from = String(tx.from || '').toLowerCase();
+                if (!expectedFrom || from === expectedFrom) {
+                    return {
+                        visible: true,
+                        checks: i,
+                        from: tx.from,
+                        nonce: tx.nonce,
+                        blockNumber: tx.blockNumber
+                    };
+                }
+                return {
+                    visible: false,
+                    checks: i,
+                    from: tx.from,
+                    nonce: tx.nonce,
+                    blockNumber: tx.blockNumber,
+                    lastError: `from_mismatch expected=${params.expectedFrom} got=${tx.from}`
+                };
+            }
+        } catch (err: any) {
+            lastError = err?.message || String(err);
+        }
+
+        if (i < retries) {
+            await new Promise((resolve) => setTimeout(resolve, delayMs));
+        }
+    }
+
+    return {
+        visible: false,
+        checks: retries,
+        lastError: lastError || 'not_found_by_rpc'
+    };
+}
+
+export async function waitForReceiptStateMachine(params: {
+    chainId: number;
+    txHash: string;
+    expectedFrom?: string;
+    maxWaitMs?: number;
+    pollMs?: number;
+}): Promise<TxLifecycleResult> {
+    const startedAt = Date.now();
+    const maxWaitMs = Math.max(200, Number(params.maxWaitMs || 12_000));
+    const pollMs = Math.max(120, Number(params.pollMs || 500));
+    const expectedFrom = String(params.expectedFrom || '').toLowerCase();
+    let attempts = 0;
+    let firstSeenAt: number | undefined;
+    let lastRpcError = '';
+
+    while (Date.now() - startedAt < maxWaitMs) {
+        attempts += 1;
+        try {
+            const [tx, receipt] = await Promise.all([
+                callRpc<any>(
+                    params.chainId,
+                    'eth_getTransactionByHash',
+                    [params.txHash],
+                    { strategy: 'fast', importance: 'critical' }
+                ).catch((err: any) => {
+                    lastRpcError = err?.message || String(err);
+                    return null;
+                }),
+                callRpc<any>(
+                    params.chainId,
+                    'eth_getTransactionReceipt',
+                    [params.txHash],
+                    { strategy: 'fast', importance: 'critical' }
+                ).catch((err: any) => {
+                    lastRpcError = err?.message || String(err);
+                    return null;
+                })
+            ]);
+
+            if (tx?.hash) {
+                const seenFrom = String(tx.from || '').toLowerCase();
+                if (!expectedFrom || seenFrom === expectedFrom) {
+                    firstSeenAt = firstSeenAt || Date.now();
+                } else {
+                    lastRpcError = `from_mismatch expected=${params.expectedFrom} got=${tx.from}`;
+                }
+            }
+
+            if (receipt?.transactionHash) {
+                const statusHex = String(receipt.status || '');
+                const status = statusHex === '0x1' || statusHex === '1' ? 'confirmed_success' : 'confirmed_failed';
+                return {
+                    status,
+                    txHash: params.txHash,
+                    firstSeenAt,
+                    confirmedAt: Date.now(),
+                    lastRpcError: status === 'confirmed_failed' ? (lastRpcError || 'receipt_status_0') : lastRpcError || undefined,
+                    attempts,
+                    chainId: params.chainId
+                };
+            }
+
+            if (firstSeenAt) {
+                return {
+                    status: 'visible_pending',
+                    txHash: params.txHash,
+                    firstSeenAt,
+                    lastRpcError: lastRpcError || undefined,
+                    attempts,
+                    chainId: params.chainId
+                };
+            }
+        } catch (err: any) {
+            lastRpcError = err?.message || String(err);
+        }
+
+        await new Promise((resolve) => setTimeout(resolve, pollMs));
+    }
+
+    return {
+        status: firstSeenAt ? 'visible_pending' : 'dropped_timeout',
+        txHash: params.txHash,
+        firstSeenAt,
+        lastRpcError: lastRpcError || 'wait_timeout',
+        attempts,
+        chainId: params.chainId
+    };
+}
+
+export async function broadcastRawWithQuorum(params: {
+    chainId: number;
+    signedRawTransaction: string;
+    expectedFrom?: string;
+    syncVisibilityRetries?: number;
+    syncVisibilityDelayMs?: number;
+    bypassRawTxCache?: boolean;
+}): Promise<TxLifecycleResult> {
+    const txHash = await callRpc<string>(
+        params.chainId,
+        'eth_sendRawTransaction',
+        [params.signedRawTransaction],
+        {
+            strategy: 'fast',
+            importance: 'critical',
+            exhaustiveFailover: true,
+            sendRawFanout: true,
+            bypassRawTxCache: params.bypassRawTxCache === true
+        }
+    );
+    if (!txHash) {
+        return {
+            status: 'dropped_timeout',
+            lastRpcError: 'eth_sendRawTransaction_empty_hash',
+            attempts: 1,
+            chainId: params.chainId
+        };
+    }
+
+    const visibility = await probeTxVisibility({
+        chainId: params.chainId,
+        txHash,
+        expectedFrom: params.expectedFrom,
+        retries: params.syncVisibilityRetries,
+        delayMs: params.syncVisibilityDelayMs
+    });
+
+    if (visibility.visible) {
+        return {
+            status: 'visible_pending',
+            txHash,
+            firstSeenAt: Date.now(),
+            attempts: visibility.checks,
+            chainId: params.chainId
+        };
+    }
+
+    return {
+        status: 'broadcasted_unseen',
+        txHash,
+        lastRpcError: visibility.lastError || 'not_found_by_rpc',
+        attempts: visibility.checks,
+        chainId: params.chainId
+    };
 }
 
 export const __rpcManagerTest = {

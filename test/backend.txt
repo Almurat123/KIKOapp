@@ -1,216 +1,540 @@
-2026-02-21T02:36:49.087130958Z [inf]  
-2026-02-21T02:36:49.087144978Z [inf]  > kiko-api@1.0.0 start
-2026-02-21T02:36:49.087155715Z [inf]  > node dist/index.js
-2026-02-21T02:36:49.087165799Z [inf]  
-2026-02-21T02:36:49.201382573Z [inf]  Starting Container
-2026-02-21T02:36:50.015701901Z [inf]  [Prisma] Initializing client (Pool: 20, Timeout: 45s, Connect: 20s)
-2026-02-21T02:36:50.878850358Z [inf]  Zora SDK initialized with API Key
-2026-02-21T02:36:50.878855458Z [err]  [SocialJob] Could not find real_hot_users.json in any candidate path
-2026-02-21T02:36:50.878864778Z [inf]  [Warpcast] Loaded 10 API keys. Daily capacity: 50000 messages.
-2026-02-21T02:36:50.878870672Z [inf]  [SkillRegistry:exec] Loading skills from /app/dist/skills_exec...
-2026-02-21T02:36:50.878877015Z [inf]  [SkillRegistry:exec] Skills dir not found, skipping: /app/dist/skills_exec
-2026-02-21T02:36:50.878881904Z [inf]  [SkillRegistry:clean] Loading skills from /app/dist/skills_clean...
-2026-02-21T02:36:50.878887746Z [inf]  [SkillRegistry:clean] Skills dir not found, skipping: /app/dist/skills_clean
-2026-02-21T02:36:50.878894774Z [inf]  Build SHA
-2026-02-21T02:36:50.878900525Z [inf]  Serving static files from:
-2026-02-21T02:36:50.878907105Z [inf]  Initializing services...
-2026-02-21T02:36:50.904014564Z [inf]  Database connection successful
-2026-02-21T02:36:50.904021461Z [inf]  [DataRetention] Checking retention policies...
-2026-02-21T02:36:50.918664419Z [inf]  [Prisma] DB connection is healthy
-2026-02-21T02:36:50.943358887Z [inf]  [DataRetention] Starting cleanup job...
-2026-02-21T02:36:50.943367469Z [inf]  [DataRetention] Scheduler started (every 60 minutes)
-2026-02-21T02:36:50.996693583Z [inf]  Redis initialized
-2026-02-21T02:36:50.996703045Z [inf]  ⚡ Preloading native token prices via Coinbase...
-2026-02-21T02:36:51.038370214Z [inf]  ⚡ Native price refresh started (10 min interval)
-2026-02-21T02:36:51.038385414Z [inf]  Native price refresh started
-2026-02-21T02:36:51.038392033Z [inf]  Starting server on port 8080...
-2026-02-21T02:36:51.838935286Z [inf]  Server listening at http://0.0.0.0:8080
-2026-02-21T02:36:51.838941307Z [inf]  Server listening
-2026-02-21T02:36:51.838954246Z [inf]  RPC health monitor started
-2026-02-21T02:36:51.838959904Z [inf]  RPC benchmark sampling started
-2026-02-21T02:36:51.838964313Z [inf]  [MarketJob] Scheduled: Overview(2:00 UTC), Chains(3:00 UTC), Protocols(4:00 UTC), Trending(Every 5m)
-2026-02-21T02:36:51.838968554Z [inf]  Scheduled: Primary chains every 5min (Ethereum, Solana, Base, BSC)
-2026-02-21T02:36:51.838973334Z [inf]  Scheduled: Secondary chains every 4h (Arbitrum, Optimism, Polygon)
-2026-02-21T02:36:51.838979183Z [inf]  [SocialJob] Scheduled: Discovery (30m), Refresh (4h), Scoring (5m)
-2026-02-21T02:36:51.840682846Z [inf]  Background jobs started
-2026-02-21T02:36:51.840689186Z [inf]  Initializing auto trade service...
-2026-02-21T02:36:51.840694439Z [inf]  [SolanaWatcher] ⚠️ Watcher disabled in favor of Webhooks. Not starting polling.
-2026-02-21T02:36:51.840699620Z [inf]  Auto trade service initialized (Solana watcher + EVM webhook + pending prefetch enabled)
-2026-02-21T02:36:51.840705557Z [inf]  Auto trade service started
-2026-02-21T02:36:51.840710940Z [inf]  [PositionMonitor] Starting position monitor (every 30s)...
-2026-02-21T02:36:51.840717670Z [inf]  Position monitor started
-2026-02-21T02:36:51.840724767Z [inf]  Token Alert Service started
-2026-02-21T02:36:51.842792409Z [inf]  Token alert service started
-2026-02-21T02:36:51.842799748Z [inf]  ChatWorker started polling
-2026-02-21T02:36:51.842807319Z [inf]  Chat worker started
-2026-02-21T02:36:51.842816074Z [inf]  Starting Global Zora Alpha Detector (API Polling)
-2026-02-21T02:36:51.842823805Z [inf]  🎉 All services initialized!
-2026-02-21T02:36:51.842845557Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-21T02:36:51.842853529Z [inf]  [CopyTradePending] Pending watcher started
-2026-02-21T02:36:51.842860033Z [inf]  [DataRetention] Cleanup job completed.
-2026-02-21T02:36:51.844772615Z [inf]  ⚡ Native token prices cached (Coinbase)
-2026-02-21T02:36:56.930407170Z [inf]  [MarketJob] Running startup staleness check...
-2026-02-21T02:36:56.930416873Z [inf]  [Job] Real hot users file not found: 
-2026-02-21T02:36:56.930425404Z [inf]  [Job] ✅ Got 1086 quality users from database
-2026-02-21T02:36:56.930433555Z [inf]  [SocialJob] fetchCastsFromUsers starting with 1086 FIDs, target: 1000
-2026-02-21T02:36:56.930443442Z [inf]  No open positions to monitor
-2026-02-21T02:37:26.930149049Z [inf]  Starting initial token refresh...
-2026-02-21T02:37:56.982893272Z [wrn]  RPC health degraded
-2026-02-21T02:37:56.982900212Z [inf]  Alpha Detector: Checking new coin
-2026-02-21T02:38:46.787099009Z [inf]  [SocialJob] Checking Zora coin status for 997 casts...
-2026-02-21T02:38:51.622689524Z [wrn]  RPC health degraded
-2026-02-21T02:38:51.622694087Z [inf]  Refreshed 4 primary chains in 90.0s
-2026-02-21T02:39:11.153568066Z [inf]  [SocialRepo] Cleaned up 675 old casts (cap: 1000)
-2026-02-21T02:39:11.800137626Z [inf]  SocialRepo: Updated cache with 500 merged casts
-2026-02-21T02:39:11.800142054Z [inf]  SocialRepo: Saved 997 trending casts to database
-2026-02-21T02:39:11.800146294Z [inf]  [SocialJob] Casts refreshed: 997 saved
-2026-02-21T02:39:11.800150409Z [inf]  [SocialJob] 🚀 Triggering OGP Prefetch for top 50 casts...
-2026-02-21T02:39:11.800154876Z [wrn]  [OGPService] Simple fetch failed
-2026-02-21T02:39:11.800159003Z [wrn]  [OGPService] Simple fetch failed
-2026-02-21T02:39:11.800163096Z [inf]  [OGPService] Launching Singleton Browser...
-2026-02-21T02:39:11.823613252Z [inf]  [OGPService] Launching Singleton Browser...
-2026-02-21T02:39:11.865373198Z [err]  [OGPService] Puppeteer failed
-2026-02-21T02:39:11.865381103Z [err]  [OGPService] Puppeteer failed
-2026-02-21T02:39:11.872823259Z [inf]  [OGPService] No metadata resolved
-2026-02-21T02:39:11.872827955Z [inf]  [OGPService] No metadata resolved
-2026-02-21T02:39:13.999847133Z [wrn]  [OGPService] Simple fetch failed
-2026-02-21T02:39:14.246378148Z [inf]  [OGPService] Launching Singleton Browser...
-2026-02-21T02:39:14.877568856Z [err]  [OGPService] Puppeteer failed
-2026-02-21T02:39:14.877581580Z [inf]  [OGPService] No metadata resolved
-2026-02-21T02:39:19.041883608Z [inf]  [SocialJob] ✅ OGP prefetch completed
-2026-02-21T02:39:59.490512363Z [wrn]  RPC health degraded
-2026-02-21T02:39:59.490517376Z [inf]  Suppressed repeated logs
-2026-02-21T02:39:59.490537129Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-21T02:39:59.490543528Z [inf]  Suppressed repeated logs
-2026-02-21T02:39:59.490548790Z [inf]  No open positions to monitor
-2026-02-21T02:40:00.797350513Z [inf]  Fetching premium trending tokens
-2026-02-21T02:40:00.797357443Z [inf]  SocialRepo: Recalculated heat scores for 1000 casts
-2026-02-21T02:40:01.805546211Z [inf]  WS addresses discovered
-2026-02-21T02:40:02.941490350Z [inf]  Processed DexScreener trending candidates
-2026-02-21T02:40:05.963930966Z [wrn]  GeckoTerminal 429 triggered backoff
-2026-02-21T02:40:06.823733242Z [wrn]  GeckoTerminal 429 triggered backoff
-2026-02-21T02:40:08.540070426Z [wrn]  GeckoTerminal 429 triggered backoff
-2026-02-21T02:40:12.380384204Z [wrn]  GeckoTerminal 429 triggered backoff
-2026-02-21T02:40:12.380392588Z [err]  GeckoTerminal API error after retries
-2026-02-21T02:40:12.380403008Z [err]  Error fetching trending tokens
-2026-02-21T02:40:12.380411307Z [inf]  Premium trending tokens fetch complete
-2026-02-21T02:40:12.380418192Z [inf]  Got 87 trending tokens for Ethereum
-2026-02-21T02:40:12.380424819Z [inf]  Filtered out 8 invalid tokens for Ethereum
-2026-02-21T02:40:12.581347486Z [inf]  Saved 79/79 trending tokens for eth to database and memory cache
-2026-02-21T02:40:12.589265954Z [inf]  Saved 79 tokens for Ethereum to DB + cache
-2026-02-21T02:40:12.606158708Z [inf]  Launchpad verify budget applied
-2026-02-21T02:40:42.729647247Z [inf]  Fetching premium trending tokens
-2026-02-21T02:40:42.864931022Z [inf]  WS addresses discovered
-2026-02-21T02:40:43.894758514Z [inf]  Processed DexScreener trending candidates
-2026-02-21T02:40:43.894762235Z [inf]  Premium trending tokens fetch complete
-2026-02-21T02:40:43.894766366Z [inf]  Got 100 trending tokens for Solana
-2026-02-21T02:40:44.284786825Z [inf]  Saved 100/100 trending tokens for solana to database and memory cache
-2026-02-21T02:40:44.284869597Z [inf]  Saved 100 tokens for Solana to DB + cache
-2026-02-21T02:40:51.184955141Z [wrn]  RPC health degraded
-2026-02-21T02:40:56.031869302Z [inf]  Suppressed repeated logs
-2026-02-21T02:40:56.031875291Z [inf]  Alpha Detector: Checking new coin
-2026-02-21T02:41:02.340027964Z [inf]  Suppressed repeated logs
-2026-02-21T02:41:02.340033887Z [inf]  Saved 100/100 trending tokens for solana to database and memory cache
-2026-02-21T02:41:10.317098414Z [inf]  [Profile] fetchReceipt
-2026-02-21T02:41:10.317105005Z [inf]  Swap successfully decoded from logs
-2026-02-21T02:41:10.317124822Z [inf]  [Profile] parseSwapTransaction
-2026-02-21T02:41:10.317131733Z [inf]  [CopyTradePending] Prefetched confirmed swap from pending path
-2026-02-21T02:41:10.317138856Z [inf]  Swap detected on target wallet
-2026-02-21T02:41:10.317146780Z [inf]  Target is buying - triggering copy trade
-2026-02-21T02:41:10.321557745Z [inf]  [CopyTradeTiming] target buy start
-2026-02-21T02:41:10.321568027Z [inf]  [CopyTrade] Executable buy configs ready
-2026-02-21T02:41:10.321576092Z [inf]  [CopyTrade] Token info disabled - using RPC metadata fallback
-2026-02-21T02:41:10.321593888Z [inf]  Derived missing token price from swap data
-2026-02-21T02:41:10.321601173Z [inf]  🔥 Warming up 1 user settings
-2026-02-21T02:41:10.321607135Z [inf]  [CopyTrade] Turbo fast lane enabled
-2026-02-21T02:41:10.438601696Z [inf]  [Webhook] Alchemy payload: network=BASE_MAINNET hash=0x1ee0ec7934d2b93cc056ccd964f0e0613d4d4aab3f5937d680dcbd1f677f783b category=external asset=ETH
-2026-02-21T02:41:10.457476490Z [inf]  [Webhook] Processing as EVM activity groups (1 tx groups)
-2026-02-21T02:41:10.468966129Z [inf]  [Webhook] Found 1 tracked wallets for tx 0x1ee0ec7934d2b93cc056ccd964f0e0613d4d4aab3f5937d680dcbd1f677f783b
-2026-02-21T02:41:10.483498391Z [inf]  [WebhookTiming][alchemy] tx=0x1ee0ec7934 wallets=1 swaps=1 predecoded=1 totalMs=15
-2026-02-21T02:41:10.483506128Z [inf]  0x API price received successfully
-2026-02-21T02:41:10.605834550Z [inf]  Created PENDING position lock
-2026-02-21T02:41:10.605840709Z [inf]  Buy Step 1: 100% amount, 0.5% slippage
-2026-02-21T02:41:10.605847359Z [inf]  [MainSwapService][1771641670590_2t8mf] Starting unified swap execution
-2026-02-21T02:41:10.605854051Z [inf]  [MainSwapService][1771641670590_2t8mf] Executing EVM swap
-2026-02-21T02:41:10.605859713Z [inf]  [MainSwapService][1771641670590_2t8mf] FastSwapMode enabled - attempting direct swap (buy direction)
-2026-02-21T02:41:10.609062366Z [inf]  [DirectSwap] Starting direct swap
-2026-02-21T02:41:11.214909939Z [err]  All RPC endpoints failed
-2026-02-21T02:41:12.154976632Z [inf]  [DirectSwap] Resolved hint liquidity gate
-2026-02-21T02:41:12.154982182Z [wrn]  [DirectSwap] Resolved pool hint fast-path skipped by liquidity gate
-2026-02-21T02:41:12.154987981Z [inf]  [DirectSwap] Early hinted source pool probe
-2026-02-21T02:41:12.154994674Z [inf]  [DirectSwap] Turbo single-pool candidates resolved
-2026-02-21T02:41:12.155001280Z [inf]  [DirectSwap] Turbo single-pool attempt plan
-2026-02-21T02:41:12.156284073Z [wrn]  [DirectSwap] Turbo single-pool attempts failed, entering rescue
-2026-02-21T02:41:12.156303339Z [inf]  [DirectSwap] Turbo single-pool attempt
-2026-02-21T02:41:12.156311945Z [inf]  [DirectSwap] V3 minAmountOut calculated
-2026-02-21T02:41:12.156320385Z [wrn]  [DirectSwap] V3 fastMode pre-sim REVERTED - aborting send
-2026-02-21T02:41:12.402997258Z [wrn]  [MainSwapService][1771641670590_2t8mf] Turbo direct timeout; waiting late-settle window
-2026-02-21T02:41:13.550300753Z [inf]  [DirectSwap] Turbo rescue pool discovery
-2026-02-21T02:41:13.550308273Z [inf]  [DirectSwap] Finished
-2026-02-21T02:41:13.550314497Z [inf]  [MainSwapService][1771641670590_2t8mf] Turbo 光速 retry - immediate direct attempt 2 (no sleep, cache hot)
-2026-02-21T02:41:13.550320314Z [inf]  [DirectSwap] Starting direct swap
-2026-02-21T02:41:13.550324956Z [wrn]  [DirectSwapTrace] Attempt failed
-2026-02-21T02:41:13.552986362Z [wrn]  [DirectSwap] Turbo budget exceeded
-2026-02-21T02:41:13.552996158Z [wrn]  [MainSwapService][1771641670590_2t8mf] Turbo direct late-settle resolved with failure
-2026-02-21T02:41:13.553003191Z [wrn]  [MainSwapService][1771641670590_2t8mf] Direct swap failed, retrying next attempt
-2026-02-21T02:41:14.308669725Z [inf]  Fetching premium trending tokens
-2026-02-21T02:41:14.535035712Z [inf]  WS addresses discovered
-2026-02-21T02:41:15.259702260Z [inf]  [DirectSwap] Resolved hint liquidity gate
-2026-02-21T02:41:15.259707294Z [wrn]  [DirectSwap] Resolved pool hint fast-path skipped by liquidity gate
-2026-02-21T02:41:15.259719642Z [inf]  [DirectSwap] Early hinted source pool probe
-2026-02-21T02:41:15.259724966Z [inf]  [DirectSwap] Turbo single-pool candidates resolved
-2026-02-21T02:41:15.259729822Z [inf]  [DirectSwap] Turbo single-pool attempt plan
-2026-02-21T02:41:15.261601812Z [inf]  [DirectSwap] Turbo single-pool attempt
-2026-02-21T02:41:15.261611030Z [inf]  [DirectSwap] V3 minAmountOut calculated
-2026-02-21T02:41:15.261619563Z [wrn]  [DirectSwap] V3 fastMode pre-sim REVERTED - aborting send
-2026-02-21T02:41:15.261627387Z [wrn]  [DirectSwap] Turbo single-pool attempts failed, entering rescue
-2026-02-21T02:41:15.353631203Z [wrn]  [MainSwapService][1771641670590_2t8mf] Turbo direct timeout; waiting late-settle window
-2026-02-21T02:41:15.676985046Z [inf]  Processed DexScreener trending candidates
-2026-02-21T02:41:15.676995631Z [inf]  Premium trending tokens fetch complete
-2026-02-21T02:41:15.677003229Z [inf]  Got 75 trending tokens for Base
-2026-02-21T02:41:15.677012265Z [inf]  Filtered out 1 invalid tokens for Base
-2026-02-21T02:41:16.376553806Z [inf]  Saved 74 tokens for Base to DB + cache
-2026-02-21T02:41:16.376628534Z [inf]  [DirectSwap] Turbo rescue pool discovery
-2026-02-21T02:41:16.376643735Z [inf]  [DirectSwap] Turbo rescue liquidity guard
-2026-02-21T02:41:16.376653091Z [inf]  [DirectSwap] Turbo rescue strategy order
-2026-02-21T02:41:16.376683283Z [inf]  Saved 74/74 trending tokens for base to database and memory cache
-2026-02-21T02:41:16.626621437Z [inf]  [DirectSwap] Turbo rescue selected
-2026-02-21T02:41:16.626631994Z [inf]  [DirectSwap] V3 minAmountOut calculated
-2026-02-21T02:41:16.626637587Z [inf]  Launchpad verify budget applied
-2026-02-21T02:41:17.282524454Z [inf]  PrivyWallet Authorization Key config
-2026-02-21T02:41:17.374249793Z [wrn]  [MainSwapService][1771641670590_2t8mf] Turbo direct timed out; awaiting final settle window
-2026-02-21T02:41:17.466390125Z [inf]  [sendTransaction] ========== PRIVY TX PARAMS ==========
-2026-02-21T02:41:17.466395199Z [inf]  [sendTransaction] From: 0xFB64Ce8d64CEC808a8aCb977d3Ee7bE1169f1a2B
-2026-02-21T02:41:17.466400937Z [inf]  [sendTransaction] To: 0x2626664c2603336E57B271c5C0b26F421741e481
-2026-02-21T02:41:17.466405598Z [inf]  [sendTransaction] Value: 507873305925104
-2026-02-21T02:41:17.466411608Z [inf]  [sendTransaction] ValueHex: 0x1cde877fd95f0
-2026-02-21T02:41:17.466417799Z [inf]  [sendTransaction] Data length: 458
-2026-02-21T02:41:17.466423612Z [inf]  [sendTransaction] Data prefix: 0x04e45aaf000000000000000000000000420000000000000000000000000000000000000600000000
-2026-02-21T02:41:17.466628005Z [inf]  [sendTransaction] ===========================================
-2026-02-21T02:41:17.466635471Z [wrn]  Sending transaction via Privy sign+broadcast path
-2026-02-21T02:41:17.466662762Z [inf]  [sendTransaction] MaxPriorityFeePerGas: 
-2026-02-21T02:41:17.466662855Z [inf]  [sendTransaction] ChainId: 8453
-2026-02-21T02:41:17.466675253Z [inf]  [sendTransaction] Profile: base-sniper
-2026-02-21T02:41:17.466677976Z [inf]  [sendTransaction] Gas: 301046
-2026-02-21T02:41:17.466690009Z [inf]  [sendTransaction] MaxFeePerGas: 
-2026-02-21T02:41:18.246344160Z [inf]  Ethereum transaction broadcast via signed raw path
-2026-02-21T02:41:18.246354463Z [inf]  [DirectSwap] V3 swap executed
-2026-02-21T02:41:18.246360350Z [inf]  [DirectSwap] Finished
-2026-02-21T02:41:18.246366301Z [wrn]  [DirectSwap] Turbo budget exceeded
-2026-02-21T02:41:18.246371596Z [inf]  [PlatformFee] Fees ENABLED: {"context":"copyTrade","bps":100,"evmRecipient":"0xc5377e6329"}
-2026-02-21T02:41:18.246377231Z [wrn]  [MainSwapService][1771641670590_2t8mf] Direct swap fee skipped: missing access token
-2026-02-21T02:41:18.247897465Z [inf]  [MainSwapService][1771641670590_2t8mf] Direct swap successful after final settle txHash=0x5a3555cd335ddf10c5cac5a70c8e02ba218a9d19cda2637a601743b9a94a462c
-2026-02-21T02:41:18.247900708Z [inf]  [MainSwapService][1771641670590_2t8mf] Direct swap RPC usage delta
-2026-02-21T02:41:18.247913956Z [inf]  [CopyTradeTiming] buy step 1 success
-2026-02-21T02:41:18.249537510Z [inf]  Copy trade completed and position created
-2026-02-21T02:41:18.249546615Z [inf]  [CopyTrade] Turbo fast lane complete
-2026-02-21T02:41:18.510915527Z [err]  api failed after 1 attempts
-2026-02-21T02:41:20.313543072Z [inf]  [Webhook] Alchemy payload: network=BASE_MAINNET hash=0x1ee0ec7934d2b93cc056ccd964f0e0613d4d4aab3f5937d680dcbd1f677f783b category=token asset=Conway
-2026-02-21T02:41:20.313550048Z [inf]  [Webhook] Processing as EVM activity groups (1 tx groups)
-2026-02-21T02:41:20.313556850Z [inf]  [Webhook] Tx already in processedTxs cache: 0x1ee0ec7934d2b93cc056ccd964f0e0613d4d4aab3f5937d680dcbd1f677f783b
-2026-02-21T02:41:21.353417626Z [inf]  Privy tx visibility check
-2026-02-21T02:41:21.353425900Z [wrn]  Privy tx visibility miss (non-blocking)
-2026-02-21T02:41:26.541280448Z [inf]  ✅ Hybrid fetch complete
-2026-02-21T02:41:26.655665951Z [wrn]  Deleting new position with 0 balance (likely reverted buy)
-2026-02-21T02:41:29.519018196Z [inf]  Suppressed repeated logs
-2026-02-21T02:41:29.519173488Z [inf]  Saved 74/74 trending tokens for base to database and memory cache
+2026-02-21T03:40:27.712250286Z [inf]  Starting Container
+2026-02-21T03:40:28.159927518Z [inf]  [Prisma] Initializing client (Pool: 20, Timeout: 45s, Connect: 20s)
+2026-02-21T03:40:28.313703965Z [inf]  Zora SDK initialized with API Key
+2026-02-21T03:40:28.465534915Z [err]  [SocialJob] Could not find real_hot_users.json in any candidate path
+2026-02-21T03:40:28.621980751Z [inf]  [Warpcast] Loaded 10 API keys. Daily capacity: 50000 messages.
+2026-02-21T03:40:28.621986432Z [inf]  [SkillRegistry:exec] Loading skills from /app/dist/skills_exec...
+2026-02-21T03:40:28.621989957Z [inf]  [SkillRegistry:exec] Skills dir not found, skipping: /app/dist/skills_exec
+2026-02-21T03:40:28.621993735Z [inf]  [SkillRegistry:clean] Loading skills from /app/dist/skills_clean...
+2026-02-21T03:40:28.621997426Z [inf]  [SkillRegistry:clean] Skills dir not found, skipping: /app/dist/skills_clean
+2026-02-21T03:40:28.622000717Z [inf]  Build SHA
+2026-02-21T03:40:28.622004794Z [inf]  Serving static files from:
+2026-02-21T03:40:28.622007551Z [inf]  Initializing services...
+2026-02-21T03:40:28.713427274Z [inf]  [Prisma] DB connection is healthy
+2026-02-21T03:40:28.740148703Z [inf]  Database connection successful
+2026-02-21T03:40:28.740153345Z [inf]  [DataRetention] Checking retention policies...
+2026-02-21T03:40:28.802414851Z [inf]  [DataRetention] Starting cleanup job...
+2026-02-21T03:40:28.802418269Z [inf]  [DataRetention] Scheduler started (every 60 minutes)
+2026-02-21T03:40:28.846867352Z [inf]  Redis initialized
+2026-02-21T03:40:28.846870246Z [inf]  ⚡ Preloading native token prices via Coinbase...
+2026-02-21T03:40:28.870564878Z [inf]  ⚡ Native price refresh started (10 min interval)
+2026-02-21T03:40:28.870569383Z [inf]  Native price refresh started
+2026-02-21T03:40:28.870572927Z [inf]  Starting server on port 8080...
+2026-02-21T03:40:28.991115809Z [inf]  ⚡ Native token prices cached (Coinbase)
+2026-02-21T03:40:28.991125505Z [inf]  [DataRetention] Cleanup job completed.
+2026-02-21T03:40:29.034880173Z [inf]  Server listening at http://0.0.0.0:8080
+2026-02-21T03:40:29.034885258Z [inf]  Server listening
+2026-02-21T03:40:29.034889296Z [inf]  RPC health monitor started
+2026-02-21T03:40:29.034892524Z [inf]  RPC benchmark sampling started
+2026-02-21T03:40:29.040141828Z [inf]  [MarketJob] Scheduled: Overview(2:00 UTC), Chains(3:00 UTC), Protocols(4:00 UTC), Trending(Every 5m)
+2026-02-21T03:40:29.040973066Z [inf]  Scheduled: Primary chains every 5min (Ethereum, Solana, Base, BSC)
+2026-02-21T03:40:29.040976560Z [inf]  Scheduled: Secondary chains every 4h (Arbitrum, Optimism, Polygon)
+2026-02-21T03:40:29.042086576Z [inf]  [SocialJob] Scheduled: Discovery (30m), Refresh (4h), Scoring (5m)
+2026-02-21T03:40:29.042094931Z [inf]  Background jobs started
+2026-02-21T03:40:29.042100444Z [inf]  Initializing auto trade service...
+2026-02-21T03:40:29.042106471Z [inf]  [SolanaWatcher] ⚠️ Watcher disabled in favor of Webhooks. Not starting polling.
+2026-02-21T03:40:29.042111339Z [inf]  Auto trade service initialized (Solana watcher + EVM webhook + pending prefetch enabled)
+2026-02-21T03:40:29.042116259Z [inf]  Auto trade service started
+2026-02-21T03:40:29.042121050Z [inf]  [PositionMonitor] Starting position monitor (every 30s)...
+2026-02-21T03:40:29.042126671Z [inf]  Position monitor started
+2026-02-21T03:40:29.042844023Z [inf]  Token Alert Service started
+2026-02-21T03:40:29.042848814Z [inf]  Token alert service started
+2026-02-21T03:40:29.042852083Z [inf]  ChatWorker started polling
+2026-02-21T03:40:29.042854934Z [inf]  Chat worker started
+2026-02-21T03:40:29.042858000Z [inf]  Starting Global Zora Alpha Detector (API Polling)
+2026-02-21T03:40:29.043648891Z [inf]  🎉 All services initialized!
+2026-02-21T03:40:29.083800435Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
+2026-02-21T03:40:29.083803332Z [inf]  [CopyTradePending] Pending watcher started
+2026-02-21T03:40:34.042264599Z [inf]  [MarketJob] Running startup staleness check...
+2026-02-21T03:40:34.061002180Z [inf]  [Job] Real hot users file not found: 
+2026-02-21T03:40:34.061006695Z [inf]  [Job] ✅ Got 1088 quality users from database
+2026-02-21T03:40:34.061831225Z [inf]  [SocialJob] fetchCastsFromUsers starting with 1088 FIDs, target: 1000
+2026-02-21T03:40:34.072927549Z [inf]  No open positions to monitor
+2026-02-21T03:40:34.420423226Z [inf]  Saved batch 1/356
+2026-02-21T03:40:34.444215291Z [inf]  Saved batch 2/356
+2026-02-21T03:40:34.466236491Z [inf]  Saved batch 3/356
+2026-02-21T03:40:34.488381721Z [inf]  Saved batch 4/356
+2026-02-21T03:40:34.506010353Z [inf]  Saved batch 5/356
+2026-02-21T03:40:34.546860603Z [inf]  Saved batch 6/356
+2026-02-21T03:40:34.552903137Z [inf]  Saved batch 7/356
+2026-02-21T03:40:34.699576062Z [inf]  Saved batch 12/356
+2026-02-21T03:40:34.699582904Z [inf]  Saved batch 13/356
+2026-02-21T03:40:34.699593086Z [inf]  Saved batch 8/356
+2026-02-21T03:40:34.699597279Z [inf]  Saved batch 9/356
+2026-02-21T03:40:34.699601355Z [inf]  Saved batch 10/356
+2026-02-21T03:40:34.699605214Z [inf]  Saved batch 11/356
+2026-02-21T03:40:34.710863434Z [inf]  Saved batch 14/356
+2026-02-21T03:40:34.732175465Z [inf]  Saved batch 15/356
+2026-02-21T03:40:34.778682391Z [inf]  Saved batch 16/356
+2026-02-21T03:40:34.795630000Z [inf]  Saved batch 17/356
+2026-02-21T03:40:35.087668812Z [inf]  Saved batch 18/356
+2026-02-21T03:40:35.989426623Z [inf]  Saved batch 19/356
+2026-02-21T03:40:36.012860178Z [inf]  Saved batch 20/356
+2026-02-21T03:40:36.032346527Z [inf]  Saved batch 21/356
+2026-02-21T03:40:36.048393973Z [inf]  Saved batch 22/356
+2026-02-21T03:40:36.060597240Z [inf]  Saved batch 23/356
+2026-02-21T03:40:36.116914452Z [inf]  Saved batch 24/356
+2026-02-21T03:40:36.145730107Z [inf]  Saved batch 25/356
+2026-02-21T03:40:36.187078471Z [inf]  Saved batch 26/356
+2026-02-21T03:40:36.197897576Z [inf]  Saved batch 27/356
+2026-02-21T03:40:36.219505194Z [inf]  Saved batch 28/356
+2026-02-21T03:40:36.230719821Z [inf]  Saved batch 29/356
+2026-02-21T03:40:36.249763860Z [inf]  Saved batch 30/356
+2026-02-21T03:40:36.263476784Z [inf]  Saved batch 31/356
+2026-02-21T03:40:36.310130157Z [inf]  Saved batch 32/356
+2026-02-21T03:40:36.310133403Z [inf]  Saved batch 33/356
+2026-02-21T03:40:36.321264580Z [inf]  Saved batch 34/356
+2026-02-21T03:40:36.333894576Z [inf]  Saved batch 35/356
+2026-02-21T03:40:36.357907543Z [inf]  Saved batch 36/356
+2026-02-21T03:40:36.376468815Z [inf]  Saved batch 37/356
+2026-02-21T03:40:36.399752803Z [inf]  Saved batch 38/356
+2026-02-21T03:40:36.432882219Z [inf]  Saved batch 39/356
+2026-02-21T03:40:36.454889518Z [inf]  Saved batch 40/356
+2026-02-21T03:40:36.573162984Z [inf]  Saved batch 41/356
+2026-02-21T03:40:36.573165740Z [inf]  Saved batch 42/356
+2026-02-21T03:40:36.573168917Z [inf]  Saved batch 43/356
+2026-02-21T03:40:36.573171764Z [inf]  Saved batch 44/356
+2026-02-21T03:40:36.573174271Z [inf]  Saved batch 45/356
+2026-02-21T03:40:36.636336523Z [inf]  Saved batch 46/356
+2026-02-21T03:40:36.829052811Z [inf]  Saved batch 47/356
+2026-02-21T03:40:36.829055355Z [inf]  Saved batch 48/356
+2026-02-21T03:40:36.829058134Z [inf]  Saved batch 49/356
+2026-02-21T03:40:36.829061011Z [inf]  Saved batch 50/356
+2026-02-21T03:40:36.829063900Z [inf]  Saved batch 51/356
+2026-02-21T03:40:36.829066814Z [inf]  Saved batch 52/356
+2026-02-21T03:40:36.869583508Z [inf]  Saved batch 53/356
+2026-02-21T03:40:37.022670711Z [inf]  Saved batch 54/356
+2026-02-21T03:40:37.022675311Z [inf]  Saved batch 55/356
+2026-02-21T03:40:37.022679417Z [inf]  Saved batch 56/356
+2026-02-21T03:40:37.022684203Z [inf]  Saved batch 57/356
+2026-02-21T03:40:37.028539767Z [inf]  Saved batch 58/356
+2026-02-21T03:40:37.067219272Z [inf]  Saved batch 59/356
+2026-02-21T03:40:37.089714573Z [inf]  Saved batch 60/356
+2026-02-21T03:40:37.112451781Z [inf]  Saved batch 61/356
+2026-02-21T03:40:37.160713862Z [inf]  Saved batch 62/356
+2026-02-21T03:40:37.182560192Z [inf]  Saved batch 63/356
+2026-02-21T03:40:37.202692615Z [inf]  Saved batch 64/356
+2026-02-21T03:40:37.212607733Z [inf]  Saved batch 65/356
+2026-02-21T03:40:37.343818253Z [inf]  Saved batch 66/356
+2026-02-21T03:40:37.343822194Z [inf]  Saved batch 67/356
+2026-02-21T03:40:37.343825365Z [inf]  Saved batch 68/356
+2026-02-21T03:40:37.343828431Z [inf]  Saved batch 69/356
+2026-02-21T03:40:37.343832120Z [inf]  Saved batch 70/356
+2026-02-21T03:40:37.343836612Z [inf]  Saved batch 71/356
+2026-02-21T03:40:37.343840273Z [inf]  Saved batch 72/356
+2026-02-21T03:40:37.474223717Z [inf]  Saved batch 73/356
+2026-02-21T03:40:37.474226559Z [inf]  Saved batch 74/356
+2026-02-21T03:40:37.474229467Z [inf]  Saved batch 75/356
+2026-02-21T03:40:37.474232073Z [inf]  Saved batch 76/356
+2026-02-21T03:40:37.474235075Z [inf]  Saved batch 77/356
+2026-02-21T03:40:37.480933611Z [inf]  Saved batch 78/356
+2026-02-21T03:40:37.492737227Z [inf]  Saved batch 79/356
+2026-02-21T03:40:37.637302890Z [inf]  Saved batch 80/356
+2026-02-21T03:40:37.637306816Z [inf]  Saved batch 81/356
+2026-02-21T03:40:37.637310635Z [inf]  Saved batch 82/356
+2026-02-21T03:40:37.637314428Z [inf]  Saved batch 83/356
+2026-02-21T03:40:37.637318058Z [inf]  Saved batch 84/356
+2026-02-21T03:40:37.637321734Z [inf]  Saved batch 85/356
+2026-02-21T03:40:37.637325980Z [inf]  Saved batch 86/356
+2026-02-21T03:40:37.637329637Z [inf]  Saved batch 87/356
+2026-02-21T03:40:37.846971915Z [inf]  Saved batch 88/356
+2026-02-21T03:40:37.846975115Z [inf]  Saved batch 89/356
+2026-02-21T03:40:37.846977915Z [inf]  Saved batch 90/356
+2026-02-21T03:40:37.846981150Z [inf]  Saved batch 91/356
+2026-02-21T03:40:37.846984368Z [inf]  Saved batch 92/356
+2026-02-21T03:40:37.846987314Z [inf]  Saved batch 93/356
+2026-02-21T03:40:37.846990655Z [inf]  Saved batch 94/356
+2026-02-21T03:40:37.846994048Z [inf]  Saved batch 95/356
+2026-02-21T03:40:37.846998121Z [inf]  Saved batch 96/356
+2026-02-21T03:40:37.847309308Z [inf]  Saved batch 97/356
+2026-02-21T03:40:37.847313936Z [inf]  Saved batch 98/356
+2026-02-21T03:40:37.847316869Z [inf]  Saved batch 99/356
+2026-02-21T03:40:37.852405290Z [inf]  Saved batch 100/356
+2026-02-21T03:40:37.873182184Z [inf]  Saved batch 101/356
+2026-02-21T03:40:37.883894376Z [inf]  Saved batch 102/356
+2026-02-21T03:40:37.895640799Z [inf]  Saved batch 103/356
+2026-02-21T03:40:37.958693675Z [inf]  Saved batch 104/356
+2026-02-21T03:40:37.958698897Z [inf]  Saved batch 105/356
+2026-02-21T03:40:37.958702270Z [inf]  Saved batch 106/356
+2026-02-21T03:40:37.972425454Z [inf]  Saved batch 107/356
+2026-02-21T03:40:37.992825721Z [inf]  Saved batch 108/356
+2026-02-21T03:40:38.029656400Z [inf]  Saved batch 109/356
+2026-02-21T03:40:38.060837977Z [inf]  Saved batch 110/356
+2026-02-21T03:40:38.106910492Z [inf]  Saved batch 111/356
+2026-02-21T03:40:38.106913110Z [inf]  Saved batch 112/356
+2026-02-21T03:40:38.181005934Z [inf]  Saved batch 113/356
+2026-02-21T03:40:38.181009661Z [inf]  Saved batch 114/356
+2026-02-21T03:40:38.181013441Z [inf]  Saved batch 115/356
+2026-02-21T03:40:38.181017141Z [inf]  Saved batch 116/356
+2026-02-21T03:40:38.188832933Z [inf]  Saved batch 117/356
+2026-02-21T03:40:38.230514096Z [inf]  Saved batch 118/356
+2026-02-21T03:40:38.230519045Z [inf]  Saved batch 119/356
+2026-02-21T03:40:38.254116113Z [inf]  Saved batch 120/356
+2026-02-21T03:40:38.427293793Z [inf]  Saved batch 121/356
+2026-02-21T03:40:38.427296679Z [inf]  Saved batch 122/356
+2026-02-21T03:40:38.427299570Z [inf]  Saved batch 123/356
+2026-02-21T03:40:38.427302326Z [inf]  Saved batch 124/356
+2026-02-21T03:40:38.557383508Z [inf]  Saved batch 125/356
+2026-02-21T03:40:38.557386205Z [inf]  Saved batch 126/356
+2026-02-21T03:40:38.557389193Z [inf]  Saved batch 127/356
+2026-02-21T03:40:38.557392331Z [inf]  Saved batch 128/356
+2026-02-21T03:40:38.557395063Z [inf]  Saved batch 129/356
+2026-02-21T03:40:38.557397985Z [inf]  Saved batch 130/356
+2026-02-21T03:40:38.680217310Z [inf]  Saved batch 136/356
+2026-02-21T03:40:38.680225186Z [inf]  Saved batch 137/356
+2026-02-21T03:40:38.680265941Z [inf]  Saved batch 131/356
+2026-02-21T03:40:38.680268993Z [inf]  Saved batch 132/356
+2026-02-21T03:40:38.680272197Z [inf]  Saved batch 133/356
+2026-02-21T03:40:38.680274946Z [inf]  Saved batch 134/356
+2026-02-21T03:40:38.680277727Z [inf]  Saved batch 135/356
+2026-02-21T03:40:38.998370961Z [inf]  Saved batch 138/356
+2026-02-21T03:40:38.998376852Z [inf]  Saved batch 139/356
+2026-02-21T03:40:38.998382787Z [inf]  Saved batch 140/356
+2026-02-21T03:40:38.998395201Z [inf]  Saved batch 141/356
+2026-02-21T03:40:38.998404992Z [inf]  Saved batch 142/356
+2026-02-21T03:40:38.998409807Z [inf]  Saved batch 143/356
+2026-02-21T03:40:38.998413144Z [inf]  Saved batch 144/356
+2026-02-21T03:40:38.998416544Z [inf]  Saved batch 145/356
+2026-02-21T03:40:38.998425413Z [inf]  Saved batch 146/356
+2026-02-21T03:40:38.998482990Z [inf]  Saved batch 147/356
+2026-02-21T03:40:38.998489065Z [inf]  Saved batch 148/356
+2026-02-21T03:40:38.998493542Z [inf]  Saved batch 149/356
+2026-02-21T03:40:38.998498004Z [inf]  Saved batch 150/356
+2026-02-21T03:40:38.998503425Z [inf]  Saved batch 151/356
+2026-02-21T03:40:39.092775277Z [inf]  Saved batch 152/356
+2026-02-21T03:40:39.092780023Z [inf]  Saved batch 153/356
+2026-02-21T03:40:39.092784364Z [inf]  Saved batch 154/356
+2026-02-21T03:40:39.092789406Z [inf]  Saved batch 155/356
+2026-02-21T03:40:39.117312020Z [inf]  Saved batch 156/356
+2026-02-21T03:40:39.138754577Z [inf]  Saved batch 157/356
+2026-02-21T03:40:39.161123296Z [inf]  Saved batch 158/356
+2026-02-21T03:40:39.206702257Z [inf]  Saved batch 159/356
+2026-02-21T03:40:39.250894124Z [inf]  Saved batch 160/356
+2026-02-21T03:40:39.275188187Z [inf]  Saved batch 161/356
+2026-02-21T03:40:39.316197491Z [inf]  Saved batch 162/356
+2026-02-21T03:40:39.341603080Z [inf]  Saved batch 163/356
+2026-02-21T03:40:39.385372397Z [inf]  Saved batch 164/356
+2026-02-21T03:40:39.440451922Z [inf]  Saved batch 165/356
+2026-02-21T03:40:39.452446651Z [inf]  Saved batch 166/356
+2026-02-21T03:40:39.487747524Z [inf]  Saved batch 167/356
+2026-02-21T03:40:39.522080405Z [inf]  Saved batch 168/356
+2026-02-21T03:40:39.551265930Z [inf]  Saved batch 169/356
+2026-02-21T03:40:39.562465491Z [inf]  Saved batch 170/356
+2026-02-21T03:40:39.585479906Z [inf]  Saved batch 171/356
+2026-02-21T03:40:39.609005200Z [inf]  Saved batch 172/356
+2026-02-21T03:40:39.637743913Z [inf]  Saved batch 173/356
+2026-02-21T03:40:39.665385218Z [inf]  Saved batch 174/356
+2026-02-21T03:40:39.811290599Z [inf]  Saved batch 175/356
+2026-02-21T03:40:39.811293387Z [inf]  Saved batch 176/356
+2026-02-21T03:40:39.811295949Z [inf]  Saved batch 177/356
+2026-02-21T03:40:39.811298798Z [inf]  Saved batch 178/356
+2026-02-21T03:40:39.822212176Z [inf]  Saved batch 179/356
+2026-02-21T03:40:39.851749328Z [inf]  Saved batch 180/356
+2026-02-21T03:40:39.989458347Z [inf]  Saved batch 181/356
+2026-02-21T03:40:40.063030331Z [inf]  Saved batch 182/356
+2026-02-21T03:40:40.098047560Z [inf]  Saved batch 183/356
+2026-02-21T03:40:40.130012969Z [inf]  Saved batch 184/356
+2026-02-21T03:40:40.163877538Z [inf]  Saved batch 185/356
+2026-02-21T03:40:40.210425577Z [inf]  Saved batch 186/356
+2026-02-21T03:40:40.232966227Z [inf]  Saved batch 187/356
+2026-02-21T03:40:40.249565540Z [inf]  Saved batch 188/356
+2026-02-21T03:40:40.272202345Z [inf]  Saved batch 189/356
+2026-02-21T03:40:40.296089588Z [inf]  Saved batch 190/356
+2026-02-21T03:40:40.307541961Z [inf]  Saved batch 191/356
+2026-02-21T03:40:40.343878177Z [inf]  Saved batch 192/356
+2026-02-21T03:40:40.357231203Z [inf]  Saved batch 193/356
+2026-02-21T03:40:40.383312859Z [inf]  Saved batch 194/356
+2026-02-21T03:40:40.406612476Z [inf]  Saved batch 195/356
+2026-02-21T03:40:40.424523676Z [inf]  Saved batch 196/356
+2026-02-21T03:40:40.447492222Z [inf]  Saved batch 197/356
+2026-02-21T03:40:40.452613823Z [inf]  Saved batch 198/356
+2026-02-21T03:40:40.489036022Z [inf]  Saved batch 199/356
+2026-02-21T03:40:40.516560718Z [inf]  Saved batch 200/356
+2026-02-21T03:40:40.528567064Z [inf]  Saved batch 201/356
+2026-02-21T03:40:40.563958057Z [inf]  Saved batch 202/356
+2026-02-21T03:40:40.588056608Z [inf]  Saved batch 203/356
+2026-02-21T03:40:40.610771123Z [inf]  Saved batch 204/356
+2026-02-21T03:40:40.616046025Z [inf]  Saved batch 205/356
+2026-02-21T03:40:40.645956313Z [inf]  Saved batch 206/356
+2026-02-21T03:40:40.657827436Z [inf]  Saved batch 207/356
+2026-02-21T03:40:40.669410027Z [inf]  Saved batch 208/356
+2026-02-21T03:40:40.805610460Z [inf]  Saved batch 213/356
+2026-02-21T03:40:40.805618232Z [inf]  Saved batch 214/356
+2026-02-21T03:40:40.805702837Z [inf]  Saved batch 209/356
+2026-02-21T03:40:40.805706085Z [inf]  Saved batch 210/356
+2026-02-21T03:40:40.805709922Z [inf]  Saved batch 211/356
+2026-02-21T03:40:40.805714073Z [inf]  Saved batch 212/356
+2026-02-21T03:40:40.830963059Z [inf]  Saved batch 215/356
+2026-02-21T03:40:40.853004603Z [inf]  Saved batch 216/356
+2026-02-21T03:40:40.864098433Z [inf]  Saved batch 217/356
+2026-02-21T03:40:40.914913298Z [inf]  Saved batch 218/356
+2026-02-21T03:40:40.921108463Z [inf]  Saved batch 219/356
+2026-02-21T03:40:40.937722284Z [inf]  Saved batch 220/356
+2026-02-21T03:40:40.976039419Z [inf]  Saved batch 221/356
+2026-02-21T03:40:41.000373056Z [inf]  Saved batch 222/356
+2026-02-21T03:40:41.048579791Z [inf]  Saved batch 223/356
+2026-02-21T03:40:41.058352999Z [inf]  Saved batch 224/356
+2026-02-21T03:40:41.086782670Z [inf]  Saved batch 225/356
+2026-02-21T03:40:41.104798300Z [inf]  Saved batch 226/356
+2026-02-21T03:40:41.120601953Z [inf]  Saved batch 227/356
+2026-02-21T03:40:41.141886893Z [inf]  Saved batch 228/356
+2026-02-21T03:40:41.153315982Z [inf]  Saved batch 229/356
+2026-02-21T03:40:41.175621353Z [inf]  Saved batch 230/356
+2026-02-21T03:40:41.199494482Z [inf]  Saved batch 231/356
+2026-02-21T03:40:41.222469229Z [inf]  Saved batch 232/356
+2026-02-21T03:40:41.262911097Z [inf]  Saved batch 233/356
+2026-02-21T03:40:41.285283503Z [inf]  Saved batch 234/356
+2026-02-21T03:40:41.307775090Z [inf]  Saved batch 235/356
+2026-02-21T03:40:41.356837496Z [inf]  Saved batch 236/356
+2026-02-21T03:40:41.357963561Z [inf]  Saved batch 237/356
+2026-02-21T03:40:41.381926154Z [inf]  Saved batch 238/356
+2026-02-21T03:40:41.423377620Z [inf]  Saved batch 239/356
+2026-02-21T03:40:41.459188768Z [inf]  Saved batch 240/356
+2026-02-21T03:40:41.488485036Z [inf]  Saved batch 241/356
+2026-02-21T03:40:41.529202739Z [inf]  Saved batch 242/356
+2026-02-21T03:40:41.552267655Z [inf]  Saved batch 243/356
+2026-02-21T03:40:41.587274279Z [inf]  Saved batch 244/356
+2026-02-21T03:40:41.600154786Z [inf]  Saved batch 245/356
+2026-02-21T03:40:41.612396473Z [inf]  Saved batch 246/356
+2026-02-21T03:40:41.654077235Z [inf]  Saved batch 247/356
+2026-02-21T03:40:41.816546618Z [inf]  Saved batch 248/356
+2026-02-21T03:40:41.816550974Z [inf]  Saved batch 249/356
+2026-02-21T03:40:41.816555364Z [inf]  Saved batch 250/356
+2026-02-21T03:40:41.816560110Z [inf]  Saved batch 251/356
+2026-02-21T03:40:41.816563895Z [inf]  Saved batch 252/356
+2026-02-21T03:40:41.831432882Z [inf]  Saved batch 253/356
+2026-02-21T03:40:41.870808583Z [inf]  Saved batch 254/356
+2026-02-21T03:40:41.911973855Z [inf]  Saved batch 255/356
+2026-02-21T03:40:41.911976543Z [inf]  Saved batch 256/356
+2026-02-21T03:40:41.953022279Z [inf]  Saved batch 257/356
+2026-02-21T03:40:41.984287498Z [inf]  Saved batch 258/356
+2026-02-21T03:40:42.068803837Z [inf]  Saved batch 259/356
+2026-02-21T03:40:42.068808549Z [inf]  Saved batch 260/356
+2026-02-21T03:40:42.068811528Z [inf]  Saved batch 261/356
+2026-02-21T03:40:42.095970109Z [inf]  Saved batch 262/356
+2026-02-21T03:40:42.112537994Z [inf]  Saved batch 263/356
+2026-02-21T03:40:42.134818999Z [inf]  Saved batch 264/356
+2026-02-21T03:40:42.141581754Z [inf]  Saved batch 265/356
+2026-02-21T03:40:42.183189941Z [inf]  Saved batch 266/356
+2026-02-21T03:40:42.224153786Z [inf]  Saved batch 267/356
+2026-02-21T03:40:42.236382399Z [inf]  Saved batch 268/356
+2026-02-21T03:40:42.261030160Z [inf]  Saved batch 269/356
+2026-02-21T03:40:42.273181043Z [inf]  Saved batch 270/356
+2026-02-21T03:40:42.285506279Z [inf]  Saved batch 271/356
+2026-02-21T03:40:42.302854486Z [inf]  Saved batch 272/356
+2026-02-21T03:40:42.321660929Z [inf]  Saved batch 273/356
+2026-02-21T03:40:42.385660173Z [inf]  Saved batch 274/356
+2026-02-21T03:40:42.391415456Z [inf]  Saved batch 275/356
+2026-02-21T03:40:42.403992758Z [inf]  Saved batch 276/356
+2026-02-21T03:40:42.427533366Z [inf]  Saved batch 277/356
+2026-02-21T03:40:42.449881062Z [inf]  Saved batch 278/356
+2026-02-21T03:40:42.455954310Z [inf]  Saved batch 279/356
+2026-02-21T03:40:42.468476841Z [inf]  Saved batch 280/356
+2026-02-21T03:40:42.479554464Z [inf]  Saved batch 281/356
+2026-02-21T03:40:42.498889078Z [inf]  Saved batch 282/356
+2026-02-21T03:40:42.522452390Z [inf]  Saved batch 283/356
+2026-02-21T03:40:42.533152695Z [inf]  Saved batch 284/356
+2026-02-21T03:40:42.544979913Z [inf]  Saved batch 285/356
+2026-02-21T03:40:42.556324570Z [inf]  Saved batch 286/356
+2026-02-21T03:40:42.578512200Z [inf]  Saved batch 287/356
+2026-02-21T03:40:42.591877613Z [inf]  Saved batch 288/356
+2026-02-21T03:40:42.616674163Z [inf]  Saved batch 289/356
+2026-02-21T03:40:42.638685138Z [inf]  Saved batch 290/356
+2026-02-21T03:40:42.670323943Z [inf]  Saved batch 291/356
+2026-02-21T03:40:42.688889825Z [inf]  Saved batch 292/356
+2026-02-21T03:40:42.820607622Z [inf]  Saved batch 296/356
+2026-02-21T03:40:42.820617123Z [inf]  Saved batch 297/356
+2026-02-21T03:40:42.820623518Z [inf]  Saved batch 298/356
+2026-02-21T03:40:42.820629324Z [inf]  Saved batch 299/356
+2026-02-21T03:40:42.820635772Z [inf]  Saved batch 300/356
+2026-02-21T03:40:42.820670492Z [inf]  Saved batch 293/356
+2026-02-21T03:40:42.820673419Z [inf]  Saved batch 294/356
+2026-02-21T03:40:42.820676325Z [inf]  Saved batch 295/356
+2026-02-21T03:40:42.821747642Z [inf]  Saved batch 301/356
+2026-02-21T03:40:42.840563474Z [inf]  Saved batch 302/356
+2026-02-21T03:40:42.864908986Z [inf]  Saved batch 303/356
+2026-02-21T03:40:42.878382124Z [inf]  Saved batch 304/356
+2026-02-21T03:40:42.895991650Z [inf]  Saved batch 305/356
+2026-02-21T03:40:42.919810865Z [inf]  Saved batch 306/356
+2026-02-21T03:40:42.931326662Z [inf]  Saved batch 307/356
+2026-02-21T03:40:42.943269267Z [inf]  Saved batch 308/356
+2026-02-21T03:40:43.010177992Z [inf]  Saved batch 309/356
+2026-02-21T03:40:43.010182739Z [inf]  Saved batch 310/356
+2026-02-21T03:40:43.010186111Z [inf]  Saved batch 311/356
+2026-02-21T03:40:43.017534401Z [inf]  Saved batch 312/356
+2026-02-21T03:40:43.064990257Z [inf]  Saved batch 313/356
+2026-02-21T03:40:43.064993171Z [inf]  Saved batch 314/356
+2026-02-21T03:40:43.066083289Z [inf]  Saved batch 315/356
+2026-02-21T03:40:43.086979642Z [inf]  Saved batch 316/356
+2026-02-21T03:40:43.098256813Z [inf]  Saved batch 317/356
+2026-02-21T03:40:43.208424296Z [inf]  Saved batch 320/356
+2026-02-21T03:40:43.208429718Z [inf]  Saved batch 321/356
+2026-02-21T03:40:43.208469599Z [inf]  Saved batch 318/356
+2026-02-21T03:40:43.208474733Z [inf]  Saved batch 319/356
+2026-02-21T03:40:43.231763560Z [inf]  Saved batch 322/356
+2026-02-21T03:40:43.237795109Z [inf]  Saved batch 323/356
+2026-02-21T03:40:43.279291501Z [inf]  Saved batch 324/356
+2026-02-21T03:40:43.314893086Z [inf]  Saved batch 325/356
+2026-02-21T03:40:43.342205194Z [inf]  Saved batch 326/356
+2026-02-21T03:40:43.365078793Z [inf]  Saved batch 327/356
+2026-02-21T03:40:43.376977577Z [inf]  Saved batch 328/356
+2026-02-21T03:40:43.399986575Z [inf]  Saved batch 329/356
+2026-02-21T03:40:43.443062186Z [inf]  Saved batch 330/356
+2026-02-21T03:40:43.443068275Z [inf]  Saved batch 331/356
+2026-02-21T03:40:43.511289101Z [inf]  Saved batch 332/356
+2026-02-21T03:40:43.532942121Z [inf]  Saved batch 333/356
+2026-02-21T03:40:43.556533513Z [inf]  Saved batch 334/356
+2026-02-21T03:40:43.562538292Z [inf]  Saved batch 335/356
+2026-02-21T03:40:43.600592723Z [inf]  Saved batch 336/356
+2026-02-21T03:40:43.612999435Z [inf]  Saved batch 337/356
+2026-02-21T03:40:43.629925871Z [inf]  Saved batch 338/356
+2026-02-21T03:40:43.642193499Z [inf]  Saved batch 339/356
+2026-02-21T03:40:43.654786001Z [inf]  Saved batch 340/356
+2026-02-21T03:40:43.680375546Z [inf]  Saved batch 341/356
+2026-02-21T03:40:43.691759735Z [inf]  Saved batch 342/356
+2026-02-21T03:40:43.870528886Z [inf]  Saved batch 346/356
+2026-02-21T03:40:43.870529755Z [inf]  Saved batch 351/356
+2026-02-21T03:40:43.870535296Z [inf]  Saved batch 347/356
+2026-02-21T03:40:43.870543507Z [inf]  Saved batch 348/356
+2026-02-21T03:40:43.870548220Z [inf]  Saved batch 349/356
+2026-02-21T03:40:43.870552704Z [inf]  Saved batch 350/356
+2026-02-21T03:40:43.870563120Z [inf]  Saved batch 343/356
+2026-02-21T03:40:43.870567240Z [inf]  Saved batch 344/356
+2026-02-21T03:40:43.870571946Z [inf]  Saved batch 345/356
+2026-02-21T03:40:43.870880236Z [inf]  Saved batch 352/356
+2026-02-21T03:40:43.899548082Z [inf]  Saved batch 353/356
+2026-02-21T03:40:43.940075400Z [inf]  Saved batch 354/356
+2026-02-21T03:40:43.959852571Z [inf]  Saved batch 355/356
+2026-02-21T03:40:43.999750781Z [inf]  Saved batch 356/356
+2026-02-21T03:40:43.999755127Z [inf]  Saved 7111 protocols to database and memory cache
+2026-02-21T03:40:43.999759158Z [inf]  Protocols refreshed successfully: 7111 protocols
+2026-02-21T03:41:04.006429841Z [inf]  Starting initial token refresh...
+2026-02-21T03:41:11.784117533Z [inf]  [Profile] fetchReceipt
+2026-02-21T03:41:11.784121518Z [inf]  Swap successfully decoded from logs
+2026-02-21T03:41:11.795633055Z [inf]  [Profile] parseSwapTransaction
+2026-02-21T03:41:11.800747681Z [inf]  [CopyTradePending] Prefetched confirmed swap from pending path
+2026-02-21T03:41:11.811046244Z [inf]  Swap detected on target wallet
+2026-02-21T03:41:11.811052548Z [inf]  Target is buying - triggering copy trade
+2026-02-21T03:41:11.811057437Z [inf]  [CopyTradeTiming] target buy start
+2026-02-21T03:41:11.874269570Z [inf]  [CopyTrade] Executable buy configs ready
+2026-02-21T03:41:11.991440846Z [inf]  [CopyTrade] Token info disabled - using RPC metadata fallback
+2026-02-21T03:41:11.991443833Z [inf]  Derived missing token price from swap data
+2026-02-21T03:41:11.991448058Z [inf]  🔥 Warming up 1 user settings
+2026-02-21T03:41:11.991453073Z [inf]  [CopyTrade] Turbo fast lane enabled
+2026-02-21T03:41:12.349504876Z [inf]  0x API price received successfully
+2026-02-21T03:41:12.509467925Z [inf]  [Webhook] Alchemy payload: network=BASE_MAINNET hash=0xf6f8f14e04c045ef4893df62bd4c55b6e3f1194af3642c082422f176e73c4a76 category=external asset=ETH
+2026-02-21T03:41:12.549651327Z [inf]  Created PENDING position lock
+2026-02-21T03:41:12.549655189Z [inf]  Buy Step 1: 100% amount, 0.5% slippage
+2026-02-21T03:41:12.549659736Z [inf]  [MainSwapService][1771645272546_qeuoqp] Starting unified swap execution
+2026-02-21T03:41:12.549663543Z [inf]  [MainSwapService][1771645272546_qeuoqp] Executing EVM swap
+2026-02-21T03:41:12.549667447Z [inf]  [MainSwapService][1771645272546_qeuoqp] FastSwapMode enabled - attempting direct swap (buy direction)
+2026-02-21T03:41:12.554371335Z [inf]  [DirectSwap] Starting direct swap
+2026-02-21T03:41:12.633214804Z [inf]  [Webhook] Processing as EVM activity groups (1 tx groups)
+2026-02-21T03:41:12.673028881Z [inf]  [Webhook] Found 1 tracked wallets for tx 0xf6f8f14e04c045ef4893df62bd4c55b6e3f1194af3642c082422f176e73c4a76
+2026-02-21T03:41:12.673037685Z [inf]  [WebhookTiming][alchemy] tx=0xf6f8f14e04 wallets=1 swaps=1 predecoded=1 totalMs=31
+2026-02-21T03:41:12.741112338Z [err]  All RPC endpoints failed
+2026-02-21T03:41:12.816604817Z [inf]  [DirectSwap] Resolved hint liquidity gate
+2026-02-21T03:41:12.816609629Z [wrn]  [DirectSwap] Resolved pool hint fast-path skipped by liquidity gate
+2026-02-21T03:41:12.816613560Z [inf]  [DirectSwap] Early hinted source pool probe
+2026-02-21T03:41:12.816616826Z [inf]  [DirectSwap] Turbo single-pool candidates resolved
+2026-02-21T03:41:12.816620200Z [inf]  [DirectSwap] Turbo single-pool attempt plan
+2026-02-21T03:41:12.816990744Z [inf]  [DirectSwap] Turbo single-pool attempt
+2026-02-21T03:41:13.004876302Z [inf]  [DirectSwap] V3 minAmountOut calculated
+2026-02-21T03:41:13.010378026Z [inf]  PrivyWallet Authorization Key config
+2026-02-21T03:41:13.254572674Z [inf]  [sendTransaction] ========== PRIVY TX PARAMS ==========
+2026-02-21T03:41:13.254577261Z [inf]  [sendTransaction] From: 0xFB64Ce8d64CEC808a8aCb977d3Ee7bE1169f1a2B
+2026-02-21T03:41:13.254580289Z [inf]  [sendTransaction] To: 0x2626664c2603336E57B271c5C0b26F421741e481
+2026-02-21T03:41:13.254583023Z [inf]  [sendTransaction] Value: 510057049881029
+2026-02-21T03:41:13.254585516Z [inf]  [sendTransaction] ValueHex: 0x1cfe4e945f9c5
+2026-02-21T03:41:13.254588825Z [inf]  [sendTransaction] Data length: 458
+2026-02-21T03:41:13.254591517Z [inf]  [sendTransaction] Data prefix: 0x04e45aaf000000000000000000000000420000000000000000000000000000000000000600000000
+2026-02-21T03:41:13.255884248Z [inf]  [sendTransaction] ChainId: 8453
+2026-02-21T03:41:13.255887901Z [inf]  [sendTransaction] Gas: 324648
+2026-02-21T03:41:13.255890968Z [inf]  [sendTransaction] GasPrice: 8302935
+2026-02-21T03:41:13.255893861Z [inf]  [sendTransaction] MaxFeePerGas: 
+2026-02-21T03:41:13.255896575Z [inf]  [sendTransaction] MaxPriorityFeePerGas: 
+2026-02-21T03:41:13.255899348Z [inf]  [sendTransaction] Profile: base-sniper
+2026-02-21T03:41:13.255902058Z [inf]  [sendTransaction] ===========================================
+2026-02-21T03:41:13.256907700Z [wrn]  Sending transaction via Privy sign+broadcast path
+2026-02-21T03:41:14.352111855Z [wrn]  [MainSwapService][1771645272546_qeuoqp] Turbo direct timeout; waiting late-settle window
+2026-02-21T03:41:14.719734432Z [inf]  Ethereum transaction broadcast via signed raw path
+2026-02-21T03:41:14.719737470Z [inf]  Privy raw tx accepted without sync visibility gate
+2026-02-21T03:41:14.719751782Z [inf]  [DirectSwap] V3 swap executed
+2026-02-21T03:41:14.730108792Z [inf]  [DirectSwap] Finished
+2026-02-21T03:41:14.730112009Z [wrn]  [DirectSwap] Turbo budget exceeded
+2026-02-21T03:41:14.730114761Z [inf]  [MainSwapService][1771645272546_qeuoqp] Turbo direct late-settle succeeded
+2026-02-21T03:41:14.730117467Z [inf]  [PlatformFee] Fees ENABLED: {"context":"copyTrade","bps":100,"evmRecipient":"0xc5377e6329"}
+2026-02-21T03:41:14.730120232Z [wrn]  [MainSwapService][1771645272546_qeuoqp] Direct swap fee skipped: missing access token
+2026-02-21T03:41:14.730122895Z [inf]  [MainSwapService][1771645272546_qeuoqp] Direct swap successful txHash=0xbfbcd4a0af9c3a5c6629c85e5dad39c79fc61f3dd33c1804614984bc35c3fe71
+2026-02-21T03:41:14.730998649Z [inf]  [MainSwapService][1771645272546_qeuoqp] Direct swap RPC usage delta
+2026-02-21T03:41:14.731003115Z [inf]  [CopyTradeTiming] buy step 1 success
+2026-02-21T03:41:14.741782991Z [inf]  Copy trade completed and position created
+2026-02-21T03:41:14.741789317Z [inf]  [CopyTrade] Turbo fast lane complete
+2026-02-21T03:41:18.026189833Z [inf]  Privy tx visibility check
+2026-02-21T03:41:18.026193260Z [wrn]  Privy tx visibility miss (non-blocking)
+2026-02-21T03:41:37.957417184Z [wrn]  RPC health degraded
+2026-02-21T03:41:37.957420222Z [inf]  [Webhook] Alchemy payload: network=BASE_MAINNET hash=0xf6f8f14e04c045ef4893df62bd4c55b6e3f1194af3642c082422f176e73c4a76 category=token asset=CLAWD
+2026-02-21T03:41:37.957423142Z [inf]  [Webhook] Processing as EVM activity groups (1 tx groups)
+2026-02-21T03:41:37.957425758Z [inf]  [Webhook] Tx already in processedTxs cache: 0xf6f8f14e04c045ef4893df62bd4c55b6e3f1194af3642c082422f176e73c4a76
+2026-02-21T03:41:37.958943035Z [inf]  Alpha Detector: Checking new coin
+2026-02-21T03:41:37.958948248Z [inf]  ✅ Hybrid fetch complete
+2026-02-21T03:41:40.548660040Z [inf]  [Profile] fetchReceipt
+2026-02-21T03:41:40.560856135Z [inf]  Swap repair used reversed pool direction while preserving wallet direction
+2026-02-21T03:41:40.560860113Z [inf]  [Profile] parseSwapTransaction
+2026-02-21T03:41:40.570619331Z [inf]  [CopyTradePending] Prefetched confirmed swap from pending path
+2026-02-21T03:41:40.575793715Z [inf]  Swap detected on target wallet
+2026-02-21T03:41:40.575796763Z [inf]  Target is selling - triggering mirror sell
+2026-02-21T03:41:40.575799716Z [inf]  [CopyTradeTiming] target sell start
+2026-02-21T03:41:40.596845478Z [inf]  Mirror sell: Processing open positions for token
+2026-02-21T03:41:40.608581871Z [inf]  Executing position exit
+2026-02-21T03:41:40.852628687Z [inf]  [MainSwapService][1771645300847_alftz] Starting unified swap execution
+2026-02-21T03:41:40.852633161Z [inf]  [MainSwapService][1771645300847_alftz] Executing EVM swap
+2026-02-21T03:41:40.852636565Z [inf]  Initiating Unified Swap Execution
+2026-02-21T03:41:40.999762285Z [wrn]  All API liquidity sources failed
+2026-02-21T03:41:40.999767015Z [wrn]  RPC price failed, falling back to full API fetch
+2026-02-21T03:41:41.424157145Z [inf]  0x API price received successfully
+2026-02-21T03:41:41.424167418Z [inf]  Fallback: Got price from DEX aggregator
+2026-02-21T03:41:41.424173574Z [inf]  ✅ Hybrid fetch complete
+2026-02-21T03:41:41.488004047Z [inf]  [PlatformFee] Fees ENABLED: {"context":"copyTrade","bps":100,"evmRecipient":"0xc5377e6329"}
+2026-02-21T03:41:41.488850021Z [inf]  [Kyber] GET routes {"routesUrl":"https://aggregator-api.kyberswap.com/base/api/v1/routes?tokenIn=0x9f86dB9fc6f7c9408e8Fda3Ff8ce4e78ac7a6b07&tokenOut=0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee&amountIn=1&saveGas=true&gasInclude=true&clientId=kiko-app&origin=0xFB64Ce8d64CEC808a8aCb977d3Ee7bE1169f1a2B&feeReceiver=0xc5377e6329770Be29Ef938d8aCC11f22398D7E54&feeAmount=100&isInBps=true&chargeFeeBy=currency_in"}
+2026-02-21T03:41:41.641305142Z [wrn]  0x API allowance-holder endpoint returned error, attempting v1 fallback
+2026-02-21T03:41:41.726060561Z [err]  api failed after 1 attempts
+2026-02-21T03:41:41.726064238Z [wrn]  0x API v1 fallback fetch failed
+2026-02-21T03:41:41.726068124Z [err]  0x API Quote request failed
+2026-02-21T03:41:41.726071717Z [err]  0x API Error fetching quote
+2026-02-21T03:41:41.726074767Z [inf]  [QuoteService] 0x failed Error: 0x API error (502): Invalid Data from Primary, Fallback Failed: HTTP 404: {
+  "message":"no Route matched with those values",
+  "request_id":"f9cb264953a65157f98fed7bda120b71"
+}
+2026-02-21T03:41:42.258727044Z [err]  api failed after 2 attempts
+2026-02-21T03:41:42.258749782Z [inf]  [QuoteService] Kyber failed Error: HTTP 400: {"code":4008,"message":"route not found","details":null,"requestId":"6aa25636-2690-4ff3-a4a2-7e50ed66dda5"}
+2026-02-21T03:41:42.258754059Z [inf]  [QuoteService] Turbo quote mode fallback-wait {"elapsedMs":769,"totalWaitMs":1600,"chainId":8453}
+2026-02-21T03:41:42.258757202Z [err]  Swap Execution Failed
+2026-02-21T03:41:42.258760194Z [err]  Raw Swap Error Captured
+2026-02-21T03:41:42.258763052Z [err]  [MainSwapService][1771645300847_alftz] Swap execution failed: Swap failed: No valid quotes found
+2026-02-21T03:41:42.260169538Z [wrn]  EVM sell failed, retrying partial sell
+2026-02-21T03:41:42.260174210Z [inf]  [MainSwapService][1771645302258_htspaf] Starting unified swap execution
+2026-02-21T03:41:42.260177653Z [inf]  [MainSwapService][1771645302258_htspaf] Executing EVM swap
+2026-02-21T03:41:42.260181084Z [inf]  Initiating Unified Swap Execution
+2026-02-21T03:41:42.416659227Z [wrn]  0x API allowance-holder endpoint returned error, attempting v1 fallback
+2026-02-21T03:41:42.490310736Z [err]  0x API Error fetching quote
+2026-02-21T03:41:42.490316754Z [inf]  [QuoteService] 0x failed Error: 0x API error (502): Invalid Data from Primary, Fallback Failed: HTTP 404: {
+  "message":"no Route matched with those values",
+  "request_id":"50d15532ef144f7b9f3ed376cd95c159"
+}
+2026-02-21T03:41:42.490325779Z [inf]  [Webhook] Alchemy payload: network=BASE_MAINNET hash=0xf3428c300118024204d730c934234bd17e375fa98f73290d74e90f5a4ae87578 category=token asset=CLAWD
+2026-02-21T03:41:42.490329812Z [wrn]  0x API v1 fallback fetch failed
+2026-02-21T03:41:42.490333824Z [err]  0x API Quote request failed
+2026-02-21T03:41:42.501710823Z [inf]  [Webhook] Processing as EVM activity groups (1 tx groups)
+2026-02-21T03:41:42.523621697Z [inf]  [Webhook] Found 1 tracked wallets for tx 0xf3428c300118024204d730c934234bd17e375fa98f73290d74e90f5a4ae87578
+2026-02-21T03:41:42.528688812Z [inf]  [WebhookTiming][alchemy] tx=0xf3428c3001 wallets=1 swaps=1 predecoded=1 totalMs=26
+2026-02-21T03:41:43.861441079Z [inf]  [QuoteService] Turbo quote mode fallback-wait {"elapsedMs":1599,"totalWaitMs":1600,"chainId":8453}
+2026-02-21T03:41:43.861445979Z [err]  Swap Execution Failed
+2026-02-21T03:41:43.861449194Z [err]  Raw Swap Error Captured
+2026-02-21T03:41:43.861451967Z [err]  [MainSwapService][1771645302258_htspaf] Swap execution failed: Swap failed: No valid quotes found
+2026-02-21T03:41:43.861457188Z [err]  Critical error during position exit
+2026-02-21T03:41:43.883639485Z [wrn]  Mirror sell failed, will retry via PositionMonitor
+2026-02-21T03:41:45.618103511Z [inf]  [Webhook] Alchemy payload: network=BASE_MAINNET hash=0xf3428c300118024204d730c934234bd17e375fa98f73290d74e90f5a4ae87578 category=internal asset=ETH
+2026-02-21T03:41:45.638339754Z [inf]  [Webhook] Tx already in processedTxs cache: 0xf3428c300118024204d730c934234bd17e375fa98f73290d74e90f5a4ae87578
+2026-02-21T03:41:45.683861784Z [inf]  [Webhook] Alchemy payload: network=BASE_MAINNET hash=0xf3428c300118024204d730c934234bd17e375fa98f73290d74e90f5a4ae87578 category=external asset=ETH
+2026-02-21T03:41:45.997562349Z [inf]  [QuoteService] Kyber failed Error: HTTP 400: {"code":4008,"message":"route not found","details":null,"requestId":"3f13632f-0702-44e4-931e-fcea0c033ec6"}

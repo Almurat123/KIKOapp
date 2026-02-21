@@ -1013,10 +1013,14 @@ enum PolymarketActionStatus {
 
 enum PositionStatus {
   pending
+  pending_broadcast
+  broadcasted_unseen
   open
   closing
+  close_pending
   closed
   failed
+  failed_final
 }
 
 enum SwapHistoryStatus {

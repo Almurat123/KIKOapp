@@ -39,6 +39,7 @@ import { resolveTokenAddress, normalizeTokenAddress } from './tokens.js';
 import { sendTransaction } from './privyWallet.js';
 import { isPostBuyPreApprovalEnabled } from './swapPreApprovalPolicy.js';
 import type { CopyTradeExecutionMode } from './copyTradeExecutionMode.js';
+import type { TxLifecycleResult } from './txLifecycle.js';
 
 /**
  * Swap execution mode to determine behavior and fee structure
@@ -138,12 +139,14 @@ export interface MainSwapResult {
   txHash?: string;
   amountOut?: string;
   error?: string;
+  txLifecycle?: TxLifecycleResult;
   metadata: {
     provider: string; // '0x', 'kyber', 'jupiter', 'clanker', 'zora', etc.
     mode: SwapMode;
     priceImpact?: number;
     gasUsed?: string;
     launchpad?: string; // Set if launchpad swap
+    txLifecycleStatus?: TxLifecycleResult['status'];
   };
 }
 
@@ -700,20 +703,24 @@ export class MainSwapService {
     const isCashIn = isCashLikeToken(normalizedTokenIn, request.chainId);
     const isCashOut = isCashLikeToken(normalizedTokenOut, request.chainId);
     const isBuyDirection = isCashIn && !isCashOut;
+    const isSellDirection = !isCashIn && isCashOut;
+    const allowDirectSell = request.mode === 'copytrade' && isSellDirection;
     const enforcedSlippageBps = request.mode === 'copytrade'
       ? (request.slippageBps ?? 1500)
       : (request.slippageBps ?? 50);
     const fastSwapEnabled = request.userSettings?.fastSwapMode === true;
-    if (!fastSwapEnabled || !isDirectSwapSupported(request.chainId) || !isBuyDirection) {
+    if (!fastSwapEnabled || !isDirectSwapSupported(request.chainId) || (!isBuyDirection && !allowDirectSell)) {
       const reasons: string[] = [];
       if (!fastSwapEnabled) reasons.push('fastSwapMode=false');
       if (!isDirectSwapSupported(request.chainId)) reasons.push('chain_not_supported');
-      if (!isBuyDirection) reasons.push('not_buy_direction');
+      if (!isBuyDirection && !allowDirectSell) reasons.push('unsupported_direction');
       logger.debug(LogCode.SYS_INFO, trace('Direct swap not attempted'), {
         reasons,
         fastSwapEnabled,
         isDirectSwapSupported: isDirectSwapSupported(request.chainId),
         isBuyDirection,
+        isSellDirection,
+        allowDirectSell,
         isCashIn,
         isCashOut,
         chainId: request.chainId,
@@ -723,14 +730,15 @@ export class MainSwapService {
       });
     }
 
-    if (fastSwapEnabled && isDirectSwapSupported(request.chainId) && isBuyDirection) {
+    if (fastSwapEnabled && isDirectSwapSupported(request.chainId) && (isBuyDirection || allowDirectSell)) {
       const rpcUsageBefore = getRpcMethodUsageSnapshot(request.chainId);
       try {
       // Default: turbo uses 2 direct attempts to avoid bursting RPC under degraded conditions.
       const DIRECT_SWAP_MAX_ATTEMPTS = isTurboCopytrade ? TURBO_DIRECT_MAX_ATTEMPTS : BALANCED_DIRECT_MAX_ATTEMPTS;
       const turboBudgetStart = Date.now();
-      logger.info(LogCode.SYS_INFO, trace('FastSwapMode enabled - attempting direct swap (buy direction)'), {
+      logger.info(LogCode.SYS_INFO, trace('FastSwapMode enabled - attempting direct swap'), {
         mode: request.mode,
+        direction: isBuyDirection ? 'buy' : 'sell',
         chainId: request.chainId,
         tokenIn: normalizedTokenIn,
         tokenOut: normalizedTokenOut,
@@ -861,9 +869,11 @@ export class MainSwapService {
               success: true,
               txHash: directResult.txHash,
               amountOut: directResult.amountOut,
+              txLifecycle: directResult.txLifecycle,
               metadata: {
                 provider: directResult.provider,
-                mode: request.mode
+                mode: request.mode,
+                txLifecycleStatus: directResult.txLifecycle?.status
               }
             };
           }
@@ -935,9 +945,11 @@ export class MainSwapService {
                 success: true,
                 txHash: finalResult.txHash,
                 amountOut: finalResult.amountOut,
+                txLifecycle: finalResult.txLifecycle,
                 metadata: {
                   provider: finalResult.provider,
-                  mode: request.mode
+                  mode: request.mode,
+                  txLifecycleStatus: finalResult.txLifecycle?.status
                 }
               };
             }
@@ -1062,7 +1074,7 @@ export class MainSwapService {
       slippageBps: enforcedSlippageBps,
       feeContext,
       feeBpsOverride: request.feeBpsOverride,
-      isSell: false, // Determined automatically by SwapExecutor
+      isSell: isSellDirection,
       messageId: request.messageId, // For WebSocket progress updates
       accessToken: request.accessToken,
       // CRITICAL: Wait for on-chain confirmation to ensure accurate status reporting

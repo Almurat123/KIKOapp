@@ -55,6 +55,8 @@ export { getTokenInfo } from './tokenService.js';
 
 // Track positions currently being processed for exit to prevent duplicate attempts
 const positionsBeingExited = new Set<string>();
+const POSITION_LOCK_STATUSES = ['pending', 'pending_broadcast', 'broadcasted_unseen'] as const;
+const POSITION_ACTIVE_OR_LOCKED_STATUSES = ['open', ...POSITION_LOCK_STATUSES] as const;
 
 // Per-user trade locks to prevent concurrent trade execution for same user
 const userTradeLocks = new Map<string, Promise<any>>();
@@ -130,8 +132,9 @@ const COPYTRADE_LOG_ERROR_SLICE = Math.max(80, Number(process.env.COPYTRADE_LOG_
 const NO_OPEN_POSITIONS_LOG_WINDOW_MS = Number(process.env.NO_OPEN_POSITIONS_LOG_WINDOW_MS || '180000');
 const COPYTRADE_ENABLE_DETECTION_PREWARM = (process.env.COPYTRADE_ENABLE_DETECTION_PREWARM || 'false') === 'true';
 const COPYTRADE_SKIP_ON_DIRECTION_CONFLICT = (process.env.COPYTRADE_SKIP_ON_DIRECTION_CONFLICT || 'true') === 'true';
+const COPYTRADE_ENABLE_TOKEN_TO_TOKEN_PARALLEL = (process.env.COPYTRADE_ENABLE_TOKEN_TO_TOKEN_PARALLEL || 'false') === 'true';
 const ALLOWED_LAUNCHPAD_PROVIDERS = new Set(['zora', 'fourmeme']);
-const COPYTRADE_FORCE_EXTERNAL_SELL_PATH = (process.env.COPYTRADE_FORCE_EXTERNAL_SELL_PATH || 'true') === 'true';
+const COPYTRADE_FORCE_EXTERNAL_SELL_PATH = (process.env.COPYTRADE_FORCE_EXTERNAL_SELL_PATH || 'false') === 'true';
 const COPYTRADE_DISABLE_MIRROR_SELL_DUST_SWEEP = (process.env.COPYTRADE_DISABLE_MIRROR_SELL_DUST_SWEEP || 'true') === 'true';
 const CHAIN_LAUNCHPAD_PROVIDERS: Record<number, Set<string>> = {
     8453: new Set(['zora']),
@@ -411,6 +414,20 @@ function inferCopyTradeBugHint(error: any): string {
     return 'unknown';
 }
 
+function shouldAttemptDirectSellFallback(error: any): boolean {
+    const msg = compactCopyTradeError(error).toLowerCase();
+    return (
+        msg.includes('no valid quotes')
+        || msg.includes('failed to get quote')
+        || msg.includes('quote')
+        || msg.includes('failed_external_quote_down')
+        || msg.includes('kyber')
+        || msg.includes('0x')
+        || msg.includes('insufficient liquidity')
+        || msg.includes('all rpc endpoints failed')
+    );
+}
+
 // ... (previous functions remain)
 
 /**
@@ -463,6 +480,36 @@ export async function handleSwapDetected(
         cashLegHint: swap.cashLegHint
     });
     const { isBuy, isSell, isTokenToToken } = direction;
+    const directionGuardOk = (
+        (isBuy && !direction.tokenOutIsCash)
+        || (isSell && !direction.tokenInIsCash)
+        || (isTokenToToken && !direction.tokenInIsCash && !direction.tokenOutIsCash)
+    );
+
+    logger.info(LogCode.SYS_INFO, '[CopyTradeDirectionGuard] evaluated', {
+        targetWallet,
+        chainId,
+        txHash: swap.txHash,
+        isBuy,
+        isSell,
+        isTokenToToken,
+        tokenInIsCash: direction.tokenInIsCash,
+        tokenOutIsCash: direction.tokenOutIsCash,
+        inferredTxType: direction.inferredTxType,
+        source: direction.source,
+        hintConflict: direction.hintConflict,
+        guardOk: directionGuardOk
+    });
+    if (!directionGuardOk) {
+        logger.warn(LogCode.WTC_TX_SKIPPED, 'Skipping copytrade: direction_guard_violation', {
+            targetWallet,
+            chainId,
+            txHash: swap.txHash,
+            tokenIn: swap.tokenIn,
+            tokenOut: swap.tokenOut
+        });
+        return;
+    }
 
     logger.debug(LogCode.WTC_SWAP_DETECTED, 'Detection analysis complete', {
         isBuy,
@@ -495,6 +542,16 @@ export async function handleSwapDetected(
         logger.info(LogCode.EXE_TX_BROADCAST, 'Target is buying - triggering copy trade', { targetWallet, token: swap.tokenOut });
         await handleTargetBuy(targetWallet, swap, chainId, { detectedAt });
     } else if (isTokenToToken) {
+        if (!COPYTRADE_ENABLE_TOKEN_TO_TOKEN_PARALLEL) {
+            logger.warn(LogCode.WTC_TX_SKIPPED, 'Skipping token-to-token activity by policy', {
+                targetWallet,
+                chainId,
+                txHash: swap.txHash,
+                tokenIn: swap.tokenIn,
+                tokenOut: swap.tokenOut
+            });
+            return;
+        }
         logger.info(LogCode.EXE_TX_BROADCAST, 'Parallel lightning trigger: SELL and BUY starting simultaneously', { targetWallet });
         await Promise.all([
             handleTargetSell(targetWallet, swap, chainId).catch(e => logger.error(LogCode.EXE_TX_REVERTED, 'Parallel sell error', {
@@ -1541,7 +1598,7 @@ async function processSingleUserBuy(
                 const positionWhere: any = {
                     userId: config.userId,
                     tokenAddress: tokenToBuy,
-                    status: { in: ['open', 'pending'] },
+                    status: { in: POSITION_ACTIVE_OR_LOCKED_STATUSES as any },
                 };
                 if (cooldownMinutes > 0) {
                     positionWhere.createdAt = { gte: new Date(Date.now() - cooldownMinutes * 60 * 1000) };
@@ -1566,7 +1623,7 @@ async function processSingleUserBuy(
                         entryAmount: '0',
                         entryTxHash: `PENDING_${Date.now()}`, // Temporary placeholder
                         entryUsdValue: usdAmount,
-                        status: 'pending'
+                        status: 'pending_broadcast'
                     }
                 });
             });
@@ -1587,6 +1644,7 @@ async function processSingleUserBuy(
             usdAmount
         });
         let txHash = '';
+        let txLifecycleStatus: string | undefined;
 
         if (chainId === 900) {
             // Dynamically fetch Solana wallet from Privy (not from database field)
@@ -1800,10 +1858,12 @@ async function processSingleUserBuy(
                     });
                     if (!result1.success) throw new Error(result1.error);
                     txHash = result1.txHash!;
+                    txLifecycleStatus = result1.txLifecycle?.status || result1.metadata?.txLifecycleStatus;
                     logger.info(LogCode.EXE_TX_BROADCAST, '[CopyTradeTiming] buy step 1 success', {
                         userId: effectiveConfig.userId,
                         token: tokenToBuy,
                         txHash,
+                        txLifecycleStatus: txLifecycleStatus || 'unknown',
                         timingMs: Date.now() - timingDetectedAt
                     });
                 } catch (buyErr1: any) {
@@ -1888,6 +1948,7 @@ async function processSingleUserBuy(
                             });
                             if (!result2.success) throw new Error(result2.error);
                             txHash = result2.txHash!;
+                            txLifecycleStatus = result2.txLifecycle?.status || result2.metadata?.txLifecycleStatus;
                         } catch (buyErr2: any) {
                             logger.warn(LogCode.EXE_TX_REVERTED, 'Buy Step 2 failed, retrying final step...', {
                                 userId: config.userId,
@@ -1923,6 +1984,7 @@ async function processSingleUserBuy(
                                 });
                                 if (!result3.success) throw new Error(result3.error);
                                 txHash = result3.txHash!;
+                                txLifecycleStatus = result3.txLifecycle?.status || result3.metadata?.txLifecycleStatus;
                             } catch (buyErr3: any) {
                                 logger.error(LogCode.EXE_TX_REVERTED, 'All buy steps failed for token', {
                                     userId: config.userId,
@@ -1957,6 +2019,11 @@ async function processSingleUserBuy(
         }
 
         // Update PENDING position to OPEN with real details
+        const shouldPromoteToOpen =
+            !txLifecycleStatus
+            || txLifecycleStatus === 'visible_pending'
+            || txLifecycleStatus === 'confirmed_success';
+        const nextPositionStatus = shouldPromoteToOpen ? 'open' : 'broadcasted_unseen';
         if (pendingPositionId) {
             await prisma.position.update({
                 where: { id: pendingPositionId },
@@ -1964,7 +2031,7 @@ async function processSingleUserBuy(
                     entryPrice: tokenInfo.price,
                     entryAmount: (usdAmount / nativePrice).toString(), // Native amount spent
                     entryTxHash: txHash,
-                    status: 'open',
+                    status: nextPositionStatus as any,
                 },
             });
         } else {
@@ -1980,12 +2047,18 @@ async function processSingleUserBuy(
                     entryAmount: (usdAmount / nativePrice).toString(),
                     entryTxHash: txHash,
                     entryUsdValue: usdAmount,
-                    status: 'open',
+                    status: nextPositionStatus as any,
                 },
             });
         }
 
-        logger.info(LogCode.EXE_TX_CONFIRMED, 'Copy trade completed and position created', { userId: config.userId, token: tokenToBuy, txHash });
+        logger.info(LogCode.EXE_TX_CONFIRMED, 'Copy trade buy submitted and position state updated', {
+            userId: config.userId,
+            token: tokenToBuy,
+            txHash,
+            txLifecycleStatus: txLifecycleStatus || 'unknown',
+            positionStatus: nextPositionStatus
+        });
 
         // Warm sell approval only after buy tx is confirmed to avoid nonce/queue contention.
         // Turbo: send "Bought" DM only after on-chain confirmation (never on broadcast-only).
@@ -2132,7 +2205,7 @@ ${analysis.rawAnalysis}
         // 🟣 Send Farcaster Direct Cast (Success)
         // Turbo: DM is sent only after on-chain confirmation (in setTimeout above), not on broadcast.
         // =================================================================
-        if (!turboMode) {
+        if (!turboMode && shouldPromoteToOpen) {
             sendNotificationAsync({
                 userId: config.user.privyDid,
                 farcasterFid: config.user.farcasterFid,
@@ -2145,6 +2218,13 @@ ${analysis.rawAnalysis}
                     chainId: chainId
                 }
             }, 'copytrade_buy_success');
+        } else if (!shouldPromoteToOpen) {
+            logger.warn(LogCode.SYS_INFO, 'Buy notification deferred: tx not yet visible on-chain', {
+                userId: config.userId,
+                token: tokenToBuy,
+                txHash,
+                txLifecycleStatus: txLifecycleStatus || 'unknown'
+            });
         }
 
     } catch (error: any) {
@@ -2398,7 +2478,8 @@ async function executePositionExit(params: {
 
             let isPartialSell = false;
             const executionMode = resolveExecutionModeForConfig(config);
-            const fastSwapModeForSell = COPYTRADE_FORCE_EXTERNAL_SELL_PATH ? false : executionMode !== 'safe';
+            const allowDirectSellPath = executionMode !== 'safe';
+            const fastSwapModeForSell = COPYTRADE_FORCE_EXTERNAL_SELL_PATH ? false : allowDirectSellPath;
             if (COPYTRADE_FORCE_EXTERNAL_SELL_PATH) {
                 logger.debug(LogCode.SYS_INFO, 'Mirror sell forcing external aggregator path', {
                     userId,
@@ -2407,6 +2488,31 @@ async function executePositionExit(params: {
                     executionMode
                 });
             }
+            const runSellRoute = async (amountInHuman: string, slippageBps: number, fastSwapMode: boolean, route: string) => {
+                logger.info(LogCode.EXE_TX_BROADCAST, 'Mirror sell route attempt', {
+                    userId,
+                    tokenAddress,
+                    chainId,
+                    executionMode,
+                    route,
+                    slippageBps,
+                    fastSwapMode
+                });
+                return await MainSwapService.executeSwap({
+                    userId: user.privyDid,
+                    walletAddress: user.walletAddress,
+                    tokenIn: tokenAddress,
+                    tokenOut: 'ETH', // Selling to native token
+                    amountIn: amountInHuman,
+                    chainId: chainId,
+                    slippageBps,
+                    mode: 'copytrade',
+                    userSettings: {
+                        fastSwapMode,
+                        copyTradeExecutionMode: executionMode
+                    }
+                });
+            };
             try {
                 // Use full balance for sell - the 1-wei subtraction caused amountIn=0 when balance=1n.
                 // The router tolerates minor dust on EVM; if it reverts we fall through to the partial-sell retry.
@@ -2431,23 +2537,55 @@ async function executePositionExit(params: {
                     return null;
                 }
 
-                const sellResult = await MainSwapService.executeSwap({
-                    userId: user.privyDid,
-                    walletAddress: user.walletAddress,
-                    tokenIn: tokenAddress,
-                    tokenOut: 'ETH', // Selling to native token
-                    amountIn: amountToSellHuman,
-                    chainId: chainId,
-                    slippageBps: initialSlippage,
-                    mode: 'copytrade',
-                    userSettings: {
-                        fastSwapMode: fastSwapModeForSell,
-                        copyTradeExecutionMode: executionMode
-                    }
-                });
+                let sellResult = await runSellRoute(
+                    amountToSellHuman,
+                    initialSlippage,
+                    false,
+                    'external_primary'
+                );
+                if (!sellResult.success && allowDirectSellPath && !COPYTRADE_FORCE_EXTERNAL_SELL_PATH && shouldAttemptDirectSellFallback(sellResult.error)) {
+                    logger.warn(LogCode.EXE_TX_REVERTED, 'Mirror sell external route failed, trying direct pool fallback', {
+                        userId,
+                        tokenAddress,
+                        chainId,
+                        error: sellResult.error
+                    });
+                    sellResult = await runSellRoute(
+                        amountToSellHuman,
+                        initialSlippage,
+                        true,
+                        'direct_fallback'
+                    );
+                }
                 if (!sellResult.success) throw new Error(sellResult.error);
                 txHash = sellResult.txHash!;
             } catch (e: any) {
+                if (allowDirectSellPath && !COPYTRADE_FORCE_EXTERNAL_SELL_PATH && shouldAttemptDirectSellFallback(e)) {
+                    try {
+                        const amountToSellHuman = ethers.formatUnits(balance, decimals);
+                        const directResult = await runSellRoute(
+                            amountToSellHuman,
+                            universalSlippageBps,
+                            true,
+                            'direct_fallback_after_exception'
+                        );
+                        if (directResult.success) {
+                            txHash = directResult.txHash!;
+                        } else {
+                            throw new Error(directResult.error);
+                        }
+                    } catch {
+                        // continue to partial retry path below
+                    }
+                }
+                if (txHash) {
+                    logger.info(LogCode.EXE_TX_CONFIRMED, 'Mirror sell recovered via direct fallback after external exception', {
+                        userId,
+                        tokenAddress,
+                        chainId,
+                        txHash
+                    });
+                } else {
                 logger.warn(LogCode.EXE_TX_REVERTED, 'EVM sell failed, retrying partial sell', {
                     userId,
                     error: compactCopyTradeError(e),
@@ -2455,6 +2593,8 @@ async function executePositionExit(params: {
                     token: tokenAddress,
                     chainId
                 });
+                }
+                if (!txHash) {
                 try {
                     // Use 99.9% of balance for retry; clamp to full balance if it would round to 0.
                     const safeBalance999Raw = (balance * 999n) / 1000n;
@@ -2465,20 +2605,34 @@ async function executePositionExit(params: {
 
                     const amountToSellHuman999 = ethers.formatUnits(safeBalance999, decimals);
 
-                    const retryResult = await MainSwapService.executeSwap({
-                        userId: user.privyDid,
-                        walletAddress: user.walletAddress,
-                        tokenIn: tokenAddress,
-                        tokenOut: 'ETH',
-                        amountIn: amountToSellHuman999,
-                        chainId: chainId,
-                        slippageBps: retrySlippage,
-                        mode: 'copytrade',
-                        userSettings: {
-                            fastSwapMode: fastSwapModeForSell,
-                            copyTradeExecutionMode: executionMode
+                    let retryResult;
+                    try {
+                        retryResult = await runSellRoute(
+                            amountToSellHuman999,
+                            retrySlippage,
+                            false,
+                            'external_retry'
+                        );
+                    } catch (retryErr: any) {
+                        if (allowDirectSellPath && !COPYTRADE_FORCE_EXTERNAL_SELL_PATH && shouldAttemptDirectSellFallback(retryErr)) {
+                            retryResult = await runSellRoute(
+                                amountToSellHuman999,
+                                retrySlippage,
+                                true,
+                                'direct_retry_fallback_after_exception'
+                            );
+                        } else {
+                            throw retryErr;
                         }
-                    });
+                    }
+                    if (!retryResult.success && allowDirectSellPath && !COPYTRADE_FORCE_EXTERNAL_SELL_PATH && shouldAttemptDirectSellFallback(retryResult.error)) {
+                        retryResult = await runSellRoute(
+                            amountToSellHuman999,
+                            retrySlippage,
+                            true,
+                            'direct_retry_fallback'
+                        );
+                    }
                     if (!retryResult.success) throw new Error(retryResult.error);
                     txHash = retryResult.txHash!;
                     isPartialSell = true;
@@ -2505,6 +2659,7 @@ async function executePositionExit(params: {
                             throw fmErr;
                         } // Re-throw to trigger exit_failed
                     } else { throw e2; } // Re-throw to trigger exit_failed
+                }
                 }
             }
 
@@ -2800,7 +2955,12 @@ async function handleTargetSell(
         // Reconcile rare turbo race: tx settled on-chain but position stayed pending.
         try {
             const pendingPositions = await prisma.position.findMany({
-                where: { userId: config.userId, tokenAddress: tokenToSell, chainId, status: 'pending' },
+                where: {
+                    userId: config.userId,
+                    tokenAddress: tokenToSell,
+                    chainId,
+                    status: { in: POSITION_LOCK_STATUSES as any }
+                },
                 orderBy: { createdAt: 'desc' },
                 take: 3
             });
@@ -2811,7 +2971,7 @@ async function handleTargetSell(
                 if (onChainBal > 0n) {
                     const pendingIds = pendingPositions.map((p) => p.id);
                     await prisma.position.updateMany({
-                        where: { id: { in: pendingIds }, status: 'pending' },
+                        where: { id: { in: pendingIds }, status: { in: POSITION_LOCK_STATUSES as any } },
                         data: {
                             status: 'open',
                             entryTxHash: `RECOVERED_ONCHAIN_${Date.now()}`
@@ -2925,14 +3085,19 @@ export async function stopAutoTradeService(): Promise<void> {
  */
 async function cleanupPendingPositions() {
     try {
-        const result = await prisma.position.deleteMany({
+        const result = await prisma.position.updateMany({
             where: {
-                status: 'pending',
+                status: { in: POSITION_LOCK_STATUSES as any },
                 createdAt: { lt: new Date(Date.now() - 5 * 60 * 1000) } // Older than 5 mins
+            },
+            data: {
+                status: 'failed_final' as any,
+                exitReason: 'pending_timeout',
+                closedAt: new Date()
             }
         });
         if (result.count > 0) {
-            logger.info(LogCode.SYS_INFO, `Cleaned up ${result.count} zombie pending positions (stale locks)`);
+            logger.info(LogCode.SYS_INFO, `Marked ${result.count} stale pending positions as failed_final`);
         }
     } catch (err: any) {
         logger.error(LogCode.SYS_ERROR, 'Failed to clean up zombie positions', { error: err.message });
@@ -2944,11 +3109,57 @@ async function cleanupPendingPositions() {
  * Check and execute take profit / stop loss for open positions
  */
 export async function checkPositionsForExits(): Promise<void> {
+    // STEP -2: Reconcile lifecycle-driven pending states by tx receipt.
+    const lifecyclePending = await prisma.position.findMany({
+        where: {
+            status: { in: ['pending_broadcast', 'broadcasted_unseen'] as any },
+            createdAt: { gte: new Date(Date.now() - 30 * 60 * 1000) },
+            entryTxHash: { startsWith: '0x' }
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 40
+    });
+    if (lifecyclePending.length > 0) {
+        await Promise.allSettled(lifecyclePending.map(async (p) => {
+            try {
+                const receipt = await getTransactionReceipt(p.chainId, p.entryTxHash);
+                if (!receipt) return;
+                const statusHex = String(receipt?.status || '');
+                const success = statusHex === '0x1' || statusHex === '1';
+                await prisma.position.updateMany({
+                    where: { id: p.id, status: { in: ['pending_broadcast', 'broadcasted_unseen'] as any } },
+                    data: success
+                        ? { status: 'open' as any }
+                        : {
+                            status: 'failed_final' as any,
+                            exitReason: 'buy_tx_reverted',
+                            closedAt: new Date()
+                        }
+                });
+                logger.info(LogCode.SYS_INFO, '[CopyTradeLifecycle] position state transition', {
+                    positionId: p.id,
+                    chainId: p.chainId,
+                    txHash: p.entryTxHash,
+                    from: p.status,
+                    to: success ? 'open' : 'failed_final',
+                    reason: success ? 'receipt_success' : 'receipt_failed'
+                });
+            } catch (err: any) {
+                logger.debug(LogCode.SYS_INFO, '[CopyTradeLifecycle] tx receipt probe skipped', {
+                    positionId: p.id,
+                    chainId: p.chainId,
+                    txHash: p.entryTxHash,
+                    error: err?.message || String(err)
+                });
+            }
+        }));
+    }
+
     // STEP -1: Reconcile pending positions that already hold token on-chain.
     // This protects TP/SL and mirror-sell flows from rare turbo timeout races.
     const pendingForReconcile = await prisma.position.findMany({
         where: {
-            status: 'pending',
+            status: { in: POSITION_LOCK_STATUSES as any },
             createdAt: { gte: new Date(Date.now() - 30 * 60 * 1000) } // recent 30m only
         },
         include: { user: true },
@@ -2962,7 +3173,7 @@ export async function checkPositionsForExits(): Promise<void> {
                 const bal = await getErc20Balance(p.tokenAddress, p.user.walletAddress, p.chainId);
                 if (bal <= 0n) return;
                 await prisma.position.updateMany({
-                    where: { id: p.id, status: 'pending' },
+                    where: { id: p.id, status: { in: POSITION_LOCK_STATUSES as any } },
                     data: {
                         status: 'open',
                         entryTxHash: p.entryTxHash?.startsWith('PENDING_')

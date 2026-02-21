@@ -3,6 +3,8 @@ import { logger } from '../../../../utils/logger.js';
 import { LogCode } from '../../../../config/logRegistry.js';
 import type { PoolInfo } from '../../poolInfo.js';
 import type { DirectSwapExecutionMode, DirectSwapResult } from '../types.js';
+import type { TxLifecycleResult } from '../../../txLifecycle.js';
+import { isTxLifecycleSendAccepted } from '../../../txLifecycle.js';
 
 interface ExecuteSwapParams {
   userId: string;
@@ -31,7 +33,7 @@ interface V3ExecutorDeps {
     params: any[],
     options?: { strategy?: 'fast' | 'cheap'; importance?: 'normal' | 'critical' }
   ) => Promise<T>;
-  sendTransaction: (userId: string, accessToken: string, tx: any) => Promise<string>;
+  sendTransaction: (userId: string, accessToken: string, tx: any) => Promise<TxLifecycleResult>;
   getTxExecutionProfile: (chainId: number) => 'default' | 'base-sniper' | 'bsc-sniper';
   get0xExpectedOutput: (tokenIn: string, tokenOut: string, amountInWei: bigint, chainId: number) => Promise<bigint>;
 }
@@ -257,7 +259,7 @@ export async function executeV3Swap(
     }
   }
 
-  const txHash = await deps.sendTransaction(userId, accessToken, {
+  const txLifecycle = await deps.sendTransaction(userId, accessToken, {
     to: routerAddress,
     data,
     value: isNativeIn ? amountInWei.toString() : '0',
@@ -266,6 +268,15 @@ export async function executeV3Swap(
     executionProfile: deps.getTxExecutionProfile(chainId),
     gas: gasLimit
   });
+  const txHash = txLifecycle.txHash;
+  if (!txHash || !isTxLifecycleSendAccepted(txLifecycle)) {
+    return {
+      success: false,
+      error: `failed_to_send_transaction:${txLifecycle.lastRpcError || txLifecycle.status}`,
+      provider: 'failed',
+      txLifecycle
+    };
+  }
 
   logger.info(LogCode.EXE_TX_CONFIRMED, '[DirectSwap] V3 swap executed', {
     txHash,
@@ -275,6 +286,7 @@ export async function executeV3Swap(
   return {
     success: true,
     txHash,
+    txLifecycle,
     provider: dex === 'pancake' ? 'pancake-v3' : 'uniswap-v3',
     poolInfo: {
       version: 'v3',
