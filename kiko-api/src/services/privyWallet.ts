@@ -791,6 +791,8 @@ export async function sendTransactionLifecycle(
                 } catch (error: any) {
                     let effectiveError: any = error;
                     let errorMessage = effectiveError?.message || '';
+                    const lowerErrorMessage = String(errorMessage || '').toLowerCase();
+                    const preferPrivySendTx = PRIVY_SEND_TX_CHAIN_IDS.has(txWithNonce.chainId);
                     const unsupportedSendOnNonEth =
                         txWithNonce.chainId !== 1 && errorMessage.includes('eth_sendTransaction is only supported for Ethereum');
                     if (unsupportedSendOnNonEth) {
@@ -812,13 +814,59 @@ export async function sendTransactionLifecycle(
                         }
                     }
 
-                    const isNonceError = errorMessage.includes('nonce too low') ||
-                        errorMessage.includes('nonce has already been used') ||
-                        errorMessage.includes('replacement transaction underpriced');
+                    const isPrivyTransportTransient =
+                        lowerErrorMessage.includes('api failed after')
+                        || lowerErrorMessage.includes('fetch failed')
+                        || lowerErrorMessage.includes('socket disconnected')
+                        || lowerErrorMessage.includes('socket hang up')
+                        || lowerErrorMessage.includes('econnreset')
+                        || lowerErrorMessage.includes('etimedout')
+                        || lowerErrorMessage.includes('timeout')
+                        || lowerErrorMessage.includes('temporarily unavailable')
+                        || lowerErrorMessage.includes('service unavailable')
+                        || lowerErrorMessage.includes('http 503')
+                        || lowerErrorMessage.includes('http 502')
+                        || lowerErrorMessage.includes('http 504')
+                        || lowerErrorMessage.includes('rate limit')
+                        || lowerErrorMessage.includes('http 429');
+                    if (preferPrivySendTx && isPrivyTransportTransient) {
+                        try {
+                            logger.warn(LogCode.EXE_TX_BROADCAST, 'Privy sendTransaction transient failure, switching to sign+broadcast fallback', {
+                                chainId: txWithNonce.chainId,
+                                attempt,
+                                error: errorMessage.slice(0, 200)
+                            });
+                            return await signAndBroadcastRawTransaction(client, walletInfo.id, txWithNonce, {
+                                userId,
+                                attempt,
+                                reason: 'privy_sendtx_transient_fallback',
+                                expectedFrom: walletInfo.address,
+                                txPurpose: txWithNonce.txPurpose
+                            });
+                        } catch (fallbackError: any) {
+                            logger.error(LogCode.EXE_TX_REVERTED, 'Privy transient fallback sign+broadcast failed', {
+                                chainId: txWithNonce.chainId,
+                                error: fallbackError?.message || String(fallbackError)
+                            });
+                            effectiveError = fallbackError;
+                            errorMessage = effectiveError?.message || String(effectiveError);
+                        }
+                    }
 
-                    const isNetworkError = errorMessage.includes('fetch failed') ||
-                        errorMessage.includes('ECONNRESET') ||
-                        errorMessage.includes('socket disconnected');
+                    const isNonceError = lowerErrorMessage.includes('nonce too low') ||
+                        lowerErrorMessage.includes('nonce has already been used') ||
+                        lowerErrorMessage.includes('replacement transaction underpriced');
+
+                    const isNetworkError = lowerErrorMessage.includes('fetch failed') ||
+                        lowerErrorMessage.includes('econnreset') ||
+                        lowerErrorMessage.includes('socket disconnected') ||
+                        lowerErrorMessage.includes('socket hang up') ||
+                        lowerErrorMessage.includes('etimedout') ||
+                        lowerErrorMessage.includes('timeout') ||
+                        lowerErrorMessage.includes('api failed after') ||
+                        lowerErrorMessage.includes('http 502') ||
+                        lowerErrorMessage.includes('http 503') ||
+                        lowerErrorMessage.includes('http 504');
 
                     // Retry on nonce errors or transient network failures
                     if ((isNonceError || isNetworkError) && attempt < MAX_RETRIES) {

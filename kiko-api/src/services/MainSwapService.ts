@@ -34,7 +34,7 @@ import { ethers } from 'ethers';
 import { TradeContext, getTradeContext } from './TradeContext.js';
 import { getTokenData } from './UnifiedDataLayer.js';
 import { executeDirectSwap, isDirectSwapSupported } from './dex/directSwapService.js';
-import { callRpc, diffRpcMethodUsageSnapshots, getRpcMethodUsageSnapshot } from './rpcManager.js';
+import { callRpc, diffRpcMethodUsageSnapshots, getRpcMethodUsageSnapshot, waitForReceiptStateMachine } from './rpcManager.js';
 import { resolveTokenAddress, normalizeTokenAddress } from './tokens.js';
 import { sendTransaction } from './privyWallet.js';
 import { isPostBuyPreApprovalEnabled } from './swapPreApprovalPolicy.js';
@@ -626,6 +626,9 @@ export class MainSwapService {
     const TURBO_SKIP_FALLBACK_ON_TIMEOUT = true;
     const TURBO_DIRECT_LATE_SETTLE_MS = 2000;
     const TURBO_DIRECT_FINAL_SETTLE_MS = 4500;
+    const DIRECT_SWAP_VISIBILITY_GATE_MS_TURBO = 2600;
+    const DIRECT_SWAP_VISIBILITY_GATE_MS_NORMAL = 4200;
+    const DIRECT_SWAP_VISIBILITY_GATE_POLL_MS = 320;
     // 0x API is typically 10s+; skip fallback in turbo so we fail fast instead of waiting.
     const TURBO_SKIP_0X_FALLBACK = true;
     const withTimeout = async <T,>(promise: Promise<T>, ms: number, label: string): Promise<T> => {
@@ -656,6 +659,67 @@ export class MainSwapService {
         promise,
         new Promise<null>((resolve) => setTimeout(() => resolve(null), ms))
       ]);
+    const enforceVisibilityGate = async (
+      directResult: Awaited<ReturnType<typeof executeDirectSwap>>,
+      stage: string
+    ): Promise<Awaited<ReturnType<typeof executeDirectSwap>>> => {
+      if (!directResult.success) return directResult;
+      if (!directResult.txHash) return directResult;
+      if (directResult.txLifecycle?.status !== 'broadcasted_unseen') return directResult;
+
+      const visibilityMaxWaitMs = isTurboCopytrade
+        ? DIRECT_SWAP_VISIBILITY_GATE_MS_TURBO
+        : DIRECT_SWAP_VISIBILITY_GATE_MS_NORMAL;
+      logger.warn(LogCode.SYS_INFO, trace('Direct swap tx unseen after broadcast; waiting visibility gate'), {
+        stage,
+        txHash: directResult.txHash,
+        mode: request.mode,
+        executionMode: request.userSettings?.copyTradeExecutionMode || 'normal',
+        visibilityMaxWaitMs
+      });
+
+      const lifecycle = await waitForReceiptStateMachine({
+        chainId: request.chainId,
+        txHash: directResult.txHash,
+        expectedFrom: request.walletAddress,
+        maxWaitMs: visibilityMaxWaitMs,
+        pollMs: DIRECT_SWAP_VISIBILITY_GATE_POLL_MS
+      }).catch((error: any) => ({
+        ...directResult.txLifecycle,
+        lastRpcError: error?.message || String(error)
+      } as TxLifecycleResult));
+
+      if (lifecycle?.status === 'visible_pending' || lifecycle?.status === 'confirmed_success') {
+        logger.info(LogCode.SYS_INFO, trace('Direct swap tx passed visibility gate'), {
+          stage,
+          txHash: directResult.txHash,
+          visibilityStatus: lifecycle.status,
+          attempts: lifecycle.attempts
+        });
+        return {
+          ...directResult,
+          txLifecycle: lifecycle
+        };
+      }
+
+      const visibilityFailure = lifecycle?.status || directResult.txLifecycle?.status || 'broadcasted_unseen';
+      const visibilityReason = lifecycle?.lastRpcError
+        || directResult.txLifecycle?.lastRpcError
+        || 'not_found_by_rpc';
+      logger.warn(LogCode.SYS_INFO, trace('Direct swap tx failed visibility gate'), {
+        stage,
+        txHash: directResult.txHash,
+        visibilityFailure,
+        visibilityReason
+      });
+      return {
+        ...directResult,
+        success: false,
+        error: `failed_to_send_transaction:tx_not_visible_after_broadcast:${visibilityFailure}:${visibilityReason}`,
+        provider: 'failed',
+        txLifecycle: lifecycle
+      };
+    };
 
     const normalizedTokenIn = this.normalizeEvmTokenInput(request.tokenIn, request.chainId);
     const normalizedTokenOut = this.normalizeEvmTokenInput(request.tokenOut, request.chainId);
@@ -852,12 +916,24 @@ export class MainSwapService {
           lastDirectResult = directResult;
 
           if (directResult.success) {
+            const visibleResult = await enforceVisibilityGate(directResult, `attempt_${attempt}`);
+            lastDirectResult = visibleResult;
+            if (!visibleResult.success) {
+              if (attempt < DIRECT_SWAP_MAX_ATTEMPTS) {
+                logger.warn(LogCode.SYS_INFO, trace('Direct swap visibility gate failed, retrying next attempt'), {
+                  attempt,
+                  maxAttempts: DIRECT_SWAP_MAX_ATTEMPTS,
+                  error: visibleResult.error
+                });
+              }
+              continue;
+            }
             if (checkNativeBalancePromise) await checkNativeBalancePromise;
             try {
               await this.collectDirectSwapFee(
                 request,
                 normalizedTokenOut,
-                directResult.amountOut,
+                visibleResult.amountOut,
                 feeContext,
                 trace
               );
@@ -866,21 +942,21 @@ export class MainSwapService {
                 error: feeErr?.message || String(feeErr)
               });
             }
-            logger.info(LogCode.EXE_TX_CONFIRMED, trace(`Direct swap successful txHash=${directResult.txHash ?? 'null'}`), {
-              txHash: directResult.txHash,
-              provider: directResult.provider,
-              poolInfo: directResult.poolInfo,
+            logger.info(LogCode.EXE_TX_CONFIRMED, trace(`Direct swap successful txHash=${visibleResult.txHash ?? 'null'}`), {
+              txHash: visibleResult.txHash,
+              provider: visibleResult.provider,
+              poolInfo: visibleResult.poolInfo,
               attempt
             });
             return {
               success: true,
-              txHash: directResult.txHash,
-              amountOut: directResult.amountOut,
-              txLifecycle: directResult.txLifecycle,
+              txHash: visibleResult.txHash,
+              amountOut: visibleResult.amountOut,
+              txLifecycle: visibleResult.txLifecycle,
               metadata: {
-                provider: directResult.provider,
+                provider: visibleResult.provider,
                 mode: request.mode,
-                txLifecycleStatus: directResult.txLifecycle?.status
+                txLifecycleStatus: visibleResult.txLifecycle?.status
               }
             };
           }
@@ -932,38 +1008,45 @@ export class MainSwapService {
           if (finalResult) {
             lastDirectResult = finalResult;
             if (finalResult.success) {
-              if (checkNativeBalancePromise) await checkNativeBalancePromise;
-              try {
-                await this.collectDirectSwapFee(
-                  request,
-                  normalizedTokenOut,
-                  finalResult.amountOut,
-                  feeContext,
-                  trace
-                );
-              } catch (feeErr: any) {
-                logger.warn(LogCode.SYS_ERROR, trace('Direct swap fee transfer failed (non-fatal)'), {
-                  error: feeErr?.message || String(feeErr)
-                });
-              }
-              logger.info(LogCode.EXE_TX_CONFIRMED, trace(`Direct swap successful after final settle txHash=${finalResult.txHash ?? 'null'}`), {
-                txHash: finalResult.txHash,
-                provider: finalResult.provider,
-                poolInfo: finalResult.poolInfo
-              });
-              return {
-                success: true,
-                txHash: finalResult.txHash,
-                amountOut: finalResult.amountOut,
-                txLifecycle: finalResult.txLifecycle,
-                metadata: {
-                  provider: finalResult.provider,
-                  mode: request.mode,
-                  txLifecycleStatus: finalResult.txLifecycle?.status
+              const visibleFinalResult = await enforceVisibilityGate(finalResult, 'final_settle');
+              lastDirectResult = visibleFinalResult;
+              if (!visibleFinalResult.success) {
+                lastDirectError = new Error(visibleFinalResult.error || 'direct_swap_visibility_gate_failed');
+              } else {
+                if (checkNativeBalancePromise) await checkNativeBalancePromise;
+                try {
+                  await this.collectDirectSwapFee(
+                    request,
+                    normalizedTokenOut,
+                    visibleFinalResult.amountOut,
+                    feeContext,
+                    trace
+                  );
+                } catch (feeErr: any) {
+                  logger.warn(LogCode.SYS_ERROR, trace('Direct swap fee transfer failed (non-fatal)'), {
+                    error: feeErr?.message || String(feeErr)
+                  });
                 }
-              };
+                logger.info(LogCode.EXE_TX_CONFIRMED, trace(`Direct swap successful after final settle txHash=${visibleFinalResult.txHash ?? 'null'}`), {
+                  txHash: visibleFinalResult.txHash,
+                  provider: visibleFinalResult.provider,
+                  poolInfo: visibleFinalResult.poolInfo
+                });
+                return {
+                  success: true,
+                  txHash: visibleFinalResult.txHash,
+                  amountOut: visibleFinalResult.amountOut,
+                  txLifecycle: visibleFinalResult.txLifecycle,
+                  metadata: {
+                    provider: visibleFinalResult.provider,
+                    mode: request.mode,
+                    txLifecycleStatus: visibleFinalResult.txLifecycle?.status
+                  }
+                };
+              }
+            } else {
+              lastDirectError = new Error(finalResult.error || 'direct_swap_final_settle_failed');
             }
-            lastDirectError = new Error(finalResult.error || 'direct_swap_final_settle_failed');
           }
         } catch (finalSettleError: any) {
           lastDirectError = finalSettleError;

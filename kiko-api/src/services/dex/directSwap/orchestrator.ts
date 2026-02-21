@@ -793,6 +793,12 @@ async function evaluateResolvedHintFastPathLiquidityGate(params: {
     const matchingEligiblePools = matchingPools.filter((pool) =>
         poolPassesRequiredReserve(pool, params.tokenIn, requiredReserveInWei)
     );
+    const hasUnknownDepthConcentratedPool = matchingPools.some((pool) => {
+        const version = String(pool.version || '').toLowerCase();
+        if (version !== 'v3' && version !== 'v4') return false;
+        const liq = BigInt(pool.liquidity || '0');
+        return liq <= 0n;
+    });
 
     if (matchingPools.length === 0) {
         return {
@@ -810,8 +816,12 @@ async function evaluateResolvedHintFastPathLiquidityGate(params: {
         allowed: matchingEligiblePools.length > 0,
         reason: matchingEligiblePools.length > 0
             ? 'hint_liquidity_gate_pass'
-            : 'hint_liquidity_gate_matching_pools_insufficient_depth',
-        blockType: matchingEligiblePools.length > 0 ? 'none' : 'definitive_block',
+            : (hasUnknownDepthConcentratedPool
+                ? 'hint_liquidity_gate_unknown_depth_for_concentrated_pool'
+                : 'hint_liquidity_gate_matching_pools_insufficient_depth'),
+        blockType: matchingEligiblePools.length > 0
+            ? 'none'
+            : (hasUnknownDepthConcentratedPool ? 'uncertain_block' : 'definitive_block'),
         poolCount: pools.length,
         matchingPoolCount: matchingPools.length,
         matchingEligibleCount: matchingEligiblePools.length,
@@ -944,6 +954,19 @@ function buildTurboPairKey(chainId: number, tokenA: string, tokenB: string): str
     const b = tokenB.toLowerCase();
     const [x, y] = a < b ? [a, b] : [b, a];
     return `${chainId}:${x}:${y}`;
+}
+
+function isLikelyAerodromeHintTrustworthy(hint?: DirectSwapHint): boolean {
+    if (!hint) return false;
+    const sourceDex = String(hint.sourceDexName || '').toLowerCase();
+    const preferredDex = String(hint.preferredDex || '').toLowerCase();
+    const resolvedDex = String(hint.resolvedPoolHint?.dex || '').toLowerCase();
+    const resolvedKind = String(hint.resolvedPoolHint?.kind || '').toLowerCase();
+    const routeHops = Math.max(Number(hint.routeHopCount || 0), hint.routeHops?.length || 0);
+    if (sourceDex.includes('aero') || sourceDex.includes('aerodrome')) return true;
+    if (preferredDex === 'aerodrome') return true;
+    if ((resolvedDex === 'aerodrome' || resolvedKind === 'aerodrome') && routeHops <= 1) return true;
+    return false;
 }
 
 function cleanupTurboInflightUsdReservations(): void {
@@ -1398,6 +1421,18 @@ async function tryResolvedPoolHintFastPath(
     }
 
     if (resolved.kind === 'aerodrome' || resolved.dex === 'aerodrome') {
+        if (!isLikelyAerodromeHintTrustworthy(hint)) {
+            logger.warn(LogCode.SYS_INFO, '[DirectSwap] Hint fast-path Aerodrome rejected: untrusted source hint', {
+                poolAddress: resolved.poolAddress,
+                chainId: params.chainId,
+                sourceDex: hint?.sourceDexName || null
+            });
+            return {
+                success: false,
+                error: 'hint_fastpath_disallowed:aerodrome_untrusted_source',
+                provider: 'failed'
+            };
+        }
         if (params.chainId === 8453 && options?.executionMode === 'turbo') {
             logger.info(LogCode.SYS_INFO, '[DirectSwap] Hint fast-path Aerodrome deferred in Base turbo', {
                 poolAddress: resolved.poolAddress,
@@ -1895,7 +1930,21 @@ export async function executeDirectSwap(params: {
                         return poolPassesRequiredReserve(pool, poolTokenIn, guard.requiredReserveInWei);
                     });
                     if (candidatePools.length === 0) {
-                        return { success: false, error: `liquidity_guard_reject_all:${reason}`, provider: 'failed' };
+                        const unknownDepthConcentrated = rescuePools.filter((pool) => {
+                            const version = String(pool.version || '').toLowerCase();
+                            if (version !== 'v3' && version !== 'v4') return false;
+                            return BigInt(pool.liquidity || '0') <= 0n;
+                        });
+                        if (unknownDepthConcentrated.length === 0) {
+                            return { success: false, error: `liquidity_guard_reject_all:${reason}`, provider: 'failed' };
+                        }
+                        candidatePools = unknownDepthConcentrated.slice(0, TURBO_RESCUE_MAX_CANDIDATES_PER_KIND);
+                        logger.warn(LogCode.SYS_INFO, '[DirectSwap] Turbo rescue liquidity guard strict miss; using unknown-depth concentrated fallback', {
+                            traceId,
+                            chainId,
+                            fallbackPools: candidatePools.length,
+                            reason
+                        });
                     }
                 }
 
@@ -2185,7 +2234,7 @@ export async function executeDirectSwap(params: {
             }
 
             const cachedSinglePoolHint = await getCachedSinglePoolWinnerHint(chainId, poolTokenIn, poolTokenOut);
-            const turboCandidates = await singlePoolTurboResolver.resolveCandidates({
+            let turboCandidates = await singlePoolTurboResolver.resolveCandidates({
                 chainId,
                 tokenIn: poolTokenIn,
                 tokenOut: poolTokenOut,
@@ -2206,6 +2255,23 @@ export async function executeDirectSwap(params: {
                     cachedHint: Boolean(cachedSinglePoolHint)
                 }
             });
+
+            if (chainId === 8453 && params.executionMode === 'turbo') {
+                const aeroTrusted = isLikelyAerodromeHintTrustworthy(params.hint);
+                if (!aeroTrusted) {
+                    const before = turboCandidates.length;
+                    turboCandidates = turboCandidates.filter((candidate) => candidate.kind !== 'aerodrome');
+                    if (before !== turboCandidates.length) {
+                        logger.info(LogCode.SYS_INFO, '[DirectSwap] Turbo candidate filter dropped untrusted Aerodrome hints', {
+                            traceId,
+                            chainId,
+                            before,
+                            after: turboCandidates.length,
+                            sourceDex: params.hint?.sourceDexName || null
+                        });
+                    }
+                }
+            }
 
             if (turboCandidates.length === 0) {
                 logger.warn(LogCode.SYS_INFO, '[DirectSwap] Turbo single-pool candidates empty, entering rescue', {
@@ -3061,7 +3127,7 @@ export async function executeDirectSwap(params: {
                         executionMode: requestedMode
                     }));
                 }
-                if (v4Best.pool && v4Best.amountOut >= minReasonable) {
+                if (v4Best.pool && v4Best.amountOut > 0n && v4Best.amountOut >= minReasonable) {
                     tExecutionStart = Date.now();
                     logger.info(LogCode.SYS_INFO, '[DirectSwap] Strategy selected', {
                         strategy: 'v4',
@@ -3081,7 +3147,9 @@ export async function executeDirectSwap(params: {
                 }
                 logger.debug(LogCode.SYS_INFO, '[DirectSwap] Strategy rejected', {
                     strategy: 'v4',
-                    reason: !v4Best.pool ? 'pool_unavailable' : 'quote_below_threshold',
+                    reason: !v4Best.pool
+                        ? 'pool_unavailable'
+                        : (v4Best.amountOut <= 0n ? 'quote_unavailable' : 'quote_below_threshold'),
                     amountOut: v4Best.amountOut.toString(),
                     minReasonable: minReasonable.toString()
                 });

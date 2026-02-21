@@ -480,7 +480,9 @@ function shouldForceExhaustiveFailover(
     if (importance !== 'critical') return false;
     return method === 'eth_call'
         || method === 'eth_estimateGas'
-        || method === 'eth_sendRawTransaction';
+        || method === 'eth_sendRawTransaction'
+        || method === 'eth_getTransactionByHash'
+        || method === 'eth_getTransactionReceipt';
 }
 
 function getMethodConcurrencyLimit(method: string, importance: RpcImportance, cooldownActive: boolean): number {
@@ -1997,7 +1999,7 @@ export async function probeTxVisibility(params: {
                 params.chainId,
                 'eth_getTransactionByHash',
                 [params.txHash],
-                { strategy: 'fast', importance: 'critical' }
+                { strategy: 'fast', importance: 'critical', exhaustiveFailover: true }
             );
             if (tx?.hash) {
                 const from = String(tx.from || '').toLowerCase();
@@ -2058,7 +2060,7 @@ export async function waitForReceiptStateMachine(params: {
                     params.chainId,
                     'eth_getTransactionByHash',
                     [params.txHash],
-                    { strategy: 'fast', importance: 'critical' }
+                    { strategy: 'fast', importance: 'critical', exhaustiveFailover: true }
                 ).catch((err: any) => {
                     lastRpcError = err?.message || String(err);
                     return null;
@@ -2067,7 +2069,7 @@ export async function waitForReceiptStateMachine(params: {
                     params.chainId,
                     'eth_getTransactionReceipt',
                     [params.txHash],
-                    { strategy: 'fast', importance: 'critical' }
+                    { strategy: 'fast', importance: 'critical', exhaustiveFailover: true }
                 ).catch((err: any) => {
                     lastRpcError = err?.message || String(err);
                     return null;

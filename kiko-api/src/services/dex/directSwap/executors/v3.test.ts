@@ -31,7 +31,7 @@ const BASE_POOL: PoolInfo = {
 };
 
 function buildDeps(
-  callRpcImpl: (method: string) => Promise<string>,
+  callRpcImpl: (method: string, params: any[]) => Promise<string>,
   sendImpl: (tx: any) => Promise<TxLifecycleResult>
 ) {
   return {
@@ -43,9 +43,9 @@ function buildDeps(
     v3FeeTiers: [500, 3000, 10000] as const,
     v3QuoterInterface: QUOTER_IFACE,
     turboV3GasLimit: '420000',
-    callRpc: async <T>(chainId: number, method: string): Promise<T> => {
+    callRpc: async <T>(chainId: number, method: string, params: any[] = []): Promise<T> => {
       assert.equal(chainId, 8453);
-      return await callRpcImpl(method) as unknown as T;
+      return await callRpcImpl(method, params) as unknown as T;
     },
     sendTransaction: async (_userId: string, _accessToken: string, tx: any): Promise<TxLifecycleResult> => {
       return await sendImpl(tx);
@@ -149,4 +149,56 @@ test('executeV3Swap turbo still blocks real pre-sim revert', async () => {
   assert.equal(result.success, false);
   assert.equal(sent, false);
   assert.match(result.error || '', /v3_pre_sim_revert/i);
+});
+
+test('executeV3Swap fastMode recovers with fallback fee when initial fee reverts', async () => {
+  const poolWithUnknownFee: PoolInfo = {
+    ...BASE_POOL,
+    fee: 0
+  };
+  let estimateCount = 0;
+  let sent = false;
+  let sentData = '';
+
+  const poolFeeCallData = new ethers.Interface(['function fee() view returns (uint24)']).encodeFunctionData('fee', []);
+  const deps = buildDeps(
+    async (method: string, params: any[]) => {
+      if (method === 'eth_call') {
+        const data = String(params?.[0]?.data || '').toLowerCase();
+        if (data === poolFeeCallData.toLowerCase()) {
+          return ethers.zeroPadValue(ethers.toBeHex(500), 32);
+        }
+        return '0x';
+      }
+      if (method === 'eth_estimateGas') {
+        estimateCount += 1;
+        if (estimateCount === 1) {
+          throw new Error('execution reverted: STF');
+        }
+        return ethers.toBeHex(210000);
+      }
+      throw new Error(`unexpected method ${method}`);
+    },
+    async (tx: any) => {
+      sent = true;
+      sentData = String(tx.data || '');
+      return {
+        status: 'visible_pending',
+        txHash: '0xfee-recovered',
+        firstSeenAt: Date.now(),
+        attempts: 1,
+        chainId: 8453
+      };
+    }
+  );
+
+  const result = await executeV3Swap(BASE_PARAMS, poolWithUnknownFee, 'uniswap', deps, {
+    fastMode: true,
+    executionMode: 'normal'
+  });
+
+  assert.equal(result.success, true);
+  assert.equal(sent, true);
+  assert.equal(estimateCount, 2);
+  assert.ok(sentData.length > 0);
 });

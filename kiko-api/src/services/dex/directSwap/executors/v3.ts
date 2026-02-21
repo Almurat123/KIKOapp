@@ -43,6 +43,9 @@ const SWAP_ROUTER_02: Record<number, string> = {
   1: '0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45',
   56: '0xB971eF87ede563556b2ED4b1C0b0019111Dd85d2'
 };
+const v3PoolFeeInterface = new ethers.Interface([
+  'function fee() view returns (uint24)'
+]);
 
 function isTransientRpcFailure(message: string): boolean {
   const msg = String(message || '').toLowerCase();
@@ -86,6 +89,30 @@ export async function executeV3Swap(
   let bestFee = pool.fee || 3000;
   const quoterAddress = dex === 'pancake' ? deps.pancakeV3Quoter : deps.v3QuoterByChain[chainId];
   const feeTiers = dex === 'pancake' ? deps.pancakeV3FeeTiers : deps.v3FeeTiers;
+  if ((!pool.fee || pool.fee <= 0) && pool.poolAddress && /^0x[a-fA-F0-9]{40}$/.test(pool.poolAddress)) {
+    try {
+      const feeCallData = v3PoolFeeInterface.encodeFunctionData('fee', []);
+      const feeResult = await deps.callRpc<string>(chainId, 'eth_call', [{
+        to: pool.poolAddress,
+        data: feeCallData
+      }, 'latest'], {
+        strategy: 'fast',
+        importance: 'critical'
+      });
+      if (feeResult && feeResult !== '0x') {
+        const decodedFee = Number(v3PoolFeeInterface.decodeFunctionResult('fee', feeResult)[0]);
+        if (decodedFee > 0 && decodedFee <= 1_000_000) {
+          bestFee = decodedFee;
+          logger.info(LogCode.SYS_INFO, '[DirectSwap] V3 fee resolved from pool contract', {
+            pool: pool.poolAddress.slice(0, 20),
+            resolvedFee: decodedFee
+          });
+        }
+      }
+    } catch {
+      // keep default fallback fee
+    }
+  }
   if (quoterAddress && !options?.fastMode) {
     try {
       for (const fee of feeTiers) {
@@ -165,28 +192,31 @@ export async function executeV3Swap(
       ]
   );
 
-  const swapParams = dex === 'pancake'
-    ? {
-      tokenIn: normalizedIn,
-      tokenOut: normalizedOut,
-      fee: bestFee,
-      recipient: walletAddress,
-      deadline,
-      amountIn: amountInWei,
-      amountOutMinimum: minAmountOut,
-      sqrtPriceLimitX96: 0
-    }
-    : {
-      tokenIn: normalizedIn,
-      tokenOut: normalizedOut,
-      fee: bestFee,
-      recipient: walletAddress,
-      amountIn: amountInWei,
-      amountOutMinimum: minAmountOut,
-      sqrtPriceLimitX96: 0
-    };
+  const buildSwapData = (fee: number): string => {
+    const swapParams = dex === 'pancake'
+      ? {
+        tokenIn: normalizedIn,
+        tokenOut: normalizedOut,
+        fee,
+        recipient: walletAddress,
+        deadline,
+        amountIn: amountInWei,
+        amountOutMinimum: minAmountOut,
+        sqrtPriceLimitX96: 0
+      }
+      : {
+        tokenIn: normalizedIn,
+        tokenOut: normalizedOut,
+        fee,
+        recipient: walletAddress,
+        amountIn: amountInWei,
+        amountOutMinimum: minAmountOut,
+        sqrtPriceLimitX96: 0
+      };
+    return routerInterface.encodeFunctionData('exactInputSingle', [swapParams]);
+  };
 
-  const data = routerInterface.encodeFunctionData('exactInputSingle', [swapParams]);
+  let data = buildSwapData(bestFee);
   const isNativeIn = tokenIn.toLowerCase() === ETH_ADDRESS.toLowerCase();
 
   let gasLimit = '450000';
@@ -215,6 +245,53 @@ export async function executeV3Swap(
           error: simErrMsg.slice(0, 150)
         });
       } else {
+        // If hint fee is wrong/missing, probe a small fee set before giving up.
+        const seenFees = new Set<number>();
+        const fallbackFees = [
+          bestFee,
+          ...(pool.fee ? [pool.fee] : []),
+          ...feeTiers
+        ]
+          .filter((fee) => Number.isFinite(Number(fee)) && Number(fee) > 0)
+          .map((fee) => Number(fee))
+          .filter((fee) => {
+            if (seenFees.has(fee)) return false;
+            seenFees.add(fee);
+            return true;
+          })
+          .slice(0, 5);
+
+        let recovered = false;
+        for (const fee of fallbackFees) {
+          if (fee === bestFee) continue;
+          try {
+            const candidateData = buildSwapData(fee);
+            const estimate = await deps.callRpc<string>(chainId, 'eth_estimateGas', [{
+              from: walletAddress,
+              to: routerAddress,
+              data: candidateData,
+              value: isNativeIn ? ethers.toQuantity(amountInWei) : '0x0'
+            }], {
+              strategy: 'fast',
+              importance: 'critical'
+            });
+            data = candidateData;
+            bestFee = fee;
+            gasLimit = (BigInt(estimate) * 2n).toString();
+            recovered = true;
+            logger.info(LogCode.SYS_INFO, '[DirectSwap] V3 fastMode recovered by fee fallback', {
+              pool: pool.poolAddress?.slice(0, 20),
+              recoveredFee: fee,
+              gasLimit
+            });
+            break;
+          } catch {
+            // try next fee
+          }
+        }
+        if (recovered) {
+          // continue execution with recovered data/gas
+        } else {
         logger.warn(LogCode.EXE_TX_REVERTED, '[DirectSwap] V3 fastMode pre-sim REVERTED - aborting send', {
           pool: pool.poolAddress?.slice(0, 20),
           fee: bestFee,
@@ -227,6 +304,7 @@ export async function executeV3Swap(
           error: `v3_pre_sim_revert:${simErrMsg.slice(0, 100) || 'unknown'}`,
           provider: 'failed'
         };
+        }
       }
     }
   } else {
