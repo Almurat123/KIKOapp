@@ -191,6 +191,8 @@ const DIRECT_SWAP_TURBO_BUDGET_WARN_MS = Number(process.env.DIRECT_SWAP_TURBO_BU
 const DIRECT_SWAP_GAS_CACHE_TTL_MS = Number(process.env.DIRECT_SWAP_GAS_CACHE_TTL_MS || '600000');
 const V4_DYNAMIC_FEE_FLAG = 0x800000;
 const TURBO_INFLIGHT_LIQUIDITY_TTL_MS = Number(process.env.DIRECT_SWAP_TURBO_INFLIGHT_LIQUIDITY_TTL_MS || '8000');
+const TURBO_RESCUE_MAX_CANDIDATES_PER_KIND = Number(process.env.DIRECT_SWAP_TURBO_RESCUE_MAX_PER_KIND || '2');
+const TURBO_RESCUE_MAX_TOTAL_CANDIDATES = Number(process.env.DIRECT_SWAP_TURBO_RESCUE_MAX_TOTAL || '6');
 
 const STABLE_TOKEN_HINTS_BY_CHAIN: Record<number, string[]> = {
     1: [
@@ -406,6 +408,12 @@ function classifyFailure(error: string): string {
     const lower = String(error || '').toLowerCase();
     if (!lower) return 'failed_unknown';
     if (lower.startsWith('failed_')) return lower.split(':')[0];
+    if (lower.includes('turbo_rescue_budget_exhausted')) return 'turbo_rescue_budget_exhausted';
+    if (lower.includes('turbo_rescue_exhausted')) return 'turbo_rescue_exhausted';
+    if (lower.includes('liquidity_guard_reject_all')) return 'liquidity_guard_reject_all';
+    if (lower.includes('v4_pre_sim_revert')) return 'v4_pre_sim_revert';
+    if (lower.includes('v3_pre_sim_revert')) return 'v3_pre_sim_revert';
+    if (lower.includes('v2_pre_sim_revert')) return 'v2_pre_sim_revert';
     if (lower.includes('http 500') || lower.includes('"success":"false"')) return 'failed_external_quote_down';
     if (lower.includes('no suitable pool found')) return 'failed_pool_unavailable_hard';
     if (lower.includes('no valid reference price')) return 'failed_external_quote_down';
@@ -676,10 +684,20 @@ function matchesResolvedHintPool(pool: PoolInfo, hint: NonNullable<DirectSwapHin
 interface HintLiquidityGateResult {
     allowed: boolean;
     reason: string;
+    blockType: 'none' | 'definitive_block' | 'uncertain_block';
     poolCount: number;
     matchingPoolCount: number;
     matchingEligibleCount: number;
     requiredReserveInWei: string;
+}
+
+type TurboRescueStrategyKind = 'v4' | 'v3' | 'v2';
+type TurboRescueInternalStrategyKind = TurboRescueStrategyKind | 'aerodrome';
+
+interface TurboRescueStepResult {
+    selectedKind?: TurboRescueInternalStrategyKind;
+    success: boolean;
+    error?: string;
 }
 
 async function evaluateResolvedHintFastPathLiquidityGate(params: {
@@ -694,6 +712,7 @@ async function evaluateResolvedHintFastPathLiquidityGate(params: {
         return {
             allowed: false,
             reason: 'hint_liquidity_gate_budget_exhausted',
+            blockType: 'uncertain_block',
             poolCount: 0,
             matchingPoolCount: 0,
             matchingEligibleCount: 0,
@@ -702,19 +721,34 @@ async function evaluateResolvedHintFastPathLiquidityGate(params: {
     }
 
     let pools: PoolInfo[] = [];
+    let poolDiscoveryFailed = false;
     try {
         pools = await withTimeout(
             findTokenPools(params.tokenIn, params.tokenOut, params.chainId),
             params.budgetMs
         );
     } catch {
+        poolDiscoveryFailed = true;
         pools = [];
+    }
+
+    if (poolDiscoveryFailed) {
+        return {
+            allowed: false,
+            reason: 'hint_liquidity_gate_discovery_failed',
+            blockType: 'uncertain_block',
+            poolCount: 0,
+            matchingPoolCount: 0,
+            matchingEligibleCount: 0,
+            requiredReserveInWei: '0'
+        };
     }
 
     if (pools.length === 0) {
         return {
             allowed: false,
             reason: 'hint_liquidity_gate_no_pools',
+            blockType: 'uncertain_block',
             poolCount: 0,
             matchingPoolCount: 0,
             matchingEligibleCount: 0,
@@ -732,6 +766,7 @@ async function evaluateResolvedHintFastPathLiquidityGate(params: {
         return {
             allowed: false,
             reason: 'hint_liquidity_gate_no_matching_pools',
+            blockType: 'definitive_block',
             poolCount: pools.length,
             matchingPoolCount: 0,
             matchingEligibleCount: 0,
@@ -744,6 +779,7 @@ async function evaluateResolvedHintFastPathLiquidityGate(params: {
         reason: matchingEligiblePools.length > 0
             ? 'hint_liquidity_gate_pass'
             : 'hint_liquidity_gate_matching_pools_insufficient_depth',
+        blockType: matchingEligiblePools.length > 0 ? 'none' : 'definitive_block',
         poolCount: pools.length,
         matchingPoolCount: matchingPools.length,
         matchingEligibleCount: matchingEligiblePools.length,
@@ -784,22 +820,85 @@ function resolvedHintIdentity(hint: ResolvedPoolHint): string {
     return `${hint.kind}:${String(hint.dex || '').toLowerCase()}:${String(hint.poolAddress || '').toLowerCase()}:${Number(hint.fee || 0)}`;
 }
 
-function buildTurboSinglePoolAttemptPlan(candidates: ResolvedPoolHint[]): ResolvedPoolHint[] {
+function buildTurboRescueOrder(chainId: number): TurboRescueInternalStrategyKind[] {
+    if (chainId === 8453) {
+        return ['v4', 'v3', 'v2', 'aerodrome'];
+    }
+    return ['v4', 'v3', 'aerodrome'];
+}
+
+function matchesTurboRescueStrategy(pool: PoolInfo, strategy: TurboRescueInternalStrategyKind): boolean {
+    const version = String(pool.version || '').toLowerCase();
+    const dex = String(pool.dex || '').toLowerCase();
+    if (strategy === 'aerodrome') {
+        return version === 'aerodrome' || dex === 'aerodrome';
+    }
+    return version === strategy;
+}
+
+function capTurboRescueCandidatePools(
+    pools: PoolInfo[],
+    order: TurboRescueInternalStrategyKind[],
+    perKindLimit = TURBO_RESCUE_MAX_CANDIDATES_PER_KIND,
+    totalLimit = TURBO_RESCUE_MAX_TOTAL_CANDIDATES
+): PoolInfo[] {
+    if (pools.length <= totalLimit) return pools;
+    const byKindCount = new Map<TurboRescueInternalStrategyKind, number>();
+    const selected: PoolInfo[] = [];
+    const selectedIds = new Set<string>();
+    const makePoolId = (pool: PoolInfo) =>
+        `${String(pool.version || '')}:${String(pool.dex || '')}:${String(pool.poolAddress || '')}`.toLowerCase();
+    const safePerKindLimit = Math.max(1, perKindLimit);
+    const safeTotalLimit = Math.max(1, totalLimit);
+
+    for (const strategy of order) {
+        for (const pool of pools) {
+            if (!matchesTurboRescueStrategy(pool, strategy)) continue;
+            const poolId = makePoolId(pool);
+            if (selectedIds.has(poolId)) continue;
+            const taken = byKindCount.get(strategy) || 0;
+            if (taken >= safePerKindLimit) continue;
+            selected.push(pool);
+            selectedIds.add(poolId);
+            byKindCount.set(strategy, taken + 1);
+            if (selected.length >= safeTotalLimit) return selected;
+        }
+    }
+
+    for (const pool of pools) {
+        const poolId = makePoolId(pool);
+        if (selectedIds.has(poolId)) continue;
+        selected.push(pool);
+        selectedIds.add(poolId);
+        if (selected.length >= safeTotalLimit) break;
+    }
+    return selected;
+}
+
+function buildTurboSinglePoolAttemptPlan(candidates: ResolvedPoolHint[], chainId: number): ResolvedPoolHint[] {
     if (candidates.length === 0) return [];
-    const first = candidates[0];
+    let first = candidates[0];
+    if (chainId === 8453) {
+        const baseV4Candidate = candidates.find((candidate) => candidate.kind === 'v4');
+        if (baseV4Candidate) {
+            first = baseV4Candidate;
+        }
+    }
     const attempts: ResolvedPoolHint[] = [first];
     const used = new Set<string>([resolvedHintIdentity(first)]);
 
-    const preferredSecondKinds: StrategyKind[] = first.kind === 'aerodrome'
-        ? ['v4', 'v3', 'v2']
-        : ['v4', 'v3', 'v2', 'aerodrome'];
+    const preferredSecondKinds: StrategyKind[] = chainId === 8453
+        ? ['v3', 'v2', 'v4']
+        : first.kind === 'aerodrome'
+            ? ['v4', 'v3', 'v2']
+            : ['v4', 'v3', 'v2', 'aerodrome'];
 
     let second: ResolvedPoolHint | undefined;
     for (const kind of preferredSecondKinds) {
         second = candidates.find((candidate) => candidate.kind === kind && !used.has(resolvedHintIdentity(candidate)));
         if (second) break;
     }
-    if (!second) {
+    if (!second && chainId !== 8453) {
         second = candidates.find((candidate) => !used.has(resolvedHintIdentity(candidate)));
     }
     if (second) attempts.push(second);
@@ -1176,7 +1275,7 @@ function shouldSkipResolvedHintRetry(error: string | undefined): boolean {
         lower.includes('hint_pool_pair_mismatch')
         || lower.includes('hint_pool_tokens_unavailable')
         || lower.includes('hint_fastpath_disallowed')
-        || (lower.includes('pre-sim reverted') && !transientRpcFailure)
+        || ((lower.includes('pre-sim reverted') || lower.includes('v3_pre_sim_revert') || lower.includes('v4_pre_sim_revert')) && !transientRpcFailure)
     );
 }
 
@@ -1541,14 +1640,23 @@ export async function executeDirectSwap(params: {
                         resolvedHint,
                         budgetMs: gateBudgetMs
                     });
+                    const gateDecision: 'allow' | 'block_definitive' | 'block_uncertain_but_try' = gate.allowed
+                        ? 'allow'
+                        : (turboMode && gate.blockType === 'uncertain_block')
+                            ? 'block_uncertain_but_try'
+                            : 'block_definitive';
                     logger.info(LogCode.SYS_INFO, '[DirectSwap] Resolved hint liquidity gate', {
                         chainId,
+                        traceId,
                         mode: requestedMode,
                         kind: resolvedHint.kind,
                         dex: resolvedHint.dex || null,
                         poolAddress: resolvedHint.poolAddress || null,
+                        resolvedHintKind: resolvedHint.kind,
                         gateAllowed: gate.allowed,
+                        gateDecision,
                         gateReason: gate.reason,
+                        gateBlockType: gate.blockType,
                         gateBudgetMs,
                         poolCount: gate.poolCount,
                         matchingPoolCount: gate.matchingPoolCount,
@@ -1556,12 +1664,25 @@ export async function executeDirectSwap(params: {
                         requiredReserveInWei: gate.requiredReserveInWei.slice(0, 20),
                         multiplier: DIRECT_SWAP_BUY_LIQ_MULTIPLIER
                     });
-                    if (!gate.allowed) {
+                    if (!gate.allowed && !(turboMode && gate.blockType === 'uncertain_block')) {
                         liquidityGateBlocked = true;
                         resolvedHintFastPathSkipped = true;
                         logger.warn(LogCode.SYS_INFO, '[DirectSwap] Resolved pool hint fast-path skipped by liquidity gate', {
                             chainId,
+                            traceId,
+                            gateDecision,
                             gateReason: gate.reason,
+                            gateBlockType: gate.blockType,
+                            kind: resolvedHint.kind,
+                            dex: resolvedHint.dex || null,
+                            poolAddress: resolvedHint.poolAddress || null
+                        });
+                    } else if (!gate.allowed && turboMode && gate.blockType === 'uncertain_block') {
+                        logger.info(LogCode.SYS_INFO, '[DirectSwap] Resolved pool hint gate uncertain in turbo - still attempting fast-path', {
+                            chainId,
+                            traceId,
+                            gateReason: gate.reason,
+                            gateBlockType: gate.blockType,
                             kind: resolvedHint.kind,
                             dex: resolvedHint.dex || null,
                             poolAddress: resolvedHint.poolAddress || null
@@ -1658,26 +1779,30 @@ export async function executeDirectSwap(params: {
 
         if (turboMode) {
             const runTurboRescue = async (reason: string): Promise<DirectSwapResult> => {
+                const rescueOrder = buildTurboRescueOrder(chainId);
                 const remainingBudgetMs = turboFastDeadline - Date.now();
                 if (remainingBudgetMs <= 80) {
                     logger.warn(LogCode.SYS_INFO, '[DirectSwap] Turbo rescue skipped: budget exhausted', {
                         traceId,
                         chainId,
                         reason,
+                        turboOrder: rescueOrder.join(' -> '),
                         elapsedMs: Date.now() - swapStart,
                         budgetMs: DIRECT_SWAP_FASTPATH_BUDGET_MS
                     });
-                    return { success: false, error: `Turbo rescue budget exhausted: ${reason}`, provider: 'failed' };
+                    return { success: false, error: `turbo_rescue_budget_exhausted:${reason}`, provider: 'failed' };
                 }
 
                 const rescuePoolBudgetMs = Math.max(180, Math.min(DIRECT_SWAP_HINT_POOL_TIMEOUT_MS, remainingBudgetMs));
                 let rescuePools: PoolInfo[] = [];
+                let rescuePoolDiscoveryFailed = false;
                 try {
                     rescuePools = await withTimeout(
                         findTokenPools(poolTokenIn, poolTokenOut, chainId),
                         rescuePoolBudgetMs
                     );
                 } catch {
+                    rescuePoolDiscoveryFailed = true;
                     rescuePools = [];
                 }
 
@@ -1691,11 +1816,15 @@ export async function executeDirectSwap(params: {
                     reason,
                     poolCount: rescuePools.length,
                     poolKinds: rescueSummary.poolKinds,
+                    poolDiscoveryFailed: rescuePoolDiscoveryFailed,
                     timeoutMs: rescuePoolBudgetMs
                 });
 
+                if (rescuePoolDiscoveryFailed) {
+                    return { success: false, error: `turbo_rescue_exhausted:pool_discovery_failed:${reason}`, provider: 'failed' };
+                }
                 if (rescuePools.length === 0) {
-                    return { success: false, error: `Turbo rescue failed: no pools after ${reason}`, provider: 'failed' };
+                    return { success: false, error: `turbo_rescue_exhausted:no_pools_after:${reason}`, provider: 'failed' };
                 }
 
                 let candidatePools = rescuePools;
@@ -1721,19 +1850,35 @@ export async function executeDirectSwap(params: {
                         return poolPassesRequiredReserve(pool, poolTokenIn, guard.requiredReserveInWei);
                     });
                     if (candidatePools.length === 0) {
-                        return { success: false, error: `Turbo rescue failed: no pools pass liquidity guard after ${reason}`, provider: 'failed' };
+                        return { success: false, error: `liquidity_guard_reject_all:${reason}`, provider: 'failed' };
                     }
                 }
 
+                const candidatePoolsBeforeCap = candidatePools.length;
+                candidatePools = capTurboRescueCandidatePools(
+                    candidatePools,
+                    rescueOrder,
+                    TURBO_RESCUE_MAX_CANDIDATES_PER_KIND,
+                    TURBO_RESCUE_MAX_TOTAL_CANDIDATES
+                );
                 let lastRescueError = `turbo_rescue_start:${reason}`;
+                const stepOutcome: TurboRescueStepResult = { success: false };
                 logger.info(LogCode.SYS_INFO, '[DirectSwap] Turbo rescue strategy order', {
                     traceId,
                     chainId,
-                    order: 'v4 -> v3 -> aerodrome',
-                    candidatePools: candidatePools.length
+                    turboOrder: rescueOrder.join(' -> '),
+                    candidatePoolsBeforeCap,
+                    candidatePools: candidatePools.length,
+                    maxPerKind: TURBO_RESCUE_MAX_CANDIDATES_PER_KIND,
+                    maxTotal: TURBO_RESCUE_MAX_TOTAL_CANDIDATES
                 });
 
                 if (isV4SwapSupported(chainId)) {
+                    logger.info(LogCode.SYS_INFO, '[DirectSwap] turbo_rescue_step_start', {
+                        traceId,
+                        chainId,
+                        strategyKind: 'v4'
+                    });
                     const rescueV4Pools = candidatePools
                         .filter((p) => p.version === 'v4')
                         .map((p) => ({
@@ -1767,10 +1912,11 @@ export async function executeDirectSwap(params: {
                                 v4BudgetMs
                             ).catch(() => ({ pool: null, amountOut: 0n } as { pool: SelectedV4Pool | null; amountOut: bigint }));
                             if (v4Best.pool && v4Best.amountOut > 0n) {
-                                logger.info(LogCode.SYS_INFO, '[DirectSwap] Turbo rescue selected', {
+                                logger.info(LogCode.SYS_INFO, '[DirectSwap] turbo_rescue_step_selected', {
                                     traceId,
                                     chainId,
-                                    strategy: 'v4',
+                                    strategyKind: 'v4',
+                                    selectedKind: 'v4',
                                     poolId: v4Best.pool.poolAddress,
                                     amountOut: v4Best.amountOut.toString()
                                 });
@@ -1780,6 +1926,16 @@ export async function executeDirectSwap(params: {
                                 });
                                 if (v4Result.success) return v4Result;
                                 lastRescueError = v4Result.error || 'turbo_rescue_v4_failed';
+                                stepOutcome.selectedKind = 'v4';
+                                stepOutcome.success = false;
+                                stepOutcome.error = lastRescueError;
+                                logger.warn(LogCode.SYS_INFO, '[DirectSwap] turbo_rescue_step_failed', {
+                                    traceId,
+                                    chainId,
+                                    strategyKind: 'v4',
+                                    failureCode: classifyFailure(lastRescueError),
+                                    error: lastRescueError
+                                });
                             }
                         }
                     }
@@ -1788,6 +1944,12 @@ export async function executeDirectSwap(params: {
                 const v3DexOrder: Array<'uniswap' | 'pancake'> = chainId === 56
                     ? ['pancake', 'uniswap']
                     : ['uniswap', 'pancake'];
+                logger.info(LogCode.SYS_INFO, '[DirectSwap] turbo_rescue_step_start', {
+                    traceId,
+                    chainId,
+                    strategyKind: 'v3',
+                    v3DexOrder
+                });
                 for (const dex of v3DexOrder) {
                     const v3Pool = await pickBestPool(candidatePools, 'v3', chainId, dex);
                     if (!v3Pool) continue;
@@ -1798,10 +1960,12 @@ export async function executeDirectSwap(params: {
                         v3QuoteBudgetMs
                     ).catch(() => 0n);
                     if (v3Quote <= 0n) continue;
-                    logger.info(LogCode.SYS_INFO, '[DirectSwap] Turbo rescue selected', {
+                    logger.info(LogCode.SYS_INFO, '[DirectSwap] turbo_rescue_step_selected', {
                         traceId,
                         chainId,
-                        strategy: `v3:${dex}`,
+                        strategyKind: 'v3',
+                        selectedKind: 'v3',
+                        dex,
                         pool: v3Pool.poolAddress,
                         amountOut: v3Quote.toString()
                     });
@@ -1811,9 +1975,84 @@ export async function executeDirectSwap(params: {
                     });
                     if (v3Result.success) return v3Result;
                     lastRescueError = v3Result.error || `turbo_rescue_v3_${dex}_failed`;
+                    stepOutcome.selectedKind = 'v3';
+                    stepOutcome.success = false;
+                    stepOutcome.error = lastRescueError;
+                    logger.warn(LogCode.SYS_INFO, '[DirectSwap] turbo_rescue_step_failed', {
+                        traceId,
+                        chainId,
+                        strategyKind: 'v3',
+                        dex,
+                        failureCode: classifyFailure(lastRescueError),
+                        error: lastRescueError
+                    });
                 }
 
-                if (chainId === 8453) {
+                if (rescueOrder.includes('v2')) {
+                    logger.info(LogCode.SYS_INFO, '[DirectSwap] turbo_rescue_step_start', {
+                        traceId,
+                        chainId,
+                        strategyKind: 'v2'
+                    });
+                    const v2Pool = await pickBestPool(candidatePools, 'v2', chainId);
+                    if (v2Pool) {
+                        const v2QuoteBudgetMs = Math.max(120, Math.min(650, turboFastDeadline - Date.now()));
+                        if (v2QuoteBudgetMs > 0) {
+                            const v2Quote = await withTimeout(
+                                getV2ExpectedOutput(poolTokenIn, poolTokenOut, amountInWei, chainId),
+                                v2QuoteBudgetMs
+                            ).catch(() => 0n);
+                            if (v2Quote > 0n) {
+                                logger.info(LogCode.SYS_INFO, '[DirectSwap] turbo_rescue_step_selected', {
+                                    traceId,
+                                    chainId,
+                                    strategyKind: 'v2',
+                                    selectedKind: 'v2',
+                                    pool: v2Pool.poolAddress,
+                                    amountOut: v2Quote.toString()
+                                });
+                                const v2Result = await executeV2Swap(normalizedParams, v2Quote);
+                                if (v2Result.success) return v2Result;
+                                lastRescueError = v2Result.error || 'turbo_rescue_v2_failed';
+                                stepOutcome.selectedKind = 'v2';
+                                stepOutcome.success = false;
+                                stepOutcome.error = lastRescueError;
+                                logger.warn(LogCode.SYS_INFO, '[DirectSwap] turbo_rescue_step_failed', {
+                                    traceId,
+                                    chainId,
+                                    strategyKind: 'v2',
+                                    failureCode: classifyFailure(lastRescueError),
+                                    error: lastRescueError
+                                });
+                            } else {
+                                logger.info(LogCode.SYS_INFO, '[DirectSwap] turbo_rescue_step_skipped', {
+                                    traceId,
+                                    chainId,
+                                    strategyKind: 'v2',
+                                    skipReason: 'v2_quote_unavailable',
+                                    quoteBudgetMs: v2QuoteBudgetMs
+                                });
+                            }
+                        } else {
+                            logger.info(LogCode.SYS_INFO, '[DirectSwap] turbo_rescue_step_skipped', {
+                                traceId,
+                                chainId,
+                                strategyKind: 'v2',
+                                skipReason: 'budget_exhausted',
+                                quoteBudgetMs: v2QuoteBudgetMs
+                            });
+                        }
+                    } else {
+                        logger.info(LogCode.SYS_INFO, '[DirectSwap] turbo_rescue_step_skipped', {
+                            traceId,
+                            chainId,
+                            strategyKind: 'v2',
+                            skipReason: 'no_pool_candidate'
+                        });
+                    }
+                }
+
+                if (rescueOrder.includes('aerodrome')) {
                     const aeroPool = await pickBestPool(candidatePools, 'aerodrome', chainId);
                     if (aeroPool) {
                         const aeroQuoteBudgetMs = Math.max(120, Math.min(650, turboFastDeadline - Date.now()));
@@ -1830,21 +2069,25 @@ export async function executeDirectSwap(params: {
                                 aeroQuoteBudgetMs
                             ).catch(() => 0n);
                             if (aeroQuote > 0n) {
-                                logger.info(LogCode.SYS_INFO, '[DirectSwap] Turbo rescue selected', {
+                                logger.info(LogCode.SYS_INFO, '[DirectSwap] turbo_rescue_step_selected', {
                                     traceId,
                                     chainId,
-                                    strategy: 'aerodrome',
+                                    strategyKind: 'aerodrome',
+                                    selectedKind: 'aerodrome',
                                     pool: aeroPool.poolAddress,
                                     amountOut: aeroQuote.toString()
                                 });
                                 const aeroResult = await executeAerodromeSwap(normalizedParams);
                                 if (aeroResult.success) return aeroResult;
                                 lastRescueError = aeroResult.error || 'turbo_rescue_aerodrome_failed';
+                                stepOutcome.selectedKind = 'aerodrome';
+                                stepOutcome.success = false;
+                                stepOutcome.error = lastRescueError;
                             } else {
                                 logger.warn(LogCode.SYS_INFO, '[DirectSwap] Turbo rescue Aerodrome quote unavailable', {
                                     traceId,
                                     chainId,
-                                    strategy: 'aerodrome',
+                                    strategyKind: 'aerodrome',
                                     pool: aeroPool.poolAddress,
                                     amountOut: aeroQuote.toString(),
                                     quoteBudgetMs: aeroQuoteBudgetMs
@@ -1854,7 +2097,7 @@ export async function executeDirectSwap(params: {
                             logger.warn(LogCode.SYS_INFO, '[DirectSwap] Turbo rescue Aerodrome skipped: budget exhausted', {
                                 traceId,
                                 chainId,
-                                strategy: 'aerodrome',
+                                strategyKind: 'aerodrome',
                                 pool: aeroPool.poolAddress,
                                 quoteBudgetMs: aeroQuoteBudgetMs
                             });
@@ -1869,7 +2112,7 @@ export async function executeDirectSwap(params: {
 
                 return {
                     success: false,
-                    error: `Turbo rescue exhausted: ${lastRescueError}`,
+                    error: `turbo_rescue_exhausted:${stepOutcome.error || lastRescueError}`,
                     provider: 'failed'
                 };
             };
@@ -1921,10 +2164,12 @@ export async function executeDirectSwap(params: {
                 return finish(await runTurboRescue('no_valid_candidate_hint'));
             }
 
-            const turboAttemptPlan = buildTurboSinglePoolAttemptPlan(turboCandidates);
+            const turboOrder = buildTurboRescueOrder(chainId);
+            const turboAttemptPlan = buildTurboSinglePoolAttemptPlan(turboCandidates, chainId);
             logger.info(LogCode.SYS_INFO, '[DirectSwap] Turbo single-pool attempt plan', {
                 chainId,
                 traceId,
+                turboOrder: turboOrder.join(' -> '),
                 attempts: turboAttemptPlan.map((candidate, idx) => ({
                     idx: idx + 1,
                     kind: candidate.kind,
@@ -1946,6 +2191,9 @@ export async function executeDirectSwap(params: {
                     chainId,
                     traceId,
                     attempt: attempt + 1,
+                    turboOrder: turboOrder.join(' -> '),
+                    resolvedHintKind: candidate.kind,
+                    selectedKind: candidate.kind,
                     kind: candidate.kind,
                     dex: candidate.dex,
                     poolAddress: candidate.poolAddress
@@ -1970,6 +2218,8 @@ export async function executeDirectSwap(params: {
             logger.warn(LogCode.SYS_INFO, '[DirectSwap] Turbo single-pool attempts failed, entering rescue', {
                 traceId,
                 chainId,
+                turboOrder: turboOrder.join(' -> '),
+                failureCode: classifyFailure(lastTurboError),
                 lastTurboError
             });
             return finish(await runTurboRescue(lastTurboError));

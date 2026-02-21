@@ -117,7 +117,7 @@ test('executeV3Swap normal still fails on transient pre-sim RPC error', async ()
 
   assert.equal(result.success, false);
   assert.equal(sent, false);
-  assert.match(result.error || '', /V3 pre-sim reverted/i);
+  assert.match(result.error || '', /v3_pre_sim_revert/i);
 });
 
 test('executeV3Swap turbo still blocks real pre-sim revert', async () => {
@@ -148,5 +148,5 @@ test('executeV3Swap turbo still blocks real pre-sim revert', async () => {
 
   assert.equal(result.success, false);
   assert.equal(sent, false);
-  assert.match(result.error || '', /V3 pre-sim reverted/i);
+  assert.match(result.error || '', /v3_pre_sim_revert/i);
 });

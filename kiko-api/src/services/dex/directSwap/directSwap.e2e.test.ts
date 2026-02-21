@@ -199,7 +199,10 @@ test('[e2e] [base] executeDirectSwap turbo WETH→USDC without hint can execute 
   // The key assertion here is that turbo no longer hard-fails on single-pool miss.
   const errorText = String(result.error || '').toLowerCase();
   assert.equal(result.provider, 'failed');
-  assert.ok(errorText.includes('turbo rescue'), `expected turbo rescue path error, got: ${result.error}`);
+  assert.ok(
+    errorText.includes('turbo_rescue_exhausted') || errorText.includes('turbo_rescue_budget_exhausted'),
+    `expected turbo rescue path error, got: ${result.error}`
+  );
   assert.equal(errorText.includes('single-pool mode'), false, `should not fail with single-pool fast-fail anymore: ${result.error}`);
 });
 

@@ -644,6 +644,13 @@ export class MainSwapService {
       const msg = String((err as any)?.message || '').toLowerCase();
       return msg.includes('timeout_');
     };
+    const extractFailureCode = (message?: string | null): string | null => {
+      const msg = String(message || '').trim();
+      if (!msg) return null;
+      const idx = msg.indexOf(':');
+      if (idx <= 0) return msg;
+      return msg.slice(0, idx);
+    };
     const settleWithin = async <T,>(promise: Promise<T>, ms: number): Promise<T | null> =>
       Promise.race([
         promise,
@@ -982,8 +989,10 @@ export class MainSwapService {
       }
 
       if (lastDirectResult) {
+        const failureCode = extractFailureCode(lastDirectResult.error);
         logger.warn(LogCode.SYS_INFO, trace(`Direct swap failed, falling back to 0x/Kyber: ${lastDirectResult.error || 'unknown'}`), {
           error: lastDirectResult.error,
+          failureCode,
           directProvider: lastDirectResult.provider,
           poolInfo: lastDirectResult.poolInfo,
           chainId: request.chainId,
@@ -1004,13 +1013,15 @@ export class MainSwapService {
       }
 
       if (isTurboCopytrade && TURBO_SKIP_0X_FALLBACK) {
+        const error = lastDirectResult?.error || lastDirectError?.message;
         logger.warn(LogCode.SYS_INFO, trace('Turbo: skipping 0x fallback (0x API too slow for turbo)'), {
-          error: lastDirectResult?.error || lastDirectError?.message,
+          error,
+          failureCode: extractFailureCode(error),
           chainId: request.chainId
         });
         return {
           success: false,
-          error: lastDirectResult?.error || lastDirectError?.message || 'Direct swap failed',
+          error: error || 'Direct swap failed',
           metadata: {
             provider: lastDirectResult?.provider || 'failed',
             mode: request.mode

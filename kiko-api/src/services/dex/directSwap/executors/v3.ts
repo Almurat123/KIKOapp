@@ -224,7 +224,7 @@ export async function executeV3Swap(
         });
         return {
           success: false,
-          error: `V3 pre-sim reverted: ${simErrMsg.slice(0, 100) || 'unknown'}`,
+          error: `v3_pre_sim_revert:${simErrMsg.slice(0, 100) || 'unknown'}`,
           provider: 'failed'
         };
       }
