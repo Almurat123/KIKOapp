@@ -96,6 +96,56 @@ async function verifyTxVisibility(
     };
 }
 
+function scheduleTxVisibilityCheck(params: {
+    path: 'raw_sign_broadcast' | 'privy_sendtx';
+    chainId: number;
+    txHash: string;
+    expectedFrom?: string;
+}): void {
+    if (!PRIVY_TX_VISIBILITY_CHECK_ENABLED) return;
+    void (async () => {
+        try {
+            const visibility = await verifyTxVisibility(params.chainId, params.txHash, params.expectedFrom);
+            logger.info(LogCode.SYS_INFO, 'Privy tx visibility check', {
+                path: params.path,
+                txHash: params.txHash,
+                chainId: params.chainId,
+                visible: visibility.visible,
+                checks: visibility.checks,
+                seenFrom: visibility.from,
+                seenNonce: visibility.nonce,
+                expectedFrom: params.expectedFrom,
+                lastError: visibility.lastError
+            });
+            if (!visibility.visible) {
+                logger.warn(LogCode.SYS_INFO, 'Privy tx visibility miss (non-blocking)', {
+                    path: params.path,
+                    txHash: params.txHash,
+                    chainId: params.chainId,
+                    expectedFrom: params.expectedFrom,
+                    lastError: visibility.lastError
+                });
+                if (PRIVY_TX_REQUIRE_VISIBILITY) {
+                    logger.error(LogCode.EXE_TX_REVERTED, 'Privy tx visibility required but not found', {
+                        path: params.path,
+                        txHash: params.txHash,
+                        chainId: params.chainId,
+                        expectedFrom: params.expectedFrom,
+                        lastError: visibility.lastError
+                    });
+                }
+            }
+        } catch (err: any) {
+            logger.warn(LogCode.SYS_INFO, 'Privy tx visibility probe failed (non-blocking)', {
+                path: params.path,
+                txHash: params.txHash,
+                chainId: params.chainId,
+                error: err?.message || String(err)
+            });
+        }
+    })();
+}
+
 /**
  * Get or initialize Privy client
  */
@@ -410,32 +460,12 @@ async function signAndBroadcastRawTransaction(
         txHash: rawTxHash,
         chainId: tx.chainId
     });
-    if (PRIVY_TX_VISIBILITY_CHECK_ENABLED) {
-        const visibility = await verifyTxVisibility(tx.chainId, rawTxHash, context.expectedFrom);
-        logger.info(LogCode.SYS_INFO, 'Privy tx visibility check', {
-            path: 'raw_sign_broadcast',
-            txHash: rawTxHash,
-            chainId: tx.chainId,
-            visible: visibility.visible,
-            checks: visibility.checks,
-            seenFrom: visibility.from,
-            seenNonce: visibility.nonce,
-            expectedFrom: context.expectedFrom,
-            lastError: visibility.lastError
-        });
-        if (!visibility.visible) {
-            logger.warn(LogCode.SYS_INFO, 'Privy tx visibility miss (non-blocking)', {
-                path: 'raw_sign_broadcast',
-                txHash: rawTxHash,
-                chainId: tx.chainId,
-                expectedFrom: context.expectedFrom,
-                lastError: visibility.lastError
-            });
-            if (PRIVY_TX_REQUIRE_VISIBILITY) {
-                throw new Error(`tx_not_visible_after_broadcast:${rawTxHash}:${visibility.lastError || 'unknown'}`);
-            }
-        }
-    }
+    scheduleTxVisibilityCheck({
+        path: 'raw_sign_broadcast',
+        chainId: tx.chainId,
+        txHash: rawTxHash,
+        expectedFrom: context.expectedFrom
+    });
     return rawTxHash;
 }
 
@@ -552,32 +582,12 @@ export async function sendTransaction(
                         walletId: walletInfo.id?.slice?.(0, 12),
                         expectedFrom: walletInfo.address
                     });
-                    if (PRIVY_TX_VISIBILITY_CHECK_ENABLED) {
-                        const visibility = await verifyTxVisibility(txWithNonce.chainId, response.hash, walletInfo.address);
-                        logger.info(LogCode.SYS_INFO, 'Privy tx visibility check', {
-                            path: 'privy_sendtx',
-                            txHash: response.hash,
-                            chainId: txWithNonce.chainId,
-                            visible: visibility.visible,
-                            checks: visibility.checks,
-                            seenFrom: visibility.from,
-                            seenNonce: visibility.nonce,
-                            expectedFrom: walletInfo.address,
-                            lastError: visibility.lastError
-                        });
-                        if (!visibility.visible) {
-                            logger.warn(LogCode.SYS_INFO, 'Privy tx visibility miss (non-blocking)', {
-                                path: 'privy_sendtx',
-                                txHash: response.hash,
-                                chainId: txWithNonce.chainId,
-                                expectedFrom: walletInfo.address,
-                                lastError: visibility.lastError
-                            });
-                            if (PRIVY_TX_REQUIRE_VISIBILITY) {
-                                throw new Error(`tx_not_visible_after_broadcast:${response.hash}:${visibility.lastError || 'unknown'}`);
-                            }
-                        }
-                    }
+                    scheduleTxVisibilityCheck({
+                        path: 'privy_sendtx',
+                        chainId: txWithNonce.chainId,
+                        txHash: response.hash,
+                        expectedFrom: walletInfo.address
+                    });
 
                     const postSendDelayMs = Math.max(0, Number(process.env.PRIVY_POST_SEND_DELAY_MS || '0'));
                     if (postSendDelayMs > 0) {

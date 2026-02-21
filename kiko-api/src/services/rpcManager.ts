@@ -24,7 +24,7 @@ const RPC_CRITICAL_HEDGE_STAGGER_MS = Number(process.env.RPC_CRITICAL_HEDGE_STAG
 const RPC_CRITICAL_HEDGE_FANOUT = Math.max(2, Math.min(4, Number(process.env.RPC_CRITICAL_HEDGE_FANOUT || '3')));
 const RPC_MAX_ENDPOINT_ATTEMPTS_NORMAL = Math.max(1, Number(process.env.RPC_MAX_ENDPOINT_ATTEMPTS_NORMAL || '3'));
 const RPC_MAX_ENDPOINT_ATTEMPTS_CRITICAL = Math.max(1, Number(process.env.RPC_MAX_ENDPOINT_ATTEMPTS_CRITICAL || '4'));
-const RPC_MAX_ENDPOINT_ATTEMPTS_WRITE = Math.max(1, Number(process.env.RPC_MAX_ENDPOINT_ATTEMPTS_WRITE || '2'));
+const RPC_MAX_ENDPOINT_ATTEMPTS_WRITE = Math.max(1, Number(process.env.RPC_MAX_ENDPOINT_ATTEMPTS_WRITE || '4'));
 const RPC_MAX_ENDPOINT_ATTEMPTS_ETH_CALL_NORMAL = Math.max(1, Number(process.env.RPC_MAX_ENDPOINT_ATTEMPTS_ETH_CALL_NORMAL || '2'));
 const RPC_MAX_ENDPOINT_ATTEMPTS_ETH_CALL_CRITICAL = Math.max(1, Number(process.env.RPC_MAX_ENDPOINT_ATTEMPTS_ETH_CALL_CRITICAL || '3'));
 const RPC_CONCURRENCY_NORMAL = Math.max(1, Number(process.env.RPC_CONCURRENCY_NORMAL || '28'));
@@ -32,6 +32,7 @@ const RPC_CONCURRENCY_CRITICAL = Math.max(1, Number(process.env.RPC_CONCURRENCY_
 const RPC_CONCURRENCY_WRITE = Math.max(1, Number(process.env.RPC_CONCURRENCY_WRITE || '10'));
 const RPC_CONCURRENCY_ETH_CALL_NORMAL = Math.max(1, Number(process.env.RPC_CONCURRENCY_ETH_CALL_NORMAL || '14'));
 const RPC_CONCURRENCY_ETH_CALL_CRITICAL = Math.max(1, Number(process.env.RPC_CONCURRENCY_ETH_CALL_CRITICAL || '20'));
+const RPC_CRITICAL_MAX_INFLIGHT_BURST = Math.max(0, Number(process.env.RPC_CRITICAL_MAX_INFLIGHT_BURST || '2'));
 const RPC_METHOD_COOLDOWN_BASE_MS = Math.max(0, Number(process.env.RPC_METHOD_COOLDOWN_BASE_MS || '250'));
 const RPC_METHOD_COOLDOWN_MAX_MS = Math.max(RPC_METHOD_COOLDOWN_BASE_MS, Number(process.env.RPC_METHOD_COOLDOWN_MAX_MS || '4000'));
 const RPC_METHOD_COOLDOWN_ATTEMPT_CAP = Math.max(1, Number(process.env.RPC_METHOD_COOLDOWN_ATTEMPT_CAP || '1'));
@@ -115,6 +116,7 @@ function checkAndReserveCapacity(endpoint: RpcEndpointConfig, importance: RpcImp
     if (!limits) return { ok: true };
     const usage = getOrCreateUsage(endpoint.url);
     const now = Date.now();
+    const criticalPremiumBypass = importance === 'critical' && endpoint.type === 'premium';
 
     if (now - usage.lastSecondStart >= 1000) {
         usage.lastSecondStart = now;
@@ -126,17 +128,19 @@ function checkAndReserveCapacity(endpoint: RpcEndpointConfig, importance: RpcImp
     }
 
     if (limits.maxInFlight && usage.inFlight >= limits.maxInFlight) {
-        return { ok: false, reason: 'maxInFlight' };
+        if (!criticalPremiumBypass || usage.inFlight >= (limits.maxInFlight + RPC_CRITICAL_MAX_INFLIGHT_BURST)) {
+            return { ok: false, reason: 'maxInFlight' };
+        }
     }
     if (limits.rps && usage.secondCount >= limits.rps) {
-        if (importance === 'critical' && endpoint.type === 'premium') {
+        if (criticalPremiumBypass) {
             // allow but still reserve below
         } else {
             return { ok: false, reason: 'rps' };
         }
     }
     if (limits.rpm && usage.minuteCount >= limits.rpm) {
-        if (importance === 'critical' && endpoint.type === 'premium') {
+        if (criticalPremiumBypass) {
             // allow but still reserve below
         } else {
             return { ok: false, reason: 'rpm' };
@@ -155,6 +159,7 @@ function checkEndpointCapacity(endpoint: RpcEndpointConfig, importance: RpcImpor
     if (!limits) return { ok: true };
     const usage = getOrCreateUsage(endpoint.url);
     const now = Date.now();
+    const criticalPremiumBypass = importance === 'critical' && endpoint.type === 'premium';
 
     if (now - usage.lastSecondStart >= 1000) {
         usage.lastSecondStart = now;
@@ -166,16 +171,18 @@ function checkEndpointCapacity(endpoint: RpcEndpointConfig, importance: RpcImpor
     }
 
     if (limits.maxInFlight && usage.inFlight >= limits.maxInFlight) {
-        return { ok: false, reason: 'maxInFlight' };
+        if (!criticalPremiumBypass || usage.inFlight >= (limits.maxInFlight + RPC_CRITICAL_MAX_INFLIGHT_BURST)) {
+            return { ok: false, reason: 'maxInFlight' };
+        }
     }
     if (limits.rps && usage.secondCount >= limits.rps) {
-        if (importance === 'critical' && endpoint.type === 'premium') {
+        if (criticalPremiumBypass) {
             return { ok: true };
         }
         return { ok: false, reason: 'rps' };
     }
     if (limits.rpm && usage.minuteCount >= limits.rpm) {
-        if (importance === 'critical' && endpoint.type === 'premium') {
+        if (criticalPremiumBypass) {
             return { ok: true };
         }
         return { ok: false, reason: 'rpm' };
@@ -303,6 +310,7 @@ interface RpcLimiterState {
 const methodBackoff = new Map<string, MethodBackoffState>();
 const methodLimiter = new Map<string, RpcLimiterState>();
 const inflightRpcRequests = new Map<string, Promise<any>>();
+const inflightRpcRawRequests = new Map<string, Promise<any>>();
 const rawTxHashCache = new Map<string, { txHash: string; timestamp: number }>();
 const rpcMethodUsage = new Map<string, RpcMethodUsage>();
 
@@ -449,7 +457,9 @@ function getEndpointAttemptBudget(
 
     if (cooldownActive) {
         const cooldownAttemptCap = importance === 'critical'
-            ? Math.max(2, RPC_METHOD_COOLDOWN_ATTEMPT_CAP)
+            ? (isWriteMethod(method)
+                ? Math.max(3, RPC_METHOD_COOLDOWN_ATTEMPT_CAP)
+                : Math.max(2, RPC_METHOD_COOLDOWN_ATTEMPT_CAP))
             : RPC_METHOD_COOLDOWN_ATTEMPT_CAP;
         budget = Math.max(1, Math.min(budget, cooldownAttemptCap));
     }
@@ -762,6 +772,7 @@ export async function callRpc<T = any>(
             } catch (error: any) {
                 const message = String(error?.message || error || '');
                 if (message === 'circuit_open') {
+                    lastError = new Error('all_endpoints_circuit_open');
                     logger.debug(LogCode.API_FETCH_FAILED, `RPC circuit open, skipping endpoint`, {
                         chain: chainName,
                         endpoint: maskEndpoint(endpoint.url),
@@ -770,6 +781,7 @@ export async function callRpc<T = any>(
                     continue;
                 }
                 if (message.startsWith('capacity_limited:')) {
+                    lastError = new Error(message);
                     logger.debug(LogCode.API_FETCH_FAILED, `RPC capacity limited, skipping endpoint`, {
                         chain: chainName,
                         endpoint: maskEndpoint(endpoint.url),
@@ -1040,111 +1052,167 @@ export async function callRpcRaw<T = any>(
     if (!endpoints || endpoints.length === 0) {
         throw new Error(`No RPC endpoints configured for ${chainName}`);
     }
-
-    const request: RpcRequest = {
-        jsonrpc: '2.0',
-        id: Date.now(),
-        method,
-        params,
-    };
-
-    let lastError: Error | null = null;
     const effectiveImportance: RpcImportance =
         options.importance || (options.strategy === 'fast' ? 'critical' : 'normal');
+    const backoffKey = buildMethodBackoffKey(chainId, method, effectiveImportance);
+    const cooldownState = getMethodBackoffState(backoffKey);
+    const cooldownActive = !!cooldownState;
+    const limiterKey = `${chainId}:${method}:${effectiveImportance}:raw`;
+    const concurrencyLimit = getMethodConcurrencyLimit(method, effectiveImportance, cooldownActive);
     const requestTimeoutMs = resolveRpcTimeoutMs(method, options);
-    const sortedEndpoints = sortEndpointsByScore(endpoints, effectiveImportance);
 
-    for (let i = 0; i < sortedEndpoints.length; i++) {
-        const endpoint = sortedEndpoints[i];
-        if (!endpoint?.url) continue;
-
-        if (isCircuitOpen(endpoint.url)) {
-            logger.debug(LogCode.API_FETCH_FAILED, 'RPC circuit open, skipping endpoint', { endpoint: maskEndpoint(endpoint.url) });
-            continue;
-        }
-
-        const capacity = checkAndReserveCapacity(endpoint, effectiveImportance);
-        if (!capacity.ok) {
-            logger.debug(LogCode.API_FETCH_FAILED, 'RPC capacity limited, skipping endpoint', {
-                endpoint: maskEndpoint(endpoint.url),
-                reason: capacity.reason
-            });
-            continue;
-        }
-
-        const startTime = Date.now();
-        try {
-            recordAttempt(endpoint.url);
-
-            const controller = new AbortController();
-            const timeout = setTimeout(() => controller.abort(), requestTimeoutMs);
-            const response = await fetch(endpoint.url, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Accept-Encoding': 'gzip',
-                    'Connection': 'keep-alive',
-                },
-                body: JSON.stringify(request),
-                signal: controller.signal,
-                keepalive: true,
-            }).finally(() => clearTimeout(timeout));
-
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-            }
-
-            const data = await response.json() as RpcResponse<T>;
-            const responseTime = Date.now() - startTime;
-            recordSuccess(endpoint.url, responseTime);
-
-            if (i > 0) {
-                logger.debug(LogCode.API_FETCH_SUCCESS, 'RPC failover success', {
-                    chain: chainName,
-                    endpoint: i + 1,
-                    total: sortedEndpoints.length,
-                    responseTime
-                });
-            }
-
-            return data;
-        } catch (error: any) {
-            lastError = error;
-
-            const isContractError = isNonRetryableRpcErrorMessage(error?.message || '');
-
-            if (isContractError) {
-                throw error;
-            }
-
-            recordFailure(endpoint.url);
-
-            if (i < 2) {
-                logger.throttled(LogCode.API_FETCH_FAILED, 'RPC endpoint failed', {
-                    chain: chainName,
-                    endpoint: i + 1,
-                    total: sortedEndpoints.length,
-                    error: error.message,
-                    duration: Date.now() - startTime
-                });
-            }
-
-            if (i < sortedEndpoints.length - 1) {
-                await new Promise(resolve => setTimeout(resolve, 50));
-                continue;
-            }
-        } finally {
-            recordUsageEnd(endpoint.url);
-        }
+    const inflightKey = `raw:${createStableRequestKey(chainId, method, params)}`;
+    const existing = inflightRpcRawRequests.get(inflightKey);
+    if (existing) {
+        return await existing as RpcResponse<T>;
     }
 
-    logger.error(LogCode.API_FETCH_FAILED, 'All RPC endpoints failed', {
-        chain: chainName,
-        totalEndpoints: sortedEndpoints.length,
-        lastError: lastError?.message
-    });
+    const runCall = async (): Promise<RpcResponse<T>> => {
+        markRpcMethodUsage(chainId, method, 'requests');
+        const request: RpcRequest = {
+            jsonrpc: '2.0',
+            id: Date.now(),
+            method,
+            params,
+        };
 
-    throw new Error(`All RPC endpoints failed for ${chainName}. Last error: ${lastError?.message || 'Unknown'}`);
+        const sortedEndpoints = sortEndpointsByScore(endpoints, effectiveImportance);
+        const endpointBudget = getEndpointAttemptBudget(method, effectiveImportance, sortedEndpoints.length, cooldownActive);
+        const selectedEndpoints = sortedEndpoints.slice(0, endpointBudget);
+        let lastError: Error | null = null;
+
+        for (let i = 0; i < selectedEndpoints.length; i++) {
+            const endpoint = selectedEndpoints[i];
+            if (!endpoint?.url) continue;
+
+            markRpcMethodUsage(chainId, method, 'endpointAttempts');
+            if (isCircuitOpen(endpoint.url)) {
+                lastError = new Error('all_endpoints_circuit_open');
+                logger.debug(LogCode.API_FETCH_FAILED, 'RPC circuit open, skipping endpoint', {
+                    chain: chainName,
+                    endpoint: maskEndpoint(endpoint.url)
+                });
+                continue;
+            }
+
+            const capacity = checkAndReserveCapacity(endpoint, effectiveImportance);
+            if (!capacity.ok) {
+                lastError = new Error(`capacity_limited:${capacity.reason || 'unknown'}`);
+                logger.debug(LogCode.API_FETCH_FAILED, 'RPC capacity limited, skipping endpoint', {
+                    chain: chainName,
+                    endpoint: maskEndpoint(endpoint.url),
+                    reason: capacity.reason
+                });
+                continue;
+            }
+
+            const isLast = i >= selectedEndpoints.length - 1;
+            const startTime = Date.now();
+            try {
+                recordAttempt(endpoint.url);
+
+                const controller = new AbortController();
+                const timeout = setTimeout(() => controller.abort(), requestTimeoutMs);
+                const response = await fetch(endpoint.url, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept-Encoding': 'gzip',
+                        'Connection': 'keep-alive',
+                    },
+                    body: JSON.stringify(request),
+                    signal: controller.signal,
+                    keepalive: true,
+                }).finally(() => clearTimeout(timeout));
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+
+                const data = await response.json() as RpcResponse<T>;
+                const responseTime = Date.now() - startTime;
+                recordSuccess(endpoint.url, responseTime);
+                markRpcMethodUsage(chainId, method, 'successes');
+
+                if (i > 0) {
+                    logger.debug(LogCode.API_FETCH_SUCCESS, 'RPC failover success', {
+                        chain: chainName,
+                        endpoint: i + 1,
+                        total: selectedEndpoints.length,
+                        endpointBudget,
+                        responseTime
+                    });
+                }
+
+                markMethodSuccess(backoffKey);
+                return data;
+            } catch (error: any) {
+                recordFailure(endpoint.url);
+                markRpcMethodUsage(chainId, method, 'endpointFailures');
+                const msg = String(error?.message || '');
+                if (msg.includes('timeout_') || msg.toLowerCase().includes('aborterror')) {
+                    markRpcMethodUsage(chainId, method, 'timeoutErrors');
+                }
+                lastError = error instanceof Error ? error : new Error(msg);
+
+                const isContractError = isNonRetryableRpcErrorMessage(msg);
+                if (isContractError) {
+                    throw lastError;
+                }
+
+                if (i < 2) {
+                    logger.aggregate(LogCode.API_FETCH_FAILED, 'RPC endpoint failed', {
+                        chain: chainName,
+                        endpoint: i + 1,
+                        total: selectedEndpoints.length,
+                        endpointBudget,
+                        error: msg,
+                        duration: Date.now() - startTime
+                    });
+                }
+
+                if (!isLast) {
+                    await new Promise(resolve => setTimeout(resolve, 50));
+                    continue;
+                }
+            } finally {
+                recordUsageEnd(endpoint.url);
+            }
+        }
+
+        const newBackoff = markMethodFailure(backoffKey);
+        const failedLogKey = `${chainName}:${method}:raw`;
+        if (shouldLogAllRpcFailed(failedLogKey)) {
+            logger.error(LogCode.API_FETCH_FAILED, 'All RPC endpoints failed', {
+                chain: chainName,
+                method,
+                totalEndpoints: sortedEndpoints.length,
+                attemptedEndpoints: selectedEndpoints.length,
+                endpointBudget,
+                cooldownMs: Math.max(0, newBackoff.cooldownUntil - Date.now()),
+                lastError: lastError?.message
+            });
+        } else {
+            logger.debug(LogCode.API_FETCH_FAILED, 'All RPC endpoints failed (suppressed)', {
+                chain: chainName,
+                method
+            });
+        }
+        markRpcMethodUsage(chainId, method, 'allFailed');
+
+        throw new Error(`All RPC endpoints failed for ${chainName}. Last error: ${lastError?.message || 'Unknown'}`);
+    };
+
+    const executePromise = withMethodLimiter(limiterKey, concurrencyLimit, runCall);
+    if (inflightRpcRawRequests.size < RPC_INFLIGHT_MAP_MAX) {
+        inflightRpcRawRequests.set(inflightKey, executePromise);
+        try {
+            return await executePromise;
+        } finally {
+            inflightRpcRawRequests.delete(inflightKey);
+        }
+    }
+    return await executePromise;
 }
 
 function filterEndpointsByMethod(endpoints: RpcEndpointConfig[], method: string): RpcEndpointConfig[] {
@@ -1808,6 +1876,7 @@ export const __rpcManagerTest = {
         methodBackoff.clear();
         methodLimiter.clear();
         inflightRpcRequests.clear();
+        inflightRpcRawRequests.clear();
         rawTxHashCache.clear();
         rpcMethodUsage.clear();
     }

@@ -1,10 +1,21 @@
 /**
  * RPC Proxy Routes
- * Proxies RPC calls using unified API service with automatic failover
+ * Proxies RPC calls through rpcManager so all traffic shares
+ * the same failover, limiter, and health model.
  */
 
 import { FastifyInstance } from 'fastify';
-import { callRpc } from '../config/unifiedApiService.js';
+import { callRpc } from '../services/rpcManager.js';
+
+function normalizeChainInput(value: unknown): number | string {
+    if (typeof value === 'number' && Number.isFinite(value)) return value;
+    if (typeof value === 'string') {
+        const trimmed = value.trim();
+        if (/^\d+$/.test(trimmed)) return Number(trimmed);
+        return trimmed;
+    }
+    return value as any;
+}
 
 export async function rpcRoutes(fastify: FastifyInstance) {
 
@@ -26,7 +37,7 @@ export async function rpcRoutes(fastify: FastifyInstance) {
             }
 
             // Use unified RPC service with automatic failover
-            const result = await callRpc(chainId, method, params);
+            const result = await callRpc(normalizeChainInput(chainId), method, params);
             return reply.send({ result, id: payload.id || 1, jsonrpc: '2.0' });
         } catch (error: any) {
             console.error('[RPC Proxy] EVM error:', error);
@@ -66,9 +77,10 @@ export async function rpcRoutes(fastify: FastifyInstance) {
             }
 
             // Process each call in parallel
+            const normalizedChain = normalizeChainInput(chainId);
             const results = await Promise.all(
                 calls.map((call: any) => 
-                    callRpc(chainId, call.method, call.params || [])
+                    callRpc(normalizedChain, call.method, call.params || [])
                         .catch((err: any) => ({ error: err.message }))
                 )
             );

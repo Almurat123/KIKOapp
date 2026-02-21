@@ -10,13 +10,13 @@ import { getVerifiedFreeEndpoints, RpcEndpointConfig } from '../config/apiEndpoi
 
 const ENABLED = (process.env.COPYTRADE_PENDING_WATCH_ENABLED || 'true') === 'true';
 const REFRESH_WALLETS_MS = Number(process.env.COPYTRADE_PENDING_WALLET_REFRESH_MS || 10000);
-const POLL_INTERVAL_MS = Number(process.env.COPYTRADE_PENDING_POLL_MS || 800);
+const POLL_INTERVAL_MS = Number(process.env.COPYTRADE_PENDING_POLL_MS || 1500);
 const EVM_CHAIN_IDS = [1, 8453, 56, 137, 42161, 10];
 const LOCAL_DEDUP_TTL_MS = Number(process.env.COPYTRADE_PENDING_DEDUP_TTL_MS || 60_000);
 const PREFETCH_ENABLED = (process.env.COPYTRADE_PENDING_PREFETCH_ENABLED || 'true') === 'true';
 const PREFETCH_MAX_WAIT_MS = Number(process.env.COPYTRADE_PENDING_PREFETCH_MAX_WAIT_MS || 500);
-const PREFETCH_POLL_MS = Number(process.env.COPYTRADE_PENDING_PREFETCH_POLL_MS || 120);
-const PREFETCH_MAX_INFLIGHT = Number(process.env.COPYTRADE_PENDING_PREFETCH_MAX_INFLIGHT || 4);
+const PREFETCH_POLL_MS = Number(process.env.COPYTRADE_PENDING_PREFETCH_POLL_MS || 250);
+const PREFETCH_MAX_INFLIGHT = Number(process.env.COPYTRADE_PENDING_PREFETCH_MAX_INFLIGHT || 2);
 const PENDING_RPC_MODE = String(process.env.COPYTRADE_PENDING_RPC_MODE || 'free').trim().toLowerCase(); // free | auto
 const COPYTRADE_PENDING_REFRESH_LOG_WINDOW_MS = Number(process.env.COPYTRADE_PENDING_REFRESH_LOG_WINDOW_MS || 180_000);
 

@@ -42,6 +42,21 @@ const SWAP_ROUTER_02: Record<number, string> = {
   56: '0xB971eF87ede563556b2ED4b1C0b0019111Dd85d2'
 };
 
+function isTransientRpcFailure(message: string): boolean {
+  const msg = String(message || '').toLowerCase();
+  if (!msg) return false;
+  return (
+    msg.includes('all rpc endpoints failed')
+    || msg.includes('capacity_limited')
+    || msg.includes('circuit_open')
+    || msg.includes('aborterror')
+    || msg.includes('timeout')
+    || msg.includes('fetch failed')
+    || msg.includes('http 429')
+    || msg.includes('rate limit')
+  );
+}
+
 export async function executeV3Swap(
   params: ExecuteSwapParams,
   pool: PoolInfo,
@@ -186,17 +201,31 @@ export async function executeV3Swap(
       });
       gasLimit = (BigInt(estimate) * 2n).toString();
     } catch (simErr: any) {
-      logger.warn(LogCode.EXE_TX_REVERTED, '[DirectSwap] V3 fastMode pre-sim REVERTED — aborting send', {
-        pool: pool.poolAddress?.slice(0, 20),
-        fee: bestFee,
-        router: routerAddress?.slice(0, 12),
-        error: simErr?.message?.slice(0, 150)
-      });
-      return {
-        success: false,
-        error: `V3 pre-sim reverted: ${simErr?.message?.slice(0, 100) || 'unknown'}`,
-        provider: 'failed'
-      };
+      const simErrMsg = simErr?.message || String(simErr);
+      const transientRpcFailure = isTransientRpcFailure(simErrMsg);
+      if (executionMode === 'turbo' && transientRpcFailure) {
+        gasLimit = deps.turboV3GasLimit || '450000';
+        logger.warn(LogCode.EXE_TX_REVERTED, '[DirectSwap] V3 turbo pre-sim unavailable (RPC), continue with fallback gas', {
+          pool: pool.poolAddress?.slice(0, 20),
+          fee: bestFee,
+          router: routerAddress?.slice(0, 12),
+          gasLimit,
+          error: simErrMsg.slice(0, 150)
+        });
+      } else {
+        logger.warn(LogCode.EXE_TX_REVERTED, '[DirectSwap] V3 fastMode pre-sim REVERTED - aborting send', {
+          pool: pool.poolAddress?.slice(0, 20),
+          fee: bestFee,
+          router: routerAddress?.slice(0, 12),
+          transientRpcFailure,
+          error: simErrMsg.slice(0, 150)
+        });
+        return {
+          success: false,
+          error: `V3 pre-sim reverted: ${simErrMsg.slice(0, 100) || 'unknown'}`,
+          provider: 'failed'
+        };
+      }
     }
   } else {
     try {

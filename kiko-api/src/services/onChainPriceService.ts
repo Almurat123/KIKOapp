@@ -195,7 +195,7 @@ function onChainPriceRedisKey(cacheKey: string): string {
 }
 
 type RpcStrategy = 'fast' | 'cheap';
-const FAST_RPC_RACE = Number(process.env.FAST_RPC_RACE || 2);
+const FAST_RPC_RACE = Number(process.env.FAST_RPC_RACE || 1);
 
 async function callRpcWithStrategy<T = any>(
     chainId: number,
