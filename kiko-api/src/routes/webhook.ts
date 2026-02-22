@@ -14,7 +14,7 @@ import {
     releaseTxProcessingLockDistributed
 } from '../services/watcherService.js';
 import { normalizeAddress } from '../utils/address.js';
-import { parseSwapTransaction } from '../services/txDecoder.js';
+import { parseSwapTransaction, decodeSwapFromLogs } from '../services/txDecoder.js';
 import { env } from '../config/env.js';
 import crypto from 'node:crypto';
 import { getPendingPredecodedSwap, getPendingTxHint, markCopyTradeTxState } from '../services/copyTradeTxStateService.js';
@@ -725,6 +725,32 @@ async function processAlchemyWebhookPayload(payload: any): Promise<void> {
                     }
                 }
 
+                // Cash-leg fallback: when parseSwapTransaction fails (no V2/V3/V4 Swap events),
+                // use ERC20 Transfer events + cash flow from Alchemy activities to detect swaps.
+                // This is more universal than requiring DEX-specific pool events.
+                if (!swap && receipt) {
+                    const cashHint = await buildActivityCashHint(evmActivities, trackedTarget, chainId).catch(() => null);
+                    if (cashHint && ((cashHint.cashSpentUsd || 0) > 0 || (cashHint.cashReceivedUsd || 0) > 0)) {
+                        const transferSwap = decodeSwapFromLogs(
+                            receipt.logs,
+                            trackedTarget.toLowerCase(),
+                            txSkeleton.value
+                        );
+                        if (transferSwap && transferSwap.tokenIn !== transferSwap.tokenOut) {
+                            transferSwap.txHash = txHash;
+                            transferSwap.router = txSkeleton.to || '';
+                            transferSwap.dexName = 'Cash-Leg Fallback';
+                            transferSwap.cashLegHint = cashHint;
+                            swap = transferSwap;
+                            console.log(`[Webhook] Cash-leg fallback decoded swap for ${trackedTarget}: ${txHash.slice(0, 16)}`, {
+                                tokenIn: transferSwap.tokenIn?.slice(0, 10),
+                                tokenOut: transferSwap.tokenOut?.slice(0, 10),
+                                cashSpentUsd: cashHint.cashSpentUsd,
+                                cashReceivedUsd: cashHint.cashReceivedUsd
+                            });
+                        }
+                    }
+                }
                 if (!swap) return;
                 swapsDetected += 1;
                 const activityCashHint = await buildActivityCashHint(evmActivities, trackedTarget, chainId).catch(() => null);
