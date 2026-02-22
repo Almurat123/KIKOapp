@@ -11,6 +11,7 @@ import { getSolanaSwapQuote, executeSolanaSwap, type SolanaSwapQuote } from '@/s
 import { getCommonTokens } from '@/services/tokenDataService';
 import type { Token } from '@/types/swap';
 import { getStoredSlippageBps } from '@/config/slippageConfig';
+import { getSolanaRpcConnection } from '@/utils/solanaRpcConnection';
 
 
 const SOLANA_CHAIN_ID = 900;
@@ -230,11 +231,8 @@ export function useSolanaSwap({
       }
 
       try {
-        const { Connection, PublicKey } = await import('@solana/web3.js');
-        const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
-        const rpcUrl = `${API_BASE_URL}/api/rpc/solana`;
-
-        const connection = new Connection(rpcUrl, 'confirmed');
+        const { PublicKey } = await import('@solana/web3.js');
+        const connection = getSolanaRpcConnection({ commitment: 'confirmed' });
 
         // Use wallet address directly (embedded only)
         const publicKey = new PublicKey(walletAddress);

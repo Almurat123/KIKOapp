@@ -5,7 +5,6 @@ import { isAddress, parseUnits, encodeFunctionData } from 'viem';
 import { useWallets } from '@privy-io/react-auth';
 import { useWallets as useSolanaWallets } from '@privy-io/react-auth/solana';
 import {
-    Connection,
     PublicKey,
     Transaction,
     SystemProgram
@@ -16,6 +15,7 @@ import {
     createTransferInstruction,
     getAssociatedTokenAddress
 } from '@solana/spl-token';
+import { getSolanaRpcConnection } from '../../utils/solanaRpcConnection';
 import styles from './SendModal.module.css';
 
 const LOGO_MAP: Record<string, string> = {
@@ -218,8 +218,7 @@ export const SendModal: React.FC<SendModalProps> = ({
     };
 
     const handleSolanaSend = async (wallet: any) => {
-        const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
-        const connection = new Connection(`${API_BASE_URL}/api/rpc/solana`, 'confirmed');
+        const connection = getSolanaRpcConnection({ commitment: 'confirmed' });
         const fromPubkey = new PublicKey(wallet.address);
         const toPubkey = new PublicKey(recipient.trim());
         const transaction = new Transaction();

@@ -13,7 +13,7 @@ import { getTrendingTokens, getLastUpdateTime as getTrendingUpdateTime, saveTren
 import { getSupportedChains, refreshSingleChain } from '../jobs/tokenDataJob.js';
 import { env } from '../config/env.js';
 import { fetchJson } from '../config/unifiedApiService.js';
-import { callRpc } from '../services/rpcManager.js';
+import { batchRpcCall } from '../utils/batchRpcUtils.js';
 import { AppError, handleExternalApiError } from '../middleware/errorHandler.js';
 import { sanitizeString, validateNetwork, validateAddress, validateLimit, validateTimeframe } from '../utils/validation.js';
 import { detectLaunchpadToken } from '../services/ai/launchpadDetector.js';
@@ -843,10 +843,23 @@ export async function tokenRoutes(fastify: FastifyInstance) {
         },
       ];
 
-      const results = await Promise.all(calls.map(async call => {
-        const result = await callRpc<string>(chainIdNum, call.method, call.params, { strategy: 'cheap' });
-        return { id: call.id, result };
-      }));
+      const chainSlugMap: Record<number, string> = {
+        1: 'eth',
+        8453: 'base',
+        42161: 'arbitrum',
+        56: 'bsc',
+        137: 'polygon',
+        10: 'optimism',
+      };
+      const chainSlug = chainSlugMap[chainIdNum];
+      if (!chainSlug) {
+        return reply.status(400).send({
+          success: false,
+          error: 'Unsupported chain',
+        });
+      }
+
+      const results = await batchRpcCall<string>(chainSlug, calls);
 
       // Helper to decode RPC string result
       const decodeString = (hex: string) => {

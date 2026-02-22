@@ -5,9 +5,9 @@
 
 import { VersionedTransaction } from '@solana/web3.js';
 import { getStoredSlippageBps } from '@/config/slippageConfig';
+import { getSolanaRpcConnection } from '@/utils/solanaRpcConnection';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
-const SOLANA_RPC_URL = `${API_BASE_URL}/api/rpc/solana`;
 
 export interface SolanaSwapParams {
   tokenIn: string;
@@ -107,8 +107,7 @@ export async function executeSolanaSwap(
     // CRITICAL: Refresh blockhash before sending to prevent "Blockhash not found" errors
     // Solana blockhashes expire after ~60-90 seconds
     try {
-      const { Connection } = await import('@solana/web3.js');
-      const connection = new Connection(SOLANA_RPC_URL, 'confirmed');
+      const connection = getSolanaRpcConnection({ commitment: 'confirmed' });
 
       const { blockhash } = await connection.getLatestBlockhash('finalized');
       transaction.message.recentBlockhash = blockhash;
@@ -250,4 +249,3 @@ export async function getSolanaTokenUsdPrices(
     return {};
   }
 }
-

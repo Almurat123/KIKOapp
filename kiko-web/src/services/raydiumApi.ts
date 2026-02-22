@@ -1,10 +1,11 @@
 // Raydium API Service (Enhanced with Centralized Token Data & On-Chain Data)
 // Using @raydium-io/raydium-sdk-v2 and Centralized API
-import { Connection, PublicKey } from '@solana/web3.js';
+import { PublicKey } from '@solana/web3.js';
 import {
     // Raydium - removed unused import
 } from '@raydium-io/raydium-sdk-v2';
 import { tokenApi } from './api';
+import { getSolanaRpcConnection, getSolanaRpcUrl } from '../utils/solanaRpcConnection';
 
 export interface RaydiumToken {
     mint: string;
@@ -16,9 +17,8 @@ export interface RaydiumToken {
     creator?: string;    // Mint Authority or Creator
 }
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 const FALLBACK_RPCS = [
-    `${API_BASE_URL}/api/rpc/solana`,                 // Backend Solana Proxy (private)
+    getSolanaRpcUrl(), // Backend Solana Proxy (private)
 ].filter(Boolean) as string[];
 
 /**
@@ -52,11 +52,11 @@ export const getRaydiumToken = async (mintAddress: string): Promise<RaydiumToken
         // Parallel fetch: Metadata via API + On-Chain for Mint Authority
         // We still need on-chain data for Mint Authority (Creator) checking since it's specific to Raydium/Solana checks
 
-        let connection: Connection | null = null;
+        let connection: ReturnType<typeof getSolanaRpcConnection> | null = null;
         // Try to get connection for creator check
         for (const rpc of FALLBACK_RPCS) {
             try {
-                connection = new Connection(rpc);
+                connection = getSolanaRpcConnection({ url: rpc, commitment: 'confirmed' });
                 // Lightweight check
                 // await connection.getEpochInfo(); // Skip verify to save time, assume first works or fail later
                 break;

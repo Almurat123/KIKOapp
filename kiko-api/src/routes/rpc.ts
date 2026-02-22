@@ -5,7 +5,7 @@
  */
 
 import { FastifyInstance } from 'fastify';
-import { callRpc } from '../services/rpcManager.js';
+import { callRpc, rpcManager } from '../services/rpcManager.js';
 
 function normalizeChainInput(value: unknown): number | string {
     if (typeof value === 'number' && Number.isFinite(value)) return value;
@@ -76,14 +76,13 @@ export async function rpcRoutes(fastify: FastifyInstance) {
                 return reply.status(400).send({ error: 'chainId and calls array are required' });
             }
 
-            // Process each call in parallel
             const normalizedChain = normalizeChainInput(chainId);
-            const results = await Promise.all(
-                calls.map((call: any) => 
-                    callRpc(normalizedChain, call.method, call.params || [])
-                        .catch((err: any) => ({ error: err.message }))
-                )
-            );
+            const batchRequests = calls.map((call: any, index: number) => ({
+                id: call?.id ?? index + 1,
+                method: call?.method,
+                params: Array.isArray(call?.params) ? call.params : []
+            }));
+            const results = await rpcManager.callRpcBatch(normalizedChain, batchRequests);
 
             return reply.send(results);
         } catch (error: any) {

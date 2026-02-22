@@ -588,7 +588,11 @@ export async function callRpc<T = any>(
     let primaryUrl: string | undefined;
     let chainId: number;
 
-    const cacheableMethod = isCacheable(method);
+    const isLatestBlockRead =
+        method === 'eth_getBlockByNumber'
+        && Array.isArray(params)
+        && String(params[0] || '').toLowerCase() === 'latest';
+    const cacheableMethod = isCacheable(method) && !isLatestBlockRead;
     if (cacheableMethod) {
         const cacheKey = buildCacheKey(chainIdOrName, method, params);
         const cached = getCachedRpc(cacheKey);
@@ -1754,27 +1758,30 @@ class RpcManager {
      * Call multiple RPC methods in a single batch request
      */
     async callRpcBatch<T = any>(chain: string | number, requests: BatchRequest[]): Promise<BatchResponse[]> {
+        if (!Array.isArray(requests) || requests.length === 0) {
+            return [];
+        }
+
         const chainId = typeof chain === 'string' ? (CHAIN_NAME_TO_ID[chain] || 1) : chain;
-        const endpoints = getRpcEndpoints(chainId);
+        const endpoints = getRpcEndpoints(chainId, 'cheap');
 
         if (endpoints.length === 0) {
             throw new Error(`No RPC endpoints configured for chain ${chainId}`);
         }
 
-        // Use the first (best) endpoint
-        const url = endpoints[0];
+        const payload = requests.map(req => ({
+            jsonrpc: '2.0',
+            id: req.id,
+            method: req.method,
+            params: req.params
+        }));
 
-        try {
-            // Construct batch payload
-            const payload = requests.map(req => ({
-                jsonrpc: '2.0',
-                id: req.id,
-                method: req.method,
-                params: req.params
-            }));
+        let lastError: Error | null = null;
 
-            // Make the batch call
-            const results = await fetchJson<BatchResponse[]>({
+        for (let i = 0; i < endpoints.length; i++) {
+            const url = endpoints[i];
+            try {
+                const results = await fetchJson<BatchResponse[]>({
                 url,
                 method: 'POST',
                 headers: {
@@ -1784,21 +1791,40 @@ class RpcManager {
                 requestTimeout: RPC_TIMEOUT_MS,
                 endpointName: `rpc-batch-${chainId}`
             });
-
-            return results;
-        } catch (error: any) {
-            logger.error(LogCode.API_FETCH_FAILED, 'Batch RPC call failed', {
-                chain: chainId,
-                error: error.message,
-                batchSize: requests.length
-            });
-
-            // Return error for all requests in batch
-            return requests.map(req => ({
-                id: req.id,
-                error: { code: -32603, message: `Batch failed: ${error.message}` }
-            }));
+                if (i > 0) {
+                    logger.info(LogCode.API_FETCH_SUCCESS, 'Batch RPC failover success', {
+                        chain: chainId,
+                        endpointAttempt: i + 1,
+                        totalEndpoints: endpoints.length,
+                        batchSize: requests.length
+                    });
+                }
+                return results;
+            } catch (error: any) {
+                lastError = error instanceof Error ? error : new Error(String(error));
+                logger.warn(LogCode.API_FETCH_FAILED, 'Batch RPC endpoint failed', {
+                    chain: chainId,
+                    endpointAttempt: i + 1,
+                    totalEndpoints: endpoints.length,
+                    batchSize: requests.length,
+                    error: lastError.message
+                });
+                if (i < endpoints.length - 1) {
+                    await new Promise(resolve => setTimeout(resolve, 50));
+                }
+            }
         }
+
+        logger.error(LogCode.API_FETCH_FAILED, 'Batch RPC call failed on all endpoints', {
+            chain: chainId,
+            error: lastError?.message || 'Unknown error',
+            batchSize: requests.length
+        });
+
+        return requests.map(req => ({
+            id: req.id,
+            error: { code: -32603, message: `Batch failed: ${lastError?.message || 'unknown error'}` }
+        }));
     }
 }
 
