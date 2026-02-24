@@ -703,6 +703,26 @@ export async function sendTransactionLifecycle(
             if (!txWithNonce.nonce) {
                 txWithNonce.nonce = await getPendingNonce(txWithNonce.chainId, walletInfo.address);
             }
+            const needsDeterministicNonce =
+                txWithNonce.txPurpose === 'trade' || txWithNonce.txPurpose === 'speedup';
+            if (needsDeterministicNonce && !txWithNonce.nonce) {
+                try {
+                    const provider = getEthersProvider(txWithNonce.chainId);
+                    const fallbackNonce = await provider.getTransactionCount(walletInfo.address, 'pending');
+                    txWithNonce.nonce = BigInt(fallbackNonce).toString();
+                    logger.warn(LogCode.SYS_INFO, 'Trade nonce fallback applied from ethers provider', {
+                        chainId: txWithNonce.chainId,
+                        txPurpose: txWithNonce.txPurpose,
+                        nonce: txWithNonce.nonce
+                    });
+                } catch (fallbackErr: any) {
+                    logger.error(LogCode.SYS_ERROR, 'Failed to resolve deterministic nonce for trade tx', {
+                        chainId: txWithNonce.chainId,
+                        txPurpose: txWithNonce.txPurpose,
+                        error: fallbackErr?.message || String(fallbackErr)
+                    });
+                }
+            }
 
             const hasExplicitFee =
                 !!txWithNonce.gasPrice
@@ -830,6 +850,7 @@ export async function sendTransactionLifecycle(
                         if (
                             rawLifecycle.status === 'broadcasted_unseen'
                             && attempt < MAX_RETRIES
+                            && !!txWithNonce.nonce
                             && (fastTradePath || txWithNonce.txPurpose === 'trade' || txWithNonce.txPurpose === 'speedup')
                         ) {
                             bumpGasForVisibilityRetry('raw_path_broadcasted_unseen');
@@ -909,6 +930,7 @@ export async function sendTransactionLifecycle(
                     if (
                         lifecycleBase.status === 'broadcasted_unseen'
                         && attempt < MAX_RETRIES
+                        && !!txWithNonce.nonce
                         && (fastTradePath || txWithNonce.txPurpose === 'trade' || txWithNonce.txPurpose === 'speedup')
                     ) {
                         bumpGasForVisibilityRetry('privy_sendtx_broadcasted_unseen');
@@ -959,6 +981,7 @@ export async function sendTransactionLifecycle(
                             if (
                                 fallbackLifecycle.status === 'broadcasted_unseen'
                                 && attempt < MAX_RETRIES
+                                && !!txWithNonce.nonce
                                 && (isFastTradeExecutionProfile(txWithNonce) || txWithNonce.txPurpose === 'trade' || txWithNonce.txPurpose === 'speedup')
                             ) {
                                 const bumpBps = 12500n;
@@ -1013,6 +1036,7 @@ export async function sendTransactionLifecycle(
                             if (
                                 transientFallback.status === 'broadcasted_unseen'
                                 && attempt < MAX_RETRIES
+                                && !!txWithNonce.nonce
                                 && (isFastTradeExecutionProfile(txWithNonce) || txWithNonce.txPurpose === 'trade' || txWithNonce.txPurpose === 'speedup')
                             ) {
                                 const bumpBps = 12500n;
@@ -1054,17 +1078,52 @@ export async function sendTransactionLifecycle(
                     if ((isNonceError || isNetworkError) && attempt < MAX_RETRIES) {
                         const reason = isNonceError ? 'Nonce error' : 'Network failure';
                         if (isNonceError) {
-                            invalidatePendingNonce(txWithNonce.chainId, walletInfo.address);
-                            const currentNonce = txWithNonce.nonce ? BigInt(txWithNonce.nonce) : null;
-                            const refreshedNonceHex = await getPendingNonce(txWithNonce.chainId, walletInfo.address);
-                            const refreshedNonce = refreshedNonceHex ? BigInt(refreshedNonceHex) : null;
-                            const nextNonce = refreshedNonce !== null
-                                ? (currentNonce !== null && refreshedNonce <= currentNonce ? currentNonce + 1n : refreshedNonce)
-                                : (currentNonce !== null ? currentNonce + 1n : null);
-                            txWithNonce = {
-                                ...txWithNonce,
-                                nonce: nextNonce !== null ? nextNonce.toString() : txWithNonce.nonce
-                            };
+                            const keepSameNonceForSafety =
+                                txWithNonce.txPurpose === 'trade' || txWithNonce.txPurpose === 'speedup';
+                            if (keepSameNonceForSafety) {
+                                if (!txWithNonce.nonce) {
+                                    logger.error(LogCode.EXE_TX_REVERTED, 'Nonce retry aborted for trade tx: nonce missing', {
+                                        chainId: txWithNonce.chainId,
+                                        txPurpose: txWithNonce.txPurpose,
+                                        attempt
+                                    });
+                                    throw new AppError(500, 'Trade nonce missing; aborting retry for safety', 'TRADE_NONCE_MISSING');
+                                }
+                                const bumpBps = 12500n;
+                                if (txWithNonce.gasPrice) {
+                                    const current = BigInt(txWithNonce.gasPrice);
+                                    const bumped = (current * bumpBps + 9999n) / 10000n;
+                                    txWithNonce = {
+                                        ...txWithNonce,
+                                        gasPrice: (bumped > current ? bumped : (current + 1n)).toString()
+                                    };
+                                } else {
+                                    const nextTx = { ...txWithNonce };
+                                    if (nextTx.maxFeePerGas) {
+                                        const current = BigInt(nextTx.maxFeePerGas);
+                                        const bumped = (current * bumpBps + 9999n) / 10000n;
+                                        nextTx.maxFeePerGas = (bumped > current ? bumped : (current + 1n)).toString();
+                                    }
+                                    if (nextTx.maxPriorityFeePerGas) {
+                                        const current = BigInt(nextTx.maxPriorityFeePerGas);
+                                        const bumped = (current * bumpBps + 9999n) / 10000n;
+                                        nextTx.maxPriorityFeePerGas = (bumped > current ? bumped : (current + 1n)).toString();
+                                    }
+                                    txWithNonce = nextTx;
+                                }
+                            } else {
+                                invalidatePendingNonce(txWithNonce.chainId, walletInfo.address);
+                                const currentNonce = txWithNonce.nonce ? BigInt(txWithNonce.nonce) : null;
+                                const refreshedNonceHex = await getPendingNonce(txWithNonce.chainId, walletInfo.address);
+                                const refreshedNonce = refreshedNonceHex ? BigInt(refreshedNonceHex) : null;
+                                const nextNonce = refreshedNonce !== null
+                                    ? (currentNonce !== null && refreshedNonce <= currentNonce ? currentNonce + 1n : refreshedNonce)
+                                    : (currentNonce !== null ? currentNonce + 1n : null);
+                                txWithNonce = {
+                                    ...txWithNonce,
+                                    nonce: nextNonce !== null ? nextNonce.toString() : txWithNonce.nonce
+                                };
+                            }
                         }
                         const retryDelayMs = isNonceError ? NONCE_RETRY_DELAY_MS : NETWORK_RETRY_DELAY_MS;
                         logger.warn(LogCode.EXE_TX_BROADCAST, `${reason} on attempt ${attempt}, retrying in ${retryDelayMs}ms...`, {

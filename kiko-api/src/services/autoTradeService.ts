@@ -477,6 +477,33 @@ function isBelowMinTargetValue(targetSwapValueUsd: number, minTargetValueUsd: nu
     return target < effectiveFloor;
 }
 
+function normalizeFiniteNumber(value: unknown): number | null {
+    const n = Number(value);
+    if (!Number.isFinite(n)) return null;
+    return n;
+}
+
+function resolveEffectivePositiveThreshold(configValue: unknown, userSettingValue: unknown): number | null {
+    const c = normalizeFiniteNumber(configValue);
+    const u = normalizeFiniteNumber(userSettingValue);
+    const candidates: number[] = [];
+    if (c !== null && c > 0) candidates.push(c);
+    if (u !== null && u > 0) candidates.push(u);
+    if (candidates.length === 0) return null;
+    return Math.max(...candidates);
+}
+
+function toFinitePositiveNumber(value: unknown): number {
+    const n = Number(value);
+    return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+function resolveEffectiveMinTargetValueUsd(config: any, userSettings: any): number {
+    return toFinitePositiveNumber(
+        resolveEffectivePositiveThreshold(config?.minTargetValueUsd, userSettings?.minTargetValueUsd)
+    );
+}
+
 function parsePositiveBigInt(value: unknown): bigint {
     try {
         const parsed = BigInt(String(value ?? '0'));
@@ -940,12 +967,23 @@ async function handleTargetBuy(
         return;
     }
 
+    const uniqueExecutableConfigs = dedupeConfigsByUser(executableConfigs);
+    if (uniqueExecutableConfigs.length !== executableConfigs.length) {
+        logger.warn(LogCode.WTC_TX_SKIPPED, 'Buy path deduped duplicate configs for same user', {
+            targetWallet: normalizedWallet,
+            chainId,
+            txHash: swap.txHash,
+            originalConfigs: executableConfigs.length,
+            dedupedConfigs: uniqueExecutableConfigs.length
+        });
+    }
+
     logger.info(LogCode.EXE_QUOTE_FETCHED, '[CopyTrade] Executable buy configs ready', {
         chainId,
         targetWallet: normalizedWallet,
         token: tokenToBuy,
-        configCount: executableConfigs.length,
-        configIds: executableConfigs.slice(0, 8).map((c: any) => c.id)
+        configCount: uniqueExecutableConfigs.length,
+        configIds: uniqueExecutableConfigs.slice(0, 8).map((c: any) => c.id)
     });
 
     const tokenInfoCache = new Map<string, Promise<any>>();
@@ -955,7 +993,7 @@ async function handleTargetBuy(
         : Promise.resolve(null);
 
     // Turbo Mode: only if ALL configs explicitly choose turbo.
-    const skipTokenInfo = executableConfigs.every(c => c.executionMode === 'turbo');
+    const skipTokenInfo = uniqueExecutableConfigs.every(c => c.executionMode === 'turbo');
     if (skipTokenInfo) {
         try {
             const meta = await getTokenMetadata(chainId, tokenToBuy, { rpcStrategy: 'fast' });
@@ -979,7 +1017,7 @@ async function handleTargetBuy(
                 chainId
             });
 
-            await processBuyWithInfo(targetWallet, tokenToBuy, swap, chainId, executableConfigs, fallbackInfo, true, launchpadPromise, tokenInfoCache, detectedAt);
+            await processBuyWithInfo(targetWallet, tokenToBuy, swap, chainId, uniqueExecutableConfigs, fallbackInfo, true, launchpadPromise, tokenInfoCache, detectedAt);
             return;
         } catch (err: any) {
             logger.warn(LogCode.API_FETCH_FAILED, '[CopyTrade] Token info disabled but metadata fallback failed', {
@@ -1031,7 +1069,7 @@ async function handleTargetBuy(
             // NOTE: We must be careful about price calculations later.
             // If price is 0, we can only do "Buy X ETH worth", not "Buy Y Tokens".
             // Our logic below handles "Target Swap Value" based on Input ETH, so we are safe.
-            await processBuyWithInfo(targetWallet, tokenToBuy, swap, chainId, executableConfigs, fallbackInfo, true, launchpadPromise, tokenInfoCache, detectedAt);
+            await processBuyWithInfo(targetWallet, tokenToBuy, swap, chainId, uniqueExecutableConfigs, fallbackInfo, true, launchpadPromise, tokenInfoCache, detectedAt);
             return;
         }
 
@@ -1061,7 +1099,7 @@ async function handleTargetBuy(
                     chainId
                 });
 
-                await processBuyWithInfo(targetWallet, tokenToBuy, swap, chainId, executableConfigs, fallbackInfo, true, launchpadPromise, tokenInfoCache, detectedAt);
+                await processBuyWithInfo(targetWallet, tokenToBuy, swap, chainId, uniqueExecutableConfigs, fallbackInfo, true, launchpadPromise, tokenInfoCache, detectedAt);
                 return;
             } catch (metaErr: any) {
                 logger.warn(LogCode.API_FETCH_FAILED, 'Metadata fallback failed', { token: tokenToBuy, error: metaErr.message });
@@ -1072,7 +1110,7 @@ async function handleTargetBuy(
         return;
     }
 
-    await processBuyWithInfo(targetWallet, tokenToBuy, swap, chainId, executableConfigs, tokenInfo, false, launchpadPromise, tokenInfoCache, detectedAt);
+    await processBuyWithInfo(targetWallet, tokenToBuy, swap, chainId, uniqueExecutableConfigs, tokenInfo, false, launchpadPromise, tokenInfoCache, detectedAt);
 }
 
 /**
@@ -1359,9 +1397,9 @@ async function processBuyWithInfo(
             const universalSlippageBps = getSlippageBps(userSettings);
             const effectiveConfig = {
                 ...config,
-                minMarketCapUsd: config.minMarketCapUsd ?? userSettings?.minMarketCapUsd,
-                minLiquidityUsd: config.minLiquidityUsd ?? userSettings?.minLiquidityUsd,
-                minTargetValueUsd: config.minTargetValueUsd ?? userSettings?.minTargetValueUsd,
+                minMarketCapUsd: resolveEffectivePositiveThreshold(config.minMarketCapUsd, userSettings?.minMarketCapUsd),
+                minLiquidityUsd: resolveEffectivePositiveThreshold(config.minLiquidityUsd, userSettings?.minLiquidityUsd),
+                minTargetValueUsd: resolveEffectiveMinTargetValueUsd(config, userSettings),
                 maxSlippageBps: universalSlippageBps
             };
 
@@ -1630,6 +1668,7 @@ async function processSingleUserBuy(
         const executionMode = resolveExecutionModeForConfig(config);
         const turboMode = executionMode === 'turbo';
         const positionStatusCompat = await getPositionStatusCompat();
+        const leaderTxHash = String(swap?.txHash || '').toLowerCase().trim();
 
         try {
             const inboundDelayMs = detectedAt ? Math.max(0, Date.now() - detectedAt) : null;
@@ -1668,14 +1707,14 @@ async function processSingleUserBuy(
 
         const effectiveConfig = {
             ...config,
-            minMarketCapUsd: config.minMarketCapUsd ?? userSettings?.minMarketCapUsd,
-            minLiquidityUsd: config.minLiquidityUsd ?? userSettings?.minLiquidityUsd,
-            minTargetValueUsd: config.minTargetValueUsd ?? userSettings?.minTargetValueUsd,
+            minMarketCapUsd: resolveEffectivePositiveThreshold(config.minMarketCapUsd, userSettings?.minMarketCapUsd),
+            minLiquidityUsd: resolveEffectivePositiveThreshold(config.minLiquidityUsd, userSettings?.minLiquidityUsd),
+            minTargetValueUsd: resolveEffectiveMinTargetValueUsd(config, userSettings),
             maxSlippageBps: universalSlippageBps
         };
 
         // Fast check for per-user target value guard (must apply in all modes, including turbo).
-        const minTargetValueUsd = Number(effectiveConfig.minTargetValueUsd || 0);
+        const minTargetValueUsd = resolveEffectiveMinTargetValueUsd(effectiveConfig, null);
         const normalizedTargetSwapValueUsd = Number.isFinite(targetSwapValueUsd) ? targetSwapValueUsd : 0;
         const normalizedStrictTargetSwapValueUsd = Number.isFinite(strictTargetSwapValueUsd) ? strictTargetSwapValueUsd : 0;
         const effectiveTargetSwapValueUsd = strictTargetSwapValueReliable
@@ -1986,6 +2025,8 @@ async function processSingleUserBuy(
                         entryPrice: tokenInfo.price || 0,
                         entryAmount: '0',
                         entryTxHash: `PENDING_${Date.now()}`, // Temporary placeholder
+                        // DB-level idempotency key: same user+chain+token+source tx can only lock once.
+                        leaderTxHash: leaderTxHash || undefined,
                         entryUsdValue: usdAmount,
                         status: positionStatusCompat.pendingCreateStatus as any
                     }
@@ -1994,7 +2035,9 @@ async function processSingleUserBuy(
             pendingPositionId = pendingPos.id;
             logger.info(LogCode.EXE_TX_BROADCAST, 'Created PENDING position lock', { userId: config.userId, token: tokenToBuy, positionId: pendingPositionId });
         } catch (err: any) {
-            if (err.message.includes('DUPLICATE_TRADE')) {
+            const isUniqueConflict = String(err?.code || '').toUpperCase() === 'P2002'
+                || String(err?.message || '').toLowerCase().includes('unique constraint');
+            if (err.message.includes('DUPLICATE_TRADE') || isUniqueConflict) {
                 logger.info(LogCode.WTC_TX_SKIPPED, 'Skipping duplicate trade (DB Lock)', { userId: config.userId, token: tokenToBuy });
             } else {
                 logger.error(LogCode.SYS_ERROR, 'Failed to create pending position', { error: err.message });
@@ -2443,6 +2486,7 @@ async function processSingleUserBuy(
                     entryPrice: tokenInfo.price,
                     entryAmount: (usdAmount / nativePrice).toString(),
                     entryTxHash: txHash,
+                    leaderTxHash: leaderTxHash || undefined,
                     entryUsdValue: usdAmount,
                     status: nextPositionStatus as any,
                 },
@@ -4241,6 +4285,17 @@ export async function passesFilters(tokenInfo: any, config: any, targetSwapValue
 
     return { passed: true };
 }
+
+// Test-only hooks used by deterministic stress scripts.
+export const __copyTradeGuardTestHelpers = {
+    getMinTargetEffectiveFloorUsd,
+    isBelowMinTargetValue,
+    resolveEffectivePositiveThreshold,
+    toFinitePositiveNumber,
+    resolveEffectiveMinTargetValueUsd,
+    dedupeConfigsByUser
+};
+
 const SELL_PREHEAT_DELAY_MS = Math.max(0, Number(process.env.COPYTRADE_SELL_APPROVAL_PREHEAT_DELAY_MS || '15000'));
 const SELL_PREHEAT_CONFIRM_TIMEOUT_MS = Math.max(5000, Number(process.env.COPYTRADE_SELL_APPROVAL_PREHEAT_CONFIRM_TIMEOUT_MS || '45000'));
 const SELL_PREHEAT_CONFIRM_POLL_MS = Math.max(500, Number(process.env.COPYTRADE_SELL_APPROVAL_PREHEAT_CONFIRM_POLL_MS || '1200'));
