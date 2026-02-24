@@ -993,6 +993,45 @@ export class MainSwapService {
     const isCashOut = isCashLikeToken(normalizedTokenOut, request.chainId);
     const isBuyDirection = isCashIn && !isCashOut;
     const isSellDirection = !isCashIn && isCashOut;
+    const sampleSide: 'buy' | 'sell' = isSellDirection ? 'sell' : 'buy';
+    const contextSnapshot = request.executionContext?.contextSnapshot;
+    const sourceTxInput = request.executionContext?.sourceTxInput || contextSnapshot?.sourceTxInput || '';
+    const sourceSelector = /^0x[0-9a-fA-F]{8}/.test(sourceTxInput)
+      ? sourceTxInput.slice(0, 10).toLowerCase()
+      : (contextSnapshot?.sourceSelector || null);
+    const sourceRouter = request.executionContext?.sourceRouter || contextSnapshot?.sourceRouter || null;
+    const pickRouterAddress = (...candidates: Array<string | null | undefined>): string => {
+      for (const candidate of candidates) {
+        const normalized = String(candidate || '').trim().toLowerCase();
+        if (/^0x[a-f0-9]{40}$/.test(normalized)) return normalized;
+      }
+      return ethers.ZeroAddress;
+    };
+    const persistLiveSuccessSample = (params: {
+      txHash?: string;
+      amountOut?: string;
+      router?: string;
+      poolMetaJson?: string;
+      commandMetaJson?: string;
+      selector?: string | null;
+    }): void => {
+      if (!isP2SampleLearningEnabled()) return;
+      if (!params.txHash) return;
+      void recordSuccessSample({
+        chainId: request.chainId,
+        side: sampleSide,
+        txHash: params.txHash,
+        wallet: request.walletAddress,
+        tokenIn: normalizedTokenIn,
+        tokenOut: normalizedTokenOut,
+        amountIn: request.amountIn,
+        amountOut: params.amountOut,
+        router: pickRouterAddress(params.router, sourceRouter),
+        selector: params.selector || sourceSelector || undefined,
+        poolMetaJson: params.poolMetaJson,
+        commandMetaJson: params.commandMetaJson
+      });
+    };
     const copytradeAggregatorOnly = request.mode === 'copytrade'
       && (process.env.COPYTRADE_AGGREGATOR_ONLY || 'true').toLowerCase() === 'true';
     const allowDirectSell = !copytradeAggregatorOnly && request.mode === 'copytrade' && isSellDirection;
@@ -1180,6 +1219,17 @@ export class MainSwapService {
               poolInfo: visibleResult.poolInfo,
               attempt
             });
+            persistLiveSuccessSample({
+              txHash: visibleResult.txHash,
+              amountOut: visibleResult.amountOut,
+              router: (visibleResult as any)?.poolInfo?.poolAddress,
+              poolMetaJson: visibleResult.poolInfo ? JSON.stringify(visibleResult.poolInfo) : undefined,
+              commandMetaJson: JSON.stringify({
+                source: 'direct_swap',
+                provider: visibleResult.provider,
+                txLifecycleStatus: visibleResult.txLifecycle?.status || null
+              })
+            });
             return {
               success: true,
               txHash: visibleResult.txHash,
@@ -1265,6 +1315,18 @@ export class MainSwapService {
                   provider: visibleFinalResult.provider,
                   poolInfo: visibleFinalResult.poolInfo
                 });
+                persistLiveSuccessSample({
+                  txHash: visibleFinalResult.txHash,
+                  amountOut: visibleFinalResult.amountOut,
+                  router: (visibleFinalResult as any)?.poolInfo?.poolAddress,
+                  poolMetaJson: visibleFinalResult.poolInfo ? JSON.stringify(visibleFinalResult.poolInfo) : undefined,
+                  commandMetaJson: JSON.stringify({
+                    source: 'direct_swap',
+                    provider: visibleFinalResult.provider,
+                    stage: 'final_settle',
+                    txLifecycleStatus: visibleFinalResult.txLifecycle?.status || null
+                  })
+                });
                 return {
                   success: true,
                   txHash: visibleFinalResult.txHash,
@@ -1324,6 +1386,18 @@ export class MainSwapService {
                     txHash: visibleFlushed.txHash,
                     provider: visibleFlushed.provider,
                     poolInfo: visibleFlushed.poolInfo
+                  });
+                  persistLiveSuccessSample({
+                    txHash: visibleFlushed.txHash,
+                    amountOut: visibleFlushed.amountOut,
+                    router: (visibleFlushed as any)?.poolInfo?.poolAddress,
+                    poolMetaJson: visibleFlushed.poolInfo ? JSON.stringify(visibleFlushed.poolInfo) : undefined,
+                    commandMetaJson: JSON.stringify({
+                      source: 'direct_swap',
+                      provider: visibleFlushed.provider,
+                      stage: 'timeout_flush',
+                      txLifecycleStatus: visibleFlushed.txLifecycle?.status || null
+                    })
                   });
                   return {
                     success: true,
@@ -1503,6 +1577,17 @@ export class MainSwapService {
         launchpad: undefined
       }
     };
+    persistLiveSuccessSample({
+      txHash: executionResult.txHash,
+      amountOut: executionResult.amountOut,
+      router: executionResult.metadata?.allowanceTarget,
+      selector: sourceSelector,
+      commandMetaJson: JSON.stringify({
+        source: 'aggregator_fallback',
+        provider: executionResult.method,
+        allowanceTarget: executionResult.metadata?.allowanceTarget || null
+      })
+    });
 
     // ⚡ OPTIMIZATION: Post-Buy Pre-Approval
     // If we just BOUGHT a token, valid logic dictates we might sell it later.
