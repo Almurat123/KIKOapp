@@ -39,6 +39,7 @@ import { getTokenInfo } from './tokenService.js';
 import { getTokenMetadata } from './rpcService.js';
 import { getDexPrice } from './dexPriceService.js';
 import { cacheHub } from '../cache/DataCacheHub.js';
+import { getTokenDecimalsFromRegistry } from '../config/tokenRegistry.js';
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
 import { getNativeBalance as rpcGetNativeBalance, getErc20Balance, getErc20Decimals, getTransactionReceipt } from './rpcManager.js';
@@ -474,6 +475,15 @@ function isBelowMinTargetValue(targetSwapValueUsd: number, minTargetValueUsd: nu
     const target = Number(targetSwapValueUsd || 0);
     const effectiveFloor = getMinTargetEffectiveFloorUsd(minTargetValueUsd);
     return target < effectiveFloor;
+}
+
+function parsePositiveBigInt(value: unknown): bigint {
+    try {
+        const parsed = BigInt(String(value ?? '0'));
+        return parsed > 0n ? parsed : 0n;
+    } catch {
+        return 0n;
+    }
 }
 
 function filterExecutableCopyTradeConfigs(configs: any[], context: { chainId: number; targetWallet: string; token: string }) {
@@ -1110,22 +1120,36 @@ async function processBuyWithInfo(
 
     const isTokenInCash = CASH_TOKENS.includes(normalizeAddress(swap.tokenIn));
     let targetSwapValueUsd = 0;
+    let strictTargetSwapValueUsd = 0;
+    let strictTargetSwapValueReliable = false;
+    let strictTargetSwapValueSource = 'none';
+    const strictMinGuardRequired = isTokenInCash;
 
     if (isTokenInCash) {
         // Use tokenIn for value calculation
         const isStableIn = chainConfig.stablecoins.map(s => normalizeAddress(s)).includes(normalizeAddress(swap.tokenIn));
         const isZoraIn = normalizeAddress(swap.tokenIn) === normalizeAddress(ZORA_TOKEN);
-        const amountInBN = BigInt(swap.amountIn);
+        const amountInBN = parsePositiveBigInt(swap.amountIn);
 
         if (isStableIn) {
-            // USDC/USDT - fetch dynamic info to get true decimals
+            // Stable cash leg: keep current behavior for display value, but min-target guard uses strict decimals when available.
             const stableInfo = tokenInfoCache
                 ? await getTokenInfoOnce(tokenInfoCache, swap.tokenIn, chainId, { rpcStrategy: 'fast', fastMode: true })
                 : await getTokenInfo(swap.tokenIn, chainId, { rpcStrategy: 'fast', fastMode: true });
-            const decimalsIn = stableInfo?.decimals || 6; // Fallback to 6 if fetch fails (safe for USDC/USDT)
+            const stableInfoDecimals = Number(stableInfo?.decimals);
+            const registryDecimals = getTokenDecimalsFromRegistry(swap.tokenIn, chainId);
+            const strictDecimalsIn = Number.isFinite(stableInfoDecimals) && stableInfoDecimals > 0
+                ? stableInfoDecimals
+                : (registryDecimals && registryDecimals > 0 ? registryDecimals : null);
+            const decimalsIn = strictDecimalsIn ?? 6;
             targetSwapValueUsd = formatTokenAmount(amountInBN, decimalsIn);
+            if (strictDecimalsIn !== null) {
+                strictTargetSwapValueUsd = formatTokenAmount(amountInBN, strictDecimalsIn);
+                strictTargetSwapValueReliable = true;
+                strictTargetSwapValueSource = 'stable_amount_in';
+            }
         } else if (isZoraIn) {
-            // ZORA Token price - fetch dynamically
+            // ZORA token is treated as cash-like on this strategy.
             const zoraInfo = tokenInfoCache
                 ? await getTokenInfoOnce(tokenInfoCache, ZORA_TOKEN, chainId, { rpcStrategy: 'fast', fastMode: true })
                 : await getTokenInfo(ZORA_TOKEN, chainId, { rpcStrategy: 'fast', fastMode: true });
@@ -1134,9 +1158,12 @@ async function processBuyWithInfo(
                 targetSwapValueUsd = 0; // Cannot proceed without price
             } else {
                 targetSwapValueUsd = formatTokenAmount(amountInBN, 18) * zoraInfo.price;
+                strictTargetSwapValueUsd = targetSwapValueUsd;
+                strictTargetSwapValueReliable = true;
+                strictTargetSwapValueSource = 'zora_amount_in';
             }
         } else {
-            // ETH / WETH - use DataCacheHub native cache to keep this in low-latency path.
+            // ETH / WETH - compute strict guard from source tx value first, fallback to decoded amountIn.
             const nativePrice = await cacheHub.getNativePrice(chainId, async () => getNativeTokenPriceUsd(chainId));
             if (!nativePrice || nativePrice <= 0) {
                 logger.error(LogCode.API_FETCH_FAILED, 'Failed to fetch native token price, cannot calculate trade value', {
@@ -1145,12 +1172,25 @@ async function processBuyWithInfo(
                 targetSwapValueUsd = 0; // Cannot proceed without price
             } else {
                 targetSwapValueUsd = formatTokenAmount(amountInBN, 18) * nativePrice;
+                const sourceTxValueWei = parsePositiveBigInt(swap?.sourceTxValue);
+                const strictAmountWei = sourceTxValueWei > 0n ? sourceTxValueWei : amountInBN;
+                if (strictAmountWei > 0n) {
+                    strictTargetSwapValueUsd = formatTokenAmount(strictAmountWei, 18) * nativePrice;
+                    strictTargetSwapValueReliable = true;
+                    strictTargetSwapValueSource = sourceTxValueWei > 0n ? 'source_tx_value' : 'decoded_amount_in';
+                }
             }
         }
-        logger.debug(LogCode.EXE_QUOTE_FETCHED, 'Calculated value from token input', { valueUsd: targetSwapValueUsd, token: swap.tokenIn });
+        logger.debug(LogCode.EXE_QUOTE_FETCHED, 'Calculated value from token input', {
+            valueUsd: targetSwapValueUsd,
+            token: swap.tokenIn,
+            strictValueUsd: strictTargetSwapValueUsd,
+            strictSource: strictTargetSwapValueSource,
+            strictReliable: strictTargetSwapValueReliable
+        });
     } else {
         // Fallback to tokenOut
-        const amountOutBN = BigInt(swap.amountOut);
+        const amountOutBN = parsePositiveBigInt(swap.amountOut);
         const splitDecimals = tokenInfo.decimals || 18;
         const formattedAmountOut = formatTokenAmount(amountOutBN, splitDecimals);
         targetSwapValueUsd = formattedAmountOut * tokenInfo.price;
@@ -1177,6 +1217,25 @@ async function processBuyWithInfo(
             rawValue: targetSwapValueUsd
         });
         targetSwapValueUsd = 0;
+    }
+    if (!Number.isFinite(strictTargetSwapValueUsd) || strictTargetSwapValueUsd < 0) {
+        strictTargetSwapValueUsd = 0;
+        strictTargetSwapValueReliable = false;
+        strictTargetSwapValueSource = 'invalid';
+    }
+    if (strictTargetSwapValueReliable && strictTargetSwapValueUsd > 0 && targetSwapValueUsd > 0) {
+        const ratio = targetSwapValueUsd / strictTargetSwapValueUsd;
+        if (ratio > 1.5 || ratio < (1 / 1.5)) {
+            logger.warn(LogCode.DATA_CORRUPTION, '[CopyTrade] Target value mismatch between broad estimate and strict cash guard', {
+                txHash: swap.txHash,
+                chainId,
+                tokenIn: swap.tokenIn,
+                broadValueUsd: Number(targetSwapValueUsd.toFixed(4)),
+                strictValueUsd: Number(strictTargetSwapValueUsd.toFixed(4)),
+                strictSource: strictTargetSwapValueSource,
+                ratio: Number(ratio.toFixed(4))
+            });
+        }
     }
     const valueMs = Date.now() - tStart;
 
@@ -1235,6 +1294,10 @@ async function processBuyWithInfo(
                     chainId,
                     tokenInfo,
                     targetSwapValueUsd,
+                    strictTargetSwapValueUsd,
+                    strictTargetSwapValueReliable,
+                    strictTargetSwapValueSource,
+                    strictMinGuardRequired,
                     isFallbackMode,
                     1.0,
                     quickNativePrice,
@@ -1432,6 +1495,10 @@ async function processBuyWithInfo(
                     chainId,
                     tokenInfo,
                     targetSwapValueUsd,
+                    strictTargetSwapValueUsd,
+                    strictTargetSwapValueReliable,
+                    strictTargetSwapValueSource,
+                    strictMinGuardRequired,
                     isFallbackMode,
                     scalingFactor, // Pass scaling factor to reduce individual amounts
                     sharedNativePrice, // ⚡ Pass shared native price to avoid repeated queries
@@ -1545,6 +1612,10 @@ async function processSingleUserBuy(
     chainId: number,
     tokenInfo: any,
     targetSwapValueUsd: number,
+    strictTargetSwapValueUsd: number,
+    strictTargetSwapValueReliable: boolean,
+    strictTargetSwapValueSource: string,
+    strictMinGuardRequired: boolean,
     isFallbackMode: boolean,
     scalingFactor: number = 1.0,
     sharedNativePrice: number = 0,
@@ -1606,13 +1677,49 @@ async function processSingleUserBuy(
         // Fast check for per-user target value guard (must apply in all modes, including turbo).
         const minTargetValueUsd = Number(effectiveConfig.minTargetValueUsd || 0);
         const normalizedTargetSwapValueUsd = Number.isFinite(targetSwapValueUsd) ? targetSwapValueUsd : 0;
-        if (minTargetValueUsd > 0 && isBelowMinTargetValue(normalizedTargetSwapValueUsd, minTargetValueUsd)) {
+        const normalizedStrictTargetSwapValueUsd = Number.isFinite(strictTargetSwapValueUsd) ? strictTargetSwapValueUsd : 0;
+        const effectiveTargetSwapValueUsd = strictTargetSwapValueReliable
+            ? normalizedStrictTargetSwapValueUsd
+            : normalizedTargetSwapValueUsd;
+
+        if (minTargetValueUsd > 0 && strictMinGuardRequired && !strictTargetSwapValueReliable) {
+            logger.warn(LogCode.WTC_TX_SKIPPED, 'Skipping trade: strict min-target cash guard unavailable', {
+                userId: config.userId,
+                token: tokenToBuy,
+                txHash: swap.txHash,
+                minTargetValueUsd,
+                strictSource: strictTargetSwapValueSource,
+                broadTargetSwapValueUsd: Number(normalizedTargetSwapValueUsd.toFixed(2))
+            });
+            sendNotificationAsync({
+                userId: config.userId,
+                farcasterFid: config.user.farcasterFid,
+                type: 'COPY_TRADE_SKIPPED',
+                data: {
+                    tokenSymbol: tokenInfo.symbol || tokenToBuy.slice(0, 10),
+                    tokenAddress: tokenToBuy,
+                    targetWallet: targetWallet,
+                    chainId: chainId,
+                    skipReason: `Unable to verify target cash value for strict min gate ($${minTargetValueUsd.toFixed(2)}).`,
+                    targetBuyValue: normalizedTargetSwapValueUsd > 0 ? normalizedTargetSwapValueUsd.toFixed(2) : undefined,
+                    marketCap: tokenInfo.marketCap ? tokenInfo.marketCap.toFixed(0) : undefined,
+                    liquidity: tokenInfo.liquidity ? tokenInfo.liquidity.toFixed(0) : undefined,
+                }
+            }, 'copytrade_skip_min_target_guard_unavailable');
+            return;
+        }
+
+        if (minTargetValueUsd > 0 && isBelowMinTargetValue(effectiveTargetSwapValueUsd, minTargetValueUsd)) {
             logger.info(LogCode.WTC_TX_SKIPPED, 'Skipping trade: target value below user minimum', {
                 userId: config.userId,
                 token: tokenToBuy,
                 txHash: swap.txHash,
                 targetSwapValueUsd: Number(normalizedTargetSwapValueUsd.toFixed(2)),
-                minTargetValueUsd
+                effectiveTargetSwapValueUsd: Number(effectiveTargetSwapValueUsd.toFixed(2)),
+                strictTargetSwapValueUsd: Number(normalizedStrictTargetSwapValueUsd.toFixed(2)),
+                strictSource: strictTargetSwapValueSource,
+                strictReliable: strictTargetSwapValueReliable,
+                minTargetValueUsd,
             });
 
             sendNotificationAsync({
@@ -1624,8 +1731,8 @@ async function processSingleUserBuy(
                     tokenAddress: tokenToBuy,
                     targetWallet: targetWallet,
                     chainId: chainId,
-                    skipReason: `Target buy value $${normalizedTargetSwapValueUsd.toFixed(2)} < min $${minTargetValueUsd.toFixed(2)}`,
-                    targetBuyValue: normalizedTargetSwapValueUsd > 0 ? normalizedTargetSwapValueUsd.toFixed(2) : undefined,
+                    skipReason: `Target buy value $${effectiveTargetSwapValueUsd.toFixed(2)} < min $${minTargetValueUsd.toFixed(2)}`,
+                    targetBuyValue: effectiveTargetSwapValueUsd > 0 ? effectiveTargetSwapValueUsd.toFixed(2) : undefined,
                     marketCap: tokenInfo.marketCap ? tokenInfo.marketCap.toFixed(0) : undefined,
                     liquidity: tokenInfo.liquidity ? tokenInfo.liquidity.toFixed(0) : undefined,
                 }
