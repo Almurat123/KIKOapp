@@ -2073,7 +2073,7 @@ async function processSingleUserBuy(
                         eth: baseAmount.toFixed(6),
                         timingMs: Date.now() - timingDetectedAt
                     });
-                    const fastSwapOverride = false; // copytrade aggregator-only
+                    const fastSwapOverride = userSettings?.fastSwapMode === true; // buy path can use direct when enabled
                     const amountStep1 = baseAmount.toFixed(18);
                     const plannedStep1 = await buildPlannedExecutionContext({
                         chainId,
@@ -2175,7 +2175,7 @@ async function processSingleUserBuy(
                             const amount99 = baseAmount * 0.99;
                             const slippage2 = Math.min(Math.floor(baseSlippage * 1.25), 2000); // Max 20% or 1.25x user setting
                             logger.info(LogCode.EXE_TX_BROADCAST, `Buy Step 2: 99% amount, ${slippage2 / 100}% slippage`, { userId: effectiveConfig.userId, eth: amount99.toFixed(6) });
-                            const fastSwapOverride = false; // copytrade aggregator-only
+                            const fastSwapOverride = userSettings?.fastSwapMode === true; // buy path can use direct when enabled
                             const amountStep2 = amount99.toFixed(18);
                             const plannedStep2 = await buildPlannedExecutionContext({
                                 chainId,
@@ -2222,7 +2222,7 @@ async function processSingleUserBuy(
                                 const amount98 = baseAmount * 0.98;
                                 const slippage3 = Math.min(Math.floor(baseSlippage * 1.5), 2500); // Max 25% or 1.5x user setting
                                 logger.info(LogCode.EXE_TX_BROADCAST, `Buy Step 3: 98% amount, ${slippage3 / 100}% slippage`, { userId: effectiveConfig.userId, eth: amount98.toFixed(6) });
-                                const fastSwapOverride = false; // copytrade aggregator-only
+                                const fastSwapOverride = userSettings?.fastSwapMode === true; // buy path can use direct when enabled
                                 const amountStep3 = amount98.toFixed(18);
                                 const plannedStep3 = await buildPlannedExecutionContext({
                                     chainId,

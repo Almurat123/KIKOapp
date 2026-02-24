@@ -38,6 +38,8 @@ export interface SwapParams {
     speedUpAfterMs?: number; // Attempt replacement if tx is still pending
     speedUpBumpBps?: number; // Gas bump in bps for replacement
     transferRetry?: boolean; // Internal: prevent repeat retry after transfer failure
+    preferPermit2?: boolean; // Internal: force non-permit2 quote path on retry
+    permit2ExecutionFallbackTried?: boolean; // Internal: avoid permit2 fallback loops
     executionMode?: 'safe' | 'normal' | 'turbo';
     /** Pre-warmed nonce promise (copy-trade path); when set, used for the swap tx to save one RPC round-trip. */
     preWarmedNonce?: Promise<string | undefined>;
@@ -281,7 +283,8 @@ export class SwapExecutor {
             excludeDex: params.excludeDex, // Pass through excludeDex for retry logic
             feeContext,
             isSell: isSellForFee,
-            executionMode: params.executionMode
+            executionMode: params.executionMode,
+            preferPermit2: params.preferPermit2 !== false
         });
 
         if (!best) {
@@ -910,6 +913,7 @@ export class SwapExecutor {
                 errorMsg.includes('transfer failed') ||
                 errorMsg.includes('transferhelper');
             const isRevert = errorMsg.includes('reverted') || errorMsg.includes('execution failed');
+            const isPermit2Path = best?.dex === '0x' && best?.approvalKind === 'permit2_24h';
 
             // If transfer failed on a SELL order, token likely has restrictions.
             // Retry once by reducing amount by 1 base unit (last digit) to avoid balance/fee edge cases.
@@ -949,6 +953,21 @@ export class SwapExecutor {
                     `This token has transfer restrictions that prevent selling. ` +
                     `Possible reasons: 1) Maximum sell amount limit 2) High sell tax 3) Anti-bot protection.`
                 );
+            }
+
+            // If Permit2 signed successfully but execution reverted, retry once via allowance-holder path.
+            if (isPermit2Path && !params.permit2ExecutionFallbackTried) {
+                logger.warn(LogCode.EXE_TX_REVERTED, '0x permit2 execution failed, retrying with allowance-holder path', {
+                    chainId,
+                    error: execError.message?.slice(0, 160),
+                    slippageBps
+                });
+                return this.executeEvm({
+                    ...params,
+                    excludeDex: undefined,
+                    preferPermit2: false,
+                    permit2ExecutionFallbackTried: true
+                });
             }
 
             // Fast failover: if first attempt fails, immediately switch DEX with same slippage

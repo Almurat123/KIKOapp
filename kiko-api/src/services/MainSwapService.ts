@@ -1033,6 +1033,7 @@ export class MainSwapService {
       });
     };
     const copytradeAggregatorOnly = request.mode === 'copytrade'
+      && isSellDirection
       && (process.env.COPYTRADE_AGGREGATOR_ONLY || 'true').toLowerCase() === 'true';
     const allowDirectSell = !copytradeAggregatorOnly && request.mode === 'copytrade' && isSellDirection;
     const enforcedSlippageBps = request.mode === 'copytrade'
