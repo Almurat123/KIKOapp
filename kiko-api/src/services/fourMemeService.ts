@@ -10,7 +10,7 @@ import { ethers } from 'ethers';
 import { sendTransaction } from './privyWallet.js';
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
-import { type FeeContext } from './platformFeeService.js';
+import { getPlatformFee, isValidEvmAddress, type FeeContext } from './platformFeeService.js';
 import { getEthersProvider } from './rpcManager.js';
 
 // TokenManager2 contract address on BSC
@@ -110,12 +110,60 @@ interface SellTokenParams {
     feeContext?: FeeContext;
 }
 
+async function sendFourMemeFee(params: {
+    userId: string;
+    chainId: number;
+    feeContext?: FeeContext;
+    feeToken?: string;
+    feeBaseAmount: bigint;
+    trace: string;
+}): Promise<void> {
+    const fee = getPlatformFee(params.feeContext || 'swap');
+    if (fee.bps <= 0 || !isValidEvmAddress(fee.evmRecipient)) return;
+
+    if (params.feeBaseAmount <= 0n) return;
+
+    const feeAmount = (params.feeBaseAmount * BigInt(fee.bps)) / 10000n;
+    if (feeAmount <= 0n) return;
+
+    if (!params.feeToken) {
+        const feeTxHash = await sendTransaction(params.userId, '', {
+            to: fee.evmRecipient!,
+            data: '0x',
+            value: feeAmount.toString(),
+            chainId: params.chainId,
+            txPurpose: 'fee'
+        });
+        logger.info(LogCode.EXE_TX_CONFIRMED, `${params.trace}: native fee sent`, {
+            feeTxHash,
+            feeAmount: feeAmount.toString(),
+            feeRecipient: fee.evmRecipient
+        });
+        return;
+    }
+
+    const erc20 = new ethers.Interface(['function transfer(address to, uint256 value)']);
+    const feeTxHash = await sendTransaction(params.userId, '', {
+        to: params.feeToken,
+        data: erc20.encodeFunctionData('transfer', [fee.evmRecipient!, feeAmount]),
+        value: '0',
+        chainId: params.chainId,
+        txPurpose: 'fee'
+    });
+    logger.info(LogCode.EXE_TX_CONFIRMED, `${params.trace}: token fee sent`, {
+        feeTxHash,
+        token: params.feeToken,
+        feeAmount: feeAmount.toString(),
+        feeRecipient: fee.evmRecipient
+    });
+}
+
 /**
  * Buy Four.meme token using BNB
  * Uses TokenManager2.buyTokenAMAP(token, funds, minAmount)
  */
 export async function buyTokenAMAP(params: BuyTokenParams): Promise<string> {
-    const { userId, walletAddress, tokenAddress, bnbAmount, minAmount = '0', slippageBps = 300 } = params;
+    const { userId, walletAddress, tokenAddress, bnbAmount, minAmount = '0', slippageBps = 300, feeContext } = params;
 
     // === SIMULATION MODE ===
     if (process.env.SIMULATION_MODE === 'true') {
@@ -165,6 +213,21 @@ export async function buyTokenAMAP(params: BuyTokenParams): Promise<string> {
         throw new Error(`FourMeme buy reverted on-chain: ${txHash}`);
     }
 
+    try {
+        await sendFourMemeFee({
+            userId,
+            chainId,
+            feeContext,
+            feeBaseAmount: bnbInWei,
+            trace: 'Four.meme buy'
+        });
+    } catch (feeErr: any) {
+        logger.warn(LogCode.SYS_ERROR, 'Four.meme buy fee transfer failed (non-fatal)', {
+            error: feeErr?.message || String(feeErr),
+            txHash
+        });
+    }
+
     logger.info(LogCode.EXE_TX_CONFIRMED, 'Four.meme buy confirmed', { txHash });
     return txHash;
 }
@@ -175,22 +238,49 @@ export async function buyTokenAMAP(params: BuyTokenParams): Promise<string> {
  * Note: Token must be approved to TokenManager2 before selling
  */
 export async function sellToken(params: SellTokenParams): Promise<string> {
-    const { userId, walletAddress, tokenAddress, amount, minFunds = '0' } = params;
+    const { userId, walletAddress, tokenAddress, amount, minFunds = '0', feeContext } = params;
 
     logger.info(LogCode.EXE_TX_BROADCAST, 'Selling token on Four.meme', { token: tokenAddress, amount });
 
     const chainId = 56; // BSC
 
     const amountNet = BigInt(amount);
+    let sellAmount = amountNet;
+
+    const fee = getPlatformFee(feeContext || 'swap');
+    if (fee.bps > 0 && isValidEvmAddress(fee.evmRecipient)) {
+        const feeAmount = (amountNet * BigInt(fee.bps)) / 10000n;
+        if (feeAmount > 0n && feeAmount < amountNet) {
+            try {
+                await sendFourMemeFee({
+                    userId,
+                    chainId,
+                    feeContext,
+                    feeToken: tokenAddress,
+                    feeBaseAmount: amountNet,
+                    trace: 'Four.meme sell'
+                });
+                sellAmount = amountNet - feeAmount;
+            } catch (feeErr: any) {
+                logger.warn(LogCode.SYS_ERROR, 'Four.meme sell fee transfer failed (non-fatal)', {
+                    error: feeErr?.message || String(feeErr)
+                });
+            }
+        }
+    }
+
+    if (sellAmount <= 0n) {
+        throw new Error('Sell amount after fee is zero');
+    }
 
     // Check and approve token if needed
-    await checkAndApproveForFourMeme(userId, walletAddress, tokenAddress, amountNet.toString(), chainId);
+    await checkAndApproveForFourMeme(userId, walletAddress, tokenAddress, sellAmount.toString(), chainId);
 
     // Encode sellToken(token, amount) call
     const iface = new ethers.Interface(TOKEN_MANAGER_V2_ABI);
     const callData = iface.encodeFunctionData('sellToken(address,uint256)', [
         tokenAddress,
-        amountNet
+        sellAmount
     ]);
 
     logger.debug(LogCode.EXE_QUOTE_FETCHED, 'Sell transaction details', {

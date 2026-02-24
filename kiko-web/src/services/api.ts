@@ -650,6 +650,9 @@ export interface TrendingCast {
         avatar?: string;
         verified?: boolean;
         bio?: string;
+        twitter?: string;
+        banner?: string;  // Profile banner image URL
+        url?: string;     // Personal website URL
         creatorCoin?: ZoraToken; // Zora Creator Coin data
     };
     mentions?: number[]; // FIDs of mentioned users
@@ -756,6 +759,8 @@ export interface Author {
     isVerified: boolean;
     bio?: string;
     twitter?: string;
+    banner?: string;  // Profile banner image URL
+    url?: string;     // Personal website URL
     creatorCoin?: ZoraToken; // Zora Creator Coin data
 }
 

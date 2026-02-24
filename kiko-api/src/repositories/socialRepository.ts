@@ -180,6 +180,8 @@ export async function saveTrendingCasts(casts: TrendingCast[]): Promise<void> {
                             embeds: cast.embeds || [],
                             parentCastFid: cast.parentCastId?.fid || null,
                             parentCastHash: cast.parentCastId?.hash || null,
+                            parentUrl: (cast as any).parentUrl || null,
+                            mentionsPositions: (cast as any).mentionsPositions || [],
                             likes,
                             recasts,
                             replies,
@@ -192,6 +194,10 @@ export async function saveTrendingCasts(casts: TrendingCast[]): Promise<void> {
                             mentions: cast.mentions || [],
                             authorCreatorCoin: cast.author.creatorCoin ? JSON.stringify(cast.author.creatorCoin) : null,
                             authorTwitter: cast.author.twitter || null,
+                            authorUrl: (cast.author as any).url || null,
+                            authorBanner: (cast.author as any).banner || null,
+                            authorPrimaryAddress: (cast.author as any).primaryAddress || null,
+                            authorLocation: (cast.author as any).location || null,
                             updatedAt: new Date(),
                         },
                         create: {
@@ -206,6 +212,8 @@ export async function saveTrendingCasts(casts: TrendingCast[]): Promise<void> {
                             embeds: cast.embeds || [],
                             parentCastFid: cast.parentCastId?.fid || null,
                             parentCastHash: cast.parentCastId?.hash || null,
+                            parentUrl: (cast as any).parentUrl || null,
+                            mentionsPositions: (cast as any).mentionsPositions || [],
                             likes,
                             recasts,
                             replies,
@@ -218,6 +226,10 @@ export async function saveTrendingCasts(casts: TrendingCast[]): Promise<void> {
                             mentions: cast.mentions || [],
                             authorCreatorCoin: cast.author.creatorCoin ? JSON.stringify(cast.author.creatorCoin) : null,
                             authorTwitter: cast.author.twitter || null,
+                            authorUrl: (cast.author as any).url || null,
+                            authorBanner: (cast.author as any).banner || null,
+                            authorPrimaryAddress: (cast.author as any).primaryAddress || null,
+                            authorLocation: (cast.author as any).location || null,
                         }
                     });
 

@@ -1450,6 +1450,9 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
     // Flag to prevent double submission (race condition)
     const isSubmittingRef = useRef(false);
 
+    // Always-fresh ref so event listeners can call handleSend without stale closure
+    const handleSendRef = useRef<(text: string) => void>(() => {});
+
     const handleSend = async (text: string = input, existingMessageId?: string) => {
         if (!authenticated) {
             toast.info('Login to KIKO to start chatting.');
@@ -1758,6 +1761,33 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
         }
     };
 
+    // Keep handleSendRef always pointing at the latest handleSend
+    useEffect(() => { handleSendRef.current = (text: string) => handleSend(text); });
+
+    // Listen for cross-page input prefill events (e.g. Buy/Sell from TokenDetailPage)
+    // Does NOT auto-send — user reviews and sends manually
+    // Strategy: sessionStorage (for lazy-mount case) + window event (for already-mounted case)
+    useEffect(() => {
+        // 1. On mount: check if there's a queued prefill from sessionStorage
+        const stored = sessionStorage.getItem('kiko-prefill-prompt');
+        if (stored) {
+            sessionStorage.removeItem('kiko-prefill-prompt');
+            setInput(stored);
+            setTimeout(() => textareaRef.current?.focus(), 80);
+        }
+
+        // 2. Also listen via event for when component is already mounted
+        const handler = (e: Event) => {
+            const prompt = (e as CustomEvent<{ prompt: string }>).detail?.prompt;
+            if (prompt) {
+                setInput(prompt);
+                setTimeout(() => textareaRef.current?.focus(), 50);
+            }
+        };
+        window.addEventListener('kiko-prefill-input', handler);
+        return () => window.removeEventListener('kiko-prefill-input', handler);
+    }, []);
+
     // Context Gathering (Handled by Hook now)
 
     // Intent Detection (Handled by Hook)
@@ -1848,9 +1878,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
     // Handle pending AI prompt from other pages (legacy prop cleanup)
     useEffect(() => {
-        // This effect is now largely redundant with the one above, 
-        // but keeping structure clean if we need to re-add specific logic.
-        // For now, we rely on the propPendingPrompt effect.
+        // Handled via kiko-auto-send window event now (see above)
     }, []);
 
     // Feedback handler lifted to parent to persist state across remounts

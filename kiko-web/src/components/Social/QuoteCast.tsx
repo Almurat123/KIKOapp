@@ -21,9 +21,10 @@ interface QuoteCastProps {
         };
     };
     isDark?: boolean;
+    onQuoteClick?: () => void; // If provided, show 3D card instead of opening Farcaster
 }
 
-export const QuoteCast: React.FC<QuoteCastProps> = ({ embed, isDark }) => {
+export const QuoteCast: React.FC<QuoteCastProps> = ({ embed, isDark, onQuoteClick }) => {
     // [Risk]: Return null if no cast data available
     if (!embed.cast && !embed.castId) return null;
 
@@ -31,17 +32,23 @@ export const QuoteCast: React.FC<QuoteCastProps> = ({ embed, isDark }) => {
     const text = embed.cast?.text;
     const castHash = embed.castId?.hash || '';
 
-    // Build Warpcast URL for the quoted cast
+    // Build Warpcast URL as fallback
     const warpcastUrl = author?.username
         ? `https://warpcast.com/${author.username}/${castHash.slice(0, 10)}`
         : `https://warpcast.com/~/conversations/${castHash}`;
 
+    const handleClick = (e: React.MouseEvent) => {
+        e.stopPropagation();
+        if (onQuoteClick) {
+            onQuoteClick();
+        } else {
+            window.open(warpcastUrl, '_blank', 'noopener,noreferrer');
+        }
+    };
+
     return (
         <div
-            onClick={(e) => {
-                e.stopPropagation();
-                window.open(warpcastUrl, '_blank', 'noopener,noreferrer');
-            }}
+            onClick={handleClick}
             style={{
                 marginTop: '12px',
                 padding: '12px',

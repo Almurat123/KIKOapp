@@ -12,6 +12,11 @@ export interface TrendingCast {
         creatorCoin?: any;
         twitter?: string;
         verified?: boolean;
+        // New Hub fields
+        url?: string;            // USER_DATA_TYPE_URL — personal website
+        banner?: string;         // USER_DATA_TYPE_BANNER — profile banner image
+        primaryAddress?: string; // USER_DATA_PRIMARY_ADDRESS_ETHEREUM
+        location?: string;       // USER_DATA_TYPE_LOCATION — geo:lat,lng
     };
     text: string;
     timestamp: Date | string;
@@ -20,6 +25,8 @@ export interface TrendingCast {
         fid: number;
         hash: string;
     };
+    parentUrl?: string;          // Farcaster channel URL
+    mentionsPositions?: number[]; // Char positions of @mentions in text
     stats: {
         likes: number | string;
         recasts: number | string;

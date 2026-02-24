@@ -156,20 +156,58 @@ export const TokenDetailPage: React.FC<TokenDetailPageProps> = ({ token: propTok
   const [copied, setCopied] = useState(false);
   const [imageModalOpen, setImageModalOpen] = useState(false);
 
-  // Quick Trade Handler
+  // ── Trade Sheet state ────────────────────────────────────────────────────
+  const [tradeSheet, setTradeSheet] = useState<{
+    open: boolean;
+    action: 'buy' | 'sell';
+    amount: string;
+  }>({ open: false, action: 'buy', amount: '' });
+
+  /** Native gas token for each chain */
+  const nativeToken = (chain: string): string => {
+    const c = chain.toLowerCase();
+    if (c.includes('sol')) return 'SOL';
+    if (c.includes('bsc') || c.includes('bnb') || c.includes('binance')) return 'BNB';
+    if (c.includes('avax') || c.includes('avalanche')) return 'AVAX';
+    if (c.includes('matic') || c.includes('polygon')) return 'MATIC';
+    return 'ETH'; // base, ethereum, arbitrum, optimism, etc.
+  };
+
+  /** Preset quick-select amounts per action */
+  const presets = (action: 'buy' | 'sell', chain: string): string[] => {
+    if (action === 'sell') return ['25%', '50%', '75%', '100%'];
+    const gas = nativeToken(chain);
+    if (gas === 'SOL') return ['0.1', '0.5', '1', '2'];
+    if (gas === 'BNB') return ['0.05', '0.1', '0.5', '1'];
+    if (gas === 'AVAX' || gas === 'MATIC') return ['1', '5', '10', '25'];
+    return ['0.01', '0.05', '0.1', '0.5']; // ETH
+  };
+
+  // Quick Trade Handler — opens the amount sheet instead of navigating directly
   const handleTradeAction = (action: 'buy' | 'sell') => {
     if (!token) return;
-    const query = `${action === 'buy' ? 'Buy' : 'Sell'} ${token.symbol} on ${token.chain}`;
+    setTradeSheet({ open: true, action, amount: '' });
+  };
 
-    // If we have a conversation context or createConversation method available, use it
-    // For now, navigating to home/chat with prefill query is the safest migration parameter
-    // We can also use navigate with state if we want to avoid window.dispatchEvent in the future
+  /** Confirm trade — build the precise message and auto-send it to chat */
+  const handleTradeConfirm = () => {
+    if (!token || !tradeSheet.amount.trim()) return;
+    const addr = token.address;
+    const chain = token.chain;
+    const gas = nativeToken(chain);
+    const amt = tradeSheet.amount.trim();
 
-    navigate('/', {
-      state: {
-        prompt: query
-      }
-    });
+    const query = tradeSheet.action === 'buy'
+      ? `Buy ${addr} for ${amt} ${gas} on ${chain}`
+      : `Sell ${addr} for ${amt} on ${chain}`;
+
+    setTradeSheet(s => ({ ...s, open: false }));
+
+    // Store in sessionStorage so ChatInterface reads it on mount (works even if lazy-loaded)
+    sessionStorage.setItem('kiko-prefill-prompt', query);
+    // Also fire event in case ChatInterface is already mounted
+    window.dispatchEvent(new CustomEvent('kiko-prefill-input', { detail: { prompt: query } }));
+    navigate('/');
   };
 
   // Favorites State
@@ -179,6 +217,7 @@ export const TokenDetailPage: React.FC<TokenDetailPageProps> = ({ token: propTok
   const containerRef = useRef<HTMLDivElement>(null);
 
   const { resolvedTheme } = useThemeContext();
+  const isDark = resolvedTheme === 'dark';
   const [loading, setLoading] = useState(true);
 
   // Helper to convert API result to TokenInfo
@@ -251,20 +290,24 @@ export const TokenDetailPage: React.FC<TokenDetailPageProps> = ({ token: propTok
     return () => { isMounted = false; };
   }, [chain, address, propToken, mapApiToTokenInfo, !!(location.state as any)?.token]); // Stabilize location.state dependency
 
-  // Scroll to top and handle mock loading on mount
+  // Resolve loading state
   useEffect(() => {
-    // Force mock loading for 800ms only if we have data or are not fetching
-    // If fetching, we let fetchLoading handle it
-    if (token) {
-      const timer = setTimeout(() => setLoading(false), 800);
-      return () => clearTimeout(timer);
+    // If token came from props or navigation state (not API fetch), show immediately.
+    const fromNavState = !propToken && !!(location.state as any)?.token;
+    if (propToken || fromNavState) {
+      // Data already available — no delay needed
+      setLoading(false);
+      return;
+    }
+    // Token came from API fetch — wait until fetch completes
+    if (!fetchLoading && token) {
+      setLoading(false);
     } else if (!fetchLoading && fetchError) {
       setLoading(false);
     } else if (!fetchLoading && !token && !chain) {
-      // No data, no params
       setLoading(false);
     }
-  }, [token, fetchLoading, fetchError, chain]);
+  }, [token, fetchLoading, fetchError, chain, propToken, location.state]);
 
   useEffect(() => {
     if (containerRef.current) {
@@ -350,16 +393,10 @@ export const TokenDetailPage: React.FC<TokenDetailPageProps> = ({ token: propTok
 
   // Navigate to Chat page with token context for AI queries
   const handleAskAI = () => {
-    // Navigate to Chat page with token info as context query
     const query = `Check risk for token ${token.address} on ${token.chain}. Analyze security and potential issues for ${token.symbol} (${token.name}).`;
-    // Store in sessionStorage so ChatInterface can pick it up
-    // Use navigate for client-side routing instead of window.location
-    // This preserves state and avoids full page reload
-    navigate('/', {
-      state: {
-        prompt: query
-      }
-    });  // Or wherever your Chat tab is
+    sessionStorage.setItem('kiko-prefill-prompt', query);
+    window.dispatchEvent(new CustomEvent('kiko-prefill-input', { detail: { prompt: query } }));
+    navigate('/');
   };
 
   const getChainColor = (chain: string): string => {
@@ -730,6 +767,117 @@ export const TokenDetailPage: React.FC<TokenDetailPageProps> = ({ token: propTok
           </div>
         )
       }
+
+      {/* ── Trade Amount Sheet ─────────────────────────────────────────────── */}
+      {tradeSheet.open && (
+        <div
+          onClick={() => setTradeSheet(s => ({ ...s, open: false }))}
+          style={{
+            position: 'fixed', inset: 0, zIndex: 9000,
+            background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(4px)',
+            display: 'flex', alignItems: 'flex-end', justifyContent: 'center',
+          }}
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{
+              width: '100%', maxWidth: '480px',
+              background: isDark ? '#18181b' : '#ffffff',
+              borderRadius: '24px 24px 0 0',
+              padding: '24px 20px 36px',
+              boxShadow: '0 -8px 40px rgba(0,0,0,0.3)',
+              display: 'flex', flexDirection: 'column', gap: '16px',
+            }}
+          >
+            {/* Handle bar */}
+            <div style={{ width: '40px', height: '4px', borderRadius: '2px', background: isDark ? '#3f3f46' : '#d4d4d8', margin: '0 auto 4px' }} />
+
+            {/* Title */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <div style={{
+                width: '36px', height: '36px', borderRadius: '50%', overflow: 'hidden',
+                background: isDark ? '#27272a' : '#f4f4f5', flexShrink: 0,
+              }}>
+                {token.imageUrl && <img src={proxyImageUrl(token.imageUrl)} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} onError={e => (e.target as HTMLImageElement).style.display = 'none'} />}
+              </div>
+              <div>
+                <div style={{ fontWeight: 700, fontSize: '16px', color: isDark ? '#f4f4f5' : '#18181b' }}>
+                  {tradeSheet.action === 'buy' ? 'Buy' : 'Sell'} {token.symbol}
+                </div>
+                <div style={{ fontSize: '12px', color: isDark ? '#71717a' : '#a1a1aa', fontFamily: 'monospace' }}>
+                  {token.address.slice(0, 8)}...{token.address.slice(-6)} · {token.chain}
+                </div>
+              </div>
+            </div>
+
+            {/* Preset quick amounts */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '8px' }}>
+              {presets(tradeSheet.action, token.chain).map(p => (
+                <button
+                  key={p}
+                  onClick={() => setTradeSheet(s => ({ ...s, amount: p }))}
+                  style={{
+                    padding: '10px 0',
+                    borderRadius: '12px',
+                    border: tradeSheet.amount === p
+                      ? '2px solid #0052FF'
+                      : `1px solid ${isDark ? '#3f3f46' : '#e4e4e7'}`,
+                    background: tradeSheet.amount === p
+                      ? (isDark ? 'rgba(0,82,255,0.15)' : 'rgba(0,82,255,0.08)')
+                      : (isDark ? '#27272a' : '#f4f4f5'),
+                    color: tradeSheet.amount === p ? '#0052FF' : (isDark ? '#f4f4f5' : '#18181b'),
+                    fontWeight: 600, fontSize: '14px', cursor: 'pointer',
+                    transition: 'all 0.15s',
+                  }}
+                >
+                  {p}{tradeSheet.action === 'buy' ? ` ${nativeToken(token.chain)}` : ''}
+                </button>
+              ))}
+            </div>
+
+            {/* Custom amount input */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <input
+                type="number"
+                inputMode="decimal"
+                placeholder={tradeSheet.action === 'buy' ? `Custom ${nativeToken(token.chain)} amount` : 'Custom % e.g. 30%'}
+                value={presets(tradeSheet.action, token.chain).includes(tradeSheet.amount) ? '' : tradeSheet.amount}
+                onChange={e => setTradeSheet(s => ({ ...s, amount: e.target.value }))}
+                style={{
+                  flex: 1, padding: '12px 14px', borderRadius: '12px',
+                  border: `1px solid ${isDark ? '#3f3f46' : '#e4e4e7'}`,
+                  background: isDark ? '#27272a' : '#f4f4f5',
+                  color: isDark ? '#f4f4f5' : '#18181b',
+                  fontSize: '15px', outline: 'none',
+                }}
+              />
+              <span style={{ color: isDark ? '#71717a' : '#a1a1aa', fontWeight: 600, fontSize: '14px', flexShrink: 0 }}>
+                {tradeSheet.action === 'buy' ? nativeToken(token.chain) : '%'}
+              </span>
+            </div>
+
+            {/* Confirm button */}
+            <button
+              disabled={!tradeSheet.amount.trim()}
+              onClick={handleTradeConfirm}
+              style={{
+                padding: '14px',
+                borderRadius: '14px',
+                border: 'none',
+                background: tradeSheet.amount.trim()
+                  ? (tradeSheet.action === 'buy' ? '#0052FF' : '#ef4444')
+                  : (isDark ? '#3f3f46' : '#e4e4e7'),
+                color: tradeSheet.amount.trim() ? '#fff' : (isDark ? '#71717a' : '#a1a1aa'),
+                fontWeight: 700, fontSize: '16px', cursor: tradeSheet.amount.trim() ? 'pointer' : 'not-allowed',
+                transition: 'all 0.15s',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
+              }}
+            >
+              {tradeSheet.action === 'buy' ? 'Buy' : 'Sell'}{tradeSheet.amount.trim() ? ` · ${tradeSheet.amount.trim()}${tradeSheet.action === 'buy' ? ` ${nativeToken(token.chain)}` : ''}` : ''}
+            </button>
+          </div>
+        </div>
+      )}
     </div >
   );
 };

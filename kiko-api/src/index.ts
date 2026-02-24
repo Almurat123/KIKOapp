@@ -18,6 +18,7 @@ import { startTokenDataJobs } from './jobs/tokenDataJob.js';
 
 import { startSocialDataJobs } from './jobs/socialDataJob.js';
 import { startBillingJobs } from './jobs/billingJob.js';
+import { startContextLearningJob } from './jobs/contextLearningJob.js';
 import { marketRoutes } from './routes/market.js';
 import { tokenRoutes } from './routes/tokens.js';
 
@@ -389,6 +390,7 @@ async function start() {
             startTokenDataJobs();
             startSocialDataJobs();
             startBillingJobs();
+            startContextLearningJob();
             logger.info(LogCode.SYS_STARTUP, 'Background jobs started');
         } catch (jobError: any) {
             logger.error(LogCode.SYS_ERROR, 'Some background jobs failed to start', { error: jobError.message });

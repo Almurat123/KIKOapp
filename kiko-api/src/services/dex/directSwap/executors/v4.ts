@@ -66,6 +66,16 @@ export async function executeV4Swap(
   }
 ): Promise<DirectSwapResult> {
   const { userId, accessToken, tokenIn, tokenOut, chainId, slippageBps } = params;
+  const trustedHint = options?.trustedHint === true;
+  const normalizePairToken = (token: string): string => {
+    const value = String(token || '').toLowerCase();
+    if (value === '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee') {
+      if (chainId === 8453) return '0x4200000000000000000000000000000000000006';
+      if (chainId === 1) return '0xc02aa39b223fe8d0a0e5c4f27ead9083c756cc2';
+      if (chainId === 56) return '0xbb4cdb9cbd36b01bd1cbaebf2de08d9173bc095c';
+    }
+    return value;
+  };
   const plan = buildV4ExecutionPlan({
     tokenIn,
     tokenOut,
@@ -74,15 +84,26 @@ export async function executeV4Swap(
     pool
   });
   const { isNativeIn, isNativeOut, normalizedIn, normalizedOut, zeroForOne, hookDataCandidates, hookFamily, poolKey, poolId } = plan;
-  const poolToken0 = poolKey.currency0.toLowerCase();
-  const poolToken1 = poolKey.currency1.toLowerCase();
-  const inToken = normalizedIn.toLowerCase();
-  const outToken = normalizedOut.toLowerCase();
+  const poolToken0 = normalizePairToken(poolKey.currency0);
+  const poolToken1 = normalizePairToken(poolKey.currency1);
+  const inToken = normalizePairToken(normalizedIn);
+  const outToken = normalizePairToken(normalizedOut);
   const pairMatches =
     (poolToken0 === inToken && poolToken1 === outToken)
     || (poolToken0 === outToken && poolToken1 === inToken);
   if (!pairMatches) {
-    logger.warn(LogCode.SYS_INFO, '[DirectSwap] Reject V4 pool: swap pair mismatch', {
+    if (!trustedHint) {
+      logger.warn(LogCode.SYS_INFO, '[DirectSwap] Reject V4 pool: swap pair mismatch', {
+        chainId,
+        poolId,
+        tokenIn: normalizedIn,
+        tokenOut: normalizedOut,
+        poolToken0: poolKey.currency0,
+        poolToken1: poolKey.currency1
+      });
+      return { success: false, error: 'hint_pool_pair_mismatch:execution_plan', provider: 'failed' };
+    }
+    logger.warn(LogCode.SYS_INFO, '[DirectSwap] Pair mismatch bypassed for trusted hint; will rely on pre-sim', {
       chainId,
       poolId,
       tokenIn: normalizedIn,
@@ -90,7 +111,6 @@ export async function executeV4Swap(
       poolToken0: poolKey.currency0,
       poolToken1: poolKey.currency1
     });
-    return { success: false, error: 'hint_pool_pair_mismatch:execution_plan', provider: 'failed' };
   }
 
   logger.info(LogCode.SYS_INFO, '[DirectSwap] Using V4 pool', {
@@ -108,8 +128,6 @@ export async function executeV4Swap(
   const amountInWei = params.amountInWei;
   const fastMode = options?.fastMode === true;
   const executionMode: DirectSwapExecutionMode = options?.executionMode || 'normal';
-  const trustedHint = options?.trustedHint === true;
-
   let quoterOutWei = 0n;
   let selectedHookData = hookDataCandidates[0] || '0x';
 

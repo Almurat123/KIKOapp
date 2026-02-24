@@ -40,6 +40,12 @@ import { sendTransaction } from './privyWallet.js';
 import { isPostBuyPreApprovalEnabled } from './swapPreApprovalPolicy.js';
 import type { CopyTradeExecutionMode } from './copyTradeExecutionMode.js';
 import type { TxLifecycleResult } from './txLifecycle.js';
+import type { ExecutionPlanV1 } from './copytrade/planner/types.js';
+import { isP2ExecutorEnabled, isP2SampleLearningEnabled, isP2ShadowRunEnabled } from './copytrade/planner/featureFlags.js';
+import { buildRouterExecuteCalldata, simulatePlan } from './copytrade/planner/shadowRunner.js';
+import { recordPlanRun, recordSuccessSample } from './copytrade/planner/sampleLibrary.js';
+import type { SwapExecutionContextV1 } from './copytrade/context/types.js';
+import { buildDirectSwapHintFromContext } from './copytrade/context/contextStore.js';
 
 /**
  * Swap execution mode to determine behavior and fee structure
@@ -122,6 +128,17 @@ export interface MainSwapRequest {
 
   // Copytrade execution hint from target wallet decoded tx
   directSwapHint?: DirectSwapHint;
+  executionContext?: {
+    sourceTxHash?: string;
+    sourceRouter?: string;
+    sourceTxInput?: string;
+    sourceTxValue?: string;
+    contextId?: string;
+    contextSnapshot?: SwapExecutionContextV1;
+    contextHitSource?: 'redis' | 'db' | 'inline' | 'miss';
+    strictReplica?: boolean;
+  };
+  executionPlan?: ExecutionPlanV1;
 
   // When true, do not report success until a confirmed successful receipt is observed.
   // Used by position exits to prevent false "sold" states on later reverts.
@@ -242,6 +259,7 @@ export class MainSwapService {
 
   private static async collectDirectSwapFee(
     request: MainSwapRequest,
+    normalizedTokenIn: string,
     normalizedTokenOut: string,
     amountOutBase: string | undefined,
     feeContext: FeeContext,
@@ -253,16 +271,38 @@ export class MainSwapService {
       logger.warn(LogCode.SYS_INFO, trace('Direct swap fee skipped: missing access token'));
       return;
     }
-    if (!amountOutBase) {
-      logger.warn(LogCode.SYS_INFO, trace('Direct swap fee skipped: missing amountOut'));
-      return;
+    let feeToken = normalizedTokenOut;
+    let feeBaseAmount = amountOutBase;
+    let feeBaseSource: 'amountOut' | 'amountInFallback' = 'amountOut';
+
+    // Some direct-swap executors don't return amountOut. Fall back to amountIn to avoid fee leaks.
+    if (!feeBaseAmount) {
+      feeBaseSource = 'amountInFallback';
+      feeToken = normalizedTokenIn;
+      try {
+        if (isNativeToken(feeToken, request.chainId)) {
+          feeBaseAmount = ethers.parseUnits(request.amountIn, 18).toString();
+        } else {
+          const tokenInfo = await getTokenInfo(feeToken, request.chainId);
+          const decimals = tokenInfo?.decimals ?? 18;
+          feeBaseAmount = ethers.parseUnits(request.amountIn, decimals).toString();
+        }
+        logger.warn(LogCode.SYS_INFO, trace('Direct swap fee fallback: amountOut missing, using amountIn'));
+      } catch (fallbackErr: any) {
+        logger.warn(LogCode.SYS_INFO, trace('Direct swap fee skipped: missing amountOut and amountIn fallback failed'), {
+          error: fallbackErr?.message || String(fallbackErr)
+        });
+        return;
+      }
     }
 
     let rawOut: bigint;
     try {
-      rawOut = BigInt(amountOutBase);
+      rawOut = BigInt(feeBaseAmount);
     } catch {
-      logger.warn(LogCode.SYS_INFO, trace('Direct swap fee skipped: invalid amountOut format'), { amountOutBase });
+      logger.warn(LogCode.SYS_INFO, trace('Direct swap fee skipped: invalid fee base amount format'), {
+        feeBaseAmount
+      });
       return;
     }
     if (rawOut <= 0n) return;
@@ -270,7 +310,7 @@ export class MainSwapService {
     const feeAmount = rawOut * BigInt(fee.bps) / 10000n;
     if (feeAmount <= 0n) return;
 
-    if (isNativeToken(normalizedTokenOut, request.chainId)) {
+    if (isNativeToken(feeToken, request.chainId)) {
       const feeTxHash = await sendTransaction(request.userId, request.accessToken, {
         to: fee.evmRecipient!,
         data: '0x',
@@ -280,6 +320,7 @@ export class MainSwapService {
       });
       logger.info(LogCode.EXE_TX_CONFIRMED, trace('Direct swap native fee sent'), {
         feeTxHash,
+        feeBaseSource,
         feeAmount: feeAmount.toString(),
         feeRecipient: fee.evmRecipient
       });
@@ -288,7 +329,7 @@ export class MainSwapService {
 
     const erc20 = new ethers.Interface(['function transfer(address to, uint256 value)']);
     const feeTxHash = await sendTransaction(request.userId, request.accessToken, {
-      to: normalizedTokenOut,
+      to: feeToken,
       data: erc20.encodeFunctionData('transfer', [fee.evmRecipient!, feeAmount]),
       value: '0',
       chainId: request.chainId,
@@ -296,7 +337,8 @@ export class MainSwapService {
     });
     logger.info(LogCode.EXE_TX_CONFIRMED, trace('Direct swap token fee sent'), {
       feeTxHash,
-      token: normalizedTokenOut,
+      token: feeToken,
+      feeBaseSource,
       feeAmount: feeAmount.toString(),
       feeRecipient: fee.evmRecipient
     });
@@ -383,6 +425,9 @@ export class MainSwapService {
       }
 
       // 5. ROUTE TO APPROPRIATE EXECUTOR
+      if (request.mode === 'copytrade' && request.executionPlan) {
+        return await this.executePlannedSwap(request, feeContext, trace, ctx);
+      }
       if (request.launchpadProvider) {
         return await this.executeLaunchpadSwap(request, feeContext, trace, ctx);
       } else if (isSolana) {
@@ -406,6 +451,175 @@ export class MainSwapService {
         }
       };
     }
+  }
+
+  private static async executePlannedSwap(
+    request: MainSwapRequest,
+    feeContext: FeeContext,
+    trace: (msg: string) => string,
+    ctx: TradeContext
+  ): Promise<MainSwapResult> {
+    const plan = request.executionPlan!;
+    const t0 = Date.now();
+    const p2Mode = isP2ExecutorEnabled() ? 'canary' : 'shadow';
+    let simulation: Awaited<ReturnType<typeof simulatePlan>> | null = null;
+
+    if (isP2ShadowRunEnabled()) {
+      simulation = await simulatePlan(plan, request.walletAddress);
+      await recordPlanRun({
+        mode: p2Mode,
+        chainId: request.chainId,
+        inputJson: JSON.stringify({
+          tokenIn: request.tokenIn,
+          tokenOut: request.tokenOut,
+          amountIn: request.amountIn,
+          sourceTxHash: request.executionContext?.sourceTxHash || null
+        }),
+        planJson: JSON.stringify(plan),
+        simulationJson: JSON.stringify(simulation),
+        scoreJson: JSON.stringify({ plannerScore: plan.trace?.plannerScore || 0 }),
+        selectedTemplateId: plan.templateRef?.templateId,
+        resultStatus: simulation.success ? 'shadow_sim_pass' : 'shadow_sim_fail',
+        latencyMs: Date.now() - t0
+      });
+    }
+
+    if (!isP2ExecutorEnabled()) {
+      const shouldTrySourceReplay =
+        plan.templateRef?.commandType === 'source_calldata_replay'
+        && simulation?.success === true
+        && /^0x[a-fA-F0-9]{40}$/.test(String(plan.templateRef?.router || ''));
+      if (shouldTrySourceReplay) {
+        try {
+          const nativeValue = isNativeToken(request.tokenIn, request.chainId)
+            ? ethers.parseUnits(request.amountIn, 18).toString()
+            : '0';
+          const replayTxHash = await sendTransaction(request.userId, request.accessToken || '', {
+            to: plan.templateRef.router,
+            data: buildRouterExecuteCalldata(plan),
+            value: nativeValue,
+            chainId: request.chainId,
+            nonce: await request.preWarmedNonce
+          });
+          await recordPlanRun({
+            mode: 'canary',
+            chainId: request.chainId,
+            inputJson: JSON.stringify({
+              tokenIn: request.tokenIn,
+              tokenOut: request.tokenOut,
+              amountIn: request.amountIn,
+              sourceTxHash: request.executionContext?.sourceTxHash || null
+            }),
+            planJson: JSON.stringify(plan),
+            simulationJson: JSON.stringify(simulation),
+            scoreJson: JSON.stringify({ plannerScore: plan.trace?.plannerScore || 0 }),
+            selectedTemplateId: plan.templateRef?.templateId,
+            resultStatus: 'source_replay_tx_sent',
+            txHash: replayTxHash,
+            latencyMs: Date.now() - t0
+          });
+          logger.info(LogCode.SYS_INFO, trace('[P2] Source replay sent before external quote fallback'), {
+            chainId: request.chainId,
+            sourceTxHash: request.executionContext?.sourceTxHash || null,
+            replayTxHash
+          });
+          return {
+            success: true,
+            txHash: replayTxHash,
+            metadata: {
+              provider: 'p2-source-replay',
+              mode: request.mode
+            }
+          };
+        } catch (replayError: any) {
+          logger.warn(LogCode.SYS_INFO, trace('[P2] Source replay failed, falling back to external quote path'), {
+            chainId: request.chainId,
+            error: replayError?.message || String(replayError),
+            sourceTxHash: request.executionContext?.sourceTxHash || null
+          });
+        }
+      }
+      logger.info(LogCode.SYS_INFO, trace('[P2] Planned swap shadow mode, fallback to current execution path'), {
+        chainId: request.chainId,
+        templateId: plan.templateRef?.templateId,
+        simulationSuccess: simulation?.success ?? null
+      });
+      return await this.executeEvmSwap(request, feeContext, trace, ctx);
+    }
+
+    logger.info(LogCode.SYS_INFO, trace('[P2] Planned swap executor mode enabled'), {
+      chainId: request.chainId,
+      templateId: plan.templateRef?.templateId
+    });
+
+    const routerAddress = String(plan.templateRef?.router || '').trim();
+    if (!/^0x[a-fA-F0-9]{40}$/.test(routerAddress)) {
+      logger.warn(LogCode.SYS_INFO, trace('[P2] Planned router missing, fallback to legacy path'), {
+        chainId: request.chainId
+      });
+      return await this.executeEvmSwap(request, feeContext, trace, ctx);
+    }
+
+    const calldata = buildRouterExecuteCalldata(plan);
+    const nativeValue = isNativeToken(request.tokenIn, request.chainId)
+      ? ethers.parseUnits(request.amountIn, 18).toString()
+      : '0';
+    const txHash = await sendTransaction(request.userId, request.accessToken || '', {
+      to: routerAddress,
+      data: calldata,
+      value: nativeValue,
+      chainId: request.chainId,
+      nonce: await request.preWarmedNonce
+    });
+    const result: MainSwapResult = {
+      success: true,
+      txHash,
+      amountOut: undefined,
+      metadata: {
+        provider: 'p2-planned-router',
+        mode: request.mode
+      }
+    };
+
+    await recordPlanRun({
+      mode: 'live',
+      chainId: request.chainId,
+      inputJson: JSON.stringify({
+        tokenIn: request.tokenIn,
+        tokenOut: request.tokenOut,
+        amountIn: request.amountIn,
+        sourceTxHash: request.executionContext?.sourceTxHash || null
+      }),
+      planJson: JSON.stringify(plan),
+      scoreJson: JSON.stringify({ plannerScore: plan.trace?.plannerScore || 0 }),
+      selectedTemplateId: plan.templateRef?.templateId,
+      resultStatus: 'executor_tx_sent',
+      txHash,
+      latencyMs: Date.now() - t0
+    });
+
+    if (isP2SampleLearningEnabled() && result.success && result.txHash) {
+      await recordSuccessSample({
+        chainId: request.chainId,
+        side: plan.side,
+        txHash,
+        wallet: request.walletAddress,
+        tokenIn: request.tokenIn,
+        tokenOut: request.tokenOut,
+        amountIn: request.amountIn,
+        amountOut: result.amountOut,
+        router: plan.templateRef.router,
+        selector: plan.execData?.commands?.slice?.(0, 10),
+        commandMetaJson: JSON.stringify({
+          commandType: plan.templateRef.commandType,
+          templateId: plan.templateRef.templateId,
+          sourceTxHash: request.executionContext?.sourceTxHash || null,
+          sourceTxInput: request.executionContext?.sourceTxInput || null,
+          sourceTxValue: request.executionContext?.sourceTxValue || null
+        }),
+      });
+    }
+    return result;
   }
 
   /**
@@ -767,7 +981,9 @@ export class MainSwapService {
       chainId: request.chainId,
       tokenIn: normalizedTokenIn.slice(0, 12),
       tokenOut: normalizedTokenOut.slice(0, 12),
-      fastSwapMode: request.userSettings?.fastSwapMode
+      fastSwapMode: request.userSettings?.fastSwapMode,
+      contextHitSource: request.executionContext?.contextHitSource || 'miss',
+      contextId: request.executionContext?.contextId || null
     });
 
     // [Logic]: FastSwapMode 使用直接交易 (V3/V4)，跳过 0x/Kyber
@@ -777,11 +993,13 @@ export class MainSwapService {
     const isCashOut = isCashLikeToken(normalizedTokenOut, request.chainId);
     const isBuyDirection = isCashIn && !isCashOut;
     const isSellDirection = !isCashIn && isCashOut;
-    const allowDirectSell = request.mode === 'copytrade' && isSellDirection;
+    const copytradeAggregatorOnly = request.mode === 'copytrade'
+      && (process.env.COPYTRADE_AGGREGATOR_ONLY || 'true').toLowerCase() === 'true';
+    const allowDirectSell = !copytradeAggregatorOnly && request.mode === 'copytrade' && isSellDirection;
     const enforcedSlippageBps = request.mode === 'copytrade'
       ? (request.slippageBps ?? 1500)
       : (request.slippageBps ?? 50);
-    const fastSwapEnabled = request.userSettings?.fastSwapMode === true;
+    const fastSwapEnabled = !copytradeAggregatorOnly && request.userSettings?.fastSwapMode === true;
     if (!fastSwapEnabled || !isDirectSwapSupported(request.chainId) || (!isBuyDirection && !allowDirectSell)) {
       const reasons: string[] = [];
       if (!fastSwapEnabled) reasons.push('fastSwapMode=false');
@@ -794,6 +1012,7 @@ export class MainSwapService {
         isBuyDirection,
         isSellDirection,
         allowDirectSell,
+        copytradeAggregatorOnly,
         isCashIn,
         isCashOut,
         chainId: request.chainId,
@@ -805,6 +1024,7 @@ export class MainSwapService {
 
     if (fastSwapEnabled && isDirectSwapSupported(request.chainId) && (isBuyDirection || allowDirectSell)) {
       const rpcUsageBefore = getRpcMethodUsageSnapshot(request.chainId);
+      const directSwapHint = request.directSwapHint || buildDirectSwapHintFromContext(request.executionContext?.contextSnapshot);
       try {
       // Default: turbo uses 2 direct attempts to avoid bursting RPC under degraded conditions.
       const DIRECT_SWAP_MAX_ATTEMPTS = isTurboCopytrade ? TURBO_DIRECT_MAX_ATTEMPTS : BALANCED_DIRECT_MAX_ATTEMPTS;
@@ -866,7 +1086,7 @@ export class MainSwapService {
               amountIn: attemptAmountIn,
               chainId: request.chainId,
               slippageBps: attemptSlippageBps,
-              hint: request.directSwapHint,
+              hint: directSwapHint,
               executionMode: request.userSettings?.copyTradeExecutionMode
             })
           );
@@ -943,6 +1163,7 @@ export class MainSwapService {
             try {
               await this.collectDirectSwapFee(
                 request,
+                normalizedTokenIn,
                 normalizedTokenOut,
                 visibleResult.amountOut,
                 feeContext,
@@ -1028,6 +1249,7 @@ export class MainSwapService {
                 try {
                   await this.collectDirectSwapFee(
                     request,
+                    normalizedTokenIn,
                     normalizedTokenOut,
                     visibleFinalResult.amountOut,
                     feeContext,
@@ -1087,6 +1309,7 @@ export class MainSwapService {
                   try {
                     await this.collectDirectSwapFee(
                       request,
+                      normalizedTokenIn,
                       normalizedTokenOut,
                       visibleFlushed.amountOut,
                       feeContext,

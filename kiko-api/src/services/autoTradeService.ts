@@ -50,6 +50,13 @@ import {
     type CopyTradeExecutionMode
 } from './copyTradeExecutionMode.js';
 import { preheatSellApprovalForToken } from './sellApprovalPreheater.js';
+import { isP2PlannerEnabled, getP2AllowedChains } from './copytrade/planner/featureFlags.js';
+import { buildExecutionPlan } from './copytrade/planner/pathPlanner.js';
+import type { PlannerInput, ExecutionSide } from './copytrade/planner/types.js';
+import { persistTargetSwapEvent } from './targetWalletTrackingService.js';
+import { buildSwapExecutionContext } from './copytrade/context/contextBuilder.js';
+import { getContextByTxHash, putContext } from './copytrade/context/contextStore.js';
+import type { ContextStoreHit } from './copytrade/context/types.js';
 
 export { getTokenInfo } from './tokenService.js';
 
@@ -302,16 +309,137 @@ function buildDirectSwapHintFromSwap(swap: DecodedSwap): DirectSwapHint | undefi
         && !swap?.routeHops?.length
     ) return undefined;
 
+    const preferredStrategy = (() => {
+        const resolvedKind = swap?.resolvedPoolHint?.kind;
+        if (resolvedKind === 'v4' || resolvedKind === 'v3' || resolvedKind === 'v2' || resolvedKind === 'aerodrome') {
+            return resolvedKind;
+        }
+        const firstHop = swap?.routeHops?.[0]?.kind;
+        if (firstHop === 'v4' || firstHop === 'v3' || firstHop === 'v2' || firstHop === 'aerodrome' || firstHop === 'infinity') {
+            return firstHop;
+        }
+        return undefined;
+    })();
+    const preferredDex = swap?.resolvedPoolHint?.dex || swap?.routeHops?.[0]?.dex;
+    const routeHopCount = Number.isFinite(Number(swap?.routeHopCount))
+        ? Number(swap?.routeHopCount)
+        : (swap?.routeHops?.length || 0);
+
     return {
         sourceDexName: sourceDexName || undefined,
         sourceRouter: sourceRouter || undefined,
         sourceTxHash: sourceTxHash || undefined,
-        routeHopCount: swap?.routeHopCount,
+        routeHopCount,
         routeHops: swap?.routeHops,
         canUseResolvedPoolFastPath: swap?.canUseResolvedPoolFastPath,
         resolvedPoolHint: swap?.resolvedPoolHint,
+        preferredStrategy,
+        preferredDex,
         bypassReferencePrice: true
     };
+}
+
+function inferExecutionSideFromTokens(tokenIn: string, tokenOut: string, chainId: number): ExecutionSide {
+    const chain = getChainConfig(chainId);
+    const stableSet = new Set((chain.stablecoins || []).map((x) => String(x || '').toLowerCase()));
+    const wrappedNative = String(chain.wrappedNativeAddress || '').toLowerCase();
+    const isCashLike = (value: string): boolean => {
+        const v = String(value || '').toLowerCase();
+        return v === 'eth'
+            || v === 'bnb'
+            || v === '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee'
+            || v === wrappedNative
+            || stableSet.has(v);
+    };
+    return isCashLike(tokenIn) && !isCashLike(tokenOut) ? 'buy' : 'sell';
+}
+
+function isSourceReplayEligibleInput(sourceTxInput?: string): boolean {
+    const selector = String(sourceTxInput || '').slice(0, 10).toLowerCase();
+    return selector === '0x3593564c' || selector === '0x24856bc3';
+}
+
+async function buildPlannedExecutionContext(args: {
+    chainId: number;
+    walletAddress: string;
+    tokenIn: string;
+    tokenOut: string;
+    amountIn: string;
+    swap?: DecodedSwap;
+}) {
+    const sourceTxHash = String(args.swap?.txHash || '').toLowerCase();
+    let contextStoreHit: ContextStoreHit = { context: null, source: 'miss' };
+    if (sourceTxHash) {
+        contextStoreHit = await getContextByTxHash(args.chainId, sourceTxHash).catch(() => ({ context: null, source: 'miss' }));
+    }
+    const inlineContext = args.swap?.txHash
+        ? buildSwapExecutionContext({
+            tx: {
+                hash: String(args.swap.txHash),
+                to: String(args.swap.router || ''),
+                input: String(args.swap.sourceTxInput || ''),
+                value: String(args.swap.sourceTxValue || '0')
+            },
+            decodedSwap: args.swap,
+            chainId: args.chainId,
+            targetWallet: args.walletAddress
+        })
+        : null;
+    const context = contextStoreHit.context || inlineContext;
+    if (inlineContext && !contextStoreHit.context) {
+        await putContext(inlineContext).catch(() => { });
+    }
+
+    const contextHitSource: 'redis' | 'db' | 'inline' | 'miss' = contextStoreHit.context
+        ? contextStoreHit.source
+        : (inlineContext ? 'inline' : 'miss');
+
+    const executionContext = {
+        sourceTxHash: context?.sourceTxHash || args.swap?.txHash,
+        sourceRouter: context?.sourceRouter || args.swap?.router,
+        sourceTxInput: context?.sourceTxInput || args.swap?.sourceTxInput,
+        sourceTxValue: context?.sourceTxValue || args.swap?.sourceTxValue,
+        contextId: contextStoreHit.contextId,
+        contextSnapshot: context || undefined,
+        contextHitSource,
+        strictReplica: false
+    };
+    const sourceInput = context?.sourceTxInput || args.swap?.sourceTxInput;
+    const sourceRouter = context?.sourceRouter || args.swap?.router;
+    const hasSourceReplayContext = !!sourceInput
+        && !!sourceRouter
+        && isSourceReplayEligibleInput(sourceInput);
+    if (!isP2PlannerEnabled() && !hasSourceReplayContext) {
+        return { executionContext, executionPlan: undefined };
+    }
+    if (!getP2AllowedChains().includes(args.chainId) && !hasSourceReplayContext) {
+        return { executionContext, executionPlan: undefined };
+    }
+    try {
+        const plannerInput: PlannerInput = {
+            chainId: args.chainId,
+            side: inferExecutionSideFromTokens(args.tokenIn, args.tokenOut, args.chainId),
+            tokenIn: args.tokenIn,
+            tokenOut: args.tokenOut,
+            amountIn: args.amountIn,
+            walletAddress: args.walletAddress,
+            sourceTxHash: context?.sourceTxHash || args.swap?.txHash,
+            sourceRouter: sourceRouter,
+            sourceSelector: context?.sourceSelector,
+            sourceTxInput: sourceInput,
+            sourceTxValue: context?.sourceTxValue || args.swap?.sourceTxValue
+        };
+        const executionPlan = await buildExecutionPlan(plannerInput);
+        return { executionContext, executionPlan };
+    } catch (error: any) {
+        logger.warn(LogCode.SYS_ERROR, '[P2] Planner build failed in autoTradeService', {
+            error: error?.message || String(error),
+            chainId: args.chainId,
+            tokenIn: args.tokenIn,
+            tokenOut: args.tokenOut
+        });
+        return { executionContext, executionPlan: undefined };
+    }
 }
 
 function getMinTargetEffectiveFloorUsd(minTargetValueUsd: number): number {
@@ -613,6 +741,33 @@ export async function handleSwapDetected(
             tokenPairDirection: isBuy ? 'buy' : isSell ? 'sell' : 'neutral'
         });
         return;
+    }
+
+    // Persist target wallet activity to WalletTransaction so PnL card always reflects live trades.
+    // This is fire-and-forget — it must never block the copy trade execution path.
+    if (swap.txHash) {
+        const txTypeForPersist: 'TARGET_BUY' | 'TARGET_SELL' | 'TARGET_TOKEN_SWAP' =
+            isSell ? 'TARGET_SELL' :
+            isTokenToToken ? 'TARGET_TOKEN_SWAP' :
+            'TARGET_BUY';
+        void persistTargetSwapEvent({
+            walletAddress: targetWallet,
+            chainId,
+            txHash: swap.txHash,
+            txType: txTypeForPersist,
+            tokenIn: swap.tokenIn,
+            tokenOut: swap.tokenOut,
+            tokenInAddress: swap.tokenIn,
+            tokenOutAddress: swap.tokenOut,
+            amountIn: swap.amountIn,
+            amountOut: swap.amountOut,
+            valueInUsd: swap.cashLegHint?.cashSpentUsd,
+            valueOutUsd: swap.cashLegHint?.cashReceivedUsd,
+            valueUsd: (swap.cashLegHint?.cashSpentUsd ?? 0) > 0
+                ? swap.cashLegHint?.cashSpentUsd
+                : swap.cashLegHint?.cashReceivedUsd,
+            source: 'webhook',
+        }).catch(() => undefined);
     }
 
     if (isSell) {
@@ -1918,19 +2073,30 @@ async function processSingleUserBuy(
                         eth: baseAmount.toFixed(6),
                         timingMs: Date.now() - timingDetectedAt
                     });
-                    const fastSwapOverride = executionMode !== 'safe';
+                    const fastSwapOverride = false; // copytrade aggregator-only
+                    const amountStep1 = baseAmount.toFixed(18);
+                    const plannedStep1 = await buildPlannedExecutionContext({
+                        chainId,
+                        walletAddress: effectiveConfig.user.walletAddress,
+                        tokenIn: 'ETH',
+                        tokenOut: tokenToBuy,
+                        amountIn: amountStep1,
+                        swap
+                    });
                     const result1 = await MainSwapService.executeSwap({
                         userId: effectiveConfig.user.privyDid,
                         walletAddress: effectiveConfig.user.walletAddress,
                         tokenIn: 'ETH',
                         tokenOut: tokenToBuy,
                         // [Logic]: Limit to 18 decimals to prevent ethers "too many decimals" error.
-                        amountIn: baseAmount.toFixed(18),
+                        amountIn: amountStep1,
                         chainId,
                         slippageBps: baseSlippage,
                         mode: 'copytrade',
                         feeBpsOverride: copyTradeFeeBpsOverride,
                         directSwapHint: buildDirectSwapHintFromSwap(swap),
+                        executionContext: plannedStep1.executionContext,
+                        executionPlan: plannedStep1.executionPlan,
                         userSettings: {
                             fastSwapMode: fastSwapOverride || userSettings?.fastSwapMode,
                             copyTradeExecutionMode: executionMode
@@ -2009,19 +2175,30 @@ async function processSingleUserBuy(
                             const amount99 = baseAmount * 0.99;
                             const slippage2 = Math.min(Math.floor(baseSlippage * 1.25), 2000); // Max 20% or 1.25x user setting
                             logger.info(LogCode.EXE_TX_BROADCAST, `Buy Step 2: 99% amount, ${slippage2 / 100}% slippage`, { userId: effectiveConfig.userId, eth: amount99.toFixed(6) });
-                            const fastSwapOverride = executionMode !== 'safe';
+                            const fastSwapOverride = false; // copytrade aggregator-only
+                            const amountStep2 = amount99.toFixed(18);
+                            const plannedStep2 = await buildPlannedExecutionContext({
+                                chainId,
+                                walletAddress: effectiveConfig.user.walletAddress,
+                                tokenIn: 'ETH',
+                                tokenOut: tokenToBuy,
+                                amountIn: amountStep2,
+                                swap
+                            });
                             const result2 = await MainSwapService.executeSwap({
                                 userId: effectiveConfig.user.privyDid,
                                 walletAddress: effectiveConfig.user.walletAddress,
                                 tokenIn: 'ETH',
                                 tokenOut: tokenToBuy,
                                 // [Logic]: Limit to 18 decimals to prevent ethers "too many decimals" error.
-                                amountIn: amount99.toFixed(18),
+                                amountIn: amountStep2,
                                 chainId,
                                 slippageBps: slippage2,
                                 mode: 'copytrade',
                                 feeBpsOverride: copyTradeFeeBpsOverride,
                                 directSwapHint: buildDirectSwapHintFromSwap(swap),
+                                executionContext: plannedStep2.executionContext,
+                                executionPlan: plannedStep2.executionPlan,
                                 userSettings: {
                                     fastSwapMode: fastSwapOverride || userSettings?.fastSwapMode,
                                     copyTradeExecutionMode: executionMode
@@ -2045,19 +2222,30 @@ async function processSingleUserBuy(
                                 const amount98 = baseAmount * 0.98;
                                 const slippage3 = Math.min(Math.floor(baseSlippage * 1.5), 2500); // Max 25% or 1.5x user setting
                                 logger.info(LogCode.EXE_TX_BROADCAST, `Buy Step 3: 98% amount, ${slippage3 / 100}% slippage`, { userId: effectiveConfig.userId, eth: amount98.toFixed(6) });
-                                const fastSwapOverride = executionMode !== 'safe';
+                                const fastSwapOverride = false; // copytrade aggregator-only
+                                const amountStep3 = amount98.toFixed(18);
+                                const plannedStep3 = await buildPlannedExecutionContext({
+                                    chainId,
+                                    walletAddress: effectiveConfig.user.walletAddress,
+                                    tokenIn: 'ETH',
+                                    tokenOut: tokenToBuy,
+                                    amountIn: amountStep3,
+                                    swap
+                                });
                                 const result3 = await MainSwapService.executeSwap({
                                     userId: effectiveConfig.user.privyDid,
                                     walletAddress: effectiveConfig.user.walletAddress,
                                     tokenIn: 'ETH',
                                     tokenOut: tokenToBuy,
                                     // [Logic]: Limit to 18 decimals to prevent ethers "too many decimals" error.
-                                    amountIn: amount98.toFixed(18),
+                                    amountIn: amountStep3,
                                     chainId,
                                     slippageBps: slippage3,
                                     mode: 'copytrade',
                                     feeBpsOverride: copyTradeFeeBpsOverride,
                                     directSwapHint: buildDirectSwapHintFromSwap(swap),
+                                    executionContext: plannedStep3.executionContext,
+                                    executionPlan: plannedStep3.executionPlan,
                                     userSettings: {
                                         fastSwapMode: fastSwapOverride || userSettings?.fastSwapMode,
                                         copyTradeExecutionMode: executionMode
@@ -2559,8 +2747,8 @@ async function executePositionExit(params: {
 
             let isPartialSell = false;
             const executionMode = resolveExecutionModeForConfig(config);
-            const allowDirectSellPath = executionMode !== 'safe';
-            const fastSwapModeForSell = allowDirectSellPath;
+            const allowDirectSellPath = false; // copytrade aggregator-only
+            const fastSwapModeForSell = false;
             const runSellRoute = async (amountInHuman: string, slippageBps: number, fastSwapMode: boolean, route: string) => {
                 logger.info(LogCode.EXE_TX_BROADCAST, 'Mirror sell route attempt', {
                     userId,
@@ -2571,6 +2759,13 @@ async function executePositionExit(params: {
                     slippageBps,
                     fastSwapMode
                 });
+                const planned = await buildPlannedExecutionContext({
+                    chainId,
+                    walletAddress: user.walletAddress,
+                    tokenIn: tokenAddress,
+                    tokenOut: 'ETH',
+                    amountIn: amountInHuman
+                });
                 return await MainSwapService.executeSwap({
                     userId: user.privyDid,
                     walletAddress: user.walletAddress,
@@ -2580,6 +2775,8 @@ async function executePositionExit(params: {
                     chainId: chainId,
                     slippageBps,
                     mode: 'copytrade',
+                    executionContext: planned.executionContext,
+                    executionPlan: planned.executionPlan,
                     userSettings: {
                         fastSwapMode,
                         copyTradeExecutionMode: executionMode
@@ -2610,37 +2807,39 @@ async function executePositionExit(params: {
                     return null;
                 }
 
-                let sellResult = await runSellRoute(
-                    amountToSellHuman,
-                    initialSlippage,
-                    false,
-                    'external_primary'
-                );
-                if (!sellResult.success && allowDirectSellPath) {
-                    logger.warn(LogCode.EXE_TX_REVERTED, 'Mirror sell external route failed, trying direct pool fallback', {
-                        userId,
-                        tokenAddress,
-                        chainId,
-                        error: sellResult.error
-                    });
-                    sellResult = await runSellRoute(
+                if (!txHash) {
+                    let sellResult = await runSellRoute(
                         amountToSellHuman,
                         initialSlippage,
-                        true,
-                        'direct_fallback'
+                        false,
+                        'external_primary'
                     );
-                } else if (!sellResult.success) {
-                    logger.warn(LogCode.EXE_TX_REVERTED, 'Mirror sell direct fallback skipped by execution mode/policy', {
-                        userId,
-                        tokenAddress,
-                        chainId,
-                        executionMode,
-                        allowDirectSellPath,
-                        error: sellResult.error
-                    });
+                    if (!sellResult.success && allowDirectSellPath) {
+                        logger.warn(LogCode.EXE_TX_REVERTED, 'Mirror sell external route failed, trying direct pool fallback', {
+                            userId,
+                            tokenAddress,
+                            chainId,
+                            error: sellResult.error
+                        });
+                        sellResult = await runSellRoute(
+                            amountToSellHuman,
+                            initialSlippage,
+                            true,
+                            'direct_fallback'
+                        );
+                    } else if (!sellResult.success) {
+                        logger.warn(LogCode.EXE_TX_REVERTED, 'Mirror sell direct fallback skipped by execution mode/policy', {
+                            userId,
+                            tokenAddress,
+                            chainId,
+                            executionMode,
+                            allowDirectSellPath,
+                            error: sellResult.error
+                        });
+                    }
+                    if (!sellResult.success) throw new Error(sellResult.error);
+                    txHash = sellResult.txHash!;
                 }
-                if (!sellResult.success) throw new Error(sellResult.error);
-                txHash = sellResult.txHash!;
             } catch (e: any) {
                 if (allowDirectSellPath) {
                     try {
@@ -2760,6 +2959,13 @@ async function executePositionExit(params: {
                     const dustUsd = formatTokenAmount(remainingBalance, decimals) * (tokenInfo?.price || 0);
                     if (remainingBalance > 1000n && (dustUsd >= 0.05 || isPartialSell)) {
                         const dustAmountHuman = ethers.formatUnits(remainingBalance, decimals);
+                        const plannedDust = await buildPlannedExecutionContext({
+                            chainId,
+                            walletAddress: user.walletAddress,
+                            tokenIn: tokenAddress,
+                            tokenOut: 'ETH',
+                            amountIn: dustAmountHuman
+                        });
 
                         const dustResult = await MainSwapService.executeSwap({
                             userId: user.privyDid,
@@ -2770,6 +2976,8 @@ async function executePositionExit(params: {
                             chainId: chainId,
                             slippageBps: 2000, // Higher slippage for dust sweep (20%)
                             mode: 'copytrade',
+                            executionContext: plannedDust.executionContext,
+                            executionPlan: plannedDust.executionPlan,
                             userSettings: {
                                 fastSwapMode: fastSwapModeForSell,
                                 copyTradeExecutionMode: executionMode

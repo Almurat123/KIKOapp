@@ -27,6 +27,8 @@ import {
     processAlchemyWebhookInboxEventById,
     startAlchemyWebhookInboxWorker
 } from '../services/alchemyWebhookInboxService.js';
+import { buildSwapExecutionContext } from '../services/copytrade/context/contextBuilder.js';
+import { putContext } from '../services/copytrade/context/contextStore.js';
 
 interface ProcessTxBody {
     wallet: string;
@@ -148,6 +150,40 @@ function waitMs(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+async function persistSwapContext(params: {
+    chainId: number;
+    txHash: string;
+    txFrom?: string;
+    txTo?: string;
+    txInput?: string;
+    txValue?: string;
+    receiptLogs?: Array<{ topics: string[]; address: string; data: string }>;
+    swap: any;
+    targetWallet?: string;
+    detectedAt?: number;
+}): Promise<void> {
+    try {
+        const ctx = buildSwapExecutionContext({
+            tx: {
+                hash: params.txHash,
+                to: params.txTo || params.swap?.router || '',
+                input: params.txInput || params.swap?.sourceTxInput || '0x',
+                value: params.txValue || params.swap?.sourceTxValue || '0x0'
+            },
+            receipt: {
+                logs: params.receiptLogs || []
+            },
+            decodedSwap: params.swap,
+            chainId: params.chainId,
+            targetWallet: params.targetWallet,
+            detectedAt: params.detectedAt
+        });
+        await putContext(ctx);
+    } catch {
+        // best-effort only
+    }
+}
+
 async function attemptReceiptRecovery(
     chainId: number,
     txHash: string,
@@ -198,6 +234,17 @@ async function attemptReceiptRecovery(
             dex: swap.dexName,
             source: 'receipt_recovery'
         }).catch(() => { });
+        await persistSwapContext({
+            chainId,
+            txHash,
+            txFrom: fullTx.from,
+            txTo: fullTx.to,
+            txInput: fullTx.input,
+            txValue: fullTx.value,
+            receiptLogs: receipt.logs || [],
+            swap,
+            targetWallet: trackedTarget
+        });
         // Recovery path can be delayed by receipt availability; use current time to avoid
         // false "copytrade delay exceeded" skips in turbo mode.
         enqueueCopyTradeTask(trackedTarget, swap, chainId, { detectedAt: Date.now() });
@@ -762,6 +809,20 @@ async function processAlchemyWebhookPayload(payload: any): Promise<void> {
                     dex: swap.dexName,
                     source: cached ? 'pending_prefetch' : 'webhook_decode'
                 }).catch(() => { });
+                await persistSwapContext({
+                    chainId,
+                    txHash,
+                    txFrom: txSkeleton.from,
+                    txTo: txSkeleton.to,
+                    txInput: txSkeleton.input,
+                    txValue: txSkeleton.value,
+                    receiptLogs: receipt?.logs || [],
+                    swap,
+                    targetWallet: trackedTarget,
+                    detectedAt: cached
+                        ? resolveDetectedAt(cached.detectedAt, pendingHint?.detectedAt)
+                        : Date.now()
+                });
 
                 const { enqueueCopyTradeTask } = await import('../services/copyTradeQueue.js');
                 // When we decoded from receipt in this request (no cached predecoded), use now as detectedAt
@@ -896,6 +957,15 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
                     source: 'pending_prefetch'
                 }).catch(() => { });
                 const pendingHint = await getPendingTxHint(chainId, txHashNormalized).catch(() => null);
+                await persistSwapContext({
+                    chainId,
+                    txHash: txHashNormalized,
+                    txInput: predecoded.swap.sourceTxInput,
+                    txValue: predecoded.swap.sourceTxValue,
+                    swap: predecoded.swap,
+                    targetWallet: wallet,
+                    detectedAt: resolveDetectedAt(predecoded.detectedAt, pendingHint?.detectedAt)
+                });
                 const { enqueueCopyTradeTask } = await import('../services/copyTradeQueue.js');
                 enqueueCopyTradeTask(wallet, predecoded.swap, chainId, {
                     detectedAt: resolveDetectedAt(predecoded.detectedAt, pendingHint?.detectedAt)
@@ -990,6 +1060,16 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
                 source: 'internal_process_tx'
             }).catch(() => { });
             const pendingHint = await getPendingTxHint(chainId, txHashNormalized).catch(() => null);
+            await persistSwapContext({
+                chainId,
+                txHash: txHashNormalized,
+                txInput: swap.sourceTxInput,
+                txValue: swap.sourceTxValue,
+                swap,
+                targetWallet: wallet,
+                receiptLogs: receipt.logs || [],
+                detectedAt: resolveDetectedAt(pendingHint?.detectedAt)
+            });
 
             // Enqueue copy trade for async execution
             const enqueueStart = Date.now();

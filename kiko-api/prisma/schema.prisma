@@ -722,12 +722,20 @@ model TrendingCast {
   mentions            Json?     @default("[]")
   authorCreatorCoin   String?   @map("author_creator_coin")
   authorTwitter       String?   @map("author_twitter")
+  // New Hub fields
+  parentUrl           String?   @map("parent_url")              // Farcaster channel URL (e.g. https://warpcast.com/~/channel/base)
+  mentionsPositions   Json?     @default("[]") @map("mentions_positions") // Char positions of @mentions in text
+  authorUrl           String?   @map("author_url")              // USER_DATA_TYPE_URL — personal website
+  authorBanner        String?   @map("author_banner")           // USER_DATA_TYPE_BANNER — profile banner image
+  authorPrimaryAddress String?  @map("author_primary_address")  // USER_DATA_PRIMARY_ADDRESS_ETHEREUM
+  authorLocation      String?   @map("author_location")         // USER_DATA_TYPE_LOCATION — geo:lat,lng
   updatedAt           DateTime  @updatedAt @map("updated_at")
   createdAt           DateTime  @default(now()) @map("created_at")
   statsLastUpdatedAt  DateTime? @map("stats_last_updated_at")
 
   @@index([statsLastUpdatedAt])
   @@index([timestamp])
+  @@index([parentUrl])
   @@map("trending_casts")
 }
 
@@ -750,7 +758,12 @@ model QualityFarcasterUser {
   updatedAt          DateTime  @default(now()) @updatedAt @map("updated_at")
   pfp                String?   @db.VarChar(500)
   bio                String?
-  verifications      Json?     @default("[]")
+  verifications      Json?     @default("[]")   // [{address, protocol}] — ETH + Solana wallets
+  // New Hub fields
+  url                String?   @db.VarChar(500)  // USER_DATA_TYPE_URL — personal website
+  banner             String?   @db.VarChar(500)  // USER_DATA_TYPE_BANNER — profile banner
+  primaryAddress     String?   @map("primary_address") @db.VarChar(100) // USER_DATA_PRIMARY_ADDRESS_ETHEREUM
+  location           String?   @db.VarChar(100)  // USER_DATA_TYPE_LOCATION — geo:lat,lng
 
   @@index([fid])
   @@index([followers(sort: Desc)])
@@ -854,6 +867,101 @@ model SwapHistory {
   @@index([chainId])
   @@index([status])
   @@index([createdAt])
+}
+
+model ExecutionTemplate {
+  id                  String        @id @default(cuid())
+  chainId             Int
+  side                ExecutionSide
+  tokenIn             String
+  tokenOut            String
+  router              String
+  commandType         String
+  templateVersion     Int
+  templatePayloadJson String
+  successRate         Float         @default(0)
+  avgSlippageBps      Float?
+  avgGasUsed          String?
+  sampleCount         Int           @default(0)
+  isActive            Boolean       @default(true)
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
+
+  @@index([chainId, tokenIn, tokenOut, side, isActive], map: "idx_exec_template_lookup")
+  @@index([successRate, sampleCount], map: "idx_exec_template_quality")
+}
+
+model ExecutionSample {
+  id             String        @id @default(cuid())
+  chainId        Int
+  txHash         String
+  wallet         String
+  side           ExecutionSide
+  tokenIn        String
+  tokenOut       String
+  amountIn       String
+  amountOut      String?
+  router         String
+  selector       String?
+  poolMetaJson   String?
+  hookMetaJson   String?
+  commandMetaJson String?
+  status         String
+  revertReason   String?
+  gasUsed        String?
+  blockTime      DateTime      @default(now())
+  createdAt      DateTime      @default(now())
+
+  @@index([chainId, tokenIn, tokenOut, side, status, blockTime(sort: Desc)], map: "idx_exec_sample_lookup")
+  @@index([txHash], map: "idx_exec_sample_tx_hash")
+}
+
+model ExecutionPlanRun {
+  id                 String               @id @default(cuid())
+  mode               ExecutionPlanRunMode
+  chainId            Int
+  inputJson          String
+  planJson           String
+  simulationJson     String?
+  scoreJson          String?
+  selectedTemplateId String?
+  resultStatus       String
+  txHash             String?
+  latencyMs          Int?
+  createdAt          DateTime             @default(now())
+
+  @@index([mode, createdAt(sort: Desc)], map: "idx_exec_plan_run_mode_created")
+  @@index([chainId, createdAt(sort: Desc)], map: "idx_exec_plan_run_chain_created")
+}
+
+model SwapExecutionContext {
+  id            String   @id @default(cuid())
+  chainId       Int
+  sourceTxHash  String
+  sourceRouter  String?
+  sourceSelector String?
+  contextJson   String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([chainId, sourceTxHash], map: "uq_swap_ctx_chain_tx")
+  @@index([chainId, sourceRouter, sourceSelector, createdAt(sort: Desc)], map: "idx_swap_ctx_router_selector_created")
+}
+
+model TemplateCandidateDraft {
+  id              String                  @id @default(cuid())
+  chainId         Int
+  router          String
+  selector        String
+  draftPayloadJson String
+  shadowPassRate  Float                   @default(0)
+  sampleCount     Int                     @default(0)
+  status          TemplateCandidateStatus @default(candidate)
+  createdAt       DateTime                @default(now())
+  updatedAt       DateTime                @updatedAt
+
+  @@unique([chainId, router, selector], map: "uq_template_draft_chain_router_selector")
+  @@index([chainId, router, selector, status], map: "idx_template_draft_lookup")
 }
 
 model UserReferral {
@@ -1029,4 +1137,21 @@ enum SwapHistoryStatus {
   failed
   confirmed
   cancelled
+}
+
+enum ExecutionSide {
+  buy
+  sell
+}
+
+enum ExecutionPlanRunMode {
+  shadow
+  canary
+  live
+}
+
+enum TemplateCandidateStatus {
+  candidate
+  promoted
+  rejected
 }

@@ -48,7 +48,16 @@ export function buildV4ExecutionPlan(params: {
 
     const normalizedIn = isNativeIn ? (WETH_ADDRESSES[chainId] || tokenIn) : tokenIn;
     const normalizedOut = isNativeOut ? (WETH_ADDRESSES[chainId] || tokenOut) : tokenOut;
-    const poolKey = pool.poolKey;
+    const normalizedPoolCurrency = (token: string): string => {
+        const value = String(token || '').toLowerCase();
+        if (value === ETH_ADDRESS) return (WETH_ADDRESSES[chainId] || token).toLowerCase();
+        return value;
+    };
+    const poolKey = {
+        ...pool.poolKey,
+        currency0: normalizedPoolCurrency(pool.poolKey.currency0),
+        currency1: normalizedPoolCurrency(pool.poolKey.currency1)
+    };
     const zeroForOne = poolKey.currency0.toLowerCase() === normalizedIn.toLowerCase();
     const hookProfile = resolveV4HookProfile(chainId, poolKey.hooks);
     const hookDataCandidates = buildV4HookDataCandidates({

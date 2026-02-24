@@ -14,7 +14,6 @@ import { requestManager } from '../utils/requestManager';
 import { proxyImageUrl } from '../utils/imageProxy';
 import {
   calculateTrendingScore,
-  clearTrendingLocalCache,
   type TrendingTimeframe
 } from '../services/trendingService';
 import dexScreenerLogo from '../assets/images/dex-screener.png';
@@ -1057,6 +1056,32 @@ interface TokensPageProps {
   onSearchChange?: (query: string) => void;
 }
 
+// ─── Module-level cache: survives page navigation (component unmount/remount) ───
+const _tokensCache: {
+  data: Token[] | null;
+  timestamp: number;
+  timeframe: string;
+} = { data: null, timestamp: 0, timeframe: '' };
+const TOKENS_CACHE_TTL = 2 * 60 * 1000; // 2 minutes
+
+function getTokensCache(timeframe: string): Token[] | null {
+  if (
+    _tokensCache.data &&
+    _tokensCache.timeframe === timeframe &&
+    Date.now() - _tokensCache.timestamp < TOKENS_CACHE_TTL
+  ) {
+    return _tokensCache.data;
+  }
+  return null;
+}
+
+function setTokensCache(data: Token[], timeframe: string) {
+  _tokensCache.data = data;
+  _tokensCache.timestamp = Date.now();
+  _tokensCache.timeframe = timeframe;
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
 // Available chains for filtering
 const CHAIN_OPTIONS = [
   { id: 'all', name: 'All Chains', logo: '', apiKey: '' },
@@ -1085,10 +1110,11 @@ export const TokensPage: React.FC<TokensPageProps> = ({
 
 
   const [internalSearchQuery, setInternalSearchQuery] = useState('');
-  const [allTokens, setAllTokens] = useState<Token[]>([]); // All chains cached data
+  const [allTokens, setAllTokens] = useState<Token[]>(() => getTokensCache(localStorage.getItem('kiko-trending-timeframe') || '5m') ?? []); // All chains cached data
   const [tokens, setTokens] = useState<Token[]>([]); // Currently displayed tokens (for search)
   const [loading, setLoading] = useState(false);
-  const [initialLoading, setInitialLoading] = useState(true); // Initial multi-chain load
+  // Skip skeleton if we already have cached data for this timeframe
+  const [initialLoading, setInitialLoading] = useState(() => getTokensCache(localStorage.getItem('kiko-trending-timeframe') || '5m') === null);
   const [error, setError] = useState<string | null>(null);
   const [reloadNonce, setReloadNonce] = useState(0);
   const [selectedChain, setSelectedChain] = useState<string>(
@@ -1113,17 +1139,43 @@ export const TokensPage: React.FC<TokensPageProps> = ({
   const chainRequestIdsRef = useRef<Map<string, string>>(new Map());
   const mountedRef = useRef(true);
 
-  // Token page should always read fresh DB-backed API payloads.
-  useEffect(() => {
-    clearTrendingLocalCache();
-  }, []);
-
   // Load all chains data on initial mount - with queue and batching
   useEffect(() => {
     // Reset mounted ref on each mount (important for StrictMode)
     mountedRef.current = true;
 
     const loadAllChains = async () => {
+      // Check module-level cache first — avoids re-fetch on navigation back
+      const cached = getTokensCache(timeframe);
+      if (cached) {
+        setAllTokens(cached);
+        setInitialLoading(false);
+        setError(null);
+        // Still refresh in background after a short delay, silently
+        setTimeout(async () => {
+          if (!mountedRef.current) return;
+          try {
+            const fetchPromises = FETCH_CHAINS.map(async (chain) => {
+              if (!mountedRef.current) return [];
+              try {
+                const data = await tokenApi.getTrendingLive(chain, timeframe, 100, true);
+                if (data && data.length > 0) return data.map((t) => convertApiTokenToToken(t, 0));
+              } catch { /* ignore background errors */ }
+              return [];
+            });
+            const results = await Promise.all(fetchPromises);
+            let freshTokens = results.flat();
+            freshTokens.sort((a, b) => computeTimeframeScore(b, timeframe) - computeTimeframeScore(a, timeframe));
+            if (mountedRef.current && freshTokens.length > 0) {
+              const displayTokens = freshTokens.map((t, idx) => ({ ...t, id: idx + 1 }));
+              setTokensCache(displayTokens, timeframe);
+              setAllTokens(displayTokens);
+            }
+          } catch { /* ignore */ }
+        }, 500);
+        return;
+      }
+
       setInitialLoading(true);
       setError(null);
 
@@ -1162,6 +1214,8 @@ export const TokensPage: React.FC<TokensPageProps> = ({
         if (mountedRef.current) {
           // Assign unique IDs for the table display AFTER global sorting
           const displayTokens = freshTokens.map((t, idx) => ({ ...t, id: idx + 1 }));
+          // Persist to module-level cache so navigation back is instant
+          if (displayTokens.length > 0) setTokensCache(displayTokens, timeframe);
           setAllTokens(displayTokens);
         }
 

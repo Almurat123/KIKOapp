@@ -40,6 +40,39 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onSuggestionClick 
     textarea.style.height = `${Math.min(textarea.scrollHeight, 200)}px`;
   };
 
+  // On mount: read prefill from sessionStorage (set by TokenDetailPage buy/sell/analyze)
+  useEffect(() => {
+    const stored = sessionStorage.getItem('kiko-prefill-prompt');
+    if (stored) {
+      sessionStorage.removeItem('kiko-prefill-prompt');
+      setInputValue(stored);
+      requestAnimationFrame(() => {
+        if (textareaRef.current) {
+          autoResizeTextarea(textareaRef.current);
+          textareaRef.current.focus();
+        }
+      });
+    }
+  }, []);
+
+  // Also listen for the event (fires when WelcomeScreen is already mounted)
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const prompt = (e as CustomEvent<{ prompt: string }>).detail?.prompt;
+      if (prompt) {
+        setInputValue(prompt);
+        requestAnimationFrame(() => {
+          if (textareaRef.current) {
+            autoResizeTextarea(textareaRef.current);
+            textareaRef.current.focus();
+          }
+        });
+      }
+    };
+    window.addEventListener('kiko-prefill-input', handler);
+    return () => window.removeEventListener('kiko-prefill-input', handler);
+  }, []);
+
 
   // Load selected model from localStorage or use default
   const getInitialModel = () => {

@@ -7,6 +7,8 @@ import { normalizeAddress } from '../utils/address.js';
 import { fetchTransactionReceipt } from './watcherService.js';
 import { parseSwapTransaction } from './txDecoder.js';
 import { getVerifiedFreeEndpoints, RpcEndpointConfig } from '../config/apiEndpoints.js';
+import { buildSwapExecutionContext } from './copytrade/context/contextBuilder.js';
+import { putContext } from './copytrade/context/contextStore.js';
 
 const ENABLED = (process.env.COPYTRADE_PENDING_WATCH_ENABLED || 'true') === 'true';
 const REFRESH_WALLETS_MS = Number(process.env.COPYTRADE_PENDING_WALLET_REFRESH_MS || 10000);
@@ -94,6 +96,15 @@ async function warmConfirmedSwapFromPending(
                 if (!swap) return;
 
                 await markPendingPredecodedSwap(chainId, txHash, targetWallet, swap, start).catch(() => { });
+                const ctx = buildSwapExecutionContext({
+                    tx: txSkeleton,
+                    receipt: { logs: receipt.logs || [] },
+                    decodedSwap: swap,
+                    chainId,
+                    targetWallet,
+                    detectedAt: start
+                });
+                await putContext(ctx).catch(() => { });
                 const { enqueueCopyTradeTask } = await import('./copyTradeQueue.js');
                 enqueueCopyTradeTask(targetWallet, swap, chainId, { detectedAt: start });
                 await markCopyTradeTxState(chainId, txHash, 'swap_decoded', {

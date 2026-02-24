@@ -8,7 +8,11 @@ export interface QualityFarcasterUser {
   displayName?: string;
   pfp?: string;
   bio?: string;
-  verifications?: string[];
+  verifications?: Array<{ address: string; protocol: string }>;
+  url?: string;            // USER_DATA_TYPE_URL — personal website
+  banner?: string;         // USER_DATA_TYPE_BANNER — profile banner image
+  primaryAddress?: string; // USER_DATA_PRIMARY_ADDRESS_ETHEREUM
+  location?: string;       // USER_DATA_TYPE_LOCATION — geo:lat,lng
   followers?: number;
   following?: number;
   totalCasts?: number;
@@ -64,7 +68,11 @@ export async function getQualityUsers(limit: number = 100): Promise<QualityFarca
       displayName: row.displayName || undefined,
       pfp: row.pfp || undefined,
       bio: row.bio || undefined,
-      verifications: Array.isArray(row.verifications) ? row.verifications as string[] : [],
+      verifications: Array.isArray(row.verifications) ? row.verifications as Array<{ address: string; protocol: string }> : [],
+      url: (row as any).url || undefined,
+      banner: (row as any).banner || undefined,
+      primaryAddress: (row as any).primaryAddress || undefined,
+      location: (row as any).location || undefined,
       followers: row.followers,
       following: row.following,
       totalCasts: row.totalCasts,
@@ -180,7 +188,11 @@ export async function getProfileByFid(fid: number): Promise<QualityFarcasterUser
       displayName: row.displayName || undefined,
       pfp: row.pfp || undefined,
       bio: row.bio || undefined,
-      verifications: Array.isArray(row.verifications) ? row.verifications as string[] : [],
+      verifications: Array.isArray(row.verifications) ? row.verifications as any[] : [],
+      url: (row as any).url || undefined,
+      banner: (row as any).banner || undefined,
+      primaryAddress: (row as any).primaryAddress || undefined,
+      location: (row as any).location || undefined,
       followers: row.followers,
       following: row.following,
       totalCasts: row.totalCasts,
@@ -210,6 +222,10 @@ export async function updateProfile(fid: number, data: Partial<QualityFarcasterU
         pfp: data.pfp,
         bio: data.bio,
         verifications: data.verifications,
+        url: (data as any).url ?? undefined,
+        banner: (data as any).banner ?? undefined,
+        primaryAddress: (data as any).primaryAddress ?? undefined,
+        location: (data as any).location ?? undefined,
         updatedAt: new Date(),
       },
       create: {
@@ -219,6 +235,10 @@ export async function updateProfile(fid: number, data: Partial<QualityFarcasterU
         pfp: data.pfp || null,
         bio: data.bio || null,
         verifications: data.verifications || [],
+        url: (data as any).url || null,
+        banner: (data as any).banner || null,
+        primaryAddress: (data as any).primaryAddress || null,
+        location: (data as any).location || null,
         source: data.source || 'manual_sync',
         isActive: true,
       }

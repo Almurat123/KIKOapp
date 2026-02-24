@@ -156,24 +156,53 @@ export const CastCard3D: React.FC<CastCard3DProps> = ({ cast, isOpen, onClose, i
                             </button>
                         </div>
 
+                        {/* Banner image — profile mode only */}
+                        {mode === 'profile' && cast.author?.banner && (
+                            <div style={{
+                                position: 'relative',
+                                width: '100%',
+                                height: '100px',
+                                overflow: 'hidden',
+                                borderRadius: '24px 24px 0 0',
+                            }}>
+                                <img
+                                    src={cast.author.banner}
+                                    alt="banner"
+                                    style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+                                    onError={(e) => { (e.target as HTMLImageElement).parentElement!.style.display = 'none'; }}
+                                />
+                                <div style={{
+                                    position: 'absolute', inset: 0,
+                                    background: `linear-gradient(to bottom, transparent 40%, ${isDark ? 'rgba(24,24,27,0.85)' : 'rgba(255,255,255,0.9)'} 100%)`
+                                }} />
+                            </div>
+                        )}
+
                         {/* Content Container - Compact & No Scroll */}
-                        <div style={{ padding: '24px 20px 20px' }}> {/* Reduced padding */}
+                        <div style={{ padding: mode === 'profile' && cast.author?.banner ? '0 20px 20px' : '24px 20px 20px' }}>
 
                             {/* Author */}
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
+                            <div style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '10px',
+                                marginBottom: '16px',
+                                marginTop: mode === 'profile' && cast.author?.banner ? '-28px' : 0,
+                            }}>
                                 <img
                                     src={cast.author?.avatar}
                                     alt={cast.author?.handle}
                                     style={{
-                                        width: '48px', // Smaller avatar
-                                        height: '48px',
+                                        width: '56px',
+                                        height: '56px',
                                         borderRadius: '50%',
                                         objectFit: 'cover',
-                                        border: `2px solid ${isDark ? '#3f3f46' : '#e4e4e7'}`,
-                                        boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
+                                        border: `3px solid ${isDark ? '#18181b' : '#ffffff'}`,
+                                        boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.25)',
+                                        flexShrink: 0,
                                     }}
                                 />
-                                <div>
+                                <div style={{ minWidth: 0 }}>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                                         <span style={{ fontWeight: '700', fontSize: '18px', color: textColor }}>
                                             {cast.author?.name}
@@ -191,6 +220,27 @@ export const CastCard3D: React.FC<CastCard3DProps> = ({ cast, isOpen, onClose, i
                                         <div style={{ color: textColor, fontSize: '13px', marginTop: '6px', opacity: 0.9, lineHeight: '1.4' }}>
                                             {cast.author.bio}
                                         </div>
+                                    )}
+                                    {mode === 'profile' && cast.author?.url && (
+                                        <a
+                                            href={cast.author.url.startsWith('http') ? cast.author.url : `https://${cast.author.url}`}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            onClick={(e) => e.stopPropagation()}
+                                            style={{
+                                                display: 'inline-flex',
+                                                alignItems: 'center',
+                                                gap: '4px',
+                                                marginTop: '4px',
+                                                fontSize: '12px',
+                                                color: '#5B8DEF',
+                                                textDecoration: 'none',
+                                                fontWeight: 500,
+                                                wordBreak: 'break-all',
+                                            }}
+                                        >
+                                            🔗 {cast.author.url.replace(/^https?:\/\//, '').replace(/\/$/, '')}
+                                        </a>
                                     )}
                                 </div>
                             </div>
@@ -292,7 +342,7 @@ export const CastCard3D: React.FC<CastCard3DProps> = ({ cast, isOpen, onClose, i
                                     )}
 
                                     {/* SOCIAL LINKS - Compact Row */}
-                                    <div style={{ display: 'grid', gridTemplateColumns: cast.author?.twitter ? '1fr 1fr 1fr' : '1fr 1fr', gap: '8px' }}>
+                                    <div style={{ display: 'grid', gridTemplateColumns: [cast.author?.twitter, cast.author?.url].filter(Boolean).length === 2 ? '1fr 1fr 1fr 1fr' : (cast.author?.twitter || cast.author?.url) ? '1fr 1fr 1fr' : '1fr 1fr', gap: '8px' }}>
                                         <div style={{
                                             padding: '12px', borderRadius: '12px',
                                             background: isDark ? 'rgba(255,255,255,0.05)' : '#f4f4f5',
@@ -327,6 +377,24 @@ export const CastCard3D: React.FC<CastCard3DProps> = ({ cast, isOpen, onClose, i
                                                     <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
                                                 </svg>
                                                 <div style={{ fontSize: '13px', fontWeight: '600', color: textColor }}>X</div>
+                                            </div>
+                                        )}
+
+                                        {cast.author?.url && (
+                                            <div style={{
+                                                padding: '12px', borderRadius: '12px',
+                                                background: isDark ? 'rgba(255,255,255,0.05)' : '#f4f4f5',
+                                                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', cursor: 'pointer'
+                                            }} onClick={(e) => {
+                                                e.stopPropagation();
+                                                const href = cast.author?.url;
+                                                if (href) window.open(href.startsWith('http') ? href : `https://${href}`, '_blank');
+                                            }}>
+                                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ color: textColor }}>
+                                                    <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+                                                    <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+                                                </svg>
+                                                <div style={{ fontSize: '13px', fontWeight: '600', color: textColor }}>Website</div>
                                             </div>
                                         )}
                                     </div>

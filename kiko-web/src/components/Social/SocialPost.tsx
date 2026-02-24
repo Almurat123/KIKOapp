@@ -14,9 +14,11 @@ interface SocialPostProps {
     onClick: (cast: FeedItem) => void;
     onAvatarClick?: (cast: FeedItem) => void;
     onImageClick?: (images: string[], index: number) => void;
+    onMentionClick?: (username: string) => void;
+    onQuoteClick?: (embed: any) => void;
 }
 
-const formatText = (text: string) => {
+const formatText = (text: string, onMentionClick?: (username: string) => void) => {
     if (!text) return null;
     const parts = text.split(/(@[\w.-]+)|(https?:\/\/[^\s]+)/g);
     return parts.map((part, i) => {
@@ -25,7 +27,11 @@ const formatText = (text: string) => {
             return (
                 <span key={i} className={styles.mention} onClick={(e) => {
                     e.stopPropagation();
-                    window.open(`https://warpcast.com/${part.substring(1)}`, '_blank', 'noopener,noreferrer');
+                    if (onMentionClick) {
+                        onMentionClick(part.substring(1));
+                    } else {
+                        window.open(`https://warpcast.com/${part.substring(1)}`, '_blank', 'noopener,noreferrer');
+                    }
                 }}>{part}</span>
             );
         }
@@ -40,7 +46,7 @@ const formatText = (text: string) => {
     });
 };
 
-export const SocialPost: React.FC<SocialPostProps> = ({ data, isDark, onClick, onAvatarClick, onImageClick }) => {
+export const SocialPost: React.FC<SocialPostProps> = ({ data, isDark, onClick, onAvatarClick, onImageClick, onMentionClick, onQuoteClick }) => {
     const [isExpanded, setIsExpanded] = useState(false);
     if (!data?.author) return null;
 
@@ -60,7 +66,7 @@ export const SocialPost: React.FC<SocialPostProps> = ({ data, isDark, onClick, o
             </div>
 
             <div className={styles.postContentWrapper}>
-                <p className={`${styles.postText} ${!isExpanded ? styles.truncated : ''}`}>{formatText(data.content || '')}</p>
+                <p className={`${styles.postText} ${!isExpanded ? styles.truncated : ''}`}>{formatText(data.content || '', onMentionClick)}</p>
                 {data.content && data.content.length > 280 && (
                     <div onClick={(e) => { e.stopPropagation(); setIsExpanded(!isExpanded); }} className={styles.showMore}>
                         {isExpanded ? 'Show less' : 'Show more'}
@@ -69,7 +75,7 @@ export const SocialPost: React.FC<SocialPostProps> = ({ data, isDark, onClick, o
             </div>
 
             <NativeMedia data={data} onImageClick={onImageClick} />
-            <ExtEmbeds data={data} isDark={isDark} />
+            <ExtEmbeds data={data} isDark={isDark} onQuoteClick={onQuoteClick} />
 
             <div className={styles.postActionsRow}>
                 <ActionButton icon={<Heart />} count={data.stats?.likes} className={styles.like} />
@@ -107,7 +113,7 @@ const NativeMedia = ({ data, onImageClick }: any) => {
     );
 };
 
-const ExtEmbeds = ({ data, isDark }: any) => {
+const ExtEmbeds = ({ data, isDark, onQuoteClick }: any) => {
     // Dedup: Filter out embeds that are already rendered as images or videos
     const imageUrls = new Set(data.images || []);
     const videoUrls = new Set(data.videos || []);
@@ -128,7 +134,7 @@ const ExtEmbeds = ({ data, isDark }: any) => {
         return (
             <div className={styles.embedsRegion}>
                 {quoteCastEmbeds.slice(0, 1).map((e: any, i: number) => (
-                    <QuoteCast key={`quote-${i}`} embed={e} isDark={isDark} />
+                    <QuoteCast key={`quote-${i}`} embed={e} isDark={isDark} onQuoteClick={onQuoteClick ? () => onQuoteClick(e) : undefined} />
                 ))}
             </div>
         );
@@ -146,7 +152,7 @@ const ExtEmbeds = ({ data, isDark }: any) => {
 
             {/* Quote Cast Embeds - 引用转发 */}
             {quoteCastEmbeds.slice(0, 1).map((e: any, i: number) => (
-                <QuoteCast key={`quote-${i}`} embed={e} isDark={isDark} />
+                <QuoteCast key={`quote-${i}`} embed={e} isDark={isDark} onQuoteClick={onQuoteClick ? () => onQuoteClick(e) : undefined} />
             ))}
 
             {/* URL Embeds - OGP预览 */}

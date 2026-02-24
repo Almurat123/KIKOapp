@@ -14,6 +14,9 @@ import {
 } from '../utils/solanaToken.js';
 import { getSolanaConnection } from '../config/solanaConfig.js';
 import { sendSolanaTransaction, getDelegatedSolanaWallet, getServerSolanaWalletAddress } from './privyWallet.js';
+import { getPlatformFee } from './platformFeeService.js';
+import { logger } from '../utils/logger.js';
+import { LogCode } from '../config/logRegistry.js';
 
 // Pump.fun Constants
 const PUMP_FUN_PROGRAM_ID = new PublicKey('6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P');
@@ -168,9 +171,39 @@ export class SolanaLaunchpadSwapService {
         }
         const userPubkey = new PublicKey(walletAddress);
 
+        let amountBI: bigint;
+        try {
+            amountBI = BigInt(params.amount);
+        } catch {
+            throw new Error(`Invalid atomic amount: ${params.amount}`);
+        }
+        if (amountBI <= 0n) {
+            throw new Error(`Invalid atomic amount (<=0): ${params.amount}`);
+        }
+
+        const fee = getPlatformFee(params.feeContext || 'swap');
+        let feeRecipient: PublicKey | null = null;
+        if (fee.bps > 0 && fee.solanaRecipient) {
+            try {
+                feeRecipient = new PublicKey(fee.solanaRecipient);
+            } catch {
+                logger.warn(LogCode.SYS_ERROR, 'Invalid PLATFORM_FEE_SOLANA_RECIPIENT, skipping Solana launchpad fee', {
+                    recipient: fee.solanaRecipient
+                });
+            }
+        }
+
+        let feeAmount = 0n;
         let effectiveAmount = params.amount;
-        const shouldPostFee = false;
-        const preBalance = null;
+        if (isBuy && feeRecipient && fee.bps > 0) {
+            feeAmount = (amountBI * BigInt(fee.bps)) / 10000n;
+            if (feeAmount > 0n) {
+                if (feeAmount >= amountBI) {
+                    throw new Error('Fee is greater than or equal to swap amount');
+                }
+                effectiveAmount = (amountBI - feeAmount).toString();
+            }
+        }
 
         let txHash: string;
         if (provider === 'pumpfun') {
@@ -183,11 +216,49 @@ export class SolanaLaunchpadSwapService {
             throw new Error(`Unsupported launchpad provider: ${provider}`);
         }
 
-        if (shouldPostFee && preBalance !== null) {
-            void preBalance;
+        if (isBuy && feeRecipient && feeAmount > 0n) {
+            try {
+                const feeTxHash = await this.sendSolFeeTransfer(connection, userPubkey, feeRecipient, feeAmount, userId);
+                logger.info(LogCode.EXE_TX_CONFIRMED, 'Solana launchpad fee sent', {
+                    provider,
+                    feeAmount: feeAmount.toString(),
+                    feeRecipient: feeRecipient.toString(),
+                    feeTxHash
+                });
+            } catch (feeErr: any) {
+                logger.warn(LogCode.SYS_ERROR, 'Solana launchpad fee transfer failed (non-fatal)', {
+                    provider,
+                    error: feeErr?.message || String(feeErr)
+                });
+            }
         }
 
         return txHash;
+    }
+
+    private async sendSolFeeTransfer(
+        connection: Connection,
+        payer: PublicKey,
+        recipient: PublicKey,
+        amountLamports: bigint,
+        userId: string
+    ): Promise<string> {
+        const transferIx = SystemProgram.transfer({
+            fromPubkey: payer,
+            toPubkey: recipient,
+            lamports: amountLamports
+        });
+
+        const recentBlockhash = await connection.getLatestBlockhash();
+        const messageV0 = new TransactionMessage({
+            payerKey: payer,
+            recentBlockhash: recentBlockhash.blockhash,
+            instructions: [transferIx]
+        }).compileToV0Message();
+
+        const transaction = new VersionedTransaction(messageV0);
+        const serializedTx = Buffer.from(transaction.serialize()).toString('base64');
+        return sendSolanaTransaction(userId, serializedTx);
     }
 
     /**

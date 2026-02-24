@@ -222,7 +222,7 @@ export const OverviewPage: React.FC = () => {
 
   // Cache configuration
   const CACHE_KEY = 'kiko_market_overview_cache_v3';
-  const CACHE_DURATION = 10 * 1000; // Reduced to 10 seconds to respond to user refresh faster
+  const CACHE_DURATION = 2 * 60 * 1000; // 2 minutes — survives normal sidebar navigation
 
   // Load from cache
   const loadFromCache = () => {

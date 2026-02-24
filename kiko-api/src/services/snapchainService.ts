@@ -157,8 +157,9 @@ interface HubCast {
   text: string;
   embeds: any[];
   mentions: number[];
+  mentionsPositions?: number[];  // Char positions of @mentions in text
   parentCastId?: { fid: number; hash: string };
-  parentUrl?: string;
+  parentUrl?: string;            // Farcaster channel URL
 }
 
 interface HubUserData {
@@ -168,7 +169,11 @@ interface HubUserData {
   pfp?: string;
   bio?: string;
   twitter?: string;
-  verifications?: string[]; // ETH addresses
+  url?: string;             // USER_DATA_TYPE_URL — personal website
+  banner?: string;          // USER_DATA_TYPE_BANNER — profile banner image
+  primaryAddress?: string;  // USER_DATA_PRIMARY_ADDRESS_ETHEREUM
+  location?: string;        // USER_DATA_TYPE_LOCATION — geo:lat,lng
+  verifications?: Array<{ address: string; protocol: string }>; // ETH + Solana wallets with protocol
 }
 
 interface SnapchainReactions {
@@ -218,6 +223,7 @@ export async function getCastsByFid(fid: number, pageSize: number = 100): Promis
         text: msg.data.castAddBody?.text || '',
         embeds: msg.data.castAddBody?.embeds || [],
         mentions: msg.data.castAddBody?.mentions || [],
+        mentionsPositions: msg.data.castAddBody?.mentionsPositions || [],
         parentCastId: msg.data.castAddBody?.parentCastId,
         parentUrl: msg.data.castAddBody?.parentUrl,
       }));
@@ -278,7 +284,10 @@ export async function getUserDataByFid(fid: number): Promise<HubUserData | null>
         if (verData && verData.messages) {
           userData.verifications = verData.messages
             .filter((m: any) => m.data.type === 'MESSAGE_TYPE_VERIFICATION_ADD_ETH_ADDRESS')
-            .map((m: any) => m.data.verificationAddAddressBody.address);
+            .map((m: any) => ({
+              address: m.data.verificationAddAddressBody.address,
+              protocol: m.data.verificationAddAddressBody.protocol || 'PROTOCOL_ETHEREUM',
+            }));
         }
       } catch (e) { }
 
@@ -298,6 +307,21 @@ export async function getUserDataByFid(fid: number): Promise<HubUserData | null>
             case 'USER_DATA_TYPE_USERNAME':
               userData.username = body.value;
               break;
+            case 'USER_DATA_TYPE_URL':
+              userData.url = body.value;
+              break;
+            case 'USER_DATA_TYPE_BANNER':
+              userData.banner = body.value;
+              break;
+            case 'USER_DATA_PRIMARY_ADDRESS_ETHEREUM':
+              userData.primaryAddress = body.value;
+              break;
+            case 'USER_DATA_TYPE_LOCATION':
+              userData.location = body.value;
+              break;
+            case 'USER_DATA_TYPE_TWITTER':
+              userData.twitter = body.value;
+              break;
           }
         }
       });
@@ -309,6 +333,10 @@ export async function getUserDataByFid(fid: number): Promise<HubUserData | null>
           displayName: userData.displayName,
           pfp: userData.pfp,
           bio: userData.bio,
+          url: userData.url,
+          banner: userData.banner,
+          primaryAddress: userData.primaryAddress,
+          location: userData.location,
           verifications: userData.verifications,
           source: 'hub_sync'
         }).catch(err => logger.error(LogCode.SYS_ERROR, 'Error syncing hub profile to DB', { fid, err: err.message }));
@@ -669,13 +697,20 @@ export function snapchainToTrendingCast(result: CastWithReactions): any | null {
     fid: result.user.fid,
     text: result.cast.text,
     timestamp: farcasterToUnixTimestamp(result.cast.timestamp),
+    parentUrl: result.cast.parentUrl || null,
+    mentionsPositions: result.cast.mentionsPositions || [],
     author: {
       fid: result.user.fid,
       username: result.user.username,
       displayName: result.user.displayName || result.user.username,
-      avatar: result.user.pfp || `https://avatar.vercel.sh/${result.user.username}`, // Better default than placeholder
+      avatar: result.user.pfp || `https://avatar.vercel.sh/${result.user.username}`,
       verified: false,
       bio: result.user.bio,
+      twitter: result.user.twitter,
+      url: result.user.url,
+      banner: result.user.banner,
+      primaryAddress: result.user.primaryAddress,
+      location: result.user.location,
     },
     mentions: result.cast.mentions,
     stats: {

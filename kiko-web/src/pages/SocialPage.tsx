@@ -672,6 +672,9 @@ function trendingCastToFeedItem(cast: TrendingCast, index: number): FeedItem {
       avatar: cast.author.avatar?.trim() || `https://avatar.vercel.sh/${cast.fid}`,
       isVerified: cast.author.verified || false,
       bio: cast.author.bio?.trim() || undefined,
+      twitter: cast.author.twitter?.trim() || undefined,
+      banner: cast.author.banner?.trim() || undefined,
+      url: cast.author.url?.trim() || undefined,
       creatorCoin: cast.author.creatorCoin // Pass creator coin data
     },
     time: timeStr,
@@ -732,6 +735,70 @@ export const SocialPage: React.FC = () => {
   const handleAvatarClick = useCallback((cast: FeedItem) => {
     setCardMode('profile');
     setSelectedCast(cast);
+    setIsCardOpen(true);
+  }, []);
+
+  const handleMentionClick = useCallback((username: string) => {
+    // Try to find the user in the current feed by their handle
+    const normalized = username.toLowerCase().replace(/^@/, '');
+    const found = feedItems.find(item => {
+      const h = (item.author?.handle || '').toLowerCase().replace(/^@/, '');
+      return h === normalized;
+    });
+    if (found) {
+      setCardMode('profile');
+      setSelectedCast(found);
+      setIsCardOpen(true);
+    } else {
+      // Synthesize a minimal profile card for the mentioned user
+      const minimal: FeedItem = {
+        id: `mention-${username}`,
+        type: 'text',
+        author: {
+          name: username,
+          handle: `@${username}`,
+          avatar: `https://avatar.vercel.sh/${username}`,
+          isVerified: false,
+        },
+        content: '',
+        castUrl: `https://warpcast.com/${username}`,
+      };
+      setCardMode('profile');
+      setSelectedCast(minimal);
+      setIsCardOpen(true);
+    }
+  }, [feedItems]);
+
+  const handleQuoteClick = useCallback((embed: any) => {
+    const castData = embed.cast;
+    if (!castData) {
+      // No embedded cast body — fall back to Warpcast URL
+      const hash = embed.castId?.hash || '';
+      const uname = castData?.author?.username;
+      const url = uname
+        ? `https://warpcast.com/${uname}/${hash.slice(0, 10)}`
+        : `https://warpcast.com/~/conversations/${hash}`;
+      window.open(url, '_blank', 'noopener,noreferrer');
+      return;
+    }
+    const hash = embed.castId?.hash || '';
+    const quotedItem: FeedItem = {
+      id: hash || 'quote',
+      type: 'text',
+      author: {
+        name: castData.author?.displayName || castData.author?.username || 'User',
+        handle: castData.author?.username ? `@${castData.author.username}` : '@user',
+        avatar: castData.author?.avatar || `https://avatar.vercel.sh/${castData.author?.username || 'user'}`,
+        isVerified: castData.author?.verified || false,
+      },
+      content: castData.text || '',
+      castUrl: castData.author?.username
+        ? `https://warpcast.com/${castData.author.username}/${hash.slice(0, 10)}`
+        : `https://warpcast.com/~/conversations/${hash}`,
+      stats: { replies: '0', recasts: '0', likes: '0' },
+    };
+    setCardMode('cast');
+    setSelectedCast(quotedItem);
     setIsCardOpen(true);
   }, []);
 
@@ -1234,6 +1301,8 @@ export const SocialPage: React.FC = () => {
                   onClick={handleCastClick}
                   onAvatarClick={handleAvatarClick}
                   onImageClick={handleImageClick}
+                  onMentionClick={handleMentionClick}
+                  onQuoteClick={handleQuoteClick}
                 />
               )
             ))}

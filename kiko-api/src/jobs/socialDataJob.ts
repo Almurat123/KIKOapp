@@ -451,7 +451,8 @@ export async function runDiscoveryJob(force = false): Promise<void> {
                   const userData = await snapchainService.getUserDataByFid(cast.author.fid);
                   let creatorCoin = null;
                   if (userData?.verifications && userData.verifications.length > 0) {
-                    for (const address of userData.verifications) {
+                    for (const ver of userData.verifications) {
+                      const address = typeof ver === 'string' ? ver : ver.address;
                       if (!address.startsWith('0x')) continue;
                       creatorCoin = await zoraService.getUserCreatorCoin(address);
                       if (creatorCoin) break;

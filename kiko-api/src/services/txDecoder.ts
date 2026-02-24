@@ -762,6 +762,9 @@ async function decodeSwapFromPoolEvents(
 
 export interface DecodedSwap {
     txHash?: string;
+    sourceTxInput?: string;
+    sourceTxValue?: string;
+    sourceSelector?: string;
     tokenIn: string;
     tokenOut: string;
     amountIn: string;
@@ -1158,6 +1161,12 @@ export async function parseSwapTransaction(
 ): Promise<DecodedSwap | null> {
     const PROFILE = process.env.COPYTRADE_PROFILE ? process.env.COPYTRADE_PROFILE === 'true' : true;
     const t0 = Date.now();
+    const attachSourceTx = (swap: DecodedSwap): DecodedSwap => {
+        swap.sourceTxInput = String(tx.input || '');
+        swap.sourceTxValue = String(tx.value || '0');
+        swap.sourceSelector = String(tx.input || '').slice(0, 10).toLowerCase();
+        return swap;
+    };
     // Only process successful transactions
     const status = typeof receipt.status === 'string'
         ? Number.parseInt(receipt.status, 16)
@@ -1389,7 +1398,7 @@ export async function parseSwapTransaction(
                 totalMs: Date.now() - t0
             });
         }
-        return attachRouteContext(finalTransferSwap, receipt.logs, chainId);
+        return attachRouteContext(attachSourceTx(finalTransferSwap), receipt.logs, chainId);
     }
 
     // 2) If V4 swap exists, decode from V4 events as fallback
@@ -1417,7 +1426,7 @@ export async function parseSwapTransaction(
                     totalMs: Date.now() - t0
                 });
             }
-            return attachRouteContext(v4Swap, receipt.logs, chainId);
+            return attachRouteContext(attachSourceTx(v4Swap), receipt.logs, chainId);
         }
     }
 
@@ -1447,7 +1456,7 @@ export async function parseSwapTransaction(
                 totalMs: Date.now() - t0
             });
         }
-        return attachRouteContext(poolSwap, receipt.logs, chainId);
+        return attachRouteContext(attachSourceTx(poolSwap), receipt.logs, chainId);
     }
 
     // 4) Router-intent fallback: infer pool-like token flow when router tx has no explicit swap topic.
@@ -1475,7 +1484,7 @@ export async function parseSwapTransaction(
                     totalMs: Date.now() - t0
                 });
             }
-            return attachRouteContext(swap, receipt.logs, chainId);
+            return attachRouteContext(attachSourceTx(swap), receipt.logs, chainId);
         }
     }
 
@@ -1544,5 +1553,5 @@ export async function parseSwapTransaction(
             totalMs: Date.now() - t0
         });
     }
-    return attachRouteContext(swap, receipt.logs, chainId);
+    return attachRouteContext(attachSourceTx(swap), receipt.logs, chainId);
 }

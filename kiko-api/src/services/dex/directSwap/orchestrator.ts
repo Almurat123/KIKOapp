@@ -1328,8 +1328,7 @@ function shouldSkipResolvedHintRetry(error: string | undefined): boolean {
         || lower.includes('circuit_open')
         || lower.includes('timeout');
     return (
-        lower.includes('hint_pool_pair_mismatch')
-        || lower.includes('hint_pool_tokens_unavailable')
+        lower.includes('hint_pool_tokens_unavailable')
         || lower.includes('hint_fastpath_disallowed')
         || ((lower.includes('pre-sim reverted') || lower.includes('v3_pre_sim_revert') || lower.includes('v4_pre_sim_revert')) && !transientRpcFailure)
     );
@@ -1383,15 +1382,24 @@ async function tryResolvedPoolHintFastPath(
             tickSpacing: resolved.v4PoolKey.tickSpacing
         };
 
-        // If hooks/tickSpacing are missing (event-derived hint), try to resolve from V4 pool scan
+        // If hooks/tickSpacing are missing OR pool pair appears misaligned,
+        // resolve PoolKey by poolId to recover the exact on-chain key.
+        const pairAligned = isSameHintPair(
+            params.tokenIn,
+            params.tokenOut,
+            poolKey.currency0,
+            poolKey.currency1,
+            params.chainId
+        );
         const isIncomplete = poolKey.hooks === '0x0000000000000000000000000000000000000000'
             && poolKey.tickSpacing <= 0;
-        if (isIncomplete && resolved.poolAddress) {
+        if ((isIncomplete || !pairAligned) && resolved.poolAddress) {
             const resolvedKey = matchV4PoolKeyById(
                 params.chainId,
                 resolved.poolAddress,
-                poolKey.currency0,
-                poolKey.currency1
+                normalizePairTokenForHint(params.tokenIn, params.chainId),
+                normalizePairTokenForHint(params.tokenOut, params.chainId),
+                poolKey.hooks
             );
             if (resolvedKey) {
                 poolKey = {
@@ -1401,6 +1409,13 @@ async function tryResolvedPoolHintFastPath(
                     fee: resolvedKey.fee,
                     tickSpacing: resolvedKey.tickSpacing
                 };
+                logger.info(LogCode.SYS_INFO, '[DirectSwap] Recovered V4 pool key from poolId', {
+                    chainId: params.chainId,
+                    poolAddress: resolved.poolAddress,
+                    reason: isIncomplete ? 'incomplete_hint' : 'pair_realign',
+                    tokenIn: params.tokenIn,
+                    tokenOut: params.tokenOut
+                });
             }
         }
 
