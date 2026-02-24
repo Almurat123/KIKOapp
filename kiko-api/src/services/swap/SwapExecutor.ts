@@ -1331,6 +1331,31 @@ export class SwapExecutor {
                     logger.warn(LogCode.SYS_INFO, 'SpeedUp skipped: pending tx nonce not found', { txHash, chainId });
                     return;
                 }
+                const sender = String(pendingTx?.from || '').toLowerCase();
+                if (sender) {
+                    // If latest nonce already moved past this tx nonce, this nonce has been consumed.
+                    // In that case sending speedup is unnecessary and should be skipped.
+                    const latestNonceHex = await callRpc<string>(
+                        chainId,
+                        'eth_getTransactionCount',
+                        [sender, 'latest'],
+                        { strategy: 'fast', importance: 'critical' }
+                    ).catch(() => null);
+                    if (latestNonceHex) {
+                        const latestNonce = BigInt(latestNonceHex);
+                        const targetNonce = BigInt(nonceHex);
+                        if (latestNonce > targetNonce) {
+                            logger.info(LogCode.SYS_INFO, 'SpeedUp skipped: nonce already consumed on-chain', {
+                                txHash,
+                                chainId,
+                                sender,
+                                targetNonce: targetNonce.toString(),
+                                latestNonce: latestNonce.toString()
+                            });
+                            return;
+                        }
+                    }
+                }
 
                 const bumpBps = BigInt(speedUpBumpBps ?? 12000); // 20% bump default
                 const bump = (value: bigint) => (value * bumpBps) / 10000n;
@@ -1365,10 +1390,17 @@ export class SwapExecutor {
                     gasPrice: gasPrice?.toString(),
                     maxFeePerGas: maxFeePerGas?.toString(),
                     maxPriorityFeePerGas: maxPriorityFeePerGas?.toString(),
+                    // Critical: speed-up must reuse the original pending nonce.
+                    // Without this, Privy will fetch next pending nonce and create a brand-new tx.
+                    nonce: BigInt(nonceHex).toString(),
                     txPurpose: 'speedup'
                 });
 
-                logger.info(LogCode.EXE_TX_BROADCAST, 'SpeedUp replacement tx sent', { txHash, chainId });
+                logger.info(LogCode.EXE_TX_BROADCAST, 'SpeedUp replacement tx sent', {
+                    txHash,
+                    chainId,
+                    replacementNonce: BigInt(nonceHex).toString()
+                });
             } catch (err: any) {
                 logger.warn(LogCode.SYS_ERROR, 'SpeedUp replacement failed', { txHash, chainId, error: err.message });
             }
