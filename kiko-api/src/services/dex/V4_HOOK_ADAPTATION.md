@@ -21,10 +21,20 @@ Use env var `DIRECT_SWAP_V4_HOOK_PROFILES_JSON`:
 
 ## Profile Fields
 
-- `family`: `none | clanker | zora | custom | unknown`
+- `family`: `none | clanker | zora | doppler | flaunch | custom | unknown`
 - `requiresWalletAddress`: whether hook data depends on user wallet
 - `quoteHookData`: candidate list used by quoter
 - `executeHookData`: candidate list used by execution
+
+## Built-in Flaunch Support
+
+- Base built-in flaunch position manager hooks are pre-registered.
+- For flaunch hooks, runtime candidates include:
+  - `abi.encode(address(DIRECT_SWAP_FLAUNCH_REFERRER_ADDRESS))` when provided
+  - `abi.encode(address(0))`
+  - `0x`
+- Optional env:
+  - `DIRECT_SWAP_FLAUNCH_REFERRER_ADDRESS=0x...`
 
 ## Execution Behavior
 

@@ -512,6 +512,12 @@ export async function tokenRoutes(fastify: FastifyInstance) {
             if (!token.poolAddress && dexResult.poolAddress) token.poolAddress = dexResult.poolAddress;
             if (!token.poolId && dexResult.poolId) token.poolId = dexResult.poolId;
             if (!(token as any).pairCreatedAt && dexResult.pairCreatedAt) (token as any).pairCreatedAt = dexResult.pairCreatedAt;
+            // Fill price/volume from DexScreener when GeckoTerminal returned 0 or nothing
+            if ((!token.price || token.price === 0) && dexResult.price) token.price = dexResult.price;
+            if ((!token.priceChange24h || token.priceChange24h === 0) && dexResult.priceChange24h) token.priceChange24h = dexResult.priceChange24h;
+            if ((!token.volume24h || token.volume24h === 0) && dexResult.volume24h) token.volume24h = dexResult.volume24h;
+            if ((!token.liquidity || token.liquidity === 0) && dexResult.liquidity) token.liquidity = dexResult.liquidity;
+            if ((!token.fdv || token.fdv === 0) && dexResult.fdv) token.fdv = dexResult.fdv;
           }
         }
       } catch (e) {

@@ -36,6 +36,25 @@ export const DOPPLER_HOOKS_BY_CHAIN: Record<number, string[]> = {
     ]
 };
 
+// Flaunch position manager hooks (v4)
+// [Ref]: https://docs.flaunch.gg/for-integrators/quotes-and-swap
+export const FLAUNCH_HOOKS_BY_CHAIN: Record<number, string[]> = {
+    8453: [
+        // v1
+        '0x000000000d564d5be76f7f0d28fe52605afc7cf8',
+        // v2
+        '0x00000000f2f2896bef8d504bb79af67a6e4b1fe2',
+        // v3
+        '0x00000000c1500ca71c8d7d8a71cc6e106b2b5a60',
+        // v4
+        '0x00000000ede6d8d217c60f93191c060747324bca',
+        // v4.1
+        '0x00000000796b9b0ef0d3ba88e0f72e252eb0f0d4',
+        // v4.2
+        '0x0000000008d2d4de69390f08f7f2a95988f52621'
+    ]
+};
+
 // Known non-clanker/non-zora hook families seen in production traffic
 export const CUSTOM_V4_HOOKS_BY_CHAIN: Record<number, string[]> = {
     8453: [
@@ -44,7 +63,7 @@ export const CUSTOM_V4_HOOKS_BY_CHAIN: Record<number, string[]> = {
     ]
 };
 
-export type V4HookFamily = 'none' | 'clanker' | 'zora' | 'doppler' | 'custom' | 'unknown';
+export type V4HookFamily = 'none' | 'clanker' | 'zora' | 'doppler' | 'flaunch' | 'custom' | 'unknown';
 export type V4HookStage = 'quote' | 'execute';
 
 export interface V4HookProfile {
@@ -77,6 +96,7 @@ export function getKnownV4HooksByChain(chainId: number): string[] {
         ...(CLANKER_HOOKS_BY_CHAIN[chainId] || []),
         ...(ZORA_HOOKS_BY_CHAIN[chainId] || []),
         ...(DOPPLER_HOOKS_BY_CHAIN[chainId] || []),
+        ...(FLAUNCH_HOOKS_BY_CHAIN[chainId] || []),
         ...(CUSTOM_V4_HOOKS_BY_CHAIN[chainId] || []),
         ...dynamic
     ].map((h) => h.toLowerCase())));
@@ -107,10 +127,27 @@ function normalizeHookDataList(input?: string[]): string[] {
 
 function parseFamily(value: unknown): V4HookFamily {
     const normalized = String(value || '').trim().toLowerCase();
-    if (normalized === 'none' || normalized === 'clanker' || normalized === 'zora' || normalized === 'doppler' || normalized === 'custom' || normalized === 'unknown') {
+    if (normalized === 'none' || normalized === 'clanker' || normalized === 'zora' || normalized === 'doppler' || normalized === 'flaunch' || normalized === 'custom' || normalized === 'unknown') {
         return normalized as V4HookFamily;
     }
     return 'custom';
+}
+
+function buildAddressEncodedCandidates(addresses: string[]): string[] {
+    const encoded = addresses
+        .map((addr) => String(addr || '').trim())
+        .filter(Boolean)
+        .map((addr) => {
+            try {
+                return ethers.AbiCoder.defaultAbiCoder()
+                    .encode(['address'], [ethers.getAddress(addr)])
+                    .toLowerCase();
+            } catch {
+                return '';
+            }
+        })
+        .filter(Boolean);
+    return Array.from(new Set(encoded));
 }
 
 function loadDynamicProfiles(): Map<string, V4HookProfile> {
@@ -194,6 +231,20 @@ export function resolveV4HookProfile(chainId: number, hookAddress?: string): V4H
             family: 'doppler',
             requiresWalletAddress: false,
             description: 'doppler_multicurve_hook'
+        };
+    }
+    const flaunchHooks = FLAUNCH_HOOKS_BY_CHAIN[chainId] || [];
+    if (flaunchHooks.some((h) => h.toLowerCase() === normalizedHook)) {
+        const referrer = String(process.env.DIRECT_SWAP_FLAUNCH_REFERRER_ADDRESS || '').trim();
+        const refCandidates = buildAddressEncodedCandidates([referrer, HOOK_ZERO]);
+        return {
+            chainId,
+            hookAddress: normalizedHook,
+            family: 'flaunch',
+            requiresWalletAddress: false,
+            description: 'flaunch_position_manager_hook',
+            quoteHookData: [...refCandidates, '0x'],
+            executeHookData: [...refCandidates, '0x']
         };
     }
     const customHooks = CUSTOM_V4_HOOKS_BY_CHAIN[chainId] || [];
