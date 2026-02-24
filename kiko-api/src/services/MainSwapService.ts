@@ -1036,10 +1036,14 @@ export class MainSwapService {
       && isSellDirection
       && (process.env.COPYTRADE_AGGREGATOR_ONLY || 'true').toLowerCase() === 'true';
     const allowDirectSell = !copytradeAggregatorOnly && request.mode === 'copytrade' && isSellDirection;
+    const turboBuyForceDirect = isTurboCopytrade && isBuyDirection;
+    const turboSkipFallbackOnTimeout = isTurboCopytrade && isSellDirection && TURBO_SKIP_FALLBACK_ON_TIMEOUT;
+    const turboSkip0xFallback = isTurboCopytrade && isSellDirection && TURBO_SKIP_0X_FALLBACK;
     const enforcedSlippageBps = request.mode === 'copytrade'
       ? (request.slippageBps ?? 1500)
       : (request.slippageBps ?? 50);
-    const fastSwapEnabled = !copytradeAggregatorOnly && request.userSettings?.fastSwapMode === true;
+    const fastSwapEnabled = !copytradeAggregatorOnly
+      && (request.userSettings?.fastSwapMode === true || turboBuyForceDirect);
     if (!fastSwapEnabled || !isDirectSwapSupported(request.chainId) || (!isBuyDirection && !allowDirectSell)) {
       const reasons: string[] = [];
       if (!fastSwapEnabled) reasons.push('fastSwapMode=false');
@@ -1143,7 +1147,7 @@ export class MainSwapService {
               if (!isTimeoutError(timeoutErr)) {
                 throw timeoutErr;
               }
-              if (!TURBO_SKIP_FALLBACK_ON_TIMEOUT) {
+              if (!turboSkipFallbackOnTimeout) {
                 throw timeoutErr;
               }
 
@@ -1351,7 +1355,7 @@ export class MainSwapService {
 
       if (
         isTurboCopytrade &&
-        TURBO_SKIP_FALLBACK_ON_TIMEOUT &&
+        turboSkipFallbackOnTimeout &&
         isTimeoutError(lastDirectError)
       ) {
         if (inflightDirectPromise) {
@@ -1462,7 +1466,7 @@ export class MainSwapService {
         });
       }
 
-      if (isTurboCopytrade && TURBO_SKIP_0X_FALLBACK) {
+      if (turboSkip0xFallback) {
         const error = lastDirectResult?.error || lastDirectError?.message;
         logger.warn(LogCode.SYS_INFO, trace('Turbo: skipping 0x fallback (0x API too slow for turbo)'), {
           error,

@@ -140,8 +140,106 @@ export async function runCleanup() {
 
         console.log('[DataRetention] Cleanup job completed.');
 
+        // ── Monthly: sanitize implausible Position.realizedPnlUsd ──────────
+        // Guards against corrupted PnL values caused by historical bugs (e.g. raw
+        // wei amounts used as human-readable, wrong exit price, etc.).
+        // Runs at most once every 30 days per the Redis/DB gate below.
+        await sanitizeDirtyPositionPnl().catch((err) =>
+            console.error('[DataRetention] Position PnL sanitize failed:', err)
+        );
+
     } catch (error) {
         console.error('[DataRetention] Cleanup job failed:', error);
+    }
+}
+
+// ── Dirty Position PnL monthly cleanup ──────────────────────────────────────
+const DIRTY_PNL_CLEANUP_INTERVAL_DAYS = 30;
+let lastDirtyPnlCleanup: Date | null = null;
+
+async function sanitizeDirtyPositionPnl(): Promise<void> {
+    // In-memory gate: skip if we ran within the last 30 days in this process.
+    if (lastDirtyPnlCleanup) {
+        const daysSince = (Date.now() - lastDirtyPnlCleanup.getTime()) / (1000 * 60 * 60 * 24);
+        if (daysSince < DIRTY_PNL_CLEANUP_INTERVAL_DAYS) return;
+    }
+
+    // DB gate: check the DataRetentionPolicy row for last run timestamp.
+    const policyRow = await prisma.dataRetentionPolicy.findUnique({
+        where: { tableName: 'Position_PnlSanitize' }
+    }).catch(() => null);
+
+    if (policyRow?.lastCleanedAt) {
+        const daysSince = (Date.now() - new Date(policyRow.lastCleanedAt).getTime()) / (1000 * 60 * 60 * 24);
+        if (daysSince < DIRTY_PNL_CLEANUP_INTERVAL_DAYS) {
+            lastDirtyPnlCleanup = new Date(policyRow.lastCleanedAt);
+            return;
+        }
+    }
+
+    console.log('[DataRetention] Running monthly Position PnL sanitize...');
+
+    const closedPositions = await prisma.position.findMany({
+        where: { status: 'closed' },
+        select: {
+            id: true,
+            entryUsdValue: true,
+            exitUsdValue: true,
+            entryPrice: true,
+            exitPrice: true,
+            realizedPnlUsd: true,
+        },
+    });
+
+    let fixedCount = 0;
+
+    for (const pos of closedPositions) {
+        const pnl = pos.realizedPnlUsd ?? 0;
+        const entry = pos.entryUsdValue ?? 0;
+        const maxPlausible = Math.max(entry * 10, 100_000);
+
+        if (Math.abs(pnl) <= maxPlausible) continue;
+
+        // Attempt recalculation from exit/entry USD values
+        let newPnl = 0;
+        if (pos.exitUsdValue && pos.exitUsdValue > 0 && entry > 0) {
+            const recalc = pos.exitUsdValue - entry;
+            if (Math.abs(recalc) <= maxPlausible) newPnl = recalc;
+        }
+
+        let newPct = 0;
+        if (pos.exitPrice && pos.exitPrice > 0 && pos.entryPrice && pos.entryPrice > 0) {
+            newPct = ((pos.exitPrice - pos.entryPrice) / pos.entryPrice) * 100;
+            if (!Number.isFinite(newPct) || Math.abs(newPct) > 100_000) newPct = 0;
+        }
+
+        await prisma.position.update({
+            where: { id: pos.id },
+            data: { realizedPnlUsd: newPnl, realizedPnlPct: newPct },
+        });
+        fixedCount++;
+    }
+
+    // Upsert the tracking policy row to record last run time.
+    await prisma.dataRetentionPolicy.upsert({
+        where: { tableName: 'Position_PnlSanitize' },
+        update: { lastCleanedAt: new Date(), lastCleanedCount: fixedCount },
+        create: {
+            tableName: 'Position_PnlSanitize',
+            retentionDays: 0,
+            description: 'Monthly sanitization of implausible Position.realizedPnlUsd',
+            isEnabled: true,
+            lastCleanedAt: new Date(),
+            lastCleanedCount: fixedCount,
+        },
+    });
+
+    lastDirtyPnlCleanup = new Date();
+
+    if (fixedCount > 0) {
+        console.log(`[DataRetention] Position PnL sanitize: fixed ${fixedCount} dirty rows`);
+    } else {
+        console.log('[DataRetention] Position PnL sanitize: no dirty rows found');
     }
 }
 

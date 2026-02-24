@@ -2073,7 +2073,7 @@ async function processSingleUserBuy(
                         eth: baseAmount.toFixed(6),
                         timingMs: Date.now() - timingDetectedAt
                     });
-                    const fastSwapOverride = userSettings?.fastSwapMode === true; // buy path can use direct when enabled
+                    const fastSwapOverride = userSettings?.fastSwapMode === true; // allow direct on buy when enabled
                     const amountStep1 = baseAmount.toFixed(18);
                     const plannedStep1 = await buildPlannedExecutionContext({
                         chainId,
@@ -2175,7 +2175,7 @@ async function processSingleUserBuy(
                             const amount99 = baseAmount * 0.99;
                             const slippage2 = Math.min(Math.floor(baseSlippage * 1.25), 2000); // Max 20% or 1.25x user setting
                             logger.info(LogCode.EXE_TX_BROADCAST, `Buy Step 2: 99% amount, ${slippage2 / 100}% slippage`, { userId: effectiveConfig.userId, eth: amount99.toFixed(6) });
-                            const fastSwapOverride = userSettings?.fastSwapMode === true; // buy path can use direct when enabled
+                            const fastSwapOverride = userSettings?.fastSwapMode === true; // allow direct on buy when enabled
                             const amountStep2 = amount99.toFixed(18);
                             const plannedStep2 = await buildPlannedExecutionContext({
                                 chainId,
@@ -2222,7 +2222,7 @@ async function processSingleUserBuy(
                                 const amount98 = baseAmount * 0.98;
                                 const slippage3 = Math.min(Math.floor(baseSlippage * 1.5), 2500); // Max 25% or 1.5x user setting
                                 logger.info(LogCode.EXE_TX_BROADCAST, `Buy Step 3: 98% amount, ${slippage3 / 100}% slippage`, { userId: effectiveConfig.userId, eth: amount98.toFixed(6) });
-                                const fastSwapOverride = userSettings?.fastSwapMode === true; // buy path can use direct when enabled
+                                const fastSwapOverride = userSettings?.fastSwapMode === true; // allow direct on buy when enabled
                                 const amountStep3 = amount98.toFixed(18);
                                 const plannedStep3 = await buildPlannedExecutionContext({
                                     chainId,
@@ -3021,10 +3021,25 @@ async function executePositionExit(params: {
             // [Ref]: Prisma schema fields: realizedPnlUsd, realizedPnlPct, exitPrice, exitUsdValue
             // [Risk]: Division by zero if entryPrice is 0 (shouldn't happen, but guard against it)
             for (const pos of openPositions) {
-                const realizedPnlUsd = sellVolUsd - (pos.entryUsdValue || 0);
+                let realizedPnlUsd = sellVolUsd - (pos.entryUsdValue || 0);
                 const realizedPnlPct = pos.entryPrice && pos.entryPrice > 0
                     ? ((exitPrice - pos.entryPrice) / pos.entryPrice) * 100
                     : 0;
+
+                // Sanity guard: if PnL is absurdly large relative to entry value,
+                // it means the sell balance or price was corrupted. Clamp to ±10x entry.
+                const maxPlausiblePnl = Math.max((pos.entryUsdValue || 0) * 10, 100000);
+                if (Math.abs(realizedPnlUsd) > maxPlausiblePnl) {
+                    logger.warn(LogCode.SYS_ERROR, 'Clamping implausible realizedPnlUsd', {
+                        positionId: pos.id,
+                        rawPnl: realizedPnlUsd,
+                        entryUsdValue: pos.entryUsdValue,
+                        sellVolUsd,
+                        exitPrice,
+                        clampedTo: 0
+                    });
+                    realizedPnlUsd = 0;
+                }
 
                 await prisma.position.update({
                     where: { id: pos.id },

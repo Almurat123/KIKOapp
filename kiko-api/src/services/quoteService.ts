@@ -142,9 +142,18 @@ async function getBestQuoteInternal(params: BestQuoteParams): Promise<{ best: Qu
 
     const quotes: QuoteResult[] = [];
     const turboMode = params.executionMode === 'turbo';
+    const feeContext = String(params.feeContext || '').toLowerCase();
+    const isCopytradeFeeContext = feeContext === 'copytrade' || feeContext === 'copy_trade';
+    const copytradeBuy0xOnly = isCopytradeFeeContext && !params.isSell;
+    const turboCopytrade0xOnly = turboMode && copytradeBuy0xOnly;
     const TURBO_ZEROEX_WAIT_MS = Math.max(80, Number(process.env.QUOTE_TURBO_ZEROEX_WAIT_MS || 700));
     const TURBO_GRACE_WAIT_MS = Math.max(0, Number(process.env.QUOTE_TURBO_GRACE_WAIT_MS || 180));
     const TURBO_TOTAL_WAIT_MS = Math.max(TURBO_ZEROEX_WAIT_MS, Number(process.env.QUOTE_TURBO_TOTAL_WAIT_MS || 1600));
+    const TURBO_COPYTRADE_0X_WAIT_MS = Math.max(120, Number(process.env.QUOTE_TURBO_COPYTRADE_0X_WAIT_MS || 420));
+    const TURBO_COPYTRADE_0X_TOTAL_WAIT_MS = Math.max(
+        TURBO_COPYTRADE_0X_WAIT_MS,
+        Number(process.env.QUOTE_TURBO_COPYTRADE_0X_TOTAL_WAIT_MS || 900)
+    );
 
     // Helper to calc price impact vs market
     const calcImpactVsMkt = (amountOutHuman: number): number | null => {
@@ -252,6 +261,8 @@ async function getBestQuoteInternal(params: BestQuoteParams): Promise<{ best: Qu
             // Kyber requires recipient address - skip if not provided
             if (!userAddress) return null;
 
+            if (copytradeBuy0xOnly) return null;
+
             const kyberQuote = await getKyberQuote(
                 actualTokenIn,
                 actualTokenOut,
@@ -311,33 +322,58 @@ async function getBestQuoteInternal(params: BestQuoteParams): Promise<{ best: Qu
 
     if (turboMode) {
         const zeroExPromise = fetchZeroEx();
-        const kyberPromise = fetchKyber();
         const startMs = Date.now();
 
-        const zeroExFast = await withTimeout(zeroExPromise, TURBO_ZEROEX_WAIT_MS);
-        if (zeroExFast) {
-            quotes.push(zeroExFast);
-            const kyberGrace = await withTimeout(kyberPromise, TURBO_GRACE_WAIT_MS);
-            if (kyberGrace) quotes.push(kyberGrace);
-            console.log('[QuoteService] Turbo quote mode fast-return', {
-                picked: '0x_fast',
-                elapsedMs: Date.now() - startMs,
-                graceWaitMs: TURBO_GRACE_WAIT_MS,
-                chainId: params.chainId
-            });
+        if (turboCopytrade0xOnly) {
+            const zeroExFast = await withTimeout(zeroExPromise, TURBO_COPYTRADE_0X_WAIT_MS);
+            if (zeroExFast) {
+                quotes.push(zeroExFast);
+                console.log('[QuoteService] Turbo quote mode fast-return', {
+                    picked: '0x_fast',
+                    policy: 'copytrade_turbo_0x_only',
+                    elapsedMs: Date.now() - startMs,
+                    zeroExWaitMs: TURBO_COPYTRADE_0X_WAIT_MS,
+                    chainId: params.chainId
+                });
+            } else {
+                const remaining = Math.max(0, TURBO_COPYTRADE_0X_TOTAL_WAIT_MS - (Date.now() - startMs));
+                const zeroExSlow = await withTimeout(zeroExPromise, remaining);
+                if (zeroExSlow) quotes.push(zeroExSlow);
+                console.log('[QuoteService] Turbo quote mode fallback-wait', {
+                    policy: 'copytrade_turbo_0x_only',
+                    elapsedMs: Date.now() - startMs,
+                    totalWaitMs: TURBO_COPYTRADE_0X_TOTAL_WAIT_MS,
+                    chainId: params.chainId
+                });
+            }
         } else {
-            const remaining = Math.max(0, TURBO_TOTAL_WAIT_MS - (Date.now() - startMs));
-            const [zeroExSlow, kyberSlow] = await Promise.all([
-                withTimeout(zeroExPromise, remaining),
-                withTimeout(kyberPromise, remaining)
-            ]);
-            if (zeroExSlow) quotes.push(zeroExSlow);
-            if (kyberSlow) quotes.push(kyberSlow);
-            console.log('[QuoteService] Turbo quote mode fallback-wait', {
-                elapsedMs: Date.now() - startMs,
-                totalWaitMs: TURBO_TOTAL_WAIT_MS,
-                chainId: params.chainId
-            });
+            const kyberPromise = fetchKyber();
+
+            const zeroExFast = await withTimeout(zeroExPromise, TURBO_ZEROEX_WAIT_MS);
+            if (zeroExFast) {
+                quotes.push(zeroExFast);
+                const kyberGrace = await withTimeout(kyberPromise, TURBO_GRACE_WAIT_MS);
+                if (kyberGrace) quotes.push(kyberGrace);
+                console.log('[QuoteService] Turbo quote mode fast-return', {
+                    picked: '0x_fast',
+                    elapsedMs: Date.now() - startMs,
+                    graceWaitMs: TURBO_GRACE_WAIT_MS,
+                    chainId: params.chainId
+                });
+            } else {
+                const remaining = Math.max(0, TURBO_TOTAL_WAIT_MS - (Date.now() - startMs));
+                const [zeroExSlow, kyberSlow] = await Promise.all([
+                    withTimeout(zeroExPromise, remaining),
+                    withTimeout(kyberPromise, remaining)
+                ]);
+                if (zeroExSlow) quotes.push(zeroExSlow);
+                if (kyberSlow) quotes.push(kyberSlow);
+                console.log('[QuoteService] Turbo quote mode fallback-wait', {
+                    elapsedMs: Date.now() - startMs,
+                    totalWaitMs: TURBO_TOTAL_WAIT_MS,
+                    chainId: params.chainId
+                });
+            }
         }
     } else {
         // Standard mode keeps full quote race semantics.

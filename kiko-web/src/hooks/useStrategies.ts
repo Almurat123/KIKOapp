@@ -107,18 +107,23 @@ export const useStrategies = () => {
         const totalPnL = positions.reduce((acc: number, pos: any) => {
           // Closed positions: use realizedPnlUsd directly
           if (pos.status === 'closed' && pos.realizedPnlUsd) {
-            return acc + Number(pos.realizedPnlUsd);
+            const pnl = Number(pos.realizedPnlUsd);
+            // Skip implausible values (dirty data from legacy bugs)
+            const entry = Number(pos.entryUsdValue || 0);
+            const maxPlausible = Math.max(entry * 10, 100000);
+            if (!Number.isFinite(pnl) || Math.abs(pnl) > maxPlausible) return acc;
+            return acc + pnl;
           }
           // Open positions: prefer price-based unrealized PNL when available, fallback to stored pct
           if (pos.status === 'open' && pos.entryUsdValue) {
             if (pos.currentPrice && pos.entryPrice && Number(pos.entryPrice) > 0) {
               const pct = ((Number(pos.currentPrice) - Number(pos.entryPrice)) / Number(pos.entryPrice)) * 100;
               const unrealizedPnl = (pct / 100) * Number(pos.entryUsdValue);
-              return acc + unrealizedPnl;
+              if (Number.isFinite(unrealizedPnl)) return acc + unrealizedPnl;
             }
             if (pos.profitLossPct !== null && pos.profitLossPct !== undefined) {
               const unrealizedPnl = (Number(pos.profitLossPct) / 100) * Number(pos.entryUsdValue);
-              return acc + unrealizedPnl;
+              if (Number.isFinite(unrealizedPnl)) return acc + unrealizedPnl;
             }
           }
           return acc;

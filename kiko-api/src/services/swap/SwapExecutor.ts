@@ -18,6 +18,12 @@ import { NATIVE_TOKEN_ADDRESS, SOLANA_NATIVE_MINT, TOKEN_REGISTRY, isNativeToken
 import { handleSwapError } from './handleSwapError.js';
 import { getTransactionReceipt, getTransactionByHash, callRpc, getErc20Balance, getErc20Decimals, getErc20Allowance } from '../../services/rpcManager.js';
 
+// 0x AllowanceHolder address (Base). If a token already has sufficient allowance here,
+// we can skip Permit2 first-try and reduce sell failure risk for problematic tokens.
+const ZEROX_ALLOWANCE_HOLDER_BY_CHAIN: Record<number, string> = {
+    8453: '0x0000000000001ff3684f28c67538d4d072c22734'
+};
+
 export interface SwapParams {
     userId: string;
     walletAddress: string;
@@ -266,6 +272,30 @@ export class SwapExecutor {
             // Continue without refPrice - impact calc will fall back to 0
         }
 
+        let preferPermit2 = params.preferPermit2 !== false;
+        if (preferPermit2 && isSellTx && !isNativeIn) {
+            const holder = ZEROX_ALLOWANCE_HOLDER_BY_CHAIN[chainId];
+            if (holder) {
+                try {
+                    const existingAllowance = await getErc20Allowance(actualTokenInFixed, walletAddress, holder, chainId);
+                    if (existingAllowance >= BigInt(amountInBase)) {
+                        preferPermit2 = false;
+                        logger.info(LogCode.SYS_INFO, 'Detected sufficient 0x allowance-holder allowance; bypassing permit2 for sell', {
+                            chainId,
+                            token: actualTokenInFixed,
+                            spender: holder
+                        });
+                    }
+                } catch (allowanceErr: any) {
+                    logger.warn(LogCode.SYS_ERROR, 'Failed to check 0x allowance-holder allowance; keep permit2 preference', {
+                        chainId,
+                        token: actualTokenInFixed,
+                        error: allowanceErr?.message || String(allowanceErr)
+                    });
+                }
+            }
+        }
+
         const { best } = await getBestQuote({
             tokenIn: actualTokenInFixed,
             tokenOut: actualTokenOutFixed,
@@ -284,7 +314,7 @@ export class SwapExecutor {
             feeContext,
             isSell: isSellForFee,
             executionMode: params.executionMode,
-            preferPermit2: params.preferPermit2 !== false
+            preferPermit2
         });
 
         if (!best) {
