@@ -3,11 +3,12 @@ import { ethers } from 'ethers';
 import { logger } from '../../utils/logger.js';
 import { LogCode } from '../../config/logRegistry.js';
 import { getChainConfig, getProvider } from '../../config/chainConfig.js';
-import { sendTransaction } from '../privyWallet.js';
+import { sendTransaction, signTypedData } from '../privyWallet.js';
 import { AppError } from '../../middleware/errorHandler.js';
 import { getBestQuote, QuoteResult } from '../quoteService.js';
 import { getPlatformFee, isValidEvmAddress, FeeContext } from '../platformFeeService.js';
 import { toWei } from '../zeroEx.js';
+import { getKyberQuote } from '../kyberAggregator.js';
 import { getDexPrice } from '../dexPriceService.js';
 import { getTokenInfo } from '../tokenService.js';
 import { executeSolanaSwap } from '../solanaExecutor.js';
@@ -306,6 +307,92 @@ export class SwapExecutor {
             );
 
             if (needsApproval) {
+                let permitApprovalCovered = false;
+                if (isSellTx && !isNativeIn && best.dex === '0x' && best.approvalKind === 'permit2_24h' && best.requiresTypedSignature && best.permit2Payload) {
+                    try {
+                        this.validatePermit2Payload(best.permit2Payload, chainId, best.permit2Expiry ?? null);
+                        const signature = await signTypedData(userId, best.permit2Payload as any, chainId);
+                        best.data = this.appendPermit2SignatureToCalldata(best.data, signature);
+                        permitApprovalCovered = true;
+                        logger.info(LogCode.EXE_TX_BROADCAST, '0x sell permit2 signature attached', {
+                            chainId,
+                            dex: best.dexName,
+                            permit2Expiry: best.permit2Expiry || null
+                        });
+                    } catch (permitErr: any) {
+                        logger.warn(LogCode.EXE_TX_BROADCAST, '0x permit2 sign failed, falling back to approve', {
+                            chainId,
+                            error: permitErr?.message || String(permitErr)
+                        });
+                    }
+                }
+
+                if (!permitApprovalCovered && isSellTx && !isNativeIn && best.dex === 'kyber') {
+                    try {
+                        const kyberPermit = await this.tryBuildKyberPermit({
+                            userId,
+                            chainId,
+                            token: actualTokenInFixed,
+                            owner: walletAddress,
+                            spender: best.allowanceTarget,
+                            amountInBase
+                        });
+                        if (kyberPermit) {
+                            const kyberPermitQuote = await getKyberQuote(
+                                actualTokenInFixed,
+                                actualTokenOutFixed,
+                                amountInBase,
+                                chainId,
+                                slippageBps,
+                                walletAddress,
+                                feeContext,
+                                isSellForFee,
+                                undefined,
+                                {
+                                    permit: kyberPermit.permit,
+                                    deadline: kyberPermit.deadline
+                                }
+                            );
+                            if (kyberPermitQuote?.data && kyberPermitQuote?.routerAddress) {
+                                const amountOutBase = kyberPermitQuote.amountOutBase || kyberPermitQuote.amountOut || '0';
+                                const amountOutHuman = ethers.formatUnits(amountOutBase, decimalsOut);
+                                Object.assign(best, {
+                                    dex: 'kyber',
+                                    dexName: 'KyberSwap',
+                                    amountOut: amountOutHuman,
+                                    amountOutBase,
+                                    gasEstimate: kyberPermitQuote.gas ? parseInt(String(kyberPermitQuote.gas), 10) : best.gasEstimate,
+                                    priceImpact: kyberPermitQuote.priceImpact || best.priceImpact,
+                                    path: [actualTokenInFixed, actualTokenOutFixed],
+                                    router: kyberPermitQuote.routerAddress,
+                                    data: kyberPermitQuote.data,
+                                    to: kyberPermitQuote.to || kyberPermitQuote.routerAddress,
+                                    value: kyberPermitQuote.value || '0',
+                                    allowanceTarget: kyberPermitQuote.allowanceTarget || kyberPermitQuote.routerAddress,
+                                    permit2Expiry: kyberPermit.deadline
+                                } as Partial<QuoteResult>);
+                                permitApprovalCovered = true;
+                                logger.info(LogCode.EXE_TX_BROADCAST, 'Kyber sell permit prepared (24h), skipping on-chain approve', {
+                                    chainId,
+                                    permitExpiry: kyberPermit.deadline
+                                });
+                            }
+                        }
+                    } catch (kyberPermitErr: any) {
+                        logger.warn(LogCode.EXE_TX_BROADCAST, 'Kyber permit sign failed, falling back to approve', {
+                            chainId,
+                            error: kyberPermitErr?.message || String(kyberPermitErr)
+                        });
+                    }
+                }
+
+                if (permitApprovalCovered) {
+                    logger.info(LogCode.EXE_TX_BROADCAST, 'Sell approval covered by signed permit; skipping on-chain approve', {
+                        dex: best.dexName,
+                        token: actualTokenIn,
+                        spender: best.allowanceTarget
+                    });
+                } else {
                 logger.info(LogCode.EXE_TX_BROADCAST, 'Approval required, auto-executing', { token: actualTokenIn, spender: best.allowanceTarget, amount: amountInBase });
 
                 // Update transaction card: approval started
@@ -342,9 +429,10 @@ export class SwapExecutor {
                     console.warn('[SwapExecutor] Failed to update approval status card:', wsError);
                 }
 
-                // Auto-execute approval for instant swaps
+                // Auto-execute approval for instant swaps (exact amount + 1 unit buffer)
                 const iface = new ethers.Interface(['function approve(address spender, uint256 amount)']);
-                const approvalData = iface.encodeFunctionData('approve', [best.allowanceTarget, ethers.MaxUint256]);
+                const exactApproval = (BigInt(amountInBase || '0') + 1n).toString();
+                const approvalData = iface.encodeFunctionData('approve', [best.allowanceTarget, exactApproval]);
 
                 try {
                     const approveTxHash = await sendTransaction(userId, params.accessToken || '', {
@@ -474,6 +562,7 @@ export class SwapExecutor {
                 } catch (approvalError: any) {
                     logger.error(LogCode.EXE_TX_REVERTED, 'Approval failed', { error: approvalError.message });
                     throw new Error(`Token approval failed: ${approvalError.message}`);
+                }
                 }
             } else {
                 logger.info(LogCode.EXE_TX_BROADCAST, 'Approval not needed or already set', { token: actualTokenIn, spender: best.allowanceTarget });
@@ -949,7 +1038,7 @@ export class SwapExecutor {
                             error: execError.message.slice(0, 100)
                         });
                         try {
-                            await this.executeApproval(userId, actualTokenInFixed, best.allowanceTarget, chainId, params.accessToken);
+                            await this.executeApproval(userId, actualTokenInFixed, best.allowanceTarget, amountInBase, chainId, params.accessToken);
                         } catch (approveErr: any) {
                             logger.warn(LogCode.SYS_ERROR, 'Forced approval failed, continuing with retry...', { error: approveErr.message });
                         }
@@ -1371,6 +1460,150 @@ export class SwapExecutor {
         }
     }
 
+    private static validatePermit2Payload(
+        payload: {
+            domain?: Record<string, any>;
+            message?: Record<string, any>;
+        },
+        chainId: number,
+        quotePermitExpiry?: number | null
+    ): void {
+        const domain = payload?.domain || {};
+        const message = payload?.message || {};
+        const domainChainIdRaw = domain.chainId;
+        if (domainChainIdRaw !== undefined && domainChainIdRaw !== null) {
+            const domainChainId = Number(domainChainIdRaw);
+            if (Number.isFinite(domainChainId) && domainChainId > 0 && domainChainId !== chainId) {
+                throw new Error(`permit2_chain_mismatch:${domainChainId}!=${chainId}`);
+            }
+        }
+        const nowSec = Math.floor(Date.now() / 1000);
+        const sigDeadlineRaw = message.sigDeadline ?? quotePermitExpiry ?? null;
+        if (sigDeadlineRaw !== null && sigDeadlineRaw !== undefined) {
+            const sigDeadline = Number(sigDeadlineRaw);
+            if (!Number.isFinite(sigDeadline) || sigDeadline <= nowSec) {
+                throw new Error('permit2_deadline_expired');
+            }
+            const maxTtl = nowSec + 24 * 60 * 60 + 5 * 60;
+            if (sigDeadline > maxTtl) {
+                throw new Error('permit2_deadline_exceeds_24h');
+            }
+        }
+    }
+
+    private static appendPermit2SignatureToCalldata(calldata: string, signature: string): string {
+        const data = String(calldata || '');
+        if (!data.startsWith('0x')) {
+            throw new Error('invalid_calldata_for_permit2');
+        }
+        const sig = String(signature || '');
+        if (!sig.startsWith('0x') || sig.length < 4 || sig.length % 2 !== 0) {
+            throw new Error('invalid_permit2_signature');
+        }
+        const sigNoPrefix = sig.slice(2);
+        const sigLenBytes = sigNoPrefix.length / 2;
+        const sigLenHex = sigLenBytes.toString(16).padStart(64, '0');
+        return `${data}${sigLenHex}${sigNoPrefix}`;
+    }
+
+    private static async tryBuildKyberPermit(params: {
+        userId: string;
+        chainId: number;
+        token: string;
+        owner: string;
+        spender: string;
+        amountInBase: string;
+    }): Promise<{ permit: string; deadline: number } | null> {
+        const token = ethers.getAddress(params.token);
+        const owner = ethers.getAddress(params.owner);
+        const spender = ethers.getAddress(params.spender);
+        const nonce = await this.readPermitNonce(params.chainId, token, owner);
+        if (nonce === null) return null;
+        const tokenName = await this.readTokenName(params.chainId, token);
+        if (!tokenName) return null;
+        const tokenVersion = (await this.readTokenVersion(params.chainId, token)) || '1';
+        const deadline = Math.floor(Date.now() / 1000) + 24 * 60 * 60;
+        const typedData = {
+            domain: {
+                name: tokenName,
+                version: tokenVersion,
+                chainId: params.chainId,
+                verifyingContract: token
+            },
+            types: {
+                Permit: [
+                    { name: 'owner', type: 'address' },
+                    { name: 'spender', type: 'address' },
+                    { name: 'value', type: 'uint256' },
+                    { name: 'nonce', type: 'uint256' },
+                    { name: 'deadline', type: 'uint256' }
+                ]
+            },
+            primaryType: 'Permit',
+            message: {
+                owner,
+                spender,
+                value: params.amountInBase,
+                nonce: nonce.toString(),
+                deadline
+            }
+        };
+        const signature = await signTypedData(params.userId, typedData as any, params.chainId);
+        const split = ethers.Signature.from(signature);
+        const permit = ethers.AbiCoder.defaultAbiCoder().encode(
+            ['address', 'address', 'uint256', 'uint256', 'uint8', 'bytes32', 'bytes32'],
+            [owner, spender, params.amountInBase, deadline, split.v, split.r, split.s]
+        );
+        return { permit, deadline };
+    }
+
+    private static async readPermitNonce(chainId: number, token: string, owner: string): Promise<bigint | null> {
+        try {
+            const iface = new ethers.Interface(['function nonces(address) view returns (uint256)']);
+            const raw = await callRpc<string>(chainId, 'eth_call', [{
+                to: token,
+                data: iface.encodeFunctionData('nonces', [owner])
+            }, 'latest']);
+            if (!raw || raw === '0x') return null;
+            const [nonce] = iface.decodeFunctionResult('nonces', raw);
+            return BigInt(nonce);
+        } catch {
+            return null;
+        }
+    }
+
+    private static async readTokenName(chainId: number, token: string): Promise<string | null> {
+        try {
+            const iface = new ethers.Interface(['function name() view returns (string)']);
+            const raw = await callRpc<string>(chainId, 'eth_call', [{
+                to: token,
+                data: iface.encodeFunctionData('name', [])
+            }, 'latest']);
+            if (!raw || raw === '0x') return null;
+            const [name] = iface.decodeFunctionResult('name', raw);
+            const value = String(name || '').trim();
+            return value || null;
+        } catch {
+            return null;
+        }
+    }
+
+    private static async readTokenVersion(chainId: number, token: string): Promise<string | null> {
+        try {
+            const iface = new ethers.Interface(['function version() view returns (string)']);
+            const raw = await callRpc<string>(chainId, 'eth_call', [{
+                to: token,
+                data: iface.encodeFunctionData('version', [])
+            }, 'latest']);
+            if (!raw || raw === '0x') return null;
+            const [version] = iface.decodeFunctionResult('version', raw);
+            const value = String(version || '').trim();
+            return value || null;
+        } catch {
+            return null;
+        }
+    }
+
     /**
      * Execute Approval Transaction
      */
@@ -1378,11 +1611,13 @@ export class SwapExecutor {
         userId: string,
         token: string,
         spender: string,
+        requiredAmountBase: string,
         chainId: number,
         accessToken?: string
     ): Promise<string> {
         const iface = new ethers.Interface(['function approve(address spender, uint256 amount)']);
-        const data = iface.encodeFunctionData('approve', [spender, ethers.MaxUint256]);
+        const exactApproval = (BigInt(requiredAmountBase || '0') + 1n).toString();
+        const data = iface.encodeFunctionData('approve', [spender, exactApproval]);
 
         const txHash = await sendTransaction(userId, accessToken || '', {
             to: token,

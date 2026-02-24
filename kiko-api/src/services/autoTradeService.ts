@@ -3717,6 +3717,15 @@ export async function checkPositionsForExits(): Promise<void> {
                 const profitLossPct = ((currentPrice - position.entryPrice) / position.entryPrice) * 100;
                 const positionAgeMs = Date.now() - new Date(position.createdAt).getTime();
 
+                // Persist live price + PnL% so the frontend card always shows up-to-date values.
+                // Fire-and-forget to avoid blocking the TP/SL check loop.
+                if (Number.isFinite(currentPrice) && currentPrice > 0 && Number.isFinite(profitLossPct)) {
+                    void prisma.position.update({
+                        where: { id: position.id },
+                        data: { currentPrice, profitLossPct },
+                    }).catch(() => undefined);
+                }
+
                 // Get config
                 const config = configMap.get(position.configId);
                 if (!config) {

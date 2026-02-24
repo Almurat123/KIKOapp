@@ -21,6 +21,16 @@ export interface QuoteResult {
     tokenInDecimals: number;
     tokenOutDecimals: number;
     priceImpactVsMkt?: number | null;
+    approvalKind?: 'permit2_24h' | 'exact_approve_fallback';
+    requiresTypedSignature?: boolean;
+    permit2Payload?: {
+        domain: Record<string, any>;
+        types: Record<string, any>;
+        primaryType: string;
+        message: Record<string, any>;
+    } | null;
+    permit2Spender?: string | null;
+    permit2Expiry?: number | null;
 }
 
 export interface BestQuoteParams {
@@ -41,6 +51,7 @@ export interface BestQuoteParams {
     feeContext?: 'swap' | 'copyTrade' | 'copy_trade' | 'launchpad';
     isSell?: boolean;
     executionMode?: 'safe' | 'normal' | 'turbo';
+    preferPermit2?: boolean;
 }
 
 const quoteBundleCache = new Map<string, { value: { best: QuoteResult; quotes: QuoteResult[] }; ts: number }>();
@@ -58,6 +69,7 @@ function buildQuoteCacheKey(params: BestQuoteParams): string {
         amountInBase,
         params.slippageBps,
         params.executionMode || 'normal',
+        params.preferPermit2 === false ? 'permit2_off' : 'permit2_on',
         params.excludeDex || 'none',
         params.isSell ? 'sell' : 'buy',
         params.feeContext || 'swap'
@@ -183,7 +195,8 @@ async function getBestQuoteInternal(params: BestQuoteParams): Promise<{ best: Qu
                 slippageBps,
                 userAddress,
                 affiliateFee,
-                isQuoteOnly // Price quote only if no user address
+                isQuoteOnly, // Price quote only if no user address
+                params.preferPermit2 !== false
             );
 
             if (q) {
@@ -219,6 +232,11 @@ async function getBestQuoteInternal(params: BestQuoteParams): Promise<{ best: Qu
                     deadline: Math.floor(Date.now() / 1000) + 600,
                     tokenInDecimals,
                     tokenOutDecimals,
+                    approvalKind: q.approvalKind || 'exact_approve_fallback',
+                    requiresTypedSignature: q.requiresTypedSignature || false,
+                    permit2Payload: q.permit2Payload || null,
+                    permit2Spender: q.permit2Spender || null,
+                    permit2Expiry: q.permit2Expiry || (q.approvalKind === 'permit2_24h' ? Math.floor(Date.now() / 1000) + 24 * 60 * 60 : null),
                 };
             }
             return null;

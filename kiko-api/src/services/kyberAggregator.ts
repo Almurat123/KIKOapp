@@ -39,7 +39,11 @@ export async function getKyberQuote(
     recipient: string,
     feeContext?: FeeContext | 'copy_trade' | 'launchpad',
     isSell?: boolean,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    options?: {
+        permit?: string;
+        deadline?: number;
+    }
 ) {
     const chainName = CHAIN_NAME_MAP[chainId];
     if (!chainName) {
@@ -135,8 +139,11 @@ export async function getKyberQuote(
         recipient: recipient,       // REQUIRED
         origin: recipient,          // Optional but recommended to avoid rate limits
         slippageTolerance: slippageToleranceBps, // bps number
-        deadline: Math.floor(Date.now() / 1000) + 600, // Unix timestamp
+        deadline: options?.deadline || (Math.floor(Date.now() / 1000) + 600), // Unix timestamp
     };
+    if (options?.permit) {
+        buildBody.permit = options.permit;
+    }
 
     // Debug: Log the exact structure being sent to help diagnose binding issues
     console.log('[Kyber] Building route/build request body:', {
@@ -182,7 +189,9 @@ export async function getKyberQuote(
                 routeSummary,
                 sender: recipient,
                 recipient,
-                slippageTolerance: slippageToleranceBps
+                slippageTolerance: slippageToleranceBps,
+                ...(options?.deadline ? { deadline: options.deadline } : {}),
+                ...(options?.permit ? { permit: options.permit } : {})
             };
             try {
                 buildJson = await fetchJson<any>({

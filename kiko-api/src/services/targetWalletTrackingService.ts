@@ -16,6 +16,8 @@ const TARGET_STATUS_MIN_TX_USD = Number(process.env.TARGET_STATUS_MIN_TX_USD || 
 const TARGET_STATUS_MAX_TX_USD = Number(process.env.TARGET_STATUS_MAX_TX_USD || 250000);
 const TARGET_STATUS_MAX_TX_USD_LOW_CONF = Number(process.env.TARGET_STATUS_MAX_TX_USD_LOW_CONF || 10000);
 const TARGET_HISTORY_REFRESH_TTL_SEC = Number(process.env.TARGET_HISTORY_REFRESH_TTL_SEC || 180);
+// How old (in seconds) cached PnL metrics can be before being considered stale and recomputed on-demand.
+const TARGET_METRICS_STALE_SEC = Number(process.env.TARGET_METRICS_STALE_SEC || 300);
 
 function chainIdToLabel(chainId: number): string {
   if (chainId === 8453) return 'base';
@@ -266,9 +268,48 @@ export async function persistTargetSwapEvent(params: {
     const n = Number(v);
     return Number.isFinite(n) && n > 0 ? n : null;
   };
-  const normalizedValueUsd = normUsd(params.valueUsd);
-  const normalizedValueInUsd = normUsd(params.valueInUsd);
-  const normalizedValueOutUsd = normUsd(params.valueOutUsd);
+
+  // ── Resolve USD values when caller didn't provide them ──────────────────
+  // The webhook cashLegHint is often empty for pure-token swaps, but we can
+  // derive the USD value from the cash leg (stablecoins / native token) of the
+  // swap using fillUsdFromDecodedLeg.  Without this, the WalletTransaction row
+  // is inserted with valueUsd=null and the PnL calculator ignores the row.
+  let resolvedValueInUsd  = normUsd(params.valueInUsd);
+  let resolvedValueOutUsd = normUsd(params.valueOutUsd);
+  let resolvedValueUsd    = normUsd(params.valueUsd);
+
+  const tokenInAddr  = params.tokenInAddress  ? normalizeAddress(params.tokenInAddress)  : normalizeAddress(params.tokenIn);
+  const tokenOutAddr = params.tokenOutAddress ? normalizeAddress(params.tokenOutAddress) : normalizeAddress(params.tokenOut);
+
+  if (!resolvedValueInUsd && params.amountIn && tokenInAddr) {
+    resolvedValueInUsd = await fillUsdFromDecodedLeg({
+      chainId: params.chainId,
+      tokenAddress: tokenInAddr,
+      amountRaw: params.amountIn,
+    }).catch(() => null);
+  }
+  if (!resolvedValueOutUsd && params.amountOut && tokenOutAddr) {
+    resolvedValueOutUsd = await fillUsdFromDecodedLeg({
+      chainId: params.chainId,
+      tokenAddress: tokenOutAddr,
+      amountRaw: params.amountOut,
+    }).catch(() => null);
+  }
+
+  // Derive the aggregate valueUsd from whichever leg we could price.
+  // For TARGET_BUY  the cost  is the "in"  leg  (ETH/USDC spent).
+  // For TARGET_SELL the proceeds is the "out" leg (ETH/USDC received).
+  if (!resolvedValueUsd) {
+    if (params.txType === 'TARGET_BUY') {
+      resolvedValueUsd = resolvedValueInUsd ?? resolvedValueOutUsd ?? null;
+    } else if (params.txType === 'TARGET_SELL') {
+      resolvedValueUsd = resolvedValueOutUsd ?? resolvedValueInUsd ?? null;
+    } else {
+      // TOKEN_SWAP: prefer whichever leg has a value
+      resolvedValueUsd = resolvedValueInUsd ?? resolvedValueOutUsd ?? null;
+    }
+  }
+  // ────────────────────────────────────────────────────────────────────────
 
   await withRetry(() => prisma.walletTransaction.upsert({
     where: {
@@ -294,9 +335,9 @@ export async function persistTargetSwapEvent(params: {
       amount,
       amountIn: params.amountIn || null,
       amountOut: params.amountOut || null,
-      valueUsd: normalizedValueUsd,
-      valueInUsd: normalizedValueInUsd,
-      valueOutUsd: normalizedValueOutUsd,
+      valueUsd: resolvedValueUsd,
+      valueInUsd: resolvedValueInUsd,
+      valueOutUsd: resolvedValueOutUsd,
       parseReason: params.parseReason ?? null,
       source: params.source ?? 'webhook',
       blockTimestamp: params.blockTimestamp || new Date(),
@@ -312,9 +353,9 @@ export async function persistTargetSwapEvent(params: {
       amount,
       amountIn: params.amountIn || null,
       amountOut: params.amountOut || null,
-      valueUsd: normalizedValueUsd ?? undefined,
-      valueInUsd: normalizedValueInUsd ?? undefined,
-      valueOutUsd: normalizedValueOutUsd ?? undefined,
+      valueUsd: resolvedValueUsd ?? undefined,
+      valueInUsd: resolvedValueInUsd ?? undefined,
+      valueOutUsd: resolvedValueOutUsd ?? undefined,
       parseReason: params.parseReason ?? undefined,
       source: params.source ?? undefined,
       blockTimestamp: params.blockTimestamp || new Date(),
@@ -732,10 +773,35 @@ export async function getTargetWalletStatus(params: {
   recentLimit?: number;
 }) {
   const db = <T>(fn: () => Promise<T>) => withRetry(fn, 4, 250);
-  const cfg = await db(() => prisma.copyTradeConfig.findFirst({
+  let cfg = await db(() => prisma.copyTradeConfig.findFirst({
     where: { id: params.configId, userId: params.userId },
   }));
   if (!cfg) return null;
+
+  // ── On-demand staleness refresh ──────────────────────────────────────────
+  // If PnL metrics have never been computed (null) OR are older than
+  // TARGET_METRICS_STALE_SEC, bootstrap history and recompute before returning.
+  // This ensures the card always shows up-to-date data even when the
+  // background recompute hasn't fired yet (e.g. newly created configs, missed
+  // webhook events, or multi-instance deployments where the lock owner is a
+  // different pod).
+  const metricsAge = cfg.targetMetricsUpdatedAt
+    ? (Date.now() - new Date(cfg.targetMetricsUpdatedAt).getTime()) / 1000
+    : Infinity;
+  if (metricsAge > TARGET_METRICS_STALE_SEC) {
+    // Bootstrap picks up any wallet history the webhook may have missed.
+    // Await it so WalletTransaction rows are seeded BEFORE the recompute reads them.
+    // It is internally throttled (Redis lock) so concurrent calls are no-ops.
+    await bootstrapTrackedWalletHistory(cfg.targetWallet, cfg.chainId, 120, { source: 'on_demand' }).catch(() => undefined);
+    // Recompute and wait so this very response returns fresh values.
+    await recomputeTargetMetricsForConfig(params.configId).catch(() => undefined);
+    // Re-read to get updated fields from the recompute.
+    const refreshed = await db(() => prisma.copyTradeConfig.findFirst({
+      where: { id: params.configId, userId: params.userId },
+    })).catch(() => null);
+    if (refreshed) cfg = refreshed;
+  }
+  // ─────────────────────────────────────────────────────────────────────────
 
   const walletAddress = normalizeAddress(cfg.targetWallet);
   const chain = chainIdToLabel(cfg.chainId);

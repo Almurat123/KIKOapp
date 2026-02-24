@@ -260,6 +260,16 @@ export interface ZeroExQuote extends ZeroExPrice {
     proportion: string;
   }>;
   orders?: any[];
+  approvalKind?: 'permit2_24h' | 'exact_approve_fallback';
+  requiresTypedSignature?: boolean;
+  permit2Payload?: {
+    domain: Record<string, any>;
+    types: Record<string, any>;
+    primaryType: string;
+    message: Record<string, any>;
+  } | null;
+  permit2Spender?: string | null;
+  permit2Expiry?: number | null;
 }
 
 export interface ZeroExTokenMetadata {
@@ -370,7 +380,8 @@ export async function getZeroExQuote(
   slippageBps: number = 50,
   takerAddress?: string, // User's wallet address - CRITICAL for actual swaps
   affiliateFee?: ZeroExAffiliateFee,
-  quoteOnly: boolean = false // Set true for price quotes that won't execute
+  quoteOnly: boolean = false, // Set true for price quotes that won't execute
+  preferPermit2: boolean = true
 ): Promise<ZeroExQuote | null> {
   try {
     // CRITICAL: takerAddress is REQUIRED for allowance-holder endpoint (both price and quote)
@@ -411,10 +422,7 @@ export async function getZeroExQuote(
     // Polygon: Try permit2 endpoint first (via main API), fallback to v1 if needed
     // Other chains (Arbitrum, Optimism, Base, BSC) use permit2 endpoint via main API with chainId param
 
-    // CRITICAL: Use AllowanceHolder, NOT Permit2
-    // AllowanceHolder is recommended for most integrators - simpler UX, lower gas, no double signatures
-    // Permit2 requires complex EIP-712 signing which our current setup doesn't handle
-    const useLegacyEndpoint = false; // False = use allowance-holder (V2)
+    const useLegacyEndpoint = false; // False = use V2 endpoints
     const isPolygon = chainId === 137;
 
     // Normalize native token addresses
@@ -458,9 +466,10 @@ export async function getZeroExQuote(
       params.append('slippageBps', Math.round(slippageBps).toString());
     }
 
-    // Use allowance-holder endpoint (recommended approach)
-    // This is the standard V2 flow - no complex permit2 signatures needed
-    const endpoint = useLegacyEndpoint ? '/swap/v1/quote' : '/swap/allowance-holder/quote';
+    // Prefer Permit2 endpoint for sell auth flow; allow fallback to allowance-holder.
+    const endpoint = useLegacyEndpoint
+      ? '/swap/v1/quote'
+      : (preferPermit2 ? '/swap/permit2/quote' : '/swap/allowance-holder/quote');
 
     // CRITICAL: taker parameter is REQUIRED for allowance-holder endpoint
     // At this point, takerAddress is guaranteed to be valid (checked above)
@@ -497,7 +506,7 @@ export async function getZeroExQuote(
 
     // Debug logging
     logger.debug(LogCode.API_FETCH_SUCCESS, '0x API Quote requesting', {
-      endpoint: useLegacyEndpoint ? 'v1' : 'allowance-holder',
+      endpoint: useLegacyEndpoint ? 'v1' : (preferPermit2 ? 'permit2' : 'allowance-holder'),
       chainId,
       sellToken: normalizeSellToken,
       buyToken: normalizeBuyToken,
@@ -508,7 +517,7 @@ export async function getZeroExQuote(
       sellToken: `${normalizeSellToken.slice(0, 6)}...${normalizeSellToken.slice(-4)}`,
       buyToken: `${normalizeBuyToken.slice(0, 6)}...${normalizeBuyToken.slice(-4)}`,
       amount: sellAmount,
-      endpoint: 'allowance-holder'
+      endpoint: useLegacyEndpoint ? 'v1' : (preferPermit2 ? 'permit2' : 'allowance-holder')
     });
 
     const headers: Record<string, string> = {
@@ -531,7 +540,7 @@ export async function getZeroExQuote(
       slippageBps: Math.round(slippageBps),
       chainId,
       takerAddress: takerAddress || 'not-specified',
-      endpoint: useLegacyEndpoint ? 'v1' : 'allowance-holder',
+      endpoint: useLegacyEndpoint ? 'v1' : (preferPermit2 ? 'permit2' : 'allowance-holder'),
     });
 
     // Fetch quote from 0x API using unified service
@@ -578,9 +587,42 @@ export async function getZeroExQuote(
       rawData.buyAmount // At minimum should have buyAmount
     );
 
-    // If permit2 endpoint fails OR returns empty data for certain chains, try v1 endpoint as fallback
+    // If Permit2 endpoint fails/invalid, try allowance-holder first.
+    if ((!responseWasOk || !hasValidData) && !useLegacyEndpoint && preferPermit2) {
+      const allowanceUrl = isChainSpecificBaseUrl
+        ? `${baseUrl}/swap/allowance-holder/quote?${params.toString()}`
+        : `${baseUrl}/swap/allowance-holder/quote?chainId=${chainId}&${params.toString()}`;
+      try {
+        logger.warn(LogCode.API_FETCH_FAILED, '0x API permit2 endpoint failed, trying allowance-holder fallback', {
+          chainId,
+          status: httpStatus,
+          error: httpStatusText?.slice(0, 120)
+        });
+        rawData = await fetchJson<any>({
+          url: allowanceUrl,
+          method: 'GET',
+          headers,
+          timeout: 15000
+        });
+        responseWasOk = true;
+        httpStatus = 200;
+      } catch (allowanceErr: any) {
+        responseWasOk = false;
+        const statusMatch = String(allowanceErr?.message || '').match(/HTTP (\d+):\s*(.+)/);
+        if (statusMatch) {
+          httpStatus = parseInt(statusMatch[1], 10);
+          httpStatusText = statusMatch[2];
+        } else {
+          httpStatus = 500;
+          httpStatusText = allowanceErr?.message || 'allowance_holder_fallback_failed';
+        }
+        rawData = null;
+      }
+    }
+
+    // If v2 endpoints fail OR return empty data, try v1 endpoint as fallback
     // Supported chains for fallback: Base (8453), Arbitrum (42161), Optimism (10), Polygon (137), BSC (56)
-    const chainsWithFallback = [8453, 42161, 10, 137, 56]; // Base, Arbitrum, Optimism, Polygon, BSC
+    const chainsWithFallback = [8453, 42161, 10, 137, 56];
     if ((!responseWasOk || !hasValidData) && !useLegacyEndpoint && chainsWithFallback.includes(chainId)) {
       const originalErrorText = !responseWasOk
         ? httpStatusText
@@ -590,7 +632,7 @@ export async function getZeroExQuote(
         status: httpStatus,
         chainId,
         hasValidData,
-        attemptedEndpoint: 'allowance-holder',
+        attemptedEndpoint: preferPermit2 ? 'permit2_then_allowance_holder' : 'allowance-holder',
         sellToken: normalizeSellToken.slice(0, 10) + '...',
         buyToken: normalizeBuyToken.slice(0, 10) + '...',
         reason: !responseWasOk ? 'HTTP error' : 'Invalid response data',
@@ -666,6 +708,11 @@ export async function getZeroExQuote(
           gas: rawData.gas,
           gasPrice: rawData.gasPrice,
           allowanceTarget: rawData.allowanceTarget || rawData.issues?.allowance?.spender,
+          approvalKind: 'exact_approve_fallback',
+          requiresTypedSignature: false,
+          permit2Payload: null,
+          permit2Spender: null,
+          permit2Expiry: null,
         };
         return data;
 
@@ -733,6 +780,16 @@ export async function getZeroExQuote(
     }
 
     const allowanceTarget = rawData.allowanceTarget || rawData.issues?.allowance?.spender;
+    const permit2Payload = rawData?.permit2?.eip712
+      ? {
+        domain: rawData.permit2.eip712.domain || {},
+        types: rawData.permit2.eip712.types || {},
+        primaryType: rawData.permit2.eip712.primaryType || 'PermitSingle',
+        message: rawData.permit2.eip712.message || {}
+      }
+      : null;
+    const permit2Spender = rawData?.permit2?.spender || rawData?.permit2?.eip712?.message?.spender || null;
+    const permit2Expiry = rawData?.permit2?.expiry || rawData?.permit2?.eip712?.message?.sigDeadline || null;
 
     const data: ZeroExQuote = {
       ...rawData,
@@ -742,6 +799,11 @@ export async function getZeroExQuote(
       gas: rawData.transaction?.gas || rawData.gas,
       gasPrice: rawData.transaction?.gasPrice || rawData.gasPrice,
       allowanceTarget,
+      approvalKind: permit2Payload ? 'permit2_24h' : 'exact_approve_fallback',
+      requiresTypedSignature: !!permit2Payload,
+      permit2Payload,
+      permit2Spender,
+      permit2Expiry,
       transaction: rawData.transaction || {
         to: rawData.to,
         data: rawData.data,
@@ -812,7 +874,7 @@ export async function getZeroExQuote(
       buyToken: normalizeBuyToken.slice(0, 12),
       buyAmount: data.buyAmount,
       hasAllowanceIssue: !!data.issues?.allowance,
-      usedEndpoint: useLegacyEndpoint ? 'v1' : 'allowance-holder'
+      usedEndpoint: useLegacyEndpoint ? 'v1' : (data.permit2Payload ? 'permit2' : 'allowance-holder')
     });
 
     return data;
