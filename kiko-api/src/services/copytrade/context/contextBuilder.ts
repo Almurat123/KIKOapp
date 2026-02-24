@@ -12,6 +12,7 @@ const SWAP_TOPICS = new Set([
 const KNOWN_SWAP_SELECTORS = new Set([
   '0x3593564c',
   '0x24856bc3',
+  '0xcae6a6b3',
   '0xc04b8d59',
   '0x414bf389',
   '0xb858183f',
@@ -60,6 +61,7 @@ export function buildSwapExecutionContext(params: {
     tokenIn: String(params.decodedSwap.tokenIn || '').toLowerCase(),
     tokenOut: String(params.decodedSwap.tokenOut || '').toLowerCase(),
     amountIn: String(params.decodedSwap.amountIn || '0'),
+    amountOut: String(params.decodedSwap.amountOut || '0'),
     routeHops: params.decodedSwap.routeHops?.map((hop) => ({
       kind: hop.kind,
       dex: hop.dex,
@@ -98,4 +100,3 @@ export function buildSwapExecutionContext(params: {
     }
   };
 }
-

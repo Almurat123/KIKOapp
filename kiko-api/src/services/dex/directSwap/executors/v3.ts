@@ -235,15 +235,19 @@ export async function executeV3Swap(
     } catch (simErr: any) {
       const simErrMsg = simErr?.message || String(simErr);
       const transientRpcFailure = isTransientRpcFailure(simErrMsg);
-      if (executionMode === 'turbo' && transientRpcFailure) {
-        gasLimit = deps.turboV3GasLimit || '450000';
-        logger.warn(LogCode.EXE_TX_REVERTED, '[DirectSwap] V3 turbo pre-sim unavailable (RPC), continue with fallback gas', {
+      if (transientRpcFailure) {
+        logger.warn(LogCode.EXE_TX_REVERTED, '[DirectSwap] V3 pre-sim unavailable (RPC), aborting send', {
           pool: pool.poolAddress?.slice(0, 20),
           fee: bestFee,
           router: routerAddress?.slice(0, 12),
-          gasLimit,
+          executionMode,
           error: simErrMsg.slice(0, 150)
         });
+        return {
+          success: false,
+          error: `v3_pre_sim_rpc_failed:${simErrMsg.slice(0, 100) || 'unknown'}`,
+          provider: 'failed'
+        };
       } else {
         // If hint fee is wrong/missing, probe a small fee set before giving up.
         const seenFees = new Set<number>();

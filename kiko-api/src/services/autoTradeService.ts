@@ -356,7 +356,21 @@ function inferExecutionSideFromTokens(tokenIn: string, tokenOut: string, chainId
 
 function isSourceReplayEligibleInput(sourceTxInput?: string): boolean {
     const selector = String(sourceTxInput || '').slice(0, 10).toLowerCase();
-    return selector === '0x3593564c' || selector === '0x24856bc3';
+    if (!/^0x[0-9a-f]{8}$/.test(selector)) return false;
+    const knownReplaySelectors = new Set([
+        '0x3593564c', // UR execute
+        '0x24856bc3', // Aerodrome route
+        '0xcae6a6b3', // custom target router path seen in production
+        '0x12aa3caf', // 0x transformERC20
+        '0x1fff991f', // 0x allowance-holder swap
+        '0x414bf389', // v4 swap exact in variant
+        '0xc04b8d59', // v4 swap exact in variant
+        '0x7ff36ab5', // v2 swapExactETHForTokens
+        '0x18cbafe5', // v2 swapExactTokensForETH
+        '0x38ed1739', // v2 swapExactTokensForTokens
+        '0x04e45aaf'  // v3 exactInputSingle
+    ]);
+    return knownReplaySelectors.has(selector);
 }
 
 async function buildPlannedExecutionContext(args: {
@@ -382,7 +396,7 @@ async function buildPlannedExecutionContext(args: {
             },
             decodedSwap: args.swap,
             chainId: args.chainId,
-            targetWallet: args.walletAddress
+            targetWallet: undefined
         })
         : null;
     const context = contextStoreHit.context || inlineContext;
@@ -399,6 +413,10 @@ async function buildPlannedExecutionContext(args: {
         sourceRouter: context?.sourceRouter || args.swap?.router,
         sourceTxInput: context?.sourceTxInput || args.swap?.sourceTxInput,
         sourceTxValue: context?.sourceTxValue || args.swap?.sourceTxValue,
+        sourceTokenIn: context?.tokenIn || args.swap?.tokenIn,
+        sourceTokenOut: context?.tokenOut || args.swap?.tokenOut,
+        sourceAmountIn: context?.amountIn || args.swap?.amountIn,
+        sourceAmountOut: context?.amountOut || args.swap?.amountOut,
         contextId: contextStoreHit.contextId,
         contextSnapshot: context || undefined,
         contextHitSource,
@@ -406,6 +424,8 @@ async function buildPlannedExecutionContext(args: {
     };
     const sourceInput = context?.sourceTxInput || args.swap?.sourceTxInput;
     const sourceRouter = context?.sourceRouter || args.swap?.router;
+    const sourceSelector = context?.sourceSelector
+        || (/^0x[0-9a-fA-F]{8}/.test(String(sourceInput || '')) ? String(sourceInput).slice(0, 10).toLowerCase() : undefined);
     const hasSourceReplayContext = !!sourceInput
         && !!sourceRouter
         && isSourceReplayEligibleInput(sourceInput);
@@ -423,9 +443,10 @@ async function buildPlannedExecutionContext(args: {
             tokenOut: args.tokenOut,
             amountIn: args.amountIn,
             walletAddress: args.walletAddress,
+            sourceWallet: context?.trace?.targetWallet,
             sourceTxHash: context?.sourceTxHash || args.swap?.txHash,
             sourceRouter: sourceRouter,
-            sourceSelector: context?.sourceSelector,
+            sourceSelector,
             sourceTxInput: sourceInput,
             sourceTxValue: context?.sourceTxValue || args.swap?.sourceTxValue
         };

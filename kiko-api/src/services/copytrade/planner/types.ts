@@ -7,6 +7,7 @@ export interface PlannerInput {
   tokenOut: string;
   amountIn: string;
   walletAddress: string;
+  sourceWallet?: string;
   sourceTxHash?: string;
   sourceRouter?: string;
   sourceSelector?: string;
@@ -51,6 +52,7 @@ export interface ExecutionPlanV1 {
     commands: string;
     inputs: string[];
     sourceCalldata?: string;
+    sourceValue?: string;
   };
   constraints: ExecutionConstraintV1;
   trace: PlannerDecisionTrace;

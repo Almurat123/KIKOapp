@@ -17,6 +17,7 @@ import { SOLANA_CONFIG } from '../../config/solanaConfig.js';
 import { NATIVE_TOKEN_ADDRESS, SOLANA_NATIVE_MINT, TOKEN_REGISTRY, isNativeToken } from '../../config/tokenRegistry.js';
 import { handleSwapError } from './handleSwapError.js';
 import { getTransactionReceipt, getTransactionByHash, callRpc, getErc20Balance, getErc20Decimals, getErc20Allowance } from '../../services/rpcManager.js';
+import { recordProviderReliabilityOutcome } from '../copytrade/learning/quoteReliability.js';
 
 // 0x AllowanceHolder address (Base). If a token already has sufficient allowance here,
 // we can skip Permit2 first-try and reduce sell failure risk for problematic tokens.
@@ -51,6 +52,13 @@ export interface SwapParams {
     preWarmedNonce?: Promise<string | undefined>;
     launchpadProvider?: 'pumpfun' | 'pumpswap' | 'bonkfun' | 'zora' | 'fourmeme' | 'flap' | 'clanker' | 'virtuals' | 'doppler';
     preferredSolanaAggregator?: 'jupiter' | 'raydium' | 'meteora';
+    sourceAnchor?: {
+        sourceTxHash?: string;
+        sourceTokenIn?: string | null;
+        sourceTokenOut?: string | null;
+        sourceAmountIn?: string | null;
+        sourceAmountOut?: string | null;
+    };
 }
 
 export interface SwapResult {
@@ -169,9 +177,13 @@ export class SwapExecutor {
                     decimalsIn = await getErc20Decimals(actualTokenInFixed, chainId);
                     logger.info(LogCode.SYS_INFO, 'Fetched missing decimals on-chain', { token: actualTokenInFixed, decimals: decimalsIn });
                 }
-            } catch (e) {
-                logger.warn(LogCode.SYS_ERROR, 'Failed to fetch decimals, defaulting to 18', { token: actualTokenInFixed });
-                decimalsIn = 18;
+            } catch (e: any) {
+                logger.error(LogCode.SYS_ERROR, 'Failed to fetch tokenIn decimals from chain; aborting swap', {
+                    token: actualTokenInFixed,
+                    chainId,
+                    error: e?.message || String(e)
+                });
+                throw new AppError(400, `token_metadata_unavailable:tokenIn_decimals:${actualTokenInFixed}`, 'TOKEN_METADATA_UNAVAILABLE');
             }
         }
         let decimalsOut = tokenOutInfo?.decimals;
@@ -185,7 +197,21 @@ export class SwapExecutor {
             decimalsOut = 6;
         }
         if (typeof decimalsOut !== 'number') {
-            decimalsOut = 18;
+            try {
+                if (isNativeOut) {
+                    decimalsOut = 18;
+                } else {
+                    decimalsOut = await getErc20Decimals(actualTokenOutFixed, chainId);
+                    logger.info(LogCode.SYS_INFO, 'Fetched missing tokenOut decimals on-chain', { token: actualTokenOutFixed, decimals: decimalsOut });
+                }
+            } catch (e: any) {
+                logger.error(LogCode.SYS_ERROR, 'Failed to fetch tokenOut decimals from chain; aborting swap', {
+                    token: actualTokenOutFixed,
+                    chainId,
+                    error: e?.message || String(e)
+                });
+                throw new AppError(400, `token_metadata_unavailable:tokenOut_decimals:${actualTokenOutFixed}`, 'TOKEN_METADATA_UNAVAILABLE');
+            }
         }
 
         // 1.5 Gas Reservation for Native Token
@@ -252,24 +278,29 @@ export class SwapExecutor {
 
         // 2.5 Fetch token prices for price impact calculation
         let refPrice: number | null = null;
-        try {
-            const [tokenInPrice, tokenOutPrice] = await Promise.all([
-                getDexPrice(actualTokenInFixed, chainId),
-                getDexPrice(actualTokenOutFixed, chainId)
-            ]);
+        const skipRefPriceFetch = params.executionMode === 'turbo' && feeContext === 'copyTrade';
+        if (!skipRefPriceFetch) {
+            try {
+                const [tokenInPrice, tokenOutPrice] = await Promise.all([
+                    getDexPrice(actualTokenInFixed, chainId),
+                    getDexPrice(actualTokenOutFixed, chainId)
+                ]);
 
-            if (tokenInPrice && tokenOutPrice && tokenOutPrice > 0) {
-                // refPrice = how many tokenOut you get per 1 tokenIn (based on market price)
-                refPrice = tokenInPrice / tokenOutPrice;
-                logger.debug(LogCode.SYS_INFO, 'SwapExecutor: refPrice calculated', {
-                    tokenInPrice, tokenOutPrice, refPrice
+                if (tokenInPrice && tokenOutPrice && tokenOutPrice > 0) {
+                    // refPrice = how many tokenOut you get per 1 tokenIn (based on market price)
+                    refPrice = tokenInPrice / tokenOutPrice;
+                    logger.debug(LogCode.SYS_INFO, 'SwapExecutor: refPrice calculated', {
+                        tokenInPrice, tokenOutPrice, refPrice
+                    });
+                }
+            } catch (priceErr: any) {
+                logger.warn(LogCode.SYS_ERROR, 'SwapExecutor: Failed to fetch token prices for impact calc', {
+                    error: priceErr.message
                 });
+                // Continue without refPrice - impact calc will fall back to 0
             }
-        } catch (priceErr: any) {
-            logger.warn(LogCode.SYS_ERROR, 'SwapExecutor: Failed to fetch token prices for impact calc', {
-                error: priceErr.message
-            });
-            // Continue without refPrice - impact calc will fall back to 0
+        } else {
+            logger.info(LogCode.SYS_INFO, '[SwapExecutor] Turbo copytrade: skipping refPrice fetch');
         }
 
         let preferPermit2 = params.preferPermit2 !== false;
@@ -320,6 +351,74 @@ export class SwapExecutor {
         if (!best) {
             throw new Error('No valid quotes found');
         }
+        const canonicalAnchorToken = (token: string | null | undefined): string => {
+            const value = String(token || '').toLowerCase();
+            if (!value) return '';
+            if (isNativeToken(value, chainId) || value === NATIVE_TOKEN_ADDRESS.toLowerCase()) {
+                return getChainConfig(chainId).wrappedNativeAddress.toLowerCase();
+            }
+            return value;
+        };
+        let anchorRatioBps: number | null = null;
+        const sourceAnchor = params.sourceAnchor;
+        if (feeContext === 'copyTrade' && sourceAnchor?.sourceAmountIn && sourceAnchor?.sourceAmountOut) {
+            try {
+                const sourceAmountInBase = BigInt(sourceAnchor.sourceAmountIn);
+                const sourceAmountOutBase = BigInt(sourceAnchor.sourceAmountOut);
+                const amountInBaseBig = BigInt(amountInBase);
+                const quotedOutBase = BigInt(best.amountOutBase || '0');
+                const sourcePairMatches =
+                    canonicalAnchorToken(sourceAnchor.sourceTokenIn) === canonicalAnchorToken(actualTokenInFixed)
+                    && canonicalAnchorToken(sourceAnchor.sourceTokenOut) === canonicalAnchorToken(actualTokenOutFixed);
+                if (sourcePairMatches && sourceAmountInBase > 0n && sourceAmountOutBase > 0n && amountInBaseBig > 0n) {
+                    const expectedOutFromSource = (sourceAmountOutBase * amountInBaseBig) / sourceAmountInBase;
+                    if (expectedOutFromSource > 0n && quotedOutBase > 0n) {
+                        anchorRatioBps = Number((quotedOutBase * 10000n) / expectedOutFromSource);
+                        const minAnchorRatioBps = Math.max(1, Number(process.env.COPYTRADE_SOURCE_ANCHOR_MIN_RATIO_BPS || '7000'));
+                        logger.info(LogCode.SYS_INFO, '[SwapExecutor] Source anchor quote check', {
+                            sourceTxHash: sourceAnchor.sourceTxHash || null,
+                            provider: best.dex,
+                            quotedOutBase: quotedOutBase.toString(),
+                            expectedOutFromSource: expectedOutFromSource.toString(),
+                            anchorRatioBps,
+                            minAnchorRatioBps
+                        });
+                        if (anchorRatioBps < minAnchorRatioBps) {
+                            await recordProviderReliabilityOutcome({
+                                chainId,
+                                tokenIn: actualTokenInFixed,
+                                tokenOut: actualTokenOutFixed,
+                                provider: best.dex,
+                                anchorRatioBps,
+                                accepted: false
+                            }).catch(() => { });
+                            throw new AppError(
+                                400,
+                                `quote_anchor_guard_reject:${best.dex}:${anchorRatioBps}:${minAnchorRatioBps}`,
+                                'QUOTE_ANCHOR_GUARD_REJECT'
+                            );
+                        }
+                    }
+                }
+            } catch (anchorErr: any) {
+                if (anchorErr instanceof AppError) throw anchorErr;
+                logger.warn(LogCode.SYS_ERROR, '[SwapExecutor] Source anchor check skipped', {
+                    error: anchorErr?.message || String(anchorErr),
+                    sourceTxHash: sourceAnchor?.sourceTxHash || null
+                });
+            }
+        }
+        const reportAnchorAcceptance = () => {
+            if (anchorRatioBps === null) return;
+            void recordProviderReliabilityOutcome({
+                chainId,
+                tokenIn: actualTokenInFixed,
+                tokenOut: actualTokenOutFixed,
+                provider: best.dex,
+                anchorRatioBps,
+                accepted: true
+            }).catch(() => { });
+        };
 
         // 3. Check & Approve
         // FIXED: Standard AllowanceHolder flow - needs proper approval
@@ -791,6 +890,7 @@ export class SwapExecutor {
                         this.monitorEvmTransaction(txHash, chainId, best.dexName, best.amountOut, userId, params.messageId).catch(err => {
                             logger.error(LogCode.EXE_TX_REVERTED, 'Background monitoring failed after confirm-timeout', { txHash, error: err.message });
                         });
+                        reportAnchorAcceptance();
                         return {
                             success: true,
                             status: 'ACTION_REQUIRED',
@@ -882,12 +982,14 @@ export class SwapExecutor {
                     };
                 }
                 logger.info(LogCode.EXE_TX_CONFIRMED, 'Transaction confirmed on-chain', { txHash });
+                reportAnchorAcceptance();
 
             } else {
                 // ASYNC MONITORING: Fire-and-forget for normal swaps
                 this.monitorEvmTransaction(txHash, chainId, best.dexName, best.amountOut, userId, params.messageId).catch(err => {
                     logger.error(LogCode.EXE_TX_REVERTED, 'Background monitoring failed', { txHash, error: err.message });
                 });
+                reportAnchorAcceptance();
             }
 
             return {

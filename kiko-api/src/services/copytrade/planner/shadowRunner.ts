@@ -8,9 +8,24 @@ const ROUTER_EXECUTE_ABI = [
   'function execute(bytes commands, bytes[] inputs) payable returns (uint256 amountOut)'
 ];
 
+function isRawSourceReplay(plan: ExecutionPlanV1): boolean {
+  return String(plan.templateRef?.commandType || '') === 'source_raw_calldata_replay'
+    && /^0x[0-9a-fA-F]+$/.test(String(plan.execData?.sourceCalldata || ''));
+}
+
 export function buildRouterExecuteCalldata(plan: ExecutionPlanV1): string {
   const iface = new ethers.Interface(ROUTER_EXECUTE_ABI);
   return iface.encodeFunctionData('execute', [plan.execData.commands || '0x', plan.execData.inputs || []]);
+}
+
+export function buildPlanCalldata(plan: ExecutionPlanV1): string {
+  if (isRawSourceReplay(plan)) return String(plan.execData.sourceCalldata || '0x');
+  return buildRouterExecuteCalldata(plan);
+}
+
+export function buildPlanValue(plan: ExecutionPlanV1): string {
+  if (isRawSourceReplay(plan)) return String(plan.execData.sourceValue || '0');
+  return '0';
 }
 
 export async function simulatePlan(
@@ -27,12 +42,13 @@ export async function simulatePlan(
   }
 
   try {
-    const data = buildRouterExecuteCalldata(plan);
+    const data = buildPlanCalldata(plan);
+    const value = buildPlanValue(plan);
     const raw = await callRpc<string>(plan.chainId, 'eth_call', [{
       from: walletAddress,
       to: target,
       data,
-      value: '0x0'
+      value: value === '0' ? '0x0' : ethers.toBeHex(BigInt(value))
     }, 'latest'], {
       strategy: 'fast',
       importance: 'critical'

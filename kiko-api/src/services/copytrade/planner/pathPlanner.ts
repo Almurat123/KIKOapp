@@ -9,6 +9,37 @@ function defaultDeadline(): number {
   return Math.floor(Date.now() / 1000) + 300;
 }
 
+function toWordHex(value: bigint): string {
+  return value.toString(16).padStart(64, '0');
+}
+
+function toAddressWord(address: string): string {
+  const normalized = String(address || '').toLowerCase().replace(/^0x/, '');
+  return normalized.padStart(64, '0');
+}
+
+function replaceWordAll(dataNoPrefix: string, fromWord: string, toWord: string): string {
+  if (!fromWord || fromWord === toWord) return dataNoPrefix;
+  let result = dataNoPrefix;
+  while (result.includes(fromWord)) {
+    result = result.replace(fromWord, toWord);
+  }
+  return result;
+}
+
+function parseNativeInputAmountWei(input: PlannerInput): bigint | null {
+  const tokenIn = String(input.tokenIn || '').toLowerCase();
+  const isNativeLike = tokenIn === 'eth'
+    || tokenIn === 'bnb'
+    || tokenIn === '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
+  if (!isNativeLike) return null;
+  try {
+    return ethers.parseUnits(String(input.amountIn || '0'), 18);
+  } catch {
+    return null;
+  }
+}
+
 function parseTemplatePayload(candidate: TemplateCandidate): { commands: string; inputs: string[] } {
   try {
     const parsed = JSON.parse(candidate.templatePayloadJson || '{}');
@@ -47,6 +78,97 @@ function decodeUniversalRouterExecute(sourceTxInput: string): { commands: string
       return null;
     }
   }
+}
+
+function maybeBuildRawSourceReplay(input: PlannerInput): ExecutionPlanV1 | null {
+  const router = String(input.sourceRouter || '').trim();
+  const sourceTxInput = String(input.sourceTxInput || '');
+  const selector = String(input.sourceSelector || sourceTxInput.slice(0, 10)).toLowerCase();
+  if (!/^0x[a-fA-F0-9]{40}$/.test(router)) return null;
+  if (!sourceTxInput.startsWith('0x') || sourceTxInput.length < 10) return null;
+  // Start with the observed production custom router selector only.
+  // More selectors can be added after replay validation.
+  if (selector !== '0xcae6a6b3') return null;
+
+  const sourceValueWei = (() => {
+    const raw = String(input.sourceTxValue || '0');
+    try {
+      if (raw.startsWith('0x') || raw.startsWith('0X')) return BigInt(raw);
+      return BigInt(raw);
+    } catch {
+      return 0n;
+    }
+  })();
+  const desiredValueWei = parseNativeInputAmountWei(input);
+  if (desiredValueWei === null || desiredValueWei <= 0n) return null;
+
+  let dataNoPrefix = sourceTxInput.toLowerCase().slice(2);
+
+  // Rewrite wallet address occurrences to follower wallet when available.
+  const sourceWallet = String(input.sourceWallet || '').toLowerCase();
+  const followerWallet = String(input.walletAddress || '').toLowerCase();
+  if (/^0x[0-9a-f]{40}$/.test(sourceWallet) && /^0x[0-9a-f]{40}$/.test(followerWallet)) {
+    dataNoPrefix = replaceWordAll(
+      dataNoPrefix,
+      toAddressWord(sourceWallet),
+      toAddressWord(followerWallet)
+    );
+  }
+
+  // Rewrite known source value words to the follower trade amount.
+  if (sourceValueWei > 0n) {
+    dataNoPrefix = replaceWordAll(
+      dataNoPrefix,
+      toWordHex(sourceValueWei),
+      toWordHex(desiredValueWei)
+    );
+  }
+
+  // Selector-specific rewrite: first argument is amountIn for this router path.
+  const selectorNoPrefix = selector.slice(2);
+  if (dataNoPrefix.startsWith(selectorNoPrefix) && dataNoPrefix.length >= selectorNoPrefix.length + 64) {
+    const head = dataNoPrefix.slice(0, selectorNoPrefix.length);
+    const rest = dataNoPrefix.slice(selectorNoPrefix.length + 64);
+    dataNoPrefix = `${head}${toWordHex(desiredValueWei)}${rest}`;
+  }
+
+  const rewrittenCalldata = `0x${dataNoPrefix}`;
+  return {
+    version: 1,
+    chainId: input.chainId,
+    side: input.side,
+    tokenIn: input.tokenIn,
+    tokenOut: input.tokenOut,
+    amountIn: input.amountIn,
+    minAmountOut: '0',
+    receiver: input.walletAddress,
+    deadline: defaultDeadline(),
+    nonce: `${Date.now()}`,
+    templateRef: {
+      templateId: `source-raw-replay:${input.chainId}:${router.toLowerCase()}:${selector}`,
+      templateVersion: 1,
+      router,
+      commandType: 'source_raw_calldata_replay'
+    },
+    execData: {
+      commands: '0x',
+      inputs: [],
+      sourceCalldata: rewrittenCalldata,
+      sourceValue: desiredValueWei.toString()
+    },
+    constraints: {
+      maxSlippageBps: 2500,
+      maxGas: '1500000',
+      allowPartialFill: false,
+      strictTokenCheck: true
+    },
+    trace: {
+      sourceTxHash: input.sourceTxHash,
+      sampleIds: [],
+      plannerScore: 1,
+      reasoning: 'source_raw_calldata_replay_from_target_tx'
+    }
+  };
 }
 
 function buildSourceReplayPlan(input: PlannerInput): ExecutionPlanV1 | null {
@@ -104,6 +226,20 @@ export async function buildExecutionPlan(input: PlannerInput): Promise<Execution
       ms: Date.now() - t0
     });
     return sourceReplay;
+  }
+  const rawReplay = maybeBuildRawSourceReplay(input);
+  if (rawReplay) {
+    logger.info(LogCode.SYS_INFO, '[P2] Execution plan built from raw source calldata replay', {
+      chainId: input.chainId,
+      side: input.side,
+      tokenIn: input.tokenIn,
+      tokenOut: input.tokenOut,
+      sourceTxHash: input.sourceTxHash || null,
+      sourceRouter: input.sourceRouter || null,
+      sourceSelector: input.sourceSelector || null,
+      ms: Date.now() - t0
+    });
+    return rawReplay;
   }
 
   const candidates = await queryTemplateCandidates(input);

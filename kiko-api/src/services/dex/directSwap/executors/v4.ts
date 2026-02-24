@@ -281,10 +281,7 @@ export async function executeV4Swap(
           isNativeOut
         });
         if (deps.isTransientRpcFailureForPreSim(errSummary)) {
-          if (executionMode === 'safe') {
-            return { success: false, error: `safe_pre_sim_failed:${reason || errSummary.shortMessage}`, provider: 'failed' };
-          }
-          logger.warn(LogCode.EXE_TX_REVERTED, '[DirectSwap] V4 pre-simulation skipped due to transient RPC failure', {
+          logger.warn(LogCode.EXE_TX_REVERTED, '[DirectSwap] V4 pre-simulation transient RPC failure - aborting send', {
             poolId,
             hook: poolKey.hooks,
             tokenIn: normalizedIn,
@@ -292,6 +289,7 @@ export async function executeV4Swap(
             error: errSummary.shortMessage,
             errorCode: errSummary.code
           });
+          return { success: false, error: `v4_pre_sim_rpc_failed:${reason || errSummary.shortMessage}`, provider: 'failed' };
         } else {
           const reasonLower = (reason || '').toLowerCase();
           if (

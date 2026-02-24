@@ -3,6 +3,7 @@ import { getZeroExQuote } from './zeroEx.js';
 import { getKyberQuote } from './kyberAggregator.js';
 import { AppError } from '../middleware/errorHandler.js';
 import type { ZeroExAffiliateFee } from './zeroEx.js';
+import { getProviderReliability } from './copytrade/learning/quoteReliability.js';
 
 export interface QuoteResult {
     dex: string;
@@ -149,11 +150,6 @@ async function getBestQuoteInternal(params: BestQuoteParams): Promise<{ best: Qu
     const TURBO_ZEROEX_WAIT_MS = Math.max(80, Number(process.env.QUOTE_TURBO_ZEROEX_WAIT_MS || 700));
     const TURBO_GRACE_WAIT_MS = Math.max(0, Number(process.env.QUOTE_TURBO_GRACE_WAIT_MS || 180));
     const TURBO_TOTAL_WAIT_MS = Math.max(TURBO_ZEROEX_WAIT_MS, Number(process.env.QUOTE_TURBO_TOTAL_WAIT_MS || 1600));
-    const TURBO_COPYTRADE_0X_WAIT_MS = Math.max(120, Number(process.env.QUOTE_TURBO_COPYTRADE_0X_WAIT_MS || 420));
-    const TURBO_COPYTRADE_0X_TOTAL_WAIT_MS = Math.max(
-        TURBO_COPYTRADE_0X_WAIT_MS,
-        Number(process.env.QUOTE_TURBO_COPYTRADE_0X_TOTAL_WAIT_MS || 900)
-    );
 
     // Helper to calc price impact vs market
     const calcImpactVsMkt = (amountOutHuman: number): number | null => {
@@ -325,27 +321,16 @@ async function getBestQuoteInternal(params: BestQuoteParams): Promise<{ best: Qu
         const startMs = Date.now();
 
         if (turboCopytrade0xOnly) {
-            const zeroExFast = await withTimeout(zeroExPromise, TURBO_COPYTRADE_0X_WAIT_MS);
-            if (zeroExFast) {
-                quotes.push(zeroExFast);
-                console.log('[QuoteService] Turbo quote mode fast-return', {
-                    picked: '0x_fast',
-                    policy: 'copytrade_turbo_0x_only',
-                    elapsedMs: Date.now() - startMs,
-                    zeroExWaitMs: TURBO_COPYTRADE_0X_WAIT_MS,
-                    chainId: params.chainId
-                });
-            } else {
-                const remaining = Math.max(0, TURBO_COPYTRADE_0X_TOTAL_WAIT_MS - (Date.now() - startMs));
-                const zeroExSlow = await withTimeout(zeroExPromise, remaining);
-                if (zeroExSlow) quotes.push(zeroExSlow);
-                console.log('[QuoteService] Turbo quote mode fallback-wait', {
-                    policy: 'copytrade_turbo_0x_only',
-                    elapsedMs: Date.now() - startMs,
-                    totalWaitMs: TURBO_COPYTRADE_0X_TOTAL_WAIT_MS,
-                    chainId: params.chainId
-                });
-            }
+            // For turbo copytrade buys, do not use quote windows.
+            // Fetch one definitive 0x quote and let source-anchor guard decide safety.
+            const zeroExQuote = await zeroExPromise;
+            if (zeroExQuote) quotes.push(zeroExQuote);
+            console.log('[QuoteService] Turbo quote mode direct fetch (no window)', {
+                policy: 'copytrade_turbo_0x_only',
+                elapsedMs: Date.now() - startMs,
+                chainId: params.chainId,
+                gotQuote: Boolean(zeroExQuote)
+            });
         } else {
             const kyberPromise = fetchKyber();
 
@@ -422,30 +407,10 @@ async function getBestQuoteInternal(params: BestQuoteParams): Promise<{ best: Qu
             chainId: params.chainId
         });
 
-        // CRITICAL FIX: Prefer 0x for ALL chains including Base
-        // Previous logic: Base preferred Kyber due to "0x allowance-holder issues"
-        // Reality: Kyber transactions are reverting frequently on Base
-        // 0x allowance-holder is more reliable despite initial concerns
-
-        // If 0x advantage or near-equal (< 2% difference), prefer 0x for reliability
-        const zeroExAdvantage = zeroExAmount > kyberAmount;
-        const nearEqual = percentDiff < 2;
-
-        if (zeroExAdvantage || nearEqual) {
-            console.log('[QuoteService] Preferring 0x for reliability', {
-                reason: zeroExAdvantage ? '0x has better price' : 'prices within 2%',
-                percentDiff: percentDiff.toFixed(2)
-            });
-            return { best: zeroExQuote, quotes };
-        }
-
-        // Only use Kyber if it's significantly better (>= 2% advantage)
-        if (percentDiff >= 2) {
-            console.log('[QuoteService] Using Kyber due to significant price advantage', {
-                advantage: percentDiff.toFixed(2) + '%'
-            });
-            return { best: kyberQuote, quotes };
-        }
+        // Selection is handled later by reliability-adjusted scoring.
+        console.log('[QuoteService] Deferring winner selection to reliability scorer', {
+            percentDiff: percentDiff.toFixed(2)
+        });
     }
 
     if (!availableQuotes.length) {
@@ -459,13 +424,38 @@ async function getBestQuoteInternal(params: BestQuoteParams): Promise<{ best: Qu
         }
         return { best: null as any, quotes };
     }
-
-    // Otherwise sort by highest return from available quotes
-    availableQuotes.sort((a, b) => {
-        const valA = BigInt(a.amountOutBase || '0');
-        const valB = BigInt(b.amountOutBase || '0');
-        return valA > valB ? -1 : 1; // Descending
+    const scored = await Promise.all(availableQuotes.map(async (q) => {
+        const reliability = await getProviderReliability({
+            chainId: params.chainId,
+            tokenIn: actualTokenIn,
+            tokenOut: actualTokenOut,
+            provider: q.dex
+        }).catch(() => ({ scoreBps: 10000, sampleCount: 0, updatedAt: Date.now() }));
+        const rawOut = BigInt(q.amountOutBase || '0');
+        const adjustedOut = rawOut * BigInt(Math.max(1000, Math.min(20000, Number(reliability.scoreBps || 10000)))) / 10000n;
+        return {
+            quote: q,
+            rawOut,
+            adjustedOut,
+            reliabilityScoreBps: reliability.scoreBps,
+            reliabilitySampleCount: reliability.sampleCount
+        };
+    }));
+    scored.sort((a, b) => {
+        if (a.adjustedOut === b.adjustedOut) {
+            return a.rawOut > b.rawOut ? -1 : 1;
+        }
+        return a.adjustedOut > b.adjustedOut ? -1 : 1;
     });
-
-    return { best: availableQuotes[0], quotes };
+    const selected = scored[0];
+    if (selected) {
+        console.log('[QuoteService] Reliability-adjusted winner', {
+            dex: selected.quote.dex,
+            rawOut: selected.rawOut.toString(),
+            adjustedOut: selected.adjustedOut.toString(),
+            reliabilityScoreBps: selected.reliabilityScoreBps,
+            reliabilitySampleCount: selected.reliabilitySampleCount
+        });
+    }
+    return { best: selected.quote, quotes };
 }

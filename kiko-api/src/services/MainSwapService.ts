@@ -42,7 +42,7 @@ import type { CopyTradeExecutionMode } from './copyTradeExecutionMode.js';
 import type { TxLifecycleResult } from './txLifecycle.js';
 import type { ExecutionPlanV1 } from './copytrade/planner/types.js';
 import { isP2ExecutorEnabled, isP2SampleLearningEnabled, isP2ShadowRunEnabled } from './copytrade/planner/featureFlags.js';
-import { buildRouterExecuteCalldata, simulatePlan } from './copytrade/planner/shadowRunner.js';
+import { buildPlanCalldata, buildPlanValue, simulatePlan } from './copytrade/planner/shadowRunner.js';
 import { recordPlanRun, recordSuccessSample } from './copytrade/planner/sampleLibrary.js';
 import type { SwapExecutionContextV1 } from './copytrade/context/types.js';
 import { buildDirectSwapHintFromContext } from './copytrade/context/contextStore.js';
@@ -133,6 +133,10 @@ export interface MainSwapRequest {
     sourceRouter?: string;
     sourceTxInput?: string;
     sourceTxValue?: string;
+    sourceTokenIn?: string;
+    sourceTokenOut?: string;
+    sourceAmountIn?: string;
+    sourceAmountOut?: string;
     contextId?: string;
     contextSnapshot?: SwapExecutionContextV1;
     contextHitSource?: 'redis' | 'db' | 'inline' | 'miss';
@@ -461,6 +465,8 @@ export class MainSwapService {
   ): Promise<MainSwapResult> {
     const plan = request.executionPlan!;
     const t0 = Date.now();
+    const strictTurboSourceReplay = (process.env.COPYTRADE_TURBO_SOURCE_REPLAY_STRICT || 'true').toLowerCase() === 'true';
+    const isTurboCopytrade = request.mode === 'copytrade' && request.userSettings?.copyTradeExecutionMode === 'turbo';
     const p2Mode = isP2ExecutorEnabled() ? 'canary' : 'shadow';
     let simulation: Awaited<ReturnType<typeof simulatePlan>> | null = null;
 
@@ -486,17 +492,21 @@ export class MainSwapService {
 
     if (!isP2ExecutorEnabled()) {
       const shouldTrySourceReplay =
-        plan.templateRef?.commandType === 'source_calldata_replay'
+        (plan.templateRef?.commandType === 'source_calldata_replay'
+          || plan.templateRef?.commandType === 'source_raw_calldata_replay')
         && simulation?.success === true
         && /^0x[a-fA-F0-9]{40}$/.test(String(plan.templateRef?.router || ''));
       if (shouldTrySourceReplay) {
         try {
-          const nativeValue = isNativeToken(request.tokenIn, request.chainId)
-            ? ethers.parseUnits(request.amountIn, 18).toString()
-            : '0';
+          const replayValue = buildPlanValue(plan);
+          const nativeValue = replayValue !== '0'
+            ? replayValue
+            : (isNativeToken(request.tokenIn, request.chainId)
+              ? ethers.parseUnits(request.amountIn, 18).toString()
+              : '0');
           const replayTxHash = await sendTransaction(request.userId, request.accessToken || '', {
             to: plan.templateRef.router,
-            data: buildRouterExecuteCalldata(plan),
+            data: buildPlanCalldata(plan),
             value: nativeValue,
             chainId: request.chainId,
             nonce: await request.preWarmedNonce
@@ -532,6 +542,26 @@ export class MainSwapService {
             }
           };
         } catch (replayError: any) {
+          if (
+            strictTurboSourceReplay
+            && isTurboCopytrade
+            && (plan.templateRef?.commandType === 'source_calldata_replay'
+              || plan.templateRef?.commandType === 'source_raw_calldata_replay')
+          ) {
+            logger.error(LogCode.EXE_TX_REVERTED, trace('[P2] Source replay failed in strict turbo mode; aborting without external fallback'), {
+              chainId: request.chainId,
+              error: replayError?.message || String(replayError),
+              sourceTxHash: request.executionContext?.sourceTxHash || null
+            });
+            return {
+              success: false,
+              error: `source_replay_failed_strict_turbo:${replayError?.message || String(replayError)}`,
+              metadata: {
+                provider: 'p2-source-replay',
+                mode: request.mode
+              }
+            };
+          }
           logger.warn(LogCode.SYS_INFO, trace('[P2] Source replay failed, falling back to external quote path'), {
             chainId: request.chainId,
             error: replayError?.message || String(replayError),
@@ -560,13 +590,15 @@ export class MainSwapService {
       return await this.executeEvmSwap(request, feeContext, trace, ctx);
     }
 
-    const calldata = buildRouterExecuteCalldata(plan);
-    const nativeValue = isNativeToken(request.tokenIn, request.chainId)
-      ? ethers.parseUnits(request.amountIn, 18).toString()
-      : '0';
+    const replayValue = buildPlanValue(plan);
+    const nativeValue = replayValue !== '0'
+      ? replayValue
+      : (isNativeToken(request.tokenIn, request.chainId)
+        ? ethers.parseUnits(request.amountIn, 18).toString()
+        : '0');
     const txHash = await sendTransaction(request.userId, request.accessToken || '', {
       to: routerAddress,
-      data: calldata,
+      data: buildPlanCalldata(plan),
       value: nativeValue,
       chainId: request.chainId,
       nonce: await request.preWarmedNonce
@@ -609,7 +641,7 @@ export class MainSwapService {
         amountIn: request.amountIn,
         amountOut: result.amountOut,
         router: plan.templateRef.router,
-        selector: plan.execData?.commands?.slice?.(0, 10),
+        selector: (plan.execData?.sourceCalldata || '').slice(0, 10) || plan.execData?.commands?.slice?.(0, 10),
         commandMetaJson: JSON.stringify({
           commandType: plan.templateRef.commandType,
           templateId: plan.templateRef.templateId,
@@ -1000,6 +1032,10 @@ export class MainSwapService {
       ? sourceTxInput.slice(0, 10).toLowerCase()
       : (contextSnapshot?.sourceSelector || null);
     const sourceRouter = request.executionContext?.sourceRouter || contextSnapshot?.sourceRouter || null;
+    const sourceTokenIn = request.executionContext?.sourceTokenIn || contextSnapshot?.tokenIn || null;
+    const sourceTokenOut = request.executionContext?.sourceTokenOut || contextSnapshot?.tokenOut || null;
+    const sourceAmountIn = request.executionContext?.sourceAmountIn || contextSnapshot?.amountIn || null;
+    const sourceAmountOut = request.executionContext?.sourceAmountOut || contextSnapshot?.amountOut || null;
     const pickRouterAddress = (...candidates: Array<string | null | undefined>): string => {
       for (const candidate of candidates) {
         const normalized = String(candidate || '').trim().toLowerCase();
@@ -1553,7 +1589,14 @@ export class MainSwapService {
       speedUpAfterMs: request.mode === 'allowance' || request.mode === 'copytrade' ? (isTurboCopytrade ? 1200 : 6000) : undefined,
       speedUpBumpBps: request.mode === 'copytrade' ? (isTurboCopytrade ? 22000 : 15000) : request.mode === 'allowance' ? 13000 : undefined,
       executionMode: request.userSettings?.copyTradeExecutionMode,
-      preWarmedNonce: request.preWarmedNonce
+      preWarmedNonce: request.preWarmedNonce,
+      sourceAnchor: {
+        sourceTxHash: request.executionContext?.sourceTxHash || contextSnapshot?.sourceTxHash,
+        sourceTokenIn,
+        sourceTokenOut,
+        sourceAmountIn,
+        sourceAmountOut
+      }
     };
 
     if (checkNativeBalancePromise) await checkNativeBalancePromise;

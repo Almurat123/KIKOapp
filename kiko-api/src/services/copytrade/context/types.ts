@@ -33,6 +33,7 @@ export interface SwapExecutionContextV1 {
   tokenIn?: string;
   tokenOut?: string;
   amountIn?: string;
+  amountOut?: string;
   routeHops?: SwapExecutionContextRouteHopV1[];
   resolvedPoolHint?: SwapExecutionContextResolvedPoolHintV1;
   decodeEvidence: {
@@ -52,4 +53,3 @@ export interface ContextStoreHit {
   source: 'redis' | 'db' | 'inline' | 'miss';
   contextId?: string;
 }
-
