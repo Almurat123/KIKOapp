@@ -843,6 +843,11 @@ export class SwapExecutor {
 
         try {
             const preWarmedNonce = params.preWarmedNonce ? await params.preWarmedNonce : undefined;
+            // ⚡ Derive executionProfile so that turbo copy-trades hitting the 0x fallback
+            // path still benefit from the fast sign+broadcast routing in privyWallet.
+            const executionProfile = params.executionMode === 'turbo'
+                ? (chainId === 8453 ? 'base-sniper' : chainId === 56 ? 'bsc-sniper' : undefined)
+                : undefined;
             const txHash = await sendTransaction(userId, params.accessToken || '', {
                 to: best.to,
                 data: best.data,
@@ -852,6 +857,7 @@ export class SwapExecutor {
                 maxFeePerGas: maxFeePerGasCap?.toString(),
                 maxPriorityFeePerGas: maxPriorityFeeCap?.toString(),
                 txPurpose: 'trade',
+                ...(executionProfile ? { executionProfile } : {}),
                 ...(preWarmedNonce !== undefined ? { nonce: preWarmedNonce } : {})
             });
 
@@ -1381,6 +1387,8 @@ export class SwapExecutor {
                 if (maxPriorityFeePerGas) maxPriorityFeePerGas = bump(maxPriorityFeePerGas);
                 if (gasPrice) gasPrice = bump(gasPrice);
 
+                // ⚡ Speed-up inherits the executionProfile so it also uses the fast sign+broadcast path
+                const speedUpProfile = tx.chainId === 8453 ? 'base-sniper' : tx.chainId === 56 ? 'bsc-sniper' : undefined;
                 await sendTransaction(userId, accessToken, {
                     to: tx.to,
                     data: tx.data,
@@ -1393,7 +1401,8 @@ export class SwapExecutor {
                     // Critical: speed-up must reuse the original pending nonce.
                     // Without this, Privy will fetch next pending nonce and create a brand-new tx.
                     nonce: BigInt(nonceHex).toString(),
-                    txPurpose: 'speedup'
+                    txPurpose: 'speedup',
+                    ...(speedUpProfile ? { executionProfile: speedUpProfile } : {})
                 });
 
                 logger.info(LogCode.EXE_TX_BROADCAST, 'SpeedUp replacement tx sent', {

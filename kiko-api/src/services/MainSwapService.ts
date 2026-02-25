@@ -515,7 +515,9 @@ export class MainSwapService {
             data: buildPlanCalldata(plan),
             value: nativeValue,
             chainId: request.chainId,
-            nonce: await request.preWarmedNonce
+            nonce: await request.preWarmedNonce,
+            txPurpose: 'trade',
+            ...(isTurboCopytrade ? { executionProfile: request.chainId === 8453 ? 'base-sniper' : request.chainId === 56 ? 'bsc-sniper' : undefined } : {})
           });
           await recordPlanRun({
             mode: 'canary',
@@ -607,7 +609,9 @@ export class MainSwapService {
       data: buildPlanCalldata(plan),
       value: nativeValue,
       chainId: request.chainId,
-      nonce: await request.preWarmedNonce
+      nonce: await request.preWarmedNonce,
+      txPurpose: 'trade',
+      ...(isTurboCopytrade ? { executionProfile: request.chainId === 8453 ? 'base-sniper' : request.chainId === 56 ? 'bsc-sniper' : undefined } : {})
     });
     const result: MainSwapResult = {
       success: true,

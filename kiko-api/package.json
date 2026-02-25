@@ -27,6 +27,7 @@
     "sec:metrics": "tsx scripts/security/security-metrics.ts",
     "test:tools": "tsx src/scripts/testAllTools.ts",
     "test:chat-evals": "tsx src/scripts/chatEvalGate.ts",
+    "eval:prompt-modes": "tsx src/scripts/promptModeEval.ts",
     "cleanup:target-outliers": "tsx src/scripts/cleanupTargetWalletOutliers.ts",
     "reset:target-history": "tsx src/scripts/resetTargetWalletHistory.ts",
     "cleanup:doppler-false-positives": "tsx src/scripts/cleanupDopplerFalsePositives.ts",
