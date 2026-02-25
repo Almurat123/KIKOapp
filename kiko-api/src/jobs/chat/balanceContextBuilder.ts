@@ -123,9 +123,7 @@ export function buildBalanceContextBlock(params: BuildBalanceContextParams): Bui
                 return `- ${symbol}: ${balance}${contractInfo}`;
             })
             : [];
-        const limitedPortfolio = params.limitLines(portfolioLineItems, 12);
-        const portfolioBlock = limitedPortfolio.lines.join('\n')
-            + (limitedPortfolio.hiddenCount > 0 ? `\n... (+${limitedPortfolio.hiddenCount} more)` : '');
+        const portfolioBlock = portfolioLineItems.join('\n');
         if (portfolioBlock) lines.push(`Holdings:\n${portfolioBlock}`);
 
         if (includeExecutionRule && isExec) {

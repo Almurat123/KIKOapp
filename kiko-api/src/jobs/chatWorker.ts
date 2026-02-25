@@ -1248,8 +1248,6 @@ export class ChatWorker {
         if (!entries || entries.length === 0) return entries;
         const nativeSymbols = new Set(['ETH', 'MATIC', 'POL', 'BNB', 'SOL',]);
         const isEvm = chainId !== 900 && chainId !== undefined;
-        const scamKeywordPattern = /(t\.me|telegram|airdrop|reward|claim|visit|free|bonus|giveaway|promo|http|https|\.com|\.io)/i;
-        const dustThreshold = 1e-6;
         const wrappedNative = (() => {
             if (!chainId || chainId === 900) return '';
             try {
@@ -1271,7 +1269,14 @@ export class ChatWorker {
                 return false;
             }
             if (this.isStableSymbolForChain(chainId, symbol)) return true;
-            if (!addr) return false;
+            // Keep full portfolio coverage for symbol-only entries coming from trusted
+            // wallet snapshots (frontend/backend context), so the model can match tokens
+            // even when a contract field is absent.
+            if (!addr) {
+                if (!rawSymbol) return false;
+                if (rawSymbol.startsWith('0x')) return false;
+                return true;
+            }
             if (isEvm) {
                 if (!/^0x[0-9a-fA-F]{40}$/.test(addr)) return false;
             } else if (addr.length < 32) {
@@ -1280,12 +1285,6 @@ export class ChatWorker {
             const addrLower = addr.toLowerCase();
             if (allowContracts.size > 0 && !allowContracts.has(addrLower)) return false;
             if (!rawSymbol || rawSymbol.startsWith('0x')) return false;
-            if (scamKeywordPattern.test(rawSymbol)) return false;
-
-            const balanceNum = Number(token.balance);
-            if (Number.isFinite(balanceNum) && balanceNum > 0 && balanceNum < dustThreshold) {
-                return false;
-            }
 
             return true;
         });

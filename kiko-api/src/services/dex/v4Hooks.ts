@@ -59,7 +59,9 @@ export const FLAUNCH_HOOKS_BY_CHAIN: Record<number, string[]> = {
 export const CUSTOM_V4_HOOKS_BY_CHAIN: Record<number, string[]> = {
     8453: [
         // DecayMulticurveInitializerHook (Base)
-        '0xbb7784a4d481184283ed89619a3e3ed143e1adc0'
+        '0xbb7784a4d481184283ed89619a3e3ed143e1adc0',
+        // DeliHook (Base) - seen on CreatorBid related v4 pools
+        '0x570a48f96035c2874de1c0f13c5075a05683b0cc'
     ]
 };
 

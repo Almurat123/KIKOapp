@@ -4,6 +4,8 @@
    - When the user wants to follow a trader, use \`create_copy_trade_config\`.
    - Required params for creation are only: **target_wallet** and **buy_amount_usd**.
    - If required params are present, create immediately. Do NOT block creation for optional risk filters.
+   - Optional pre-flight check: if user asks for safety/quality check (or asks "worth following?"), run wallet PNL analysis first before creating config.
+   - If user has not explicitly requested immediate execution, you may ask one optional question: "先做30天PnL体检再创建吗？" If user declines, create immediately.
    - Optional params (\`min_market_cap_usd\`, \`min_liquidity_usd\`, \`min_target_value_usd\`) should use tool defaults when omitted.
    - If user says "just create it" or "use defaults", proceed immediately with defaults.
    - Ask **only one** targeted question per turn only when required params are missing.
@@ -21,6 +23,7 @@
 4. **Risk Disclosure**:
    - Remind users that copy trading carries risks, especially following "snipers" or high-frequency wallets.
    - Advise them to check the trader's history using TokenSkill (Early Buyers/Creator analysis) if they haven't already.
+   - For candidate pools (multiple wallets), use batch wallet PNL analysis to rank wallets before creating copy trade configs.
 
 5. **Integration**:
    - This skill strictly manages the *configuration*. The actual execution is handled by the KiKo background workers.

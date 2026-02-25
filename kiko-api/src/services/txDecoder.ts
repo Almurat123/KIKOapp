@@ -84,6 +84,9 @@ const V3_SWAP_EVENT = '0xc42079f94a6350d7e6235f29174924f928cc2ac818eb64fed8004e1
 const V3_SWAP_EVENT_EXT = '0x19b47279256b2a23a1665c810c8d55a1758940ee09377d4f8d26497a3577dc83';
 const V4_SWAP_EVENT = ethers.id('Swap(bytes32,address,int128,int128,uint160,uint128,int24,uint24)');
 const V4_INIT_EVENT = ethers.id('Initialize(bytes32,address,address,uint24,int24,address,uint160,int24)');
+const v4InitEventInterface = new ethers.Interface([
+    'event Initialize(bytes32 indexed id, address indexed currency0, address indexed currency1, uint24 fee, int24 tickSpacing, address hooks, uint160 sqrtPriceX96, int24 tick)'
+]);
 const USER_OP_EVENT = '0x49628fd1471006c1482da88028e9ce4dbb080b815c9b0344d39e5a8e6ec1419f';
 const INFINITY_CL_POOL_MANAGER = '0xa0ffb9c1ce1fe56963b0321b32e7a0302114058b';
 const INFINITY_BIN_POOL_MANAGER = '0xc697d2898e0d09264376196696c51d7abbbaa4a9';
@@ -537,6 +540,24 @@ async function decodeSwapFromV4Events(
             if (fee <= 3000) return 60;
             return 200;
         };
+        let fallbackHook = '0x0000000000000000000000000000000000000000';
+        let fallbackFee = eventFee;
+        let fallbackTickSpacing = feeToTickSpacing(eventFee);
+
+        if (!matchedKey) {
+            const initLog = findV4InitLogInReceipt(logs, poolManager, poolId)
+                || await fetchV4InitLog(chainId, poolManager, poolId);
+            if (initLog) {
+                try {
+                    const initParsed = v4InitEventInterface.parseLog({ topics: initLog.topics, data: initLog.data });
+                    fallbackHook = String(initParsed?.args?.hooks || fallbackHook).toLowerCase();
+                    fallbackFee = Number(initParsed?.args?.fee ?? fallbackFee);
+                    fallbackTickSpacing = Number(initParsed?.args?.tickSpacing ?? fallbackTickSpacing);
+                } catch {
+                    // Keep heuristic fallback values.
+                }
+            }
+        }
 
         // Build resolvedPoolHint from matched key if available, otherwise from event data.
         // For copy-trade this is critical: it lets us skip pool discovery and use the same pool.
@@ -559,14 +580,14 @@ async function decodeSwapFromV4Events(
                 kind: 'v4',
                 dex: chainId === 56 ? 'pancake' : 'uniswap',
                 poolAddress: poolId.toLowerCase(),
-                fee: eventFee,
+                fee: fallbackFee,
                 v4PoolKey: {
                     currency0: tokens.token0,
                     currency1: tokens.token1,
-                    hooks: '0x0000000000000000000000000000000000000000',
+                    hooks: fallbackHook,
                     poolManager: poolManager.toLowerCase(),
-                    fee: eventFee,
-                    tickSpacing: feeToTickSpacing(eventFee)
+                    fee: fallbackFee,
+                    tickSpacing: fallbackTickSpacing
                 }
             };
 

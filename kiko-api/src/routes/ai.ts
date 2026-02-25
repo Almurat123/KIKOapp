@@ -441,7 +441,7 @@ export async function aiRoutes(fastify: FastifyInstance) {
                             try {
                                 const serialized = JSON.stringify(balanceSnapshot);
                                 if (serialized && serialized !== '{}') {
-                                    walletStateLines.push(`Balances: ${serialized.length > 2000 ? `${serialized.slice(0, 2000)}...` : serialized}`);
+                                    walletStateLines.push(`Balances: ${serialized}`);
                                 }
                             } catch {
                                 // Ignore non-serializable balance payloads.

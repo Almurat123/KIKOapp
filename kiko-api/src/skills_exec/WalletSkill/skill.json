@@ -10,6 +10,7 @@
         "get_wallet_info",
         "get_user_favorites",
         "analyze_wallet_pnl",
+        "analyze_wallet_pnl_batch",
         "get_token_top_gainers"
     ],
     "examples": {
@@ -17,6 +18,7 @@
             "Show my wallet balance",
             "List my favorite tokens",
             "What is my trading PNL for the last 30 days?",
+            "Compare 30d PNL for these 10 wallets",
             "How much ETH do I have?",
             "Check my portfolio performance",
             "Find top 50 profitable wallets for this token"
@@ -25,6 +27,7 @@
             "Show my wallet balance",
             "List my favorite tokens",
             "What is my trading PNL for the last 30 days?",
+            "帮我批量比较这10个钱包的30天PnL",
             "How much ETH do I have?",
             "Check my portfolio performance",
             "查这个代币前50收益钱包"

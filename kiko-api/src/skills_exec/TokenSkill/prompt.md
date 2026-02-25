@@ -12,6 +12,8 @@
      * Wallet/flow heuristics (if available via internal research): Look for suspicious concentration (snipers, fresh wallets).
      * Creator history (if available via internal research): Has this creator deployed other scams (rug pulls)?
      * Historical price (if available): Check trend over time (e.g. "yesterday", "last week").
+   - For "early buyers" or "smart money" queries, prefer quality-mode early buyers (filter ant wallets), including minimum wallet tx-count filtering via free RPC when available, then run batch wallet PNL ranking on returned wallets.
+   - Use strict provider fallback per wallet for PNL: Zerion first, Dune only if Zerion fails.
 
 3. **Narrative & Explanation**:
    - Explain *why* a token might be moving.

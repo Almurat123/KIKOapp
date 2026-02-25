@@ -59,6 +59,7 @@ const CLANKER_FEE_TICK_SPACING = [
 
 const KNOWN_HOOKS_BASE = getKnownV4HooksByChain(8453);
 const KNOWN_DYNAMIC_FEE_HOOKS_BASE = KNOWN_HOOKS_BASE;
+const DYNAMIC_FEE_TICK_SPACING_BASE = [40, 60, 200, 300, 1000];
 
 // V4 配置
 
@@ -80,8 +81,13 @@ const V4_CONFIGS: Record<number, V4PoolConfig[]> = {
         { fee: 500, tickSpacing: 10, hooks: ['0x0000000000000000000000000000000000000000', ...KNOWN_HOOKS_BASE] },
         { fee: 3000, tickSpacing: 60, hooks: ['0x0000000000000000000000000000000000000000', ...KNOWN_HOOKS_BASE] },
         { fee: 10000, tickSpacing: 200, hooks: ['0x0000000000000000000000000000000000000000', ...KNOWN_HOOKS_BASE] },
+        { fee: 50000, tickSpacing: 1000, hooks: ['0x0000000000000000000000000000000000000000', ...KNOWN_HOOKS_BASE] },
         // Dynamic fee hooks (covers newer hook families using DYNAMIC_FEE_FLAG)
-        { fee: DYNAMIC_FEE_FLAG, tickSpacing: 200, hooks: KNOWN_DYNAMIC_FEE_HOOKS_BASE },
+        ...DYNAMIC_FEE_TICK_SPACING_BASE.map((tickSpacing) => ({
+            fee: DYNAMIC_FEE_FLAG,
+            tickSpacing,
+            hooks: KNOWN_DYNAMIC_FEE_HOOKS_BASE
+        })),
     ],
     1: [ // Ethereum
         { fee: 100, tickSpacing: 1, hooks: ['0x0000000000000000000000000000000000000000'] },

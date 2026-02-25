@@ -9,11 +9,14 @@
         "create_copy_trade_config",
         "list_copy_trade_configs",
         "delete_copy_trade_config",
-        "pause_copy_trade_config"
+        "pause_copy_trade_config",
+        "analyze_wallet_pnl",
+        "analyze_wallet_pnl_batch"
     ],
     "examples": {
         "en": [
             "Copy trade this wallet: 0x...",
+            "Check this wallet's 30d PnL before copy trading",
             "List my copy trade configurations",
             "Pause my copy trade for 0x...",
             "Delete my copy trade config",
@@ -21,6 +24,7 @@
         ],
         "zh": [
             "Copy trade this wallet: 0x...",
+            "先查这个钱包30天PnL再决定是否跟单",
             "List my copy trade configurations",
             "Pause my copy trade for 0x...",
             "Delete my copy trade config",

@@ -8,17 +8,19 @@
     "tools": [
         "get_token_info",
         "get_trending_tokens",
-        "x_search",
         "external_web_search",
         "get_token_price",
         "get_historical_price",
         "get_early_buyers",
+        "analyze_wallet_pnl_batch",
+        "analyze_wallet_pnl",
         "analyze_creator"
     ],
     "examples": {
         "en": [
             "Analyze PEPE token",
             "Who bought DEGEN early?",
+            "Find high-quality early buyers and rank their 30d PnL",
             "Is the creator of this token safe?",
             "Get price history of BTC",
             "What tokens are trending now?"
@@ -26,6 +28,7 @@
         "zh": [
             "Analyze PEPE token",
             "Who bought DEGEN early?",
+            "筛选高质量早期买家并按30天PnL排序",
             "Is the creator of this token safe?",
             "Get price history of BTC",
             "What tokens are trending now?"

@@ -116,6 +116,7 @@ export const AnalyzeWalletPnlTool: Tool = {
             };
 
             // 1) Primary provider: Zerion
+            // Strict policy: single-provider response per request. Do not call Dune when Zerion succeeds.
             let zerionResult: Awaited<ReturnType<typeof zerionPnlService.getWalletPnlFromZerion>> | null = null;
             let zerionAttempted = false;
             if (chainSupport.zerion.configured && chainSupport.zerion.supported) {
