@@ -29,6 +29,7 @@ import {
 } from '../services/alchemyWebhookInboxService.js';
 import { buildSwapExecutionContext } from '../services/copytrade/context/contextBuilder.js';
 import { putContext } from '../services/copytrade/context/contextStore.js';
+import { setCachedSinglePoolWinnerHint } from '../services/dex/directSwap/cache.js';
 
 interface ProcessTxBody {
     wallet: string;
@@ -179,6 +180,22 @@ async function persistSwapContext(params: {
             detectedAt: params.detectedAt
         });
         await putContext(ctx);
+        // ⚡ POOL HINT SEEDING: If we successfully decoded which DEX pool the target used,
+        // pre-warm the DirectSwap winner-hint cache so OUR swap finds the pool instantly
+        // (no pool discovery / rescue needed → eliminates ~880ms of rescue latency).
+        if (ctx.resolvedPoolHint && ctx.tokenIn && ctx.tokenOut && ctx.chainId) {
+            const hasUsableHint = ctx.resolvedPoolHint.poolAddress
+                || (ctx.resolvedPoolHint.v4PoolKey?.currency0 && ctx.resolvedPoolHint.v4PoolKey?.currency1);
+            if (hasUsableHint) {
+                setCachedSinglePoolWinnerHint(
+                    ctx.chainId,
+                    ctx.tokenIn,
+                    ctx.tokenOut,
+                    ctx.resolvedPoolHint as NonNullable<typeof ctx.resolvedPoolHint>,
+                    300 // 5-minute TTL — new pools are stable once created
+                ).catch(() => { /* best-effort */ });
+            }
+        }
     } catch {
         // best-effort only
     }

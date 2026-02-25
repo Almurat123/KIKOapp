@@ -1525,10 +1525,22 @@ export class MainSwapService {
         });
       }
 
-      if (turboSkip0xFallback) {
+      // For turbo BUY: also skip 0x when rescue already called getZeroExPrice and got
+      // liquidityAvailable=false for every candidate pool (= liquidity_guard_reject_all).
+      // In that case 0x quote will also return no-liquidity — don't waste 3-15s on it.
+      const directErrorCode = lastDirectResult?.error || lastDirectError?.message || '';
+      const turboSkip0xBuyNoLiq = isTurboCopytrade
+        && isBuyDirection
+        && directErrorCode.includes('liquidity_guard_reject_all');
+
+      if (turboSkip0xFallback || turboSkip0xBuyNoLiq) {
         const error = lastDirectResult?.error || lastDirectError?.message;
-        logger.warn(LogCode.SYS_INFO, trace('Turbo: skipping 0x fallback (0x API too slow for turbo)'), {
+        const skipReason = turboSkip0xFallback
+          ? '0x API too slow for turbo sell'
+          : 'rescue liquidity guard rejected all pools (0x has no route)';
+        logger.warn(LogCode.SYS_INFO, trace('Turbo: skipping 0x fallback'), {
           error,
+          skipReason,
           failureCode: extractFailureCode(error),
           chainId: request.chainId
         });

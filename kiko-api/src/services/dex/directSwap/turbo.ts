@@ -18,6 +18,14 @@ export interface TurboResolver {
 }
 
 function resolvedHintKey(hint: ResolvedPoolHint): string {
+  // V4 pools are identified by their PoolKey, not a pool address
+  if (hint.kind === 'v4' && hint.v4PoolKey?.currency0) {
+    const c0 = hint.v4PoolKey.currency0.toLowerCase();
+    const c1 = hint.v4PoolKey.currency1.toLowerCase();
+    const fee = Number(hint.v4PoolKey.fee || 0);
+    const hooks = (hint.v4PoolKey.hooks || '').toLowerCase();
+    return `v4:${c0 < c1 ? c0 : c1}:${c0 < c1 ? c1 : c0}:${fee}:${hooks}`;
+  }
   const poolAddress = String(hint.poolAddress || '').toLowerCase();
   const fee = Number(hint.fee || 0);
   const dex = String(hint.dex || '').toLowerCase();
@@ -54,7 +62,10 @@ export function dedupeResolvedHints(hints: Array<ResolvedPoolHint | null | undef
   const seen = new Set<string>();
   for (const hint of hints) {
     if (!hint) continue;
-    if (!hint.poolAddress) continue;
+    // ⚡ V4 pools are identified by PoolKey (currency0/currency1/fee/hooks), not poolAddress.
+    // Do NOT filter them out just because poolAddress is absent.
+    const hasV4Key = hint.kind === 'v4' && !!(hint.v4PoolKey?.currency0);
+    if (!hint.poolAddress && !hasV4Key) continue;
     const key = resolvedHintKey(hint);
     if (seen.has(key)) continue;
     seen.add(key);

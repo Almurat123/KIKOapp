@@ -321,13 +321,18 @@ async function getBestQuoteInternal(params: BestQuoteParams): Promise<{ best: Qu
         const startMs = Date.now();
 
         if (turboCopytrade0xOnly) {
-            // For turbo copytrade buys, do not use quote windows.
-            // Fetch one definitive 0x quote and let source-anchor guard decide safety.
-            const zeroExQuote = await zeroExPromise;
+            // For turbo copytrade buys: one definitive 0x quote with a hard timeout.
+            // 15 s (default in zeroEx.ts) is too long for turbo; cap at TURBO_TOTAL_WAIT_MS.
+            const TURBO_COPYTRADE_QUOTE_TIMEOUT_MS = Math.max(
+                700,
+                Number(process.env.QUOTE_TURBO_COPYTRADE_TIMEOUT_MS || '4500')
+            );
+            const zeroExQuote = await withTimeout(zeroExPromise, TURBO_COPYTRADE_QUOTE_TIMEOUT_MS);
             if (zeroExQuote) quotes.push(zeroExQuote);
             console.log('[QuoteService] Turbo quote mode direct fetch (no window)', {
                 policy: 'copytrade_turbo_0x_only',
                 elapsedMs: Date.now() - startMs,
+                timeoutMs: TURBO_COPYTRADE_QUOTE_TIMEOUT_MS,
                 chainId: params.chainId,
                 gotQuote: Boolean(zeroExQuote)
             });

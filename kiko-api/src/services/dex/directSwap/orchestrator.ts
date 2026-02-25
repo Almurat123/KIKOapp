@@ -1249,19 +1249,38 @@ export async function executeDirectSwap(params: {
                 Number(params.hint?.routeHopCount || 0),
                 params.hint?.routeHops?.length || 0
             );
-            const canUseResolvedFastPath = params.hint?.canUseResolvedPoolFastPath !== false && hintHopCount <= 1;
+            // ⚡ TURBO: In turbo copytrade the resolved hint points to the SPECIFIC pool the target
+            // used for the output token — not the entire multi-hop route. Skip hop-count restriction
+            // so multi-hop source txs still get the fast path for the last pool.
+            const hopCountOk = turboMode || hintHopCount <= 1;
+            const canUseResolvedFastPath = params.hint?.canUseResolvedPoolFastPath !== false && hopCountOk;
             if (!canUseResolvedFastPath) {
                 resolvedHintFastPathSkipped = true;
                 logger.warn(LogCode.SYS_INFO, '[DirectSwap] Resolved pool hint fast-path skipped by route context', {
                     chainId,
                     canUseResolvedPoolFastPath: params.hint?.canUseResolvedPoolFastPath,
                     routeHopCount: hintHopCount,
+                    turboMode,
                     reason: 'multi_hop_or_explicitly_disabled'
                 });
             } else {
                 const resolvedHint = params.hint.resolvedPoolHint as NonNullable<DirectSwapHint['resolvedPoolHint']>;
                 let liquidityGateBlocked = false;
                 if (isBuySideStableOrNativeIn(chainId, normalizedTokenIn)) {
+                    // ⚡ TURBO TRUSTED HINT: When copy-trading a source tx the target wallet already
+                    // proved this pool is live. Skip the costly findTokenPools gate call entirely
+                    // (saves ~950ms of pool discovery) and go straight to the fast-path attempt.
+                    const turboTrustedHint = turboMode && !!params.hint?.sourceTxHash;
+                    if (turboTrustedHint) {
+                        logger.info(LogCode.SYS_INFO, '[DirectSwap] Resolved hint liquidity gate skipped — turbo source-tx trusted', {
+                            chainId,
+                            traceId,
+                            kind: resolvedHint.kind,
+                            dex: resolvedHint.dex || null,
+                            poolAddress: resolvedHint.poolAddress || null,
+                            sourceTxHash: params.hint?.sourceTxHash?.slice(0, 14) || null
+                        });
+                    } else {
                     const gateBudgetMs = turboMode
                         ? Math.max(180, Math.min(DIRECT_SWAP_HINT_POOL_TIMEOUT_MS, turboFastDeadline - Date.now()))
                         : Math.min(1200, DIRECT_SWAP_HINT_POOL_TIMEOUT_MS);
@@ -1297,6 +1316,8 @@ export async function executeDirectSwap(params: {
                         requiredReserveInWei: gate.requiredReserveInWei.slice(0, 20),
                         multiplier: DIRECT_SWAP_BUY_LIQ_MULTIPLIER
                     });
+                    // In the else branch, turboTrustedHint is already false (we're not in the trusted bypass path).
+                    // Gate is evaluated normally; however turboMode uncertain_block is still retried.
                     if (!gate.allowed && !(turboMode && gate.blockType === 'uncertain_block')) {
                         liquidityGateBlocked = true;
                         resolvedHintFastPathSkipped = true;
@@ -1321,6 +1342,7 @@ export async function executeDirectSwap(params: {
                             poolAddress: resolvedHint.poolAddress || null
                         });
                     }
+                    } // end else (gate evaluation)
                 }
 
                 if (!liquidityGateBlocked) {

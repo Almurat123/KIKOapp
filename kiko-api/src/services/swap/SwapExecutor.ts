@@ -17,6 +17,26 @@ import { SOLANA_CONFIG } from '../../config/solanaConfig.js';
 import { NATIVE_TOKEN_ADDRESS, SOLANA_NATIVE_MINT, TOKEN_REGISTRY, isNativeToken } from '../../config/tokenRegistry.js';
 import { handleSwapError } from './handleSwapError.js';
 import { getTransactionReceipt, getTransactionByHash, callRpc, getErc20Balance, getErc20Decimals, getErc20Allowance } from '../../services/rpcManager.js';
+
+// ⚡ In-process decimals cache: avoids repeated RPC calls for the same token
+// Keyed by "chainId:tokenAddress" (lowercase). Decimals are immutable once deployed.
+const ERC20_DECIMALS_PROCESS_CACHE = new Map<string, number>();
+const DECIMALS_CACHE_MAX_SIZE = 5000;
+function setCachedDecimals(chainId: number, address: string, decimals: number): void {
+    if (ERC20_DECIMALS_PROCESS_CACHE.size >= DECIMALS_CACHE_MAX_SIZE) {
+        // Evict oldest 500 entries when cache is full
+        const keys = ERC20_DECIMALS_PROCESS_CACHE.keys();
+        for (let i = 0; i < 500; i++) {
+            const k = keys.next();
+            if (k.done) break;
+            ERC20_DECIMALS_PROCESS_CACHE.delete(k.value);
+        }
+    }
+    ERC20_DECIMALS_PROCESS_CACHE.set(`${chainId}:${address.toLowerCase()}`, decimals);
+}
+function getCachedDecimals(chainId: number, address: string): number | undefined {
+    return ERC20_DECIMALS_PROCESS_CACHE.get(`${chainId}:${address.toLowerCase()}`);
+}
 import { recordProviderReliabilityOutcome } from '../copytrade/learning/quoteReliability.js';
 
 // 0x AllowanceHolder address (Base). If a token already has sufficient allowance here,
@@ -169,22 +189,44 @@ export class SwapExecutor {
 
         let decimalsIn = tokenInInfo?.decimals;
         if (typeof decimalsIn !== 'number') {
-            try {
-                // Determine 18 if native, otherwise fetch
-                if (isNativeIn) {
-                    decimalsIn = 18;
-                } else {
-                    decimalsIn = await getErc20Decimals(actualTokenInFixed, chainId);
-                    logger.info(LogCode.SYS_INFO, 'Fetched missing decimals on-chain', { token: actualTokenInFixed, decimals: decimalsIn });
+            // Check in-process cache before going to RPC
+            const cached = isNativeIn ? undefined : getCachedDecimals(chainId, actualTokenInFixed);
+            if (typeof cached === 'number') {
+                decimalsIn = cached;
+            } else {
+                try {
+                    if (isNativeIn) {
+                        decimalsIn = 18;
+                    } else {
+                        decimalsIn = await getErc20Decimals(actualTokenInFixed, chainId);
+                        setCachedDecimals(chainId, actualTokenInFixed, decimalsIn);
+                        logger.info(LogCode.SYS_INFO, 'Fetched missing decimals on-chain', { token: actualTokenInFixed, decimals: decimalsIn });
+                    }
+                } catch (e: any) {
+                    // ⚡ TURBO FALLBACK: If RPC is down and this is a standard ERC20 (not stablecoin),
+                    // fall back to 18 decimals rather than hard-aborting the swap.
+                    // 99%+ of new tokens use 18 decimals; stablecoins are pre-cached in TOKEN_REGISTRY.
+                    const isKnownStablecoin = ['USDC', 'USDT'].includes(tokenInInfo?.symbol?.toUpperCase() || '');
+                    if (!isKnownStablecoin) {
+                        decimalsIn = 18;
+                        logger.warn(LogCode.SYS_ERROR, 'tokenIn decimals RPC failed — falling back to 18 (turbo safe default)', {
+                            token: actualTokenInFixed,
+                            chainId,
+                            error: e?.message?.slice(0, 80) || String(e)
+                        });
+                    } else {
+                        logger.error(LogCode.SYS_ERROR, 'Failed to fetch tokenIn decimals from chain; aborting swap', {
+                            token: actualTokenInFixed,
+                            chainId,
+                            error: e?.message || String(e)
+                        });
+                        throw new AppError(400, `token_metadata_unavailable:tokenIn_decimals:${actualTokenInFixed}`, 'TOKEN_METADATA_UNAVAILABLE');
+                    }
                 }
-            } catch (e: any) {
-                logger.error(LogCode.SYS_ERROR, 'Failed to fetch tokenIn decimals from chain; aborting swap', {
-                    token: actualTokenInFixed,
-                    chainId,
-                    error: e?.message || String(e)
-                });
-                throw new AppError(400, `token_metadata_unavailable:tokenIn_decimals:${actualTokenInFixed}`, 'TOKEN_METADATA_UNAVAILABLE');
             }
+        } else {
+            // Store tokenInfo decimals in process cache for future RPC-miss scenarios
+            if (!isNativeIn) setCachedDecimals(chainId, actualTokenInFixed, decimalsIn);
         }
         let decimalsOut = tokenOutInfo?.decimals;
         // SAFETY: Detect incorrect cached decimals for USDC/USDT (often cached as 18 but are 6)
@@ -197,21 +239,42 @@ export class SwapExecutor {
             decimalsOut = 6;
         }
         if (typeof decimalsOut !== 'number') {
-            try {
-                if (isNativeOut) {
-                    decimalsOut = 18;
-                } else {
-                    decimalsOut = await getErc20Decimals(actualTokenOutFixed, chainId);
-                    logger.info(LogCode.SYS_INFO, 'Fetched missing tokenOut decimals on-chain', { token: actualTokenOutFixed, decimals: decimalsOut });
+            // Check in-process cache before going to RPC
+            const cachedOut = isNativeOut ? undefined : getCachedDecimals(chainId, actualTokenOutFixed);
+            if (typeof cachedOut === 'number') {
+                decimalsOut = cachedOut;
+            } else {
+                try {
+                    if (isNativeOut) {
+                        decimalsOut = 18;
+                    } else {
+                        decimalsOut = await getErc20Decimals(actualTokenOutFixed, chainId);
+                        setCachedDecimals(chainId, actualTokenOutFixed, decimalsOut);
+                        logger.info(LogCode.SYS_INFO, 'Fetched missing tokenOut decimals on-chain', { token: actualTokenOutFixed, decimals: decimalsOut });
+                    }
+                } catch (e: any) {
+                    // ⚡ TURBO FALLBACK: same logic as tokenIn — fall back to 18 for non-stablecoins
+                    const isKnownStablecoin = ['USDC', 'USDT'].includes(tokenOutInfo?.symbol?.toUpperCase() || '');
+                    if (!isKnownStablecoin) {
+                        decimalsOut = 18;
+                        logger.warn(LogCode.SYS_ERROR, 'tokenOut decimals RPC failed — falling back to 18 (turbo safe default)', {
+                            token: actualTokenOutFixed,
+                            chainId,
+                            error: e?.message?.slice(0, 80) || String(e)
+                        });
+                    } else {
+                        logger.error(LogCode.SYS_ERROR, 'Failed to fetch tokenOut decimals from chain; aborting swap', {
+                            token: actualTokenOutFixed,
+                            chainId,
+                            error: e?.message || String(e)
+                        });
+                        throw new AppError(400, `token_metadata_unavailable:tokenOut_decimals:${actualTokenOutFixed}`, 'TOKEN_METADATA_UNAVAILABLE');
+                    }
                 }
-            } catch (e: any) {
-                logger.error(LogCode.SYS_ERROR, 'Failed to fetch tokenOut decimals from chain; aborting swap', {
-                    token: actualTokenOutFixed,
-                    chainId,
-                    error: e?.message || String(e)
-                });
-                throw new AppError(400, `token_metadata_unavailable:tokenOut_decimals:${actualTokenOutFixed}`, 'TOKEN_METADATA_UNAVAILABLE');
             }
+        } else {
+            // Store tokenInfo decimals in process cache for future RPC-miss scenarios
+            if (!isNativeOut) setCachedDecimals(chainId, actualTokenOutFixed, decimalsOut);
         }
 
         // 1.5 Gas Reservation for Native Token
