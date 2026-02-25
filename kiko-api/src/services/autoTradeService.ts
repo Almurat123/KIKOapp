@@ -253,6 +253,14 @@ const userTokenLocks = new Map<string, number>(); // key -> timestamp
 const USER_TOKEN_LOCK_DURATION_MS = 30000; // 30 seconds
 const MAX_COPY_TRADE_USD = 1_000_000; // Hard safety cap to prevent absurd buy amounts
 type CopyTradeAiAnalysisMode = 'disabled' | 'analyze_only' | 'auto_decide';
+const COPYTRADE_GUARD_AUDIT_WINDOW_MS = Math.max(1000, Number(process.env.COPYTRADE_GUARD_AUDIT_WINDOW_MS || '2000'));
+
+function roundGuardNumber(value: unknown, digits: number = 2): number {
+    const n = Number(value);
+    if (!Number.isFinite(n)) return 0;
+    const p = Math.pow(10, digits);
+    return Math.round(n * p) / p;
+}
 
 function resolveExecutionModeForConfig(config: any): CopyTradeExecutionMode {
     return resolveExecutionModeFromConfig({
@@ -1673,6 +1681,36 @@ async function processSingleUserBuy(
         const turboMode = executionMode === 'turbo';
         const positionStatusCompat = await getPositionStatusCompat();
         const leaderTxHash = String(swap?.txHash || '').toLowerCase().trim();
+        const guardAudit: Record<string, unknown> = {
+            userId: config.userId,
+            token: tokenToBuy,
+            chainId,
+            executionMode,
+            turboMode,
+            sourceTxHash: swap?.txHash || null,
+            minTargetValue: null,
+            priceDeviation: null,
+            cooldown: null,
+            marketCap: null,
+            minLiquidity: null
+        };
+        const emitGuardAudit = (
+            decision: 'pass' | 'skip',
+            reason: string,
+            extra?: Record<string, unknown>
+        ) => {
+            logger.throttled(
+                LogCode.SYS_INFO,
+                '[CopyTradeGuardAudit] buy guard summary',
+                {
+                    ...guardAudit,
+                    decision,
+                    reason,
+                    ...(extra || {})
+                },
+                COPYTRADE_GUARD_AUDIT_WINDOW_MS
+            );
+        };
 
         try {
             const inboundDelayMs = detectedAt ? Math.max(0, Date.now() - detectedAt) : null;
@@ -1716,6 +1754,22 @@ async function processSingleUserBuy(
             minTargetValueUsd: resolveEffectiveMinTargetValueUsd(config, userSettings),
             maxSlippageBps: universalSlippageBps
         };
+        const observedMarketCapUsd = Number(tokenInfo?.marketCap || 0);
+        const observedLiquidityUsd = Number(tokenInfo?.liquidity || 0);
+        const minMarketCapUsd = Number(effectiveConfig.minMarketCapUsd || 0);
+        const minLiquidityUsd = Number(effectiveConfig.minLiquidityUsd || 0);
+        guardAudit.marketCap = {
+            minUsd: roundGuardNumber(minMarketCapUsd),
+            observedUsd: roundGuardNumber(observedMarketCapUsd),
+            pass: minMarketCapUsd <= 0 ? true : observedMarketCapUsd >= minMarketCapUsd,
+            enforced: false
+        };
+        guardAudit.minLiquidity = {
+            minUsd: roundGuardNumber(minLiquidityUsd),
+            observedUsd: roundGuardNumber(observedLiquidityUsd),
+            pass: minLiquidityUsd <= 0 ? true : observedLiquidityUsd >= minLiquidityUsd,
+            enforced: false
+        };
 
         // Fast check for per-user target value guard (must apply in all modes, including turbo).
         const minTargetValueUsd = resolveEffectiveMinTargetValueUsd(effectiveConfig, null);
@@ -1724,16 +1778,25 @@ async function processSingleUserBuy(
         const effectiveTargetSwapValueUsd = strictTargetSwapValueReliable
             ? normalizedStrictTargetSwapValueUsd
             : normalizedTargetSwapValueUsd;
+        guardAudit.minTargetValue = {
+            minUsd: roundGuardNumber(minTargetValueUsd),
+            broadUsd: roundGuardNumber(normalizedTargetSwapValueUsd),
+            strictUsd: roundGuardNumber(normalizedStrictTargetSwapValueUsd),
+            effectiveUsd: roundGuardNumber(effectiveTargetSwapValueUsd),
+            strictReliable: strictTargetSwapValueReliable,
+            strictRequired: strictMinGuardRequired,
+            strictSource: strictTargetSwapValueSource
+        };
 
         if (minTargetValueUsd > 0 && strictMinGuardRequired && !strictTargetSwapValueReliable) {
-            logger.warn(LogCode.WTC_TX_SKIPPED, 'Skipping trade: strict min-target cash guard unavailable', {
+            logger.throttled(LogCode.WTC_TX_SKIPPED, 'Skipping trade: strict min-target cash guard unavailable', {
                 userId: config.userId,
                 token: tokenToBuy,
                 txHash: swap.txHash,
                 minTargetValueUsd,
                 strictSource: strictTargetSwapValueSource,
                 broadTargetSwapValueUsd: Number(normalizedTargetSwapValueUsd.toFixed(2))
-            });
+            }, COPYTRADE_GUARD_AUDIT_WINDOW_MS);
             sendNotificationAsync({
                 userId: config.userId,
                 farcasterFid: config.user.farcasterFid,
@@ -1749,6 +1812,7 @@ async function processSingleUserBuy(
                     liquidity: tokenInfo.liquidity ? tokenInfo.liquidity.toFixed(0) : undefined,
                 }
             }, 'copytrade_skip_min_target_guard_unavailable');
+            emitGuardAudit('skip', 'min_target_guard_unavailable');
             return;
         }
 
@@ -1780,7 +1844,7 @@ async function processSingleUserBuy(
                     liquidity: tokenInfo.liquidity ? tokenInfo.liquidity.toFixed(0) : undefined,
                 }
             }, 'copytrade_skip_min_target_value');
-
+            emitGuardAudit('skip', 'min_target_value_below_threshold');
             return;
         }
 
@@ -1871,6 +1935,7 @@ async function processSingleUserBuy(
         }
 
             const cooldownMinutes = config.copyTradeTokenCooldownMinutes ?? userSettings?.copyTradeTokenCooldownMinutes ?? 60;
+            guardAudit.cooldown = { minutes: cooldownMinutes, enabled: cooldownMinutes > 0 };
 
             // 🛡️ PRICE DEVIATION CHECK (Anti-Spike)
             // MUST run regardless of cooldownMinutes — turbo configs set cooldown=0 but still need this protection.
@@ -1885,9 +1950,16 @@ async function processSingleUserBuy(
                         // This is how much the target ACTUALLY paid per token
                         targetExecutionPrice = targetSwapValueUsd / estimatedOut;
                         const priceDeviation = targetExecutionPrice / tokenInfo.price;
+                        guardAudit.priceDeviation = {
+                            oraclePrice: roundGuardNumber(tokenInfo.price, 8),
+                            targetExecutionPrice: roundGuardNumber(targetExecutionPrice, 8),
+                            ratio: roundGuardNumber(priceDeviation, 4),
+                            maxRatio: 3,
+                            pass: priceDeviation <= 3.0
+                        };
 
                         if (priceDeviation > 3.0) { // Allow up to 3x (200% increase) but no more
-                            logger.warn(LogCode.DEC_PRICE_IMPACT_HIGH, `🚨 Price Deviation too high! Oracle: $${tokenInfo.price.toFixed(6)}, Target Paid: $${targetExecutionPrice.toFixed(6)} (${priceDeviation.toFixed(1)}x)`, {
+                            logger.info(LogCode.DEC_PRICE_IMPACT_HIGH, `🚨 Price Deviation too high! Oracle: $${tokenInfo.price.toFixed(6)}, Target Paid: $${targetExecutionPrice.toFixed(6)} (${priceDeviation.toFixed(1)}x)`, {
                                 userId: config.userId,
                                 token: tokenToBuy,
                                 targetSwapValueUsd,
@@ -1910,7 +1982,7 @@ async function processSingleUserBuy(
                                     priceImpact: `${priceDeviation.toFixed(1)}x deviation`
                                 }
                             }, 'copytrade_skip_price_deviation');
-
+                            emitGuardAudit('skip', 'price_deviation_ratio_exceeded');
                             return; // SKIP TRADE
                         }
                     }
@@ -1922,8 +1994,15 @@ async function processSingleUserBuy(
                 const currentPrice = await getDexPriceWithTimeout(tokenToBuy, dexChainId);
                 if (currentPrice > 0) {
                     const deviationBps = Math.abs(targetExecutionPrice - currentPrice) / currentPrice * 10000;
+                    guardAudit.priceDeviation = {
+                        ...(guardAudit.priceDeviation && typeof guardAudit.priceDeviation === 'object' ? guardAudit.priceDeviation as Record<string, unknown> : {}),
+                        dexPrice: roundGuardNumber(currentPrice, 8),
+                        deviationBps: roundGuardNumber(deviationBps, 2),
+                        maxSlippageBps: effectiveConfig.maxSlippageBps,
+                        pass: deviationBps <= effectiveConfig.maxSlippageBps
+                    };
                     if (deviationBps > effectiveConfig.maxSlippageBps) {
-                        logger.warn(LogCode.WTC_TX_SKIPPED, 'Skipping trade: price deviation exceeds user limit', {
+                        logger.info(LogCode.WTC_TX_SKIPPED, 'Skipping trade: price deviation exceeds user limit', {
                             userId: config.userId,
                             token: tokenToBuy,
                             deviationBps: deviationBps.toFixed(0),
@@ -1943,7 +2022,7 @@ async function processSingleUserBuy(
                                 targetBuyValue: targetSwapValueUsd.toFixed(2),
                             }
                         }, 'copytrade_skip_price_deviation_bps');
-
+                        emitGuardAudit('skip', 'price_deviation_bps_exceeded');
                         return;
                     }
                 }
@@ -1991,10 +2070,12 @@ async function processSingleUserBuy(
                             liquidity: tokenInfo.liquidity ? tokenInfo.liquidity.toFixed(0) : undefined,
                         }
                     });
-
+                    emitGuardAudit('skip', 'insufficient_gas_buffer');
                     return;
                 }
             }
+
+        emitGuardAudit('pass', 'guards_passed_pre_execution');
 
         // 🛡️ DB TRANSACTION LOCK (Prevents Concurrent Buys)
         // Create a PENDING position record atomically. If one exists, this will fail.
@@ -2043,6 +2124,7 @@ async function processSingleUserBuy(
                 || String(err?.message || '').toLowerCase().includes('unique constraint');
             if (err.message.includes('DUPLICATE_TRADE') || isUniqueConflict) {
                 logger.info(LogCode.WTC_TX_SKIPPED, 'Skipping duplicate trade (DB Lock)', { userId: config.userId, token: tokenToBuy });
+                emitGuardAudit('skip', 'duplicate_trade_lock');
             } else {
                 logger.error(LogCode.SYS_ERROR, 'Failed to create pending position', { error: err.message });
             }
