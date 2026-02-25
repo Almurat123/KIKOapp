@@ -20,11 +20,11 @@
             "Give me a market overview"
         ],
         "zh": [
-            "今天加密市场表现如何？",
-            "搜索最新的 Base 网络新闻",
-            "以太坊现在的 gas 费是多少？",
-            "本周有什么重大的经济事件吗？",
-            "给我一个市场概览"
+            "How is the crypto market doing today?",
+            "Search for the latest Base network news",
+            "What are the current gas prices on Ethereum?",
+            "Are there any major economic events this week?",
+            "Give me a market overview"
         ]
     }
 }

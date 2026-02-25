@@ -134,6 +134,7 @@ function normalizeLaunchpadProvider(provider?: string | null): string | null {
   if (provider === 'bonkfun') return 'bonk.fun';
   if (provider === 'fourmeme') return 'four.meme';
   if (provider === 'flaunch.gg') return 'flaunch';
+  if (provider === 'creator.bid') return 'creatorbid';
   if (provider === 'doppler finance' || provider === 'dopplerfinance') return 'doppler';
   return provider;
 }

@@ -20,11 +20,11 @@
             "Delete alert 12"
         ],
         "zh": [
-            "当 $KIKO 到 $0.1 时通知我",
-            "为 0x123... 设置市值达到 $1M 的提醒",
-            "当 ETH 低于 $2000 时自动买入 $50",
-            "显示我的提醒列表",
-            "删除提醒 12"
+            "Notify me when $KIKO hits $0.1",
+            "Set a market cap alert for 0x123... at $1M",
+            "Auto-buy $50 of ETH if it drops below $2000",
+            "Show my active alerts",
+            "Delete alert 12"
         ]
     }
 }

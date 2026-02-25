@@ -407,6 +407,7 @@ function normalizeLaunchpadTag(value?: string | null): string | undefined {
   if (v === 'bonkfun') return 'bonk.fun';
   if (v === 'fourmeme') return 'four.meme';
   if (v === 'flaunch.gg') return 'flaunch';
+  if (v === 'creator.bid') return 'creatorbid';
   if (v === 'doppler finance' || v === 'dopplerfinance') return 'doppler';
   return v;
 }

@@ -128,7 +128,7 @@ export interface MainSwapRequest {
   };
 
   // Launchpad-specific
-  launchpadProvider?: 'pumpfun' | 'pumpswap' | 'bonkfun' | 'zora' | 'fourmeme' | 'flap' | 'clanker' | 'virtuals' | 'doppler' | 'flaunch';
+  launchpadProvider?: 'pumpfun' | 'pumpswap' | 'bonkfun' | 'zora' | 'fourmeme' | 'flap' | 'clanker' | 'virtuals' | 'doppler' | 'flaunch' | 'creatorbid';
 
   // Copytrade execution hint from target wallet decoded tx
   directSwapHint?: DirectSwapHint;
@@ -179,7 +179,7 @@ export interface MainSwapResult {
  * Launchpad token detection result
  */
 interface LaunchpadDetection {
-  provider: 'pumpfun' | 'pumpswap' | 'bonkfun' | 'zora' | 'fourmeme' | 'flap' | 'clanker' | 'virtuals' | 'doppler' | 'flaunch';
+  provider: 'pumpfun' | 'pumpswap' | 'bonkfun' | 'zora' | 'fourmeme' | 'flap' | 'clanker' | 'virtuals' | 'doppler' | 'flaunch' | 'creatorbid';
   data: any;
   chainId: number;
 }
@@ -403,7 +403,8 @@ export class MainSwapService {
             launchpadDetection.provider !== 'clanker' &&
             launchpadDetection.provider !== 'flap' &&
             launchpadDetection.provider !== 'doppler' &&
-            launchpadDetection.provider !== 'flaunch'
+            launchpadDetection.provider !== 'flaunch' &&
+            launchpadDetection.provider !== 'creatorbid'
           ) {
             // Use launchpad routing for non-Clanker tokens only
             logger.info(LogCode.SYS_INFO, trace(`Launchpad detected: ${launchpadDetection.provider}`), {
@@ -415,7 +416,8 @@ export class MainSwapService {
             launchpadDetection?.provider === 'clanker' ||
             launchpadDetection?.provider === 'flap' ||
             launchpadDetection?.provider === 'doppler' ||
-            launchpadDetection?.provider === 'flaunch'
+            launchpadDetection?.provider === 'flaunch' ||
+            launchpadDetection?.provider === 'creatorbid'
           ) {
             // These platforms are currently detected-only and route through standard DEX path.
             logger.info(LogCode.SYS_INFO, trace(`${launchpadDetection.provider} token detected - routing to standard DEX (0x/Kyber)`));

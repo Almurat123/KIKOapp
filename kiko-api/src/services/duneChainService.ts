@@ -116,8 +116,9 @@ export async function fetchDuneChainMetrics(): Promise<Map<string, DuneChainMetr
             }
         }
 
-        // Fetch contracts data if configured
-        if (CONTRACTS_QUERY_ID) {
+        // Fetch contracts data only when base chain metrics exist.
+        // If base queries fail (e.g. no latest execution), reading contracts query is wasted credits.
+        if (CONTRACTS_QUERY_ID && metricsMap.size > 0) {
             try {
                 logger.info(LogCode.API_FETCH_SUCCESS, `Fetching contracts data from query ${CONTRACTS_QUERY_ID}`);
                 const contractsResult = await client.getLatestResult({ queryId: CONTRACTS_QUERY_ID });
@@ -140,6 +141,11 @@ export async function fetchDuneChainMetrics(): Promise<Map<string, DuneChainMetr
             } catch (error: any) {
                 logger.error(LogCode.API_FETCH_FAILED, 'Error fetching contracts data', { error: error.message });
             }
+        } else if (CONTRACTS_QUERY_ID) {
+            logger.warn(
+                LogCode.API_FETCH_FAILED,
+                `Skipping contracts query ${CONTRACTS_QUERY_ID} because base chain metrics are empty`
+            );
         }
 
         logger.info(LogCode.API_FETCH_SUCCESS, `Successfully fetched metrics for ${metricsMap.size} chains from ${totalRows} total rows`);

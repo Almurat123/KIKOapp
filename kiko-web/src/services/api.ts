@@ -54,6 +54,7 @@ export type LaunchpadData =
     | { provider: 'clanker'; data: ClankerToken; chainId: number }
     | { provider: 'doppler'; data: unknown; chainId: number }
     | { provider: 'flaunch'; data: unknown; chainId: number }
+    | { provider: 'creatorbid'; data: unknown; chainId: number }
     | { provider: 'fourmeme'; data: FourMemeToken; chainId: number }
     | { provider: 'flap'; data: unknown; chainId: number }
     | { provider: 'pumpfun'; data: PumpFunToken; chainId: number }

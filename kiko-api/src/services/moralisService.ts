@@ -73,6 +73,225 @@ export interface WalletPnlSummary {
     tokens: TokenProfitability[];
 }
 
+export interface TokenTopGainer {
+    address: string;
+    avgBuyPriceUsd: number;
+    avgSellPriceUsd: number;
+    totalTokensBought: string;
+    totalUsdInvested: number;
+    totalTokensSold: string;
+    totalSoldUsd: number;
+    avgCostOfQuantitySold: number;
+    countOfTrades: number;
+    realizedProfitUsd: number;
+    realizedProfitPercentage: number;
+}
+
+export interface TokenTopGainersOptions {
+    days?: number;
+    limit?: number;
+    fallbackToAllTime?: boolean;
+}
+
+export interface TokenTopGainersSummary {
+    tokenAddress: string;
+    tokenName: string;
+    tokenSymbol: string;
+    tokenDecimals: number;
+    tokenLogo?: string;
+    possibleSpam: boolean;
+    chain: string;
+    chainId: number;
+    requestedDays: number | null;
+    appliedDays: number | null;
+    usedAllTimeFallback: boolean;
+    wallets: TokenTopGainer[];
+}
+
+interface MoralisTokenTopGainersRow {
+    address?: string;
+    avg_buy_price_usd?: string | number;
+    avg_sell_price_usd?: string | number;
+    total_tokens_bought?: string;
+    total_usd_invested?: string | number;
+    total_tokens_sold?: string;
+    total_sold_usd?: string | number;
+    avg_cost_of_quantity_sold?: string | number;
+    count_of_trades?: number;
+    realized_profit_usd?: string | number;
+    realized_profit_percentage?: string | number;
+}
+
+interface MoralisTokenTopGainersResponse {
+    name?: string;
+    symbol?: string;
+    decimals?: string | number;
+    logo?: string;
+    possible_spam?: boolean;
+    result?: MoralisTokenTopGainersRow[];
+}
+
+const CHAIN_SLUG_TO_ID: Record<string, number> = Object.entries(CHAIN_MAPPING)
+    .reduce((acc, [chainId, chain]) => {
+        acc[chain] = Number(chainId);
+        return acc;
+    }, {} as Record<string, number>);
+
+function safeParseNumber(value: unknown): number {
+    if (value === null || value === undefined) return 0;
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function normalizeDays(days?: number): number | undefined {
+    if (days === null || days === undefined) return undefined;
+    const value = Math.trunc(Number(days));
+    if (!Number.isFinite(value) || value <= 0) return undefined;
+    return Math.min(3650, value);
+}
+
+function resolveMoralisChain(chainOrId: string | number): { chain: string; chainId: number } | null {
+    if (typeof chainOrId === 'number' && Number.isFinite(chainOrId)) {
+        const chainId = Math.trunc(chainOrId);
+        const chain = CHAIN_MAPPING[chainId];
+        if (!chain) return null;
+        return { chain, chainId };
+    }
+
+    const raw = String(chainOrId || '').trim().toLowerCase();
+    if (!raw) return null;
+
+    const aliases: Record<string, string> = {
+        ethereum: 'eth',
+        bnb: 'bsc',
+        matic: 'polygon',
+        arb: 'arbitrum',
+        op: 'optimism',
+        avax: 'avalanche',
+    };
+    const normalized = aliases[raw] || raw;
+    const chainId = CHAIN_SLUG_TO_ID[normalized];
+    if (!chainId) return null;
+    return { chain: normalized, chainId };
+}
+
+function mapTopGainerRow(row: MoralisTokenTopGainersRow): TokenTopGainer {
+    return {
+        address: String(row.address || '').toLowerCase(),
+        avgBuyPriceUsd: safeParseNumber(row.avg_buy_price_usd),
+        avgSellPriceUsd: safeParseNumber(row.avg_sell_price_usd),
+        totalTokensBought: String(row.total_tokens_bought || '0'),
+        totalUsdInvested: safeParseNumber(row.total_usd_invested),
+        totalTokensSold: String(row.total_tokens_sold || '0'),
+        totalSoldUsd: safeParseNumber(row.total_sold_usd),
+        avgCostOfQuantitySold: safeParseNumber(row.avg_cost_of_quantity_sold),
+        countOfTrades: Number.isFinite(Number(row.count_of_trades)) ? Number(row.count_of_trades) : 0,
+        realizedProfitUsd: safeParseNumber(row.realized_profit_usd),
+        realizedProfitPercentage: safeParseNumber(row.realized_profit_percentage),
+    };
+}
+
+async function fetchTokenTopGainers(
+    tokenAddress: string,
+    chain: string,
+    days?: number
+): Promise<MoralisTokenTopGainersResponse> {
+    const params = new URLSearchParams({ chain });
+    if (days !== undefined) params.set('days', String(days));
+
+    const url = `${MORALIS_BASE_URL}/erc20/${tokenAddress}/top-gainers?${params.toString()}`;
+    return unifiedApiService.fetchJson<MoralisTokenTopGainersResponse>({
+        url,
+        headers: { 'X-API-Key': MORALIS_API_KEY },
+        timeout: 30000,
+        retry: { retries: 2 },
+        endpointName: 'moralis.io'
+    });
+}
+
+/**
+ * Get top profitable wallets for a specific token via Moralis Token API.
+ * Docs: https://docs.moralis.com/web3-data-api/evm/reference/token-api/get-top-profitable-wallet-per-token
+ */
+export async function getTokenTopProfitableWallets(
+    tokenAddress: string,
+    chainOrId: string | number,
+    options: TokenTopGainersOptions = {}
+): Promise<TokenTopGainersSummary | null> {
+    if (!MORALIS_API_KEY) {
+        logger.error(LogCode.SYS_ERROR, 'Moralis API key not configured');
+        return null;
+    }
+
+    if (!/^0x[a-fA-F0-9]{40}$/.test(tokenAddress)) {
+        logger.warn(LogCode.API_FETCH_FAILED, 'Invalid token address for Moralis top-gainers', { tokenAddress });
+        return null;
+    }
+
+    const chainResolved = resolveMoralisChain(chainOrId);
+    if (!chainResolved) {
+        logger.warn(LogCode.API_FETCH_FAILED, 'Unsupported chain for Moralis top-gainers', { chainOrId });
+        return null;
+    }
+
+    const limit = Math.max(1, Math.min(100, Math.trunc(Number(options.limit ?? 50) || 50)));
+    const requestedDays = normalizeDays(options.days);
+    const fallbackToAllTime = options.fallbackToAllTime !== false;
+
+    try {
+        logger.debug(LogCode.API_FETCH_SUCCESS, 'Fetching token top-gainers', {
+            tokenAddress: tokenAddress.slice(0, 10),
+            chain: chainResolved.chain,
+            requestedDays,
+            limit
+        });
+
+        let data = await fetchTokenTopGainers(tokenAddress, chainResolved.chain, requestedDays);
+        let appliedDays: number | null = requestedDays ?? null;
+        let usedAllTimeFallback = false;
+        let wallets = (data.result || []).map(mapTopGainerRow);
+
+        if (wallets.length === 0 && requestedDays !== undefined && fallbackToAllTime) {
+            data = await fetchTokenTopGainers(tokenAddress, chainResolved.chain);
+            wallets = (data.result || []).map(mapTopGainerRow);
+            appliedDays = null;
+            usedAllTimeFallback = true;
+        }
+
+        wallets.sort((a, b) => {
+            if (b.realizedProfitUsd !== a.realizedProfitUsd) {
+                return b.realizedProfitUsd - a.realizedProfitUsd;
+            }
+            if (b.countOfTrades !== a.countOfTrades) {
+                return b.countOfTrades - a.countOfTrades;
+            }
+            return b.totalSoldUsd - a.totalSoldUsd;
+        });
+
+        return {
+            tokenAddress: tokenAddress.toLowerCase(),
+            tokenName: String(data.name || ''),
+            tokenSymbol: String(data.symbol || ''),
+            tokenDecimals: Math.max(0, Math.trunc(safeParseNumber(data.decimals))),
+            tokenLogo: data.logo,
+            possibleSpam: Boolean(data.possible_spam),
+            chain: chainResolved.chain,
+            chainId: chainResolved.chainId,
+            requestedDays: requestedDays ?? null,
+            appliedDays,
+            usedAllTimeFallback,
+            wallets: wallets.slice(0, limit),
+        };
+    } catch (error: any) {
+        logger.error(LogCode.API_FETCH_FAILED, 'Error fetching Moralis token top-gainers', {
+            tokenAddress,
+            chain: chainResolved.chain,
+            error: error?.message || String(error)
+        });
+        return null;
+    }
+}
+
 /**
  * Get wallet profitability from Moralis API
  * Returns PNL breakdown by token
@@ -370,6 +589,7 @@ export async function isWalletProfitable(
 }
 
 export const moralisService = {
+    getTokenTopProfitableWallets,
     getWalletProfitability,
     getWalletProfitabilitySummary,
     getWalletProfitabilityMultiChain,

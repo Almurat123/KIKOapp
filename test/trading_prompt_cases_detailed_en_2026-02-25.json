@@ -1,0 +1,569 @@
+[
+  {
+    "id": "buy_001_same_chain_quote_confirm_execute",
+    "intent": "TRADING",
+    "title": "Buy contract token on same chain with quote-before-execution path",
+    "scenario": "User buys token by contract address on Base. Preferences require quote first.",
+    "inputs": {
+      "turns": [
+        { "role": "user", "content": "Buy 0.01 ETH to 0xAbCdEf0123456789aBCdEf0123456789abCDef0 on Base." },
+        { "role": "user", "content": "Confirm." }
+      ],
+      "context_blocks": {
+        "CONTEXT": { "chainId": 8453, "chainName": "Base" },
+        "WALLET_STATE": { "ETH": "0.50", "USDC": "120.00", "native_for_gas_ok": true, "stale": false },
+        "USER_PREFERENCES_MODULE": {
+          "fastSwapMode": false,
+          "showQuoteBeforeSwap": true,
+          "checkTokenBeforeSwap": true,
+          "slippageMode": "custom",
+          "customSlippage": 0.5,
+          "mevProtection": true,
+          "priceDeviationCheck": true
+        },
+        "LAUNCHPAD_CONTEXT": { "present": false }
+      }
+    },
+    "required_context_usage": [
+      "Use CONTEXT.chainId and chainName for chain lock",
+      "Use WALLET_STATE for amount and gas feasibility",
+      "Use USER_PREFERENCES_MODULE to enforce quote-first flow"
+    ],
+    "expected_tool_plan": {
+      "allowed_sequence": ["get_token_info", "check_token_risk", "simulate_swap", "prepare_swap_transaction"],
+      "tool_constraints": [
+        "Do not call wallet overview if WALLET_STATE already satisfies chain/token needs",
+        "Do not call prepare_swap_transaction in the same turn as simulate_swap when quote-first is enabled",
+        "After user confirmation, do not re-run simulate_swap without new constraints"
+      ]
+    },
+    "checkpoints": [
+      {
+        "name": "identity_lock",
+        "pass_if": "Token identity resolved on Base without symbol ambiguity",
+        "if_fail": "Ask targeted clarification and stop execution"
+      },
+      {
+        "name": "funds_and_gas",
+        "pass_if": "ETH >= 0.01 and native_for_gas_ok=true",
+        "if_fail": "Return blocking reason and smallest corrective next action"
+      },
+      {
+        "name": "risk_gate",
+        "pass_if": "Risk scan returns non-blocking status",
+        "if_fail": "Warn + ask whether to proceed or adjust"
+      },
+      {
+        "name": "quote_then_confirm",
+        "pass_if": "Quote shown and explicit confirmation received",
+        "if_fail": "Wait for confirmation without executing"
+      }
+    ],
+    "error_matrix": [
+      {
+        "error_code": "quote_timeout",
+        "trigger_signal": "simulate_swap timeout/unavailable/no data",
+        "assistant_must": [
+          "State temporary quote unavailability",
+          "Offer retry or amount adjustment",
+          "Avoid blind same-call loops"
+        ],
+        "assistant_must_not": ["Fabricate quote values", "Claim execution success"]
+      },
+      {
+        "error_code": "prepare_failed",
+        "trigger_signal": "prepare_swap_transaction returns route/execution error",
+        "assistant_must": [
+          "Return failure reason + current state + next minimum action",
+          "Keep user in-app flow by default"
+        ],
+        "assistant_must_not": ["Say trade succeeded without receipt"]
+      }
+    ],
+    "output_contract": {
+      "must_include": ["Base", "0.01 ETH", "confirmation", "receipt identifier on success"],
+      "must_avoid": ["internal tool names", "executed successfully before receipt"]
+    }
+  },
+  {
+    "id": "sell_001_fast_mode_direct_execution",
+    "intent": "TRADING",
+    "title": "Sell token with fastSwapMode enabled",
+    "scenario": "User sells USDC to ETH and requests immediate action.",
+    "inputs": {
+      "turns": [
+        { "role": "user", "content": "Sell 150 USDC to ETH now." }
+      ],
+      "context_blocks": {
+        "CONTEXT": { "chainId": 8453, "chainName": "Base" },
+        "WALLET_STATE": { "USDC": "400.00", "ETH": "0.03", "native_for_gas_ok": true, "stale": false },
+        "USER_PREFERENCES_MODULE": {
+          "fastSwapMode": true,
+          "showQuoteBeforeSwap": true,
+          "checkTokenBeforeSwap": false,
+          "slippageMode": "auto"
+        }
+      }
+    },
+    "required_context_usage": [
+      "Respect fastSwapMode=true as primary execution hint",
+      "Validate sell amount and gas feasibility from WALLET_STATE"
+    ],
+    "expected_tool_plan": {
+      "allowed_sequence": ["prepare_swap_transaction"],
+      "tool_constraints": [
+        "Do not force quote-first blocking under fastSwapMode=true",
+        "Do not skip safety-critical checks (balance/gas/chain)"
+      ]
+    },
+    "error_matrix": [
+      {
+        "error_code": "insufficient_usdc",
+        "trigger_signal": "requested sell amount > WALLET_STATE.USDC",
+        "assistant_must": ["Block and show mismatch", "Request corrected amount"],
+        "assistant_must_not": ["Auto-change amount without user consent"]
+      }
+    ],
+    "output_contract": {
+      "must_include": ["150 USDC", "ETH"],
+      "must_avoid": ["unnecessary simulation blocking"]
+    }
+  },
+  {
+    "id": "buy_002_chain_mismatch_switch_gate",
+    "intent": "TRADING",
+    "title": "Buy request where wallet chain and token chain mismatch",
+    "scenario": "User is on Base but token context resolves to Arbitrum.",
+    "inputs": {
+      "turns": [
+        { "role": "user", "content": "Buy 0.01 ETH to 0xTokenOnArbitrum." }
+      ],
+      "context_blocks": {
+        "CONTEXT": { "chainId": 8453, "chainName": "Base" },
+        "TOKEN_CONTEXT": { "chainId": 42161, "chainName": "Arbitrum", "address": "0xTokenOnArbitrum" },
+        "WALLET_STATE": { "ETH": "0.30", "native_for_gas_ok": true }
+      }
+    },
+    "required_context_usage": [
+      "Use TOKEN_CONTEXT chain as authority for token chain when provided",
+      "Do not infer chain from 0x format alone"
+    ],
+    "expected_tool_plan": {
+      "allowed_sequence": ["get_token_info"],
+      "tool_constraints": [
+        "Ask chain-switch question before preparing trade",
+        "No execution on current chain when mismatch exists"
+      ]
+    },
+    "error_matrix": [
+      {
+        "error_code": "user_declines_switch",
+        "trigger_signal": "User explicitly refuses chain switch",
+        "assistant_must": [
+          "Stop trade path",
+          "Offer minimal alternatives (switch later / choose same-chain asset)"
+        ],
+        "assistant_must_not": ["Execute on wrong chain"]
+      }
+    ],
+    "output_contract": {
+      "must_include": ["Base", "Arbitrum", "switch"],
+      "must_avoid": ["auto execute on wrong chain"]
+    }
+  },
+  {
+    "id": "buy_003_insufficient_input_balance",
+    "intent": "TRADING",
+    "title": "Buy request exceeds available input balance",
+    "scenario": "User asks to buy 2 ETH worth but only has 0.40 ETH.",
+    "inputs": {
+      "turns": [
+        { "role": "user", "content": "Buy 2 ETH worth of token 0xAbCd..." }
+      ],
+      "context_blocks": {
+        "CONTEXT": { "chainId": 1, "chainName": "Ethereum" },
+        "WALLET_STATE": { "ETH": "0.40", "native_for_gas_ok": true, "stale": false }
+      }
+    },
+    "required_context_usage": ["Compare requested amount against WALLET_STATE directly"],
+    "expected_tool_plan": {
+      "allowed_sequence": [],
+      "tool_constraints": ["Do not call execution tools when funds are clearly insufficient"]
+    },
+    "error_matrix": [
+      {
+        "error_code": "insufficient_balance",
+        "trigger_signal": "requested_input_amount > balance",
+        "assistant_must": [
+          "Show deficit clearly",
+          "Provide minimum next action (reduce amount or top up)"
+        ],
+        "assistant_must_not": ["Pretend trade can proceed"]
+      }
+    ],
+    "output_contract": {
+      "must_include": ["insufficient", "0.40 ETH"],
+      "must_avoid": ["executed"]
+    }
+  },
+  {
+    "id": "buy_004_insufficient_gas_token",
+    "intent": "TRADING",
+    "title": "Input asset exists but gas token is insufficient",
+    "scenario": "User has enough USDC but not enough native token for gas.",
+    "inputs": {
+      "turns": [
+        { "role": "user", "content": "Use all my USDC to buy this token." }
+      ],
+      "context_blocks": {
+        "CONTEXT": { "chainId": 8453, "chainName": "Base" },
+        "WALLET_STATE": { "USDC": "500.00", "ETH": "0.00001", "native_for_gas_ok": false, "stale": false }
+      }
+    },
+    "required_context_usage": ["Use native_for_gas_ok flag before any execution prep"],
+    "expected_tool_plan": {
+      "allowed_sequence": [],
+      "tool_constraints": ["Block execution until gas feasibility is restored"]
+    },
+    "error_matrix": [
+      {
+        "error_code": "insufficient_gas",
+        "trigger_signal": "native_for_gas_ok=false",
+        "assistant_must": [
+          "Explain gas blocker",
+          "Ask user to keep/add native token for gas"
+        ],
+        "assistant_must_not": ["Attempt full-balance spend that removes gas budget"]
+      }
+    ],
+    "output_contract": {
+      "must_include": ["gas", "native token"],
+      "must_avoid": ["security reason cannot read wallet"]
+    }
+  },
+  {
+    "id": "sell_002_amount_exceeds_holdings",
+    "intent": "TRADING",
+    "title": "Sell request exceeds holdings",
+    "scenario": "User wants to sell more token than available.",
+    "inputs": {
+      "turns": [{ "role": "user", "content": "Sell 1000 ABC to USDC." }],
+      "context_blocks": {
+        "CONTEXT": { "chainId": 8453, "chainName": "Base" },
+        "WALLET_STATE": { "ABC": "120.00", "USDC": "50.00", "native_for_gas_ok": true }
+      }
+    },
+    "required_context_usage": ["Use WALLET_STATE.ABC for strict quantity validation"],
+    "expected_tool_plan": {
+      "allowed_sequence": [],
+      "tool_constraints": ["No execution-prep calls while amount is invalid"]
+    },
+    "error_matrix": [
+      {
+        "error_code": "insufficient_token_balance",
+        "trigger_signal": "requested_sell > holdings",
+        "assistant_must": [
+          "Show requested vs available",
+          "Ask for corrected amount or max-sell confirmation"
+        ],
+        "assistant_must_not": ["Silently switch to max without asking"]
+      }
+    ],
+    "output_contract": {
+      "must_include": ["120.00", "lower amount"],
+      "must_avoid": ["silent correction"]
+    }
+  },
+  {
+    "id": "buy_005_launchpad_pass_scan_but_warn_market_risk",
+    "intent": "TRADING",
+    "title": "Launchpad flow where proactive contract scan can be skipped",
+    "scenario": "Launchpad context is present; user wants to buy quickly.",
+    "inputs": {
+      "turns": [
+        { "role": "user", "content": "Buy this launchpad token with 100 USDC." },
+        { "role": "user", "content": "Proceed." }
+      ],
+      "context_blocks": {
+        "CONTEXT": { "chainId": 8453, "chainName": "Base" },
+        "LAUNCHPAD_CONTEXT": { "present": true, "provider": "zora" },
+        "WALLET_STATE": { "USDC": "250.00", "ETH": "0.02", "native_for_gas_ok": true },
+        "USER_PREFERENCES_MODULE": { "checkTokenBeforeSwap": true, "fastSwapMode": false, "showQuoteBeforeSwap": true }
+      }
+    },
+    "required_context_usage": [
+      "Use LAUNCHPAD_CONTEXT exception to risk-scan policy",
+      "Still emit market-risk warning"
+    ],
+    "expected_tool_plan": {
+      "allowed_sequence": ["simulate_swap", "prepare_swap_transaction"],
+      "tool_constraints": [
+        "Skip proactive check_token_risk unless user explicitly asks for safety",
+        "Use quote-first flow due preferences"
+      ]
+    },
+    "error_matrix": [],
+    "output_contract": {
+      "must_include": ["launchpad", "market risk", "confirmation"],
+      "must_avoid": ["default malicious label"]
+    }
+  },
+  {
+    "id": "buy_006_quote_timeout_recovery",
+    "intent": "TRADING",
+    "title": "Simulation timeout should produce recovery path",
+    "scenario": "Quote call fails with timeout/no-data.",
+    "inputs": {
+      "turns": [{ "role": "user", "content": "Buy 200 USDC worth of this token." }],
+      "context_blocks": {
+        "CONTEXT": { "chainId": 8453, "chainName": "Base" },
+        "WALLET_STATE": { "USDC": "500.00", "ETH": "0.01", "native_for_gas_ok": true },
+        "USER_PREFERENCES_MODULE": { "fastSwapMode": false, "showQuoteBeforeSwap": true }
+      },
+      "simulated_tool_results": {
+        "simulate_swap": { "status": "timeout", "error": "upstream_quote_timeout" }
+      }
+    },
+    "required_context_usage": ["Respect quote-first requirement before execution"],
+    "expected_tool_plan": {
+      "allowed_sequence": ["simulate_swap"],
+      "tool_constraints": ["Stop repeated same-call retries after limit"]
+    },
+    "error_matrix": [
+      {
+        "error_code": "quote_unavailable",
+        "trigger_signal": "simulate_swap timeout/unavailable/no data",
+        "assistant_must": [
+          "Mark quote as temporarily unavailable",
+          "Offer retry or adjust amount/slippage",
+          "Avoid execution claim"
+        ],
+        "assistant_must_not": ["Fabricate quote"]
+      }
+    ],
+    "output_contract": {
+      "must_include": ["temporarily unavailable", "retry"],
+      "must_avoid": ["made-up quote"]
+    }
+  },
+  {
+    "id": "buy_007_prepare_failure_actionable_response",
+    "intent": "TRADING",
+    "title": "Execution preparation failure should be actionable",
+    "scenario": "User confirmed; prepare step fails with no route.",
+    "inputs": {
+      "turns": [
+        { "role": "user", "content": "Confirm, execute now." }
+      ],
+      "context_blocks": {
+        "CONTEXT": { "chainId": 1, "chainName": "Ethereum" },
+        "WALLET_STATE": { "ETH": "1.20", "native_for_gas_ok": true },
+        "USER_PREFERENCES_MODULE": { "fastSwapMode": true }
+      },
+      "simulated_tool_results": {
+        "prepare_swap_transaction": { "status": "error", "errorCode": "no_route_found" }
+      }
+    },
+    "required_context_usage": ["Apply confirmed-intent execution path"],
+    "expected_tool_plan": {
+      "allowed_sequence": ["prepare_swap_transaction"],
+      "tool_constraints": ["No success claim without receipt"]
+    },
+    "error_matrix": [
+      {
+        "error_code": "no_route_found",
+        "trigger_signal": "prepare returns no executable route",
+        "assistant_must": [
+          "Return failure reason",
+          "Provide smallest next action (adjust amount / change pair / retry later)"
+        ],
+        "assistant_must_not": ["Claim success", "Default to external DEX recommendation"]
+      }
+    ],
+    "output_contract": {
+      "must_include": ["failed", "next action"],
+      "must_avoid": ["success claim without receipt"]
+    }
+  },
+  {
+    "id": "sell_003_stale_wallet_state_refresh_gate",
+    "intent": "TRADING",
+    "title": "Stale wallet state should trigger one refresh path",
+    "scenario": "Wallet state exists but marked stale before sell request.",
+    "inputs": {
+      "turns": [{ "role": "user", "content": "Sell 50 XYZ to USDC." }],
+      "context_blocks": {
+        "CONTEXT": { "chainId": 8453, "chainName": "Base" },
+        "WALLET_STATE": { "XYZ": "60.00", "stale": true },
+        "USER_PREFERENCES_MODULE": { "fastSwapMode": false }
+      }
+    },
+    "required_context_usage": ["Honor stale flag and refresh once"],
+    "expected_tool_plan": {
+      "allowed_sequence": ["get_wallet_info", "simulate_swap", "prepare_swap_transaction"],
+      "tool_constraints": ["Do not execute with stale unknown balances"]
+    },
+    "error_matrix": [
+      {
+        "error_code": "wallet_refresh_failed",
+        "trigger_signal": "get_wallet_info fails/timeout",
+        "assistant_must": [
+          "Explain temporary data issue",
+          "Ask user whether to retry refresh"
+        ],
+        "assistant_must_not": ["Proceed to execution blindly"]
+      }
+    ],
+    "output_contract": {
+      "must_include": ["refresh", "latest balance"],
+      "must_avoid": ["ignore stale state"]
+    }
+  },
+  {
+    "id": "sell_004_price_deviation_guard",
+    "intent": "TRADING",
+    "title": "Price deviation check blocks unsafe execution",
+    "scenario": "User wants to sell; latest quote deviates beyond acceptable threshold.",
+    "inputs": {
+      "turns": [{ "role": "user", "content": "Sell 300 USDC to ETH." }],
+      "context_blocks": {
+        "CONTEXT": { "chainId": 8453, "chainName": "Base" },
+        "WALLET_STATE": { "USDC": "1000.00", "native_for_gas_ok": true },
+        "USER_PREFERENCES_MODULE": {
+          "fastSwapMode": false,
+          "showQuoteBeforeSwap": true,
+          "priceDeviationCheck": true
+        }
+      },
+      "simulated_tool_results": {
+        "simulate_swap": { "status": "ok", "priceDeviationPct": 12.3, "thresholdPct": 3.0 }
+      }
+    },
+    "required_context_usage": ["Apply priceDeviationCheck guard when enabled"],
+    "expected_tool_plan": {
+      "allowed_sequence": ["simulate_swap"],
+      "tool_constraints": ["Block execution when deviation is extreme unless user explicitly accepts risk"]
+    },
+    "error_matrix": [
+      {
+        "error_code": "price_deviation_too_high",
+        "trigger_signal": "priceDeviationPct > thresholdPct",
+        "assistant_must": [
+          "Warn clearly about abnormal deviation",
+          "Ask user whether to proceed with risk or adjust order"
+        ],
+        "assistant_must_not": ["Auto-execute despite guard"]
+      }
+    ],
+    "output_contract": {
+      "must_include": ["deviation", "risk", "proceed or adjust"],
+      "must_avoid": ["safe guaranteed language"]
+    }
+  },
+  {
+    "id": "buy_008_confirmation_missing_no_execute",
+    "intent": "TRADING",
+    "title": "No explicit confirmation means no execution",
+    "scenario": "User asks for details after quote but never confirms.",
+    "inputs": {
+      "turns": [
+        { "role": "user", "content": "Buy 300 USDC of this token." },
+        { "role": "assistant", "content": "Quote ready..." },
+        { "role": "user", "content": "Looks good, what will I receive exactly?" }
+      ],
+      "context_blocks": {
+        "CONTEXT": { "chainId": 8453, "chainName": "Base" },
+        "WALLET_STATE": { "USDC": "300.00", "ETH": "0.02", "native_for_gas_ok": true },
+        "USER_PREFERENCES_MODULE": { "fastSwapMode": false, "showQuoteBeforeSwap": true }
+      }
+    },
+    "required_context_usage": ["Preserve confirmation gate from prior quote step"],
+    "expected_tool_plan": {
+      "allowed_sequence": ["simulate_swap"],
+      "tool_constraints": ["No prepare/execution without explicit confirmation intent"]
+    },
+    "error_matrix": [
+      {
+        "error_code": "confirmation_missing",
+        "trigger_signal": "no explicit confirm/proceed/execute intent",
+        "assistant_must": [
+          "Answer details request",
+          "Ask for explicit confirmation to execute"
+        ],
+        "assistant_must_not": ["Auto execute after informational question"]
+      }
+    ],
+    "output_contract": {
+      "must_include": ["confirm to execute"],
+      "must_avoid": ["executed"]
+    }
+  },
+  {
+    "id": "buy_009_ambiguous_symbol_identity_conflict",
+    "intent": "TRADING",
+    "title": "Ambiguous token symbol requires identity clarification",
+    "scenario": "User asks to buy symbol with multiple candidates.",
+    "inputs": {
+      "turns": [{ "role": "user", "content": "Buy 100 USDC of PEPE." }],
+      "context_blocks": {
+        "CONTEXT": { "chainId": 8453, "chainName": "Base" },
+        "WALLET_STATE": { "USDC": "500.00", "ETH": "0.05", "native_for_gas_ok": true },
+        "TOKEN_CONTEXT": { "symbol_candidates": ["PEPE(base)", "PEPE(eth)"], "ambiguous": true }
+      }
+    },
+    "required_context_usage": ["Use TOKEN_CONTEXT ambiguity flag"],
+    "expected_tool_plan": {
+      "allowed_sequence": ["get_token_info"],
+      "tool_constraints": ["Do not execute until token identity is disambiguated"]
+    },
+    "error_matrix": [
+      {
+        "error_code": "token_identity_ambiguous",
+        "trigger_signal": "multiple symbol candidates / unresolved contract",
+        "assistant_must": [
+          "Ask focused identity clarification (contract or chain)",
+          "Pause execution path"
+        ],
+        "assistant_must_not": ["Pick a random token candidate"]
+      }
+    ],
+    "output_contract": {
+      "must_include": ["which PEPE", "contract or chain"],
+      "must_avoid": ["unverified token assumption"]
+    }
+  },
+  {
+    "id": "sell_005_cross_chain_missing_source_balance",
+    "intent": "TRADING",
+    "title": "Cross-chain sell request without source-chain balance data",
+    "scenario": "User requests cross-chain action but source-chain balance is missing.",
+    "inputs": {
+      "turns": [{ "role": "user", "content": "Bridge-sell 200 USDC from Arbitrum to Base into ETH." }],
+      "context_blocks": {
+        "CONTEXT": { "chainId": 8453, "chainName": "Base" },
+        "USER_BALANCE_CONTEXT": { "base": { "USDC": "300.00" }, "arbitrum": null },
+        "USER_PREFERENCES_MODULE": { "fastSwapMode": false }
+      }
+    },
+    "required_context_usage": ["Cross-chain path must validate source chain holdings first"],
+    "expected_tool_plan": {
+      "allowed_sequence": ["get_wallet_info"],
+      "tool_constraints": ["Fetch source-chain balance before asking amount-related follow-up"]
+    },
+    "error_matrix": [
+      {
+        "error_code": "source_balance_missing",
+        "trigger_signal": "source chain balance unavailable",
+        "assistant_must": [
+          "Refresh source chain balance context",
+          "Only then continue flow or ask next key question"
+        ],
+        "assistant_must_not": ["Proceed with guessed source balances"]
+      }
+    ],
+    "output_contract": {
+      "must_include": ["source chain balance", "Arbitrum"],
+      "must_avoid": ["guessing cross-chain amount feasibility"]
+    }
+  }
+]

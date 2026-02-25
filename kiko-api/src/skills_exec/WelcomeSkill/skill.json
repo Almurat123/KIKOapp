@@ -1,23 +1,23 @@
 {
-  "id": "welcome_onboarding",
-  "name": "Welcome & Onboarding",
-  "description": "Welcome and onboarding responses with local setup awareness and doc links.",
-  "intents": [
-    "GENERAL_CHAT"
-  ],
-  "tools": [],
-  "examples": {
-    "en": [
-      "Hi",
-      "I'm new here, how do I start?",
-      "Give me a quick intro to Kiko",
-      "What can Kiko do?"
+    "id": "welcome_onboarding",
+    "name": "Welcome & Onboarding",
+    "description": "Welcome and onboarding responses with local setup awareness and doc links.",
+    "intents": [
+        "GENERAL_CHAT"
     ],
-    "zh": [
-      "你好",
-      "我是新用户，怎么开始？",
-      "给我一个 Kiko 介绍",
-      "Kiko 能做什么？"
-    ]
-  }
+    "tools": [],
+    "examples": {
+        "en": [
+            "Hi",
+            "I'm new here, how do I start?",
+            "Give me a quick intro to Kiko",
+            "What can Kiko do?"
+        ],
+        "zh": [
+            "Hi",
+            "I'm new here, how do I start?",
+            "Give me a quick intro to Kiko",
+            "What can Kiko do?"
+        ]
+    }
 }

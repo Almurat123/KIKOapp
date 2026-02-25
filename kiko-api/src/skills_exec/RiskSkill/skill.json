@@ -17,11 +17,11 @@
             "Check safety metrics for 0x..."
         ],
         "zh": [
-            "检查此代币的风险等级",
-            "此地址是貔貅盘 (honeypot) 吗？",
-            "我可以卖出这个代币吗？",
-            "扫描合约漏洞",
-            "检查 0x... 的安全指标"
+            "Check the risk level of this token",
+            "Is this address a honeypot?",
+            "Can I sell this token?",
+            "Scan contract for vulnerabilities",
+            "Check safety metrics for 0x..."
         ]
     }
 }

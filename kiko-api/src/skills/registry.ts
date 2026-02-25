@@ -12,12 +12,10 @@ class Registry implements SkillRegistry {
     private skills: Map<string, Skill> = new Map();
     private baseDir: string;
     private label: string;
-    private variant: 'exec' | 'clean';
 
-    constructor(baseDir: string, label: string, variant: 'exec' | 'clean') {
+    constructor(baseDir: string, label: string) {
         this.baseDir = baseDir;
         this.label = label;
-        this.variant = variant;
         // Auto-load skills on instantiation
         this.loadSkills();
     }
@@ -76,19 +74,18 @@ class Registry implements SkillRegistry {
             const skillMdPath = path.join(dir, 'SKILL.md');
             const jsonPath = path.join(dir, 'skill.json');
             const promptPath = path.join(dir, 'prompt.md');
-            const promptCleanPath = path.join(dir, 'prompt.clean.md');
             const promptExecPath = path.join(dir, 'prompt.exec.md');
 
             const hasJson = fs.existsSync(jsonPath);
-            const hasAnyPrompt = fs.existsSync(promptCleanPath) || fs.existsSync(promptExecPath) || fs.existsSync(promptPath) || fs.existsSync(skillMdPath);
+            const hasAnyPrompt = fs.existsSync(promptExecPath) || fs.existsSync(promptPath) || fs.existsSync(skillMdPath);
             if (!hasJson || !hasAnyPrompt) return;
 
             // Prompt selection:
-            // - Runtime uses variant prompts to avoid "prompt pollution" across thinking/execution.
+            // - Prefer execution prompt variants when present.
             // - SKILL.md is treated as a fallback if no prompt files exist.
             let frontmatter: { name?: string; description?: string; body: string } | null = null;
             let prompt = '';
-            const preferredPromptPath = this.variant === 'clean' ? promptCleanPath : promptExecPath;
+            const preferredPromptPath = promptExecPath;
             if (fs.existsSync(preferredPromptPath)) {
                 prompt = fs.readFileSync(preferredPromptPath, 'utf-8').trim();
             } else if (fs.existsSync(promptPath)) {
@@ -211,9 +208,7 @@ class Registry implements SkillRegistry {
 }
 
 const execSkillsDir = path.resolve(__dirname, '../skills_exec');
-const cleanSkillsDir = path.resolve(__dirname, '../skills_clean');
 
-export const skillRegistryExec = new Registry(execSkillsDir, 'exec', 'exec');
-export const skillRegistryClean = new Registry(cleanSkillsDir, 'clean', 'clean');
+export const skillRegistryExec = new Registry(execSkillsDir, 'exec');
 // Legacy fallback (kept for backward compatibility).
 export const skillRegistry = skillRegistryExec;

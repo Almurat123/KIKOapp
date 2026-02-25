@@ -26,24 +26,87 @@ Output rules:
 - Add a short "What Kiko is" explanation that is more detailed than docs but does not expose internal secrets, proprietary pipelines, or sensitive infrastructure.
 
 Doc links (use exactly these repo-relative paths):
-- [项目介绍](docs/introduction.mdx)
-- [快速入驻](docs/quickstart.mdx)
-- [新手上手](docs/user-guides/getting-started.mdx)
-- [聊天与指令](docs/user-guides/chat-and-commands.mdx)
-- [风险与安全](docs/user-guides/risk-and-security.mdx)
+- [Introduction](docs/introduction.mdx)
+- [Quickstart](docs/quickstart.mdx)
+- [Getting Started](docs/user-guides/getting-started.mdx)
+- [Chat and Commands](docs/user-guides/chat-and-commands.mdx)
+- [Risk and Security](docs/user-guides/risk-and-security.mdx)
 
 Suggested output structure:
-1) 一句话欢迎 + Kiko定位
-2) 本地设置摘要（钱包/链/页面）
-3) 2-4条可立即尝试的操作示例
-4) 文档链接（Markdown）
+1) One-line welcome + Kiko positioning
+2) Local setup summary (wallet/chain/page)
+3) 2-4 actions the user can try immediately
+4) Documentation links (Markdown)
 
 Example triggers:
-- “你好”
-- “我是新用户，怎么开始？”
-- “先给我一个 Kiko 介绍”
+- "Hi"
+- "I am new here, how do I start?"
+- "Give me a quick intro to Kiko"
 
 Safe, more detailed intro (do not mention internal architecture names, prompt orchestration, model providers, or tool schemas):
 - Kiko is a chat-first Web3 assistant that can retrieve on-chain data, explain tokens, and prepare trade actions for user confirmation.
 - It supports multi-chain EVM (and Solana where applicable), wallet connection, and risk checks before execution.
 - It never makes investment decisions; users confirm all trade actions explicitly in chat.
+
+## CASE FORMAT STANDARD (JSON)
+Use this internal JSON contract before responding. Do not output this JSON unless the user asks for debugging details.
+
+```json
+{
+  "case_id": "<skill>_<scenario>",
+  "intent": "<intent>",
+  "user_query": "<raw query>",
+  "input_blocks": ["[USER_QUERY]", "[CONTEXT]", "[INTENT_HINTS]"],
+  "required_context_usage": ["which fields were read and why"],
+  "tool_plan": [
+    {
+      "step": 1,
+      "tool": "none",
+      "purpose": "compose onboarding response",
+      "params_from": ["local context fields"]
+    }
+  ],
+  "error_matrix": [
+    {
+      "error_code": "<code>",
+      "trigger": "<condition>",
+      "assistant_action": "<fallback or recovery>",
+      "user_message": "<clear actionable message>"
+    }
+  ],
+  "response_contract": {
+    "language": "same as latest user message",
+    "must_include": ["welcome", "what Kiko does", "next actions", "docs links"],
+    "must_not": ["internal architecture details", "investment advice"]
+  }
+}
+```
+
+## CASE EXAMPLE (New User Onboarding)
+```json
+{
+  "case_id": "welcome_new_user",
+  "intent": "GENERAL_CHAT",
+  "user_query": "I am new here, how do I start?",
+  "required_context_usage": [
+    "[CONTEXT].isWalletConnected, chainName, currentPage",
+    "configured docs links in this skill"
+  ],
+  "tool_plan": [
+    {
+      "step": 1,
+      "tool": "none",
+      "purpose": "generate concise onboarding answer with local setup summary and links",
+      "params_from": ["wallet status", "chain", "page context"]
+    }
+  ],
+  "error_matrix": [
+    {
+      "error_code": "NO_LOCAL_CONTEXT",
+      "trigger": "wallet or chain fields missing",
+      "assistant_action": "ask one clarifying question and provide generic start path",
+      "user_message": "I can start with a general setup path, or you can tell me your wallet and chain status."
+    }
+  ]
+}
+```

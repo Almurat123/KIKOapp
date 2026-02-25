@@ -496,7 +496,7 @@ CREATE TABLE IF NOT EXISTS chat_messages (
   session_id UUID NOT NULL REFERENCES chat_sessions(id) ON DELETE CASCADE,
   role VARCHAR(20) NOT NULL,  -- user, assistant, system, tool
   content TEXT NOT NULL DEFAULT '',
-  reasoning_content TEXT,  -- For thinking mode (DeepSeek Reasoner, Grok Reasoning)
+  reasoning_content TEXT,  -- For reasoning-capable model outputs (DeepSeek Reasoner, Grok Reasoning)
   citations JSONB,  -- Array of citation URLs
   usage JSONB,  -- Token usage stats {prompt_tokens, completion_tokens, total_tokens}
   tool_calls JSONB,  -- Tool calls made by assistant

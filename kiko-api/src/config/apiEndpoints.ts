@@ -747,6 +747,7 @@ export const MORALIS_CONFIG = {
 
   endpoints: {
     profitability: '/wallets/{address}/profitability',
+    topGainers: '/erc20/{address}/top-gainers',
     tokenBalances: '/wallets/{address}/tokens',
     transactions: '/wallets/{address}/transactions',
   } as Record<string, string>,

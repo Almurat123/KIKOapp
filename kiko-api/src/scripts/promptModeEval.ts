@@ -3,7 +3,7 @@ import path from 'node:path';
 import { PromptOrchestrator } from '../services/ai/PromptOrchestrator.js';
 import type { IntentType, ModelType } from '../services/ai/types.js';
 
-type Mode = 'execution' | 'thinking';
+type Mode = 'execution';
 
 interface EvalCase {
     id: string;
@@ -373,7 +373,6 @@ function buildMarkdownSummary(params: {
 }): string {
     const byMode: Record<Mode, ModeCaseReport[]> = {
         execution: [],
-        thinking: [],
     };
     for (const row of params.reports) byMode[row.mode].push(row);
 
@@ -405,7 +404,6 @@ function buildMarkdownSummary(params: {
         ``,
         `## Score Summary`,
         modeSummary('execution'),
-        modeSummary('thinking'),
         ``,
         `## Prompt Audit Highlights`,
         ...(auditLines.length > 0 ? auditLines : ['- none']),
@@ -425,7 +423,7 @@ Usage:
 
 Options:
   --cases <path>                     JSON/JSONL cases
-  --mode <both|execution|thinking>   default both
+  --mode <execution|unified|both|thinking>  all map to single execution route
   --intent <IntentType>              default GENERAL_CHAT
   --target-model <model>             default gpt-5-mini
   --judge-model <model>              default gpt-5-mini
@@ -444,10 +442,11 @@ Options:
     }
 
     const baseUrl = (process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1').replace(/\/+$/, '');
-    const modeArg = (args.mode || 'both').toLowerCase();
-    const modes: Mode[] =
-        modeArg === 'execution' ? ['execution'] :
-            modeArg === 'thinking' ? ['thinking'] : ['execution', 'thinking'];
+    const modeArg = (args.mode || 'execution').toLowerCase();
+    const modes: Mode[] = ['execution'];
+    if (modeArg !== 'execution' && modeArg !== 'unified' && modeArg !== 'both' && modeArg !== 'thinking') {
+        throw new Error(`Unsupported --mode value: ${modeArg}`);
+    }
 
     const defaultIntent = asIntent(args.intent, 'GENERAL_CHAT');
     const targetModel = args['target-model'] || 'gpt-5-mini';
@@ -472,7 +471,6 @@ Options:
     const sampleIntent = cases[0].intent || defaultIntent;
     const modeSystemPrompt = {
         execution: orchestrator.getSystemPrompt(orchestratorModelType, sampleIntent, { routingMode: 'execution' }),
-        thinking: orchestrator.getSystemPrompt(orchestratorModelType, sampleIntent, { routingMode: 'thinking' }),
     };
 
     const audits: PromptAuditResult[] = [];
@@ -571,7 +569,6 @@ Options:
     await fs.writeFile(mdReportPath, md, 'utf8');
 
     const executionScores = reports.filter(r => r.mode === 'execution').map(r => r.judge.score);
-    const thinkingScores = reports.filter(r => r.mode === 'thinking').map(r => r.judge.score);
     const avg = (arr: number[]) => (arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 0);
 
     console.log(JSON.stringify({
@@ -580,7 +577,6 @@ Options:
         report_json: jsonReportPath,
         report_md: mdReportPath,
         avg_score_execution: Number(avg(executionScores).toFixed(2)),
-        avg_score_thinking: Number(avg(thinkingScores).toFixed(2)),
         total_rows: reports.length,
     }, null, 2));
 }

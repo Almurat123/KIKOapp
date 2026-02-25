@@ -10,7 +10,7 @@ import { getChainsData, getLastUpdateTime as getChainsUpdateTime } from '../repo
 import { getProtocolsData, getLastUpdateTime as getProtocolsUpdateTime, saveProtocolsData } from '../repositories/protocolRepository.js';
 import { getTrendingTokens, getTopGainers } from '../services/coingecko.js';
 import { getProtocolsData as fetchProtocolsData } from '../services/defillama.js';
-import { refreshChainsData, refreshMarketOverview } from '../jobs/marketDataJob.js';
+import { refreshMarketOverview } from '../jobs/marketDataJob.js';
 import { env } from '../config/env.js';
 import { AppError, handleExternalApiError } from '../middleware/errorHandler.js';
 
@@ -59,26 +59,19 @@ export async function marketRoutes(fastify: FastifyInstance) {
   // Dune data is fetched by the background cron job (marketDataJob) which runs periodically.
   fastify.get('/chains', async (request, reply) => {
     try {
-      // Read from cache/database only - Dune refresh happens via cron job
-      let chains = await getChainsData();
-
-      if (chains.length === 0) {
-        // Cold start fallback for serverless/online envs without cron
-        await refreshChainsData(true);
-        chains = await getChainsData();
-      } else {
-        const lastUpdate = await getChainsUpdateTime();
-        if (lastUpdate && (Date.now() - lastUpdate.getTime()) > 24 * 60 * 60 * 1000) {
-          // Best-effort refresh if data is stale
-          await refreshChainsData(true);
-          chains = await getChainsData();
-        }
-      }
+      // Strict read-only path: never trigger Dune refresh on request path.
+      // This prevents accidental credit burn from frequent client polling.
+      const chains = await getChainsData();
+      const lastUpdate = await getChainsUpdateTime();
 
       return reply.send({
         success: true,
         data: chains,
         count: chains.length,
+        meta: {
+          source: 'cache/db',
+          lastUpdated: lastUpdate?.toISOString?.() || null,
+        },
       });
     } catch (error) {
       throw error;

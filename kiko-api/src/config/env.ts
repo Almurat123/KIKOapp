@@ -33,6 +33,7 @@ export interface EnvConfig {
         solscan?: string; // Solscan API key for Solana explorer (paid tier)
         alchemy?: string; // Alchemy API key for wallet transactions and balances (EVM + Solana)
         moralis?: string; // Moralis API key for wallet PNL analysis and token balances
+        zerion?: string; // Zerion API key for wallet-level PNL analysis
         zeroEx?: string; // 0x API key for swap quotes and prices
         jupiter?: string; // Jupiter Ultra Swap API key for Solana swaps
         okxApiKey?: string; // OKX DEX API key
@@ -287,6 +288,7 @@ function validateEnv(): EnvConfig {
             solscan: process.env.SOLSCAN_API_KEY,
             alchemy: process.env.ALCHEMY_API_KEY,
             moralis: process.env.MORALIS_API_KEY,
+            zerion: process.env.ZERION_API_KEY,
             zeroEx: process.env.ZEROX_API_KEY,
             jupiter: process.env.JUPITER_API_KEY,
             infuraGas: process.env.INFURA_GAS_API_KEY,

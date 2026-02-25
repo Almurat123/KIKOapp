@@ -37,6 +37,7 @@ import {
     CancelPolymarketOrderTool
 } from '../skills/PolymarketSkill/index.js';
 import { AnalyzeWalletPnlTool } from '../skills/WalletSkill/index.js';
+import { GetTokenTopGainersTool } from '../skills/WalletSkill/index.js';
 import { SetTokenAlertTool, ListTokenAlertsTool, RemoveTokenAlertTool } from '../skills/TokenAlertSkill/index.js';
 
 // Register all tools here
@@ -98,6 +99,7 @@ toolRegistry.register(CancelPolymarketOrderTool);
 
 // Dune PNL Tools
 toolRegistry.register(AnalyzeWalletPnlTool);
+toolRegistry.register(GetTokenTopGainersTool);
 
 // Token Alert Tools
 toolRegistry.register(SetTokenAlertTool);

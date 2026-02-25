@@ -40,7 +40,7 @@ async function checkLaunchpadAuth(mintAddress: string): Promise<boolean> {
 }
 
 export interface LaunchpadResult {
-    provider: 'zora' | 'fourmeme' | 'flap' | 'pumpfun' | 'pumpswap' | 'bonkfun' | 'virtuals' | 'clanker' | 'paragraph' | 'doppler' | 'flaunch';
+    provider: 'zora' | 'fourmeme' | 'flap' | 'pumpfun' | 'pumpswap' | 'bonkfun' | 'virtuals' | 'clanker' | 'paragraph' | 'doppler' | 'flaunch' | 'creatorbid';
     data: any;
     chainId: number;
 }
@@ -82,6 +82,7 @@ const PUMPFUN_FRONTEND_BASES = (process.env.PUMPFUN_FRONTEND_BASES
         'https://frontend-api.pump.fun',
     ]);
 const FLAUNCH_API_BASE_URL = (process.env.FLAUNCH_API_BASE_URL || 'https://dev-api.flayerlabs.xyz').replace(/\/+$/, '');
+const CREATORBID_API_BASE_URL = (process.env.CREATORBID_API_BASE_URL || 'https://creator.bid').replace(/\/+$/, '');
 const DOPPLER_INDEXER_BASES = (process.env.DOPPLER_INDEXER_BASES
     ? process.env.DOPPLER_INDEXER_BASES.split(',').map((v) => v.trim()).filter(Boolean)
     : [
@@ -191,7 +192,8 @@ function isLaunchpadProvider(value: unknown): value is LaunchpadResult['provider
         || value === 'clanker'
         || value === 'paragraph'
         || value === 'doppler'
-        || value === 'flaunch';
+        || value === 'flaunch'
+        || value === 'creatorbid';
 }
 
 function buildDopplerHeaders(): Record<string, string> {
@@ -439,6 +441,7 @@ function hasAnyRelevantBackoff(address: string, chainId?: number): boolean {
             || isProviderBackoffActive('paragraph')
             || isProviderBackoffActive('doppler')
             || isProviderBackoffActive('flaunch')
+            || isProviderBackoffActive('creatorbid')
             || isProviderBackoffActive('flap')) {
             return true;
         }
@@ -446,7 +449,7 @@ function hasAnyRelevantBackoff(address: string, chainId?: number): boolean {
     if (clankerPlatforms && isProviderBackoffActive('clanker')) {
         return true;
     }
-    if (bscPlatforms && isProviderBackoffActive('fourmeme')) {
+    if (bscPlatforms && (isProviderBackoffActive('fourmeme') || isProviderBackoffActive('creatorbid'))) {
         return true;
     }
     return false;
@@ -568,6 +571,92 @@ async function getFlaunchToken(address: string, includeDetails = true): Promise<
     } catch (error: any) {
         if (isRateLimitedError(error)) {
             markProviderRateLimited('flaunch');
+        }
+        return null;
+    }
+}
+
+function normalizeCreatorBidChainId(value: unknown): number | null {
+    const parsed = Number(value);
+    if (parsed === 8453 || parsed === 56) return parsed;
+    return null;
+}
+
+async function getCreatorBidToken(address: string, chainId?: number): Promise<any | null> {
+    try {
+        if (isProviderBackoffActive('creatorbid')) return null;
+        const lower = address.toLowerCase();
+        const requestedChainId = normalizeCreatorBidChainId(chainId);
+        const cacheChainId = requestedChainId || 8453;
+        const cachedPayload = await readRawLaunchpadCache<any>('creatorbid', lower, cacheChainId)
+            || (!requestedChainId ? await readRawLaunchpadCache<any>('creatorbid', lower, 56) : null);
+        if (cachedPayload) {
+            const tokenAddress = normalizeEvmAddress(
+                cachedPayload?.agentKeyAddress
+                || cachedPayload?.address
+                || cachedPayload?.tokenAddress
+            );
+            const payloadChainId = normalizeCreatorBidChainId(cachedPayload?.chainId);
+            if (
+                tokenAddress === lower
+                && payloadChainId
+                && (!requestedChainId || payloadChainId === requestedChainId)
+            ) {
+                markProviderHealthy('creatorbid');
+                return {
+                    ...cachedPayload,
+                    chainId: payloadChainId,
+                    source: 'creatorbid_api_cache',
+                    agentKeyAddress: lower,
+                };
+            }
+        }
+
+        const payload = await fetchJson<any>({
+            url: `${CREATORBID_API_BASE_URL}/api/agents/metadata?agentKeyAddress=${encodeURIComponent(address)}`,
+            timeout: 2800,
+            suppressError: true,
+        });
+        if (!payload || payload.error) {
+            markProviderHealthy('creatorbid');
+            return null;
+        }
+
+        const detectedChainId = normalizeCreatorBidChainId(payload?.chainId);
+        if (!detectedChainId) {
+            markProviderHealthy('creatorbid');
+            return null;
+        }
+        if (requestedChainId && requestedChainId !== detectedChainId) {
+            markProviderHealthy('creatorbid');
+            return null;
+        }
+
+        const twitterUsername = typeof payload?.twitter?.username === 'string'
+            ? payload.twitter.username.trim().replace(/^@/, '')
+            : '';
+        const creatorUrl = twitterUsername
+            ? `https://x.com/${twitterUsername}`
+            : (typeof payload?.website === 'string' && payload.website.trim().startsWith('http')
+                ? payload.website.trim()
+                : undefined);
+        const creatorLabel = twitterUsername ? `@${twitterUsername}` : undefined;
+
+        const normalized = {
+            ...payload,
+            chainId: detectedChainId,
+            agentKeyAddress: lower,
+            creatorUrl,
+            creatorLabel,
+            imageUrl: payload?.profilePicture || payload?.image || payload?.imageUrl || undefined,
+            source: 'creatorbid_api',
+        };
+        await writeRawLaunchpadCache('creatorbid', lower, detectedChainId, normalized);
+        markProviderHealthy('creatorbid');
+        return normalized;
+    } catch (error: any) {
+        if (isRateLimitedError(error)) {
+            markProviderRateLimited('creatorbid');
         }
         return null;
     }
@@ -1741,6 +1830,7 @@ async function handleDetection(
   if (isEVM) {
         // Parallel checks for all EVM platforms
         const basePlatforms = (chainId === 8453 || !chainId);
+        const creatorBidPlatforms = (chainId === 8453 || chainId === 56 || !chainId);
         const clankerPlatforms = (chainId === 8453 || chainId === 1 || !chainId);
         const bscPlatforms = (chainId === 56 || !chainId);
 
@@ -1889,6 +1979,23 @@ async function handleDetection(
             return null;
         }
 
+        // Priority 0.05 (Base/BSC mainnet): CreatorBid fast-path.
+        if (creatorBidPlatforms && !isProviderBackoffActive('creatorbid')) {
+            const creatorBidFast = await Promise.race([
+                getCreatorBidToken(address, chainId).catch(() => null),
+                new Promise<null>((resolve) => setTimeout(() => resolve(null), 1800)),
+            ]);
+            if (creatorBidFast) {
+                const result: LaunchpadResult = {
+                    provider: 'creatorbid',
+                    data: creatorBidFast,
+                    chainId: normalizeCreatorBidChainId((creatorBidFast as any)?.chainId) || 8453
+                };
+                DETECTION_CACHE.set(cacheKey, { result, expiry: Date.now() + CACHE_TTL });
+                return result;
+            }
+        }
+
         // Priority 0 (Base only): Flaunch fast-path.
         // Run before longer sequential checks to avoid global timeout for clear flaunch tokens.
         if (basePlatforms && !isProviderBackoffActive('flaunch')) {
@@ -1975,11 +2082,12 @@ async function handleDetection(
                     new Promise<null>((resolve) => setTimeout(() => resolve(null), ms)),
                 ]);
             };
-            const [virtualsResult, dopplerResult, paragraphResult, flaunchResult, clankerResult, dopplerByHook] = await Promise.all([
+            const [virtualsResult, dopplerResult, paragraphResult, flaunchResult, creatorBidResult, clankerResult, dopplerByHook] = await Promise.all([
                 withProviderTimeout(getVirtualsToken(address, options.mode || 'full').catch(() => null)),
                 withProviderTimeout(getDopplerToken(address, 8453).catch(() => null)),
                 withProviderTimeout(getParagraphToken(address).catch(() => null)),
                 withProviderTimeout(getFlaunchToken(address, false).catch(() => null)),
+                withProviderTimeout(getCreatorBidToken(address, 8453).catch(() => null)),
                 (clankerPlatforms && !lowerAddress.endsWith(CLANKER_SUFFIX) && !isProviderBackoffActive('clanker'))
                     ? withProviderTimeout(getClankerToken(address, chainId).catch(() => null))
                     : Promise.resolve(null),
@@ -2000,6 +2108,12 @@ async function handleDetection(
             }
             if (flaunchResult) {
                 const result: LaunchpadResult = { provider: 'flaunch', data: flaunchResult, chainId: 8453 };
+                DETECTION_CACHE.set(cacheKey, { result, expiry: Date.now() + CACHE_TTL });
+                return result;
+            }
+            if (creatorBidResult) {
+                const detectedChainId = normalizeCreatorBidChainId((creatorBidResult as any)?.chainId) || 8453;
+                const result: LaunchpadResult = { provider: 'creatorbid', data: creatorBidResult, chainId: detectedChainId };
                 DETECTION_CACHE.set(cacheKey, { result, expiry: Date.now() + CACHE_TTL });
                 return result;
             }
@@ -2026,6 +2140,16 @@ async function handleDetection(
 
         // Priority 2: FourMeme (BSC only)
         if (bscPlatforms) {
+            try {
+                const creatorBidResult = await getCreatorBidToken(address, 56);
+                if (creatorBidResult) {
+                    const result: LaunchpadResult = { provider: 'creatorbid', data: creatorBidResult, chainId: 56 };
+                    DETECTION_CACHE.set(cacheKey, { result, expiry: Date.now() + CACHE_TTL });
+                    return result;
+                }
+            } catch {
+                // CreatorBid check failed
+            }
             try {
                 const fourmemeResult = await getFourMemeToken(address);
                 if (fourmemeResult) {

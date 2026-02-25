@@ -1,7 +1,7 @@
 {
     "id": "wallet_portfolio",
     "name": "Wallet & Portfolio",
-    "description": "User wallet information, token balances, transaction history, favorites, and PNL analysis.",
+    "description": "User wallet information, token balances, transaction history, favorites, and PNL analysis (Zerion primary, Dune fallback).",
     "intents": [
         "TRADING",
         "GENERAL_CHAT"
@@ -9,7 +9,8 @@
     "tools": [
         "get_wallet_info",
         "get_user_favorites",
-        "analyze_wallet_pnl"
+        "analyze_wallet_pnl",
+        "get_token_top_gainers"
     ],
     "examples": {
         "en": [
@@ -17,14 +18,16 @@
             "List my favorite tokens",
             "What is my trading PNL for the last 30 days?",
             "How much ETH do I have?",
-            "Check my portfolio performance"
+            "Check my portfolio performance",
+            "Find top 50 profitable wallets for this token"
         ],
         "zh": [
-            "显示我的钱包余额",
-            "列出我收藏的代币",
-            "我过去 30 天的交易收益 (PNL) 是多少？",
-            "我有多少 ETH？",
-            "查看我的投资组合表现"
+            "Show my wallet balance",
+            "List my favorite tokens",
+            "What is my trading PNL for the last 30 days?",
+            "How much ETH do I have?",
+            "Check my portfolio performance",
+            "查这个代币前50收益钱包"
         ]
     }
 }

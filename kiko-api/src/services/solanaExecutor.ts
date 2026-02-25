@@ -17,7 +17,7 @@ export interface SolanaSwapParams {
     accessToken?: string;
     waitForConfirmation?: boolean;
     executionMode?: 'safe' | 'normal' | 'turbo';
-    launchpadProvider?: 'pumpfun' | 'pumpswap' | 'bonkfun' | 'zora' | 'fourmeme' | 'flap' | 'clanker' | 'virtuals' | 'doppler' | 'flaunch';
+    launchpadProvider?: 'pumpfun' | 'pumpswap' | 'bonkfun' | 'zora' | 'fourmeme' | 'flap' | 'clanker' | 'virtuals' | 'doppler' | 'flaunch' | 'creatorbid';
     preferredAggregator?: Exclude<SolanaAggregator, 'auto'>;
 }
 

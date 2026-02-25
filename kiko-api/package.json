@@ -39,6 +39,7 @@
     "sec:storage": "forge inspect Proxy implementation && forge inspect Impl storage",
     "analyze-api-unification": "tsx scripts/analyze-api-unification.ts",
     "check-tx": "tsx src/scripts/checkTxOnChain.ts",
+    "moralis:top-gainers": "tsx src/scripts/moralisTopTokenGainers.ts",
     "samples:prepare:10k": "tsx src/scripts/prepareSamples10kMultiChain.ts",
     "replay:webhook:10k": "tsx src/scripts/replayWebhook10k.ts"
   },

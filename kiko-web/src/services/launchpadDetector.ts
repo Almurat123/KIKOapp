@@ -6,7 +6,7 @@ import { getPumpFunToken } from './pumpFunApi';
 import { getRaydiumToken } from './raydiumApi';
 
 export interface LaunchpadResult {
-    provider: 'zora' | 'clanker' | 'paragraph' | 'fourmeme' | 'pumpfun' | 'raydium' | 'flaunch';
+    provider: 'zora' | 'clanker' | 'paragraph' | 'fourmeme' | 'pumpfun' | 'raydium' | 'flaunch' | 'creatorbid';
     data: any;
     chainId: number;
 }

@@ -50,7 +50,7 @@ export interface SwapParams {
     executionMode?: 'safe' | 'normal' | 'turbo';
     /** Pre-warmed nonce promise (copy-trade path); when set, used for the swap tx to save one RPC round-trip. */
     preWarmedNonce?: Promise<string | undefined>;
-    launchpadProvider?: 'pumpfun' | 'pumpswap' | 'bonkfun' | 'zora' | 'fourmeme' | 'flap' | 'clanker' | 'virtuals' | 'doppler' | 'flaunch';
+    launchpadProvider?: 'pumpfun' | 'pumpswap' | 'bonkfun' | 'zora' | 'fourmeme' | 'flap' | 'clanker' | 'virtuals' | 'doppler' | 'flaunch' | 'creatorbid';
     preferredSolanaAggregator?: 'jupiter' | 'raydium' | 'meteora';
     sourceAnchor?: {
         sourceTxHash?: string;

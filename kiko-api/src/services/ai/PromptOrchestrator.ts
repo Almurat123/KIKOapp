@@ -16,55 +16,29 @@ export class PromptOrchestrator {
         const timerLabel = `prompt_gen_${intent}_${model}`;
         logger.startTimer(timerLabel);
         const modules: string[] = [];
-        const freeIntents = new Set<IntentType>([
-            'MARKET_ANALYSIS',
-            'SOCIAL_SENSING',
-            'GENERAL_CHAT',
-            'PREDICTION_MARKETS',
-            'RISK_SCAN',
-        ]);
-        const mode = options?.routingMode
-            ? options.routingMode
-            : (freeIntents.has(intent) ? 'thinking' : 'execution');
-        logger.debug(LogCode.AI_MODE_ROUTED, 'PromptOrchestrator: mode selected', { model, intent, mode });
+        const mode = options?.routingMode || 'execution';
+        logger.debug(LogCode.AI_MODE_ROUTED, 'PromptOrchestrator: single-route prompt mode selected', { model, intent, mode });
 
-        // CORE (mode-specific)
-        const coreModule = mode === 'thinking'
-            ? V2_PROMPT_MODULES.CORE_THINKING
-            : V2_PROMPT_MODULES.CORE_EXECUTION;
-        modules.push(coreModule);
-        if (mode === 'thinking') {
-            // Thinking mode: choose policy by model.
-            // Grok performs best with the evidence-first AnalystPolicy; other models use the lighter general thinking policy.
-            const policyModule = model === 'grok'
-                ? V2_PROMPT_MODULES.ANALYST_POLICY
-                : V2_PROMPT_MODULES.GENERAL_THINKING_POLICY;
-            modules.push(policyModule);
-            logger.debug(LogCode.AI_SKILLS_ATTACHED, 'PromptOrchestrator: no skills attached for thinking mode', { intent });
-        } else {
-            // Execution mode: strong policies + skills + output policy.
-            if (intent === 'TRADING') {
-                modules.push(V2_PROMPT_MODULES.TRADING_POLICY);
-            }
+        // Unified core prompt for all intents/modes.
+        modules.push(V2_PROMPT_MODULES.CORE_UNIFIED);
+        if (model === 'grok') {
+            modules.push(V2_PROMPT_MODULES.GROK_SEARCH_DELTA);
+        }
 
-            const intentStr = String(intent).toUpperCase();
-            const matchedSkills = skillRegistryExec.getSkillsByIntent(intentStr);
-            if (matchedSkills.length > 0) {
-                logger.info(LogCode.AI_TOOL_FILTERED, 'PromptOrchestrator: Intent matched skills', { intent, count: matchedSkills.length, skills: matchedSkills.map(s => s.metadata.id) });
-                logger.debug(LogCode.AI_SKILLS_ATTACHED, 'PromptOrchestrator: Skills attached to execution prompt', { intent, skills: matchedSkills.map(s => s.metadata.id) });
-                for (const skill of matchedSkills) {
-                    if (skill.prompt) {
-                        logger.debug(LogCode.SYS_INFO, 'PromptOrchestrator: Injecting skill prompt', { skill: skill.metadata.name, length: skill.prompt.length });
-                        modules.push(skill.prompt);
-                    }
+        // Skills remain intent-scoped via skill.json metadata.
+        const intentStr = String(intent).toUpperCase();
+        const matchedSkills = skillRegistryExec.getSkillsByIntent(intentStr);
+        if (matchedSkills.length > 0) {
+            logger.info(LogCode.AI_TOOL_FILTERED, 'PromptOrchestrator: Intent matched skills', { intent, count: matchedSkills.length, skills: matchedSkills.map(s => s.metadata.id) });
+            logger.debug(LogCode.AI_SKILLS_ATTACHED, 'PromptOrchestrator: Skills attached to unified prompt', { intent, skills: matchedSkills.map(s => s.metadata.id) });
+            for (const skill of matchedSkills) {
+                if (skill.prompt) {
+                    logger.debug(LogCode.SYS_INFO, 'PromptOrchestrator: Injecting skill prompt', { skill: skill.metadata.name, length: skill.prompt.length });
+                    modules.push(skill.prompt);
                 }
-            } else {
-                logger.debug(LogCode.SYS_INFO, 'PromptOrchestrator: No skills matched intent', { intent });
             }
-
-            // Place intent/disambiguation policy AFTER skill prompts so it cannot be overridden by skill-specific instructions.
-            modules.push(V2_PROMPT_MODULES.INTENT_POLICY);
-
+        } else {
+            logger.debug(LogCode.SYS_INFO, 'PromptOrchestrator: No skills matched intent', { intent });
         }
 
         const finalPrompt = this.assemble(modules);

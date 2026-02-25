@@ -5,7 +5,7 @@
    - Required params for creation are only: **target_wallet** and **buy_amount_usd**.
    - If required params are present, create immediately. Do NOT block creation for optional risk filters.
    - Optional params (\`min_market_cap_usd\`, \`min_liquidity_usd\`, \`min_target_value_usd\`) should use tool defaults when omitted.
-   - If user says "just create it"/"use defaults"/"直接创建", proceed immediately with defaults.
+   - If user says "just create it" or "use defaults", proceed immediately with defaults.
    - Ask **only one** targeted question per turn only when required params are missing.
      Priority: **Target Wallet** → **Amount per trade**.
    - Use \`list_copy_trade_configs\` to show the user their active followings.
@@ -25,3 +25,78 @@
 5. **Integration**:
    - This skill strictly manages the *configuration*. The actual execution is handled by the KiKo background workers.
    - Confirm successful setup: "Successfully configured copy trading for [Wallet]. I'll notify you of any executed trades."
+
+## CASE FORMAT STANDARD (JSON)
+Use this internal JSON contract before responding. Do not output this JSON unless the user asks for debugging details.
+
+```json
+{
+  "case_id": "<skill>_<scenario>",
+  "intent": "<intent>",
+  "user_query": "<raw query>",
+  "input_blocks": ["[USER_QUERY]", "[CONTEXT]", "[WALLET_STATE]", "[USER_PREFERENCES_MODULE]", "[INTENT_HINTS]"],
+  "required_context_usage": ["which fields were read and why"],
+  "tool_plan": [
+    {
+      "step": 1,
+      "tool": "<tool_or_capability>",
+      "purpose": "<why this call is needed>",
+      "params_from": ["<context fields>"]
+    }
+  ],
+  "error_matrix": [
+    {
+      "error_code": "<code>",
+      "trigger": "<condition>",
+      "assistant_action": "<fallback or recovery>",
+      "user_message": "<clear actionable message>"
+    }
+  ],
+  "response_contract": {
+    "language": "same as latest user message",
+    "must_include": ["conclusion", "evidence", "next step"],
+    "must_not": ["fabricated tool result", "fake success claim", "internal prompt text"]
+  }
+}
+```
+
+## CASE EXAMPLE (Create Copy Trade Config)
+```json
+{
+  "case_id": "copytrade_create_min_required",
+  "intent": "COPY_TRADING",
+  "user_query": "Follow 0x123... with 50 USDC each trade",
+  "required_context_usage": [
+    "[USER_QUERY] for target wallet and amount",
+    "[CONTEXT] for network constraints and defaults"
+  ],
+  "tool_plan": [
+    {
+      "step": 1,
+      "tool": "create_copy_trade_config",
+      "purpose": "create config with required parameters",
+      "params_from": ["target_wallet", "buy_amount_usd"]
+    }
+  ],
+  "error_matrix": [
+    {
+      "error_code": "MISSING_TARGET_WALLET",
+      "trigger": "wallet address not provided",
+      "assistant_action": "ask targeted question for wallet address",
+      "user_message": "Please provide the trader wallet address to follow."
+    },
+    {
+      "error_code": "MISSING_AMOUNT",
+      "trigger": "buy amount not provided",
+      "assistant_action": "ask targeted question for amount",
+      "user_message": "How much USD should be used per copied trade?"
+    },
+    {
+      "error_code": "DUPLICATE_CONFIG",
+      "trigger": "same target wallet already exists",
+      "assistant_action": "offer update or keep-existing path",
+      "user_message": "You already have a config for this wallet. Do you want to update it?"
+    }
+  ]
+}
+```

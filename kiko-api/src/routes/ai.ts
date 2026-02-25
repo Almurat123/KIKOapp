@@ -20,8 +20,6 @@ import { insertUsageRecord } from '../repositories/billingRepository.js';
 import { computeUsdCost, getBillingCategory, getUtcDateString } from '../services/billing/billingService.js';
 import { recordUsage } from '../services/usageCounter.js';
 import { randomUUID } from 'crypto';
-import { AnalystPolicy } from '../services/ai/prompts/v2/policies/AnalystPolicy.js';
-import { GENERAL_THINKING_POLICY } from '../services/ai/prompts/v2/policies/GeneralThinkingPolicy.js';
 import { buildDailyMarketContext } from '../services/ai/dailyMarketContext.js';
 
 interface ChatMessage {
@@ -60,46 +58,12 @@ interface ChatRequest {
 const DEEPSEEK_API_URL = process.env.DEEPSEEK_API_URL || 'https://api.deepseek.com/v1/chat/completions';
 const OPENAI_API_URL = process.env.OPENAI_API_URL || 'https://api.openai.com/v1/chat/completions';
 
-function buildThinkingSystemPrompt(model: string): string {
-    if (model.startsWith('grok')) {
-        return AnalystPolicy;
-    }
-    return GENERAL_THINKING_POLICY;
-}
-
 function normalizeModel(model?: string): string {
     const normalized = (model || '').toLowerCase().trim();
     if (!normalized) return 'deepseek-chat';
     if (normalized === 'gpt5-2' || normalized === 'gpt-5.2') return 'gpt-5-mini';
     return normalized;
 }
-
-const THINKING_TOOL_ALLOWLIST = new Set<string>([
-    'get_token_info',
-    'get_token_price',
-    'get_historical_price',
-    'get_trending_tokens',
-    'get_market_overview',
-    'get_economic_calendar',
-    'check_token_risk',
-    'get_trending_casts',
-    'search_farcaster_casts',
-    'get_farcaster_user',
-    'get_zora_trending',
-    'get_zora_profile',
-    'get_early_buyers',
-    'analyze_creator',
-    'get_polymarket_trending',
-    'get_polymarket_trending_markets',
-    'get_polymarket_event',
-    'search_polymarket',
-    'get_new_markets',
-    'get_market_activity',
-    'get_whale_watch',
-    'get_polymarket_trader_stats',
-    'x_search',
-    'external_web_search'
-]);
 
 // Helper to get API Key by model provider
 function getApiKey(model: string): string {
@@ -436,36 +400,65 @@ export async function aiRoutes(fastify: FastifyInstance) {
                             isWalletConnected: !!request.body.walletAddress,
                         });
                         const intentType = parsedIntent.highLevel.type;
-                        const routingMode = (intentType === 'TRADING' || intentType === 'COPY_TRADING') ? 'execution' : 'thinking';
+                        const routingMode: 'execution' = 'execution';
                         logger.info(LogCode.AI_MODE_ROUTED, '[AI Routes] Intent routed', {
                             intent: intentType,
                             routingMode,
                             model: normalizedModel,
                         });
-                        const systemPrompt = routingMode === 'thinking'
-                            ? buildThinkingSystemPrompt('grok')
-                            : promptOrchestrator.getSystemPrompt('grok', intentType, { routingMode });
+                        const systemPrompt = promptOrchestrator.getSystemPrompt('grok', intentType, { routingMode });
 
                         let dailyMarketContext: string | null = null;
                         if (intentType === 'MARKET_ANALYSIS') {
                             dailyMarketContext = await buildDailyMarketContext({ chainName: request.body.chain_context?.chainName });
                         }
 
+                        const bodyAny = request.body as any;
+                        const toolContext = bodyAny?.tool_context || {};
+                        const walletAddress = request.body.walletAddress || toolContext.walletAddress || toolContext.userAddress;
+                        const nativeBalance = toolContext.nativeBalance ?? bodyAny.nativeBalance;
+                        const balanceSnapshot = toolContext.balance ?? bodyAny.balance;
+                        const balanceSnapshotAt =
+                            toolContext.balanceSnapshotAt ||
+                            toolContext.balanceFetchedAt ||
+                            toolContext.balanceUpdatedAt ||
+                            toolContext.balanceTimestamp;
+
                         const contextLines: string[] = [];
-                        if (routingMode !== 'thinking') {
-                            if (request.body.walletAddress) contextLines.push(`- Wallet: ${request.body.walletAddress}`);
-                            if (request.body.chain_context?.chainId && request.body.chain_context?.chainName) {
-                                contextLines.push(`- Chain: ${request.body.chain_context.chainName} (${request.body.chain_context.chainId})`);
-                            }
+                        if (walletAddress) contextLines.push(`- Wallet: ${walletAddress}`);
+                        if (request.body.chain_context?.chainId && request.body.chain_context?.chainName) {
+                            contextLines.push(`- Chain: ${request.body.chain_context.chainName} (${request.body.chain_context.chainId})`);
                         }
                         const contextBlock = contextLines.length > 0
                             ? `[CONTEXT]\n${contextLines.join('\n')}`
                             : null;
 
+                        const walletStateLines: string[] = [];
+                        if (nativeBalance !== undefined && nativeBalance !== null && String(nativeBalance).trim() !== '') {
+                            walletStateLines.push(`Native: ${nativeBalance}`);
+                        }
+                        if (balanceSnapshot && typeof balanceSnapshot === 'object') {
+                            try {
+                                const serialized = JSON.stringify(balanceSnapshot);
+                                if (serialized && serialized !== '{}') {
+                                    walletStateLines.push(`Balances: ${serialized.length > 2000 ? `${serialized.slice(0, 2000)}...` : serialized}`);
+                                }
+                            } catch {
+                                // Ignore non-serializable balance payloads.
+                            }
+                        }
+                        if (balanceSnapshotAt) {
+                            walletStateLines.push(`Snapshot: ${balanceSnapshotAt}`);
+                        }
+                        const walletStateBlock = walletStateLines.length > 0
+                            ? `[WALLET_STATE]\n${walletStateLines.join('\n')}`
+                            : null;
+
                         const systemMessages: ChatMessage[] = [
                             { role: 'system', content: systemPrompt },
                             ...(dailyMarketContext ? [{ role: 'system' as const, content: dailyMarketContext }] : []),
-                            ...(contextBlock ? [{ role: 'system' as const, content: contextBlock }] : [])
+                            ...(contextBlock ? [{ role: 'system' as const, content: contextBlock }] : []),
+                            ...(walletStateBlock ? [{ role: 'system' as const, content: walletStateBlock }] : [])
                         ];
 
                         const mergedMessages = [...systemMessages, ...grokMessages.filter(m => m.role !== 'system')];
@@ -634,15 +627,13 @@ export async function aiRoutes(fastify: FastifyInstance) {
                     isWalletConnected: !!request.body.walletAddress,
                 });
                 const intentType = parsedIntent.highLevel.type;
-                const routingMode = (intentType === 'TRADING' || intentType === 'COPY_TRADING') ? 'execution' : 'thinking';
+                const routingMode: 'execution' = 'execution';
                 logger.info(LogCode.AI_MODE_ROUTED, '[AI Routes] Intent routed', {
                     intent: intentType,
                     routingMode,
                     model: normalizedModel,
                 });
-                const systemPrompt = routingMode === 'thinking'
-                    ? buildThinkingSystemPrompt(normalizedModel)
-                    : promptOrchestrator.getSystemPrompt('deepseek', intentType, { routingMode });
+                const systemPrompt = promptOrchestrator.getSystemPrompt('deepseek', intentType, { routingMode });
 
                 let dailyMarketContext: string | null = null;
                 if (intentType === 'MARKET_ANALYSIS') {
@@ -650,11 +641,9 @@ export async function aiRoutes(fastify: FastifyInstance) {
                 }
 
                 const contextLines: string[] = [];
-                if (routingMode !== 'thinking') {
-                    if (request.body.walletAddress) contextLines.push(`- Wallet: ${request.body.walletAddress}`);
-                    if (request.body.chain_context?.chainId && request.body.chain_context?.chainName) {
-                        contextLines.push(`- Chain: ${request.body.chain_context.chainName} (${request.body.chain_context.chainId})`);
-                    }
+                if (request.body.walletAddress) contextLines.push(`- Wallet: ${request.body.walletAddress}`);
+                if (request.body.chain_context?.chainId && request.body.chain_context?.chainName) {
+                    contextLines.push(`- Chain: ${request.body.chain_context.chainName} (${request.body.chain_context.chainId})`);
                 }
                 const contextBlock = contextLines.length > 0
                     ? `[CONTEXT]\n${contextLines.join('\n')}`
@@ -707,23 +696,16 @@ export async function aiRoutes(fastify: FastifyInstance) {
                     }
 
                     if (enable_search) {
-                        const freeIntents = new Set(['MARKET_ANALYSIS', 'SOCIAL_SENSING', 'GENERAL_CHAT', 'PREDICTION_MARKETS', 'RISK_SCAN']);
-                        const routingMode = freeIntents.has(intentType) ? 'thinking' : 'execution';
-                        let allowedToolNames: Set<string>;
-
-                        if (routingMode === 'thinking') {
-                            allowedToolNames = new Set(THINKING_TOOL_ALLOWLIST);
-                        } else {
-                            const intentStr = String(intentType).toUpperCase();
-                            const matchedSkills = skillRegistryExec.getSkillsByIntent(intentStr);
-                            allowedToolNames = new Set<string>();
-                            for (const skill of matchedSkills) {
-                                for (const name of skill.metadata.tools || []) {
-                                    allowedToolNames.add(name);
-                                }
+                        const intentStr = String(intentType).toUpperCase();
+                        const matchedSkills = skillRegistryExec.getSkillsByIntent(intentStr);
+                        const allowedToolNames = new Set<string>();
+                        for (const skill of matchedSkills) {
+                            for (const name of skill.metadata.tools || []) {
+                                allowedToolNames.add(name);
                             }
-                            allowedToolNames.add('external_web_search');
                         }
+                        allowedToolNames.add('external_web_search');
+                        allowedToolNames.add('x_search');
 
                         const definitions = toolRegistry.getAllDefinitions();
                         const filtered = definitions.filter(def => allowedToolNames.has(def.name));
@@ -857,13 +839,13 @@ export async function aiRoutes(fastify: FastifyInstance) {
                             reply.raw.write(`data: ${JSON.stringify(statusChunk)}\n\n`);
                         }
 
-                        // Add assistant message with tool calls
-                        // IMPORTANT: For thinking mode, we must include reasoning_content
+                        // Add assistant message with tool calls.
+                        // Keep reasoning_content for provider compatibility when available.
                         conversationMessages.push({
                             role: 'assistant',
                             content: assistantContent || '',
                             tool_calls: toolCalls,
-                            reasoning_content: reasoningContent || '' // Required for thinking mode
+                            reasoning_content: reasoningContent || ''
                         } as any);
 
                         // Execute tool calls with timeout protection

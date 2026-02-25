@@ -55,6 +55,7 @@ export const LaunchpadCapsule: React.FC<LaunchpadCapsuleProps> = ({
         // Four.meme
         if (provider === 'four.meme') return `https://four.meme/token/${address}`;
         if (provider === 'flaunch') return `https://www.flaunch.gg/`;
+        if (provider === 'creatorbid') return `https://creator.bid/agents/${address}`;
         if (provider === 'flap') return `https://flap.sh/board`;
         if (provider === 'doppler') {
             const chainRoute = String(chain || '').toLowerCase() === 'base' || String(chain || '') === '8453' ? 'base' : String(chain || '').toLowerCase();

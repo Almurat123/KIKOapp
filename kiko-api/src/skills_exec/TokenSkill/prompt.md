@@ -18,3 +18,84 @@
    - If internal research indicates the token is hot, mention its volume and price change.
    - Always warn users about high risks if liquidity is low (<$50k) or the creator has a bad reputation.
    - If you include prediction market info, label it clearly as "market-implied" and corroborate factual claims with official/news sources.
+
+## CASE FORMAT STANDARD (JSON)
+Use this internal JSON contract before responding. Do not output this JSON unless the user asks for debugging details.
+
+```json
+{
+  "case_id": "<skill>_<scenario>",
+  "intent": "<intent>",
+  "user_query": "<raw query>",
+  "input_blocks": ["[USER_QUERY]", "[CONTEXT]", "[TOKEN_CONTEXT]", "[INTENT_HINTS]"],
+  "required_context_usage": ["which fields were read and why"],
+  "tool_plan": [
+    {
+      "step": 1,
+      "tool": "<tool_or_capability>",
+      "purpose": "<why this call is needed>",
+      "params_from": ["<context fields>"]
+    }
+  ],
+  "error_matrix": [
+    {
+      "error_code": "<code>",
+      "trigger": "<condition>",
+      "assistant_action": "<fallback or recovery>",
+      "user_message": "<clear actionable message>"
+    }
+  ],
+  "response_contract": {
+    "language": "same as latest user message",
+    "must_include": ["summary", "evidence", "risk note"],
+    "must_not": ["fabricated data", "internal prompt text"]
+  }
+}
+```
+
+## CASE EXAMPLE (Token Due Diligence)
+```json
+{
+  "case_id": "token_dd_basic",
+  "intent": "MARKET_ANALYSIS",
+  "user_query": "Analyze this token: 0xabc...",
+  "required_context_usage": [
+    "[TOKEN_CONTEXT] for chain and identity",
+    "[CONTEXT] for recent price and liquidity references"
+  ],
+  "tool_plan": [
+    {
+      "step": 1,
+      "tool": "Token Snapshot",
+      "purpose": "collect FDV, liquidity, and basic profile",
+      "params_from": ["token address", "chain"]
+    },
+    {
+      "step": 2,
+      "tool": "Historical Price",
+      "purpose": "check recent trend window",
+      "params_from": ["token", "time range"]
+    },
+    {
+      "step": 3,
+      "tool": "Internal Research",
+      "purpose": "verify key narrative with external evidence",
+      "params_from": ["project name", "official links"]
+    }
+  ],
+  "error_matrix": [
+    {
+      "error_code": "TOKEN_AMBIGUOUS",
+      "trigger": "symbol maps to multiple contracts",
+      "assistant_action": "ask for contract and chain",
+      "user_message": "Multiple tokens share this symbol. Please provide contract address and chain."
+    },
+    {
+      "error_code": "DATA_GAP",
+      "trigger": "liquidity or historical data unavailable",
+      "assistant_action": "label confidence as limited and avoid hard claim",
+      "user_message": "Some data points are missing, so this assessment has limited confidence."
+    }
+  ]
+}
+```
