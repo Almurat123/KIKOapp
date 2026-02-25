@@ -980,6 +980,19 @@ export async function sendTransactionLifecycle(
                         && !!txWithNonce.nonce
                         && (fastTradePath || txWithNonce.txPurpose === 'trade' || txWithNonce.txPurpose === 'speedup')
                     ) {
+                        // ⚡ FAST TRADE: tx was broadcast. Return immediately — don't block for a
+                        // second Privy signing round-trip (~2s). The fanout already relayed the tx
+                        // to multiple block builders. MainSwapService will record success with txHash.
+                        if (fastTradePath) {
+                            logger.info(LogCode.SYS_INFO, 'Privy fast trade lifecycle early return', {
+                                chainId: txWithNonce.chainId,
+                                txHash: response.hash,
+                                status: lifecycleBase.status,
+                                checks: lifecycleBase.attempts,
+                                skippedGasBump: true
+                            });
+                            return lifecycleBase;
+                        }
                         bumpGasForVisibilityRetry('privy_sendtx_broadcasted_unseen');
                         await new Promise((resolve) => setTimeout(resolve, NETWORK_RETRY_DELAY_MS));
                         continue;

@@ -927,6 +927,19 @@ export class MainSwapService {
       const needsVisibilityGate = lifecycleStatus === 'broadcasted_unseen' || lifecycleStatus === 'visible_pending';
       if (!needsVisibilityGate) return directResult;
 
+      // ⚡ TURBO TRUSTED BROADCAST: In turbo copytrade the tx was successfully broadcast
+      // to the network via eth_sendRawTransaction fanout. RPC degradation should NOT cause
+      // us to declare the tx "failed" — the fanout already relayed it to block builders.
+      // Accept broadcasted_unseen as success; position monitor will track confirmation.
+      if (isTurboCopytrade && lifecycleStatus === 'broadcasted_unseen') {
+        logger.info(LogCode.SYS_INFO, trace('Direct swap tx broadcasted — skipping visibility gate in turbo (RPC may be degraded)'), {
+          stage,
+          txHash: directResult.txHash,
+          mode: request.mode
+        });
+        return directResult; // success: true, txHash set — good enough
+      }
+
       const visibilityMaxWaitMs = isTurboCopytrade
         ? DIRECT_SWAP_VISIBILITY_GATE_MS_TURBO
         : DIRECT_SWAP_VISIBILITY_GATE_MS_NORMAL;
