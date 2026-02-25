@@ -38,9 +38,13 @@ export async function parseAmountInWeiByToken(params: {
   chainId: number;
   getTokenMetadata: (chainId: number, tokenAddress: string) => Promise<{ decimals?: number } | null | undefined>;
   onRawWeiDetected?: (ctx: { chainId: number; tokenIn: string; amountIn: string; decimals: number }) => void;
+  /** Skip the getTokenMetadata RPC call when decimals are already known (e.g. pre-fetched in turbo pipeline). */
+  preloadedDecimals?: number;
 }): Promise<bigint> {
   let decimals = 18;
-  if (params.tokenIn.toLowerCase() !== ETH_ADDRESS) {
+  if (params.preloadedDecimals !== undefined && params.preloadedDecimals >= 0) {
+    decimals = sanitizeDecimals(params.preloadedDecimals);
+  } else if (params.tokenIn.toLowerCase() !== ETH_ADDRESS) {
     try {
       const meta = await params.getTokenMetadata(params.chainId, params.tokenIn);
       decimals = sanitizeDecimals(meta?.decimals);

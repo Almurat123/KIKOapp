@@ -302,6 +302,27 @@ function getPrivyClient(): PrivyClient {
 }
 
 /**
+ * Pre-warm the Privy client at startup to avoid cold-start constructor overhead
+ * on the first trade. Call this during server initialization.
+ */
+export function preWarmPrivyClient(): void {
+    if (!PRIVY_APP_ID || !PRIVY_APP_SECRET) return;
+    try {
+        getPrivyClient();
+        logger.info(LogCode.SYS_INFO, '[Privy] Client pre-warmed at startup');
+    } catch {
+        // Ignore – credentials may not be available at startup in some envs
+    }
+}
+
+// Eagerly initialize the Privy client when this module is first imported
+// so the constructor cost (and any internal SDK setup) is paid at boot time,
+// not at the moment of the first trade request.
+if (PRIVY_APP_ID && PRIVY_APP_SECRET) {
+    try { getPrivyClient(); } catch { /* ignore */ }
+}
+
+/**
  * Get user's embedded wallet info (address AND internal ID)
  * @param userId - Privy user ID (from JWT sub claim)
  * @returns Wallet info or null if user has no embedded wallet

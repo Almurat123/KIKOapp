@@ -931,6 +931,8 @@ async function handleTargetBuy(
     }
 
     const userIds = [...new Set(rawConfigs.map(c => c.userId))];
+    // ⚡ Fire token metadata in parallel with the user DB query so both arrive together.
+    const turboMetaPromise = getTokenMetadata(chainId, tokenToBuy, { rpcStrategy: 'fast' }).catch(() => null);
     const users = await prisma.user.findMany({
         where: { privyDid: { in: userIds } }
     });
@@ -1008,7 +1010,8 @@ async function handleTargetBuy(
     const skipTokenInfo = uniqueExecutableConfigs.every(c => c.executionMode === 'turbo');
     if (skipTokenInfo) {
         try {
-            const meta = await getTokenMetadata(chainId, tokenToBuy, { rpcStrategy: 'fast' });
+            // ⚡ Reuse the metadata that was prefetched in parallel with the user DB query.
+            const meta = await turboMetaPromise;
             const fallbackInfo = {
                 price: 0,
                 symbol: meta?.symbol || 'UNKNOWN',
@@ -1321,12 +1324,15 @@ async function processBuyWithInfo(
     const normalConfigs = configs.filter((c) => resolveExecutionModeForConfig(c) !== 'turbo');
 
     if (turboConfigs.length > 0) {
-        const quickNativePrice = await getNativeTokenPriceUsd(chainId).catch(() => 0);
         const turboUserIds = [...new Set(turboConfigs.map(c => c.userId).filter(Boolean))];
-        const turboUserSettingsMap = await cacheHub.warmupUserSettings(
-            turboUserIds,
-            async (userId) => prisma.userSettings.findUnique({ where: { userId } })
-        );
+        // ⚡ Parallel: native price fetch + user settings warmup run concurrently (~100ms saved)
+        const [quickNativePrice, turboUserSettingsMap] = await Promise.all([
+            getNativeTokenPriceUsd(chainId).catch(() => 0),
+            cacheHub.warmupUserSettings(
+                turboUserIds,
+                async (userId) => prisma.userSettings.findUnique({ where: { userId } })
+            )
+        ]);
         logger.info(LogCode.EXE_QUOTE_FETCHED, '[CopyTrade] Turbo fast lane enabled', {
             userCount: turboConfigs.length,
             token: tokenToBuy,
