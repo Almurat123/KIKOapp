@@ -836,6 +836,31 @@ export const SocialPage: React.FC = () => {
   const isMobile = useIsMobile();
   const PAGE_SIZE = 30;
 
+  const getFriendlyErrorMessage = useCallback((err: unknown): string => {
+    const message = String((err as any)?.message || '').toLowerCase();
+    if (message.includes('429') || message.includes('too many') || message.includes('rate limit')) {
+      return '请求过于频繁，请稍后再试。';
+    }
+    if (
+      message.includes('401') ||
+      message.includes('403') ||
+      message.includes('app key') ||
+      message.includes('origin') ||
+      message.includes('unauthorized')
+    ) {
+      return '请求被安全策略拦截，请稍后重试。';
+    }
+    if (
+      message.includes('timeout') ||
+      message.includes('network') ||
+      message.includes('failed to fetch') ||
+      message.includes('cannot connect')
+    ) {
+      return '网络连接异常，请稍后重试。';
+    }
+    return (err as any)?.message || 'Failed to load trending casts';
+  }, []);
+
   // Derived visible items (just basic sorting on loaded items)
   const sortedFeedItems = useMemo(() => {
     let items = [...feedItems];
@@ -957,10 +982,7 @@ export const SocialPage: React.FC = () => {
       // Use cursor-based API with sortBy parameter
       // Map frontend sortBy to API sortBy: 'newest' -> 'newest', 'rank'/'oldest' -> 'trending'
       const apiSortBy = sortBy === 'newest' ? 'newest' : 'trending';
-      const result = await socialApi.getTrendingWithCursor(PAGE_SIZE, timeRange, cursorParam || undefined, apiSortBy).catch((err) => {
-        console.warn('[SocialPage] getTrendingWithCursor failed:', err);
-        return { casts: [], nextCursor: null, hasMore: false };
-      });
+      const result = await socialApi.getTrendingWithCursor(PAGE_SIZE, timeRange, cursorParam || undefined, apiSortBy);
 
       console.log('[SocialPage] Fetched casts:', result.casts.length, 'hasMore:', result.hasMore);
 
@@ -1024,7 +1046,7 @@ export const SocialPage: React.FC = () => {
       console.error('[SocialPage] Error loading trending casts:', err);
       if (mountedRef.current) {
         if (isInitialLoad) {
-          setError(err.message || 'Failed to load trending casts');
+          setError(getFriendlyErrorMessage(err));
           setFeedItems([]);
         }
         setLoading(false);

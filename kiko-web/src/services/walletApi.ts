@@ -22,7 +22,38 @@ async function getAuthHeaders() {
     if (token) {
         headers['Authorization'] = `Bearer ${token}`;
     }
+    if (import.meta.env.VITE_APP_KEY) {
+        headers['X-App-Key'] = import.meta.env.VITE_APP_KEY;
+    }
     return headers;
+}
+
+async function buildHttpError(response: Response, fallback: string): Promise<Error> {
+    let message = fallback;
+    try {
+        const text = await response.text();
+        if (text) {
+            try {
+                const body = JSON.parse(text);
+                message = body?.message || body?.error || fallback;
+            } catch {
+                message = text || fallback;
+            }
+        }
+    } catch {
+        // Keep fallback message.
+    }
+
+    if (response.status === 401 || response.status === 403) {
+        return new Error('认证已过期或权限不足，请重新登录后重试。');
+    }
+    if (response.status === 429) {
+        return new Error('请求过于频繁，请稍后再试。');
+    }
+    if (response.status >= 500) {
+        return new Error('服务暂时不可用，请稍后再试。');
+    }
+    return new Error(message);
 }
 
 export interface MonitoredWallet {
@@ -91,7 +122,7 @@ export async function getWalletBalance(address: string, chain: string = 'eth'): 
 /**
  * Fetch wallet balance for all supported chains
  */
-export async function getAllChainBalances(address: string, solanaAddress?: string, forceRefresh?: boolean): Promise<Record<string, WalletBalance> | null> {
+export async function getAllChainBalances(address: string, solanaAddress?: string, forceRefresh?: boolean): Promise<Record<string, WalletBalance>> {
     try {
         let url = `${API_URL}/${address}/all-balances`;
         const params = new URLSearchParams();
@@ -109,20 +140,22 @@ export async function getAllChainBalances(address: string, solanaAddress?: strin
         const response = await fetchWithTimeout(url, { method: 'GET', headers }, WALLET_ALL_BALANCES_TIMEOUT_MS);
 
         if (!response.ok) {
-            const err = await response.text();
-            console.error('[WalletApi] All Balances API error:', err);
-            return null;
+            throw await buildHttpError(response, 'Failed to fetch wallet balances');
         }
 
         const json = await response.json();
-        return json.success ? json.data : null;
+        if (!json.success || !json.data) {
+            throw new Error('钱包资产接口返回异常数据');
+        }
+        return json.data;
     } catch (error: any) {
         if (error?.name === 'AbortError') {
             console.warn('[WalletApi] All Balances request timed out');
-            return null;
+            throw new Error('资产请求超时，请稍后重试。');
         }
-        console.error('[WalletApi] Error fetching all-chain balances:', error);
-        return null;
+        const msg = error?.message || 'Failed to fetch all-chain balances';
+        console.error('[WalletApi] Error fetching all-chain balances:', msg);
+        throw new Error(msg);
     }
 }
 

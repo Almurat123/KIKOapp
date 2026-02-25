@@ -21,7 +21,7 @@ export default function WalletPage() {
     authenticated, user, walletAddress, isSolana, chainId, currentChain,
     holdings, loading, transactions, transactionsLoading,
     orders, pendingOrders, ordersLoading, orderHistory, orderHistoryLoading,
-    getAccessToken, portfolioStats, setOrders, setPendingOrders,
+    getAccessToken, portfolioStats, setOrders, setPendingOrders, error,
     refreshData
   } = useWalletPageData();
 
@@ -108,6 +108,37 @@ export default function WalletPage() {
               onClick={() => navigate('/settings')}
             >
               Authorize
+            </button>
+          </div>
+        )}
+        {error && (
+          <div style={{
+            marginBottom: '12px',
+            padding: '10px 12px',
+            borderRadius: '12px',
+            border: '1px solid rgba(239,68,68,0.4)',
+            background: 'rgba(239,68,68,0.08)',
+            color: '#ef4444',
+            fontSize: '13px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: '10px',
+          }}>
+            <span>{error}</span>
+            <button
+              onClick={() => refreshData(true)}
+              style={{
+                border: '1px solid rgba(239,68,68,0.4)',
+                background: 'transparent',
+                color: '#ef4444',
+                borderRadius: '999px',
+                fontSize: '12px',
+                padding: '4px 10px',
+                cursor: 'pointer',
+              }}
+            >
+              Retry
             </button>
           </div>
         )}

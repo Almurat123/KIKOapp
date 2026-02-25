@@ -8,7 +8,10 @@ import { redis } from '../cache/cacheClient.js';
 import prisma from '../db/prisma.js';
 
 const WINDOW_SIZE_IN_SECONDS = 60;
-const MAX_REQUESTS_PER_WINDOW = 200; // Default: 200 requests per minute (generous)
+const MAX_REQUESTS_PER_WINDOW = Math.max(
+    100,
+    parseInt(process.env.RATE_LIMIT_MAX_REQUESTS || '500', 10) || 500
+); // Align with env default (500/min) and keep sane lower bound
 const REDIS_ENABLED = process.env.REDIS_URL && process.env.REDIS_ENABLED !== 'false';
 
 export async function rateLimiterMiddleware(
@@ -21,8 +24,18 @@ export async function rateLimiterMiddleware(
         return;
     }
 
+    // Always skip preflight from limiter bucket.
+    if (request.method === 'OPTIONS') {
+        return;
+    }
+
     // Skip rate limiting for health checks and static assets
-    if (request.url === '/health' || request.url === '/api/health' || request.url.startsWith('/assets/')) {
+    if (
+        request.url === '/health' ||
+        request.url === '/api/health' ||
+        request.url.startsWith('/assets/') ||
+        request.url.startsWith('/api/images/')
+    ) {
         return;
     }
 
@@ -47,6 +60,19 @@ export async function rateLimiterMiddleware(
     } else if (url.includes('/api/swap/') || url.includes('/api/tokens/')) {
         maxRequests = 120; // Trading endpoints: 120/min
         category = 'trading';
+    } else if (
+        request.method === 'GET' &&
+        (
+            url.includes('/api/social/') ||
+            url.includes('/api/wallets/') ||
+            url.includes('/api/market/') ||
+            url.includes('/api/news/')
+        )
+    ) {
+        // Page switching bursts can trigger many parallel read requests.
+        // Use a looser bucket to avoid transient false-positive throttling.
+        maxRequests = Math.max(MAX_REQUESTS_PER_WINDOW, 1200);
+        category = 'read_burst';
     }
 
     // Key prioritization: userId > ip
@@ -101,6 +127,14 @@ export async function rateLimiterMiddleware(
 
         // Check if limit exceeded
         if (current > maxRequests) {
+            console.warn('[RateLimiter] Request blocked', {
+                method: request.method,
+                url,
+                category,
+                current,
+                maxRequests,
+                retryAfterSec: ttl,
+            });
             reply.status(429).header('Retry-After', ttl).send({
                 success: false,
                 error: 'Too Many Requests',

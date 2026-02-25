@@ -228,11 +228,17 @@ export function useWalletPageData() {
         }
         try {
             const allBalances = await getAllChainBalances(walletAddress!, solanaWallet?.address, forceRefresh);
-            if (!allBalances || cancelled.value || reqId !== balanceReqId.current) return;
+            if (cancelled.value || reqId !== balanceReqId.current) return;
             const result = processBalances(allBalances, importedTokensByChain);
             setHoldings(result); setCachedHoldings(result);
             globalBalanceCache = { address: walletAddress!, holdings: result, cachedAt: Date.now() };
-        } catch (e) { console.error('Error fetching balances', e); } finally { if (reqId === balanceReqId.current) setLoading(false); }
+            setError(null);
+        } catch (e: any) {
+            console.error('Error fetching balances', e);
+            if (!cancelled.value && reqId === balanceReqId.current) {
+                setError(e?.message || '资产加载失败，请稍后重试。');
+            }
+        } finally { if (reqId === balanceReqId.current) setLoading(false); }
     };
 
     // [Logic]: Extract native and token holdings from chain data.

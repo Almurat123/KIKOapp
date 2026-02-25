@@ -52,6 +52,8 @@ export async function requireAllowedOrigin(request: FastifyRequest, _reply: Fast
     const origin = request.headers.origin as string || '';
     const referer = request.headers.referer as string || '';
     const userAgent = request.headers['user-agent'] as string || '';
+    const secFetchSite = (request.headers['sec-fetch-site'] as string || '').toLowerCase();
+    const authHeader = (request.headers.authorization as string || '').toLowerCase();
 
     // [Logic]: Extract base origin from referer if origin is missing
     let effectiveOrigin = origin;
@@ -74,6 +76,21 @@ export async function requireAllowedOrigin(request: FastifyRequest, _reply: Fast
     if (isMobileApp) {
         console.log('[originRestriction] Mobile app detected, allowing request');
         return;
+    }
+
+    // Some browsers/privacy settings can omit Origin/Referer on navigation-related fetches.
+    // Keep CSRF posture by only allowing this fallback for same-site browser signals
+    // or authenticated first-party API calls.
+    if (!effectiveOrigin) {
+        const sameSiteSignal = secFetchSite === 'same-origin' || secFetchSite === 'same-site' || secFetchSite === 'none';
+        const hasBearer = authHeader.startsWith('bearer ');
+        if (sameSiteSignal || hasBearer) {
+            console.log('[originRestriction] Missing origin/referer accepted by safe fallback', {
+                secFetchSite: secFetchSite || 'none',
+                hasBearer
+            });
+            return;
+        }
     }
 
     // [Logic]: Check if origin is in allowed list

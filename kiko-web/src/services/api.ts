@@ -716,9 +716,31 @@ export const socialApi = {
         if (cursor) params.append('cursor', cursor);
 
         const response = await fetch(`${API_BASE_URL}/api/social/trending/cursor?${params.toString()}`, {
-            headers: { 'Content-Type': 'application/json' }
+            cache: 'no-store',
+            headers: {
+                'Content-Type': 'application/json',
+                ...(import.meta.env.VITE_APP_KEY ? { 'X-App-Key': import.meta.env.VITE_APP_KEY } : {}),
+            }
         });
-        const body = await response.json();
+
+        const raw = await response.text();
+        let body: any = {};
+        if (raw) {
+            try {
+                body = JSON.parse(raw);
+            } catch {
+                body = { message: raw };
+            }
+        }
+
+        if (!response.ok) {
+            const message =
+                body?.message ||
+                (typeof body?.error === 'string' ? body.error : body?.error?.message) ||
+                `HTTP ${response.status}`;
+            throw new Error(message);
+        }
+
         const payload = body?.data && !Array.isArray(body.data) ? body.data : body;
 
         return {
