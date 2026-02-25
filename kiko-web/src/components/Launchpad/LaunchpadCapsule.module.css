@@ -27,6 +27,16 @@
     object-fit: cover;
 }
 
+.logoNoCrop {
+    border-radius: 0;
+    object-fit: contain;
+}
+
+.logoFlaunch {
+    width: 18px;
+    height: 18px;
+}
+
 .name {
     display: flex;
     align-items: center;
@@ -46,6 +56,7 @@
 .clanker,
 .virtuals,
 .fourmeme,
+.flaunch,
 .flap,
 .moonshot {
     background: transparent;

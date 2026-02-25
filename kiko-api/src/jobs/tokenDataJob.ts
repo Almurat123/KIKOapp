@@ -119,7 +119,7 @@ function pickVerifyTargets<T>(rows: T[], budget: number): T[] {
 
 function detectBySuffix(chainId: string, address: string): string | null {
   const lower = address.toLowerCase();
-  if (chainId === 'base' && lower.endsWith('b07')) return 'clanker';
+  if ((chainId === 'base' || chainId === 'eth') && lower.endsWith('b07')) return 'clanker';
   if (chainId === 'bsc' && (lower.endsWith('4444') || lower.endsWith('ffff'))) return 'four.meme';
   if (chainId === 'bsc' && (lower.endsWith('8888') || lower.endsWith('7777'))) return 'flap';
   if (chainId === 'solana' && lower.endsWith('pump')) return 'pump.fun';
@@ -133,6 +133,7 @@ function normalizeLaunchpadProvider(provider?: string | null): string | null {
   if (provider === 'pumpswap') return 'pump.swap';
   if (provider === 'bonkfun') return 'bonk.fun';
   if (provider === 'fourmeme') return 'four.meme';
+  if (provider === 'flaunch.gg') return 'flaunch';
   if (provider === 'doppler finance' || provider === 'dopplerfinance') return 'doppler';
   return provider;
 }

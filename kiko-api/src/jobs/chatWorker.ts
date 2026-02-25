@@ -48,6 +48,8 @@ const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const GROK_PREFER_SDK_GATEWAY = !['0', 'false', 'no', 'off']
     .includes(String(process.env.GROK_PREFER_SDK_GATEWAY || 'true').toLowerCase());
+const GROK_ENABLE_PREVIOUS_RESPONSE = ['1', 'true', 'yes', 'on']
+    .includes(String(process.env.GROK_ENABLE_PREVIOUS_RESPONSE || 'false').toLowerCase());
 const CHAT_ORCHESTRATOR_MODE = (process.env.CHAT_ORCHESTRATOR_MODE || 'unified').toLowerCase();
 const CHAT_CONTEXT_RECENT_WINDOW = Math.max(4, parseInt(process.env.CHAT_CONTEXT_RECENT_WINDOW || '12', 10) || 12);
 const CHAT_CONTEXT_MAX_INPUT_TOKENS = Math.max(2048, parseInt(process.env.CHAT_CONTEXT_MAX_INPUT_TOKENS || '16000', 10) || 16000);
@@ -5462,7 +5464,9 @@ Chain: ${chainName}${chainId ? ` (${chainId})` : ''}
             });
 
             // Call Grok provider (prefer Python SDK gateway, then fallback to direct xAI)
-            const previousResponseId = this.grokResponseIdBySession.get(task.sessionId);
+            const previousResponseId = GROK_ENABLE_PREVIOUS_RESPONSE
+                ? this.grokResponseIdBySession.get(task.sessionId)
+                : undefined;
             const apiRequestStartedAt = Date.now();
             let firstTokenAt: number | null = null;
             let currentToolCalls: any[] = [];
@@ -5480,7 +5484,7 @@ Chain: ${chainName}${chainId ? ` (${chainId})` : ''}
                 stream: true,
                 // SDK gateway: keep native tools broadly available unless hard-disabled by chain-context guardrail.
                 enable_search: !forceChainContextAnswer,
-                previous_response_id: previousResponseId,
+                ...(previousResponseId ? { previous_response_id: previousResponseId } : {}),
                 // SDK gateway executes tools with its own native + custom registry.
                 // Do not pass Node tool schemas to avoid duplicate tool ecosystems.
                 tool_context: task.toolContext || undefined,
@@ -5632,6 +5636,109 @@ Chain: ${chainName}${chainId ? ` (${chainId})` : ''}
 
                     try {
                         const data = JSON.parse(line.slice(6));
+                        // Compatibility: llm-gateway streams envelope events like:
+                        // { event_type, provider_request_id, payload: { text|usage|citations|tool_calls } }
+                        // Handle these before OpenAI-style chunk parsing.
+                        const gatewayEventType = typeof data?.event_type === 'string' ? String(data.event_type) : '';
+                        if (gatewayEventType) {
+                            if (typeof data?.provider_request_id === 'string' && data.provider_request_id.trim()) {
+                                latestProviderResponseId = data.provider_request_id;
+                            }
+
+                            if (gatewayEventType === 'error') {
+                                const gwErr = data?.payload?.message || data?.payload?.error || 'Unknown gateway stream error';
+                                throw new Error(`Grok gateway stream error: ${gwErr}`);
+                            }
+
+                            if (gatewayEventType === 'usage' && data?.payload?.usage) {
+                                lastUsage = data.payload.usage;
+                            }
+
+                            if (gatewayEventType === 'citation') {
+                                const newGatewayCitations = this.appendUniqueCitations(
+                                    allCitations,
+                                    citationUrlSet,
+                                    data?.payload?.citations
+                                );
+                                if (newGatewayCitations.length > 0) {
+                                    this.ws.broadcastToUser(userId!, {
+                                        type: 'citations',
+                                        sessionId: task.sessionId,
+                                        data: {
+                                            message_id: assistantMessageId,
+                                            citations: newGatewayCitations,
+                                        }
+                                    });
+                                }
+                            }
+
+                            if (gatewayEventType === 'tool_call' && Array.isArray(data?.payload?.tool_calls)) {
+                                for (const tc of data.payload.tool_calls) {
+                                    if (!tc || typeof tc !== 'object') continue;
+                                    const idx = Number.isFinite(tc.index) ? Number(tc.index) : toolCalls.length;
+                                    if (!toolCalls[idx]) {
+                                        toolCalls[idx] = { ...tc, function: { ...(tc.function || {}) } };
+                                    } else {
+                                        if (!toolCalls[idx].function) toolCalls[idx].function = {};
+                                        if (tc.id) toolCalls[idx].id = tc.id;
+                                        if (tc.function?.name) toolCalls[idx].function.name = tc.function.name;
+                                        if (tc.function?.arguments) {
+                                            toolCalls[idx].function.arguments = (toolCalls[idx].function.arguments || '') + tc.function.arguments;
+                                        }
+                                    }
+                                }
+                            }
+
+                            if (gatewayEventType === 'delta_text') {
+                                const gatewayText = String(data?.payload?.text || '');
+                                if (gatewayText) {
+                                    if (firstTokenAt === null) {
+                                        firstTokenAt = Date.now();
+                                        this.broadcastLatencyMetrics(userId, task, {
+                                            ttftMs: firstTokenAt - apiRequestStartedAt,
+                                            inputTokensEstimated: lastBudgetMetrics?.inputTokensEstimated,
+                                            toolRounds: iteration,
+                                        });
+                                    }
+                                    assistantContent += gatewayText;
+                                    fullContent += gatewayText;
+                                    const scrubbedDelta = scrub(gatewayText);
+                                    const chunkData = {
+                                        index: chunkIndex++,
+                                        type: 'content' as const,
+                                        content: scrubbedDelta,
+                                        delta: scrubbedDelta,
+                                        messageId: assistantMessageId
+                                    };
+                                    this.ws.broadcastToUser(userId!, { type: 'chunk', sessionId: task.sessionId, data: chunkData });
+                                    lastDbSave = this.persistStreamingMessageThrottled(
+                                        assistantMessageId,
+                                        fullContent,
+                                        '',
+                                        lastDbSave,
+                                        1000
+                                    );
+                                }
+                            }
+
+                            if (gatewayEventType === 'delta_reasoning') {
+                                const reasoningText = String(data?.payload?.text || '');
+                                if (reasoningText) {
+                                    const scrubbedReasoning = scrub(reasoningText);
+                                    const chunkData = {
+                                        index: chunkIndex++,
+                                        type: 'reasoning' as const,
+                                        reasoning_content: scrubbedReasoning,
+                                        messageId: assistantMessageId
+                                    };
+                                    this.ws.broadcastToUser(userId!, { type: 'chunk', sessionId: task.sessionId, data: chunkData });
+                                }
+                            }
+
+                            // Gateway event handled, skip OpenAI chunk parsing for this line.
+                            continue;
+                        }
+
                         if (typeof data?.response_id === 'string') latestProviderResponseId = data.response_id;
                         if (typeof data?.id === 'string') latestProviderResponseId = data.id;
                         const choice = data.choices?.[0];
@@ -5728,7 +5835,11 @@ Chain: ${chainName}${chainId ? ` (${chainId})` : ''}
                                 1000
                             );
                         }
-                    } catch (e) { }
+                    } catch (e: any) {
+                        // Ignore malformed SSE fragments, but DO NOT swallow real stream errors.
+                        if (e instanceof SyntaxError) continue;
+                        throw e;
+                    }
                 }
             }
 
@@ -5846,7 +5957,7 @@ Chain: ${chainName}${chainId ? ` (${chainId})` : ''}
             }
         }
 
-        if (latestProviderResponseId) {
+        if (latestProviderResponseId && GROK_ENABLE_PREVIOUS_RESPONSE) {
             this.grokResponseIdBySession.set(task.sessionId, latestProviderResponseId);
             if (this.isUnifiedOrchestrator()) {
                 try {
@@ -5866,6 +5977,14 @@ Chain: ${chainName}${chainId ? ` (${chainId})` : ''}
             fullContent = modResult.filtered_text || '[Content removed for safety]';
         }
         fullContent = this.redactToolNames(fullContent);
+        if ((fullContent || '').trim() === '') {
+            fullContent = 'I did not receive a valid response payload from the model. Please retry.';
+            logger.warn(LogCode.AI_API_CALL, 'Grok: completed with empty content, applied fallback text', {
+                taskId: task.id,
+                sessionId: task.sessionId,
+                iteration,
+            });
+        }
 
         await this.persistAssistantMessageSafe({
             assistantMessageId,

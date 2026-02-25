@@ -594,17 +594,21 @@ async function processAlchemyWebhookPayload(payload: any): Promise<void> {
             releaseLocalInflight(chainId, txHash);
             return;
         }
-        await markCopyTradeTxState(chainId, txHash, 'confirmed_seen', { source: 'alchemy_webhook' }).catch(() => { });
+        // Fire-and-forget: don't await state marking on the critical path
+        markCopyTradeTxState(chainId, txHash, 'confirmed_seen', { source: 'alchemy_webhook' }).catch(() => { });
 
         try {
-            const pendingHint = await getPendingTxHint(chainId, txHash).catch(() => null);
-            const trackedWallets = await prisma.trackedWallet.findMany({
-                where: {
-                    address: { in: candidates, mode: 'insensitive' },
-                    chainId,
-                    activeConfigs: { gt: 0 }
-                }
-            });
+            // ⚡ Parallel: pendingHint (Redis) + trackedWallets (Prisma) concurrently (~100ms saved)
+            const [pendingHint, trackedWallets] = await Promise.all([
+                getPendingTxHint(chainId, txHash).catch(() => null),
+                prisma.trackedWallet.findMany({
+                    where: {
+                        address: { in: candidates, mode: 'insensitive' },
+                        chainId,
+                        activeConfigs: { gt: 0 }
+                    }
+                })
+            ]);
 
             if (trackedWallets.length === 0) {
                 console.log(
@@ -804,12 +808,13 @@ async function processAlchemyWebhookPayload(payload: any): Promise<void> {
                 if (activityCashHint) {
                     swap.cashLegHint = activityCashHint;
                 }
-                await markCopyTradeTxState(chainId, txHash, 'swap_decoded', {
+                // Fire-and-forget: state marking + context persistence are not on the critical path
+                markCopyTradeTxState(chainId, txHash, 'swap_decoded', {
                     wallet: trackedTarget,
                     dex: swap.dexName,
                     source: cached ? 'pending_prefetch' : 'webhook_decode'
                 }).catch(() => { });
-                await persistSwapContext({
+                persistSwapContext({
                     chainId,
                     txHash,
                     txFrom: txSkeleton.from,
@@ -822,7 +827,7 @@ async function processAlchemyWebhookPayload(payload: any): Promise<void> {
                     detectedAt: cached
                         ? resolveDetectedAt(cached.detectedAt, pendingHint?.detectedAt)
                         : Date.now()
-                });
+                }).catch(() => { });
 
                 const { enqueueCopyTradeTask } = await import('../services/copyTradeQueue.js');
                 // When we decoded from receipt in this request (no cached predecoded), use now as detectedAt

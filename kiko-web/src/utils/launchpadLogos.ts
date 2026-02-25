@@ -9,6 +9,7 @@ import RaydiumLogo from '../assets/images/Raydium.png';
 import VirtualsLogo from '../assets/images/Virtuals.ico';
 import FlapLogo from '../assets/images/Flap.png';
 import DopplerLogo from '../assets/images/Doppler.ico';
+import FlaunchLogo from '../assets/images/Flaunch.png';
 
 export const LAUNCHPAD_LOGOS: Record<string, string> = {
     'pump.fun': PumpFunLogo,
@@ -20,6 +21,7 @@ export const LAUNCHPAD_LOGOS: Record<string, string> = {
     'raydium': RaydiumLogo,
     'virtuals': VirtualsLogo,
     'flap': FlapLogo,
+    'flaunch': FlaunchLogo,
     'doppler': DopplerLogo,
     'doppler finance': DopplerLogo,
     'dopplerfinance': DopplerLogo,
@@ -31,6 +33,7 @@ export function normalizeLaunchpadTag(value?: string | null): string | null {
     if (v === 'pumpfun') return 'pump.fun';
     if (v === 'bonkfun') return 'bonk.fun';
     if (v === 'fourmeme') return 'four.meme';
+    if (v === 'flaunch.gg') return 'flaunch';
     if (v === 'dopplerfinance' || v === 'doppler finance') return 'doppler';
     return v;
 }
@@ -109,6 +112,7 @@ export function getLaunchpadDisplayName(launchpad: string): string {
         'uniswap': 'Uniswap',
         'raydium': 'Raydium',
         'flap': 'Flap',
+        'flaunch': 'Flaunch',
     };
 
     return displayNames[launchpad] || launchpad;

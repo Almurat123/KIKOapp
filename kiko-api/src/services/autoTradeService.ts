@@ -905,13 +905,18 @@ async function handleTargetBuy(
     logger.debug(LogCode.EXE_QUOTE_FETCHED, `Fast path execution started for ${tokenToBuy}`, { targetWallet, token: tokenToBuy });
 
     // 1. FIRST: Check for active configs. If none, exit immediately (No API calls, No Logs)
-    const rawConfigsFound = await withRetry(() => prisma.copyTradeConfig.findMany({
-        where: {
-            targetWallet: { mode: 'insensitive', equals: normalizedWallet },
-            chainId,
-            status: 'active',
-        },
-    })) as any[];
+    // ⚡ Use DataCacheHub config cache (60s TTL) to avoid hitting Prisma on every webhook
+    const rawConfigsFound = await cacheHub.getCopyTradeConfigs(
+        normalizedWallet,
+        chainId,
+        () => withRetry(() => prisma.copyTradeConfig.findMany({
+            where: {
+                targetWallet: { mode: 'insensitive', equals: normalizedWallet },
+                chainId,
+                status: 'active',
+            },
+        }))
+    ) as any[];
 
     const rawConfigs = rawConfigsFound.filter((config) =>
         normalizeAddress(config?.targetWallet || '') === normalizedWallet

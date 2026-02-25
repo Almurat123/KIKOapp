@@ -6,7 +6,7 @@ import { getPumpFunToken } from './pumpFunApi';
 import { getRaydiumToken } from './raydiumApi';
 
 export interface LaunchpadResult {
-    provider: 'zora' | 'clanker' | 'paragraph' | 'fourmeme' | 'pumpfun' | 'raydium';
+    provider: 'zora' | 'clanker' | 'paragraph' | 'fourmeme' | 'pumpfun' | 'raydium' | 'flaunch';
     data: any;
     chainId: number;
 }
@@ -23,7 +23,7 @@ export const detectLaunchpadToken = async (
     if (!isSolana && !isEVM) return null;
 
     // 2. Prioritize current chain, but allow cross-chain detection if pattern matches
-    // Base (8453) -> Clanker, Zora, Paragraph
+    // Base (8453) / Ethereum (1) -> Clanker, Zora, Paragraph
     // BSC (56) -> Four.meme
     // Solana (900) -> Pump.fun, Raydium
 
@@ -49,9 +49,13 @@ export const detectLaunchpadToken = async (
         // for these specific launchpads.
 
         // Check Clanker (Base)
-        const clankerToken = await getClankerToken(address);
+        const requestedChainId = Number.isFinite(Number(_chainId)) ? Number(_chainId) : undefined;
+        const clankerToken = await getClankerToken(address, requestedChainId);
         if (clankerToken) {
-            return { provider: 'clanker', data: clankerToken, chainId: 8453 };
+            const detectedChainId = Number.isFinite(Number((clankerToken as any)?.chain_id))
+                ? Number((clankerToken as any).chain_id)
+                : (requestedChainId === 1 ? 1 : 8453);
+            return { provider: 'clanker', data: clankerToken, chainId: detectedChainId };
         }
 
         // Check Zora (Base/Zora Chain)

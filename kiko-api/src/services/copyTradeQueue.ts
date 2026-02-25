@@ -34,19 +34,25 @@ function processQueue(): void {
             .then(async () => {
                 const taskKey = getTaskKey(task);
                 const doneKey = `${taskKey}:done`;
-                const alreadyDone = await cacheGet(doneKey).catch(() => null);
-                if (alreadyDone) return;
-
                 const lockKey = `${taskKey}:lock`;
                 const lockValue = randomUUID();
-                const claimed = await acquireLock(lockKey, COPYTRADE_TASK_LOCK_TTL_SECONDS, lockValue).catch(() => false);
+
+                // ⚡ Parallel: dedup check + lock acquisition + pending hint in one round-trip
+                const [alreadyDone, claimed, pendingHint] = await Promise.all([
+                    cacheGet(doneKey).catch(() => null),
+                    acquireLock(lockKey, COPYTRADE_TASK_LOCK_TTL_SECONDS, lockValue).catch(() => false),
+                    task.swap?.txHash
+                        ? getPendingTxHint(task.chainId, task.swap.txHash).catch(() => null)
+                        : Promise.resolve(null)
+                ]);
+                if (alreadyDone) {
+                    if (claimed) await releaseLock(lockKey, lockValue).catch(() => { });
+                    return;
+                }
                 if (!claimed) return;
 
                 const { handleSwapDetected } = await import('./autoTradeService.js');
                 try {
-                    const pendingHint = task.swap?.txHash
-                        ? await getPendingTxHint(task.chainId, task.swap.txHash).catch(() => null)
-                        : null;
                     const detectedAt = task.detectedAt || pendingHint?.detectedAt;
                     const queueDelayMs = detectedAt ? Math.max(0, Date.now() - detectedAt) : null;
                     if (queueDelayMs !== null && queueDelayMs > 500) {
@@ -60,12 +66,14 @@ function processQueue(): void {
                         });
                     }
 
-                    await markCopyTradeTxState(task.chainId, task.swap.txHash || 'nohash', 'executing', {
+                    // Fire-and-forget: don't await state marking on the critical path
+                    markCopyTradeTxState(task.chainId, task.swap.txHash || 'nohash', 'executing', {
                         wallet: task.targetWallet
                     }).catch(() => { });
                     await handleSwapDetected(task.targetWallet, task.swap, task.chainId, { detectedAt });
-                    await cacheSet(doneKey, '1', COPYTRADE_TASK_DEDUP_TTL_SECONDS).catch(() => { });
-                    await markCopyTradeTxState(task.chainId, task.swap.txHash || 'nohash', 'executed', {
+                    // Post-execution bookkeeping: fire-and-forget
+                    cacheSet(doneKey, '1', COPYTRADE_TASK_DEDUP_TTL_SECONDS).catch(() => { });
+                    markCopyTradeTxState(task.chainId, task.swap.txHash || 'nohash', 'executed', {
                         wallet: task.targetWallet
                     }).catch(() => { });
                 } finally {

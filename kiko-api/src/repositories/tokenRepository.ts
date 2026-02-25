@@ -270,6 +270,7 @@ function pickCreatorAddressFromLaunchpadCache(raw: string): string | undefined {
       data.devAddress,
       data.owner,
       data.ownerAddress,
+      data.status?.owner,
       data.deployer,
       data.deployerAddress,
       data.creatorProfile?.address,
@@ -312,6 +313,9 @@ function pickCreatorMetaFromLaunchpadCache(raw: string): { creatorAddress?: stri
       data.creator_url,
       data.profileUrl,
       data.profile_url,
+      socials.website,
+      socials.telegram,
+      socials.discord,
       socials.x,
       socials.twitter,
       socials.TWITTER,
@@ -402,6 +406,7 @@ function normalizeLaunchpadTag(value?: string | null): string | undefined {
   if (v === 'pumpfun') return 'pump.fun';
   if (v === 'bonkfun') return 'bonk.fun';
   if (v === 'fourmeme') return 'four.meme';
+  if (v === 'flaunch.gg') return 'flaunch';
   if (v === 'doppler finance' || v === 'dopplerfinance') return 'doppler';
   return v;
 }
@@ -844,11 +849,14 @@ export async function getTrendingTokens(
 
     const canReadLaunchpad = await hasTrendingLaunchpadColumn();
     const canReadCreator = await hasTrendingCreatorColumns();
+    // Avoid warming memory cache with a truncated slice (e.g. first request limit=50,
+    // later requests limit=100 would otherwise stay capped at 50 until next refresh).
+    const fetchLimit = Math.max(limit, 120);
     const result = (!cached || cached.length === 0)
       ? await prisma.trendingToken.findMany({
       where: { chain },
       orderBy: { rank: 'asc' },
-      take: limit,
+      take: fetchLimit,
       select: {
         address: true,
         name: true,
@@ -1076,7 +1084,7 @@ export async function getTrendingTokens(
       );
     }
 
-    return listedTokens;
+    return listedTokens.slice(0, limit);
   } catch (error) {
     if (isMissingLaunchpadColumnError(error)) {
       trendingLaunchpadColumnCache = { checkedAt: Date.now(), exists: false };

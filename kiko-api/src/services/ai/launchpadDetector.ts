@@ -40,7 +40,7 @@ async function checkLaunchpadAuth(mintAddress: string): Promise<boolean> {
 }
 
 export interface LaunchpadResult {
-    provider: 'zora' | 'fourmeme' | 'flap' | 'pumpfun' | 'pumpswap' | 'bonkfun' | 'virtuals' | 'clanker' | 'paragraph' | 'doppler';
+    provider: 'zora' | 'fourmeme' | 'flap' | 'pumpfun' | 'pumpswap' | 'bonkfun' | 'virtuals' | 'clanker' | 'paragraph' | 'doppler' | 'flaunch';
     data: any;
     chainId: number;
 }
@@ -81,6 +81,7 @@ const PUMPFUN_FRONTEND_BASES = (process.env.PUMPFUN_FRONTEND_BASES
         'https://frontend-api-v2.pump.fun',
         'https://frontend-api.pump.fun',
     ]);
+const FLAUNCH_API_BASE_URL = (process.env.FLAUNCH_API_BASE_URL || 'https://dev-api.flayerlabs.xyz').replace(/\/+$/, '');
 const DOPPLER_INDEXER_BASES = (process.env.DOPPLER_INDEXER_BASES
     ? process.env.DOPPLER_INDEXER_BASES.split(',').map((v) => v.trim()).filter(Boolean)
     : [
@@ -189,7 +190,8 @@ function isLaunchpadProvider(value: unknown): value is LaunchpadResult['provider
         || value === 'virtuals'
         || value === 'clanker'
         || value === 'paragraph'
-        || value === 'doppler';
+        || value === 'doppler'
+        || value === 'flaunch';
 }
 
 function buildDopplerHeaders(): Record<string, string> {
@@ -429,16 +431,20 @@ function hasAnyRelevantBackoff(address: string, chainId?: number): boolean {
     }
     if (!isEVM) return false;
     const basePlatforms = (chainId === 8453 || !chainId);
+    const clankerPlatforms = (chainId === 8453 || chainId === 1 || !chainId);
     const bscPlatforms = (chainId === 56 || !chainId);
     if (basePlatforms) {
         if (isProviderBackoffActive('zora')
             || isProviderBackoffActive('virtuals')
             || isProviderBackoffActive('paragraph')
             || isProviderBackoffActive('doppler')
-            || isProviderBackoffActive('clanker')
+            || isProviderBackoffActive('flaunch')
             || isProviderBackoffActive('flap')) {
             return true;
         }
+    }
+    if (clankerPlatforms && isProviderBackoffActive('clanker')) {
+        return true;
     }
     if (bscPlatforms && isProviderBackoffActive('fourmeme')) {
         return true;
@@ -480,6 +486,89 @@ async function getParagraphToken(address: string): Promise<any | null> {
             address,
             error: error?.message?.slice(0, 120)
         });
+        return null;
+    }
+}
+
+async function getFlaunchToken(address: string, includeDetails = true): Promise<any | null> {
+    try {
+        if (isProviderBackoffActive('flaunch')) return null;
+        const lower = address.toLowerCase();
+        const cachedPayload = await readRawLaunchpadCache<any>('flaunch', lower, 8453);
+        if (cachedPayload) {
+            const tokenAddress = normalizeEvmAddress(
+                cachedPayload?.tokenAddress
+                || cachedPayload?.address
+                || cachedPayload?.contract_address
+                || cachedPayload?.contractAddress
+            );
+            if (tokenAddress === lower) {
+                markProviderHealthy('flaunch');
+                return {
+                    ...cachedPayload,
+                    source: 'flaunch_api_cache',
+                    imageUrl: cachedPayload?.image || cachedPayload?.imageUrl || undefined,
+                    creatorAddress: normalizeEvmAddress(
+                        cachedPayload?.ownerAddress
+                        || cachedPayload?.owner
+                        || cachedPayload?.status?.owner
+                        || cachedPayload?.creatorAddress
+                        || cachedPayload?.creator
+                    ) || undefined,
+                };
+            }
+        }
+
+        const token = await fetchJson<any>({
+            url: `${FLAUNCH_API_BASE_URL}/v1/base/tokens/${encodeURIComponent(address)}`,
+            timeout: 2800,
+            suppressError: true,
+        });
+        const tokenAddress = normalizeEvmAddress(
+            token?.tokenAddress
+            || token?.address
+            || token?.contract_address
+            || token?.contractAddress
+        );
+        if (!tokenAddress || tokenAddress !== lower) {
+            markProviderHealthy('flaunch');
+            return null;
+        }
+
+        let details: any = null;
+        if (includeDetails) {
+            try {
+                details = await fetchJson<any>({
+                    url: `${FLAUNCH_API_BASE_URL}/v1/base/tokens/${encodeURIComponent(address)}/details`,
+                    timeout: 2800,
+                    suppressError: true,
+                });
+            } catch {
+                // best-effort details only
+            }
+        }
+
+        const creatorAddress = normalizeEvmAddress(
+            details?.status?.owner
+            || token?.ownerAddress
+            || token?.owner
+            || token?.creatorAddress
+        ) || undefined;
+
+        const payload = {
+            ...token,
+            details: details || undefined,
+            source: 'flaunch_api',
+            imageUrl: token?.image || token?.imageUrl || undefined,
+            creatorAddress,
+        };
+        await writeRawLaunchpadCache('flaunch', lower, 8453, payload);
+        markProviderHealthy('flaunch');
+        return payload;
+    } catch (error: any) {
+        if (isRateLimitedError(error)) {
+            markProviderRateLimited('flaunch');
+        }
         return null;
     }
 }
@@ -613,12 +702,19 @@ async function getZoraAddressIndex(): Promise<Set<string>> {
     return zoraAddressIndexInflight;
 }
 
-async function getClankerToken(address: string): Promise<any | null> {
+function resolveClankerChainId(payload: any, fallbackChainId?: number): number {
+    const parsed = Number(payload?.chain_id || payload?.chainId || fallbackChainId || 8453);
+    if (parsed === 1 || parsed === 8453) return parsed;
+    return fallbackChainId === 1 ? 1 : 8453;
+}
+
+async function getClankerToken(address: string, chainId?: number): Promise<any | null> {
     try {
         if (isProviderBackoffActive('clanker')) return null;
         const lower = address.toLowerCase();
+        const cacheChainId = chainId === 1 ? 1 : 8453;
 
-        const cachedPayload = await readRawLaunchpadCache<any>('clanker', lower, 8453);
+        const cachedPayload = await readRawLaunchpadCache<any>('clanker', lower, cacheChainId);
         if (cachedPayload) {
             const tokenAddress = normalizeEvmAddress(
                 cachedPayload?.contract_address
@@ -666,6 +762,7 @@ async function getClankerToken(address: string): Promise<any | null> {
                 return {
                     ...cachedPayload,
                     source: 'clanker_api_cache',
+                    chain_id: resolveClankerChainId(cachedPayload, cacheChainId),
                     creatorAddress: cachedPayload?.msg_sender || cachedPayload?.creator || undefined,
                     creatorUrl,
                     creatorLabel,
@@ -704,7 +801,8 @@ async function getClankerToken(address: string): Promise<any | null> {
             || (payload as any)?.clanker?.address
         );
         if (tokenAddress && tokenAddress === address.toLowerCase()) {
-            await writeRawLaunchpadCache('clanker', lower, 8453, payload);
+            const resolvedChainId = resolveClankerChainId(payload, cacheChainId);
+            await writeRawLaunchpadCache('clanker', lower, resolvedChainId, payload);
             markProviderHealthy('clanker');
             const requestorFid = Number((payload as any)?.requestor_fid || (payload as any)?.requestorFid || 0);
             const socialContext = (payload as any)?.social_context || {};
@@ -746,6 +844,7 @@ async function getClankerToken(address: string): Promise<any | null> {
             return {
                 ...(payload as any),
                 source: 'clanker_api',
+                chain_id: resolvedChainId,
                 creatorAddress: (payload as any)?.msg_sender || (payload as any)?.creator || undefined,
                 creatorUrl,
                 creatorLabel,
@@ -1642,6 +1741,7 @@ async function handleDetection(
   if (isEVM) {
         // Parallel checks for all EVM platforms
         const basePlatforms = (chainId === 8453 || !chainId);
+        const clankerPlatforms = (chainId === 8453 || chainId === 1 || !chainId);
         const bscPlatforms = (chainId === 56 || !chainId);
 
         // Fast suffix rules (no API call needed)
@@ -1711,12 +1811,16 @@ async function handleDetection(
         }
 
         // Clanker must take precedence for b07 addresses to avoid Zora over-labeling.
-        if (basePlatforms && lowerAddress.endsWith(CLANKER_SUFFIX)) {
+        if (clankerPlatforms && lowerAddress.endsWith(CLANKER_SUFFIX)) {
             if (!cheapMode) {
                 try {
-                    const clankerResult = await getClankerToken(address);
+                    const clankerResult = await getClankerToken(address, chainId);
                     if (clankerResult) {
-                        const result: LaunchpadResult = { provider: 'clanker', data: clankerResult, chainId: 8453 };
+                        const result: LaunchpadResult = {
+                            provider: 'clanker',
+                            data: clankerResult,
+                            chainId: resolveClankerChainId(clankerResult, chainId),
+                        };
                         DETECTION_CACHE.set(cacheKey, { result, expiry: Date.now() + CACHE_TTL });
                         return result;
                     }
@@ -1758,10 +1862,11 @@ async function handleDetection(
             }
 
             if (!options.requireCreator) {
+                const inferredChainId = chainId === 1 ? 1 : 8453;
                 const result: LaunchpadResult = {
                     provider: 'clanker',
                     data: { address, source: 'suffix_fallback' },
-                    chainId: 8453
+                    chainId: inferredChainId
                 };
                 DETECTION_CACHE.set(cacheKey, { result, expiry: Date.now() + CACHE_TTL });
                 return result;
@@ -1784,7 +1889,21 @@ async function handleDetection(
             return null;
         }
 
-        // Priority 0 (Base only): Virtuals fast-path.
+        // Priority 0 (Base only): Flaunch fast-path.
+        // Run before longer sequential checks to avoid global timeout for clear flaunch tokens.
+        if (basePlatforms && !isProviderBackoffActive('flaunch')) {
+            const flaunchFast = await Promise.race([
+                getFlaunchToken(address, false).catch(() => null),
+                new Promise<null>((resolve) => setTimeout(() => resolve(null), 1800)),
+            ]);
+            if (flaunchFast) {
+                const result: LaunchpadResult = { provider: 'flaunch', data: flaunchFast, chainId: 8453 };
+                DETECTION_CACHE.set(cacheKey, { result, expiry: Date.now() + CACHE_TTL });
+                return result;
+            }
+        }
+
+        // Priority 0.1 (Base only): Virtuals fast-path.
         // Virtuals API can return exact tokenAddress/migrateTokenAddress matches quickly,
         // and prevents false "Ask AI" when slower providers consume the global timeout budget.
         if (basePlatforms && !isProviderBackoffActive('virtuals')) {
@@ -1856,12 +1975,13 @@ async function handleDetection(
                     new Promise<null>((resolve) => setTimeout(() => resolve(null), ms)),
                 ]);
             };
-            const [virtualsResult, dopplerResult, paragraphResult, clankerResult, dopplerByHook] = await Promise.all([
+            const [virtualsResult, dopplerResult, paragraphResult, flaunchResult, clankerResult, dopplerByHook] = await Promise.all([
                 withProviderTimeout(getVirtualsToken(address, options.mode || 'full').catch(() => null)),
                 withProviderTimeout(getDopplerToken(address, 8453).catch(() => null)),
                 withProviderTimeout(getParagraphToken(address).catch(() => null)),
-                (!lowerAddress.endsWith(CLANKER_SUFFIX) && !isProviderBackoffActive('clanker'))
-                    ? withProviderTimeout(getClankerToken(address).catch(() => null))
+                withProviderTimeout(getFlaunchToken(address, false).catch(() => null)),
+                (clankerPlatforms && !lowerAddress.endsWith(CLANKER_SUFFIX) && !isProviderBackoffActive('clanker'))
+                    ? withProviderTimeout(getClankerToken(address, chainId).catch(() => null))
                     : Promise.resolve(null),
                 allowDopplerHookFallback
                     ? withProviderTimeout(getDopplerTokenByV4Hook(address, 8453).catch(() => null))
@@ -1878,8 +1998,17 @@ async function handleDetection(
                 DETECTION_CACHE.set(cacheKey, { result, expiry: Date.now() + CACHE_TTL });
                 return result;
             }
+            if (flaunchResult) {
+                const result: LaunchpadResult = { provider: 'flaunch', data: flaunchResult, chainId: 8453 };
+                DETECTION_CACHE.set(cacheKey, { result, expiry: Date.now() + CACHE_TTL });
+                return result;
+            }
             if (clankerResult) {
-                const result: LaunchpadResult = { provider: 'clanker', data: clankerResult, chainId: 8453 };
+                const result: LaunchpadResult = {
+                    provider: 'clanker',
+                    data: clankerResult,
+                    chainId: resolveClankerChainId(clankerResult, chainId),
+                };
                 DETECTION_CACHE.set(cacheKey, { result, expiry: Date.now() + CACHE_TTL });
                 return result;
             }

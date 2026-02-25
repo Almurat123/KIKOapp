@@ -29,11 +29,12 @@ export interface ClankerResponse {
     total: number;
 }
 
-export async function getClankerToken(address: string): Promise<ClankerToken | null> {
+export async function getClankerToken(address: string, chainId?: number): Promise<ClankerToken | null> {
     try {
         // Use the backend launchpad detection endpoint which has robust logic
         // This replaces the old /clanker-api proxy which was unreliable
-        const response = await fetch(`/api/tokens/launchpad/detect?address=${address}&chainId=8453`);
+        const cid = Number.isFinite(Number(chainId)) ? Number(chainId) : 8453;
+        const response = await fetch(`/api/tokens/launchpad/detect?address=${address}&chainId=${cid}`);
 
         if (!response.ok) {
             // Silently fail for 404s (not found) to avoid console noise

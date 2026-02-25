@@ -128,7 +128,7 @@ export interface MainSwapRequest {
   };
 
   // Launchpad-specific
-  launchpadProvider?: 'pumpfun' | 'pumpswap' | 'bonkfun' | 'zora' | 'fourmeme' | 'flap' | 'clanker' | 'virtuals' | 'doppler';
+  launchpadProvider?: 'pumpfun' | 'pumpswap' | 'bonkfun' | 'zora' | 'fourmeme' | 'flap' | 'clanker' | 'virtuals' | 'doppler' | 'flaunch';
 
   // Copytrade execution hint from target wallet decoded tx
   directSwapHint?: DirectSwapHint;
@@ -179,7 +179,7 @@ export interface MainSwapResult {
  * Launchpad token detection result
  */
 interface LaunchpadDetection {
-  provider: 'pumpfun' | 'pumpswap' | 'bonkfun' | 'zora' | 'fourmeme' | 'flap' | 'clanker' | 'virtuals' | 'doppler';
+  provider: 'pumpfun' | 'pumpswap' | 'bonkfun' | 'zora' | 'fourmeme' | 'flap' | 'clanker' | 'virtuals' | 'doppler' | 'flaunch';
   data: any;
   chainId: number;
 }
@@ -402,7 +402,8 @@ export class MainSwapService {
             launchpadDetection &&
             launchpadDetection.provider !== 'clanker' &&
             launchpadDetection.provider !== 'flap' &&
-            launchpadDetection.provider !== 'doppler'
+            launchpadDetection.provider !== 'doppler' &&
+            launchpadDetection.provider !== 'flaunch'
           ) {
             // Use launchpad routing for non-Clanker tokens only
             logger.info(LogCode.SYS_INFO, trace(`Launchpad detected: ${launchpadDetection.provider}`), {
@@ -413,7 +414,8 @@ export class MainSwapService {
           } else if (
             launchpadDetection?.provider === 'clanker' ||
             launchpadDetection?.provider === 'flap' ||
-            launchpadDetection?.provider === 'doppler'
+            launchpadDetection?.provider === 'doppler' ||
+            launchpadDetection?.provider === 'flaunch'
           ) {
             // These platforms are currently detected-only and route through standard DEX path.
             logger.info(LogCode.SYS_INFO, trace(`${launchpadDetection.provider} token detected - routing to standard DEX (0x/Kyber)`));

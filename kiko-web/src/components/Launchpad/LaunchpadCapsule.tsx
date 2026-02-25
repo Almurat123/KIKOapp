@@ -54,6 +54,7 @@ export const LaunchpadCapsule: React.FC<LaunchpadCapsuleProps> = ({
 
         // Four.meme
         if (provider === 'four.meme') return `https://four.meme/token/${address}`;
+        if (provider === 'flaunch') return `https://www.flaunch.gg/`;
         if (provider === 'flap') return `https://flap.sh/board`;
         if (provider === 'doppler') {
             const chainRoute = String(chain || '').toLowerCase() === 'base' || String(chain || '') === '8453' ? 'base' : String(chain || '').toLowerCase();
@@ -83,6 +84,7 @@ export const LaunchpadCapsule: React.FC<LaunchpadCapsuleProps> = ({
     const providerKey = detectedLaunchpad.toLowerCase().replace('.', ''); // e.g. pumpfun
     const logo = LAUNCHPAD_LOGOS[detectedLaunchpad.toLowerCase()] || (resolvedTheme === 'dark' ? kikoLogoDark : kikoLogoLight);
     const displayName = getLaunchpadDisplayName(detectedLaunchpad.toLowerCase());
+    const logoClassName = `${styles.logo} ${providerKey === 'flaunch' ? `${styles.logoNoCrop} ${styles.logoFlaunch}` : ''}`;
 
     return (
         <a
@@ -92,7 +94,7 @@ export const LaunchpadCapsule: React.FC<LaunchpadCapsuleProps> = ({
             className={`${styles.capsule} ${styles[providerKey] || ''}`}
             onClick={(e) => e.stopPropagation()}
         >
-            <img src={logo} alt={displayName} className={styles.logo} />
+            <img src={logo} alt={displayName} className={logoClassName} />
             <span className={styles.name}>{displayName}</span>
         </a>
     );
