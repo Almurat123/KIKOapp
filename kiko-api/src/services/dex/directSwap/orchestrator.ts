@@ -14,30 +14,25 @@ import { ethers } from 'ethers';
 import { logger } from '../../../utils/logger.js';
 import { LogCode } from '../../../config/logRegistry.js';
 import { findTokenPools, PoolInfo } from '../poolInfo.js';
-import { calculatePriceFromSqrtX96, findV4Pools, V4PoolInfo, V4PoolKey, matchV4PoolKeyById } from '../uniswapV4.js';
+import { findV4Pools, V4PoolInfo, matchV4PoolKeyById } from '../uniswapV4.js';
 import { isV4SwapSupported } from '../uniswapV4Swap.js';
 import { calculateV3TVL } from '../v3Math.js';
-import { callRpc as callRpcBase, callRpcRaw as callRpcRawBase } from '../../rpcManager.js';
+import { callRpc as callRpcBase } from '../../rpcManager.js';
 import { sendTransaction, sendTransactionLifecycle } from '../../privyWallet.js';
-import { getZeroExPrice } from '../../zeroEx.js';
-import { getKyberQuote } from '../../kyberAggregator.js';
 import { getTokenDetails } from '../../geckoTerminal.js';
 import { getNativeTokenPriceUsd } from '../../onChainPriceService.js';
 import { getTokenMetadata } from '../../rpcService.js';
-import { get as getDbCache } from '../../../cache/dbCache.js';
-import { get as cacheGet, set as cacheSet, del as cacheDel } from '../../../cache/cacheClient.js';
+import { del as cacheDel } from '../../../cache/cacheClient.js';
 import { V2_ROUTER_ABI, V3_FEE_TIERS } from '../types.js';
-import { buildAerodromeSwapTransaction, getAerodromeQuote } from '../aerodrome.js';
+import { buildAerodromeSwapTransaction } from '../aerodrome.js';
 import { getChainConfig } from '../../../config/chainConfig.js';
 import { buildV4HookDataCandidates, isClankerHook, resolveV4HookProfile } from '../v4Hooks.js';
-import { extractRevertReason } from '../../../utils/evm.js';
 import { SelectedV4Pool } from '../v4ExecutionPlan.js';
 import { zoraService } from '../../zoraService.js';
 import {
-    resolveHintedPoolFromSwapSupply as resolveHintedPoolFromSourceTx,
-    resolveHintedV4PoolFromSwapSupply as resolveHintedV4PoolFromSourceTx
+    resolveHintedPoolFromSwapSupply as resolveHintedPoolFromSourceTx
 } from './supplyParser.js';
-import type { DexFamily, StrategyKind, DexStrategy, HintedSourcePool, DirectSwapHint } from '../directSwapTypes.js';
+import type { DexFamily, DexStrategy, HintedSourcePool, DirectSwapHint } from '../directSwapTypes.js';
 import type {
     DirectSwapExecutionMode,
     DirectSwapResult,
@@ -46,21 +41,10 @@ import type {
     ReferenceQuoteDiagnostics,
     TokenLiquidity
 } from './types.js';
-import {
-    CHAIN_STRATEGIES,
-    DIRECT_SWAP_SUPPORTED_CHAINS,
-    DOPPLER_LENS_QUOTER_ADDRESSES,
-    UNISWAP_V4_POOL_MANAGER_BY_CHAIN,
-    V4_QUOTER_ADDRESSES
-} from './constants.js';
+import { CHAIN_STRATEGIES } from './constants.js';
 import { deriveHintStrategy, mergeStrategies } from './hint.js';
 import { pickBestPoolByLiveSnapshot } from './onchainPoolSnapshot.js';
 import { summarizePools } from './poolDiscovery.js';
-import {
-    buildReferenceQuoteCacheKey,
-    buildSharedExternalReferenceQuoteCacheKey,
-    pickBestReferenceQuote
-} from './referenceQuote.js';
 import {
     computeTurboDeadline,
     isTurboBudgetExceeded,
@@ -78,22 +62,54 @@ import {
     isFreshNoPoolCache as isFreshNoPoolCacheFromCache,
     setNoPoolCache as setNoPoolCacheInCache,
     clearNoPoolCache as clearNoPoolCacheInCache,
-    getSharedExternalReferenceQuote,
-    setSharedExternalReferenceQuote,
-    referenceQuoteCache,
-    referenceQuoteRedisKey,
-    sharedExternalReferenceQuoteInflight,
     v4GasCacheKey,
-    v4QuoterCache,
-    v4QuoterRedisKey,
-    v4SpotCache,
-    v4SpotRedisKey,
-    withInflightSingleflight
 } from './cache.js';
 import { executeV2Swap as executeV2SwapExecutor } from './executors/v2.js';
 import { executeV3Swap as executeV3SwapExecutor } from './executors/v3.js';
 import { executeV4Swap as executeV4SwapExecutor } from './executors/v4.js';
 import { executeInfinitySwap as executeInfinitySwapExecutor } from './executors/infinity.js';
+import {
+    evaluateBuyLiquidityProtection,
+    evaluateResolvedHintFastPathLiquidityGateFromPools,
+    evaluateSourceAnchorQuote,
+    poolPassesRequiredReserve,
+    resolveSourceAnchorExpectation
+} from './domain/guards.js';
+import type { HintLiquidityGateResult } from './domain/guards.js';
+import {
+    buildTurboRescueOrder,
+    buildTurboSinglePoolAttemptPlan,
+    capTurboRescueCandidatePools,
+    isLikelyAerodromeHintTrustworthy
+} from './domain/candidatePlan.js';
+import type { TurboRescueInternalStrategyKind } from './domain/candidatePlan.js';
+import { parseAmountInWeiByToken } from './domain/amount.js';
+import {
+    classifyFailure,
+    isTransientRpcFailureForPreSim,
+    shouldSkipResolvedHintRetry,
+    summarizeRpcError
+} from './domain/failure.js';
+import { isSameHintPair, normalizePairTokenForHint } from './domain/hintPair.js';
+import {
+    createZoraQuoteWithRetry,
+    executeV3VirtualBridgeSwap,
+    executeZoraSdkSwap,
+    get0xExpectedOutput,
+    getZoraSdkExpectedOutput,
+    isDirectSwapSupported
+} from './application/extraExecutors.js';
+import {
+    callV4QuoterExactOut,
+    getAerodromeExpectedOutput,
+    getInfinityBestQuoteOut,
+    getReferenceExpectedOutput,
+    getV2ExpectedOutput,
+    getV3BestQuoteOut,
+    getV3BridgeQuoteOut,
+    getV4BestPoolQuote,
+    type InfinityBestQuote
+} from './application/quoteEngines.js';
 
 // 常用代币地址
 const WETH_ADDRESSES: Record<number, string> = {
@@ -169,15 +185,7 @@ const INFINITY_BIN_STEPS = [1, 5, 10, 20, 25, 50, 100] as const;
 const INFINITY_HOOKS_ZERO = '0x0000000000000000000000000000000000000000';
 
 const REFERENCE_DEVIATION_BPS = Number(process.env.DIRECT_SWAP_REF_DEVIATION_BPS || '1500');
-const V4_SPOT_CACHE_TTL_MS = Number(process.env.V4_SPOT_CACHE_TTL_MS || '15000');
-const V4_QUOTER_CACHE_TTL_MS = Number(process.env.V4_QUOTER_CACHE_TTL_MS || '10000');
-const V4_QUOTER_TIMEOUT_MS = Number(process.env.V4_QUOTER_TIMEOUT_MS || '1200');
-const REFERENCE_QUOTE_TTL_MS = Number(process.env.DIRECT_SWAP_REF_CACHE_TTL_MS || '10000');
-const REFERENCE_QUOTE_TIMEOUT_MS = Number(process.env.DIRECT_SWAP_REF_TIMEOUT_MS || '2000');
-const REFERENCE_SHARED_EXTERNAL_TTL_MS = Number(process.env.DIRECT_SWAP_REF_SHARED_TTL_MS || String(REFERENCE_QUOTE_TTL_MS));
-const REFERENCE_SHARED_EXTERNAL_NEGATIVE_TTL_MS = Number(process.env.DIRECT_SWAP_REF_SHARED_NEGATIVE_TTL_MS || '1500');
 const ZORA_QUOTE_TIMEOUT_MS = Number(process.env.DIRECT_SWAP_ZORA_TIMEOUT_MS || '5000');
-const ZORA_REFERENCE_TIMEOUT_MS = Number(process.env.DIRECT_SWAP_ZORA_REFERENCE_TIMEOUT_MS || '500');
 const DIRECT_SWAP_HINT_POOL_TIMEOUT_MS = Number(process.env.DIRECT_SWAP_HINT_POOL_TIMEOUT_MS || '1400');
 const DIRECT_SWAP_FASTPATH_BUDGET_MS = Number(process.env.DIRECT_SWAP_FASTPATH_BUDGET_MS || '3500');
 const DIRECT_SWAP_TURBO_V4_GAS_LIMIT = process.env.DIRECT_SWAP_TURBO_V4_GAS_LIMIT || '950000';
@@ -185,12 +193,10 @@ const DIRECT_SWAP_TURBO_V3_GAS_LIMIT = process.env.DIRECT_SWAP_TURBO_V3_GAS_LIMI
 const V4_FAST_PATH = (process.env.DIRECT_SWAP_V4_FAST_PATH || 'true') === 'true';
 const NO_POOL_CACHE_TTL_MS = Number(process.env.DIRECT_SWAP_NO_POOL_CACHE_TTL_MS || '15000');
 const ZORA_RETRY_COUNT = Number(process.env.DIRECT_SWAP_ZORA_RETRY_COUNT || '1');
-const ZORA_ROUTABLE_CACHE_TTL_MS = Number(process.env.DIRECT_SWAP_ZORA_ROUTABLE_CACHE_TTL_MS || '60000');
 const WINNING_ROUTE_CACHE_TTL_MS = Number(process.env.DIRECT_SWAP_WINNING_ROUTE_CACHE_TTL_MS || '600');
 const DIRECT_SWAP_TURBO_BUDGET_WARN_MS = Number(process.env.DIRECT_SWAP_TURBO_BUDGET_WARN_MS || '2000');
 const DIRECT_SWAP_GAS_CACHE_TTL_MS = Number(process.env.DIRECT_SWAP_GAS_CACHE_TTL_MS || '600000');
 const V4_DYNAMIC_FEE_FLAG = 0x800000;
-const TURBO_INFLIGHT_LIQUIDITY_TTL_MS = Number(process.env.DIRECT_SWAP_TURBO_INFLIGHT_LIQUIDITY_TTL_MS || '8000');
 const TURBO_RESCUE_MAX_CANDIDATES_PER_KIND = Number(process.env.DIRECT_SWAP_TURBO_RESCUE_MAX_PER_KIND || '2');
 const TURBO_RESCUE_MAX_TOTAL_CANDIDATES = Number(process.env.DIRECT_SWAP_TURBO_RESCUE_MAX_TOTAL || '6');
 
@@ -207,19 +213,6 @@ async function callRpc<T = any>(
     options: DirectSwapRpcOptions = {}
 ): Promise<T> {
     return callRpcBase<T>(chainIdOrName, method, params, {
-        strategy: options.strategy || 'fast',
-        importance: options.importance || 'critical',
-        exhaustiveFailover: options.exhaustiveFailover ?? true
-    });
-}
-
-async function callRpcRaw<T = any>(
-    chainIdOrName: number | string,
-    method: string,
-    params: any = [],
-    options: DirectSwapRpcOptions = {}
-): Promise<any> {
-    return callRpcRawBase<T>(chainIdOrName, method, params, {
         strategy: options.strategy || 'fast',
         importance: options.importance || 'critical',
         exhaustiveFailover: options.exhaustiveFailover ?? true
@@ -263,11 +256,7 @@ const TURBO_USD_DEPTH_TIERS: Array<{ maxUsd: number; multiplier: number }> = [
     { maxUsd: Number.POSITIVE_INFINITY, multiplier: 15 }
 ];
 const DIRECT_SWAP_BUY_LIQ_MULTIPLIER = Number(process.env.DIRECT_SWAP_BUY_LIQ_MULTIPLIER || '100');
-
-const infinityPairCache = new Map<string, { poolKeys: InfinityPoolKey[]; timestamp: number }>();
-const zoraRoutableTokenCache = new Map<string, { value: boolean; timestamp: number }>();
-const turboInflightUsdReservations = new Map<string, { pairKey: string; usdAmount: number; expiresAt: number }>();
-const turboInflightUsdByPair = new Map<string, number>();
+const COPYTRADE_SOURCE_ANCHOR_MIN_RATIO_BPS = Math.max(1, Number(process.env.COPYTRADE_SOURCE_ANCHOR_MIN_RATIO_BPS || '7000'));
 
 function createDirectSwapTraceId(chainId: number, hint?: DirectSwapHint): string {
     const source = (hint?.sourceTxHash || 'nohint').slice(2, 10);
@@ -352,57 +341,6 @@ async function setCachedSinglePoolWinnerHint(
     );
 }
 
-function summarizeRpcError(err: any): {
-    reason: string | null;
-    code?: string;
-    shortMessage: string;
-    dataPreview?: string;
-} {
-    const message = String(err?.message || err || '');
-    const reasonFromMessage = extractRevertReason(message);
-    const nestedReason = extractRevertReason(err?.error?.message || err?.shortMessage || '');
-    const reason = reasonFromMessage || nestedReason || null;
-    const code = err?.code || err?.error?.code;
-    const errorData = err?.error?.data || err?.data || err?.error?.error?.data;
-    const dataPreview = typeof errorData === 'string'
-        ? errorData.slice(0, 120)
-        : undefined;
-
-    return {
-        reason,
-        code: code ? String(code) : undefined,
-        shortMessage: message.slice(0, 220),
-        dataPreview
-    };
-}
-
-function isTransientRpcFailureForPreSim(errSummary: {
-    reason: string | null;
-    code?: string;
-    shortMessage: string;
-    dataPreview?: string;
-}): boolean {
-    const msg = String(errSummary.shortMessage || '').toLowerCase();
-    const code = String(errSummary.code || '').toLowerCase();
-    const reason = String(errSummary.reason || '').toLowerCase();
-    const data = String(errSummary.dataPreview || '').toLowerCase();
-
-    // If we have an explicit revert reason/data, treat as real revert instead of transport noise.
-    if (reason || (data && data !== '0x')) return false;
-
-    if (msg.includes('all rpc endpoints failed')) return true;
-    if (msg.includes('timeout_')) return true;
-    if (msg.includes('network')) return true;
-    if (msg.includes('fetch failed')) return true;
-    if (msg.includes('missing revert data')) return true;
-    if (msg.includes('socket hang up')) return true;
-    if (code === 'aborterror') return true;
-    if (code === 'ecconnreset') return true;
-    if (code === 'etimedout') return true;
-
-    return false;
-}
-
 async function isFreshNoPoolCache(chainId: number, tokenIn: string, tokenOut: string): Promise<boolean> {
     return await isFreshNoPoolCacheFromCache(chainId, tokenIn, tokenOut, NO_POOL_CACHE_TTL_MS);
 }
@@ -413,46 +351,6 @@ function setNoPoolCache(chainId: number, tokenIn: string, tokenOut: string, reas
 
 function clearNoPoolCache(chainId: number, tokenIn: string, tokenOut: string): void {
     clearNoPoolCacheInCache(chainId, tokenIn, tokenOut);
-}
-
-function isZoraTransientError(error: any): boolean {
-    const msg = String(error?.message || error || '').toLowerCase();
-    return msg.includes('http 500')
-        || msg.includes('"success":"false"')
-        || msg.includes('fetch failed')
-        || msg.includes('timeout');
-}
-
-async function createZoraQuoteWithRetry(payload: any): Promise<any> {
-    let lastErr: any;
-    for (let attempt = 0; attempt <= ZORA_RETRY_COUNT; attempt++) {
-        try {
-            return await zoraService.createTradeCallWithReferrer(payload);
-        } catch (err: any) {
-            lastErr = err;
-            if (!isZoraTransientError(err) || attempt >= ZORA_RETRY_COUNT) break;
-        }
-    }
-    throw lastErr;
-}
-
-function classifyFailure(error: string): string {
-    const lower = String(error || '').toLowerCase();
-    if (!lower) return 'failed_unknown';
-    if (lower.startsWith('failed_')) return lower.split(':')[0];
-    if (lower.includes('turbo_rescue_budget_exhausted')) return 'turbo_rescue_budget_exhausted';
-    if (lower.includes('turbo_rescue_exhausted')) return 'turbo_rescue_exhausted';
-    if (lower.includes('liquidity_guard_reject_all')) return 'liquidity_guard_reject_all';
-    if (lower.includes('v4_pre_sim_revert')) return 'v4_pre_sim_revert';
-    if (lower.includes('v3_pre_sim_revert')) return 'v3_pre_sim_revert';
-    if (lower.includes('v2_pre_sim_revert')) return 'v2_pre_sim_revert';
-    if (lower.includes('http 500') || lower.includes('"success":"false"')) return 'failed_external_quote_down';
-    if (lower.includes('no suitable pool found')) return 'failed_pool_unavailable_hard';
-    if (lower.includes('no valid reference price')) return 'failed_external_quote_down';
-    if (lower.includes('429') || lower.includes('too many requests')) return 'failed_rpc_rate_limited';
-    if (lower.includes('insufficient funds')) return 'failed_insufficient_funds';
-    if (lower.includes('amountin must be > 0')) return 'failed_invalid_amount_in';
-    return `failed_${lower.slice(0, 48).replace(/[^a-z0-9]+/g, '_')}`;
 }
 
 function getTxExecutionProfile(chainId: number): 'default' | 'base-sniper' | 'bsc-sniper' {
@@ -504,56 +402,6 @@ async function withAbortableTimeout<T>(
     }
 }
 
-function trimAmountToDecimals(amount: string, decimals: number): string {
-    const normalized = String(amount || '0').trim();
-    if (!normalized.includes('.')) return normalized;
-    const [intPart, fracPart] = normalized.split('.');
-    if (decimals <= 0) return intPart || '0';
-    return `${intPart || '0'}.${(fracPart || '').slice(0, decimals)}`;
-}
-
-function isLikelyRawWeiAmount(amount: string, decimals: number): boolean {
-    const normalized = String(amount || '').trim();
-    if (!/^\d+$/.test(normalized)) return false;
-    if (normalized === '0') return false;
-    const stripped = normalized.replace(/^0+/, '') || '0';
-    if (stripped === '0') return false;
-    // Heuristic:
-    // - keep normal integer "human units" (e.g. 1, 10, 1000, 1000000 for 6-decimals) unchanged
-    // - treat very long integer strings as already-smallest-unit values (wei-like)
-    const minDigitsForRaw = Math.max(13, Math.max(0, decimals) + 1);
-    return stripped.length >= minDigitsForRaw;
-}
-
-async function parseAmountInWeiByToken(
-    tokenIn: string,
-    amountIn: string,
-    chainId: number
-): Promise<bigint> {
-    const ETH_ADDRESS = '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
-    let decimals = 18;
-    if (tokenIn.toLowerCase() !== ETH_ADDRESS) {
-        try {
-            const meta = await getTokenMetadata(chainId, tokenIn);
-            decimals = Number.isFinite(meta?.decimals) ? meta.decimals : 18;
-        } catch {
-            decimals = 18;
-        }
-    }
-    if (isLikelyRawWeiAmount(amountIn, decimals)) {
-        const raw = BigInt(amountIn);
-        logger.info(LogCode.SYS_INFO, '[DirectSwap] amountIn interpreted as raw wei amount', {
-            chainId,
-            tokenIn: tokenIn.slice(0, 12),
-            amountIn: String(amountIn).slice(0, 32),
-            decimals
-        });
-        return raw;
-    }
-    const safe = trimAmountToDecimals(amountIn, decimals);
-    return ethers.parseUnits(safe, decimals);
-}
-
 // Delegates to the single source of truth for native prices (10-min cache, multi-source fallback)
 async function getNativePriceUsd(chainId: number): Promise<number> {
     return getNativeTokenPriceUsd(chainId).catch(() => 0);
@@ -592,139 +440,6 @@ function isBuySideStableOrNativeIn(chainId: number, tokenIn: string): boolean {
     if (wrappedNative && normalized === wrappedNative) return true;
     return isStableTokenAddress(chainId, normalized);
 }
-
-function resolvePoolInReserve(pool: PoolInfo, tokenIn: string): bigint {
-    const t0 = (pool.token0 || '').toLowerCase();
-    const t1 = (pool.token1 || '').toLowerCase();
-    const inToken = tokenIn.toLowerCase();
-    const reserve0 = BigInt(pool.reserve0 || '0');
-    const reserve1 = BigInt(pool.reserve1 || '0');
-    if (t0 === inToken) return reserve0;
-    if (t1 === inToken) return reserve1;
-    return reserve0 > reserve1 ? reserve0 : reserve1;
-}
-
-function evaluateBuyLiquidityProtection(
-    pools: PoolInfo[],
-    tokenIn: string,
-    amountInWei: bigint,
-    multiplier: number
-): {
-    eligible: boolean;
-    requiredReserveInWei: bigint;
-    checkedPools: number;
-    matchedPools: number;
-    byVersion: { v2: number; v3: number; v4: number; aerodrome: number };
-    sample: Array<{ version: string; pool: string; reserveLike: string; matched: boolean }>;
-} {
-    const requiredReserveInWei = amountInWei * BigInt(Math.max(1, multiplier));
-    const byVersion = { v2: 0, v3: 0, v4: 0, aerodrome: 0 };
-    let checkedPools = 0;
-    let matchedPools = 0;
-    const sample: Array<{ version: string; pool: string; reserveLike: string; matched: boolean }> = [];
-
-    for (const p of pools) {
-        const version = (p.version || '').toLowerCase();
-        if (version === 'v2' || version === 'aerodrome') {
-            const reserveLike = resolvePoolInReserve(p, tokenIn);
-            const matched = reserveLike >= requiredReserveInWei;
-            byVersion[version] += 1;
-            checkedPools += 1;
-            if (matched) matchedPools += 1;
-            if (sample.length < 8) {
-                sample.push({
-                    version,
-                    pool: String(p.poolAddress || '').slice(0, 12),
-                    reserveLike: reserveLike.toString().slice(0, 20),
-                    matched
-                });
-            }
-            continue;
-        }
-        if (version === 'v3' || version === 'v4') {
-            const reserveLike = BigInt(p.liquidity || '0');
-            const matched = reserveLike >= requiredReserveInWei;
-            byVersion[version] += 1;
-            checkedPools += 1;
-            if (matched) matchedPools += 1;
-            if (sample.length < 8) {
-                sample.push({
-                    version,
-                    pool: String(p.poolAddress || '').slice(0, 12),
-                    reserveLike: reserveLike.toString().slice(0, 20),
-                    matched
-                });
-            }
-        }
-    }
-
-    return {
-        eligible: matchedPools > 0,
-        requiredReserveInWei,
-        checkedPools,
-        matchedPools,
-        byVersion,
-        sample
-    };
-}
-
-function poolPassesRequiredReserve(
-    pool: PoolInfo,
-    tokenIn: string,
-    requiredReserveInWei: bigint
-): boolean {
-    const version = String(pool.version || '').toLowerCase();
-    if (version === 'v2' || version === 'aerodrome') {
-        return resolvePoolInReserve(pool, tokenIn) >= requiredReserveInWei;
-    }
-    if (version === 'v3' || version === 'v4') {
-        return BigInt(pool.liquidity || '0') >= requiredReserveInWei;
-    }
-    return false;
-}
-
-function matchesResolvedHintPool(pool: PoolInfo, hint: NonNullable<DirectSwapHint['resolvedPoolHint']>): boolean {
-    const poolVersion = String(pool.version || '').toLowerCase();
-    const poolDex = String(pool.dex || '').toLowerCase();
-    const hintDex = String(hint.dex || '').toLowerCase();
-    const hintKind = String(hint.kind || '').toLowerCase();
-
-    if (hintKind === 'v4' && poolVersion !== 'v4') return false;
-    if (hintKind === 'v3' && poolVersion !== 'v3') return false;
-    if (hintKind === 'v2' && poolVersion !== 'v2') return false;
-    if (hintKind === 'aerodrome' && !(poolVersion === 'aerodrome' || poolDex === 'aerodrome')) return false;
-
-    if (hintDex) {
-        if (hintKind === 'aerodrome') {
-            if (poolDex && poolDex !== hintDex) return false;
-        } else if (poolDex && poolDex !== hintDex) {
-            return false;
-        }
-    }
-
-    if (hint.poolAddress && hintKind !== 'v4' && hintKind !== 'aerodrome') {
-        const expectedPool = String(hint.poolAddress || '').toLowerCase();
-        const actualPool = String(pool.poolAddress || '').toLowerCase();
-        if (/^0x[a-f0-9]{40}$/.test(expectedPool) && /^0x[a-f0-9]{40}$/.test(actualPool) && expectedPool !== actualPool) {
-            return false;
-        }
-    }
-
-    return true;
-}
-
-interface HintLiquidityGateResult {
-    allowed: boolean;
-    reason: string;
-    blockType: 'none' | 'definitive_block' | 'uncertain_block';
-    poolCount: number;
-    matchingPoolCount: number;
-    matchingEligibleCount: number;
-    requiredReserveInWei: string;
-}
-
-type TurboRescueStrategyKind = 'v4' | 'v3' | 'v2';
-type TurboRescueInternalStrategyKind = TurboRescueStrategyKind | 'aerodrome';
 
 interface TurboRescueStepResult {
     selectedKind?: TurboRescueInternalStrategyKind;
@@ -788,45 +503,13 @@ async function evaluateResolvedHintFastPathLiquidityGate(params: {
         };
     }
 
-    const requiredReserveInWei = params.amountInWei * BigInt(Math.max(1, DIRECT_SWAP_BUY_LIQ_MULTIPLIER));
-    const matchingPools = pools.filter((pool) => matchesResolvedHintPool(pool, params.resolvedHint));
-    const matchingEligiblePools = matchingPools.filter((pool) =>
-        poolPassesRequiredReserve(pool, params.tokenIn, requiredReserveInWei)
-    );
-    const hasUnknownDepthConcentratedPool = matchingPools.some((pool) => {
-        const version = String(pool.version || '').toLowerCase();
-        if (version !== 'v3' && version !== 'v4') return false;
-        const liq = BigInt(pool.liquidity || '0');
-        return liq <= 0n;
+    return evaluateResolvedHintFastPathLiquidityGateFromPools({
+        pools,
+        tokenIn: params.tokenIn,
+        amountInWei: params.amountInWei,
+        resolvedHint: params.resolvedHint,
+        multiplier: Math.max(1, DIRECT_SWAP_BUY_LIQ_MULTIPLIER)
     });
-
-    if (matchingPools.length === 0) {
-        return {
-            allowed: false,
-            reason: 'hint_liquidity_gate_no_matching_pools',
-            blockType: 'definitive_block',
-            poolCount: pools.length,
-            matchingPoolCount: 0,
-            matchingEligibleCount: 0,
-            requiredReserveInWei: requiredReserveInWei.toString()
-        };
-    }
-
-    return {
-        allowed: matchingEligiblePools.length > 0,
-        reason: matchingEligiblePools.length > 0
-            ? 'hint_liquidity_gate_pass'
-            : (hasUnknownDepthConcentratedPool
-                ? 'hint_liquidity_gate_unknown_depth_for_concentrated_pool'
-                : 'hint_liquidity_gate_matching_pools_insufficient_depth'),
-        blockType: matchingEligiblePools.length > 0
-            ? 'none'
-            : (hasUnknownDepthConcentratedPool ? 'uncertain_block' : 'definitive_block'),
-        poolCount: pools.length,
-        matchingPoolCount: matchingPools.length,
-        matchingEligibleCount: matchingEligiblePools.length,
-        requiredReserveInWei: requiredReserveInWei.toString()
-    };
 }
 
 function evaluateAerodromeBuySideDepth(
@@ -856,156 +539,6 @@ function evaluateAerodromeBuySideDepth(
         checkedPools: guard.checkedPools,
         matchedPools: guard.matchedPools
     };
-}
-
-function resolvedHintIdentity(hint: ResolvedPoolHint): string {
-    return `${hint.kind}:${String(hint.dex || '').toLowerCase()}:${String(hint.poolAddress || '').toLowerCase()}:${Number(hint.fee || 0)}`;
-}
-
-function buildTurboRescueOrder(chainId: number): TurboRescueInternalStrategyKind[] {
-    if (chainId === 8453) {
-        return ['v4', 'v3', 'v2', 'aerodrome'];
-    }
-    return ['v4', 'v3', 'aerodrome'];
-}
-
-function matchesTurboRescueStrategy(pool: PoolInfo, strategy: TurboRescueInternalStrategyKind): boolean {
-    const version = String(pool.version || '').toLowerCase();
-    const dex = String(pool.dex || '').toLowerCase();
-    if (strategy === 'aerodrome') {
-        return version === 'aerodrome' || dex === 'aerodrome';
-    }
-    return version === strategy;
-}
-
-function capTurboRescueCandidatePools(
-    pools: PoolInfo[],
-    order: TurboRescueInternalStrategyKind[],
-    perKindLimit = TURBO_RESCUE_MAX_CANDIDATES_PER_KIND,
-    totalLimit = TURBO_RESCUE_MAX_TOTAL_CANDIDATES
-): PoolInfo[] {
-    if (pools.length <= totalLimit) return pools;
-    const byKindCount = new Map<TurboRescueInternalStrategyKind, number>();
-    const selected: PoolInfo[] = [];
-    const selectedIds = new Set<string>();
-    const makePoolId = (pool: PoolInfo) =>
-        `${String(pool.version || '')}:${String(pool.dex || '')}:${String(pool.poolAddress || '')}`.toLowerCase();
-    const safePerKindLimit = Math.max(1, perKindLimit);
-    const safeTotalLimit = Math.max(1, totalLimit);
-
-    for (const strategy of order) {
-        for (const pool of pools) {
-            if (!matchesTurboRescueStrategy(pool, strategy)) continue;
-            const poolId = makePoolId(pool);
-            if (selectedIds.has(poolId)) continue;
-            const taken = byKindCount.get(strategy) || 0;
-            if (taken >= safePerKindLimit) continue;
-            selected.push(pool);
-            selectedIds.add(poolId);
-            byKindCount.set(strategy, taken + 1);
-            if (selected.length >= safeTotalLimit) return selected;
-        }
-    }
-
-    for (const pool of pools) {
-        const poolId = makePoolId(pool);
-        if (selectedIds.has(poolId)) continue;
-        selected.push(pool);
-        selectedIds.add(poolId);
-        if (selected.length >= safeTotalLimit) break;
-    }
-    return selected;
-}
-
-function buildTurboSinglePoolAttemptPlan(candidates: ResolvedPoolHint[], chainId: number): ResolvedPoolHint[] {
-    if (candidates.length === 0) return [];
-    const baseOrder: StrategyKind[] = ['v4', 'v3', 'v2', 'aerodrome'];
-    let first = candidates[0];
-    if (chainId === 8453) {
-        const prioritized = baseOrder
-            .map((kind) => candidates.find((candidate) => candidate.kind === kind))
-            .find(Boolean);
-        if (prioritized) first = prioritized;
-    }
-    const attempts: ResolvedPoolHint[] = [first];
-    const used = new Set<string>([resolvedHintIdentity(first)]);
-
-    const preferredSecondKinds: StrategyKind[] = chainId === 8453
-        ? ['v4', 'v3', 'v2', 'aerodrome']
-        : first.kind === 'aerodrome'
-            ? ['v4', 'v3', 'v2']
-            : ['v4', 'v3', 'v2', 'aerodrome'];
-
-    let second: ResolvedPoolHint | undefined;
-    for (const kind of preferredSecondKinds) {
-        second = candidates.find((candidate) => candidate.kind === kind && !used.has(resolvedHintIdentity(candidate)));
-        if (second) break;
-    }
-    if (!second && chainId !== 8453) {
-        second = candidates.find((candidate) => !used.has(resolvedHintIdentity(candidate)));
-    }
-    if (second) attempts.push(second);
-
-    return attempts.slice(0, 2);
-}
-
-function buildTurboPairKey(chainId: number, tokenA: string, tokenB: string): string {
-    const a = tokenA.toLowerCase();
-    const b = tokenB.toLowerCase();
-    const [x, y] = a < b ? [a, b] : [b, a];
-    return `${chainId}:${x}:${y}`;
-}
-
-function isLikelyAerodromeHintTrustworthy(hint?: DirectSwapHint): boolean {
-    if (!hint) return false;
-    const sourceDex = String(hint.sourceDexName || '').toLowerCase();
-    const preferredDex = String(hint.preferredDex || '').toLowerCase();
-    const resolvedDex = String(hint.resolvedPoolHint?.dex || '').toLowerCase();
-    const resolvedKind = String(hint.resolvedPoolHint?.kind || '').toLowerCase();
-    const routeHops = Math.max(Number(hint.routeHopCount || 0), hint.routeHops?.length || 0);
-    if (sourceDex.includes('aero') || sourceDex.includes('aerodrome')) return true;
-    if (preferredDex === 'aerodrome') return true;
-    if ((resolvedDex === 'aerodrome' || resolvedKind === 'aerodrome') && routeHops <= 1) return true;
-    return false;
-}
-
-function cleanupTurboInflightUsdReservations(): void {
-    const now = Date.now();
-    for (const [id, record] of turboInflightUsdReservations.entries()) {
-        if (record.expiresAt > now) continue;
-        turboInflightUsdReservations.delete(id);
-        const next = Math.max(0, (turboInflightUsdByPair.get(record.pairKey) || 0) - record.usdAmount);
-        if (next <= 0) turboInflightUsdByPair.delete(record.pairKey);
-        else turboInflightUsdByPair.set(record.pairKey, next);
-    }
-}
-
-function getTurboInflightUsd(pairKey: string): number {
-    cleanupTurboInflightUsdReservations();
-    return turboInflightUsdByPair.get(pairKey) || 0;
-}
-
-function reserveTurboInflightUsd(pairKey: string, usdAmount: number): string | null {
-    if (!Number.isFinite(usdAmount) || usdAmount <= 0) return null;
-    cleanupTurboInflightUsdReservations();
-    const reservationId = `${pairKey}:${Date.now().toString(36)}:${Math.random().toString(36).slice(2, 10)}`;
-    turboInflightUsdReservations.set(reservationId, {
-        pairKey,
-        usdAmount,
-        expiresAt: Date.now() + TURBO_INFLIGHT_LIQUIDITY_TTL_MS
-    });
-    turboInflightUsdByPair.set(pairKey, (turboInflightUsdByPair.get(pairKey) || 0) + usdAmount);
-    return reservationId;
-}
-
-function releaseTurboInflightUsd(reservationId: string | null): void {
-    if (!reservationId) return;
-    const record = turboInflightUsdReservations.get(reservationId);
-    if (!record) return;
-    turboInflightUsdReservations.delete(reservationId);
-    const next = Math.max(0, (turboInflightUsdByPair.get(record.pairKey) || 0) - record.usdAmount);
-    if (next <= 0) turboInflightUsdByPair.delete(record.pairKey);
-    else turboInflightUsdByPair.set(record.pairKey, next);
 }
 
 async function estimateAmountUsdByToken(
@@ -1197,31 +730,6 @@ async function executeInfinitySwap(
     }, options);
 }
 
-function normalizePairTokenForHint(token: string, chainId: number): string {
-    const normalized = String(token || '').toLowerCase();
-    if (!normalized) return normalized;
-    const nativePseudo = '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
-    if (normalized === nativePseudo) {
-        return (WETH_ADDRESSES[chainId] || nativePseudo).toLowerCase();
-    }
-    return normalized;
-}
-
-function isSameHintPair(
-    tokenA: string,
-    tokenB: string,
-    tokenX: string,
-    tokenY: string,
-    chainId: number
-): boolean {
-    const a = normalizePairTokenForHint(tokenA, chainId);
-    const b = normalizePairTokenForHint(tokenB, chainId);
-    const x = normalizePairTokenForHint(tokenX, chainId);
-    const y = normalizePairTokenForHint(tokenY, chainId);
-    if (!a || !b || !x || !y) return false;
-    return (a === x && b === y) || (a === y && b === x);
-}
-
 async function readPoolPairTokens(chainId: number, poolAddress: string): Promise<{ token0: string; token1: string } | null> {
     if (!poolAddress || !/^0x[a-fA-F0-9]{40}$/.test(poolAddress)) return null;
     try {
@@ -1268,7 +776,7 @@ async function validateResolvedHintAgainstSwapPair(
             params.tokenOut,
             hint.v4PoolKey.currency0,
             hint.v4PoolKey.currency1,
-            params.chainId
+            WETH_ADDRESSES[params.chainId]
         );
         return pairOk
             ? { ok: true }
@@ -1299,7 +807,7 @@ async function validateResolvedHintAgainstSwapPair(
             params.tokenOut,
             poolTokens.token0,
             poolTokens.token1,
-            params.chainId
+            WETH_ADDRESSES[params.chainId]
         );
         return pairOk
             ? { ok: true }
@@ -1319,21 +827,6 @@ async function validateResolvedHintAgainstSwapPair(
     return { ok: false, reason: 'unsupported_hint_shape' };
 }
 
-function shouldSkipResolvedHintRetry(error: string | undefined): boolean {
-    const lower = String(error || '').toLowerCase();
-    if (!lower) return false;
-    const transientRpcFailure =
-        lower.includes('all rpc endpoints failed')
-        || lower.includes('capacity_limited')
-        || lower.includes('circuit_open')
-        || lower.includes('timeout');
-    return (
-        lower.includes('hint_pool_tokens_unavailable')
-        || lower.includes('hint_fastpath_disallowed')
-        || ((lower.includes('pre-sim reverted') || lower.includes('v3_pre_sim_revert') || lower.includes('v4_pre_sim_revert')) && !transientRpcFailure)
-    );
-}
-
 async function tryResolvedPoolHintFastPath(
     params: {
         userId: string;
@@ -1351,6 +844,14 @@ async function tryResolvedPoolHintFastPath(
 ): Promise<DirectSwapResult | null> {
     const resolved = hint?.resolvedPoolHint;
     if (!resolved) return null;
+    const sourceAnchor = resolveSourceAnchorExpectation({
+        hint,
+        tokenIn: params.tokenIn,
+        tokenOut: params.tokenOut,
+        amountInWei: params.amountInWei,
+        wrappedNativeAddress: WETH_ADDRESSES[params.chainId] || '',
+        minAnchorRatioBps: COPYTRADE_SOURCE_ANCHOR_MIN_RATIO_BPS
+    });
 
     const validation = await validateResolvedHintAgainstSwapPair(
         {
@@ -1389,7 +890,7 @@ async function tryResolvedPoolHintFastPath(
             params.tokenOut,
             poolKey.currency0,
             poolKey.currency1,
-            params.chainId
+            WETH_ADDRESSES[params.chainId]
         );
         const isIncomplete = poolKey.hooks === '0x0000000000000000000000000000000000000000'
             && poolKey.tickSpacing <= 0;
@@ -1397,8 +898,8 @@ async function tryResolvedPoolHintFastPath(
             const resolvedKey = matchV4PoolKeyById(
                 params.chainId,
                 resolved.poolAddress,
-                normalizePairTokenForHint(params.tokenIn, params.chainId),
-                normalizePairTokenForHint(params.tokenOut, params.chainId),
+                normalizePairTokenForHint(params.tokenIn, WETH_ADDRESSES[params.chainId]),
+                normalizePairTokenForHint(params.tokenOut, WETH_ADDRESSES[params.chainId]),
                 poolKey.hooks
             );
             if (resolvedKey) {
@@ -1487,6 +988,26 @@ async function tryResolvedPoolHintFastPath(
         if (expectedOut <= 0n) {
             return { success: false, error: 'Resolved V2 pool quote unavailable', provider: 'failed' };
         }
+        if (sourceAnchor) {
+            const anchorCheck = evaluateSourceAnchorQuote(expectedOut, sourceAnchor);
+            logger.info(LogCode.SYS_INFO, '[DirectSwap] Source anchor quote check (resolved fast-path)', {
+                chainId: params.chainId,
+                kind: resolved.kind,
+                sourceTxHash: sourceAnchor.sourceTxHash || null,
+                quotedOut: expectedOut.toString(),
+                expectedOutFromSource: sourceAnchor.expectedOutFromSource.toString(),
+                anchorRatioBps: anchorCheck.ratioBps,
+                minAnchorRatioBps: sourceAnchor.minAnchorRatioBps,
+                anchorAccepted: anchorCheck.accepted
+            });
+            if (!anchorCheck.accepted) {
+                return {
+                    success: false,
+                    error: `source_anchor_guard_reject:v2:${anchorCheck.ratioBps}:${sourceAnchor.minAnchorRatioBps}`,
+                    provider: 'failed'
+                };
+            }
+        }
         return executeV2Swap(params, expectedOut);
     }
 
@@ -1548,7 +1069,6 @@ export async function executeDirectSwap(params: {
     let tExecutionStart = 0;
     let poolCacheTokenIn = normalizedTokenIn;
     let poolCacheTokenOut = normalizedTokenOut;
-    let turboUsdReservationId: string | null = null;
     let selectedResolvedHintForCache: ResolvedPoolHint | null = null;
     const finish = async (result: DirectSwapResult): Promise<DirectSwapResult> => {
         const durationMs = Date.now() - swapStart;
@@ -1630,8 +1150,6 @@ export async function executeDirectSwap(params: {
                 success: result.success
             });
         }
-        releaseTurboInflightUsd(turboUsdReservationId);
-        turboUsdReservationId = null;
         return result;
     };
 
@@ -1658,7 +1176,20 @@ export async function executeDirectSwap(params: {
             return finish({ success: false, error: 'No suitable pool found (cached)', provider: 'failed' });
         }
 
-        const amountInWei = await parseAmountInWeiByToken(normalizedTokenIn, amountIn, chainId);
+        const amountInWei = await parseAmountInWeiByToken({
+            tokenIn: normalizedTokenIn,
+            amountIn,
+            chainId,
+            getTokenMetadata,
+            onRawWeiDetected: ({ decimals }) => {
+                logger.info(LogCode.SYS_INFO, '[DirectSwap] amountIn interpreted as raw wei amount', {
+                    chainId,
+                    tokenIn: normalizedTokenIn.slice(0, 12),
+                    amountIn: String(amountIn).slice(0, 32),
+                    decimals
+                });
+            }
+        });
         if (amountInWei <= 0n) {
             return finish({ success: false, error: 'amountIn must be > 0', provider: 'failed' });
         }
@@ -1875,6 +1406,14 @@ export async function executeDirectSwap(params: {
         if (turboMode) {
             const runTurboRescue = async (reason: string): Promise<DirectSwapResult> => {
                 const rescueOrder = buildTurboRescueOrder(chainId);
+                const sourceAnchor = resolveSourceAnchorExpectation({
+                    hint: params.hint,
+                    tokenIn: normalizedParams.tokenIn,
+                    tokenOut: normalizedParams.tokenOut,
+                    amountInWei,
+                    wrappedNativeAddress: WETH_ADDRESSES[chainId] || '',
+                    minAnchorRatioBps: COPYTRADE_SOURCE_ANCHOR_MIN_RATIO_BPS
+                });
                 const remainingBudgetMs = turboFastDeadline - Date.now();
                 if (remainingBudgetMs <= 80) {
                     logger.warn(LogCode.SYS_INFO, '[DirectSwap] Turbo rescue skipped: budget exhausted', {
@@ -1945,21 +1484,12 @@ export async function executeDirectSwap(params: {
                         return poolPassesRequiredReserve(pool, poolTokenIn, guard.requiredReserveInWei);
                     });
                     if (candidatePools.length === 0) {
-                        const unknownDepthConcentrated = rescuePools.filter((pool) => {
-                            const version = String(pool.version || '').toLowerCase();
-                            if (version !== 'v3' && version !== 'v4') return false;
-                            return BigInt(pool.liquidity || '0') <= 0n;
-                        });
-                        if (unknownDepthConcentrated.length === 0) {
-                            return { success: false, error: `liquidity_guard_reject_all:${reason}`, provider: 'failed' };
-                        }
-                        candidatePools = unknownDepthConcentrated.slice(0, TURBO_RESCUE_MAX_CANDIDATES_PER_KIND);
-                        logger.warn(LogCode.SYS_INFO, '[DirectSwap] Turbo rescue liquidity guard strict miss; using unknown-depth concentrated fallback', {
+                        logger.warn(LogCode.SYS_INFO, '[DirectSwap] Turbo rescue liquidity guard reject-all', {
                             traceId,
                             chainId,
-                            fallbackPools: candidatePools.length,
                             reason
                         });
+                        return { success: false, error: `liquidity_guard_reject_all:${reason}`, provider: 'failed' };
                     }
                 }
 
@@ -2027,30 +1557,58 @@ export async function executeDirectSwap(params: {
                                 v4BudgetMs
                             ).catch(() => ({ pool: null, amountOut: 0n } as { pool: SelectedV4Pool | null; amountOut: bigint }));
                             if (v4Best.pool && v4Best.amountOut > 0n) {
-                                logger.info(LogCode.SYS_INFO, '[DirectSwap] turbo_rescue_step_selected', {
-                                    traceId,
-                                    chainId,
-                                    strategyKind: 'v4',
-                                    selectedKind: 'v4',
-                                    poolId: v4Best.pool.poolAddress,
-                                    amountOut: v4Best.amountOut.toString()
-                                });
-                                const v4Result = await executeV4Swap(normalizedParams, v4Best.pool, {
-                                    fastMode: true,
-                                    executionMode: 'turbo'
-                                });
-                                if (v4Result.success) return v4Result;
-                                lastRescueError = v4Result.error || 'turbo_rescue_v4_failed';
-                                stepOutcome.selectedKind = 'v4';
-                                stepOutcome.success = false;
-                                stepOutcome.error = lastRescueError;
-                                logger.warn(LogCode.SYS_INFO, '[DirectSwap] turbo_rescue_step_failed', {
-                                    traceId,
-                                    chainId,
-                                    strategyKind: 'v4',
-                                    failureCode: classifyFailure(lastRescueError),
-                                    error: lastRescueError
-                                });
+                                let anchorRejected = false;
+                                if (sourceAnchor) {
+                                    const anchorCheck = evaluateSourceAnchorQuote(v4Best.amountOut, sourceAnchor);
+                                    logger.info(LogCode.SYS_INFO, '[DirectSwap] Source anchor quote check (turbo rescue)', {
+                                        traceId,
+                                        chainId,
+                                        strategyKind: 'v4',
+                                        sourceTxHash: sourceAnchor.sourceTxHash || null,
+                                        quotedOut: v4Best.amountOut.toString(),
+                                        expectedOutFromSource: sourceAnchor.expectedOutFromSource.toString(),
+                                        anchorRatioBps: anchorCheck.ratioBps,
+                                        minAnchorRatioBps: sourceAnchor.minAnchorRatioBps,
+                                        anchorAccepted: anchorCheck.accepted
+                                    });
+                                    if (!anchorCheck.accepted) {
+                                        lastRescueError = `source_anchor_guard_reject:v4:${anchorCheck.ratioBps}:${sourceAnchor.minAnchorRatioBps}`;
+                                        anchorRejected = true;
+                                    }
+                                }
+                                if (anchorRejected) {
+                                    logger.warn(LogCode.SYS_INFO, '[DirectSwap] turbo_rescue_step_skipped', {
+                                        traceId,
+                                        chainId,
+                                        strategyKind: 'v4',
+                                        skipReason: 'source_anchor_guard_reject'
+                                    });
+                                } else {
+                                    logger.info(LogCode.SYS_INFO, '[DirectSwap] turbo_rescue_step_selected', {
+                                        traceId,
+                                        chainId,
+                                        strategyKind: 'v4',
+                                        selectedKind: 'v4',
+                                        poolId: v4Best.pool.poolAddress,
+                                        amountOut: v4Best.amountOut.toString()
+                                    });
+                                    const v4Result = await executeV4Swap(normalizedParams, v4Best.pool, {
+                                        fastMode: true,
+                                        executionMode: 'turbo'
+                                    });
+                                    if (v4Result.success) return v4Result;
+                                    lastRescueError = v4Result.error || 'turbo_rescue_v4_failed';
+                                    stepOutcome.selectedKind = 'v4';
+                                    stepOutcome.success = false;
+                                    stepOutcome.error = lastRescueError;
+                                    logger.warn(LogCode.SYS_INFO, '[DirectSwap] turbo_rescue_step_failed', {
+                                        traceId,
+                                        chainId,
+                                        strategyKind: 'v4',
+                                        failureCode: classifyFailure(lastRescueError),
+                                        error: lastRescueError
+                                    });
+                                }
                             }
                         }
                     }
@@ -2075,6 +1633,25 @@ export async function executeDirectSwap(params: {
                         v3QuoteBudgetMs
                     ).catch(() => 0n);
                     if (v3Quote <= 0n) continue;
+                    if (sourceAnchor) {
+                        const anchorCheck = evaluateSourceAnchorQuote(v3Quote, sourceAnchor);
+                        logger.info(LogCode.SYS_INFO, '[DirectSwap] Source anchor quote check (turbo rescue)', {
+                            traceId,
+                            chainId,
+                            strategyKind: 'v3',
+                            dex,
+                            sourceTxHash: sourceAnchor.sourceTxHash || null,
+                            quotedOut: v3Quote.toString(),
+                            expectedOutFromSource: sourceAnchor.expectedOutFromSource.toString(),
+                            anchorRatioBps: anchorCheck.ratioBps,
+                            minAnchorRatioBps: sourceAnchor.minAnchorRatioBps,
+                            anchorAccepted: anchorCheck.accepted
+                        });
+                        if (!anchorCheck.accepted) {
+                            lastRescueError = `source_anchor_guard_reject:v3:${anchorCheck.ratioBps}:${sourceAnchor.minAnchorRatioBps}`;
+                            continue;
+                        }
+                    }
                     logger.info(LogCode.SYS_INFO, '[DirectSwap] turbo_rescue_step_selected', {
                         traceId,
                         chainId,
@@ -2118,27 +1695,55 @@ export async function executeDirectSwap(params: {
                                 v2QuoteBudgetMs
                             ).catch(() => 0n);
                             if (v2Quote > 0n) {
-                                logger.info(LogCode.SYS_INFO, '[DirectSwap] turbo_rescue_step_selected', {
-                                    traceId,
-                                    chainId,
-                                    strategyKind: 'v2',
-                                    selectedKind: 'v2',
-                                    pool: v2Pool.poolAddress,
-                                    amountOut: v2Quote.toString()
-                                });
-                                const v2Result = await executeV2Swap(normalizedParams, v2Quote);
-                                if (v2Result.success) return v2Result;
-                                lastRescueError = v2Result.error || 'turbo_rescue_v2_failed';
-                                stepOutcome.selectedKind = 'v2';
-                                stepOutcome.success = false;
-                                stepOutcome.error = lastRescueError;
-                                logger.warn(LogCode.SYS_INFO, '[DirectSwap] turbo_rescue_step_failed', {
-                                    traceId,
-                                    chainId,
-                                    strategyKind: 'v2',
-                                    failureCode: classifyFailure(lastRescueError),
-                                    error: lastRescueError
-                                });
+                                let anchorRejected = false;
+                                if (sourceAnchor) {
+                                    const anchorCheck = evaluateSourceAnchorQuote(v2Quote, sourceAnchor);
+                                    logger.info(LogCode.SYS_INFO, '[DirectSwap] Source anchor quote check (turbo rescue)', {
+                                        traceId,
+                                        chainId,
+                                        strategyKind: 'v2',
+                                        sourceTxHash: sourceAnchor.sourceTxHash || null,
+                                        quotedOut: v2Quote.toString(),
+                                        expectedOutFromSource: sourceAnchor.expectedOutFromSource.toString(),
+                                        anchorRatioBps: anchorCheck.ratioBps,
+                                        minAnchorRatioBps: sourceAnchor.minAnchorRatioBps,
+                                        anchorAccepted: anchorCheck.accepted
+                                    });
+                                    if (!anchorCheck.accepted) {
+                                        lastRescueError = `source_anchor_guard_reject:v2:${anchorCheck.ratioBps}:${sourceAnchor.minAnchorRatioBps}`;
+                                        anchorRejected = true;
+                                    }
+                                }
+                                if (anchorRejected) {
+                                    logger.warn(LogCode.SYS_INFO, '[DirectSwap] turbo_rescue_step_skipped', {
+                                        traceId,
+                                        chainId,
+                                        strategyKind: 'v2',
+                                        skipReason: 'source_anchor_guard_reject'
+                                    });
+                                } else {
+                                    logger.info(LogCode.SYS_INFO, '[DirectSwap] turbo_rescue_step_selected', {
+                                        traceId,
+                                        chainId,
+                                        strategyKind: 'v2',
+                                        selectedKind: 'v2',
+                                        pool: v2Pool.poolAddress,
+                                        amountOut: v2Quote.toString()
+                                    });
+                                    const v2Result = await executeV2Swap(normalizedParams, v2Quote);
+                                    if (v2Result.success) return v2Result;
+                                    lastRescueError = v2Result.error || 'turbo_rescue_v2_failed';
+                                    stepOutcome.selectedKind = 'v2';
+                                    stepOutcome.success = false;
+                                    stepOutcome.error = lastRescueError;
+                                    logger.warn(LogCode.SYS_INFO, '[DirectSwap] turbo_rescue_step_failed', {
+                                        traceId,
+                                        chainId,
+                                        strategyKind: 'v2',
+                                        failureCode: classifyFailure(lastRescueError),
+                                        error: lastRescueError
+                                    });
+                                }
                             } else {
                                 logger.info(LogCode.SYS_INFO, '[DirectSwap] turbo_rescue_step_skipped', {
                                     traceId,
@@ -2184,20 +1789,48 @@ export async function executeDirectSwap(params: {
                                 aeroQuoteBudgetMs
                             ).catch(() => 0n);
                             if (aeroQuote > 0n) {
-                                logger.info(LogCode.SYS_INFO, '[DirectSwap] turbo_rescue_step_selected', {
-                                    traceId,
-                                    chainId,
-                                    strategyKind: 'aerodrome',
-                                    selectedKind: 'aerodrome',
-                                    pool: aeroPool.poolAddress,
-                                    amountOut: aeroQuote.toString()
-                                });
-                                const aeroResult = await executeAerodromeSwap(normalizedParams);
-                                if (aeroResult.success) return aeroResult;
-                                lastRescueError = aeroResult.error || 'turbo_rescue_aerodrome_failed';
-                                stepOutcome.selectedKind = 'aerodrome';
-                                stepOutcome.success = false;
-                                stepOutcome.error = lastRescueError;
+                                let anchorRejected = false;
+                                if (sourceAnchor) {
+                                    const anchorCheck = evaluateSourceAnchorQuote(aeroQuote, sourceAnchor);
+                                    logger.info(LogCode.SYS_INFO, '[DirectSwap] Source anchor quote check (turbo rescue)', {
+                                        traceId,
+                                        chainId,
+                                        strategyKind: 'aerodrome',
+                                        sourceTxHash: sourceAnchor.sourceTxHash || null,
+                                        quotedOut: aeroQuote.toString(),
+                                        expectedOutFromSource: sourceAnchor.expectedOutFromSource.toString(),
+                                        anchorRatioBps: anchorCheck.ratioBps,
+                                        minAnchorRatioBps: sourceAnchor.minAnchorRatioBps,
+                                        anchorAccepted: anchorCheck.accepted
+                                    });
+                                    if (!anchorCheck.accepted) {
+                                        lastRescueError = `source_anchor_guard_reject:aerodrome:${anchorCheck.ratioBps}:${sourceAnchor.minAnchorRatioBps}`;
+                                        anchorRejected = true;
+                                    }
+                                }
+                                if (anchorRejected) {
+                                    logger.warn(LogCode.SYS_INFO, '[DirectSwap] turbo_rescue_step_skipped', {
+                                        traceId,
+                                        chainId,
+                                        strategyKind: 'aerodrome',
+                                        skipReason: 'source_anchor_guard_reject'
+                                    });
+                                } else {
+                                    logger.info(LogCode.SYS_INFO, '[DirectSwap] turbo_rescue_step_selected', {
+                                        traceId,
+                                        chainId,
+                                        strategyKind: 'aerodrome',
+                                        selectedKind: 'aerodrome',
+                                        pool: aeroPool.poolAddress,
+                                        amountOut: aeroQuote.toString()
+                                    });
+                                    const aeroResult = await executeAerodromeSwap(normalizedParams);
+                                    if (aeroResult.success) return aeroResult;
+                                    lastRescueError = aeroResult.error || 'turbo_rescue_aerodrome_failed';
+                                    stepOutcome.selectedKind = 'aerodrome';
+                                    stepOutcome.success = false;
+                                    stepOutcome.error = lastRescueError;
+                                }
                             } else {
                                 logger.warn(LogCode.SYS_INFO, '[DirectSwap] Turbo rescue Aerodrome quote unavailable', {
                                     traceId,
@@ -2285,6 +1918,74 @@ export async function executeDirectSwap(params: {
                             sourceDex: params.hint?.sourceDexName || null
                         });
                     }
+                }
+            }
+
+            if (isBuySideStableOrNativeIn(chainId, normalizedTokenIn) && turboCandidates.length > 0) {
+                const candidateCountBeforeGate = turboCandidates.length;
+                const gateBudgetMs = Math.max(120, Math.min(DIRECT_SWAP_HINT_POOL_TIMEOUT_MS, turboFastDeadline - Date.now()));
+                let gatePools: PoolInfo[] = [];
+                let gateDiscoveryFailed = false;
+                if (gateBudgetMs <= 80) {
+                    gateDiscoveryFailed = true;
+                } else {
+                    try {
+                        gatePools = await withTimeout(
+                            findTokenPools(poolTokenIn, poolTokenOut, chainId),
+                            gateBudgetMs
+                        );
+                    } catch {
+                        gateDiscoveryFailed = true;
+                    }
+                }
+
+                if (gateDiscoveryFailed || gatePools.length === 0) {
+                    logger.warn(LogCode.SYS_INFO, '[DirectSwap] Turbo candidate liquidity gate unavailable', {
+                        traceId,
+                        chainId,
+                        gateBudgetMs,
+                        gateDiscoveryFailed,
+                        poolCount: gatePools.length
+                    });
+                    turboCandidates = [];
+                } else {
+                    const dropped: Array<Record<string, string | number | null>> = [];
+                    turboCandidates = turboCandidates.filter((candidate) => {
+                        const gate = evaluateResolvedHintFastPathLiquidityGateFromPools({
+                            pools: gatePools,
+                            tokenIn: poolTokenIn,
+                            amountInWei,
+                            resolvedHint: candidate,
+                            multiplier: Math.max(1, DIRECT_SWAP_BUY_LIQ_MULTIPLIER)
+                        });
+                        if (!gate.allowed) {
+                            dropped.push({
+                                kind: candidate.kind,
+                                dex: candidate.dex || null,
+                                poolAddress: candidate.poolAddress || null,
+                                reason: gate.reason,
+                                blockType: gate.blockType
+                            });
+                        }
+                        return gate.allowed;
+                    });
+                    if (dropped.length > 0) {
+                        logger.warn(LogCode.SYS_INFO, '[DirectSwap] Turbo candidates dropped by liquidity gate', {
+                            traceId,
+                            chainId,
+                            droppedCount: dropped.length,
+                            remaining: turboCandidates.length,
+                            dropped
+                        });
+                    }
+                    logger.info(LogCode.SYS_INFO, '[DirectSwap] Turbo candidate liquidity gate summary', {
+                        traceId,
+                        chainId,
+                        candidateCountBeforeGate,
+                        candidateCountAfterGate: turboCandidates.length,
+                        droppedCount: dropped.length,
+                        gatePoolCount: gatePools.length
+                    });
                 }
             }
 
@@ -2877,17 +2578,47 @@ export async function executeDirectSwap(params: {
                             feeInToVirtual: bridgeQuote.feeInToBridge,
                             feeVirtualToOut: bridgeQuote.feeBridgeToOut
                         });
-                        return finish(await executeV3VirtualBridgeSwap(normalizedParams, virtualToken, bridgeQuote));
+                        return finish(await executeV3VirtualBridgeSwap(
+                            normalizedParams,
+                            virtualToken,
+                            bridgeQuote,
+                            {
+                                callRpc,
+                                sendTransaction,
+                                getTxExecutionProfile,
+                                wethAddresses: WETH_ADDRESSES
+                            }
+                        ));
                     }
                 }
             } else if (preferredStrategy.kind === 'zora-sdk' && chainId === 8453) {
-                const zoraQuote = await getZoraSdkExpectedOutput(normalizedTokenIn, normalizedTokenOut, amountInWei, chainId, params.walletAddress);
+                const zoraQuote = await getZoraSdkExpectedOutput({
+                    tokenIn: normalizedTokenIn,
+                    tokenOut: normalizedTokenOut,
+                    amountInWei,
+                    chainId,
+                    recipient: params.walletAddress
+                }, {
+                    zoraQuoteTimeoutMs: ZORA_QUOTE_TIMEOUT_MS,
+                    createZoraQuoteWithRetry: (payload: any) => createZoraQuoteWithRetry(payload, {
+                        zoraService,
+                        retryCount: ZORA_RETRY_COUNT
+                    }),
+                    withTimeout
+                });
                 if (zoraQuote > 0n) {
                     logger.info(LogCode.SYS_INFO, '[DirectSwap] Bypass strategy selected', {
                         strategy: 'zora-sdk',
                         amountOut: zoraQuote.toString()
                     });
-                    const zoraResult = await executeZoraSdkSwap(normalizedParams);
+                    const zoraResult = await executeZoraSdkSwap(normalizedParams, {
+                        createZoraQuoteWithRetry: (payload: any) => createZoraQuoteWithRetry(payload, {
+                            zoraService,
+                            retryCount: ZORA_RETRY_COUNT
+                        }),
+                        sendTransaction,
+                        getTxExecutionProfile
+                    });
                     if (zoraResult.success) {
                         return finish(zoraResult);
                     }
@@ -3207,7 +2938,20 @@ export async function executeDirectSwap(params: {
                     });
                     continue;
                 }
-                const zoraQuote = await getZoraSdkExpectedOutput(normalizedTokenIn, normalizedTokenOut, amountInWei, chainId, params.walletAddress);
+                const zoraQuote = await getZoraSdkExpectedOutput({
+                    tokenIn: normalizedTokenIn,
+                    tokenOut: normalizedTokenOut,
+                    amountInWei,
+                    chainId,
+                    recipient: params.walletAddress
+                }, {
+                    zoraQuoteTimeoutMs: ZORA_QUOTE_TIMEOUT_MS,
+                    createZoraQuoteWithRetry: (payload: any) => createZoraQuoteWithRetry(payload, {
+                        zoraService,
+                        retryCount: ZORA_RETRY_COUNT
+                    }),
+                    withTimeout
+                });
                 if (zoraQuote > 0n && zoraQuote >= minReasonable) {
                     tExecutionStart = Date.now();
                     logger.info(LogCode.SYS_INFO, '[DirectSwap] Strategy selected', {
@@ -3215,7 +2959,14 @@ export async function executeDirectSwap(params: {
                         amountOut: zoraQuote.toString(),
                         minReasonable: minReasonable.toString()
                     });
-                    const zoraResult = await executeZoraSdkSwap(normalizedParams);
+                    const zoraResult = await executeZoraSdkSwap(normalizedParams, {
+                        createZoraQuoteWithRetry: (payload: any) => createZoraQuoteWithRetry(payload, {
+                            zoraService,
+                            retryCount: ZORA_RETRY_COUNT
+                        }),
+                        sendTransaction,
+                        getTxExecutionProfile
+                    });
                     if (zoraResult.success) {
                         return finish(zoraResult);
                     }
@@ -3256,7 +3007,17 @@ export async function executeDirectSwap(params: {
                         feeInToVirtual: bridgeQuote.feeInToBridge,
                         feeVirtualToOut: bridgeQuote.feeBridgeToOut
                     });
-                    return finish(await executeV3VirtualBridgeSwap(normalizedParams, virtualToken, bridgeQuote));
+                    return finish(await executeV3VirtualBridgeSwap(
+                        normalizedParams,
+                        virtualToken,
+                        bridgeQuote,
+                        {
+                            callRpc,
+                            sendTransaction,
+                            getTxExecutionProfile,
+                            wethAddresses: WETH_ADDRESSES
+                        }
+                    ));
                 }
                 logger.debug(LogCode.SYS_INFO, '[DirectSwap] Strategy rejected', {
                     strategy: 'virtual-bridge',
@@ -3439,1434 +3200,5 @@ async function executeAerodromeSwap(
     }
 }
 
-async function executeZoraSdkSwap(
-    params: {
-        userId: string;
-        accessToken: string;
-        walletAddress: string;
-        tokenIn: string;
-        tokenOut: string;
-        amountIn: string;
-        amountInWei: bigint;
-        chainId: number;
-        slippageBps: number;
-    }
-): Promise<DirectSwapResult> {
-    if (params.chainId !== 8453) {
-        return { success: false, error: 'Zora SDK route only supported on Base', provider: 'failed' };
-    }
 
-    const ETH_ADDRESS = '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
-    const tokenInLower = params.tokenIn.toLowerCase();
-    const tokenOutLower = params.tokenOut.toLowerCase();
-    const isEthIn = tokenInLower === ETH_ADDRESS;
-    const isEthOut = tokenOutLower === ETH_ADDRESS;
-    const amountInWei = params.amountInWei;
-
-    try {
-        const quote = await createZoraQuoteWithRetry({
-            sell: isEthIn ? { type: 'eth' } : { type: 'erc20', address: params.tokenIn as `0x${string}` },
-            buy: isEthOut ? { type: 'eth' } : { type: 'erc20', address: params.tokenOut as `0x${string}` },
-            amountIn: amountInWei,
-            sender: params.walletAddress as `0x${string}`,
-            recipient: params.walletAddress as `0x${string}`,
-            slippage: Math.min(Math.max(params.slippageBps / 10000, 0.001), 0.99),
-            feeContext: 'copyTrade'
-        } as any);
-
-        const target = (quote as any)?.call?.target;
-        const data = (quote as any)?.call?.data;
-        const value = (quote as any)?.call?.value;
-        if (!target || !data) {
-            return { success: false, error: 'Zora SDK quote missing call payload', provider: 'failed' };
-        }
-
-        const txHash = await sendTransaction(params.userId, params.accessToken, {
-            to: target,
-            data,
-            value: value ? BigInt(value).toString() : '0',
-            chainId: params.chainId,
-            txPurpose: 'trade',
-            executionProfile: getTxExecutionProfile(params.chainId)
-        });
-
-        return {
-            success: true,
-            txHash,
-            provider: 'zora-sdk',
-            poolInfo: {
-                version: 'v4',
-                fee: 0,
-                liquidity: '0'
-            }
-        };
-    } catch (error: any) {
-        logger.warn(LogCode.EXE_TX_REVERTED, '[DirectSwap] Zora SDK swap failed', {
-            error: error?.message?.slice(0, 120)
-        });
-        const zoraError = isZoraTransientError(error)
-            ? `HTTP 500: {"success":"false"}`
-            : String(error?.message || error || 'zora_swap_failed');
-        return { success: false, error: zoraError, provider: 'failed' };
-    }
-}
-
-async function getV2ExpectedOutput(
-    tokenIn: string,
-    tokenOut: string,
-    amountInWei: bigint,
-    chainId: number
-): Promise<bigint> {
-    const router = V2_ROUTERS[chainId];
-    if (!router) return 0n;
-
-    const ETH_ADDRESS = '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
-    const weth = WETH_ADDRESSES[chainId];
-    if (!weth) return 0n;
-
-    const normalizedIn = tokenIn.toLowerCase() === ETH_ADDRESS ? weth : tokenIn;
-    const normalizedOut = tokenOut.toLowerCase() === ETH_ADDRESS ? weth : tokenOut;
-
-    try {
-        const callData = v2RouterInterface.encodeFunctionData('getAmountsOut', [amountInWei, [normalizedIn, normalizedOut]]);
-        const result = await callRpc<string>(chainId, 'eth_call', [{
-            to: router,
-            data: callData
-        }, 'latest']);
-        if (!result || result === '0x') return 0n;
-        const decoded = v2RouterInterface.decodeFunctionResult('getAmountsOut', result);
-        const amounts = decoded[0] as bigint[];
-        return amounts[amounts.length - 1] || 0n;
-    } catch {
-        return 0n;
-    }
-}
-
-async function getV3BestQuoteOut(
-    tokenIn: string,
-    tokenOut: string,
-    amountInWei: bigint,
-    chainId: number,
-    dex: 'uniswap' | 'pancake'
-): Promise<bigint> {
-    const quoter = dex === 'pancake' ? PANCAKE_V3_QUOTER : V3_QUOTER_V2[chainId];
-    if (!quoter) return 0n;
-
-    const feeTiers = dex === 'pancake' ? PANCAKE_V3_FEE_TIERS : V3_FEE_TIERS;
-
-    // 所有 fee tier 并行查询，不再串行等待
-    const results = await Promise.all(
-        feeTiers.map(async (fee) => {
-            try {
-                const quoteParams = {
-                    tokenIn,
-                    tokenOut,
-                    amountIn: amountInWei,
-                    fee,
-                    sqrtPriceLimitX96: 0
-                };
-                const callData = v3QuoterInterface.encodeFunctionData('quoteExactInputSingle', [quoteParams]);
-                const result = await callRpc<string>(chainId, 'eth_call', [{
-                    to: quoter,
-                    data: callData
-                }, 'latest']);
-                if (!result || result === '0x') return 0n;
-                const decoded = v3QuoterInterface.decodeFunctionResult('quoteExactInputSingle', result);
-                return decoded[0] as bigint;
-            } catch {
-                return 0n;
-            }
-        })
-    );
-
-    return results.reduce((best, cur) => (cur > best ? cur : best), 0n);
-}
-
-interface V3BridgeQuote {
-    amountOut: bigint;
-    feeInToBridge: number;
-    feeBridgeToOut: number;
-}
-
-async function getV3BridgeQuoteOut(
-    tokenIn: string,
-    bridgeToken: string,
-    tokenOut: string,
-    amountInWei: bigint,
-    chainId: number,
-    dex: 'uniswap' | 'pancake'
-): Promise<V3BridgeQuote | null> {
-    const quoter = dex === 'pancake' ? PANCAKE_V3_QUOTER : V3_QUOTER_V2[chainId];
-    if (!quoter) return null;
-
-    const feeTiers = dex === 'pancake' ? PANCAKE_V3_FEE_TIERS : V3_FEE_TIERS;
-    let best: V3BridgeQuote | null = null;
-
-    for (const fee1 of feeTiers) {
-        let hop1Out = 0n;
-        try {
-            const params1 = {
-                tokenIn,
-                tokenOut: bridgeToken,
-                amountIn: amountInWei,
-                fee: fee1,
-                sqrtPriceLimitX96: 0
-            };
-            const data1 = v3QuoterInterface.encodeFunctionData('quoteExactInputSingle', [params1]);
-            const res1 = await callRpc<string>(chainId, 'eth_call', [{ to: quoter, data: data1 }, 'latest']);
-            if (res1 && res1 !== '0x') {
-                const decoded1 = v3QuoterInterface.decodeFunctionResult('quoteExactInputSingle', res1);
-                hop1Out = decoded1[0] as bigint;
-            }
-        } catch {
-            hop1Out = 0n;
-        }
-        if (hop1Out <= 0n) continue;
-
-        for (const fee2 of feeTiers) {
-            try {
-                const params2 = {
-                    tokenIn: bridgeToken,
-                    tokenOut,
-                    amountIn: hop1Out,
-                    fee: fee2,
-                    sqrtPriceLimitX96: 0
-                };
-                const data2 = v3QuoterInterface.encodeFunctionData('quoteExactInputSingle', [params2]);
-                const res2 = await callRpc<string>(chainId, 'eth_call', [{ to: quoter, data: data2 }, 'latest']);
-                if (!res2 || res2 === '0x') continue;
-                const decoded2 = v3QuoterInterface.decodeFunctionResult('quoteExactInputSingle', res2);
-                const out = decoded2[0] as bigint;
-                if (!best || out > best.amountOut) {
-                    best = {
-                        amountOut: out,
-                        feeInToBridge: fee1,
-                        feeBridgeToOut: fee2
-                    };
-                }
-            } catch {
-                continue;
-            }
-        }
-    }
-
-    return best;
-}
-
-const MAX_UINT128 = (1n << 128n) - 1n;
-
-type InfinityPoolKind = 'cl' | 'bin';
-
-interface InfinityPoolKey {
-    currency0: string;
-    currency1: string;
-    hooks: string;
-    poolManager: string;
-    fee: number;
-    parameters: string;
-}
-
-interface InfinityBestQuote {
-    amountOut: bigint;
-    poolKey: InfinityPoolKey;
-    zeroForOne: boolean;
-    kind: InfinityPoolKind;
-    fee: number;
-    tickSpacing?: number;
-    binStep?: number;
-}
-
-function sortCurrencies(tokenIn: string, tokenOut: string): { currency0: string; currency1: string; zeroForOne: boolean } {
-    const a = ethers.getAddress(tokenIn);
-    const b = ethers.getAddress(tokenOut);
-    const aNum = BigInt(a.toLowerCase());
-    const bNum = BigInt(b.toLowerCase());
-    if (aNum < bNum) {
-        return { currency0: a, currency1: b, zeroForOne: a.toLowerCase() === tokenIn.toLowerCase() };
-    }
-    return { currency0: b, currency1: a, zeroForOne: b.toLowerCase() === tokenIn.toLowerCase() };
-}
-
-function encodeInfinityParameters(rawValue: number): string {
-    const value = BigInt(rawValue) << 16n;
-    return ethers.zeroPadValue(ethers.toBeHex(value), 32);
-}
-
-function buildInfinityPoolKey(
-    tokenIn: string,
-    tokenOut: string,
-    poolManager: string,
-    fee: number,
-    parameters: string
-): { poolKey: InfinityPoolKey; zeroForOne: boolean } {
-    const { currency0, currency1, zeroForOne } = sortCurrencies(tokenIn, tokenOut);
-    return {
-        poolKey: {
-            currency0,
-            currency1,
-            hooks: INFINITY_HOOKS_ZERO,
-            poolManager,
-            fee,
-            parameters
-        },
-        zeroForOne
-    };
-}
-
-function buildInfinityPairKey(chainId: number, tokenA: string, tokenB: string): string {
-    const a = ethers.getAddress(tokenA).toLowerCase();
-    const b = ethers.getAddress(tokenB).toLowerCase();
-    const [t0, t1] = a < b ? [a, b] : [b, a];
-    return `infi:pair:${chainId}:${t0}:${t1}`;
-}
-
-async function loadInfinityPoolKeys(
-    chainId: number,
-    tokenIn: string,
-    tokenOut: string
-): Promise<InfinityPoolKey[]> {
-    const pairKey = buildInfinityPairKey(chainId, tokenIn, tokenOut);
-    const cached = infinityPairCache.get(pairKey);
-    if (cached && Date.now() - cached.timestamp < 5 * 60 * 1000) {
-        return cached.poolKeys;
-    }
-
-    const poolIdsRaw = await getDbCache(pairKey);
-    if (!poolIdsRaw) return [];
-    let poolIds: string[] = [];
-    try {
-        poolIds = JSON.parse(poolIdsRaw);
-    } catch {
-        return [];
-    }
-    if (!poolIds.length) return [];
-
-    const poolKeys: InfinityPoolKey[] = [];
-    for (const poolId of poolIds) {
-        const poolKeyRaw = await getDbCache(`infi:poolkey:${chainId}:${poolId}`);
-        if (!poolKeyRaw) continue;
-        try {
-            const parsed = JSON.parse(poolKeyRaw) as InfinityPoolKey;
-            if (parsed.currency0 && parsed.currency1) {
-                poolKeys.push({
-                    currency0: parsed.currency0.toLowerCase(),
-                    currency1: parsed.currency1.toLowerCase(),
-                    hooks: parsed.hooks.toLowerCase(),
-                    poolManager: parsed.poolManager.toLowerCase(),
-                    fee: parsed.fee,
-                    parameters: parsed.parameters
-                });
-            }
-        } catch {
-            continue;
-        }
-    }
-
-    if (poolKeys.length) {
-        infinityPairCache.set(pairKey, { poolKeys, timestamp: Date.now() });
-    }
-    return poolKeys;
-}
-
-function parseInfinityParameterValue(parameters: string): number {
-    try {
-        const raw = BigInt(parameters);
-        const value = Number((raw >> 16n) & 0xffffn);
-        return value;
-    } catch {
-        return 0;
-    }
-}
-
-async function quoteInfinityExactInputSingle(
-    quoter: string,
-    params: {
-        poolKey: InfinityPoolKey;
-        zeroForOne: boolean;
-        amountIn: bigint;
-    },
-    chainId: number
-): Promise<bigint> {
-    if (params.amountIn <= 0n || params.amountIn > MAX_UINT128) return 0n;
-    try {
-        const callData = infinityQuoterInterface.encodeFunctionData('quoteExactInputSingle', [{
-            poolKey: params.poolKey,
-            zeroForOne: params.zeroForOne,
-            exactAmount: params.amountIn,
-            hookData: '0x'
-        }]);
-        const result = await callRpc<string>(chainId, 'eth_call', [{
-            to: quoter,
-            data: callData
-        }, 'latest']);
-        if (!result || result === '0x') return 0n;
-        const decoded = infinityQuoterInterface.decodeFunctionResult('quoteExactInputSingle', result);
-        const amountOut = decoded[0] as bigint;
-        return amountOut;
-    } catch {
-        return 0n;
-    }
-}
-
-async function getInfinityBestQuoteOut(
-    tokenIn: string,
-    tokenOut: string,
-    amountInWei: bigint,
-    chainId: number
-): Promise<InfinityBestQuote | null> {
-    if (chainId !== 56) return null;
-    const weth = WETH_ADDRESSES[chainId];
-    if (!weth) return null;
-
-    const ETH_ADDRESS = '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
-    const normalizedIn = tokenIn.toLowerCase() === ETH_ADDRESS ? weth : tokenIn;
-    const normalizedOut = tokenOut.toLowerCase() === ETH_ADDRESS ? weth : tokenOut;
-
-    // Fast path: cached pool keys — 并行 quote
-    const cachedPoolKeys = await loadInfinityPoolKeys(chainId, normalizedIn, normalizedOut);
-    if (cachedPoolKeys.length) {
-        logger.info(LogCode.SYS_INFO, '[DirectSwap] Infinity cache hit', {
-            chainId,
-            tokenIn: normalizedIn.slice(0, 10),
-            tokenOut: normalizedOut.slice(0, 10),
-            poolKeyCount: cachedPoolKeys.length
-        });
-        const cachedResults = await Promise.all(
-            cachedPoolKeys.map(async (poolKey) => {
-                const zeroForOne = poolKey.currency0.toLowerCase() === normalizedIn.toLowerCase();
-                const isCl = poolKey.poolManager.toLowerCase() === PANCAKE_INFINITY_CL_POOL_MANAGER.toLowerCase();
-                const quoter = isCl ? PANCAKE_INFINITY_CL_QUOTER : PANCAKE_INFINITY_BIN_QUOTER;
-                const amountOut = await quoteInfinityExactInputSingle(
-                    quoter,
-                    { poolKey, zeroForOne, amountIn: amountInWei },
-                    chainId
-                );
-                if (amountOut <= 0n) return null;
-                return {
-                    amountOut,
-                    poolKey,
-                    zeroForOne,
-                    kind: (isCl ? 'cl' : 'bin') as 'cl' | 'bin',
-                    fee: poolKey.fee,
-                    tickSpacing: isCl ? parseInfinityParameterValue(poolKey.parameters) : undefined,
-                    binStep: isCl ? undefined : parseInfinityParameterValue(poolKey.parameters)
-                } satisfies InfinityBestQuote;
-            })
-        );
-        const bestCached = cachedResults.reduce<InfinityBestQuote | null>((best, cur) => {
-            if (!cur) return best;
-            return !best || cur.amountOut > best.amountOut ? cur : best;
-        }, null);
-        if (bestCached) return bestCached;
-    }
-
-    // Discovery path: CL fees + Bin fees×steps — 全部并行
-    const clCandidates: Array<{ fee: number; tickSpacing: number; parameters: string }> = [];
-    for (const fee of INFINITY_CL_FEE_TIERS) {
-        const tickSpacing = INFINITY_CL_TICK_SPACING_BY_FEE[fee];
-        if (tickSpacing) clCandidates.push({ fee, tickSpacing, parameters: encodeInfinityParameters(tickSpacing) });
-    }
-
-    const binCandidates: Array<{ fee: number; binStep: number; parameters: string }> = [];
-    for (const fee of INFINITY_CL_FEE_TIERS) {
-        for (const binStep of INFINITY_BIN_STEPS) {
-            binCandidates.push({ fee, binStep, parameters: encodeInfinityParameters(binStep) });
-        }
-    }
-
-    const [clResults, binResults] = await Promise.all([
-        Promise.all(clCandidates.map(async ({ fee, tickSpacing, parameters }) => {
-            const { poolKey, zeroForOne } = buildInfinityPoolKey(
-                normalizedIn, normalizedOut, PANCAKE_INFINITY_CL_POOL_MANAGER, fee, parameters
-            );
-            const amountOut = await quoteInfinityExactInputSingle(
-                PANCAKE_INFINITY_CL_QUOTER, { poolKey, zeroForOne, amountIn: amountInWei }, chainId
-            );
-            if (amountOut <= 0n) return null;
-            return { amountOut, poolKey, zeroForOne, kind: 'cl' as const, fee, tickSpacing };
-        })),
-        Promise.all(binCandidates.map(async ({ fee, binStep, parameters }) => {
-            const { poolKey, zeroForOne } = buildInfinityPoolKey(
-                normalizedIn, normalizedOut, PANCAKE_INFINITY_BIN_POOL_MANAGER, fee, parameters
-            );
-            const amountOut = await quoteInfinityExactInputSingle(
-                PANCAKE_INFINITY_BIN_QUOTER, { poolKey, zeroForOne, amountIn: amountInWei }, chainId
-            );
-            if (amountOut <= 0n) return null;
-            return { amountOut, poolKey, zeroForOne, kind: 'bin' as const, fee, binStep };
-        }))
-    ]);
-
-    const all: InfinityBestQuote[] = [
-        ...clResults.filter((r): r is NonNullable<typeof r> => r !== null),
-        ...binResults.filter((r): r is NonNullable<typeof r> => r !== null)
-    ];
-    if (all.length === 0) return null;
-    return all.reduce((best, cur) => cur.amountOut > best.amountOut ? cur : best);
-}
-
-async function getV4BestSpotOut(
-    tokenIn: string,
-    tokenOut: string,
-    amountInWei: bigint,
-    chainId: number
-): Promise<bigint> {
-    const cacheKey = `${chainId}:${tokenIn.toLowerCase()}:${tokenOut.toLowerCase()}:${amountInWei.toString()}`;
-    const cached = v4SpotCache.get(cacheKey);
-    if (cached && Date.now() - cached.timestamp < V4_SPOT_CACHE_TTL_MS) {
-        return cached.value;
-    }
-    const redisCached = await cacheGet(v4SpotRedisKey(cacheKey)).catch(() => null);
-    if (redisCached) {
-        try {
-            const parsed = JSON.parse(redisCached) as { value: string; timestamp: number };
-            if (Date.now() - parsed.timestamp < V4_SPOT_CACHE_TTL_MS) {
-                const value = BigInt(parsed.value);
-                v4SpotCache.set(cacheKey, { value, timestamp: parsed.timestamp });
-                return value;
-            }
-        } catch {
-            // ignore parse errors
-        }
-    }
-
-    try {
-        const best = await getV4BestPoolQuote(tokenIn, tokenOut, amountInWei, chainId);
-        v4SpotCache.set(cacheKey, { value: best.amountOut, timestamp: Date.now() });
-        await cacheSet(
-            v4SpotRedisKey(cacheKey),
-            JSON.stringify({ value: best.amountOut.toString(), timestamp: Date.now() }),
-            Math.max(1, Math.ceil(V4_SPOT_CACHE_TTL_MS / 1000))
-        ).catch(() => { });
-        return best.amountOut;
-    } catch {
-        return 0n;
-    }
-}
-
-function getV4QuoterAddress(chainId: number): string | undefined {
-    return V4_QUOTER_ADDRESSES[chainId];
-}
-
-function decodeV4QuoterRevert(data: string): bigint | null {
-    if (!data || data === '0x') return null;
-    const selector = ethers.id('QuoteSwap(uint256)').slice(0, 10);
-    if (!data.startsWith(selector)) return null;
-    try {
-        const decoded = ethers.AbiCoder.defaultAbiCoder().decode(['uint256'], '0x' + data.slice(10));
-        return BigInt(decoded[0].toString());
-    } catch {
-        return null;
-    }
-}
-
-async function callDopplerLensQuote(
-    poolKey: V4PoolKey,
-    zeroForOne: boolean,
-    amountInWei: bigint,
-    chainId: number,
-    hookData: string
-): Promise<bigint> {
-    const lens = DOPPLER_LENS_QUOTER_ADDRESSES[chainId];
-    const poolManager = UNISWAP_V4_POOL_MANAGER_BY_CHAIN[chainId];
-    if (!lens || !poolManager) return 0n;
-
-    const iface = new ethers.Interface([
-        'function quoteDopplerLensData(address poolManager,(address currency0,address currency1,uint24 fee,int24 tickSpacing,address hooks) poolKey,bool zeroForOne,int256 amountSpecified,bytes hookData) external returns ((int128 amount0,int128 amount1) delta,uint160 sqrtPriceX96After)'
-    ]);
-
-    const data = iface.encodeFunctionData('quoteDopplerLensData', [
-        poolManager,
-        {
-            currency0: poolKey.currency0,
-            currency1: poolKey.currency1,
-            fee: poolKey.fee,
-            tickSpacing: poolKey.tickSpacing,
-            hooks: poolKey.hooks
-        },
-        zeroForOne,
-        amountInWei,
-        hookData
-    ]);
-
-    const response = await withTimeout(
-        callRpcRaw<any>(chainId, 'eth_call', [{ to: lens, data }, 'latest'], { strategy: 'fast', importance: 'critical' }),
-        V4_QUOTER_TIMEOUT_MS
-    ).catch(() => null);
-    if (!response?.result) return 0n;
-
-    try {
-        const decoded = iface.decodeFunctionResult('quoteDopplerLensData', response.result) as any;
-        const delta = decoded?.[0];
-        if (!delta) return 0n;
-        const amount0 = BigInt(delta.amount0?.toString?.() ?? delta[0]?.toString?.() ?? '0');
-        const amount1 = BigInt(delta.amount1?.toString?.() ?? delta[1]?.toString?.() ?? '0');
-        const out = zeroForOne ? (amount1 < 0n ? -amount1 : 0n) : (amount0 < 0n ? -amount0 : 0n);
-        return out > 0n ? out : 0n;
-    } catch {
-        return 0n;
-    }
-}
-
-async function callV4QuoterExactOut(
-    poolKey: V4PoolKey,
-    zeroForOne: boolean,
-    amountInWei: bigint,
-    chainId: number,
-    payee?: string,
-    gasPriceWei?: bigint,
-    hookDataCandidatesOverride?: string[]
-): Promise<bigint> {
-    const quoter = getV4QuoterAddress(chainId);
-    if (!quoter) return 0n;
-    const MAX_UINT128 = (1n << 128n) - 1n;
-    if (amountInWei <= 0n || amountInWei > MAX_UINT128) return 0n;
-
-    const hookProfile = resolveV4HookProfile(chainId, poolKey.hooks);
-    const isClanker = hookProfile.family === 'clanker';
-    if (isClanker && !payee) return 0n;
-
-    const payeeKey = isClanker && payee ? payee.toLowerCase() : 'nopayee';
-    const gasKey = isClanker && gasPriceWei ? gasPriceWei.toString() : 'nogas';
-    const cacheKey = `${chainId}:${poolKey.currency0.toLowerCase()}:${poolKey.currency1.toLowerCase()}:${poolKey.fee}:${poolKey.tickSpacing}:${poolKey.hooks.toLowerCase()}:${zeroForOne ? '1' : '0'}:${amountInWei.toString()}:${payeeKey}:${gasKey}`;
-    const cached = v4QuoterCache.get(cacheKey);
-    if (cached && Date.now() - cached.timestamp < V4_QUOTER_CACHE_TTL_MS) {
-        return cached.value;
-    }
-    const redisCached = await cacheGet(v4QuoterRedisKey(cacheKey)).catch(() => null);
-    if (redisCached) {
-        try {
-            const parsed = JSON.parse(redisCached) as { value: string; timestamp: number };
-            if (Date.now() - parsed.timestamp < V4_QUOTER_CACHE_TTL_MS) {
-                const value = BigInt(parsed.value);
-                v4QuoterCache.set(cacheKey, { value, timestamp: parsed.timestamp });
-                return value;
-            }
-        } catch {
-            // ignore parse errors
-        }
-    }
-
-    const iface = new ethers.Interface([
-        'function quoteExactInputSingle((address currency0,address currency1,uint24 fee,int24 tickSpacing,address hooks) poolKey,bool zeroForOne,uint128 exactAmount,bytes hookData) external returns (uint256 amountOut,uint256 gasEstimate)'
-    ]);
-
-    const hookDataCandidates = (hookDataCandidatesOverride && hookDataCandidatesOverride.length > 0)
-        ? hookDataCandidatesOverride
-        : buildV4HookDataCandidates({
-            chainId,
-            hookAddress: poolKey.hooks,
-            walletAddress: payee,
-            stage: 'quote'
-        });
-    const gasPriceCandidates: Array<bigint | undefined> = gasPriceWei && gasPriceWei > 0n
-        ? [gasPriceWei, undefined]
-        : [undefined];
-
-    for (const hookData of hookDataCandidates) {
-        if (hookProfile.family === 'doppler') {
-            const dopplerOut = await callDopplerLensQuote(poolKey, zeroForOne, amountInWei, chainId, hookData);
-            if (dopplerOut > 0n) {
-                v4QuoterCache.set(cacheKey, { value: dopplerOut, timestamp: Date.now() });
-                await cacheSet(
-                    v4QuoterRedisKey(cacheKey),
-                    JSON.stringify({ value: dopplerOut.toString(), timestamp: Date.now() }),
-                    Math.max(1, Math.ceil(V4_QUOTER_CACHE_TTL_MS / 1000))
-                ).catch(() => { });
-                return dopplerOut;
-            }
-        }
-
-        const data = iface.encodeFunctionData('quoteExactInputSingle', [
-            {
-                currency0: poolKey.currency0,
-                currency1: poolKey.currency1,
-                fee: poolKey.fee,
-                tickSpacing: poolKey.tickSpacing,
-                hooks: poolKey.hooks
-            },
-            zeroForOne,
-            amountInWei,
-            hookData
-        ]);
-
-        for (const gasCandidate of gasPriceCandidates) {
-            const callParams: Record<string, any> = { to: quoter, data };
-            if (gasCandidate && gasCandidate > 0n) {
-                callParams.gasPrice = ethers.toQuantity(gasCandidate);
-            }
-            try {
-                const response = await withTimeout(
-                    callRpcRaw<any>(chainId, 'eth_call', [callParams, 'latest'], { strategy: 'fast', importance: 'critical' }),
-                    V4_QUOTER_TIMEOUT_MS
-                );
-
-                if (response?.result) {
-                    const decoded = iface.decodeFunctionResult('quoteExactInputSingle', response.result);
-                    const amountOut = BigInt(decoded[0].toString());
-                    v4QuoterCache.set(cacheKey, { value: amountOut, timestamp: Date.now() });
-                    await cacheSet(
-                        v4QuoterRedisKey(cacheKey),
-                        JSON.stringify({ value: amountOut.toString(), timestamp: Date.now() }),
-                        Math.max(1, Math.ceil(V4_QUOTER_CACHE_TTL_MS / 1000))
-                    ).catch(() => { });
-                    return amountOut;
-                }
-
-                const errorData = (response as any)?.error?.data?.data
-                    || (response as any)?.error?.data
-                    || (response as any)?.error?.message?.data;
-                if (typeof errorData === 'string' && errorData.startsWith('0x')) {
-                    const amountOut = decodeV4QuoterRevert(errorData);
-                    if (amountOut && amountOut > 0n) {
-                        v4QuoterCache.set(cacheKey, { value: amountOut, timestamp: Date.now() });
-                        await cacheSet(
-                            v4QuoterRedisKey(cacheKey),
-                            JSON.stringify({ value: amountOut.toString(), timestamp: Date.now() }),
-                            Math.max(1, Math.ceil(V4_QUOTER_CACHE_TTL_MS / 1000))
-                        ).catch(() => { });
-                        return amountOut;
-                    }
-                }
-            } catch {
-                // try next candidate
-            }
-        }
-    }
-
-    return 0n;
-}
-
-async function getV4BestPoolQuote(
-    tokenIn: string,
-    tokenOut: string,
-    amountInWei: bigint,
-    chainId: number,
-    payee?: string,
-    hint?: DirectSwapHint,
-    options?: {
-        preloadedPools?: V4PoolInfo[];
-    }
-): Promise<{ pool: SelectedV4Pool | null; amountOut: bigint }> {
-    const pools = options?.preloadedPools || await findV4Pools(tokenIn, tokenOut, chainId);
-    const hintedPool = pools.length === 0
-        ? await resolveHintedV4PoolFromSourceTx({ tokenIn, tokenOut, chainId, hint })
-        : null;
-    if (!pools.length && !hintedPool) return { pool: null, amountOut: 0n };
-
-    const basePoolKey = (pools[0]?.poolKey || hintedPool?.poolKey);
-    if (!basePoolKey) return { pool: null, amountOut: 0n };
-    const [meta0, meta1] = await Promise.all([
-        getTokenMetadata(chainId, basePoolKey.currency0),
-        getTokenMetadata(chainId, basePoolKey.currency1)
-    ]);
-    const decimals0 = meta0.decimals || 18;
-    const decimals1 = meta1.decimals || 18;
-
-    let bestOut = 0n;
-    let bestPool: SelectedV4Pool | null = null;
-    let fallbackPool: SelectedV4Pool | null = hintedPool;
-    let fallbackLiquidity = hintedPool ? BigInt(hintedPool.liquidity || '0') : 0n;
-    for (const pool of pools) {
-        const zeroForOne = pool.poolKey.currency0.toLowerCase() === tokenIn.toLowerCase();
-        const liquidity = BigInt(pool.liquidity);
-        if (liquidity <= 0n) continue;
-
-        if (liquidity > fallbackLiquidity) {
-            fallbackLiquidity = liquidity;
-            fallbackPool = {
-                poolId: pool.poolId,
-                poolAddress: pool.poolId,
-                poolKey: pool.poolKey,
-                token0: pool.poolKey.currency0,
-                token1: pool.poolKey.currency1,
-                liquidity: pool.liquidity,
-                sqrtPriceX96: pool.sqrtPriceX96,
-                fee: pool.lpFee,
-                price: 0,
-                version: 'v4',
-                dex: 'uniswap'
-            };
-        }
-
-        const spotPrice = calculatePriceFromSqrtX96(
-            BigInt(pool.sqrtPriceX96),
-            decimals0,
-            decimals1
-        );
-
-        const hookDataCandidates = buildV4HookDataCandidates({
-            chainId,
-            hookAddress: pool.poolKey.hooks,
-            walletAddress: payee,
-            stage: 'quote'
-        });
-        const quoterOut = await callV4QuoterExactOut(
-            pool.poolKey,
-            zeroForOne,
-            amountInWei,
-            chainId,
-            payee,
-            undefined,
-            hookDataCandidates
-        );
-        if (quoterOut <= 0n) continue;
-
-        if (quoterOut > bestOut) {
-            bestOut = quoterOut;
-            bestPool = {
-                poolId: pool.poolId,
-                poolAddress: pool.poolId,
-                poolKey: pool.poolKey,
-                token0: pool.poolKey.currency0,
-                token1: pool.poolKey.currency1,
-                liquidity: pool.liquidity,
-                sqrtPriceX96: pool.sqrtPriceX96,
-                fee: pool.lpFee,
-                price: spotPrice,
-                version: 'v4',
-                dex: 'uniswap'
-            };
-        }
-    }
-
-    if (hintedPool) {
-        const zeroForOne = hintedPool.poolKey.currency0.toLowerCase() === tokenIn.toLowerCase();
-        const hintedHookCandidates = buildV4HookDataCandidates({
-            chainId,
-            hookAddress: hintedPool.poolKey.hooks,
-            walletAddress: payee,
-            stage: 'quote'
-        });
-        const quoted = await callV4QuoterExactOut(
-            hintedPool.poolKey,
-            zeroForOne,
-            amountInWei,
-            chainId,
-            payee,
-            undefined,
-            hintedHookCandidates
-        );
-        if (quoted > bestOut) {
-            bestOut = quoted;
-            bestPool = hintedPool;
-        }
-    }
-
-    if (!bestPool && fallbackPool) {
-        return { pool: fallbackPool, amountOut: 0n };
-    }
-
-    return { pool: bestPool, amountOut: bestOut };
-}
-
-async function getAerodromeExpectedOutput(
-    tokenIn: string,
-    tokenOut: string,
-    amountInWei: bigint,
-    chainId: number,
-    slippageBps: number,
-    recipient: string
-): Promise<bigint> {
-    try {
-        const quote = await getAerodromeQuote({
-            tokenIn,
-            tokenOut,
-            amountIn: amountInWei,
-            recipient,
-            slippageBps
-        }, chainId);
-        return quote?.amountOut ? BigInt(quote.amountOut) : 0n;
-    } catch {
-        return 0n;
-    }
-}
-
-async function getZoraSdkExpectedOutput(
-    tokenIn: string,
-    tokenOut: string,
-    amountInWei: bigint,
-    chainId: number,
-    recipient: string
-): Promise<bigint> {
-    if (chainId !== 8453) return 0n;
-    if (amountInWei <= 0n) return 0n;
-
-    const ETH_ADDRESS = '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
-    const tokenInLower = tokenIn.toLowerCase();
-    const tokenOutLower = tokenOut.toLowerCase();
-    const isEthIn = tokenInLower === ETH_ADDRESS;
-    const isEthOut = tokenOutLower === ETH_ADDRESS;
-
-    try {
-        const quote = await withTimeout(createZoraQuoteWithRetry({
-            sell: isEthIn ? { type: 'eth' } : { type: 'erc20', address: tokenIn as `0x${string}` },
-            buy: isEthOut ? { type: 'eth' } : { type: 'erc20', address: tokenOut as `0x${string}` },
-            amountIn: amountInWei,
-            sender: recipient as `0x${string}`,
-            recipient: recipient as `0x${string}`,
-            slippage: 0.05
-        } as any), ZORA_QUOTE_TIMEOUT_MS);
-
-        const outRaw = (quote as any)?.quote?.amountOut ?? (quote as any)?.amountOut;
-        if (outRaw === undefined || outRaw === null) return 0n;
-        return BigInt(outRaw.toString());
-    } catch {
-        return 0n;
-    }
-}
-
-async function isZoraCoinAddress(address: string): Promise<boolean> {
-    const normalized = String(address || '').toLowerCase();
-    if (!normalized.startsWith('0x')) return false;
-
-    const cached = zoraRoutableTokenCache.get(normalized);
-    if (cached && Date.now() - cached.timestamp < ZORA_ROUTABLE_CACHE_TTL_MS) {
-        return cached.value;
-    }
-
-    try {
-        const coin = await zoraService.getCoinByAddress(normalized);
-        const isZoraCoin = Boolean(coin?.address);
-        zoraRoutableTokenCache.set(normalized, { value: isZoraCoin, timestamp: Date.now() });
-        return isZoraCoin;
-    } catch {
-        // If cannot classify token, skip Zora route for safety/perf.
-        zoraRoutableTokenCache.set(normalized, { value: false, timestamp: Date.now() });
-        return false;
-    }
-}
-
-async function shouldEnableZoraRoutes(tokenIn: string, tokenOut: string, chainId: number): Promise<boolean> {
-    if (chainId !== 8453) return false;
-    const zoraToken = ZORA_TOKEN_ADDRESSES[chainId]?.toLowerCase();
-    if (!zoraToken) return false;
-
-    const inLower = String(tokenIn || '').toLowerCase();
-    const outLower = String(tokenOut || '').toLowerCase();
-    if (inLower === zoraToken || outLower === zoraToken) return true;
-
-    const [inIsZoraCoin, outIsZoraCoin] = await Promise.all([
-        isZoraCoinAddress(inLower),
-        isZoraCoinAddress(outLower)
-    ]);
-    return inIsZoraCoin || outIsZoraCoin;
-}
-
-async function getV4ViaZoraBridgeExpectedOutput(
-    tokenIn: string,
-    tokenOut: string,
-    amountInWei: bigint,
-    chainId: number,
-    recipient?: string
-): Promise<bigint> {
-    const zoraToken = ZORA_TOKEN_ADDRESSES[chainId];
-    if (!zoraToken || chainId !== 8453) return 0n;
-    if (amountInWei <= 0n) return 0n;
-
-    const ETH_ADDRESS = '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
-    const weth = WETH_ADDRESSES[chainId];
-    if (!weth) return 0n;
-
-    const normalizedIn = tokenIn.toLowerCase() === ETH_ADDRESS ? weth : tokenIn;
-    const normalizedOut = tokenOut.toLowerCase() === ETH_ADDRESS ? weth : tokenOut;
-    if (normalizedIn.toLowerCase() === zoraToken.toLowerCase()) return 0n;
-    if (normalizedOut.toLowerCase() === zoraToken.toLowerCase()) return 0n;
-
-    const firstHop = await getV4BestPoolQuote(normalizedIn, zoraToken, amountInWei, chainId, recipient);
-    if (!firstHop.pool || firstHop.amountOut <= 0n) return 0n;
-    const secondHop = await getV4BestPoolQuote(zoraToken, normalizedOut, firstHop.amountOut, chainId, recipient);
-    return secondHop.amountOut > 0n ? secondHop.amountOut : 0n;
-}
-
-async function getV3ViaVirtualBridgeExpectedOutput(
-    tokenIn: string,
-    tokenOut: string,
-    amountInWei: bigint,
-    chainId: number
-): Promise<bigint> {
-    const virtualToken = VIRTUAL_TOKEN_ADDRESSES[chainId];
-    if (!virtualToken || chainId !== 8453) return 0n;
-    if (amountInWei <= 0n) return 0n;
-
-    const ETH_ADDRESS = '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
-    const weth = WETH_ADDRESSES[chainId];
-    if (!weth) return 0n;
-    const normalizedIn = tokenIn.toLowerCase() === ETH_ADDRESS ? weth : tokenIn;
-    const normalizedOut = tokenOut.toLowerCase() === ETH_ADDRESS ? weth : tokenOut;
-    if (normalizedIn.toLowerCase() === virtualToken.toLowerCase()) return 0n;
-    if (normalizedOut.toLowerCase() === virtualToken.toLowerCase()) return 0n;
-
-    const quote = await getV3BridgeQuoteOut(normalizedIn, virtualToken, normalizedOut, amountInWei, chainId, 'uniswap');
-    return quote?.amountOut || 0n;
-}
-
-async function getReferenceExpectedOutput(
-    tokenIn: string,
-    tokenOut: string,
-    amountInWei: bigint,
-    chainId: number,
-    slippageBps: number,
-    recipient: string,
-    options?: { enableZoraRoutes?: boolean; diagnostics?: ReferenceQuoteDiagnostics; traceId?: string }
-): Promise<bigint> {
-    const diagnostics = options?.diagnostics;
-    const traceId = options?.traceId;
-    const enableZoraRoutes = options?.enableZoraRoutes === true;
-    const zoraRefTimeoutMs = Math.min(REFERENCE_QUOTE_TIMEOUT_MS, ZORA_REFERENCE_TIMEOUT_MS);
-    if (process.env.DIRECT_SWAP_REF_MODE === 'onchain-only') {
-        const ETH_ADDRESS = '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
-        const weth = WETH_ADDRESSES[chainId];
-        const poolTokenIn = tokenIn.toLowerCase() === ETH_ADDRESS && weth ? weth : tokenIn;
-        const poolTokenOut = tokenOut.toLowerCase() === ETH_ADDRESS && weth ? weth : tokenOut;
-
-        const sourceCandidates = await Promise.all([
-            withTimeout(
-                getV4BestPoolQuote(poolTokenIn, poolTokenOut, amountInWei, chainId, recipient),
-                REFERENCE_QUOTE_TIMEOUT_MS
-            )
-                .then(r => ({ source: 'v4', amountOut: r.amountOut }))
-                .catch(() => ({ source: 'v4', amountOut: 0n })),
-            withTimeout(
-                getV3BestQuoteOut(poolTokenIn, poolTokenOut, amountInWei, chainId, chainId === 56 ? 'pancake' : 'uniswap'),
-                REFERENCE_QUOTE_TIMEOUT_MS
-            )
-                .then(v => ({ source: chainId === 56 ? 'v3:pancake' : 'v3:uniswap', amountOut: v }))
-                .catch(() => ({ source: chainId === 56 ? 'v3:pancake' : 'v3:uniswap', amountOut: 0n })),
-            withTimeout(
-                getV2ExpectedOutput(poolTokenIn, poolTokenOut, amountInWei, chainId),
-                REFERENCE_QUOTE_TIMEOUT_MS
-            )
-                .then(v => ({ source: chainId === 56 ? 'v2:pancake' : 'v2:uniswap', amountOut: v }))
-                .catch(() => ({ source: chainId === 56 ? 'v2:pancake' : 'v2:uniswap', amountOut: 0n })),
-            chainId === 8453
-                ? withTimeout(
-                    getAerodromeExpectedOutput(tokenIn, tokenOut, amountInWei, chainId, slippageBps, recipient),
-                    REFERENCE_QUOTE_TIMEOUT_MS
-                )
-                    .then(v => ({ source: 'aerodrome', amountOut: v }))
-                    .catch(() => ({ source: 'aerodrome', amountOut: 0n }))
-                : Promise.resolve({ source: 'aerodrome', amountOut: 0n }),
-            chainId === 8453 && enableZoraRoutes
-                ? withTimeout(
-                    getZoraSdkExpectedOutput(tokenIn, tokenOut, amountInWei, chainId, recipient),
-                    zoraRefTimeoutMs
-                )
-                    .then(v => ({ source: 'zora-sdk', amountOut: v }))
-                    .catch(() => ({ source: 'zora-sdk', amountOut: 0n }))
-                : Promise.resolve({ source: 'zora-sdk', amountOut: 0n }),
-            chainId === 8453 && enableZoraRoutes
-                ? withTimeout(
-                    getV4ViaZoraBridgeExpectedOutput(tokenIn, tokenOut, amountInWei, chainId, recipient),
-                    zoraRefTimeoutMs
-                )
-                    .then(v => ({ source: 'v4-zora-bridge', amountOut: v }))
-                    .catch(() => ({ source: 'v4-zora-bridge', amountOut: 0n }))
-                : Promise.resolve({ source: 'v4-zora-bridge', amountOut: 0n }),
-            chainId === 8453
-                ? withTimeout(
-                    getV3ViaVirtualBridgeExpectedOutput(tokenIn, tokenOut, amountInWei, chainId),
-                    REFERENCE_QUOTE_TIMEOUT_MS
-                )
-                    .then(v => ({ source: 'v3-virtual-bridge', amountOut: v }))
-                    .catch(() => ({ source: 'v3-virtual-bridge', amountOut: 0n }))
-                : Promise.resolve({ source: 'v3-virtual-bridge', amountOut: 0n })
-        ]);
-
-        const best = pickBestReferenceQuote(sourceCandidates) || { source: 'none', amountOut: 0n };
-
-        logger.info(LogCode.EXE_QUOTE_FETCHED, '[DirectSwap] On-chain reference quote', {
-            traceId,
-            chainId,
-            tokenIn: tokenIn.slice(0, 12),
-            tokenOut: tokenOut.slice(0, 12),
-            bestSource: best.source,
-            bestOut: best.amountOut.toString().slice(0, 15),
-            bySource: sourceCandidates
-                .map(s => `${s.source}:${s.amountOut.toString().slice(0, 12)}`)
-                .join(',')
-        });
-        diagnostics && (diagnostics.source = best.source);
-        diagnostics && (diagnostics.l2Status = best.amountOut > 0n ? 'ok' : 'missing');
-        diagnostics && (diagnostics.l3Status = 'skipped');
-        return best.amountOut > 0n ? best.amountOut : 0n;
-    }
-    const cacheKey = buildReferenceQuoteCacheKey({
-        chainId,
-        tokenIn,
-        tokenOut,
-        amountInWei,
-        recipient,
-        enableZoraRoutes
-    });
-    const cached = referenceQuoteCache.get(cacheKey);
-    if (cached && Date.now() - cached.timestamp < REFERENCE_QUOTE_TTL_MS) {
-        diagnostics && (diagnostics.source = 'cache:memory');
-        diagnostics && (diagnostics.l2Status = 'ok');
-        diagnostics && (diagnostics.l3Status = 'skipped');
-        return cached.value;
-    }
-    const redisCached = await cacheGet(referenceQuoteRedisKey(cacheKey)).catch(() => null);
-    if (redisCached) {
-        try {
-            const parsed = JSON.parse(redisCached) as { value: string; timestamp: number };
-            if (Date.now() - parsed.timestamp < REFERENCE_QUOTE_TTL_MS) {
-                const value = BigInt(parsed.value);
-                referenceQuoteCache.set(cacheKey, { value, timestamp: parsed.timestamp });
-                diagnostics && (diagnostics.source = 'cache:redis');
-                diagnostics && (diagnostics.l2Status = 'ok');
-                diagnostics && (diagnostics.l3Status = 'skipped');
-                return value;
-            }
-        } catch {
-            // ignore parse errors
-        }
-    }
-
-    const refStart = Date.now();
-
-    let ref0x = 0n;
-    let refKyber = 0n;
-    const sharedExternalCacheKey = buildSharedExternalReferenceQuoteCacheKey({
-        chainId,
-        tokenIn,
-        tokenOut,
-        amountInWei
-    });
-    const sharedExternalQuote = await getSharedExternalReferenceQuote(
-        sharedExternalCacheKey,
-        REFERENCE_SHARED_EXTERNAL_TTL_MS
-    );
-
-    if (sharedExternalQuote) {
-        ref0x = sharedExternalQuote.ref0x;
-        refKyber = sharedExternalQuote.refKyber;
-        logger.info(LogCode.SYS_INFO, '[DirectSwap] Shared reference quote cache hit', {
-            traceId,
-            chainId,
-            tokenIn: tokenIn.slice(0, 12),
-            tokenOut: tokenOut.slice(0, 12),
-            amountIn: amountInWei.toString().slice(0, 16)
-        });
-    } else {
-        const { value: resolvedSharedQuote, shared } = await withInflightSingleflight(
-            sharedExternalReferenceQuoteInflight,
-            sharedExternalCacheKey,
-            async () => {
-                let localRef0x = 0n;
-                let localRefKyber = 0n;
-                const [zeroExResult, kyberResult] = await Promise.allSettled([
-                    withAbortableTimeout(
-                        (signal) => get0xExpectedOutput(tokenIn, tokenOut, amountInWei, chainId, signal),
-                        REFERENCE_QUOTE_TIMEOUT_MS
-                    ),
-                    withAbortableTimeout(
-                        async (signal) => {
-                            const res = await getKyberQuote(
-                                tokenIn,
-                                tokenOut,
-                                amountInWei.toString(),
-                                chainId,
-                                slippageBps,
-                                recipient,
-                                'copyTrade',
-                                undefined,
-                                signal
-                            );
-                            return res?.amountOut ? BigInt(res.amountOut) : 0n;
-                        },
-                        REFERENCE_QUOTE_TIMEOUT_MS
-                    )
-                ]);
-                if (zeroExResult.status === 'fulfilled') {
-                    localRef0x = zeroExResult.value;
-                } else {
-                    logger.warn(LogCode.API_FETCH_FAILED, '[DirectSwap] 0x reference quote failed', {
-                        traceId,
-                        error: String(zeroExResult.reason?.message || zeroExResult.reason || '').slice(0, 80)
-                    });
-                }
-                if (kyberResult.status === 'fulfilled') {
-                    localRefKyber = kyberResult.value;
-                } else {
-                    logger.warn(LogCode.API_FETCH_FAILED, '[DirectSwap] Kyber reference quote failed', {
-                        traceId,
-                        error: String(kyberResult.reason?.message || kyberResult.reason || '').slice(0, 80)
-                    });
-                }
-
-                const best = localRef0x > localRefKyber ? localRef0x : localRefKyber;
-                const ttlMs = best > 0n
-                    ? REFERENCE_SHARED_EXTERNAL_TTL_MS
-                    : REFERENCE_SHARED_EXTERNAL_NEGATIVE_TTL_MS;
-                await setSharedExternalReferenceQuote(
-                    sharedExternalCacheKey,
-                    { ref0x: localRef0x, refKyber: localRefKyber, best },
-                    Math.max(1, Math.ceil(ttlMs / 1000))
-                );
-                return { ref0x: localRef0x, refKyber: localRefKyber, best };
-            }
-        );
-
-        ref0x = resolvedSharedQuote.ref0x;
-        refKyber = resolvedSharedQuote.refKyber;
-        if (shared) {
-            logger.info(LogCode.SYS_INFO, '[DirectSwap] Shared reference quote inflight join', {
-                traceId,
-                chainId,
-                tokenIn: tokenIn.slice(0, 12),
-                tokenOut: tokenOut.slice(0, 12),
-                amountIn: amountInWei.toString().slice(0, 16)
-            });
-        }
-    }
-
-    const bestRef = ref0x > refKyber ? ref0x : refKyber;
-    if (bestRef > 0n) {
-        referenceQuoteCache.set(cacheKey, { value: bestRef, timestamp: Date.now() });
-        await cacheSet(
-            referenceQuoteRedisKey(cacheKey),
-            JSON.stringify({ value: bestRef.toString(), timestamp: Date.now() }),
-            Math.max(1, Math.ceil(REFERENCE_QUOTE_TTL_MS / 1000))
-        ).catch(() => { });
-        logger.info(LogCode.EXE_QUOTE_FETCHED, '[DirectSwap] Reference quote ready', {
-            traceId,
-            ref0x: ref0x.toString().slice(0, 15),
-            refKyber: refKyber.toString().slice(0, 15),
-            durationMs: Date.now() - refStart
-        });
-        diagnostics && (diagnostics.source = ref0x >= refKyber ? '0x' : 'kyber');
-        diagnostics && (diagnostics.l2Status = 'ok');
-        diagnostics && (diagnostics.l3Status = 'skipped');
-        return bestRef;
-    }
-
-    // Fallback: use V4 spot quote as reference for very new tokens
-    if (isV4SwapSupported(chainId)) {
-        const v4Spot = await getV4BestSpotOut(tokenIn, tokenOut, amountInWei, chainId);
-        if (v4Spot > 0n) {
-            referenceQuoteCache.set(cacheKey, { value: v4Spot, timestamp: Date.now() });
-            await cacheSet(
-                referenceQuoteRedisKey(cacheKey),
-                JSON.stringify({ value: v4Spot.toString(), timestamp: Date.now() }),
-                Math.max(1, Math.ceil(REFERENCE_QUOTE_TTL_MS / 1000))
-            ).catch(() => { });
-            logger.info(LogCode.EXE_QUOTE_FETCHED, '[DirectSwap] Reference quote fallback (V4 spot)', {
-                traceId,
-                outWei: v4Spot.toString().slice(0, 15),
-                durationMs: Date.now() - refStart
-            });
-            diagnostics && (diagnostics.source = 'v4-spot');
-            diagnostics && (diagnostics.l2Status = 'ok');
-            diagnostics && (diagnostics.l3Status = 'skipped');
-            return v4Spot;
-        }
-    }
-
-    try {
-        const chainName = chainId === 8453 ? 'base'
-            : chainId === 1 ? 'eth'
-                : chainId === 56 ? 'bsc'
-                    : chainId === 137 ? 'polygon'
-                        : chainId === 42161 ? 'arbitrum'
-                            : chainId === 10 ? 'optimism'
-                                : '';
-        if (chainName) {
-            const [inDetails, outDetails] = await withTimeout(
-                Promise.all([
-                    getTokenDetails(chainName, tokenIn, 'high'),
-                    getTokenDetails(chainName, tokenOut, 'high')
-                ]),
-                REFERENCE_QUOTE_TIMEOUT_MS
-            );
-            if (inDetails?.price && outDetails?.price && inDetails.price > 0 && outDetails.price > 0) {
-                const [inMeta, outMeta] = await Promise.all([
-                    getTokenMetadata(chainId, tokenIn),
-                    getTokenMetadata(chainId, tokenOut)
-                ]);
-                const inAmountHuman = Number(amountInWei) / Math.pow(10, inMeta.decimals || 18);
-                const outAmountHuman = inAmountHuman * (inDetails.price / outDetails.price);
-                const outWei = BigInt(Math.max(0, Math.floor(outAmountHuman * Math.pow(10, outMeta.decimals || 18))));
-                referenceQuoteCache.set(cacheKey, { value: outWei, timestamp: Date.now() });
-                await cacheSet(
-                    referenceQuoteRedisKey(cacheKey),
-                    JSON.stringify({ value: outWei.toString(), timestamp: Date.now() }),
-                    Math.max(1, Math.ceil(REFERENCE_QUOTE_TTL_MS / 1000))
-                ).catch(() => { });
-                logger.info(LogCode.EXE_QUOTE_FETCHED, '[DirectSwap] Reference quote from Gecko', {
-                    traceId,
-                    outWei: outWei.toString().slice(0, 15),
-                    durationMs: Date.now() - refStart
-                });
-                diagnostics && (diagnostics.source = 'gecko');
-                diagnostics && (diagnostics.l2Status = 'missing');
-                diagnostics && (diagnostics.l3Status = 'ok');
-                return outWei;
-            }
-        }
-    } catch (err: any) {
-        logger.warn(LogCode.API_FETCH_FAILED, '[DirectSwap] Gecko reference failed', {
-            traceId,
-            error: err?.message?.slice(0, 80)
-        });
-    }
-
-    logger.warn(LogCode.API_FETCH_FAILED, '[DirectSwap] No reference quote available', {
-        traceId,
-        durationMs: Date.now() - refStart
-    });
-    diagnostics && (diagnostics.source = 'none');
-    diagnostics && (diagnostics.l2Status = 'missing');
-    diagnostics && (diagnostics.l3Status = 'missing');
-    return 0n;
-}
-
-async function executeV3VirtualBridgeSwap(
-    params: {
-        userId: string;
-        accessToken: string;
-        walletAddress: string;
-        tokenIn: string;
-        tokenOut: string;
-        amountIn: string;
-        amountInWei: bigint;
-        chainId: number;
-        slippageBps: number;
-    },
-    bridgeToken: string,
-    quote: V3BridgeQuote
-): Promise<DirectSwapResult> {
-    const { userId, accessToken, walletAddress, tokenIn, tokenOut, chainId, slippageBps } = params;
-    const routerAddress = chainId === 8453 ? '0x2626664c2603336E57B271c5C0b26F421741e481' : '';
-    if (!routerAddress) {
-        return { success: false, error: 'V3 router not available for virtual bridge', provider: 'failed' };
-    }
-
-    const ETH_ADDRESS = '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
-    const weth = WETH_ADDRESSES[chainId];
-    if (!weth) {
-        return { success: false, error: 'WETH not configured', provider: 'failed' };
-    }
-
-    const amountInWei = params.amountInWei;
-    const isNativeIn = tokenIn.toLowerCase() === ETH_ADDRESS.toLowerCase();
-    const normalizedIn = isNativeIn ? weth : tokenIn;
-    const normalizedOut = tokenOut.toLowerCase() === ETH_ADDRESS.toLowerCase() ? weth : tokenOut;
-    const minAmountOut = quote.amountOut * BigInt(10000 - slippageBps) / 10000n;
-
-    const path = ethers.solidityPacked(
-        ['address', 'uint24', 'address', 'uint24', 'address'],
-        [normalizedIn, quote.feeInToBridge, bridgeToken, quote.feeBridgeToOut, normalizedOut]
-    );
-
-    const ifaceNoDeadline = new ethers.Interface([
-        'function exactInput((bytes path,address recipient,uint256 amountIn,uint256 amountOutMinimum)) external payable returns (uint256 amountOut)'
-    ]);
-    const ifaceWithDeadline = new ethers.Interface([
-        'function exactInput((bytes path,address recipient,uint256 deadline,uint256 amountIn,uint256 amountOutMinimum)) external payable returns (uint256 amountOut)'
-    ]);
-
-    const deadline = Math.floor(Date.now() / 1000) + 300;
-    const paramsNoDeadline = {
-        path,
-        recipient: walletAddress,
-        amountIn: amountInWei,
-        amountOutMinimum: minAmountOut
-    };
-    const paramsWithDeadline = {
-        path,
-        recipient: walletAddress,
-        deadline,
-        amountIn: amountInWei,
-        amountOutMinimum: minAmountOut
-    };
-
-    let data = ifaceNoDeadline.encodeFunctionData('exactInput', [paramsNoDeadline]);
-    try {
-        await callRpc<string>(chainId, 'eth_estimateGas', [{
-            from: walletAddress,
-            to: routerAddress,
-            data,
-            value: isNativeIn ? ethers.toQuantity(amountInWei) : '0x0'
-        }]);
-    } catch {
-        data = ifaceWithDeadline.encodeFunctionData('exactInput', [paramsWithDeadline]);
-    }
-
-    let gasLimit = '550000';
-    try {
-        const estimate = await callRpc<string>(chainId, 'eth_estimateGas', [{
-            from: walletAddress,
-            to: routerAddress,
-            data,
-            value: isNativeIn ? ethers.toQuantity(amountInWei) : '0x0'
-        }]);
-        gasLimit = (BigInt(estimate) * 2n).toString();
-    } catch {
-        gasLimit = '550000';
-    }
-    const txHash = await sendTransaction(userId, accessToken, {
-        to: routerAddress,
-        data,
-        value: isNativeIn ? amountInWei.toString() : '0',
-        chainId,
-        txPurpose: 'trade',
-        executionProfile: getTxExecutionProfile(chainId),
-        gas: gasLimit
-    });
-
-    logger.info(LogCode.EXE_TX_CONFIRMED, '[DirectSwap] Virtual bridge swap executed', {
-        txHash,
-        bridgeToken,
-        feeInToVirtual: quote.feeInToBridge,
-        feeVirtualToOut: quote.feeBridgeToOut
-    });
-
-    return {
-        success: true,
-        txHash,
-        provider: 'uniswap-v3',
-        poolInfo: {
-            version: 'v3-virtual-bridge',
-            fee: quote.feeInToBridge,
-            liquidity: '0'
-        }
-    };
-}
-
-/**
- * 检查是否支持直接交易
- */
-export function isDirectSwapSupported(chainId: number): boolean {
-    return DIRECT_SWAP_SUPPORTED_CHAINS.includes(chainId as (typeof DIRECT_SWAP_SUPPORTED_CHAINS)[number]);
-}
-
-/**
- * 使用 0x Price API 获取预期输出金额
- * [Logic]: 用于计算 minAmountOut，提供滑点保护
- * [Ref]: 0x API docs - /swap/allowance-holder/price
- */
-async function get0xExpectedOutput(
-    tokenIn: string,
-    tokenOut: string,
-    amountInWei: bigint,
-    chainId: number,
-    signal?: AbortSignal
-): Promise<bigint> {
-    try {
-        const price = await getZeroExPrice(tokenIn, tokenOut, amountInWei.toString(), chainId, signal);
-        if (price?.buyAmount) {
-            logger.debug(LogCode.API_FETCH_SUCCESS, '[DirectSwap] 0x price fetched', {
-                expectedOut: price.buyAmount.slice(0, 15)
-            });
-            return BigInt(price.buyAmount);
-        }
-    } catch (e: any) {
-        logger.warn(LogCode.API_FETCH_FAILED, '[DirectSwap] 0x price fetch failed, no slippage protection', {
-            error: e.message?.slice(0, 100)
-        });
-    }
-
-    // [Risk]: 返回 0 表示无滑点保护 - 交易仍可继续但有风险
-    return BigInt(0);
-}
+export { isDirectSwapSupported };

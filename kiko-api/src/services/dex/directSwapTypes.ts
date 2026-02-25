@@ -27,6 +27,10 @@ export interface DirectSwapHint {
     sourceDexName?: string;
     sourceRouter?: string;
     sourceTxHash?: string;
+    sourceTokenIn?: string;
+    sourceTokenOut?: string;
+    sourceAmountIn?: string;
+    sourceAmountOut?: string;
     routeHopCount?: number;
     routeHops?: DirectSwapRouteHop[];
     canUseResolvedPoolFastPath?: boolean;

@@ -27,6 +27,78 @@ function replaceWordAll(dataNoPrefix: string, fromWord: string, toWord: string):
   return result;
 }
 
+/**
+ * Safe calldata rewrite with collision detection and token-address protection.
+ * Instead of blindly replacing hex words, this guards against:
+ *  - Source wallet word colliding with a token address word (would mangle the swap pair)
+ *  - Source value word colliding with a token address word
+ *  - Post-rewrite validation that token addresses are still intact
+ */
+export function safeRewriteCalldata(params: {
+  dataNoPrefix: string;
+  selector: string;
+  sourceWallet: string;
+  followerWallet: string;
+  sourceValueWei: bigint;
+  desiredValueWei: bigint;
+  tokenIn: string;
+  tokenOut: string;
+}): { data: string; warnings: string[] } {
+  const { selector, sourceWallet, followerWallet, sourceValueWei, desiredValueWei, tokenIn, tokenOut } = params;
+  let data = params.dataNoPrefix;
+  const warnings: string[] = [];
+  const selectorNoPrefix = selector.slice(2);
+
+  // Collect protected words: token addresses that must NOT be rewritten
+  const protectedWords = new Set<string>();
+  const tokenInWord = /^0x[0-9a-f]{40}$/i.test(tokenIn) ? toAddressWord(tokenIn) : null;
+  const tokenOutWord = /^0x[0-9a-f]{40}$/i.test(tokenOut) ? toAddressWord(tokenOut) : null;
+  if (tokenInWord) protectedWords.add(tokenInWord);
+  if (tokenOutWord) protectedWords.add(tokenOutWord);
+
+  const sourceWalletWord = toAddressWord(sourceWallet);
+  const followerWalletWord = toAddressWord(followerWallet);
+  const sourceValueWord = sourceValueWei > 0n ? toWordHex(sourceValueWei) : null;
+  const desiredValueWord = toWordHex(desiredValueWei);
+
+  // Collision check: wallet word equals a token address
+  if (protectedWords.has(sourceWalletWord)) {
+    warnings.push('collision:source_wallet_matches_token');
+    // Skip wallet replacement entirely to avoid mangling token addresses
+  } else if (/^0x[0-9a-f]{40}$/.test(sourceWallet) && /^0x[0-9a-f]{40}$/.test(followerWallet)) {
+    data = replaceWordAll(data, sourceWalletWord, followerWalletWord);
+  }
+
+  // Value replacement with protection
+  if (sourceValueWei > 0n && sourceValueWord) {
+    if (protectedWords.has(sourceValueWord)) {
+      warnings.push('collision:source_value_matches_token');
+    } else if (sourceWalletWord === sourceValueWord) {
+      // Wallet word and value word are identical — value already handled by wallet rewrite
+      warnings.push('collision:wallet_equals_value');
+    } else {
+      data = replaceWordAll(data, sourceValueWord, desiredValueWord);
+    }
+  }
+
+  // Selector-specific rewrite: first argument is amountIn for 0xcae6a6b3
+  if (data.startsWith(selectorNoPrefix) && data.length >= selectorNoPrefix.length + 64) {
+    const head = data.slice(0, selectorNoPrefix.length);
+    const rest = data.slice(selectorNoPrefix.length + 64);
+    data = `${head}${desiredValueWord}${rest}`;
+  }
+
+  // Post-rewrite validation: ensure token addresses weren't mangled
+  if (tokenInWord && !data.includes(tokenInWord)) {
+    warnings.push('validation:tokenIn_missing_after_rewrite');
+  }
+  if (tokenOutWord && !data.includes(tokenOutWord)) {
+    warnings.push('validation:tokenOut_missing_after_rewrite');
+  }
+
+  return { data, warnings };
+}
+
 function parseNativeInputAmountWei(input: PlannerInput): bigint | null {
   const tokenIn = String(input.tokenIn || '').toLowerCase();
   const isNativeLike = tokenIn === 'eth'
@@ -102,37 +174,42 @@ function maybeBuildRawSourceReplay(input: PlannerInput): ExecutionPlanV1 | null 
   const desiredValueWei = parseNativeInputAmountWei(input);
   if (desiredValueWei === null || desiredValueWei <= 0n) return null;
 
-  let dataNoPrefix = sourceTxInput.toLowerCase().slice(2);
-
-  // Rewrite wallet address occurrences to follower wallet when available.
   const sourceWallet = String(input.sourceWallet || '').toLowerCase();
   const followerWallet = String(input.walletAddress || '').toLowerCase();
-  if (/^0x[0-9a-f]{40}$/.test(sourceWallet) && /^0x[0-9a-f]{40}$/.test(followerWallet)) {
-    dataNoPrefix = replaceWordAll(
-      dataNoPrefix,
-      toAddressWord(sourceWallet),
-      toAddressWord(followerWallet)
-    );
+
+  const rewrite = safeRewriteCalldata({
+    dataNoPrefix: sourceTxInput.toLowerCase().slice(2),
+    selector,
+    sourceWallet,
+    followerWallet,
+    sourceValueWei,
+    desiredValueWei,
+    tokenIn: String(input.tokenIn || '').toLowerCase(),
+    tokenOut: String(input.tokenOut || '').toLowerCase()
+  });
+
+  if (rewrite.warnings.length > 0) {
+    logger.warn(LogCode.SYS_INFO, '[P2] Raw source replay calldata rewrite warnings', {
+      chainId: input.chainId,
+      selector,
+      warnings: rewrite.warnings
+    });
   }
 
-  // Rewrite known source value words to the follower trade amount.
-  if (sourceValueWei > 0n) {
-    dataNoPrefix = replaceWordAll(
-      dataNoPrefix,
-      toWordHex(sourceValueWei),
-      toWordHex(desiredValueWei)
-    );
+  // Abort if post-rewrite validation detected mangled token addresses
+  const hasCriticalWarning = rewrite.warnings.some((w) =>
+    w.startsWith('validation:') || w === 'collision:source_wallet_matches_token'
+  );
+  if (hasCriticalWarning) {
+    logger.warn(LogCode.SYS_INFO, '[P2] Raw source replay aborted: critical calldata rewrite collision', {
+      chainId: input.chainId,
+      selector,
+      warnings: rewrite.warnings
+    });
+    return null;
   }
 
-  // Selector-specific rewrite: first argument is amountIn for this router path.
-  const selectorNoPrefix = selector.slice(2);
-  if (dataNoPrefix.startsWith(selectorNoPrefix) && dataNoPrefix.length >= selectorNoPrefix.length + 64) {
-    const head = dataNoPrefix.slice(0, selectorNoPrefix.length);
-    const rest = dataNoPrefix.slice(selectorNoPrefix.length + 64);
-    dataNoPrefix = `${head}${toWordHex(desiredValueWei)}${rest}`;
-  }
-
-  const rewrittenCalldata = `0x${dataNoPrefix}`;
+  const rewrittenCalldata = `0x${rewrite.data}`;
   return {
     version: 1,
     chainId: input.chainId,
@@ -305,3 +382,14 @@ export async function buildExecutionPlan(input: PlannerInput): Promise<Execution
 
   return plan;
 }
+
+/** Exported for unit testing only */
+export const __plannerTestApi = {
+  toWordHex,
+  toAddressWord,
+  replaceWordAll,
+  parseNativeInputAmountWei,
+  decodeUniversalRouterExecute,
+  parseTemplatePayload,
+  defaultDeadline
+};

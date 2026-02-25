@@ -65,6 +65,10 @@ export interface DirectSwapHint {
   sourceDexName?: string;
   sourceRouter?: string;
   sourceTxHash?: string;
+  sourceTokenIn?: string;
+  sourceTokenOut?: string;
+  sourceAmountIn?: string;
+  sourceAmountOut?: string;
   routeHopCount?: number;
   routeHops?: DirectSwapRouteHop[];
   canUseResolvedPoolFastPath?: boolean;
@@ -1104,7 +1108,18 @@ export class MainSwapService {
 
     if (fastSwapEnabled && isDirectSwapSupported(request.chainId) && (isBuyDirection || allowDirectSell)) {
       const rpcUsageBefore = getRpcMethodUsageSnapshot(request.chainId);
-      const directSwapHint = request.directSwapHint || buildDirectSwapHintFromContext(request.executionContext?.contextSnapshot);
+      const baseDirectSwapHint = request.directSwapHint || buildDirectSwapHintFromContext(request.executionContext?.contextSnapshot);
+      const directSwapHint = baseDirectSwapHint
+        ? {
+          ...baseDirectSwapHint,
+          sourceTxHash: baseDirectSwapHint.sourceTxHash || request.executionContext?.sourceTxHash || contextSnapshot?.sourceTxHash,
+          sourceRouter: baseDirectSwapHint.sourceRouter || request.executionContext?.sourceRouter || contextSnapshot?.sourceRouter,
+          sourceTokenIn: baseDirectSwapHint.sourceTokenIn || sourceTokenIn || undefined,
+          sourceTokenOut: baseDirectSwapHint.sourceTokenOut || sourceTokenOut || undefined,
+          sourceAmountIn: baseDirectSwapHint.sourceAmountIn || sourceAmountIn || undefined,
+          sourceAmountOut: baseDirectSwapHint.sourceAmountOut || sourceAmountOut || undefined
+        }
+        : undefined;
       try {
       // Default: turbo uses 2 direct attempts to avoid bursting RPC under degraded conditions.
       const DIRECT_SWAP_MAX_ATTEMPTS = isTurboCopytrade ? TURBO_DIRECT_MAX_ATTEMPTS : BALANCED_DIRECT_MAX_ATTEMPTS;

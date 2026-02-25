@@ -12,7 +12,19 @@ const DEFAULT_SCORE_BPS = 10000;
 const MIN_SCORE_BPS = 2000;
 const MAX_SCORE_BPS = 12000;
 const CACHE_TTL_SEC = Math.max(300, Number(process.env.COPYTRADE_PROVIDER_RELIABILITY_TTL_SEC || 86400));
-const ALPHA = Math.min(0.8, Math.max(0.05, Number(process.env.COPYTRADE_PROVIDER_RELIABILITY_ALPHA || 0.25)));
+const BASE_ALPHA = Math.min(0.8, Math.max(0.05, Number(process.env.COPYTRADE_PROVIDER_RELIABILITY_ALPHA || 0.25)));
+
+/**
+ * Adaptive EMA weight: conservative with few samples, full weight after ~30.
+ * Prevents a single network blip from tanking a provider's score when we have
+ * very little history to average against.
+ */
+export function adaptiveAlpha(sampleCount: number): number {
+  if (sampleCount < 5) return BASE_ALPHA * 0.3;
+  if (sampleCount < 15) return BASE_ALPHA * 0.5;
+  if (sampleCount < 30) return BASE_ALPHA * 0.75;
+  return BASE_ALPHA;
+}
 
 function keyFor(chainId: number, tokenIn: string, tokenOut: string, provider: string): string {
   return `copytrade:reliability:${chainId}:${String(tokenIn || '').toLowerCase()}:${String(tokenOut || '').toLowerCase()}:${String(provider || '').toLowerCase()}`;
@@ -57,12 +69,11 @@ export async function recordProviderReliabilityOutcome(params: {
   const key = keyFor(params.chainId, params.tokenIn, params.tokenOut, params.provider);
   const state = await getProviderReliability(params);
 
-  // accepted=true and ratio near/above 10000 strengthens confidence.
-  // accepted=false (anchor guard reject) aggressively downweights provider.
   const observedBps = params.accepted
     ? Math.max(6000, Math.min(12000, params.anchorRatioBps))
     : Math.max(1000, Math.min(7000, params.anchorRatioBps));
-  const nextScore = Math.round((1 - ALPHA) * state.scoreBps + ALPHA * observedBps);
+  const alpha = adaptiveAlpha(state.sampleCount);
+  const nextScore = Math.round((1 - alpha) * state.scoreBps + alpha * observedBps);
   const clamped = Math.max(MIN_SCORE_BPS, Math.min(MAX_SCORE_BPS, nextScore));
   const next: ReliabilityState = {
     scoreBps: clamped,

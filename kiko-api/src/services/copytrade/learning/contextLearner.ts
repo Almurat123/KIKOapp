@@ -12,7 +12,7 @@ type FailureBucket =
   | 'rpc_or_network'
   | 'other';
 
-function bucketizeFailure(status: string, simulationJson?: string | null): FailureBucket {
+export function bucketizeFailure(status: string, simulationJson?: string | null): FailureBucket {
   const raw = `${status || ''} ${simulationJson || ''}`.toLowerCase();
   if (raw.includes('unknown_selector') || raw.includes('selector')) return 'unknown_selector';
   if (raw.includes('hook')) return 'hook_mismatch';

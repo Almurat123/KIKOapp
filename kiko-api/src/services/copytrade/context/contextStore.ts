@@ -22,6 +22,10 @@ export function buildDirectSwapHintFromContext(
   return {
     sourceTxHash: ctx.sourceTxHash,
     sourceRouter: ctx.sourceRouter,
+    sourceTokenIn: ctx.tokenIn,
+    sourceTokenOut: ctx.tokenOut,
+    sourceAmountIn: ctx.amountIn,
+    sourceAmountOut: ctx.amountOut,
     routeHopCount: ctx.routeHops?.length || 0,
     routeHops: ctx.routeHops?.map((hop) => ({
       kind: hop.kind,
@@ -173,4 +177,3 @@ export async function queryContextsBySelector(params: {
     return [];
   }
 }
-

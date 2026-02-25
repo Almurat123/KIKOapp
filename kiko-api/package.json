@@ -11,6 +11,7 @@
     "postinstall": "test -f prisma/schema.prisma && prisma generate || echo 'Skipping prisma generate (schema not found)'",
     "start": "node dist/index.js",
     "test": "tsx --test",
+    "test:copytrade": "tsx --test src/services/copytrade/__tests__/*.test.ts",
     "migrate": "tsx src/db/migrate.ts",
     "diagnostic:db": "node dist/scripts/diagnostic-db.js",
     "refresh:social": "node dist/scripts/testSocialData.js",
