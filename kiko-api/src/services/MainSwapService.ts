@@ -34,7 +34,7 @@ import { ethers } from 'ethers';
 import { TradeContext, getTradeContext } from './TradeContext.js';
 import { getTokenData } from './UnifiedDataLayer.js';
 import { executeDirectSwap, isDirectSwapSupported } from './dex/directSwapService.js';
-import { callRpc, diffRpcMethodUsageSnapshots, getRpcMethodUsageSnapshot, waitForReceiptStateMachine } from './rpcManager.js';
+import { callRpc, diffRpcMethodUsageSnapshots, getChainRpcDegradeState, getRpcMethodUsageSnapshot, getTxLifecycleState, waitForReceiptStateMachine } from './rpcManager.js';
 import { resolveTokenAddress, normalizeTokenAddress } from './tokens.js';
 import { sendTransaction } from './privyWallet.js';
 import { isPostBuyPreApprovalEnabled } from './swapPreApprovalPolicy.js';
@@ -1618,6 +1618,10 @@ export class MainSwapService {
       }
 
       if (isTurboCopytrade && isTimeoutError(lastDirectError)) {
+        const chainDegraded = getChainRpcDegradeState(request.chainId);
+        const observedTxStates = Array.from(directCandidateTxHashes)
+          .map((hash) => ({ hash, state: getTxLifecycleState(request.chainId, hash) }))
+          .filter((item) => Boolean(item.state));
         if (inflightDirectPromise) {
           const lateSettled = await settleWithin(inflightDirectPromise, TURBO_DIRECT_LATE_SETTLE_MS);
           if (lateSettled) {
@@ -1628,7 +1632,13 @@ export class MainSwapService {
                 txHash: lateSettled.txHash,
                 provider: lateSettled.provider,
                 late_settle_ms: TURBO_DIRECT_LATE_SETTLE_MS,
-                direct_timeout_reason: directTimeoutReason || 'send_failure'
+                direct_timeout_reason: directTimeoutReason || 'send_failure',
+                chain_rpc_degraded: chainDegraded.degraded,
+                observed_tx_states: observedTxStates.map((item) => ({
+                  txHash: item.hash,
+                  status: item.state?.status || null,
+                  updatedAt: item.state?.updatedAt || null
+                }))
               });
               return toDirectSuccessResult(lateSettled);
             }
@@ -1639,7 +1649,14 @@ export class MainSwapService {
           logger.warn(LogCode.SYS_INFO, trace('Turbo timeout but direct txHash already captured; lock direct and skip fallback'), {
             txHash,
             provider: lastDirectResult?.provider || 'direct-swap',
-            direct_timeout_reason: directTimeoutReason || 'send_failure'
+            direct_timeout_reason: directTimeoutReason || 'send_failure',
+            chain_rpc_degraded: chainDegraded.degraded,
+            chain_rpc_error: chainDegraded.lastError || null,
+            observed_tx_states: observedTxStates.map((item) => ({
+              txHash: item.hash,
+              status: item.state?.status || null,
+              updatedAt: item.state?.updatedAt || null
+            }))
           });
           return {
             success: true,
@@ -1655,7 +1672,14 @@ export class MainSwapService {
         }
         logger.warn(LogCode.SYS_INFO, trace('Turbo timeout without txHash; skip fallback and return direct timeout'), {
           error: lastDirectError?.message,
-          direct_timeout_reason: directTimeoutReason || 'send_failure'
+          direct_timeout_reason: directTimeoutReason || 'send_failure',
+          chain_rpc_degraded: chainDegraded.degraded,
+          chain_rpc_error: chainDegraded.lastError || null,
+          observed_tx_states: observedTxStates.map((item) => ({
+            txHash: item.hash,
+            status: item.state?.status || null,
+            updatedAt: item.state?.updatedAt || null
+          }))
         });
         return {
           success: false,

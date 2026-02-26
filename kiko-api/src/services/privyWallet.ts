@@ -15,6 +15,7 @@ import { LogCode } from '../config/logRegistry.js';
 import {
     callRpc as rpcCall,
     broadcastRawWithQuorum,
+    recordTxLifecycleState,
     getEthersProvider,
     probeTxVisibility,
     waitForReceiptStateMachine
@@ -735,6 +736,41 @@ async function signAndBroadcastRawTransaction(
     });
 
     if (fastTradePath) {
+        if (lifecycle.status === 'broadcasted_unseen' && rawTxHash) {
+            const visibilityGuard = await waitForReceiptStateMachine({
+                chainId: tx.chainId,
+                txHash: rawTxHash,
+                expectedFrom: context.expectedFrom,
+                maxWaitMs: Number(process.env.PRIVY_FAST_TRADE_VISIBILITY_GUARD_MS || '1200'),
+                pollMs: 250
+            }).catch(() => lifecycle);
+
+            if (visibilityGuard.status !== 'visible_pending' && visibilityGuard.status !== 'confirmed_success') {
+                logger.warn(LogCode.EXE_TX_REVERTED, 'Privy fast trade dropped: tx hash unseen after visibility guard', {
+                    chainId: tx.chainId,
+                    txHash: rawTxHash,
+                    initialStatus: lifecycle.status,
+                    finalStatus: visibilityGuard.status,
+                    lastRpcError: visibilityGuard.lastRpcError || lifecycle.lastRpcError || null
+                });
+                const dropped: TxLifecycleResult = {
+                    status: 'dropped_timeout',
+                    txHash: rawTxHash,
+                    attempts: Math.max(lifecycle.attempts || 1, visibilityGuard.attempts || 1),
+                    chainId: tx.chainId,
+                    lastRpcError: visibilityGuard.lastRpcError || lifecycle.lastRpcError || 'tx_unseen_after_fast_trade_guard'
+                };
+                recordTxLifecycleState({
+                    chainId: dropped.chainId,
+                    txHash: dropped.txHash || rawTxHash,
+                    status: dropped.status,
+                    attempts: dropped.attempts,
+                    lastRpcError: dropped.lastRpcError,
+                    source: 'privy_fast_trade_guard'
+                });
+                return dropped;
+            }
+        }
         logger.info(LogCode.SYS_INFO, 'Privy fast trade lifecycle early return', {
             chainId: tx.chainId,
             txHash: rawTxHash,

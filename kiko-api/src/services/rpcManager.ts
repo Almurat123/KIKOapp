@@ -333,6 +333,23 @@ const methodLimiter = new Map<string, RpcLimiterState>();
 const inflightRpcRequests = new Map<string, Promise<any>>();
 const inflightRpcRawRequests = new Map<string, Promise<any>>();
 const rawTxHashCache = new Map<string, { txHash: string; timestamp: number }>();
+type TxObservedStatus = TxLifecycleResult['status'] | 'send_failed';
+interface TxLifecycleSnapshot {
+    chainId: number;
+    txHash: string;
+    status: TxObservedStatus;
+    updatedAt?: number;
+    firstSeenAt?: number;
+    confirmedAt?: number;
+    attempts?: number;
+    lastRpcError?: string;
+    source?: string;
+}
+const txLifecycleStateCache = new Map<string, TxLifecycleSnapshot>();
+const TX_LIFECYCLE_STATE_TTL_MS = Math.max(5_000, Number(process.env.TX_LIFECYCLE_STATE_TTL_MS || '180000'));
+const TX_LIFECYCLE_STATE_MAX = Math.max(256, Number(process.env.TX_LIFECYCLE_STATE_MAX || '20000'));
+const rpcChainDegradedState = new Map<number, { until: number; updatedAt: number; lastError?: string; method?: string }>();
+const RPC_CHAIN_DEGRADED_TTL_MS = Math.max(500, Number(process.env.RPC_CHAIN_DEGRADED_TTL_MS || '4000'));
 const rpcMethodUsage = new Map<string, RpcMethodUsage>();
 const endpointMethodTimeoutHealth = new Map<string, EndpointMethodTimeoutHealth>();
 const rpcPoolInflight: Record<RpcClass, number> = {
@@ -719,6 +736,71 @@ function setRawTxCache(chainId: number, rawTxHash: string, txHash: string): void
         }
     }
     rawTxHashCache.set(`${chainId}:${rawTxHash}`, { txHash, timestamp: Date.now() });
+}
+
+function txLifecycleKey(chainId: number, txHash: string): string {
+    return `${chainId}:${String(txHash || '').toLowerCase()}`;
+}
+
+function pruneTxLifecycleStateCache(): void {
+    if (txLifecycleStateCache.size < TX_LIFECYCLE_STATE_MAX) return;
+    const now = Date.now();
+    for (const [key, row] of txLifecycleStateCache.entries()) {
+        const updatedAt = row.updatedAt || 0;
+        if (now - updatedAt > TX_LIFECYCLE_STATE_TTL_MS) {
+            txLifecycleStateCache.delete(key);
+        }
+    }
+    if (txLifecycleStateCache.size <= TX_LIFECYCLE_STATE_MAX) return;
+    const drop = Math.max(1, Math.floor(TX_LIFECYCLE_STATE_MAX * 0.2));
+    const oldest = Array.from(txLifecycleStateCache.entries())
+        .sort((a, b) => (a[1].updatedAt || 0) - (b[1].updatedAt || 0))
+        .slice(0, drop);
+    for (const [key] of oldest) txLifecycleStateCache.delete(key);
+}
+
+export function recordTxLifecycleState(snapshot: TxLifecycleSnapshot): void {
+    if (!snapshot?.chainId || !snapshot?.txHash) return;
+    pruneTxLifecycleStateCache();
+    const key = txLifecycleKey(snapshot.chainId, snapshot.txHash);
+    const prev = txLifecycleStateCache.get(key);
+    txLifecycleStateCache.set(key, {
+        ...(prev || {}),
+        ...snapshot,
+        txHash: String(snapshot.txHash).toLowerCase(),
+        updatedAt: Date.now()
+    });
+}
+
+export function getTxLifecycleState(chainId: number, txHash: string): TxLifecycleSnapshot | null {
+    const key = txLifecycleKey(chainId, txHash);
+    const row = txLifecycleStateCache.get(key);
+    if (!row) return null;
+    const updatedAt = row.updatedAt || 0;
+    if (Date.now() - updatedAt > TX_LIFECYCLE_STATE_TTL_MS) {
+        txLifecycleStateCache.delete(key);
+        return null;
+    }
+    return row;
+}
+
+function markChainRpcDegraded(chainId: number, method: string, errorMessage?: string): void {
+    rpcChainDegradedState.set(chainId, {
+        until: Date.now() + RPC_CHAIN_DEGRADED_TTL_MS,
+        updatedAt: Date.now(),
+        method,
+        lastError: errorMessage ? String(errorMessage).slice(0, 180) : undefined
+    });
+}
+
+export function getChainRpcDegradeState(chainId: number): { degraded: boolean; until: number; updatedAt: number; method?: string; lastError?: string } {
+    const row = rpcChainDegradedState.get(chainId);
+    if (!row) return { degraded: false, until: 0, updatedAt: 0 };
+    if (Date.now() > row.until) {
+        rpcChainDegradedState.delete(chainId);
+        return { degraded: false, until: 0, updatedAt: 0 };
+    }
+    return { degraded: true, ...row };
 }
 
 /**
@@ -1256,6 +1338,7 @@ export async function callRpc<T = any>(
                 });
             }
             markRpcMethodUsage(chainId, method, effectiveImportance, rpcClass, path, 'allFailed');
+            markChainRpcDegraded(chainId, method, lastError?.message || 'all_endpoints_failed');
 
             throw new Error(
                 `All RPC endpoints failed for ${chainName}. Last error: ${lastError?.message || 'Unknown'}`
@@ -2392,6 +2475,33 @@ export async function probeTxVisibility(params: {
     blockNumber?: string;
     lastError?: string;
 }> {
+    const cached = getTxLifecycleState(params.chainId, params.txHash);
+    if (cached) {
+        if (cached.status === 'confirmed_success' || cached.status === 'confirmed_failed' || cached.status === 'visible_pending') {
+            return {
+                visible: true,
+                checks: 0,
+                lastError: cached.lastRpcError
+            };
+        }
+        if (cached.status === 'dropped_timeout' || cached.status === 'send_failed') {
+            return {
+                visible: false,
+                checks: 0,
+                lastError: cached.lastRpcError || 'cached_tx_unseen'
+            };
+        }
+    }
+
+    const degrade = getChainRpcDegradeState(params.chainId);
+    if (degrade.degraded && cached && cached.status === 'broadcasted_unseen') {
+        return {
+            visible: false,
+            checks: 0,
+            lastError: degrade.lastError || cached.lastRpcError || 'chain_rpc_degraded'
+        };
+    }
+
     const retries = Math.max(1, Number(params.retries || 6));
     const delayMs = Math.max(0, Number(params.delayMs ?? 400));
     const expectedFrom = String(params.expectedFrom || '').toLowerCase();
@@ -2417,15 +2527,24 @@ export async function probeTxVisibility(params: {
                         }
                         continue;
                     }
-                    return {
+                    const out = {
                         visible: true,
                         checks: i,
                         from: tx.from,
                         nonce: tx.nonce,
                         blockNumber: tx.blockNumber
                     };
+                    recordTxLifecycleState({
+                        chainId: params.chainId,
+                        txHash: params.txHash,
+                        status: 'visible_pending',
+                        firstSeenAt: Date.now(),
+                        attempts: i,
+                        source: 'probe_visibility'
+                    });
+                    return out;
                 }
-                return {
+                const out = {
                     visible: false,
                     checks: i,
                     from: tx.from,
@@ -2433,6 +2552,15 @@ export async function probeTxVisibility(params: {
                     blockNumber: tx.blockNumber,
                     lastError: `from_mismatch expected=${params.expectedFrom} got=${tx.from}`
                 };
+                recordTxLifecycleState({
+                    chainId: params.chainId,
+                    txHash: params.txHash,
+                    status: 'broadcasted_unseen',
+                    attempts: i,
+                    lastRpcError: out.lastError,
+                    source: 'probe_visibility'
+                });
+                return out;
             }
         } catch (err: any) {
             lastError = err?.message || String(err);
@@ -2443,11 +2571,20 @@ export async function probeTxVisibility(params: {
         }
     }
 
-    return {
+    const out = {
         visible: false,
         checks: retries,
         lastError: lastError || 'not_found_by_rpc'
     };
+    recordTxLifecycleState({
+        chainId: params.chainId,
+        txHash: params.txHash,
+        status: 'broadcasted_unseen',
+        attempts: retries,
+        lastRpcError: out.lastError,
+        source: 'probe_visibility'
+    });
+    return out;
 }
 
 export async function waitForReceiptStateMachine(params: {
@@ -2457,6 +2594,24 @@ export async function waitForReceiptStateMachine(params: {
     maxWaitMs?: number;
     pollMs?: number;
 }): Promise<TxLifecycleResult> {
+    const cached = getTxLifecycleState(params.chainId, params.txHash);
+    if (cached && (
+        cached.status === 'confirmed_success'
+        || cached.status === 'confirmed_failed'
+        || cached.status === 'visible_pending'
+        || cached.status === 'dropped_timeout'
+    )) {
+        return {
+            status: cached.status as TxLifecycleResult['status'],
+            txHash: params.txHash,
+            firstSeenAt: cached.firstSeenAt,
+            confirmedAt: cached.confirmedAt,
+            lastRpcError: cached.lastRpcError,
+            attempts: cached.attempts || 0,
+            chainId: params.chainId
+        };
+    }
+
     const startedAt = Date.now();
     const maxWaitMs = Math.max(200, Number(params.maxWaitMs || 12_000));
     const pollMs = Math.max(120, Number(params.pollMs || 500));
@@ -2467,6 +2622,17 @@ export async function waitForReceiptStateMachine(params: {
     let visibilityHits = 0;
 
     while (Date.now() - startedAt < maxWaitMs) {
+        const degrade = getChainRpcDegradeState(params.chainId);
+        if (degrade.degraded && !firstSeenAt) {
+            return {
+                status: 'dropped_timeout',
+                txHash: params.txHash,
+                firstSeenAt,
+                lastRpcError: degrade.lastError || 'chain_rpc_degraded',
+                attempts,
+                chainId: params.chainId
+            };
+        }
         attempts += 1;
         try {
             const [tx, receipt] = await Promise.all([
@@ -2505,8 +2671,8 @@ export async function waitForReceiptStateMachine(params: {
 
             if (receipt?.transactionHash) {
                 const statusHex = String(receipt.status || '');
-                const status = statusHex === '0x1' || statusHex === '1' ? 'confirmed_success' : 'confirmed_failed';
-                return {
+                const status: TxLifecycleResult['status'] = statusHex === '0x1' || statusHex === '1' ? 'confirmed_success' : 'confirmed_failed';
+                const out: TxLifecycleResult = {
                     status,
                     txHash: params.txHash,
                     firstSeenAt,
@@ -2515,11 +2681,22 @@ export async function waitForReceiptStateMachine(params: {
                     attempts,
                     chainId: params.chainId
                 };
+                recordTxLifecycleState({
+                    chainId: params.chainId,
+                    txHash: params.txHash,
+                    status: out.status,
+                    firstSeenAt: out.firstSeenAt,
+                    confirmedAt: out.confirmedAt,
+                    attempts: out.attempts,
+                    lastRpcError: out.lastRpcError,
+                    source: 'wait_for_receipt'
+                });
+                return out;
             }
 
             // Require stable repeated visibility, not a single transient hit.
             if (firstSeenAt && visibilityHits >= 2) {
-                return {
+                const out: TxLifecycleResult = {
                     status: 'visible_pending',
                     txHash: params.txHash,
                     firstSeenAt,
@@ -2527,6 +2704,16 @@ export async function waitForReceiptStateMachine(params: {
                     attempts,
                     chainId: params.chainId
                 };
+                recordTxLifecycleState({
+                    chainId: params.chainId,
+                    txHash: params.txHash,
+                    status: out.status,
+                    firstSeenAt: out.firstSeenAt,
+                    attempts: out.attempts,
+                    lastRpcError: out.lastRpcError,
+                    source: 'wait_for_receipt'
+                });
+                return out;
             }
         } catch (err: any) {
             lastRpcError = err?.message || String(err);
@@ -2535,7 +2722,7 @@ export async function waitForReceiptStateMachine(params: {
         await new Promise((resolve) => setTimeout(resolve, pollMs));
     }
 
-    return {
+    const out: TxLifecycleResult = {
         status: firstSeenAt ? 'visible_pending' : 'dropped_timeout',
         txHash: params.txHash,
         firstSeenAt,
@@ -2543,6 +2730,16 @@ export async function waitForReceiptStateMachine(params: {
         attempts,
         chainId: params.chainId
     };
+    recordTxLifecycleState({
+        chainId: params.chainId,
+        txHash: params.txHash,
+        status: out.status,
+        firstSeenAt: out.firstSeenAt,
+        attempts: out.attempts,
+        lastRpcError: out.lastRpcError,
+        source: 'wait_for_receipt'
+    });
+    return out;
 }
 
 export async function broadcastRawWithQuorum(params: {
@@ -2567,21 +2764,30 @@ export async function broadcastRawWithQuorum(params: {
         }
     );
     if (!txHash) {
-        return {
+        const out: TxLifecycleResult = {
             status: 'dropped_timeout',
             lastRpcError: 'eth_sendRawTransaction_empty_hash',
             attempts: 1,
             chainId: params.chainId
         };
+        return out;
     }
 
     if (params.skipSyncVisibility === true) {
-        return {
+        const out: TxLifecycleResult = {
             status: 'broadcasted_unseen',
             txHash,
             attempts: 1,
             chainId: params.chainId
         };
+        recordTxLifecycleState({
+            chainId: params.chainId,
+            txHash,
+            status: out.status,
+            attempts: out.attempts,
+            source: 'broadcast_raw'
+        });
+        return out;
     }
 
     const visibility = await probeTxVisibility({
@@ -2593,22 +2799,40 @@ export async function broadcastRawWithQuorum(params: {
     });
 
     if (visibility.visible) {
-        return {
+        const out: TxLifecycleResult = {
             status: 'visible_pending',
             txHash,
             firstSeenAt: Date.now(),
             attempts: visibility.checks,
             chainId: params.chainId
         };
+        recordTxLifecycleState({
+            chainId: params.chainId,
+            txHash,
+            status: out.status,
+            firstSeenAt: out.firstSeenAt,
+            attempts: out.attempts,
+            source: 'broadcast_raw'
+        });
+        return out;
     }
 
-    return {
+    const out: TxLifecycleResult = {
         status: 'broadcasted_unseen',
         txHash,
         lastRpcError: visibility.lastError || 'not_found_by_rpc',
         attempts: visibility.checks,
         chainId: params.chainId
     };
+    recordTxLifecycleState({
+        chainId: params.chainId,
+        txHash,
+        status: out.status,
+        attempts: out.attempts,
+        lastRpcError: out.lastRpcError,
+        source: 'broadcast_raw'
+    });
+    return out;
 }
 
 export const __rpcManagerTest = {
