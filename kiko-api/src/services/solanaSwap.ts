@@ -103,7 +103,7 @@ async function getJupiterQuote(
   inputMint: string,
   outputMint: string,
   amount: string,
-  slippageBps: number = 50,
+  slippageBps: number = 1000,
   userAddress?: string,
   priorityFeeMaxLamports?: number,
   feeContext?: string,
@@ -368,7 +368,7 @@ async function getRaydiumQuote(
   inputMint: string,
   outputMint: string,
   amount: string,
-  slippageBps: number = 50,
+  slippageBps: number = 1000,
   userAddress?: string
 ): Promise<SolanaQuote | null> {
   try {
@@ -531,7 +531,7 @@ export async function getSolanaQuoteFromAggregator(
   inputMint: string,
   outputMint: string,
   amount: string,
-  slippageBps: number = 50,
+  slippageBps: number = 1000,
   userAddress?: string,
   priorityFeeMaxLamports?: number,
   feeContext?: string,
@@ -595,7 +595,7 @@ export async function getSolanaQuote(
   inputMint: string,
   outputMint: string,
   amount: string,
-  slippageBps: number = 50,
+  slippageBps: number = 1000,
   aggregator?: 'jupiter' | 'raydium' | 'meteora' | 'auto',
   userAddress?: string,
   priorityFeeMaxLamports?: number,

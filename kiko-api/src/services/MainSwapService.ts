@@ -1093,17 +1093,16 @@ export class MainSwapService {
         commandMetaJson: params.commandMetaJson
       });
     };
-    const copytradeAggregatorOnly = request.mode === 'copytrade'
-      && isSellDirection
-      && (process.env.COPYTRADE_AGGREGATOR_ONLY || 'true').toLowerCase() === 'true';
-    const allowDirectSell = !copytradeAggregatorOnly && request.mode === 'copytrade' && isSellDirection;
+    const copytradeSellDirectEnabled = (process.env.COPYTRADE_SELL_DIRECT_ENABLED || 'false').toLowerCase() === 'true';
+    const copytradeSellUsesExternalPath = request.mode === 'copytrade' && isSellDirection && !copytradeSellDirectEnabled;
+    const allowDirectSell = request.mode === 'copytrade' && isSellDirection && copytradeSellDirectEnabled;
     const turboBuyForceDirect = isTurboCopytrade && isBuyDirection;
     const turboSkipFallbackOnTimeout = isTurboCopytrade && isSellDirection && TURBO_SKIP_FALLBACK_ON_TIMEOUT;
     const turboSkip0xFallback = isTurboCopytrade && isSellDirection && TURBO_SKIP_0X_FALLBACK;
     const enforcedSlippageBps = request.mode === 'copytrade'
       ? (request.slippageBps ?? 1500)
-      : (request.slippageBps ?? 50);
-    const fastSwapEnabled = !copytradeAggregatorOnly
+      : (request.slippageBps ?? 1000);
+    const fastSwapEnabled = !copytradeSellUsesExternalPath
       && (request.userSettings?.fastSwapMode === true || turboBuyForceDirect);
     if (!fastSwapEnabled || !isDirectSwapSupported(request.chainId) || (!isBuyDirection && !allowDirectSell)) {
       const reasons: string[] = [];
@@ -1117,7 +1116,8 @@ export class MainSwapService {
         isBuyDirection,
         isSellDirection,
         allowDirectSell,
-        copytradeAggregatorOnly,
+        copytradeSellUsesExternalPath,
+        copytradeSellDirectEnabled,
         isCashIn,
         isCashOut,
         chainId: request.chainId,

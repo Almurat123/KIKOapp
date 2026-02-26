@@ -313,7 +313,7 @@ This parameter is ignored as all swaps execute automatically via allowance_trade
                                 tokenOut: normalizedArgs.token_out,
                                 amountIn: args.amount_in,
                                 chainId: args.chain_id,
-                                slippageBps: Math.round((args.slippage || 0.5) * 100)
+                                slippageBps: Math.round((args.slippage || 10) * 100)
                             }))
                         },
                         body: JSON.stringify({
@@ -321,7 +321,7 @@ This parameter is ignored as all swaps execute automatically via allowance_trade
                             tokenOut: normalizedArgs.token_out, // ✅ Normalized
                             amountIn: args.amount_in,
                             chainId: args.chain_id,
-                            slippageBps: Math.round((args.slippage || 0.5) * 100) // Convert percentage to basis points
+                            slippageBps: Math.round((args.slippage || 10) * 100) // Convert percentage to basis points
                         })
                     });
 

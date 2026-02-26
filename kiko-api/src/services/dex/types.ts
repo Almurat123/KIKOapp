@@ -29,7 +29,7 @@ export interface SwapParams {
     tokenOut: string;
     amountIn: bigint;
     recipient: string;
-    slippageBps: number;            // Slippage in basis points (e.g., 50 = 0.5%)
+    slippageBps: number;            // Slippage in basis points (e.g., 1000 = 10%)
     deadline?: number;              // Unix timestamp deadline
 }
 

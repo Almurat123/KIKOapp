@@ -2740,7 +2740,7 @@ Do NOT estimate or guess USD values.`;
                                 tokenOut,
                                 amountIn,
                                 chainId,
-                                slippageBps: 50,
+                                slippageBps: 1000,
                                 userAddress: task.toolContext?.walletAddress
                             });
 

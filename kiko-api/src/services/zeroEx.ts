@@ -377,7 +377,7 @@ export async function getZeroExQuote(
   buyToken: string,
   sellAmount: string,
   chainId: number,
-  slippageBps: number = 50,
+  slippageBps: number = 1000,
   takerAddress?: string, // User's wallet address - CRITICAL for actual swaps
   affiliateFee?: ZeroExAffiliateFee,
   quoteOnly: boolean = false, // Set true for price quotes that won't execute

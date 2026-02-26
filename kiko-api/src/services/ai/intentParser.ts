@@ -232,7 +232,7 @@ For swap queries, extract:
 - token_out: output token symbol or address
 - amount: amount to swap
 - amount_asset: unit of amount (e.g., "USDC", "ETH")
-- slippage_bps: slippage tolerance in basis points (default: 50 = 0.5%)
+- slippage_bps: slippage tolerance in basis points (default: 1000 = 10%)
 - chain_id: blockchain network
 
 For auto_buy/auto_sell, extract:

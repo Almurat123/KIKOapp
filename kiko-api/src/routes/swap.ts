@@ -195,7 +195,7 @@ export async function swapRoutes(fastify: FastifyInstance) {
      */
     fastify.post<{ Body: SwapQuoteRequest }>('/quote', async (request, reply) => {
         try {
-            const { tokenIn, tokenOut, amountIn, chainId, slippageBps = 50, userAddress, aggregator } = request.body as any;
+            const { tokenIn, tokenOut, amountIn, chainId, slippageBps = 1000, userAddress, aggregator } = request.body as any;
 
             // 验证输入
             if (!tokenIn || !tokenOut || !amountIn || !chainId) {
@@ -697,7 +697,7 @@ export async function swapRoutes(fastify: FastifyInstance) {
                     throw new AppError(503, 'Instant trading not configured. Set PRIVY_APP_SECRET.', 'NOT_CONFIGURED');
                 }
 
-                const { tokenIn: rawTokenIn, tokenOut: rawTokenOut, amountIn, chainId, slippageBps = 50, messageId } = request.body;
+                const { tokenIn: rawTokenIn, tokenOut: rawTokenOut, amountIn, chainId, slippageBps = 1000, messageId } = request.body;
 
                 // Extract messageId from header if provided (for WebSocket updates)
                 const transactionMessageId = messageId || request.headers['x-transaction-message-id'];
@@ -1474,7 +1474,7 @@ async function handleSolanaQuote(
     reply: any
 ) {
     try {
-        const { tokenIn, tokenOut, amountIn, slippageBps = 50, aggregator = 'auto', userAddress } = request.body as any;
+        const { tokenIn, tokenOut, amountIn, slippageBps = 1000, aggregator = 'auto', userAddress } = request.body as any;
 
         // Normalize Solana token addresses
         const normalizedTokenIn = normalizeSolanaTokenAddress(tokenIn);

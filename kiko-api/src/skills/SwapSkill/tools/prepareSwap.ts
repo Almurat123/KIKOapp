@@ -215,7 +215,7 @@ For ALLOWANCE TRADE MODE (default for all users): Always set execute=true`,
                                 tokenOut: args.token_out,
                                 amountIn: args.amount_in,
                                 chainId: args.chain_id,
-                                slippageBps: Math.round((args.slippage || 0.5) * 100),
+                                slippageBps: Math.round((args.slippage || 10) * 100),
                                 userAddress: userWalletAddress
                             }))
                         },
@@ -224,7 +224,7 @@ For ALLOWANCE TRADE MODE (default for all users): Always set execute=true`,
                             tokenOut: args.token_out,
                             amountIn: args.amount_in,
                             chainId: args.chain_id,
-                            slippageBps: Math.round((args.slippage || 0.5) * 100),
+                            slippageBps: Math.round((args.slippage || 10) * 100),
                             userAddress: userWalletAddress // CRITICAL: Include user address for 0x API taker parameter
                         })
                     });
@@ -531,7 +531,7 @@ For ALLOWANCE TRADE MODE (default for all users): Always set execute=true`,
                                 tokenOut: args.token_out,
                                 amountIn: args.amount_in,
                                 chainId: args.chain_id,
-                                slippageBps: Math.round((args.slippage || 0.5) * 100),
+                                slippageBps: Math.round((args.slippage || 10) * 100),
                                 messageId: transactionMessage.id
                             })),
                             'X-Transaction-Message-Id': transactionMessage.id // Pass message ID for updates
@@ -541,7 +541,7 @@ For ALLOWANCE TRADE MODE (default for all users): Always set execute=true`,
                             tokenOut: args.token_out,
                             amountIn: args.amount_in,
                             chainId: args.chain_id,
-                            slippageBps: Math.round((args.slippage || 0.5) * 100),
+                            slippageBps: Math.round((args.slippage || 10) * 100),
                             messageId: transactionMessage.id // For backend to update progress
                         }),
                         signal: controller.signal

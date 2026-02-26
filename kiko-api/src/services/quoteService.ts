@@ -145,8 +145,7 @@ async function getBestQuoteInternal(params: BestQuoteParams): Promise<{ best: Qu
     const turboMode = params.executionMode === 'turbo';
     const feeContext = String(params.feeContext || '').toLowerCase();
     const isCopytradeFeeContext = feeContext === 'copytrade' || feeContext === 'copy_trade';
-    const copytradeBuy0xOnly = isCopytradeFeeContext && !params.isSell;
-    const turboCopytrade0xOnly = turboMode && copytradeBuy0xOnly;
+    const isCopytradeBuy = isCopytradeFeeContext && !params.isSell;
     const TURBO_ZEROEX_WAIT_MS = Math.max(80, Number(process.env.QUOTE_TURBO_ZEROEX_WAIT_MS || 700));
     const TURBO_GRACE_WAIT_MS = Math.max(0, Number(process.env.QUOTE_TURBO_GRACE_WAIT_MS || 180));
     const TURBO_TOTAL_WAIT_MS = Math.max(TURBO_ZEROEX_WAIT_MS, Number(process.env.QUOTE_TURBO_TOTAL_WAIT_MS || 1600));
@@ -257,8 +256,6 @@ async function getBestQuoteInternal(params: BestQuoteParams): Promise<{ best: Qu
             // Kyber requires recipient address - skip if not provided
             if (!userAddress) return null;
 
-            if (copytradeBuy0xOnly) return null;
-
             const kyberQuote = await getKyberQuote(
                 actualTokenIn,
                 actualTokenOut,
@@ -318,27 +315,22 @@ async function getBestQuoteInternal(params: BestQuoteParams): Promise<{ best: Qu
 
     if (turboMode) {
         const zeroExPromise = fetchZeroEx();
+        const kyberPromise = fetchKyber();
         const startMs = Date.now();
 
-        if (turboCopytrade0xOnly) {
-            // For turbo copytrade buys: one definitive 0x quote with a hard timeout.
-            // 15 s (default in zeroEx.ts) is too long for turbo; cap at TURBO_TOTAL_WAIT_MS.
-            const TURBO_COPYTRADE_QUOTE_TIMEOUT_MS = Math.max(
-                700,
-                Number(process.env.QUOTE_TURBO_COPYTRADE_TIMEOUT_MS || '4500')
-            );
-            const zeroExQuote = await withTimeout(zeroExPromise, TURBO_COPYTRADE_QUOTE_TIMEOUT_MS);
-            if (zeroExQuote) quotes.push(zeroExQuote);
-            console.log('[QuoteService] Turbo quote mode direct fetch (no window)', {
-                policy: 'copytrade_turbo_0x_only',
+        // Sell path must wait for both providers to resolve before selecting winner.
+        // This keeps execution decision based on complete 0x+Kyber comparison, not fast-return.
+        if (params.isSell) {
+            const [zeroExSell, kyberSell] = await Promise.all([zeroExPromise, kyberPromise]);
+            if (zeroExSell) quotes.push(zeroExSell);
+            if (kyberSell) quotes.push(kyberSell);
+            console.log('[QuoteService] Turbo sell dual-quote resolved', {
                 elapsedMs: Date.now() - startMs,
-                timeoutMs: TURBO_COPYTRADE_QUOTE_TIMEOUT_MS,
                 chainId: params.chainId,
-                gotQuote: Boolean(zeroExQuote)
+                got0x: Boolean(zeroExSell),
+                gotKyber: Boolean(kyberSell)
             });
         } else {
-            const kyberPromise = fetchKyber();
-
             const zeroExFast = await withTimeout(zeroExPromise, TURBO_ZEROEX_WAIT_MS);
             if (zeroExFast) {
                 quotes.push(zeroExFast);
@@ -348,7 +340,8 @@ async function getBestQuoteInternal(params: BestQuoteParams): Promise<{ best: Qu
                     picked: '0x_fast',
                     elapsedMs: Date.now() - startMs,
                     graceWaitMs: TURBO_GRACE_WAIT_MS,
-                    chainId: params.chainId
+                    chainId: params.chainId,
+                    copytradeBuy: isCopytradeBuy
                 });
             } else {
                 const remaining = Math.max(0, TURBO_TOTAL_WAIT_MS - (Date.now() - startMs));
@@ -361,7 +354,8 @@ async function getBestQuoteInternal(params: BestQuoteParams): Promise<{ best: Qu
                 console.log('[QuoteService] Turbo quote mode fallback-wait', {
                     elapsedMs: Date.now() - startMs,
                     totalWaitMs: TURBO_TOTAL_WAIT_MS,
-                    chainId: params.chainId
+                    chainId: params.chainId,
+                    copytradeBuy: isCopytradeBuy
                 });
             }
         }

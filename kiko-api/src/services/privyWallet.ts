@@ -900,6 +900,17 @@ export async function sendTransactionLifecycle(
                             && !!txWithNonce.nonce
                             && (fastTradePath || txWithNonce.txPurpose === 'trade' || txWithNonce.txPurpose === 'speedup')
                         ) {
+                            // ⚡ FAST TRADE: tx was broadcast via fanout. Return immediately —
+                            // don't block the caller for a second sign+broadcast round-trip (~2s).
+                            if (fastTradePath) {
+                                logger.info(LogCode.SYS_INFO, 'Fast trade raw path: skipping gas-bump retry, returning broadcast result', {
+                                    chainId: txWithNonce.chainId,
+                                    txHash: rawLifecycle.txHash,
+                                    status: rawLifecycle.status,
+                                    attempt
+                                });
+                                return rawLifecycle;
+                            }
                             bumpGasForVisibilityRetry('raw_path_broadcasted_unseen');
                             await new Promise((resolve) => setTimeout(resolve, NETWORK_RETRY_DELAY_MS));
                             continue;
@@ -1044,6 +1055,10 @@ export async function sendTransactionLifecycle(
                                 && !!txWithNonce.nonce
                                 && (isFastTradeExecutionProfile(txWithNonce) || txWithNonce.txPurpose === 'trade' || txWithNonce.txPurpose === 'speedup')
                             ) {
+                                // ⚡ FAST TRADE: tx was broadcast via fanout. Don't block for gas-bump retry.
+                                if (isFastTradeExecutionProfile(txWithNonce)) {
+                                    return fallbackLifecycle;
+                                }
                                 const bumpBps = 12500n;
                                 if (txWithNonce.gasPrice) {
                                     const current = BigInt(txWithNonce.gasPrice);
@@ -1099,6 +1114,10 @@ export async function sendTransactionLifecycle(
                                 && !!txWithNonce.nonce
                                 && (isFastTradeExecutionProfile(txWithNonce) || txWithNonce.txPurpose === 'trade' || txWithNonce.txPurpose === 'speedup')
                             ) {
+                                // ⚡ FAST TRADE: tx was broadcast via fanout. Don't block for gas-bump retry.
+                                if (isFastTradeExecutionProfile(txWithNonce)) {
+                                    return transientFallback;
+                                }
                                 const bumpBps = 12500n;
                                 if (txWithNonce.gasPrice) {
                                     const current = BigInt(txWithNonce.gasPrice);

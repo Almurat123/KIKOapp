@@ -82,7 +82,7 @@ export class TxBus {
             tokenOut: safeTokenOut,
             amountIn: amountIn,
             chainId: request.chainId,
-            slippageBps: Math.round((slippage || 0.5) * 100),
+            slippageBps: Math.round((slippage || 10) * 100),
             mode: 'swap-card' // V2 bus uses standard swap mode
         });
 

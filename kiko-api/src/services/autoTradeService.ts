@@ -3016,7 +3016,7 @@ async function executePositionExit(params: {
 
             let isPartialSell = false;
             const executionMode = resolveExecutionModeForConfig(config);
-            const allowDirectSellPath = false; // copytrade aggregator-only
+            const allowDirectSellPath = (process.env.COPYTRADE_SELL_DIRECT_ENABLED || 'false').toLowerCase() === 'true';
             const fastSwapModeForSell = false;
             const runSellRoute = async (amountInHuman: string, slippageBps: number, fastSwapMode: boolean, route: string) => {
                 logger.info(LogCode.EXE_TX_BROADCAST, 'Mirror sell route attempt', {
@@ -3044,6 +3044,7 @@ async function executePositionExit(params: {
                     chainId: chainId,
                     slippageBps,
                     mode: 'copytrade',
+                    requireConfirmedTx: true, // Sell must confirm on-chain before closing position
                     executionContext: planned.executionContext,
                     executionPlan: planned.executionPlan,
                     userSettings: {

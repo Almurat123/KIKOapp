@@ -104,7 +104,7 @@ The result will be either:
                         tokenOut: args.token_out,
                         amountIn: args.amount_in,
                         chainId: args.chain_id,
-                        slippageBps: Math.round((args.slippage || 0.5) * 100)
+                        slippageBps: Math.round((args.slippage || 10) * 100)
                     }))
                 },
                 body: JSON.stringify({
@@ -112,7 +112,7 @@ The result will be either:
                     tokenOut: args.token_out,
                     amountIn: args.amount_in,
                     chainId: args.chain_id,
-                    slippageBps: Math.round((args.slippage || 0.5) * 100)
+                    slippageBps: Math.round((args.slippage || 10) * 100)
                 })
             });
 

@@ -171,9 +171,9 @@ export class SwapExecutor {
         const actualTokenOutFixed = actualTokenOut;
         const isNativeOut = isNativeToken(actualTokenOutFixed, chainId);
         const isSellTx = params.isSell ?? (isNativeOut && !isNativeIn);
-        // FIXED: Increase default slippage for SELL operations (0.5% → 2%)
-        // Selling often has higher slippage due to price impact and approval delays
-        const slippageBps = requestedSlippage ?? (isSellTx ? 200 : 50);
+        // Use user's requested slippage or a sensible default.
+        // 10% for buys, 15% for sells (sells face higher price impact / approval delays).
+        const slippageBps = requestedSlippage ?? (isSellTx ? 1500 : 1000);
         const isSellForFee = isSellTx;
 
         const tokenInInfo = await getTokenInfo(actualTokenInFixed, chainId);
