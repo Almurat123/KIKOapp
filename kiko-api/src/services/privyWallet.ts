@@ -37,7 +37,7 @@ const PRIVY_SEND_TX_CHAIN_IDS = new Set(
         .map((value) => Number(value.trim()))
         .filter((value) => Number.isInteger(value) && value > 0)
 );
-// Keep visibility probing enabled for observability.
+// Keep visibility probing enabled for observability (deployment marker).
 // For raw-path trade/speedup we also run a short synchronous visibility probe before returning success.
 const PRIVY_TX_VISIBILITY_CHECK_ENABLED = true;
 const PRIVY_TX_REQUIRE_VISIBILITY = false;
