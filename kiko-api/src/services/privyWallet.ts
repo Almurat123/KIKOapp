@@ -50,8 +50,8 @@ const PRIVY_FAST_TRADE_SYNC_VISIBILITY_DELAY_MS = 0;
 const PRIVY_FAST_TRADE_SKIP_SYNC_VISIBILITY = (process.env.PRIVY_FAST_TRADE_SKIP_SYNC_VISIBILITY || 'true').toLowerCase() === 'true';
 const PRIVY_FAST_TRADE_BASE_GAS_BUMP_BPS = BigInt(Math.max(10000, Number(process.env.PRIVY_FAST_TRADE_BASE_GAS_BUMP_BPS || '22000')));
 const PRIVY_FAST_TRADE_BSC_GAS_BUMP_BPS = BigInt(Math.max(10000, Number(process.env.PRIVY_FAST_TRADE_BSC_GAS_BUMP_BPS || '17000')));
-const PRIVY_FAST_TRADE_DEFAULT_GAS_BUMP_BPS = BigInt(Math.max(10000, Number(process.env.PRIVY_FAST_TRADE_DEFAULT_GAS_BUMP_BPS || '14000')));
-const PRIVY_FAST_TRADE_BASE_MIN_GAS_PRICE_WEI = BigInt(Math.max(1, Number(process.env.PRIVY_FAST_TRADE_BASE_MIN_GAS_PRICE_WEI || '25000000')));
+const PRIVY_FAST_TRADE_DEFAULT_GAS_BUMP_BPS = BigInt(Math.max(10000, Number(process.env.PRIVY_FAST_TRADE_DEFAULT_GAS_BUMP_BPS || '15000')));
+const PRIVY_FAST_TRADE_BASE_MIN_GAS_PRICE_WEI = BigInt(Math.max(1, Number(process.env.PRIVY_FAST_TRADE_BASE_MIN_GAS_PRICE_WEI || '120000000')));
 const PRIVY_FAST_TRADE_BSC_MIN_GAS_PRICE_WEI = BigInt(Math.max(1, Number(process.env.PRIVY_FAST_TRADE_BSC_MIN_GAS_PRICE_WEI || '1200000000')));
 const LOCAL_SIGNER_ENABLED = (process.env.LOCAL_SIGNER_ENABLED || 'false').toLowerCase() === 'true';
 
@@ -1220,6 +1220,12 @@ export async function sendTransactionLifecycle(
                         }
                     }
 
+                    const hasUnderpricedHint =
+                        lowerErrorMessage.includes('underpriced') ||
+                        lowerErrorMessage.includes('intrinsic gas too low') ||
+                        lowerErrorMessage.includes('fee too low') ||
+                        lowerErrorMessage.includes('max fee per gas less than block base fee');
+
                     const isNonceError = lowerErrorMessage.includes('nonce too low') ||
                         lowerErrorMessage.includes('nonce has already been used') ||
                         lowerErrorMessage.includes('replacement transaction underpriced');
@@ -1231,13 +1237,17 @@ export async function sendTransactionLifecycle(
                         lowerErrorMessage.includes('etimedout') ||
                         lowerErrorMessage.includes('timeout') ||
                         lowerErrorMessage.includes('api failed after') ||
+                        lowerErrorMessage.includes('all rpc endpoints failed') ||
+                        lowerErrorMessage.includes('rpc error') ||
                         lowerErrorMessage.includes('http 502') ||
                         lowerErrorMessage.includes('http 503') ||
                         lowerErrorMessage.includes('http 504');
 
-                    // Retry on nonce errors or transient network failures
-                    if ((isNonceError || isNetworkError) && attempt < MAX_RETRIES) {
-                        const reason = isNonceError ? 'Nonce error' : 'Network failure';
+                    // Retry on nonce errors, underpriced signals, or transient network failures.
+                    if ((isNonceError || hasUnderpricedHint || isNetworkError) && attempt < MAX_RETRIES) {
+                        const reason = isNonceError
+                            ? 'Nonce error'
+                            : (hasUnderpricedHint ? 'Underpriced tx' : 'Network failure');
                         if (isNonceError) {
                             const keepSameNonceForSafety =
                                 txWithNonce.txPurpose === 'trade' || txWithNonce.txPurpose === 'speedup';
@@ -1284,6 +1294,29 @@ export async function sendTransactionLifecycle(
                                     ...txWithNonce,
                                     nonce: nextNonce !== null ? nextNonce.toString() : txWithNonce.nonce
                                 };
+                            }
+                        } else if (hasUnderpricedHint) {
+                            const bumpBps = 13000n; // +30%
+                            if (txWithNonce.gasPrice) {
+                                const current = BigInt(txWithNonce.gasPrice);
+                                const bumped = (current * bumpBps + 9999n) / 10000n;
+                                txWithNonce = {
+                                    ...txWithNonce,
+                                    gasPrice: (bumped > current ? bumped : (current + 1n)).toString()
+                                };
+                            } else {
+                                const nextTx = { ...txWithNonce };
+                                if (nextTx.maxFeePerGas) {
+                                    const current = BigInt(nextTx.maxFeePerGas);
+                                    const bumped = (current * bumpBps + 9999n) / 10000n;
+                                    nextTx.maxFeePerGas = (bumped > current ? bumped : (current + 1n)).toString();
+                                }
+                                if (nextTx.maxPriorityFeePerGas) {
+                                    const current = BigInt(nextTx.maxPriorityFeePerGas);
+                                    const bumped = (current * bumpBps + 9999n) / 10000n;
+                                    nextTx.maxPriorityFeePerGas = (bumped > current ? bumped : (current + 1n)).toString();
+                                }
+                                txWithNonce = nextTx;
                             }
                         }
                         const retryDelayMs = isNonceError ? NONCE_RETRY_DELAY_MS : NETWORK_RETRY_DELAY_MS;
