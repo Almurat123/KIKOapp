@@ -2,7 +2,7 @@ import { LogCode } from '../../../../config/logRegistry.js';
 import type { PoolInfo } from '../../poolInfo.js';
 import type { DirectSwapHint, HintedSourcePool } from '../../directSwapTypes.js';
 import type { DirectSwapResult } from '../types.js';
-import type { ResolvedPoolHint, TurboResolver } from '../turbo.js';
+import { dedupeResolvedHints, type ResolvedPoolHint, type TurboResolver } from '../turbo.js';
 import type { SelectedV4Pool } from '../../v4ExecutionPlan.js';
 import type { V4PoolInfo } from '../../uniswapV4.js';
 import {
@@ -64,6 +64,53 @@ function buildV4CandidatePool(candidate: ResolvedPoolHint): SelectedV4Pool | nul
     version: 'v4',
     dex: 'uniswap'
   };
+}
+
+function poolToResolvedHint(pool: PoolInfo): ResolvedPoolHint | null {
+  const version = String(pool.version || '').toLowerCase();
+  if (!pool.poolAddress) return null;
+  if (version === 'v4') {
+    if (!pool.v4PoolKey) return null;
+    return {
+      kind: 'v4',
+      dex: 'uniswap',
+      poolAddress: pool.poolAddress,
+      fee: pool.v4PoolKey.fee,
+      v4PoolKey: {
+        currency0: pool.v4PoolKey.currency0,
+        currency1: pool.v4PoolKey.currency1,
+        hooks: pool.v4PoolKey.hooks,
+        poolManager: '',
+        fee: pool.v4PoolKey.fee,
+        tickSpacing: pool.v4PoolKey.tickSpacing
+      }
+    };
+  }
+  if (version === 'v3') {
+    return {
+      kind: 'v3',
+      dex: (pool.dex === 'pancake' ? 'pancake' : 'uniswap'),
+      poolAddress: pool.poolAddress,
+      fee: Number(pool.fee || 0)
+    };
+  }
+  if (version === 'v2') {
+    return {
+      kind: 'v2',
+      dex: (pool.dex === 'pancake' ? 'pancake' : 'uniswap'),
+      poolAddress: pool.poolAddress,
+      fee: Number(pool.fee || 0)
+    };
+  }
+  if (version === 'aerodrome') {
+    return {
+      kind: 'aerodrome',
+      dex: 'aerodrome',
+      poolAddress: pool.poolAddress,
+      fee: Number(pool.fee || 0)
+    };
+  }
+  return null;
 }
 
 export async function runTurboCorrectFlow(params: {
@@ -178,7 +225,7 @@ export async function runTurboCorrectFlow(params: {
     swapStart + Math.max(250, turboSinglePoolPhaseMs)
   );
 
-  const sourceAnchor = resolveSourceAnchorExpectation({
+const sourceAnchor = resolveSourceAnchorExpectation({
     hint,
     tokenIn: normalizedParams.tokenIn,
     tokenOut: normalizedParams.tokenOut,
@@ -202,6 +249,41 @@ export async function runTurboCorrectFlow(params: {
         sourceHintBudgetMs
       ).catch(() => null);
     }
+  }
+
+  // Ultra-simple turbo fast path:
+  // If we can resolve a single pool directly from tracked source tx,
+  // execute it immediately without quote ranking/anchor prechecks.
+  if (sourceHintCandidate) {
+    const sourceResolvedHint = sourcePoolToResolvedHint(sourceHintCandidate);
+    logger.info(LogCode.SYS_INFO, '[DirectSwap] Turbo source-pool immediate direct attempt', {
+      chainId,
+      traceId,
+      kind: sourceResolvedHint.kind,
+      dex: sourceResolvedHint.dex || null,
+      poolAddress: sourceResolvedHint.poolAddress || null
+    });
+    const sourceDirectTry = await params.tryResolvedPoolHintFastPath(
+      normalizedParams,
+      {
+        ...(hint || {}),
+        canUseResolvedPoolFastPath: true,
+        routeHopCount: 1,
+        resolvedPoolHint: sourceResolvedHint
+      },
+      { executionMode: 'turbo', trustedHint: true }
+    );
+    if (sourceDirectTry?.success) {
+      return {
+        result: sourceDirectTry,
+        selectedResolvedHintForCache: sourceResolvedHint
+      };
+    }
+    logger.warn(LogCode.SYS_INFO, '[DirectSwap] Turbo source-pool immediate attempt failed, fallback to candidate flow', {
+      chainId,
+      traceId,
+      error: sourceDirectTry?.error || 'unknown'
+    });
   }
 
   const sourcePriorityCandidate = sourceHintCandidate
@@ -228,6 +310,68 @@ export async function runTurboCorrectFlow(params: {
     || sourceHintCandidate
     || cachedSinglePoolHint
   );
+
+  if (turboCandidates.length === 0) {
+    const turboBackfillMaxMs = Number(process.env.DIRECT_SWAP_TURBO_BACKFILL_TIMEOUT_MS || '2200');
+    const discoveryBudgetMs = Math.max(120, Math.min(turboBackfillMaxMs, turboFastDeadline - Date.now()));
+    logger.info(LogCode.SYS_INFO, '[DirectSwap] Turbo correct-flow fast discovery backfill check', {
+      chainId,
+      traceId,
+      discoveryBudgetMs,
+      timeLeftToTurboDeadlineMs: Math.max(0, turboFastDeadline - Date.now())
+    });
+    if (discoveryBudgetMs > 0) {
+      try {
+        const discoveredPools = await params.withTimeout(
+          params.findTokenPools(poolTokenIn, poolTokenOut, chainId, { fastScan: true }),
+          discoveryBudgetMs
+        );
+        const discoveredCandidates = dedupeResolvedHints(
+          discoveredPools
+            .sort((a, b) => {
+              const vOrder = (version: string | undefined) => {
+                const v = String(version || '').toLowerCase();
+                if (v === 'v4') return 0;
+                if (v === 'v3') return 1;
+                if (v === 'aerodrome') return 2;
+                if (v === 'v2') return 3;
+                return 9;
+              };
+              const byVersion = vOrder(a.version) - vOrder(b.version);
+              if (byVersion !== 0) return byVersion;
+              const liqA = BigInt(a.liquidity || '0');
+              const liqB = BigInt(b.liquidity || '0');
+              if (liqA === liqB) return 0;
+              return liqA > liqB ? -1 : 1;
+            })
+            .map(poolToResolvedHint)
+        );
+        if (discoveredCandidates.length > 0) {
+          turboCandidates = discoveredCandidates;
+          logger.info(LogCode.SYS_INFO, '[DirectSwap] Turbo correct-flow candidates backfilled from fast pool discovery', {
+            chainId,
+            traceId,
+            discoveryBudgetMs,
+            poolCount: discoveredPools.length,
+            candidateCount: turboCandidates.length,
+            candidateByKind: summarizeTurboCandidateKinds(turboCandidates)
+          });
+        } else {
+          logger.warn(LogCode.SYS_INFO, '[DirectSwap] Turbo correct-flow fast discovery found no candidate', {
+            chainId,
+            traceId,
+            poolCount: discoveredPools.length
+          });
+        }
+      } catch (error: any) {
+        logger.warn(LogCode.SYS_INFO, '[DirectSwap] Turbo correct-flow fast discovery backfill failed', {
+          chainId,
+          traceId,
+          error: String(error?.message || error || 'unknown').slice(0, 120)
+        });
+      }
+    }
+  }
 
   logger.info(LogCode.SYS_INFO, '[DirectSwap] Turbo correct-flow candidates resolved', {
     chainId,
@@ -301,7 +445,8 @@ export async function runTurboCorrectFlow(params: {
             resolvedHint: candidate,
             multiplier: Math.max(1, buyLiqMultiplier)
           });
-          if (!gate.allowed) {
+          const allowUncertain = !gate.allowed && gate.blockType === 'uncertain_block';
+          if (!gate.allowed && !allowUncertain) {
             dropped.push({
               kind: candidate.kind,
               dex: candidate.dex || null,
@@ -310,7 +455,7 @@ export async function runTurboCorrectFlow(params: {
               blockType: gate.blockType
             });
           }
-          return gate.allowed;
+          return gate.allowed || allowUncertain;
         });
         if (dropped.length > 0) {
           logger.warn(LogCode.SYS_INFO, '[DirectSwap] Turbo correct-flow candidates dropped by liquidity gate', {
@@ -366,6 +511,7 @@ export async function runTurboCorrectFlow(params: {
   let lastTurboError = 'Turbo single-pool attempt failed';
   let lastTurboProvider: DirectSwapResult['provider'] = 'failed';
   for (let attempt = 0; attempt < turboAttemptPlan.length; attempt++) {
+    const routeStartAt = Date.now();
     const candidate = turboAttemptPlan[attempt];
     const isSourcePriorityAttempt = Boolean(sourcePriorityId && resolvedHintIdentity(candidate) === sourcePriorityId);
     const turboHint: DirectSwapHint = {
@@ -375,94 +521,17 @@ export async function runTurboCorrectFlow(params: {
       resolvedPoolHint: candidate
     };
 
-    const quoteBudgetMs = Math.max(120, Math.min(600, turboFastDeadline - Date.now()));
-    let candidateQuotedOut = 0n;
-    if (quoteBudgetMs > 0) {
-      candidateQuotedOut = await params.withTimeout((async (): Promise<bigint> => {
-        if (candidate.kind === 'v4') {
-          const hintedPool = buildV4CandidatePool(candidate);
-          const v4Quote = await params.getV4BestPoolQuote(
-            poolTokenIn,
-            poolTokenOut,
-            amountInWei,
-            chainId,
-            normalizedParams.walletAddress,
-            turboHint,
-            hintedPool
-              ? {
-                preloadedPools: [{
-                  poolId: hintedPool.poolId,
-                  poolKey: hintedPool.poolKey,
-                  sqrtPriceX96: hintedPool.sqrtPriceX96,
-                  tick: 0,
-                  liquidity: hintedPool.liquidity,
-                  protocolFee: 0,
-                  lpFee: hintedPool.poolKey.fee
-                }]
-              }
-              : undefined
-          );
-          return v4Quote.amountOut;
-        }
-        if (candidate.kind === 'v3') {
-          const dex = candidate.dex === 'pancake' ? 'pancake' : 'uniswap';
-          return await params.getV3BestQuoteOut(poolTokenIn, poolTokenOut, amountInWei, chainId, dex);
-        }
-        if (candidate.kind === 'aerodrome') {
-          return await params.getAerodromeExpectedOutput(
-            normalizedParams.tokenIn,
-            normalizedParams.tokenOut,
-            amountInWei,
-            chainId,
-            normalizedParams.slippageBps,
-            normalizedParams.walletAddress
-          );
-        }
-        return await params.getV2ExpectedOutput(poolTokenIn, poolTokenOut, amountInWei, chainId);
-      })(), quoteBudgetMs).catch(() => 0n);
-    }
+    const quoteBudgetMs = 0;
+    const candidateQuotedOut = 0n;
 
     if (sourceAnchor) {
-      if (candidateQuotedOut <= 0n) {
-        if (!isSourcePriorityAttempt) {
-          lastTurboError = `source_anchor_quote_unavailable:${candidate.kind}`;
-          logger.warn(LogCode.SYS_INFO, '[DirectSwap] Turbo correct-flow anchor guard skipped candidate (quote unavailable)', {
-            traceId,
-            chainId,
-            attempt: attempt + 1,
-            kind: candidate.kind,
-            quoteBudgetMs
-          });
-          continue;
-        }
-        logger.warn(LogCode.SYS_INFO, '[DirectSwap] Turbo correct-flow source-priority candidate continues without quote precheck', {
-          traceId,
-          chainId,
-          attempt: attempt + 1,
-          kind: candidate.kind,
-          quoteBudgetMs
-        });
-      }
-      if (candidateQuotedOut > 0n) {
-        const anchorCheck = evaluateSourceAnchorQuote(candidateQuotedOut, sourceAnchor as SourceAnchorLike);
-        logger.info(LogCode.SYS_INFO, '[DirectSwap] Turbo correct-flow source anchor check', {
-          traceId,
-          chainId,
-          attempt: attempt + 1,
-          kind: candidate.kind,
-          sourceTxHash: sourceAnchor.sourceTxHash || null,
-          quotedOut: candidateQuotedOut.toString(),
-          expectedOutFromSource: sourceAnchor.expectedOutFromSource.toString(),
-          anchorRatioBps: anchorCheck.ratioBps,
-          minAnchorRatioBps: sourceAnchor.minAnchorRatioBps,
-          maxAnchorRatioBps: sourceAnchor.maxAnchorRatioBps || null,
-          anchorAccepted: anchorCheck.accepted
-        });
-        if (!anchorCheck.accepted) {
-          lastTurboError = `source_anchor_guard_reject:${candidate.kind}:${anchorCheck.ratioBps}:${sourceAnchor.minAnchorRatioBps}:${sourceAnchor.maxAnchorRatioBps || 0}`;
-          continue;
-        }
-      }
+      logger.info(LogCode.SYS_INFO, '[DirectSwap] Turbo correct-flow anchor precheck skipped in fast lane', {
+        traceId,
+        chainId,
+        attempt: attempt + 1,
+        kind: candidate.kind,
+        isSourcePriorityAttempt
+      });
     }
 
     logger.info(LogCode.SYS_INFO, '[DirectSwap] Turbo correct-flow attempt', {
@@ -475,14 +544,32 @@ export async function runTurboCorrectFlow(params: {
       poolAddress: candidate.poolAddress || null,
       quotedOut: candidateQuotedOut > 0n ? candidateQuotedOut.toString() : null
     });
+    const sendStartAt = Date.now();
     const directTry = await params.tryResolvedPoolHintFastPath(
       normalizedParams,
       turboHint,
       { executionMode: 'turbo', trustedHint: true }
     );
+    const sendMs = Date.now() - sendStartAt;
+    const routeMs = sendStartAt - routeStartAt;
     if (directTry?.provider) {
       lastTurboProvider = directTry.provider;
     }
+    logger.info(LogCode.SYS_INFO, '[DirectSwap] Turbo direct attempt result', {
+      traceId,
+      chainId,
+      attempt: attempt + 1,
+      kind: candidate.kind,
+      dex: candidate.dex || null,
+      poolAddress: candidate.poolAddress || null,
+      success: Boolean(directTry?.success),
+      provider: directTry?.provider || null,
+      txHash: directTry?.txHash || null,
+      route_ms: routeMs,
+      send_ms: sendMs,
+      fallback_used: false,
+      fail_reason: directTry?.error || null
+    });
     if (directTry?.success) {
       return {
         result: directTry,

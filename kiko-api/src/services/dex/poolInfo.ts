@@ -457,7 +457,7 @@ async function doFindTokenPools(
     const v4Promise: Promise<PoolInfo[]> = (async () => {
         if (!isV4Supported(chainId)) return [];
         try {
-            const v4Pools = await findV4Pools(tokenA, tokenB, chainId);
+            const v4Pools = await findV4Pools(tokenA, tokenB, chainId, { strategy: fastScan ? 'fast' : 'cheap' });
             return v4Pools.map((v4Pool) => ({
                 poolAddress: v4Pool.poolId,
                 token0: v4Pool.poolKey.currency0,
@@ -495,5 +495,10 @@ async function doFindTokenPools(
     const pools: PoolInfo[] = [];
     if (v2Pool) pools.push(v2Pool);
     pools.push(...v3Pools, ...aeroPools, ...v4Pools);
-    return pools;
+    const deduped = new Map<string, PoolInfo>();
+    for (const pool of pools) {
+        const key = `${pool.version || 'unknown'}:${(pool.dex || 'unknown').toLowerCase()}:${pool.poolAddress.toLowerCase()}`;
+        deduped.set(key, pool);
+    }
+    return Array.from(deduped.values());
 }

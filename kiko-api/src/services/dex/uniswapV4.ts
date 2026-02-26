@@ -14,7 +14,7 @@ import { ethers } from 'ethers';
 import { callRpc as callRpcRaw } from '../rpcManager.js';
 import { logger } from '../../utils/logger.js';
 import { LogCode } from '../../config/logRegistry.js';
-import { CLANKER_HOOKS_BY_CHAIN, getKnownV4HooksByChain } from './v4Hooks.js';
+import { CLANKER_HOOKS_BY_CHAIN, getKnownV4HooksByChain, resolveV4HookProfile } from './v4Hooks.js';
 
 // StateView ABI
 const V4_STATE_VIEW_ABI = [
@@ -108,6 +108,20 @@ const V4_CONFIGS: Record<number, V4PoolConfig[]> = {
 const V4_POOL_CACHE_TTL = 30000; // 30s cache
 const v4PoolCache = new Map<string, { pools: V4PoolInfo[]; timestamp: number }>();
 const v4PoolInflight = new Map<string, Promise<V4PoolInfo[]>>();
+
+const BASE_V4_ZERO_LIQ_HOOK_FAMILIES = new Set(['clanker', 'doppler', 'flaunch', 'zora', 'custom']);
+const V4_FAST_DISCOVERY_WINDOW_MS = Number(process.env.V4_FAST_DISCOVERY_WINDOW_MS || '650');
+const V4_FAST_DISCOVERY_BATCH_SIZE = Number(process.env.V4_FAST_DISCOVERY_BATCH_SIZE || '18');
+
+function baseFastPriorityScore(poolKey: V4PoolKey): number {
+    if (poolKey.fee === DYNAMIC_FEE_FLAG && poolKey.tickSpacing === 200) return 0;
+    if (poolKey.fee === DYNAMIC_FEE_FLAG) return 1;
+    if (poolKey.fee === 10000 && poolKey.tickSpacing === 200) return 2;
+    if (poolKey.fee === 3000 && poolKey.tickSpacing === 60) return 3;
+    if (poolKey.fee === 500 && poolKey.tickSpacing === 10) return 4;
+    if (poolKey.fee === 0 && poolKey.tickSpacing === 60) return 5;
+    return 9;
+}
 
 async function callRpc<T = any>(
     chainId: number,
@@ -304,13 +318,76 @@ export async function findV4Pools(
     }
 
     const promise = (async () => {
-        const results = await Promise.all(
-            poolKeys.map(poolKey => getV4PoolInfo(poolKey, chainId, options).catch(() => null))
-        );
+        const isFastStrategy = options?.strategy === 'fast';
+        const shouldKeepPool = (pool: V4PoolInfo | null): pool is V4PoolInfo => {
+            if (!pool) return false;
+            if (BigInt(pool.liquidity) > 0n) return true;
+            if (chainId !== 8453) return false;
+            const family = resolveV4HookProfile(chainId, pool.poolKey.hooks).family;
+            return BASE_V4_ZERO_LIQ_HOOK_FAMILIES.has(family);
+        };
 
-        const pools = results.filter((pool): pool is V4PoolInfo =>
-            pool !== null && BigInt(pool.liquidity) > BigInt(0)
-        );
+        const collect = (items: Array<V4PoolInfo | null>): V4PoolInfo[] => {
+            const deduped = new Map<string, V4PoolInfo>();
+            for (const pool of items) {
+                if (!shouldKeepPool(pool)) continue;
+                deduped.set(pool.poolId.toLowerCase(), pool);
+            }
+            return Array.from(deduped.values());
+        };
+
+        let pools: V4PoolInfo[] = [];
+
+        if (isFastStrategy && chainId === 8453) {
+            const dynamic200Hooks = Array.from(new Set(KNOWN_DYNAMIC_FEE_HOOKS_BASE.map((h) => h.toLowerCase())));
+            const dynamic200Keys: V4PoolKey[] = dynamic200Hooks.map((hooks) => ({
+                currency0,
+                currency1,
+                fee: DYNAMIC_FEE_FLAG,
+                tickSpacing: 200,
+                hooks
+            }));
+            if (dynamic200Keys.length > 0) {
+                const dynamicHits = await Promise.all(
+                    dynamic200Keys.map((poolKey) => getV4PoolInfo(poolKey, chainId, options).catch(() => null))
+                );
+                const dynamicPools = collect(dynamicHits);
+                if (dynamicPools.length > 0) {
+                    pools = dynamicPools;
+                }
+            }
+        }
+
+        if (isFastStrategy && chainId === 8453 && pools.length === 0) {
+            const sorted = [...poolKeys].sort((a, b) => {
+                const byScore = baseFastPriorityScore(a) - baseFastPriorityScore(b);
+                if (byScore !== 0) return byScore;
+                const aZeroHook = a.hooks === '0x0000000000000000000000000000000000000000' ? 1 : 0;
+                const bZeroHook = b.hooks === '0x0000000000000000000000000000000000000000' ? 1 : 0;
+                return aZeroHook - bZeroHook;
+            });
+            const startedAt = Date.now();
+            const batchSize = Math.max(4, V4_FAST_DISCOVERY_BATCH_SIZE);
+            for (let i = 0; i < sorted.length; i += batchSize) {
+                if (Date.now() - startedAt >= V4_FAST_DISCOVERY_WINDOW_MS) break;
+                const batch = sorted.slice(i, i + batchSize);
+                const batchResults = await Promise.all(
+                    batch.map((poolKey) => getV4PoolInfo(poolKey, chainId, options).catch(() => null))
+                );
+                const hit = collect(batchResults);
+                if (hit.length > 0) {
+                    pools = hit;
+                    break;
+                }
+            }
+        }
+
+        if (pools.length === 0) {
+            const results = await Promise.all(
+                poolKeys.map(poolKey => getV4PoolInfo(poolKey, chainId, options).catch(() => null))
+            );
+            pools = collect(results);
+        }
 
         v4PoolCache.set(cacheKey, { pools, timestamp: Date.now() });
         return pools;

@@ -44,8 +44,8 @@ const PRIVY_TX_VISIBILITY_RETRIES = 6;
 const PRIVY_TX_VISIBILITY_DELAY_MS = 500;
 const PRIVY_TX_SYNC_VISIBILITY_RETRIES = 8;
 const PRIVY_TX_SYNC_VISIBILITY_DELAY_MS = 400;
-const PRIVY_FAST_TRADE_SYNC_VISIBILITY_RETRIES = 4;
-const PRIVY_FAST_TRADE_SYNC_VISIBILITY_DELAY_MS = 220;
+const PRIVY_FAST_TRADE_SYNC_VISIBILITY_RETRIES = 1;
+const PRIVY_FAST_TRADE_SYNC_VISIBILITY_DELAY_MS = 0;
 const PRIVY_FAST_TRADE_BASE_GAS_BUMP_BPS = BigInt(Math.max(10000, Number(process.env.PRIVY_FAST_TRADE_BASE_GAS_BUMP_BPS || '22000')));
 const PRIVY_FAST_TRADE_BSC_GAS_BUMP_BPS = BigInt(Math.max(10000, Number(process.env.PRIVY_FAST_TRADE_BSC_GAS_BUMP_BPS || '17000')));
 const PRIVY_FAST_TRADE_DEFAULT_GAS_BUMP_BPS = BigInt(Math.max(10000, Number(process.env.PRIVY_FAST_TRADE_DEFAULT_GAS_BUMP_BPS || '14000')));
@@ -1014,31 +1014,27 @@ export async function sendTransactionLifecycle(
                         txHash: response.hash,
                         expectedFrom: walletInfo.address
                     });
-                    const visibility = await verifyTxVisibility(
-                        txWithNonce.chainId,
-                        response.hash,
-                        walletInfo.address,
-                        {
-                            retries: fastTradePath ? PRIVY_FAST_TRADE_SYNC_VISIBILITY_RETRIES : PRIVY_TX_SYNC_VISIBILITY_RETRIES,
-                            delayMs: fastTradePath ? PRIVY_FAST_TRADE_SYNC_VISIBILITY_DELAY_MS : PRIVY_TX_SYNC_VISIBILITY_DELAY_MS
-                        }
-                    );
-
-                    const lifecycleBase: TxLifecycleResult = visibility.visible
-                        ? {
-                            status: 'visible_pending',
-                            txHash: response.hash,
-                            firstSeenAt: Date.now(),
-                            attempts: visibility.checks,
-                            chainId: txWithNonce.chainId
-                        }
-                        : {
-                            status: 'broadcasted_unseen',
-                            txHash: response.hash,
-                            lastRpcError: visibility.lastError || 'not_found_by_rpc',
-                            attempts: visibility.checks,
-                            chainId: txWithNonce.chainId
-                        };
+                    const lifecycleBase: TxLifecycleResult = {
+                        status: 'broadcasted_unseen',
+                        txHash: response.hash,
+                        attempts: 1,
+                        chainId: txWithNonce.chainId
+                    };
+                    if (!fastTradePath) {
+                        const visibility = await verifyTxVisibility(
+                            txWithNonce.chainId,
+                            response.hash,
+                            walletInfo.address,
+                            {
+                                retries: PRIVY_TX_SYNC_VISIBILITY_RETRIES,
+                                delayMs: PRIVY_TX_SYNC_VISIBILITY_DELAY_MS
+                            }
+                        );
+                        lifecycleBase.status = visibility.visible ? 'visible_pending' : 'broadcasted_unseen';
+                        lifecycleBase.firstSeenAt = visibility.visible ? Date.now() : undefined;
+                        lifecycleBase.lastRpcError = visibility.visible ? undefined : (visibility.lastError || 'not_found_by_rpc');
+                        lifecycleBase.attempts = visibility.checks;
+                    }
 
                     const postSendDelayMs = Math.max(0, Number(process.env.PRIVY_POST_SEND_DELAY_MS || '0'));
                     if (postSendDelayMs > 0) {

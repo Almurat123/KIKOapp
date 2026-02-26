@@ -852,7 +852,17 @@ export async function getV4BestPoolQuote(
     for (const pool of pools) {
         const zeroForOne = pool.poolKey.currency0.toLowerCase() === tokenIn.toLowerCase();
         const liquidity = BigInt(pool.liquidity);
-        if (liquidity <= 0n) continue;
+        if (liquidity <= 0n) {
+            const family = resolveV4HookProfile(chainId, pool.poolKey.hooks).family;
+            const allowZeroLiq = chainId === 8453 && (
+                family === 'clanker' ||
+                family === 'doppler' ||
+                family === 'flaunch' ||
+                family === 'zora' ||
+                family === 'custom'
+            );
+            if (!allowZeroLiq) continue;
+        }
 
         if (liquidity > fallbackLiquidity) {
             fallbackLiquidity = liquidity;

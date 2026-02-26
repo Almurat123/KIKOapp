@@ -2058,7 +2058,14 @@ async function processSingleUserBuy(
                     tradeCostWei = ethers.parseEther(amountInNative.toFixed(18));
                 }
 
-                if (nativeBalance < (tradeCostWei + gasBufferWei)) {
+                if (nativeBalance === null) {
+                    logger.warn(LogCode.API_FETCH_FAILED, 'Skipping strict gas-buffer check due to native balance RPC failure', {
+                        userId: config.userId,
+                        wallet: effectiveConfig.user.walletAddress,
+                        chainId
+                    });
+                    emitGuardAudit('pass', 'gas_balance_rpc_failed');
+                } else if (nativeBalance < (tradeCostWei + gasBufferWei)) {
                     const balanceEth = ethers.formatEther(nativeBalance);
                     const requiredEth = ethers.formatEther(tradeCostWei + gasBufferWei);
 
@@ -4222,13 +4229,13 @@ function getSlippageBps(userSettings: any): number {
     return Math.floor(userSettings.customSlippage * 100);
 }
 
-async function getNativeBalance(walletAddress: string, chainId: number): Promise<bigint> {
+async function getNativeBalance(walletAddress: string, chainId: number): Promise<bigint | null> {
     try {
         const raw = await rpcGetNativeBalance(walletAddress, chainId);
         return BigInt(raw);
     } catch (error) {
         logger.warn(LogCode.API_FETCH_FAILED, 'Failed to fetch native balance for gas check', { wallet: walletAddress, chainId });
-        return 0n; // Fail open (don't block trade on RPC error, assume enough gas)
+        return null;
     }
 }
 

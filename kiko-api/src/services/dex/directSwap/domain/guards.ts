@@ -1,5 +1,6 @@
 import type { PoolInfo } from '../../poolInfo.js';
 import type { DirectSwapHint } from '../../directSwapTypes.js';
+import { resolveV4HookProfile } from '../../v4Hooks.js';
 
 export interface SourceAnchorExpectation {
   expectedOutFromSource: bigint;
@@ -95,6 +96,17 @@ function resolvePoolInReserve(pool: PoolInfo, tokenIn: string): bigint {
   return reserve0 > reserve1 ? reserve0 : reserve1;
 }
 
+function isVirtualHookV4Pool(pool: PoolInfo): boolean {
+  const version = String(pool.version || '').toLowerCase();
+  if (version !== 'v4') return false;
+  const liquidity = BigInt(pool.liquidity || '0');
+  if (liquidity > 0n) return false;
+  const hook = pool.v4PoolKey?.hooks;
+  if (!hook) return false;
+  const family = resolveV4HookProfile(8453, hook).family;
+  return family === 'clanker' || family === 'doppler' || family === 'flaunch' || family === 'zora' || family === 'custom';
+}
+
 export function evaluateBuyLiquidityProtection(
   pools: PoolInfo[],
   tokenIn: string,
@@ -134,7 +146,7 @@ export function evaluateBuyLiquidityProtection(
     }
     if (version === 'v3' || version === 'v4') {
       const reserveLike = BigInt(p.liquidity || '0');
-      const matched = reserveLike >= requiredReserveInWei;
+      const matched = reserveLike >= requiredReserveInWei || isVirtualHookV4Pool(p);
       byVersion[version] += 1;
       checkedPools += 1;
       if (matched) matchedPools += 1;
@@ -169,7 +181,7 @@ export function poolPassesRequiredReserve(
     return resolvePoolInReserve(pool, tokenIn) >= requiredReserveInWei;
   }
   if (version === 'v3' || version === 'v4') {
-    return BigInt(pool.liquidity || '0') >= requiredReserveInWei;
+    return BigInt(pool.liquidity || '0') >= requiredReserveInWei || isVirtualHookV4Pool(pool);
   }
   return false;
 }
