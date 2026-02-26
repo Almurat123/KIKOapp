@@ -860,8 +860,8 @@ export async function callRpc<T = any>(
                     }
                     throw new Error(`RPC Error: ${data.error.message}`);
                 }
-                if (data.result === undefined) {
-                    throw new Error('RPC returned undefined result');
+                if (data.result === undefined || data.result === null) {
+                    throw new Error('RPC returned empty result');
                 }
 
                 const responseTime = Date.now() - startTime;
@@ -869,7 +869,10 @@ export async function callRpc<T = any>(
                 markRpcMethodUsage(chainId, method, 'successes');
 
                 if (method === 'eth_sendRawTransaction' && rawTxHash) {
-                    const txHash = typeof data.result === 'string' ? data.result : rawTxHash;
+                    if (typeof data.result !== 'string' || !/^0x[0-9a-fA-F]{64}$/.test(data.result)) {
+                        throw new Error('RPC returned invalid tx hash for eth_sendRawTransaction');
+                    }
+                    const txHash = data.result;
                     setRawTxCache(chainId, rawTxHash, txHash);
                 }
 
@@ -936,7 +939,9 @@ export async function callRpc<T = any>(
                 if (!endpoint?.url) continue;
                 try {
                     const result = await runEndpointAttempt(endpoint);
-                    const txHash = typeof result === 'string' ? result : rawTxHash || '';
+                    const txHash = typeof result === 'string' && /^0x[0-9a-fA-F]{64}$/.test(result)
+                        ? result
+                        : '';
                     if (txHash) {
                         if (!acceptedHash) acceptedHash = txHash;
                         acceptedCount += 1;
@@ -944,6 +949,13 @@ export async function callRpc<T = any>(
                             endpoint: maskEndpoint(endpoint.url),
                             status: 'accepted',
                             txHash
+                        });
+                    } else {
+                        failedCount += 1;
+                        endpointResults.push({
+                            endpoint: maskEndpoint(endpoint.url),
+                            status: 'failed',
+                            error: 'invalid_tx_hash_result'
                         });
                     }
                 } catch (error: any) {

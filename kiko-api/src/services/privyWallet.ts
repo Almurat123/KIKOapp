@@ -623,6 +623,16 @@ async function signAndBroadcastRawTransaction(
             chainId: `0x${BigInt(tx.chainId).toString(16)}`,
         },
     });
+    if (typeof signed?.signedTransaction !== 'string' || !/^0x[0-9a-fA-F]+$/.test(signed.signedTransaction)) {
+        logger.error(LogCode.EXE_TX_REVERTED, 'Privy signTransaction returned invalid signed payload', {
+            chainId: tx.chainId,
+            userId: context.userId.slice(0, 10),
+            hasSignedTransaction: typeof signed?.signedTransaction === 'string',
+            signedLength: typeof signed?.signedTransaction === 'string' ? signed.signedTransaction.length : 0,
+            encoding: (signed as any)?.encoding
+        });
+        throw new Error('privy_invalid_signed_transaction_payload');
+    }
 
     const shouldUseFlashbots = tx.mevProtection === true
         && tx.chainId === 1
