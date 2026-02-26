@@ -33,6 +33,8 @@ export async function rateLimiterMiddleware(
     if (
         request.url === '/health' ||
         request.url === '/api/health' ||
+        request.url.startsWith('/api/webhook/') ||
+        request.url.startsWith('/webhook/') ||
         request.url.startsWith('/assets/') ||
         request.url.startsWith('/api/images/')
     ) {
@@ -54,9 +56,6 @@ export async function rateLimiterMiddleware(
     } else if (url.includes('/api/ai/') || url.includes('/api/chat/')) {
         maxRequests = 60; // Other AI endpoints: 60/min
         category = 'ai_general';
-    } else if (url.includes('/api/webhook/')) {
-        maxRequests = 100; // Webhooks: 100/min
-        category = 'webhook';
     } else if (url.includes('/api/swap/') || url.includes('/api/tokens/')) {
         maxRequests = 120; // Trading endpoints: 120/min
         category = 'trading';
