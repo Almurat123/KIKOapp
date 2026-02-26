@@ -1618,6 +1618,22 @@ export class MainSwapService {
       }
 
       if (isTurboCopytrade && isTimeoutError(lastDirectError)) {
+        if (inflightDirectPromise) {
+          const lateSettled = await settleWithin(inflightDirectPromise, TURBO_DIRECT_LATE_SETTLE_MS);
+          if (lateSettled) {
+            lastDirectResult = lateSettled;
+            rememberDirectTxHash(lateSettled.txHash);
+            if (lateSettled.success && lateSettled.txHash) {
+              logger.warn(LogCode.SYS_INFO, trace('Turbo timeout recovered by late direct settle; lock direct and skip fallback'), {
+                txHash: lateSettled.txHash,
+                provider: lateSettled.provider,
+                late_settle_ms: TURBO_DIRECT_LATE_SETTLE_MS,
+                direct_timeout_reason: directTimeoutReason || 'send_failure'
+              });
+              return toDirectSuccessResult(lateSettled);
+            }
+          }
+        }
         const txHash = Array.from(directCandidateTxHashes)[0] || lastDirectResult?.txHash;
         if (txHash) {
           logger.warn(LogCode.SYS_INFO, trace('Turbo timeout but direct txHash already captured; lock direct and skip fallback'), {

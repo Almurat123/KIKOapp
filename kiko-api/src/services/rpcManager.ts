@@ -1021,6 +1021,14 @@ export async function callRpc<T = any>(
 
             const fanoutSendRaw = method === 'eth_sendRawTransaction' && options.sendRawFanout === true;
             if (fanoutSendRaw) {
+            const sendRawFanoutMax = Math.max(
+                1,
+                Math.min(
+                    selectedEndpoints.length,
+                    Number(process.env.RPC_SENDRAW_FANOUT_MAX || '3')
+                )
+            );
+            const endpointsToTry = selectedEndpoints.slice(0, sendRawFanoutMax);
             let acceptedHash: string | null = null;
             let acceptedCount = 0;
             let failedCount = 0;
@@ -1031,30 +1039,30 @@ export async function callRpc<T = any>(
                 txHash?: string;
                 error?: string;
             }> = [];
-            for (let i = 0; i < selectedEndpoints.length; i++) {
-                const endpoint = selectedEndpoints[i];
-                if (!endpoint?.url) continue;
+            const attemptPromises = endpointsToTry.map(async (endpoint) => {
+                if (!endpoint?.url) throw new Error('invalid_endpoint');
                 try {
                     const result = await runEndpointAttempt(endpoint);
                     const txHash = typeof result === 'string' && /^0x[0-9a-fA-F]{64}$/.test(result)
                         ? result
                         : '';
-                    if (txHash) {
-                        if (!acceptedHash) acceptedHash = txHash;
-                        acceptedCount += 1;
-                        endpointResults.push({
-                            endpoint: maskEndpoint(endpoint.url),
-                            status: 'accepted',
-                            txHash
-                        });
-                    } else {
+                    if (!txHash) {
                         failedCount += 1;
                         endpointResults.push({
                             endpoint: maskEndpoint(endpoint.url),
                             status: 'failed',
                             error: 'invalid_tx_hash_result'
                         });
+                        throw new Error('invalid_tx_hash_result');
                     }
+                    acceptedCount += 1;
+                    endpointResults.push({
+                        endpoint: maskEndpoint(endpoint.url),
+                        status: 'accepted',
+                        txHash
+                    });
+                    if (!acceptedHash) acceptedHash = txHash;
+                    return txHash;
                 } catch (error: any) {
                     const message = String(error?.message || error || '');
                     lastError = error instanceof Error ? error : new Error(message);
@@ -1067,22 +1075,50 @@ export async function callRpc<T = any>(
                             txHash: rawTxHash || undefined,
                             error: message.slice(0, 180)
                         });
-                    } else {
-                        failedCount += 1;
-                        endpointResults.push({
-                            endpoint: maskEndpoint(endpoint.url),
-                            status: 'failed',
-                            error: message.slice(0, 180)
-                        });
+                        if (rawTxHash) return rawTxHash;
                     }
+                    failedCount += 1;
+                    endpointResults.push({
+                        endpoint: maskEndpoint(endpoint.url),
+                        status: 'failed',
+                        error: message.slice(0, 180)
+                    });
+                    throw error;
                 }
+            });
+
+            // Fast path: return on first accepted/known hash, don't wait slow endpoints.
+            try {
+                const firstHash = await Promise.any(attemptPromises);
+                if (firstHash && /^0x[0-9a-fA-F]{64}$/.test(firstHash)) {
+                    logger.info(LogCode.API_FETCH_SUCCESS, 'eth_sendRawTransaction fanout completed', {
+                        chain: chainName,
+                        rpc_pool: rpcClass,
+                        attemptedEndpoints: endpointsToTry.length,
+                        selectedEndpoints: selectedEndpoints.length,
+                        acceptedCount,
+                        knownCount,
+                        failedCount,
+                        endpointBudget,
+                        endpointResults,
+                        role: LogRole.METRIC
+                    });
+                    markMethodSuccess(backoffKey);
+                    if (rawTxHash) {
+                        setRawTxCache(chainId, rawTxHash, firstHash);
+                    }
+                    return firstHash as T;
+                }
+            } catch {
+                // Fall through to aggregate failure logging below.
             }
 
             if (acceptedHash) {
                 logger.info(LogCode.API_FETCH_SUCCESS, 'eth_sendRawTransaction fanout completed', {
                     chain: chainName,
                     rpc_pool: rpcClass,
-                    attemptedEndpoints: selectedEndpoints.length,
+                    attemptedEndpoints: endpointsToTry.length,
+                    selectedEndpoints: selectedEndpoints.length,
                     acceptedCount,
                     knownCount,
                     failedCount,
@@ -1100,7 +1136,8 @@ export async function callRpc<T = any>(
             logger.warn(LogCode.API_FETCH_FAILED, 'eth_sendRawTransaction fanout failed with no accepted hash', {
                 chain: chainName,
                 rpc_pool: rpcClass,
-                attemptedEndpoints: selectedEndpoints.length,
+                attemptedEndpoints: endpointsToTry.length,
+                selectedEndpoints: selectedEndpoints.length,
                 failedCount,
                 knownCount,
                 endpointBudget,
@@ -2515,6 +2552,7 @@ export async function broadcastRawWithQuorum(params: {
     syncVisibilityRetries?: number;
     syncVisibilityDelayMs?: number;
     bypassRawTxCache?: boolean;
+    skipSyncVisibility?: boolean;
 }): Promise<TxLifecycleResult> {
     const txHash = await callRpc<string>(
         params.chainId,
@@ -2532,6 +2570,15 @@ export async function broadcastRawWithQuorum(params: {
         return {
             status: 'dropped_timeout',
             lastRpcError: 'eth_sendRawTransaction_empty_hash',
+            attempts: 1,
+            chainId: params.chainId
+        };
+    }
+
+    if (params.skipSyncVisibility === true) {
+        return {
+            status: 'broadcasted_unseen',
+            txHash,
             attempts: 1,
             chainId: params.chainId
         };

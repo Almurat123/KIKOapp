@@ -46,6 +46,7 @@ const PRIVY_TX_SYNC_VISIBILITY_RETRIES = 8;
 const PRIVY_TX_SYNC_VISIBILITY_DELAY_MS = 400;
 const PRIVY_FAST_TRADE_SYNC_VISIBILITY_RETRIES = 1;
 const PRIVY_FAST_TRADE_SYNC_VISIBILITY_DELAY_MS = 0;
+const PRIVY_FAST_TRADE_SKIP_SYNC_VISIBILITY = (process.env.PRIVY_FAST_TRADE_SKIP_SYNC_VISIBILITY || 'true').toLowerCase() === 'true';
 const PRIVY_FAST_TRADE_BASE_GAS_BUMP_BPS = BigInt(Math.max(10000, Number(process.env.PRIVY_FAST_TRADE_BASE_GAS_BUMP_BPS || '22000')));
 const PRIVY_FAST_TRADE_BSC_GAS_BUMP_BPS = BigInt(Math.max(10000, Number(process.env.PRIVY_FAST_TRADE_BSC_GAS_BUMP_BPS || '17000')));
 const PRIVY_FAST_TRADE_DEFAULT_GAS_BUMP_BPS = BigInt(Math.max(10000, Number(process.env.PRIVY_FAST_TRADE_DEFAULT_GAS_BUMP_BPS || '14000')));
@@ -683,15 +684,30 @@ async function signAndBroadcastRawTransaction(
     }
 
     const fastTradePath = isFastTradeExecutionProfile(tx);
+    const sendStartedAtMs = Date.now();
     const lifecycle = await broadcastRawWithQuorum({
         chainId: tx.chainId,
         signedRawTransaction: signed.signedTransaction,
         expectedFrom: context.expectedFrom,
         syncVisibilityRetries: fastTradePath ? PRIVY_FAST_TRADE_SYNC_VISIBILITY_RETRIES : PRIVY_TX_SYNC_VISIBILITY_RETRIES,
         syncVisibilityDelayMs: fastTradePath ? PRIVY_FAST_TRADE_SYNC_VISIBILITY_DELAY_MS : PRIVY_TX_SYNC_VISIBILITY_DELAY_MS,
-        bypassRawTxCache: true
+        bypassRawTxCache: true,
+        skipSyncVisibility: fastTradePath && PRIVY_FAST_TRADE_SKIP_SYNC_VISIBILITY
     });
     const rawTxHash = lifecycle.txHash;
+    const sendHashAtMs = rawTxHash ? Date.now() : null;
+    logger.info(LogCode.SYS_INFO, '[PrivySendTiming] send completed', {
+        chainId: tx.chainId,
+        txPurpose: context.txPurpose,
+        executionProfile: tx.executionProfile || 'default',
+        send_started_at: sendStartedAtMs,
+        send_hash_at: sendHashAtMs,
+        send_ms: sendHashAtMs ? Math.max(0, sendHashAtMs - sendStartedAtMs) : null,
+        txHash: rawTxHash || undefined,
+        status: lifecycle.status,
+        attempts: lifecycle.attempts || 0,
+        lastRpcError: lifecycle.lastRpcError || null
+    });
     if (!rawTxHash) return lifecycle;
     logger.info(LogCode.EXE_TX_BROADCAST, 'Ethereum transaction broadcast via signed raw path', {
         txHash: rawTxHash,
