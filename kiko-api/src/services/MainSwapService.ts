@@ -734,38 +734,45 @@ export class MainSwapService {
             }
           };
         } catch (replayError: any) {
-          if (isReplay) {
-            driftDiagnosis = await diagnoseReplayDrift({
-              plan,
-              walletAddress: request.walletAddress,
-              sourceTxHash,
-              latestSimulation: simulation,
-              sendFailed: true,
-              simulationTimeoutMs: replaySimulationTimeoutMs
+          const finalizeReplayFailureTelemetry = async () => {
+            if (isReplay) {
+              driftDiagnosis = await diagnoseReplayDrift({
+                plan,
+                walletAddress: request.walletAddress,
+                sourceTxHash,
+                latestSimulation: simulation,
+                sendFailed: true,
+                simulationTimeoutMs: replaySimulationTimeoutMs
+              });
+            }
+            await recordPlanRun({
+              mode: 'canary',
+              chainId: request.chainId,
+              inputJson: JSON.stringify({
+                tokenIn: request.tokenIn,
+                tokenOut: request.tokenOut,
+                amountIn: request.amountIn,
+                sourceTxHash: sourceTxHash || null
+              }),
+              planJson: JSON.stringify(plan),
+              simulationJson: JSON.stringify(simulation),
+              scoreJson: JSON.stringify({
+                plannerScore: plan.trace?.plannerScore || 0,
+                replayPrecheck,
+                driftDiagnosis,
+                adapterName: plan.trace?.adapterName || null,
+                adapterVersion: plan.trace?.adapterVersion || null
+              }),
+              selectedTemplateId: plan.templateRef?.templateId,
+              resultStatus: `source_replay_send_fail:${driftDiagnosis?.classification || 'unknown'}`,
+              latencyMs: Date.now() - t0
             });
+          };
+          if (isTurboCopytrade) {
+            void finalizeReplayFailureTelemetry().catch(() => { });
+          } else {
+            await finalizeReplayFailureTelemetry();
           }
-          await recordPlanRun({
-            mode: 'canary',
-            chainId: request.chainId,
-            inputJson: JSON.stringify({
-              tokenIn: request.tokenIn,
-              tokenOut: request.tokenOut,
-              amountIn: request.amountIn,
-              sourceTxHash: sourceTxHash || null
-            }),
-            planJson: JSON.stringify(plan),
-            simulationJson: JSON.stringify(simulation),
-            scoreJson: JSON.stringify({
-              plannerScore: plan.trace?.plannerScore || 0,
-              replayPrecheck,
-              driftDiagnosis,
-              adapterName: plan.trace?.adapterName || null,
-              adapterVersion: plan.trace?.adapterVersion || null
-            }),
-            selectedTemplateId: plan.templateRef?.templateId,
-            resultStatus: `source_replay_send_fail:${driftDiagnosis?.classification || 'unknown'}`,
-            latencyMs: Date.now() - t0
-          });
           logger.warn(LogCode.SYS_INFO, trace('[P2] Source replay failed, falling back to external quote path'), {
             chainId: request.chainId,
             error: replayError?.message || String(replayError),
