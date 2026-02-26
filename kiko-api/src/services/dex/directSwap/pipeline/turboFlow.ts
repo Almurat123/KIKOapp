@@ -18,6 +18,17 @@ export function hasTurboBudget(deadlineMs: number, nowMs: number, minRemainMs: n
   return (deadlineMs - nowMs) > minRemainMs;
 }
 
+function fallbackV4TickSpacing(fee?: number): number {
+  switch (Number(fee || 0)) {
+    case 100: return 1;
+    case 500: return 10;
+    case 3000: return 60;
+    case 10000: return 200;
+    case 50000: return 1000;
+    default: return 60;
+  }
+}
+
 type TurboExecuteParams = {
   userId: string;
   accessToken: string;
@@ -54,10 +65,12 @@ type TurboRescueDeps = {
     amountInWei: bigint;
     wrappedNativeAddress: string;
     minAnchorRatioBps: number;
+    maxAnchorRatioBps?: number;
   }) => {
     sourceTxHash?: string;
     expectedOutFromSource: bigint;
     minAnchorRatioBps: number;
+    maxAnchorRatioBps?: number;
   } | null;
   evaluateSourceAnchorQuote: (quotedOut: bigint, sourceAnchor: {
     sourceTxHash?: string;
@@ -154,6 +167,7 @@ export async function runTurboRescueFlow(params: {
   turboRescueMaxCandidatesPerKind: number;
   turboRescueMaxTotalCandidates: number;
   sourceAnchorMinRatioBps: number;
+  sourceAnchorMaxRatioBps?: number;
   normalizedTokenIn: string;
   normalizedTokenOut: string;
   poolTokenIn: string;
@@ -180,6 +194,7 @@ export async function runTurboRescueFlow(params: {
     turboRescueMaxCandidatesPerKind,
     turboRescueMaxTotalCandidates,
     sourceAnchorMinRatioBps,
+    sourceAnchorMaxRatioBps,
     normalizedTokenIn,
     normalizedTokenOut,
     poolTokenIn,
@@ -201,7 +216,8 @@ export async function runTurboRescueFlow(params: {
     tokenOut: normalizedParams.tokenOut,
     amountInWei,
     wrappedNativeAddress,
-    minAnchorRatioBps: sourceAnchorMinRatioBps
+    minAnchorRatioBps: sourceAnchorMinRatioBps,
+    maxAnchorRatioBps: sourceAnchorMaxRatioBps
   });
 
   const hasSourceHint = Boolean(hint?.sourceTxHash || hint?.resolvedPoolHint);
@@ -332,11 +348,11 @@ export async function runTurboRescueFlow(params: {
       .map((p) => ({
         poolId: p.poolAddress,
         poolKey: {
-          currency0: p.token0,
-          currency1: p.token1,
-          hooks: '0x0000000000000000000000000000000000000000',
-          fee: p.fee ?? 3000,
-          tickSpacing: 60
+          currency0: p.v4PoolKey?.currency0 || p.token0,
+          currency1: p.v4PoolKey?.currency1 || p.token1,
+          hooks: p.v4PoolKey?.hooks || '0x0000000000000000000000000000000000000000',
+          fee: p.v4PoolKey?.fee ?? p.fee ?? 3000,
+          tickSpacing: p.v4PoolKey?.tickSpacing ?? fallbackV4TickSpacing(p.fee)
         },
         sqrtPriceX96: p.sqrtPriceX96 || '0',
         tick: 0,
@@ -374,10 +390,11 @@ export async function runTurboRescueFlow(params: {
               expectedOutFromSource: sourceAnchor.expectedOutFromSource.toString(),
               anchorRatioBps: anchorCheck.ratioBps,
               minAnchorRatioBps: sourceAnchor.minAnchorRatioBps,
+              maxAnchorRatioBps: sourceAnchor.maxAnchorRatioBps || null,
               anchorAccepted: anchorCheck.accepted
             });
             if (!anchorCheck.accepted) {
-              lastRescueError = `source_anchor_guard_reject:v4:${anchorCheck.ratioBps}:${sourceAnchor.minAnchorRatioBps}`;
+              lastRescueError = `source_anchor_guard_reject:v4:${anchorCheck.ratioBps}:${sourceAnchor.minAnchorRatioBps}:${sourceAnchor.maxAnchorRatioBps || 0}`;
               anchorRejected = true;
             }
           }
@@ -451,10 +468,11 @@ export async function runTurboRescueFlow(params: {
         expectedOutFromSource: sourceAnchor.expectedOutFromSource.toString(),
         anchorRatioBps: anchorCheck.ratioBps,
         minAnchorRatioBps: sourceAnchor.minAnchorRatioBps,
+        maxAnchorRatioBps: sourceAnchor.maxAnchorRatioBps || null,
         anchorAccepted: anchorCheck.accepted
       });
       if (!anchorCheck.accepted) {
-        lastRescueError = `source_anchor_guard_reject:v3:${anchorCheck.ratioBps}:${sourceAnchor.minAnchorRatioBps}`;
+        lastRescueError = `source_anchor_guard_reject:v3:${anchorCheck.ratioBps}:${sourceAnchor.minAnchorRatioBps}:${sourceAnchor.maxAnchorRatioBps || 0}`;
         continue;
       }
     }
@@ -486,6 +504,92 @@ export async function runTurboRescueFlow(params: {
     });
   }
 
+  if (rescueOrder.includes('aerodrome')) {
+    const aeroPool = await deps.pickBestPool(candidatePools, 'aerodrome', chainId);
+    if (aeroPool) {
+      const aeroQuoteBudgetMs = Math.max(120, Math.min(650, rescueDeadlineMs - Date.now()));
+      if (aeroQuoteBudgetMs > 0) {
+        const aeroQuote = await deps.withTimeout(
+          deps.getAerodromeExpectedOutput(
+            normalizedTokenIn,
+            normalizedTokenOut,
+            amountInWei,
+            chainId,
+            slippageBps,
+            walletAddress
+          ),
+          aeroQuoteBudgetMs
+        ).catch(() => 0n);
+
+        if (aeroQuote > 0n) {
+          let anchorRejected = false;
+          if (sourceAnchor) {
+            const anchorCheck = deps.evaluateSourceAnchorQuote(aeroQuote, sourceAnchor);
+            deps.logger.info(LogCode.SYS_INFO, '[DirectSwap] Source anchor quote check (turbo rescue)', {
+              traceId,
+              chainId,
+              strategyKind: 'aerodrome',
+              sourceTxHash: sourceAnchor.sourceTxHash || null,
+              quotedOut: aeroQuote.toString(),
+              expectedOutFromSource: sourceAnchor.expectedOutFromSource.toString(),
+              anchorRatioBps: anchorCheck.ratioBps,
+              minAnchorRatioBps: sourceAnchor.minAnchorRatioBps,
+              maxAnchorRatioBps: sourceAnchor.maxAnchorRatioBps || null,
+              anchorAccepted: anchorCheck.accepted
+            });
+            if (!anchorCheck.accepted) {
+              lastRescueError = `source_anchor_guard_reject:aerodrome:${anchorCheck.ratioBps}:${sourceAnchor.minAnchorRatioBps}:${sourceAnchor.maxAnchorRatioBps || 0}`;
+              anchorRejected = true;
+            }
+          }
+
+          if (anchorRejected) {
+            deps.logger.warn(LogCode.SYS_INFO, '[DirectSwap] turbo_rescue_step_skipped', {
+              traceId,
+              chainId,
+              strategyKind: 'aerodrome',
+              skipReason: 'source_anchor_guard_reject'
+            });
+          } else {
+            deps.logger.info(LogCode.SYS_INFO, '[DirectSwap] turbo_rescue_step_selected', {
+              traceId,
+              chainId,
+              strategyKind: 'aerodrome',
+              selectedKind: 'aerodrome',
+              pool: aeroPool.poolAddress,
+              amountOut: aeroQuote.toString()
+            });
+            const aeroResult = await deps.executeAerodromeSwap(normalizedParams);
+            if (aeroResult.success) return aeroResult;
+            lastRescueError = aeroResult.error || 'turbo_rescue_aerodrome_failed';
+          }
+        } else {
+          deps.logger.warn(LogCode.SYS_INFO, '[DirectSwap] Turbo rescue Aerodrome quote unavailable', {
+            traceId,
+            chainId,
+            strategyKind: 'aerodrome',
+            pool: aeroPool.poolAddress,
+            amountOut: aeroQuote.toString(),
+            quoteBudgetMs: aeroQuoteBudgetMs
+          });
+        }
+      } else {
+        deps.logger.warn(LogCode.SYS_INFO, '[DirectSwap] Turbo rescue Aerodrome skipped: budget exhausted', {
+          traceId,
+          chainId,
+          strategyKind: 'aerodrome',
+          pool: aeroPool.poolAddress,
+          quoteBudgetMs: aeroQuoteBudgetMs
+        });
+      }
+    } else {
+      deps.logger.info(LogCode.SYS_INFO, '[DirectSwap] Turbo rescue Aerodrome skipped: no pool candidate', {
+        traceId,
+        chainId
+      });
+    }
+  }
+
   if (rescueOrder.includes('v2')) {
     deps.logger.info(LogCode.SYS_INFO, '[DirectSwap] turbo_rescue_step_start', {
       traceId,
@@ -513,10 +617,11 @@ export async function runTurboRescueFlow(params: {
               expectedOutFromSource: sourceAnchor.expectedOutFromSource.toString(),
               anchorRatioBps: anchorCheck.ratioBps,
               minAnchorRatioBps: sourceAnchor.minAnchorRatioBps,
+              maxAnchorRatioBps: sourceAnchor.maxAnchorRatioBps || null,
               anchorAccepted: anchorCheck.accepted
             });
             if (!anchorCheck.accepted) {
-              lastRescueError = `source_anchor_guard_reject:v2:${anchorCheck.ratioBps}:${sourceAnchor.minAnchorRatioBps}`;
+              lastRescueError = `source_anchor_guard_reject:v2:${anchorCheck.ratioBps}:${sourceAnchor.minAnchorRatioBps}:${sourceAnchor.maxAnchorRatioBps || 0}`;
               anchorRejected = true;
             }
           }
@@ -571,91 +676,6 @@ export async function runTurboRescueFlow(params: {
         chainId,
         strategyKind: 'v2',
         skipReason: 'no_pool_candidate'
-      });
-    }
-  }
-
-  if (rescueOrder.includes('aerodrome')) {
-    const aeroPool = await deps.pickBestPool(candidatePools, 'aerodrome', chainId);
-    if (aeroPool) {
-      const aeroQuoteBudgetMs = Math.max(120, Math.min(650, rescueDeadlineMs - Date.now()));
-      if (aeroQuoteBudgetMs > 0) {
-        const aeroQuote = await deps.withTimeout(
-          deps.getAerodromeExpectedOutput(
-            normalizedTokenIn,
-            normalizedTokenOut,
-            amountInWei,
-            chainId,
-            slippageBps,
-            walletAddress
-          ),
-          aeroQuoteBudgetMs
-        ).catch(() => 0n);
-
-        if (aeroQuote > 0n) {
-          let anchorRejected = false;
-          if (sourceAnchor) {
-            const anchorCheck = deps.evaluateSourceAnchorQuote(aeroQuote, sourceAnchor);
-            deps.logger.info(LogCode.SYS_INFO, '[DirectSwap] Source anchor quote check (turbo rescue)', {
-              traceId,
-              chainId,
-              strategyKind: 'aerodrome',
-              sourceTxHash: sourceAnchor.sourceTxHash || null,
-              quotedOut: aeroQuote.toString(),
-              expectedOutFromSource: sourceAnchor.expectedOutFromSource.toString(),
-              anchorRatioBps: anchorCheck.ratioBps,
-              minAnchorRatioBps: sourceAnchor.minAnchorRatioBps,
-              anchorAccepted: anchorCheck.accepted
-            });
-            if (!anchorCheck.accepted) {
-              lastRescueError = `source_anchor_guard_reject:aerodrome:${anchorCheck.ratioBps}:${sourceAnchor.minAnchorRatioBps}`;
-              anchorRejected = true;
-            }
-          }
-
-          if (anchorRejected) {
-            deps.logger.warn(LogCode.SYS_INFO, '[DirectSwap] turbo_rescue_step_skipped', {
-              traceId,
-              chainId,
-              strategyKind: 'aerodrome',
-              skipReason: 'source_anchor_guard_reject'
-            });
-          } else {
-            deps.logger.info(LogCode.SYS_INFO, '[DirectSwap] turbo_rescue_step_selected', {
-              traceId,
-              chainId,
-              strategyKind: 'aerodrome',
-              selectedKind: 'aerodrome',
-              pool: aeroPool.poolAddress,
-              amountOut: aeroQuote.toString()
-            });
-            const aeroResult = await deps.executeAerodromeSwap(normalizedParams);
-            if (aeroResult.success) return aeroResult;
-            lastRescueError = aeroResult.error || 'turbo_rescue_aerodrome_failed';
-          }
-        } else {
-          deps.logger.warn(LogCode.SYS_INFO, '[DirectSwap] Turbo rescue Aerodrome quote unavailable', {
-            traceId,
-            chainId,
-            strategyKind: 'aerodrome',
-            pool: aeroPool.poolAddress,
-            amountOut: aeroQuote.toString(),
-            quoteBudgetMs: aeroQuoteBudgetMs
-          });
-        }
-      } else {
-        deps.logger.warn(LogCode.SYS_INFO, '[DirectSwap] Turbo rescue Aerodrome skipped: budget exhausted', {
-          traceId,
-          chainId,
-          strategyKind: 'aerodrome',
-          pool: aeroPool.poolAddress,
-          quoteBudgetMs: aeroQuoteBudgetMs
-        });
-      }
-    } else {
-      deps.logger.info(LogCode.SYS_INFO, '[DirectSwap] Turbo rescue Aerodrome skipped: no pool candidate', {
-        traceId,
-        chainId
       });
     }
   }

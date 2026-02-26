@@ -4,6 +4,7 @@ import type { DirectSwapHint } from '../../directSwapTypes.js';
 export interface SourceAnchorExpectation {
   expectedOutFromSource: bigint;
   minAnchorRatioBps: number;
+  maxAnchorRatioBps?: number;
   sourceTxHash?: string;
 }
 
@@ -41,6 +42,7 @@ export function resolveSourceAnchorExpectation(params: {
   amountInWei: bigint;
   wrappedNativeAddress: string;
   minAnchorRatioBps: number;
+  maxAnchorRatioBps?: number;
 }): SourceAnchorExpectation | null {
   const sourceAmountIn = parsePositiveBigInt(params.hint?.sourceAmountIn);
   const sourceAmountOut = parsePositiveBigInt(params.hint?.sourceAmountOut);
@@ -58,6 +60,9 @@ export function resolveSourceAnchorExpectation(params: {
   return {
     expectedOutFromSource,
     minAnchorRatioBps: Math.max(1, Number(params.minAnchorRatioBps || 1)),
+    maxAnchorRatioBps: Number.isFinite(Number(params.maxAnchorRatioBps))
+      ? Math.max(Math.max(1, Number(params.minAnchorRatioBps || 1)), Number(params.maxAnchorRatioBps))
+      : undefined,
     sourceTxHash: params.hint?.sourceTxHash
   };
 }
@@ -70,8 +75,11 @@ export function evaluateSourceAnchorQuote(quotedOut: bigint, anchor: SourceAncho
     return { accepted: false, ratioBps: 0 };
   }
   const ratioBps = Number((quotedOut * 10000n) / anchor.expectedOutFromSource);
+  const maxAnchorRatioBps = Number.isFinite(Number(anchor.maxAnchorRatioBps))
+    ? Number(anchor.maxAnchorRatioBps)
+    : Number.MAX_SAFE_INTEGER;
   return {
-    accepted: ratioBps >= anchor.minAnchorRatioBps,
+    accepted: ratioBps >= anchor.minAnchorRatioBps && ratioBps <= maxAnchorRatioBps,
     ratioBps
   };
 }

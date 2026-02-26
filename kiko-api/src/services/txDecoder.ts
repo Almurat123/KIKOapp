@@ -84,6 +84,9 @@ const V3_SWAP_EVENT = '0xc42079f94a6350d7e6235f29174924f928cc2ac818eb64fed8004e1
 const V3_SWAP_EVENT_EXT = '0x19b47279256b2a23a1665c810c8d55a1758940ee09377d4f8d26497a3577dc83';
 const V4_SWAP_EVENT = ethers.id('Swap(bytes32,address,int128,int128,uint160,uint128,int24,uint24)');
 const V4_INIT_EVENT = ethers.id('Initialize(bytes32,address,address,uint24,int24,address,uint160,int24)');
+const v4SwapEventInterface = new ethers.Interface([
+    'event Swap(bytes32 indexed id, address indexed sender, int128 amount0, int128 amount1, uint160 sqrtPriceX96, uint128 liquidity, int24 tick, uint24 fee)'
+]);
 const v4InitEventInterface = new ethers.Interface([
     'event Initialize(bytes32 indexed id, address indexed currency0, address indexed currency1, uint24 fee, int24 tickSpacing, address hooks, uint160 sqrtPriceX96, int24 tick)'
 ]);
@@ -103,6 +106,9 @@ const v4PoolTokenCache = new Map<string, { token0: string; token1: string } | nu
 const v4PoolTokenInflight = new Map<string, Promise<{ token0: string; token1: string } | null>>();
 const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
 const infinityPoolKeyCache = new Set<string>();
+const EXTRA_NATIVE_ALIASES_BY_CHAIN: Record<number, string[]> = {
+    8453: ['0x000000000d564d5be76f7f0d28fe52605afc7cf8']
+};
 
 const KNOWN_V3_FACTORIES: Record<number, Record<string, 'uniswap' | 'pancake' | 'aerodrome'>> = {
     8453: {
@@ -287,6 +293,54 @@ function inferSwapFromAnyPoolLikeAddress(
 function normalizeCurrencyAddress(address: string): string {
     const normalized = address.toLowerCase();
     return normalized === ZERO_ADDRESS ? NATIVE_TOKEN_ADDRESS : normalized;
+}
+
+function normalizePoolIdTopic(topicValue: unknown): string | null {
+    const normalized = String(topicValue || '').toLowerCase();
+    if (!/^0x[0-9a-f]{64}$/.test(normalized)) return null;
+    return normalized;
+}
+
+function buildV4PairMatchTokenCandidates(token: string, chainId: number): string[] {
+    const normalized = String(token || '').toLowerCase();
+    if (!normalized) return [];
+    const wrapped = String(getChainConfig(chainId).wrappedNativeAddress || '').toLowerCase();
+    const aliases = EXTRA_NATIVE_ALIASES_BY_CHAIN[chainId] || [];
+    const candidates = new Set<string>();
+    const nativeLikeSet = new Set<string>([
+        NATIVE_TOKEN_ADDRESS.toLowerCase(),
+        ZERO_ADDRESS,
+        wrapped,
+        ...aliases
+    ]);
+    if (nativeLikeSet.has(normalized)) {
+        if (wrapped) candidates.add(wrapped);
+        candidates.add(ZERO_ADDRESS);
+        candidates.add(NATIVE_TOKEN_ADDRESS.toLowerCase());
+        for (const alias of aliases) candidates.add(String(alias || '').toLowerCase());
+    } else {
+        candidates.add(normalized);
+    }
+    return [...candidates].filter(Boolean);
+}
+
+function tryMatchV4PoolKeyFromPair(
+    chainId: number,
+    poolId: string,
+    tokenIn: string,
+    tokenOut: string
+): ReturnType<typeof matchV4PoolKeyById> {
+    if (!poolId || !tokenIn || !tokenOut) return null;
+    const inCandidates = buildV4PairMatchTokenCandidates(tokenIn, chainId);
+    const outCandidates = buildV4PairMatchTokenCandidates(tokenOut, chainId);
+    for (const tokenA of inCandidates) {
+        for (const tokenB of outCandidates) {
+            if (!tokenA || !tokenB || tokenA === tokenB) continue;
+            const matched = matchV4PoolKeyById(chainId, poolId, tokenA, tokenB);
+            if (matched) return matched;
+        }
+    }
+    return null;
 }
 
 function findV4InitLogInReceipt(
@@ -475,36 +529,59 @@ async function resolveV4PoolTokens(
 
 async function decodeSwapFromV4Events(
     logs: Array<{ address: string; topics: string[]; data: string }>,
-    chainId: number
+    chainId: number,
+    preferredPair?: { tokenIn: string; tokenOut: string }
 ): Promise<DecodedSwap | null> {
-    let swapLog: { address: string; topics: string[]; data: string } | null = null;
-    for (const log of logs) {
-        if (log.topics?.[0]?.toLowerCase() === V4_SWAP_EVENT.toLowerCase()) {
-            swapLog = log;
+    const swapLogs = logs.filter((log) => log.topics?.[0]?.toLowerCase() === V4_SWAP_EVENT.toLowerCase());
+    if (swapLogs.length === 0) return null;
+
+    let swapLog: { address: string; topics: string[]; data: string } | null = swapLogs[swapLogs.length - 1];
+    let preMatchedKey: ReturnType<typeof matchV4PoolKeyById> = null;
+
+    if (preferredPair?.tokenIn && preferredPair?.tokenOut) {
+        for (let i = swapLogs.length - 1; i >= 0; i--) {
+            const candidate = swapLogs[i];
+            const candidatePoolId = normalizePoolIdTopic(candidate.topics?.[1]);
+            if (!candidatePoolId) continue;
+            const matchedKey = tryMatchV4PoolKeyFromPair(
+                chainId,
+                candidatePoolId,
+                preferredPair.tokenIn,
+                preferredPair.tokenOut
+            );
+            if (matchedKey) {
+                swapLog = candidate;
+                preMatchedKey = matchedKey;
+                break;
+            }
         }
     }
 
     if (!swapLog || !swapLog.topics || swapLog.topics.length < 2) return null;
 
-    const poolId = swapLog.topics[1];
+    const poolId = normalizePoolIdTopic(swapLog.topics[1]);
     const poolManager = swapLog.address;
     if (!poolId || !poolManager) return null;
 
-    const tokens = await resolveV4PoolTokens(chainId, poolManager, poolId, logs);
-    if (!tokens) return null;
+    let tokens = await resolveV4PoolTokens(chainId, poolManager, poolId, logs);
 
     try {
-        const matchedKey = matchV4PoolKeyById(
-            chainId,
-            poolId,
-            tokens.token0,
-            tokens.token1
-        );
+        let matchedKey = preMatchedKey;
+        if (!matchedKey && tokens) {
+            matchedKey = matchV4PoolKeyById(chainId, poolId, tokens.token0, tokens.token1);
+        }
+        if (!matchedKey && preferredPair?.tokenIn && preferredPair?.tokenOut) {
+            matchedKey = tryMatchV4PoolKeyFromPair(chainId, poolId, preferredPair.tokenIn, preferredPair.tokenOut);
+        }
+        if (!tokens && matchedKey) {
+            tokens = {
+                token0: normalizeCurrencyAddress(matchedKey.currency0),
+                token1: normalizeCurrencyAddress(matchedKey.currency1)
+            };
+        }
+        if (!tokens) return null;
 
-        const iface = new ethers.Interface([
-            'event Swap(bytes32 indexed id, address indexed sender, int128 amount0, int128 amount1, uint160 sqrtPriceX96, uint128 liquidity, int24 tick, uint24 fee)'
-        ]);
-        const parsed = iface.parseLog({ topics: swapLog.topics, data: swapLog.data });
+        const parsed = v4SwapEventInterface.parseLog({ topics: swapLog.topics, data: swapLog.data });
         if (!parsed) {
             return null;
         }
@@ -527,7 +604,11 @@ async function decodeSwapFromV4Events(
             amountIn = amount1;
             amountOut = amount0 * -1n;
         } else {
-            return null;
+            if (!preferredPair?.tokenIn || !preferredPair?.tokenOut) return null;
+            tokenIn = preferredPair.tokenIn.toLowerCase();
+            tokenOut = preferredPair.tokenOut.toLowerCase();
+            amountIn = 0n;
+            amountOut = 0n;
         }
 
         const eventFee = Number(parsed.args.fee ?? 0);
@@ -876,8 +957,21 @@ function extractRouteHops(logs: Array<{ address: string; topics: string[]; data:
         const topic0 = String(log.topics?.[0] || '').toLowerCase();
         const kind = classifyHopFromTopic(topic0);
         if (!kind) continue;
-        const poolAddress = String(log.address || '').toLowerCase();
-        const inferred = poolAddress ? inferSwapFromPoolTransfers(logs, poolAddress) : null;
+        const poolManagerOrPoolAddress = String(log.address || '').toLowerCase();
+        const topicPoolId = normalizePoolIdTopic(log.topics?.[1]);
+        const poolAddress = (kind === 'v4' || kind === 'infinity')
+            ? (topicPoolId || poolManagerOrPoolAddress)
+            : poolManagerOrPoolAddress;
+        const inferred = poolManagerOrPoolAddress ? inferSwapFromPoolTransfers(logs, poolManagerOrPoolAddress) : null;
+        let fee: number | undefined;
+        if (kind === 'v4') {
+            try {
+                const parsed = v4SwapEventInterface.parseLog({ topics: log.topics, data: log.data });
+                fee = Number(parsed?.args?.fee ?? 0);
+            } catch {
+                fee = undefined;
+            }
+        }
         routeHops.push({
             kind,
             dex: kind === 'infinity'
@@ -887,7 +981,8 @@ function extractRouteHops(logs: Array<{ address: string; topics: string[]; data:
                     : 'uniswap',
             poolAddress,
             tokenIn: inferred?.tokenIn,
-            tokenOut: inferred?.tokenOut
+            tokenOut: inferred?.tokenOut,
+            fee
         });
     }
     return dedupeRouteHops(routeHops);
@@ -1357,7 +1452,10 @@ export async function parseSwapTransaction(
         // repair amounts using pool swap events before persisting.
         if (hasMissingLegAmount(finalTransferSwap)) {
             if (hasV4Swap) {
-                const hintedV4 = await decodeSwapFromV4Events(receipt.logs, chainId);
+                const hintedV4 = await decodeSwapFromV4Events(receipt.logs, chainId, {
+                    tokenIn: finalTransferSwap.tokenIn,
+                    tokenOut: finalTransferSwap.tokenOut
+                });
                 if (hintedV4?.resolvedPoolHint && hasSameTokenPair(finalTransferSwap, hintedV4)) {
                     finalTransferSwap.resolvedPoolHint = hintedV4.resolvedPoolHint;
                 }
@@ -1382,7 +1480,10 @@ export async function parseSwapTransaction(
                 }
             }
         } else if (hasV4Swap) {
-            const hintedV4 = await decodeSwapFromV4Events(receipt.logs, chainId);
+            const hintedV4 = await decodeSwapFromV4Events(receipt.logs, chainId, {
+                tokenIn: finalTransferSwap.tokenIn,
+                tokenOut: finalTransferSwap.tokenOut
+            });
             if (hintedV4?.resolvedPoolHint) {
                 finalTransferSwap.resolvedPoolHint = hintedV4.resolvedPoolHint;
             }

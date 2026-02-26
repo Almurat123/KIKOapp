@@ -66,6 +66,13 @@ export interface PoolInfo {
     price?: number;  // token1/token0 price
     version?: 'v2' | 'v3' | 'v4' | 'aerodrome';  // Pool version
     dex?: 'uniswap' | 'pancake' | 'aerodrome';   // DEX family
+    v4PoolKey?: {
+        currency0: string;
+        currency1: string;
+        fee: number;
+        tickSpacing: number;
+        hooks: string;
+    };
 }
 
 const v2PoolInterface = new ethers.Interface(V2_POOL_ABI);
@@ -314,7 +321,11 @@ export async function findTokenPools(
     poolDiscoveryInflight.set(key, promise);
     try {
         const pools = await promise;
-        poolDiscoveryCache.set(key, { pools, ts: Date.now() });
+        // Avoid long negative caching in fast scan mode.
+        // A transient RPC miss should not pin turbo retries to an empty result.
+        if (pools.length > 0 || options?.fastScan !== true) {
+            poolDiscoveryCache.set(key, { pools, ts: Date.now() });
+        }
         return pools;
     } finally {
         poolDiscoveryInflight.delete(key);
@@ -456,7 +467,14 @@ async function doFindTokenPools(
                 fee: v4Pool.lpFee,
                 price: v4CalcPrice(BigInt(v4Pool.sqrtPriceX96), 18, 18),
                 version: 'v4' as const,
-                dex: 'uniswap' as const
+                dex: 'uniswap' as const,
+                v4PoolKey: {
+                    currency0: v4Pool.poolKey.currency0,
+                    currency1: v4Pool.poolKey.currency1,
+                    fee: v4Pool.poolKey.fee,
+                    tickSpacing: v4Pool.poolKey.tickSpacing,
+                    hooks: v4Pool.poolKey.hooks
+                }
             }));
         } catch (err) {
             logger.debug(LogCode.API_FETCH_FAILED, 'V4 pool lookup failed', {

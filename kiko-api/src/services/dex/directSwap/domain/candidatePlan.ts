@@ -11,7 +11,7 @@ export function resolvedHintIdentity(hint: ResolvedPoolHint): string {
 
 export function buildTurboRescueOrder(chainId: number): TurboRescueInternalStrategyKind[] {
   if (chainId === 8453) {
-    return ['v4', 'v3', 'v2', 'aerodrome'];
+    return ['v4', 'v3', 'aerodrome', 'v2'];
   }
   return ['v4', 'v3', 'aerodrome'];
 }
@@ -64,11 +64,24 @@ export function capTurboRescueCandidatePools(
   return selected;
 }
 
-export function buildTurboSinglePoolAttemptPlan(candidates: ResolvedPoolHint[], chainId: number): ResolvedPoolHint[] {
+export function buildTurboSinglePoolAttemptPlan(
+  candidates: ResolvedPoolHint[],
+  chainId: number,
+  options?: {
+    preferredFirst?: ResolvedPoolHint | null;
+    maxAttempts?: number;
+  }
+): ResolvedPoolHint[] {
   if (candidates.length === 0) return [];
-  const baseOrder: StrategyKind[] = ['v4', 'v3', 'v2', 'aerodrome'];
+  const maxAttempts = Math.max(1, options?.maxAttempts || 2);
+  const baseOrder: StrategyKind[] = ['v4', 'v3', 'aerodrome', 'v2'];
+  const preferredFirst = options?.preferredFirst || null;
   let first = candidates[0];
-  if (chainId === 8453) {
+  if (preferredFirst) {
+    const preferred = candidates.find((candidate) => resolvedHintIdentity(candidate) === resolvedHintIdentity(preferredFirst));
+    if (preferred) first = preferred;
+  }
+  if (chainId === 8453 && !preferredFirst) {
     const prioritized = baseOrder
       .map((kind) => candidates.find((candidate) => candidate.kind === kind))
       .find(Boolean);
@@ -77,23 +90,27 @@ export function buildTurboSinglePoolAttemptPlan(candidates: ResolvedPoolHint[], 
   const attempts: ResolvedPoolHint[] = [first];
   const used = new Set<string>([resolvedHintIdentity(first)]);
 
-  const preferredSecondKinds: StrategyKind[] = chainId === 8453
-    ? ['v4', 'v3', 'v2', 'aerodrome']
+  const preferredKinds: StrategyKind[] = chainId === 8453
+    ? ['v4', 'v3', 'aerodrome', 'v2']
     : first.kind === 'aerodrome'
       ? ['v4', 'v3', 'v2']
       : ['v4', 'v3', 'v2', 'aerodrome'];
 
-  let second: ResolvedPoolHint | undefined;
-  for (const kind of preferredSecondKinds) {
-    second = candidates.find((candidate) => candidate.kind === kind && !used.has(resolvedHintIdentity(candidate)));
-    if (second) break;
+  while (attempts.length < maxAttempts) {
+    let next: ResolvedPoolHint | undefined;
+    for (const kind of preferredKinds) {
+      next = candidates.find((candidate) => candidate.kind === kind && !used.has(resolvedHintIdentity(candidate)));
+      if (next) break;
+    }
+    if (!next) {
+      next = candidates.find((candidate) => !used.has(resolvedHintIdentity(candidate)));
+    }
+    if (!next) break;
+    attempts.push(next);
+    used.add(resolvedHintIdentity(next));
   }
-  if (!second && chainId !== 8453) {
-    second = candidates.find((candidate) => !used.has(resolvedHintIdentity(candidate)));
-  }
-  if (second) attempts.push(second);
 
-  return attempts.slice(0, 2);
+  return attempts.slice(0, maxAttempts);
 }
 
 export function isLikelyAerodromeHintTrustworthy(hint?: DirectSwapHint): boolean {

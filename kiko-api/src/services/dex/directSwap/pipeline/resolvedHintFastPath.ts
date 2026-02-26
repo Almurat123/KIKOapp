@@ -43,6 +43,7 @@ interface FastPathDeps {
   getV2ExpectedOutput: (tokenIn: string, tokenOut: string, amountInWei: bigint, chainId: number) => Promise<bigint>;
   wrappedNativeByChain: Record<number, string>;
   sourceAnchorMinRatioBps: number;
+  sourceAnchorMaxRatioBps?: number;
 }
 
 interface ResolvedHintFlowDeps {
@@ -142,12 +143,32 @@ async function validateResolvedHintAgainstSwapPair(params: {
     return { ok: true };
   }
 
-  if (hint.kind === 'v4' && hint.v4PoolKey) {
+  if (hint.kind === 'v4') {
+    const recoveredKey = !hint.v4PoolKey && hint.poolAddress
+      ? matchV4PoolKeyById(
+        params.chainId,
+        hint.poolAddress,
+        normalizePairTokenForHint(params.tokenIn, params.deps.wrappedNativeByChain[params.chainId]),
+        normalizePairTokenForHint(params.tokenOut, params.deps.wrappedNativeByChain[params.chainId])
+      )
+      : null;
+    const poolKey = hint.v4PoolKey || recoveredKey;
+    if (!poolKey) {
+      return {
+        ok: false,
+        reason: 'v4_pool_key_unresolved',
+        details: {
+          swapTokenIn: params.tokenIn,
+          swapTokenOut: params.tokenOut,
+          poolAddress: hint.poolAddress || null
+        }
+      };
+    }
     const pairOk = isSameHintPair(
       params.tokenIn,
       params.tokenOut,
-      hint.v4PoolKey.currency0,
-      hint.v4PoolKey.currency1,
+      poolKey.currency0,
+      poolKey.currency1,
       params.deps.wrappedNativeByChain[params.chainId]
     );
     return pairOk ? { ok: true } : {
@@ -156,8 +177,8 @@ async function validateResolvedHintAgainstSwapPair(params: {
       details: {
         swapTokenIn: params.tokenIn,
         swapTokenOut: params.tokenOut,
-        poolToken0: hint.v4PoolKey.currency0,
-        poolToken1: hint.v4PoolKey.currency1,
+        poolToken0: poolKey.currency0,
+        poolToken1: poolKey.currency1,
         poolAddress: hint.poolAddress || null
       }
     };
@@ -210,7 +231,8 @@ export async function tryResolvedPoolHintFastPath(
     tokenOut: params.tokenOut,
     amountInWei: params.amountInWei,
     wrappedNativeAddress: deps.wrappedNativeByChain[params.chainId] || '',
-    minAnchorRatioBps: deps.sourceAnchorMinRatioBps
+    minAnchorRatioBps: deps.sourceAnchorMinRatioBps,
+    maxAnchorRatioBps: deps.sourceAnchorMaxRatioBps
   });
 
   const validation = await validateResolvedHintAgainstSwapPair({
@@ -233,14 +255,46 @@ export async function tryResolvedPoolHintFastPath(
     };
   }
 
-  if (resolved.kind === 'v4' && resolved.v4PoolKey) {
-    let poolKey = {
-      currency0: resolved.v4PoolKey.currency0,
-      currency1: resolved.v4PoolKey.currency1,
-      hooks: resolved.v4PoolKey.hooks,
-      fee: resolved.v4PoolKey.fee,
-      tickSpacing: resolved.v4PoolKey.tickSpacing
-    };
+  if (resolved.kind === 'v4') {
+    let poolKey = resolved.v4PoolKey
+      ? {
+        currency0: resolved.v4PoolKey.currency0,
+        currency1: resolved.v4PoolKey.currency1,
+        hooks: resolved.v4PoolKey.hooks,
+        fee: resolved.v4PoolKey.fee,
+        tickSpacing: resolved.v4PoolKey.tickSpacing
+      }
+      : null;
+    if (!poolKey && resolved.poolAddress) {
+      const recoveredKey = matchV4PoolKeyById(
+        params.chainId,
+        resolved.poolAddress,
+        normalizePairTokenForHint(params.tokenIn, deps.wrappedNativeByChain[params.chainId]),
+        normalizePairTokenForHint(params.tokenOut, deps.wrappedNativeByChain[params.chainId])
+      );
+      if (recoveredKey) {
+        poolKey = {
+          currency0: recoveredKey.currency0,
+          currency1: recoveredKey.currency1,
+          hooks: recoveredKey.hooks,
+          fee: recoveredKey.fee,
+          tickSpacing: recoveredKey.tickSpacing
+        };
+        deps.logger.info(LogCode.SYS_INFO, '[DirectSwap] Recovered V4 pool key from poolId-only hint', {
+          chainId: params.chainId,
+          poolAddress: resolved.poolAddress,
+          tokenIn: params.tokenIn,
+          tokenOut: params.tokenOut
+        });
+      }
+    }
+    if (!poolKey || !resolved.poolAddress) {
+      return {
+        success: false,
+        error: 'hint_v4_pool_key_unresolved',
+        provider: 'failed'
+      };
+    }
 
     const pairAligned = isSameHintPair(
       params.tokenIn,
@@ -347,7 +401,7 @@ export async function tryResolvedPoolHintFastPath(
       if (!anchorCheck.accepted) {
         return {
           success: false,
-          error: `source_anchor_guard_reject:v2:${anchorCheck.ratioBps}:${sourceAnchor.minAnchorRatioBps}`,
+          error: `source_anchor_guard_reject:v2:${anchorCheck.ratioBps}:${sourceAnchor.minAnchorRatioBps}:${sourceAnchor.maxAnchorRatioBps || 0}`,
           provider: 'failed'
         };
       }
@@ -412,7 +466,36 @@ export async function runResolvedHintFastPathFlow(params: {
     };
   }
 
+  const sourceAnchor = resolveSourceAnchorExpectation({
+    hint: params.hint,
+    tokenIn: params.normalizedParams.tokenIn,
+    tokenOut: params.normalizedParams.tokenOut,
+    amountInWei: params.amountInWei,
+    wrappedNativeAddress: params.fastPathDeps.wrappedNativeByChain[params.chainId] || '',
+    minAnchorRatioBps: params.fastPathDeps.sourceAnchorMinRatioBps,
+    maxAnchorRatioBps: params.fastPathDeps.sourceAnchorMaxRatioBps
+  });
+
   const resolvedHint = params.hint.resolvedPoolHint as NonNullable<DirectSwapHint['resolvedPoolHint']>;
+  if (
+    params.turboMode
+    && sourceAnchor
+    && (resolvedHint.kind === 'v4' || resolvedHint.kind === 'v3' || resolvedHint.kind === 'aerodrome')
+  ) {
+    resolvedHintFastPathSkipped = true;
+    params.deps.logger.info(code, '[DirectSwap] Resolved hint fast-path deferred to turbo correct-flow anchor gate', {
+      chainId: params.chainId,
+      traceId: params.traceId,
+      kind: resolvedHint.kind,
+      sourceTxHash: sourceAnchor.sourceTxHash || null
+    });
+    return {
+      resolvedHintFastPathSkipped,
+      resolvedHintFastPathFailed,
+      selectedResolvedHintForCache
+    };
+  }
+
   let liquidityGateBlocked = false;
   if (params.deps.isBuySideStableOrNativeIn(params.chainId, params.normalizedTokenIn)) {
     const turboTrustedHint = params.turboMode && !!params.hint?.sourceTxHash;
