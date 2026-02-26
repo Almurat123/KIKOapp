@@ -34,6 +34,8 @@ export interface PlannerDecisionTrace {
   sampleIds: string[];
   plannerScore: number;
   reasoning: string;
+  adapterName?: string;
+  adapterVersion?: string;
 }
 
 export interface ExecutionPlanV1 {
@@ -91,4 +93,32 @@ export interface SimulationResult {
   gasUsed?: string;
   revertReason?: string;
   raw?: string;
+  blockTag?: string;
+  classificationCode?: string;
+  rawErrorCode?: string;
+}
+
+export interface ReplayPrecheckResult {
+  ok: boolean;
+  reason?: string;
+  tokenBalance?: string;
+  requiredAmount?: string;
+  allowance?: string;
+  requiredAllowance?: string;
+  spender?: string;
+}
+
+export type ReplayDriftClassification =
+  | 'state_drift'
+  | 'adapter_or_logic'
+  | 'tx_send_or_nonce_path'
+  | 'no_drift'
+  | 'unknown_drift';
+
+export interface ReplayDriftDiagnosis {
+  latest: SimulationResult;
+  atSourcePreBlock?: SimulationResult;
+  classification: ReplayDriftClassification;
+  reasonCode?: string;
+  sourceBlockTag?: string;
 }

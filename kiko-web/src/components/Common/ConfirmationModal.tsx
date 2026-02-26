@@ -34,11 +34,12 @@ export const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
             <div className={styles.contentWrapper}>
                 <p className={styles.message}>{message}</p>
                 <div className={styles.buttons}>
-                    <button className={styles.cancelBtn} onClick={onClose}>
+                    <button type="button" className={styles.cancelBtn} onClick={onClose}>
                         {cancelText}
                     </button>
                     <button
-                        className={`${styles.confirmBtn} ${confirmVariant === 'danger' ? styles.danger : ''}`}
+                        type="button"
+                        className={confirmVariant === 'danger' ? styles.dangerBtn : styles.confirmBtn}
                         onClick={onConfirm}
                     >
                         {confirmText}

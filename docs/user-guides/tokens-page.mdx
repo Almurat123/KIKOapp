@@ -1,0 +1,68 @@
+---
+title: 'Tokens Page'
+description: 'Discover, filter, and analyze trending tokens across the network'
+---
+
+The Tokens page is KiKo's hub for token discovery. We integrate underlying data from [DexScreener](https://dexscreener.com) and [GeckoTerminal](https://geckoterminal.com), and add KiKo's proprietary algorithmic weights and deep Launchpad analysis to help you discover high-potential projects earlier.
+
+---
+
+## Trending Token Ranking Algorithm
+
+The Tokens page doesn't just rank by volume or simple price gain. It uses KiKo's proprietary **Multi-factor Trending Score algorithm**.
+
+The algorithm synthesizes the following dimensions:
+- **Short-term Momentum**: 5-minute (5m) and 1-hour (1h) price changes are heavily weighted to capture newly launched tokens.
+- **Mid-term Sustainability**: 6-hour (6h) and 24-hour (24h) price changes.
+- **Trading Activity**: 24-hour Volume and Transaction counts (Txns).
+- **Liquidity Health**: Pool Liquidity and estimated independent traders (Makers).
+
+> **Why do we do this?**
+> Traditional 24h gain leaderboards are often dominated by older tokens that have already peaked (or are about to dump). KiKo's algorithm is extremely sensitive to 5m and 1h anomalies, allowing you to see early projects just as they start their move.
+
+---
+
+## Deep Launchpad Integration
+
+KiKo provides dedicated display and analysis for tokens launched via "Fair Launch" platforms.
+
+### 1. Platform Branding and Direct Links
+In the token list, you'll see dedicated icons for major Launchpads (e.g., Pump.fun, Clanker, Four.meme). Click the icon to jump directly to the token's official page on that platform to verify the contract or participate in early curve trading.
+
+### 2. Social Context
+KiKo automatically fetches and displays social information provided by the Launchpad, including:
+- **Creator address/label**
+- **Official website**
+- **X (Twitter) link**
+- **Farcaster link**
+
+### 3. Launch Multiple Estimate
+To help you intuitively sense a token's early explosive power, KiKo estimates the current price relative to the initial launch price (e.g., `x15`, `x120`) based on each platform's historical initial listing price.
+
+**Current estimated base prices (USD):**
+- **Base - Clanker**: `$0.00000025`
+- **Base - Zora**: `$0.00001`
+- **Base - Virtuals**: `$0.0001`
+- **Solana - Pump.fun**: `$0.00003`
+- **BSC - Four.meme**: `$0.000035`
+
+*(Note: These multiples are for reference only. Actual opening prices may vary slightly due to network congestion or initial pool settings.)*
+
+---
+
+## Token Details Page
+
+Click any token to enter its Details page, which aggregates all critical information.
+
+{/* TODO: Screenshot — Token Details Page Screenshot */}
+
+On the details page, you can see:
+- **Real-time Price and Multi-timeframe Changes** (5m, 1h, 6h, 24h)
+- **Core Data**: Market Cap, FDV, Liquidity, 24h Volume
+- **Trading Stats**: 24h Buy/Sell counts, estimated Holder count
+- **Security & Social Info**: Contract address, creation time, social media links
+
+### Stars and Customization
+
+Click the **Star** (Favorite) icon in the top right of the details page.
+Once a token is starred, KiKo will provide custom price alerts, movement notifications, and deeper tracking for that token in future updates.

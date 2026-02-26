@@ -77,6 +77,8 @@ const V4_CONFIGS: Record<number, V4PoolConfig[]> = {
         ...CLANKER_FEE_TICK_SPACING.map(cfg => ({ ...cfg, hooks: CLANKER_HOOKS_STATIC_BASE })),
 
         // Common static fee tiers (hookless + known hooks from registry)
+        // Fee=0 pools are observed on Base in some flaunch-style hooks.
+        { fee: 0, tickSpacing: 60, hooks: ['0x0000000000000000000000000000000000000000', ...KNOWN_HOOKS_BASE] },
         { fee: 100, tickSpacing: 1, hooks: ['0x0000000000000000000000000000000000000000', ...KNOWN_HOOKS_BASE] },
         { fee: 500, tickSpacing: 10, hooks: ['0x0000000000000000000000000000000000000000', ...KNOWN_HOOKS_BASE] },
         { fee: 3000, tickSpacing: 60, hooks: ['0x0000000000000000000000000000000000000000', ...KNOWN_HOOKS_BASE] },

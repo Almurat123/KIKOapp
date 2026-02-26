@@ -32,7 +32,7 @@ export function bpsToSlippage(bps: number): number {
  */
 export const DEFAULT_SLIPPAGE_CONFIG: SlippageConfig = {
     mode: 'auto',
-    customValue: 0.5,
+    customValue: 10,
 };
 
 // --- Single source of truth for all trading systems ---
@@ -41,8 +41,8 @@ export const DEFAULT_SLIPPAGE_CONFIG: SlippageConfig = {
 
 export const SLIPPAGE_STORAGE_KEY = 'kiko-swap-slippage';
 const CUSTOM_AI_SETTINGS_KEY = 'kiko-custom-ai-settings';
-const DEFAULT_SLIPPAGE_PERCENT = 0.5;
-const DEFAULT_SLIPPAGE_BPS = 50;
+const DEFAULT_SLIPPAGE_PERCENT = 10;
+const DEFAULT_SLIPPAGE_BPS = 1000;
 
 function getSlippagePercentFromCustomSettings(): number | null {
     try {

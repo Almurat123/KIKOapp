@@ -1,20 +1,88 @@
 ---
 title: '快速开始'
-description: '3 步开始使用 KiKo'
+description: '三步开始你的 KiKo 之旅'
 ---
 
 <Steps>
-  <Step title="1. 登录">
-    支持：**Google**、**Farcaster**、**Email**、**Twitter**。登录后自动创建托管钱包。
+  <Step title="登录并创建钱包">
+    支持多种登录方式：**Google**、**Farcaster**、**Email**、**Twitter**（X）。
+
+    KiKo 使用 [**Privy**](https://docs.privy.io) 进行钱包的创建与密钥托管。登录后，系统会自动为你生成一个专属的托管钱包。
+
+    <Info>
+      **你的钱包永远属于你。** Privy 对私钥进行 HSM 级别的加密存储。即便 KiKo 停止服务，你的钱包仍然安全地保存在 Privy 的服务器上，**不会丢失**。你可以随时通过以下方式导出私钥：
+      - 在 KiKo **设置页面** 中导出
+      - 前往 [Privy 官网](https://privy.io) 通过关联 App 访问并导出
+
+      **KiKo 无权访问你的私钥和任何账户信息。**
+    </Info>
+
+    你的钱包分为两个网络：
+
+    | 网络 | 说明 |
+    |------|------|
+    | **EVM** | 支持 Base、Ethereum 等 EVM 兼容链 |
+    | **Solana** | 独立的 Solana 钱包地址 |
   </Step>
-  <Step title="2. 准备资金">
-    Base（推荐，Gas 低）/ Ethereum / BSC / Arbitrum / Polygon / Optimism / Solana。Solana 需至少 0.005 SOL 付手续费。
+
+  <Step title="准备资金">
+    向你的钱包充值后即可开始交易。推荐优先使用 **Base 网络**（Gas 费极低）。
+
+    | 网络 | 最低建议余额 |
+    |------|------------|
+    | Base / Ethereum | 少量 ETH 用于 Gas |
+    | Solana | 至少 **0.005 SOL** 用于手续费 |
+
+    你可以通过交易所提币、跨链桥或直接购买的方式往钱包充值。如有疑问，直接在对话框告诉 KiKo，AI 将引导你完成操作。
   </Step>
-  <Step title="3. 发起操作">
-    - 查询：`"钱包余额"`、`"ETH 价格"`
-    - Swap：`"用 20 USDC 买 ETH"`（Allowance 直接执行，无确认卡片）
-    - 扫描：`"这个币安全吗？0x..."`
+
+  <Step title="让 AI 引导你完成设置">
+    准备好之后，直接在对话框向 AI 提问，它会引导你完成所有个性化配置，包括：
+
+    - **用户自定义设置**：滑点、Gas 优先级、默认链等偏好
+    - **Copy Trading 设置**：跟单地址、金额上限、过滤条件
+    - **代币价格提醒**：设置目标价位，触发时自动通知
+    - **授权自动交易**：让 Agent 在特定条件下自动执行交易
+    - **Polymarket 预测市场**：开启并参与链上预测市场交易
+
+    > 例如：直接说 _"帮我设置跟单"_ 或 _"设置 ETH 价格提醒"_，AI 会一步步引导你。
   </Step>
 </Steps>
 
-详见 [Swap 交易](/zh-Hans/user-guides/swap-trading)、[Copy Trading](/zh-Hans/user-guides/copy-trading)。
+---
+
+## 你能做什么
+
+### 查询
+
+用自然语言查询任何市场信息、钱包数据或链上状态。
+
+![查询示例](/images/zh-Hans/quickstart/Whayyoucando.png)
+
+---
+
+### Swap 交易
+
+直接描述你的交易意图，AI 自动完成路由和执行。
+
+![Swap 示例](/images/zh-Hans/quickstart/swap.png)
+
+---
+
+### 风险扫描
+
+在买入前检测代币合约安全性，识别貔貅、蜜罐等常见陷阱。
+
+![风险扫描示例](/images/zh-Hans/quickstart/checkrisk.png)
+
+---
+
+### Copy Trading 跟单
+
+自动复制指定钱包的链上交易行为。
+
+![跟单示例](/images/zh-Hans/quickstart/copytrade.png)
+
+---
+
+详细功能说明请参阅 [Swap 交易](/zh-Hans/user-guides/swap-trading) · [Copy Trading](/zh-Hans/user-guides/copy-trading) · [风险扫描](/zh-Hans/user-guides/risk-and-security)

@@ -1,0 +1,22 @@
+{
+  "generatedAt": "2026-02-26T04:50:46.801Z",
+  "chainId": 8453,
+  "reasonCounts": [
+    {
+      "reason": "hint_kind_v3_not_v4_probe",
+      "count": 9
+    },
+    {
+      "reason": "hook_candidate_failed:pre_sim_failed",
+      "count": 27
+    },
+    {
+      "reason": "not_swap_evidence",
+      "count": 56
+    },
+    {
+      "reason": "ok",
+      "count": 13
+    }
+  ]
+}

@@ -1,0 +1,48 @@
+{
+  "latest": {
+    "file": "/Users/almurat/KiKo/kiko-api/data/direct_wallet_probe_7x100_1772092731519.json",
+    "decoded": 64,
+    "replay": 60,
+    "failed": 52,
+    "replayRate": 0.9375,
+    "failRate": 0.8125,
+    "slowHintCount": 0,
+    "slowSimCount": 0,
+    "learningCoverage": {
+      "selectorsSeen": 13,
+      "routersSeen": 8,
+      "draftCountMatched": 0,
+      "activeTemplateCountChain": 0,
+      "contextRowsMatchedByTxHash": 64,
+      "executionSamplesMatchedByTxHash": 64,
+      "draftTop": []
+    }
+  },
+  "previous": {
+    "file": "/Users/almurat/KiKo/kiko-api/data/direct_wallet_probe_7x100_1772092180376.json",
+    "decoded": 598,
+    "replay": 560,
+    "failed": 467,
+    "replayRate": 0.9365,
+    "failRate": 0.7809,
+    "slowHintCount": 0,
+    "slowSimCount": 0,
+    "learningCoverage": {
+      "selectorsSeen": 31,
+      "routersSeen": 46,
+      "draftCountMatched": 0,
+      "activeTemplateCountChain": 0,
+      "contextRowsMatchedByTxHash": 598,
+      "executionSamplesMatchedByTxHash": 598,
+      "draftTop": []
+    }
+  },
+  "delta": {
+    "replay": -500,
+    "failed": -415,
+    "replayRate": 0.001,
+    "failRate": 0.0316,
+    "slowHintCount": 0,
+    "slowSimCount": 0
+  }
+}

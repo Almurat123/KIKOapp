@@ -82,18 +82,16 @@ export async function setIfNotExists(key: string, value: string, ttl?: number): 
             expiresAt.setSeconds(expiresAt.getSeconds() + ttl);
         }
 
-        await prisma.cache.create({
-            data: {
+        const result = await prisma.cache.createMany({
+            data: [{
                 key,
                 value,
                 expiresAt
-            }
+            }],
+            skipDuplicates: true
         });
-        return true;
+        return result.count > 0;
     } catch (error: any) {
-        if (error?.code === 'P2002') {
-            return false;
-        }
         console.error(`[DBCache] SetIfNotExists error for ${key}:`, error);
         return false;
     }

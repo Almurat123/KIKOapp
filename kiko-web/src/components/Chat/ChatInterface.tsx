@@ -141,7 +141,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
     const { user, authenticated, ready, login, getAccessToken } = usePrivy();
     const { wallets } = useWallets();
-    const { currentChain } = useChain();
+    const { currentChain, switchChain } = useChain();
     const { strategies, refreshUserStrategies, deleteStrategy, toggleStrategyStatus, createStrategy } = useStrategies();
     const sidebar = useSidebar();
     const { resolvedTheme } = useThemeContext();
@@ -471,6 +471,16 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                         break;
                     }
                     logger.debug('Received client action:', normalizedAction);
+
+                    if (normalizedAction.type === 'switch_chain') {
+                        const actionData = normalizedAction.payload || normalizedAction.data;
+                        const targetChainId = actionData.chainId || actionData.chain_id;
+                        if (targetChainId) {
+                            switchChain(targetChainId);
+                            toast.success(`Switching to ${actionData.chainName || 'target chain'}...`);
+                        }
+                        break;
+                    }
 
                     if (normalizedAction.type === 'execute_swap_instant') {
                         // DIRECT SERVER EXECUTION - NO UI CARD

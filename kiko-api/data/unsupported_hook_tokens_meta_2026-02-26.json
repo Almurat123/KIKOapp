@@ -1,0 +1,23 @@
+[
+  {
+    "address": "0x716f8e756f9277f8c9949926141c2666b86b5809",
+    "codeSizeBytes": 44,
+    "symbol": "TAKEOVER",
+    "name": "Takeover.fun",
+    "decimals": 18
+  },
+  {
+    "address": "0xf9127be7a5c7bd48d0eb3bcb40c234c80b1f5fc7",
+    "codeSizeBytes": 44,
+    "symbol": "NCX",
+    "name": "North chain x Ai",
+    "decimals": 18
+  },
+  {
+    "address": "0x540c008ee6d7f36fddd9a952ac0ea1ba365438be",
+    "codeSizeBytes": 44,
+    "symbol": "CLAWBOT",
+    "name": "Clawbot",
+    "decimals": 18
+  }
+]

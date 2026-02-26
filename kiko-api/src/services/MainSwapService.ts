@@ -40,9 +40,16 @@ import { sendTransaction } from './privyWallet.js';
 import { isPostBuyPreApprovalEnabled } from './swapPreApprovalPolicy.js';
 import type { CopyTradeExecutionMode } from './copyTradeExecutionMode.js';
 import type { TxLifecycleResult } from './txLifecycle.js';
-import type { ExecutionPlanV1 } from './copytrade/planner/types.js';
+import type { ExecutionPlanV1, ReplayDriftDiagnosis, ReplayPrecheckResult } from './copytrade/planner/types.js';
 import { isP2ExecutorEnabled, isP2SampleLearningEnabled, isP2ShadowRunEnabled } from './copytrade/planner/featureFlags.js';
-import { buildPlanCalldata, buildPlanValue, simulatePlan } from './copytrade/planner/shadowRunner.js';
+import {
+  buildPlanCalldata,
+  buildPlanValue,
+  diagnoseReplayDrift,
+  isSourceReplayPlan,
+  precheckReplaySell,
+  simulatePlan
+} from './copytrade/planner/shadowRunner.js';
 import { recordPlanRun, recordSuccessSample } from './copytrade/planner/sampleLibrary.js';
 import type { SwapExecutionContextV1 } from './copytrade/context/types.js';
 import { buildDirectSwapHintFromContext } from './copytrade/context/contextStore.js';
@@ -137,6 +144,7 @@ export interface MainSwapRequest {
     sourceRouter?: string;
     sourceTxInput?: string;
     sourceTxValue?: string;
+    executionStep?: string;
     sourceTokenIn?: string;
     sourceTokenOut?: string;
     sourceAmountIn?: string;
@@ -210,6 +218,13 @@ function isCashLikeToken(token: string, chainId: number): boolean {
 export class MainSwapService {
   private static readonly TRACE_PREFIX = '[MainSwapService]';
   private static readonly directSwapInflight = new Map<string, Promise<Awaited<ReturnType<typeof executeDirectSwap>>>>();
+  private static readonly executionGuardTtlMs = Number(process.env.DIRECT_SWAP_EXEC_GUARD_TTL_MS || '180000');
+  private static readonly executionGuard = new Map<string, {
+    txHash: string;
+    provider: string;
+    observedAt: number;
+    txLifecycleStatus?: TxLifecycleResult['status'];
+  }>();
 
   private static buildDirectSwapInflightKey(
     request: MainSwapRequest,
@@ -246,6 +261,67 @@ export class MainSwapService {
     });
     this.directSwapInflight.set(key, task);
     return task;
+  }
+
+  private static buildExecutionGuardKey(
+    request: MainSwapRequest,
+    tokenIn: string,
+    tokenOut: string,
+    side: 'buy' | 'sell'
+  ): string {
+    const sourceTxHash = String(
+      request.executionContext?.sourceTxHash
+      || request.executionContext?.contextSnapshot?.sourceTxHash
+      || 'nosrc'
+    ).toLowerCase();
+    const executionStep = String(request.executionContext?.executionStep || 'default').toLowerCase();
+    return [
+      request.chainId,
+      request.walletAddress.toLowerCase(),
+      tokenIn.toLowerCase(),
+      tokenOut.toLowerCase(),
+      side,
+      sourceTxHash,
+      executionStep
+    ].join(':');
+  }
+
+  private static pruneExecutionGuard(now: number = Date.now()): void {
+    for (const [key, value] of this.executionGuard.entries()) {
+      if (now - value.observedAt > this.executionGuardTtlMs) {
+        this.executionGuard.delete(key);
+      }
+    }
+  }
+
+  private static getExecutionGuard(key: string): {
+    txHash: string;
+    provider: string;
+    observedAt: number;
+    txLifecycleStatus?: TxLifecycleResult['status'];
+  } | null {
+    this.pruneExecutionGuard();
+    const found = this.executionGuard.get(key);
+    if (!found) return null;
+    return found;
+  }
+
+  private static setExecutionGuard(
+    key: string,
+    value: {
+      txHash: string;
+      provider: string;
+      txLifecycleStatus?: TxLifecycleResult['status'];
+    }
+  ): void {
+    if (!value.txHash) return;
+    this.pruneExecutionGuard();
+    this.executionGuard.set(key, {
+      txHash: value.txHash,
+      provider: value.provider,
+      txLifecycleStatus: value.txLifecycleStatus,
+      observedAt: Date.now()
+    });
   }
 
   private static normalizeEvmTokenInput(token: string, chainId: number): string {
@@ -473,13 +549,103 @@ export class MainSwapService {
   ): Promise<MainSwapResult> {
     const plan = request.executionPlan!;
     const t0 = Date.now();
-    const strictTurboSourceReplay = (process.env.COPYTRADE_TURBO_SOURCE_REPLAY_STRICT || 'true').toLowerCase() === 'true';
     const isTurboCopytrade = request.mode === 'copytrade' && request.userSettings?.copyTradeExecutionMode === 'turbo';
     const p2Mode = isP2ExecutorEnabled() ? 'canary' : 'shadow';
+    const sourceTxHash = request.executionContext?.sourceTxHash
+      || request.executionContext?.contextSnapshot?.sourceTxHash
+      || undefined;
+    const isReplay = isSourceReplayPlan(plan);
+    const replaySimulationTimeoutMs = Math.max(
+      300,
+      Number.parseInt(
+        String(
+          isTurboCopytrade
+            ? (process.env.P2_SIM_TIMEOUT_TURBO_MS || '1100')
+            : (process.env.P2_SIM_TIMEOUT_MS || '2200')
+        ),
+        10
+      ) || (isTurboCopytrade ? 1100 : 2200)
+    );
+    const fallbackViaCurrentPath = async (reason: string): Promise<MainSwapResult> => {
+      const shouldForceDirectFastPath =
+        request.mode === 'copytrade'
+        && plan.side === 'buy'
+        && isDirectSwapSupported(request.chainId)
+        && request.userSettings?.fastSwapMode !== true;
+      if (!shouldForceDirectFastPath) {
+        return await this.executeEvmSwap(request, feeContext, trace, ctx);
+      }
+      logger.info(LogCode.SYS_INFO, trace('[P2] Replay fallback enabling direct fast-path probe before external quote'), {
+        chainId: request.chainId,
+        reason,
+        sourceTxHash: sourceTxHash || null
+      });
+      const patchedRequest: MainSwapRequest = {
+        ...request,
+        userSettings: {
+          ...(request.userSettings || {}),
+          fastSwapMode: true
+        }
+      };
+      return await this.executeEvmSwap(patchedRequest, feeContext, trace, ctx);
+    };
+
+    let replayPrecheck: ReplayPrecheckResult | undefined;
+    let driftDiagnosis: ReplayDriftDiagnosis | undefined;
     let simulation: Awaited<ReturnType<typeof simulatePlan>> | null = null;
 
+    if (isReplay && plan.side === 'sell') {
+      replayPrecheck = await precheckReplaySell({
+        plan,
+        chainId: request.chainId,
+        walletAddress: request.walletAddress,
+        tokenIn: request.tokenIn,
+        amountIn: request.amountIn
+      });
+      if (!replayPrecheck.ok) {
+        await recordPlanRun({
+          mode: p2Mode,
+          chainId: request.chainId,
+          inputJson: JSON.stringify({
+            tokenIn: request.tokenIn,
+            tokenOut: request.tokenOut,
+            amountIn: request.amountIn,
+            sourceTxHash: sourceTxHash || null
+          }),
+          planJson: JSON.stringify(plan),
+          scoreJson: JSON.stringify({
+            plannerScore: plan.trace?.plannerScore || 0,
+            replayPrecheck
+          }),
+          selectedTemplateId: plan.templateRef?.templateId,
+          resultStatus: `replay_precheck_blocked:${replayPrecheck.reason || 'unknown'}`,
+          latencyMs: Date.now() - t0
+        });
+        logger.warn(LogCode.SYS_INFO, trace('[P2] Replay sell precheck blocked planned replay path'), {
+          chainId: request.chainId,
+          sourceTxHash: sourceTxHash || null,
+          reason: replayPrecheck.reason || 'unknown',
+          spender: replayPrecheck.spender || null,
+          tokenBalance: replayPrecheck.tokenBalance || null,
+          requiredAmount: replayPrecheck.requiredAmount || null,
+          allowance: replayPrecheck.allowance || null,
+          requiredAllowance: replayPrecheck.requiredAllowance || null
+        });
+        return await fallbackViaCurrentPath(`replay_precheck_blocked:${replayPrecheck.reason || 'unknown'}`);
+      }
+    }
+
     if (isP2ShadowRunEnabled()) {
-      simulation = await simulatePlan(plan, request.walletAddress);
+      simulation = await simulatePlan(plan, request.walletAddress, undefined, 'latest', replaySimulationTimeoutMs);
+      if (isReplay && !simulation.success) {
+        driftDiagnosis = await diagnoseReplayDrift({
+          plan,
+          walletAddress: request.walletAddress,
+          sourceTxHash,
+          latestSimulation: simulation,
+          simulationTimeoutMs: replaySimulationTimeoutMs
+        });
+      }
       await recordPlanRun({
         mode: p2Mode,
         chainId: request.chainId,
@@ -487,22 +653,31 @@ export class MainSwapService {
           tokenIn: request.tokenIn,
           tokenOut: request.tokenOut,
           amountIn: request.amountIn,
-          sourceTxHash: request.executionContext?.sourceTxHash || null
+          sourceTxHash: sourceTxHash || null
         }),
         planJson: JSON.stringify(plan),
         simulationJson: JSON.stringify(simulation),
-        scoreJson: JSON.stringify({ plannerScore: plan.trace?.plannerScore || 0 }),
+        scoreJson: JSON.stringify({
+          plannerScore: plan.trace?.plannerScore || 0,
+          replayPrecheck,
+          driftDiagnosis,
+          adapterName: plan.trace?.adapterName || null,
+          adapterVersion: plan.trace?.adapterVersion || null
+        }),
         selectedTemplateId: plan.templateRef?.templateId,
-        resultStatus: simulation.success ? 'shadow_sim_pass' : 'shadow_sim_fail',
+        resultStatus: simulation.success
+          ? 'shadow_sim_pass'
+          : `shadow_sim_fail:${driftDiagnosis?.classification || simulation.classificationCode || 'unknown'}`,
         latencyMs: Date.now() - t0
       });
     }
 
     if (!isP2ExecutorEnabled()) {
+      const sourceReplaySimulationPassed = simulation?.success === true;
+      const sourceReplaySimulationSkipped = simulation === null;
       const shouldTrySourceReplay =
-        (plan.templateRef?.commandType === 'source_calldata_replay'
-          || plan.templateRef?.commandType === 'source_raw_calldata_replay')
-        && simulation?.success === true
+        isReplay
+        && (sourceReplaySimulationPassed || sourceReplaySimulationSkipped)
         && /^0x[a-fA-F0-9]{40}$/.test(String(plan.templateRef?.router || ''));
       if (shouldTrySourceReplay) {
         try {
@@ -528,11 +703,17 @@ export class MainSwapService {
               tokenIn: request.tokenIn,
               tokenOut: request.tokenOut,
               amountIn: request.amountIn,
-              sourceTxHash: request.executionContext?.sourceTxHash || null
+              sourceTxHash: sourceTxHash || null
             }),
             planJson: JSON.stringify(plan),
             simulationJson: JSON.stringify(simulation),
-            scoreJson: JSON.stringify({ plannerScore: plan.trace?.plannerScore || 0 }),
+            scoreJson: JSON.stringify({
+              plannerScore: plan.trace?.plannerScore || 0,
+              replayPrecheck,
+              driftDiagnosis,
+              adapterName: plan.trace?.adapterName || null,
+              adapterVersion: plan.trace?.adapterVersion || null
+            }),
             selectedTemplateId: plan.templateRef?.templateId,
             resultStatus: 'source_replay_tx_sent',
             txHash: replayTxHash,
@@ -540,8 +721,9 @@ export class MainSwapService {
           });
           logger.info(LogCode.SYS_INFO, trace('[P2] Source replay sent before external quote fallback'), {
             chainId: request.chainId,
-            sourceTxHash: request.executionContext?.sourceTxHash || null,
-            replayTxHash
+            sourceTxHash: sourceTxHash || null,
+            replayTxHash,
+            simulationStatus: sourceReplaySimulationPassed ? 'passed' : 'skipped'
           });
           return {
             success: true,
@@ -552,30 +734,44 @@ export class MainSwapService {
             }
           };
         } catch (replayError: any) {
-          if (
-            strictTurboSourceReplay
-            && isTurboCopytrade
-            && (plan.templateRef?.commandType === 'source_calldata_replay'
-              || plan.templateRef?.commandType === 'source_raw_calldata_replay')
-          ) {
-            logger.error(LogCode.EXE_TX_REVERTED, trace('[P2] Source replay failed in strict turbo mode; aborting without external fallback'), {
-              chainId: request.chainId,
-              error: replayError?.message || String(replayError),
-              sourceTxHash: request.executionContext?.sourceTxHash || null
+          if (isReplay) {
+            driftDiagnosis = await diagnoseReplayDrift({
+              plan,
+              walletAddress: request.walletAddress,
+              sourceTxHash,
+              latestSimulation: simulation,
+              sendFailed: true,
+              simulationTimeoutMs: replaySimulationTimeoutMs
             });
-            return {
-              success: false,
-              error: `source_replay_failed_strict_turbo:${replayError?.message || String(replayError)}`,
-              metadata: {
-                provider: 'p2-source-replay',
-                mode: request.mode
-              }
-            };
           }
+          await recordPlanRun({
+            mode: 'canary',
+            chainId: request.chainId,
+            inputJson: JSON.stringify({
+              tokenIn: request.tokenIn,
+              tokenOut: request.tokenOut,
+              amountIn: request.amountIn,
+              sourceTxHash: sourceTxHash || null
+            }),
+            planJson: JSON.stringify(plan),
+            simulationJson: JSON.stringify(simulation),
+            scoreJson: JSON.stringify({
+              plannerScore: plan.trace?.plannerScore || 0,
+              replayPrecheck,
+              driftDiagnosis,
+              adapterName: plan.trace?.adapterName || null,
+              adapterVersion: plan.trace?.adapterVersion || null
+            }),
+            selectedTemplateId: plan.templateRef?.templateId,
+            resultStatus: `source_replay_send_fail:${driftDiagnosis?.classification || 'unknown'}`,
+            latencyMs: Date.now() - t0
+          });
           logger.warn(LogCode.SYS_INFO, trace('[P2] Source replay failed, falling back to external quote path'), {
             chainId: request.chainId,
             error: replayError?.message || String(replayError),
-            sourceTxHash: request.executionContext?.sourceTxHash || null
+            sourceTxHash: sourceTxHash || null,
+            driftClassification: driftDiagnosis?.classification || null,
+            driftReasonCode: driftDiagnosis?.reasonCode || null
           });
         }
       }
@@ -584,7 +780,7 @@ export class MainSwapService {
         templateId: plan.templateRef?.templateId,
         simulationSuccess: simulation?.success ?? null
       });
-      return await this.executeEvmSwap(request, feeContext, trace, ctx);
+      return await fallbackViaCurrentPath('planned_shadow_fallback');
     }
 
     logger.info(LogCode.SYS_INFO, trace('[P2] Planned swap executor mode enabled'), {
@@ -597,7 +793,7 @@ export class MainSwapService {
       logger.warn(LogCode.SYS_INFO, trace('[P2] Planned router missing, fallback to legacy path'), {
         chainId: request.chainId
       });
-      return await this.executeEvmSwap(request, feeContext, trace, ctx);
+      return await fallbackViaCurrentPath('planned_router_missing');
     }
 
     const replayValue = buildPlanValue(plan);
@@ -632,10 +828,16 @@ export class MainSwapService {
         tokenIn: request.tokenIn,
         tokenOut: request.tokenOut,
         amountIn: request.amountIn,
-        sourceTxHash: request.executionContext?.sourceTxHash || null
+        sourceTxHash: sourceTxHash || null
       }),
       planJson: JSON.stringify(plan),
-      scoreJson: JSON.stringify({ plannerScore: plan.trace?.plannerScore || 0 }),
+      scoreJson: JSON.stringify({
+        plannerScore: plan.trace?.plannerScore || 0,
+        replayPrecheck,
+        driftDiagnosis,
+        adapterName: plan.trace?.adapterName || null,
+        adapterVersion: plan.trace?.adapterVersion || null
+      }),
       selectedTemplateId: plan.templateRef?.templateId,
       resultStatus: 'executor_tx_sent',
       txHash,
@@ -657,7 +859,7 @@ export class MainSwapService {
         commandMetaJson: JSON.stringify({
           commandType: plan.templateRef.commandType,
           templateId: plan.templateRef.templateId,
-          sourceTxHash: request.executionContext?.sourceTxHash || null,
+          sourceTxHash: sourceTxHash || null,
           sourceTxInput: request.executionContext?.sourceTxInput || null,
           sourceTxValue: request.executionContext?.sourceTxValue || null
         }),
@@ -876,6 +1078,9 @@ export class MainSwapService {
     trace: (msg: string) => string,
     ctx: TradeContext
   ): Promise<MainSwapResult> {
+    const shouldEnableMevProtection = request.mode === 'copytrade'
+      ? request.userSettings?.copyTradeExecutionMode !== 'turbo'
+      : request.mode === 'fast-swap';
     const TURBO_TOTAL_BUDGET_MS = 6500;
     const TURBO_DIRECT_ATTEMPT_TIMEOUT_MS = 4200;
     const TURBO_DIRECT_MAX_ATTEMPTS = 2;
@@ -1051,6 +1256,12 @@ export class MainSwapService {
     const isBuyDirection = isCashIn && !isCashOut;
     const isSellDirection = !isCashIn && isCashOut;
     const sampleSide: 'buy' | 'sell' = isSellDirection ? 'sell' : 'buy';
+    const executionGuardKey = this.buildExecutionGuardKey(
+      request,
+      normalizedTokenIn,
+      normalizedTokenOut,
+      sampleSide
+    );
     const contextSnapshot = request.executionContext?.contextSnapshot;
     const sourceTxInput = request.executionContext?.sourceTxInput || contextSnapshot?.sourceTxInput || '';
     const sourceSelector = /^0x[0-9a-fA-F]{8}/.test(sourceTxInput)
@@ -1061,6 +1272,24 @@ export class MainSwapService {
     const sourceTokenOut = request.executionContext?.sourceTokenOut || contextSnapshot?.tokenOut || null;
     const sourceAmountIn = request.executionContext?.sourceAmountIn || contextSnapshot?.amountIn || null;
     const sourceAmountOut = request.executionContext?.sourceAmountOut || contextSnapshot?.amountOut || null;
+    const existingExecutionGuard = this.getExecutionGuard(executionGuardKey);
+    if (existingExecutionGuard) {
+      logger.warn(LogCode.SYS_INFO, trace('Execution guard hit before swap send; reusing prior tx'), {
+        executionGuardKey: executionGuardKey.slice(0, 96),
+        txHash: existingExecutionGuard.txHash,
+        provider: existingExecutionGuard.provider,
+        txLifecycleStatus: existingExecutionGuard.txLifecycleStatus || null
+      });
+      return {
+        success: true,
+        txHash: existingExecutionGuard.txHash,
+        metadata: {
+          provider: existingExecutionGuard.provider,
+          mode: request.mode,
+          txLifecycleStatus: existingExecutionGuard.txLifecycleStatus
+        }
+      };
+    }
     const pickRouterAddress = (...candidates: Array<string | null | undefined>): string => {
       for (const candidate of candidates) {
         const normalized = String(candidate || '').trim().toLowerCase();
@@ -1158,6 +1387,31 @@ export class MainSwapService {
       let lastDirectResult: Awaited<ReturnType<typeof executeDirectSwap>> | null = null;
       let lastDirectError: any = null;
       let inflightDirectPromise: Promise<Awaited<ReturnType<typeof executeDirectSwap>>> | null = null;
+      const directCandidateTxHashes = new Set<string>();
+      const rememberDirectTxHash = (txHash?: string | null) => {
+        const normalized = String(txHash || '').toLowerCase();
+        if (/^0x[a-f0-9]{64}$/.test(normalized)) {
+          directCandidateTxHashes.add(normalized);
+        }
+      };
+      const toDirectSuccessResult = (result: Awaited<ReturnType<typeof executeDirectSwap>>): MainSwapResult => {
+        this.setExecutionGuard(executionGuardKey, {
+          txHash: result.txHash || '',
+          provider: result.provider,
+          txLifecycleStatus: result.txLifecycle?.status
+        });
+        return {
+          success: true,
+          txHash: result.txHash,
+          amountOut: result.amountOut,
+          txLifecycle: result.txLifecycle,
+          metadata: {
+            provider: result.provider,
+            mode: request.mode,
+            txLifecycleStatus: result.txLifecycle?.status
+          }
+        };
+      };
       try {
         for (let attempt = 1; attempt <= DIRECT_SWAP_MAX_ATTEMPTS; attempt++) {
           const remainingTurboBudget = TURBO_TOTAL_BUDGET_MS - (Date.now() - turboBudgetStart);
@@ -1203,7 +1457,8 @@ export class MainSwapService {
               chainId: request.chainId,
               slippageBps: attemptSlippageBps,
               hint: directSwapHint,
-              executionMode: request.userSettings?.copyTradeExecutionMode
+              executionMode: request.userSettings?.copyTradeExecutionMode,
+              mevProtection: shouldEnableMevProtection
             })
           );
           let directResult: Awaited<ReturnType<typeof executeDirectSwap>>;
@@ -1261,6 +1516,7 @@ export class MainSwapService {
             directResult = await inflightDirectPromise;
           }
           lastDirectResult = directResult;
+          rememberDirectTxHash(directResult.txHash);
 
           if (directResult.success) {
             const visibleResult = await enforceVisibilityGate(directResult, `attempt_${attempt}`);
@@ -1307,17 +1563,7 @@ export class MainSwapService {
                 txLifecycleStatus: visibleResult.txLifecycle?.status || null
               })
             });
-            return {
-              success: true,
-              txHash: visibleResult.txHash,
-              amountOut: visibleResult.amountOut,
-              txLifecycle: visibleResult.txLifecycle,
-              metadata: {
-                provider: visibleResult.provider,
-                mode: request.mode,
-                txLifecycleStatus: visibleResult.txLifecycle?.status
-              }
-            };
+            return toDirectSuccessResult(visibleResult);
           }
 
           const isClankerBlocked = directResult.error?.startsWith('clanker_gate:')
@@ -1366,9 +1612,11 @@ export class MainSwapService {
           const finalResult = await settleWithin(inflightDirectPromise, finalSettleMs);
           if (finalResult) {
             lastDirectResult = finalResult;
+            rememberDirectTxHash(finalResult.txHash);
             if (finalResult.success) {
               const visibleFinalResult = await enforceVisibilityGate(finalResult, 'final_settle');
               lastDirectResult = visibleFinalResult;
+              rememberDirectTxHash(visibleFinalResult.txHash);
               if (!visibleFinalResult.success) {
                 lastDirectError = new Error(visibleFinalResult.error || 'direct_swap_visibility_gate_failed');
               } else {
@@ -1404,17 +1652,7 @@ export class MainSwapService {
                     txLifecycleStatus: visibleFinalResult.txLifecycle?.status || null
                   })
                 });
-                return {
-                  success: true,
-                  txHash: visibleFinalResult.txHash,
-                  amountOut: visibleFinalResult.amountOut,
-                  txLifecycle: visibleFinalResult.txLifecycle,
-                  metadata: {
-                    provider: visibleFinalResult.provider,
-                    mode: request.mode,
-                    txLifecycleStatus: visibleFinalResult.txLifecycle?.status
-                  }
-                };
+                return toDirectSuccessResult(visibleFinalResult);
               }
             } else {
               lastDirectError = new Error(finalResult.error || 'direct_swap_final_settle_failed');
@@ -1440,9 +1678,11 @@ export class MainSwapService {
             const flushedResult = await settleWithin(inflightDirectPromise, finalFlushMs);
             if (flushedResult) {
               lastDirectResult = flushedResult;
+              rememberDirectTxHash(flushedResult.txHash);
               if (flushedResult.success) {
                 const visibleFlushed = await enforceVisibilityGate(flushedResult, 'timeout_flush');
                 lastDirectResult = visibleFlushed;
+                rememberDirectTxHash(visibleFlushed.txHash);
                 if (visibleFlushed.success) {
                   if (checkNativeBalancePromise) await checkNativeBalancePromise;
                   try {
@@ -1476,17 +1716,7 @@ export class MainSwapService {
                       txLifecycleStatus: visibleFlushed.txLifecycle?.status || null
                     })
                   });
-                  return {
-                    success: true,
-                    txHash: visibleFlushed.txHash,
-                    amountOut: visibleFlushed.amountOut,
-                    txLifecycle: visibleFlushed.txLifecycle,
-                    metadata: {
-                      provider: visibleFlushed.provider,
-                      mode: request.mode,
-                      txLifecycleStatus: visibleFlushed.txLifecycle?.status
-                    }
-                  };
+                  return toDirectSuccessResult(visibleFlushed);
                 }
                 lastDirectError = new Error(visibleFlushed.error || 'direct_swap_visibility_gate_failed');
               } else {
@@ -1512,6 +1742,82 @@ export class MainSwapService {
             mode: request.mode
           }
         };
+      }
+
+      const guardAfterDirect = this.getExecutionGuard(executionGuardKey);
+      if (guardAfterDirect) {
+        logger.warn(LogCode.SYS_INFO, trace('Execution guard hit after direct stage; skipping fallback'), {
+          executionGuardKey: executionGuardKey.slice(0, 96),
+          txHash: guardAfterDirect.txHash,
+          provider: guardAfterDirect.provider
+        });
+        return {
+          success: true,
+          txHash: guardAfterDirect.txHash,
+          metadata: {
+            provider: guardAfterDirect.provider,
+            mode: request.mode,
+            txLifecycleStatus: guardAfterDirect.txLifecycleStatus
+          }
+        };
+      }
+
+      if (inflightDirectPromise) {
+        const fallbackProbeMs = isTurboCopytrade ? 1800 : 1200;
+        const settledBeforeFallback = await settleWithin(inflightDirectPromise, fallbackProbeMs);
+        if (settledBeforeFallback) {
+          lastDirectResult = settledBeforeFallback;
+          rememberDirectTxHash(settledBeforeFallback.txHash);
+          if (settledBeforeFallback.success) {
+            const visibleSettled = await enforceVisibilityGate(settledBeforeFallback, 'fallback_probe');
+            lastDirectResult = visibleSettled;
+            rememberDirectTxHash(visibleSettled.txHash);
+            if (visibleSettled.success) {
+              logger.warn(LogCode.SYS_INFO, trace('Direct swap settled before fallback send; adopting direct tx'), {
+                txHash: visibleSettled.txHash,
+                provider: visibleSettled.provider
+              });
+              return toDirectSuccessResult(visibleSettled);
+            }
+          }
+        }
+      }
+
+      if (directCandidateTxHashes.size > 0) {
+        for (const candidateTxHash of directCandidateTxHashes) {
+          const lifecycle = await waitForReceiptStateMachine({
+            chainId: request.chainId,
+            txHash: candidateTxHash,
+            expectedFrom: request.walletAddress,
+            maxWaitMs: isTurboCopytrade ? 1600 : 1200,
+            pollMs: DIRECT_SWAP_VISIBILITY_GATE_POLL_MS
+          }).catch(() => null);
+          if (!lifecycle) continue;
+          if (lifecycle.status === 'visible_pending' || lifecycle.status === 'confirmed_success') {
+            const adoptedProvider = lastDirectResult?.provider || 'direct-swap';
+            logger.warn(LogCode.SYS_INFO, trace('Direct tx visible on-chain before fallback; skipping fallback send'), {
+              txHash: candidateTxHash,
+              visibilityStatus: lifecycle.status,
+              provider: adoptedProvider
+            });
+            this.setExecutionGuard(executionGuardKey, {
+              txHash: candidateTxHash,
+              provider: adoptedProvider,
+              txLifecycleStatus: lifecycle.status
+            });
+            return {
+              success: true,
+              txHash: candidateTxHash,
+              amountOut: lastDirectResult?.amountOut,
+              txLifecycle: lifecycle,
+              metadata: {
+                provider: adoptedProvider,
+                mode: request.mode,
+                txLifecycleStatus: lifecycle.status
+              }
+            };
+          }
+        }
       }
 
       if (lastDirectResult) {
@@ -1637,6 +1943,7 @@ export class MainSwapService {
       speedUpAfterMs: request.mode === 'allowance' || request.mode === 'copytrade' ? (isTurboCopytrade ? 1200 : 6000) : undefined,
       speedUpBumpBps: request.mode === 'copytrade' ? (isTurboCopytrade ? 22000 : 15000) : request.mode === 'allowance' ? 13000 : undefined,
       executionMode: request.userSettings?.copyTradeExecutionMode,
+      mevProtection: shouldEnableMevProtection,
       preWarmedNonce: request.preWarmedNonce,
       sourceAnchor: {
         sourceTxHash: request.executionContext?.sourceTxHash || contextSnapshot?.sourceTxHash,
@@ -1673,6 +1980,12 @@ export class MainSwapService {
         launchpad: undefined
       }
     };
+    if (executionResult.txHash) {
+      this.setExecutionGuard(executionGuardKey, {
+        txHash: executionResult.txHash,
+        provider: executionResult.method
+      });
+    }
     persistLiveSuccessSample({
       txHash: executionResult.txHash,
       amountOut: executionResult.amountOut,

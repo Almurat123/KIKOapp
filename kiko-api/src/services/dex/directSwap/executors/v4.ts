@@ -67,9 +67,16 @@ export async function executeV4Swap(
 ): Promise<DirectSwapResult> {
   const { userId, accessToken, tokenIn, tokenOut, chainId, slippageBps } = params;
   const trustedHint = options?.trustedHint === true;
+  const extraNativeAliases = chainId === 8453
+    ? new Set(['0x000000000d564d5be76f7f0d28fe52605afc7cf8'])
+    : new Set<string>();
   const normalizePairToken = (token: string): string => {
     const value = String(token || '').toLowerCase();
-    if (value === '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee') {
+    if (
+      value === '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee'
+      || value === '0x0000000000000000000000000000000000000000'
+      || extraNativeAliases.has(value)
+    ) {
       if (chainId === 8453) return '0x4200000000000000000000000000000000000006';
       if (chainId === 1) return '0xc02aa39b223fe8d0a0e5c4f27ead9083c756cc2';
       if (chainId === 56) return '0xbb4cdb9cbd36b01bd1cbaebf2de08d9173bc095c';
@@ -200,7 +207,11 @@ export async function executeV4Swap(
     deadline,
     isNativeIn,
     isNativeOut,
-    hookData
+    hookData,
+    {
+      usePathSwap: hookFamily === 'flaunch',
+      appendSweepOut: hookFamily === 'flaunch'
+    }
   );
   let tx = buildTx(selectedHookData);
 

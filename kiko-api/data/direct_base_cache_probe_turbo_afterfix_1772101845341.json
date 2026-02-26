@@ -1,0 +1,137 @@
+{
+  "generatedAt": "2026-02-26T10:30:45.341Z",
+  "chainId": 8453,
+  "mode": "turbo",
+  "amountIn": "0.0005",
+  "totals": {
+    "total": 10,
+    "success": 0,
+    "failed": 10,
+    "successRate": 0,
+    "elapsedMs": 50655
+  },
+  "providerCounts": [
+    [
+      "failed",
+      10
+    ]
+  ],
+  "errorCounts": [
+    [
+      "turbo_rescue_exhausted: turbo_rescue_exhausted:pool_discovery_failed:no_valid_candidate_hint",
+      10
+    ]
+  ],
+  "rows": [
+    {
+      "token": "0x0b3e328455c4059eeb9e3f84b5543f74e24e7e1b",
+      "symbol": "VIRTUAL",
+      "rank": 1,
+      "liquidity": "672376.33",
+      "startedAt": "2026-02-26T10:29:54.722Z",
+      "durationMs": 5066,
+      "success": false,
+      "provider": "failed",
+      "error": "turbo_rescue_exhausted: turbo_rescue_exhausted:pool_discovery_failed:no_valid_candidate_hint"
+    },
+    {
+      "token": "0x5bdc2d52adf52e7c510e17a79310a45d80d14b07",
+      "symbol": "MONTRA",
+      "rank": 2,
+      "liquidity": "201276.1",
+      "startedAt": "2026-02-26T10:29:59.788Z",
+      "durationMs": 5065,
+      "success": false,
+      "provider": "failed",
+      "error": "turbo_rescue_exhausted: turbo_rescue_exhausted:pool_discovery_failed:no_valid_candidate_hint"
+    },
+    {
+      "token": "0x29cc30f9d113b356ce408667aa6433589cecbdca",
+      "symbol": "ELSA",
+      "rank": 3,
+      "liquidity": "561977.86",
+      "startedAt": "2026-02-26T10:30:04.853Z",
+      "durationMs": 5063,
+      "success": false,
+      "provider": "failed",
+      "error": "turbo_rescue_exhausted: turbo_rescue_exhausted:pool_discovery_failed:no_valid_candidate_hint"
+    },
+    {
+      "token": "0x940181a94a35a4569e4529a3cdfb74e38fd98631",
+      "symbol": "AERO",
+      "rank": 4,
+      "liquidity": "179425.39",
+      "startedAt": "2026-02-26T10:30:09.916Z",
+      "durationMs": 5063,
+      "success": false,
+      "provider": "failed",
+      "error": "turbo_rescue_exhausted: turbo_rescue_exhausted:pool_discovery_failed:no_valid_candidate_hint"
+    },
+    {
+      "token": "0x583edb23e5149cdad7618ea02e298ada51b6bbd3",
+      "symbol": "BABYCLAW",
+      "rank": 5,
+      "liquidity": "82252.62",
+      "startedAt": "2026-02-26T10:30:14.979Z",
+      "durationMs": 5061,
+      "success": false,
+      "provider": "failed",
+      "error": "turbo_rescue_exhausted: turbo_rescue_exhausted:pool_discovery_failed:no_valid_candidate_hint"
+    },
+    {
+      "token": "0x1111111111166b7fe7bd91427724b487980afc69",
+      "symbol": "ZORA",
+      "rank": 6,
+      "liquidity": "258664.19",
+      "startedAt": "2026-02-26T10:30:20.040Z",
+      "durationMs": 5061,
+      "success": false,
+      "provider": "failed",
+      "error": "turbo_rescue_exhausted: turbo_rescue_exhausted:pool_discovery_failed:no_valid_candidate_hint"
+    },
+    {
+      "token": "0xacfe6019ed1a7dc6f7b508c02d1b04ec88cc21bf",
+      "symbol": "VVV",
+      "rank": 7,
+      "liquidity": "2817146.91",
+      "startedAt": "2026-02-26T10:30:25.101Z",
+      "durationMs": 5061,
+      "success": false,
+      "provider": "failed",
+      "error": "turbo_rescue_exhausted: turbo_rescue_exhausted:pool_discovery_failed:no_valid_candidate_hint"
+    },
+    {
+      "token": "0x9eadbe35f3ee3bf3e28180070c429298a1b02f93",
+      "symbol": "LMTS",
+      "rank": 8,
+      "liquidity": "1234688.54",
+      "startedAt": "2026-02-26T10:30:30.162Z",
+      "durationMs": 5059,
+      "success": false,
+      "provider": "failed",
+      "error": "turbo_rescue_exhausted: turbo_rescue_exhausted:pool_discovery_failed:no_valid_candidate_hint"
+    },
+    {
+      "token": "0x93918567cdd1bc845be955325a43419a7c56d66f",
+      "symbol": "MWXT",
+      "rank": 9,
+      "liquidity": "113925.35",
+      "startedAt": "2026-02-26T10:30:35.221Z",
+      "durationMs": 5061,
+      "success": false,
+      "provider": "failed",
+      "error": "turbo_rescue_exhausted: turbo_rescue_exhausted:pool_discovery_failed:no_valid_candidate_hint"
+    },
+    {
+      "token": "0x1efdb75869da742466c4c17d1e55fc469533ce1f",
+      "symbol": "MOLTIFI",
+      "rank": 10,
+      "liquidity": "68366.22",
+      "startedAt": "2026-02-26T10:30:40.282Z",
+      "durationMs": 5058,
+      "success": false,
+      "provider": "failed",
+      "error": "turbo_rescue_exhausted: turbo_rescue_exhausted:pool_discovery_failed:no_valid_candidate_hint"
+    }
+  ]
+}

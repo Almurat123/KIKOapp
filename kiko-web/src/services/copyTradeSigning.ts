@@ -2,7 +2,7 @@ import type { CopyTradeConfig, CreateConfigParams } from './copyTradeApi';
 
 export const COPYTRADE_INTENT_VERSION = 'copytrade_config_intent_v1';
 
-export type CopyTradeIntentAction = 'create' | 'update';
+export type CopyTradeIntentAction = 'create' | 'update' | 'delete';
 
 export interface CopyTradeSignedPayload {
   version: string;

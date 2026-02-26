@@ -1,8 +1,183 @@
 ---
 title: 'Copy Trading'
-description: 'Auto copy professional traders'
+description: 'Automatically mirror the trades of specified wallets'
 ---
 
+Copy Trading is KiKo's fully automated wallet following system. Once configured, the system monitors target wallets 24/7 in the background. It executes matching trades immediately upon detecting any buy or sell activity from the target.
+
+<Warning>
+  Ensure you fully understand on-chain trading risks before using Copy Trading. We strongly recommend performing a deep analysis with KiKo for every target wallet to understand their trading frequency, win rate, and historical performance. This is your fundamental responsibility as a user.
+</Warning>
+
+---
+
+## Prerequisites
+
+### 1. Read Legal Terms
+
+Before creating a copy trade, ensure you have read and agreed to the relevant terms regarding automated trading in KiKo's [Terms of Service](/compliance/terms-of-service).
+
+### 2. Enable Auto Trading Authorization
+
+Copy Trading requires you to complete **Session Signer Authorization** for [Privy](https://privy.io) on the **Wallet Settings page**. This allows KiKo to execute trades automatically through Privy's delegated signing mechanism without requiring manual confirmation for each trade.
+
+<img src="/images/copy-trading/auto-trading-auth.png" alt="Auto Trading Authorization" />
+
 <Info>
-This page is being expanded. Full content coming soon.
+  How Privy Session Signer works: You authorize a signing key with limited permissions. This key can only sign under the conditions you set and can be revoked at any time in the settings page. See the [Privy Documentation](https://docs.privy.io) for more details.
 </Info>
+
+---
+
+## Finding Target Wallets (Smart Money)
+
+Before creating a copy trade, you need to find target wallet addresses worth following. Here are some common ways:
+
+**Third-Party Platforms**
+
+You can discover active smart money wallets on these platforms:
+- [GMGN](https://gmgn.ai) — Specialized in on-chain smart money tracking
+- [Cielo](https://cielo.finance) — Wallet PnL and trade analysis
+- [Interface](https://www.interface.social) — On-chain social and smart money discovery
+- [Share](https://about.share.xyz) — Social-driven on-chain intelligence
+- [Clicker](https://clicker.xyz) — On-chain KOL and smart money tracking
+
+**Directly via KiKo**
+
+You can ask KiKo to help you find smart money directly:
+
+- `"Who were the earliest buyers of $MEME?"` — Locate early buyer addresses for a specific token.
+
+{/* TODO: Screenshot — Chat screenshot of KiKo returning early buyer list */}
+
+You can also specify a time range, for example: `"Find the first batch of wallets that bought 0x... after 2026-01-01"`
+
+---
+
+## Analyzing Target Wallets
+
+Once you find candidate wallets, **always analyze them first** before deciding to follow:
+
+```
+Analyze wallet 0x...'s trading win rate and PnL for the last 30 days
+```
+
+KiKo will return the wallet's:
+- Win Rate
+- Realized PnL
+- Buy/Sell counts and sizes
+- Trading frequency
+
+{/* TODO: Screenshot — Wallet analysis result card */}
+
+Based on the analysis, it's recommended to choose wallets with a **7D/30D Win Rate > 60%** that are still active recently.
+
+---
+
+## Creating a Copy Trade
+
+### Quick Create
+
+Type `Copy Trade` in the input box, and the system will automatically pop up a suggested command template. Click it to fill in the target address, network, and starting amount parameters.
+
+{/* TODO: Screenshot — Suggested prefix card that pops up after typing "Copy Trade" */}
+
+### Full Command Examples
+
+```
+Copy wallet 0x..., buy 100 USDC each time, take profit at 50%, stop loss at 20%
+```
+
+```
+Follow 0x... on Base, buy 50 USDC each time, enable mirror sell, minimum target buy amount $500
+```
+
+---
+
+## Parameter Descriptions
+
+### Core Trading Parameters
+
+<img src="/images/copy-trading/core-parameters.png" alt="Core Trading Parameters" />
+
+| Parameter | Description |
+|-----------|-------------|
+| **Target Wallet Address** | The wallet address you want to follow |
+| **My Buy Amount** | Amount used per copy trade (native token equivalent to USD) |
+| **Min Follow Amount** | Minimum USD amount for a target wallet's trade to trigger a copy. Trades below this value are ignored. |
+| **Repeat Buy Cooldown** | Minimum interval (minutes) between two copy trades for the same token, preventing repeated entries. |
+
+<Tip>
+  **Min Follow Amount** is a critical parameter for filtering low-quality signals. If not set, every small test trade from the target wallet will trigger a copy trade. It's recommended to set a reasonable threshold (e.g., $500) based on the target's typical trade size.
+</Tip>
+
+### Safety & Speed Filters
+
+<img src="/images/copy-trading/safety-filters.png" alt="Safety and Speed Filters" />
+
+| Parameter | Description |
+|-----------|-------------|
+| **Min Market Cap** | Filter out tokens with low market capitalization |
+| **Min Liquidity** | Filter out tokens with low liquidity |
+| **Execution Mode** | Safe, Normal, Turbo. Turbo mode skips market cap and liquidity checks for the lowest latency. |
+
+### Risk & Exit Governance
+
+<img src="/images/copy-trading/risk-exit.png" alt="Risk and Exit Governance" />
+
+| Parameter | Description |
+|-----------|-------------|
+| **Mirror Sell Mode** | Follow the target's sells proportionally (e.g., if target sells 25%, you sell 25%) |
+| **Take Profit** | Automatically sell when the set profit target is reached |
+| **Stop Loss** | Automatically sell when the set loss threshold is reached |
+
+<img src="/images/copy-trading/dynamic-tp.png" alt="Dynamic Take Profit" />
+
+| Parameter | Description |
+|-----------|-------------|
+| **Dynamic Take Profit** | Advanced trailing stop-loss based on the ATR algorithm. Activates once profit reaches a threshold to maximize gains. |
+
+---
+
+## Supported Networks
+
+| Network | Support Status |
+|---------|----------------|
+| Solana | ✅ |
+| Ethereum | ✅ |
+| Base | ✅ |
+| BSC | ✅ |
+| More Networks | Coming soon |
+
+---
+
+## Order Management
+
+Once a copy trade is successfully created, you can view the order card on the **Trade page**, which shows the target wallet's transaction info.
+
+<img src="/images/copy-trading/trade-card.png" alt="Trade Card" />
+
+**Via UI**
+- **Pause** — Click the pause button on the card to stop monitoring temporarily
+- **Delete** — Click the delete button to permanently remove the order
+
+**Via Chat**
+- `"Show my copy trade list"`
+- `"Pause copy trade 0x..."`
+- `"Resume copy trade 0x..."`
+- `"Delete copy trade 0x..."`
+- `"Modify copy trade 0x..., change buy amount to 150 USDC"`
+
+---
+
+## Data Security and Order Ownership
+
+<img src="/images/copy-trading/trade-card.png" alt="Data Security and Order Ownership" width="200" />
+
+Once an order is created, it belongs to your account. **KiKo has no right to actively modify or delete your orders.** Every modification requires Privy signature verification to confirm it is your own action.
+
+Your order data is securely stored in the KiKo database. Unless there is a server attack or other force majeure, the data will not be tampered with. Only you can change the contents of your order.
+
+<Warning>
+  Only one copy trade configuration is allowed per target wallet on the same chain. Each execution requires Gas fees, so ensure your wallet has a sufficient balance. Copy trading involves timing risks, and your execution price may differ from the target wallet's.
+</Warning>

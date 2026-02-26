@@ -1,10 +1,206 @@
 ---
 title: 'Capabilities'
-description: 'KIKO core capabilities and use cases'
+description: 'Full overview of KIKO core capabilities'
 ---
 
+KiKo is a conversational on-chain terminal. Describe your needs in natural language, and AI will invoke the appropriate tools to complete on-chain operations or information queries. Here is a comprehensive look at what we currently support.
+
+---
+
+## ⚡ Swap Trading
+
+Initiate swaps using natural language without manually filling out forms. AI automatically recognizes tokens, amounts, and chains, routing them to the optimal price.
+
+**Example Commands**
+- `"Buy ETH with 100 USDC"`
+- `"Sell all my PEPE"`
+- `"Buy DEGEN with 50 USDC on Base, 1% slippage"`
+
+**Supported Scope**
+- Chains: Ethereum, Base, BSC, Polygon, Arbitrum, Solana, and other major networks.
+- DEX Aggregation Routing: Automatically find the best path via [0x Protocol](https://0x.org).
+- Launchpads: [Clanker](https://clanker.world), [Zora](https://zora.co), [FourMeme](https://four.meme) (EVM); [PumpFun](https://pump.fun), [BonkFun](https://bonk.fun) (Solana).
+
+<Tip>
+  Selling an ERC-20 token for the first time requires an approval (Approve); subsequent trades for the same token do not require repeating this action.
+</Tip>
+
+See [Swap Trading](/user-guides/swap-trading) for more details.
+
+---
+
+## 🔁 Copy Trading
+
+Automatically mirror the buy and sell actions of target wallets. The system listens in the background in real-time — no need for manual monitoring.
+
+**Example Commands**
+- `"Copy wallet 0x..., buy 100 USDC each time"`
+- `"Follow 0x..., take profit 50%, stop loss 20%"`
+
+**Core Parameters**: Target wallet, buy amount, TP/SL, chain, mirror sell toggle, safety filters (min MC / liquidity).
+
+See [Copy Trading](/user-guides/copy-trading) for more details.
+
+---
+
+## 🌉 Cross-chain Swaps
+
+Transfer assets across chains via the [LI.FI](https://li.fi) bridge aggregation protocol, avoiding manual interactions with bridge interfaces. AI automatically matches your wallet address on the target chain.
+
+**Example Commands**
+- `"Move my ETH from Mainnet to Solana"`
+- `"Bridge 100 USDC from Base to Arbitrum"`
+
+**Supported Assets**: Native tokens (ETH, SOL) and major stablecoins (USDC, USDT).
+
+---
+
+## 🛡️ Risk Scanning
+
+Perform security scans on token contracts before trading to identify common risks.
+
+**Example Commands**
+- `"Is this token safe? 0x..."`
+- `"Scan 0x... for contract risks"`
+
+**Checks**: Honeypot, high taxes, ownership renounced status, liquidity lock status, blacklist mechanisms, etc.
+
+| Risk Level | Score | Recommendation |
+|-----------|-------|----------------|
+| Safe | 0–30 | Low risk, safe to trade |
+| Medium | 30–70 | Risk exists, proceed with caution |
+| High Risk | 70–100 | High risk, recommended to avoid |
+
+You can enable "Auto-scan before trading" in settings to let the system actively block swaps with high risk.
+
+See [Risk & Security](/user-guides/risk-and-security) for more details.
+
+---
+
+## 📊 Market Data
+
+Query real-time on-chain market data sourced from [DexScreener](https://dexscreener.com) and [GeckoTerminal](https://geckoterminal.com).
+
+**Queryable Content**
+- Real-time price, 24h change, volume, market cap.
+- Trending token rankings (by chain or network-wide).
+- Historical price (e.g., `"What was the price of BTC on 2024-01-01?"`).
+- Gas fees (e.g., `"What is the current ETH Gas?"`).
+- Detailed token info: contract address, liquidity, holder distribution.
+
+**Example Commands**
+- `"What are the trending tokens?"`
+- `"How much is ETH now?"`
+- `"Top gainers on Base today"`
+
+---
+
+## 🐦 Social Intelligence
+
+Track crypto discussions on [Farcaster](https://warpcast.com) and [X (Twitter)](https://x.com) to capture community consensus.
+
+**Farcaster**
+- View trending posts from the last 24 hours.
+- Search for specific topics or project discussions.
+- Query Farcaster profiles and recent activity of specific users.
+
+**X (Twitter)**
+- Search for latest tweets and sentiment on X.
+
+**Example Commands**
+- `"What are people discussing on Farcaster right now?"`
+- `"Search for thoughts on new Base tokens"`
+- `"What's the latest about ETH ETFs on X?"`
+
+---
+
+## 🔮 Prediction Markets
+
+Access the [Polymarket](https://polymarket.com) prediction market data in real-time to see probabilities and odds based on real capital bets.
+
+**Queryable Content**
+- Top-volume predicted events.
+- Odds for specific topics (politics, macroeconomics, crypto markets).
+- Current probability for a specific question.
+
+**Example Commands**
+- `"What's trending on Polymarket?"`
+- `"What's the probability of a Fed rate cut?"`
+- `"Search for Bitcoin predictions on Polymarket"`
+
+---
+
+## 🔍 Wallet Analysis
+
+Enter any wallet address, and AI will analyze its on-chain transaction behavior and profit performance.
+
+**Analyzeable Content**
+- Balance and token list.
+- Historical realized PnL and win rate.
+- Recent transaction records.
+- "Smart Money" tracing: Find early buyers of a specific token.
+
+**Example Commands**
+- `"Analyze wallet 0x...'s PnL performance"`
+- `"What's 0x...'s win rate on Base?"`
+- `"Who were the earliest buyers of $MEME?"`
+
+---
+
+## 🌐 Research & General Knowledge
+
+KiKo has built-in multi-source information retrieval capabilities to answer questions about the crypto space and beyond.
+
+**Scope**
+- **Web Search**: Real-time internet search for latest info, news, and project intros.
+- **News Query**: Find the latest crypto market dynamics.
+- **Deep Web Analysis**: Enter a project's official URL to automatically extract team info, Tokenomics, GitHub, and social links.
+- **Comprehensive Research**: Synthesize multiple data sources to answer complex research questions.
+
+**Example Commands**
+- `"What new features does Uniswap v4 have?"`
+- `"Analyze this project: https://example.xyz"` (AI will summarize webpage content)
+- `"What's the big crypto news today?"`
+
+---
+
+## 🔔 Farcaster Notifications
+
+Link your [Farcaster](https://warpcast.com) account (FID) in settings, and KiKo will send real-time notifications via **Warpcast Direct Cast**.
+
+**Notification Types**
+| Event | Description |
+|-------|-------------|
+| Successful Trade (Buy/Sell) | Includes token, amount, and tx hash |
+| Failed Trade | Includes the reason for failure |
+| Copy Execution | Result of each copy trade buy |
+| Copy Skipped | Reason if risk filters were triggered |
+| Price Alert | Notification when target price is reached |
+
 <Info>
-This page is being expanded. Full content coming soon.
+  Farcaster notifications only work after linking your account in the settings page. When not linked, trade results are only shown in the chat window.
 </Info>
 
-- **Cross-chain tool**: Available now; use chat to perform cross-chain swaps and bridging.
+---
+
+## ⭐ Favorite Tokens
+
+Add tokens to your favorites in the interface, and AI can directly read your Watchlist to query prices or execute actions.
+
+**Usage**
+- Click the star icon next to a token to add to favorites.
+- Tell the AI `"View my favorite tokens"` or `"How is my Watchlist doing today?"`
+
+AI will automatically fetch all your saved tokens and batch query their latest prices.
+
+---
+
+## ❓ What Else Can I Do?
+
+KiKo's capabilities are constantly expanding. If you're unsure if an action is supported, just ask in natural language:
+
+> `"What can you do for me?"`
+> `"Do you support screenshots?"`
+> `"Can you perform technical analysis?"`
+
+AI will honestly inform you of its current scope and limitations.

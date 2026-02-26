@@ -1,8 +1,151 @@
 ---
 title: 'User Settings'
-description: 'Configure trading preferences and security settings'
+description: 'Configure trading preferences and account security settings — details on all options, defaults, and their impacts'
 ---
 
-<Info>
-This page is being expanded. Full content coming soon.
-</Info>
+KiKo settings are found in two locations:
+
+- **Trading Preferences** (Settings icon in the top right of the chat interface) — Affects the execution behavior of every swap.
+- **Account Settings** (Settings page) — Affects authorization, security, and account management.
+
+You can also directly tell the AI "help me change my settings," and it will guide you through the configuration.
+
+---
+
+## Trading Preferences
+
+Click the **Custom Reply (⚙️)** icon in the top right of the chat interface to open. Settings are saved automatically.
+
+### Fast Swap Mode
+
+| | |
+|---|---|
+| **Default** | Off |
+| **Impact** | When enabled, skips the manual confirmation step and executes trades directly. |
+
+> When enabled, the "Show quote before swap" option is automatically disabled. Recommended for advanced users who prioritize speed; beginners should keep it off.
+
+---
+
+### Default Swap Amount
+
+| | |
+|---|---|
+| **Default** | `0.1` |
+| **Unit Options** | Native Token / USDC / USDT |
+| **Default Unit** | Native Token |
+| **Impact** | When your command doesn't specify an amount (e.g., "Buy ETH"), the system uses this default value. |
+
+---
+
+### Check Token Security Before Swap
+
+| | |
+|---|---|
+| **Default** | On |
+| **Impact** | Before every swap, AI automatically performs a risk scan on the target token to identify scams, honeypots, blacklists, etc. |
+
+> Disabling this speeds up trades but removes proactive risk protection. Recommended to keep it on.
+
+---
+
+### Show Quote Before Swap
+
+| | |
+|---|---|
+| **Default** | On |
+| **Impact** | Displays the estimated amount you will receive before execution, waiting for your confirmation before sending the trade. |
+
+> Automatically disabled when "Fast Swap Mode" is on.
+
+---
+
+### Slippage Tolerance
+
+| Mode | Description | Default |
+|------|-------------|---------|
+| **Auto** | Dynamically adjusted based on liquidity, volatility, and trade size, ranging from 0.1% to 5%. | ✅ Default |
+| **Custom** | Manually enter a percentage from 0.1% to 50%; used for both buys and sells. | Default value 10% |
+
+> Slippage that is too low may cause transaction failure; too high may cause capital loss. Auto mode is sufficient for most cases.
+
+---
+
+### MEV Protection
+
+| | |
+|---|---|
+| **Default** | On |
+| **Current Implementation** | Flashbots Protect private transactions (Ethereum Mainnet only). |
+
+MEV Protection execution strategy:
+
+| Scenario | Strategy |
+|---|---|
+| **Natural Language Trades (Fast Swap)** | ✅ MEV Protection Enabled |
+| **Copy Trading - Turbo** | ❌ Disabled (Priority on minimum latency) |
+| **Copy Trading - Normal / Safe** | ✅ MEV Protection Enabled |
+
+> Currently, only the Ethereum Mainnet uses the Flashbots private mempool. Non-Ethereum chains do not enable this protection path.
+
+---
+
+### Price Deviation Check
+
+| | |
+|---|---|
+| **Default** | On |
+| **Trigger Scenario** | Every AI Swap initiated via natural language (excluding Copy Trading, which has its own flow). |
+| **Impact** | Automatically blocks and alerts the user if the simulated quote deviates from DEX Screener / GeckoTerminal reference prices by more than 50%. |
+
+> Effectively prevents serious capital loss due to price manipulation, extremely thin liquidity, or contract anomalies.
+
+---
+
+## Account Settings
+
+Access the "Settings Page" by clicking your avatar in the top right or via the navigation bar.
+
+### Authorize Auto Trading (Session Signer)
+
+KiKo supports authorizing a **Session Signer** to allow the AI Agent to execute trades automatically. KiKo does not have a manual signing flow; all trades are executed via automated signing — Session Signer authorization determines whether the AI can initiate signatures on-chain on your behalf.
+
+| Network | Description |
+|---------|-------------|
+| **Ethereum (EVM)** | Authorize automated trading signatures on EVM chains |
+| **Solana** | Authorize automated trading signatures on the Solana chain |
+
+> Once authorized, the AI can automatically execute swaps, copy trades, etc., under your defined conditions. You can revoke authorization at any time on the settings page.
+
+---
+
+### Polymarket Trade Authorization
+
+| | |
+|---|---|
+| **Default** | Not Authorized |
+| **Impact** | When enabled, you can participate in on-chain prediction market trades directly through KiKo. |
+
+---
+
+### Agent Mode
+
+| | |
+|---|---|
+| **Default** | Off |
+| **Impact** | When enabled, exposes machine-readable interface anchors and coordinate mappings for external automation Agents to control the interface. |
+
+> This is an advanced feature for developers and automation integrations; regular users do not need to enable it.
+
+---
+
+### Export Private Keys (Backup Recovery Phrase)
+
+Export your private keys in the **Security & Privacy** section of the settings page:
+
+- **EVM Wallet** (Ethereum / Base, etc.)
+- **Solana Wallet**
+
+Exports are securely handled by [Privy](https://privy.io). KiKo itself cannot access your private keys.
+
+See [Risk & Security](/user-guides/risk-and-security) for more details.

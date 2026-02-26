@@ -9,6 +9,8 @@ import { parseSwapTransaction } from './txDecoder.js';
 import { getVerifiedFreeEndpoints, RpcEndpointConfig } from '../config/apiEndpoints.js';
 import { buildSwapExecutionContext } from './copytrade/context/contextBuilder.js';
 import { putContext } from './copytrade/context/contextStore.js';
+import { recordSuccessSample } from './copytrade/planner/sampleLibrary.js';
+import { getChainConfig } from '../config/chainConfig.js';
 
 const ENABLED = (process.env.COPYTRADE_PENDING_WATCH_ENABLED || 'true') === 'true';
 const REFRESH_WALLETS_MS = Number(process.env.COPYTRADE_PENDING_WALLET_REFRESH_MS || 10000);
@@ -40,6 +42,21 @@ const CHAIN_SLUG_BY_ID: Record<number, string> = {
     42161: 'arbitrum',
     10: 'optimism'
 };
+
+function inferExecutionSide(chainId: number, tokenIn: string, tokenOut: string): 'buy' | 'sell' {
+    const chain = getChainConfig(chainId);
+    const wrappedNative = String(chain?.wrappedNativeAddress || '').toLowerCase();
+    const stableTokens = new Set((chain?.stablecoins || []).map((x) => String(x).toLowerCase()));
+    const isCashLike = (value?: string): boolean => {
+        const v = String(value || '').toLowerCase();
+        return v === 'eth'
+            || v === 'bnb'
+            || v === '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee'
+            || v === wrappedNative
+            || stableTokens.has(v);
+    };
+    return isCashLike(tokenIn) && !isCashLike(tokenOut) ? 'buy' : 'sell';
+}
 
 function pendingDedupKey(chainId: number, txHash: string): string {
     return `${chainId}:${txHash.toLowerCase()}`;
@@ -105,6 +122,22 @@ async function warmConfirmedSwapFromPending(
                     detectedAt: start
                 });
                 await putContext(ctx).catch(() => { });
+                await recordSuccessSample({
+                    chainId,
+                    side: inferExecutionSide(chainId, swap.tokenIn, swap.tokenOut),
+                    txHash,
+                    wallet: targetWallet,
+                    tokenIn: String(swap.tokenIn || '').toLowerCase(),
+                    tokenOut: String(swap.tokenOut || '').toLowerCase(),
+                    amountIn: String(swap.amountIn || '0'),
+                    amountOut: String(swap.amountOut || '0'),
+                    router: String(swap.router || txSkeleton.to || '').toLowerCase(),
+                    selector: String(txSkeleton.input || '').slice(0, 10).toLowerCase(),
+                    commandMetaJson: JSON.stringify({
+                        source: 'pending_prefetch',
+                        dexName: swap.dexName || null
+                    })
+                }).catch(() => { });
                 const { enqueueCopyTradeTask } = await import('./copyTradeQueue.js');
                 enqueueCopyTradeTask(targetWallet, swap, chainId, { detectedAt: start });
                 await markCopyTradeTxState(chainId, txHash, 'swap_decoded', {

@@ -1,0 +1,915 @@
+{
+  "generatedAt": "2026-02-26T10:37:51.182Z",
+  "source": "https://gmgn.ai/defi/quotation/v1/rank/base/wallets/7d?tag=snipe_bot&device_id=f8c9a990-6dae-4bed-8641-948f70a6e971&fp_did=ee4fc2c9a535fdf50aa0d088ebff99b1&client_id=gmgn_web_20260225-11154-7f0b5c9&from_app=gmgn&app_ver=20260225-11154-7f0b5c9&tz_name=Asia%2FShanghai&tz_offset=28800&app_lang=zh-CN&os=web&worker=0&orderby=pnl_7d&direction=desc",
+  "totalRankRows": 100,
+  "wallets": [
+    "0x0000208d547a446ba9059cbb2cfcfbaead7d3fa3",
+    "0x674495201f43139c559568910726121e572c81e4",
+    "0x762229e03ac76d5df17447eef0c3e5caf60d9709",
+    "0xc30cf256dfc731193a4fe2b02c89bf1815ec70a5",
+    "0xb4beddf1b828aaed9638601f7145b0f6093f2d3f"
+  ],
+  "sample": [
+    {
+      "wallet_address": "0x0000208d547a446ba9059cbb2cfcfbaead7d3fa3",
+      "address": "0x0000208d547a446ba9059cbb2cfcfbaead7d3fa3",
+      "last_active": 1772099637,
+      "realized_profit_1d": "4246.73528125496218626238",
+      "realized_profit_7d": "82726062345751.86697009605912047675",
+      "realized_profit_30d": "82726062311371.36536156335996201675",
+      "buy": 2655,
+      "buy_1d": 463,
+      "buy_7d": 2655,
+      "buy_30d": 25692,
+      "sell": 2701,
+      "sell_1d": 466,
+      "sell_7d": 2701,
+      "sell_30d": 25275,
+      "pnl_1d": "0.0418393615448485",
+      "pnl_7d": "1.8017706188490126",
+      "pnl_30d": "1.801770291381058",
+      "txs": 5356,
+      "txs_1d": 929,
+      "txs_7d": 5356,
+      "txs_30d": 50967,
+      "balance": "40.638433144656724822",
+      "eth_balance": "40.638433144656724822",
+      "sol_balance": "40.638433144656724822",
+      "trx_balance": "40.638433144656724822",
+      "monad_balance": "40.638433144656724822",
+      "follow_count": 16,
+      "remark_count": 19,
+      "twitter_username": "",
+      "avatar": "",
+      "nickname": "",
+      "tags": [
+        "sandwich_bot",
+        "snipe_bot"
+      ],
+      "twitter_name": "",
+      "twitter_description": "",
+      "name": "",
+      "winrate_1d": 0.5771812080536913,
+      "winrate_7d": 0.5401662049861495,
+      "winrate_30d": 0.5108135942327497,
+      "avg_cost_1d": "240.1310056187384175",
+      "avg_cost_7d": "96903820147.165732598296539",
+      "avg_cost_30d": "10013998571.3990767995020645",
+      "pnl_lt_minus_dot5_num_7d": 2,
+      "pnl_minus_dot5_0x_num_7d": 124,
+      "pnl_lt_2x_num_7d": 252,
+      "pnl_2x_5x_num_7d": 2,
+      "pnl_gt_5x_num_7d": 1,
+      "daily_profit_7d": [
+        {
+          "timestamp": 1771459200,
+          "profit": "-223.38788462255209564321"
+        },
+        {
+          "timestamp": 1771545600,
+          "profit": "2367.69678988938577284097"
+        },
+        {
+          "timestamp": 1771632000,
+          "profit": "875.91546444811574017202"
+        },
+        {
+          "timestamp": 1771718400,
+          "profit": "82726062337518.61321046618220100011"
+        },
+        {
+          "timestamp": 1771804800,
+          "profit": "1211.42317795950585740335"
+        },
+        {
+          "timestamp": 1771891200,
+          "profit": "-588.82792847191487945994"
+        },
+        {
+          "timestamp": 1771977600,
+          "profit": "4096.8101158665328869851"
+        }
+      ],
+      "twitch_channel_name": "",
+      "avg_holding_period_1d": 55309,
+      "avg_holding_period_7d": 363029.35294117645,
+      "avg_holding_period_30d": 1388881.04,
+      "volume_1d": "216928.34893876612361281493",
+      "volume_7d": "385919464046624.30673251181517282928",
+      "volume_30d": "385919481143551.36203669599168182928",
+      "net_inflow_1d": "0",
+      "net_inflow_7d": "0",
+      "net_inflow_30d": "0"
+    },
+    {
+      "wallet_address": "0x674495201f43139c559568910726121e572c81e4",
+      "address": "0x674495201f43139c559568910726121e572c81e4",
+      "last_active": 1772058835,
+      "realized_profit_1d": "16765.84585911034133942429",
+      "realized_profit_7d": "45376.65437701903040683605",
+      "realized_profit_30d": "72278.75386482875989888443",
+      "buy": 138,
+      "buy_1d": 17,
+      "buy_7d": 138,
+      "buy_30d": 200,
+      "sell": 161,
+      "sell_1d": 29,
+      "sell_7d": 161,
+      "sell_30d": 243,
+      "pnl_1d": "0.6010735424060134",
+      "pnl_7d": "0.2295598808668547",
+      "pnl_30d": "0.2790260792243909",
+      "txs": 299,
+      "txs_1d": 46,
+      "txs_7d": 299,
+      "txs_30d": 443,
+      "balance": "25.439831851116176768",
+      "eth_balance": "25.439831851116176768",
+      "sol_balance": "25.439831851116176768",
+      "trx_balance": "25.439831851116176768",
+      "monad_balance": "25.439831851116176768",
+      "follow_count": 706,
+      "remark_count": 857,
+      "twitter_username": "",
+      "avatar": "",
+      "nickname": "",
+      "tags": [
+        "snipe_bot"
+      ],
+      "twitter_name": "",
+      "twitter_description": "",
+      "name": "",
+      "winrate_1d": 0.6153846153846154,
+      "winrate_7d": 0.5652173913043478,
+      "winrate_30d": 0.5828571428571429,
+      "avg_cost_1d": "1605.1806262149133303",
+      "avg_cost_7d": "1433.1799742234924127",
+      "avg_cost_30d": "1250.6454423238057067",
+      "pnl_lt_minus_dot5_num_7d": 2,
+      "pnl_minus_dot5_0x_num_7d": 48,
+      "pnl_lt_2x_num_7d": 113,
+      "pnl_2x_5x_num_7d": 1,
+      "pnl_gt_5x_num_7d": 2,
+      "daily_profit_7d": [
+        {
+          "timestamp": 1771459200,
+          "profit": "10834.17347065642909058034"
+        },
+        {
+          "timestamp": 1771545600,
+          "profit": "7243.38638938676608142486"
+        },
+        {
+          "timestamp": 1771632000,
+          "profit": "4170.76849650060780230174"
+        },
+        {
+          "timestamp": 1771718400,
+          "profit": "3190.93626089859239969275"
+        },
+        {
+          "timestamp": 1771804800,
+          "profit": "12308.84789777175411454832"
+        },
+        {
+          "timestamp": 1771891200,
+          "profit": "1859.89004671254706788203"
+        },
+        {
+          "timestamp": 1771977600,
+          "profit": "16602.82528574876294098635"
+        }
+      ],
+      "twitch_channel_name": "",
+      "avg_holding_period_1d": 358232.68,
+      "avg_holding_period_7d": 171587.08484848484,
+      "avg_holding_period_30d": 334259.56692913384,
+      "volume_1d": "71064.7097240057571095473",
+      "volume_7d": "405607.52000736028038130419",
+      "volume_30d": "545423.44740677972472546316",
+      "net_inflow_1d": "0",
+      "net_inflow_7d": "0",
+      "net_inflow_30d": "0"
+    },
+    {
+      "wallet_address": "0x762229e03ac76d5df17447eef0c3e5caf60d9709",
+      "address": "0x762229e03ac76d5df17447eef0c3e5caf60d9709",
+      "last_active": 1772068321,
+      "realized_profit_1d": "3046.94561487599475007708",
+      "realized_profit_7d": "29963.15174925943920384747",
+      "realized_profit_30d": "74557.5365677261931186509",
+      "buy": 269,
+      "buy_1d": 24,
+      "buy_7d": 269,
+      "buy_30d": 510,
+      "sell": 272,
+      "sell_1d": 26,
+      "sell_7d": 272,
+      "sell_30d": 516,
+      "pnl_1d": "0.333881965098185",
+      "pnl_7d": "0.3280214128080073",
+      "pnl_30d": "0.4541447737535433",
+      "txs": 541,
+      "txs_1d": 50,
+      "txs_7d": 541,
+      "txs_30d": 1026,
+      "balance": "0.124670861385695338",
+      "eth_balance": "0.124670861385695338",
+      "sol_balance": "0.124670861385695338",
+      "trx_balance": "0.124670861385695338",
+      "monad_balance": "0.124670861385695338",
+      "follow_count": 173,
+      "remark_count": 146,
+      "twitter_username": "",
+      "avatar": "",
+      "nickname": "",
+      "tags": [
+        "snipe_bot"
+      ],
+      "twitter_name": "",
+      "twitter_description": "",
+      "name": "",
+      "winrate_1d": 0.7777777777777778,
+      "winrate_7d": 0.6739130434782609,
+      "winrate_30d": 0.616822429906542,
+      "avg_cost_1d": "500.9282708333333333",
+      "avg_cost_7d": "373.7458671747211896",
+      "avg_cost_30d": "332.2475503470583677",
+      "pnl_lt_minus_dot5_num_7d": 1,
+      "pnl_minus_dot5_0x_num_7d": 44,
+      "pnl_lt_2x_num_7d": 164,
+      "pnl_2x_5x_num_7d": 8,
+      "pnl_gt_5x_num_7d": 5,
+      "daily_profit_7d": [
+        {
+          "timestamp": 1771459200,
+          "profit": "3224.70804282453932309422"
+        },
+        {
+          "timestamp": 1771545600,
+          "profit": "573.2212083215633531571"
+        },
+        {
+          "timestamp": 1771632000,
+          "profit": "2408.39667146844615540657"
+        },
+        {
+          "timestamp": 1771718400,
+          "profit": "9295.40904186201168841857"
+        },
+        {
+          "timestamp": 1771804800,
+          "profit": "2864.20181578120358632119"
+        },
+        {
+          "timestamp": 1771891200,
+          "profit": "1766.03431607712756762699"
+        },
+        {
+          "timestamp": 1771977600,
+          "profit": "13296.77009464412837264722"
+        }
+      ],
+      "twitch_channel_name": "",
+      "avg_holding_period_1d": 121316.38888888889,
+      "avg_holding_period_7d": 163437.01357466064,
+      "avg_holding_period_30d": 448333.2552083333,
+      "volume_1d": "24195.04082072884472797404",
+      "volume_7d": "221845.89914723284576664609",
+      "volume_30d": "394860.12610703917063182368",
+      "net_inflow_1d": "0",
+      "net_inflow_7d": "0",
+      "net_inflow_30d": "0"
+    },
+    {
+      "wallet_address": "0xc30cf256dfc731193a4fe2b02c89bf1815ec70a5",
+      "address": "0xc30cf256dfc731193a4fe2b02c89bf1815ec70a5",
+      "last_active": 1772095281,
+      "realized_profit_1d": "2274.27561426516681615088",
+      "realized_profit_7d": "16119.74177468454039463644",
+      "realized_profit_30d": "35860.47524212443719940605",
+      "buy": 658,
+      "buy_1d": 74,
+      "buy_7d": 658,
+      "buy_30d": 1132,
+      "sell": 375,
+      "sell_1d": 46,
+      "sell_7d": 375,
+      "sell_30d": 652,
+      "pnl_1d": "0.1153666820519205",
+      "pnl_7d": "0.1096553787517277",
+      "pnl_30d": "0.1041359506315163",
+      "txs": 1033,
+      "txs_1d": 120,
+      "txs_7d": 1033,
+      "txs_30d": 1784,
+      "balance": "2.267319103650474694",
+      "eth_balance": "2.267319103650474694",
+      "sol_balance": "2.267319103650474694",
+      "trx_balance": "2.267319103650474694",
+      "monad_balance": "2.267319103650474694",
+      "follow_count": 160,
+      "remark_count": 146,
+      "twitter_username": "",
+      "avatar": "",
+      "nickname": "",
+      "tags": [
+        "snipe_bot"
+      ],
+      "twitter_name": "",
+      "twitter_description": "",
+      "name": "",
+      "winrate_1d": 0.5625,
+      "winrate_7d": 0.4696132596685083,
+      "winrate_30d": 0.49609375,
+      "avg_cost_1d": "253.3600039557136456",
+      "avg_cost_7d": "233.3251926179287673",
+      "avg_cost_30d": "356.2268439094389359",
+      "pnl_lt_minus_dot5_num_7d": 7,
+      "pnl_minus_dot5_0x_num_7d": 88,
+      "pnl_lt_2x_num_7d": 183,
+      "pnl_2x_5x_num_7d": 2,
+      "pnl_gt_5x_num_7d": 0,
+      "daily_profit_7d": [
+        {
+          "timestamp": 1771459200,
+          "profit": "3586.59921637943790290533"
+        },
+        {
+          "timestamp": 1771545600,
+          "profit": "828.24989213625859407556"
+        },
+        {
+          "timestamp": 1771632000,
+          "profit": "2795.37164461621435917497"
+        },
+        {
+          "timestamp": 1771718400,
+          "profit": "3609.03346810266219100593"
+        },
+        {
+          "timestamp": 1771804800,
+          "profit": "1671.84802738330184989141"
+        },
+        {
+          "timestamp": 1771891200,
+          "profit": "2215.88981024660772956415"
+        },
+        {
+          "timestamp": 1771977600,
+          "profit": "4983.38026691364621751635"
+        }
+      ],
+      "twitch_channel_name": "",
+      "avg_holding_period_1d": 120693.375,
+      "avg_holding_period_7d": 249431.01454545456,
+      "avg_holding_period_30d": 332902.7005208333,
+      "volume_1d": "40736.36847244906744183408",
+      "volume_7d": "316651.37632399521690886533",
+      "volume_30d": "783471.36828202831604002765",
+      "net_inflow_1d": "0",
+      "net_inflow_7d": "0",
+      "net_inflow_30d": "0"
+    },
+    {
+      "wallet_address": "0xb4beddf1b828aaed9638601f7145b0f6093f2d3f",
+      "address": "0xb4beddf1b828aaed9638601f7145b0f6093f2d3f",
+      "last_active": 1772073729,
+      "realized_profit_1d": "136.81054264917134777931",
+      "realized_profit_7d": "10243.41878631989204160557",
+      "realized_profit_30d": "117437.37869881976118907807",
+      "buy": 27,
+      "buy_1d": 7,
+      "buy_7d": 27,
+      "buy_30d": 203,
+      "sell": 47,
+      "sell_1d": 10,
+      "sell_7d": 47,
+      "sell_30d": 431,
+      "pnl_1d": "0.0087831541003753",
+      "pnl_7d": "0.2822230077398912",
+      "pnl_30d": "0.4959018555637801",
+      "txs": 74,
+      "txs_1d": 17,
+      "txs_7d": 74,
+      "txs_30d": 634,
+      "balance": "5.132621894997706806",
+      "eth_balance": "5.132621894997706806",
+      "sol_balance": "5.132621894997706806",
+      "trx_balance": "5.132621894997706806",
+      "monad_balance": "5.132621894997706806",
+      "follow_count": 513,
+      "remark_count": 497,
+      "twitter_username": "",
+      "avatar": "",
+      "nickname": "",
+      "tags": [
+        "snipe_bot"
+      ],
+      "twitter_name": "",
+      "twitter_description": "",
+      "name": "",
+      "winrate_1d": 0.7777777777777778,
+      "winrate_7d": 0.6,
+      "winrate_30d": 0.6813186813186813,
+      "avg_cost_1d": "1249.7132699730888721",
+      "avg_cost_7d": "1025.6773274558927345",
+      "avg_cost_30d": "1086.8977849301376592",
+      "pnl_lt_minus_dot5_num_7d": 1,
+      "pnl_minus_dot5_0x_num_7d": 8,
+      "pnl_lt_2x_num_7d": 31,
+      "pnl_2x_5x_num_7d": 1,
+      "pnl_gt_5x_num_7d": 1,
+      "daily_profit_7d": [
+        {
+          "timestamp": 1771459200,
+          "profit": "-1483.18000662207178946331"
+        },
+        {
+          "timestamp": 1771545600,
+          "profit": "195.00173528733049057226"
+        },
+        {
+          "timestamp": 1771632000,
+          "profit": "292.65052961472310826981"
+        },
+        {
+          "timestamp": 1771718400,
+          "profit": "-648.19661095215271975899"
+        },
+        {
+          "timestamp": 1771804800,
+          "profit": "529.72326192093877789473"
+        },
+        {
+          "timestamp": 1771891200,
+          "profit": "9737.42932779988103684845"
+        },
+        {
+          "timestamp": 1771977600,
+          "profit": "-160.78077381686050135999"
+        }
+      ],
+      "twitch_channel_name": "",
+      "avg_holding_period_1d": 27677,
+      "avg_holding_period_7d": 97674.34146341463,
+      "avg_holding_period_30d": 540377.851590106,
+      "volume_1d": "23883.23521030197713980698",
+      "volume_7d": "70493.78138315851522373394",
+      "volume_30d": "571154.99428115405849507225",
+      "net_inflow_1d": "0",
+      "net_inflow_7d": "0",
+      "net_inflow_30d": "0"
+    },
+    {
+      "wallet_address": "0x9d34151abe8d1594e74f463d350840119ab0689b",
+      "address": "0x9d34151abe8d1594e74f463d350840119ab0689b",
+      "last_active": 1772092489,
+      "realized_profit_1d": "4255.42696921000714199959",
+      "realized_profit_7d": "9514.60634503712804893973",
+      "realized_profit_30d": "68995.60171324607812410587",
+      "buy": 84,
+      "buy_1d": 18,
+      "buy_7d": 84,
+      "buy_30d": 454,
+      "sell": 107,
+      "sell_1d": 25,
+      "sell_7d": 107,
+      "sell_30d": 701,
+      "pnl_1d": "0.4443619210465017",
+      "pnl_7d": "0.1822109843954537",
+      "pnl_30d": "0.2305789555103719",
+      "txs": 191,
+      "txs_1d": 43,
+      "txs_7d": 191,
+      "txs_30d": 1155,
+      "balance": "6.461836866020472058",
+      "eth_balance": "6.461836866020472058",
+      "sol_balance": "6.461836866020472058",
+      "trx_balance": "6.461836866020472058",
+      "monad_balance": "6.461836866020472058",
+      "follow_count": 635,
+      "remark_count": 655,
+      "twitter_username": "",
+      "avatar": "",
+      "nickname": "",
+      "tags": [
+        "snipe_bot"
+      ],
+      "twitter_name": "",
+      "twitter_description": "",
+      "name": "",
+      "winrate_1d": 0.7333333333333333,
+      "winrate_7d": 0.711864406779661,
+      "winrate_30d": 0.706060606060606,
+      "avg_cost_1d": "513.2253003818280718",
+      "avg_cost_7d": "608.9815221170204983",
+      "avg_cost_30d": "646.6768849301814518",
+      "pnl_lt_minus_dot5_num_7d": 0,
+      "pnl_minus_dot5_0x_num_7d": 16,
+      "pnl_lt_2x_num_7d": 80,
+      "pnl_2x_5x_num_7d": 0,
+      "pnl_gt_5x_num_7d": 1,
+      "daily_profit_7d": [
+        {
+          "timestamp": 1771459200,
+          "profit": "1054.10461083084662728255"
+        },
+        {
+          "timestamp": 1771545600,
+          "profit": "2036.45422211947275278645"
+        },
+        {
+          "timestamp": 1771632000,
+          "profit": "483.23377625101320014363"
+        },
+        {
+          "timestamp": 1771718400,
+          "profit": "1802.77245993268842304145"
+        },
+        {
+          "timestamp": 1771804800,
+          "profit": "1303.75248627876192131139"
+        },
+        {
+          "timestamp": 1771891200,
+          "profit": "-1985.26873969837255848941"
+        },
+        {
+          "timestamp": 1771977600,
+          "profit": "6046.50377680964339794392"
+        }
+      ],
+      "twitch_channel_name": "",
+      "avg_holding_period_1d": 25799.333333333332,
+      "avg_holding_period_7d": 198774.70833333334,
+      "avg_holding_period_30d": 1076879.4964285714,
+      "volume_1d": "23069.97119670056407873786",
+      "volume_7d": "112886.57762279149876993611",
+      "volume_30d": "661814.56925242822107419137",
+      "net_inflow_1d": "0",
+      "net_inflow_7d": "0",
+      "net_inflow_30d": "0"
+    },
+    {
+      "wallet_address": "0xbd994acb9c906100dc4b8c08d2b6c28cb543425d",
+      "address": "0xbd994acb9c906100dc4b8c08d2b6c28cb543425d",
+      "last_active": 1772073527,
+      "realized_profit_1d": "923.40128230363743357711",
+      "realized_profit_7d": "8831.89076391121042754594",
+      "realized_profit_30d": "160267.90365580367948354331",
+      "buy": 178,
+      "buy_1d": 29,
+      "buy_7d": 178,
+      "buy_30d": 2093,
+      "sell": 136,
+      "sell_1d": 25,
+      "sell_7d": 136,
+      "sell_30d": 2134,
+      "pnl_1d": "0.0520473024292637",
+      "pnl_7d": "0.0673872879078885",
+      "pnl_30d": "0.067781701554651",
+      "txs": 314,
+      "txs_1d": 54,
+      "txs_7d": 314,
+      "txs_30d": 4227,
+      "balance": "3.994090144709357131",
+      "eth_balance": "3.994090144709357131",
+      "sol_balance": "3.994090144709357131",
+      "trx_balance": "3.994090144709357131",
+      "monad_balance": "3.994090144709357131",
+      "follow_count": 615,
+      "remark_count": 555,
+      "twitter_username": "",
+      "avatar": "",
+      "nickname": "",
+      "tags": [
+        "snipe_bot"
+      ],
+      "twitter_name": "",
+      "twitter_description": "",
+      "name": "",
+      "winrate_1d": 0.4166666666666667,
+      "winrate_7d": 0.44761904761904764,
+      "winrate_30d": 0.5087514585764294,
+      "avg_cost_1d": "616.9987756331163648",
+      "avg_cost_7d": "737.8208056096870116",
+      "avg_cost_30d": "1166.3068694844543677",
+      "pnl_lt_minus_dot5_num_7d": 3,
+      "pnl_minus_dot5_0x_num_7d": 55,
+      "pnl_lt_2x_num_7d": 85,
+      "pnl_2x_5x_num_7d": 0,
+      "pnl_gt_5x_num_7d": 0,
+      "daily_profit_7d": [
+        {
+          "timestamp": 1771459200,
+          "profit": "-460.3590720214243708101"
+        },
+        {
+          "timestamp": 1771545600,
+          "profit": "3546.47103276816568808773"
+        },
+        {
+          "timestamp": 1771632000,
+          "profit": "-316.20106821749875859465"
+        },
+        {
+          "timestamp": 1771718400,
+          "profit": "30.9045254772843981507"
+        },
+        {
+          "timestamp": 1771804800,
+          "profit": "676.22220141164127806348"
+        },
+        {
+          "timestamp": 1771891200,
+          "profit": "104.85503035198221900482"
+        },
+        {
+          "timestamp": 1771977600,
+          "profit": "4530.982145582728951873"
+        }
+      ],
+      "twitch_channel_name": "",
+      "avg_holding_period_1d": 12480.793103448275,
+      "avg_holding_period_7d": 108749.36428571428,
+      "avg_holding_period_30d": 705642.9746503497,
+      "volume_1d": "36557.94390180439816514461",
+      "volume_7d": "271225.6682274831806109666",
+      "volume_30d": "4965819.71259140930290733627",
+      "net_inflow_1d": "0",
+      "net_inflow_7d": "0",
+      "net_inflow_30d": "0"
+    },
+    {
+      "wallet_address": "0xeba562f1b7d88185a066f40f3d45cc33b341acb9",
+      "address": "0xeba562f1b7d88185a066f40f3d45cc33b341acb9",
+      "last_active": 1772053297,
+      "realized_profit_1d": "0",
+      "realized_profit_7d": "7384.00342732809858583354",
+      "realized_profit_30d": "11315.5765316719245986344",
+      "buy": 13,
+      "buy_1d": 0,
+      "buy_7d": 13,
+      "buy_30d": 41,
+      "sell": 12,
+      "sell_1d": 0,
+      "sell_7d": 12,
+      "sell_30d": 50,
+      "pnl_1d": "0",
+      "pnl_7d": "0.4666994223920739",
+      "pnl_30d": "0.2523122742730952",
+      "txs": 25,
+      "txs_1d": 0,
+      "txs_7d": 25,
+      "txs_30d": 91,
+      "balance": "0.000762654762042346",
+      "eth_balance": "0.000762654762042346",
+      "sol_balance": "0.000762654762042346",
+      "trx_balance": "0.000762654762042346",
+      "monad_balance": "0.000762654762042346",
+      "follow_count": 33,
+      "remark_count": 26,
+      "twitter_username": "",
+      "avatar": "",
+      "nickname": "",
+      "tags": [
+        "snipe_bot"
+      ],
+      "twitter_name": "",
+      "twitter_description": "",
+      "name": "",
+      "winrate_1d": 0,
+      "winrate_7d": 0.875,
+      "winrate_30d": 0.59375,
+      "avg_cost_1d": "",
+      "avg_cost_7d": "1216.9751676923076923",
+      "avg_cost_30d": "1089.6189741201615143",
+      "pnl_lt_minus_dot5_num_7d": 1,
+      "pnl_minus_dot5_0x_num_7d": 0,
+      "pnl_lt_2x_num_7d": 18,
+      "pnl_2x_5x_num_7d": 0,
+      "pnl_gt_5x_num_7d": 0,
+      "daily_profit_7d": [
+        {
+          "timestamp": 1771459200,
+          "profit": "3690.25391745192990335636"
+        },
+        {
+          "timestamp": 1771545600,
+          "profit": "770.56291426253602290319"
+        },
+        {
+          "timestamp": 1771632000,
+          "profit": "0"
+        },
+        {
+          "timestamp": 1771718400,
+          "profit": "583.09333436452264136795"
+        },
+        {
+          "timestamp": 1771804800,
+          "profit": "4638.71452489151667646341"
+        },
+        {
+          "timestamp": 1771891200,
+          "profit": "1391.63265380952324509899"
+        },
+        {
+          "timestamp": 1771977600,
+          "profit": "0"
+        }
+      ],
+      "twitch_channel_name": "",
+      "avg_holding_period_1d": 49364,
+      "avg_holding_period_7d": 128139.26315789473,
+      "avg_holding_period_30d": 602111.8064516129,
+      "volume_1d": "0",
+      "volume_7d": "39026.43455225756433833072",
+      "volume_30d": "100837.4616490415800431623",
+      "net_inflow_1d": "0",
+      "net_inflow_7d": "0",
+      "net_inflow_30d": "0"
+    },
+    {
+      "wallet_address": "0x88a8ae553ad41185e1f57341ff06853efbfbaa0f",
+      "address": "0x88a8ae553ad41185e1f57341ff06853efbfbaa0f",
+      "last_active": 1772053597,
+      "realized_profit_1d": "-1451.50690745963737070707",
+      "realized_profit_7d": "5840.67774136626935698136",
+      "realized_profit_30d": "7311.74954638577416771496",
+      "buy": 11,
+      "buy_1d": 3,
+      "buy_7d": 11,
+      "buy_30d": 34,
+      "sell": 28,
+      "sell_1d": 2,
+      "sell_7d": 28,
+      "sell_30d": 51,
+      "pnl_1d": "-0.5667482042692504",
+      "pnl_7d": "0.3811220223742253",
+      "pnl_30d": "0.2868308793883975",
+      "txs": 39,
+      "txs_1d": 5,
+      "txs_7d": 39,
+      "txs_30d": 85,
+      "balance": "11.208337583016966277",
+      "eth_balance": "11.208337583016966277",
+      "sol_balance": "11.208337583016966277",
+      "trx_balance": "11.208337583016966277",
+      "monad_balance": "11.208337583016966277",
+      "follow_count": 239,
+      "remark_count": 302,
+      "twitter_username": "",
+      "avatar": "",
+      "nickname": "",
+      "tags": [
+        "snipe_bot"
+      ],
+      "twitter_name": "",
+      "twitter_description": "",
+      "name": "",
+      "winrate_1d": 0,
+      "winrate_7d": 0.34782608695652173,
+      "winrate_30d": 0.4634146341463415,
+      "avg_cost_1d": "96.4346390505797493",
+      "avg_cost_7d": "299.1464620687754244",
+      "avg_cost_30d": "375.4837554483204389",
+      "pnl_lt_minus_dot5_num_7d": 4,
+      "pnl_minus_dot5_0x_num_7d": 10,
+      "pnl_lt_2x_num_7d": 35,
+      "pnl_2x_5x_num_7d": 0,
+      "pnl_gt_5x_num_7d": 1,
+      "daily_profit_7d": [
+        {
+          "timestamp": 1771459200,
+          "profit": "0.70793169366399561032"
+        },
+        {
+          "timestamp": 1771545600,
+          "profit": "182.69567111938569052713"
+        },
+        {
+          "timestamp": 1771632000,
+          "profit": "11288.72922221519788335337"
+        },
+        {
+          "timestamp": 1771718400,
+          "profit": "-2961.71861503045968350791"
+        },
+        {
+          "timestamp": 1771804800,
+          "profit": "-98.57294286020790459414"
+        },
+        {
+          "timestamp": 1771891200,
+          "profit": "-1118.94868661800925809002"
+        },
+        {
+          "timestamp": 1771977600,
+          "profit": "-1451.50690745963737070707"
+        }
+      ],
+      "twitch_channel_name": "",
+      "avg_holding_period_1d": 1373958.6666666667,
+      "avg_holding_period_7d": 388177.9591836735,
+      "avg_holding_period_30d": 542935.45,
+      "volume_1d": "1398.91126912089084841071",
+      "volume_7d": "24456.24355904305801202772",
+      "volume_30d": "45569.69787471298658545492",
+      "net_inflow_1d": "0",
+      "net_inflow_7d": "0",
+      "net_inflow_30d": "0"
+    },
+    {
+      "wallet_address": "0x82606fe1a7d2c55cc01899330e6f83171c6e8095",
+      "address": "0x82606fe1a7d2c55cc01899330e6f83171c6e8095",
+      "last_active": 1772048499,
+      "realized_profit_1d": "0",
+      "realized_profit_7d": "5720.99086211999799326287",
+      "realized_profit_30d": "15530.72865701344693965544",
+      "buy": 13,
+      "buy_1d": 0,
+      "buy_7d": 13,
+      "buy_30d": 68,
+      "sell": 12,
+      "sell_1d": 0,
+      "sell_7d": 12,
+      "sell_30d": 87,
+      "pnl_1d": "0",
+      "pnl_7d": "0.3616361775055897",
+      "pnl_30d": "0.2441039350293682",
+      "txs": 25,
+      "txs_1d": 0,
+      "txs_7d": 25,
+      "txs_30d": 155,
+      "balance": "0.000762636580280926",
+      "eth_balance": "0.000762636580280926",
+      "sol_balance": "0.000762636580280926",
+      "trx_balance": "0.000762636580280926",
+      "monad_balance": "0.000762636580280926",
+      "follow_count": 43,
+      "remark_count": 30,
+      "twitter_username": "",
+      "avatar": "",
+      "nickname": "",
+      "tags": [
+        "snipe_bot"
+      ],
+      "twitter_name": "",
+      "twitter_description": "",
+      "name": "",
+      "winrate_1d": 0,
+      "winrate_7d": 0.75,
+      "winrate_30d": 0.5853658536585366,
+      "avg_cost_1d": "",
+      "avg_cost_7d": "1216.8213369230769231",
+      "avg_cost_30d": "959.3510396301180139",
+      "pnl_lt_minus_dot5_num_7d": 1,
+      "pnl_minus_dot5_0x_num_7d": 1,
+      "pnl_lt_2x_num_7d": 17,
+      "pnl_2x_5x_num_7d": 0,
+      "pnl_gt_5x_num_7d": 0,
+      "daily_profit_7d": [
+        {
+          "timestamp": 1771459200,
+          "profit": "4270.87822473477603537535"
+        },
+        {
+          "timestamp": 1771545600,
+          "profit": "616.52452889161150133807"
+        },
+        {
+          "timestamp": 1771632000,
+          "profit": "0"
+        },
+        {
+          "timestamp": 1771718400,
+          "profit": "2698.94131282168238706492"
+        },
+        {
+          "timestamp": 1771804800,
+          "profit": "1492.13495911179662725188"
+        },
+        {
+          "timestamp": 1771891200,
+          "profit": "913.390061294907477608"
+        },
+        {
+          "timestamp": 1771977600,
+          "profit": "0"
+        }
+      ],
+      "twitch_channel_name": "",
+      "avg_holding_period_1d": 62170,
+      "avg_holding_period_7d": 164946.2105263158,
+      "avg_holding_period_30d": 736849.922077922,
+      "volume_1d": "0",
+      "volume_7d": "37359.40978894455419169696",
+      "volume_30d": "144390.02539431727985261082",
+      "net_inflow_1d": "0",
+      "net_inflow_7d": "0",
+      "net_inflow_30d": "0"
+    }
+  ]
+}

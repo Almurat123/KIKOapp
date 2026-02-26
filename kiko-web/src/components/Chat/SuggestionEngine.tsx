@@ -13,7 +13,7 @@ type SuggestionStage =
     | 'ARGS_TARGET'      // "Swap ... to " -> "Swap ... to [Paste]"
     | 'ARGS_CHAIN'       // "Swap ... 0x..." -> "... at Base"
     | 'ARGS_COPY_TARGET' // "Copy Trade " -> "Copy Trade [Paste Address]"
-    | 'ARGS_COPY_AMOUNT' // "Copy Trade 0x..." -> "with 0.1 ETH per trade"
+    | 'ARGS_COPY_AMOUNT' // "Copy Trade 0x..." -> "with $100 per trade"
     | 'ARGS_COPY_CONFIG' // "with 0.1..." -> "Auto Sell: ON, TP/SL..."
     | 'ARGS_CHECK_TARGET' // "Check " -> "Check [Paste Address]"
     | 'ARGS_CHECK_OPTION' // "Check 0x..." -> "PNL 7D / Risk / ..."
@@ -670,16 +670,12 @@ export class SuggestionEngine {
     private static getCopyAmountSuggestions(text: string): MatchResult[] {
         // text: "Copy Trade 0x..."
         const trimmed = text.trim();
-        const { amount: defaultAmount } = this.getUserDefaultSettings();
 
         const results: MatchResult[] = [];
-        const amounts = [defaultAmount, '0.5', '1', '5'];
+        const amounts = ['$50', '$100', '$200', '$500'];
 
-        // Ensure unique
-        const uniqueAmounts = Array.from(new Set(amounts));
-
-        uniqueAmounts.forEach((amt, idx) => {
-            const suffix = ` with ${amt} ETH per trade`;
+        amounts.forEach((amt, idx) => {
+            const suffix = ` with ${amt} per trade`;
             results.push({
                 id: `copy-amt-${idx}`,
                 label: `${trimmed}${suffix}`,
@@ -693,8 +689,8 @@ export class SuggestionEngine {
     }
 
     private static getCopyConfigSuggestions(text: string): MatchResult[] {
-        // text: "... with 0.1 ETH per trade"
-        // Suggest Auto Sell / TP / SL
+        // text: "... with $100 per trade"
+        // Suggest Auto Sell / TP / SL / Min Trade
         const results: MatchResult[] = [];
 
         // Option 1: Auto Sell Default
@@ -722,9 +718,26 @@ export class SuggestionEngine {
             id: 'copy-conf-tpsl',
             label: 'Set TP: 50%, SL: 20%',
             displayText: 'Set TP: 50%, SL: 20%',
-            actionText: `${text}, TP: 50%, SL: 20%`, // Example default
+            actionText: `${text}, TP: 50%, SL: 20%`,
             score: 900,
             type: 'progressive'
+        });
+
+        // Option 4: Min Trade threshold (only track target trades above this USD value)
+        const minTradeOptions = [
+            { label: 'Min Trade: $100', value: '$100' },
+            { label: 'Min Trade: $500', value: '$500' },
+            { label: 'Min Trade: $1000', value: '$1000' },
+        ];
+        minTradeOptions.forEach((opt, idx) => {
+            results.push({
+                id: `copy-conf-mintrade-${idx}`,
+                label: opt.label,
+                displayText: opt.label,
+                actionText: `${text}, Min Trade: ${opt.value}`,
+                score: 880 - (idx * 10),
+                type: 'progressive'
+            });
         });
 
         return results;
@@ -1067,8 +1080,8 @@ export class SuggestionEngine {
                 return this.hasAddress(lower);
 
             case 'ARGS_COPY_AMOUNT':
-                // Matches "with 0.1 eth"
-                return lower.includes('with ') && /\d+(\.\d+)?/.test(lower);
+                // Matches "with $100" or "with 0.1 eth"
+                return lower.includes('with ') && /\$?\d+(\.\d+)?/.test(lower);
 
             case 'ARGS_COPY_CONFIG':
                 // Persistence: Only satisfied if it has BOTH Auto Sell and some form of TP/SL

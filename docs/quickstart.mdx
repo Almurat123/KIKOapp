@@ -1,64 +1,89 @@
 ---
-title: 'Quick Start'
-description: 'From 0 to 1: Start your AI wallet journey'
+title: 'Quickstart'
+description: 'Start your KiKo journey in three steps'
 ---
 
-Welcome to KiKo! This guide covers the quick start flow that is currently implemented and directly usable.
-
 <Steps>
-  <Step title="1) Sign in (Create your KiKo wallet)">
-    KiKo uses **Privy** for authentication. Supported methods:
+  <Step title="Login and Create Wallet">
+    KiKo supports multiple login methods: **Google**, **Farcaster**, **Email**, and **Twitter (X)**.
 
-    - **Google Sign-in**
-    - **Farcaster Sign-in**
-    - **Passkey** (Face ID / Touch ID / Windows Hello, etc.)
+    KiKo uses [**Privy**](https://docs.privy.io) for wallet creation and key management. After logging in, a dedicated non-custodial wallet will be automatically generated for you.
 
-    After sign-in, the system automatically creates an **Embedded Wallet** for you—no seed phrase to remember.
+    <Info>
+      **Your wallet always belongs to you.** Privy provides HSM-level encryption for private keys. Even if KiKo stops providing services, your wallet remains secure on Privy's servers and **cannot be lost**. You can export your private key at any time:
+      - Export from the KiKo **Settings page**.
+      - Visit the [Privy Website](https://privy.io) to access and export via linked apps.
+
+      **KiKo has no right to access your private keys or any account information.**
+    </Info>
+
+    Your account includes two wallet types:
+
+    | Network | Description |
+    |---------|-------------|
+    | **EVM** | Supports Base, Ethereum, and other EVM-compatible chains. |
+    | **Solana** | A separate Solana wallet address. |
   </Step>
 
-  <Step title="2) Fund your wallet (Start with Base)">
-    To complete your first trade, fund your KiKo wallet (or ensure it already has funds).
+  <Step title="Fund Your Wallet">
+    Top up your wallet to start trading. We recommend using the **Base network** for its extremely low gas fees.
 
-    - **Base (recommended)**: Low gas, beginner-friendly
-    - **Ethereum**: Gas may be higher
-    - **Solana**: Any trade requires **SOL** for fees (keep at least **0.005 SOL**)
+    | Network | Minimum Recommended Balance |
+    |---------|-----------------------------|
+    | Base / Ethereum | Small amount of ETH for gas |
+    | Solana | At least **0.005 SOL** for fees |
 
-    <Tip>
-      Not sure how? Just ask: "Which chains do I have balance on? Give me my deposit address."
-    </Tip>
+    You can fund your wallet via exchange withdrawals, cross-chain bridges, or direct purchases. If you have questions, just tell KiKo in the chat, and the AI will guide you through the process.
   </Step>
 
-  <Step title="3) Run a query (Verify you're ready)">
-    In the chat, try:
+  <Step title="Let AI Guide Your Setup">
+    Once ready, simply talk to the AI in the chat. It will guide you through all personalized configurations, including:
 
-    - "Show me my wallet balance"
-    - "What's the price of ETH?"
-    - "Top 5 tokens by volume on Base?"
-  </Step>
+    - **User Preferences**: Slippage, gas priority, default chain, etc.
+    - **Copy Trading Settings**: Target addresses, amount limits, filters.
+    - **Price Alerts**: Set target prices for automatic notifications.
+    - **Authorize Auto-Trading**: Enable the Agent to execute trades automatically under specific conditions.
+    - **Polymarket**: Enable and participate in on-chain prediction markets.
 
-  <Step title="4) Make your first small Swap (Start small)">
-    Enter your trade intent directly, e.g.:
-
-    - "Buy ETH with 20 USDC"
-    - "On Base, buy DEGEN with 50 USDC"
-
-    The system shows a trade card for you to review (price, slippage, price impact, risk notice). Depending on your settings and execution mode, you may need to confirm manually, or it may execute directly with Fast Swap Mode enabled.
-  </Step>
-
-  <Step title="5) Scan unfamiliar tokens before trading">
-    Before trading, send the address:
-
-    - "Is this token safe? 0x..."
-    - "Scan this token for risks before buying: 0x..."
+    > For example: Simply say _"Help me set up copy trading"_ or _"Set an alert for ETH price"_, and the AI will guide you step-by-step.
   </Step>
 </Steps>
 
-<Warning>
-  KiKo does not provide investment advice. Crypto assets are volatile—only invest what you can afford to lose.
-</Warning>
+---
 
-Next steps:
-- [Getting Started (full guide)](/user-guides/getting-started)
-- [Swap Trading](/user-guides/swap-trading)
-- [Copy Trading](/user-guides/copy-trading)
-- [Risk & Security](/user-guides/risk-and-security)
+## What You Can Do
+
+### Research
+
+Query market information, wallet data, or on-chain status using natural language.
+
+![Research Example](/images/quickstart/Whayyoucando.png)
+
+---
+
+### Swap Trading
+
+Describe your trading intent directly, and the AI will handle routing and execution.
+
+![Swap Example](/images/quickstart/swap.png)
+
+---
+
+### Risk Scanning
+
+Scan token contract security before buying to identify honeypots, rugs, and other traps.
+
+![Risk Scan Example](/images/quickstart/checkrisk.png)
+
+---
+
+### Copy Trading
+
+Automatically mirror the on-chain trading behavior of specified wallets.
+
+![Copy Trading Example](/images/quickstart/copytrade.png)
+
+---
+
+For detailed feature guides, see [Swap Trading](/user-guides/swap-trading) · [Copy Trading](/user-guides/copy-trading) · [Risk Scanning](/user-guides/risk-and-security) · [Market Intelligence](/user-guides/research)
+

@@ -2793,7 +2793,7 @@ Do NOT estimate or guess USD values.`;
                             userSettings: {
                                 swapMethod: 'allowance_trade', // CRITICAL: Fast swap = allowance trade mode
                                 fastSwapMode: true,
-                                mevProtection: false
+                                mevProtection: true
                             }
                         });
                     } catch (err: any) {

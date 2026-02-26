@@ -146,9 +146,7 @@ async function getBestQuoteInternal(params: BestQuoteParams): Promise<{ best: Qu
     const feeContext = String(params.feeContext || '').toLowerCase();
     const isCopytradeFeeContext = feeContext === 'copytrade' || feeContext === 'copy_trade';
     const isCopytradeBuy = isCopytradeFeeContext && !params.isSell;
-    const TURBO_ZEROEX_WAIT_MS = Math.max(80, Number(process.env.QUOTE_TURBO_ZEROEX_WAIT_MS || 700));
-    const TURBO_GRACE_WAIT_MS = Math.max(0, Number(process.env.QUOTE_TURBO_GRACE_WAIT_MS || 180));
-    const TURBO_TOTAL_WAIT_MS = Math.max(TURBO_ZEROEX_WAIT_MS, Number(process.env.QUOTE_TURBO_TOTAL_WAIT_MS || 1600));
+    const TURBO_TOTAL_WAIT_MS = Math.max(100, Number(process.env.QUOTE_TURBO_TOTAL_WAIT_MS || 1600));
 
     // Helper to calc price impact vs market
     const calcImpactVsMkt = (amountOutHuman: number): number | null => {
@@ -331,33 +329,22 @@ async function getBestQuoteInternal(params: BestQuoteParams): Promise<{ best: Qu
                 gotKyber: Boolean(kyberSell)
             });
         } else {
-            const zeroExFast = await withTimeout(zeroExPromise, TURBO_ZEROEX_WAIT_MS);
-            if (zeroExFast) {
-                quotes.push(zeroExFast);
-                const kyberGrace = await withTimeout(kyberPromise, TURBO_GRACE_WAIT_MS);
-                if (kyberGrace) quotes.push(kyberGrace);
-                console.log('[QuoteService] Turbo quote mode fast-return', {
-                    picked: '0x_fast',
-                    elapsedMs: Date.now() - startMs,
-                    graceWaitMs: TURBO_GRACE_WAIT_MS,
-                    chainId: params.chainId,
-                    copytradeBuy: isCopytradeBuy
-                });
-            } else {
-                const remaining = Math.max(0, TURBO_TOTAL_WAIT_MS - (Date.now() - startMs));
-                const [zeroExSlow, kyberSlow] = await Promise.all([
-                    withTimeout(zeroExPromise, remaining),
-                    withTimeout(kyberPromise, remaining)
-                ]);
-                if (zeroExSlow) quotes.push(zeroExSlow);
-                if (kyberSlow) quotes.push(kyberSlow);
-                console.log('[QuoteService] Turbo quote mode fallback-wait', {
-                    elapsedMs: Date.now() - startMs,
-                    totalWaitMs: TURBO_TOTAL_WAIT_MS,
-                    chainId: params.chainId,
-                    copytradeBuy: isCopytradeBuy
-                });
-            }
+            // Turbo buy: still parallel, but no first-arrival bias.
+            // Wait within a bounded window and compare all returned quotes.
+            const [zeroExBuy, kyberBuy] = await Promise.all([
+                withTimeout(zeroExPromise, TURBO_TOTAL_WAIT_MS),
+                withTimeout(kyberPromise, TURBO_TOTAL_WAIT_MS)
+            ]);
+            if (zeroExBuy) quotes.push(zeroExBuy);
+            if (kyberBuy) quotes.push(kyberBuy);
+            console.log('[QuoteService] Turbo buy dual-quote window resolved', {
+                elapsedMs: Date.now() - startMs,
+                totalWaitMs: TURBO_TOTAL_WAIT_MS,
+                chainId: params.chainId,
+                copytradeBuy: isCopytradeBuy,
+                got0x: Boolean(zeroExBuy),
+                gotKyber: Boolean(kyberBuy)
+            });
         }
     } else {
         // Standard mode keeps full quote race semantics.

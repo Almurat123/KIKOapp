@@ -374,6 +374,10 @@ function isSourceReplayEligibleInput(sourceTxInput?: string): boolean {
         '0x3593564c', // UR execute
         '0x24856bc3', // Aerodrome route
         '0xcae6a6b3', // custom target router path seen in production
+        '0x0f27c5c1', // custom router family
+        '0xd1ee211d', // custom router family
+        '0x2213bc0b', // custom router family
+        '0x784e2685', // custom router family
         '0x12aa3caf', // 0x transformERC20
         '0x1fff991f', // 0x allowance-holder swap
         '0x414bf389', // v4 swap exact in variant
@@ -2363,7 +2367,10 @@ async function processSingleUserBuy(
                         mode: 'copytrade',
                         feeBpsOverride: copyTradeFeeBpsOverride,
                         directSwapHint: buildDirectSwapHintFromSwap(swap),
-                        executionContext: plannedStep1.executionContext,
+                        executionContext: {
+                            ...plannedStep1.executionContext,
+                            executionStep: 'buy_step_1'
+                        },
                         executionPlan: plannedStep1.executionPlan,
                         userSettings: {
                             fastSwapMode: fastSwapOverride || userSettings?.fastSwapMode,
@@ -2465,7 +2472,10 @@ async function processSingleUserBuy(
                                 mode: 'copytrade',
                                 feeBpsOverride: copyTradeFeeBpsOverride,
                                 directSwapHint: buildDirectSwapHintFromSwap(swap),
-                                executionContext: plannedStep2.executionContext,
+                                executionContext: {
+                                    ...plannedStep2.executionContext,
+                                    executionStep: 'buy_step_2'
+                                },
                                 executionPlan: plannedStep2.executionPlan,
                                 userSettings: {
                                     fastSwapMode: fastSwapOverride || userSettings?.fastSwapMode,
@@ -2512,7 +2522,10 @@ async function processSingleUserBuy(
                                     mode: 'copytrade',
                                     feeBpsOverride: copyTradeFeeBpsOverride,
                                     directSwapHint: buildDirectSwapHintFromSwap(swap),
-                                    executionContext: plannedStep3.executionContext,
+                                    executionContext: {
+                                        ...plannedStep3.executionContext,
+                                        executionStep: 'buy_step_3'
+                                    },
                                     executionPlan: plannedStep3.executionPlan,
                                     userSettings: {
                                         fastSwapMode: fastSwapOverride || userSettings?.fastSwapMode,
@@ -3045,7 +3058,10 @@ async function executePositionExit(params: {
                     slippageBps,
                     mode: 'copytrade',
                     requireConfirmedTx: true, // Sell must confirm on-chain before closing position
-                    executionContext: planned.executionContext,
+                    executionContext: {
+                        ...planned.executionContext,
+                        executionStep: `sell_${route}`
+                    },
                     executionPlan: planned.executionPlan,
                     userSettings: {
                         fastSwapMode,
@@ -3246,7 +3262,10 @@ async function executePositionExit(params: {
                             chainId: chainId,
                             slippageBps: 2000, // Higher slippage for dust sweep (20%)
                             mode: 'copytrade',
-                            executionContext: plannedDust.executionContext,
+                            executionContext: {
+                                ...plannedDust.executionContext,
+                                executionStep: 'sell_dust_sweep'
+                            },
                             executionPlan: plannedDust.executionPlan,
                             userSettings: {
                                 fastSwapMode: fastSwapModeForSell,

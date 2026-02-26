@@ -3,35 +3,181 @@ title: 'Copy Trading'
 description: '自动复制指定钱包的交易'
 ---
 
+Copy Trading 是 KiKo 的全自动跟单系统。设置完成后，系统在后台 24 小时监听目标钱包，一旦检测到买入或卖出，立即自动执行你的跟单操作。
+
+<Warning>
+  使用 Copy Trading 前请确认你已充分了解链上交易风险。我们强烈建议你在创建每一个跟单前，先与 KiKo 进行深入分析，了解目标钱包的交易频率、胜率与历史表现。这是你应知并做到的基本义务。
+</Warning>
+
+---
+
+## 前置条件
+
+### 1. 阅读法律条款
+
+创建跟单前，请确认你已阅读并同意 KiKo 的[服务条款](/zh-Hans/compliance/terms-of-service)中关于自动交易的相关条款。
+
+### 2. 开启 Auto Trading 授权
+
+Copy Trading 需要你在**钱包设置页面**对 [Privy](https://privy.io) 完成 **Session Signer 授权**，KiKo 才能通过 Privy 的代签名机制在无需你手动确认的情况下自动执行交易。
+
+<img src="/images/copy-trading/risk-and-security-habits.png" alt="Auto Trading Authorization" />
+
+<Info>
+  Privy Session Signer 的工作原理：你授权一个有限权限的签名密钥，该密钥只能在你设定的条件下代为签名，随时可在设置页面撤销。详见 [Privy 官方文档](https://docs.privy.io)。
+</Info>
+
+---
+
+## 寻找目标钱包（聪明钱）
+
+在创建跟单之前，你需要找到值得跟随的目标钱包地址。以下是几种常用途径：
+
+**第三方平台**
+
+你可以在以下平台发现活跃的聪明钱包：
+- [GMGN](https://gmgn.ai) — 专注链上聪明钱追踪
+- [Cielo](https://cielo.finance) — 钱包盈亏与交易分析
+- [Interface](https://www.interface.social) — 链上社交与聪明钱发现
+- [Share](https://about.share.xyz) — 社交驱动的链上情报平台
+- [Clicker](https://clicker.xyz) — 链上 KOL 与聪明钱追踪
+
+**通过 KiKo 直接发现**
+
+你可以直接让 KiKo 帮你找到聪明钱：
+
+- `"找出 $MEME 的最早买家都是谁"`——定位某代币的早期买家地址
+
+{/* TODO: 截图 — KiKo 返回早期买家列表的对话截图 */}
+
+你也可以指定时间范围，例如：`"找出 2026-01-01 之后第一批买入 0x... 的钱包"`
+
+---
+
+## 分析目标钱包
+
+找到候选钱包后，**务必先进行分析**，再决定是否跟单：
+
+```
+分析钱包 0x... 最近 30 天的交易胜率和盈亏
+```
+
+KiKo 会返回该钱包的：
+- 交易胜率（Win Rate）
+- 已实现盈亏（Realized PnL）
+- 买入 / 卖出次数与规模
+- 交易频率
+
+{/* TODO: 截图 — 钱包分析结果卡片 */}
+
+根据分析结果综合判断，建议选择 **7D / 30D 胜率 > 60%** 且近期仍活跃的钱包。
+
+---
+
 ## 创建跟单
 
-输入指令，例如：
-- `"复制钱包 0x...，每次买入 100 USDC"`
-- `"跟随 0x...，买入 50 USDC，止盈 50%，止损 20%"`
+### 快速创建
 
-系统会显示配置卡片，确认后开始运行。
+在输入框中输入 `Copy Trade` 前缀，系统会自动弹出推荐指令模板，点击即可填充目标钱包地址、网络与起始金额等参数。
 
-## 参数
+{/* TODO: 截图 — 输入 "Copy Trade" 后弹出的建议前缀卡片 */}
 
-**必填**：目标钱包地址、每次买入金额（USD）。
+### 完整指令示例
 
-**可选**：链（不指定则按地址格式推断，0x→Base，Base58→Solana）、止盈/止损比例、最小交易金额、最大滑点、镜像卖出（目标卖出时是否跟卖，默认开启）。
+```
+复制钱包 0x...，每次买入 100 USDC，止盈 50%，止损 20%
+```
 
-## 安全设置
+```
+跟随 0x...，在 Base 链上每次买入 50 USDC，开启镜像卖出，最小目标买入金额 500 美元
+```
 
-- **重复买入冷却**：同一代币的最小买入间隔（分钟）
-- **最小市值 / 流动性 / 目标买入价值**：过滤低质量交易
+---
 
-## 流程
+## 参数说明
 
-监听目标钱包 → 检测买入/卖出 → 满足条件则执行跟单 → 止盈/止损触发时自动卖出。跟单买入时会进行风险检查，高风险代币可能被阻止。
+### 核心参数 (Core Trading Parameters)
 
-## 管理
+<img src="/images/copy-trading/core-parameters.png" alt="Core Trading Parameters" />
 
-- 查看：`"查看我的跟单列表"`
-- 暂停：`"暂停跟单 0x..."`
-- 恢复：`"恢复跟单 0x..."`
-- 删除：`"删除跟单 0x..."`
-- 修改：`"修改跟单 0x...，买入金额改为 150 USDC"`
+| 参数 | 说明 |
+|------|------|
+| **目标钱包地址** | 你要跟随的钱包地址 |
+| **每次买入金额 (My Buy Amount)** | 每笔跟单使用的金额（USD 等值的网络原生代币） |
+| **起始金额 (Min Follow Amount)** | 目标钱包单笔买入的最低 USD 金额，低于此值不跟单 |
+| **冷静时间 (Repeat Buy Cooldown)** | 同一代币两次跟单之间的最短间隔（分钟），防止反复被打入同一代币 |
 
-同一目标钱包（同链）只能有一个跟单配置。每次跟单需支付 Gas，注意资金与时间差风险。选择目标钱包前建议查看其交易记录与盈亏。
+<Tip>
+  **起始金额（Min Follow Amount）** 是过滤低质量信号的核心参数。如果你不设置，目标钱包的每一笔小额测试交易都会触发跟单。建议根据你跟随钱包的交易规模设置合理阈值（如 $500）。
+</Tip>
+
+### 安全与速度过滤 (Safety & Speed Filters)
+
+<img src="/images/copy-trading/safety-filters.png" alt="Safety and Speed Filters" />
+
+| 参数 | 说明 |
+|------|------|
+| **最小市值 (Min Market Cap)** | 过滤低市值代币 |
+| **最小流动性 (Min Liquidity)** | 过滤低流动性代币 |
+| **执行模式 (Execution Mode)** | Safe（安全）、Normal（普通）、Turbo（极速）。Turbo 模式会跳过市值和流动性检查以追求最低延迟。 |
+
+### 风险与退出管理 (Risk & Exit Governance)
+
+<img src="/images/copy-trading/risk-exit.png" alt="Risk and Exit Governance" />
+
+| 参数 | 说明 |
+|------|------|
+| **镜像卖出 (Mirror Sell Mode)** | 目标钱包卖出时按相同比例跟卖（如 Target 卖 25%，你也卖 25%） |
+| **止盈 (Take Profit)** | 达到设定涨幅后自动卖出 |
+| **止损 (Stop Loss)** | 达到设定跌幅后自动卖出 |
+
+<img src="/images/copy-trading/dynamic-tp.png" alt="Dynamic Take Profit" />
+
+| 参数 | 说明 |
+|------|------|
+| **动态止盈 (Dynamic Take Profit)** | 基于 ATR 算法的高级追踪止损，在利润达到设定阈值后激活，最大化捕捉利润。 |
+
+---
+
+## 支持的网络
+
+| 网络 | 支持状态 |
+|------|---------|
+| Solana | ✅ |
+| Ethereum | ✅ |
+| Base | ✅ |
+| BSC | ✅ |
+| 更多网络 | 持续开放中 |
+
+---
+
+## 订单管理
+
+跟单创建成功后，可在 **Trade 页面**查看订单卡片，卡片上方显示目标钱包的 Tx 信息。
+
+<img src="/images/copy-trading/auto-trading-auth.png" alt="Trade Card" />
+
+**通过界面操作**
+- **暂停** — 点击卡片上的暂停按钮，订单暂时停止监听
+- **删除** — 点击删除按钮，永久移除该订单
+
+**通过对话操作**
+- `"查看我的跟单列表"`
+- `"暂停跟单 0x..."`
+- `"恢复跟单 0x..."`
+- `"删除跟单 0x..."`
+- `"修改跟单 0x...，买入金额改为 150 USDC"`
+
+---
+
+## 数据安全与订单所有权
+
+<img src="/images/copy-trading/trade-card.png" alt="Data Security and Order Ownership" width="200" />
+
+订单创建后归属于你的账户，**KiKo 无权主动修改或删除你的订单**。每一次修改操作均需通过 Privy 签名验证，确认是你本人的操作。
+
+你的订单数据安全存储在 KiKo 数据库中，除非遭遇服务器攻击或其他不可抗因素，否则数据不会被篡改。只有你本人可以更改订单内容。
+
+<Warning>
+  同一目标钱包（同链）只能有一个跟单配置。每次跟单执行需支付 Gas 费，请确保钱包余额充足。跟单存在时间差风险，你的成交价可能与目标钱包存在偏差。
+</Warning>

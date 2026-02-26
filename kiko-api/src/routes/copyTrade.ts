@@ -319,7 +319,7 @@ export default async function copyTradeRoutes(fastify: FastifyInstance) {
      * DELETE /api/copy-trade/config/:id
      * Delete a copy trade configuration
      */
-    fastify.delete<{ Params: { id: string } }>('/config/:id', { preHandler: requireEndUserAuth }, async (request, reply) => {
+    fastify.delete<{ Params: { id: string }; Body: CreateConfigBody }>('/config/:id', { preHandler: requireEndUserAuth }, async (request, reply) => {
         const userId = (request as any).user?.sub;
         if (!userId) {
             console.warn('[CopyTrade] DELETE /config - Unauthorized request');
@@ -329,6 +329,13 @@ export default async function copyTradeRoutes(fastify: FastifyInstance) {
         console.log(`[CopyTrade] DELETE /config/${request.params.id} - Request from ${userId}`);
 
         const { id } = request.params;
+        const { signedPayload, signature, signerAddress, nonce, expiresAt } = request.body || ({} as CreateConfigBody);
+        if (!signedPayload || !signature || !signerAddress || !Number.isInteger(Number(nonce))) {
+            return reply.status(400).send({ error: 'signedPayload, signature, signerAddress, nonce are required' });
+        }
+        if (expiresAt === undefined || expiresAt === null) {
+            return reply.status(400).send({ error: 'expiresAt is required' });
+        }
 
         try {
             // Find user
@@ -349,23 +356,47 @@ export default async function copyTradeRoutes(fastify: FastifyInstance) {
                 return reply.status(404).send({ error: 'Config not found' });
             }
 
-            // Delete config
-            await prisma.copyTradeConfig.delete({
-                where: { id },
+            const verifyResult = verifyCopyTradeConfigSignature({
+                signedPayload,
+                signature,
+                signerAddress,
+                userId,
+                expectedAction: 'delete',
+                expectedConfigId: id,
+                currentNonce: Number(config.signedNonce || 0),
+                userWalletAddress: user.walletAddress,
             });
+            const payload = verifyResult.payload;
+            if (Number(nonce) !== payload.nonce) {
+                return reply.status(400).send({ error: 'nonce mismatch with signedPayload', code: 'SIGNATURE_INVALID' });
+            }
+            if (Number(expiresAt) !== payload.expiresAtMs) {
+                return reply.status(400).send({ error: 'expiresAt mismatch with signedPayload', code: 'SIGNATURE_INVALID' });
+            }
 
-            // Decrement tracked wallet counter (composite key)
-            await prisma.trackedWallet.update({
-                where: {
-                    address_chainId: {
-                        address: config.targetWallet,
-                        chainId: config.chainId
-                    }
-                },
-                data: {
-                    activeConfigs: { decrement: 1 },
-                },
-            }).catch(e => console.warn('[CopyTrade] Could not decrement tracked wallet:', e.message));
+            await prisma.$transaction(async (tx) => {
+                // Defensive cleanup for environments with legacy FK constraints.
+                await tx.copyTradeAnalysis.deleteMany({ where: { configId: id } });
+                await tx.position.deleteMany({ where: { configId: id } });
+
+                // Delete config
+                await tx.copyTradeConfig.delete({
+                    where: { id },
+                });
+
+                // Decrement tracked wallet counter (composite key)
+                await tx.trackedWallet.update({
+                    where: {
+                        address_chainId: {
+                            address: config.targetWallet,
+                            chainId: config.chainId
+                        }
+                    },
+                    data: {
+                        activeConfigs: { decrement: 1 },
+                    },
+                }).catch(e => console.warn('[CopyTrade] Could not decrement tracked wallet:', e.message));
+            });
 
             console.log('[CopyTrade] Deleted config:', id);
 
@@ -378,20 +409,24 @@ export default async function copyTradeRoutes(fastify: FastifyInstance) {
                     console.warn('[CopyTrade] Failed to remove from Alchemy webhook:', err.message);
                 });
                 const chain = chainIdToWalletTxChain(config.chainId);
-                const txDeleteResult = await prisma.walletTransaction.deleteMany({
-                    where: {
-                        walletAddress: normalizeAddress(config.targetWallet),
-                        OR: [
-                            { chainId: config.chainId },
-                            { chainId: null, chain },
-                        ],
-                    },
-                });
-                console.log('[CopyTrade] Removed wallet tx history for deleted target', {
-                    targetWallet: config.targetWallet,
-                    chainId: config.chainId,
-                    deletedRows: txDeleteResult.count,
-                });
+                try {
+                    const txDeleteResult = await prisma.walletTransaction.deleteMany({
+                        where: {
+                            walletAddress: normalizeAddress(config.targetWallet),
+                            OR: [
+                                { chainId: config.chainId },
+                                { chainId: null, chain },
+                            ],
+                        },
+                    });
+                    console.log('[CopyTrade] Removed wallet tx history for deleted target', {
+                        targetWallet: config.targetWallet,
+                        chainId: config.chainId,
+                        deletedRows: txDeleteResult.count,
+                    });
+                } catch (cleanupError: any) {
+                    console.warn('[CopyTrade] Failed to remove wallet tx history for deleted target:', cleanupError?.message || cleanupError);
+                }
             }
 
             return reply.send({ success: true });

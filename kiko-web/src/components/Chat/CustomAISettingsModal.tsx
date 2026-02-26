@@ -37,7 +37,7 @@ interface CustomAISettingsModalProps {
 
 const DEFAULT_SETTINGS: CustomAISettings = {
     // userRole removed
-    defaultSwapAmount: 100,
+    defaultSwapAmount: 0.1,
     defaultSwapUnit: 'native',
     checkTokenBeforeSwap: true,
     showQuoteBeforeSwap: true,
@@ -45,7 +45,7 @@ const DEFAULT_SETTINGS: CustomAISettings = {
     swapMethod: 'allowance_trade',
     // Swap Protection defaults
     slippageMode: 'auto',
-    customSlippage: 0.5,
+    customSlippage: 10,
     mevProtection: true,
     priceDeviationCheck: true,
 

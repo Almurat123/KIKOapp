@@ -1,24 +1,107 @@
 ---
 title: 'Swap 交易'
-description: '发起交易、滑点、Launchpad、授权'
+description: '发起交易、滑点、报价确认、Launchpad、授权'
 ---
 
 ## 使用方式
 
-输入交易指令，例如：`"用 100 USDC 买 ETH"`、`"卖出所有 PEPE"`、`"在 Base 链上用 50 USDC 买 DEGEN"`。系统直接执行，**无确认卡片**（Allowance 模式）。发送前请确认代币、金额与链。
+用自然语言描述你的交易需求，KiKo 会自动识别买卖方向、金额和目标代币。
+
+**示例指令**
+- `"用 100 USDC 买 ETH"`
+- `"卖出我所有的 SOL"`
+- `"在 Base 链上用 50 USDC 买 0x1234...abcd，1% 滑点"`
+
+---
+
+## 代币指定：请使用合约地址
+
+KiKo 默认能够识别的代币名称仅限于**稳定币**（USDC、USDT 等）和**原生代币**（ETH、SOL、BNB 等）。
+
+对于其他 ERC-20 / SPL 代币，请在指令中直接提供**合约地址**而非代币名称。
+
+<Warning>
+  不同链上可能存在大量同名代币。如果只提供名称而不附上合约地址，AI 可能找到错误的代币，**导致资产损失**。请务必复制并粘贴正确的合约地址。
+</Warning>
+
+**正确做法**
+```
+用 50 USDC 买 0xAbCd...1234
+```
+**风险做法（不推荐）**
+```
+用 50 USDC 买 PEPE   ← 可能匹配到错误代币
+```
+
+---
+
+## 交易前报价（Quote）
+
+KiKo 默认在执行前显示本次交易的**预计报价**，包含：
+
+- 你将获得的代币数量与当前价格
+- 滑点容忍度与预计价格影响
+- 手续费估算
+
+你可以在报价显示后与其他平台（如 [DexScreener](https://dexscreener.com)、[CoinGecko](https://coingecko.com)）对比，确认价格合理后再确认执行。
+
+<Info>
+  在[用户设置](/zh-Hans/user-guides/user-settings)中开启**快速交易模式（Fast Swap Mode）**后，报价步骤将被跳过，指令发出后直接执行。适合追求速度的熟练用户，新手建议保持默认开启报价。
+</Info>
+
+---
 
 ## 滑点
 
-默认 0.5%。自定义：在指令中写明，如 `"用 100 USDC 买 ETH，允许 1% 滑点"`。价格影响建议不超过 3%，超过阈值可能被阻止。
+默认滑点由用户设置决定（默认 Auto 模式，范围 0.1%–5%，根据流动性动态调整）。
 
-## 代币授权
+也可以在指令中临时指定，例如：`"用 100 USDC 买 ETH，允许 1% 滑点"`。
 
-首次卖出某 ERC20 时，需授权给交易路由合约（如 0x）。通常为最大授权，后续同一代币无需重复。撤销授权需在钱包或区块浏览器操作，KIKO 不提供撤销功能。
+价格影响建议不超过 3%，超过阈值时系统会发出警告并可能阻止交易。
 
-## Launchpad
+---
 
-支持：**EVM** Clanker、Zora、FourMeme；**Solana** PumpFun、BonkFun。输入代币地址后自动检测并路由。Launchpad 代币流动性低、波动大，需自行评估风险。
+## ERC-20 授权
 
-## Solana
+EVM 链上卖出 ERC-20 代币前，KiKo 需要先完成授权。授权方式取决于交易路由：
 
-需至少 **0.005 SOL** 支付手续费（即使是 USDC 等 SPL 交易）。交易失败提示 "Insufficient SOL for fees" 时，转入更多 SOL 即可。确认时间通常 < 1 秒。
+**0x / Uniswap V4 路由（主路径）**
+
+使用 [Permit2](https://github.com/Uniswap/permit2) 签名授权机制，授权有效期为 **24 小时**。授权以链下签名的形式完成，不会在链上留下永久的 `allowance` 记录，安全性更高。24 小时后授权自动失效，下次交易时会重新授权。
+
+**Launchpad 及其他路由（FourMeme、PancakeSwap 等）**
+
+使用传统 ERC-20 `approve`，授权额度为最大值（Max Approval），链上永久有效。授权完成后，后续同一代币的交易无需重复授权，节省 Gas。
+
+<Warning>
+  Launchpad 路由产生的 Max Approval 会永久保留在链上。如需撤销，可导出私钥到 [Revoke.cash](https://revoke.cash) 等工具手动解除。KiKo 本身不提供授权撤销功能。
+</Warning>
+
+---
+
+## Launchpad 支持
+
+KiKo 能够自动识别代币所属的 Launchpad 平台，并智能路由到对应的合约进行交易。
+
+**支持的 Launchpad**
+
+| 网络 | 平台 |
+|------|------|
+| EVM | [Clanker](https://clanker.world)、[Zora](https://zora.co)、[FourMeme](https://four.meme) |
+| Solana | [PumpFun](https://pump.fun)、[BonkFun](https://bonk.fun) |
+
+你可以直接询问 KiKo：`"这个代币是在哪个 Launchpad 发射的？"`
+
+<Tip>
+  我们推荐优先考虑来自主流 Launchpad 的代币。由于这些平台使用**开源合约**，代币发射规则透明、公平，相较于自部署合约风险更低。代币的 Launchpad 详情可在**代币 (Tokens) 页面**查看。
+</Tip>
+
+---
+
+## Solana 特别说明
+
+Solana 链上的任何交易（包括 USDC 等 SPL 代币 Swap）都需要消耗 SOL 支付网络手续费。
+
+- 建议钱包保持至少 **0.005 SOL** 余额
+- 若提示 `"Insufficient SOL for fees"`，向钱包转入少量 SOL 后重试
+- Solana 交易确认时间通常 **< 1 秒**

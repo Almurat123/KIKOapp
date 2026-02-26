@@ -51,7 +51,9 @@ export const FLAUNCH_HOOKS_BY_CHAIN: Record<number, string[]> = {
         // v4.1
         '0x00000000796b9b0ef0d3ba88e0f72e252eb0f0d4',
         // v4.2
-        '0x0000000008d2d4de69390f08f7f2a95988f52621'
+        '0x0000000008d2d4de69390f08f7f2a95988f52621',
+        // Observed in production swaps (Takeover/NCX/Clawbot pools)
+        '0x23321f11a6d44fd1ab790044fdfde5758c902fdc'
     ]
 };
 

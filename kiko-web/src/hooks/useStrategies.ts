@@ -303,19 +303,55 @@ export const useStrategies = () => {
     const strategy = strategies.find(s => s.id === id);
     if (!strategy) return;
 
-    // Optimistic update
-    const previousStrategies = [...strategies];
-    setStrategies(prev => prev.filter(strat => strat.id !== id));
-
     if (strategy.type === 'copy_trade') {
       try {
-        await deleteConfig(id);
+        const signerWallet = wallets.find((w: any) => w.walletClientType === 'privy' && w.chainId?.includes?.('eip155'))
+          || wallets.find((w: any) => w.chainId?.includes?.('eip155'));
+        const signerAddress = signerWallet?.address || user?.wallet?.address || '';
+        if (!signerWallet || !signerAddress || !user?.id || !strategy.copyTradeConfig) {
+          throw new Error('SIGNATURE_REQUIRED: EVM embedded wallet is required to delete copy trade config');
+        }
+
+        const payload = createCopyTradeSignedPayload({
+          action: 'delete',
+          userId: user.id,
+          signerAddress,
+          nonce: Number(strategy.copyTradeConfig.signedNonce || 0) + 1,
+          configId: id,
+          source: strategy.copyTradeConfig,
+        });
+        const signature = await signCopyTradeConfigIntent({
+          wallet: signerWallet,
+          signerAddress,
+          payload,
+        });
+
+        await deleteConfig(id, {
+          signedPayload: payload as unknown as Record<string, unknown>,
+          signature,
+          signerAddress,
+          nonce: payload.nonce,
+          expiresAt: payload.expiresAtMs,
+        });
+
+        setStrategies(prev => prev.filter(strat => strat.id !== id));
       } catch (error) {
-        setStrategies(previousStrategies);
-        toast.error('Failed to delete strategy. Please try again.');
+        if (error instanceof CopyTradeApiError) {
+          if (error.code === 'SIGNATURE_REQUIRED') toast.error('Signature required. Please sign in your Privy wallet.');
+          else if (error.code === 'SIGNATURE_INVALID') toast.error('Signature invalid. Please retry signing.');
+          else if (error.code === 'CONFIG_STALE_NONCE') toast.error('Config is stale. Please refresh and retry.');
+          else if (error.code === 'CONFIG_EXPIRED') toast.error('Signature expired. Please sign again.');
+          else toast.error(error.message || 'Failed to delete strategy');
+        } else {
+          toast.error(error instanceof Error ? error.message : 'Failed to delete strategy. Please try again.');
+        }
       }
+      return;
     }
-  }, [strategies]);
+
+    // Non-copy-trade local strategies: remove immediately
+    setStrategies(prev => prev.filter(strat => strat.id !== id));
+  }, [strategies, wallets, user]);
 
   const toggleStrategyStatus = useCallback(async (id: string) => {
     const strategy = strategies.find(s => s.id === id);

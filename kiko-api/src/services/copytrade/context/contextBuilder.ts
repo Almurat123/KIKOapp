@@ -21,6 +21,10 @@ const KNOWN_SWAP_SELECTORS = new Set([
   '0x18cbafe5',
   '0x38ed1739',
   '0x12aa3caf',
+  '0x0f27c5c1',
+  '0xd1ee211d',
+  '0x2213bc0b',
+  '0x784e2685',
   '0xe21fd0e9'
 ]);
 

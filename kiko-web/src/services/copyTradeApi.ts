@@ -200,12 +200,13 @@ export const createConfig = async (
 /**
  * Delete a configuration
  */
-export const deleteConfig = async (id: string): Promise<void> => {
+export const deleteConfig = async (id: string, signed: CopyTradeSignedEnvelope): Promise<void> => {
     try {
         const headers = await getHeaders();
         const response = await fetch(`${API_BASE_URL}/config/${id}`, {
             method: 'DELETE',
-            headers
+            headers,
+            body: JSON.stringify(signed)
         });
 
         if (!response.ok) {

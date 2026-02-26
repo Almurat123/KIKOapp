@@ -1,8 +1,130 @@
 ---
 title: 'Risk & Security'
-description: 'Risk levels and security mechanisms'
+description: 'Token security scanning, risk levels, and automated blocking mechanisms'
 ---
 
+KiKo integrates multiple industry data sources and AI-native analysis capabilities to help you identify risks and avoid losses before you trade.
+
+---
+
+## Token Security Scanning
+
+### How to Trigger
+
+You can manually initiate a security scan at any time:
+
+- `"Is this token safe? 0x..."`
+- `"Scan the contract for 0x..."`
+
+If **"Check token security before swap"** is enabled in [User Settings](/user-guides/user-settings), the system will automatically scan the target token before every swap execution.
+
+---
+
+### Data Sources
+
+KiKo's security scans involve multi-source integration, including:
+
+- **[GoPlus Security](https://gopluslabs.io)** (Industry-leading security database): Provides on-chain info on honeypots, taxes, ownership, blacklists, contract proxies, etc.
+- **[Honeypot.is](https://honeypot.is)**: Specialized honeypot detection covering major EVM chains.
+- **KiKo Native Analysis**: A local security judgment layer developed using multi-dimensional on-chain data and AI models, covering risk patterns not fully captured by GoPlus or Honeypot.is.
+
+---
+
+### AI Contract Decompilation
+
+Leveraging the code sandbox capabilities of top-tier AI models, KiKo can **decompile and read contract bytecode** during model inference. This identifies hidden risks undetectable by the naked eye or standard tools, such as:
+
+- Hidden backdoor functions
+- Fraudulent logic disguised as normal contracts
+- Asymmetric sell restrictions
+
+You can directly say: `"Help me read this contract 0x... and see if it's safe"`, and the AI will attempt to provide a judgment through contract analysis.
+
+---
+
+### Risk Levels
+
+Scanning results are presented on a 0–100 scale, categorized into three levels:
+
+| Level | Score Range | Recommendation |
+|-------|-------------|----------------|
+| ✅ Safe | 0–30 | Low risk, safe to trade |
+| ⚠️ Medium | 30–70 | Risk exists, proceed with caution |
+| 🚨 High Risk | 70–100 | High risk, recommended to avoid |
+
+**Common Check Items**
+
+| Check Item | Description |
+|------------|-------------|
+| Honeypot | Tokens can be bought but not sold |
+| Fraudulent Logic | Selling is restricted or taxes are extremely high |
+| Buy/Sell Tax | Excessive taxes that eat up most of the profits |
+| Mintable | The contract creator can mint more tokens at any time |
+| Ownership Renounced | Whether the contract has given up ownership (higher security) |
+| Proxy Contract | Logic layer can be replaced at any time |
+| Blacklist/Whitelist | Existence of address restriction mechanisms |
+| Liquidity Locked | Whether LP tokens are locked |
+
+---
+
+## Automated Blocking Mechanisms
+
+In addition to passive scanning, KiKo **proactively blocks trade execution** in the following scenarios:
+
+### 1. Automatic Blocking of Honeypots/High-Risk Contracts
+
+If a token is detected as a honeypot or has an extremely high risk score, the system will block the transaction directly during the natural language swap process and inform you of the reason.
+
+---
+
+### 2. Price Deviation Check
+
+**Scope**: Natural language initiated AI Swaps (excluding Fast Swap mode)
+
+**How it Works**
+
+Before trade execution, the system compares the **simulated quoted price** with market reference prices from [DexScreener](https://dexscreener.com) and [GeckoTerminal](https://geckoterminal.com):
+
+> If the price deviation between the quote and the market reference price exceeds **50%**, the system automatically blocks the trade.
+
+This mechanism effectively prevents capital loss caused by:
+- Price manipulation (Pump & Dump peaks)
+- Extreme slippage due to very thin liquidity
+- Contract anomalies or fake quotes for fraudulent tokens
+
 <Info>
-This page is being expanded. Full content coming soon.
+  You can enable or disable "Price Deviation Check" in [User Settings](/user-guides/user-settings). If disabled, trades are not subject to this constraint but also lose this protection.
 </Info>
+
+---
+
+### 3. Copy Trading Price Deviation Protection
+
+**Scope**: Copy Trading buy orders
+
+Copy Trade has its own independent price deviation detection logic:
+
+The system calculates the ratio between the target wallet's **actual execution price** and the current Oracle price:
+
+> If the actual price paid by the target wallet exceeds the Oracle reference price by more than **3x (300%)**, the copy trade is automatically cancelled.
+
+This prevents following trades at "abnormal pump peaks," where the target wallet may have bought under extreme liquidity conditions, leading to an immediate loss upon copying. You will receive a notification via Farcaster explaining the reason for the skipped trade.
+
+---
+
+## Recommended Habits
+
+<CardGroup cols={2}>
+  <Card title="Use Contract Addresses, Not Names" icon="search">
+    Avoid buying fake tokens with the same name; always use the contract address.
+  </Card>
+  <Card title="Keep 'Auto-scan' Enabled" icon="shield-check">
+    Enabled by default; let AI actively block high-risk tokens before every swap.
+  </Card>
+  <Card title="Stay Alert to Quote Anomalies" icon="triangle-alert">
+    If the AI warns of a large price deviation, verify before proceeding.
+  </Card>
+  <Card title="Revoke Unnecessary Approvals" icon="key">
+    Periodically clean up on-chain token approvals using [Revoke.cash](https://revoke.cash).
+  </Card>
+</CardGroup>

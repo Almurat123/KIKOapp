@@ -68,6 +68,7 @@ export interface SwapParams {
     preferPermit2?: boolean; // Internal: force non-permit2 quote path on retry
     permit2ExecutionFallbackTried?: boolean; // Internal: avoid permit2 fallback loops
     executionMode?: 'safe' | 'normal' | 'turbo';
+    mevProtection?: boolean;
     /** Pre-warmed nonce promise (copy-trade path); when set, used for the swap tx to save one RPC round-trip. */
     preWarmedNonce?: Promise<string | undefined>;
     launchpadProvider?: 'pumpfun' | 'pumpswap' | 'bonkfun' | 'zora' | 'fourmeme' | 'flap' | 'clanker' | 'virtuals' | 'doppler' | 'flaunch' | 'creatorbid';
@@ -920,6 +921,7 @@ export class SwapExecutor {
                 maxFeePerGas: maxFeePerGasCap?.toString(),
                 maxPriorityFeePerGas: maxPriorityFeeCap?.toString(),
                 txPurpose: 'trade',
+                mevProtection: params.mevProtection === true,
                 ...(executionProfile ? { executionProfile } : {}),
                 ...(preWarmedNonce !== undefined ? { nonce: preWarmedNonce } : {})
             });
@@ -934,6 +936,7 @@ export class SwapExecutor {
                     accessToken: params.accessToken || '',
                     speedUpAfterMs: params.speedUpAfterMs,
                     speedUpBumpBps: params.speedUpBumpBps,
+                    mevProtection: params.mevProtection === true,
                     tx: {
                         to: best.to,
                         data: best.data,
@@ -1368,6 +1371,7 @@ export class SwapExecutor {
         accessToken: string;
         speedUpAfterMs: number;
         speedUpBumpBps?: number;
+        mevProtection?: boolean;
         tx: {
             to: string;
             data: string;
@@ -1386,6 +1390,7 @@ export class SwapExecutor {
             accessToken,
             speedUpAfterMs,
             speedUpBumpBps,
+            mevProtection,
             tx
         } = params;
 
@@ -1465,6 +1470,7 @@ export class SwapExecutor {
                     // Without this, Privy will fetch next pending nonce and create a brand-new tx.
                     nonce: BigInt(nonceHex).toString(),
                     txPurpose: 'speedup',
+                    mevProtection: mevProtection === true,
                     ...(speedUpProfile ? { executionProfile: speedUpProfile } : {})
                 });
 

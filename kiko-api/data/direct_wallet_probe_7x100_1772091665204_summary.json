@@ -1,0 +1,96 @@
+{
+  "source": "/Users/almurat/KiKo/kiko-api/data/direct_wallet_probe_7x100_1772091665204.json",
+  "generatedAt": "2026-02-26T07:43:11.561Z",
+  "chainId": 8453,
+  "wallets": [
+    "0xf199e2a67a3862a4d1178c697abb8e76ef7c681b",
+    "0x4f67f52147c6bc03563772fa3d7af3adffb92110",
+    "0x617e326d9b592012874e9a6586e5da4dfd1baa0b",
+    "0x1064bc5406bc61951cb62829e71eb966a012799e",
+    "0xb4beddf1b828aaed9638601f7145b0f6093f2d3f",
+    "0xffed8b8c0dc8d2b378a75542b0a077263990f8ca",
+    "0x77777351928ce19bee8ff5b4b1406bc4c152827a"
+  ],
+  "perWalletLimit": 100,
+  "totals": {
+    "rows": 700,
+    "decoded": 598,
+    "decodedRate": 0.8543,
+    "hintResolved": 566,
+    "replayPath": 560,
+    "simSuccess": 126
+  },
+  "topErrorBuckets": [
+    [
+      "sim_fail:precheck_insufficient_balance",
+      263
+    ],
+    [
+      "sim_fail:execution_reverted",
+      147
+    ],
+    [
+      "ok",
+      126
+    ],
+    [
+      "sim_fail:rpc_timeout",
+      62
+    ]
+  ],
+  "topCommandTypes": [
+    [
+      "source_raw_calldata_replay",
+      509
+    ],
+    [
+      "source_calldata_replay",
+      51
+    ],
+    [
+      "bootstrap",
+      38
+    ]
+  ],
+  "topHintKinds": [
+    [
+      "v4",
+      516
+    ],
+    [
+      "v3",
+      37
+    ],
+    [
+      "none",
+      32
+    ],
+    [
+      "v2",
+      13
+    ]
+  ],
+  "topDrift": [
+    [
+      "adapter_or_logic",
+      311
+    ],
+    [
+      "state_drift",
+      161
+    ],
+    [
+      "no_drift",
+      126
+    ]
+  ],
+  "learningCoverage": {
+    "selectorsSeen": 31,
+    "routersSeen": 46,
+    "draftCountMatched": 0,
+    "activeTemplateCountChain": 0,
+    "contextRowsMatchedByTxHash": 598,
+    "executionSamplesMatchedByTxHash": 598,
+    "draftTop": []
+  }
+}

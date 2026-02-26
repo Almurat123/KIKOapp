@@ -130,15 +130,15 @@ function augmentWithOfflineSignals(address: string, chain: string, warnings: str
     fps.forEach((fp: any) => {
         const hits = fp.selectorsHit || {};
         if (hits.selfdestruct || hits.delegatecall) {
-            warnings.push('🚨 字节码命中 selfdestruct/delegatecall 组合（离线指纹）');
+            warnings.push('🚨 Bytecode hit selfdestruct/delegatecall combo (offline fingerprint)');
             riskScore += 20;
         }
         if (hits.upgradeTo) {
-            warnings.push('⚠️ 字节码含 upgradeTo（可升级代理）');
+            warnings.push('⚠️ Bytecode contains upgradeTo (upgradeable proxy)');
             riskScore += 10;
         }
         if (hits.mint && !hits.burn) {
-            warnings.push('⚠️ 指纹显示可增发（离线指纹）');
+            warnings.push('⚠️ Fingerprint indicates mintable (offline fingerprint)');
             riskScore += 5;
         }
     });
@@ -146,7 +146,7 @@ function augmentWithOfflineSignals(address: string, chain: string, warnings: str
     // Heuristics: fund flows high/critical
     const highFlows = flows.filter((f: any) => f.risk === 'high' || f.risk === 'critical');
     if (highFlows.length > 0) {
-        warnings.push(`⚠️ 资金流检测到高风险路径 ${highFlows.length} 条（离线资金流）`);
+        warnings.push(`⚠️ Fund flow detected ${highFlows.length} high-risk paths (offline fund flow)`);
         riskScore += 10;
     }
 
@@ -154,14 +154,14 @@ function augmentWithOfflineSignals(address: string, chain: string, warnings: str
     const highAlerts = alerts.filter((a: any) => a.severity === 'high' || a.severity === 'critical');
     if (highAlerts.length > 0) {
         const alertTypes = highAlerts.map((a: any) => a.type).join(', ');
-        warnings.push(`🚨 离线运行时检测到 ${highAlerts.length} 条高风险告警: ${alertTypes}`);
+        warnings.push(`🚨 Offline runtime detected ${highAlerts.length} high-risk alerts: ${alertTypes}`);
         riskScore += 15; // Increased weight for high/critical alerts
     }
 
     // Add info/warn alerts for context
     const infoAlerts = alerts.filter((a: any) => a.severity === 'info' || a.severity === 'warn');
     if (infoAlerts.length > 0 && highAlerts.length === 0) {
-        warnings.push(`ℹ️ 离线检测到 ${infoAlerts.length} 条信息告警（如大额转账、销毁事件等）`);
+        warnings.push(`ℹ️ Offline detected ${infoAlerts.length} info alerts (e.g. large transfers, burn events)`);
     }
 
     return {
@@ -212,7 +212,7 @@ async function augmentWithOnlineSignals(address: string, chain: string, warnings
         if (hit('0x4b5c4271')) riskyHits.push('blacklist');
 
         if (riskyHits.length > 0) {
-            warnings.push(`⚠️ 字节码在线检测命中: ${riskyHits.join(', ')}`);
+            warnings.push(`⚠️ Online bytecode detection hit: ${riskyHits.join(', ')}`);
             riskScore += 10 + riskyHits.length * 2;
         }
 
@@ -228,12 +228,12 @@ async function augmentWithOnlineSignals(address: string, chain: string, warnings
             }
         }
         if (storageVals.some(v => v && v !== '0x' && v !== '0x0')) {
-            warnings.push('📌 存储槽存在非零值（提示存在可配置开关/额度）');
+            warnings.push('📌 Storage slot has non-zero values (indicates configurable switches/allowances)');
         }
 
         return { warnings, riskScore: Math.min(100, riskScore) };
     } catch (e) {
-        warnings.push('ℹ️ 在线字节码检测失败（RPC或权限不足）');
+        warnings.push('ℹ️ Online bytecode detection failed (RPC or permission issues)');
         return { warnings, riskScore };
     }
 }

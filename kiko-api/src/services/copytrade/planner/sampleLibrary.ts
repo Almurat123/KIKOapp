@@ -38,11 +38,22 @@ export interface RecordPlanRunParams {
 export async function recordSuccessSample(params: RecordSuccessSampleParams): Promise<void> {
   try {
     const db = prisma as any;
+    const exists = await db.executionSample.findFirst({
+      where: {
+        chainId: params.chainId,
+        txHash: params.txHash,
+        wallet: params.wallet.toLowerCase(),
+        side: params.side
+      },
+      select: { id: true }
+    });
+    if (exists?.id) return;
+
     await db.executionSample.create({
       data: {
         chainId: params.chainId,
         txHash: params.txHash,
-        wallet: params.wallet,
+        wallet: params.wallet.toLowerCase(),
         side: params.side,
         tokenIn: params.tokenIn.toLowerCase(),
         tokenOut: params.tokenOut.toLowerCase(),

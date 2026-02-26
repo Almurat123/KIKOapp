@@ -6,7 +6,7 @@ import { ExternalWebSearchTool } from '../skills/MarketSkill/index.js';
 import { XSearchTool } from '../skills/MarketSkill/index.js';
 import { PrepareSwapTransactionTool, SimulateSwapTool } from '../skills/SwapSkill/index.js';
 
-import { GetWalletInfoTool } from '../skills/WalletSkill/index.js';
+import { GetWalletInfoTool, SwitchChainTool } from '../skills/WalletSkill/index.js';
 import { GetGasPriceTool } from '../skills/MarketSkill/index.js';
 import { GetTokenPriceTool } from '../skills/TokenSkill/index.js';
 import { GetHistoricalPriceTool } from '../skills/TokenSkill/index.js';
@@ -52,6 +52,7 @@ toolRegistry.register(GetMarketOverviewTool);
 toolRegistry.register(GetEconomicCalendarTool);
 
 toolRegistry.register(GetWalletInfoTool);
+toolRegistry.register(SwitchChainTool);
 toolRegistry.register(GetGasPriceTool);
 toolRegistry.register(GetTokenPriceTool);
 toolRegistry.register(GetHistoricalPriceTool);

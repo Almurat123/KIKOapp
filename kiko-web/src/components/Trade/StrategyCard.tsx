@@ -44,13 +44,9 @@ export const StrategyCard: React.FC<StrategyCardProps> = ({
   const isCopyTrade = strategy.type === 'copy_trade';
   const isPolymarketCopy = strategy.type === 'polymarket_copy';
 
-  if (!isCopyTrade && !isPolymarketCopy) return null;
-
   const copyConfig = isCopyTrade ? strategy.copyTradeConfig : null;
   const polyConfig = isPolymarketCopy ? strategy.polymarketCopyConfig : null;
   const targetWallet = isCopyTrade ? copyConfig?.targetWallet : polyConfig?.targetWallet;
-
-  if (!targetWallet) return null;
 
   const chainInfo = getChainInfo(strategy.chainId);
   const isActive = strategy.status === 'active';
@@ -99,6 +95,9 @@ export const StrategyCard: React.FC<StrategyCardProps> = ({
       cancelled = true;
     };
   }, [isCopyTrade, copyConfig?.id]);
+
+  if (!isCopyTrade && !isPolymarketCopy) return null;
+  if (!targetWallet) return null;
 
   const renderActions = () => (
     <div className={styles.footer}>

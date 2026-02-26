@@ -23,6 +23,8 @@ const RPC_CRITICAL_HEDGE_ENABLED = (process.env.RPC_CRITICAL_HEDGE_ENABLED || 't
 const RPC_CRITICAL_HEDGE_ALLOW_WRITE = (process.env.RPC_CRITICAL_HEDGE_ALLOW_WRITE || 'false') === 'true';
 const RPC_CRITICAL_HEDGE_STAGGER_MS = Number(process.env.RPC_CRITICAL_HEDGE_STAGGER_MS || '60');
 const RPC_CRITICAL_HEDGE_FANOUT = Math.max(2, Math.min(4, Number(process.env.RPC_CRITICAL_HEDGE_FANOUT || '3')));
+const RPC_ETH_CALL_HEDGE_FANOUT = Math.max(2, Math.min(3, Number(process.env.RPC_ETH_CALL_HEDGE_FANOUT || '2')));
+const RPC_FORCE_EXHAUSTIVE_ETH_CALL_CRITICAL = (process.env.RPC_FORCE_EXHAUSTIVE_ETH_CALL_CRITICAL || 'false') === 'true';
 const RPC_MAX_ENDPOINT_ATTEMPTS_NORMAL = Math.max(1, Number(process.env.RPC_MAX_ENDPOINT_ATTEMPTS_NORMAL || '3'));
 const RPC_MAX_ENDPOINT_ATTEMPTS_CRITICAL = Math.max(1, Number(process.env.RPC_MAX_ENDPOINT_ATTEMPTS_CRITICAL || '4'));
 const RPC_MAX_ENDPOINT_ATTEMPTS_WRITE = Math.max(1, Number(process.env.RPC_MAX_ENDPOINT_ATTEMPTS_WRITE || '4'));
@@ -50,6 +52,10 @@ const BENCHMARK_TIMEOUT_MS = 3000;
 const BENCHMARK_CHAIN_ID = 8453;
 const BENCHMARK_TOKEN_ADDRESS = process.env.RPC_BENCH_TOKEN_ADDRESS || '0xf48bC234855aB08ab2EC0cfaaEb2A80D065a3b07';
 const BENCHMARK_DECIMALS_CALL = '0x313ce567'; // decimals()
+const ENDPOINT_METHOD_TIMEOUT_WINDOW_MS = Math.max(5_000, Number(process.env.RPC_ENDPOINT_METHOD_TIMEOUT_WINDOW_MS || '60000'));
+const ENDPOINT_METHOD_TIMEOUT_MIN_ATTEMPTS = Math.max(3, Number(process.env.RPC_ENDPOINT_METHOD_TIMEOUT_MIN_ATTEMPTS || '8'));
+const ENDPOINT_METHOD_TIMEOUT_RATE_THRESHOLD = Math.min(1, Math.max(0, Number(process.env.RPC_ENDPOINT_METHOD_TIMEOUT_RATE_THRESHOLD || '0.3')));
+const ENDPOINT_METHOD_TIMEOUT_COOLDOWN_MS = Math.max(1_000, Number(process.env.RPC_ENDPOINT_METHOD_TIMEOUT_COOLDOWN_MS || '60000'));
 
 // Endpoint health tracking
 interface EndpointHealth {
@@ -302,6 +308,13 @@ interface RpcMethodUsage {
     updatedAt: number;
 }
 
+interface EndpointMethodTimeoutHealth {
+    windowStart: number;
+    attempts: number;
+    timeouts: number;
+    cooldownUntil: number;
+}
+
 interface RpcLimiterState {
     inFlight: number;
     queue: Array<() => void>;
@@ -313,6 +326,7 @@ const inflightRpcRequests = new Map<string, Promise<any>>();
 const inflightRpcRawRequests = new Map<string, Promise<any>>();
 const rawTxHashCache = new Map<string, { txHash: string; timestamp: number }>();
 const rpcMethodUsage = new Map<string, RpcMethodUsage>();
+const endpointMethodTimeoutHealth = new Map<string, EndpointMethodTimeoutHealth>();
 
 function rpcMethodUsageKey(chainId: number, method: string): string {
     return `${chainId}:${method}`;
@@ -346,6 +360,56 @@ function markRpcMethodUsage(
     const row = getOrCreateRpcMethodUsage(chainId, method);
     row[field] += 1;
     row.updatedAt = Date.now();
+}
+
+function endpointMethodHealthKey(endpointUrl: string, method: string): string {
+    return `${endpointUrl}::${method}`;
+}
+
+function getEndpointMethodTimeoutHealth(key: string): EndpointMethodTimeoutHealth {
+    const now = Date.now();
+    let state = endpointMethodTimeoutHealth.get(key);
+    if (!state) {
+        state = { windowStart: now, attempts: 0, timeouts: 0, cooldownUntil: 0 };
+        endpointMethodTimeoutHealth.set(key, state);
+        return state;
+    }
+    if (now - state.windowStart >= ENDPOINT_METHOD_TIMEOUT_WINDOW_MS) {
+        state.windowStart = now;
+        state.attempts = 0;
+        state.timeouts = 0;
+    }
+    if (state.cooldownUntil > 0 && now >= state.cooldownUntil) {
+        state.cooldownUntil = 0;
+    }
+    return state;
+}
+
+function isEndpointMethodTimeoutCooling(key: string): boolean {
+    const state = getEndpointMethodTimeoutHealth(key);
+    return state.cooldownUntil > Date.now();
+}
+
+function markEndpointMethodAttempt(key: string): void {
+    const state = getEndpointMethodTimeoutHealth(key);
+    state.attempts += 1;
+}
+
+function maybeOpenEndpointMethodTimeoutCooldown(key: string): void {
+    const state = getEndpointMethodTimeoutHealth(key);
+    if (state.attempts < ENDPOINT_METHOD_TIMEOUT_MIN_ATTEMPTS) return;
+    const timeoutRate = state.timeouts / Math.max(1, state.attempts);
+    if (timeoutRate < ENDPOINT_METHOD_TIMEOUT_RATE_THRESHOLD) return;
+    state.cooldownUntil = Date.now() + ENDPOINT_METHOD_TIMEOUT_COOLDOWN_MS;
+    state.windowStart = Date.now();
+    state.attempts = 0;
+    state.timeouts = 0;
+}
+
+function markEndpointMethodTimeout(key: string): void {
+    const state = getEndpointMethodTimeoutHealth(key);
+    state.timeouts += 1;
+    maybeOpenEndpointMethodTimeoutCooldown(key);
 }
 
 function isWriteMethod(method: string): boolean {
@@ -486,9 +550,10 @@ function shouldForceExhaustiveFailover(
 ): boolean {
     if (options?.exhaustiveFailover === true) return true;
     // Trade-critical path: exhaust all available endpoints for reliability.
+    // eth_call is latency-sensitive and already uses hedge + capped endpoint budget.
     if (importance !== 'critical') return false;
-    return method === 'eth_call'
-        || method === 'eth_estimateGas'
+    if (method === 'eth_call') return RPC_FORCE_EXHAUSTIVE_ETH_CALL_CRITICAL;
+    return method === 'eth_estimateGas'
         || method === 'eth_sendRawTransaction'
         || method === 'eth_getTransactionByHash'
         || method === 'eth_getTransactionReceipt';
@@ -578,6 +643,7 @@ export async function callRpc<T = any>(
         exhaustiveFailover?: boolean;
         sendRawFanout?: boolean;
         bypassRawTxCache?: boolean;
+        signal?: AbortSignal;
     } = {}
 ): Promise<T> {
     let endpoints: RpcEndpointConfig[] = [];
@@ -690,6 +756,9 @@ export async function callRpc<T = any>(
     }
 
     const runCall = async (): Promise<T> => {
+        if (options.signal?.aborted) {
+            throw new Error('aborted_by_signal');
+        }
         markRpcMethodUsage(chainId, method, 'requests');
 
         const request: RpcRequest = {
@@ -720,11 +789,20 @@ export async function callRpc<T = any>(
         let lastError: Error | null = null;
 
         const runEndpointAttempt = async (endpoint: RpcEndpointConfig, delayMs = 0): Promise<T> => {
+            if (options.signal?.aborted) {
+                throw new Error('aborted_by_signal');
+            }
             if (delayMs > 0) {
                 await new Promise(resolve => setTimeout(resolve, delayMs));
             }
 
+            const endpointMethodKey = endpointMethodHealthKey(endpoint.url, method);
+            if (isEndpointMethodTimeoutCooling(endpointMethodKey)) {
+                throw new Error('endpoint_method_timeout_cooldown');
+            }
+
             markRpcMethodUsage(chainId, method, 'endpointAttempts');
+            markEndpointMethodAttempt(endpointMethodKey);
             if (!txLifecycleCritical && isCircuitOpen(endpoint.url)) {
                 throw new Error('circuit_open');
             }
@@ -738,10 +816,19 @@ export async function callRpc<T = any>(
             }
 
             const startTime = Date.now();
+            let externalAbortListener: (() => void) | null = null;
             try {
                 recordAttempt(endpoint.url);
 
                 const controller = new AbortController();
+                if (options.signal) {
+                    if (options.signal.aborted) {
+                        controller.abort();
+                    } else {
+                        externalAbortListener = () => controller.abort();
+                        options.signal.addEventListener('abort', externalAbortListener, { once: true });
+                    }
+                }
                 const timeout = setTimeout(() => controller.abort(), requestTimeoutMs);
                 const response = await fetch(endpoint.url, {
                     method: 'POST',
@@ -753,7 +840,12 @@ export async function callRpc<T = any>(
                     body: JSON.stringify(request),
                     signal: controller.signal,
                     keepalive: true,
-                }).finally(() => clearTimeout(timeout));
+                }).finally(() => {
+                    clearTimeout(timeout);
+                    if (externalAbortListener && options.signal) {
+                        options.signal.removeEventListener('abort', externalAbortListener);
+                    }
+                });
 
                 if (!response.ok) {
                     throw new Error(`HTTP ${response.status}: ${response.statusText}`);
@@ -788,6 +880,9 @@ export async function callRpc<T = any>(
                 const msg = String(error?.message || '');
                 if (msg.includes('timeout_') || msg.toLowerCase().includes('aborterror')) {
                     markRpcMethodUsage(chainId, method, 'timeoutErrors');
+                    if (!options.signal?.aborted) {
+                        markEndpointMethodTimeout(endpointMethodKey);
+                    }
                 }
                 throw error;
             } finally {
@@ -796,17 +891,19 @@ export async function callRpc<T = any>(
         };
 
         const canHedgeReads = method === 'eth_getTransactionByHash' || method === 'eth_getTransactionReceipt';
+        const canHedgeEthCall = method === 'eth_call';
         const canHedgeWrites = method === 'eth_sendRawTransaction' && RPC_CRITICAL_HEDGE_ALLOW_WRITE;
         const canUseCriticalHedge =
             RPC_CRITICAL_HEDGE_ENABLED &&
             !cooldownActive &&
             effectiveImportance === 'critical' &&
             selectedEndpoints.length >= 2 &&
-            (canHedgeReads || canHedgeWrites);
+            (canHedgeReads || canHedgeWrites || canHedgeEthCall);
 
         if (canUseCriticalHedge) {
             try {
-                const fanout = Math.min(RPC_CRITICAL_HEDGE_FANOUT, selectedEndpoints.length);
+                const hedgeFanout = canHedgeEthCall ? RPC_ETH_CALL_HEDGE_FANOUT : RPC_CRITICAL_HEDGE_FANOUT;
+                const fanout = Math.min(hedgeFanout, selectedEndpoints.length);
                 const attempts = Array.from({ length: fanout }, (_, idx) =>
                     runEndpointAttempt(selectedEndpoints[idx], Math.max(0, RPC_CRITICAL_HEDGE_STAGGER_MS) * idx)
                 );
@@ -902,6 +999,9 @@ export async function callRpc<T = any>(
         }
 
         for (let i = 0; i < selectedEndpoints.length; i++) {
+            if (options.signal?.aborted) {
+                throw new Error('aborted_by_signal');
+            }
             const endpoint = selectedEndpoints[i];
             if (!endpoint?.url) continue;
 
@@ -950,6 +1050,10 @@ export async function callRpc<T = any>(
                     });
                     continue;
                 }
+                if (message === 'endpoint_method_timeout_cooldown') {
+                    lastError = new Error(message);
+                    continue;
+                }
 
                 lastError = error instanceof Error ? error : new Error(message);
 
@@ -971,6 +1075,9 @@ export async function callRpc<T = any>(
                 }
 
                 if (!isLast) {
+                    if (options.signal?.aborted) {
+                        throw lastError;
+                    }
                     await new Promise(resolve => setTimeout(resolve, 50));
                     continue;
                 }

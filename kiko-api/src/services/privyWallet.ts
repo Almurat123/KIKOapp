@@ -19,6 +19,7 @@ import {
     probeTxVisibility,
     waitForReceiptStateMachine
 } from './rpcManager.js';
+import { sendViaFlashbots } from './dex/flashbots.js';
 import type { TxLifecycleResult } from './txLifecycle.js';
 import {
     isTxLifecycleSendAccepted,
@@ -472,6 +473,7 @@ export interface TransactionRequest {
     chainId: number;
     txPurpose?: 'trade' | 'approval' | 'preheat' | 'speedup' | 'fee' | 'other';
     txPriority?: number;
+    mevProtection?: boolean;
 }
 
 /**
@@ -621,6 +623,54 @@ async function signAndBroadcastRawTransaction(
             chainId: `0x${BigInt(tx.chainId).toString(16)}`,
         },
     });
+
+    const shouldUseFlashbots = tx.mevProtection === true
+        && tx.chainId === 1
+        && (tx.txPurpose === 'trade' || tx.txPurpose === 'speedup');
+
+    if (shouldUseFlashbots) {
+        const flashbotsResult = await sendViaFlashbots(
+            signed.signedTransaction,
+            tx.chainId,
+            { useFlashbots: true, preferFast: false, maxBlocksToWait: 25 }
+        );
+
+        if (flashbotsResult.success && flashbotsResult.txHash) {
+            const visibility = await verifyTxVisibility(
+                tx.chainId,
+                flashbotsResult.txHash,
+                context.expectedFrom,
+                {
+                    retries: 4,
+                    delayMs: 220
+                }
+            );
+
+            if (visibility.visible) {
+                return {
+                    status: 'visible_pending',
+                    txHash: flashbotsResult.txHash,
+                    firstSeenAt: Date.now(),
+                    attempts: visibility.checks,
+                    chainId: tx.chainId
+                };
+            }
+
+            return {
+                status: 'broadcasted_unseen',
+                txHash: flashbotsResult.txHash,
+                lastRpcError: visibility.lastError || 'flashbots_not_found_by_rpc',
+                attempts: visibility.checks,
+                chainId: tx.chainId
+            };
+        }
+
+        logger.warn(LogCode.EXE_TX_BROADCAST, 'Flashbots broadcast unavailable, falling back to quorum raw broadcast', {
+            chainId: tx.chainId,
+            userId: context.userId.slice(0, 10),
+            reason: flashbotsResult.error || 'unknown'
+        });
+    }
 
     const fastTradePath = isFastTradeExecutionProfile(tx);
     const lifecycle = await broadcastRawWithQuorum({

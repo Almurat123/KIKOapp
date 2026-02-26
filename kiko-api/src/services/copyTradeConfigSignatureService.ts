@@ -70,7 +70,7 @@ const CANONICAL_KEYS = [
   'dynamicTPMinProfitPct',
 ] as const;
 
-type Action = 'create' | 'update';
+type Action = 'create' | 'update' | 'delete';
 
 export interface CopyTradeSignedPayload {
   version: string;
@@ -145,8 +145,8 @@ export function normalizeSignedPayload(raw: unknown, opts?: { enforceNotExpired?
   }
 
   const action = String(payload.action || '').trim().toLowerCase() as Action;
-  if (action !== 'create' && action !== 'update') {
-    throw new AppError(400, 'action must be create or update', 'SIGNATURE_INVALID');
+  if (action !== 'create' && action !== 'update' && action !== 'delete') {
+    throw new AppError(400, 'action must be create, update or delete', 'SIGNATURE_INVALID');
   }
 
   const targetWallet = String(payload.targetWallet || '').trim();
@@ -269,6 +269,11 @@ export function verifyCopyTradeConfigSignature(args: {
 }
 
 export function assertConfigExecutable(config: any, userWalletAddress: string): { ok: boolean; reason?: string } {
+  if (String(config?.signatureScheme || '') === 'legacy_unsigned') {
+    if (config?.requiresResign) return { ok: false, reason: 'requires_resign' };
+    return { ok: true };
+  }
+
   if (config?.requiresResign) return { ok: false, reason: 'requires_resign' };
   if (!config?.configPayload || !config?.configHash || !config?.configSignature || !config?.signerAddress) {
     return { ok: false, reason: 'missing_signature_fields' };
