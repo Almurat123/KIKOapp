@@ -925,6 +925,7 @@ export async function sendTransactionLifecycle(
                 });
             }
 
+            let priorAcceptedLifecycle: TxLifecycleResult | null = null;
             for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
                 try {
                     const bumpGasForVisibilityRetry = (reason: string) => {
@@ -981,6 +982,9 @@ export async function sendTransactionLifecycle(
                             expectedFrom: walletInfo.address,
                             txPurpose: txWithNonce.txPurpose
                         });
+                        if (rawLifecycle.txHash && isTxLifecycleSendAccepted(rawLifecycle)) {
+                            priorAcceptedLifecycle = { ...rawLifecycle };
+                        }
                         if (
                             rawLifecycle.status === 'broadcasted_unseen'
                             && attempt < MAX_RETRIES
@@ -1065,6 +1069,7 @@ export async function sendTransactionLifecycle(
                         attempts: 1,
                         chainId: txWithNonce.chainId
                     };
+                    priorAcceptedLifecycle = { ...lifecycleBase };
                     if (!fastTradePath) {
                         const visibility = await verifyTxVisibility(
                             txWithNonce.chainId,
@@ -1079,6 +1084,7 @@ export async function sendTransactionLifecycle(
                         lifecycleBase.firstSeenAt = visibility.visible ? Date.now() : undefined;
                         lifecycleBase.lastRpcError = visibility.visible ? undefined : (visibility.lastError || 'not_found_by_rpc');
                         lifecycleBase.attempts = visibility.checks;
+                        priorAcceptedLifecycle = { ...lifecycleBase };
                     }
 
                     const postSendDelayMs = Math.max(0, Number(process.env.PRIVY_POST_SEND_DELAY_MS || '0'));
@@ -1279,6 +1285,21 @@ export async function sendTransactionLifecycle(
                         lowerErrorMessage.includes('http 502') ||
                         lowerErrorMessage.includes('http 503') ||
                         lowerErrorMessage.includes('http 504');
+
+                    if (isNonceError && priorAcceptedLifecycle?.txHash) {
+                        logger.warn(LogCode.EXE_TX_BROADCAST, 'Nonce too low after prior accepted send; adopting prior tx hash', {
+                            chainId: txWithNonce.chainId,
+                            txHash: priorAcceptedLifecycle.txHash,
+                            attempt,
+                            nonce: txWithNonce.nonce
+                        });
+                        return {
+                            ...priorAcceptedLifecycle,
+                            chainId: txWithNonce.chainId,
+                            attempts: Math.max(priorAcceptedLifecycle.attempts || 1, attempt),
+                            lastRpcError: priorAcceptedLifecycle.lastRpcError || 'nonce_too_low_after_prior_send'
+                        };
+                    }
 
                     // Retry on nonce errors, underpriced signals, or transient network failures.
                     if ((isNonceError || hasUnderpricedHint || isNetworkError) && attempt < MAX_RETRIES) {
