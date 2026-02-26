@@ -675,10 +675,20 @@ export class MainSwapService {
     if (!isP2ExecutorEnabled()) {
       const sourceReplaySimulationPassed = simulation?.success === true;
       const sourceReplaySimulationSkipped = simulation === null;
+      const turboBypassSourceReplay = isTurboCopytrade;
       const shouldTrySourceReplay =
+        !turboBypassSourceReplay
+        &&
         isReplay
         && (sourceReplaySimulationPassed || sourceReplaySimulationSkipped)
         && /^0x[a-fA-F0-9]{40}$/.test(String(plan.templateRef?.router || ''));
+      if (turboBypassSourceReplay && isReplay) {
+        logger.info(LogCode.SYS_INFO, trace('[P2] Turbo bypass source replay send; fallback to direct/external path immediately'), {
+          chainId: request.chainId,
+          sourceTxHash: sourceTxHash || null,
+          simulationSuccess: simulation?.success ?? null
+        });
+      }
       if (shouldTrySourceReplay) {
         try {
           const replayValue = buildPlanValue(plan);
