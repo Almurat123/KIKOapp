@@ -202,6 +202,8 @@ const DIRECT_SWAP_POOL_DISCOVERY_TIMEOUT_MS = Number(process.env.DIRECT_SWAP_POO
 const DIRECT_SWAP_TURBO_POOL_DISCOVERY_TIMEOUT_MS = Number(process.env.DIRECT_SWAP_TURBO_POOL_DISCOVERY_TIMEOUT_MS || '2200');
 const DIRECT_SWAP_TURBO_RESCUE_POOL_TIMEOUT_MS = Number(process.env.DIRECT_SWAP_TURBO_RESCUE_POOL_TIMEOUT_MS || '12000');
 const DIRECT_SWAP_FASTPATH_BUDGET_MS = Number(process.env.DIRECT_SWAP_FASTPATH_BUDGET_MS || '3500');
+const DIRECT_SWAP_TURBO_SINGLE_POOL_PHASE_MS = Number(process.env.DIRECT_SWAP_TURBO_SINGLE_POOL_PHASE_MS || '1200');
+const DIRECT_SWAP_TURBO_SKIP_CANDIDATE_GATE_WITH_HINT = (process.env.DIRECT_SWAP_TURBO_SKIP_CANDIDATE_GATE_WITH_HINT || 'true') === 'true';
 const DIRECT_SWAP_TURBO_V4_GAS_LIMIT = process.env.DIRECT_SWAP_TURBO_V4_GAS_LIMIT || '950000';
 const DIRECT_SWAP_TURBO_V3_GAS_LIMIT = process.env.DIRECT_SWAP_TURBO_V3_GAS_LIMIT || '420000';
 const V4_FAST_PATH = (process.env.DIRECT_SWAP_V4_FAST_PATH || 'true') === 'true';
@@ -405,6 +407,66 @@ async function executeInfinitySwap(
         sendTransaction: sendTransactionLifecycle,
         getTxExecutionProfile
     }, options);
+}
+
+function shouldBypassTurboRescueForSinglePoolError(error?: string): {
+    skip: boolean;
+    reason: string;
+    failureCode: string;
+} {
+    const raw = String(error || '');
+    const lower = raw.toLowerCase();
+    const failureCode = classifyFailure(raw);
+    if (!lower) {
+        return {
+            skip: false,
+            reason: 'empty_error',
+            failureCode
+        };
+    }
+
+    const nonRouteFailureCodes = new Set<string>([
+        'failed_insufficient_funds',
+        'failed_rpc_rate_limited',
+        'failed_invalid_amount_in'
+    ]);
+    if (nonRouteFailureCodes.has(failureCode)) {
+        return {
+            skip: true,
+            reason: `non_route_failure_code:${failureCode}`,
+            failureCode
+        };
+    }
+
+    const nonRouteFailureMarkers = [
+        'failed_to_send_transaction',
+        'failed_to_get_user_wallet',
+        'no valid authorization signatures',
+        'authorization signatures',
+        'max fee per gas less than block base fee',
+        'nonce too low',
+        'already known',
+        'replacement transaction underpriced',
+        'v4_pre_sim_rpc_failed',
+        'v3_pre_sim_rpc_failed',
+        'all rpc endpoints failed',
+        'capacity_limited',
+        'circuit_open',
+        'timeout_'
+    ];
+    if (nonRouteFailureMarkers.some((marker) => lower.includes(marker))) {
+        return {
+            skip: true,
+            reason: 'non_route_failure_marker',
+            failureCode
+        };
+    }
+
+    return {
+        skip: false,
+        reason: 'route_related_or_unknown',
+        failureCode
+    };
 }
 
 /**
@@ -710,6 +772,10 @@ export async function executeDirectSwap(params: {
         }
 
         if (turboMode) {
+            const singlePoolPhaseDeadline = Math.min(
+                turboFastDeadline,
+                swapStart + Math.max(250, DIRECT_SWAP_TURBO_SINGLE_POOL_PHASE_MS)
+            );
             const runTurboRescue = async (reason: string): Promise<DirectSwapResult> => {
                 return await runTurboRescueFlow({
                     reason,
@@ -768,7 +834,7 @@ export async function executeDirectSwap(params: {
 
             let sourceHintCandidate = earlyHintedPool;
             if (!sourceHintCandidate && params.hint?.sourceTxHash) {
-                const sourceHintBudgetMs = Math.max(200, Math.min(900, turboFastDeadline - Date.now()));
+                const sourceHintBudgetMs = Math.max(120, Math.min(650, singlePoolPhaseDeadline - Date.now()));
                 if (sourceHintBudgetMs > 0) {
                     sourceHintCandidate = await withTimeout(
                         resolveHintedPoolFromSourceTx({
@@ -791,8 +857,14 @@ export async function executeDirectSwap(params: {
                 hint: params.hint,
                 sourceHint: sourceHintCandidate,
                 cachedWinnerHint: cachedSinglePoolHint,
-                deadlineMs: turboFastDeadline
+                deadlineMs: singlePoolPhaseDeadline
             });
+            const singlePoolHintPriority = Boolean(
+                params.hint?.sourceTxHash
+                || params.hint?.resolvedPoolHint
+                || sourceHintCandidate
+                || cachedSinglePoolHint
+            );
 
             logger.info(LogCode.SYS_INFO, '[DirectSwap] Turbo single-pool candidates resolved', {
                 chainId,
@@ -824,71 +896,80 @@ export async function executeDirectSwap(params: {
             }
 
             if (isBuySideStableOrNativeIn(chainId, normalizedTokenIn) && turboCandidates.length > 0) {
-                const candidateCountBeforeGate = turboCandidates.length;
-                const gateBudgetMs = Math.max(120, Math.min(DIRECT_SWAP_HINT_POOL_TIMEOUT_MS, turboFastDeadline - Date.now()));
-                let gatePools: PoolInfo[] = [];
-                let gateDiscoveryFailed = false;
-                if (gateBudgetMs <= 80) {
-                    gateDiscoveryFailed = true;
-                } else {
-                    try {
-                        gatePools = await withTimeout(
-                            findTokenPools(poolTokenIn, poolTokenOut, chainId, { fastScan: true }),
-                            gateBudgetMs
-                        );
-                    } catch {
-                        gateDiscoveryFailed = true;
-                    }
-                }
-
-                if (gateDiscoveryFailed || gatePools.length === 0) {
-                    logger.warn(LogCode.SYS_INFO, '[DirectSwap] Turbo candidate liquidity gate unavailable', {
+                if (DIRECT_SWAP_TURBO_SKIP_CANDIDATE_GATE_WITH_HINT && singlePoolHintPriority) {
+                    logger.info(LogCode.SYS_INFO, '[DirectSwap] Turbo candidate liquidity gate skipped by single-pool priority', {
                         traceId,
                         chainId,
-                        gateBudgetMs,
-                        gateDiscoveryFailed,
-                        poolCount: gatePools.length,
                         candidateCount: turboCandidates.length,
-                        fallbackMode: 'skip_gate_keep_candidates'
+                        reason: 'hint_or_cached_single_pool_present'
                     });
                 } else {
-                    const dropped: Array<Record<string, string | number | null>> = [];
-                    turboCandidates = turboCandidates.filter((candidate) => {
-                        const gate = evaluateResolvedHintFastPathLiquidityGateFromPools({
-                            pools: gatePools,
-                            tokenIn: poolTokenIn,
-                            amountInWei,
-                            resolvedHint: candidate,
-                            multiplier: Math.max(1, DIRECT_SWAP_BUY_LIQ_MULTIPLIER)
-                        });
-                        if (!gate.allowed) {
-                            dropped.push({
-                                kind: candidate.kind,
-                                dex: candidate.dex || null,
-                                poolAddress: candidate.poolAddress || null,
-                                reason: gate.reason,
-                                blockType: gate.blockType
-                            });
+                    const candidateCountBeforeGate = turboCandidates.length;
+                    const gateBudgetMs = Math.max(120, Math.min(DIRECT_SWAP_HINT_POOL_TIMEOUT_MS, singlePoolPhaseDeadline - Date.now()));
+                    let gatePools: PoolInfo[] = [];
+                    let gateDiscoveryFailed = false;
+                    if (gateBudgetMs <= 80) {
+                        gateDiscoveryFailed = true;
+                    } else {
+                        try {
+                            gatePools = await withTimeout(
+                                findTokenPools(poolTokenIn, poolTokenOut, chainId, { fastScan: true }),
+                                gateBudgetMs
+                            );
+                        } catch {
+                            gateDiscoveryFailed = true;
                         }
-                        return gate.allowed;
-                    });
-                    if (dropped.length > 0) {
-                        logger.warn(LogCode.SYS_INFO, '[DirectSwap] Turbo candidates dropped by liquidity gate', {
+                    }
+
+                    if (gateDiscoveryFailed || gatePools.length === 0) {
+                        logger.warn(LogCode.SYS_INFO, '[DirectSwap] Turbo candidate liquidity gate unavailable', {
                             traceId,
                             chainId,
+                            gateBudgetMs,
+                            gateDiscoveryFailed,
+                            poolCount: gatePools.length,
+                            candidateCount: turboCandidates.length,
+                            fallbackMode: 'skip_gate_keep_candidates'
+                        });
+                    } else {
+                        const dropped: Array<Record<string, string | number | null>> = [];
+                        turboCandidates = turboCandidates.filter((candidate) => {
+                            const gate = evaluateResolvedHintFastPathLiquidityGateFromPools({
+                                pools: gatePools,
+                                tokenIn: poolTokenIn,
+                                amountInWei,
+                                resolvedHint: candidate,
+                                multiplier: Math.max(1, DIRECT_SWAP_BUY_LIQ_MULTIPLIER)
+                            });
+                            if (!gate.allowed) {
+                                dropped.push({
+                                    kind: candidate.kind,
+                                    dex: candidate.dex || null,
+                                    poolAddress: candidate.poolAddress || null,
+                                    reason: gate.reason,
+                                    blockType: gate.blockType
+                                });
+                            }
+                            return gate.allowed;
+                        });
+                        if (dropped.length > 0) {
+                            logger.warn(LogCode.SYS_INFO, '[DirectSwap] Turbo candidates dropped by liquidity gate', {
+                                traceId,
+                                chainId,
+                                droppedCount: dropped.length,
+                                remaining: turboCandidates.length,
+                                dropped
+                            });
+                        }
+                        logger.info(LogCode.SYS_INFO, '[DirectSwap] Turbo candidate liquidity gate summary', {
+                            traceId,
+                            chainId,
+                            candidateCountBeforeGate,
+                            candidateCountAfterGate: turboCandidates.length,
                             droppedCount: dropped.length,
-                            remaining: turboCandidates.length,
-                            dropped
+                            gatePoolCount: gatePools.length
                         });
                     }
-                    logger.info(LogCode.SYS_INFO, '[DirectSwap] Turbo candidate liquidity gate summary', {
-                        traceId,
-                        chainId,
-                        candidateCountBeforeGate,
-                        candidateCountAfterGate: turboCandidates.length,
-                        droppedCount: dropped.length,
-                        gatePoolCount: gatePools.length
-                    });
                 }
             }
 
@@ -915,6 +996,7 @@ export async function executeDirectSwap(params: {
             });
 
             let lastTurboError = 'Turbo single-pool attempt failed';
+            let lastTurboProvider: DirectSwapResult['provider'] = 'failed';
             for (let attempt = 0; attempt < turboAttemptPlan.length; attempt++) {
                 const candidate = turboAttemptPlan[attempt];
                 const turboHint: DirectSwapHint = {
@@ -940,6 +1022,9 @@ export async function executeDirectSwap(params: {
                     resolvedFastPathDeps,
                     { executionMode: 'turbo', trustedHint: true }
                 );
+                if (directTry?.provider) {
+                    lastTurboProvider = directTry.provider;
+                }
                 if (directTry?.success) {
                     selectedResolvedHintForCache = candidate;
                     return finish(directTry);
@@ -950,6 +1035,22 @@ export async function executeDirectSwap(params: {
                 if (shouldSkipResolvedHintRetry(directTry?.error)) {
                     break;
                 }
+            }
+
+            const rescueBypassDecision = shouldBypassTurboRescueForSinglePoolError(lastTurboError);
+            if (rescueBypassDecision.skip) {
+                logger.warn(LogCode.SYS_INFO, '[DirectSwap] Turbo single-pool failed with non-route error, skipping rescue', {
+                    traceId,
+                    chainId,
+                    failureCode: rescueBypassDecision.failureCode,
+                    reason: rescueBypassDecision.reason,
+                    lastTurboError
+                });
+                return finish({
+                    success: false,
+                    error: lastTurboError,
+                    provider: lastTurboProvider
+                });
             }
 
             logger.warn(LogCode.SYS_INFO, '[DirectSwap] Turbo single-pool attempts failed, entering rescue', {
