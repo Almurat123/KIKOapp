@@ -48,6 +48,7 @@ const PRIVY_TX_SYNC_VISIBILITY_DELAY_MS = 400;
 const PRIVY_FAST_TRADE_SYNC_VISIBILITY_RETRIES = 1;
 const PRIVY_FAST_TRADE_SYNC_VISIBILITY_DELAY_MS = 0;
 const PRIVY_FAST_TRADE_SKIP_SYNC_VISIBILITY = (process.env.PRIVY_FAST_TRADE_SKIP_SYNC_VISIBILITY || 'true').toLowerCase() === 'true';
+const PRIVY_FAST_TRADE_FORCE_RAW_PATH = (process.env.PRIVY_FAST_TRADE_FORCE_RAW_PATH || 'false').toLowerCase() === 'true';
 const PRIVY_FAST_TRADE_BASE_GAS_BUMP_BPS = BigInt(Math.max(10000, Number(process.env.PRIVY_FAST_TRADE_BASE_GAS_BUMP_BPS || '22000')));
 const PRIVY_FAST_TRADE_BSC_GAS_BUMP_BPS = BigInt(Math.max(10000, Number(process.env.PRIVY_FAST_TRADE_BSC_GAS_BUMP_BPS || '17000')));
 const PRIVY_FAST_TRADE_DEFAULT_GAS_BUMP_BPS = BigInt(Math.max(10000, Number(process.env.PRIVY_FAST_TRADE_DEFAULT_GAS_BUMP_BPS || '15000')));
@@ -971,7 +972,7 @@ export async function sendTransactionLifecycle(
                     // Privy sendTx is a single HTTP call (~600-800ms) that signs + broadcasts + waits internally.
                     // sign+broadcast splits into: Privy signTransaction (~200ms) + our RPC fanout (~50ms),
                     // saving ~350-550ms on every turbo/sniper trade.
-                    const useRawPathForSpeed = fastTradePath && preferPrivySendTx;
+                    const useRawPathForSpeed = fastTradePath && preferPrivySendTx && PRIVY_FAST_TRADE_FORCE_RAW_PATH;
                     if (!preferPrivySendTx || useRawPathForSpeed) {
                         const rawLifecycle = await signAndBroadcastRawTransaction(client, walletInfo.id, txWithNonce, {
                             userId,
@@ -986,20 +987,38 @@ export async function sendTransactionLifecycle(
                             && !!txWithNonce.nonce
                             && (fastTradePath || txWithNonce.txPurpose === 'trade' || txWithNonce.txPurpose === 'speedup')
                         ) {
-                            // ⚡ FAST TRADE: tx was broadcast via fanout. Return immediately —
-                            // don't block the caller for a second sign+broadcast round-trip (~2s).
                             if (fastTradePath) {
-                                logger.info(LogCode.SYS_INFO, 'Fast trade raw path: skipping gas-bump retry, returning broadcast result', {
+                                bumpGasForVisibilityRetry('raw_path_broadcasted_unseen_fast_trade');
+                                logger.warn(LogCode.SYS_INFO, 'Fast trade raw path broadcasted_unseen: retrying with bumped gas', {
                                     chainId: txWithNonce.chainId,
                                     txHash: rawLifecycle.txHash,
                                     status: rawLifecycle.status,
                                     attempt
                                 });
-                                return rawLifecycle;
+                                await new Promise((resolve) => setTimeout(resolve, NETWORK_RETRY_DELAY_MS));
+                                continue;
                             }
                             bumpGasForVisibilityRetry('raw_path_broadcasted_unseen');
                             await new Promise((resolve) => setTimeout(resolve, NETWORK_RETRY_DELAY_MS));
                             continue;
+                        }
+                        if (
+                            fastTradePath
+                            && rawLifecycle.status === 'broadcasted_unseen'
+                            && !!txWithNonce.nonce
+                        ) {
+                            logger.error(LogCode.EXE_TX_REVERTED, 'Fast trade raw path exhausted retries with unseen tx; treating as failed send', {
+                                chainId: txWithNonce.chainId,
+                                txHash: rawLifecycle.txHash,
+                                attempts: attempt
+                            });
+                            return {
+                                status: 'dropped_timeout',
+                                txHash: rawLifecycle.txHash,
+                                attempts: Math.max(rawLifecycle.attempts || 1, attempt),
+                                chainId: txWithNonce.chainId,
+                                lastRpcError: rawLifecycle.lastRpcError || 'broadcasted_unseen_after_retries'
+                            };
                         }
                         return rawLifecycle;
                     }
@@ -1073,22 +1092,40 @@ export async function sendTransactionLifecycle(
                         && !!txWithNonce.nonce
                         && (fastTradePath || txWithNonce.txPurpose === 'trade' || txWithNonce.txPurpose === 'speedup')
                     ) {
-                        // ⚡ FAST TRADE: tx was broadcast. Return immediately — don't block for a
-                        // second Privy signing round-trip (~2s). The fanout already relayed the tx
-                        // to multiple block builders. MainSwapService will record success with txHash.
                         if (fastTradePath) {
-                            logger.info(LogCode.SYS_INFO, 'Privy fast trade lifecycle early return', {
+                            bumpGasForVisibilityRetry('privy_sendtx_broadcasted_unseen_fast_trade');
+                            logger.warn(LogCode.SYS_INFO, 'Privy fast trade broadcasted_unseen: retrying with bumped gas', {
                                 chainId: txWithNonce.chainId,
                                 txHash: response.hash,
                                 status: lifecycleBase.status,
                                 checks: lifecycleBase.attempts,
-                                skippedGasBump: true
+                                attempt
                             });
-                            return lifecycleBase;
+                            await new Promise((resolve) => setTimeout(resolve, NETWORK_RETRY_DELAY_MS));
+                            continue;
                         }
                         bumpGasForVisibilityRetry('privy_sendtx_broadcasted_unseen');
                         await new Promise((resolve) => setTimeout(resolve, NETWORK_RETRY_DELAY_MS));
                         continue;
+                    }
+
+                    if (
+                        fastTradePath
+                        && lifecycleBase.status === 'broadcasted_unseen'
+                        && !!txWithNonce.nonce
+                    ) {
+                        logger.error(LogCode.EXE_TX_REVERTED, 'Privy fast trade send exhausted retries with unseen tx; treating as failed send', {
+                            chainId: txWithNonce.chainId,
+                            txHash: response.hash,
+                            attempts: attempt
+                        });
+                        return {
+                            status: 'dropped_timeout',
+                            txHash: response.hash,
+                            attempts: Math.max(lifecycleBase.attempts || 1, attempt),
+                            chainId: txWithNonce.chainId,
+                            lastRpcError: lifecycleBase.lastRpcError || 'broadcasted_unseen_after_retries'
+                        };
                     }
 
                     if (fastTradePath) {
