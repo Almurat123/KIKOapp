@@ -21,7 +21,7 @@ import { callRpc as callRpcBase } from '../../rpcManager.js';
 import { sendTransaction, sendTransactionLifecycle } from '../../privyWallet.js';
 import { getTokenDetails } from '../../geckoTerminal.js';
 import { getNativeTokenPriceUsd } from '../../onChainPriceService.js';
-import { getTokenMetadata } from '../../rpcService.js';
+import { getTokenDecimals, getTokenMetadata } from '../../rpcService.js';
 import { del as cacheDel } from '../../../cache/cacheClient.js';
 import { V2_ROUTER_ABI, V3_FEE_TIERS } from '../types.js';
 import { buildAerodromeSwapTransaction } from '../aerodrome.js';
@@ -1590,12 +1590,10 @@ export async function executeDirectSwap(params: {
                 referenceCappedToZero = true;
             } else {
                 try {
-                    const [inMeta, outMeta] = await Promise.all([
-                        getTokenMetadata(chainId, normalizedTokenIn),
-                        getTokenMetadata(chainId, normalizedTokenOut)
+                    const [inDec, outDec] = await Promise.all([
+                        getTokenDecimals(chainId, normalizedTokenIn, { defaultDecimals: 18 }),
+                        getTokenDecimals(chainId, normalizedTokenOut, { defaultDecimals: 18 })
                     ]);
-                    const inDec = inMeta?.decimals ?? 18;
-                    const outDec = outMeta?.decimals ?? 18;
                     const maxReasonableOut = (amountInWei * BigInt(10 ** outDec) * 1_000_000n) / BigInt(10 ** inDec);
                     if (referenceQuote > maxReasonableOut) {
                         logger.warn(LogCode.API_FETCH_FAILED, '[DirectSwap] Reference quote sanity cap (use-site): exceeds max reasonable', {

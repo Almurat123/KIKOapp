@@ -6,7 +6,7 @@ import { isV4SwapSupported } from '../../uniswapV4Swap.js';
 import { callRpc as callRpcBase, callRpcRaw as callRpcRawBase } from '../../../rpcManager.js';
 import { getKyberQuote } from '../../../kyberAggregator.js';
 import { getTokenDetails } from '../../../geckoTerminal.js';
-import { getTokenMetadata } from '../../../rpcService.js';
+import { getTokenDecimals, getTokenMetadata } from '../../../rpcService.js';
 import { get as getDbCache } from '../../../../cache/dbCache.js';
 import { get as cacheGet, set as cacheSet } from '../../../../cache/cacheClient.js';
 import { V2_ROUTER_ABI, V3_FEE_TIERS } from '../../types.js';
@@ -1308,13 +1308,13 @@ export async function getReferenceExpectedOutput(
                 REFERENCE_QUOTE_TIMEOUT_MS
             );
             if (inDetails?.price && outDetails?.price && inDetails.price > 0 && outDetails.price > 0) {
-                const [inMeta, outMeta] = await Promise.all([
-                    getTokenMetadata(chainId, tokenIn),
-                    getTokenMetadata(chainId, tokenOut)
+                const [inDecimals, outDecimals] = await Promise.all([
+                    getTokenDecimals(chainId, tokenIn, { defaultDecimals: 18 }),
+                    getTokenDecimals(chainId, tokenOut, { defaultDecimals: 18 })
                 ]);
-                const inAmountHuman = Number(amountInWei) / Math.pow(10, inMeta.decimals || 18);
+                const inAmountHuman = Number(amountInWei) / Math.pow(10, inDecimals || 18);
                 const outAmountHuman = inAmountHuman * (inDetails.price / outDetails.price);
-                const outWei = BigInt(Math.max(0, Math.floor(outAmountHuman * Math.pow(10, outMeta.decimals || 18))));
+                const outWei = BigInt(Math.max(0, Math.floor(outAmountHuman * Math.pow(10, outDecimals || 18))));
                 referenceQuoteCache.set(cacheKey, { value: outWei, timestamp: Date.now() });
                 await cacheSet(
                     referenceQuoteRedisKey(cacheKey),

@@ -1089,6 +1089,7 @@ export class MainSwapService {
     const TURBO_SKIP_FALLBACK_ON_TIMEOUT = true;
     const TURBO_DIRECT_LATE_SETTLE_MS = 2000;
     const TURBO_DIRECT_FINAL_SETTLE_MS = 4500;
+    const TURBO_FINAL_SETTLE_MS = Math.max(300, Math.min(5000, Number(process.env.COPYTRADE_TURBO_FINAL_SETTLE_MS || 1400)));
     const DIRECT_SWAP_VISIBILITY_GATE_MS_TURBO = 5200;
     const DIRECT_SWAP_VISIBILITY_GATE_MS_NORMAL = 4200;
     const DIRECT_SWAP_VISIBILITY_GATE_POLL_MS = 320;
@@ -1388,6 +1389,17 @@ export class MainSwapService {
       let lastDirectError: any = null;
       let inflightDirectPromise: Promise<Awaited<ReturnType<typeof executeDirectSwap>>> | null = null;
       const directCandidateTxHashes = new Set<string>();
+      let directTimeoutReason: 'budget_timeout' | 'visibility_timeout' | 'send_failure' | 'route_failure' | null = null;
+      const directTraceState: {
+        direct_start_at: number;
+        first_send_at?: number;
+        fanout_done_at?: number;
+        turbo_timeout_at?: number;
+        fallback_start_at?: number;
+        final_result_at?: number;
+      } = {
+        direct_start_at: Date.now()
+      };
       const rememberDirectTxHash = (txHash?: string | null) => {
         const normalized = String(txHash || '').toLowerCase();
         if (/^0x[a-f0-9]{64}$/.test(normalized)) {
@@ -1417,6 +1429,8 @@ export class MainSwapService {
           const remainingTurboBudget = TURBO_TOTAL_BUDGET_MS - (Date.now() - turboBudgetStart);
           if (isTurboCopytrade && remainingTurboBudget <= 0) {
             lastDirectError = new Error(`timeout_turbo_budget_${TURBO_TOTAL_BUDGET_MS}ms`);
+            directTimeoutReason = 'budget_timeout';
+            directTraceState.turbo_timeout_at = Date.now();
             break;
           }
           // Retry profile: turbo keeps amount stable by default to maximize cache/inflight reuse.
@@ -1461,6 +1475,9 @@ export class MainSwapService {
               mevProtection: shouldEnableMevProtection
             })
           );
+          if (!directTraceState.first_send_at) {
+            directTraceState.first_send_at = Date.now();
+          }
           let directResult: Awaited<ReturnType<typeof executeDirectSwap>>;
           if (isTurboCopytrade) {
             const timeoutMs = Math.max(200, Math.min(TURBO_DIRECT_ATTEMPT_TIMEOUT_MS, remainingTurboBudget));
@@ -1483,11 +1500,14 @@ export class MainSwapService {
                 timeoutMs,
                 lateSettleMs: TURBO_DIRECT_LATE_SETTLE_MS
               });
+              directTraceState.turbo_timeout_at = Date.now();
+              directTimeoutReason = 'send_failure';
 
               const lateResult = await settleWithin(inflightDirectPromise, TURBO_DIRECT_LATE_SETTLE_MS);
 
               if (lateResult) {
                 directResult = lateResult;
+                directTraceState.fanout_done_at = Date.now();
                 if (directResult.success) {
                   logger.info(LogCode.SYS_INFO, trace('Turbo direct late-settle succeeded'), {
                     attempt,
@@ -1514,14 +1534,17 @@ export class MainSwapService {
             }
           } else {
             directResult = await inflightDirectPromise;
+            directTraceState.fanout_done_at = Date.now();
           }
           lastDirectResult = directResult;
+          directTraceState.fanout_done_at = Date.now();
           rememberDirectTxHash(directResult.txHash);
 
           if (directResult.success) {
             const visibleResult = await enforceVisibilityGate(directResult, `attempt_${attempt}`);
             lastDirectResult = visibleResult;
             if (!visibleResult.success) {
+              directTimeoutReason = 'visibility_timeout';
               if (attempt < DIRECT_SWAP_MAX_ATTEMPTS) {
                 logger.warn(LogCode.SYS_INFO, trace('Direct swap visibility gate failed, retrying next attempt'), {
                   attempt,
@@ -1591,9 +1614,13 @@ export class MainSwapService {
               directProvider: directResult.provider
             });
           }
+          directTimeoutReason = 'route_failure';
         }
       } catch (directErr: any) {
         lastDirectError = directErr;
+        if (!directTimeoutReason) {
+          directTimeoutReason = isTimeoutError(directErr) ? 'send_failure' : 'route_failure';
+        }
       }
 
       if (
@@ -1606,7 +1633,9 @@ export class MainSwapService {
         logger.warn(LogCode.SYS_INFO, trace('Turbo direct timed out; awaiting final settle window'), {
           finalSettleMs,
           remainingBudgetForFinalSettle,
-          error: lastDirectError?.message
+          error: lastDirectError?.message,
+          direct_timeout_reason: directTimeoutReason || 'send_failure',
+          ...directTraceState
         });
         try {
           const finalResult = await settleWithin(inflightDirectPromise, finalSettleMs);
@@ -1619,6 +1648,7 @@ export class MainSwapService {
               rememberDirectTxHash(visibleFinalResult.txHash);
               if (!visibleFinalResult.success) {
                 lastDirectError = new Error(visibleFinalResult.error || 'direct_swap_visibility_gate_failed');
+                directTimeoutReason = 'visibility_timeout';
               } else {
                 if (checkNativeBalancePromise) await checkNativeBalancePromise;
                 try {
@@ -1656,10 +1686,14 @@ export class MainSwapService {
               }
             } else {
               lastDirectError = new Error(finalResult.error || 'direct_swap_final_settle_failed');
+              directTimeoutReason = 'route_failure';
             }
           }
         } catch (finalSettleError: any) {
           lastDirectError = finalSettleError;
+          if (!directTimeoutReason) {
+            directTimeoutReason = isTimeoutError(finalSettleError) ? 'send_failure' : 'route_failure';
+          }
         }
       }
 
@@ -1732,8 +1766,11 @@ export class MainSwapService {
           error: lastDirectError?.message,
           budgetMs: TURBO_TOTAL_BUDGET_MS,
           attemptTimeoutMs: TURBO_DIRECT_ATTEMPT_TIMEOUT_MS,
-          lateSettleMs: TURBO_DIRECT_LATE_SETTLE_MS
+          lateSettleMs: TURBO_DIRECT_LATE_SETTLE_MS,
+          direct_timeout_reason: directTimeoutReason || 'send_failure',
+          ...directTraceState
         });
+        directTraceState.final_result_at = Date.now();
         return {
           success: false,
           error: lastDirectError?.message || 'Turbo direct timeout',
@@ -1783,6 +1820,44 @@ export class MainSwapService {
         }
       }
 
+      if (
+        isTurboCopytrade
+        && isTimeoutError(lastDirectError)
+        && directCandidateTxHashes.size > 0
+      ) {
+        for (const candidateTxHash of directCandidateTxHashes) {
+          const settle = await waitForReceiptStateMachine({
+            chainId: request.chainId,
+            txHash: candidateTxHash,
+            expectedFrom: request.walletAddress,
+            maxWaitMs: TURBO_FINAL_SETTLE_MS,
+            pollMs: DIRECT_SWAP_VISIBILITY_GATE_POLL_MS
+          }).catch(() => null);
+          if (!settle) continue;
+          if (settle.status === 'visible_pending' || settle.status === 'confirmed_success') {
+            const provider = lastDirectResult?.provider || 'direct-swap';
+            logger.warn(LogCode.SYS_INFO, trace('Turbo timeout but tx hash already visible, extending final window and skipping fallback'), {
+              txHash: candidateTxHash,
+              settleStatus: settle.status,
+              turbo_final_settle_ms: TURBO_FINAL_SETTLE_MS,
+              direct_timeout_reason: directTimeoutReason || 'send_failure'
+            });
+            directTraceState.final_result_at = Date.now();
+            return {
+              success: true,
+              txHash: candidateTxHash,
+              amountOut: lastDirectResult?.amountOut,
+              txLifecycle: settle,
+              metadata: {
+                provider,
+                mode: request.mode,
+                txLifecycleStatus: settle.status
+              }
+            };
+          }
+        }
+      }
+
       if (directCandidateTxHashes.size > 0) {
         for (const candidateTxHash of directCandidateTxHashes) {
           const lifecycle = await waitForReceiptStateMachine({
@@ -1821,6 +1896,7 @@ export class MainSwapService {
       }
 
       if (lastDirectResult) {
+        directTraceState.fallback_start_at = Date.now();
         const failureCode = extractFailureCode(lastDirectResult.error);
         logger.warn(LogCode.SYS_INFO, trace(`Direct swap failed, falling back to 0x/Kyber: ${lastDirectResult.error || 'unknown'}`), {
           error: lastDirectResult.error,
@@ -1831,16 +1907,21 @@ export class MainSwapService {
           mode: request.mode,
           tokenIn: normalizedTokenIn,
           tokenOut: normalizedTokenOut,
-          attempts: DIRECT_SWAP_MAX_ATTEMPTS
+          attempts: DIRECT_SWAP_MAX_ATTEMPTS,
+          direct_timeout_reason: directTimeoutReason || undefined,
+          ...directTraceState
         });
       } else if (lastDirectError) {
+        directTraceState.fallback_start_at = Date.now();
         logger.warn(LogCode.SYS_ERROR, trace('Direct swap error, falling back to 0x/Kyber'), {
           error: lastDirectError.message,
           chainId: request.chainId,
           mode: request.mode,
           tokenIn: normalizedTokenIn,
           tokenOut: normalizedTokenOut,
-          attempts: DIRECT_SWAP_MAX_ATTEMPTS
+          attempts: DIRECT_SWAP_MAX_ATTEMPTS,
+          direct_timeout_reason: directTimeoutReason || undefined,
+          ...directTraceState
         });
       }
 

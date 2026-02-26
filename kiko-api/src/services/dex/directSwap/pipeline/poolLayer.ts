@@ -5,7 +5,7 @@ import { findTokenPools, type PoolInfo } from '../../poolInfo.js';
 import { calculateV3TVL } from '../../v3Math.js';
 import { getTokenDetails } from '../../../geckoTerminal.js';
 import { getNativeTokenPriceUsd } from '../../../onChainPriceService.js';
-import { getTokenMetadata } from '../../../rpcService.js';
+import { getTokenDecimals, getTokenMetadata } from '../../../rpcService.js';
 import type { DirectSwapHint } from '../../directSwapTypes.js';
 import type { HintLiquidityGateResult } from '../domain/guards.js';
 import {
@@ -138,7 +138,7 @@ export async function estimateAmountUsdByToken(
   }
 
   if (isStableTokenAddress(chainId, normalized)) {
-    const decimals = (await getTokenMetadata(chainId, tokenAddress).catch(() => ({ decimals: 18 }))).decimals || 18;
+    const decimals = await getTokenDecimals(chainId, tokenAddress, { defaultDecimals: 18 }).catch(() => 18);
     return Number(ethers.formatUnits(amountInWei, decimals));
   }
 

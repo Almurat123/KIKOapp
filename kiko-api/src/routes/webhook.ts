@@ -57,6 +57,7 @@ let lastMissingAlchemySecretWarnAt = 0;
 const WEBHOOK_FETCH_PARSE_BUDGET_MS = Math.max(250, Number(process.env.COPYTRADE_WEBHOOK_FETCH_PARSE_BUDGET_MS || 900));
 const WEBHOOK_FULL_TX_TIMEOUT_MS = Math.max(120, Number(process.env.COPYTRADE_WEBHOOK_FULL_TX_TIMEOUT_MS || 450));
 const WEBHOOK_PARSE_TIMEOUT_MS = Math.max(120, Number(process.env.COPYTRADE_WEBHOOK_PARSE_TIMEOUT_MS || 350));
+const WEBHOOK_BATCH_WINDOW_MS = Math.max(300, Math.min(800, Number(process.env.COPYTRADE_WEBHOOK_BATCH_WINDOW_MS || 500)));
 const WEBHOOK_LOCAL_TX_INFLIGHT_TTL_MS = Math.max(1000, Number(process.env.COPYTRADE_WEBHOOK_LOCAL_TX_INFLIGHT_TTL_MS || 20_000));
 const COPYTRADE_DETECTED_AT_STALE_MS = Math.max(1000, Number(process.env.COPYTRADE_DETECTED_AT_STALE_MS || 4000));
 const WEBHOOK_RECEIPT_RECOVERY_DELAYS_MS = String(process.env.COPYTRADE_WEBHOOK_RECEIPT_RECOVERY_DELAYS_MS || '1200,3000,7000')
@@ -73,6 +74,18 @@ type ActivityCashHint = {
     cashReceivedUsd?: number;
     inferredTxType?: 'TARGET_BUY' | 'TARGET_SELL' | 'TARGET_TOKEN_SWAP';
 };
+
+type WebhookBatchContext = {
+    txHash: string;
+    chainId: number;
+    categories: Set<string>;
+    receivedAt: number;
+    flushAt: number;
+    payloads: any[];
+    timer?: NodeJS.Timeout;
+};
+
+const webhookBatchByTxHash = new Map<string, WebhookBatchContext>();
 
 function normalizeTxHash(txHash: string): string {
     return String(txHash || '').toLowerCase();
@@ -500,6 +513,122 @@ async function buildActivityCashHint(activities: any[], walletAddressRaw: string
     };
 }
 
+function collectWebhookBatchContexts(payload: any): Array<{ chainId: number; txHash: string; categories: Set<string> }> {
+    const network = extractAlchemyNetwork(payload);
+    const chainId = NETWORK_TO_CHAIN_ID[String(network || '').toUpperCase()] || NETWORK_TO_CHAIN_ID[String(network || '')];
+    if (!chainId) return [];
+
+    const activityItems = payload?.event?.activity;
+    if (activityItems) {
+        const list = Array.isArray(activityItems) ? activityItems : [activityItems];
+        const byTx = new Map<string, Set<string>>();
+        for (const item of list) {
+            const txHash = normalizeTxHash(String(item?.hash || ''));
+            if (!txHash) continue;
+            const categories = byTx.get(txHash) || new Set<string>();
+            categories.add(String(item?.category || 'unknown'));
+            byTx.set(txHash, categories);
+        }
+        return Array.from(byTx.entries()).map(([txHash, categories]) => ({ chainId, txHash, categories }));
+    }
+
+    const solItems = payload?.event?.event?.transaction;
+    if (!solItems) return [];
+    const list = Array.isArray(solItems) ? solItems : [solItems];
+    const out: Array<{ chainId: number; txHash: string; categories: Set<string> }> = [];
+    for (const item of list) {
+        const txHash = normalizeTxHash(String(item?.signature || item?.hash || ''));
+        if (!txHash) continue;
+        out.push({ chainId, txHash, categories: new Set<string>(['solana']) });
+    }
+    return out;
+}
+
+function buildBatchedPayload(batch: WebhookBatchContext): any {
+    const first = batch.payloads[0] || {};
+    const event = first?.event || {};
+    const activity: any[] = [];
+    const transactions: any[] = [];
+
+    for (const payload of batch.payloads) {
+        const list = payload?.event?.activity;
+        if (list) {
+            const arr = Array.isArray(list) ? list : [list];
+            for (const item of arr) {
+                if (normalizeTxHash(String(item?.hash || '')) === batch.txHash) {
+                    activity.push(item);
+                }
+            }
+        }
+        const sol = payload?.event?.event?.transaction;
+        if (sol) {
+            const arr = Array.isArray(sol) ? sol : [sol];
+            for (const item of arr) {
+                const hash = normalizeTxHash(String(item?.signature || item?.hash || ''));
+                if (hash === batch.txHash) transactions.push(item);
+            }
+        }
+    }
+
+    if (activity.length > 0) {
+        return {
+            ...first,
+            event: {
+                ...event,
+                activity
+            }
+        };
+    }
+
+    return {
+        ...first,
+        event: {
+            ...event,
+            event: {
+                ...(event?.event || {}),
+                transaction: transactions
+            }
+        }
+    };
+}
+
+async function queueAlchemyWebhookBatch(payload: any): Promise<void> {
+    const contexts = collectWebhookBatchContexts(payload);
+    if (contexts.length === 0) {
+        await processAlchemyWebhookPayload(payload);
+        return;
+    }
+
+    const now = Date.now();
+    for (const ctx of contexts) {
+        const key = `${ctx.chainId}:${ctx.txHash}`;
+        const existing = webhookBatchByTxHash.get(key);
+        if (existing) {
+            existing.payloads.push(payload);
+            for (const category of ctx.categories) existing.categories.add(category);
+            continue;
+        }
+
+        const batch: WebhookBatchContext = {
+            txHash: ctx.txHash,
+            chainId: ctx.chainId,
+            categories: new Set(ctx.categories),
+            payloads: [payload],
+            receivedAt: now,
+            flushAt: now + WEBHOOK_BATCH_WINDOW_MS
+        };
+        batch.timer = setTimeout(async () => {
+            webhookBatchByTxHash.delete(key);
+            const merged = buildBatchedPayload(batch);
+            console.log(`[Webhook] Batched tx=${batch.txHash.slice(0, 12)} categories=${Array.from(batch.categories).join(',')} payloads=${batch.payloads.length} windowMs=${WEBHOOK_BATCH_WINDOW_MS}`);
+            await processAlchemyWebhookPayload(merged).catch((err: any) => {
+                console.error(`[Webhook] Batched processing failed tx=${batch.txHash.slice(0, 12)} err=${err?.message || String(err)}`);
+            });
+        }, WEBHOOK_BATCH_WINDOW_MS);
+        webhookBatchByTxHash.set(key, batch);
+    }
+}
+
 async function processAlchemyWebhookPayload(payload: any): Promise<void> {
     // Alchemy Address Activity webhook structure:
     // EVM: payload.event.network, payload.event.activity
@@ -888,7 +1017,7 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
         console.error('[Webhook] Failed to ensure webhook inbox table:', err);
     });
     startAlchemyWebhookInboxWorker(async (payload) => {
-        await processAlchemyWebhookPayload(payload);
+        await queueAlchemyWebhookBatch(payload);
     }, { intervalMs: 4000, batchSize: 8, maxAttempts: 20 });
 
     /**
@@ -1282,14 +1411,14 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
         setImmediate(async () => {
             try {
                 if (inboxEventId) {
-                    const accepted = await processAlchemyWebhookInboxEventById(inboxEventId, processAlchemyWebhookPayload);
+                    const accepted = await processAlchemyWebhookInboxEventById(inboxEventId, queueAlchemyWebhookBatch);
                     if (!accepted) {
                         // Already in progress/processed by another worker.
                         return;
                     }
                     return;
                 }
-                await processAlchemyWebhookPayload(payload);
+                await queueAlchemyWebhookBatch(payload);
             } catch (error) {
                 console.error(`[Webhook] Error processing Alchemy webhook:`, error);
             }

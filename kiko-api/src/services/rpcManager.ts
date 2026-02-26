@@ -35,6 +35,8 @@ const RPC_CONCURRENCY_CRITICAL = Math.max(1, Number(process.env.RPC_CONCURRENCY_
 const RPC_CONCURRENCY_WRITE = Math.max(1, Number(process.env.RPC_CONCURRENCY_WRITE || '10'));
 const RPC_CONCURRENCY_ETH_CALL_NORMAL = Math.max(1, Number(process.env.RPC_CONCURRENCY_ETH_CALL_NORMAL || '14'));
 const RPC_CONCURRENCY_ETH_CALL_CRITICAL = Math.max(1, Number(process.env.RPC_CONCURRENCY_ETH_CALL_CRITICAL || '20'));
+const RPC_CRITICAL_POOL_CONCURRENCY = Math.max(1, Number(process.env.RPC_CRITICAL_POOL_CONCURRENCY || '64'));
+const RPC_BEST_EFFORT_POOL_CONCURRENCY = Math.max(1, Number(process.env.RPC_BEST_EFFORT_POOL_CONCURRENCY || '20'));
 const RPC_CRITICAL_MAX_INFLIGHT_BURST = Math.max(0, Number(process.env.RPC_CRITICAL_MAX_INFLIGHT_BURST || '2'));
 const RPC_METHOD_COOLDOWN_BASE_MS = Math.max(0, Number(process.env.RPC_METHOD_COOLDOWN_BASE_MS || '250'));
 const RPC_METHOD_COOLDOWN_MAX_MS = Math.max(RPC_METHOD_COOLDOWN_BASE_MS, Number(process.env.RPC_METHOD_COOLDOWN_MAX_MS || '4000'));
@@ -250,6 +252,7 @@ interface RpcResponse<T = any> {
 }
 
 type RpcImportance = 'normal' | 'critical';
+export type RpcClass = 'critical_tx' | 'best_effort_read';
 
 function resolveRpcTimeoutMs(
     method: string,
@@ -299,12 +302,17 @@ interface MethodBackoffState {
 interface RpcMethodUsage {
     chainId: number;
     method: string;
+    importance: RpcImportance;
+    rpcClass: RpcClass;
+    path: string;
     requests: number;
     endpointAttempts: number;
     successes: number;
     endpointFailures: number;
     allFailed: number;
     timeoutErrors: number;
+    latencyMsTotal: number;
+    lastLatencyMs: number;
     updatedAt: number;
 }
 
@@ -327,24 +335,39 @@ const inflightRpcRawRequests = new Map<string, Promise<any>>();
 const rawTxHashCache = new Map<string, { txHash: string; timestamp: number }>();
 const rpcMethodUsage = new Map<string, RpcMethodUsage>();
 const endpointMethodTimeoutHealth = new Map<string, EndpointMethodTimeoutHealth>();
+const rpcPoolInflight: Record<RpcClass, number> = {
+    critical_tx: 0,
+    best_effort_read: 0
+};
 
-function rpcMethodUsageKey(chainId: number, method: string): string {
-    return `${chainId}:${method}`;
+function rpcMethodUsageKey(chainId: number, method: string, importance: RpcImportance, rpcClass: RpcClass, path: string): string {
+    return `${chainId}:${method}:${importance}:${rpcClass}:${path}`;
 }
 
-function getOrCreateRpcMethodUsage(chainId: number, method: string): RpcMethodUsage {
-    const key = rpcMethodUsageKey(chainId, method);
+function getOrCreateRpcMethodUsage(
+    chainId: number,
+    method: string,
+    importance: RpcImportance,
+    rpcClass: RpcClass,
+    path: string
+): RpcMethodUsage {
+    const key = rpcMethodUsageKey(chainId, method, importance, rpcClass, path);
     let row = rpcMethodUsage.get(key);
     if (!row) {
         row = {
             chainId,
             method,
+            importance,
+            rpcClass,
+            path,
             requests: 0,
             endpointAttempts: 0,
             successes: 0,
             endpointFailures: 0,
             allFailed: 0,
             timeoutErrors: 0,
+            latencyMsTotal: 0,
+            lastLatencyMs: 0,
             updatedAt: Date.now()
         };
         rpcMethodUsage.set(key, row);
@@ -355,10 +378,28 @@ function getOrCreateRpcMethodUsage(chainId: number, method: string): RpcMethodUs
 function markRpcMethodUsage(
     chainId: number,
     method: string,
+    importance: RpcImportance,
+    rpcClass: RpcClass,
+    path: string,
     field: 'requests' | 'endpointAttempts' | 'successes' | 'endpointFailures' | 'allFailed' | 'timeoutErrors'
 ): void {
-    const row = getOrCreateRpcMethodUsage(chainId, method);
+    const row = getOrCreateRpcMethodUsage(chainId, method, importance, rpcClass, path);
     row[field] += 1;
+    row.updatedAt = Date.now();
+}
+
+function markRpcMethodLatency(
+    chainId: number,
+    method: string,
+    importance: RpcImportance,
+    rpcClass: RpcClass,
+    path: string,
+    latencyMs: number
+): void {
+    const row = getOrCreateRpcMethodUsage(chainId, method, importance, rpcClass, path);
+    const bounded = Math.max(0, Math.floor(latencyMs));
+    row.latencyMsTotal += bounded;
+    row.lastLatencyMs = bounded;
     row.updatedAt = Date.now();
 }
 
@@ -421,6 +462,39 @@ function isWriteMethod(method: string): boolean {
     );
 }
 
+function inferRpcClass(method: string, importance: RpcImportance): RpcClass {
+    if (
+        method === 'eth_sendRawTransaction'
+        || method === 'eth_sendTransaction'
+        || method === 'sendTransaction'
+        || method === 'eth_getTransactionByHash'
+        || method === 'eth_getTransactionReceipt'
+        || method === 'eth_getTransactionCount'
+        || method === 'eth_estimateGas'
+        || method === 'eth_feeHistory'
+        || method === 'eth_gasPrice'
+    ) {
+        return 'critical_tx';
+    }
+    if (method === 'eth_call') return 'best_effort_read';
+    return importance === 'critical' ? 'critical_tx' : 'best_effort_read';
+}
+
+function classifyRpcFailureCode(error: unknown): string {
+    const msg = String((error as any)?.message || error || '').toLowerCase();
+    if (!msg) return 'unknown';
+    if (msg.includes('aborted_by_signal')) return 'aborted_by_signal';
+    if (msg.includes('endpoint_method_timeout_cooldown')) return 'endpoint_method_timeout_cooldown';
+    if (msg.includes('capacity_limited')) return 'capacity_limited';
+    if (msg.includes('circuit_open')) return 'circuit_open';
+    if (msg.includes('aborterror') || msg.includes('timeout')) return 'timeout';
+    if (msg.includes('empty result')) return 'empty_result';
+    if (msg.includes('invalid tx hash')) return 'invalid_hash';
+    if (msg.includes('rpc error')) return 'rpc_error';
+    if (msg.includes('http ')) return 'http_error';
+    return 'unknown';
+}
+
 function shouldCoalesceMethod(method: string): boolean {
     return !isWriteMethod(method) || method === 'eth_sendRawTransaction';
 }
@@ -474,8 +548,13 @@ function createStableRequestKey(chainId: number, method: string, params: any): s
     return key;
 }
 
-function buildMethodBackoffKey(chainId: number, method: string, importance: RpcImportance = 'normal'): string {
-    return `${chainId}:${method}:${importance}`;
+function buildMethodBackoffKey(
+    chainId: number,
+    method: string,
+    importance: RpcImportance = 'normal',
+    rpcClass: RpcClass = 'best_effort_read'
+): string {
+    return `${chainId}:${method}:${importance}:${rpcClass}`;
 }
 
 function getMethodBackoffState(backoffKey: string): MethodBackoffState | null {
@@ -559,12 +638,24 @@ function shouldForceExhaustiveFailover(
         || method === 'eth_getTransactionReceipt';
 }
 
-function getMethodConcurrencyLimit(method: string, importance: RpcImportance, cooldownActive: boolean): number {
-    let base = method === 'eth_call'
-        ? (importance === 'critical' ? RPC_CONCURRENCY_ETH_CALL_CRITICAL : RPC_CONCURRENCY_ETH_CALL_NORMAL)
-        : (isWriteMethod(method)
-        ? RPC_CONCURRENCY_WRITE
-        : (importance === 'critical' ? RPC_CONCURRENCY_CRITICAL : RPC_CONCURRENCY_NORMAL));
+function getMethodConcurrencyLimit(
+    method: string,
+    importance: RpcImportance,
+    cooldownActive: boolean,
+    rpcClass: RpcClass
+): number {
+    let base = rpcClass === 'critical_tx'
+        ? RPC_CRITICAL_POOL_CONCURRENCY
+        : RPC_BEST_EFFORT_POOL_CONCURRENCY;
+
+    if (rpcClass === 'critical_tx') {
+        base = method === 'eth_call'
+            ? (importance === 'critical' ? RPC_CONCURRENCY_ETH_CALL_CRITICAL : RPC_CONCURRENCY_ETH_CALL_NORMAL)
+            : (isWriteMethod(method)
+                ? RPC_CONCURRENCY_WRITE
+                : (importance === 'critical' ? RPC_CONCURRENCY_CRITICAL : RPC_CONCURRENCY_NORMAL));
+    }
+
     if (cooldownActive) {
         if (importance === 'critical') {
             base = Math.max(2, Math.floor(base * 0.75));
@@ -640,6 +731,8 @@ export async function callRpc<T = any>(
     options: {
         strategy?: 'fast' | 'cheap';
         importance?: RpcImportance;
+        rpcClass?: RpcClass;
+        path?: string;
         exhaustiveFailover?: boolean;
         sendRawFanout?: boolean;
         bypassRawTxCache?: boolean;
@@ -728,11 +821,13 @@ export async function callRpc<T = any>(
 
     const effectiveImportance: RpcImportance =
         options.importance || (options.strategy === 'fast' ? 'critical' : 'normal');
-    const backoffKey = buildMethodBackoffKey(chainId, method, effectiveImportance);
+    const rpcClass: RpcClass = options.rpcClass || inferRpcClass(method, effectiveImportance);
+    const path = String(options.path || 'default');
+    const backoffKey = buildMethodBackoffKey(chainId, method, effectiveImportance, rpcClass);
     const cooldownState = getMethodBackoffState(backoffKey);
     const cooldownActive = !!cooldownState;
-    const limiterKey = `${chainId}:${method}:${effectiveImportance}`;
-    const concurrencyLimit = getMethodConcurrencyLimit(method, effectiveImportance, cooldownActive);
+    const limiterKey = `${chainId}:${method}:${effectiveImportance}:${rpcClass}`;
+    const concurrencyLimit = getMethodConcurrencyLimit(method, effectiveImportance, cooldownActive, rpcClass);
     const requestTimeoutMs = resolveRpcTimeoutMs(method, options);
     const rawTxHash = method === 'eth_sendRawTransaction'
         ? tryGetRawTxHash(String(Array.isArray(params) ? (params[0] || '') : ''))
@@ -759,34 +854,36 @@ export async function callRpc<T = any>(
         if (options.signal?.aborted) {
             throw new Error('aborted_by_signal');
         }
-        markRpcMethodUsage(chainId, method, 'requests');
+        markRpcMethodUsage(chainId, method, effectiveImportance, rpcClass, path, 'requests');
+        rpcPoolInflight[rpcClass] += 1;
+        const runStartedAt = Date.now();
+        try {
+            const request: RpcRequest = {
+                jsonrpc: '2.0',
+                id: Date.now(),
+                method,
+                params,
+            };
 
-        const request: RpcRequest = {
-            jsonrpc: '2.0',
-            id: Date.now(),
-            method,
-            params,
-        };
-
-        const sortedEndpoints = sortEndpointsByScore(endpoints, effectiveImportance);
-        const forceExhaustiveFailover = shouldForceExhaustiveFailover(method, effectiveImportance, options);
-        const endpointBudget = getEndpointAttemptBudget(
-            method,
-            effectiveImportance,
-            sortedEndpoints.length,
-            cooldownActive,
-            forceExhaustiveFailover
-        );
-        const selectedEndpoints = sortedEndpoints.slice(0, endpointBudget);
-        const txLifecycleCritical =
-            effectiveImportance === 'critical'
-            && (
-                method === 'eth_sendRawTransaction'
-                || method === 'eth_getTransactionByHash'
-                || method === 'eth_getTransactionReceipt'
+            const sortedEndpoints = sortEndpointsByScore(endpoints, effectiveImportance);
+            const forceExhaustiveFailover = shouldForceExhaustiveFailover(method, effectiveImportance, options);
+            const endpointBudget = getEndpointAttemptBudget(
+                method,
+                effectiveImportance,
+                sortedEndpoints.length,
+                cooldownActive,
+                forceExhaustiveFailover
             );
+            const selectedEndpoints = sortedEndpoints.slice(0, endpointBudget);
+            const txLifecycleCritical =
+                effectiveImportance === 'critical'
+                && (
+                    method === 'eth_sendRawTransaction'
+                    || method === 'eth_getTransactionByHash'
+                    || method === 'eth_getTransactionReceipt'
+                );
 
-        let lastError: Error | null = null;
+            let lastError: Error | null = null;
 
         const runEndpointAttempt = async (endpoint: RpcEndpointConfig, delayMs = 0): Promise<T> => {
             if (options.signal?.aborted) {
@@ -801,7 +898,7 @@ export async function callRpc<T = any>(
                 throw new Error('endpoint_method_timeout_cooldown');
             }
 
-            markRpcMethodUsage(chainId, method, 'endpointAttempts');
+            markRpcMethodUsage(chainId, method, effectiveImportance, rpcClass, path, 'endpointAttempts');
             markEndpointMethodAttempt(endpointMethodKey);
             if (!txLifecycleCritical && isCircuitOpen(endpoint.url)) {
                 throw new Error('circuit_open');
@@ -866,7 +963,7 @@ export async function callRpc<T = any>(
 
                 const responseTime = Date.now() - startTime;
                 recordSuccess(endpoint.url, responseTime);
-                markRpcMethodUsage(chainId, method, 'successes');
+                markRpcMethodUsage(chainId, method, effectiveImportance, rpcClass, path, 'successes');
 
                 if (method === 'eth_sendRawTransaction' && rawTxHash) {
                     if (typeof data.result !== 'string' || !/^0x[0-9a-fA-F]{64}$/.test(data.result)) {
@@ -879,10 +976,10 @@ export async function callRpc<T = any>(
                 return data.result as T;
             } catch (error: any) {
                 recordFailure(endpoint.url);
-                markRpcMethodUsage(chainId, method, 'endpointFailures');
+                markRpcMethodUsage(chainId, method, effectiveImportance, rpcClass, path, 'endpointFailures');
                 const msg = String(error?.message || '');
                 if (msg.includes('timeout_') || msg.toLowerCase().includes('aborterror')) {
-                    markRpcMethodUsage(chainId, method, 'timeoutErrors');
+                    markRpcMethodUsage(chainId, method, effectiveImportance, rpcClass, path, 'timeoutErrors');
                     if (!options.signal?.aborted) {
                         markEndpointMethodTimeout(endpointMethodKey);
                     }
@@ -893,7 +990,7 @@ export async function callRpc<T = any>(
             }
         };
 
-        const canHedgeReads = method === 'eth_getTransactionByHash' || method === 'eth_getTransactionReceipt';
+            const canHedgeReads = method === 'eth_getTransactionByHash' || method === 'eth_getTransactionReceipt';
         const canHedgeEthCall = method === 'eth_call';
         const canHedgeWrites = method === 'eth_sendRawTransaction' && RPC_CRITICAL_HEDGE_ALLOW_WRITE;
         const canUseCriticalHedge =
@@ -903,7 +1000,7 @@ export async function callRpc<T = any>(
             selectedEndpoints.length >= 2 &&
             (canHedgeReads || canHedgeWrites || canHedgeEthCall);
 
-        if (canUseCriticalHedge) {
+            if (canUseCriticalHedge) {
             try {
                 const hedgeFanout = canHedgeEthCall ? RPC_ETH_CALL_HEDGE_FANOUT : RPC_CRITICAL_HEDGE_FANOUT;
                 const fanout = Math.min(hedgeFanout, selectedEndpoints.length);
@@ -922,8 +1019,8 @@ export async function callRpc<T = any>(
             }
         }
 
-        const fanoutSendRaw = method === 'eth_sendRawTransaction' && options.sendRawFanout === true;
-        if (fanoutSendRaw) {
+            const fanoutSendRaw = method === 'eth_sendRawTransaction' && options.sendRawFanout === true;
+            if (fanoutSendRaw) {
             let acceptedHash: string | null = null;
             let acceptedCount = 0;
             let failedCount = 0;
@@ -984,6 +1081,7 @@ export async function callRpc<T = any>(
             if (acceptedHash) {
                 logger.info(LogCode.API_FETCH_SUCCESS, 'eth_sendRawTransaction fanout completed', {
                     chain: chainName,
+                    rpc_pool: rpcClass,
                     attemptedEndpoints: selectedEndpoints.length,
                     acceptedCount,
                     knownCount,
@@ -1001,6 +1099,7 @@ export async function callRpc<T = any>(
 
             logger.warn(LogCode.API_FETCH_FAILED, 'eth_sendRawTransaction fanout failed with no accepted hash', {
                 chain: chainName,
+                rpc_pool: rpcClass,
                 attemptedEndpoints: selectedEndpoints.length,
                 failedCount,
                 knownCount,
@@ -1010,7 +1109,7 @@ export async function callRpc<T = any>(
             });
         }
 
-        for (let i = 0; i < selectedEndpoints.length; i++) {
+            for (let i = 0; i < selectedEndpoints.length; i++) {
             if (options.signal?.aborted) {
                 throw new Error('aborted_by_signal');
             }
@@ -1096,31 +1195,38 @@ export async function callRpc<T = any>(
             }
         }
 
-        const newBackoff = markMethodFailure(backoffKey);
-        const failedLogKey = `${chainName}:${method}`;
-        if (shouldLogAllRpcFailed(failedLogKey)) {
-            logger.error(LogCode.API_FETCH_FAILED, 'All RPC endpoints failed', {
-                chain: chainName,
-                method,
-                totalEndpoints: sortedEndpoints.length,
-                attemptedEndpoints: selectedEndpoints.length,
-                endpointBudget,
-                exhaustiveFailover: forceExhaustiveFailover,
-                cooldownMs: Math.max(0, newBackoff.cooldownUntil - Date.now()),
-                lastError: lastError?.message,
-                role: LogRole.METRIC
-            });
-        } else {
-            logger.debug(LogCode.API_FETCH_FAILED, 'All RPC endpoints failed (suppressed)', {
-                chain: chainName,
-                method
-            });
-        }
-        markRpcMethodUsage(chainId, method, 'allFailed');
+            const newBackoff = markMethodFailure(backoffKey);
+            const failedLogKey = `${chainName}:${method}`;
+            const rpcFailureCode = classifyRpcFailureCode(lastError);
+            if (shouldLogAllRpcFailed(failedLogKey)) {
+                logger.error(LogCode.API_FETCH_FAILED, 'All RPC endpoints failed', {
+                    chain: chainName,
+                    method,
+                    rpc_pool: rpcClass,
+                    rpc_failure_code: rpcFailureCode,
+                    totalEndpoints: sortedEndpoints.length,
+                    attemptedEndpoints: selectedEndpoints.length,
+                    endpointBudget,
+                    exhaustiveFailover: forceExhaustiveFailover,
+                    cooldownMs: Math.max(0, newBackoff.cooldownUntil - Date.now()),
+                    lastError: lastError?.message,
+                    role: LogRole.METRIC
+                });
+            } else {
+                logger.debug(LogCode.API_FETCH_FAILED, 'All RPC endpoints failed (suppressed)', {
+                    chain: chainName,
+                    method
+                });
+            }
+            markRpcMethodUsage(chainId, method, effectiveImportance, rpcClass, path, 'allFailed');
 
-        throw new Error(
-            `All RPC endpoints failed for ${chainName}. Last error: ${lastError?.message || 'Unknown'}`
-        );
+            throw new Error(
+                `All RPC endpoints failed for ${chainName}. Last error: ${lastError?.message || 'Unknown'}`
+            );
+        } finally {
+            markRpcMethodLatency(chainId, method, effectiveImportance, rpcClass, path, Date.now() - runStartedAt);
+            rpcPoolInflight[rpcClass] = Math.max(0, rpcPoolInflight[rpcClass] - 1);
+        }
     };
 
     const executePromise = withMethodLimiter(limiterKey, concurrencyLimit, runCall);
@@ -1292,7 +1398,13 @@ export async function callRpcRaw<T = any>(
     chainIdOrName: number | string,
     method: string,
     params: any = [],
-    options: { strategy?: 'fast' | 'cheap'; importance?: RpcImportance; exhaustiveFailover?: boolean } = {}
+    options: {
+        strategy?: 'fast' | 'cheap';
+        importance?: RpcImportance;
+        rpcClass?: RpcClass;
+        path?: string;
+        exhaustiveFailover?: boolean;
+    } = {}
 ): Promise<RpcResponse<T>> {
     let endpoints: RpcEndpointConfig[] = [];
     let chainName = typeof chainIdOrName === 'string' ? chainIdOrName : `Chain ${chainIdOrName}`;
@@ -1334,11 +1446,13 @@ export async function callRpcRaw<T = any>(
     }
     const effectiveImportance: RpcImportance =
         options.importance || (options.strategy === 'fast' ? 'critical' : 'normal');
-    const backoffKey = buildMethodBackoffKey(chainId, method, effectiveImportance);
+    const rpcClass: RpcClass = options.rpcClass || inferRpcClass(method, effectiveImportance);
+    const path = String(options.path || 'default');
+    const backoffKey = buildMethodBackoffKey(chainId, method, effectiveImportance, rpcClass);
     const cooldownState = getMethodBackoffState(backoffKey);
     const cooldownActive = !!cooldownState;
-    const limiterKey = `${chainId}:${method}:${effectiveImportance}:raw`;
-    const concurrencyLimit = getMethodConcurrencyLimit(method, effectiveImportance, cooldownActive);
+    const limiterKey = `${chainId}:${method}:${effectiveImportance}:${rpcClass}:raw`;
+    const concurrencyLimit = getMethodConcurrencyLimit(method, effectiveImportance, cooldownActive, rpcClass);
     const requestTimeoutMs = resolveRpcTimeoutMs(method, options);
 
     const inflightKey = `raw:${createStableRequestKey(chainId, method, params)}`;
@@ -1348,7 +1462,8 @@ export async function callRpcRaw<T = any>(
     }
 
     const runCall = async (): Promise<RpcResponse<T>> => {
-        markRpcMethodUsage(chainId, method, 'requests');
+        markRpcMethodUsage(chainId, method, effectiveImportance, rpcClass, path, 'requests');
+        rpcPoolInflight[rpcClass] += 1;
         const request: RpcRequest = {
             jsonrpc: '2.0',
             id: Date.now(),
@@ -1372,7 +1487,7 @@ export async function callRpcRaw<T = any>(
             const endpoint = selectedEndpoints[i];
             if (!endpoint?.url) continue;
 
-            markRpcMethodUsage(chainId, method, 'endpointAttempts');
+            markRpcMethodUsage(chainId, method, effectiveImportance, rpcClass, path, 'endpointAttempts');
             if (isCircuitOpen(endpoint.url)) {
                 lastError = new Error('all_endpoints_circuit_open');
                 logger.debug(LogCode.API_FETCH_FAILED, 'RPC circuit open, skipping endpoint', {
@@ -1419,7 +1534,7 @@ export async function callRpcRaw<T = any>(
                 const data = await response.json() as RpcResponse<T>;
                 const responseTime = Date.now() - startTime;
                 recordSuccess(endpoint.url, responseTime);
-                markRpcMethodUsage(chainId, method, 'successes');
+                markRpcMethodUsage(chainId, method, effectiveImportance, rpcClass, path, 'successes');
 
                 if (i > 0) {
                     logger.debug(LogCode.API_FETCH_SUCCESS, 'RPC failover success', {
@@ -1435,10 +1550,10 @@ export async function callRpcRaw<T = any>(
                 return data;
             } catch (error: any) {
                 recordFailure(endpoint.url);
-                markRpcMethodUsage(chainId, method, 'endpointFailures');
+                markRpcMethodUsage(chainId, method, effectiveImportance, rpcClass, path, 'endpointFailures');
                 const msg = String(error?.message || '');
                 if (msg.includes('timeout_') || msg.toLowerCase().includes('aborterror')) {
-                    markRpcMethodUsage(chainId, method, 'timeoutErrors');
+                    markRpcMethodUsage(chainId, method, effectiveImportance, rpcClass, path, 'timeoutErrors');
                 }
                 lastError = error instanceof Error ? error : new Error(msg);
 
@@ -1473,6 +1588,8 @@ export async function callRpcRaw<T = any>(
             logger.error(LogCode.API_FETCH_FAILED, 'All RPC endpoints failed', {
                 chain: chainName,
                 method,
+                rpc_pool: rpcClass,
+                rpc_failure_code: classifyRpcFailureCode(lastError),
                 totalEndpoints: sortedEndpoints.length,
                 attemptedEndpoints: selectedEndpoints.length,
                 endpointBudget,
@@ -1486,12 +1603,22 @@ export async function callRpcRaw<T = any>(
                 method
             });
         }
-        markRpcMethodUsage(chainId, method, 'allFailed');
+        markRpcMethodUsage(chainId, method, effectiveImportance, rpcClass, path, 'allFailed');
 
         throw new Error(`All RPC endpoints failed for ${chainName}. Last error: ${lastError?.message || 'Unknown'}`);
     };
 
-    const executePromise = withMethodLimiter(limiterKey, concurrencyLimit, runCall);
+    const wrappedRunCall = async (): Promise<RpcResponse<T>> => {
+        const startedAt = Date.now();
+        try {
+            return await runCall();
+        } finally {
+            markRpcMethodLatency(chainId, method, effectiveImportance, rpcClass, path, Date.now() - startedAt);
+            rpcPoolInflight[rpcClass] = Math.max(0, rpcPoolInflight[rpcClass] - 1);
+        }
+    };
+
+    const executePromise = withMethodLimiter(limiterKey, concurrencyLimit, wrappedRunCall);
     if (inflightRpcRawRequests.size < RPC_INFLIGHT_MAP_MAX) {
         inflightRpcRawRequests.set(inflightKey, executePromise);
         try {
@@ -2111,12 +2238,17 @@ export function startRpcBenchmarkSampling(
 export interface RpcMethodUsageSnapshotRow {
     chainId: number;
     method: string;
+    importance: RpcImportance;
+    rpcClass: RpcClass;
+    path: string;
     requests: number;
     endpointAttempts: number;
     successes: number;
     endpointFailures: number;
     allFailed: number;
     timeoutErrors: number;
+    latencyMsTotal: number;
+    lastLatencyMs: number;
     updatedAt: number;
 }
 
@@ -2146,12 +2278,17 @@ export function diffRpcMethodUsageSnapshots(
         const row: RpcMethodUsageSnapshotRow = {
             chainId: chain,
             method,
+            importance: a?.importance ?? b!.importance,
+            rpcClass: a?.rpcClass ?? b!.rpcClass,
+            path: a?.path ?? b!.path,
             requests: (a?.requests || 0) - (b?.requests || 0),
             endpointAttempts: (a?.endpointAttempts || 0) - (b?.endpointAttempts || 0),
             successes: (a?.successes || 0) - (b?.successes || 0),
             endpointFailures: (a?.endpointFailures || 0) - (b?.endpointFailures || 0),
             allFailed: (a?.allFailed || 0) - (b?.allFailed || 0),
             timeoutErrors: (a?.timeoutErrors || 0) - (b?.timeoutErrors || 0),
+            latencyMsTotal: (a?.latencyMsTotal || 0) - (b?.latencyMsTotal || 0),
+            lastLatencyMs: a?.lastLatencyMs || b?.lastLatencyMs || 0,
             updatedAt: a?.updatedAt || b!.updatedAt
         };
         if (
@@ -2160,7 +2297,8 @@ export function diffRpcMethodUsageSnapshots(
             row.successes <= 0 &&
             row.endpointFailures <= 0 &&
             row.allFailed <= 0 &&
-            row.timeoutErrors <= 0
+            row.timeoutErrors <= 0 &&
+            row.latencyMsTotal <= 0
         ) {
             continue;
         }
@@ -2173,6 +2311,7 @@ export function diffRpcMethodUsageSnapshots(
 export interface RpcUsageSnapshot {
     timestamp: number;
     methods: Record<string, RpcMethodUsageSnapshotRow>;
+    inflightPools: Record<RpcClass, number>;
     endpoints: Array<{
         url: string;
         inFlight: number;
@@ -2194,6 +2333,10 @@ export function getUsageSnapshot(chainId?: number): RpcUsageSnapshot {
     return {
         timestamp: Date.now(),
         methods,
+        inflightPools: {
+            critical_tx: rpcPoolInflight.critical_tx,
+            best_effort_read: rpcPoolInflight.best_effort_read
+        },
         endpoints
     };
 }
@@ -2427,12 +2570,27 @@ export const __rpcManagerTest = {
     shouldTreatSendRawErrorAsKnown,
     getEndpointAttemptBudget,
     getMethodConcurrencyLimit,
-    getMethodBackoff: (chainId: number, method: string, importance: RpcImportance = 'normal') =>
-        getMethodBackoffState(buildMethodBackoffKey(chainId, method, importance)),
-    markMethodFailureForTest: (chainId: number, method: string, importance: RpcImportance = 'normal') =>
-        markMethodFailure(buildMethodBackoffKey(chainId, method, importance)),
-    markMethodSuccessForTest: (chainId: number, method: string, importance: RpcImportance = 'normal') =>
-        markMethodSuccess(buildMethodBackoffKey(chainId, method, importance)),
+    getMethodBackoff: (
+        chainId: number,
+        method: string,
+        importance: RpcImportance = 'normal',
+        rpcClass: RpcClass = 'best_effort_read'
+    ) =>
+        getMethodBackoffState(buildMethodBackoffKey(chainId, method, importance, rpcClass)),
+    markMethodFailureForTest: (
+        chainId: number,
+        method: string,
+        importance: RpcImportance = 'normal',
+        rpcClass: RpcClass = 'best_effort_read'
+    ) =>
+        markMethodFailure(buildMethodBackoffKey(chainId, method, importance, rpcClass)),
+    markMethodSuccessForTest: (
+        chainId: number,
+        method: string,
+        importance: RpcImportance = 'normal',
+        rpcClass: RpcClass = 'best_effort_read'
+    ) =>
+        markMethodSuccess(buildMethodBackoffKey(chainId, method, importance, rpcClass)),
     resetRuntimeStateForTest: () => {
         methodBackoff.clear();
         methodLimiter.clear();
