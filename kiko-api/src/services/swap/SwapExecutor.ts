@@ -19,6 +19,7 @@ import { handleSwapError } from './handleSwapError.js';
 import { callRpc, getErc20Balance, getErc20Decimals, getErc20Allowance } from '../../services/rpcManager.js';
 import { monitorEvmTransaction, scheduleSpeedUp, waitForReceipt, waitForTransactionConfirmation } from './confirmationCoordinator.js';
 import { appendPermit2SignatureToCalldata, executeApproval, tryBuildKyberPermit, validatePermit2Payload } from './permitHelpers.js';
+import type { OrderRuntimeContext } from '../order-runtime/types.js';
 
 // ⚡ In-process decimals cache: avoids repeated RPC calls for the same token
 // Keyed by "chainId:tokenAddress" (lowercase). Decimals are immutable once deployed.
@@ -82,6 +83,7 @@ export interface SwapParams {
         sourceAmountIn?: string | null;
         sourceAmountOut?: string | null;
     };
+    runtimeContext?: OrderRuntimeContext;
 }
 
 export interface SwapResult {
@@ -638,7 +640,8 @@ export class SwapExecutor {
                         data: approvalData,
                         value: '0',
                         chainId,
-                        txPurpose: 'approval'
+                        txPurpose: 'approval',
+                        runtimeContext: params.runtimeContext
                     });
 
                     logger.info(LogCode.EXE_TX_BROADCAST, 'Approval transaction sent', { txHash: approveTxHash });
@@ -924,6 +927,7 @@ export class SwapExecutor {
                 maxPriorityFeePerGas: maxPriorityFeeCap?.toString(),
                 txPurpose: 'trade',
                 mevProtection: params.mevProtection === true,
+                runtimeContext: params.runtimeContext,
                 ...(executionProfile ? { executionProfile } : {}),
                 ...(preWarmedNonce !== undefined ? { nonce: preWarmedNonce } : {})
             });
@@ -939,6 +943,7 @@ export class SwapExecutor {
                     speedUpAfterMs: params.speedUpAfterMs,
                     speedUpBumpBps: params.speedUpBumpBps,
                     mevProtection: params.mevProtection === true,
+                    runtimeContext: params.runtimeContext,
                     tx: {
                         to: best.to,
                         data: best.data,
@@ -1316,7 +1321,8 @@ export class SwapExecutor {
                                 spender: best.allowanceTarget,
                                 requiredAmountBase: amountInBase,
                                 chainId,
-                                accessToken: params.accessToken
+                                accessToken: params.accessToken,
+                                runtimeContext: params.runtimeContext
                             });
                         } catch (approveErr: any) {
                             logger.warn(LogCode.SYS_ERROR, 'Forced approval failed, continuing with retry...', { error: approveErr.message });

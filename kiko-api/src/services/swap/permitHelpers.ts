@@ -2,6 +2,7 @@ import { ethers } from 'ethers';
 import { callRpc } from '../rpcManager.js';
 import { sendTransaction, signTypedData } from '../privyWallet.js';
 import { waitForReceipt } from './confirmationCoordinator.js';
+import type { OrderRuntimeContext } from '../order-runtime/types.js';
 
 export function validatePermit2Payload(
     payload: {
@@ -154,6 +155,7 @@ export async function executeApproval(params: {
     requiredAmountBase: string;
     chainId: number;
     accessToken?: string;
+    runtimeContext?: OrderRuntimeContext;
 }): Promise<string> {
     const iface = new ethers.Interface(['function approve(address spender, uint256 amount)']);
     const exactApproval = (BigInt(params.requiredAmountBase || '0') + 1n).toString();
@@ -164,7 +166,8 @@ export async function executeApproval(params: {
         data,
         value: '0',
         chainId: params.chainId,
-        txPurpose: 'approval'
+        txPurpose: 'approval',
+        runtimeContext: params.runtimeContext
     });
 
     await waitForReceipt(params.chainId, txHash, 60000);

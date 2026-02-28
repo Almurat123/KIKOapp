@@ -42,7 +42,7 @@ import { cacheHub } from '../cache/DataCacheHub.js';
 import { getTokenDecimalsFromRegistry } from '../config/tokenRegistry.js';
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
-import { getNativeBalance as rpcGetNativeBalance, getErc20Balance, getErc20Decimals, getTransactionReceipt, waitForReceiptStateMachine } from './rpcManager.js';
+import { getNativeBalance as rpcGetNativeBalance, getErc20Balance, getErc20Decimals, getTransactionReceipt } from './rpcManager.js';
 import { startCopyTradePendingWatcher, stopCopyTradePendingWatcher } from './copyTradePendingService.js';
 import { assertConfigExecutable } from './copyTradeConfigSignatureService.js';
 import { determineCopyTradeDirection } from './copyTradeDirection.js';
@@ -70,6 +70,7 @@ import {
     persistSuccessfulExit,
     reconcileNoopExitPosition
 } from './copytrade/exit/persistence.js';
+import { waitForPreheatConfirmation } from './copytrade/preheatConfirmation.js';
 
 export { getTokenInfo } from './tokenService.js';
 
@@ -4095,11 +4096,10 @@ const SELL_PREHEAT_CONFIRM_TIMEOUT_MS = Math.max(5000, Number(process.env.COPYTR
 const SELL_PREHEAT_CONFIRM_POLL_MS = Math.max(500, Number(process.env.COPYTRADE_SELL_APPROVAL_PREHEAT_CONFIRM_POLL_MS || '1200'));
 
 async function waitTxConfirmedForPreheat(chainId: number, txHash: string): Promise<boolean> {
-    const lifecycle = await waitForReceiptStateMachine({
+    return await waitForPreheatConfirmation({
         chainId,
         txHash,
-        maxWaitMs: SELL_PREHEAT_CONFIRM_TIMEOUT_MS,
+        timeoutMs: SELL_PREHEAT_CONFIRM_TIMEOUT_MS,
         pollMs: SELL_PREHEAT_CONFIRM_POLL_MS
-    }).catch(() => null);
-    return lifecycle?.status === 'confirmed_success';
+    });
 }

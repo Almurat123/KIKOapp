@@ -4,6 +4,7 @@ import { callRpc, getTransactionByHash, getTransactionReceipt } from '../rpcMana
 import { sendTransaction } from '../privyWallet.js';
 import { resolveTxFinalState } from '../order-runtime/adjudicator/finalState.js';
 import { reportReceiptSeen, reportTxByHashSeen } from '../order-runtime/adjudicator/service.js';
+import type { OrderRuntimeContext } from '../order-runtime/types.js';
 
 export type ConfirmationKind = 'confirmed_success' | 'confirmed_failed' | 'timeout' | 'uncertain';
 
@@ -130,6 +131,7 @@ export function scheduleSpeedUp(params: {
     speedUpAfterMs: number;
     speedUpBumpBps?: number;
     mevProtection?: boolean;
+    runtimeContext?: OrderRuntimeContext;
     tx: {
         to: string;
         data: string;
@@ -149,6 +151,7 @@ export function scheduleSpeedUp(params: {
         speedUpAfterMs,
         speedUpBumpBps,
         mevProtection,
+        runtimeContext,
         tx
     } = params;
 
@@ -227,6 +230,7 @@ export function scheduleSpeedUp(params: {
                 nonce: BigInt(nonceHex).toString(),
                 txPurpose: 'speedup',
                 mevProtection: mevProtection === true,
+                runtimeContext,
                 ...(speedUpProfile ? { executionProfile: speedUpProfile } : {})
             });
 

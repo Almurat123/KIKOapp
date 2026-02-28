@@ -1864,7 +1864,8 @@ export class MainSwapService {
         sourceTokenOut,
         sourceAmountIn,
         sourceAmountOut
-      }
+      },
+      runtimeContext: request.runtimeContext
     };
 
     if (checkNativeBalancePromise) await checkNativeBalancePromise;
@@ -2029,7 +2030,8 @@ export class MainSwapService {
       // OPTIMIZATION: Copytrade fires immediately for speed (confirmation tracked separately)
       waitForConfirmation: shouldWaitForConfirmation,
       executionMode,
-      launchpadProvider: request.launchpadProvider
+      launchpadProvider: request.launchpadProvider,
+      runtimeContext: request.runtimeContext
     };
 
     const result = await SwapExecutor.execute(swapParams);
