@@ -1,5 +1,6 @@
 import type { DexFamily, DexStrategy, DirectSwapHint, HintedSourcePool, StrategyKind } from '../directSwapTypes.js';
 import type { TxLifecycleResult } from '../../txLifecycle.js';
+import type { OrderRuntimeContext } from '../../order-runtime/types.js';
 
 export type { DexFamily, DexStrategy, DirectSwapHint, HintedSourcePool, StrategyKind };
 
@@ -13,6 +14,7 @@ export interface DirectSwapResult {
   amountOut?: string;
   error?: string;
   txLifecycle?: TxLifecycleResult;
+  runtimeContext?: OrderRuntimeContext;
   provider:
     | 'uniswap-v2'
     | 'pancake-v2'
@@ -68,6 +70,7 @@ export interface DirectSwapExecuteParams {
   slippageBps: number;
   hint?: DirectSwapHint;
   executionMode?: 'safe' | 'normal' | 'turbo';
+  runtimeContext?: OrderRuntimeContext;
   _externalRetryAttempt?: number;
 }
 

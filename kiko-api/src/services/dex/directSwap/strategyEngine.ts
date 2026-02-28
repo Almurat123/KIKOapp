@@ -134,6 +134,15 @@ import {
     getTokenLiquidity as getTokenLiquidityFromPoolLayer
 } from './pipeline/poolLayer.js';
 import {
+    createOrderRuntimeContext,
+    markOrderFailure,
+    recordLifecycleOnOrder,
+    recordOrderRoute,
+    setOrderMetadata
+} from '../../order-runtime/context.js';
+import { logOrderRuntimeSnapshot } from '../../order-runtime/sinks/logger.js';
+import type { OrderRuntimeContext } from '../../order-runtime/types.js';
+import {
     runResolvedHintFastPathFlow,
     tryResolvedPoolHintFastPath as tryResolvedPoolHintFastPathFromPipeline
 } from './pipeline/resolvedHintFastPath.js';
@@ -488,6 +497,7 @@ export async function executeDirectSwap(params: {
     hint?: DirectSwapHint;
     executionMode?: 'safe' | 'normal' | 'turbo';
     mevProtection?: boolean;
+    runtimeContext?: OrderRuntimeContext;
     _externalRetryAttempt?: number;
 }): Promise<DirectSwapResult> {
     const { userId, accessToken, walletAddress, tokenIn, tokenOut, amountIn, chainId, slippageBps } = params;
@@ -502,6 +512,24 @@ export async function executeDirectSwap(params: {
     }
     const normalizedTokenIn = normalizeToken(tokenIn, chainId);
     const normalizedTokenOut = normalizeToken(tokenOut, chainId);
+    const runtimeContext = params.runtimeContext || createOrderRuntimeContext({
+        userId,
+        chainId,
+        walletAddress,
+        mode: 'direct',
+        side: isBuySideStableOrNativeIn(chainId, normalizedTokenIn)
+            ? 'buy'
+            : isBuySideStableOrNativeIn(chainId, normalizedTokenOut)
+                ? 'sell'
+                : 'unknown',
+        sourceTxHash: params.hint?.sourceTxHash,
+        tokenIn: normalizedTokenIn,
+        tokenOut: normalizedTokenOut,
+        metadata: {
+            executionMode: params.executionMode || 'normal'
+        }
+    });
+    params.runtimeContext = runtimeContext;
     const traceId = createDirectSwapTraceId(chainId, params.hint);
     const traceState: DirectSwapTraceState = {
         traceId,
@@ -521,6 +549,10 @@ export async function executeDirectSwap(params: {
         chainId,
         wallet: walletAddress
     });
+    setOrderMetadata(runtimeContext, {
+        traceId,
+        hintedSourceTxHash: params.hint?.sourceTxHash || null
+    });
 
     const swapStart = Date.now();
     let tPoolDiscoveryDone = 0;
@@ -531,6 +563,21 @@ export async function executeDirectSwap(params: {
     let selectedResolvedHintForCache: ResolvedPoolHint | null = null;
     const finish = async (result: DirectSwapResult): Promise<DirectSwapResult> => {
         const durationMs = Date.now() - swapStart;
+        if (result.provider && result.provider !== 'failed') {
+            const providerStrategy = providerToStrategy(result.provider, chainId);
+            recordOrderRoute(runtimeContext, {
+                provider: result.provider,
+                poolKind: providerStrategy?.kind === 'zora-sdk' ? 'external' : (providerStrategy?.kind as any)
+            });
+        }
+        if (result.txHash) {
+            setOrderMetadata(runtimeContext, { directTxHash: result.txHash });
+        }
+        if (result.txLifecycle) {
+            recordLifecycleOnOrder(runtimeContext, result.txLifecycle);
+        } else if (result.error) {
+            markOrderFailure(runtimeContext, result.error);
+        }
         if (result.success) {
             clearNoPoolCache(chainId, poolCacheTokenIn, poolCacheTokenOut);
             const successfulStrategy = providerToStrategy(result.provider, chainId);
@@ -588,6 +635,7 @@ export async function executeDirectSwap(params: {
                 hintDex: params.hint?.sourceDexName || null
             });
         }
+        logOrderRuntimeSnapshot(runtimeContext, '[OrderRuntime] direct-swap-finish');
         logger.info(LogCode.SYS_INFO, '[DirectSwap] Finished', {
             traceId,
             provider: result.provider,
@@ -610,7 +658,10 @@ export async function executeDirectSwap(params: {
                 success: result.success
             });
         }
-        return result;
+        return {
+            ...result,
+            runtimeContext
+        };
     };
 
     try {

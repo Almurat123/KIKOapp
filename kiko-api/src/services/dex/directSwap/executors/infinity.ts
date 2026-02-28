@@ -4,6 +4,8 @@ import { LogCode } from '../../../../config/logRegistry.js';
 import type { DirectSwapExecutionMode, DirectSwapResult } from '../types.js';
 import type { TxLifecycleResult } from '../../../txLifecycle.js';
 import { isTxLifecycleSendAccepted } from '../../../txLifecycle.js';
+import type { OrderRuntimeContext } from '../../../order-runtime/types.js';
+import { markOrderPrepared, recordOrderRoute } from '../../../order-runtime/context.js';
 
 interface ExecuteSwapParams {
   userId: string;
@@ -15,6 +17,7 @@ interface ExecuteSwapParams {
   amountInWei: bigint;
   chainId: number;
   slippageBps: number;
+  runtimeContext?: OrderRuntimeContext;
 }
 
 type InfinityPoolKind = 'cl' | 'bin';
@@ -209,6 +212,15 @@ export async function executeInfinitySwap(
     gasLimit = '900000';
   }
 
+  if (params.runtimeContext) {
+    recordOrderRoute(params.runtimeContext, {
+      provider: 'pancake-infinity',
+      poolKind: 'infinity',
+      poolAddress: deps.pancakeInfinityRouter
+    });
+    markOrderPrepared(params.runtimeContext);
+  }
+
   const txLifecycle = await deps.sendTransaction(userId, accessToken, {
     to: deps.pancakeInfinityRouter,
     data,
@@ -216,7 +228,8 @@ export async function executeInfinitySwap(
     chainId,
     txPurpose: 'trade',
     executionProfile: deps.getTxExecutionProfile(chainId),
-    gas: gasLimit
+    gas: gasLimit,
+    runtimeContext: params.runtimeContext
   });
   const txHash = txLifecycle.txHash;
   if (!txHash || !isTxLifecycleSendAccepted(txLifecycle)) {
@@ -232,6 +245,7 @@ export async function executeInfinitySwap(
     success: true,
     txHash,
     txLifecycle,
+    runtimeContext: params.runtimeContext,
     provider: 'pancake-infinity',
     poolInfo: {
       version: quote.kind === 'cl' ? 'infinity-cl' : 'infinity-bin',

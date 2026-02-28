@@ -5,6 +5,8 @@ import type { PoolInfo } from '../../poolInfo.js';
 import type { DirectSwapExecutionMode, DirectSwapResult } from '../types.js';
 import type { TxLifecycleResult } from '../../../txLifecycle.js';
 import { isTxLifecycleSendAccepted } from '../../../txLifecycle.js';
+import type { OrderRuntimeContext } from '../../../order-runtime/types.js';
+import { markOrderPrepared, recordOrderRoute } from '../../../order-runtime/context.js';
 
 interface ExecuteSwapParams {
   userId: string;
@@ -16,6 +18,7 @@ interface ExecuteSwapParams {
   amountInWei: bigint;
   chainId: number;
   slippageBps: number;
+  runtimeContext?: OrderRuntimeContext;
 }
 
 interface V3ExecutorDeps {
@@ -341,6 +344,15 @@ export async function executeV3Swap(
     }
   }
 
+  if (params.runtimeContext) {
+    recordOrderRoute(params.runtimeContext, {
+      provider: dex === 'pancake' ? 'pancake-v3' : 'uniswap-v3',
+      poolKind: 'v3',
+      poolAddress: pool.poolAddress
+    });
+    markOrderPrepared(params.runtimeContext);
+  }
+
   const txLifecycle = await deps.sendTransaction(userId, accessToken, {
     to: routerAddress,
     data,
@@ -348,7 +360,8 @@ export async function executeV3Swap(
     chainId,
     txPurpose: 'trade',
     executionProfile: deps.getTxExecutionProfile(chainId),
-    gas: gasLimit
+    gas: gasLimit,
+    runtimeContext: params.runtimeContext
   });
   const txHash = txLifecycle.txHash;
   if (!txHash || !isTxLifecycleSendAccepted(txLifecycle)) {
@@ -369,6 +382,7 @@ export async function executeV3Swap(
     success: true,
     txHash,
     txLifecycle,
+    runtimeContext: params.runtimeContext,
     provider: dex === 'pancake' ? 'pancake-v3' : 'uniswap-v3',
     poolInfo: {
       version: 'v3',

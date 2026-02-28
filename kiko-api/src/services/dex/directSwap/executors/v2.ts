@@ -2,6 +2,8 @@ import { ethers } from 'ethers';
 import type { DirectSwapResult } from '../types.js';
 import type { TxLifecycleResult } from '../../../txLifecycle.js';
 import { isTxLifecycleSendAccepted } from '../../../txLifecycle.js';
+import type { OrderRuntimeContext } from '../../../order-runtime/types.js';
+import { markOrderPrepared, recordOrderRoute } from '../../../order-runtime/context.js';
 
 interface ExecuteSwapParams {
   userId: string;
@@ -13,6 +15,7 @@ interface ExecuteSwapParams {
   amountInWei: bigint;
   chainId: number;
   slippageBps: number;
+  runtimeContext?: OrderRuntimeContext;
 }
 
 interface V2ExecutorDeps {
@@ -84,6 +87,15 @@ export async function executeV2Swap(
     gasLimit = '350000';
   }
 
+  if (params.runtimeContext) {
+    recordOrderRoute(params.runtimeContext, {
+      provider: params.chainId === 56 ? 'pancake-v2' : 'uniswap-v2',
+      poolKind: 'v2',
+      poolAddress: router
+    });
+    markOrderPrepared(params.runtimeContext);
+  }
+
   const txLifecycle = await deps.sendTransaction(params.userId, params.accessToken, {
     to: router,
     data,
@@ -91,7 +103,8 @@ export async function executeV2Swap(
     chainId: params.chainId,
     txPurpose: 'trade',
     executionProfile: deps.getTxExecutionProfile(params.chainId),
-    gas: gasLimit
+    gas: gasLimit,
+    runtimeContext: params.runtimeContext
   });
   const txHash = txLifecycle.txHash;
   if (!txHash || !isTxLifecycleSendAccepted(txLifecycle)) {
@@ -107,6 +120,7 @@ export async function executeV2Swap(
     success: true,
     txHash,
     txLifecycle,
+    runtimeContext: params.runtimeContext,
     provider: params.chainId === 56 ? 'pancake-v2' : 'uniswap-v2',
     poolInfo: {
       version: 'v2',

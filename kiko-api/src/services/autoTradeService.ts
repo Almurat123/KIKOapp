@@ -58,6 +58,10 @@ import { persistTargetSwapEvent } from './targetWalletTrackingService.js';
 import { buildSwapExecutionContext } from './copytrade/context/contextBuilder.js';
 import { getContextByTxHash, putContext } from './copytrade/context/contextStore.js';
 import type { ContextStoreHit } from './copytrade/context/types.js';
+import {
+    buildOrderAuditFields,
+    resolvePositionOpeningStatus
+} from './order-runtime/sinks/persistence.js';
 
 export { getTokenInfo } from './tokenService.js';
 
@@ -73,7 +77,6 @@ type PositionStatusCompat = {
     lockStatuses: string[];
     activeOrLockedStatuses: string[];
     pendingCreateStatus: string;
-    broadcastedUnseenStatus: string;
     failedFinalStatus: string;
 };
 
@@ -105,8 +108,7 @@ async function getPositionStatusCompat(): Promise<PositionStatusCompat> {
         const compat: PositionStatusCompat = {
             lockStatuses,
             activeOrLockedStatuses: ['open', ...lockStatuses],
-            pendingCreateStatus: hasPendingBroadcast ? 'pending_broadcast' : 'pending',
-            broadcastedUnseenStatus: hasBroadcastedUnseen ? 'broadcasted_unseen' : 'pending',
+            pendingCreateStatus: 'pending',
             failedFinalStatus: hasFailedFinal ? 'failed_final' : 'failed'
         };
         positionStatusCompatCache = { value: compat, ts: Date.now() };
@@ -116,7 +118,6 @@ async function getPositionStatusCompat(): Promise<PositionStatusCompat> {
             lockStatuses: ['pending'],
             activeOrLockedStatuses: ['open', 'pending'],
             pendingCreateStatus: 'pending',
-            broadcastedUnseenStatus: 'pending',
             failedFinalStatus: 'failed'
         };
         positionStatusCompatCache = { value: fallback, ts: Date.now() };
@@ -2160,6 +2161,7 @@ async function processSingleUserBuy(
         });
         let txHash = '';
         let txLifecycleStatus: string | undefined;
+        let orderRuntimeContext: any = undefined;
 
         if (chainId === 900) {
             // Dynamically fetch Solana wallet from Privy (not from database field)
@@ -2388,11 +2390,13 @@ async function processSingleUserBuy(
                     if (!result1.success) throw new Error(result1.error);
                     txHash = result1.txHash!;
                     txLifecycleStatus = result1.txLifecycle?.status || result1.metadata?.txLifecycleStatus;
+                    orderRuntimeContext = result1.runtimeContext;
                     logger.info(LogCode.EXE_TX_BROADCAST, '[CopyTradeTiming] buy step 1 success', {
                         userId: effectiveConfig.userId,
                         token: tokenToBuy,
                         txHash,
                         txLifecycleStatus: txLifecycleStatus || 'unknown',
+                        ...buildOrderAuditFields(orderRuntimeContext),
                         timingMs: Date.now() - timingDetectedAt
                     });
                 } catch (buyErr1: any) {
@@ -2492,6 +2496,7 @@ async function processSingleUserBuy(
                             if (!result2.success) throw new Error(result2.error);
                             txHash = result2.txHash!;
                             txLifecycleStatus = result2.txLifecycle?.status || result2.metadata?.txLifecycleStatus;
+                            orderRuntimeContext = result2.runtimeContext;
                         } catch (buyErr2: any) {
                             logger.warn(LogCode.EXE_TX_REVERTED, 'Buy Step 2 failed, retrying final step...', {
                                 userId: config.userId,
@@ -2542,6 +2547,7 @@ async function processSingleUserBuy(
                                 if (!result3.success) throw new Error(result3.error);
                                 txHash = result3.txHash!;
                                 txLifecycleStatus = result3.txLifecycle?.status || result3.metadata?.txLifecycleStatus;
+                                orderRuntimeContext = result3.runtimeContext;
                             } catch (buyErr3: any) {
                                 logger.error(LogCode.EXE_TX_REVERTED, 'All buy steps failed for token', {
                                     userId: config.userId,
@@ -2576,11 +2582,14 @@ async function processSingleUserBuy(
         }
 
         // Update PENDING position to OPEN with real details
-        const shouldPromoteToOpen =
-            !txLifecycleStatus
-            || txLifecycleStatus === 'visible_pending'
-            || txLifecycleStatus === 'confirmed_success';
-        const nextPositionStatus = shouldPromoteToOpen ? 'open' : positionStatusCompat.broadcastedUnseenStatus;
+        const nextPositionStatus = resolvePositionOpeningStatus(orderRuntimeContext, txLifecycleStatus
+            ? {
+                status: txLifecycleStatus as any,
+                attempts: 1,
+                chainId
+            }
+            : null);
+        const shouldPromoteToOpen = nextPositionStatus === 'open';
         if (pendingPositionId) {
             await prisma.position.update({
                 where: { id: pendingPositionId },
@@ -2615,7 +2624,8 @@ async function processSingleUserBuy(
             token: tokenToBuy,
             txHash,
             txLifecycleStatus: txLifecycleStatus || 'unknown',
-            positionStatus: nextPositionStatus
+            positionStatus: nextPositionStatus,
+            ...buildOrderAuditFields(orderRuntimeContext)
         });
 
         // Warm sell approval only after buy tx is confirmed to avoid nonce/queue contention.

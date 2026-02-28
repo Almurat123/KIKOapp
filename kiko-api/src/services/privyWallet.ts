@@ -26,6 +26,20 @@ import {
     isTxLifecycleSendAccepted,
     toTxLifecycleFailureMessage
 } from './txLifecycle.js';
+import type { OrderRuntimeContext } from './order-runtime/types.js';
+import type { OrderReasonCode } from './order-runtime/types.js';
+import {
+    addOrderAttempt,
+    attachOrderTxHash,
+    markOrderFailure,
+    markOrderHashAccepted,
+    markOrderPrepared,
+    markOrderSendStarted,
+    recordLifecycleOnOrder,
+    setOrderMetadata,
+    updateOrderAttempt
+} from './order-runtime/context.js';
+import { inferOrderReasonCode } from './order-runtime/reasonCodes.js';
 
 // Initialize Privy client
 const PRIVY_APP_ID = process.env.VITE_PRIVY_APP_ID || process.env.PRIVY_APP_ID || '';
@@ -137,6 +151,11 @@ async function sendWithLocalSigner(tx: TransactionRequest): Promise<TxLifecycleR
         chainId: tx.chainId,
         lastRpcError: visible ? undefined : 'not_found_by_local_rpc'
     };
+}
+
+function syncLifecycleIntoRuntimeContext(tx: TransactionRequest, lifecycle: TxLifecycleResult, reasonCode?: OrderReasonCode): void {
+    if (!tx.runtimeContext) return;
+    recordLifecycleOnOrder(tx.runtimeContext, lifecycle, { reasonCode });
 }
 
 const toHexQuantity = (value?: string) =>
@@ -477,6 +496,7 @@ export interface TransactionRequest {
     txPurpose?: 'trade' | 'approval' | 'preheat' | 'speedup' | 'fee' | 'other';
     txPriority?: number;
     mevProtection?: boolean;
+    runtimeContext?: OrderRuntimeContext;
 }
 
 /**
@@ -782,6 +802,16 @@ export async function sendTransactionLifecycle(
         bumpInflightUserChainTx(chainKey, 1);
         // === SIMULATION MODE ===
         try {
+            const runtimeContext = tx.runtimeContext;
+            if (runtimeContext) {
+                markOrderPrepared(runtimeContext);
+                markOrderSendStarted(runtimeContext);
+                setOrderMetadata(runtimeContext, {
+                    txPurpose: tx.txPurpose || 'other',
+                    executionProfile: tx.executionProfile || 'default',
+                    mevProtection: tx.mevProtection === true
+                });
+            }
             if (process.env.SIMULATION_MODE === 'true') {
                 logger.info(LogCode.EXE_TX_BROADCAST, 'SIMULATION MODE: Skipping actual Privy send', {
                     userId,
@@ -789,7 +819,7 @@ export async function sendTransactionLifecycle(
                     value: tx.value,
                     chainId: tx.chainId
                 });
-                return {
+                const simulatedLifecycle: TxLifecycleResult = {
                     status: 'confirmed_success',
                     txHash: `0xSIMULATION_PRIVY_${Date.now()}_${Math.random().toString(36).substring(7)}`,
                     firstSeenAt: Date.now(),
@@ -797,6 +827,8 @@ export async function sendTransactionLifecycle(
                     attempts: 1,
                     chainId: tx.chainId
                 };
+                syncLifecycleIntoRuntimeContext(tx, simulatedLifecycle);
+                return simulatedLifecycle;
             }
 
             if (LOCAL_SIGNER_ENABLED) {
@@ -804,7 +836,9 @@ export async function sendTransactionLifecycle(
                     chainId: tx.chainId,
                     txPurpose: tx.txPurpose || 'other'
                 });
-                return await sendWithLocalSigner(tx);
+                const localSignerLifecycle = await sendWithLocalSigner(tx);
+                syncLifecycleIntoRuntimeContext(tx, localSignerLifecycle);
+                return localSignerLifecycle;
             }
 
             const client = getPrivyClient();
@@ -927,6 +961,18 @@ export async function sendTransactionLifecycle(
 
             let priorAcceptedLifecycle: TxLifecycleResult | null = null;
             for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+                const attemptState = runtimeContext
+                    ? addOrderAttempt(runtimeContext, {
+                        attempt,
+                        channel: 'unknown',
+                        state: 'sending',
+                        nonce: txWithNonce.nonce,
+                        gasPrice: txWithNonce.gasPrice,
+                        maxFeePerGas: txWithNonce.maxFeePerGas,
+                        maxPriorityFeePerGas: txWithNonce.maxPriorityFeePerGas,
+                        startedAt: Date.now()
+                    })
+                    : null;
                 try {
                     const bumpGasForVisibilityRetry = (reason: string) => {
                         const nextTx = { ...txWithNonce };
@@ -975,6 +1021,15 @@ export async function sendTransactionLifecycle(
                     // saving ~350-550ms on every turbo/sniper trade.
                     const useRawPathForSpeed = fastTradePath && preferPrivySendTx && PRIVY_FAST_TRADE_FORCE_RAW_PATH;
                     if (!preferPrivySendTx || useRawPathForSpeed) {
+                        if (attemptState) {
+                            updateOrderAttempt(runtimeContext!, attemptState.id, {
+                                channel: 'raw_broadcast',
+                                nonce: txWithNonce.nonce,
+                                gasPrice: txWithNonce.gasPrice,
+                                maxFeePerGas: txWithNonce.maxFeePerGas,
+                                maxPriorityFeePerGas: txWithNonce.maxPriorityFeePerGas
+                            });
+                        }
                         const rawLifecycle = await signAndBroadcastRawTransaction(client, walletInfo.id, txWithNonce, {
                             userId,
                             attempt,
@@ -984,6 +1039,33 @@ export async function sendTransactionLifecycle(
                         });
                         if (rawLifecycle.txHash && isTxLifecycleSendAccepted(rawLifecycle)) {
                             priorAcceptedLifecycle = { ...rawLifecycle };
+                        }
+                        if (runtimeContext) {
+                            if (rawLifecycle.txHash) {
+                                attachOrderTxHash(runtimeContext, rawLifecycle.txHash, { canonical: true });
+                            }
+                            if (rawLifecycle.txHash && isTxLifecycleSendAccepted(rawLifecycle)) {
+                                markOrderHashAccepted(runtimeContext, rawLifecycle.txHash);
+                            }
+                            recordLifecycleOnOrder(runtimeContext, rawLifecycle, {
+                                reasonCode: inferOrderReasonCode(rawLifecycle.lastRpcError || rawLifecycle.status)
+                            });
+                        }
+                        if (attemptState) {
+                            updateOrderAttempt(runtimeContext!, attemptState.id, {
+                                state: rawLifecycle.status === 'confirmed_success'
+                                    ? 'confirmed_success'
+                                    : rawLifecycle.status === 'confirmed_failed'
+                                        ? 'confirmed_failed'
+                                        : rawLifecycle.status === 'visible_pending'
+                                            ? 'visible'
+                                            : rawLifecycle.status === 'broadcasted_unseen'
+                                                ? 'uncertain'
+                                                : 'accepted',
+                                txHash: rawLifecycle.txHash,
+                                reasonCode: inferOrderReasonCode(rawLifecycle.lastRpcError || rawLifecycle.status),
+                                error: rawLifecycle.lastRpcError
+                            });
                         }
                         if (
                             rawLifecycle.status === 'broadcasted_unseen'
@@ -1027,6 +1109,15 @@ export async function sendTransactionLifecycle(
                         return rawLifecycle;
                     }
 
+                    if (attemptState) {
+                        updateOrderAttempt(runtimeContext!, attemptState.id, {
+                            channel: 'privy_sendtx',
+                            nonce: txWithNonce.nonce,
+                            gasPrice: txWithNonce.gasPrice,
+                            maxFeePerGas: txWithNonce.maxFeePerGas,
+                            maxPriorityFeePerGas: txWithNonce.maxPriorityFeePerGas
+                        });
+                    }
                     const privyTx = {
                         to: txWithNonce.to as `0x${string}`,
                         data: txWithNonce.data as `0x${string}`,
@@ -1070,6 +1161,16 @@ export async function sendTransactionLifecycle(
                         chainId: txWithNonce.chainId
                     };
                     priorAcceptedLifecycle = { ...lifecycleBase };
+                    if (runtimeContext) {
+                        attachOrderTxHash(runtimeContext, response.hash, { canonical: true });
+                        markOrderHashAccepted(runtimeContext, response.hash);
+                    }
+                    if (attemptState) {
+                        updateOrderAttempt(runtimeContext!, attemptState.id, {
+                            state: 'accepted',
+                            txHash: response.hash
+                        });
+                    }
                     if (!fastTradePath) {
                         const visibility = await verifyTxVisibility(
                             txWithNonce.chainId,
@@ -1085,6 +1186,26 @@ export async function sendTransactionLifecycle(
                         lifecycleBase.lastRpcError = visibility.visible ? undefined : (visibility.lastError || 'not_found_by_rpc');
                         lifecycleBase.attempts = visibility.checks;
                         priorAcceptedLifecycle = { ...lifecycleBase };
+                    }
+                    if (runtimeContext) {
+                        recordLifecycleOnOrder(runtimeContext, lifecycleBase, {
+                            reasonCode: inferOrderReasonCode(lifecycleBase.lastRpcError || lifecycleBase.status)
+                        });
+                    }
+                    if (attemptState) {
+                        updateOrderAttempt(runtimeContext!, attemptState.id, {
+                            state: lifecycleBase.status === 'confirmed_success'
+                                ? 'confirmed_success'
+                                : lifecycleBase.status === 'confirmed_failed'
+                                    ? 'confirmed_failed'
+                                    : lifecycleBase.status === 'visible_pending'
+                                        ? 'visible'
+                                        : lifecycleBase.status === 'broadcasted_unseen'
+                                            ? 'uncertain'
+                                            : 'accepted',
+                            reasonCode: inferOrderReasonCode(lifecycleBase.lastRpcError || lifecycleBase.status),
+                            error: lifecycleBase.lastRpcError
+                        });
                     }
 
                     const postSendDelayMs = Math.max(0, Number(process.env.PRIVY_POST_SEND_DELAY_MS || '0'));
@@ -1152,6 +1273,11 @@ export async function sendTransactionLifecycle(
                             maxWaitMs: 900,
                             pollMs: 300
                         }).catch(() => lifecycleBase);
+                        if (runtimeContext) {
+                            recordLifecycleOnOrder(runtimeContext, finalState, {
+                                reasonCode: inferOrderReasonCode(finalState.lastRpcError || finalState.status)
+                            });
+                        }
                         if (finalState.status === 'dropped_timeout' && lifecycleBase.status === 'broadcasted_unseen') {
                             return lifecycleBase;
                         }
@@ -1167,6 +1293,9 @@ export async function sendTransactionLifecycle(
                         txWithNonce.chainId !== 1 && errorMessage.includes('eth_sendTransaction is only supported for Ethereum');
                     if (unsupportedSendOnNonEth) {
                         try {
+                            if (attemptState) {
+                                updateOrderAttempt(runtimeContext!, attemptState.id, { channel: 'raw_broadcast' });
+                            }
                             const fallbackLifecycle = await signAndBroadcastRawTransaction(client, walletInfo.id, txWithNonce, {
                                 userId,
                                 attempt,
@@ -1174,6 +1303,11 @@ export async function sendTransactionLifecycle(
                                 expectedFrom: walletInfo.address,
                                 txPurpose: txWithNonce.txPurpose
                             });
+                            if (runtimeContext) {
+                                recordLifecycleOnOrder(runtimeContext, fallbackLifecycle, {
+                                    reasonCode: inferOrderReasonCode(fallbackLifecycle.lastRpcError || fallbackLifecycle.status)
+                                });
+                            }
                             if (
                                 fallbackLifecycle.status === 'broadcasted_unseen'
                                 && attempt < MAX_RETRIES
@@ -1233,6 +1367,11 @@ export async function sendTransactionLifecycle(
                                 expectedFrom: walletInfo.address,
                                 txPurpose: txWithNonce.txPurpose
                             });
+                            if (runtimeContext) {
+                                recordLifecycleOnOrder(runtimeContext, transientFallback, {
+                                    reasonCode: inferOrderReasonCode(transientFallback.lastRpcError || transientFallback.status)
+                                });
+                            }
                             if (
                                 transientFallback.status === 'broadcasted_unseen'
                                 && attempt < MAX_RETRIES
@@ -1287,6 +1426,12 @@ export async function sendTransactionLifecycle(
                         lowerErrorMessage.includes('http 504');
 
                     if (isNonceError && priorAcceptedLifecycle?.txHash) {
+                        if (runtimeContext) {
+                            attachOrderTxHash(runtimeContext, priorAcceptedLifecycle.txHash, { canonical: true });
+                            recordLifecycleOnOrder(runtimeContext, priorAcceptedLifecycle, {
+                                reasonCode: inferOrderReasonCode(priorAcceptedLifecycle.lastRpcError || 'nonce_too_low_after_prior_send')
+                            });
+                        }
                         logger.warn(LogCode.EXE_TX_BROADCAST, 'Nonce too low after prior accepted send; adopting prior tx hash', {
                             chainId: txWithNonce.chainId,
                             txHash: priorAcceptedLifecycle.txHash,
@@ -1303,6 +1448,13 @@ export async function sendTransactionLifecycle(
 
                     // Retry on nonce errors, underpriced signals, or transient network failures.
                     if ((isNonceError || hasUnderpricedHint || isNetworkError) && attempt < MAX_RETRIES) {
+                        if (attemptState) {
+                            updateOrderAttempt(runtimeContext!, attemptState.id, {
+                                state: hasUnderpricedHint || isNetworkError ? 'uncertain' : 'failed',
+                                reasonCode: inferOrderReasonCode(errorMessage),
+                                error: errorMessage
+                            });
+                        }
                         const reason = isNonceError
                             ? 'Nonce error'
                             : (hasUnderpricedHint ? 'Underpriced tx' : 'Network failure');
@@ -1387,6 +1539,16 @@ export async function sendTransactionLifecycle(
                     }
 
                     logger.error(LogCode.EXE_TX_REVERTED, 'Privy Ethereum transaction failed', { error: effectiveError?.message || String(effectiveError), chainId: txWithNonce.chainId });
+                    if (attemptState) {
+                        updateOrderAttempt(runtimeContext!, attemptState.id, {
+                            state: 'failed',
+                            reasonCode: inferOrderReasonCode(errorMessage),
+                            error: errorMessage
+                        });
+                    }
+                    if (runtimeContext) {
+                        markOrderFailure(runtimeContext, errorMessage);
+                    }
 
                     // Handle specific Privy errors
                     if (effectiveError?.code === 'insufficient_funds') {
@@ -1405,12 +1567,17 @@ export async function sendTransactionLifecycle(
             }
 
             // Should never reach here, but just in case
-            return {
+            const terminalLifecycle: TxLifecycleResult = {
                 status: 'dropped_timeout',
                 attempts: MAX_RETRIES,
                 chainId: tx.chainId,
                 lastRpcError: 'transaction_failed_after_max_retries'
             };
+            if (tx.runtimeContext) {
+                recordLifecycleOnOrder(tx.runtimeContext, terminalLifecycle, { reasonCode: 'rpc_uncertain' });
+                markOrderFailure(tx.runtimeContext, terminalLifecycle.lastRpcError, 'rpc_uncertain');
+            }
+            return terminalLifecycle;
         } finally {
             bumpInflightUserChainTx(chainKey, -1);
         }

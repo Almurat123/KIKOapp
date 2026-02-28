@@ -4,6 +4,8 @@ import { LogCode } from '../../../../config/logRegistry.js';
 import { getZeroExPrice } from '../../../zeroEx.js';
 import { DIRECT_SWAP_SUPPORTED_CHAINS } from '../constants.js';
 import type { DirectSwapResult } from '../types.js';
+import type { OrderRuntimeContext } from '../../../order-runtime/types.js';
+import { markOrderPrepared, recordOrderRoute } from '../../../order-runtime/context.js';
 
 export function isZoraTransientError(error: any): boolean {
   const msg = String(error?.message || error || '').toLowerCase();
@@ -42,6 +44,7 @@ export async function executeZoraSdkSwap(
     amountInWei: bigint;
     chainId: number;
     slippageBps: number;
+    runtimeContext?: OrderRuntimeContext;
   },
   deps: {
     createZoraQuoteWithRetry: (payload: any) => Promise<any>;
@@ -77,18 +80,29 @@ export async function executeZoraSdkSwap(
       return { success: false, error: 'Zora SDK quote missing call payload', provider: 'failed' };
     }
 
+    if (params.runtimeContext) {
+      recordOrderRoute(params.runtimeContext, {
+        provider: 'zora-sdk',
+        poolKind: 'external',
+        poolAddress: target
+      });
+      markOrderPrepared(params.runtimeContext);
+    }
+
     const txHash = await deps.sendTransaction(params.userId, params.accessToken, {
       to: target,
       data,
       value: value ? BigInt(value).toString() : '0',
       chainId: params.chainId,
       txPurpose: 'trade',
-      executionProfile: deps.getTxExecutionProfile(params.chainId)
+      executionProfile: deps.getTxExecutionProfile(params.chainId),
+      runtimeContext: params.runtimeContext
     });
 
     return {
       success: true,
       txHash,
+      runtimeContext: params.runtimeContext,
       provider: 'zora-sdk',
       poolInfo: {
         version: 'v4',
@@ -117,6 +131,7 @@ export async function executeV3VirtualBridgeSwap(
     amountInWei: bigint;
     chainId: number;
     slippageBps: number;
+    runtimeContext?: OrderRuntimeContext;
   },
   bridgeToken: string,
   quote: {
@@ -199,6 +214,15 @@ export async function executeV3VirtualBridgeSwap(
   } catch {
     gasLimit = '550000';
   }
+  if (params.runtimeContext) {
+    recordOrderRoute(params.runtimeContext, {
+      provider: 'uniswap-v3',
+      poolKind: 'v3',
+      poolAddress: routerAddress
+    });
+    markOrderPrepared(params.runtimeContext);
+  }
+
   const txHash = await deps.sendTransaction(userId, accessToken, {
     to: routerAddress,
     data,
@@ -206,7 +230,8 @@ export async function executeV3VirtualBridgeSwap(
     chainId,
     txPurpose: 'trade',
     executionProfile: deps.getTxExecutionProfile(chainId),
-    gas: gasLimit
+    gas: gasLimit,
+    runtimeContext: params.runtimeContext
   });
 
   logger.info(LogCode.EXE_TX_CONFIRMED, '[DirectSwap] Virtual bridge swap executed', {
@@ -219,6 +244,7 @@ export async function executeV3VirtualBridgeSwap(
   return {
     success: true,
     txHash,
+    runtimeContext: params.runtimeContext,
     provider: 'uniswap-v3',
     poolInfo: {
       version: 'v3-virtual-bridge',

@@ -6,6 +6,8 @@ import { buildV4ExecutionPlan, type SelectedV4Pool } from '../../v4ExecutionPlan
 import type { DirectSwapExecutionMode, DirectSwapResult } from '../types.js';
 import type { TxLifecycleResult } from '../../../txLifecycle.js';
 import { isTxLifecycleSendAccepted } from '../../../txLifecycle.js';
+import type { OrderRuntimeContext } from '../../../order-runtime/types.js';
+import { markOrderPrepared, recordOrderRoute, setOrderMetadata } from '../../../order-runtime/context.js';
 
 interface ExecuteSwapParams {
   userId: string;
@@ -17,6 +19,7 @@ interface ExecuteSwapParams {
   amountInWei: bigint;
   chainId: number;
   slippageBps: number;
+  runtimeContext?: OrderRuntimeContext;
 }
 
 interface RpcErrorSummary {
@@ -371,6 +374,19 @@ export async function executeV4Swap(
     }
   }
 
+  if (params.runtimeContext) {
+    recordOrderRoute(params.runtimeContext, {
+      provider: 'uniswap-v4',
+      poolKind: 'v4',
+      poolAddress: pool.poolAddress
+    });
+    markOrderPrepared(params.runtimeContext);
+    setOrderMetadata(params.runtimeContext, {
+      selectedHookFamily: hookFamily,
+      selectedHookData: selectedHookData.slice(0, 18)
+    });
+  }
+
   const txLifecycle = await deps.sendTransaction(userId, accessToken, {
     to: tx.to,
     data: tx.data,
@@ -378,7 +394,8 @@ export async function executeV4Swap(
     chainId,
     txPurpose: 'trade',
     executionProfile: deps.getTxExecutionProfile(chainId),
-    gas: gasLimit
+    gas: gasLimit,
+    runtimeContext: params.runtimeContext
   });
   const txHash = txLifecycle.txHash;
   if (!txHash || !isTxLifecycleSendAccepted(txLifecycle)) {
@@ -401,6 +418,7 @@ export async function executeV4Swap(
     success: true,
     txHash,
     txLifecycle,
+    runtimeContext: params.runtimeContext,
     provider: 'uniswap-v4',
     poolInfo: {
       version: 'v4',
