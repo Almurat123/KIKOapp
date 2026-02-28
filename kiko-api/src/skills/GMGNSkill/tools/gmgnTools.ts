@@ -1,4 +1,5 @@
 import { Tool } from '../../../tooling/registry.js';
+import { fetchGmgnRankWithFallback } from '../../../services/gmgnRankService.js';
 
 type GmgnChain = 'base' | 'eth' | 'bsc' | 'sol';
 type GmgnWindow = '1d' | '7d' | '30d';
@@ -35,15 +36,6 @@ type WalletCandidate = {
 
 const SUPPORTED_CHAINS: GmgnChain[] = ['base', 'eth', 'bsc', 'sol'];
 const SUPPORTED_WINDOWS: GmgnWindow[] = ['1d', '7d', '30d'];
-
-const DEFAULT_GMGN_QUERY_PARAMS: Record<string, string> = {
-    from_app: 'gmgn',
-    app_lang: 'zh-CN',
-    os: 'web',
-    worker: '0',
-    tz_name: 'Asia/Shanghai',
-    tz_offset: '28800',
-};
 
 function clampInt(v: unknown, min: number, max: number, fallback: number): number {
     const n = Number.parseInt(String(v ?? ''), 10);
@@ -199,7 +191,7 @@ function sortWallets(candidates: WalletCandidate[], args: any, window: GmgnWindo
         .map(({ c }) => c);
 }
 
-async function fetchGmgnRank(args: any): Promise<{ url: string; rows: Record<string, unknown>[] }> {
+async function fetchGmgnRank(args: any) {
     const chain = normalizeChain(args.chain);
     const window = normalizeWindow(args.window);
     const tag = String(args.tag || 'snipe_bot');
@@ -208,46 +200,15 @@ async function fetchGmgnRank(args: any): Promise<{ url: string; rows: Record<str
     const timeoutMs = clampInt(args.timeout_ms, 2000, 45000, 15000);
     const cookie = typeof args.cookie === 'string' ? args.cookie.trim() : '';
 
-    const qp = new URLSearchParams({
+    return fetchGmgnRankWithFallback({
+        chain,
+        window,
         tag,
         orderby,
         direction,
-        ...DEFAULT_GMGN_QUERY_PARAMS
+        timeoutMs,
+        ...(cookie ? { cookie } : {})
     });
-
-    const url = `https://gmgn.ai/defi/quotation/v1/rank/${chain}/wallets/${window}?${qp.toString()}`;
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
-    try {
-        const res = await fetch(url, {
-            method: 'GET',
-            headers: {
-                accept: 'application/json, text/plain, */*',
-                'accept-language': 'zh-CN,zh;q=0.9,en;q=0.8',
-                'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36',
-                referer: `https://gmgn.ai/trade?chain=${chain}&tab=${encodeURIComponent(tag)}`,
-                ...(cookie ? { cookie } : {})
-            },
-            signal: controller.signal
-        });
-        const text = await res.text();
-        if (!res.ok) {
-            throw new Error(`gmgn_http_${res.status}`);
-        }
-        if (text.startsWith('<!DOCTYPE') || text.startsWith('<html')) {
-            throw new Error('gmgn_html_blocked');
-        }
-        let json: any;
-        try {
-            json = JSON.parse(text);
-        } catch {
-            throw new Error('gmgn_invalid_json');
-        }
-        const rows = Array.isArray(json?.data?.rank) ? json.data.rank : [];
-        return { url, rows };
-    } finally {
-        clearTimeout(timer);
-    }
 }
 
 export const GetGmgnSmartWalletsTool: Tool = {
@@ -288,7 +249,8 @@ export const GetGmgnSmartWalletsTool: Tool = {
             const includeRaw = Boolean(args.include_raw);
             const limit = clampInt(args.limit, 1, 100, 20);
 
-            const { url, rows } = await fetchGmgnRank(args);
+            const fetchResult = await fetchGmgnRank(args);
+            const { url, rows } = fetchResult;
             const mapped = rows
                 .map((r) => toWalletCandidate((r || {}) as Record<string, unknown>, chain, includeRaw))
                 .filter((r): r is WalletCandidate => Boolean(r));
@@ -299,6 +261,10 @@ export const GetGmgnSmartWalletsTool: Tool = {
             return {
                 source: 'gmgn',
                 endpoint: url,
+                route: fetchResult.route,
+                fallbackUsed: fetchResult.fallbackUsed,
+                latencyMs: fetchResult.latencyMs,
+                attempts: fetchResult.attempts,
                 chain,
                 window,
                 totalRows: rows.length,
@@ -322,7 +288,8 @@ export const GetGmgnSmartWalletsTool: Tool = {
         } catch (error: any) {
             return {
                 error: String(error?.message || error || 'gmgn_fetch_failed'),
-                hint: 'If gmgn returns html/challenge, pass cookie parameter or run behind a browser session.'
+                attempts: Array.isArray(error?.attempts) ? error.attempts : [],
+                hint: 'GMGN anonymous HTTP may be challenged. The tool now falls back to browser mode automatically; if both fail, inspect attempts.reasonCode.'
             };
         }
     }

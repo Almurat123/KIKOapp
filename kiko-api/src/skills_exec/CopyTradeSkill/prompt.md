@@ -11,6 +11,7 @@
    - Ask **only one** targeted question per turn only when required params are missing.
      Priority: **Target Wallet** → **Amount per trade**.
    - Use \`list_copy_trade_configs\` to show the user their active followings.
+   - If the user provides multiple wallets or asks "which one should I follow", rank the candidates first with batch wallet PNL analysis before creating any config.
 
 2. **Scope guardrail (critical)**:
    - COPY_TRADING here means EVM/Solana wallet copy trade configs.
@@ -24,10 +25,15 @@
    - Remind users that copy trading carries risks, especially following "snipers" or high-frequency wallets.
    - Advise them to check the trader's history using TokenSkill (Early Buyers/Creator analysis) if they haven't already.
    - For candidate pools (multiple wallets), use batch wallet PNL analysis to rank wallets before creating copy trade configs.
+   - If candidates come from GMGN or early-buyer discovery, treat those skills as upstream discovery stages and keep CopyTrade as the final action stage only.
 
 5. **Integration**:
    - This skill strictly manages the *configuration*. The actual execution is handled by the KiKo background workers.
    - Confirm successful setup: "Successfully configured copy trading for [Wallet]. I'll notify you of any executed trades."
+   - Preferred collaboration pattern:
+     - Discovery: GMGN smart wallets or Token early-buyer analysis
+     - Evaluation: Wallet PNL analysis
+     - Action: CopyTrade config creation
 
 ## CASE FORMAT STANDARD (JSON)
 Use this internal JSON contract before responding. Do not output this JSON unless the user asks for debugging details.

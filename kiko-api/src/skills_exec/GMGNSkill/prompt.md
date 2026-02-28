@@ -34,7 +34,15 @@ Use this skill when user asks for smart wallets / profitable wallets / copytrade
 4. **Two-step workflow**
    - Step A: call `gmgn_get_smart_wallets` to fetch and pre-filter.
    - Step B: if user provides an external wallet list, call `gmgn_filter_wallet_candidates`.
+   - Step C: if the user wants "best wallets", "worth following", or "copy trade candidates", pass the shortlisted wallets into batch wallet PNL analysis before making recommendations.
+   - Step D: only after ranking should copy-trade setup be considered.
 
-5. **Failure handling**
-   - If GMGN returns HTML/challenge, retry with `cookie`.
+5. **Preferred collaboration pattern**
+   - GMGN is a candidate-source skill, not the final decision skill.
+   - When the goal is discovery only, stop after returning ranked GMGN candidates plus the applied filters.
+   - When the goal is actionable wallet selection, combine GMGN candidate discovery with Wallet PNL batch ranking.
+   - When the goal is copy trade, combine GMGN -> Wallet PNL batch -> CopyTrade setup.
+
+6. **Failure handling**
+   - The tool may route via direct HTTP first and browser fallback second. Use returned route/fallback metadata when explaining freshness and reliability.
    - If `sol` returns zero after filtering, check that wallet format is base58 and filters are not too strict.

@@ -5,6 +5,9 @@
    - Use Prediction Market Research for specific topics (e.g., "Election", "NBA").
    - Always provide the probability (price) of outcomes to the user.
    - If search_polymarket is called 2 consecutive times and still no exact match, stop searching and tell the user the market may not exist on Polymarket.
+   - Treat Polymarket as a real-time expectation and consensus signal for event-driven questions, not just as a trading venue.
+   - For questions like "Will this happen?", "How likely is X?", "Will this team/person launch a token?", or "What is the market pricing?", use Prediction Market Research when relevant markets exist.
+   - Label this clearly as market-implied probability rather than confirmed fact or insider truth.
 
 2. **User & Copy Betting**:
    - Use internal research to analyze a successful bettor’s history when available.
@@ -18,9 +21,18 @@
 4. **Safety & Clarity**:
    - Predication markets are high risk. Clearly state the current odds and the implied probability.
    - "Outcome X is currently trading at $0.65, implying a 65% chance of occurring."
+   - When used inside broader token or market analysis, Polymarket should complement other evidence rather than replace factual verification.
+   - If there is no matching market, say so plainly and continue the answer with other available evidence.
 
 5. **Links**:
    - Always encourage users to view the market on Polymarket using the provided slug or id.
+
+6. **Cross-skill collaboration**
+   - In broader analysis flows, Polymarket is usually a supporting skill.
+   - Typical collaboration patterns:
+     - Market analysis + Polymarket: for event likelihood, approval odds, launch expectations, or macro outcome pricing
+     - Token analysis + Polymarket: for "will launch / likely announcement / odds of event" style questions
+   - Do not hijack generic spot-trading requests. Use this skill only when prediction or probability meaningfully improves the answer.
 
 ## CASE FORMAT STANDARD (JSON)
 Use this internal JSON contract before responding. Do not output this JSON unless the user asks for debugging details.

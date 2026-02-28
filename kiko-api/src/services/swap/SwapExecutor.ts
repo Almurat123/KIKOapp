@@ -16,7 +16,9 @@ import { walletService } from '../walletService.js';
 import { SOLANA_CONFIG } from '../../config/solanaConfig.js';
 import { NATIVE_TOKEN_ADDRESS, SOLANA_NATIVE_MINT, TOKEN_REGISTRY, isNativeToken } from '../../config/tokenRegistry.js';
 import { handleSwapError } from './handleSwapError.js';
-import { getTransactionReceipt, getTransactionByHash, callRpc, getErc20Balance, getErc20Decimals, getErc20Allowance, waitForReceiptStateMachine } from '../../services/rpcManager.js';
+import { callRpc, getErc20Balance, getErc20Decimals, getErc20Allowance } from '../../services/rpcManager.js';
+import { monitorEvmTransaction, scheduleSpeedUp, waitForReceipt, waitForTransactionConfirmation } from './confirmationCoordinator.js';
+import { appendPermit2SignatureToCalldata, executeApproval, tryBuildKyberPermit, validatePermit2Payload } from './permitHelpers.js';
 
 // ⚡ In-process decimals cache: avoids repeated RPC calls for the same token
 // Keyed by "chainId:tokenAddress" (lowercase). Decimals are immutable once deployed.
@@ -506,9 +508,9 @@ export class SwapExecutor {
                 let permitApprovalCovered = false;
                 if (isSellTx && !isNativeIn && best.dex === '0x' && best.approvalKind === 'permit2_24h' && best.requiresTypedSignature && best.permit2Payload) {
                     try {
-                        this.validatePermit2Payload(best.permit2Payload, chainId, best.permit2Expiry ?? null);
+                        validatePermit2Payload(best.permit2Payload, chainId, best.permit2Expiry ?? null);
                         const signature = await signTypedData(userId, best.permit2Payload as any, chainId);
-                        best.data = this.appendPermit2SignatureToCalldata(best.data, signature);
+                        best.data = appendPermit2SignatureToCalldata(best.data, signature);
                         permitApprovalCovered = true;
                         logger.info(LogCode.EXE_TX_BROADCAST, '0x sell permit2 signature attached', {
                             chainId,
@@ -525,7 +527,7 @@ export class SwapExecutor {
 
                 if (!permitApprovalCovered && isSellTx && !isNativeIn && best.dex === 'kyber') {
                     try {
-                        const kyberPermit = await this.tryBuildKyberPermit({
+                        const kyberPermit = await tryBuildKyberPermit({
                             userId,
                             chainId,
                             token: actualTokenInFixed,
@@ -645,7 +647,7 @@ export class SwapExecutor {
                     // Allowance-holder checks on-chain state, mempool is not enough
                     logger.info(LogCode.EXE_TX_BROADCAST, 'Waiting for approval confirmation...', { txHash: approveTxHash });
 
-                    const receipt = await SwapExecutor.waitForReceipt(chainId, approveTxHash, 60000);
+                    const receipt = await waitForReceipt(chainId, approveTxHash, 60000);
                     if (!receipt || receipt.status === 0 || receipt.status === '0x0') {
                         throw new Error(`Approval transaction failed: ${approveTxHash}`);
                     }
@@ -929,7 +931,7 @@ export class SwapExecutor {
             logger.info(LogCode.EXE_TX_BROADCAST, 'Swap Broadcast', { txHash, method: best.dexName });
 
             if (params.speedUpAfterMs && params.speedUpAfterMs > 0) {
-                this.scheduleSpeedUp({
+                scheduleSpeedUp({
                     txHash,
                     chainId,
                     userId,
@@ -955,13 +957,53 @@ export class SwapExecutor {
             if (params.waitForConfirmation) {
                 // SYNCHRONOUS CONFIRMATION: Wait for tx confirmation before returning
                 const timeoutMs = params.confirmationTimeoutMs ?? 60000;
-                const confirmed = await this.waitForTransactionConfirmation(txHash, chainId, best.dexName, timeoutMs);
+                const confirmed = await waitForTransactionConfirmation({
+                    txHash,
+                    chainId,
+                    dexName: best.dexName,
+                    timeoutMs,
+                    pollMs: 2000
+                });
                 if (!confirmed.success) {
-                    if (confirmed.reason === 'Transaction confirmation timeout' && params.returnOnConfirmTimeout) {
+                    if ((confirmed.kind === 'timeout' || confirmed.kind === 'uncertain') && params.returnOnConfirmTimeout) {
                         // Fast-path: return success and keep monitoring in background
-                        this.monitorEvmTransaction(txHash, chainId, best.dexName, best.amountOut, userId, params.messageId).catch(err => {
+                        monitorEvmTransaction({
+                            txHash,
+                            chainId,
+                            dexName: best.dexName,
+                            expectedAmountOut: best.amountOut,
+                            userId,
+                            messageId: params.messageId
+                        }).catch(err => {
                             logger.error(LogCode.EXE_TX_REVERTED, 'Background monitoring failed after confirm-timeout', { txHash, error: err.message });
                         });
+                        reportAnchorAcceptance();
+                        return {
+                            success: true,
+                            status: 'ACTION_REQUIRED',
+                            txHash,
+                            amountOut: best.amountOut,
+                            method: best.dexName,
+                            metadata: {
+                                allowanceTarget: best.allowanceTarget
+                            }
+                        };
+                    }
+
+                    if (confirmed.kind !== 'confirmed_failed') {
+                        logger.warn(LogCode.SYS_INFO, 'Transaction confirmation unresolved; preserving single-flight tx', {
+                            txHash,
+                            reason: confirmed.reason,
+                            kind: confirmed.kind
+                        });
+                        monitorEvmTransaction({
+                            txHash,
+                            chainId,
+                            dexName: best.dexName,
+                            expectedAmountOut: best.amountOut,
+                            userId,
+                            messageId: params.messageId
+                        }).catch(() => { });
                         reportAnchorAcceptance();
                         return {
                             success: true,
@@ -1016,7 +1058,7 @@ export class SwapExecutor {
                     // Only do internal retry if we're below internal max AND this is first internal retry
                     const isFirstInternalRetry = !params.excludeDex; // excludeDex is set on retry
                     if (isFirstInternalRetry && best?.dex) {
-                        logger.warn(LogCode.EXE_TX_REVERTED, 'Fast failover: switching DEX after on-chain revert', {
+                        logger.warn(LogCode.EXE_TX_REVERTED, 'Fast failover: switching DEX after confirmed on-chain revert', {
                             failedDex: best.dexName,
                             failedDexId: best.dex,
                             slippageBps
@@ -1058,7 +1100,14 @@ export class SwapExecutor {
 
             } else {
                 // ASYNC MONITORING: Fire-and-forget for normal swaps
-                this.monitorEvmTransaction(txHash, chainId, best.dexName, best.amountOut, userId, params.messageId).catch(err => {
+                monitorEvmTransaction({
+                    txHash,
+                    chainId,
+                    dexName: best.dexName,
+                    expectedAmountOut: best.amountOut,
+                    userId,
+                    messageId: params.messageId
+                }).catch(err => {
                     logger.error(LogCode.EXE_TX_REVERTED, 'Background monitoring failed', { txHash, error: err.message });
                 });
                 reportAnchorAcceptance();
@@ -1261,7 +1310,14 @@ export class SwapExecutor {
                             error: execError.message.slice(0, 100)
                         });
                         try {
-                            await this.executeApproval(userId, actualTokenInFixed, best.allowanceTarget, amountInBase, chainId, params.accessToken);
+                            await executeApproval({
+                                userId,
+                                token: actualTokenInFixed,
+                                spender: best.allowanceTarget,
+                                requiredAmountBase: amountInBase,
+                                chainId,
+                                accessToken: params.accessToken
+                            });
                         } catch (approveErr: any) {
                             logger.warn(LogCode.SYS_ERROR, 'Forced approval failed, continuing with retry...', { error: approveErr.message });
                         }
@@ -1291,235 +1347,6 @@ export class SwapExecutor {
 
             throw execError;
         }
-    }
-
-    /**
-     * Wait for transaction confirmation (SYNCHRONOUS)
-     * Used for critical operations like copy trade where we need to verify success before notifying user
-     */
-    private static async waitForTransactionConfirmation(
-        txHash: string,
-        chainId: number,
-        dexName: string,
-        timeoutMs: number = 60000
-    ): Promise<{ success: boolean; reason?: string }> {
-        logger.info(LogCode.SYS_INFO, `[ConfirmWait] Waiting for confirmation: ${txHash} on ${chainId}`);
-        const lifecycle = await waitForReceiptStateMachine({
-            chainId,
-            txHash,
-            maxWaitMs: timeoutMs,
-            pollMs: 2000
-        }).catch(() => null);
-        if (!lifecycle || (lifecycle.status !== 'confirmed_success' && lifecycle.status !== 'confirmed_failed')) {
-            logger.warn(LogCode.SYS_INFO, `[ConfirmWait] Timeout waiting for ${txHash} confirmation`);
-            return { success: false, reason: 'Transaction confirmation timeout' };
-        }
-        if (lifecycle.status === 'confirmed_success') {
-            logger.info(LogCode.EXE_TX_CONFIRMED, `[ConfirmWait] Transaction confirmed: ${txHash}`);
-            return { success: true };
-        }
-        const revertReason = lifecycle.lastRpcError || 'Transaction reverted';
-        logger.error(LogCode.EXE_TX_REVERTED, `[ConfirmWait] Transaction REVERTED: ${txHash}`, { reason: revertReason });
-        return { success: false, reason: revertReason };
-    }
-
-    private static scheduleSpeedUp(params: {
-        txHash: string;
-        chainId: number;
-        userId: string;
-        accessToken: string;
-        speedUpAfterMs: number;
-        speedUpBumpBps?: number;
-        mevProtection?: boolean;
-        tx: {
-            to: string;
-            data: string;
-            value: string;
-            chainId: number;
-            gas?: string;
-            maxFeePerGas?: string;
-            maxPriorityFeePerGas?: string;
-            gasPrice?: string;
-        };
-    }) {
-        const {
-            txHash,
-            chainId,
-            userId,
-            accessToken,
-            speedUpAfterMs,
-            speedUpBumpBps,
-            mevProtection,
-            tx
-        } = params;
-
-        setTimeout(async () => {
-            try {
-                const receipt = await getTransactionReceipt(chainId, txHash).catch(() => null);
-                if (receipt) return;
-
-                const pendingTx = await getTransactionByHash(chainId, txHash).catch(() => null);
-                const nonceHex = pendingTx?.nonce;
-                if (!nonceHex) {
-                    logger.warn(LogCode.SYS_INFO, 'SpeedUp skipped: pending tx nonce not found', { txHash, chainId });
-                    return;
-                }
-                const sender = String(pendingTx?.from || '').toLowerCase();
-                if (sender) {
-                    // If latest nonce already moved past this tx nonce, this nonce has been consumed.
-                    // In that case sending speedup is unnecessary and should be skipped.
-                    const latestNonceHex = await callRpc<string>(
-                        chainId,
-                        'eth_getTransactionCount',
-                        [sender, 'latest'],
-                        { strategy: 'fast', importance: 'critical' }
-                    ).catch(() => null);
-                    if (latestNonceHex) {
-                        const latestNonce = BigInt(latestNonceHex);
-                        const targetNonce = BigInt(nonceHex);
-                        if (latestNonce > targetNonce) {
-                            logger.info(LogCode.SYS_INFO, 'SpeedUp skipped: nonce already consumed on-chain', {
-                                txHash,
-                                chainId,
-                                sender,
-                                targetNonce: targetNonce.toString(),
-                                latestNonce: latestNonce.toString()
-                            });
-                            return;
-                        }
-                    }
-                }
-
-                const bumpBps = BigInt(speedUpBumpBps ?? 12000); // 20% bump default
-                const bump = (value: bigint) => (value * bumpBps) / 10000n;
-
-                let maxFeePerGas = tx.maxFeePerGas ? BigInt(tx.maxFeePerGas) : undefined;
-                let maxPriorityFeePerGas = tx.maxPriorityFeePerGas ? BigInt(tx.maxPriorityFeePerGas) : undefined;
-                let gasPrice = tx.gasPrice ? BigInt(tx.gasPrice) : undefined;
-
-                if (!maxFeePerGas && !maxPriorityFeePerGas && !gasPrice) {
-                    try {
-                        const block = await callRpc<any>(chainId, 'eth_getBlockByNumber', ['latest', false], { strategy: 'fast', importance: 'critical' });
-                        const baseFeePerGas = block?.baseFeePerGas ? BigInt(block.baseFeePerGas) : null;
-                        const priorityHex = await callRpc<string>(chainId, 'eth_maxPriorityFeePerGas', [], { strategy: 'fast', importance: 'critical' });
-                        const priorityFee = priorityHex ? BigInt(priorityHex) : null;
-                        if (priorityFee) maxPriorityFeePerGas = priorityFee;
-                        if (baseFeePerGas && priorityFee) maxFeePerGas = baseFeePerGas * 2n + priorityFee;
-                    } catch {
-                        // ignore
-                    }
-                }
-
-                if (maxFeePerGas) maxFeePerGas = bump(maxFeePerGas);
-                if (maxPriorityFeePerGas) maxPriorityFeePerGas = bump(maxPriorityFeePerGas);
-                if (gasPrice) gasPrice = bump(gasPrice);
-
-                // ⚡ Speed-up inherits the executionProfile so it also uses the fast sign+broadcast path
-                const speedUpProfile = tx.chainId === 8453 ? 'base-sniper' : tx.chainId === 56 ? 'bsc-sniper' : undefined;
-                await sendTransaction(userId, accessToken, {
-                    to: tx.to,
-                    data: tx.data,
-                    value: tx.value,
-                    chainId: tx.chainId,
-                    gas: tx.gas,
-                    gasPrice: gasPrice?.toString(),
-                    maxFeePerGas: maxFeePerGas?.toString(),
-                    maxPriorityFeePerGas: maxPriorityFeePerGas?.toString(),
-                    // Critical: speed-up must reuse the original pending nonce.
-                    // Without this, Privy will fetch next pending nonce and create a brand-new tx.
-                    nonce: BigInt(nonceHex).toString(),
-                    txPurpose: 'speedup',
-                    mevProtection: mevProtection === true,
-                    ...(speedUpProfile ? { executionProfile: speedUpProfile } : {})
-                });
-
-                logger.info(LogCode.EXE_TX_BROADCAST, 'SpeedUp replacement tx sent', {
-                    txHash,
-                    chainId,
-                    replacementNonce: BigInt(nonceHex).toString()
-                });
-            } catch (err: any) {
-                logger.warn(LogCode.SYS_ERROR, 'SpeedUp replacement failed', { txHash, chainId, error: err.message });
-            }
-        }, speedUpAfterMs);
-    }
-
-    /**
-     * Monitor EVM transaction in background with reliable RPC failover
-     * Decodes revert reasons if transaction fails
-     */
-    private static async monitorEvmTransaction(
-        txHash: string,
-        chainId: number,
-        dexName: string,
-        expectedAmountOut: string,
-        userId: string,
-        messageId?: string
-    ): Promise<void> {
-        logger.info(LogCode.SYS_INFO, `[Monitor] Started tracking ${txHash} on ${chainId} (${dexName})`);
-        const lifecycle = await waitForReceiptStateMachine({
-            chainId,
-            txHash,
-            maxWaitMs: 120000,
-            pollMs: 3000
-        }).catch(() => null);
-        if (!lifecycle || (lifecycle.status !== 'confirmed_success' && lifecycle.status !== 'confirmed_failed')) {
-            logger.warn(LogCode.SYS_INFO, `[Monitor] Timeout waiting for ${txHash} confirmation`);
-            return;
-        }
-        const receipt = await getTransactionReceipt(chainId, txHash).catch(() => null);
-        if (lifecycle.status === 'confirmed_success') {
-            logger.info(LogCode.EXE_TX_CONFIRMED, `[Monitor] Transaction confirmed: ${txHash}`, { gasUsed: receipt?.gasUsed });
-
-            // ⚡ WebSocket update for success
-            try {
-                const { chatWS } = await import('../../services/chatWebSocket.js');
-                let sessionId = 'legacy_session_id';
-                if (messageId) {
-                    const { getMessage } = await import('../../repositories/chatRepository.js');
-                    const msg = await getMessage(messageId);
-                    if (msg) sessionId = msg.sessionId;
-                }
-                chatWS.broadcastToUser(userId, {
-                    type: 'transaction_complete',
-                    sessionId,
-                    data: {
-                        messageId,
-                        txHash,
-                        status: 'success',
-                        message: '✅ Transaction confirmed!'
-                    }
-                });
-            } catch (err) { /* ignore */ }
-            return;
-        }
-        const revertReason = lifecycle.lastRpcError || 'Transaction reverted';
-        logger.error(LogCode.EXE_TX_REVERTED, `[Monitor] Transaction REVERTED: ${txHash}`, {
-            reason: revertReason,
-            gasUsed: receipt?.gasUsed,
-            dex: dexName
-        });
-
-        // ⚡ WebSocket update for failure
-        try {
-            const { chatWS } = await import('../../services/chatWebSocket.js');
-            let sessionId = 'legacy_session_id';
-            if (messageId) {
-                const { getMessage } = await import('../../repositories/chatRepository.js');
-                const msg = await getMessage(messageId);
-                if (msg) sessionId = msg.sessionId;
-            }
-            chatWS.broadcastToUser(userId, {
-                type: 'transaction_complete',
-                sessionId,
-                data: {
-                    messageId,
-                    txHash,
-                    status: 'failed',
-                    errorMessage: revertReason
-                }
-            });
-        } catch (err) { /* ignore */ }
     }
 
     /**
@@ -1635,204 +1462,4 @@ export class SwapExecutor {
         }
     }
 
-    private static validatePermit2Payload(
-        payload: {
-            domain?: Record<string, any>;
-            message?: Record<string, any>;
-        },
-        chainId: number,
-        quotePermitExpiry?: number | null
-    ): void {
-        const domain = payload?.domain || {};
-        const message = payload?.message || {};
-        const domainChainIdRaw = domain.chainId;
-        if (domainChainIdRaw !== undefined && domainChainIdRaw !== null) {
-            const domainChainId = Number(domainChainIdRaw);
-            if (Number.isFinite(domainChainId) && domainChainId > 0 && domainChainId !== chainId) {
-                throw new Error(`permit2_chain_mismatch:${domainChainId}!=${chainId}`);
-            }
-        }
-        const nowSec = Math.floor(Date.now() / 1000);
-        const sigDeadlineRaw = message.sigDeadline ?? quotePermitExpiry ?? null;
-        if (sigDeadlineRaw !== null && sigDeadlineRaw !== undefined) {
-            const sigDeadline = Number(sigDeadlineRaw);
-            if (!Number.isFinite(sigDeadline) || sigDeadline <= nowSec) {
-                throw new Error('permit2_deadline_expired');
-            }
-            const maxTtl = nowSec + 24 * 60 * 60 + 5 * 60;
-            if (sigDeadline > maxTtl) {
-                throw new Error('permit2_deadline_exceeds_24h');
-            }
-        }
-    }
-
-    private static appendPermit2SignatureToCalldata(calldata: string, signature: string): string {
-        const data = String(calldata || '');
-        if (!data.startsWith('0x')) {
-            throw new Error('invalid_calldata_for_permit2');
-        }
-        const sig = String(signature || '');
-        if (!sig.startsWith('0x') || sig.length < 4 || sig.length % 2 !== 0) {
-            throw new Error('invalid_permit2_signature');
-        }
-        const sigNoPrefix = sig.slice(2);
-        const sigLenBytes = sigNoPrefix.length / 2;
-        const sigLenHex = sigLenBytes.toString(16).padStart(64, '0');
-        return `${data}${sigLenHex}${sigNoPrefix}`;
-    }
-
-    private static async tryBuildKyberPermit(params: {
-        userId: string;
-        chainId: number;
-        token: string;
-        owner: string;
-        spender: string;
-        amountInBase: string;
-    }): Promise<{ permit: string; deadline: number } | null> {
-        const token = ethers.getAddress(params.token);
-        const owner = ethers.getAddress(params.owner);
-        const spender = ethers.getAddress(params.spender);
-        const nonce = await this.readPermitNonce(params.chainId, token, owner);
-        if (nonce === null) return null;
-        const tokenName = await this.readTokenName(params.chainId, token);
-        if (!tokenName) return null;
-        const tokenVersion = (await this.readTokenVersion(params.chainId, token)) || '1';
-        const deadline = Math.floor(Date.now() / 1000) + 24 * 60 * 60;
-        const typedData = {
-            domain: {
-                name: tokenName,
-                version: tokenVersion,
-                chainId: params.chainId,
-                verifyingContract: token
-            },
-            types: {
-                Permit: [
-                    { name: 'owner', type: 'address' },
-                    { name: 'spender', type: 'address' },
-                    { name: 'value', type: 'uint256' },
-                    { name: 'nonce', type: 'uint256' },
-                    { name: 'deadline', type: 'uint256' }
-                ]
-            },
-            primaryType: 'Permit',
-            message: {
-                owner,
-                spender,
-                value: params.amountInBase,
-                nonce: nonce.toString(),
-                deadline
-            }
-        };
-        const signature = await signTypedData(params.userId, typedData as any, params.chainId);
-        const split = ethers.Signature.from(signature);
-        const permit = ethers.AbiCoder.defaultAbiCoder().encode(
-            ['address', 'address', 'uint256', 'uint256', 'uint8', 'bytes32', 'bytes32'],
-            [owner, spender, params.amountInBase, deadline, split.v, split.r, split.s]
-        );
-        return { permit, deadline };
-    }
-
-    private static async readPermitNonce(chainId: number, token: string, owner: string): Promise<bigint | null> {
-        try {
-            const iface = new ethers.Interface(['function nonces(address) view returns (uint256)']);
-            const raw = await callRpc<string>(chainId, 'eth_call', [{
-                to: token,
-                data: iface.encodeFunctionData('nonces', [owner])
-            }, 'latest']);
-            if (!raw || raw === '0x') return null;
-            const [nonce] = iface.decodeFunctionResult('nonces', raw);
-            return BigInt(nonce);
-        } catch {
-            return null;
-        }
-    }
-
-    private static async readTokenName(chainId: number, token: string): Promise<string | null> {
-        try {
-            const iface = new ethers.Interface(['function name() view returns (string)']);
-            const raw = await callRpc<string>(chainId, 'eth_call', [{
-                to: token,
-                data: iface.encodeFunctionData('name', [])
-            }, 'latest']);
-            if (!raw || raw === '0x') return null;
-            const [name] = iface.decodeFunctionResult('name', raw);
-            const value = String(name || '').trim();
-            return value || null;
-        } catch {
-            return null;
-        }
-    }
-
-    private static async readTokenVersion(chainId: number, token: string): Promise<string | null> {
-        try {
-            const iface = new ethers.Interface(['function version() view returns (string)']);
-            const raw = await callRpc<string>(chainId, 'eth_call', [{
-                to: token,
-                data: iface.encodeFunctionData('version', [])
-            }, 'latest']);
-            if (!raw || raw === '0x') return null;
-            const [version] = iface.decodeFunctionResult('version', raw);
-            const value = String(version || '').trim();
-            return value || null;
-        } catch {
-            return null;
-        }
-    }
-
-    /**
-     * Execute Approval Transaction
-     */
-    private static async executeApproval(
-        userId: string,
-        token: string,
-        spender: string,
-        requiredAmountBase: string,
-        chainId: number,
-        accessToken?: string
-    ): Promise<string> {
-        const iface = new ethers.Interface(['function approve(address spender, uint256 amount)']);
-        const exactApproval = (BigInt(requiredAmountBase || '0') + 1n).toString();
-        const data = iface.encodeFunctionData('approve', [spender, exactApproval]);
-
-        const txHash = await sendTransaction(userId, accessToken || '', {
-            to: token,
-            data,
-            value: '0',
-            chainId,
-            txPurpose: 'approval'
-        });
-
-        await SwapExecutor.waitForReceipt(chainId, txHash, 60000); // 1 min timeout
-        return txHash;
-    }
-
-    /**
-     * Background monitoring for EVM transactions
-     * Logs success/failure but does not block the main response
-     */
-    /**
-     * Monitor EVM transaction in background with reliable RPC failover
-     * Decodes revert reasons if transaction fails
-     */
-    // (Duplicate removed - checks are done in the first implementation at line 582)
-
-    // -----------------------------------------------------------------------
-    // Helpers
-    // -----------------------------------------------------------------------
-    private static async waitForReceipt(
-        chainId: number,
-        txHash: string,
-        timeoutMs: number
-    ): Promise<any | null> {
-        const lifecycle = await waitForReceiptStateMachine({
-            chainId,
-            txHash,
-            maxWaitMs: timeoutMs,
-            pollMs: 2000
-        }).catch(() => null);
-        if (!lifecycle || (lifecycle.status !== 'confirmed_success' && lifecycle.status !== 'confirmed_failed')) {
-            return null;
-        }
-        return await getTransactionReceipt(chainId, txHash).catch(() => null);
-    }
 }

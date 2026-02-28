@@ -12,6 +12,8 @@
 2b. **Prediction Market Signal (Optional)**:
    - If the user asks about odds/chance/future outcomes (e.g., elections, Fed decisions, approvals, regulatory outcomes), use Prediction Market Research to see what the market is pricing.
    - Present it as market-implied probabilities (expectations), not as factual confirmation.
+   - This also applies to questions such as "Will X launch a token?", "Is this announcement likely?", or "How likely is this event?" when a relevant market exists.
+   - Use Polymarket as a high-signal expectations layer when ordinary trending/news tools only surface generic headlines.
 
 3. **Network Status**:
    - If the user is planning a trade or asks about congestion, include current transaction cost conditions when available (do not mention internal tool names).

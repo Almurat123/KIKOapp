@@ -762,13 +762,8 @@ async function processAlchemyWebhookPayload(payload: any): Promise<void> {
                     }
                 })
             ]);
-            const trackedWallets = trackedWalletRows.length > 0
-                ? trackedWalletRows
-                : (pendingHint?.targetWallet
-                    ? [{ address: pendingHint.targetWallet }]
-                    : []);
             const adjudicatedSnapshot = getAdjudicatedSnapshot({ chainId, txHash });
-            const isBoundSelfOrderWebhook = trackedWallets.length === 0 && Boolean(adjudicatedSnapshot?.orderId);
+            const isBoundSelfOrderWebhook = Boolean(adjudicatedSnapshot?.orderId);
 
             if (isBoundSelfOrderWebhook) {
                 await markTxAsProcessedDistributed(txHash, chainId);
@@ -788,6 +783,12 @@ async function processAlchemyWebhookPayload(payload: any): Promise<void> {
                 });
                 return;
             }
+
+            const trackedWallets = trackedWalletRows.length > 0
+                ? trackedWalletRows
+                : (pendingHint?.targetWallet
+                    ? [{ address: pendingHint.targetWallet }]
+                    : []);
 
             if (trackedWallets.length === 0) {
                 console.log(
