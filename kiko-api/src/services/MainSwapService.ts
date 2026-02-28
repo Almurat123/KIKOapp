@@ -50,7 +50,7 @@ import {
 } from './order-runtime/context.js';
 import { logOrderRuntimeSnapshot } from './order-runtime/sinks/logger.js';
 import { inferOrderReasonCode } from './order-runtime/reasonCodes.js';
-import { getAdjudicatedSnapshot } from './order-runtime/adjudicator/service.js';
+import { resolveTxFinalState } from './order-runtime/adjudicator/finalState.js';
 import type { ExecutionPlanV1, ReplayDriftDiagnosis, ReplayPrecheckResult } from './copytrade/planner/types.js';
 import { isP2ExecutorEnabled, isP2SampleLearningEnabled, isP2ShadowRunEnabled } from './copytrade/planner/featureFlags.js';
 import {
@@ -1206,18 +1206,10 @@ export class MainSwapService {
       };
 
     const runtimeHasAcceptedDirectState = (): boolean => {
-      const state = request.runtimeContext?.state;
-      const adjudicated = getAdjudicatedSnapshot({
-        orderId: request.runtimeContext?.orderId,
-        chainId: request.chainId,
-        txHash: request.runtimeContext?.canonicalTxHash
-      })?.adjudicated.state;
-      if (adjudicated === 'confirmed_success' || adjudicated === 'chain_observed' || adjudicated === 'rpc_visible' || adjudicated === 'send_accepted') {
-        return true;
-      }
-      return state === 'mempool_visible'
-        || state === 'included'
-        || state === 'confirmed_success';
+      return resolveTxFinalState({
+        runtimeContext: request.runtimeContext,
+        chainId: request.chainId
+      }).accepted;
     };
     const runtimeAcceptedDirectTxHash = (): string | undefined =>
       request.runtimeContext?.canonicalTxHash || undefined;

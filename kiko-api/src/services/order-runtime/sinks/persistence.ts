@@ -2,6 +2,7 @@ import type { TxLifecycleResult } from '../../txLifecycle.js';
 import { snapshotOrderRuntime } from '../context.js';
 import type { OrderRuntimeContext } from '../types.js';
 import { getAdjudicatedSnapshot } from '../adjudicator/service.js';
+import { resolveTxFinalState } from '../adjudicator/finalState.js';
 
 export type PositionBusinessStatus = 'pending' | 'open' | 'closing' | 'closed' | 'failed';
 
@@ -9,30 +10,14 @@ export function resolvePositionOpeningStatus(
   runtimeContext?: OrderRuntimeContext | null,
   lifecycle?: TxLifecycleResult | null
 ): PositionBusinessStatus {
-  const adjudicated = getAdjudicatedSnapshot({
-    orderId: runtimeContext?.orderId,
-    chainId: runtimeContext?.chainId,
-    txHash: runtimeContext?.canonicalTxHash
+  const finalState = resolveTxFinalState({
+    runtimeContext,
+    lifecycle
   });
-  const adjudicatedState = adjudicated?.adjudicated.state;
-  if (adjudicatedState === 'confirmed_success' || adjudicatedState === 'chain_observed' || adjudicatedState === 'rpc_visible' || adjudicatedState === 'send_accepted') {
+  if (finalState.accepted) {
     return 'open';
   }
-  if (adjudicatedState === 'confirmed_failed') {
-    return 'failed';
-  }
-  const state = runtimeContext?.state;
-  if (state === 'confirmed_success' || state === 'mempool_visible' || state === 'included' || state === 'hash_accepted') {
-    return 'open';
-  }
-  const lifecycleStatus = lifecycle?.status || runtimeContext?.lastLifecycle?.status;
-  if (lifecycleStatus === 'confirmed_success' || lifecycleStatus === 'visible_pending') {
-    return 'open';
-  }
-  if (lifecycleStatus === 'confirmed_failed') {
-    return 'failed';
-  }
-  if (state === 'failed' || state === 'confirmed_failed' || state === 'fallback_failed') {
+  if (finalState.failed) {
     return 'failed';
   }
   return 'pending';

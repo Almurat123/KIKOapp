@@ -27,11 +27,7 @@ export const ThemedPrivyProvider: React.FC<{ children: React.ReactNode }> = ({ c
           walletList: [],
         },
         loginMethods: ['email', 'farcaster', 'google', 'twitter'],
-        fundingMethodConfig: {
-          moonpay: {
-            useSandbox: true,
-          },
-        },
+        // Removed fundingMethodConfig temporarily to test if sandbox is causing the crash
         embeddedWallets: {
           ethereum: {
             createOnLogin: 'all-users',
@@ -52,7 +48,7 @@ export const ThemedPrivyProvider: React.FC<{ children: React.ReactNode }> = ({ c
             },
           },
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        } as any,
+        } as any
       }}
     >
       {children}

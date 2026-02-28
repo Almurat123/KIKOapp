@@ -15,12 +15,17 @@ import { getRpcEndpointsWithStrategy, RpcEndpointConfig } from '../config/apiEnd
 import { getCachedRpc, setCachedRpc, buildCacheKey, getTtlForMethod, isCacheable } from './rpcCache.js';
 import { Connection } from '@solana/web3.js';
 import type { TxLifecycleResult } from './txLifecycle.js';
+import type { RpcImportance } from './rpc/types.js';
 import {
     reportReceiptSeen,
     reportRpcUncertain,
     reportSendAccepted,
     reportTxByHashSeen
 } from './order-runtime/adjudicator/service.js';
+import { resolveTxFinalState, toLifecycleResultFromFinalState } from './order-runtime/adjudicator/finalState.js';
+import { buildRpcSelectionExplain } from './rpc/explain.js';
+import { shouldUpgradeRpcStrategy } from './rpc/policy.js';
+import { buildRpcScoreTable, sortRpcEndpointsByScore } from './rpc/score.js';
 
 const RPC_TIMEOUT_MS = Number(process.env.RPC_TIMEOUT_MS || '10000'); // 10s default
 const RPC_TIMEOUT_FAST_MS = Number(process.env.RPC_TIMEOUT_FAST_MS || '2500');
@@ -64,6 +69,7 @@ const ENDPOINT_METHOD_TIMEOUT_WINDOW_MS = Math.max(5_000, Number(process.env.RPC
 const ENDPOINT_METHOD_TIMEOUT_MIN_ATTEMPTS = Math.max(3, Number(process.env.RPC_ENDPOINT_METHOD_TIMEOUT_MIN_ATTEMPTS || '8'));
 const ENDPOINT_METHOD_TIMEOUT_RATE_THRESHOLD = Math.min(1, Math.max(0, Number(process.env.RPC_ENDPOINT_METHOD_TIMEOUT_RATE_THRESHOLD || '0.3')));
 const ENDPOINT_METHOD_TIMEOUT_COOLDOWN_MS = Math.max(1_000, Number(process.env.RPC_ENDPOINT_METHOD_TIMEOUT_COOLDOWN_MS || '60000'));
+const RPC_EXPLAIN_ENABLED = (process.env.RPC_EXPLAIN_ENABLED || 'true').toLowerCase() === 'true';
 
 // Endpoint health tracking
 interface EndpointHealth {
@@ -257,7 +263,6 @@ interface RpcResponse<T = any> {
     };
 }
 
-type RpcImportance = 'normal' | 'critical';
 export type RpcClass = 'critical_tx' | 'best_effort_read';
 
 function resolveRpcTimeoutMs(
@@ -776,6 +781,28 @@ export function recordTxLifecycleState(snapshot: TxLifecycleSnapshot): void {
         txHash: String(snapshot.txHash).toLowerCase(),
         updatedAt: Date.now()
     });
+    if (snapshot.status === 'confirmed_success' || snapshot.status === 'confirmed_failed') {
+        reportReceiptSeen({
+            chainId: snapshot.chainId,
+            txHash: snapshot.txHash,
+            success: snapshot.status === 'confirmed_success',
+            rpcError: snapshot.lastRpcError,
+            source: 'rpc_receipt'
+        });
+    } else if (snapshot.status === 'visible_pending') {
+        reportTxByHashSeen({
+            chainId: snapshot.chainId,
+            txHash: snapshot.txHash,
+            rpcError: snapshot.lastRpcError,
+            source: 'rpc_tx'
+        });
+    } else if (snapshot.status === 'broadcasted_unseen' || snapshot.status === 'dropped_timeout' || snapshot.status === 'send_failed') {
+        reportRpcUncertain({
+            chainId: snapshot.chainId,
+            txHash: snapshot.txHash,
+            error: snapshot.lastRpcError || snapshot.status
+        });
+    }
 }
 
 export function getTxLifecycleState(chainId: number, txHash: string): TxLifecycleSnapshot | null {
@@ -857,6 +884,9 @@ export async function callRpc<T = any>(
         chainId = id;
     }
 
+    const effectiveImportance: RpcImportance =
+        options.importance || (options.strategy === 'fast' ? 'critical' : 'normal');
+
     try {
         const config = getChainConfig(chainId);
         chainName = config.name;
@@ -866,12 +896,21 @@ export async function callRpc<T = any>(
         endpoints = getRpcEndpointsWithStrategy(chainSlug, strategy, primaryUrl);
         endpoints = filterEndpointsByMethod(endpoints, method);
 
-        if (strategy === 'cheap' && shouldUpgradeToFast(endpoints)) {
+        const upgradeDecision = shouldUpgradeRpcStrategy({
+            endpoints,
+            getHealth: getEndpointHealthView,
+            method,
+            importance: effectiveImportance
+        });
+        if (strategy === 'cheap' && upgradeDecision.upgrade) {
             const upgraded = getRpcEndpointsWithStrategy(chainSlug, 'fast', primaryUrl);
             if (upgraded.length > 0) {
                 endpoints = filterEndpointsByMethod(upgraded, method);
                 logger.warn(LogCode.API_FETCH_FAILED, 'RPC strategy upgraded to fast due to degraded cheap pool', {
                     chain: chainName,
+                    method,
+                    lane: upgradeDecision.lane,
+                    reasons: upgradeDecision.reasons,
                     role: LogRole.METRIC
                 });
             }
@@ -907,8 +946,6 @@ export async function callRpc<T = any>(
         throw new Error(`No RPC endpoints configured for ${chainName}`);
     }
 
-    const effectiveImportance: RpcImportance =
-        options.importance || (options.strategy === 'fast' ? 'critical' : 'normal');
     const rpcClass: RpcClass = options.rpcClass || inferRpcClass(method, effectiveImportance);
     const path = String(options.path || 'default');
     const backoffKey = buildMethodBackoffKey(chainId, method, effectiveImportance, rpcClass);
@@ -953,7 +990,15 @@ export async function callRpc<T = any>(
                 params,
             };
 
-            const sortedEndpoints = sortEndpointsByScore(endpoints, effectiveImportance);
+            const scoreTable = buildRpcScoreTable({
+                endpoints,
+                method,
+                importance: effectiveImportance,
+                now: Date.now(),
+                getHealth: getEndpointHealthView,
+                getUsage: getEndpointUsageView
+            });
+            const sortedEndpoints = scoreTable.map((row) => row.endpoint);
             const forceExhaustiveFailover = shouldForceExhaustiveFailover(method, effectiveImportance, options);
             const endpointBudget = getEndpointAttemptBudget(
                 method,
@@ -970,6 +1015,25 @@ export async function callRpc<T = any>(
                     || method === 'eth_getTransactionByHash'
                     || method === 'eth_getTransactionReceipt'
                 );
+
+            if (RPC_EXPLAIN_ENABLED && (txLifecycleCritical || options.path === 'direct_swap' || options.path === 'confirm_wait')) {
+                logger.info(LogCode.SYS_INFO, 'RPC selection explain', {
+                    chain: chainName,
+                    ...buildRpcSelectionExplain({
+                        method,
+                        importance: effectiveImportance,
+                        strategy: options.strategy || 'cheap',
+                        scores: scoreTable,
+                        selectedEndpoints,
+                        upgradeDecision: shouldUpgradeRpcStrategy({
+                            endpoints,
+                            getHealth: getEndpointHealthView,
+                            method,
+                            importance: effectiveImportance
+                        })
+                    })
+                });
+            }
 
             let lastError: Error | null = null;
 
@@ -1408,7 +1472,7 @@ export async function callRpcCustom<T = any>(
     let lastError: Error | null = null;
     const effectiveImportance: RpcImportance = options.importance || 'normal';
     const requestTimeoutMs = resolveRpcTimeoutMs(method, { strategy: 'fast', importance: effectiveImportance });
-    const sortedEndpoints = sortEndpointsByScore(filtered, effectiveImportance);
+        const sortedEndpoints = sortEndpointsByScore(filtered, method, effectiveImportance);
 
     for (let i = 0; i < sortedEndpoints.length; i++) {
         const endpoint = sortedEndpoints[i];
@@ -1545,6 +1609,9 @@ export async function callRpcRaw<T = any>(
         chainId = id;
     }
 
+    const effectiveImportance: RpcImportance =
+        options.importance || (options.strategy === 'fast' ? 'critical' : 'normal');
+
     try {
         const config = getChainConfig(chainId);
         chainName = config.name;
@@ -1554,12 +1621,21 @@ export async function callRpcRaw<T = any>(
         endpoints = getRpcEndpointsWithStrategy(chainSlug, strategy, primaryUrl);
         endpoints = filterEndpointsByMethod(endpoints, method);
 
-        if (strategy === 'cheap' && shouldUpgradeToFast(endpoints)) {
+        const upgradeDecision = shouldUpgradeRpcStrategy({
+            endpoints,
+            getHealth: getEndpointHealthView,
+            method,
+            importance: effectiveImportance
+        });
+        if (strategy === 'cheap' && upgradeDecision.upgrade) {
             const upgraded = getRpcEndpointsWithStrategy(chainSlug, 'fast', primaryUrl);
             if (upgraded.length > 0) {
                 endpoints = filterEndpointsByMethod(upgraded, method);
                 logger.warn(LogCode.API_FETCH_FAILED, 'RPC strategy upgraded to fast due to degraded cheap pool', {
-                    chain: chainName
+                    chain: chainName,
+                    method,
+                    lane: upgradeDecision.lane,
+                    reasons: upgradeDecision.reasons
                 });
             }
         }
@@ -1570,8 +1646,6 @@ export async function callRpcRaw<T = any>(
     if (!endpoints || endpoints.length === 0) {
         throw new Error(`No RPC endpoints configured for ${chainName}`);
     }
-    const effectiveImportance: RpcImportance =
-        options.importance || (options.strategy === 'fast' ? 'critical' : 'normal');
     const rpcClass: RpcClass = options.rpcClass || inferRpcClass(method, effectiveImportance);
     const path = String(options.path || 'default');
     const backoffKey = buildMethodBackoffKey(chainId, method, effectiveImportance, rpcClass);
@@ -1597,7 +1671,15 @@ export async function callRpcRaw<T = any>(
             params,
         };
 
-        const sortedEndpoints = sortEndpointsByScore(endpoints, effectiveImportance);
+        const scoreTable = buildRpcScoreTable({
+            endpoints,
+            method,
+            importance: effectiveImportance,
+            now: Date.now(),
+            getHealth: getEndpointHealthView,
+            getUsage: getEndpointUsageView
+        });
+        const sortedEndpoints = scoreTable.map((row) => row.endpoint);
         const forceExhaustiveFailover = shouldForceExhaustiveFailover(method, effectiveImportance, options);
         const endpointBudget = getEndpointAttemptBudget(
             method,
@@ -1607,6 +1689,24 @@ export async function callRpcRaw<T = any>(
             forceExhaustiveFailover
         );
         const selectedEndpoints = sortedEndpoints.slice(0, endpointBudget);
+        if (RPC_EXPLAIN_ENABLED && effectiveImportance === 'critical') {
+            logger.info(LogCode.SYS_INFO, 'RPC raw selection explain', {
+                chain: chainName,
+                ...buildRpcSelectionExplain({
+                    method,
+                    importance: effectiveImportance,
+                    strategy: options.strategy || 'cheap',
+                    scores: scoreTable,
+                    selectedEndpoints,
+                    upgradeDecision: shouldUpgradeRpcStrategy({
+                        endpoints,
+                        getHealth: getEndpointHealthView,
+                        method,
+                        importance: effectiveImportance
+                    })
+                })
+            });
+        }
         let lastError: Error | null = null;
 
         for (let i = 0; i < selectedEndpoints.length; i++) {
@@ -1829,6 +1929,27 @@ function recordFailure(url: string): void {
     }
 }
 
+function getEndpointHealthView(url: string) {
+    const health = getOrCreateHealth(url);
+    return {
+        successRate: health.totalAttempts > 0 ? health.successCount / health.totalAttempts : 0.7,
+        avgResponseTime: health.avgResponseTime,
+        circuitOpen: health.circuitOpen,
+        consecutiveFailures: health.consecutiveFailures,
+        totalAttempts: health.totalAttempts
+    };
+}
+
+function getEndpointUsageView(url: string) {
+    const usage = getOrCreateUsage(url);
+    return {
+        inFlight: usage.inFlight,
+        secondCount: usage.secondCount,
+        minuteCount: usage.minuteCount,
+        lastUsedAt: usage.lastUsedAt
+    };
+}
+
 async function probeEndpoint(url: string, method: string, params: any[] = [], timeoutMs = BENCHMARK_TIMEOUT_MS): Promise<{ ok: boolean; ms: number }> {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
@@ -1878,49 +1999,15 @@ async function runBenchmarkSample(chainId: number, tokenAddress: string): Promis
     }
 }
 
-function sortEndpointsByScore(endpoints: RpcEndpointConfig[], importance: RpcImportance): RpcEndpointConfig[] {
-    const now = Date.now();
-    return endpoints.slice().sort((a, b) => {
-        const scoreA = scoreEndpoint(a, importance, now);
-        const scoreB = scoreEndpoint(b, importance, now);
-        return scoreB - scoreA;
+function sortEndpointsByScore(endpoints: RpcEndpointConfig[], method: string, importance: RpcImportance): RpcEndpointConfig[] {
+    return sortRpcEndpointsByScore({
+        endpoints,
+        method,
+        importance,
+        now: Date.now(),
+        getHealth: getEndpointHealthView,
+        getUsage: getEndpointUsageView
     });
-}
-
-function scoreEndpoint(endpoint: RpcEndpointConfig, importance: RpcImportance, now: number): number {
-    const health = getOrCreateHealth(endpoint.url);
-    const usage = getOrCreateUsage(endpoint.url);
-
-    // Base score from success rate and response time
-    const successRate = health.totalAttempts > 0 ? health.successCount / health.totalAttempts : 0.7;
-    const latencyScore = health.avgResponseTime > 0 ? Math.max(0, 1000 - health.avgResponseTime) / 1000 : 0.5;
-    let score = successRate * 10 + latencyScore * 2;
-
-    // Penalize circuit open
-    if (health.circuitOpen) score -= 5;
-
-    // Type preference by importance
-    if (importance === 'critical') {
-        if (endpoint.type === 'premium') score += 2;
-        if (endpoint.type === 'public') score += 0.5;
-    } else {
-        if (endpoint.type === 'public') score += 2;
-        if (endpoint.type === 'premium') score -= 0.5;
-    }
-
-    // Capacity pressure
-    const limits = endpoint.limits;
-    if (limits?.maxInFlight && usage.inFlight >= limits.maxInFlight) score -= 2;
-    if (limits?.rps && usage.secondCount >= limits.rps) score -= 1.5;
-    if (limits?.rpm && usage.minuteCount >= limits.rpm) score -= 1.5;
-
-    // Slight penalty for very recent usage to spread load
-    if (now - usage.lastUsedAt < 50) score -= 0.2;
-
-    // Optional weight
-    if (endpoint.weight) score += endpoint.weight;
-
-    return score;
 }
 
 function maskEndpoint(url: string): string {
@@ -1928,18 +2015,13 @@ function maskEndpoint(url: string): string {
     return url.replace(/[a-zA-Z0-9]{32,}/g, '***');
 }
 
-function shouldUpgradeToFast(endpoints: RpcEndpointConfig[]): boolean {
-    if (endpoints.length === 0) return false;
-    const top = endpoints.slice(0, 3);
-    let badCount = 0;
-    for (const endpoint of top) {
-        const health = getOrCreateHealth(endpoint.url);
-        const attempts = health.totalAttempts;
-        const successRate = attempts > 0 ? (health.successCount / attempts) * 100 : 100;
-        const isBad = health.circuitOpen || (attempts >= 10 && successRate < 50);
-        if (isBad) badCount++;
-    }
-    return badCount === top.length;
+function shouldUpgradeToFast(endpoints: RpcEndpointConfig[], method: string, importance: RpcImportance): boolean {
+    return shouldUpgradeRpcStrategy({
+        endpoints,
+        getHealth: getEndpointHealthView,
+        method,
+        importance
+    }).upgrade;
 }
 
 /**
@@ -2279,7 +2361,7 @@ export function getSolanaConnection(
     const primaryUrl = getPrimaryRpcUrl(chainSlug);
     let endpoints = getRpcEndpointsWithStrategy(chainSlug, strategy, primaryUrl);
 
-    if (strategy === 'cheap' && shouldUpgradeToFast(endpoints)) {
+    if (strategy === 'cheap' && shouldUpgradeToFast(endpoints, 'solana_connection', importance)) {
         const upgraded = getRpcEndpointsWithStrategy(chainSlug, 'fast', primaryUrl);
         if (upgraded.length > 0) {
             endpoints = upgraded;
@@ -2290,7 +2372,7 @@ export function getSolanaConnection(
         throw new Error('No RPC endpoints configured for Solana');
     }
 
-    const sorted = sortEndpointsByScore(endpoints, importance);
+    const sorted = sortEndpointsByScore(endpoints, 'solana_connection', importance);
     const chosen = sorted.find(ep => !isCircuitOpen(ep.url)) || sorted[0];
     const url = chosen.url;
     const now = Date.now();
@@ -2481,6 +2563,24 @@ export async function probeTxVisibility(params: {
     blockNumber?: string;
     lastError?: string;
 }> {
+    const finalState = resolveTxFinalState({
+        chainId: params.chainId,
+        txHash: params.txHash
+    });
+    if (finalState.visible || finalState.success) {
+        return {
+            visible: true,
+            checks: 0,
+            lastError: finalState.reasonCode
+        };
+    }
+    if (finalState.failed) {
+        return {
+            visible: false,
+            checks: 0,
+            lastError: finalState.reasonCode || 'cached_tx_failed'
+        };
+    }
     const cached = getTxLifecycleState(params.chainId, params.txHash);
     if (cached) {
         if (cached.status === 'confirmed_success' || cached.status === 'confirmed_failed' || cached.status === 'visible_pending') {
@@ -2600,6 +2700,17 @@ export async function waitForReceiptStateMachine(params: {
     maxWaitMs?: number;
     pollMs?: number;
 }): Promise<TxLifecycleResult> {
+    const finalState = resolveTxFinalState({
+        chainId: params.chainId,
+        txHash: params.txHash
+    });
+    if (finalState.terminal || finalState.visible) {
+        return toLifecycleResultFromFinalState({
+            chainId: params.chainId,
+            txHash: params.txHash,
+            resolution: finalState
+        });
+    }
     const cached = getTxLifecycleState(params.chainId, params.txHash);
     if (cached && (
         cached.status === 'confirmed_success'
