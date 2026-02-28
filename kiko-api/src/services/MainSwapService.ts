@@ -51,6 +51,7 @@ import {
 import { logOrderRuntimeSnapshot } from './order-runtime/sinks/logger.js';
 import { inferOrderReasonCode } from './order-runtime/reasonCodes.js';
 import { resolveTxFinalState } from './order-runtime/adjudicator/finalState.js';
+import { describeVisibilityFailure, shouldPassVisibilityGate } from './rpc/visibilityPolicy.js';
 import type { ExecutionPlanV1, ReplayDriftDiagnosis, ReplayPrecheckResult } from './copytrade/planner/types.js';
 import { isP2ExecutorEnabled, isP2SampleLearningEnabled, isP2ShadowRunEnabled } from './copytrade/planner/featureFlags.js';
 import {
@@ -1138,19 +1139,6 @@ export class MainSwapService {
       const needsVisibilityGate = lifecycleStatus === 'broadcasted_unseen' || lifecycleStatus === 'visible_pending';
       if (!needsVisibilityGate) return directResult;
 
-      // ⚡ TURBO TRUSTED BROADCAST: In turbo copytrade the tx was successfully broadcast
-      // to the network via eth_sendRawTransaction fanout. RPC degradation should NOT cause
-      // us to declare the tx "failed" — the fanout already relayed it to block builders.
-      // Accept broadcasted_unseen as success; position monitor will track confirmation.
-      if (isTurboCopytrade && lifecycleStatus === 'broadcasted_unseen') {
-        logger.info(LogCode.SYS_INFO, trace('Direct swap tx broadcasted — skipping visibility gate in turbo (RPC may be degraded)'), {
-          stage,
-          txHash: directResult.txHash,
-          mode: request.mode
-        });
-        return directResult; // success: true, txHash set — good enough
-      }
-
       const visibilityMaxWaitMs = isTurboCopytrade
         ? DIRECT_SWAP_VISIBILITY_GATE_MS_TURBO
         : DIRECT_SWAP_VISIBILITY_GATE_MS_NORMAL;
@@ -1173,11 +1161,16 @@ export class MainSwapService {
         lastRpcError: error?.message || String(error)
       } as TxLifecycleResult));
 
-      if (lifecycle?.status === 'visible_pending' || lifecycle?.status === 'confirmed_success') {
+      if (shouldPassVisibilityGate({
+        chainId: request.chainId,
+        txHash: directResult.txHash,
+        runtimeContext: request.runtimeContext,
+        lifecycle
+      })) {
         logger.info(LogCode.SYS_INFO, trace('Direct swap tx passed visibility gate'), {
           stage,
           txHash: directResult.txHash,
-          visibilityStatus: lifecycle.status,
+          visibilityStatus: lifecycle?.status,
           attempts: lifecycle.attempts
         });
         return {
@@ -1186,10 +1179,12 @@ export class MainSwapService {
         };
       }
 
-      const visibilityFailure = lifecycle?.status || directResult.txLifecycle?.status || 'broadcasted_unseen';
-      const visibilityReason = lifecycle?.lastRpcError
-        || directResult.txLifecycle?.lastRpcError
-        || 'not_found_by_rpc';
+      const { failure: visibilityFailure, reason: visibilityReason } = describeVisibilityFailure({
+        chainId: request.chainId,
+        txHash: directResult.txHash,
+        runtimeContext: request.runtimeContext,
+        lifecycle: lifecycle || directResult.txLifecycle || undefined
+      });
       logger.warn(LogCode.SYS_INFO, trace('Direct swap tx failed visibility gate'), {
         stage,
         txHash: directResult.txHash,

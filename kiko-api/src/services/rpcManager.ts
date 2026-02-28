@@ -24,8 +24,18 @@ import {
 } from './order-runtime/adjudicator/service.js';
 import { resolveTxFinalState, toLifecycleResultFromFinalState } from './order-runtime/adjudicator/finalState.js';
 import { buildRpcSelectionExplain } from './rpc/explain.js';
-import { shouldUpgradeRpcStrategy } from './rpc/policy.js';
+import { inferRpcLane, shouldUpgradeRpcStrategy } from './rpc/policy.js';
 import { buildRpcScoreTable, sortRpcEndpointsByScore } from './rpc/score.js';
+import {
+    getErc20AllowanceSnapshot,
+    getErc20BalanceSnapshot,
+    getNativeBalanceSnapshot,
+    setErc20AllowanceSnapshot,
+    setErc20BalanceSnapshot,
+    setNativeBalanceSnapshot
+} from './rpc/snapshotStore.js';
+import { getCriticalRpcPressureSnapshot, hasCriticalRpcPressure, beginCriticalRpcWindow } from './rpc/backgroundBudget.js';
+import { getSharedTxObservation, waitForSharedTxConfirmation } from './rpc/confirmScheduler.js';
 
 const RPC_TIMEOUT_MS = Number(process.env.RPC_TIMEOUT_MS || '10000'); // 10s default
 const RPC_TIMEOUT_FAST_MS = Number(process.env.RPC_TIMEOUT_FAST_MS || '2500');
@@ -1000,13 +1010,18 @@ export async function callRpc<T = any>(
             });
             const sortedEndpoints = scoreTable.map((row) => row.endpoint);
             const forceExhaustiveFailover = shouldForceExhaustiveFailover(method, effectiveImportance, options);
-            const endpointBudget = getEndpointAttemptBudget(
+            const lane = inferRpcLane(method, effectiveImportance);
+            const backgroundPressure = lane === 'background' && hasCriticalRpcPressure();
+            let endpointBudget = getEndpointAttemptBudget(
                 method,
                 effectiveImportance,
                 sortedEndpoints.length,
                 cooldownActive,
                 forceExhaustiveFailover
             );
+            if (backgroundPressure) {
+                endpointBudget = Math.max(1, Math.min(endpointBudget, 1));
+            }
             const selectedEndpoints = sortedEndpoints.slice(0, endpointBudget);
             const txLifecycleCritical =
                 effectiveImportance === 'critical'
@@ -1019,6 +1034,8 @@ export async function callRpc<T = any>(
             if (RPC_EXPLAIN_ENABLED && (txLifecycleCritical || options.path === 'direct_swap' || options.path === 'confirm_wait')) {
                 logger.info(LogCode.SYS_INFO, 'RPC selection explain', {
                     chain: chainName,
+                    backgroundPressure,
+                    criticalPressure: getCriticalRpcPressureSnapshot(),
                     ...buildRpcSelectionExplain({
                         method,
                         importance: effectiveImportance,
@@ -2040,6 +2057,13 @@ export async function getNativeBalance(
         const result = await callRpc<{ value: number }>('solana', 'getBalance', [address]);
         return result.value.toString();
     } else {
+        const chainId = typeof chainIdOrName === 'number' ? chainIdOrName : CHAIN_NAME_TO_ID[String(chainName).toLowerCase()];
+        if (chainId) {
+            const cached = getNativeBalanceSnapshot(chainId, address, blockTag);
+            if (cached !== null) return cached;
+            const value = await callRpc<string>(chainIdOrName, 'eth_getBalance', [address, blockTag]);
+            return setNativeBalanceSnapshot(chainId, address, blockTag, value);
+        }
         return await callRpc<string>(chainIdOrName, 'eth_getBalance', [address, blockTag]);
     }
 }
@@ -2053,6 +2077,13 @@ export async function getErc20Balance(
     chainIdOrName: number | string,
     blockTag: string | number = 'latest'
 ): Promise<bigint> {
+    const chainId = typeof chainIdOrName === 'number'
+        ? chainIdOrName
+        : CHAIN_NAME_TO_ID[String(chainIdOrName).toLowerCase()];
+    if (chainId) {
+        const cached = getErc20BalanceSnapshot(chainId, tokenAddress, ownerAddress, blockTag);
+        if (cached !== null) return cached;
+    }
     const iface = new ethers.Interface(['function balanceOf(address) view returns (uint256)']);
     const data = iface.encodeFunctionData('balanceOf', [ownerAddress]);
     const result = await callRpc<string>(chainIdOrName, 'eth_call', [{
@@ -2062,7 +2093,9 @@ export async function getErc20Balance(
 
     if (!result || result === '0x') return 0n;
     const [balance] = iface.decodeFunctionResult('balanceOf', result);
-    return BigInt(balance);
+    const value = BigInt(balance);
+    if (chainId) return setErc20BalanceSnapshot(chainId, tokenAddress, ownerAddress, blockTag, value);
+    return value;
 }
 
 /**
@@ -2095,6 +2128,13 @@ export async function getErc20Allowance(
     chainIdOrName: number | string,
     blockTag: string | number = 'latest'
 ): Promise<bigint> {
+    const chainId = typeof chainIdOrName === 'number'
+        ? chainIdOrName
+        : CHAIN_NAME_TO_ID[String(chainIdOrName).toLowerCase()];
+    if (chainId) {
+        const cached = getErc20AllowanceSnapshot(chainId, tokenAddress, ownerAddress, spenderAddress, blockTag);
+        if (cached !== null) return cached;
+    }
     const iface = new ethers.Interface(['function allowance(address owner, address spender) view returns (uint256)']);
     const data = iface.encodeFunctionData('allowance', [ownerAddress, spenderAddress]);
     const result = await callRpc<string>(chainIdOrName, 'eth_call', [{
@@ -2104,7 +2144,9 @@ export async function getErc20Allowance(
 
     if (!result || result === '0x') return 0n;
     const [allowance] = iface.decodeFunctionResult('allowance', result);
-    return BigInt(allowance);
+    const value = BigInt(allowance);
+    if (chainId) return setErc20AllowanceSnapshot(chainId, tokenAddress, ownerAddress, spenderAddress, blockTag, value);
+    return value;
 }
 
 /**
@@ -2158,7 +2200,17 @@ export async function getTransactionByHash(
             { encoding: 'jsonParsed', maxSupportedTransactionVersion: 0 }
         ]);
     } else {
-        return await callRpc(chainId, 'eth_getTransactionByHash', [txHash], { strategy: 'fast', importance: 'critical' });
+        const observed = await getSharedTxObservation({
+            chainId,
+            txHash,
+            scope: 'tx',
+            producer: async () => ({
+                tx: await callRpc(chainId, 'eth_getTransactionByHash', [txHash], { strategy: 'fast', importance: 'critical' }).catch(() => null),
+                receipt: null,
+                observedAt: Date.now()
+            })
+        });
+        return observed.tx;
     }
 }
 
@@ -2169,7 +2221,17 @@ export async function getTransactionReceipt(
     chainId: number,
     txHash: string
 ): Promise<any> {
-    return await callRpc(chainId, 'eth_getTransactionReceipt', [txHash], { strategy: 'fast', importance: 'critical' });
+    const observed = await getSharedTxObservation({
+        chainId,
+        txHash,
+        scope: 'receipt',
+        producer: async () => ({
+            tx: null,
+            receipt: await callRpc(chainId, 'eth_getTransactionReceipt', [txHash], { strategy: 'fast', importance: 'critical' }).catch(() => null),
+            observedAt: Date.now()
+        })
+    });
+    return observed.receipt;
 }
 
 /**
@@ -2563,6 +2625,8 @@ export async function probeTxVisibility(params: {
     blockNumber?: string;
     lastError?: string;
 }> {
+    const releaseCriticalWindow = beginCriticalRpcWindow(`probe_visibility:${params.chainId}:${params.txHash.toLowerCase()}`);
+    try {
     const finalState = resolveTxFinalState({
         chainId: params.chainId,
         txHash: params.txHash
@@ -2616,12 +2680,23 @@ export async function probeTxVisibility(params: {
 
     for (let i = 1; i <= retries; i++) {
         try {
-            const tx = await callRpc<any>(
-                params.chainId,
-                'eth_getTransactionByHash',
-                [params.txHash],
-                { strategy: 'fast', importance: 'critical', exhaustiveFailover: true }
-            );
+            const observation = await getSharedTxObservation({
+                chainId: params.chainId,
+                txHash: params.txHash,
+                scope: 'tx',
+                producer: async () => ({
+                    tx: await callRpc<any>(
+                        params.chainId,
+                        'eth_getTransactionByHash',
+                        [params.txHash],
+                        { strategy: 'fast', importance: 'critical', exhaustiveFailover: true }
+                    ).catch(() => null),
+                    receipt: null,
+                    observedAt: Date.now(),
+                    lastRpcError: lastError || undefined
+                })
+            });
+            const tx = observation.tx;
             if (tx?.hash) {
                 const from = String(tx.from || '').toLowerCase();
                 if (!expectedFrom || from === expectedFrom) {
@@ -2691,6 +2766,9 @@ export async function probeTxVisibility(params: {
         source: 'probe_visibility'
     });
     return out;
+    } finally {
+        releaseCriticalWindow();
+    }
 }
 
 export async function waitForReceiptStateMachine(params: {
@@ -2700,191 +2778,218 @@ export async function waitForReceiptStateMachine(params: {
     maxWaitMs?: number;
     pollMs?: number;
 }): Promise<TxLifecycleResult> {
-    const finalState = resolveTxFinalState({
+    return await waitForSharedTxConfirmation({
         chainId: params.chainId,
-        txHash: params.txHash
-    });
-    if (finalState.terminal || finalState.visible) {
-        return toLifecycleResultFromFinalState({
-            chainId: params.chainId,
-            txHash: params.txHash,
-            resolution: finalState
-        });
-    }
-    const cached = getTxLifecycleState(params.chainId, params.txHash);
-    if (cached && (
-        cached.status === 'confirmed_success'
-        || cached.status === 'confirmed_failed'
-        || cached.status === 'visible_pending'
-        || cached.status === 'dropped_timeout'
-    )) {
-        return {
-            status: cached.status as TxLifecycleResult['status'],
-            txHash: params.txHash,
-            firstSeenAt: cached.firstSeenAt,
-            confirmedAt: cached.confirmedAt,
-            lastRpcError: cached.lastRpcError,
-            attempts: cached.attempts || 0,
-            chainId: params.chainId
-        };
-    }
-
-    const startedAt = Date.now();
-    const maxWaitMs = Math.max(200, Number(params.maxWaitMs || 12_000));
-    const pollMs = Math.max(120, Number(params.pollMs || 500));
-    const expectedFrom = String(params.expectedFrom || '').toLowerCase();
-    let attempts = 0;
-    let firstSeenAt: number | undefined;
-    let lastRpcError = '';
-    let visibilityHits = 0;
-
-    while (Date.now() - startedAt < maxWaitMs) {
-        const degrade = getChainRpcDegradeState(params.chainId);
-        if (degrade.degraded && !firstSeenAt) {
-            reportRpcUncertain({
-                chainId: params.chainId,
-                txHash: params.txHash,
-                error: degrade.lastError || 'chain_rpc_degraded'
-            });
-            return {
-                status: 'dropped_timeout',
-                txHash: params.txHash,
-                firstSeenAt,
-                lastRpcError: degrade.lastError || 'chain_rpc_degraded',
-                attempts,
-                chainId: params.chainId
-            };
-        }
-        attempts += 1;
-        try {
-            const [tx, receipt] = await Promise.all([
-                callRpc<any>(
-                    params.chainId,
-                    'eth_getTransactionByHash',
-                    [params.txHash],
-                    { strategy: 'fast', importance: 'critical', exhaustiveFailover: true }
-                ).catch((err: any) => {
-                    lastRpcError = err?.message || String(err);
-                    return null;
-                }),
-                callRpc<any>(
-                    params.chainId,
-                    'eth_getTransactionReceipt',
-                    [params.txHash],
-                    { strategy: 'fast', importance: 'critical', exhaustiveFailover: true }
-                ).catch((err: any) => {
-                    lastRpcError = err?.message || String(err);
-                    return null;
-                })
-            ]);
-
-            if (tx?.hash) {
-                const seenFrom = String(tx.from || '').toLowerCase();
-                if (!expectedFrom || seenFrom === expectedFrom) {
-                    firstSeenAt = firstSeenAt || Date.now();
-                    visibilityHits += 1;
-                    reportTxByHashSeen({
+        txHash: params.txHash,
+        producer: async () => {
+            const releaseCriticalWindow = beginCriticalRpcWindow(`confirm_wait:${params.chainId}:${params.txHash.toLowerCase()}`);
+            try {
+                const finalState = resolveTxFinalState({
+                    chainId: params.chainId,
+                    txHash: params.txHash
+                });
+                if (finalState.terminal || finalState.visible) {
+                    return toLifecycleResultFromFinalState({
                         chainId: params.chainId,
                         txHash: params.txHash,
-                        from: tx.from || undefined,
-                        blockNumber: tx.blockNumber || undefined,
-                        rpcError: lastRpcError || undefined,
-                        source: 'rpc_tx'
+                        resolution: finalState
                     });
-                } else {
-                    visibilityHits = 0;
-                    lastRpcError = `from_mismatch expected=${params.expectedFrom} got=${tx.from}`;
                 }
-            } else {
-                visibilityHits = 0;
-            }
+                const cached = getTxLifecycleState(params.chainId, params.txHash);
+                if (cached && (
+                    cached.status === 'confirmed_success'
+                    || cached.status === 'confirmed_failed'
+                    || cached.status === 'visible_pending'
+                    || cached.status === 'dropped_timeout'
+                )) {
+                    return {
+                        status: cached.status as TxLifecycleResult['status'],
+                        txHash: params.txHash,
+                        firstSeenAt: cached.firstSeenAt,
+                        confirmedAt: cached.confirmedAt,
+                        lastRpcError: cached.lastRpcError,
+                        attempts: cached.attempts || 0,
+                        chainId: params.chainId
+                    };
+                }
 
-            if (receipt?.transactionHash) {
-                const statusHex = String(receipt.status || '');
-                const status: TxLifecycleResult['status'] = statusHex === '0x1' || statusHex === '1' ? 'confirmed_success' : 'confirmed_failed';
-                reportReceiptSeen({
-                    chainId: params.chainId,
-                    txHash: params.txHash,
-                    success: status === 'confirmed_success',
-                    blockNumber: receipt.blockNumber || undefined,
-                    rpcError: lastRpcError || undefined,
-                    source: 'rpc_receipt'
-                });
+                const startedAt = Date.now();
+                const maxWaitMs = Math.max(200, Number(params.maxWaitMs || 12_000));
+                const pollMs = Math.max(120, Number(params.pollMs || 500));
+                const expectedFrom = String(params.expectedFrom || '').toLowerCase();
+                let attempts = 0;
+                let firstSeenAt: number | undefined;
+                let lastRpcError = '';
+                let visibilityHits = 0;
+
+                while (Date.now() - startedAt < maxWaitMs) {
+                    const degrade = getChainRpcDegradeState(params.chainId);
+                    if (degrade.degraded && !firstSeenAt) {
+                        reportRpcUncertain({
+                            chainId: params.chainId,
+                            txHash: params.txHash,
+                            error: degrade.lastError || 'chain_rpc_degraded'
+                        });
+                        return {
+                            status: 'dropped_timeout',
+                            txHash: params.txHash,
+                            firstSeenAt,
+                            lastRpcError: degrade.lastError || 'chain_rpc_degraded',
+                            attempts,
+                            chainId: params.chainId
+                        };
+                    }
+                    attempts += 1;
+                    try {
+                        const observation = await getSharedTxObservation({
+                            chainId: params.chainId,
+                            txHash: params.txHash,
+                            scope: 'combined',
+                            producer: async () => {
+                                let observationError = '';
+                                const [tx, receipt] = await Promise.all([
+                                    callRpc<any>(
+                                        params.chainId,
+                                        'eth_getTransactionByHash',
+                                        [params.txHash],
+                                        { strategy: 'fast', importance: 'critical', exhaustiveFailover: true, path: 'confirm_wait' }
+                                    ).catch((err: any) => {
+                                        observationError = err?.message || String(err);
+                                        return null;
+                                    }),
+                                    callRpc<any>(
+                                        params.chainId,
+                                        'eth_getTransactionReceipt',
+                                        [params.txHash],
+                                        { strategy: 'fast', importance: 'critical', exhaustiveFailover: true, path: 'confirm_wait' }
+                                    ).catch((err: any) => {
+                                        observationError = err?.message || String(err);
+                                        return null;
+                                    })
+                                ]);
+                                return {
+                                    tx,
+                                    receipt,
+                                    observedAt: Date.now(),
+                                    lastRpcError: observationError || undefined
+                                };
+                            }
+                        });
+                        const tx = observation.tx;
+                        const receipt = observation.receipt;
+                        if (observation.lastRpcError) lastRpcError = observation.lastRpcError;
+
+                        if (tx?.hash) {
+                            const seenFrom = String(tx.from || '').toLowerCase();
+                            if (!expectedFrom || seenFrom === expectedFrom) {
+                                firstSeenAt = firstSeenAt || Date.now();
+                                visibilityHits += 1;
+                                reportTxByHashSeen({
+                                    chainId: params.chainId,
+                                    txHash: params.txHash,
+                                    from: tx.from || undefined,
+                                    blockNumber: tx.blockNumber || undefined,
+                                    rpcError: lastRpcError || undefined,
+                                    source: 'rpc_tx'
+                                });
+                            } else {
+                                visibilityHits = 0;
+                                lastRpcError = `from_mismatch expected=${params.expectedFrom} got=${tx.from}`;
+                            }
+                        } else {
+                            visibilityHits = 0;
+                        }
+
+                        if (receipt?.transactionHash) {
+                            const statusHex = String(receipt.status || '');
+                            const status: TxLifecycleResult['status'] = statusHex === '0x1' || statusHex === '1' ? 'confirmed_success' : 'confirmed_failed';
+                            reportReceiptSeen({
+                                chainId: params.chainId,
+                                txHash: params.txHash,
+                                success: status === 'confirmed_success',
+                                blockNumber: receipt.blockNumber || undefined,
+                                rpcError: lastRpcError || undefined,
+                                source: 'rpc_receipt'
+                            });
+                            const out: TxLifecycleResult = {
+                                status,
+                                txHash: params.txHash,
+                                firstSeenAt,
+                                confirmedAt: Date.now(),
+                                lastRpcError: status === 'confirmed_failed' ? (lastRpcError || 'receipt_status_0') : lastRpcError || undefined,
+                                attempts,
+                                chainId: params.chainId
+                            };
+                            recordTxLifecycleState({
+                                chainId: params.chainId,
+                                txHash: params.txHash,
+                                status: out.status,
+                                firstSeenAt: out.firstSeenAt,
+                                confirmedAt: out.confirmedAt,
+                                attempts: out.attempts,
+                                lastRpcError: out.lastRpcError,
+                                source: 'wait_for_receipt'
+                            });
+                            return out;
+                        }
+
+                        if (firstSeenAt && visibilityHits >= 2) {
+                            const out: TxLifecycleResult = {
+                                status: 'visible_pending',
+                                txHash: params.txHash,
+                                firstSeenAt,
+                                lastRpcError: lastRpcError || undefined,
+                                attempts,
+                                chainId: params.chainId
+                            };
+                            recordTxLifecycleState({
+                                chainId: params.chainId,
+                                txHash: params.txHash,
+                                status: out.status,
+                                firstSeenAt: out.firstSeenAt,
+                                attempts: out.attempts,
+                                lastRpcError: out.lastRpcError,
+                                source: 'wait_for_receipt'
+                            });
+                            return out;
+                        }
+                    } catch (err: any) {
+                        lastRpcError = err?.message || String(err);
+                    }
+
+                    await new Promise((resolve) => setTimeout(resolve, pollMs));
+                }
+
                 const out: TxLifecycleResult = {
-                    status,
+                    status: firstSeenAt ? 'visible_pending' : 'dropped_timeout',
                     txHash: params.txHash,
                     firstSeenAt,
-                    confirmedAt: Date.now(),
-                    lastRpcError: status === 'confirmed_failed' ? (lastRpcError || 'receipt_status_0') : lastRpcError || undefined,
+                    lastRpcError: lastRpcError || 'wait_timeout',
                     attempts,
                     chainId: params.chainId
                 };
+                if (!firstSeenAt) {
+                    reportRpcUncertain({
+                        chainId: params.chainId,
+                        txHash: params.txHash,
+                        error: out.lastRpcError || 'wait_timeout'
+                    });
+                }
                 recordTxLifecycleState({
                     chainId: params.chainId,
                     txHash: params.txHash,
                     status: out.status,
                     firstSeenAt: out.firstSeenAt,
-                    confirmedAt: out.confirmedAt,
                     attempts: out.attempts,
                     lastRpcError: out.lastRpcError,
                     source: 'wait_for_receipt'
                 });
                 return out;
+            } finally {
+                releaseCriticalWindow();
             }
-
-            // Require stable repeated visibility, not a single transient hit.
-            if (firstSeenAt && visibilityHits >= 2) {
-                const out: TxLifecycleResult = {
-                    status: 'visible_pending',
-                    txHash: params.txHash,
-                    firstSeenAt,
-                    lastRpcError: lastRpcError || undefined,
-                    attempts,
-                    chainId: params.chainId
-                };
-                recordTxLifecycleState({
-                    chainId: params.chainId,
-                    txHash: params.txHash,
-                    status: out.status,
-                    firstSeenAt: out.firstSeenAt,
-                    attempts: out.attempts,
-                    lastRpcError: out.lastRpcError,
-                    source: 'wait_for_receipt'
-                });
-                return out;
-            }
-        } catch (err: any) {
-            lastRpcError = err?.message || String(err);
         }
-
-        await new Promise((resolve) => setTimeout(resolve, pollMs));
-    }
-
-    const out: TxLifecycleResult = {
-        status: firstSeenAt ? 'visible_pending' : 'dropped_timeout',
-        txHash: params.txHash,
-        firstSeenAt,
-        lastRpcError: lastRpcError || 'wait_timeout',
-        attempts,
-        chainId: params.chainId
-    };
-    if (!firstSeenAt) {
-        reportRpcUncertain({
-            chainId: params.chainId,
-            txHash: params.txHash,
-            error: out.lastRpcError || 'wait_timeout'
-        });
-    }
-    recordTxLifecycleState({
-        chainId: params.chainId,
-        txHash: params.txHash,
-        status: out.status,
-        firstSeenAt: out.firstSeenAt,
-        attempts: out.attempts,
-        lastRpcError: out.lastRpcError,
-        source: 'wait_for_receipt'
     });
-    return out;
 }
 
 export async function broadcastRawWithQuorum(params: {
@@ -2896,6 +3001,8 @@ export async function broadcastRawWithQuorum(params: {
     bypassRawTxCache?: boolean;
     skipSyncVisibility?: boolean;
 }): Promise<TxLifecycleResult> {
+    const releaseCriticalWindow = beginCriticalRpcWindow(`broadcast_raw:${params.chainId}`);
+    try {
     const txHash = await callRpc<string>(
         params.chainId,
         'eth_sendRawTransaction',
@@ -2994,6 +3101,9 @@ export async function broadcastRawWithQuorum(params: {
         source: 'broadcast_raw'
     });
     return out;
+    } finally {
+        releaseCriticalWindow();
+    }
 }
 
 export const __rpcManagerTest = {

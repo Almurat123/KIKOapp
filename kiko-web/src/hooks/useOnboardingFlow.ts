@@ -13,7 +13,9 @@ export function useOnboardingFlow() {
 
     // Using simple React state to ensure it fires ONCE per login session without refreshing issues
     const [hasTriggeredFunding, setHasTriggeredFunding] = useState(false);
+    const [hasTriggeredFarcaster, setHasTriggeredFarcaster] = useState(false);
     const prevAuthRef = useRef(authenticated);
+    const lastUserIdRef = useRef<string | undefined>(undefined);
 
     const { fundWallet } = useFundWallet({
         onUserExited: () => {
@@ -22,11 +24,27 @@ export function useOnboardingFlow() {
         }
     });
 
+    useEffect(() => {
+        if (user?.id) {
+            lastUserIdRef.current = user.id;
+        }
+    }, [user?.id]);
+
+    const currentStepRef = useRef(step);
+    useEffect(() => {
+        currentStepRef.current = step;
+    }, [step]);
+
     // Reset flow when user logs out
     useEffect(() => {
         if (!authenticated && prevAuthRef.current) {
             setHasTriggeredFunding(false);
+            setHasTriggeredFarcaster(false);
+            hasDismissedFundingRef.current = false;
             setStep('idle');
+            if (lastUserIdRef.current) {
+                sessionStorage.removeItem(`kiko-funding-session-${lastUserIdRef.current}`);
+            }
         }
         prevAuthRef.current = authenticated;
     }, [authenticated]);
@@ -43,6 +61,12 @@ export function useOnboardingFlow() {
 
     const evaluateNextStep = async () => {
         if (isEvaluatingRef.current) return;
+
+        // If we are currently showing a modal, DO NOT re-evaluate and accidentally overwrite it
+        if (currentStepRef.current !== 'idle' && currentStepRef.current !== 'complete') {
+            return;
+        }
+
         isEvaluatingRef.current = true;
 
         try {
@@ -50,9 +74,9 @@ export function useOnboardingFlow() {
 
             // --- STEP 1: FUNDING CHECK ---
             const fundingSessionKey = `kiko-funding-session-${user?.id}`;
-            const promptedThisSession = sessionStorage.getItem(fundingSessionKey) === 'true';
+            const promptedFundingThisSession = sessionStorage.getItem(fundingSessionKey) === 'true';
 
-            if (!hasTriggeredFunding && !promptedThisSession) {
+            if (!hasTriggeredFunding && !promptedFundingThisSession) {
                 const evmWallet = user?.linkedAccounts?.find(
                     (acc): acc is WalletWithMetadata => acc.type === 'wallet' && acc.chainType === 'ethereum'
                 );
@@ -79,10 +103,11 @@ export function useOnboardingFlow() {
             }
 
             // --- STEP 2: FARCASTER CHECK ---
-            const farcasterDismissKey = `kiko-farcaster-follow-dismissed-${user?.id}`;
-            const dismissedFarcaster = localStorage.getItem(farcasterDismissKey) === 'true';
+            // Shows on EVERY page load unless user permanently dismissed via "Do not show this again"
+            const farcasterPermanentKey = `kiko-farcaster-follow-permanent-dismissed-${user?.id}`;
+            const permanentDismissedFarcaster = localStorage.getItem(farcasterPermanentKey) === 'true';
 
-            if (!dismissedFarcaster) {
+            if (!permanentDismissedFarcaster && !hasTriggeredFarcaster) {
                 const farcasterAccount = user?.linkedAccounts?.find(
                     // eslint-disable-next-line @typescript-eslint/no-explicit-any
                     (acc: any) => acc.type === 'farcaster' || (acc.type === 'wallet' && acc.chainType === 'farcaster')
@@ -96,10 +121,11 @@ export function useOnboardingFlow() {
                         const response = await fetch(`${CORE_API_BASE_URL}/api/social/is-following/${fid}`);
                         const data = await response.json();
                         if (data.success && data.data.isFollowing) {
-                            localStorage.setItem(farcasterDismissKey, 'true');
+                            localStorage.setItem(farcasterPermanentKey, 'true');
                         } else {
                             logger.log('[Onboarding] Triggering Farcaster Modal');
                             setStep('farcaster');
+                            setHasTriggeredFarcaster(true);
                             isEvaluatingRef.current = false;
                             return;
                         }
@@ -110,6 +136,7 @@ export function useOnboardingFlow() {
                     // User has no Farcaster linked account, prompt them to follow
                     logger.log('[Onboarding] Triggering Farcaster Modal (no fid found yet)');
                     setStep('farcaster');
+                    setHasTriggeredFarcaster(true);
                     isEvaluatingRef.current = false;
                     return;
                 }
@@ -123,24 +150,31 @@ export function useOnboardingFlow() {
         }
     };
 
-    const dismissCurrentStep = (targetStep?: OnboardingStep) => {
-        setStep(current => {
-            // Use targetStep if provided (like from onUserExited callback), otherwise use current state
-            const stepToDismiss = targetStep || current;
+    const dismissTimeoutRef = useRef<NodeJS.Timeout | number | null>(null);
+    const hasDismissedFundingRef = useRef(false);
 
-            if (stepToDismiss === 'funding') {
-                logger.log('[Onboarding] Manual dismissal of funding modal.');
-                // We rely entirely on the React state `hasTriggeredFunding` now, no storage needed for funding.
-                setTimeout(() => evaluateNextStep(), 100);
-                return 'idle'; // Transient state
-            } else if (stepToDismiss === 'farcaster') {
-                logger.log('[Onboarding] Manual dismissal of farcaster modal.');
-                localStorage.setItem(`kiko-farcaster-follow-dismissed-${user?.id}`, 'true');
-                setTimeout(() => evaluateNextStep(), 100);
-                return 'idle';
+    const dismissCurrentStep = (targetStep?: OnboardingStep, neverShowAgain?: boolean) => {
+        const stepToDismiss = targetStep || currentStepRef.current;
+
+        if (stepToDismiss === 'funding') {
+            // Privy's onUserExited fires many times. Only honor the FIRST call.
+            if (hasDismissedFundingRef.current) {
+                return;
             }
-            return current;
-        });
+            hasDismissedFundingRef.current = true;
+            logger.log('[Onboarding] Manual dismissal of funding modal.');
+            setStep('idle');
+            if (dismissTimeoutRef.current) clearTimeout(dismissTimeoutRef.current as number);
+            dismissTimeoutRef.current = setTimeout(() => evaluateNextStep(), 200);
+        } else if (stepToDismiss === 'farcaster') {
+            logger.log(`[Onboarding] Manual dismissal of farcaster modal. Permanent: ${neverShowAgain}`);
+            if (neverShowAgain) {
+                localStorage.setItem(`kiko-farcaster-follow-permanent-dismissed-${user?.id}`, 'true');
+            }
+            setStep('idle');
+            if (dismissTimeoutRef.current) clearTimeout(dismissTimeoutRef.current as number);
+            dismissTimeoutRef.current = setTimeout(() => evaluateNextStep(), 200);
+        }
     };
 
     return { currentStep: step, dismissCurrentStep };

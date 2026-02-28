@@ -752,7 +752,7 @@ async function processAlchemyWebhookPayload(payload: any): Promise<void> {
 
         try {
             // ⚡ Parallel: pendingHint (Redis) + trackedWallets (Prisma) concurrently (~100ms saved)
-            const [pendingHint, trackedWallets] = await Promise.all([
+            const [pendingHint, trackedWalletRows] = await Promise.all([
                 getPendingTxHint(chainId, txHash).catch(() => null),
                 prisma.trackedWallet.findMany({
                     where: {
@@ -762,6 +762,11 @@ async function processAlchemyWebhookPayload(payload: any): Promise<void> {
                     }
                 })
             ]);
+            const trackedWallets = trackedWalletRows.length > 0
+                ? trackedWalletRows
+                : (pendingHint?.targetWallet
+                    ? [{ address: pendingHint.targetWallet }]
+                    : []);
 
             if (trackedWallets.length === 0) {
                 console.log(

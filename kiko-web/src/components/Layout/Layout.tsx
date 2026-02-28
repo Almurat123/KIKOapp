@@ -129,7 +129,7 @@ export const Layout: React.FC<LayoutProps> = ({
                 onCancel={closeWarning}
             />
             {currentStep === 'farcaster' && (
-                <FarcasterFollowModal onDismiss={dismissCurrentStep} />
+                <FarcasterFollowModal onDismiss={(neverShowAgain) => dismissCurrentStep('farcaster', neverShowAgain)} />
             )}
             <div className={`${styles.layout} ${styles[resolvedTheme]}`}>
                 <Sidebar

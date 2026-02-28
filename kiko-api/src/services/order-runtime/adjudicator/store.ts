@@ -1,4 +1,5 @@
 import type { TxEvidenceSnapshot } from './types.js';
+import { mergeTxHashAliases, normalizeTxHash } from '../../rpc/confirmEvidence.js';
 
 const byTxHash = new Map<string, TxEvidenceSnapshot>();
 const byOrderId = new Map<string, string>();
@@ -8,8 +9,9 @@ function txKey(chainId: number, txHash: string): string {
 }
 
 export function getSnapshotByTxHash(chainId: number, txHash?: string | null): TxEvidenceSnapshot | null {
-  if (!txHash) return null;
-  return byTxHash.get(txKey(chainId, txHash)) || null;
+  const normalized = normalizeTxHash(txHash);
+  if (!normalized) return null;
+  return byTxHash.get(txKey(chainId, normalized)) || null;
 }
 
 export function getSnapshotByOrderId(orderId?: string | null): TxEvidenceSnapshot | null {
@@ -20,15 +22,20 @@ export function getSnapshotByOrderId(orderId?: string | null): TxEvidenceSnapsho
 }
 
 export function upsertSnapshot(snapshot: TxEvidenceSnapshot): TxEvidenceSnapshot {
-  const canonical = snapshot.canonicalTxHash || snapshot.allTxHashes[0] || '';
+  snapshot.allTxHashes = mergeTxHashAliases(snapshot.allTxHashes || [], [snapshot.canonicalTxHash]);
+  const canonical = normalizeTxHash(snapshot.canonicalTxHash) || snapshot.allTxHashes[0] || '';
   if (!canonical) return snapshot;
-  const key = txKey(snapshot.chainId, canonical);
-  byTxHash.set(key, snapshot);
-  if (snapshot.orderId) byOrderId.set(snapshot.orderId, key);
+  snapshot.canonicalTxHash = canonical;
+  const aliases = mergeTxHashAliases(snapshot.allTxHashes, [canonical]);
+  for (const alias of aliases) {
+    byTxHash.set(txKey(snapshot.chainId, alias), snapshot);
+  }
+  if (snapshot.orderId) byOrderId.set(snapshot.orderId, txKey(snapshot.chainId, canonical));
   return snapshot;
 }
 
 export function bindOrderId(orderId: string | undefined, chainId: number, txHash?: string | null): void {
-  if (!orderId || !txHash) return;
-  byOrderId.set(orderId, txKey(chainId, txHash));
+  const normalized = normalizeTxHash(txHash);
+  if (!orderId || !normalized) return;
+  byOrderId.set(orderId, txKey(chainId, normalized));
 }

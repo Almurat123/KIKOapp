@@ -16,7 +16,7 @@ import { walletService } from '../walletService.js';
 import { SOLANA_CONFIG } from '../../config/solanaConfig.js';
 import { NATIVE_TOKEN_ADDRESS, SOLANA_NATIVE_MINT, TOKEN_REGISTRY, isNativeToken } from '../../config/tokenRegistry.js';
 import { handleSwapError } from './handleSwapError.js';
-import { getTransactionReceipt, getTransactionByHash, callRpc, getErc20Balance, getErc20Decimals, getErc20Allowance } from '../../services/rpcManager.js';
+import { getTransactionReceipt, getTransactionByHash, callRpc, getErc20Balance, getErc20Decimals, getErc20Allowance, waitForReceiptStateMachine } from '../../services/rpcManager.js';
 
 // ⚡ In-process decimals cache: avoids repeated RPC calls for the same token
 // Keyed by "chainId:tokenAddress" (lowercase). Decimals are immutable once deployed.
@@ -1303,63 +1303,22 @@ export class SwapExecutor {
         dexName: string,
         timeoutMs: number = 60000
     ): Promise<{ success: boolean; reason?: string }> {
-        const startTime = Date.now();
-        let receipt = null;
-
         logger.info(LogCode.SYS_INFO, `[ConfirmWait] Waiting for confirmation: ${txHash} on ${chainId}`);
-
-        while (Date.now() - startTime < timeoutMs) {
-            try {
-                const rpcReceipt = await getTransactionReceipt(chainId, txHash);
-                if (rpcReceipt) {
-                    receipt = rpcReceipt;
-                    break;
-                }
-            } catch (err) {
-                // Ignore RPC errors during polling
-            }
-            await new Promise(resolve => setTimeout(resolve, 2000)); // Check every 2 seconds
-        }
-
-        if (!receipt) {
+        const lifecycle = await waitForReceiptStateMachine({
+            chainId,
+            txHash,
+            maxWaitMs: timeoutMs,
+            pollMs: 2000
+        }).catch(() => null);
+        if (!lifecycle || (lifecycle.status !== 'confirmed_success' && lifecycle.status !== 'confirmed_failed')) {
             logger.warn(LogCode.SYS_INFO, `[ConfirmWait] Timeout waiting for ${txHash} confirmation`);
             return { success: false, reason: 'Transaction confirmation timeout' };
         }
-
-        // Check if successful (status 1)
-        const isSuccess = receipt.status === '0x1' || receipt.status === 1 || receipt.status === true;
-
-        if (isSuccess) {
+        if (lifecycle.status === 'confirmed_success') {
             logger.info(LogCode.EXE_TX_CONFIRMED, `[ConfirmWait] Transaction confirmed: ${txHash}`);
             return { success: true };
         }
-
-        // FAILED: Try to decode revert reason
-        let revertReason = 'Transaction reverted';
-        try {
-            const tx = await getTransactionByHash(chainId, txHash);
-            if (tx) {
-                const inputData = tx.input || tx.data;
-                try {
-                    await callRpc(chainId, 'eth_call', [{
-                        to: tx.to,
-                        from: tx.from,
-                        data: inputData,
-                        value: tx.value
-                    }, 'latest'], { strategy: 'fast', importance: 'critical' });
-                } catch (callErr: any) {
-                    if (callErr.message) {
-                        revertReason = callErr.message
-                            .replace('RPC Error: ', '')
-                            .replace('execution reverted: ', '')
-                            .trim();
-                    }
-                }
-            }
-        } catch (decodeErr: any) {
-            logger.debug(LogCode.SYS_INFO, `[ConfirmWait] Could not decode revert reason`, { error: decodeErr.message });
-        }
-
+        const revertReason = lifecycle.lastRpcError || 'Transaction reverted';
         logger.error(LogCode.EXE_TX_REVERTED, `[ConfirmWait] Transaction REVERTED: ${txHash}`, { reason: revertReason });
         return { success: false, reason: revertReason };
     }
@@ -1497,35 +1456,20 @@ export class SwapExecutor {
         userId: string,
         messageId?: string
     ): Promise<void> {
-        const TIMEOUT_MS = 120000; // 2 minutes
-        const startTime = Date.now();
-        let receipt = null;
-
         logger.info(LogCode.SYS_INFO, `[Monitor] Started tracking ${txHash} on ${chainId} (${dexName})`);
-
-        while (Date.now() - startTime < TIMEOUT_MS) {
-            try {
-                const rpcReceipt = await getTransactionReceipt(chainId, txHash);
-                if (rpcReceipt) {
-                    receipt = rpcReceipt;
-                    break;
-                }
-            } catch (err) {
-                // Ignore RPC errors during polling
-            }
-            await new Promise(resolve => setTimeout(resolve, 3000));
-        }
-
-        if (!receipt) {
+        const lifecycle = await waitForReceiptStateMachine({
+            chainId,
+            txHash,
+            maxWaitMs: 120000,
+            pollMs: 3000
+        }).catch(() => null);
+        if (!lifecycle || (lifecycle.status !== 'confirmed_success' && lifecycle.status !== 'confirmed_failed')) {
             logger.warn(LogCode.SYS_INFO, `[Monitor] Timeout waiting for ${txHash} confirmation`);
             return;
         }
-
-        // Check if successful (status 1)
-        const isSuccess = receipt.status === '0x1' || receipt.status === 1 || receipt.status === true;
-
-        if (isSuccess) {
-            logger.info(LogCode.EXE_TX_CONFIRMED, `[Monitor] Transaction confirmed: ${txHash}`, { gasUsed: receipt.gasUsed });
+        const receipt = await getTransactionReceipt(chainId, txHash).catch(() => null);
+        if (lifecycle.status === 'confirmed_success') {
+            logger.info(LogCode.EXE_TX_CONFIRMED, `[Monitor] Transaction confirmed: ${txHash}`, { gasUsed: receipt?.gasUsed });
 
             // ⚡ WebSocket update for success
             try {
@@ -1549,40 +1493,10 @@ export class SwapExecutor {
             } catch (err) { /* ignore */ }
             return;
         }
-
-        // FAILED: Decode Revert Reason
-        let revertReason = 'Unknown revert reason';
-        try {
-            const tx = await getTransactionByHash(chainId, txHash);
-            if (tx) {
-                // JSON-RPC 'input' vs Ethers 'data'
-                const inputData = tx.input || tx.data;
-
-                try {
-                    await callRpc(chainId, 'eth_call', [{
-                        to: tx.to,
-                        from: tx.from,
-                        data: inputData,
-                        value: tx.value
-                    }, 'latest'], { strategy: 'fast', importance: 'critical' });
-                } catch (callErr: any) {
-                    // RPC Error message usually contains the revert string
-                    // Example: "execution reverted: TransferHelper: TRANSFER_FROM_FAILED"
-                    if (callErr.message) {
-                        revertReason = callErr.message
-                            .replace('RPC Error: ', '')
-                            .replace('execution reverted: ', '')
-                            .trim();
-                    }
-                }
-            }
-        } catch (decodeErr: any) {
-            logger.debug(LogCode.SYS_INFO, `[Monitor] Could not decode revert reason for ${txHash}`, { error: decodeErr.message });
-        }
-
+        const revertReason = lifecycle.lastRpcError || 'Transaction reverted';
         logger.error(LogCode.EXE_TX_REVERTED, `[Monitor] Transaction REVERTED: ${txHash}`, {
             reason: revertReason,
-            gasUsed: receipt.gasUsed,
+            gasUsed: receipt?.gasUsed,
             dex: dexName
         });
 
@@ -1910,16 +1824,15 @@ export class SwapExecutor {
         txHash: string,
         timeoutMs: number
     ): Promise<any | null> {
-        const start = Date.now();
-        while (Date.now() - start < timeoutMs) {
-            try {
-                const receipt = await getTransactionReceipt(chainId, txHash).catch(() => null);
-                if (receipt) return receipt;
-            } catch {
-                // ignore and retry
-            }
-            await new Promise(resolve => setTimeout(resolve, 2000));
+        const lifecycle = await waitForReceiptStateMachine({
+            chainId,
+            txHash,
+            maxWaitMs: timeoutMs,
+            pollMs: 2000
+        }).catch(() => null);
+        if (!lifecycle || (lifecycle.status !== 'confirmed_success' && lifecycle.status !== 'confirmed_failed')) {
+            return null;
         }
-        return null;
+        return await getTransactionReceipt(chainId, txHash).catch(() => null);
     }
 }

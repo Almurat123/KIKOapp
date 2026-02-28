@@ -7,7 +7,7 @@ import prisma from '../db/prisma.js';
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
 import { parseSwapTransaction, DecodedSwap } from './txDecoder.js';
-import { callRpc as rpcCall } from './rpcManager.js';
+import { callRpc as rpcCall, getTransactionByHash, getTransactionReceipt } from './rpcManager.js';
 import { fetchJson } from '../config/unifiedApiService.js';
 import { get as cacheGet, set as cacheSet, acquireLock, releaseLock } from '../cache/cacheClient.js';
 import { randomUUID } from 'node:crypto';
@@ -30,36 +30,9 @@ const lastProcessedBlock: Map<string, number> = new Map();
 const processedTxs: Set<string> = new Set();
 const PROCESSED_TX_TTL_SECONDS = Number(process.env.COPYTRADE_PROCESSED_TX_TTL_SEC || 24 * 60 * 60);
 const TX_INFLIGHT_LOCK_TTL_SECONDS = Number(process.env.COPYTRADE_TX_INFLIGHT_TTL_SEC || 45);
-const COPYTRADE_TX_FETCH_CACHE_TTL_MS = Number(process.env.COPYTRADE_TX_FETCH_CACHE_TTL_MS || 8000);
-const COPYTRADE_TX_FETCH_MISS_CACHE_TTL_MS = Number(process.env.COPYTRADE_TX_FETCH_MISS_CACHE_TTL_MS || 400);
-const COPYTRADE_TX_RECEIPT_MISS_CACHE_TTL_MS = Number(process.env.COPYTRADE_TX_RECEIPT_MISS_CACHE_TTL_MS || 500);
-const txByHashCache = new Map<string, { value: any; ts: number }>();
-const txReceiptCache = new Map<string, { value: any; ts: number }>();
-const txByHashMissCache = new Map<string, number>();
-const txReceiptMissCache = new Map<string, number>();
-const txByHashInflight = new Map<string, Promise<any | null>>();
-const txReceiptInflight = new Map<string, Promise<any | null>>();
 
 function normalizeTxHash(txHash: string): string {
     return String(txHash || '').toLowerCase();
-}
-
-function isFreshMiss(cache: Map<string, number>, key: string, ttlMs: number): boolean {
-    const ts = cache.get(key);
-    if (!ts) return false;
-    if (Date.now() - ts <= ttlMs) return true;
-    cache.delete(key);
-    return false;
-}
-
-function markMiss(cache: Map<string, number>, key: string): void {
-    cache.set(key, Date.now());
-    if (cache.size > 5000) {
-        const cutoff = Date.now() - 10_000;
-        for (const [k, ts] of cache.entries()) {
-            if (ts < cutoff) cache.delete(k);
-        }
-    }
 }
 
 function txProcessedCacheKey(txHash: string, chainId: number): string {
@@ -152,46 +125,20 @@ import { getChainConfig } from '../config/chainConfig.js';
  */
 export async function fetchTransaction(txHash: string, chainId: number): Promise<any | null> {
     const start = Date.now();
-    const key = `${chainId}:${normalizeTxHash(txHash)}`;
-    const hit = txByHashCache.get(key);
-    if (hit && Date.now() - hit.ts < COPYTRADE_TX_FETCH_CACHE_TTL_MS) {
-        return hit.value;
-    }
-    if (isFreshMiss(txByHashMissCache, key, COPYTRADE_TX_FETCH_MISS_CACHE_TTL_MS)) {
+    try {
+        const result = await getTransactionByHash(chainId, txHash);
+        if (PROFILE) {
+            logger.info(LogCode.SYS_INFO, '[Profile] fetchTransaction', {
+                chainId,
+                tx: txHash.slice(0, 12),
+                ms: Date.now() - start
+            });
+        }
+        return result;
+    } catch (error: any) {
+        logger.error(LogCode.API_FETCH_FAILED, 'Error fetching transaction by hash', { txHash, chainId, error: error.message });
         return null;
     }
-
-    const inflight = txByHashInflight.get(key);
-    if (inflight) return await inflight;
-
-    const task = (async () => {
-        try {
-            const result = await rpcCall(chainId, 'eth_getTransactionByHash', [txHash], { strategy: 'fast', importance: 'critical' });
-            if (result) {
-                txByHashCache.set(key, { value: result, ts: Date.now() });
-                txByHashMissCache.delete(key);
-            } else {
-                markMiss(txByHashMissCache, key);
-            }
-            if (PROFILE) {
-                logger.info(LogCode.SYS_INFO, '[Profile] fetchTransaction', {
-                    chainId,
-                    tx: txHash.slice(0, 12),
-                    ms: Date.now() - start
-                });
-            }
-            return result;
-        } catch (error: any) {
-            markMiss(txByHashMissCache, key);
-            logger.error(LogCode.API_FETCH_FAILED, 'Error fetching transaction by hash', { txHash, chainId, error: error.message });
-            return null;
-        } finally {
-            txByHashInflight.delete(key);
-        }
-    })();
-
-    txByHashInflight.set(key, task);
-    return await task;
 }
 
 /**
@@ -199,46 +146,20 @@ export async function fetchTransaction(txHash: string, chainId: number): Promise
  */
 export async function fetchTransactionReceipt(txHash: string, chainId: number): Promise<any | null> {
     const start = Date.now();
-    const key = `${chainId}:${normalizeTxHash(txHash)}`;
-    const hit = txReceiptCache.get(key);
-    if (hit && Date.now() - hit.ts < COPYTRADE_TX_FETCH_CACHE_TTL_MS) {
-        return hit.value;
-    }
-    if (isFreshMiss(txReceiptMissCache, key, COPYTRADE_TX_RECEIPT_MISS_CACHE_TTL_MS)) {
+    try {
+        const result = await getTransactionReceipt(chainId, txHash);
+        if (PROFILE) {
+            logger.info(LogCode.SYS_INFO, '[Profile] fetchReceipt', {
+                chainId,
+                tx: txHash.slice(0, 12),
+                ms: Date.now() - start
+            });
+        }
+        return result;
+    } catch (error: any) {
+        logger.error(LogCode.API_FETCH_FAILED, 'Error fetching transaction receipt', { txHash, chainId, error: error.message });
         return null;
     }
-
-    const inflight = txReceiptInflight.get(key);
-    if (inflight) return await inflight;
-
-    const task = (async () => {
-        try {
-            const result = await rpcCall(chainId, 'eth_getTransactionReceipt', [txHash], { strategy: 'fast', importance: 'critical' });
-            if (result) {
-                txReceiptCache.set(key, { value: result, ts: Date.now() });
-                txReceiptMissCache.delete(key);
-            } else {
-                markMiss(txReceiptMissCache, key);
-            }
-            if (PROFILE) {
-                logger.info(LogCode.SYS_INFO, '[Profile] fetchReceipt', {
-                    chainId,
-                    tx: txHash.slice(0, 12),
-                    ms: Date.now() - start
-                });
-            }
-            return result;
-        } catch (error: any) {
-            markMiss(txReceiptMissCache, key);
-            logger.error(LogCode.API_FETCH_FAILED, 'Error fetching transaction receipt', { txHash, chainId, error: error.message });
-            return null;
-        } finally {
-            txReceiptInflight.delete(key);
-        }
-    })();
-
-    txReceiptInflight.set(key, task);
-    return await task;
 }
 
 /**

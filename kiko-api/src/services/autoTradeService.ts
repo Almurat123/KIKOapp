@@ -42,7 +42,7 @@ import { cacheHub } from '../cache/DataCacheHub.js';
 import { getTokenDecimalsFromRegistry } from '../config/tokenRegistry.js';
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
-import { getNativeBalance as rpcGetNativeBalance, getErc20Balance, getErc20Decimals, getTransactionReceipt } from './rpcManager.js';
+import { getNativeBalance as rpcGetNativeBalance, getErc20Balance, getErc20Decimals, getTransactionReceipt, waitForReceiptStateMachine } from './rpcManager.js';
 import { startCopyTradePendingWatcher, stopCopyTradePendingWatcher } from './copyTradePendingService.js';
 import { assertConfigExecutable } from './copyTradeConfigSignatureService.js';
 import { determineCopyTradeDirection } from './copyTradeDirection.js';
@@ -105,13 +105,9 @@ async function getPositionStatusCompat(): Promise<PositionStatusCompat> {
             WHERE t.typname = 'PositionStatus'
         `;
         const labels = new Set(rows.map((r) => String(r.enumlabel)));
-        const hasPendingBroadcast = labels.has('pending_broadcast');
-        const hasBroadcastedUnseen = labels.has('broadcasted_unseen');
         const hasFailedFinal = labels.has('failed_final');
 
         const lockStatuses = ['pending'];
-        if (hasPendingBroadcast) lockStatuses.push('pending_broadcast');
-        if (hasBroadcastedUnseen) lockStatuses.push('broadcasted_unseen');
 
         const compat: PositionStatusCompat = {
             lockStatuses,
@@ -3472,90 +3468,6 @@ async function cleanupPendingPositions() {
 export async function checkPositionsForExits(): Promise<void> {
     pruneTpslTracker();
     const positionStatusCompat = await getPositionStatusCompat();
-    const lifecycleLockStatuses = positionStatusCompat.lockStatuses.filter((s) => s !== 'pending');
-    // STEP -2: Reconcile lifecycle-driven pending states by tx receipt.
-    const lifecyclePending = lifecycleLockStatuses.length > 0
-        ? await prisma.position.findMany({
-            where: {
-                status: { in: lifecycleLockStatuses as any },
-                createdAt: { gte: new Date(Date.now() - 30 * 60 * 1000) },
-                entryTxHash: { startsWith: '0x' }
-            },
-            orderBy: { createdAt: 'desc' },
-            take: 40
-        })
-        : [];
-    if (lifecyclePending.length > 0) {
-        await Promise.allSettled(lifecyclePending.map(async (p) => {
-            try {
-                const receipt = await getTransactionReceipt(p.chainId, p.entryTxHash);
-                if (!receipt) return;
-                const statusHex = String(receipt?.status || '');
-                const success = statusHex === '0x1' || statusHex === '1';
-                await prisma.position.updateMany({
-                    where: { id: p.id, status: { in: lifecycleLockStatuses as any } },
-                    data: success
-                        ? { status: 'open' as any }
-                        : {
-                            status: positionStatusCompat.failedFinalStatus as any,
-                            exitReason: 'buy_tx_reverted',
-                            closedAt: new Date()
-                        }
-                });
-                logger.info(LogCode.SYS_INFO, '[CopyTradeLifecycle] position state transition', {
-                    positionId: p.id,
-                    chainId: p.chainId,
-                    txHash: p.entryTxHash,
-                    from: p.status,
-                    to: success ? 'open' : positionStatusCompat.failedFinalStatus,
-                    reason: success ? 'receipt_success' : 'receipt_failed'
-                });
-            } catch (err: any) {
-                logger.debug(LogCode.SYS_INFO, '[CopyTradeLifecycle] tx receipt probe skipped', {
-                    positionId: p.id,
-                    chainId: p.chainId,
-                    txHash: p.entryTxHash,
-                    error: err?.message || String(err)
-                });
-            }
-        }));
-    }
-
-    // STEP -1: Reconcile pending positions that already hold token on-chain.
-    // This protects TP/SL and mirror-sell flows from rare turbo timeout races.
-    const pendingForReconcile = await prisma.position.findMany({
-        where: {
-            status: { in: positionStatusCompat.lockStatuses as any },
-            createdAt: { gte: new Date(Date.now() - 30 * 60 * 1000) } // recent 30m only
-        },
-        include: { user: true },
-        orderBy: { createdAt: 'desc' },
-        take: 30
-    });
-    if (pendingForReconcile.length > 0) {
-        await Promise.allSettled(
-            pendingForReconcile.map(async (p) => {
-                if (!p.user?.walletAddress || p.chainId === 900) return;
-                const bal = await getErc20Balance(p.tokenAddress, p.user.walletAddress, p.chainId);
-                if (bal <= 0n) return;
-                await prisma.position.updateMany({
-                    where: { id: p.id, status: { in: positionStatusCompat.lockStatuses as any } },
-                    data: {
-                        status: 'open',
-                        entryTxHash: p.entryTxHash?.startsWith('PENDING_')
-                            ? `RECOVERED_ONCHAIN_${Date.now()}`
-                            : p.entryTxHash
-                    }
-                });
-                logger.warn(LogCode.SYS_INFO, 'Recovered pending position to open in monitor path', {
-                    positionId: p.id,
-                    userId: p.userId,
-                    token: p.tokenAddress,
-                    chainId: p.chainId
-                });
-            })
-        );
-    }
 
     // 🔄 STEP 0: Retry failed exit attempts (Mirror Sell, Take Profit, Stop Loss)
     // Check for positions with exitRetry Count > 0 and retry them if cooldown has passed
@@ -4183,17 +4095,11 @@ const SELL_PREHEAT_CONFIRM_TIMEOUT_MS = Math.max(5000, Number(process.env.COPYTR
 const SELL_PREHEAT_CONFIRM_POLL_MS = Math.max(500, Number(process.env.COPYTRADE_SELL_APPROVAL_PREHEAT_CONFIRM_POLL_MS || '1200'));
 
 async function waitTxConfirmedForPreheat(chainId: number, txHash: string): Promise<boolean> {
-    const started = Date.now();
-    while (Date.now() - started < SELL_PREHEAT_CONFIRM_TIMEOUT_MS) {
-        const receipt = await getTransactionReceipt(chainId, txHash).catch(() => null);
-        if (receipt) {
-            const statusRaw = String((receipt as any)?.status || '0x0');
-            const status = statusRaw.startsWith('0x')
-                ? Number.parseInt(statusRaw, 16)
-                : Number(statusRaw);
-            return status === 1;
-        }
-        await new Promise((resolve) => setTimeout(resolve, SELL_PREHEAT_CONFIRM_POLL_MS));
-    }
-    return false;
+    const lifecycle = await waitForReceiptStateMachine({
+        chainId,
+        txHash,
+        maxWaitMs: SELL_PREHEAT_CONFIRM_TIMEOUT_MS,
+        pollMs: SELL_PREHEAT_CONFIRM_POLL_MS
+    }).catch(() => null);
+    return lifecycle?.status === 'confirmed_success';
 }

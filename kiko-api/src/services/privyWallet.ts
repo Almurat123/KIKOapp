@@ -41,6 +41,7 @@ import {
 } from './order-runtime/context.js';
 import { inferOrderReasonCode } from './order-runtime/reasonCodes.js';
 import { bindOrderToTxHash, reportRpcUncertain, reportSendAccepted } from './order-runtime/adjudicator/service.js';
+import { shouldRetryAfterBroadcastUnseen } from './rpc/visibilityPolicy.js';
 
 // Initialize Privy client
 const PRIVY_APP_ID = process.env.VITE_PRIVY_APP_ID || process.env.PRIVY_APP_ID || '';
@@ -1080,44 +1081,46 @@ export async function sendTransactionLifecycle(
                                 error: rawLifecycle.lastRpcError
                             });
                         }
-                        if (
-                            rawLifecycle.status === 'broadcasted_unseen'
-                            && attempt < MAX_RETRIES
-                            && !!txWithNonce.nonce
-                            && (fastTradePath || txWithNonce.txPurpose === 'trade' || txWithNonce.txPurpose === 'speedup')
-                        ) {
-                            if (fastTradePath) {
-                                bumpGasForVisibilityRetry('raw_path_broadcasted_unseen_fast_trade');
-                                logger.warn(LogCode.SYS_INFO, 'Fast trade raw path broadcasted_unseen: retrying with bumped gas', {
+                        if (rawLifecycle.status === 'broadcasted_unseen') {
+                            const retryDecision = shouldRetryAfterBroadcastUnseen({
+                                chainId: txWithNonce.chainId,
+                                txHash: rawLifecycle.txHash,
+                                runtimeContext,
+                                lifecycle: rawLifecycle,
+                                attempt,
+                                maxRetries: MAX_RETRIES,
+                                hasNonce: !!txWithNonce.nonce,
+                                txPurpose: txWithNonce.txPurpose,
+                                fastTradePath
+                            });
+                            if (retryDecision.retry) {
+                                if (retryDecision.bumpGas) {
+                                    bumpGasForVisibilityRetry(fastTradePath
+                                        ? 'raw_path_broadcasted_unseen_fast_trade'
+                                        : 'raw_path_broadcasted_unseen');
+                                }
+                                logger.warn(LogCode.SYS_INFO, 'Raw path broadcasted_unseen retry scheduled', {
                                     chainId: txWithNonce.chainId,
                                     txHash: rawLifecycle.txHash,
                                     status: rawLifecycle.status,
-                                    attempt
+                                    attempt,
+                                    reason: retryDecision.reason
                                 });
                                 await new Promise((resolve) => setTimeout(resolve, NETWORK_RETRY_DELAY_MS));
                                 continue;
                             }
-                            bumpGasForVisibilityRetry('raw_path_broadcasted_unseen');
-                            await new Promise((resolve) => setTimeout(resolve, NETWORK_RETRY_DELAY_MS));
-                            continue;
                         }
                         if (
                             fastTradePath
                             && rawLifecycle.status === 'broadcasted_unseen'
                             && !!txWithNonce.nonce
                         ) {
-                            logger.error(LogCode.EXE_TX_REVERTED, 'Fast trade raw path exhausted retries with unseen tx; treating as failed send', {
+                            logger.warn(LogCode.SYS_INFO, 'Fast trade raw path unresolved visibility; returning uncertain lifecycle', {
                                 chainId: txWithNonce.chainId,
                                 txHash: rawLifecycle.txHash,
                                 attempts: attempt
                             });
-                            return {
-                                status: 'dropped_timeout',
-                                txHash: rawLifecycle.txHash,
-                                attempts: Math.max(rawLifecycle.attempts || 1, attempt),
-                                chainId: txWithNonce.chainId,
-                                lastRpcError: rawLifecycle.lastRpcError || 'broadcasted_unseen_after_retries'
-                            };
+                            return rawLifecycle;
                         }
                         return rawLifecycle;
                     }
@@ -1227,27 +1230,35 @@ export async function sendTransactionLifecycle(
                         await new Promise(resolve => setTimeout(resolve, postSendDelayMs));
                     }
 
-                    if (
-                        lifecycleBase.status === 'broadcasted_unseen'
-                        && attempt < MAX_RETRIES
-                        && !!txWithNonce.nonce
-                        && (fastTradePath || txWithNonce.txPurpose === 'trade' || txWithNonce.txPurpose === 'speedup')
-                    ) {
-                        if (fastTradePath) {
-                            bumpGasForVisibilityRetry('privy_sendtx_broadcasted_unseen_fast_trade');
-                            logger.warn(LogCode.SYS_INFO, 'Privy fast trade broadcasted_unseen: retrying with bumped gas', {
+                    if (lifecycleBase.status === 'broadcasted_unseen') {
+                        const retryDecision = shouldRetryAfterBroadcastUnseen({
+                            chainId: txWithNonce.chainId,
+                            txHash: response.hash,
+                            runtimeContext,
+                            lifecycle: lifecycleBase,
+                            attempt,
+                            maxRetries: MAX_RETRIES,
+                            hasNonce: !!txWithNonce.nonce,
+                            txPurpose: txWithNonce.txPurpose,
+                            fastTradePath
+                        });
+                        if (retryDecision.retry) {
+                            if (retryDecision.bumpGas) {
+                                bumpGasForVisibilityRetry(fastTradePath
+                                    ? 'privy_sendtx_broadcasted_unseen_fast_trade'
+                                    : 'privy_sendtx_broadcasted_unseen');
+                            }
+                            logger.warn(LogCode.SYS_INFO, 'Privy send broadcasted_unseen retry scheduled', {
                                 chainId: txWithNonce.chainId,
                                 txHash: response.hash,
                                 status: lifecycleBase.status,
                                 checks: lifecycleBase.attempts,
-                                attempt
+                                attempt,
+                                reason: retryDecision.reason
                             });
                             await new Promise((resolve) => setTimeout(resolve, NETWORK_RETRY_DELAY_MS));
                             continue;
                         }
-                        bumpGasForVisibilityRetry('privy_sendtx_broadcasted_unseen');
-                        await new Promise((resolve) => setTimeout(resolve, NETWORK_RETRY_DELAY_MS));
-                        continue;
                     }
 
                     if (
@@ -1255,18 +1266,12 @@ export async function sendTransactionLifecycle(
                         && lifecycleBase.status === 'broadcasted_unseen'
                         && !!txWithNonce.nonce
                     ) {
-                        logger.error(LogCode.EXE_TX_REVERTED, 'Privy fast trade send exhausted retries with unseen tx; treating as failed send', {
+                        logger.warn(LogCode.SYS_INFO, 'Privy fast trade send unresolved visibility; returning uncertain lifecycle', {
                             chainId: txWithNonce.chainId,
                             txHash: response.hash,
                             attempts: attempt
                         });
-                        return {
-                            status: 'dropped_timeout',
-                            txHash: response.hash,
-                            attempts: Math.max(lifecycleBase.attempts || 1, attempt),
-                            chainId: txWithNonce.chainId,
-                            lastRpcError: lifecycleBase.lastRpcError || 'broadcasted_unseen_after_retries'
-                        };
+                        return lifecycleBase;
                     }
 
                     if (fastTradePath) {

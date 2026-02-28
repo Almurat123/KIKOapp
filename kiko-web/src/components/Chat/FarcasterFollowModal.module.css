@@ -139,37 +139,7 @@
     box-shadow: 0 8px 16px rgba(0, 0, 0, 0.1);
 }
 
-.avatarGlow {
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    width: 140px;
-    height: 140px;
-    background: radial-gradient(circle, rgba(139, 92, 246, 0.4) 0%, transparent 70%);
-    z-index: -1;
-    filter: blur(25px);
-    animation: glowPulse 4s infinite ease-in-out;
-    pointer-events: none;
-}
 
-:global(.light) .avatarGlow {
-    display: none;
-}
-
-@keyframes glowPulse {
-
-    0%,
-    100% {
-        opacity: 0.3;
-        transform: translate(-50%, -50%) scale(1);
-    }
-
-    50% {
-        opacity: 0.6;
-        transform: translate(-50%, -50%) scale(1.1);
-    }
-}
 
 .titleGroup .name {
     font-size: 26px;
@@ -220,9 +190,9 @@
     background: linear-gradient(135deg, #8B5CF6 0%, #6D28D9 100%);
     color: white !important;
     border: none !important;
-    padding: 16px;
-    border-radius: 20px;
-    font-size: 17px;
+    padding: 12px 24px;
+    border-radius: 16px;
+    font-size: 15px;
     font-weight: 600;
     display: flex;
     align-items: center;
@@ -230,12 +200,12 @@
     gap: 10px;
     cursor: pointer;
     transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    box-shadow: 0 10px 20px -5px rgba(139, 92, 246, 0.5);
+    box-shadow: 0 6px 15px -4px rgba(139, 92, 246, 0.3);
 }
 
 .followButton:hover {
     transform: translateY(-2px);
-    box-shadow: 0 15px 30px -5px rgba(139, 92, 246, 0.6);
+    box-shadow: 0 10px 20px -4px rgba(139, 92, 246, 0.4);
     filter: brightness(1.05);
 }
 
