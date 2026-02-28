@@ -30,7 +30,7 @@ import {
 import { buildSwapExecutionContext } from '../services/copytrade/context/contextBuilder.js';
 import { putContext } from '../services/copytrade/context/contextStore.js';
 import { setCachedSinglePoolWinnerHint } from '../services/dex/directSwap/cache.js';
-import { reportReceiptSeen, reportWebhookSeen } from '../services/order-runtime/adjudicator/service.js';
+import { getAdjudicatedSnapshot, reportReceiptSeen, reportWebhookSeen } from '../services/order-runtime/adjudicator/service.js';
 
 interface ProcessTxBody {
     wallet: string;
@@ -767,6 +767,27 @@ async function processAlchemyWebhookPayload(payload: any): Promise<void> {
                 : (pendingHint?.targetWallet
                     ? [{ address: pendingHint.targetWallet }]
                     : []);
+            const adjudicatedSnapshot = getAdjudicatedSnapshot({ chainId, txHash });
+            const isBoundSelfOrderWebhook = trackedWallets.length === 0 && Boolean(adjudicatedSnapshot?.orderId);
+
+            if (isBoundSelfOrderWebhook) {
+                await markTxAsProcessedDistributed(txHash, chainId);
+                markCopyTradeTxState(chainId, txHash, 'confirmed_seen', {
+                    source: 'alchemy_webhook_self_order',
+                    orderId: adjudicatedSnapshot?.orderId || null
+                }).catch(() => { });
+                console.log(
+                    `[Webhook] Self-order tx observed via adjudicator: ${txHash} (orderId=${adjudicatedSnapshot?.orderId || 'unknown'})`
+                );
+                logWebhookTiming('alchemy', txHash, {
+                    wallets: 0,
+                    swaps: 0,
+                    predecoded: 0,
+                    selfOrder: true,
+                    totalMs: Date.now() - itemStart
+                });
+                return;
+            }
 
             if (trackedWallets.length === 0) {
                 console.log(

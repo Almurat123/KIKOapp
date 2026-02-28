@@ -128,7 +128,7 @@ export const Layout: React.FC<LayoutProps> = ({
                 onConfirm={confirmLogin}
                 onCancel={closeWarning}
             />
-            {currentStep === 'farcaster' && (
+            {currentStep === 'farcaster' && location.pathname === '/' && (
                 <FarcasterFollowModal onDismiss={(neverShowAgain) => dismissCurrentStep('farcaster', neverShowAgain)} />
             )}
             <div className={`${styles.layout} ${styles[resolvedTheme]}`}>
