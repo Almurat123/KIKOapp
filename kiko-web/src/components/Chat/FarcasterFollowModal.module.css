@@ -212,3 +212,43 @@
 .followButton:active {
     transform: translateY(1px);
 }
+
+.neverShowAgainContainer {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-top: 16px;
+    gap: 8px;
+    cursor: pointer;
+    opacity: 0.8;
+}
+
+.checkbox {
+    width: 16px;
+    height: 16px;
+    border-radius: 4px;
+    border: 1px solid rgba(255, 255, 255, 0.4);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease;
+}
+
+.checkbox.checked {
+    background: #6A6FF5;
+    border-color: #6A6FF5;
+}
+
+:global(.light) .checkbox {
+    border-color: rgba(0, 0, 0, 0.3);
+}
+
+.checkboxLabel {
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.7);
+    user-select: none;
+}
+
+:global(.light) .checkboxLabel {
+    color: rgba(0, 0, 0, 0.6);
+}

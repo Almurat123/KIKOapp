@@ -94,11 +94,11 @@ export const FarcasterFollowModal: React.FC<FarcasterFollowModalProps> = ({ onDi
                         <ExternalLink size={18} />
                     </button>
 
-                    <div className={styles.neverShowAgainContainer} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', marginTop: '16px', gap: '8px', cursor: 'pointer', opacity: 0.8 }} onClick={() => setNeverShowAgain(!neverShowAgain)}>
-                        <div style={{ width: '16px', height: '16px', borderRadius: '4px', border: '1px solid rgba(255,255,255,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', background: neverShowAgain ? '#6A6FF5' : 'transparent', transition: 'all 0.2s ease' }}>
+                    <div className={styles.neverShowAgainContainer} onClick={() => setNeverShowAgain(!neverShowAgain)}>
+                        <div className={`${styles.checkbox} ${neverShowAgain ? styles.checked : ''}`}>
                             {neverShowAgain && <Check size={12} color="white" strokeWidth={3} />}
                         </div>
-                        <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.7)', userSelect: 'none' }}>Do not show this again</span>
+                        <span className={styles.checkboxLabel}>Do not show this again</span>
                     </div>
                 </div>
             </div>
