@@ -2,6 +2,7 @@ import type { CopyTradeExecutionMode } from '../../copyTradeExecutionMode.js';
 import type { OrderRuntimeContext } from '../../order-runtime/types.js';
 
 export type PositionExitReason = 'mirror_sell' | 'take_profit' | 'stop_loss' | 'manual' | 'dynamic_take_profit';
+export type SellRoutePolicy = 'external_primary' | 'direct_primary';
 
 export interface ExitTokenInfo {
   price?: number;
@@ -34,7 +35,7 @@ export interface EvmExitSwapPlan {
   initialSlippageBps: number;
   retrySlippageBps: number;
   executionMode: CopyTradeExecutionMode;
-  directFirst: boolean;
+  sellRoutePolicy: SellRoutePolicy;
   runtimeContext: OrderRuntimeContext;
 }
 

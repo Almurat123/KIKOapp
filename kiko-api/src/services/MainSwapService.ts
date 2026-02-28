@@ -156,6 +156,7 @@ export interface MainSwapRequest {
     sourceTxInput?: string;
     sourceTxValue?: string;
     executionStep?: string;
+    sellRoutePolicy?: 'external_primary' | 'direct_primary';
     sourceTokenIn?: string;
     sourceTokenOut?: string;
     sourceAmountIn?: string;
@@ -1320,9 +1321,12 @@ export class MainSwapService {
         commandMetaJson: params.commandMetaJson
       });
     };
-    const copytradeSellDirectEnabled = (process.env.COPYTRADE_SELL_DIRECT_ENABLED || 'true').toLowerCase() !== 'false';
-    const copytradeSellUsesExternalPath = request.mode === 'copytrade' && isSellDirection && !copytradeSellDirectEnabled;
-    const allowDirectSell = request.mode === 'copytrade' && isSellDirection && copytradeSellDirectEnabled;
+    const configuredCopytradeSellDirect = (process.env.COPYTRADE_SELL_DIRECT_ENABLED || 'false').toLowerCase() === 'true';
+    const copytradeSellRoutePolicy = request.mode === 'copytrade' && isSellDirection
+      ? (request.executionContext?.sellRoutePolicy || (configuredCopytradeSellDirect ? 'direct_primary' : 'external_primary'))
+      : null;
+    const copytradeSellUsesExternalPath = request.mode === 'copytrade' && isSellDirection && copytradeSellRoutePolicy !== 'direct_primary';
+    const allowDirectSell = request.mode === 'copytrade' && isSellDirection && copytradeSellRoutePolicy === 'direct_primary';
     const turboBuyForceDirect = isTurboCopytrade && isBuyDirection;
     const turboSkipFallbackOnTimeout = isTurboCopytrade && isSellDirection && TURBO_SKIP_FALLBACK_ON_TIMEOUT;
     const turboSkip0xFallback = isTurboCopytrade && isSellDirection && TURBO_SKIP_0X_FALLBACK;
@@ -1344,7 +1348,7 @@ export class MainSwapService {
         isSellDirection,
         allowDirectSell,
         copytradeSellUsesExternalPath,
-        copytradeSellDirectEnabled,
+        copytradeSellRoutePolicy,
         isCashIn,
         isCashOut,
         chainId: request.chainId,

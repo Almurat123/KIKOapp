@@ -77,8 +77,6 @@ export async function buildEvmExitPlan(input: {
   const safeBalance999Raw = (balance * 999n) / 1000n;
   const retryBalance = safeBalance999Raw > 0n ? safeBalance999Raw : balance;
   const retryAmountInHuman = ethers.formatUnits(retryBalance, decimals);
-  const directFirst = (process.env.COPYTRADE_SELL_DIRECT_ENABLED || 'true').toLowerCase() !== 'false';
-
   return {
     kind: 'swap',
     userId,
@@ -95,7 +93,7 @@ export async function buildEvmExitPlan(input: {
     initialSlippageBps: input.universalSlippageBps,
     retrySlippageBps: Math.min(Math.floor(input.universalSlippageBps * 1.5), 2500),
     executionMode: input.executionMode,
-    directFirst,
+    sellRoutePolicy: 'external_primary',
     runtimeContext: createExitOrderRuntimeContext({
       userId,
       walletAddress,

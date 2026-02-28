@@ -3086,10 +3086,11 @@ async function executePositionExit(params: {
                                 mode: 'copytrade',
                                 executionContext: {
                                     executionStep: 'sell_dust_sweep',
-                                    strictReplica: false
+                                    strictReplica: false,
+                                    sellRoutePolicy: 'external_primary'
                                 },
                                 userSettings: {
-                                    fastSwapMode: true,
+                                    fastSwapMode: false,
                                     copyTradeExecutionMode: executionMode
                                 }
                             });
