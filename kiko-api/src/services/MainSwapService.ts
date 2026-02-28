@@ -43,10 +43,14 @@ import type { TxLifecycleResult } from './txLifecycle.js';
 import type { OrderRuntimeContext } from './order-runtime/types.js';
 import {
   createOrderRuntimeContext,
+  markOrderFallbackResult,
+  markOrderFallbackStarted,
   markOrderFailure,
   setOrderMetadata
 } from './order-runtime/context.js';
 import { logOrderRuntimeSnapshot } from './order-runtime/sinks/logger.js';
+import { inferOrderReasonCode } from './order-runtime/reasonCodes.js';
+import { getAdjudicatedSnapshot } from './order-runtime/adjudicator/service.js';
 import type { ExecutionPlanV1, ReplayDriftDiagnosis, ReplayPrecheckResult } from './copytrade/planner/types.js';
 import { isP2ExecutorEnabled, isP2SampleLearningEnabled, isP2ShadowRunEnabled } from './copytrade/planner/featureFlags.js';
 import {
@@ -1094,7 +1098,7 @@ export class MainSwapService {
     const DIRECT_SWAP_VISIBILITY_GATE_MS_NORMAL = 4200;
     const DIRECT_SWAP_VISIBILITY_GATE_POLL_MS = 320;
     // 0x API is typically 10s+; skip fallback in turbo so we fail fast instead of waiting.
-    const TURBO_SKIP_0X_FALLBACK = true;
+    const TURBO_SKIP_0X_FALLBACK = (process.env.COPYTRADE_TURBO_SKIP_EXTERNAL_FALLBACK || 'false').toLowerCase() === 'true';
     const withTimeout = async <T,>(promise: Promise<T>, ms: number, label: string): Promise<T> => {
       return new Promise<T>((resolve, reject) => {
         const timer = setTimeout(() => reject(new Error(`timeout_${label}_${ms}ms`)), ms);
@@ -1202,6 +1206,14 @@ export class MainSwapService {
 
     const runtimeHasAcceptedDirectState = (): boolean => {
       const state = request.runtimeContext?.state;
+      const adjudicated = getAdjudicatedSnapshot({
+        orderId: request.runtimeContext?.orderId,
+        chainId: request.chainId,
+        txHash: request.runtimeContext?.canonicalTxHash
+      })?.adjudicated.state;
+      if (adjudicated === 'confirmed_success' || adjudicated === 'chain_observed' || adjudicated === 'rpc_visible' || adjudicated === 'send_accepted') {
+        return true;
+      }
       return state === 'mempool_visible'
         || state === 'included'
         || state === 'confirmed_success';
@@ -1308,7 +1320,7 @@ export class MainSwapService {
         commandMetaJson: params.commandMetaJson
       });
     };
-    const copytradeSellDirectEnabled = (process.env.COPYTRADE_SELL_DIRECT_ENABLED || 'false').toLowerCase() === 'true';
+    const copytradeSellDirectEnabled = (process.env.COPYTRADE_SELL_DIRECT_ENABLED || 'true').toLowerCase() !== 'false';
     const copytradeSellUsesExternalPath = request.mode === 'copytrade' && isSellDirection && !copytradeSellDirectEnabled;
     const allowDirectSell = request.mode === 'copytrade' && isSellDirection && copytradeSellDirectEnabled;
     const turboBuyForceDirect = isTurboCopytrade && isBuyDirection;
@@ -1720,6 +1732,9 @@ export class MainSwapService {
         fallback_used: true,
         fail_reason: directFailureMessage || undefined
       });
+      if (request.runtimeContext) {
+        markOrderFallbackStarted(request.runtimeContext, inferOrderReasonCode(directFailureMessage || undefined));
+      }
 
       if (lastDirectResult) {
         directTraceState.fallback_start_at = Date.now();
@@ -1865,7 +1880,14 @@ export class MainSwapService {
     const executionResult = await SwapExecutor.execute(swapParams);
 
     if (!executionResult.success) {
+      if (request.runtimeContext) {
+        markOrderFallbackResult(request.runtimeContext, false, 'send_rejected');
+      }
       throw new Error(executionResult.error || 'EVM swap execution failed');
+    }
+
+    if (request.runtimeContext) {
+      markOrderFallbackResult(request.runtimeContext, true);
     }
 
     logger.info(LogCode.EXE_TX_CONFIRMED, trace('Fallback swap execution succeeded'), {

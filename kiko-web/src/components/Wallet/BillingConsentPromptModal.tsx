@@ -135,6 +135,9 @@ export const BillingConsentPromptModal: React.FC = () => {
     setShowModal(false);
   };
 
+  // Temporarily disabled since the billing system is not active
+  return null;
+
   if (!showModal) return null;
 
   return (

@@ -15,7 +15,7 @@ import { ThinkingTimer } from './ThinkingTimer';
 import { useSmartSuggestions } from './useSmartSuggestions.tsx';
 import { useSidebar } from '../Layout/Layout';
 import { useThemeContext } from '../../contexts/ThemeContext';
-import { FarcasterFollowModal } from './FarcasterFollowModal';
+
 // Use global ChainContext for app-wide chain state
 import { useChain } from '../../contexts/ChainContext';
 import { extractStrategiesFromMessages } from '../../utils/strategyExtractor';
@@ -305,60 +305,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
         // Deprecated
     }, []);
 
-    // Farcaster Follow Modal state
-    const [showFollowModal, setShowFollowModal] = useState(false);
     const disableChatTransitions = true;
-
-    // showChatUI removed. Visibility is driven by sidebar.chatStarted (Layout).
-    // The previous buffering logic is replaced by CSS animations (messageListHidden/chatUiEnter)
-
-    const handleDismissFollow = () => {
-        localStorage.setItem('kiko-farcaster-follow-dismissed', 'true');
-        setShowFollowModal(false);
-    };
-
-    // Check Farcaster follow status on mount or when user changes
-    useEffect(() => {
-        const checkFollowStatus = async () => {
-            // 1. If already dismissed, don't show
-            if (localStorage.getItem('kiko-farcaster-follow-dismissed') === 'true') {
-                return;
-            }
-
-            // 2. Only show for authenticated users
-            if (!authenticated || !user) {
-                return;
-            }
-
-            // 3. Try to get Farcaster FID from Privy
-            const farcasterAccount = user.linkedAccounts?.find(
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                (acc: any) => acc.type === 'farcaster' || (acc.type === 'wallet' && acc.chainType === 'farcaster')
-            );
-
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const fid = (farcasterAccount as any)?.fid || (user as any).farcaster?.fid;
-
-            if (fid) {
-                try {
-                    const response = await fetch(`${CORE_API_BASE_URL}/api/social/is-following/${fid}`);
-                    const data = await response.json();
-                    if (data.success && data.data.isFollowing) {
-                        // Already following, mark as dismissed and don't show
-                        localStorage.setItem('kiko-farcaster-follow-dismissed', 'true');
-                        return;
-                    }
-                } catch (error) {
-                    logger.warn('[ChatInterface] Failed to check Farcaster follow status:', error);
-                }
-            }
-
-            // 4. If we reached here, they are not following and haven't dismissed
-            setShowFollowModal(true);
-        };
-
-        checkFollowStatus();
-    }, [authenticated, user]);
 
     // Sync Farcaster FID to backend
     useEffect(() => {
@@ -1461,7 +1408,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
     const isSubmittingRef = useRef(false);
 
     // Always-fresh ref so event listeners can call handleSend without stale closure
-    const handleSendRef = useRef<(text: string) => void>(() => {});
+    const handleSendRef = useRef<(text: string) => void>(() => { });
 
     const handleSend = async (text: string = input, existingMessageId?: string) => {
         if (!authenticated) {
@@ -2287,11 +2234,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                 onClose={() => setIsSettingsOpen(false)}
             />
 
-            {
-                showFollowModal && authenticated && (
-                    <FarcasterFollowModal onDismiss={handleDismissFollow} />
-                )
-            }
+
 
         </div >
     );

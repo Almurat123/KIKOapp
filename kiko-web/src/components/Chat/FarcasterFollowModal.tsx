@@ -67,8 +67,8 @@ export const FarcasterFollowModal: React.FC<FarcasterFollowModalProps> = ({ onDi
                     <div className={styles.modalHeader}>
                         <div className={styles.avatarWrapper}>
                             <img
-                                src={profile.pfp}
-                                alt={profile.displayName}
+                                src="/KIKOlight.png"
+                                alt="KIKO"
                                 className={styles.avatar}
                             />
                             <div className={styles.avatarGlow}></div>

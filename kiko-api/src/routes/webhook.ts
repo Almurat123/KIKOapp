@@ -30,6 +30,7 @@ import {
 import { buildSwapExecutionContext } from '../services/copytrade/context/contextBuilder.js';
 import { putContext } from '../services/copytrade/context/contextStore.js';
 import { setCachedSinglePoolWinnerHint } from '../services/dex/directSwap/cache.js';
+import { reportReceiptSeen, reportWebhookSeen } from '../services/order-runtime/adjudicator/service.js';
 
 interface ProcessTxBody {
     wallet: string;
@@ -742,6 +743,12 @@ async function processAlchemyWebhookPayload(payload: any): Promise<void> {
         }
         // Fire-and-forget: don't await state marking on the critical path
         markCopyTradeTxState(chainId, txHash, 'confirmed_seen', { source: 'alchemy_webhook' }).catch(() => { });
+        reportWebhookSeen({
+            chainId,
+            txHash,
+            source: 'alchemy_webhook',
+            matchedWallet: candidates[0] || undefined
+        });
 
         try {
             // ⚡ Parallel: pendingHint (Redis) + trackedWallets (Prisma) concurrently (~100ms saved)
@@ -843,6 +850,15 @@ async function processAlchemyWebhookPayload(payload: any): Promise<void> {
                 const fetched = await fetchReceiptWithRetry();
                 receiptMs = Date.now() - receiptStart;
                 receipt = fetched.receipt;
+                if (receipt?.transactionHash) {
+                    reportReceiptSeen({
+                        chainId,
+                        txHash,
+                        success: parseInt(String(receipt.status || '0x0'), 16) === 1,
+                        blockNumber: receipt.blockNumber || undefined,
+                        source: 'alchemy_webhook'
+                    });
+                }
                 if (!receipt) {
                     if (predecodedByWallet.size === 0) {
                         console.warn(`[Webhook] Could not fetch receipt after retries: ${txHash.slice(0, 16)}`, {
@@ -1147,6 +1163,19 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
                 console.warn(`[Webhook] Could not fetch tx/receipt: ${txHashNormalized.slice(0, 16)}`);
                 return reply.status(404).send({ error: 'Transaction not found' });
             }
+            reportWebhookSeen({
+                chainId,
+                txHash: txHashNormalized,
+                source: 'alchemy_webhook',
+                matchedWallet: wallet
+            });
+            reportReceiptSeen({
+                chainId,
+                txHash: txHashNormalized,
+                success: parseInt(String(receipt.status || '0x0'), 16) === 1,
+                blockNumber: receipt.blockNumber || undefined,
+                source: 'alchemy_webhook'
+            });
 
             // Parse as swap
             const parseSkeletonStart = Date.now();

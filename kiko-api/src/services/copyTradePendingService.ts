@@ -11,6 +11,7 @@ import { buildSwapExecutionContext } from './copytrade/context/contextBuilder.js
 import { putContext } from './copytrade/context/contextStore.js';
 import { recordSuccessSample } from './copytrade/planner/sampleLibrary.js';
 import { getChainConfig } from '../config/chainConfig.js';
+import { reportReceiptSeen, reportWebhookSeen } from './order-runtime/adjudicator/service.js';
 
 const ENABLED = (process.env.COPYTRADE_PENDING_WATCH_ENABLED || 'true') === 'true';
 const REFRESH_WALLETS_MS = Number(process.env.COPYTRADE_PENDING_WALLET_REFRESH_MS || 10000);
@@ -104,6 +105,19 @@ async function warmConfirmedSwapFromPending(
             if (receipt) {
                 const status = parseInt(String(receipt.status || '0x0'), 16);
                 if (status !== 1) return;
+                reportWebhookSeen({
+                    chainId,
+                    txHash,
+                    source: 'pending_prefetch',
+                    matchedWallet: targetWallet
+                });
+                reportReceiptSeen({
+                    chainId,
+                    txHash,
+                    success: true,
+                    blockNumber: receipt.blockNumber || undefined,
+                    source: 'pending_prefetch'
+                });
                 const swap = await parseSwapTransaction(
                     txSkeleton,
                     { logs: receipt.logs || [], status },

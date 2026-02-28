@@ -15,6 +15,12 @@ import { getRpcEndpointsWithStrategy, RpcEndpointConfig } from '../config/apiEnd
 import { getCachedRpc, setCachedRpc, buildCacheKey, getTtlForMethod, isCacheable } from './rpcCache.js';
 import { Connection } from '@solana/web3.js';
 import type { TxLifecycleResult } from './txLifecycle.js';
+import {
+    reportReceiptSeen,
+    reportRpcUncertain,
+    reportSendAccepted,
+    reportTxByHashSeen
+} from './order-runtime/adjudicator/service.js';
 
 const RPC_TIMEOUT_MS = Number(process.env.RPC_TIMEOUT_MS || '10000'); // 10s default
 const RPC_TIMEOUT_FAST_MS = Number(process.env.RPC_TIMEOUT_FAST_MS || '2500');
@@ -2624,6 +2630,11 @@ export async function waitForReceiptStateMachine(params: {
     while (Date.now() - startedAt < maxWaitMs) {
         const degrade = getChainRpcDegradeState(params.chainId);
         if (degrade.degraded && !firstSeenAt) {
+            reportRpcUncertain({
+                chainId: params.chainId,
+                txHash: params.txHash,
+                error: degrade.lastError || 'chain_rpc_degraded'
+            });
             return {
                 status: 'dropped_timeout',
                 txHash: params.txHash,
@@ -2661,6 +2672,14 @@ export async function waitForReceiptStateMachine(params: {
                 if (!expectedFrom || seenFrom === expectedFrom) {
                     firstSeenAt = firstSeenAt || Date.now();
                     visibilityHits += 1;
+                    reportTxByHashSeen({
+                        chainId: params.chainId,
+                        txHash: params.txHash,
+                        from: tx.from || undefined,
+                        blockNumber: tx.blockNumber || undefined,
+                        rpcError: lastRpcError || undefined,
+                        source: 'rpc_tx'
+                    });
                 } else {
                     visibilityHits = 0;
                     lastRpcError = `from_mismatch expected=${params.expectedFrom} got=${tx.from}`;
@@ -2672,6 +2691,14 @@ export async function waitForReceiptStateMachine(params: {
             if (receipt?.transactionHash) {
                 const statusHex = String(receipt.status || '');
                 const status: TxLifecycleResult['status'] = statusHex === '0x1' || statusHex === '1' ? 'confirmed_success' : 'confirmed_failed';
+                reportReceiptSeen({
+                    chainId: params.chainId,
+                    txHash: params.txHash,
+                    success: status === 'confirmed_success',
+                    blockNumber: receipt.blockNumber || undefined,
+                    rpcError: lastRpcError || undefined,
+                    source: 'rpc_receipt'
+                });
                 const out: TxLifecycleResult = {
                     status,
                     txHash: params.txHash,
@@ -2730,6 +2757,13 @@ export async function waitForReceiptStateMachine(params: {
         attempts,
         chainId: params.chainId
     };
+    if (!firstSeenAt) {
+        reportRpcUncertain({
+            chainId: params.chainId,
+            txHash: params.txHash,
+            error: out.lastRpcError || 'wait_timeout'
+        });
+    }
     recordTxLifecycleState({
         chainId: params.chainId,
         txHash: params.txHash,
@@ -2773,6 +2807,12 @@ export async function broadcastRawWithQuorum(params: {
         return out;
     }
 
+    reportSendAccepted({
+        chainId: params.chainId,
+        txHash,
+        source: 'raw_broadcast'
+    });
+
     if (params.skipSyncVisibility === true) {
         const out: TxLifecycleResult = {
             status: 'broadcasted_unseen',
@@ -2799,6 +2839,11 @@ export async function broadcastRawWithQuorum(params: {
     });
 
     if (visibility.visible) {
+        reportTxByHashSeen({
+            chainId: params.chainId,
+            txHash,
+            source: 'rpc_tx'
+        });
         const out: TxLifecycleResult = {
             status: 'visible_pending',
             txHash,
@@ -2824,6 +2869,11 @@ export async function broadcastRawWithQuorum(params: {
         attempts: visibility.checks,
         chainId: params.chainId
     };
+    reportRpcUncertain({
+        chainId: params.chainId,
+        txHash,
+        error: out.lastRpcError || 'not_found_by_rpc'
+    });
     recordTxLifecycleState({
         chainId: params.chainId,
         txHash,

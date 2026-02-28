@@ -62,6 +62,14 @@ import {
     buildOrderAuditFields,
     resolvePositionOpeningStatus
 } from './order-runtime/sinks/persistence.js';
+import type { OrderRuntimeContext } from './order-runtime/types.js';
+import { buildEvmExitPlan } from './copytrade/exit/planner.js';
+import { executeEvmExitPlan } from './copytrade/exit/executor.js';
+import {
+    persistFailedExitState,
+    persistSuccessfulExit,
+    reconcileNoopExitPosition
+} from './copytrade/exit/persistence.js';
 
 export { getTokenInfo } from './tokenService.js';
 
@@ -2853,6 +2861,7 @@ async function executePositionExit(params: {
     let balance = 0n;
     let decimals = 18;
     let txHash = '';
+    let exitRuntimeContext: OrderRuntimeContext | undefined;
     const user = config.user;
 
     // Fetch universal global slippage from UserSettings
@@ -3000,29 +3009,24 @@ async function executePositionExit(params: {
 
         } else {
             // EVM Logic
-            const dec = await getErc20Decimals(tokenAddress, chainId).catch(() => 18);
-            let bal = await getErc20Balance(tokenAddress, user.walletAddress, chainId);
-            const isMirrorSell = exitReason === 'mirror_sell';
+            const executionMode = resolveExecutionModeForConfig(config);
+            const exitPlan = await buildEvmExitPlan({
+                userId: user.privyDid,
+                walletAddress: user.walletAddress,
+                tokenAddress,
+                chainId,
+                exitReason,
+                tokenInfo,
+                universalSlippageBps,
+                executionMode,
+                targetWallet: config.targetWallet
+            });
 
-            // Mirror-sell safety: do not trust a single zero read from RPC.
-            // Re-check a few times before deciding there is no balance.
-            if (isMirrorSell && bal <= 0n) {
-                for (let i = 0; i < 3; i++) {
-                    await new Promise((resolve) => setTimeout(resolve, 220));
-                    const retryBal = await getErc20Balance(tokenAddress, user.walletAddress, chainId).catch(() => 0n);
-                    if (retryBal > bal) bal = retryBal;
-                    if (bal > 0n) break;
-                }
-            }
+            balance = exitPlan.balance;
+            decimals = exitPlan.decimals;
 
-            balance = bal;
-            decimals = Number(dec);
-            const balanceUsd = formatTokenAmount(balance, decimals) * (hasValidPrice ? tokenInfo.price : 0);
-
-            const treatAsEmptyOrDust = balance <= 0n || (!isMirrorSell && hasValidPrice && balanceUsd < 0.1);
-            if (treatAsEmptyOrDust) {
-                if (isMirrorSell && balance <= 0n) {
-                    // Keep position open for retry path; do not close on mirror-sell zero-balance uncertainty.
+            if (exitPlan.kind === 'noop') {
+                if (exitPlan.action === 'keep_open') {
                     logger.warn(LogCode.WTC_TX_SKIPPED, 'Mirror sell skipped: zero token balance after retries; position left open', {
                         userId,
                         tokenAddress,
@@ -3030,224 +3034,33 @@ async function executePositionExit(params: {
                     });
                     return null;
                 }
+
                 logger.throttled(LogCode.WTC_TX_SKIPPED, 'Negligible EVM balance, closing database records', {
                     userId,
                     tokenAddress,
-                    balanceUsd,
+                    balanceUsd: exitPlan.balanceUsd,
                     reason: exitReason,
-                    isMirrorSell
+                    isMirrorSell: exitPlan.isMirrorSell
                 });
-                await prisma.position.updateMany({
-                    where: { userId: userId, tokenAddress: tokenAddress, status: 'open' },
-                    data: { status: 'closed', exitReason: balance <= 0n ? 'balance_empty' : 'balance_dust', closedAt: new Date() }
+                await reconcileNoopExitPosition({
+                    userId,
+                    tokenAddress,
+                    action: exitPlan.action,
+                    closeReason: exitPlan.closeReason
                 });
                 return null;
             }
 
-            let isPartialSell = false;
-            const executionMode = resolveExecutionModeForConfig(config);
-            const allowDirectSellPath = (process.env.COPYTRADE_SELL_DIRECT_ENABLED || 'false').toLowerCase() === 'true';
-            const fastSwapModeForSell = false;
-            const runSellRoute = async (amountInHuman: string, slippageBps: number, fastSwapMode: boolean, route: string) => {
-                logger.info(LogCode.EXE_TX_BROADCAST, 'Mirror sell route attempt', {
-                    userId,
-                    tokenAddress,
-                    chainId,
-                    executionMode,
-                    route,
-                    slippageBps,
-                    fastSwapMode
-                });
-                const planned = await buildPlannedExecutionContext({
-                    chainId,
-                    walletAddress: user.walletAddress,
-                    tokenIn: tokenAddress,
-                    tokenOut: 'ETH',
-                    amountIn: amountInHuman
-                });
-                return await MainSwapService.executeSwap({
-                    userId: user.privyDid,
-                    walletAddress: user.walletAddress,
-                    tokenIn: tokenAddress,
-                    tokenOut: 'ETH', // Selling to native token
-                    amountIn: amountInHuman,
-                    chainId: chainId,
-                    slippageBps,
-                    mode: 'copytrade',
-                    requireConfirmedTx: true, // Sell must confirm on-chain before closing position
-                    executionContext: {
-                        ...planned.executionContext,
-                        executionStep: `sell_${route}`
-                    },
-                    executionPlan: planned.executionPlan,
-                    userSettings: {
-                        fastSwapMode,
-                        copyTradeExecutionMode: executionMode
-                    }
-                });
-            };
-            try {
-                // Use full balance for sell - the 1-wei subtraction caused amountIn=0 when balance=1n.
-                // The router tolerates minor dust on EVM; if it reverts we fall through to the partial-sell retry.
-                const safeBalance = balance;
-                // Use universal global slippage
-                const initialSlippage = universalSlippageBps;
-                logger.debug(LogCode.EXE_TX_BROADCAST, 'Attempting EVM sell with slippage', { userId, slippageBps: initialSlippage });
+            const exitResult = await executeEvmExitPlan(exitPlan);
+            exitRuntimeContext = exitResult.runtimeContext;
 
-                // [Logic]: Use ethers.formatUnits to prevent precision loss when converting BigInt to string.
-                // [Ref]: ethers.js v6 documentation "formatUnits".
-                const amountToSellHuman = ethers.formatUnits(safeBalance, decimals);
-
-                // Guard: if formatting produced a zero or negative string (e.g. sub-wei dust), skip gracefully.
-                if (!amountToSellHuman || parseFloat(amountToSellHuman) <= 0) {
-                    logger.warn(LogCode.WTC_TX_SKIPPED, 'EVM sell skipped: effective amountIn is zero after formatting; closing dust position', {
-                        userId, tokenAddress, chainId, balance: balance.toString(), decimals
-                    });
-                    await prisma.position.updateMany({
-                        where: { userId, tokenAddress, status: 'open' },
-                        data: { status: 'closed', exitReason: 'balance_dust', closedAt: new Date() }
-                    });
-                    return null;
-                }
-
-                if (!txHash) {
-                    let sellResult = await runSellRoute(
-                        amountToSellHuman,
-                        initialSlippage,
-                        false,
-                        'external_primary'
-                    );
-                    if (!sellResult.success && allowDirectSellPath) {
-                        logger.warn(LogCode.EXE_TX_REVERTED, 'Mirror sell external route failed, trying direct pool fallback', {
-                            userId,
-                            tokenAddress,
-                            chainId,
-                            error: sellResult.error
-                        });
-                        sellResult = await runSellRoute(
-                            amountToSellHuman,
-                            initialSlippage,
-                            true,
-                            'direct_fallback'
-                        );
-                    } else if (!sellResult.success) {
-                        logger.warn(LogCode.EXE_TX_REVERTED, 'Mirror sell direct fallback skipped by execution mode/policy', {
-                            userId,
-                            tokenAddress,
-                            chainId,
-                            executionMode,
-                            allowDirectSellPath,
-                            error: sellResult.error
-                        });
-                    }
-                    if (!sellResult.success) throw new Error(sellResult.error);
-                    txHash = sellResult.txHash!;
-                }
-            } catch (e: any) {
-                if (allowDirectSellPath) {
-                    try {
-                        const amountToSellHuman = ethers.formatUnits(balance, decimals);
-                        const directResult = await runSellRoute(
-                            amountToSellHuman,
-                            universalSlippageBps,
-                            true,
-                            'direct_fallback_after_exception'
-                        );
-                        if (directResult.success) {
-                            txHash = directResult.txHash!;
-                        } else {
-                            throw new Error(directResult.error);
-                        }
-                    } catch {
-                        // continue to partial retry path below
-                    }
-                }
-                if (txHash) {
-                    logger.info(LogCode.EXE_TX_CONFIRMED, 'Mirror sell recovered via direct fallback after external exception', {
-                        userId,
-                        tokenAddress,
-                        chainId,
-                        txHash
-                    });
-                } else {
-                logger.warn(LogCode.EXE_TX_REVERTED, 'EVM sell failed, retrying partial sell', {
-                    userId,
-                    error: compactCopyTradeError(e),
-                    bugHint: inferCopyTradeBugHint(e),
-                    token: tokenAddress,
-                    chainId
-                });
-                }
-                if (!txHash) {
-                try {
-                    // Use 99.9% of balance for retry; clamp to full balance if it would round to 0.
-                    const safeBalance999Raw = (balance * 999n) / 1000n;
-                    const safeBalance999 = safeBalance999Raw > 0n ? safeBalance999Raw : balance;
-                    // Retry with 1.5x of global slippage, capped at 25%
-                    const retrySlippage = Math.min(Math.floor(universalSlippageBps * 1.5), 2500);
-                    logger.debug(LogCode.EXE_TX_BROADCAST, 'Retrying EVM sell with higher slippage', { userId, slippageBps: retrySlippage });
-
-                    const amountToSellHuman999 = ethers.formatUnits(safeBalance999, decimals);
-
-                    let retryResult;
-                    try {
-                        retryResult = await runSellRoute(
-                            amountToSellHuman999,
-                            retrySlippage,
-                            false,
-                            'external_retry'
-                        );
-                    } catch (retryErr: any) {
-                        if (allowDirectSellPath) {
-                            retryResult = await runSellRoute(
-                                amountToSellHuman999,
-                                retrySlippage,
-                                true,
-                                'direct_retry_fallback_after_exception'
-                            );
-                        } else {
-                            throw retryErr;
-                        }
-                    }
-                    if (!retryResult.success && allowDirectSellPath) {
-                        retryResult = await runSellRoute(
-                            amountToSellHuman999,
-                            retrySlippage,
-                            true,
-                            'direct_retry_fallback'
-                        );
-                    }
-                    if (!retryResult.success) throw new Error(retryResult.error);
-                    txHash = retryResult.txHash!;
-                    isPartialSell = true;
-                } catch (e2: any) {
-                    // Four.meme fallback
-                    const isFourMeme = chainId === 56 && (tokenAddress.toLowerCase().endsWith('4444') || fourMemeService.isFourMemeToken(tokenAddress));
-                    if (isFourMeme) {
-                        try {
-                            txHash = await fourMemeService.sellToken({
-                                userId: user.privyDid,
-                                walletAddress: user.walletAddress,
-                                tokenAddress: tokenAddress,
-                                amount: balance.toString(),
-                                feeContext: 'copyTrade',
-                            });
-                        } catch (fmErr: any) {
-                            logger.error(LogCode.EXE_TX_REVERTED, 'Four.meme fallback sell failed', {
-                                userId,
-                                token: tokenAddress,
-                                error: compactCopyTradeError(fmErr),
-                                bugHint: inferCopyTradeBugHint(fmErr),
-                                chainId
-                            });
-                            throw fmErr;
-                        } // Re-throw to trigger exit_failed
-                    } else { throw e2; } // Re-throw to trigger exit_failed
-                }
-                }
+            if (!exitResult.success || !exitResult.txHash) {
+                throw new Error(exitResult.error || 'Unified EVM exit failed');
             }
 
-            // Sweep dust
+            txHash = exitResult.txHash;
+            const isPartialSell = exitResult.isPartialSell;
+
             if (txHash) {
                 const skipDustSweepForMirrorSell = exitReason === 'mirror_sell' && COPYTRADE_DISABLE_MIRROR_SELL_DUST_SWEEP;
                 if (skipDustSweepForMirrorSell) {
@@ -3257,64 +3070,46 @@ async function executePositionExit(params: {
                         chainId
                     });
                 } else {
-                try {
-                    const remainingBalance = await getErc20Balance(tokenAddress, user.walletAddress, chainId);
-                    const dustUsd = formatTokenAmount(remainingBalance, decimals) * (tokenInfo?.price || 0);
-                    if (remainingBalance > 1000n && (dustUsd >= 0.05 || isPartialSell)) {
-                        const dustAmountHuman = ethers.formatUnits(remainingBalance, decimals);
-                        const plannedDust = await buildPlannedExecutionContext({
-                            chainId,
-                            walletAddress: user.walletAddress,
-                            tokenIn: tokenAddress,
-                            tokenOut: 'ETH',
-                            amountIn: dustAmountHuman
-                        });
-
-                        const dustResult = await MainSwapService.executeSwap({
-                            userId: user.privyDid,
-                            walletAddress: user.walletAddress,
-                            tokenIn: tokenAddress,
-                            tokenOut: 'ETH',
-                            amountIn: dustAmountHuman,
-                            chainId: chainId,
-                            slippageBps: 2000, // Higher slippage for dust sweep (20%)
-                            mode: 'copytrade',
-                            executionContext: {
-                                ...plannedDust.executionContext,
-                                executionStep: 'sell_dust_sweep'
-                            },
-                            executionPlan: plannedDust.executionPlan,
-                            userSettings: {
-                                fastSwapMode: fastSwapModeForSell,
-                                copyTradeExecutionMode: executionMode
-                            }
-                        });
-                        // Dust sweep failure is non-critical, just log
+                    try {
+                        const remainingBalance = await getErc20Balance(tokenAddress, user.walletAddress, chainId);
+                        const dustUsd = formatTokenAmount(remainingBalance, decimals) * (tokenInfo?.price || 0);
+                        if (remainingBalance > 1000n && (dustUsd >= 0.05 || isPartialSell)) {
+                            const dustAmountHuman = ethers.formatUnits(remainingBalance, decimals);
+                            await MainSwapService.executeSwap({
+                                userId: user.privyDid,
+                                walletAddress: user.walletAddress,
+                                tokenIn: tokenAddress,
+                                tokenOut: 'ETH',
+                                amountIn: dustAmountHuman,
+                                chainId,
+                                slippageBps: 2000,
+                                mode: 'copytrade',
+                                executionContext: {
+                                    executionStep: 'sell_dust_sweep',
+                                    strictReplica: false
+                                },
+                                userSettings: {
+                                    fastSwapMode: true,
+                                    copyTradeExecutionMode: executionMode
+                                }
+                            });
+                        }
+                    } catch (sweepErr: any) {
+                        logger.debug(LogCode.EXE_TX_REVERTED, 'EVM dust sweep failed', { error: sweepErr.message });
                     }
-                } catch (sweepErr: any) {
-                    logger.debug(LogCode.EXE_TX_REVERTED, 'EVM dust sweep failed', { error: sweepErr.message });
-                }
                 }
             }
         }
 
         // Update DB with PNL calculation
         if (txHash) {
-            // [Logic]: Calculate sell value FIRST (needed for PNL)
-            // [Ref]: formatTokenAmount helper + tokenInfo.price from API
-            // [Risk]: tokenInfo.price may be stale or 0 if API fails
             const openPositions = await prisma.position.findMany({
                 where: { userId: userId, tokenAddress: tokenAddress, status: 'open' }
             });
-            const fallbackExitPrice = openPositions.find(p => (p.currentPrice || 0) > 0)?.currentPrice
-                ?? openPositions.find(p => (p.entryPrice || 0) > 0)?.entryPrice
+            const fallbackExitPrice = openPositions.find((p) => (p.currentPrice || 0) > 0)?.currentPrice
+                ?? openPositions.find((p) => (p.entryPrice || 0) > 0)?.entryPrice
                 ?? 0;
             const exitPrice = hasValidPrice ? tokenInfo.price : fallbackExitPrice;
-            const sellVolUsd = exitPrice > 0 ? formatTokenAmount(balance, decimals) * exitPrice : 0;
-
-            // [Logic]: Fetch open positions to get entry data for PNL calculation
-            // [Ref]: Prisma Position model has entryPrice, entryUsdValue fields
-            // [Risk]: Position may have been closed by another process (race condition)
             if (!hasValidPrice && exitPrice > 0) {
                 logger.warn(LogCode.API_FETCH_FAILED, 'Exit price missing from live data; using fallback price', {
                     userId,
@@ -3322,47 +3117,23 @@ async function executePositionExit(params: {
                     exitPrice
                 });
             }
+            const { sellVolUsd } = await persistSuccessfulExit({
+                userId,
+                tokenAddress,
+                txHash,
+                exitReason,
+                balance,
+                decimals,
+                exitPrice
+            });
 
-            // [Logic]: Update each position with calculated PNL
-            // [Ref]: Prisma schema fields: realizedPnlUsd, realizedPnlPct, exitPrice, exitUsdValue
-            // [Risk]: Division by zero if entryPrice is 0 (shouldn't happen, but guard against it)
-            for (const pos of openPositions) {
-                let realizedPnlUsd = sellVolUsd - (pos.entryUsdValue || 0);
-                const realizedPnlPct = pos.entryPrice && pos.entryPrice > 0
-                    ? ((exitPrice - pos.entryPrice) / pos.entryPrice) * 100
-                    : 0;
-
-                // Sanity guard: if PnL is absurdly large relative to entry value,
-                // it means the sell balance or price was corrupted. Clamp to ±10x entry.
-                const maxPlausiblePnl = Math.max((pos.entryUsdValue || 0) * 10, 100000);
-                if (Math.abs(realizedPnlUsd) > maxPlausiblePnl) {
-                    logger.warn(LogCode.SYS_ERROR, 'Clamping implausible realizedPnlUsd', {
-                        positionId: pos.id,
-                        rawPnl: realizedPnlUsd,
-                        entryUsdValue: pos.entryUsdValue,
-                        sellVolUsd,
-                        exitPrice,
-                        clampedTo: 0
-                    });
-                    realizedPnlUsd = 0;
-                }
-
-                await prisma.position.update({
-                    where: { id: pos.id },
-                    data: {
-                        status: 'closed',
-                        exitTxHash: txHash,
-                        exitReason: exitReason,
-                        closedAt: new Date(),
-                        exitPrice: exitPrice,
-                        exitUsdValue: sellVolUsd,
-                        realizedPnlUsd: realizedPnlUsd,
-                        realizedPnlPct: realizedPnlPct,
-                    },
-                });
-            }
-
-            logger.info(LogCode.EXE_TX_CONFIRMED, 'Position exit executed successfully', { userId, token: tokenAddress, reason: exitReason, txHash });
+            logger.info(LogCode.EXE_TX_CONFIRMED, 'Position exit executed successfully', {
+                userId,
+                token: tokenAddress,
+                reason: exitReason,
+                txHash,
+                ...buildOrderAuditFields(exitRuntimeContext)
+            });
 
             // Tracking
             trackCopyTrade(userId);
@@ -3402,61 +3173,37 @@ async function executePositionExit(params: {
             userId,
             token: tokenAddress,
             error: error.message,
-            stack: error.stack
+            stack: error.stack,
+            ...buildOrderAuditFields(exitRuntimeContext)
         });
 
-        // 🔄 RETRY MECHANISM: Instead of immediately closing, track retry attempts
-        // This prevents permanent position lock-up from temporary failures
         const MAX_EXIT_RETRIES = 3;
 
         try {
-            const position = await prisma.position.findFirst({
-                where: { userId: userId, tokenAddress: tokenAddress, status: 'open' }
+            const { retryCount, terminal } = await persistFailedExitState({
+                userId,
+                tokenAddress,
+                exitReason,
+                maxRetries: MAX_EXIT_RETRIES
             });
 
-            const retryCount = (position?.exitRetryCount || 0) + 1;
-
-            if (retryCount <= MAX_EXIT_RETRIES) {
-                // Update retry counter, keep position open for PositionMonitor retry
-                // FIX 6: Persist exitReason so we know WHY we are exiting during retry
-                await prisma.position.updateMany({
-                    where: { userId: userId, tokenAddress: tokenAddress, status: 'open' },
-                    data: {
-                        exitRetryCount: retryCount,
-                        lastExitAttempt: new Date(),
-                        exitReason: exitReason // Persist intent
-                    }
-                });
-
+            if (!terminal) {
                 logger.warn(LogCode.EXE_TX_REVERTED, 'Mirror sell failed, will retry via PositionMonitor', {
                     userId,
                     token: tokenAddress,
                     retryCount,
                     nextRetryIn: '5 minutes',
-                    reason: exitReason
+                    reason: exitReason,
+                    ...buildOrderAuditFields(exitRuntimeContext)
                 });
-
-                // FIX 4: Notification Throttling
-                // We do NOT send notifications for intermediate retries to avoid spam.
-                // Notifications are only sent on success or final failure (max retries reached).
             } else {
-                // After max retries, mark as failed permanently
-                await prisma.position.updateMany({
-                    where: { userId: userId, tokenAddress: tokenAddress, status: 'open' },
-                    data: {
-                        status: 'closed',
-                        exitReason: 'exit_failed_max_retries',
-                        closedAt: new Date(),
-                    },
-                });
-
                 logger.error(LogCode.EXE_TX_REVERTED, 'Mirror sell failed after max retries, marking as failed', {
                     userId,
                     token: tokenAddress,
-                    retries: MAX_EXIT_RETRIES
+                    retries: MAX_EXIT_RETRIES,
+                    ...buildOrderAuditFields(exitRuntimeContext)
                 });
 
-                // Send final failure notification
                 if (user.farcasterFid) {
                     await notificationService.sendNotification({
                         userId: user.privyDid,

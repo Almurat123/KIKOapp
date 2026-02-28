@@ -40,6 +40,7 @@ import {
     updateOrderAttempt
 } from './order-runtime/context.js';
 import { inferOrderReasonCode } from './order-runtime/reasonCodes.js';
+import { bindOrderToTxHash, reportRpcUncertain, reportSendAccepted } from './order-runtime/adjudicator/service.js';
 
 // Initialize Privy client
 const PRIVY_APP_ID = process.env.VITE_PRIVY_APP_ID || process.env.PRIVY_APP_ID || '';
@@ -156,6 +157,17 @@ async function sendWithLocalSigner(tx: TransactionRequest): Promise<TxLifecycleR
 function syncLifecycleIntoRuntimeContext(tx: TransactionRequest, lifecycle: TxLifecycleResult, reasonCode?: OrderReasonCode): void {
     if (!tx.runtimeContext) return;
     recordLifecycleOnOrder(tx.runtimeContext, lifecycle, { reasonCode });
+}
+
+function reportAcceptedEvidence(tx: TransactionRequest, txHash: string, source: 'privy_sendtx' | 'raw_broadcast'): void {
+    const orderId = tx.runtimeContext?.orderId;
+    if (orderId) bindOrderToTxHash(orderId, tx.chainId, txHash);
+    reportSendAccepted({
+        chainId: tx.chainId,
+        txHash,
+        orderId,
+        source
+    });
 }
 
 const toHexQuantity = (value?: string) =>
@@ -1039,6 +1051,7 @@ export async function sendTransactionLifecycle(
                         });
                         if (rawLifecycle.txHash && isTxLifecycleSendAccepted(rawLifecycle)) {
                             priorAcceptedLifecycle = { ...rawLifecycle };
+                            reportAcceptedEvidence(tx, rawLifecycle.txHash, 'raw_broadcast');
                         }
                         if (runtimeContext) {
                             if (rawLifecycle.txHash) {
@@ -1161,6 +1174,7 @@ export async function sendTransactionLifecycle(
                         chainId: txWithNonce.chainId
                     };
                     priorAcceptedLifecycle = { ...lifecycleBase };
+                    reportAcceptedEvidence(tx, response.hash, 'privy_sendtx');
                     if (runtimeContext) {
                         attachOrderTxHash(runtimeContext, response.hash, { canonical: true });
                         markOrderHashAccepted(runtimeContext, response.hash);
@@ -1576,6 +1590,14 @@ export async function sendTransactionLifecycle(
             if (tx.runtimeContext) {
                 recordLifecycleOnOrder(tx.runtimeContext, terminalLifecycle, { reasonCode: 'rpc_uncertain' });
                 markOrderFailure(tx.runtimeContext, terminalLifecycle.lastRpcError, 'rpc_uncertain');
+            }
+            if (terminalLifecycle.txHash) {
+                reportRpcUncertain({
+                    chainId: tx.chainId,
+                    txHash: terminalLifecycle.txHash,
+                    orderId: tx.runtimeContext?.orderId,
+                    error: terminalLifecycle.lastRpcError || 'transaction_failed_after_max_retries'
+                });
             }
             return terminalLifecycle;
         } finally {
