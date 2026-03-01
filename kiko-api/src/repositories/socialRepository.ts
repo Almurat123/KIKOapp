@@ -8,6 +8,107 @@ import { LogCode } from '../config/logRegistry.js';
 let hasSearchVectorColumnCache: boolean | null = null;
 const FARCASTER_EPOCH_MS = 1609459200000; // 2021-01-01 UTC
 const MAX_FUTURE_SKEW_MS = 7 * 24 * 60 * 60 * 1000; // tolerate small clock skew
+const FULL_LIST_LIMIT = 1500; // In practice DB is capped lower, but keep headroom for sorting/pagination
+
+type SocialTimeRange = 'trending' | '24h' | '7d' | '30d';
+
+function getTimeRangeDays(timeRange: SocialTimeRange): number {
+    if (timeRange === '7d') return 7;
+    if (timeRange === '30d') return 30;
+    return 1;
+}
+
+function getTrendingScoreProfile(timeRange: SocialTimeRange): {
+    gravity: number;
+    offsetHours: number;
+    floorWeight: number;
+} {
+    switch (timeRange) {
+        case '7d':
+            return { gravity: 0.72, offsetHours: 12, floorWeight: 0.16 };
+        case '30d':
+            return { gravity: 0.48, offsetHours: 24, floorWeight: 0.26 };
+        case '24h':
+            return { gravity: 0.95, offsetHours: 2, floorWeight: 0.10 };
+        case 'trending':
+        default:
+            return { gravity: 1.0, offsetHours: 2, floorWeight: 0.10 };
+    }
+}
+
+function computeWindowTrendingScore(
+    likes: number,
+    recasts: number,
+    replies: number,
+    timestamp: Date,
+    timeRange: SocialTimeRange
+): number {
+    const now = Date.now();
+    const ageHours = Math.max(0, (now - timestamp.getTime()) / (1000 * 60 * 60));
+    const { gravity, offsetHours, floorWeight } = getTrendingScoreProfile(timeRange);
+    const engagement = likes + (2 * recasts) + (0.5 * replies);
+    const decayScore = engagement / Math.pow(Math.max(ageHours + offsetHours, 0.01), gravity);
+    const floorScore = (likes * floorWeight) + (recasts * floorWeight * 1.35) + (replies * floorWeight * 0.35);
+    return Math.min(99999999.99, Math.max(decayScore, floorScore));
+}
+
+function mapRowToTrendingCast(row: any, index: number, scoreOverride?: number): TrendingCast {
+    return {
+        rank: index + 1,
+        hash: row.hash,
+        fid: row.fid,
+        author: {
+            fid: row.fid,
+            username: row.authorUsername || '',
+            displayName: row.authorDisplayName || '',
+            avatar: row.authorAvatar || '',
+            verified: row.authorVerified,
+            bio: row.authorBio || undefined,
+            twitter: row.authorTwitter || undefined,
+            creatorCoin: row.authorCreatorCoin ? JSON.parse(row.authorCreatorCoin) : undefined,
+        },
+        text: row.text,
+        timestamp: row.timestamp,
+        embeds: row.embeds as any,
+        mentions: row.mentions as any,
+        parentCastId: row.parentCastFid ? { fid: row.parentCastFid, hash: row.parentCastHash || '' } : undefined,
+        stats: {
+            likes: row.likes,
+            recasts: row.recasts,
+            replies: row.replies,
+        },
+        heatScore: scoreOverride ?? (Number(row.heatScore) || 0),
+        isBaseAppCoin: row.isBaseAppCoin,
+        baseAppCoinMetadata: row.baseAppCoinMetadata as any,
+        coinValue: row.coinValue ? String(row.coinValue) : undefined,
+    };
+}
+
+function sortRowsForTimeRange<T extends {
+    likes: number;
+    recasts: number;
+    replies: number;
+    timestamp: Date;
+    hash: string;
+}>(rows: T[], timeRange: SocialTimeRange): Array<T & { computedScore: number }> {
+    return rows
+        .map((row) => ({
+            ...row,
+            computedScore: computeWindowTrendingScore(
+                Number(row.likes) || 0,
+                Number(row.recasts) || 0,
+                Number(row.replies) || 0,
+                row.timestamp,
+                timeRange
+            )
+        }))
+        .sort((a, b) => {
+            if (b.computedScore !== a.computedScore) return b.computedScore - a.computedScore;
+            const tsDiff = b.timestamp.getTime() - a.timestamp.getTime();
+            if (tsDiff !== 0) return tsDiff;
+            return b.hash.localeCompare(a.hash);
+        });
+}
 
 async function hasSearchVectorColumn(): Promise<boolean> {
     if (hasSearchVectorColumnCache !== null) return hasSearchVectorColumnCache;
@@ -324,14 +425,13 @@ export async function saveTrendingCasts(casts: TrendingCast[]): Promise<void> {
 
 export async function getTrendingCasts(
     limit: number = 50,
-    timeRange: 'trending' | '24h' | '7d' | '30d' = 'trending',
+    timeRange: SocialTimeRange = 'trending',
     offset: number = 0
 ): Promise<TrendingCast[]> {
     const timerLabel = `get_trending_casts_${timeRange}`;
     logger.startTimer(timerLabel);
     try {
         const cacheKey = 'social:trending:casts:24h';
-        const FULL_LIST_LIMIT = 1500; // Increased from 500 to support more casts
 
         // 1. Try Cache
         if (timeRange === 'trending') {
@@ -344,65 +444,31 @@ export async function getTrendingCasts(
             } catch (ignore) { }
         }
 
-        // 2. Cache Miss: Fetch FULL list (up to 500) from DB to repopulate cache
-        // We always query for 'trending' (24h) logic if timeRange is trending, to fill cache correctly
+        // 2. Fetch full window slice from DB, then sort by time-range-aware score in memory.
         const Jan1_2021 = new Date(1609459200000);
         let where: any = { timestamp: { gt: Jan1_2021 } };
 
         // Determine params for DB query
-        let queryLimit = limit;
+        let queryLimit = FULL_LIST_LIMIT;
         if (timeRange === 'trending') {
-            queryLimit = FULL_LIST_LIMIT; // Fetch full list for cache
             const cutoff = new Date(Date.now() - (7 * 24 * 60 * 60 * 1000));
             where = {
                 timestamp: { gte: cutoff, lte: new Date() } // strict recency guard: hide stale months-old data
             };
         } else {
-            // Use specific time range logic (no caching for non-trending usually, or different keys)
-            let days = 1;
-            if (timeRange === '7d') days = 7;
-            if (timeRange === '30d') days = 30;
+            const days = getTimeRangeDays(timeRange);
             const cutoff = new Date(Date.now() - (days * 24 * 60 * 60 * 1000));
             where = { timestamp: { gte: cutoff } };
         }
 
         const rows = await prisma.trendingCast.findMany({
             where,
-            // Order by heatScore (trending velocity) and likes for SMART TRENDING
-            orderBy: [{ heatScore: 'desc' }, { likes: 'desc' }, { timestamp: 'desc' }],
+            orderBy: [{ timestamp: 'desc' }, { likes: 'desc' }, { hash: 'desc' }],
             take: queryLimit,
-            // No offset/skip here! We fetch from 0 to FULL_LIMIT or limit
         });
 
-        const casts: TrendingCast[] = rows.map((row, index) => ({
-            rank: index + 1,
-            hash: row.hash,
-            fid: row.fid,
-            author: {
-                fid: row.fid,
-                username: row.authorUsername || '',
-                displayName: row.authorDisplayName || '',
-                avatar: row.authorAvatar || '',
-                verified: row.authorVerified,
-                bio: row.authorBio || undefined,
-                twitter: row.authorTwitter || undefined,
-                creatorCoin: row.authorCreatorCoin ? JSON.parse(row.authorCreatorCoin) : undefined,
-            },
-            text: row.text,
-            timestamp: row.timestamp,
-            embeds: row.embeds as any,
-            mentions: row.mentions as any,
-            parentCastId: row.parentCastFid ? { fid: row.parentCastFid, hash: row.parentCastHash || '' } : undefined,
-            stats: {
-                likes: row.likes,
-                recasts: row.recasts,
-                replies: row.replies,
-            },
-            heatScore: Number(row.heatScore),
-            isBaseAppCoin: row.isBaseAppCoin,
-            baseAppCoinMetadata: row.baseAppCoinMetadata as any,
-            coinValue: row.coinValue ? String(row.coinValue) : undefined,
-        }));
+        const sortedRows = sortRowsForTimeRange(rows, timeRange);
+        const casts: TrendingCast[] = sortedRows.map((row, index) => mapRowToTrendingCast(row, index, row.computedScore));
 
         // 3. Update Cache (Only for trending)
         if (timeRange === 'trending' && casts.length > 0) {
@@ -838,7 +904,7 @@ export function decodeCursor(cursor: string): { heatScore: number; timestamp: nu
 
 export async function getTrendingCastsWithCursor(
     limit: number = 30,
-    timeRange: 'trending' | '24h' | '7d' | '30d' = 'trending',
+    timeRange: SocialTimeRange = 'trending',
     cursor?: string,
     sortBy: 'trending' | 'newest' = 'trending'
 ): Promise<CursorPaginationResult> {
@@ -853,110 +919,62 @@ export async function getTrendingCastsWithCursor(
                 timestamp: { gte: cutoff, lte: new Date() }
             };
         } else {
-            let days = 1;
-            if (timeRange === '7d') days = 7;
-            if (timeRange === '30d') days = 30;
+            const days = getTimeRangeDays(timeRange);
             const cutoff = new Date(Date.now() - (days * 24 * 60 * 60 * 1000));
             baseWhere = { timestamp: { gte: cutoff } };
         }
 
-        let where = baseWhere;
+        const rows = await prisma.trendingCast.findMany({
+            where: baseWhere,
+            orderBy: sortBy === 'newest'
+                ? [{ timestamp: 'desc' as const }, { hash: 'desc' as const }]
+                : [{ timestamp: 'desc' as const }, { likes: 'desc' as const }, { hash: 'desc' as const }],
+            take: FULL_LIST_LIMIT,
+        });
 
-        // Cursor-based filtering: get items AFTER the cursor position
+        const sortedRows = sortBy === 'newest'
+            ? rows
+                .map((row) => ({ ...row, computedScore: Number(row.heatScore) || 0 }))
+                .sort((a, b) => {
+                    const tsDiff = b.timestamp.getTime() - a.timestamp.getTime();
+                    if (tsDiff !== 0) return tsDiff;
+                    return b.hash.localeCompare(a.hash);
+                })
+            : sortRowsForTimeRange(rows, timeRange);
+
+        let filteredRows = sortedRows;
         if (cursor) {
             const cursorData = decodeCursor(cursor);
             if (cursorData) {
-                if (sortBy === 'newest') {
-                    // For newest sort: filter by timestamp only
-                    where = {
-                        AND: [
-                            baseWhere,
-                            {
-                                OR: [
-                                    { timestamp: { lt: new Date(cursorData.timestamp) } },
-                                    {
-                                        AND: [
-                                            { timestamp: new Date(cursorData.timestamp) },
-                                            { hash: { lt: cursorData.hash } }
-                                        ]
-                                    }
-                                ]
-                            }
-                        ]
-                    };
-                } else {
-                    // For trending sort: filter by heatScore first
-                    where = {
-                        AND: [
-                            baseWhere,
-                            {
-                                OR: [
-                                    { heatScore: { lt: cursorData.heatScore } },
-                                    {
-                                        AND: [
-                                            { heatScore: cursorData.heatScore },
-                                            { timestamp: { lt: new Date(cursorData.timestamp) } }
-                                        ]
-                                    },
-                                    {
-                                        AND: [
-                                            { heatScore: cursorData.heatScore },
-                                            { timestamp: new Date(cursorData.timestamp) },
-                                            { hash: { lt: cursorData.hash } }
-                                        ]
-                                    }
-                                ]
-                            }
-                        ]
-                    };
-                }
+                filteredRows = sortedRows.filter((row) => {
+                    if (sortBy === 'newest') {
+                        const rowTs = row.timestamp.getTime();
+                        if (rowTs < cursorData.timestamp) return true;
+                        if (rowTs > cursorData.timestamp) return false;
+                        return row.hash < cursorData.hash;
+                    }
+
+                    if (row.computedScore < cursorData.heatScore) return true;
+                    if (row.computedScore > cursorData.heatScore) return false;
+
+                    const rowTs = row.timestamp.getTime();
+                    if (rowTs < cursorData.timestamp) return true;
+                    if (rowTs > cursorData.timestamp) return false;
+                    return row.hash < cursorData.hash;
+                });
             }
         }
 
-        // Fetch one extra to determine hasMore
-        // Sort by timestamp for newest, by heatScore for trending
-        const orderBy = sortBy === 'newest'
-            ? [{ timestamp: 'desc' as const }, { hash: 'desc' as const }]
-            : [{ heatScore: 'desc' as const }, { timestamp: 'desc' as const }, { hash: 'desc' as const }];
+        const hasMore = filteredRows.length > limit;
+        const resultRows = hasMore ? filteredRows.slice(0, limit) : filteredRows;
 
-        const rows = await prisma.trendingCast.findMany({
-            where,
-            orderBy,
-            take: limit + 1,
-        });
-
-        const hasMore = rows.length > limit;
-        const resultRows = hasMore ? rows.slice(0, limit) : rows;
-
-        const casts: TrendingCast[] = resultRows.map((row, index) => ({
-            rank: index + 1,
-            hash: row.hash,
-            fid: row.fid,
-            author: {
-                fid: row.fid,
-                username: row.authorUsername || '',
-                displayName: row.authorDisplayName || '',
-                avatar: row.authorAvatar || '',
-                verified: row.authorVerified,
-                bio: row.authorBio || undefined,
-                twitter: row.authorTwitter || undefined,
-                creatorCoin: row.authorCreatorCoin ? JSON.parse(row.authorCreatorCoin) : undefined,
-            },
-            text: row.text,
-            timestamp: row.timestamp,
-            embeds: row.embeds as any,
-            mentions: row.mentions as any,
-            parentCastId: row.parentCastFid ? { fid: row.parentCastFid, hash: row.parentCastHash || '' } : undefined,
-            stats: {
-                likes: row.likes,
-                recasts: row.recasts,
-                replies: row.replies,
-            },
-            heatScore: Number(row.heatScore),
-            isBaseAppCoin: row.isBaseAppCoin,
-            baseAppCoinMetadata: row.baseAppCoinMetadata as any,
-            coinValue: row.coinValue ? String(row.coinValue) : undefined,
-        }));
+        const casts: TrendingCast[] = resultRows.map((row, index) =>
+            mapRowToTrendingCast(
+                row,
+                index,
+                sortBy === 'trending' ? row.computedScore : undefined
+            )
+        );
 
         // [OPTIMIZED]: Embed 数据已在 socialDataJob 后台任务中预处理并保存到数据库
         // 不再进行实时 API 调用获取 embed 内容，直接使用缓存数据
@@ -965,7 +983,11 @@ export async function getTrendingCastsWithCursor(
         let nextCursor: string | null = null;
         if (hasMore && resultRows.length > 0) {
             const lastRow = resultRows[resultRows.length - 1];
-            nextCursor = encodeCursor(Number(lastRow.heatScore), lastRow.timestamp, lastRow.hash);
+            nextCursor = encodeCursor(
+                sortBy === 'trending' ? lastRow.computedScore : (Number(lastRow.heatScore) || 0),
+                lastRow.timestamp,
+                lastRow.hash
+            );
         }
 
         return { casts, nextCursor, hasMore };

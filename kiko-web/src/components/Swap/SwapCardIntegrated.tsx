@@ -1253,14 +1253,14 @@ export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
                       Resolving token contract...
                     </div>
                   ) : (
-                  <div style={{
-                    padding: '40px 20px',
-                    textAlign: 'center',
-                    color: 'var(--text-tertiary)',
-                    fontSize: '14px',
-                  }}>
-                    No tokens found
-                  </div>
+                    <div style={{
+                      padding: '40px 20px',
+                      textAlign: 'center',
+                      color: 'var(--text-tertiary)',
+                      fontSize: '14px',
+                    }}>
+                      No tokens found
+                    </div>
                   )
                 ) : (
                   displayTokens.map((token) => {

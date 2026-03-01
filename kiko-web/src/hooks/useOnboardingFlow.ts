@@ -14,6 +14,11 @@ export function useOnboardingFlow() {
     // Using simple React state to ensure it fires ONCE per login session without refreshing issues
     const [hasTriggeredFunding, setHasTriggeredFunding] = useState(false);
     const [hasTriggeredFarcaster, setHasTriggeredFarcaster] = useState(false);
+
+    // We want to detect a *manual* login during this browser session vs an *auto-login* on page load.
+    const [isInteractiveLogin, setIsInteractiveLogin] = useState(false);
+    const prevReadyRef = useRef(false);
+
     const prevAuthRef = useRef(authenticated);
     const lastUserIdRef = useRef<string | undefined>(undefined);
 
@@ -35,19 +40,33 @@ export function useOnboardingFlow() {
         currentStepRef.current = step;
     }, [step]);
 
-    // Reset flow when user logs out
+    // Consolidated Auth State Monitor
     useEffect(() => {
+        // Core robust detection for manual logins:
+        // Privy sets `ready` = true only *after* its initial auth check on page load completes.
+        // Thus, if `authenticated` goes from `false` to `true` *after* `ready` is already `true`,
+        // it strictly means the user explicitly logged in during this active browser session!
+        if (ready && prevReadyRef.current) {
+            if (!prevAuthRef.current && authenticated) {
+                logger.log('[Onboarding] Detected interactive login session.');
+                setIsInteractiveLogin(true);
+            }
+        }
+
+        // Reset flow when user logs out
         if (!authenticated && prevAuthRef.current) {
             setHasTriggeredFunding(false);
             setHasTriggeredFarcaster(false);
             hasDismissedFundingRef.current = false;
+            setIsInteractiveLogin(false);
             setStep('idle');
-            if (lastUserIdRef.current) {
-                sessionStorage.removeItem(`kiko-funding-session-${lastUserIdRef.current}`);
-            }
+            // We do not remove the permanent localStorage key on logout
+            // so we don't annoy the user if they log back in.
         }
+
+        prevReadyRef.current = ready;
         prevAuthRef.current = authenticated;
-    }, [authenticated]);
+    }, [ready, authenticated]);
 
     useEffect(() => {
         if (!ready || !authenticated || !user) return;
@@ -73,10 +92,11 @@ export function useOnboardingFlow() {
             logger.log(`[Onboarding] Running evaluation for user: ${user?.id}`);
 
             // --- STEP 1: FUNDING CHECK ---
-            const fundingSessionKey = `kiko-funding-session-${user?.id}`;
-            const promptedFundingThisSession = sessionStorage.getItem(fundingSessionKey) === 'true';
+            // Shows ONLY on Welcome screen (root path) and ONLY after a fresh login event
+            const isWelcomeScreen = window.location.pathname === '/';
 
-            if (!hasTriggeredFunding && !promptedFundingThisSession) {
+            // We do NOT use localStorage here because the user wants it to trigger on EVERY fresh login.
+            if (!hasTriggeredFunding && isWelcomeScreen && isInteractiveLogin) {
                 const evmWallet = user?.linkedAccounts?.find(
                     (acc): acc is WalletWithMetadata => acc.type === 'wallet' && acc.chainType === 'ethereum'
                 );
@@ -88,8 +108,9 @@ export function useOnboardingFlow() {
 
                     // Mark as triggered in state so we don't spam
                     setHasTriggeredFunding(true);
-                    // Mark in sessionStorage so we don't trigger on page reloads
-                    sessionStorage.setItem(fundingSessionKey, 'true');
+
+                    // Consume the interactive login flag
+                    setIsInteractiveLogin(false);
 
                     fundWallet({ address: addressToFund });
                     isEvaluatingRef.current = false;

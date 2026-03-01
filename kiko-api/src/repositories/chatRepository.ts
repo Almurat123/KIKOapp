@@ -194,6 +194,12 @@ export async function createMessage(
         }
     });
 
+    // Touch the parent session to bump its priority in sorting
+    await prisma.chatSession.update({
+        where: { id: sessionId },
+        data: { updatedAt: new Date() }
+    });
+
     // Convert back field names for compatibility if needed, or rely on Prisma types
     return mapPrismaMessage(message);
 }

@@ -1,0 +1,119 @@
+import { getMinTargetEffectiveFloorUsd, isBelowMinTargetValue } from './targetValueGuard.js';
+import { shouldEnforceBuyGuard } from './policy.js';
+import type { BuyGuardPolicy } from './types.js';
+
+function safeNumber(value: any, fieldName: string): number {
+    const num = Number(value);
+    if (isNaN(num) || !isFinite(num) || num < 0) {
+        throw new Error(`Invalid ${fieldName}: ${value}`);
+    }
+    return num;
+}
+
+export async function evaluateStaticBuyGuards(
+    tokenInfo: any,
+    config: any,
+    targetSwapValueUsd: number,
+    policy: BuyGuardPolicy
+): Promise<{ passed: boolean; reason?: string }> {
+    let price: number;
+    let liquidity = 0;
+    let volume24h = 0;
+    let marketCap = 0;
+
+    try {
+        price = safeNumber(tokenInfo.price, 'price');
+
+        if (tokenInfo.guardLiquidityUsd !== null && tokenInfo.guardLiquidityUsd !== undefined) {
+            try { liquidity = safeNumber(tokenInfo.guardLiquidityUsd, 'guardLiquidityUsd'); } catch { }
+        } else if (tokenInfo.liquidity !== null && tokenInfo.liquidity !== undefined) {
+            try { liquidity = safeNumber(tokenInfo.liquidity, 'liquidity'); } catch { }
+        }
+
+        if (tokenInfo.volume24h !== null && tokenInfo.volume24h !== undefined) {
+            try { volume24h = safeNumber(tokenInfo.volume24h, 'volume24h'); } catch { }
+        }
+
+        if (tokenInfo.marketCap !== null && tokenInfo.marketCap !== undefined) {
+            try { marketCap = safeNumber(tokenInfo.marketCap, 'marketCap'); } catch { }
+        } else if (tokenInfo.fdv !== null && tokenInfo.fdv !== undefined) {
+            try { marketCap = safeNumber(tokenInfo.fdv, 'fdv'); } catch { }
+        }
+    } catch (err: any) {
+        return { passed: false, reason: `[DATA ERROR] ${err.message}` };
+    }
+
+    if (shouldEnforceBuyGuard(policy, 'minTargetValue') && config.minTargetValueUsd && isBelowMinTargetValue(targetSwapValueUsd, config.minTargetValueUsd)) {
+        const effectiveFloor = getMinTargetEffectiveFloorUsd(Number(config.minTargetValueUsd || 0));
+        return {
+            passed: false,
+            reason: `Target buy value $${targetSwapValueUsd.toFixed(2)} < min floor $${effectiveFloor.toFixed(2)} (configured $${Number(config.minTargetValueUsd).toFixed(2)})`
+        };
+    }
+
+    const minMarketCapUsd = (config.minMarketCapUsd ?? config.minMarketCap) || 0;
+    const maxMarketCapUsd = (config.maxMarketCapUsd ?? config.maxMarketCap) || 0;
+
+    if (shouldEnforceBuyGuard(policy, 'minMarketCap')) {
+        if (marketCap > 0) {
+            if (minMarketCapUsd > 0 && marketCap < minMarketCapUsd) {
+                return { passed: false, reason: `MCap $${marketCap.toFixed(0)} < min $${minMarketCapUsd.toFixed(0)}` };
+            }
+            if (maxMarketCapUsd > 0 && marketCap > maxMarketCapUsd) {
+                return { passed: false, reason: `MCap $${marketCap.toFixed(0)} > max $${maxMarketCapUsd.toFixed(0)}` };
+            }
+        } else if (minMarketCapUsd > 0) {
+            return { passed: false, reason: `MCap data unavailable (token info disabled) — cannot verify min $${minMarketCapUsd.toFixed(0)} filter` };
+        }
+    }
+
+    const minLiquidityUsd = config.minLiquidityUsd || 0;
+    if (shouldEnforceBuyGuard(policy, 'minLiquidity') && minLiquidityUsd > 0 && liquidity < minLiquidityUsd) {
+        return { passed: false, reason: `Liquidity $${liquidity.toFixed(0)} < min $${minLiquidityUsd.toFixed(0)}` };
+    }
+
+    const MIN_LIQUIDITY_FAST = 500;
+    const MIN_LIQUIDITY_NORMAL = 1000;
+    const MIN_VOLUME_RATIO = 0.01;
+    const isFastMode = config.fastExecutionEnabled !== false;
+
+    if (isFastMode) {
+        if (shouldEnforceBuyGuard(policy, 'minLiquidity') && liquidity > 0 && liquidity < MIN_LIQUIDITY_FAST) {
+            return { passed: false, reason: `[HONEYPOT/FAST] Liquidity $${liquidity.toFixed(0)} < $${MIN_LIQUIDITY_FAST}` };
+        }
+        if (config.buyAmountUsd && liquidity > 0) {
+            const buyAmount = safeNumber(config.buyAmountUsd, 'buyAmountUsd');
+            const singleSideLiquidity = liquidity / 2;
+            const estimatedPriceImpact = (buyAmount / singleSideLiquidity) * 100;
+            const MAX_PRICE_IMPACT = 8;
+            if (estimatedPriceImpact > MAX_PRICE_IMPACT) {
+                return { passed: false, reason: `[PRICE IMPACT] Est. impact ${estimatedPriceImpact.toFixed(2)}% > ${MAX_PRICE_IMPACT}%` };
+            }
+        }
+        return { passed: true };
+    }
+
+    if (shouldEnforceBuyGuard(policy, 'minLiquidity') && liquidity > 0 && liquidity < MIN_LIQUIDITY_NORMAL) {
+        return { passed: false, reason: `[HONEYPOT] Liquidity $${liquidity.toFixed(0)} < $${MIN_LIQUIDITY_NORMAL}` };
+    }
+
+    if (liquidity > 50000 && volume24h > 0) {
+        const volumeRatio = volume24h / liquidity;
+        if (volumeRatio < MIN_VOLUME_RATIO) {
+            return { passed: false, reason: `[HONEYPOT] Suspicious volume ratio: ${(volumeRatio * 100).toFixed(2)}%` };
+        }
+    }
+
+    if (config.buyAmountUsd && liquidity > 0) {
+        const buyAmount = safeNumber(config.buyAmountUsd, 'buyAmountUsd');
+        const singleSideLiquidity = liquidity / 2;
+        const estimatedPriceImpact = (buyAmount / singleSideLiquidity) * 100;
+        const MAX_PRICE_IMPACT = 5;
+
+        if (estimatedPriceImpact > MAX_PRICE_IMPACT) {
+            return { passed: false, reason: `[PRICE IMPACT] Est. impact ${estimatedPriceImpact.toFixed(2)}% > ${MAX_PRICE_IMPACT}%` };
+        }
+    }
+
+    return { passed: true };
+}

@@ -39,7 +39,6 @@ import { getTokenInfo } from './tokenService.js';
 import { getTokenMetadata } from './rpcService.js';
 import { getDexPrice } from './dexPriceService.js';
 import { cacheHub } from '../cache/DataCacheHub.js';
-import { getTokenDecimalsFromRegistry } from '../config/tokenRegistry.js';
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
 import { getNativeBalance as rpcGetNativeBalance, getErc20Balance, getErc20Decimals, getTransactionReceipt } from './rpcManager.js';
@@ -71,6 +70,17 @@ import {
     reconcileNoopExitPosition
 } from './copytrade/exit/persistence.js';
 import { waitForPreheatConfirmation } from './copytrade/preheatConfirmation.js';
+import {
+    computeBuyTargetValueSnapshot,
+    getMinTargetEffectiveFloorUsd,
+    isBelowMinTargetValue,
+    resolveEffectiveMinTargetValueUsd
+} from './copytrade/guards/targetValueGuard.js';
+import { emitCopyTradeBuyGuardAudit, roundGuardNumber } from './copytrade/guards/guardAudit.js';
+import { resolveBuyLiquidityGuardSnapshot } from './copytrade/guards/liquidityGuard.js';
+import { buildDuplicateTradeWhere, describeCooldownMode } from './copytrade/guards/cooldownPolicy.js';
+import { evaluateStaticBuyGuards } from './copytrade/guards/evaluator.js';
+import { resolveBuyGuardPolicy, shouldEnforceBuyGuard } from './copytrade/guards/policy.js';
 
 export { getTokenInfo } from './tokenService.js';
 
@@ -259,14 +269,6 @@ const userTokenLocks = new Map<string, number>(); // key -> timestamp
 const USER_TOKEN_LOCK_DURATION_MS = 30000; // 30 seconds
 const MAX_COPY_TRADE_USD = 1_000_000; // Hard safety cap to prevent absurd buy amounts
 type CopyTradeAiAnalysisMode = 'disabled' | 'analyze_only' | 'auto_decide';
-const COPYTRADE_GUARD_AUDIT_WINDOW_MS = Math.max(1000, Number(process.env.COPYTRADE_GUARD_AUDIT_WINDOW_MS || '2000'));
-
-function roundGuardNumber(value: unknown, digits: number = 2): number {
-    const n = Number(value);
-    if (!Number.isFinite(n)) return 0;
-    const p = Math.pow(10, digits);
-    return Math.round(n * p) / p;
-}
 
 function resolveExecutionModeForConfig(config: any): CopyTradeExecutionMode {
     return resolveExecutionModeFromConfig({
@@ -486,19 +488,6 @@ async function buildPlannedExecutionContext(args: {
     }
 }
 
-function getMinTargetEffectiveFloorUsd(minTargetValueUsd: number): number {
-    const min = Number(minTargetValueUsd || 0);
-    if (!Number.isFinite(min) || min <= 0) return 0;
-    // No tolerance — floor is exactly the configured minimum.
-    return min;
-}
-
-function isBelowMinTargetValue(targetSwapValueUsd: number, minTargetValueUsd: number): boolean {
-    const target = Number(targetSwapValueUsd || 0);
-    const effectiveFloor = getMinTargetEffectiveFloorUsd(minTargetValueUsd);
-    return target < effectiveFloor;
-}
-
 function normalizeFiniteNumber(value: unknown): number | null {
     const n = Number(value);
     if (!Number.isFinite(n)) return null;
@@ -513,17 +502,6 @@ function resolveEffectivePositiveThreshold(configValue: unknown, userSettingValu
     if (u !== null && u > 0) candidates.push(u);
     if (candidates.length === 0) return null;
     return Math.max(...candidates);
-}
-
-function toFinitePositiveNumber(value: unknown): number {
-    const n = Number(value);
-    return Number.isFinite(n) && n > 0 ? n : 0;
-}
-
-function resolveEffectiveMinTargetValueUsd(config: any, userSettings: any): number {
-    return toFinitePositiveNumber(
-        resolveEffectivePositiveThreshold(config?.minTargetValueUsd, userSettings?.minTargetValueUsd)
-    );
 }
 
 function parsePositiveBigInt(value: unknown): bigint {
@@ -1160,123 +1138,33 @@ async function processBuyWithInfo(
 ) {
     const PROFILE = process.env.COPYTRADE_PROFILE ? process.env.COPYTRADE_PROFILE === 'true' : true;
     const tStart = Date.now();
+    const targetValueSnapshot = await computeBuyTargetValueSnapshot(swap, chainId, tokenInfo);
+    let targetSwapValueUsd = targetValueSnapshot.targetSwapValueUsd;
+    let strictTargetSwapValueUsd = targetValueSnapshot.strictTargetSwapValueUsd;
+    let strictTargetSwapValueReliable = targetValueSnapshot.strictTargetSwapValueReliable;
+    let strictTargetSwapValueSource = targetValueSnapshot.strictTargetSwapValueSource;
+    const strictMinGuardRequired = targetValueSnapshot.strictMinGuardRequired;
+    const liquidityGuardSnapshot = await resolveBuyLiquidityGuardSnapshot(tokenToBuy, chainId, tokenInfo);
+    tokenInfo.guardLiquidityUsd = liquidityGuardSnapshot.liquidityUsd;
+    tokenInfo.guardLiquiditySource = liquidityGuardSnapshot.source;
+    tokenInfo.guardLiquidityReliable = liquidityGuardSnapshot.reliable;
+    tokenInfo.guardLiquidityPoolCount = liquidityGuardSnapshot.poolCount;
+    if (liquidityGuardSnapshot.liquidityUsd > 0) {
+        tokenInfo.liquidity = liquidityGuardSnapshot.liquidityUsd;
+    }
+
     logger.debug(LogCode.EXE_QUOTE_FETCHED, 'Processing configurations for buy', {
         count: configs.length,
         price: tokenInfo.price,
-        fallback: isFallbackMode
+        fallback: isFallbackMode,
+        guardLiquidityUsd: liquidityGuardSnapshot.liquidityUsd,
+        guardLiquiditySource: liquidityGuardSnapshot.source,
+        guardLiquidityReliable: liquidityGuardSnapshot.reliable,
+        guardLiquidityPoolCount: liquidityGuardSnapshot.poolCount
     });
 
     let judgeDecisionId: string | null = null;
 
-
-    // Calculate target swap value (buy volume)
-    // Actually, usually we value the trade based on the STABLE/ETH amount (Input).
-    // If user spent 1 ETH ($2500), that's the trade value.
-    // Logic: if tokenIn is cash, use it. Otherwise use tokenOut.
-
-    const chainConfig = getChainConfig(chainId);
-    const ZORA_TOKEN = '0x1111111111166b7fe7bd91427724b487980afc69';
-    const CASH_TOKENS = [
-        '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee',
-        ZORA_TOKEN,
-        chainConfig.wrappedNativeAddress,
-        ...chainConfig.stablecoins,
-        SOLANA_CONFIG.TOKENS.SOL,
-        SOLANA_CONFIG.TOKENS.USDC,
-        SOLANA_CONFIG.TOKENS.USDT
-    ].map(s => normalizeAddress(s));
-
-    const isTokenInCash = CASH_TOKENS.includes(normalizeAddress(swap.tokenIn));
-    let targetSwapValueUsd = 0;
-    let strictTargetSwapValueUsd = 0;
-    let strictTargetSwapValueReliable = false;
-    let strictTargetSwapValueSource = 'none';
-    const strictMinGuardRequired = isTokenInCash;
-
-    if (isTokenInCash) {
-        // Use tokenIn for value calculation
-        const isStableIn = chainConfig.stablecoins.map(s => normalizeAddress(s)).includes(normalizeAddress(swap.tokenIn));
-        const isZoraIn = normalizeAddress(swap.tokenIn) === normalizeAddress(ZORA_TOKEN);
-        const amountInBN = parsePositiveBigInt(swap.amountIn);
-
-        if (isStableIn) {
-            // Stable cash leg: keep current behavior for display value, but min-target guard uses strict decimals when available.
-            const stableInfo = tokenInfoCache
-                ? await getTokenInfoOnce(tokenInfoCache, swap.tokenIn, chainId, { rpcStrategy: 'fast', fastMode: true })
-                : await getTokenInfo(swap.tokenIn, chainId, { rpcStrategy: 'fast', fastMode: true });
-            const stableInfoDecimals = Number(stableInfo?.decimals);
-            const registryDecimals = getTokenDecimalsFromRegistry(swap.tokenIn, chainId);
-            const strictDecimalsIn = Number.isFinite(stableInfoDecimals) && stableInfoDecimals > 0
-                ? stableInfoDecimals
-                : (registryDecimals && registryDecimals > 0 ? registryDecimals : null);
-            const decimalsIn = strictDecimalsIn ?? 6;
-            targetSwapValueUsd = formatTokenAmount(amountInBN, decimalsIn);
-            if (strictDecimalsIn !== null) {
-                strictTargetSwapValueUsd = formatTokenAmount(amountInBN, strictDecimalsIn);
-                strictTargetSwapValueReliable = true;
-                strictTargetSwapValueSource = 'stable_amount_in';
-            }
-        } else if (isZoraIn) {
-            // ZORA token is treated as cash-like on this strategy.
-            const zoraInfo = tokenInfoCache
-                ? await getTokenInfoOnce(tokenInfoCache, ZORA_TOKEN, chainId, { rpcStrategy: 'fast', fastMode: true })
-                : await getTokenInfo(ZORA_TOKEN, chainId, { rpcStrategy: 'fast', fastMode: true });
-            if (!zoraInfo || zoraInfo.price <= 0) {
-                logger.error(LogCode.API_FETCH_FAILED, 'Failed to fetch ZORA price, cannot calculate trade value', { token: ZORA_TOKEN });
-                targetSwapValueUsd = 0; // Cannot proceed without price
-            } else {
-                targetSwapValueUsd = formatTokenAmount(amountInBN, 18) * zoraInfo.price;
-                strictTargetSwapValueUsd = targetSwapValueUsd;
-                strictTargetSwapValueReliable = true;
-                strictTargetSwapValueSource = 'zora_amount_in';
-            }
-        } else {
-            // ETH / WETH - compute strict guard from source tx value first, fallback to decoded amountIn.
-            const nativePrice = await cacheHub.getNativePrice(chainId, async () => getNativeTokenPriceUsd(chainId));
-            if (!nativePrice || nativePrice <= 0) {
-                logger.error(LogCode.API_FETCH_FAILED, 'Failed to fetch native token price, cannot calculate trade value', {
-                    chainId
-                });
-                targetSwapValueUsd = 0; // Cannot proceed without price
-            } else {
-                targetSwapValueUsd = formatTokenAmount(amountInBN, 18) * nativePrice;
-                const sourceTxValueWei = parsePositiveBigInt(swap?.sourceTxValue);
-                const strictAmountWei = sourceTxValueWei > 0n ? sourceTxValueWei : amountInBN;
-                if (strictAmountWei > 0n) {
-                    strictTargetSwapValueUsd = formatTokenAmount(strictAmountWei, 18) * nativePrice;
-                    strictTargetSwapValueReliable = true;
-                    strictTargetSwapValueSource = sourceTxValueWei > 0n ? 'source_tx_value' : 'decoded_amount_in';
-                }
-            }
-        }
-        logger.debug(LogCode.EXE_QUOTE_FETCHED, 'Calculated value from token input', {
-            valueUsd: targetSwapValueUsd,
-            token: swap.tokenIn,
-            strictValueUsd: strictTargetSwapValueUsd,
-            strictSource: strictTargetSwapValueSource,
-            strictReliable: strictTargetSwapValueReliable
-        });
-    } else {
-        // Fallback to tokenOut
-        const amountOutBN = parsePositiveBigInt(swap.amountOut);
-        const splitDecimals = tokenInfo.decimals || 18;
-        const formattedAmountOut = formatTokenAmount(amountOutBN, splitDecimals);
-        targetSwapValueUsd = formattedAmountOut * tokenInfo.price;
-        logger.debug(LogCode.EXE_QUOTE_FETCHED, 'Calculated value from token output', { valueUsd: targetSwapValueUsd, token: swap.tokenOut });
-    }
-    const hintedCashSpentUsd = Number(swap?.cashLegHint?.cashSpentUsd || 0);
-    if (isTokenInCash && Number.isFinite(hintedCashSpentUsd) && hintedCashSpentUsd > 0) {
-        const previous = targetSwapValueUsd;
-        targetSwapValueUsd = Math.max(targetSwapValueUsd, hintedCashSpentUsd);
-        if (targetSwapValueUsd > previous) {
-            logger.debug(LogCode.EXE_QUOTE_FETCHED, 'Using higher activity cash hint for target swap value', {
-                txHash: swap.txHash,
-                previousValueUsd: Number.isFinite(previous) ? Number(previous.toFixed(4)) : previous,
-                hintedCashSpentUsd: Number(hintedCashSpentUsd.toFixed(4)),
-                selectedValueUsd: Number(targetSwapValueUsd.toFixed(4))
-            });
-        }
-    }
     if (!Number.isFinite(targetSwapValueUsd) || targetSwapValueUsd < 0) {
         logger.warn(LogCode.WTC_TX_SKIPPED, 'Target swap value is invalid; forcing value to 0 for safety', {
             txHash: swap.txHash,
@@ -1436,7 +1324,12 @@ async function processBuyWithInfo(
                 maxSlippageBps: universalSlippageBps
             };
 
-            const filterResult = await passesFilters(tokenInfo, effectiveConfig, targetSwapValueUsd);
+            const filterResult = await passesFilters(
+                tokenInfo,
+                effectiveConfig,
+                targetSwapValueUsd,
+                resolveBuyGuardPolicy(resolveExecutionModeForConfig(config))
+            );
             return { config, filterResult, effectiveConfig, userSettings };
         })
     );
@@ -1700,6 +1593,7 @@ async function processSingleUserBuy(
         let judgeDecisionId: string | null = null;
         const executionMode = resolveExecutionModeForConfig(config);
         const turboMode = executionMode === 'turbo';
+        const guardPolicy = resolveBuyGuardPolicy(executionMode);
         const positionStatusCompat = await getPositionStatusCompat();
         const leaderTxHash = String(swap?.txHash || '').toLowerCase().trim();
         const guardAudit: Record<string, unknown> = {
@@ -1707,6 +1601,7 @@ async function processSingleUserBuy(
             token: tokenToBuy,
             chainId,
             executionMode,
+            guardPolicy: guardPolicy.name,
             turboMode,
             sourceTxHash: swap?.txHash || null,
             minTargetValue: null,
@@ -1720,17 +1615,7 @@ async function processSingleUserBuy(
             reason: string,
             extra?: Record<string, unknown>
         ) => {
-            logger.throttled(
-                LogCode.SYS_INFO,
-                '[CopyTradeGuardAudit] buy guard summary',
-                {
-                    ...guardAudit,
-                    decision,
-                    reason,
-                    ...(extra || {})
-                },
-                COPYTRADE_GUARD_AUDIT_WINDOW_MS
-            );
+            emitCopyTradeBuyGuardAudit(guardAudit, decision, reason, extra);
         };
 
         try {
@@ -1776,20 +1661,25 @@ async function processSingleUserBuy(
             maxSlippageBps: universalSlippageBps
         };
         const observedMarketCapUsd = Number(tokenInfo?.marketCap || 0);
-        const observedLiquidityUsd = Number(tokenInfo?.liquidity || 0);
+        const observedLiquidityUsd = Number(
+            tokenInfo?.guardLiquidityUsd ?? tokenInfo?.liquidity ?? 0
+        );
         const minMarketCapUsd = Number(effectiveConfig.minMarketCapUsd || 0);
         const minLiquidityUsd = Number(effectiveConfig.minLiquidityUsd || 0);
         guardAudit.marketCap = {
             minUsd: roundGuardNumber(minMarketCapUsd),
             observedUsd: roundGuardNumber(observedMarketCapUsd),
             pass: minMarketCapUsd <= 0 ? true : observedMarketCapUsd >= minMarketCapUsd,
-            enforced: false
+            enforced: shouldEnforceBuyGuard(guardPolicy, 'minMarketCap')
         };
         guardAudit.minLiquidity = {
             minUsd: roundGuardNumber(minLiquidityUsd),
             observedUsd: roundGuardNumber(observedLiquidityUsd),
             pass: minLiquidityUsd <= 0 ? true : observedLiquidityUsd >= minLiquidityUsd,
-            enforced: false
+            enforced: shouldEnforceBuyGuard(guardPolicy, 'minLiquidity'),
+            source: tokenInfo?.guardLiquiditySource || 'token_info',
+            reliable: Boolean(tokenInfo?.guardLiquidityReliable ?? (observedLiquidityUsd > 0)),
+            poolCount: Number(tokenInfo?.guardLiquidityPoolCount || 0)
         };
 
         // Fast check for per-user target value guard (must apply in all modes, including turbo).
@@ -1809,15 +1699,15 @@ async function processSingleUserBuy(
             strictSource: strictTargetSwapValueSource
         };
 
-        if (minTargetValueUsd > 0 && strictMinGuardRequired && !strictTargetSwapValueReliable) {
-            logger.throttled(LogCode.WTC_TX_SKIPPED, 'Skipping trade: strict min-target cash guard unavailable', {
+        if (shouldEnforceBuyGuard(guardPolicy, 'minTargetValue') && minTargetValueUsd > 0 && strictMinGuardRequired && !strictTargetSwapValueReliable) {
+            logger.info(LogCode.WTC_TX_SKIPPED, 'Skipping trade: strict min-target cash guard unavailable', {
                 userId: config.userId,
                 token: tokenToBuy,
                 txHash: swap.txHash,
                 minTargetValueUsd,
                 strictSource: strictTargetSwapValueSource,
                 broadTargetSwapValueUsd: Number(normalizedTargetSwapValueUsd.toFixed(2))
-            }, COPYTRADE_GUARD_AUDIT_WINDOW_MS);
+            });
             sendNotificationAsync({
                 userId: config.userId,
                 farcasterFid: config.user.farcasterFid,
@@ -1837,7 +1727,7 @@ async function processSingleUserBuy(
             return;
         }
 
-        if (minTargetValueUsd > 0 && isBelowMinTargetValue(effectiveTargetSwapValueUsd, minTargetValueUsd)) {
+        if (shouldEnforceBuyGuard(guardPolicy, 'minTargetValue') && minTargetValueUsd > 0 && isBelowMinTargetValue(effectiveTargetSwapValueUsd, minTargetValueUsd)) {
             logger.info(LogCode.WTC_TX_SKIPPED, 'Skipping trade: target value below user minimum', {
                 userId: config.userId,
                 token: tokenToBuy,
@@ -1956,7 +1846,11 @@ async function processSingleUserBuy(
         }
 
             const cooldownMinutes = config.copyTradeTokenCooldownMinutes ?? userSettings?.copyTradeTokenCooldownMinutes ?? 60;
-            guardAudit.cooldown = { minutes: cooldownMinutes, enabled: cooldownMinutes > 0 };
+            guardAudit.cooldown = {
+                minutes: cooldownMinutes,
+                enabled: cooldownMinutes > 0,
+                mode: describeCooldownMode(cooldownMinutes)
+            };
 
             // 🛡️ PRICE DEVIATION CHECK (Anti-Spike)
             // MUST run regardless of cooldownMinutes — turbo configs set cooldown=0 but still need this protection.
@@ -1979,7 +1873,7 @@ async function processSingleUserBuy(
                             pass: priceDeviation <= 3.0
                         };
 
-                        if (priceDeviation > 3.0) { // Allow up to 3x (200% increase) but no more
+                        if (shouldEnforceBuyGuard(guardPolicy, 'priceDeviationRatio') && priceDeviation > 3.0) { // Allow up to 3x (200% increase) but no more
                             logger.info(LogCode.DEC_PRICE_IMPACT_HIGH, `🚨 Price Deviation too high! Oracle: $${tokenInfo.price.toFixed(6)}, Target Paid: $${targetExecutionPrice.toFixed(6)} (${priceDeviation.toFixed(1)}x)`, {
                                 userId: config.userId,
                                 token: tokenToBuy,
@@ -2022,7 +1916,7 @@ async function processSingleUserBuy(
                         maxSlippageBps: effectiveConfig.maxSlippageBps,
                         pass: deviationBps <= effectiveConfig.maxSlippageBps
                     };
-                    if (deviationBps > effectiveConfig.maxSlippageBps) {
+                    if (shouldEnforceBuyGuard(guardPolicy, 'priceDeviationBps') && deviationBps > effectiveConfig.maxSlippageBps) {
                         logger.info(LogCode.WTC_TX_SKIPPED, 'Skipping trade: price deviation exceeds user limit', {
                             userId: config.userId,
                             token: tokenToBuy,
@@ -2051,7 +1945,7 @@ async function processSingleUserBuy(
 
             // 🛡️ GAS BUFFER CHECK (EVM Only)
             // Must run for all execution modes (including turbo), otherwise low-balance wallets still attempt tx.
-            if (chainId !== 900) {
+            if (shouldEnforceBuyGuard(guardPolicy, 'gasBuffer') && chainId !== 900) {
                 const nativeBalance = await getNativeBalance(effectiveConfig.user.walletAddress, chainId);
                 const gasBufferWei = ethers.parseEther("0.005"); // ~$15 buffer
 
@@ -2110,15 +2004,12 @@ async function processSingleUserBuy(
         let pendingPositionId: string | null = null;
         try {
             const pendingPos = await prisma.$transaction(async (tx) => {
-                // Check for ANY recent open or pending position for this token
-                const positionWhere: any = {
+                const positionWhere = buildDuplicateTradeWhere({
                     userId: config.userId,
                     tokenAddress: tokenToBuy,
-                    status: { in: positionStatusCompat.activeOrLockedStatuses as any },
-                };
-                if (cooldownMinutes > 0) {
-                    positionWhere.createdAt = { gte: new Date(Date.now() - cooldownMinutes * 60 * 1000) };
-                }
+                    cooldownMinutes: shouldEnforceBuyGuard(guardPolicy, 'cooldown') ? cooldownMinutes : 0,
+                    positionStatusCompat
+                });
                 const existing = await tx.position.findFirst({
                     where: positionWhere
                 });
@@ -3922,163 +3813,14 @@ function formatTokenAmount(amount: bigint, decimals: number): number {
 
 
 
-export async function passesFilters(tokenInfo: any, config: any, targetSwapValueUsd: number) {
+export async function passesFilters(
+    tokenInfo: any,
+    config: any,
+    targetSwapValueUsd: number,
+    policy = resolveBuyGuardPolicy('normal')
+) {
     if (!tokenInfo) return { passed: false, reason: 'No token info' };
-
-    // =========================================================================
-    // 🛡️ DEFENSIVE PROGRAMMING: Safe number extraction with data validation
-    // Distinguish between:
-    //   1. Missing data (null/undefined) → Should REJECT trade (data unavailable)
-    //   2. Format issues (string numbers) → Should CONVERT (e.g., "1000" → 1000)
-    // =========================================================================
-    const safeNumber = (value: any, fieldName: string): number => {
-        // Missing data - this is a critical error
-        if (value === null || value === undefined) {
-            throw new Error(`Missing ${fieldName}`);
-        }
-
-        // Convert string to number if needed
-        const num = typeof value === 'string' ? parseFloat(value) : Number(value);
-
-        // Invalid number - this is also a critical error
-        if (isNaN(num) || !isFinite(num)) {
-            throw new Error(`Invalid ${fieldName}: ${value}`);
-        }
-
-        return num;
-    };
-
-    // Try to extract critical data - if any fails, reject the token
-    let price: number;
-
-    // Non-critical data (default to 0 if missing/invalid to allow new tokens)
-    // 🚀 COPY TRADE FIX: liquidity 改为非关键数据，允许 liquidity=0 的新代币通过
-    let liquidity: number = 0;
-    let volume24h: number = 0;
-    let marketCap: number = 0;
-
-    try {
-        // Critical: Must have price (for value calculation)
-        price = safeNumber(tokenInfo.price, 'price');
-
-        // Non-Critical: Liquidity (often 0 for brand new launchpad tokens)
-        if (tokenInfo.liquidity !== null && tokenInfo.liquidity !== undefined) {
-            try { liquidity = safeNumber(tokenInfo.liquidity, 'liquidity'); } catch { }
-        }
-
-        // Non-Critical: Volume and MCap (often missing for fresh tokens)
-        if (tokenInfo.volume24h !== null && tokenInfo.volume24h !== undefined) {
-            try { volume24h = safeNumber(tokenInfo.volume24h, 'volume24h'); } catch { }
-        }
-
-        if (tokenInfo.marketCap !== null && tokenInfo.marketCap !== undefined) {
-            try { marketCap = safeNumber(tokenInfo.marketCap, 'marketCap'); } catch { }
-        } else if (tokenInfo.fdv !== null && tokenInfo.fdv !== undefined) {
-            try { marketCap = safeNumber(tokenInfo.fdv, 'fdv'); } catch { }
-        }
-    } catch (err: any) {
-        return { passed: false, reason: `[DATA ERROR] ${err.message}` };
-    }
-
-    // =========================================================================
-    // 🛡️ UNIVERSAL USER FILTERS (Checked in both Fast and Normal modes)
-    // =========================================================================
-
-    // 1. Min Target Buy Value (Safety logic: Don't copy tiny dust trades)
-    if (config.minTargetValueUsd && isBelowMinTargetValue(targetSwapValueUsd, config.minTargetValueUsd)) {
-        const effectiveFloor = getMinTargetEffectiveFloorUsd(Number(config.minTargetValueUsd || 0));
-        return {
-            passed: false,
-            reason: `Target buy value $${targetSwapValueUsd.toFixed(2)} < min floor $${effectiveFloor.toFixed(2)} (configured $${Number(config.minTargetValueUsd).toFixed(2)})`
-        };
-    }
-
-    // 2. Market Cap Filters (Safety logic: Only buy tokens within user's risk profile)
-    const minMarketCapUsd = (config.minMarketCapUsd ?? config.minMarketCap) || 0;
-    const maxMarketCapUsd = (config.maxMarketCapUsd ?? config.maxMarketCap) || 0;
-
-    if (marketCap > 0) { // Only apply if we actually have MCap data
-        if (minMarketCapUsd > 0 && marketCap < minMarketCapUsd) {
-            return { passed: false, reason: `MCap $${marketCap.toFixed(0)} < min $${minMarketCapUsd.toFixed(0)}` };
-        }
-        if (maxMarketCapUsd > 0 && marketCap > maxMarketCapUsd) {
-            return { passed: false, reason: `MCap $${marketCap.toFixed(0)} > max $${maxMarketCapUsd.toFixed(0)}` };
-        }
-    } else {
-        // marketCap = 0 means no data (turbo/disableTokenInfo mode with RPC fallback).
-        // If user configured a minMarketCapUsd filter, we cannot verify it — block the trade.
-        if (minMarketCapUsd > 0) {
-            return { passed: false, reason: `MCap data unavailable (token info disabled) — cannot verify min $${minMarketCapUsd.toFixed(0)} filter` };
-        }
-    }
-
-    // 3. User-defined Liquidity filter (Safety logic: Ensure pool depth is sufficient)
-    const minLiquidityUsd = config.minLiquidityUsd || 0;
-    if (minLiquidityUsd > 0 && liquidity < minLiquidityUsd) {
-        return { passed: false, reason: `Liquidity $${liquidity.toFixed(0)} < min $${minLiquidityUsd.toFixed(0)}` };
-    }
-
-    // =========================================================================
-    // 🛡️ HONEYPOT DETECTION & MODE-SPECIFIC LOGIC
-    // =========================================================================
-    const MIN_LIQUIDITY_FAST = 500; // $500 minimum for fast mode
-    const MIN_LIQUIDITY_NORMAL = 1000; // $1000 minimum for normal mode
-    const MIN_VOLUME_RATIO = 0.01; // Volume should be at least 1% of liquidity
-
-    const isFastMode = config.fastExecutionEnabled !== false; // Default to fast
-
-    // FAST MODE: Quick entry for new tokens (TRUST the target wallet's judgment)
-    if (isFastMode) {
-        // 🚀 COPY TRADE FIX: 对于新代币，完全信任跟单目标的判断
-        // 如果流动性为 0 或未知，仍然允许交易（目标钱包已经验证过）
-        // 只在 liquidity > 0 时才做最低流动性检查
-        if (liquidity > 0 && liquidity < MIN_LIQUIDITY_FAST) {
-            return { passed: false, reason: `[HONEYPOT/FAST] Liquidity $${liquidity.toFixed(0)} < $${MIN_LIQUIDITY_FAST}` };
-        }
-        // liquidity === 0: 允许通过（新代币可能尚未索引流动性数据）
-
-        // Price Impact check in Fast Mode (8% loose limit)
-        if (config.buyAmountUsd && liquidity > 0) {
-            const buyAmount = safeNumber(config.buyAmountUsd, 'buyAmountUsd');
-            const singleSideLiquidity = liquidity / 2;
-            const estimatedPriceImpact = (buyAmount / singleSideLiquidity) * 100;
-            const MAX_PRICE_IMPACT = 8;
-
-            if (estimatedPriceImpact > MAX_PRICE_IMPACT) {
-                return { passed: false, reason: `[PRICE IMPACT] Est. impact ${estimatedPriceImpact.toFixed(2)}% > ${MAX_PRICE_IMPACT}%` };
-            }
-        }
-
-        return { passed: true };
-    }
-
-    // NORMAL MODE: Thorough checks
-    // 🚀 COPY TRADE FIX: 同样只在 liquidity > 0 时才检查
-    if (liquidity > 0 && liquidity < MIN_LIQUIDITY_NORMAL) {
-        return { passed: false, reason: `[HONEYPOT] Liquidity $${liquidity.toFixed(0)} < $${MIN_LIQUIDITY_NORMAL}` };
-    }
-
-    // Check volume/liquidity ratio
-    if (liquidity > 50000 && volume24h > 0) {
-        const volumeRatio = volume24h / liquidity;
-        if (volumeRatio < MIN_VOLUME_RATIO) {
-            return { passed: false, reason: `[HONEYPOT] Suspicious volume ratio: ${(volumeRatio * 100).toFixed(2)}%` };
-        }
-    }
-
-    // Price Impact in Normal Mode (5% strict limit)
-    if (config.buyAmountUsd && liquidity > 0) {
-        const buyAmount = safeNumber(config.buyAmountUsd, 'buyAmountUsd');
-        const singleSideLiquidity = liquidity / 2;
-        const estimatedPriceImpact = (buyAmount / singleSideLiquidity) * 100;
-        const MAX_PRICE_IMPACT = 5;
-
-        if (estimatedPriceImpact > MAX_PRICE_IMPACT) {
-            return { passed: false, reason: `[PRICE IMPACT] Est. impact ${estimatedPriceImpact.toFixed(2)}% > ${MAX_PRICE_IMPACT}%` };
-        }
-    }
-
-    return { passed: true };
+    return evaluateStaticBuyGuards(tokenInfo, config, targetSwapValueUsd, policy);
 }
 
 // Test-only hooks used by deterministic stress scripts.
@@ -4086,7 +3828,6 @@ export const __copyTradeGuardTestHelpers = {
     getMinTargetEffectiveFloorUsd,
     isBelowMinTargetValue,
     resolveEffectivePositiveThreshold,
-    toFinitePositiveNumber,
     resolveEffectiveMinTargetValueUsd,
     dedupeConfigsByUser
 };
