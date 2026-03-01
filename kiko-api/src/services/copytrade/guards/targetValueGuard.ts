@@ -83,6 +83,17 @@ function formatTokenAmount(amount: bigint, decimals: number): number {
     return value;
 }
 
+function resolveNativeLikeDecimals(chainId: number, normalizedToken: string, wrappedNativeAddress?: string): number {
+    const normalizedWrappedNative = wrappedNativeAddress ? normalizeAddress(wrappedNativeAddress) : '';
+    const normalizedSol = normalizeAddress(SOLANA_CONFIG.TOKENS.SOL);
+
+    if (chainId === 900 && (normalizedToken === normalizedSol || normalizedToken === normalizedWrappedNative)) {
+        return 9;
+    }
+
+    return 18;
+}
+
 export async function computeBuyTargetValueSnapshot(
     swap: DecodedSwap,
     chainId: number,
@@ -159,7 +170,8 @@ export async function computeBuyTargetValueSnapshot(
                     chainId
                 });
             } else {
-                targetSwapValueUsd = formatTokenAmount(amountInBN, 18) * nativePrice;
+                const nativeLikeDecimals = resolveNativeLikeDecimals(chainId, normalizedTokenIn, chainConfig.wrappedNativeAddress);
+                targetSwapValueUsd = formatTokenAmount(amountInBN, nativeLikeDecimals) * nativePrice;
                 const hintedCashSpentUsd = Number(swap?.cashLegHint?.cashSpentUsd || 0);
                 const sourceTxValueWei = parsePositiveBigInt(swap?.sourceTxValue);
                 const strictAmountWei = sourceTxValueWei > 0n ? sourceTxValueWei : amountInBN;
@@ -169,7 +181,7 @@ export async function computeBuyTargetValueSnapshot(
                     strictTargetSwapValueReliable = true;
                     strictTargetSwapValueSource = 'cash_leg_hint';
                 } else if (strictAmountWei > 0n) {
-                    strictTargetSwapValueUsd = formatTokenAmount(strictAmountWei, 18) * nativePrice;
+                    strictTargetSwapValueUsd = formatTokenAmount(strictAmountWei, nativeLikeDecimals) * nativePrice;
                     strictTargetSwapValueReliable = true;
                     strictTargetSwapValueSource = sourceTxValueWei > 0n
                         ? 'native_like_source_tx_value'
@@ -178,7 +190,8 @@ export async function computeBuyTargetValueSnapshot(
                         txHash: swap.txHash,
                         chainId,
                         strictSource: strictTargetSwapValueSource,
-                        strictValueUsd: Number(strictTargetSwapValueUsd.toFixed(4))
+                        strictValueUsd: Number(strictTargetSwapValueUsd.toFixed(4)),
+                        nativeLikeDecimals
                     });
                 }
             }
