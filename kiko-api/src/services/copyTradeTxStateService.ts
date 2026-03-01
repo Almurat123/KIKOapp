@@ -1,5 +1,6 @@
 import { get as cacheGet, set as cacheSet } from '../cache/cacheClient.js';
 import type { DecodedSwap } from './txDecoder.js';
+import { normalizeTxIdentity } from '../utils/txIdentity.js';
 
 export type CopyTradeTxState =
     | 'pending_seen'
@@ -43,15 +44,15 @@ const pendingPredecodedMemory = new Map<string, PendingPredecodedSwap>();
 const txStateMemory = new Map<string, TxStateSnapshot>();
 
 function pendingHintKey(chainId: number, txHash: string): string {
-    return `copytrade:pending_hint:${chainId}:${txHash.toLowerCase()}`;
+    return `copytrade:pending_hint:${chainId}:${normalizeTxIdentity(chainId, txHash)}`;
 }
 
 function txStateKey(chainId: number, txHash: string): string {
-    return `copytrade:tx_state:${chainId}:${txHash.toLowerCase()}`;
+    return `copytrade:tx_state:${chainId}:${normalizeTxIdentity(chainId, txHash)}`;
 }
 
 function pendingPredecodedKey(chainId: number, txHash: string, targetWallet: string): string {
-    return `copytrade:pending_predecoded:${chainId}:${txHash.toLowerCase()}:${targetWallet.toLowerCase()}`;
+    return `copytrade:pending_predecoded:${chainId}:${normalizeTxIdentity(chainId, txHash)}:${targetWallet.toLowerCase()}`;
 }
 
 function setMemoryWithTtl<T>(map: Map<string, T>, key: string, value: T, ttlSec: number): void {
@@ -62,7 +63,8 @@ function setMemoryWithTtl<T>(map: Map<string, T>, key: string, value: T, ttlSec:
 export async function markPendingTxHint(chainId: number, txHash: string, targetWallet: string, detectedAt = Date.now()): Promise<void> {
     if (!txHash) return;
     const key = pendingHintKey(chainId, txHash);
-    const hint: PendingHint = { detectedAt, targetWallet, chainId, txHash: txHash.toLowerCase() };
+    const normalizedTxHash = normalizeTxIdentity(chainId, txHash) || txHash;
+    const hint: PendingHint = { detectedAt, targetWallet, chainId, txHash: normalizedTxHash };
     setMemoryWithTtl(pendingHintMemory, key, hint, PENDING_HINT_TTL_SEC);
     await cacheSet(key, JSON.stringify(hint), PENDING_HINT_TTL_SEC).catch(() => { });
 }
@@ -76,12 +78,13 @@ export async function markPendingPredecodedSwap(
 ): Promise<void> {
     if (!txHash || !targetWallet) return;
     const key = pendingPredecodedKey(chainId, txHash, targetWallet);
+    const normalizedTxHash = normalizeTxIdentity(chainId, txHash) || txHash;
     const payload: PendingPredecodedSwap = {
         detectedAt,
         preparedAt: Date.now(),
         targetWallet: targetWallet.toLowerCase(),
         chainId,
-        txHash: txHash.toLowerCase(),
+        txHash: normalizedTxHash,
         swap
     };
     setMemoryWithTtl(pendingPredecodedMemory, key, payload, PENDING_PREDECODED_TTL_SEC);
@@ -134,11 +137,12 @@ export async function markCopyTradeTxState(
 ): Promise<void> {
     if (!txHash) return;
     const key = txStateKey(chainId, txHash);
+    const normalizedTxHash = normalizeTxIdentity(chainId, txHash) || txHash;
     const snapshot: TxStateSnapshot = {
         state,
         updatedAt: Date.now(),
         chainId,
-        txHash: txHash.toLowerCase(),
+        txHash: normalizedTxHash,
         meta
     };
     setMemoryWithTtl(txStateMemory, key, snapshot, TX_STATE_TTL_SEC);

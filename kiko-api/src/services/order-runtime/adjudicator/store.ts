@@ -5,11 +5,11 @@ const byTxHash = new Map<string, TxEvidenceSnapshot>();
 const byOrderId = new Map<string, string>();
 
 function txKey(chainId: number, txHash: string): string {
-  return `${chainId}:${String(txHash || '').toLowerCase()}`;
+  return `${chainId}:${txHash}`;
 }
 
 export function getSnapshotByTxHash(chainId: number, txHash?: string | null): TxEvidenceSnapshot | null {
-  const normalized = normalizeTxHash(txHash);
+  const normalized = normalizeTxHash(chainId, txHash);
   if (!normalized) return null;
   return byTxHash.get(txKey(chainId, normalized)) || null;
 }
@@ -22,11 +22,11 @@ export function getSnapshotByOrderId(orderId?: string | null): TxEvidenceSnapsho
 }
 
 export function upsertSnapshot(snapshot: TxEvidenceSnapshot): TxEvidenceSnapshot {
-  snapshot.allTxHashes = mergeTxHashAliases(snapshot.allTxHashes || [], [snapshot.canonicalTxHash]);
-  const canonical = normalizeTxHash(snapshot.canonicalTxHash) || snapshot.allTxHashes[0] || '';
+  snapshot.allTxHashes = mergeTxHashAliases(snapshot.chainId, snapshot.allTxHashes || [], [snapshot.canonicalTxHash]);
+  const canonical = normalizeTxHash(snapshot.chainId, snapshot.canonicalTxHash) || snapshot.allTxHashes[0] || '';
   if (!canonical) return snapshot;
   snapshot.canonicalTxHash = canonical;
-  const aliases = mergeTxHashAliases(snapshot.allTxHashes, [canonical]);
+  const aliases = mergeTxHashAliases(snapshot.chainId, snapshot.allTxHashes, [canonical]);
   for (const alias of aliases) {
     byTxHash.set(txKey(snapshot.chainId, alias), snapshot);
   }
@@ -35,7 +35,7 @@ export function upsertSnapshot(snapshot: TxEvidenceSnapshot): TxEvidenceSnapshot
 }
 
 export function bindOrderId(orderId: string | undefined, chainId: number, txHash?: string | null): void {
-  const normalized = normalizeTxHash(txHash);
+  const normalized = normalizeTxHash(chainId, txHash);
   if (!orderId || !normalized) return;
   byOrderId.set(orderId, txKey(chainId, normalized));
 }

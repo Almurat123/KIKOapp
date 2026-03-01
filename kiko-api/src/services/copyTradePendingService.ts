@@ -12,6 +12,7 @@ import { putContext } from './copytrade/context/contextStore.js';
 import { recordSuccessSample } from './copytrade/planner/sampleLibrary.js';
 import { getChainConfig } from '../config/chainConfig.js';
 import { reportReceiptSeen, reportWebhookSeen } from './order-runtime/adjudicator/service.js';
+import { normalizeTxIdentity } from '../utils/txIdentity.js';
 
 const ENABLED = (process.env.COPYTRADE_PENDING_WATCH_ENABLED || 'true') === 'true';
 const REFRESH_WALLETS_MS = Number(process.env.COPYTRADE_PENDING_WALLET_REFRESH_MS || 10000);
@@ -60,7 +61,7 @@ function inferExecutionSide(chainId: number, tokenIn: string, tokenOut: string):
 }
 
 function pendingDedupKey(chainId: number, txHash: string): string {
-    return `${chainId}:${txHash.toLowerCase()}`;
+    return `${chainId}:${normalizeTxIdentity(chainId, txHash)}`;
 }
 
 function cleanupLocalDedup(): void {
@@ -93,7 +94,7 @@ async function warmConfirmedSwapFromPending(
     tx: any
 ): Promise<void> {
     if (!PREFETCH_ENABLED) return;
-    const warmKey = `${chainId}:${txHash.toLowerCase()}:${targetWallet.toLowerCase()}`;
+    const warmKey = `${chainId}:${normalizeTxIdentity(chainId, txHash)}:${targetWallet.toLowerCase()}`;
     if (prefetchInFlight.has(warmKey)) return;
     if (prefetchInFlight.size >= PREFETCH_MAX_INFLIGHT) return;
     prefetchInFlight.add(warmKey);
@@ -237,7 +238,7 @@ async function pollOneChainPending(chainId: number): Promise<void> {
     if (!txs.length) return;
 
     for (const tx of txs) {
-        const txHash = String(tx?.hash || '').toLowerCase();
+        const txHash = normalizeTxIdentity(chainId, String(tx?.hash || '')) || '';
         if (!txHash) continue;
 
         const fromAddr = normalizeAddress(String(tx?.from || ''));

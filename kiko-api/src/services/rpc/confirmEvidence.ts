@@ -1,14 +1,14 @@
-export function normalizeTxHash(txHash?: string | null): string | null {
-  if (!txHash) return null;
-  const normalized = String(txHash).toLowerCase();
-  return /^0x[0-9a-f]{64}$/.test(normalized) ? normalized : null;
+import { normalizeTxIdentity } from '../../utils/txIdentity.js';
+
+export function normalizeTxHash(chainId: number, txHash?: string | null): string | null {
+  return normalizeTxIdentity(chainId, txHash);
 }
 
-export function mergeTxHashAliases(existing: string[], txHashes: Array<string | null | undefined>): string[] {
+export function mergeTxHashAliases(chainId: number, existing: string[], txHashes: Array<string | null | undefined>): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
   for (const raw of [...existing, ...txHashes]) {
-    const normalized = normalizeTxHash(raw);
+    const normalized = normalizeTxHash(chainId, raw);
     if (!normalized || seen.has(normalized)) continue;
     seen.add(normalized);
     out.push(normalized);

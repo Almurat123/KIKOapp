@@ -9,6 +9,7 @@ import {
     releaseTxProcessingLockDistributed
 } from '../services/watcherService.js';
 import { normalizeAddress } from '../utils/address.js';
+import { buildTxIdentityKey, normalizeTxIdentity } from '../utils/txIdentity.js';
 import { parseSwapTransaction, decodeSwapFromLogs } from '../services/txDecoder.js';
 import { env } from '../config/env.js';
 import crypto from 'node:crypto';
@@ -80,12 +81,12 @@ type WebhookBatchContext = {
 
 const webhookBatchByTxHash = new Map<string, WebhookBatchContext>();
 
-function normalizeTxHash(txHash: string): string {
-    return String(txHash || '').toLowerCase();
+function normalizeTxHash(chainId: number, txHash: string): string {
+    return normalizeTxIdentity(chainId, txHash) || '';
 }
 
 function localInflightKey(chainId: number, txHash: string): string {
-    return `${chainId}:${normalizeTxHash(txHash)}`;
+    return buildTxIdentityKey(chainId, txHash) || `${chainId}:`;
 }
 
 function tryClaimLocalInflight(chainId: number, txHash: string): boolean {
@@ -284,7 +285,7 @@ function scheduleReceiptRecovery(
     detectedAt?: number
 ): void {
     if (!trackedWallets.length) return;
-    const key = `${chainId}:${normalizeTxHash(txHash)}`;
+    const key = buildTxIdentityKey(chainId, txHash) || `${chainId}:`;
     if (receiptRecoveryInflight.has(key)) return;
     receiptRecoveryInflight.add(key);
 
@@ -542,7 +543,7 @@ function collectWebhookBatchContexts(payload: any): Array<{ chainId: number; txH
         const list = Array.isArray(activityItems) ? activityItems : [activityItems];
         const byTx = new Map<string, Set<string>>();
         for (const item of list) {
-            const txHash = normalizeTxHash(String(item?.hash || ''));
+            const txHash = normalizeTxHash(chainId, String(item?.hash || ''));
             if (!txHash) continue;
             const categories = byTx.get(txHash) || new Set<string>();
             categories.add(String(item?.category || 'unknown'));
@@ -556,7 +557,7 @@ function collectWebhookBatchContexts(payload: any): Array<{ chainId: number; txH
     const list = Array.isArray(solItems) ? solItems : [solItems];
     const out: Array<{ chainId: number; txHash: string; categories: Set<string> }> = [];
     for (const item of list) {
-        const txHash = normalizeTxHash(String(item?.signature || item?.hash || ''));
+        const txHash = normalizeTxHash(chainId, String(item?.signature || item?.hash || ''));
         if (!txHash) continue;
         out.push({ chainId, txHash, categories: new Set<string>(['solana']) });
     }
@@ -574,7 +575,7 @@ function buildBatchedPayload(batch: WebhookBatchContext): any {
         if (list) {
             const arr = Array.isArray(list) ? list : [list];
             for (const item of arr) {
-                if (normalizeTxHash(String(item?.hash || '')) === batch.txHash) {
+                if (normalizeTxHash(batch.chainId, String(item?.hash || '')) === batch.txHash) {
                     activity.push(item);
                 }
             }
@@ -583,7 +584,7 @@ function buildBatchedPayload(batch: WebhookBatchContext): any {
         if (sol) {
             const arr = Array.isArray(sol) ? sol : [sol];
             for (const item of arr) {
-                const hash = normalizeTxHash(String(item?.signature || item?.hash || ''));
+                const hash = normalizeTxHash(batch.chainId, String(item?.signature || item?.hash || ''));
                 if (hash === batch.txHash) transactions.push(item);
             }
         }
@@ -729,7 +730,7 @@ async function processAlchemyWebhookPayload(payload: any): Promise<void> {
             candidates = collectEvmActivityCandidates(evmActivities);
         }
 
-        txHash = normalizeTxHash(txHash);
+        txHash = normalizeTxHash(chainId, txHash);
         if (!txHash) return;
         if (payloadTxDedup.has(txHash)) return;
         payloadTxDedup.add(txHash);
@@ -1101,9 +1102,7 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
         }
 
         const { wallet, txHash, network } = request.body;
-        const txHashNormalized = normalizeTxHash(txHash);
-
-        if (!wallet || !txHashNormalized || !network) {
+        if (!wallet || !txHash || !network) {
             return reply.status(400).send({ error: 'wallet, txHash, and network are required' });
         }
 
@@ -1113,6 +1112,7 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
             console.warn(`[Webhook] Unknown network: ${network}`);
             return reply.status(400).send({ error: `Unknown network: ${network}` });
         }
+        const txHashNormalized = normalizeTxHash(chainId, txHash);
 
         if (!tryClaimLocalInflight(chainId, txHashNormalized)) {
             return reply.send({ success: true, skipped: true, reason: 'local_inflight_dedupe' });

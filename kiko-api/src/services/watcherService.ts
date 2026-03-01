@@ -11,6 +11,7 @@ import { callRpc as rpcCall, getTransactionByHash, getTransactionReceipt } from 
 import { fetchJson } from '../config/unifiedApiService.js';
 import { get as cacheGet, set as cacheSet, acquireLock, releaseLock } from '../cache/cacheClient.js';
 import { randomUUID } from 'node:crypto';
+import { buildTxIdentityKey, normalizeTxIdentity } from '../utils/txIdentity.js';
 
 const PROFILE = process.env.COPYTRADE_PROFILE ? process.env.COPYTRADE_PROFILE === 'true' : true;
 
@@ -31,27 +32,27 @@ const processedTxs: Set<string> = new Set();
 const PROCESSED_TX_TTL_SECONDS = Number(process.env.COPYTRADE_PROCESSED_TX_TTL_SEC || 24 * 60 * 60);
 const TX_INFLIGHT_LOCK_TTL_SECONDS = Number(process.env.COPYTRADE_TX_INFLIGHT_TTL_SEC || 45);
 
-function normalizeTxHash(txHash: string): string {
-    return String(txHash || '').toLowerCase();
+function normalizeTxHash(chainId: number, txHash: string): string {
+    return normalizeTxIdentity(chainId, txHash) || '';
 }
 
 function txProcessedCacheKey(txHash: string, chainId: number): string {
-    return `copytrade:processed:${chainId}:${normalizeTxHash(txHash)}`;
+    return `copytrade:processed:${chainId}:${normalizeTxHash(chainId, txHash)}`;
 }
 
 function txInflightLockKey(txHash: string, chainId: number): string {
-    return `copytrade:inflight:${chainId}:${normalizeTxHash(txHash)}`;
+    return `copytrade:inflight:${chainId}:${normalizeTxHash(chainId, txHash)}`;
 }
 
 /**
  * Check if a transaction has already been processed
  */
 export function isTxProcessed(txHash: string): boolean {
-    return processedTxs.has(normalizeTxHash(txHash));
+    return processedTxs.has(txHash.toLowerCase());
 }
 
 export async function isTxProcessedDistributed(txHash: string, chainId: number): Promise<boolean> {
-    const normalized = normalizeTxHash(txHash);
+    const normalized = normalizeTxHash(chainId, txHash);
     if (processedTxs.has(normalized)) {
         return true;
     }
@@ -68,11 +69,11 @@ export async function isTxProcessedDistributed(txHash: string, chainId: number):
  * Mark a transaction as processed
  */
 export function markTxAsProcessed(txHash: string): void {
-    processedTxs.add(normalizeTxHash(txHash));
+    processedTxs.add(txHash.toLowerCase());
 }
 
 export async function markTxAsProcessedDistributed(txHash: string, chainId: number): Promise<void> {
-    processedTxs.add(normalizeTxHash(txHash));
+    processedTxs.add(normalizeTxHash(chainId, txHash));
     await cacheSet(txProcessedCacheKey(txHash, chainId), '1', PROCESSED_TX_TTL_SECONDS).catch(() => { });
 }
 

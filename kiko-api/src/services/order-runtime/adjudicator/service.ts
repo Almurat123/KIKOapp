@@ -1,9 +1,10 @@
 import { adjudicateSnapshot } from './rules.js';
 import { bindOrderId, getSnapshotByOrderId, getSnapshotByTxHash, upsertSnapshot } from './store.js';
 import type { TxEvidenceSnapshot, TxEvidenceSource } from './types.js';
+import { normalizeTxHash } from '../../rpc/confirmEvidence.js';
 
 function createEmptySnapshot(chainId: number, txHash?: string | null, orderId?: string): TxEvidenceSnapshot {
-  const canonicalTxHash = txHash ? String(txHash).toLowerCase() : undefined;
+  const canonicalTxHash = normalizeTxHash(chainId, txHash) || undefined;
   return {
     orderId,
     chainId,
@@ -32,7 +33,7 @@ function getOrCreate(params: { chainId: number; txHash?: string | null; orderId?
 function normalizeAndStore(snapshot: TxEvidenceSnapshot): TxEvidenceSnapshot {
   const canonical = snapshot.canonicalTxHash || snapshot.allTxHashes[0];
   if (canonical) {
-    snapshot.canonicalTxHash = canonical.toLowerCase();
+    snapshot.canonicalTxHash = normalizeTxHash(snapshot.chainId, canonical) || canonical;
     if (!snapshot.allTxHashes.includes(snapshot.canonicalTxHash)) {
       snapshot.allTxHashes.unshift(snapshot.canonicalTxHash);
     }
@@ -49,7 +50,7 @@ export function reportSendAccepted(params: {
 }): TxEvidenceSnapshot {
   const snapshot = getOrCreate(params);
   snapshot.orderId = snapshot.orderId || params.orderId;
-  snapshot.canonicalTxHash = String(params.txHash).toLowerCase();
+  snapshot.canonicalTxHash = normalizeTxHash(params.chainId, params.txHash) || String(params.txHash);
   if (!snapshot.allTxHashes.includes(snapshot.canonicalTxHash)) snapshot.allTxHashes.push(snapshot.canonicalTxHash);
   snapshot.send = {
     accepted: true,
@@ -71,7 +72,7 @@ export function reportTxByHashSeen(params: {
 }): TxEvidenceSnapshot {
   const snapshot = getOrCreate(params);
   snapshot.orderId = snapshot.orderId || params.orderId;
-  snapshot.canonicalTxHash = snapshot.canonicalTxHash || String(params.txHash).toLowerCase();
+  snapshot.canonicalTxHash = snapshot.canonicalTxHash || normalizeTxHash(params.chainId, params.txHash) || String(params.txHash);
   if (!snapshot.allTxHashes.includes(snapshot.canonicalTxHash)) snapshot.allTxHashes.push(snapshot.canonicalTxHash);
   snapshot.txByHash = {
     seen: true,
@@ -96,7 +97,7 @@ export function reportReceiptSeen(params: {
 }): TxEvidenceSnapshot {
   const snapshot = getOrCreate(params);
   snapshot.orderId = snapshot.orderId || params.orderId;
-  snapshot.canonicalTxHash = snapshot.canonicalTxHash || String(params.txHash).toLowerCase();
+  snapshot.canonicalTxHash = snapshot.canonicalTxHash || normalizeTxHash(params.chainId, params.txHash) || String(params.txHash);
   if (!snapshot.allTxHashes.includes(snapshot.canonicalTxHash)) snapshot.allTxHashes.push(snapshot.canonicalTxHash);
   snapshot.receipt = {
     seen: true,
@@ -119,7 +120,7 @@ export function reportWebhookSeen(params: {
 }): TxEvidenceSnapshot {
   const snapshot = getOrCreate(params);
   snapshot.orderId = snapshot.orderId || params.orderId;
-  snapshot.canonicalTxHash = snapshot.canonicalTxHash || String(params.txHash).toLowerCase();
+  snapshot.canonicalTxHash = snapshot.canonicalTxHash || normalizeTxHash(params.chainId, params.txHash) || String(params.txHash);
   if (!snapshot.allTxHashes.includes(snapshot.canonicalTxHash)) snapshot.allTxHashes.push(snapshot.canonicalTxHash);
   snapshot.webhook = {
     seen: true,
@@ -139,7 +140,7 @@ export function reportRpcUncertain(params: {
 }): TxEvidenceSnapshot {
   const snapshot = getOrCreate(params);
   snapshot.orderId = snapshot.orderId || params.orderId;
-  snapshot.canonicalTxHash = snapshot.canonicalTxHash || String(params.txHash).toLowerCase();
+  snapshot.canonicalTxHash = snapshot.canonicalTxHash || normalizeTxHash(params.chainId, params.txHash) || String(params.txHash);
   if (!snapshot.allTxHashes.includes(snapshot.canonicalTxHash)) snapshot.allTxHashes.push(snapshot.canonicalTxHash);
   snapshot.txByHash.rpcError = params.error;
   snapshot.receipt.rpcError = params.error;
