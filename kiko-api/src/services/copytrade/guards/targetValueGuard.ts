@@ -20,6 +20,8 @@ export type TargetValueSnapshot = {
     strictMinGuardRequired: boolean;
 };
 
+const EVM_NATIVE_PLACEHOLDER = '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
+
 function normalizeFiniteNumber(value: unknown): number | null {
     const n = Number(value);
     if (!Number.isFinite(n)) return null;
@@ -87,28 +89,34 @@ export async function computeBuyTargetValueSnapshot(
     tokenInfo: any
 ): Promise<TargetValueSnapshot> {
     const chainConfig = getChainConfig(chainId);
-    const cashTokens = [
-        '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee',
-        ZORA_TOKEN,
-        chainConfig.wrappedNativeAddress,
+    const strictCashTokens = [
         ...chainConfig.stablecoins,
-        SOLANA_CONFIG.TOKENS.SOL,
         SOLANA_CONFIG.TOKENS.USDC,
         SOLANA_CONFIG.TOKENS.USDT
     ].map((s) => normalizeAddress(s));
+    const nativeLikeTokens = [
+        EVM_NATIVE_PLACEHOLDER,
+        chainConfig.wrappedNativeAddress,
+        SOLANA_CONFIG.TOKENS.SOL
+    ].map((s) => normalizeAddress(s));
+    const estimateInputTokens = [ZORA_TOKEN].map((s) => normalizeAddress(s));
 
-    const isTokenInCash = cashTokens.includes(normalizeAddress(swap.tokenIn));
+    const normalizedTokenIn = normalizeAddress(swap.tokenIn);
+    const isTokenInStrictCash = strictCashTokens.includes(normalizedTokenIn);
+    const isTokenInNativeLike = nativeLikeTokens.includes(normalizedTokenIn);
+    const isTokenInEstimateInput = estimateInputTokens.includes(normalizedTokenIn);
+    const isTokenInCashLike = isTokenInStrictCash || isTokenInNativeLike || isTokenInEstimateInput;
     let targetSwapValueUsd = 0;
     let strictTargetSwapValueUsd = 0;
     let strictTargetSwapValueReliable = false;
     let strictTargetSwapValueSource = 'none';
-    const strictMinGuardRequired = isTokenInCash;
+    const strictMinGuardRequired = isTokenInStrictCash;
 
-    if (isTokenInCash) {
+    if (isTokenInCashLike) {
         const isStableIn = chainConfig.stablecoins
             .map((s) => normalizeAddress(s))
-            .includes(normalizeAddress(swap.tokenIn));
-        const isZoraIn = normalizeAddress(swap.tokenIn) === normalizeAddress(ZORA_TOKEN);
+            .includes(normalizedTokenIn);
+        const isZoraIn = normalizedTokenIn === normalizeAddress(ZORA_TOKEN);
         const amountInBN = parsePositiveBigInt(swap.amountIn);
 
         if (isStableIn) {
@@ -135,8 +143,14 @@ export async function computeBuyTargetValueSnapshot(
             } else {
                 targetSwapValueUsd = formatTokenAmount(amountInBN, 18) * zoraInfo.price;
                 strictTargetSwapValueUsd = targetSwapValueUsd;
-                strictTargetSwapValueReliable = true;
-                strictTargetSwapValueSource = 'zora_amount_in';
+                strictTargetSwapValueReliable = false;
+                strictTargetSwapValueSource = 'zora_amount_in_estimate';
+                logger.warn(LogCode.WTC_TX_SKIPPED, '[CopyTradeGuard] ZORA input value treated as estimate, not strict cash value', {
+                    txHash: swap.txHash,
+                    chainId,
+                    strictSource: strictTargetSwapValueSource,
+                    strictValueUsd: Number(strictTargetSwapValueUsd.toFixed(4))
+                });
             }
         } else {
             const nativePrice = await cacheHub.getNativePrice(chainId, async () => getNativeTokenPriceUsd(chainId));
@@ -156,11 +170,11 @@ export async function computeBuyTargetValueSnapshot(
                     strictTargetSwapValueSource = 'cash_leg_hint';
                 } else if (strictAmountWei > 0n) {
                     strictTargetSwapValueUsd = formatTokenAmount(strictAmountWei, 18) * nativePrice;
-                    strictTargetSwapValueReliable = false;
+                    strictTargetSwapValueReliable = true;
                     strictTargetSwapValueSource = sourceTxValueWei > 0n
-                        ? 'source_tx_value_estimate'
-                        : 'decoded_amount_in_estimate';
-                    logger.warn(LogCode.WTC_TX_SKIPPED, '[CopyTradeGuard] Native cash leg strict value downgraded to estimate', {
+                        ? 'native_like_source_tx_value'
+                        : 'native_like_amount_in';
+                    logger.info(LogCode.EXE_QUOTE_FETCHED, '[CopyTradeGuard] Native-like amount treated as trusted input; USD derived from native price', {
                         txHash: swap.txHash,
                         chainId,
                         strictSource: strictTargetSwapValueSource,
@@ -189,7 +203,7 @@ export async function computeBuyTargetValueSnapshot(
     }
 
     const hintedCashSpentUsd = Number(swap?.cashLegHint?.cashSpentUsd || 0);
-    if (isTokenInCash && Number.isFinite(hintedCashSpentUsd) && hintedCashSpentUsd > 0) {
+    if (isTokenInCashLike && Number.isFinite(hintedCashSpentUsd) && hintedCashSpentUsd > 0) {
         const previous = targetSwapValueUsd;
         targetSwapValueUsd = Math.max(targetSwapValueUsd, hintedCashSpentUsd);
         if (targetSwapValueUsd > previous) {

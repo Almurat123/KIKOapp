@@ -8,9 +8,14 @@ export const ASSOCIATED_TOKEN_PROGRAM_ID = new PublicKey('ATokenGPvbdGVxr1b2hvZb
 /**
  * Derive the associated token account (ATA) for a given mint and owner.
  */
-export function getAssociatedTokenAddress(mint: PublicKey, owner: PublicKey, allowOwnerOffCurve: boolean = false): PublicKey {
+export function getAssociatedTokenAddress(
+  mint: PublicKey,
+  owner: PublicKey,
+  allowOwnerOffCurve: boolean = false,
+  tokenProgramId: PublicKey = TOKEN_PROGRAM_ID
+): PublicKey {
   const [address] = PublicKey.findProgramAddressSync(
-    [owner.toBuffer(), TOKEN_PROGRAM_ID.toBuffer(), mint.toBuffer()],
+    [owner.toBuffer(), tokenProgramId.toBuffer(), mint.toBuffer()],
     ASSOCIATED_TOKEN_PROGRAM_ID
   );
   return address;

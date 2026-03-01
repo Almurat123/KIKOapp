@@ -26,6 +26,7 @@ import { detectLaunchpadToken } from './ai/launchpadDetector.js';
 import { zoraSniperService, ZoraSniperService } from './zoraSniperService.js';
 import { buyTokenAMAP } from './fourMemeService.js';
 import { SolanaLaunchpadSwapService } from './solanaLaunchpadSwapService.js';
+import { buildSolanaDirectRequest, executeSolanaDirectLaunchpad } from './solana/direct/router.js';
 import { getTokenInfo } from './tokenService.js';
 import { getPlatformFee, isValidEvmAddress, type FeeContext } from './platformFeeService.js';
 import { NATIVE_TOKEN_ADDRESS, SOLANA_NATIVE_MINT, isNativeToken } from '../config/tokenRegistry.js';
@@ -1012,39 +1013,57 @@ export class MainSwapService {
         case 'pumpfun':
         case 'pumpswap':
         case 'bonkfun': {
-          // Solana launchpads:
-          // - pumpfun/bonkfun: native launchpad program path
-          // - pumpswap: treat as post-bonding AMM and route via fast Solana swap path
-          if (provider === 'pumpswap') {
-            const result = await this.executeSolanaSwap(request, feeContext, trace, ctx);
-            result.metadata = {
-              ...(result.metadata || {}),
-              launchpad: 'pumpswap'
-            };
-            return result;
-          }
-
-          // Solana - Pump.fun or Bonk.fun (LaunchLab)
-          const service = new SolanaLaunchpadSwapService();
           // ⚡ Use TradeContext-aware data fetching (auto-caches)
           const tokenInInfo = await getTokenData(request.tokenIn, SOLANA_CONFIG.CHAIN_ID, ctx);
           const decimals = tokenInInfo?.decimals || (provider === 'bonkfun' ? 6 : 9);
-
           const amountAtomic = Math.floor(
             parseFloat(request.amountIn) * Math.pow(10, decimals)
           ).toString();
-
-          txHash = await service.fastSwap({
+          const directRequest = await buildSolanaDirectRequest({
             userId: request.userId,
             mint: request.tokenOut,
-            amount: amountAtomic,
+            amountAtomic,
             isBuy: true,
             slippageBps: request.slippageBps || 300,
-            provider: provider as 'pumpfun' | 'bonkfun',
+            provider: provider as 'pumpfun' | 'pumpswap' | 'bonkfun',
             feeContext
           });
-          providerName = provider;
-          break;
+          const directResult = await executeSolanaDirectLaunchpad(directRequest);
+
+          if (directResult.ok) {
+            txHash = directResult.txHash;
+            providerName = provider;
+            break;
+          }
+
+          logger.warn(LogCode.EXE_TX_REVERTED, trace(`${provider} direct launchpad path failed; falling back to aggregator path`), {
+            provider,
+            reasonCode: directResult.reasonCode,
+            message: directResult.message
+          });
+
+          if (provider === 'pumpfun') {
+            const service = new SolanaLaunchpadSwapService();
+            txHash = await service.fastSwap({
+              userId: request.userId,
+              mint: request.tokenOut,
+              amount: amountAtomic,
+              isBuy: true,
+              slippageBps: request.slippageBps || 300,
+              provider: 'pumpfun',
+              feeContext
+            });
+            providerName = 'pumpfun';
+            break;
+          }
+
+          const result = await this.executeSolanaSwap(request, feeContext, trace, ctx);
+          result.metadata = {
+            ...(result.metadata || {}),
+            launchpad: provider,
+            provider: `${result.metadata?.provider || 'solana'}:${provider}:fallback`
+          };
+          return result;
         }
 
         default:
