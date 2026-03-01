@@ -1324,11 +1324,15 @@ async function processBuyWithInfo(
                 maxSlippageBps: universalSlippageBps
             };
 
-            const filterResult = await passesFilters(
+            const filterResult = await evaluateStaticBuyGuards(
                 tokenInfo,
                 effectiveConfig,
                 targetSwapValueUsd,
-                resolveBuyGuardPolicy(resolveExecutionModeForConfig(config))
+                resolveBuyGuardPolicy(resolveExecutionModeForConfig(config)),
+                {
+                    targetValueSnapshot,
+                    liquidityGuardSnapshot
+                }
             );
             return { config, filterResult, effectiveConfig, userSettings };
         })
@@ -3817,10 +3821,11 @@ export async function passesFilters(
     tokenInfo: any,
     config: any,
     targetSwapValueUsd: number,
-    policy = resolveBuyGuardPolicy('normal')
+    policy = resolveBuyGuardPolicy('normal'),
+    options?: Parameters<typeof evaluateStaticBuyGuards>[4]
 ) {
     if (!tokenInfo) return { passed: false, reason: 'No token info' };
-    return evaluateStaticBuyGuards(tokenInfo, config, targetSwapValueUsd, policy);
+    return evaluateStaticBuyGuards(tokenInfo, config, targetSwapValueUsd, policy, options);
 }
 
 // Test-only hooks used by deterministic stress scripts.
