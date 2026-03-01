@@ -1,0 +1,232 @@
+import type { ParsedTransactionWithMeta } from '@solana/web3.js';
+import type { SolanaDecodedSwap, SolanaDecodeContext, SolanaInstructionLike } from './types.js';
+import { SOLANA_CONFIG } from '../../../config/solanaConfig.js';
+
+type TokenTransfer = {
+    mint: string;
+    source?: string;
+    destination?: string;
+    authority?: string;
+    amount: bigint;
+};
+
+export function buildProgramPatternSwap(
+    tx: ParsedTransactionWithMeta,
+    context: SolanaDecodeContext,
+    options: {
+        dexName: string;
+        preferredPrograms: string[];
+    }
+): SolanaDecodedSwap | null {
+    const accountKeys = extractAccountKeys(tx);
+    const instructions = flattenParsedInstructions(tx);
+    const walletOwnedPostAccounts = new Set<string>();
+    const walletOwnedPreAccounts = new Set<string>();
+    const walletOwnedAccounts = new Map<string, string>();
+    const wrappedNativeAccounts = new Set<string>();
+
+    for (const balance of tx.meta?.postTokenBalances || []) {
+        if (balance.owner === context.walletAddress) {
+            const account = accountKeys[balance.accountIndex];
+            if (account) {
+                walletOwnedPostAccounts.add(account);
+                walletOwnedAccounts.set(account, balance.mint);
+            }
+        }
+    }
+    for (const balance of tx.meta?.preTokenBalances || []) {
+        if (balance.owner === context.walletAddress) {
+            const account = accountKeys[balance.accountIndex];
+            if (account) {
+                walletOwnedPreAccounts.add(account);
+                walletOwnedAccounts.set(account, balance.mint);
+                if (balance.mint === SOLANA_CONFIG.TOKENS.SOL) wrappedNativeAccounts.add(account);
+            }
+        }
+    }
+
+    for (const instruction of instructions) {
+        const parsed = instruction.parsed;
+        const info = parsed?.info || {};
+        if (parsed?.type === 'initializeAccount' || parsed?.type === 'initializeAccount3') {
+            if (info.owner === context.walletAddress && info.account && info.mint) {
+                walletOwnedAccounts.set(info.account, info.mint);
+                if (info.mint === SOLANA_CONFIG.TOKENS.SOL) wrappedNativeAccounts.add(info.account);
+            }
+        }
+        if (parsed?.type === 'createIdempotent') {
+            if (info.wallet === context.walletAddress && info.account && info.mint) {
+                walletOwnedAccounts.set(info.account, info.mint);
+                walletOwnedPostAccounts.add(info.account);
+            }
+        }
+        if ((parsed?.type === 'createAccount' || parsed?.type === 'createAccountWithSeed') && info.owner && info.newAccount) {
+            if (String(info.source || info.base || '') === context.walletAddress && String(info.owner).includes('Token')) {
+                wrappedNativeAccounts.add(info.newAccount);
+            }
+        }
+    }
+
+    const transfers = instructions
+        .map(extractTokenTransfer)
+        .filter((transfer): transfer is TokenTransfer => transfer !== null)
+        .filter((transfer) => transfer.amount > 0n);
+
+    let tokenOut = '';
+    let amountOut = 0n;
+    for (const transfer of transfers) {
+        if (
+            transfer.destination &&
+            walletOwnedAccounts.get(transfer.destination) === transfer.mint &&
+            transfer.mint !== SOLANA_CONFIG.TOKENS.SOL &&
+            transfer.amount > amountOut
+        ) {
+            tokenOut = transfer.mint;
+            amountOut = transfer.amount;
+        }
+    }
+
+    if (!tokenOut || amountOut === 0n) {
+        const balanceFallback = deriveOutputFromPostBalances(tx, context.walletAddress, accountKeys);
+        tokenOut = balanceFallback.tokenOut;
+        amountOut = balanceFallback.amountOut;
+    }
+
+    let tokenIn = '';
+    let amountIn = 0n;
+    for (const transfer of transfers) {
+        const sourceIsWalletWrappedSol = transfer.source && wrappedNativeAccounts.has(transfer.source);
+        const sourceIsWalletToken = transfer.source && walletOwnedPreAccounts.has(transfer.source);
+        const authorityIsWallet = transfer.authority === context.walletAddress;
+        if ((sourceIsWalletWrappedSol || sourceIsWalletToken || authorityIsWallet) && transfer.amount > amountIn) {
+            tokenIn = transfer.mint;
+            amountIn = transfer.amount;
+        }
+    }
+
+    if (!tokenIn || amountIn === 0n) {
+        const lamportSpend = deriveNativeSpendFromSystemTransfers(instructions, wrappedNativeAccounts, context.walletAddress);
+        if (lamportSpend > 0n) {
+            tokenIn = SOLANA_CONFIG.TOKENS.SOL;
+            amountIn = lamportSpend;
+        }
+    }
+
+    if (!tokenIn || !tokenOut || amountIn <= 0n || amountOut <= 0n) {
+        return null;
+    }
+
+    return {
+        tokenIn,
+        tokenOut,
+        amountIn: amountIn.toString(),
+        amountOut: amountOut.toString(),
+        router: inferPrimaryProgramId(tx, options.preferredPrograms),
+        dexName: options.dexName,
+        txHash: context.txHash,
+    };
+}
+
+export function txHasAnyProgram(tx: ParsedTransactionWithMeta, programs: string[]): boolean {
+    const ids = collectProgramIds(tx);
+    return programs.some((program) => ids.has(program));
+}
+
+function extractAccountKeys(tx: ParsedTransactionWithMeta): string[] {
+    return (tx.transaction.message.accountKeys as any[]).map((key: any) => {
+        if (typeof key === 'string') return key;
+        if (key?.pubkey?.toBase58) return key.pubkey.toBase58();
+        if (key?.toBase58) return key.toBase58();
+        return String(key || '');
+    });
+}
+
+function flattenParsedInstructions(tx: ParsedTransactionWithMeta): SolanaInstructionLike[] {
+    const list: SolanaInstructionLike[] = [];
+    for (const instruction of tx.transaction.message.instructions as any[]) list.push(instruction);
+    for (const frame of tx.meta?.innerInstructions || []) {
+        for (const instruction of (frame as any).instructions || []) list.push(instruction);
+    }
+    return list;
+}
+
+function extractTokenTransfer(instruction: SolanaInstructionLike): TokenTransfer | null {
+    const parsed = instruction.parsed;
+    const info = parsed?.info || {};
+    if (parsed?.type !== 'transferChecked') return null;
+    const amount = BigInt(info.tokenAmount?.amount || '0');
+    return {
+        mint: String(info.mint || ''),
+        source: info.source ? String(info.source) : undefined,
+        destination: info.destination ? String(info.destination) : undefined,
+        authority: info.authority ? String(info.authority) : undefined,
+        amount,
+    };
+}
+
+function deriveOutputFromPostBalances(
+    tx: ParsedTransactionWithMeta,
+    walletAddress: string,
+    accountKeys: string[]
+): { tokenOut: string; amountOut: bigint } {
+    let tokenOut = '';
+    let amountOut = 0n;
+    for (const post of tx.meta?.postTokenBalances || []) {
+        if (post.owner !== walletAddress || post.mint === SOLANA_CONFIG.TOKENS.SOL) continue;
+        const pre = (tx.meta?.preTokenBalances || []).find((candidate) => candidate.accountIndex === post.accountIndex);
+        const postAmount = BigInt(post.uiTokenAmount.amount);
+        const preAmount = BigInt(pre?.uiTokenAmount.amount || '0');
+        const delta = postAmount - preAmount;
+        if (delta > amountOut) {
+            tokenOut = post.mint;
+            amountOut = delta;
+        }
+        const account = accountKeys[post.accountIndex];
+        if (account && !pre && postAmount > amountOut) {
+            tokenOut = post.mint;
+            amountOut = postAmount;
+        }
+    }
+    return { tokenOut, amountOut };
+}
+
+function deriveNativeSpendFromSystemTransfers(
+    instructions: SolanaInstructionLike[],
+    wrappedNativeAccounts: Set<string>,
+    walletAddress: string
+): bigint {
+    let maxLamports = 0n;
+    for (const instruction of instructions) {
+        const parsed = instruction.parsed;
+        const info = parsed?.info || {};
+        if (parsed?.type !== 'transfer') continue;
+        if (String(info.source || '') !== walletAddress) continue;
+        if (!wrappedNativeAccounts.has(String(info.destination || ''))) continue;
+        const lamports = BigInt(info.lamports || '0');
+        if (lamports > maxLamports) maxLamports = lamports;
+    }
+    return maxLamports;
+}
+
+function inferPrimaryProgramId(tx: ParsedTransactionWithMeta, preferredPrograms: string[]): string {
+    const ids = Array.from(collectProgramIds(tx));
+    const preferred = ids.find((id) => preferredPrograms.includes(id));
+    if (preferred) return preferred;
+    return ids.find((id) => !id.startsWith('ComputeBudget') && id !== '11111111111111111111111111111111') || '';
+}
+
+function collectProgramIds(tx: ParsedTransactionWithMeta): Set<string> {
+    const ids = new Set<string>();
+    for (const instruction of flattenParsedInstructions(tx)) {
+        const programId = normalizeProgramId(instruction.programId);
+        if (programId) ids.add(programId);
+    }
+    return ids;
+}
+
+function normalizeProgramId(programId: any): string {
+    if (!programId) return '';
+    if (typeof programId === 'string') return programId;
+    if (programId?.toBase58) return programId.toBase58();
+    return '';
+}
