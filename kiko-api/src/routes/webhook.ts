@@ -1439,7 +1439,11 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
         const payload = request.body as any;
         const rawNetwork = extractAlchemyNetwork(payload) || 'unknown';
         const sampleActivity = payload?.event?.activity?.[0] || payload?.event?.activity;
-        const sampleTx = payload?.event?.event?.transaction?.[0] || payload?.event?.event?.transaction;
+        const sampleTx =
+            payload?.event?.transaction?.[0] ||
+            payload?.event?.transaction ||
+            payload?.event?.event?.transaction?.[0] ||
+            payload?.event?.event?.transaction;
         const sampleHash = sampleActivity?.hash || sampleTx?.signature || 'n/a';
         const sampleCategory = sampleActivity?.category || 'n/a';
         const sampleAsset = sampleActivity?.asset || sampleActivity?.rawContract?.address || 'n/a';

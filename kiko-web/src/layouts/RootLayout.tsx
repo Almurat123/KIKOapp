@@ -284,6 +284,11 @@ export const RootLayout: React.FC = () => {
                 const dedupKey = `${targetSessionId}:${completionId}`;
                 console.log('[RootLayout] message_complete:', completionId, 'Pending:', sessionPending.size);
 
+                // Dispatch event to refresh sidebar usage count now that the message computation is done
+                if (typeof window !== 'undefined') {
+                    window.dispatchEvent(new CustomEvent('kiko-usage-refresh'));
+                }
+
                 // Dedup: skip only if we already processed AND state is already clean
                 if (lastProcessedCompletionRef.current === dedupKey && sessionPending.size === 0) {
                     console.log('[RootLayout] Skipping duplicate complete with empty pending');
@@ -339,7 +344,7 @@ export const RootLayout: React.FC = () => {
                                 updateConversation(targetSessionId, { messages: merged });
                                 console.log('[RootLayout] message_complete pending-flush: refetch merged content', { completionId, contentLen: (fromDb.content || '').length });
                             }
-                        }).catch(() => {});
+                        }).catch(() => { });
                     }
                 } else if (tConv) {
                     // No pending chunks — just finalize message status and clear task
@@ -381,7 +386,7 @@ export const RootLayout: React.FC = () => {
                                 });
                                 updateConversation(targetSessionId, { messages: merged });
                             }
-                        }).catch(() => {});
+                        }).catch(() => { });
                     }
                 }
             }
