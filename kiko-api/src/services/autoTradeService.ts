@@ -80,6 +80,7 @@ import { emitCopyTradeBuyGuardAudit, roundGuardNumber } from './copytrade/guards
 import { resolveBuyLiquidityGuardSnapshot } from './copytrade/guards/liquidityGuard.js';
 import { buildDuplicateTradeWhere, describeCooldownMode } from './copytrade/guards/cooldownPolicy.js';
 import { evaluateStaticBuyGuards } from './copytrade/guards/evaluator.js';
+import { emitBatchFilterAudit } from './copytrade/guards/batchFilterAudit.js';
 import { resolveBuyGuardPolicy, shouldEnforceBuyGuard } from './copytrade/guards/policy.js';
 
 export { getTokenInfo } from './tokenService.js';
@@ -1342,11 +1343,16 @@ async function processBuyWithInfo(
     const eligibleConfigs: any[] = [];
     const skippedUsers: any[] = [];
 
-    for (const { config, filterResult } of filterResults) {
+    for (const { config, filterResult, effectiveConfig } of filterResults) {
         if (filterResult.passed) {
             eligibleConfigs.push(config);
         } else {
-            skippedUsers.push({ config, reason: filterResult.reason });
+            skippedUsers.push({
+                config,
+                reason: filterResult.reason,
+                policy: resolveBuyGuardPolicy(resolveExecutionModeForConfig(config)),
+                effectiveConfig
+            });
         }
     }
 
@@ -1355,6 +1361,14 @@ async function processBuyWithInfo(
         totalTurboBypassed: turboConfigs.length,
         eligible: eligibleConfigs.length,
         skipped: skippedUsers.length
+    });
+    emitBatchFilterAudit({
+        targetWallet,
+        token: tokenToBuy,
+        chainId,
+        total: configs.length,
+        eligible: eligibleConfigs.length,
+        skippedUsers
     });
 
     // Send notifications to skipped users (async, non-blocking)
@@ -1380,7 +1394,14 @@ async function processBuyWithInfo(
 
     // If no eligible users, exit early
     if (eligibleConfigs.length === 0) {
-        logger.info(LogCode.WTC_TX_SKIPPED, 'No eligible users after batch filter', { targetWallet, token: tokenToBuy });
+        logger.info(LogCode.WTC_TX_SKIPPED, 'No eligible users after batch filter', {
+            targetWallet,
+            token: tokenToBuy,
+            chainId,
+            topReasons: skippedUsers
+                .slice(0, 5)
+                .map((entry: any) => entry.reason || 'unknown')
+        });
         return;
     }
 
