@@ -1,9 +1,11 @@
 import type { ParsedTransactionWithMeta } from '@solana/web3.js';
 import { normalizeAddress } from '../../utils/address.js';
 import { processResolvedSolanaWebhookTx } from './solanaWebhookProcessor.js';
+import { fetchSolanaTxDetails } from './txDetailsFetcher.js';
 
 export async function fetchParsedSolanaTransaction(txHash: string): Promise<ParsedTransactionWithMeta | null> {
-    return null;
+    const result = await fetchSolanaTxDetails(txHash, 900);
+    return result.ok ? result.tx : null;
 }
 
 export function extractCandidateAddressesFromParsedSolanaTransaction(

@@ -833,6 +833,7 @@ async function processAlchemyWebhookPayload(payload: any): Promise<void> {
                     });
                 } catch (err) {
                     console.error(`[Webhook] Error processing Solana tx ${txHash}:`, err);
+                    throw err;
                 }
                 return;
             }

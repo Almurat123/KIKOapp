@@ -274,11 +274,11 @@ export async function persistTargetSwapEvent(params: {
   // derive the USD value from the cash leg (stablecoins / native token) of the
   // swap using fillUsdFromDecodedLeg.  Without this, the WalletTransaction row
   // is inserted with valueUsd=null and the PnL calculator ignores the row.
-  let resolvedValueInUsd  = normUsd(params.valueInUsd);
+  let resolvedValueInUsd = normUsd(params.valueInUsd);
   let resolvedValueOutUsd = normUsd(params.valueOutUsd);
-  let resolvedValueUsd    = normUsd(params.valueUsd);
+  let resolvedValueUsd = normUsd(params.valueUsd);
 
-  const tokenInAddr  = params.tokenInAddress  ? normalizeAddress(params.tokenInAddress)  : normalizeAddress(params.tokenIn);
+  const tokenInAddr = params.tokenInAddress ? normalizeAddress(params.tokenInAddress) : normalizeAddress(params.tokenIn);
   const tokenOutAddr = params.tokenOutAddress ? normalizeAddress(params.tokenOutAddress) : normalizeAddress(params.tokenOut);
 
   if (!resolvedValueInUsd && params.amountIn && tokenInAddr) {
@@ -608,10 +608,10 @@ export async function bootstrapTrackedWalletHistory(
     txType === 'BUY' || txType === 'SELL' || txType === 'SWAP';
   let decodeDeps:
     | {
-        fetchTransaction: (txHash: string, chainId: number) => Promise<any>;
-        fetchTransactionReceipt: (txHash: string, chainId: number) => Promise<any>;
-        parseSwapTransaction: (tx: any, receipt: any, chainId: number, walletAddress: string) => Promise<any>;
-      }
+      fetchTransaction: (txHash: string, chainId: number) => Promise<any>;
+      fetchTransactionReceipt: (txHash: string, chainId: number) => Promise<any>;
+      parseSwapTransaction: (tx: any, receipt: any, chainId: number, walletAddress: string) => Promise<any>;
+    }
     | null
     = null;
   const ensureDecodeDeps = async () => {
@@ -789,17 +789,17 @@ export async function getTargetWalletStatus(params: {
     ? (Date.now() - new Date(cfg.targetMetricsUpdatedAt).getTime()) / 1000
     : Infinity;
   if (metricsAge > TARGET_METRICS_STALE_SEC) {
-    // Bootstrap picks up any wallet history the webhook may have missed.
-    // Await it so WalletTransaction rows are seeded BEFORE the recompute reads them.
-    // It is internally throttled (Redis lock) so concurrent calls are no-ops.
-    await bootstrapTrackedWalletHistory(cfg.targetWallet, cfg.chainId, 120, { source: 'on_demand' }).catch(() => undefined);
-    // Recompute and wait so this very response returns fresh values.
-    await recomputeTargetMetricsForConfig(params.configId).catch(() => undefined);
-    // Re-read to get updated fields from the recompute.
-    const refreshed = await db(() => prisma.copyTradeConfig.findFirst({
-      where: { id: params.configId, userId: params.userId },
-    })).catch(() => null);
-    if (refreshed) cfg = refreshed;
+    // Fire-and-forget: run the heavy sync in the background so the UI doesn't block.
+    // The UI will show the currently cached stats immediately and naturally refetch on the next poll.
+    void (async () => {
+      try {
+        await bootstrapTrackedWalletHistory(cfg!.targetWallet, cfg!.chainId, 120, { source: 'on_demand' });
+        await recomputeTargetMetricsForConfig(params.configId);
+        console.log(`[TargetTracking] Async background refresh completed for config ${params.configId}`);
+      } catch (err: any) {
+        console.error(`[TargetTracking] Async background refresh failed for config ${params.configId}`, err?.message || err);
+      }
+    })();
   }
   // ─────────────────────────────────────────────────────────────────────────
 

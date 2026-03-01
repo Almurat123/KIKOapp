@@ -1,26 +1,23 @@
 import type { ParsedTransactionWithMeta } from '@solana/web3.js';
-import { getTransactionByHash } from '../rpcManager.js';
+import { fetchSolanaTransactionDetails } from './solanaTxDetailsRpc.js';
 
 export type SolanaTxDetailsResult =
-  | { ok: true; tx: ParsedTransactionWithMeta; source: 'rpc_manager_confirmed' }
+  | { ok: true; tx: ParsedTransactionWithMeta; source: 'solana_tx_details_rpc' }
   | { ok: false; reasonCode: 'tx_details_unavailable' | 'rpc_failed'; error?: string };
 
 export async function fetchSolanaTxDetails(txHash: string, chainId = 900): Promise<SolanaTxDetailsResult> {
-    try {
-        const tx = await getTransactionByHash(chainId, txHash);
-        if (!tx) {
-            return { ok: false, reasonCode: 'tx_details_unavailable' };
-        }
-        return {
-            ok: true,
-            tx: tx as ParsedTransactionWithMeta,
-            source: 'rpc_manager_confirmed',
-        };
-    } catch (error) {
+    void chainId;
+    const result = await fetchSolanaTransactionDetails(txHash);
+    if (!result.ok) {
         return {
             ok: false,
-            reasonCode: 'rpc_failed',
-            error: error instanceof Error ? error.message : String(error),
+            reasonCode: result.reasonCode,
+            error: result.error,
         };
     }
+    return {
+        ok: true,
+        tx: result.tx as ParsedTransactionWithMeta,
+        source: 'solana_tx_details_rpc',
+    };
 }
