@@ -5,6 +5,7 @@ import { sendTransaction } from '../privyWallet.js';
 import { resolveTxFinalState } from '../order-runtime/adjudicator/finalState.js';
 import { reportReceiptSeen, reportTxByHashSeen } from '../order-runtime/adjudicator/service.js';
 import type { OrderRuntimeContext } from '../order-runtime/types.js';
+import { waitForSolanaTransactionConfirmation } from '../solana/confirmation/solanaConfirmationCoordinator.js';
 
 export type ConfirmationKind = 'confirmed_success' | 'confirmed_failed' | 'timeout' | 'uncertain';
 
@@ -56,6 +57,14 @@ export async function waitForTransactionConfirmation(params: {
     pollMs?: number;
 }): Promise<ConfirmationOutcome> {
     const { txHash, chainId } = params;
+    if (chainId === 900) {
+        return await waitForSolanaTransactionConfirmation({
+            txHash,
+            chainId,
+            timeoutMs: params.timeoutMs,
+            pollMs: params.pollMs
+        });
+    }
     const timeoutMs = Math.max(500, Number(params.timeoutMs ?? 60000));
     const pollMs = Math.max(250, Number(params.pollMs ?? 2000));
     const startedAt = Date.now();
