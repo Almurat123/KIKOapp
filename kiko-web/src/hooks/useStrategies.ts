@@ -4,6 +4,7 @@ import { getConfigs, updateConfigStatus, deleteConfig, updateConfig, getPosition
 import { getPolymarketCopyConfigs, type PolymarketCopyConfig } from '../services/polymarketCopyApi';
 import { createCopyTradeSignedPayload, signCopyTradeConfigIntent } from '../services/copyTradeSigning';
 import { toast } from 'sonner';
+import { resolveChainPresentation } from '../utils/chainPresentation';
 
 export interface ExecutionRecord {
   id: string;
@@ -131,13 +132,15 @@ export const useStrategies = () => {
 
         setStats({ totalExecutions, totalPnL });
 
-        const mappedConfigs: TradingStrategy[] = configs.map(config => ({
+        const mappedConfigs: TradingStrategy[] = configs.map(config => {
+          const chain = resolveChainPresentation(config.chainId);
+          return ({
           id: config.id,
           name: `Follow ${config.targetWallet.slice(0, 6)}...${config.targetWallet.slice(-4)}`,
           type: 'copy_trade',
           tokenIn: 'ETH', // Usually buying with ETH
           tokenOut: 'ANY',
-          chain: config.chainId === 8453 ? 'base' : 'eth',
+          chain: chain.slug,
           chainId: config.chainId,
           triggerCondition: 'Target buys token',
           executionAmount: config.buyAmountUsd.toString(),
@@ -152,7 +155,8 @@ export const useStrategies = () => {
           updatedAt: new Date(config.updatedAt).getTime(),
           executionHistory: [], // TODO: fetch positions and map to history
           copyTradeConfig: config
-        }));
+        });
+        });
 
         allStrategies.push(...mappedConfigs);
 

@@ -149,6 +149,8 @@ import {
 import { runTurboRescueFlow } from './pipeline/turboFlow.js';
 import { runTurboCorrectFlow } from './pipeline/turboCorrectFlow.js';
 import { buildStrategyEvaluationContext } from './pipeline/strategyEngine.js';
+import { prepareNormalQuotedStrategies } from './pipeline/normalQuoteFlow.js';
+import { buildStrategyQuoteKey } from './quote/types.js';
 
 // V3 QuoterV2 addresses (on-chain quote)
 const V3_QUOTER_V2: Record<number, string> = {
@@ -1642,7 +1644,31 @@ export async function executeDirectSwap(params: {
         });
         const noReferenceMode = strategyContext.noReferenceMode;
         const minReasonable = strategyContext.minReasonable;
-        const strategies = strategyContext.strategies;
+        let strategies = strategyContext.strategies;
+        let quoteByStrategyKey = new Map<string, bigint>();
+        if (!turboMode) {
+            const normalQuotedStrategies = await prepareNormalQuotedStrategies({
+                strategies,
+                chainId,
+                tokenIn: poolTokenIn,
+                tokenOut: poolTokenOut,
+                amountInWei,
+                slippageBps: params.slippageBps,
+                walletAddress: params.walletAddress,
+                hint: params.hint,
+                pools,
+                preloadedV4Pools,
+                deps: {
+                    pickBestPool,
+                    getV4BestPoolQuote,
+                    getV3BestQuoteOut,
+                    getAerodromeExpectedOutput,
+                    getV2ExpectedOutput
+                }
+            });
+            strategies = normalQuotedStrategies.strategies;
+            quoteByStrategyKey = normalQuotedStrategies.quoteByStrategyKey;
+        }
 
         logger.info(LogCode.SYS_INFO, '[DirectSwap] Strategy evaluation start', {
             chainId,
@@ -1659,7 +1685,15 @@ export async function executeDirectSwap(params: {
             fastHintMode,
             turboMode,
             requestedMode,
-            zoraRoutesEnabled
+            zoraRoutesEnabled,
+            quotedStrategyOrder: !turboMode
+                ? strategies
+                    .map((strategy) => ({
+                        strategy: `${strategy.kind}${strategy.dex ? `:${strategy.dex}` : ''}`,
+                        quotedOut: quoteByStrategyKey.get(buildStrategyQuoteKey(strategy))?.toString() || null
+                    }))
+                    .filter((entry) => entry.quotedOut !== null)
+                : []
         });
         tStrategyStart = Date.now();
 

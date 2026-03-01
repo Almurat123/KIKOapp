@@ -15,6 +15,8 @@ import { sourcePoolToResolvedHint } from '../turbo.js';
 import type { HintLiquidityGateResult } from '../domain/guards.js';
 import { evaluateSourceAnchorQuote, resolveSourceAnchorExpectation } from '../domain/guards.js';
 import { summarizeTurboCandidateKinds } from './turboFlow.js';
+import { applyTurboQuoteAssist } from './turboQuoteAssist.js';
+import { buildResolvedHintQuoteKey } from '../quote/types.js';
 
 type LoggerLike = {
   info: (code: LogCode, message: string, context?: Record<string, unknown>) => void;
@@ -490,21 +492,46 @@ const sourceAnchor = resolveSourceAnchorExpectation({
   }
 
   const turboOrder = buildTurboRescueOrder(chainId);
-  const turboAttemptPlan = buildTurboSinglePoolAttemptPlan(turboCandidates, chainId, {
+  let turboAttemptPlan = buildTurboSinglePoolAttemptPlan(turboCandidates, chainId, {
     preferredFirst: sourcePriorityCandidate,
     maxAttempts: 3
   });
+  const turboQuoteBudgetMs = turboAttemptPlan.length > 1
+    ? Math.max(0, Math.min(Number(process.env.DIRECT_SWAP_TURBO_QUOTE_ASSIST_MS || '220'), singlePoolPhaseDeadline - Date.now() - 25))
+    : 0;
+  const turboQuoteAssist = await applyTurboQuoteAssist({
+    attemptPlan: turboAttemptPlan,
+    chainId,
+    tokenIn: poolTokenIn,
+    tokenOut: poolTokenOut,
+    amountInWei,
+    slippageBps: normalizedParams.slippageBps,
+    walletAddress: normalizedParams.walletAddress,
+    hint,
+    quoteBudgetMs: turboQuoteBudgetMs,
+    withTimeout: params.withTimeout,
+    deps: {
+      getV4BestPoolQuote: params.getV4BestPoolQuote,
+      getV3BestQuoteOut: params.getV3BestQuoteOut,
+      getAerodromeExpectedOutput: params.getAerodromeExpectedOutput,
+      getV2ExpectedOutput: params.getV2ExpectedOutput
+    }
+  });
+  turboAttemptPlan = turboQuoteAssist.attemptPlan;
   logger.info(LogCode.SYS_INFO, '[DirectSwap] Turbo correct-flow attempt plan', {
     chainId,
     traceId,
     turboOrder: turboOrder.join(' -> '),
     sourcePriority: sourcePriorityId || null,
+    quoteAssistApplied: turboQuoteAssist.applied,
+    quoteBudgetMs: turboQuoteBudgetMs,
     attempts: turboAttemptPlan.map((candidate, idx) => ({
       idx: idx + 1,
       kind: candidate.kind,
       dex: candidate.dex || null,
       poolAddress: candidate.poolAddress || null,
-      sourcePriority: Boolean(sourcePriorityId && resolvedHintIdentity(candidate) === sourcePriorityId)
+      sourcePriority: Boolean(sourcePriorityId && resolvedHintIdentity(candidate) === sourcePriorityId),
+      quotedOut: turboQuoteAssist.quoteByCandidateKey.get(buildResolvedHintQuoteKey(candidate))?.toString() || null
     }))
   });
 
@@ -521,8 +548,7 @@ const sourceAnchor = resolveSourceAnchorExpectation({
       resolvedPoolHint: candidate
     };
 
-    const quoteBudgetMs = 0;
-    const candidateQuotedOut = 0n;
+    const candidateQuotedOut = turboQuoteAssist.quoteByCandidateKey.get(buildResolvedHintQuoteKey(candidate)) || 0n;
 
     if (sourceAnchor) {
       logger.info(LogCode.SYS_INFO, '[DirectSwap] Turbo correct-flow anchor precheck skipped in fast lane', {

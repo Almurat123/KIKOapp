@@ -1,8 +1,3 @@
-/**
- * Webhook Routes
- * Receives notifications from Go webhook service and triggers copy trades
- */
-
 import { FastifyInstance } from 'fastify';
 import prisma from '../db/prisma.js';
 import {
@@ -31,14 +26,11 @@ import { buildSwapExecutionContext } from '../services/copytrade/context/context
 import { putContext } from '../services/copytrade/context/contextStore.js';
 import { setCachedSinglePoolWinnerHint } from '../services/dex/directSwap/cache.js';
 import { getAdjudicatedSnapshot, reportReceiptSeen, reportWebhookSeen } from '../services/order-runtime/adjudicator/service.js';
+import { normalizeSolanaWebhookItem } from '../services/solana/webhookNormalizer.js';
+import { resolveSolanaTrackedWallets } from '../services/solana/trackedWalletResolver.js';
+import { processSolanaWebhookTx } from '../services/solana/solanaWebhookHandler.js';
 
-interface ProcessTxBody {
-    wallet: string;
-    txHash: string;
-    network: string;
-}
-
-// Map Alchemy network names to chain IDs
+interface ProcessTxBody { wallet: string; txHash: string; network: string; }
 const NETWORK_TO_CHAIN_ID: Record<string, number> = {
     'ETH_MAINNET': 1,
     'BASE_MAINNET': 8453,
@@ -379,18 +371,39 @@ function safeSecretEquals(provided: unknown, expected: string): boolean {
     return crypto.timingSafeEqual(providedBuf, expectedBuf);
 }
 
-function buildTxSkeletonFromAlchemyActivity(item: any, txHash: string): {
+function buildTxSkeletonFromAlchemyActivity(activities: any | any[], txHash: string): {
     hash: string;
     from: string;
     to: string;
     input: string;
     value: string;
 } {
-    const from = normalizeAddress(item?.fromAddress || '');
-    const to = normalizeAddress(item?.toAddress || '');
-    // Prefer raw contract value when available (wei-like string/hex in webhook payload)
-    const rawValue = item?.rawContract?.rawValue;
-    const value = typeof rawValue === 'string' && rawValue.length > 0 ? rawValue : '0';
+    const activityList = Array.isArray(activities) ? activities : [activities];
+    if (activityList.length === 0) {
+        return { hash: txHash, from: '', to: '', input: '0x', value: '0' };
+    }
+
+    // `from` and `to` from the "best" activity (usually the main contract call or first transfer)
+    const bestActivity = pickBestActivity(activityList) || activityList[0];
+    const from = normalizeAddress(bestActivity?.fromAddress || activityList[0]?.fromAddress || '');
+    const to = normalizeAddress(bestActivity?.toAddress || activityList[0]?.toAddress || '');
+
+    // The transaction `value` (native ETH/BNB) should come from the `external` category activity.
+    // ERC20 transfers (category: token) do not contribute to `tx.value`.
+    const externalActivity = activityList.find(a => a?.category === 'external');
+
+    let value = '0';
+    if (externalActivity?.rawContract?.rawValue) {
+        value = externalActivity.rawContract.rawValue;
+    } else if (externalActivity?.value) {
+        // Fallback to decimal value if rawValue is missing
+        try {
+            value = ethers.parseUnits(Number(externalActivity.value).toFixed(18), 18).toString();
+        } catch {
+            value = '0';
+        }
+    }
+
     return {
         hash: txHash,
         from,
@@ -437,7 +450,12 @@ function pickBestActivity(activities: any[]): any {
     let best = activities[0];
     let bestScore = -1;
     for (const activity of activities) {
-        const score = Number(!!activity?.rawContract?.address) + Number(!!activity?.fromAddress) + Number(!!activity?.toAddress);
+        // We want to prefer contract interaction activities if possible, but any activity with full from/to is good.
+        // We reduce the score of token transfers so they don't override the external (native) activity as the "best" representation of the tx skeleton if there is an external activity.
+        let score = Number(!!activity?.rawContract?.address) + Number(!!activity?.fromAddress) + Number(!!activity?.toAddress);
+        if (activity?.category === 'token') {
+            score -= 1; // Un-prioritize token transfers slightly
+        }
         if (score >= bestScore) {
             best = activity;
             bestScore = score;
@@ -631,14 +649,10 @@ async function queueAlchemyWebhookBatch(payload: any): Promise<void> {
 }
 
 async function processAlchemyWebhookPayload(payload: any): Promise<void> {
-    // Alchemy Address Activity webhook structure:
-    // EVM: payload.event.network, payload.event.activity
-    // Solana: payload.event.event.network, payload.event.event.transaction
     let current = payload;
     let network = undefined;
     let eventData = undefined;
 
-    // Max 5 levels of recursion to avoid infinite loops
     for (let i = 0; i < 5; i++) {
         if (current.network) network = current.network;
         if (current.event && typeof current.event === 'object') {
@@ -655,7 +669,6 @@ async function processAlchemyWebhookPayload(payload: any): Promise<void> {
         return;
     }
 
-    // Extract items to process (Activity or Transaction)
     let items: any[] = [];
     let isSolanaItems = false;
 
@@ -699,18 +712,13 @@ async function processAlchemyWebhookPayload(payload: any): Promise<void> {
         let usedPredecoded = 0;
 
         if (isSolanaItems) {
-            txHash = item.signature;
-
-            const solTx = Array.isArray(item.transaction) ? item.transaction[0] : item.transaction;
-            if (!txHash && solTx?.signatures) {
-                txHash = solTx.signatures[0];
-            }
-
-            const solMsg = Array.isArray(solTx?.message) ? solTx.message[0] : solTx?.message;
-            const keys = solMsg?.account_keys || solMsg?.accountKeys || [];
-            candidates = keys.map((k: any) => normalizeAddress(typeof k === 'string' ? k : k.pubkey || k.toString()));
+            const normalized = normalizeSolanaWebhookItem(item);
+            txHash = normalized.txHash;
+            candidates = normalized.candidateAddresses;
 
             if (candidates.length === 0) {
+                const solTx = Array.isArray(item?.transaction) ? item.transaction[0] : item?.transaction;
+                const solMsg = Array.isArray(solTx?.message) ? solTx.message[0] : solTx?.message;
                 console.log(`[Webhook] Solana candidate extraction debug: signature=${txHash}, item keys=${Object.keys(item)}, solTx keys=${solTx ? Object.keys(solTx) : 'null'}, solMsg keys=${solMsg ? Object.keys(solMsg) : 'null'}`);
             }
         } else {
@@ -751,7 +759,6 @@ async function processAlchemyWebhookPayload(payload: any): Promise<void> {
         });
 
         try {
-            // ⚡ Parallel: pendingHint (Redis) + trackedWallets (Prisma) concurrently (~100ms saved)
             const [pendingHint, trackedWalletRows] = await Promise.all([
                 getPendingTxHint(chainId, txHash).catch(() => null),
                 prisma.trackedWallet.findMany({
@@ -759,7 +766,8 @@ async function processAlchemyWebhookPayload(payload: any): Promise<void> {
                         address: { in: candidates, mode: 'insensitive' },
                         chainId,
                         activeConfigs: { gt: 0 }
-                    }
+                    },
+                    select: { address: true }
                 })
             ]);
             const adjudicatedSnapshot = getAdjudicatedSnapshot({ chainId, txHash });
@@ -784,6 +792,47 @@ async function processAlchemyWebhookPayload(payload: any): Promise<void> {
                 return;
             }
 
+            if (chainId === 900) {
+                try {
+                    const resolved = await resolveSolanaTrackedWallets({
+                        chainId,
+                        txHash,
+                        rawCandidates: candidates,
+                        pendingTargetWallet: pendingHint?.targetWallet,
+                        preResolvedTrackedWallets: trackedWalletRows
+                    });
+
+                    if (resolved.trackedWallets.length === 0) {
+                        console.log(
+                            `[Webhook] Ignore Solana tx ${txHash}: ${resolved.reasonCode} (candidates=${resolved.candidateAddresses.join(', ') || 'none'})`
+                        );
+                        return;
+                    }
+
+                    console.log(
+                        `[Webhook] Found ${resolved.trackedWallets.length} tracked wallets for Solana tx ${txHash} via ${resolved.reasonCode}`
+                    );
+                    await markTxAsProcessedDistributed(txHash, chainId);
+                    const solanaTrackedWalletCount = resolved.trackedWallets.length;
+                    swapsDetected = await processSolanaWebhookTx({
+                        chainId,
+                        txHash,
+                        trackedWallets: resolved.trackedWallets,
+                        parsedTx: resolved.parsedTx
+                    });
+                    logWebhookTiming('alchemy', txHash, {
+                        wallets: solanaTrackedWalletCount,
+                        swaps: swapsDetected,
+                        predecoded: 0,
+                        solana: true,
+                        totalMs: Date.now() - itemStart
+                    });
+                } catch (err) {
+                    console.error(`[Webhook] Error processing Solana tx ${txHash}:`, err);
+                }
+                return;
+            }
+
             const trackedWallets = trackedWalletRows.length > 0
                 ? trackedWalletRows
                 : (pendingHint?.targetWallet
@@ -798,43 +847,6 @@ async function processAlchemyWebhookPayload(payload: any): Promise<void> {
             }
 
             console.log(`[Webhook] Found ${trackedWallets.length} tracked wallets for tx ${txHash}`);
-
-            if (chainId === 900) {
-                try {
-                    const { getSolanaConnection } = await import('../services/rpcManager.js');
-                    const { decodeSolanaSwap } = await import('../services/solanaDecoder.js');
-
-                    let tx: any = null;
-                    const strategies: Array<'fast' | 'cheap'> = ['fast', 'cheap'];
-                    for (const strategy of strategies) {
-                        try {
-                            const connection = getSolanaConnection(strategy, 'critical');
-                            tx = await connection.getParsedTransaction(txHash, {
-                                maxSupportedTransactionVersion: 0,
-                                commitment: 'confirmed'
-                            });
-                            if (tx) break;
-                        } catch {
-                            // try other endpoint
-                        }
-                    }
-                    if (!tx) {
-                        console.error(`[Webhook] Failed to fetch Solana tx details after trying all RPCs: ${txHash}`);
-                        return;
-                    }
-
-                    await markTxAsProcessedDistributed(txHash, chainId);
-                    const { handleSwapDetected } = await import('../services/autoTradeService.js');
-                    await Promise.allSettled(trackedWallets.map(async (walletRecord) => {
-                        const trackedTarget = walletRecord.address;
-                        const swap = await decodeSolanaSwap(tx, trackedTarget);
-                        if (swap) await handleSwapDetected(trackedTarget, swap, chainId);
-                    }));
-                } catch (err) {
-                    console.error(`[Webhook] Error fetching Solana tx details:`, err);
-                }
-                return;
-            }
 
             const evmActivities: any[] = isSolanaItems
                 ? []

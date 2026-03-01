@@ -8,6 +8,7 @@ import { useIsMobile } from '../../hooks/useIsMobile';
 import { truncateAddress } from '../../utils/format';
 import { getTargetStatus } from '../../services/copyTradeApi';
 import { agentAttrs } from '../../agent/attrs';
+import { resolveChainPresentation } from '../../utils/chainPresentation';
 
 interface StrategyCardProps {
   strategy: TradingStrategy;
@@ -16,16 +17,6 @@ interface StrategyCardProps {
   onToggleStatus: (id: string) => void;
   variant?: 'card' | 'row';
 }
-
-const getChainInfo = (chainId: number | undefined) => {
-  switch (chainId) {
-    case 8453: return { name: 'Base', icon: '/assets/tokens/base.png', color: '#0052FF' };
-    case 1: return { name: 'Ethereum', icon: '/assets/tokens/eth.png', color: '#627EEA' };
-    case 900: return { name: 'Solana', icon: '/assets/tokens/sol.png', color: '#14F195' };
-    case 137: return { name: 'Polygon', icon: '/assets/tokens/polygon.png', color: '#8247E5' };
-    default: return { name: 'Unknown', icon: '/assets/tokens/eth.png', color: '#627EEA' };
-  }
-};
 
 export const StrategyCard: React.FC<StrategyCardProps> = ({
   strategy,
@@ -48,7 +39,7 @@ export const StrategyCard: React.FC<StrategyCardProps> = ({
   const polyConfig = isPolymarketCopy ? strategy.polymarketCopyConfig : null;
   const targetWallet = isCopyTrade ? copyConfig?.targetWallet : polyConfig?.targetWallet;
 
-  const chainInfo = getChainInfo(strategy.chainId);
+  const chainInfo = resolveChainPresentation(strategy.chainId ?? strategy.chain);
   const isActive = strategy.status === 'active';
   const status = (strategy.status || 'paused').toUpperCase();
   const isDeleted = status === 'DELETED';
@@ -139,11 +130,11 @@ export const StrategyCard: React.FC<StrategyCardProps> = ({
       <div className={styles.header}>
         <div className={styles.headerLeft}>
           <div className={styles.chainIconWrapper}>
-            <img src={chainInfo.icon} alt={chainInfo.name} className={styles.chainIcon} />
+            <img src={chainInfo.icon} alt={chainInfo.displayName} className={styles.chainIcon} />
           </div>
           <div className={styles.titleColumn}>
             <div className={styles.title}>{isCopyTrade ? 'Copy Trading' : 'Polymarket Copy'}</div>
-            <div className={styles.subtitle}>on {chainInfo.name}</div>
+            <div className={styles.subtitle}>on {chainInfo.displayName}</div>
           </div>
         </div>
         <div className={clsx(styles.statusBadge, {
