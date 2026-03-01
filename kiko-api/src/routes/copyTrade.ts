@@ -1,7 +1,6 @@
 import { FastifyInstance } from 'fastify';
 import prisma from '../db/prisma.js';
 import { requireAuth, requireEndUserAuth } from '../middleware/auth.js';
-import { addAddressToWebhook, removeAddressFromWebhook } from '../services/alchemyWebhookService.js';
 import { PrivyClient } from '@privy-io/server-auth';
 import { normalizeAddress, isSolanaAddress } from '../utils/address.js';
 import { validateAddress } from '../utils/validation.js';
@@ -19,6 +18,7 @@ import {
 import { resolveExecutionModeFromConfig } from '../services/copyTradeExecutionMode.js';
 import { getEmbeddedWalletAddress } from '../services/privyWallet.js';
 import { AppError } from '../middleware/errorHandler.js';
+import { syncCopyTradeWebhookChain } from '../services/copyTradeWebhookSync.js';
 
 interface CreateConfigBody {
     signedPayload: Record<string, unknown> | string;
@@ -278,19 +278,10 @@ export default async function copyTradeRoutes(fastify: FastifyInstance) {
 
             console.log('[CopyTrade] Created config:', config.id, 'for target:', normalizedTarget);
 
-            // Register address with Alchemy webhook for real-time notifications
-            console.log(`[CopyTrade] Attempting to add ${normalizedTarget} to Alchemy webhook for chain ${chainId}`);
-            addAddressToWebhook(normalizedTarget, chainId)
-                .then(success => {
-                    if (success) {
-                        console.log(`[CopyTrade] ✅ Successfully added to Alchemy webhook`);
-                    } else {
-                        console.warn(`[CopyTrade] ⚠️ Failed to add to Alchemy webhook (using polling fallback)`);
-                    }
-                })
-                .catch(err => {
-                    console.warn('[CopyTrade] ❌ Alchemy webhook error:', err.message);
-                });
+            const createSync = await syncCopyTradeWebhookChain(chainId, 'config_create');
+            if (!createSync.ok) {
+                console.warn('[CopyTrade] webhook reconcile incomplete after create', createSync);
+            }
 
             // Notify user that copy trade is active
             if (user.farcasterFid) {
@@ -405,9 +396,6 @@ export default async function copyTradeRoutes(fastify: FastifyInstance) {
                 where: { targetWallet: config.targetWallet, chainId: config.chainId },
             });
             if (remainingConfigs === 0) {
-                removeAddressFromWebhook(config.targetWallet, config.chainId).catch(err => {
-                    console.warn('[CopyTrade] Failed to remove from Alchemy webhook:', err.message);
-                });
                 const chain = chainIdToWalletTxChain(config.chainId);
                 try {
                     const txDeleteResult = await prisma.walletTransaction.deleteMany({
@@ -427,6 +415,11 @@ export default async function copyTradeRoutes(fastify: FastifyInstance) {
                 } catch (cleanupError: any) {
                     console.warn('[CopyTrade] Failed to remove wallet tx history for deleted target:', cleanupError?.message || cleanupError);
                 }
+            }
+
+            const deleteSync = await syncCopyTradeWebhookChain(config.chainId, 'config_delete');
+            if (!deleteSync.ok) {
+                console.warn('[CopyTrade] webhook reconcile incomplete after delete', deleteSync);
             }
 
             return reply.send({ success: true });
@@ -633,12 +626,13 @@ export default async function copyTradeRoutes(fastify: FastifyInstance) {
                     update: { activeConfigs: { increment: 1 } },
                 });
 
-                removeAddressFromWebhook(existing.targetWallet, existing.chainId).catch(err => {
-                    console.warn('[CopyTrade] Failed to remove old webhook address on update:', err.message);
-                });
-                addAddressToWebhook(normalizedNextTarget, chainId).catch(err => {
-                    console.warn('[CopyTrade] Failed to add new webhook address on update:', err.message);
-                });
+            }
+
+            for (const reconcileChainId of new Set<number>([existing.chainId, chainId])) {
+                const updateSync = await syncCopyTradeWebhookChain(reconcileChainId, 'config_update');
+                if (!updateSync.ok) {
+                    console.warn('[CopyTrade] webhook reconcile incomplete after update', updateSync);
+                }
             }
 
             return reply.send({ success: true, config });
@@ -687,6 +681,17 @@ export default async function copyTradeRoutes(fastify: FastifyInstance) {
 
                 if (config.count === 0) {
                     return reply.status(404).send({ error: 'Config not found' });
+                }
+
+                const configRow = await prisma.copyTradeConfig.findFirst({
+                    where: { id, userId: user.privyDid },
+                    select: { chainId: true },
+                });
+                if (configRow) {
+                    const statusSync = await syncCopyTradeWebhookChain(configRow.chainId, 'config_status_change');
+                    if (!statusSync.ok) {
+                        console.warn('[CopyTrade] webhook reconcile incomplete after status change', statusSync);
+                    }
                 }
 
                 return reply.send({ success: true, status });

@@ -812,7 +812,6 @@ async function processAlchemyWebhookPayload(payload: any): Promise<void> {
                     console.log(
                         `[Webhook] Found ${resolved.trackedWallets.length} tracked wallets for Solana tx ${txHash} via ${resolved.reasonCode}`
                     );
-                    await markTxAsProcessedDistributed(txHash, chainId);
                     const solanaTrackedWalletCount = resolved.trackedWallets.length;
                     swapsDetected = await processSolanaWebhookTx({
                         chainId,
@@ -820,6 +819,11 @@ async function processAlchemyWebhookPayload(payload: any): Promise<void> {
                         trackedWallets: resolved.trackedWallets,
                         parsedTx: resolved.parsedTx
                     });
+                    if (swapsDetected > 0) {
+                        await markTxAsProcessedDistributed(txHash, chainId);
+                    } else {
+                        console.log(`[Webhook] Solana tx decoded with no swaps; leaving unprocessed for retry: ${txHash}`);
+                    }
                     logWebhookTiming('alchemy', txHash, {
                         wallets: solanaTrackedWalletCount,
                         swaps: swapsDetected,
@@ -1063,7 +1067,11 @@ async function processAlchemyWebhookPayload(payload: any): Promise<void> {
     const BATCH_SIZE = 5;
     for (let i = 0; i < items.length; i += BATCH_SIZE) {
         const batch = items.slice(i, i + BATCH_SIZE);
-        await Promise.allSettled(batch.map(processItem));
+        const results = await Promise.allSettled(batch.map(processItem));
+        const rejected = results.find((result): result is PromiseRejectedResult => result.status === 'rejected');
+        if (rejected) {
+            throw rejected.reason;
+        }
     }
 }
 
@@ -1075,12 +1083,7 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
         await queueAlchemyWebhookBatch(payload);
     }, { intervalMs: 4000, batchSize: 8, maxAttempts: 20 });
 
-    /**
-     * POST /api/webhook/process-tx
-     * Called by Go webhook service when Alchemy detects a transaction
-     */
     fastify.post<{ Body: ProcessTxBody }>('/process-tx', async (request, reply) => {
-        // 1. Verify internal secret if configured
         const internalSecret = env.security.internalWebhookSecret;
         if (!internalSecret) {
             if (IS_PRODUCTION) {
@@ -1323,21 +1326,11 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
         }
     });
 
-    /**
-     * GET /api/webhook/health
-     * Health check for webhook endpoint
-     */
     fastify.get('/health', async (request, reply) => {
         return reply.send({ status: 'ok', service: 'webhook' });
     });
 
-    /**
-     * GET /api/webhook/sync-solana
-     * Force resync all Solana wallets from DB to Alchemy.
-     * Use this when webhooks are missing or addresses were lowercased.
-     */
     fastify.get('/sync-solana', async (request, reply) => {
-        // Restrict to development or admin
         if (env.nodeEnv !== 'development') {
             return reply.status(403).send({ error: 'Forbidden in production' });
         }

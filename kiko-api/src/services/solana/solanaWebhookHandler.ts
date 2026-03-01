@@ -1,23 +1,8 @@
 import type { ParsedTransactionWithMeta } from '@solana/web3.js';
 import { normalizeAddress } from '../../utils/address.js';
-import { getSolanaConnection } from '../../config/solanaConfig.js';
+import { processResolvedSolanaWebhookTx } from './solanaWebhookProcessor.js';
 
 export async function fetchParsedSolanaTransaction(txHash: string): Promise<ParsedTransactionWithMeta | null> {
-    const strategies: Array<'fast' | 'cheap'> = ['fast', 'cheap'];
-
-    for (const strategy of strategies) {
-        try {
-            const connection = getSolanaConnection(strategy, 'critical');
-            const tx = await connection.getParsedTransaction(txHash, {
-                maxSupportedTransactionVersion: 0,
-                commitment: 'confirmed'
-            });
-            if (tx) return tx;
-        } catch {
-            // Try next endpoint strategy.
-        }
-    }
-
     return null;
 }
 
@@ -50,24 +35,5 @@ export async function processSolanaWebhookTx(params: {
     parsedTx?: ParsedTransactionWithMeta | null;
     chainId: number;
 }): Promise<number> {
-    const tx = params.parsedTx || await fetchParsedSolanaTransaction(params.txHash);
-    if (!tx) {
-        console.error(`[Webhook] Failed to fetch Solana tx details after trying all RPCs: ${params.txHash}`);
-        return 0;
-    }
-
-    const { decodeSolanaSwap } = await import('../solanaDecoder.js');
-    const { handleSwapDetected } = await import('../autoTradeService.js');
-
-    const results = await Promise.allSettled(
-        params.trackedWallets.map(async (walletRecord) => {
-            const trackedTarget = walletRecord.address;
-            const swap = await decodeSolanaSwap(tx, trackedTarget);
-            if (!swap) return false;
-            await handleSwapDetected(trackedTarget, swap, params.chainId);
-            return true;
-        })
-    );
-
-    return results.filter((result) => result.status === 'fulfilled' && result.value).length;
+    return processResolvedSolanaWebhookTx(params);
 }

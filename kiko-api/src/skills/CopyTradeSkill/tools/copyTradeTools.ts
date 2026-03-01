@@ -2,8 +2,8 @@ import { Tool } from '../../../tooling/registry.js';
 import prisma from '../../../db/prisma.js';
 import { normalizeAddress } from '../../../utils/address.js';
 import { validateAddress } from '../../../utils/validation.js';
-import { addAddressToWebhook } from '../../../services/alchemyWebhookService.js';
 import { resolveExecutionModeFromConfig } from '../../../services/copyTradeExecutionMode.js';
+import { syncCopyTradeWebhookChain } from '../../../services/copyTradeWebhookSync.js';
 
 export const CreateCopyTradeConfigTool: Tool = {
     definition: {
@@ -131,9 +131,10 @@ export const CreateCopyTradeConfigTool: Tool = {
             },
         });
 
-        addAddressToWebhook(normalizedTarget, chainId).catch((err: any) => {
-            console.warn('[CopyTradeTool] Failed to add target to webhook:', err?.message || err);
-        });
+        const syncResult = await syncCopyTradeWebhookChain(chainId, 'tool_create');
+        if (!syncResult.ok) {
+            console.warn('[CopyTradeTool] webhook reconcile incomplete after tool create', syncResult);
+        }
 
         return {
             id: config.id,
