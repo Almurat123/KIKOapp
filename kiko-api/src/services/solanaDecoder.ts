@@ -30,6 +30,6 @@ export async function decodeSolanaSwap(
         return instructionDecoded;
     }
 
-    console.log('[SolanaDecoder] ❌ No swap identified after balance diff and instruction fallback');
+    console.log(`[SolanaDecoder] ❌ No swap identified after balance diff and instruction fallback for ${txHash}. Raw accounts count: ${tx.transaction?.message?.accountKeys?.length || 0}`);
     return null;
 }

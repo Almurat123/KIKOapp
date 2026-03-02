@@ -49,16 +49,45 @@ export async function sendSolanaTransactionWithContextDeps(
     });
     return response.hash;
   } catch (error: any) {
+    const errorMessage = String(error?.message || 'Unknown error');
+    const errorCode = String(error?.code || error?.status || '');
+    const errorStatus = Number(error?.status || error?.statusCode || 0) || undefined;
+    const errorDetails =
+      error?.response?.data
+      || error?.data
+      || error?.details
+      || null;
+
     logger.error(LogCode.EXE_TX_REVERTED, 'Solana transaction failed via Privy', {
-      error: error?.message,
+      error: errorMessage,
+      code: errorCode || undefined,
+      status: errorStatus,
+      details: errorDetails,
       userId,
       walletSource: context.walletSource,
       reasonCode: context.reasonCode,
     });
 
+    const lower = errorMessage.toLowerCase();
+    if (lower.includes('not delegated')) {
+      throw new AppError(
+        403,
+        'User has not enabled Solana server-side signing delegation.',
+        'DELEGATION_REQUIRED'
+      );
+    }
+
+    if (lower.includes('insufficient') || lower.includes('lamports')) {
+      throw new AppError(
+        400,
+        `Failed to send Solana transaction: ${errorMessage}`,
+        'INSUFFICIENT_FUNDS'
+      );
+    }
+
     throw new AppError(
       500,
-      `Failed to send Solana transaction: ${error?.message || 'Unknown error'}`,
+      `Failed to send Solana transaction: ${errorMessage}`,
       'SOLANA_TRANSACTION_FAILED'
     );
   }
