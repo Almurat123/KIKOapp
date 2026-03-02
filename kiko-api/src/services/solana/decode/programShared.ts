@@ -10,6 +10,11 @@ type TokenTransfer = {
     amount: bigint;
 };
 
+type BalanceDelta = {
+    mint: string;
+    delta: bigint;
+};
+
 export function buildProgramPatternSwap(
     tx: ParsedTransactionWithMeta,
     context: SolanaDecodeContext,
@@ -112,6 +117,19 @@ export function buildProgramPatternSwap(
         }
     }
 
+    if (!tokenIn || amountIn === 0n) {
+        const inputFallback = deriveInputFromBalanceDiff(
+            tx,
+            context.walletAddress,
+            accountKeys,
+            tokenOut
+        );
+        if (inputFallback.amountIn > 0n) {
+            tokenIn = inputFallback.tokenIn;
+            amountIn = inputFallback.amountIn;
+        }
+    }
+
     if (!tokenIn || !tokenOut || amountIn <= 0n || amountOut <= 0n) {
         return null;
     }
@@ -153,10 +171,19 @@ function flattenParsedInstructions(tx: ParsedTransactionWithMeta): SolanaInstruc
 function extractTokenTransfer(instruction: SolanaInstructionLike): TokenTransfer | null {
     const parsed = instruction.parsed;
     const info = parsed?.info || {};
-    if (parsed?.type !== 'transferChecked') return null;
-    const amount = BigInt(info.tokenAmount?.amount || '0');
+    if (parsed?.type !== 'transferChecked' && parsed?.type !== 'transfer') return null;
+
+    const mint = String(info.mint || '');
+    if (!mint) return null;
+
+    const rawAmount =
+        info.tokenAmount?.amount
+        || info.amount
+        || '0';
+
+    const amount = BigInt(String(rawAmount));
     return {
-        mint: String(info.mint || ''),
+        mint,
         source: info.source ? String(info.source) : undefined,
         destination: info.destination ? String(info.destination) : undefined,
         authority: info.authority ? String(info.authority) : undefined,
@@ -206,6 +233,81 @@ function deriveNativeSpendFromSystemTransfers(
         if (lamports > maxLamports) maxLamports = lamports;
     }
     return maxLamports;
+}
+
+function deriveInputFromBalanceDiff(
+    tx: ParsedTransactionWithMeta,
+    walletAddress: string,
+    accountKeys: string[],
+    tokenOut: string
+): { tokenIn: string; amountIn: bigint } {
+    const deltas = collectWalletTokenDeltas(tx, walletAddress, accountKeys)
+        .filter((entry) => entry.delta < 0n)
+        .filter((entry) => entry.mint !== tokenOut);
+
+    if (deltas.length === 0) {
+        return { tokenIn: '', amountIn: 0n };
+    }
+
+    const best = deltas.reduce((acc, cur) => {
+        if (acc === null) return cur;
+        const curAbs = -cur.delta;
+        const accAbs = -acc.delta;
+        return curAbs > accAbs ? cur : acc;
+    }, null as BalanceDelta | null);
+
+    if (!best) {
+        return { tokenIn: '', amountIn: 0n };
+    }
+
+    return {
+        tokenIn: best.mint,
+        amountIn: -best.delta,
+    };
+}
+
+function collectWalletTokenDeltas(
+    tx: ParsedTransactionWithMeta,
+    walletAddress: string,
+    accountKeys: string[]
+): BalanceDelta[] {
+    const trackedIndices = new Set<number>();
+
+    for (const post of tx.meta?.postTokenBalances || []) {
+        if (post.owner === walletAddress) trackedIndices.add(post.accountIndex);
+    }
+    for (const pre of tx.meta?.preTokenBalances || []) {
+        if (pre.owner === walletAddress) trackedIndices.add(pre.accountIndex);
+    }
+
+    for (const instruction of flattenParsedInstructions(tx)) {
+        const parsed = instruction.parsed;
+        const info = parsed?.info || {};
+        if (parsed?.type === 'createIdempotent' && info.wallet === walletAddress && info.account) {
+            const account = String(info.account);
+            const idx = accountKeys.findIndex((value) => value === account);
+            if (idx >= 0) trackedIndices.add(idx);
+        }
+        if ((parsed?.type === 'initializeAccount' || parsed?.type === 'initializeAccount3') && info.owner === walletAddress && info.account) {
+            const account = String(info.account);
+            const idx = accountKeys.findIndex((value) => value === account);
+            if (idx >= 0) trackedIndices.add(idx);
+        }
+    }
+
+    const deltas = new Map<string, bigint>();
+    for (const idx of trackedIndices) {
+        const pre = (tx.meta?.preTokenBalances || []).find((candidate) => candidate.accountIndex === idx);
+        const post = (tx.meta?.postTokenBalances || []).find((candidate) => candidate.accountIndex === idx);
+        const mint = String(post?.mint || pre?.mint || '');
+        if (!mint || mint === SOLANA_CONFIG.TOKENS.SOL) continue;
+        const preAmount = BigInt(pre?.uiTokenAmount?.amount || '0');
+        const postAmount = BigInt(post?.uiTokenAmount?.amount || '0');
+        const prev = deltas.get(mint) || 0n;
+        deltas.set(mint, prev + (postAmount - preAmount));
+    }
+
+    return Array.from(deltas.entries()).map(([mint, delta]) => ({ mint, delta }));
 }
 
 function inferPrimaryProgramId(tx: ParsedTransactionWithMeta, preferredPrograms: string[]): string {
