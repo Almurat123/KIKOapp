@@ -14,6 +14,7 @@ import { get as cacheGet, set as cacheSet } from '../cache/cacheClient.js';
 import { ethers } from 'ethers';
 import { calculatePriceFromSqrtX96, findV4Pools, V4_STATE_VIEW } from './dex/uniswapV4.js';
 import { get as getDbCache, set as setDbCache } from '../cache/dbCache.js';
+import { selectBestOnChainPriceCandidate, type OnChainPriceCandidate } from './pricing/onChainCandidateSelector.js';
 
 // Uniswap V2 Factory ABI (minimal)
 const FACTORY_V2_ABI = parseAbi([
@@ -382,6 +383,7 @@ export async function getOnChainPrice(
     const quoteAttempts: QuoteToken[] = [...stableQuotes];
     const nativeQuote = await buildNativeQuoteToken(chainId, blockTag);
     if (nativeQuote) quoteAttempts.push(nativeQuote);
+    const successfulCandidates: Array<OnChainPriceCandidate<OnChainPriceData>> = [];
 
     for (const quote of quoteAttempts) {
         if (quote.address.toLowerCase() === tokenLower) continue;
@@ -391,20 +393,13 @@ export async function getOnChainPrice(
             try {
                 const v4Result = await fetchPriceFromUniswapV4(tokenAddress, quote, chainId, rpcStrategy, blockTag);
                 if (v4Result && v4Result.price > 0) {
-                    if (isLatestTag) {
-                        priceCache.set(cacheKey, {
-                            price: v4Result.price,
-                            marketCap: v4Result.marketCap,
-                            timestamp: Date.now(),
-                            dexName: v4Result.dexName
-                        });
-                        await cacheSet(
-                            onChainPriceRedisKey(cacheKey),
-                            JSON.stringify(priceCache.get(cacheKey)),
-                            Math.ceil(PRICE_CACHE_TTL / 1000)
-                        ).catch(() => { });
-                    }
-                    return v4Result;
+                    successfulCandidates.push({
+                        data: v4Result,
+                        sourceKind: 'factory',
+                        version: 'v4',
+                        quoteSymbol: quote.symbol,
+                        quoteIsStable: quote.isStable
+                    });
                 }
             } catch {
                 // V4 failed, continue to poolId + v3/v2
@@ -416,20 +411,13 @@ export async function getOnChainPrice(
             try {
                 const v4PoolResult = await fetchPriceFromUniswapV4PoolId(tokenAddress, quote, chainId, rpcStrategy, blockTag);
                 if (v4PoolResult && v4PoolResult.price > 0) {
-                    if (isLatestTag) {
-                        priceCache.set(cacheKey, {
-                            price: v4PoolResult.price,
-                            marketCap: v4PoolResult.marketCap,
-                            timestamp: Date.now(),
-                            dexName: v4PoolResult.dexName
-                        });
-                        await cacheSet(
-                            onChainPriceRedisKey(cacheKey),
-                            JSON.stringify(priceCache.get(cacheKey)),
-                            Math.ceil(PRICE_CACHE_TTL / 1000)
-                        ).catch(() => { });
-                    }
-                    return v4PoolResult;
+                    successfulCandidates.push({
+                        data: v4PoolResult,
+                        sourceKind: 'factory',
+                        version: 'v4-pool',
+                        quoteSymbol: quote.symbol,
+                        quoteIsStable: quote.isStable
+                    });
                 }
             } catch {
                 // Continue to v3/v2
@@ -485,26 +473,18 @@ export async function getOnChainPrice(
         for (const result of results) {
             if (result.status === 'fulfilled' && result.value.success && result.value.data) {
                 const data = result.value.data;
-                if (isLatestTag) {
-                    priceCache.set(cacheKey, {
-                        price: data.price,
-                        marketCap: data.marketCap,
-                        timestamp: Date.now(),
-                        dexName: result.value.factory
-                    });
-                    await cacheSet(
-                        onChainPriceRedisKey(cacheKey),
-                        JSON.stringify(priceCache.get(cacheKey)),
-                        Math.ceil(PRICE_CACHE_TTL / 1000)
-                    ).catch(() => { });
-                }
-                logger.info(LogCode.API_FETCH_SUCCESS, `On-chain price fetched from ${result.value.factory}`, {
-                    token: tokenAddress,
-                    price: data.price,
-                    marketCap: data.marketCap,
-                    quote: quote.symbol
+                const lowerFactory = String(result.value.factory || '').toLowerCase();
+                successfulCandidates.push({
+                    data,
+                    sourceKind: 'factory',
+                    version: lowerFactory.includes('bonding')
+                        ? 'bonding'
+                        : lowerFactory.includes('v3') || lowerFactory.includes('uniswap v3') || lowerFactory.includes('pancakeswap v3')
+                            ? 'v3'
+                            : 'v2',
+                    quoteSymbol: quote.symbol,
+                    quoteIsStable: quote.isStable
                 });
-                return data;
             }
         }
 
@@ -535,30 +515,45 @@ export async function getOnChainPrice(
                 }
 
                 if (routerData && routerData.price > 0) {
-                    if (isLatestTag) {
-                        priceCache.set(cacheKey, {
-                            price: routerData.price,
-                            marketCap: routerData.marketCap,
-                            timestamp: Date.now(),
-                            dexName: router.name
-                        });
-                        await cacheSet(
-                            onChainPriceRedisKey(cacheKey),
-                            JSON.stringify(priceCache.get(cacheKey)),
-                            Math.ceil(PRICE_CACHE_TTL / 1000)
-                        ).catch(() => { });
-                    }
-                    logger.info(LogCode.API_FETCH_SUCCESS, `🔗 Router fallback succeeded: ${router.name}`, {
-                        token: tokenAddress,
-                        price: routerData.price,
-                        quote: quote.symbol
+                    successfulCandidates.push({
+                        data: routerData,
+                        sourceKind: 'router',
+                        version: router.type === 'aerodrome' ? 'aerodrome' : 'v2',
+                        quoteSymbol: quote.symbol,
+                        quoteIsStable: quote.isStable
                     });
-                    return routerData;
                 }
             } catch (err: any) {
                 logger.debug(LogCode.API_FETCH_FAILED, `Router ${router.name} failed`, { error: err.message });
             }
         }
+    }
+
+    const selectedCandidate = selectBestOnChainPriceCandidate(successfulCandidates);
+    if (selectedCandidate) {
+        const data = selectedCandidate.selected.data;
+        if (isLatestTag) {
+            priceCache.set(cacheKey, {
+                price: data.price,
+                marketCap: data.marketCap,
+                timestamp: Date.now(),
+                dexName: data.dexName
+            });
+            await cacheSet(
+                onChainPriceRedisKey(cacheKey),
+                JSON.stringify(priceCache.get(cacheKey)),
+                Math.ceil(PRICE_CACHE_TTL / 1000)
+            ).catch(() => { });
+        }
+        logger.info(LogCode.API_FETCH_SUCCESS, 'On-chain price candidate selected', {
+            token: tokenAddress,
+            price: data.price,
+            marketCap: data.marketCap,
+            dexName: data.dexName,
+            clusterSize: selectedCandidate.clusterSize,
+            discardedCandidates: selectedCandidate.discarded.length
+        });
+        return data;
     }
 
     logger.warn(LogCode.API_FETCH_FAILED, 'All on-chain DEX queries failed (Factory + Router)', { token: tokenAddress, chainId });

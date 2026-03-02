@@ -17,6 +17,7 @@ import { sendSolanaTransaction, getDelegatedSolanaWallet, getServerSolanaWalletA
 import { getPlatformFee } from './platformFeeService.js';
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
+import { getLatestSolanaBlockhash } from './solana/blockhashProvider.js';
 
 // Pump.fun Constants
 const PUMP_FUN_PROGRAM_ID = new PublicKey('6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P');
@@ -249,7 +250,7 @@ export class SolanaLaunchpadSwapService {
             lamports: amountLamports
         });
 
-        const recentBlockhash = await connection.getLatestBlockhash();
+        const recentBlockhash = await getLatestSolanaBlockhash(connection, 'launchpad_fee_transfer');
         const messageV0 = new TransactionMessage({
             payerKey: payer,
             recentBlockhash: recentBlockhash.blockhash,
@@ -359,7 +360,7 @@ export class SolanaLaunchpadSwapService {
         }));
 
         // Build Versioned Transaction
-        const recentBlockhash = await connection.getLatestBlockhash();
+        const recentBlockhash = await getLatestSolanaBlockhash(connection, 'launchpad_pumpfun_swap');
         const messageV0 = new TransactionMessage({
             payerKey: userPubkey,
             recentBlockhash: recentBlockhash.blockhash,
@@ -505,7 +506,7 @@ export class SolanaLaunchpadSwapService {
         }));
 
         // Build Versioned Transaction
-        const recentBlockhash = await connection.getLatestBlockhash();
+        const recentBlockhash = await getLatestSolanaBlockhash(connection, 'launchpad_raydium_swap');
         const messageV0 = new TransactionMessage({
             payerKey: userPubkey,
             recentBlockhash: recentBlockhash.blockhash,

@@ -19,6 +19,7 @@ import { resolveExecutionModeFromConfig } from '../services/copyTradeExecutionMo
 import { getEmbeddedWalletAddress } from '../services/privyWallet.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { syncCopyTradeWebhookChain } from '../services/copyTradeWebhookSync.js';
+import { resolveMaxEntryDeviationBps } from '../services/copytrade/config/entryDeviationPolicy.js';
 
 interface CreateConfigBody {
     signedPayload: Record<string, unknown> | string;
@@ -47,6 +48,7 @@ function toConfigDataFromSignedPayload(payload: CopyTradeSignedPayload) {
         chainId: Number(payload.chainId),
         buyAmountUsd: Number(payload.buyAmountUsd),
         maxSlippageBps: Number(payload.maxSlippageBps),
+        maxEntryDeviationBps: payload.maxEntryDeviationBps == null ? null : Number(payload.maxEntryDeviationBps),
         minMarketCapUsd: Number(payload.minMarketCapUsd) === 0 ? null : Number(payload.minMarketCapUsd),
         minLiquidityUsd: Number(payload.minLiquidityUsd) === 0 ? null : Number(payload.minLiquidityUsd),
         minTargetValueUsd: Number(payload.minTargetValueUsd) === 0 ? null : Number(payload.minTargetValueUsd),
@@ -59,6 +61,15 @@ function toConfigDataFromSignedPayload(payload: CopyTradeSignedPayload) {
         aiAnalysisMode: payload.aiAnalysisMode,
         enableDynamicTP: payload.enableDynamicTP,
         dynamicTPMinProfitPct: Number(payload.dynamicTPMinProfitPct),
+    };
+}
+
+function serializeCopyTradeConfig(config: any) {
+    const entryDeviation = resolveMaxEntryDeviationBps(config);
+    return {
+        ...config,
+        maxEntryDeviationBps: entryDeviation.maxEntryDeviationBps,
+        maxEntryDeviationSource: entryDeviation.source,
     };
 }
 
@@ -123,7 +134,7 @@ export default async function copyTradeRoutes(fastify: FastifyInstance) {
                 return reply.send({ configs: [] });
             }
 
-            return reply.send({ configs: user.configs });
+            return reply.send({ configs: user.configs.map(serializeCopyTradeConfig) });
         } catch (error) {
             console.error('[CopyTrade] Error fetching configs:', error);
             return reply.status(500).send({ error: 'Failed to fetch configs' });
@@ -298,7 +309,7 @@ export default async function copyTradeRoutes(fastify: FastifyInstance) {
 
             return reply.send({
                 success: true,
-                config,
+                config: serializeCopyTradeConfig(config),
             });
         } catch (error) {
             console.error('[CopyTrade] Error creating config:', error);
@@ -635,7 +646,8 @@ export default async function copyTradeRoutes(fastify: FastifyInstance) {
                 }
             }
 
-            return reply.send({ success: true, config });
+            return reply.send({ success: true, config: serializeCopyTradeConfig(config) });
+
         } catch (error) {
             console.error('[CopyTrade] Error updating config:', error);
             return handleCopyTradeError(reply, error, 'Failed to update config');

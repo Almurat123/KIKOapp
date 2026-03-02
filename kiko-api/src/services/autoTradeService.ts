@@ -82,6 +82,7 @@ import { buildDuplicateTradeWhere, describeCooldownMode } from './copytrade/guar
 import { evaluateStaticBuyGuards } from './copytrade/guards/evaluator.js';
 import { emitBatchFilterAudit } from './copytrade/guards/batchFilterAudit.js';
 import { resolveBuyGuardPolicy, shouldEnforceBuyGuard } from './copytrade/guards/policy.js';
+import { resolveMaxEntryDeviationBps } from './copytrade/config/entryDeviationPolicy.js';
 
 export { getTokenInfo } from './tokenService.js';
 
@@ -1317,12 +1318,16 @@ async function processBuyWithInfo(
         workingConfigs.map(async (config) => {
             const userSettings = userSettingsMap.get(config.userId);
             const universalSlippageBps = getSlippageBps(userSettings);
+            const entryDeviationPolicy = resolveMaxEntryDeviationBps(config);
             const effectiveConfig = {
                 ...config,
                 minMarketCapUsd: resolveEffectivePositiveThreshold(config.minMarketCapUsd, userSettings?.minMarketCapUsd),
                 minLiquidityUsd: resolveEffectivePositiveThreshold(config.minLiquidityUsd, userSettings?.minLiquidityUsd),
                 minTargetValueUsd: resolveEffectiveMinTargetValueUsd(config, userSettings),
-                maxSlippageBps: universalSlippageBps
+                maxSlippageBps: universalSlippageBps,
+                maxEntryDeviationBps: entryDeviationPolicy.maxEntryDeviationBps,
+                maxEntryDeviationSource: entryDeviationPolicy.source,
+                maxEntryDeviationReasonCode: entryDeviationPolicy.reasonCode
             };
 
             const filterResult = await evaluateStaticBuyGuards(
@@ -1677,13 +1682,17 @@ async function processSingleUserBuy(
             }
         // Universal Global Slippage (userSettings already passed in)
         const universalSlippageBps = getSlippageBps(userSettings);
+        const entryDeviationPolicy = resolveMaxEntryDeviationBps(config);
 
         const effectiveConfig = {
             ...config,
             minMarketCapUsd: resolveEffectivePositiveThreshold(config.minMarketCapUsd, userSettings?.minMarketCapUsd),
             minLiquidityUsd: resolveEffectivePositiveThreshold(config.minLiquidityUsd, userSettings?.minLiquidityUsd),
             minTargetValueUsd: resolveEffectiveMinTargetValueUsd(config, userSettings),
-            maxSlippageBps: universalSlippageBps
+            maxSlippageBps: universalSlippageBps,
+            maxEntryDeviationBps: entryDeviationPolicy.maxEntryDeviationBps,
+            maxEntryDeviationSource: entryDeviationPolicy.source,
+            maxEntryDeviationReasonCode: entryDeviationPolicy.reasonCode
         };
         const observedMarketCapUsd = Number(tokenInfo?.marketCap || 0);
         const observedLiquidityUsd = Number(
@@ -1886,9 +1895,14 @@ async function processSingleUserBuy(
                 try {
                     const estimatedOut = Number(ethers.formatUnits(swap.amountOut, tokenInfo.decimals || 18));
                     if (estimatedOut > 0) {
+                        const priceGuardValueUsd = strictTargetSwapValueReliable
+                            && strictTargetSwapValueUsd > 0
+                            && ['cash_leg_hint', 'native_like_pool_amount_in'].includes(String(strictTargetSwapValueSource || ''))
+                            ? strictTargetSwapValueUsd
+                            : targetSwapValueUsd;
                         // Calculate IMPLIED execution price from TARGET WALLET's trade
                         // This is how much the target ACTUALLY paid per token
-                        targetExecutionPrice = targetSwapValueUsd / estimatedOut;
+                        targetExecutionPrice = priceGuardValueUsd / estimatedOut;
                         const priceDeviation = targetExecutionPrice / tokenInfo.price;
                         guardAudit.priceDeviation = {
                             oraclePrice: roundGuardNumber(tokenInfo.price, 8),
@@ -1909,6 +1923,7 @@ async function processSingleUserBuy(
                                 userId: config.userId,
                                 token: tokenToBuy,
                                 targetSwapValueUsd,
+                                priceGuardValueUsd,
                                 estimatedOut,
                                 oracleProvider: tokenInfo.provider,
                                 oracleDexName: tokenInfo.rpcDexName,
@@ -1950,15 +1965,20 @@ async function processSingleUserBuy(
                         ...(guardAudit.priceDeviation && typeof guardAudit.priceDeviation === 'object' ? guardAudit.priceDeviation as Record<string, unknown> : {}),
                         dexPrice: roundGuardNumber(currentPrice, 8),
                         deviationBps: roundGuardNumber(deviationBps, 2),
+                        maxEntryDeviationBps: effectiveConfig.maxEntryDeviationBps,
+                        entryDeviationSource: effectiveConfig.maxEntryDeviationSource,
+                        entryDeviationReasonCode: effectiveConfig.maxEntryDeviationReasonCode,
                         maxSlippageBps: effectiveConfig.maxSlippageBps,
-                        pass: deviationBps <= effectiveConfig.maxSlippageBps
+                        pass: deviationBps <= effectiveConfig.maxEntryDeviationBps
                     };
-                    if (shouldEnforceBuyGuard(guardPolicy, 'priceDeviationBps') && deviationBps > effectiveConfig.maxSlippageBps) {
-                        logger.info(LogCode.WTC_TX_SKIPPED, 'Skipping trade: price deviation exceeds user limit', {
+                    if (shouldEnforceBuyGuard(guardPolicy, 'priceDeviationBps') && deviationBps > effectiveConfig.maxEntryDeviationBps) {
+                        logger.info(LogCode.WTC_TX_SKIPPED, 'Skipping trade: entry deviation exceeds configured threshold', {
                             userId: config.userId,
                             token: tokenToBuy,
                             deviationBps: deviationBps.toFixed(0),
-                            limitBps: effectiveConfig.maxSlippageBps
+                            limitBps: effectiveConfig.maxEntryDeviationBps,
+                            thresholdSource: effectiveConfig.maxEntryDeviationSource,
+                            reasonCode: effectiveConfig.maxEntryDeviationReasonCode
                         });
 
                         sendNotificationAsync({
@@ -1970,7 +1990,7 @@ async function processSingleUserBuy(
                                 tokenAddress: tokenToBuy,
                                 targetWallet: targetWallet,
                                 chainId: chainId,
-                                skipReason: `Price deviation ${deviationBps.toFixed(0)} bps > limit ${effectiveConfig.maxSlippageBps} bps`,
+                                skipReason: `Entry deviation ${deviationBps.toFixed(0)} bps > limit ${effectiveConfig.maxEntryDeviationBps} bps`,
                                 targetBuyValue: targetSwapValueUsd.toFixed(2),
                             }
                         }, 'copytrade_skip_price_deviation_bps');

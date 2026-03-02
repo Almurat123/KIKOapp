@@ -6,6 +6,7 @@ import { getSolanaQuote, getSolanaQuoteFromAggregator, SolanaAggregator, type So
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
 import { PublicKey, VersionedTransaction } from '@solana/web3.js';
+import { getLatestSolanaBlockhash } from './solana/blockhashProvider.js';
 
 export interface SolanaSwapParams {
     userId: string;
@@ -29,6 +30,7 @@ type SolanaExecutorDeps = {
     getSolanaConnection: typeof getSolanaConnection;
     deserializeTransaction: typeof VersionedTransaction.deserialize;
     sendSolanaTransaction: typeof sendSolanaTransaction;
+    getLatestSolanaBlockhash: typeof getLatestSolanaBlockhash;
 };
 
 const defaultSolanaExecutorDeps: SolanaExecutorDeps = {
@@ -39,6 +41,7 @@ const defaultSolanaExecutorDeps: SolanaExecutorDeps = {
     getSolanaConnection,
     deserializeTransaction: VersionedTransaction.deserialize,
     sendSolanaTransaction,
+    getLatestSolanaBlockhash,
 };
 
 function resolveSelectedAggregator(
@@ -151,11 +154,15 @@ async function executeSolanaSwapWithDeps(
     let transaction = deps.deserializeTransaction(transactionBuffer);
 
     // Fetch fresh blockhash
-    const { blockhash, lastValidBlockHeight } = await blockhashConnection.getLatestBlockhash('finalized');
-    logger.debug(LogCode.SYS_INFO, 'SolanaExecutor: Fresh blockhash obtained', { blockhash });
+    const blockhashResult = await deps.getLatestSolanaBlockhash(blockhashConnection, 'swap_executor');
+    logger.debug(LogCode.SYS_INFO, 'SolanaExecutor: Fresh blockhash obtained', {
+        blockhash: blockhashResult.blockhash,
+        commitmentUsed: blockhashResult.commitmentUsed,
+        fallbackUsed: blockhashResult.fallbackUsed,
+    });
 
     // Update blockhash
-    transaction.message.recentBlockhash = blockhash;
+    transaction.message.recentBlockhash = blockhashResult.blockhash;
 
     // Reserialize to base64
     const freshTransactionBase64 = Buffer.from(transaction.serialize()).toString('base64');

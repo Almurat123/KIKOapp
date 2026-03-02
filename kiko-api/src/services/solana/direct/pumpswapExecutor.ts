@@ -4,6 +4,7 @@ import { logger } from '../../../utils/logger.js';
 import { LogCode } from '../../../config/logRegistry.js';
 import { getPlatformFee } from '../../platformFeeService.js';
 import { sendSolanaTransaction, getDelegatedSolanaWallet, getServerSolanaWalletAddress } from '../../privyWallet.js';
+import { getLatestSolanaBlockhash } from '../blockhashProvider.js';
 import {
   ASSOCIATED_TOKEN_PROGRAM_ID,
   getAssociatedTokenAddress,
@@ -378,7 +379,7 @@ export async function executePumpSwapDirect(
       }
     }
 
-    const recentBlockhash = await connection.getLatestBlockhash('finalized');
+    const recentBlockhash = await getLatestSolanaBlockhash(connection, 'pumpswap_direct');
     const messageV0 = new TransactionMessage({
       payerKey: user,
       recentBlockhash: recentBlockhash.blockhash,

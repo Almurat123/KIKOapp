@@ -8,7 +8,7 @@ import { getTokenMetadata } from './rpcService.js';
 import { fetchJson, ApiPriority } from '../config/unifiedApiService.js';
 import { cacheHub } from '../cache/DataCacheHub.js'; // 🔗 连接缓存中心
 import { getDexPrice } from './dexPriceService.js'; // 🔗 DEX 价格 fallback
-import { decideLaunchpadOraclePrice, isLaunchpadOracleSource } from './pricing/launchpadOraclePolicy.js';
+import { decideLaunchpadOraclePrice, decideValidatedMarketPrice, isLaunchpadOracleSource } from './pricing/launchpadOraclePolicy.js';
 
 /**
  * Token Service
@@ -193,8 +193,8 @@ async function fetchTokenInfoFromAPIs(
         provider = 'dexscreener-liquidity';
     }
 
-    if (price > 0 && isLaunchpadOracleSource({ chainId, dexName: rpcDexName, provider })) {
-        let dexValidatorPrice = 0;
+    let dexValidatorPrice = 0;
+    if (price > 0) {
         try {
             const dexChainId = isSolana ? 'solana' : chainId;
             const timeoutMs = fastMode ? 500 : 900;
@@ -205,7 +205,9 @@ async function fetchTokenInfoFromAPIs(
         } catch {
             dexValidatorPrice = 0;
         }
+    }
 
+    if (price > 0 && isLaunchpadOracleSource({ chainId, dexName: rpcDexName, provider })) {
         const decision = decideLaunchpadOraclePrice({
             chainId,
             rpcPriceUsd: price,
@@ -231,6 +233,37 @@ async function fetchTokenInfoFromAPIs(
 
         if (decision.fallbackUsed) {
             logger.warn(LogCode.API_FETCH_FAILED, 'Launchpad oracle price overridden by validated market reference', {
+                token: tokenAddress,
+                chainId,
+                rpcDexName,
+                rpcPriceUsd: rpc?.price,
+                selectedPriceUsd: price,
+                referencePriceUsd: referencePrice,
+                referenceProvider,
+                reasonCode: priceValidationReason,
+                deviationRatio: decision.deviationRatio
+            });
+        }
+    } else if (price > 0) {
+        const decision = decideValidatedMarketPrice({
+            rpcPriceUsd: price,
+            provider,
+            liquidityPriceUsd: liq?.priceUsd,
+            dexPriceUsd: dexValidatorPrice
+        });
+        price = decision.finalPriceUsd;
+        provider = decision.finalProvider;
+        referencePrice = decision.referencePriceUsd;
+        referenceProvider = decision.referenceProvider;
+        priceValidationReason = decision.reasonCode;
+        priceFallbackUsed = decision.fallbackUsed;
+        if (decision.fallbackUsed) {
+            if (liq?.fdv && liq.fdv > 0) {
+                marketCap = liq.fdv;
+            } else if (rpc?.marketCap && rpc?.price) {
+                marketCap = rpc.marketCap * (price / rpc.price);
+            }
+            logger.warn(LogCode.API_FETCH_FAILED, 'RPC market price overridden by external validator', {
                 token: tokenAddress,
                 chainId,
                 rpcDexName,

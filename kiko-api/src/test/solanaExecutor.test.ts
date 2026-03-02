@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { AppError } from '../middleware/errorHandler.js';
 import { __solanaExecutorTest, type SolanaSwapParams } from '../services/solanaExecutor.js';
 import type { SolanaQuote } from '../services/solanaSwap.js';
+import { getLatestSolanaBlockhash } from '../services/solana/blockhashProvider.js';
 
 const baseParams: SolanaSwapParams = {
   userId: 'user-1',
@@ -59,6 +60,7 @@ function createDeps(overrides: Record<string, unknown> = {}) {
       sent.tx = tx;
       return 'signature-123';
     },
+    getLatestSolanaBlockhash,
     ...overrides,
   };
 
@@ -125,6 +127,31 @@ describe('solanaExecutor execution flow', () => {
     assert.equal(quoteProbe.value?.computeUnitPriceMicroLamports, 100000);
   });
 
+  test('blockhash refresh falls back from finalized to confirmed', async () => {
+    const deps = createDeps({
+      getLatestSolanaBlockhash: async () => ({
+        blockhash: 'confirmed-blockhash',
+        lastValidBlockHeight: 2,
+        commitmentUsed: 'confirmed',
+        fallbackUsed: true,
+      }),
+      deserializeTransaction: () => ({
+        message: { recentBlockhash: 'stale-blockhash' },
+        serialize: function (this: any) {
+          assert.equal(this.message.recentBlockhash, 'confirmed-blockhash');
+          return Buffer.from('fallback-serialized');
+        },
+      }),
+    });
+
+    const signature = await __solanaExecutorTest.executeSolanaSwapWithDeps(
+      { ...baseParams, executionMode: 'turbo' },
+      deps as any
+    );
+
+    assert.equal(signature, 'signature-123');
+  });
+
   test('throws QUOTE_FAILED when no quote is available', async () => {
     const deps = createDeps({
       getSolanaQuote: async () => null,
@@ -144,6 +171,19 @@ describe('solanaExecutor execution flow', () => {
     await assert.rejects(
       () => __solanaExecutorTest.executeSolanaSwapWithDeps({ ...baseParams, executionMode: 'normal' }, deps as any),
       (error: unknown) => error instanceof AppError && error.code === 'SWAP_BUILD_FAILED'
+    );
+  });
+
+  test('throws SOLANA_BLOCKHASH_FETCH_FAILED when blockhash provider exhausts fallbacks', async () => {
+    const deps = createDeps({
+      getLatestSolanaBlockhash: async () => {
+        throw new AppError(503, 'Failed to get recent blockhash for swap_executor', 'SOLANA_BLOCKHASH_FETCH_FAILED');
+      }
+    });
+
+    await assert.rejects(
+      () => __solanaExecutorTest.executeSolanaSwapWithDeps({ ...baseParams, executionMode: 'normal' }, deps as any),
+      (error: unknown) => error instanceof AppError && error.code === 'SOLANA_BLOCKHASH_FETCH_FAILED'
     );
   });
 });

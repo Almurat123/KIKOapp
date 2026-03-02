@@ -163,39 +163,48 @@ export async function computeBuyTargetValueSnapshot(
                     strictValueUsd: Number(strictTargetSwapValueUsd.toFixed(4))
                 });
             }
-        } else {
-            const nativePrice = await cacheHub.getNativePrice(chainId, async () => getNativeTokenPriceUsd(chainId));
-            if (!nativePrice || nativePrice <= 0) {
-                logger.error(LogCode.API_FETCH_FAILED, 'Failed to fetch native token price, cannot calculate trade value', {
-                    chainId
-                });
             } else {
-                const nativeLikeDecimals = resolveNativeLikeDecimals(chainId, normalizedTokenIn, chainConfig.wrappedNativeAddress);
-                targetSwapValueUsd = formatTokenAmount(amountInBN, nativeLikeDecimals) * nativePrice;
-                const hintedCashSpentUsd = Number(swap?.cashLegHint?.cashSpentUsd || 0);
-                const sourceTxValueWei = parsePositiveBigInt(swap?.sourceTxValue);
-                const strictAmountWei = sourceTxValueWei > 0n ? sourceTxValueWei : amountInBN;
-
-                if (Number.isFinite(hintedCashSpentUsd) && hintedCashSpentUsd > 0) {
-                    strictTargetSwapValueUsd = hintedCashSpentUsd;
-                    strictTargetSwapValueReliable = true;
-                    strictTargetSwapValueSource = 'cash_leg_hint';
-                } else if (strictAmountWei > 0n) {
-                    strictTargetSwapValueUsd = formatTokenAmount(strictAmountWei, nativeLikeDecimals) * nativePrice;
-                    strictTargetSwapValueReliable = true;
-                    strictTargetSwapValueSource = sourceTxValueWei > 0n
-                        ? 'native_like_source_tx_value'
-                        : 'native_like_amount_in';
-                    logger.info(LogCode.EXE_QUOTE_FETCHED, '[CopyTradeGuard] Native-like amount treated as trusted input; USD derived from native price', {
-                        txHash: swap.txHash,
-                        chainId,
-                        strictSource: strictTargetSwapValueSource,
-                        strictValueUsd: Number(strictTargetSwapValueUsd.toFixed(4)),
-                        nativeLikeDecimals
+                const nativePrice = await cacheHub.getNativePrice(chainId, async () => getNativeTokenPriceUsd(chainId));
+                if (!nativePrice || nativePrice <= 0) {
+                    logger.error(LogCode.API_FETCH_FAILED, 'Failed to fetch native token price, cannot calculate trade value', {
+                        chainId
                     });
+                } else {
+                    const nativeLikeDecimals = resolveNativeLikeDecimals(chainId, normalizedTokenIn, chainConfig.wrappedNativeAddress);
+                    const normalizedPoolTokenIn = normalizeAddress(swap?.poolTokenIn || '');
+                    const poolAmountInWei = normalizedPoolTokenIn === normalizedTokenIn
+                        ? parsePositiveBigInt(swap?.poolAmountIn)
+                        : 0n;
+                    targetSwapValueUsd = formatTokenAmount(amountInBN, nativeLikeDecimals) * nativePrice;
+                    const hintedCashSpentUsd = Number(swap?.cashLegHint?.cashSpentUsd || 0);
+                    const sourceTxValueWei = parsePositiveBigInt(swap?.sourceTxValue);
+                    const strictAmountWei = poolAmountInWei > 0n
+                        ? poolAmountInWei
+                        : (sourceTxValueWei > 0n ? sourceTxValueWei : amountInBN);
+
+                    if (Number.isFinite(hintedCashSpentUsd) && hintedCashSpentUsd > 0) {
+                        strictTargetSwapValueUsd = hintedCashSpentUsd;
+                        strictTargetSwapValueReliable = true;
+                        strictTargetSwapValueSource = 'cash_leg_hint';
+                    } else if (strictAmountWei > 0n) {
+                        strictTargetSwapValueUsd = formatTokenAmount(strictAmountWei, nativeLikeDecimals) * nativePrice;
+                        strictTargetSwapValueReliable = true;
+                        strictTargetSwapValueSource = poolAmountInWei > 0n
+                            ? 'native_like_pool_amount_in'
+                            : (sourceTxValueWei > 0n
+                                ? 'native_like_source_tx_value'
+                                : 'native_like_amount_in');
+                        logger.info(LogCode.EXE_QUOTE_FETCHED, '[CopyTradeGuard] Native-like amount treated as trusted input; USD derived from native price', {
+                            txHash: swap.txHash,
+                            chainId,
+                            strictSource: strictTargetSwapValueSource,
+                            strictValueUsd: Number(strictTargetSwapValueUsd.toFixed(4)),
+                            nativeLikeDecimals,
+                            poolAmountInWei: poolAmountInWei > 0n ? poolAmountInWei.toString() : undefined
+                        });
+                    }
                 }
             }
-        }
 
         logger.debug(LogCode.EXE_QUOTE_FETCHED, 'Calculated value from token input', {
             valueUsd: targetSwapValueUsd,

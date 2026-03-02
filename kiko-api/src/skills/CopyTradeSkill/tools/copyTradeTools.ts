@@ -4,6 +4,7 @@ import { normalizeAddress } from '../../../utils/address.js';
 import { validateAddress } from '../../../utils/validation.js';
 import { resolveExecutionModeFromConfig } from '../../../services/copyTradeExecutionMode.js';
 import { syncCopyTradeWebhookChain } from '../../../services/copyTradeWebhookSync.js';
+import { DEFAULT_COPYTRADE_ENTRY_DEVIATION_BPS, resolveMaxEntryDeviationBps } from '../../../services/copytrade/config/entryDeviationPolicy.js';
 
 export const CreateCopyTradeConfigTool: Tool = {
     definition: {
@@ -23,6 +24,10 @@ export const CreateCopyTradeConfigTool: Tool = {
                 max_slippage_bps: {
                     type: 'number',
                     description: 'Maximum slippage in basis points (e.g., 300 = 3%) [Default: 300]'
+                },
+                max_entry_deviation_bps: {
+                    type: 'number',
+                    description: `Maximum allowed entry price deviation in basis points for copytrade gating [Default: ${DEFAULT_COPYTRADE_ENTRY_DEVIATION_BPS}]`
                 },
                 min_market_cap_usd: {
                     type: 'number',
@@ -109,6 +114,11 @@ export const CreateCopyTradeConfigTool: Tool = {
                 dynamicTPMinProfitPct: 100,
                 executionMode: resolvedMode.mode,
                 disableTokenInfo: resolvedMode.mode === 'turbo',
+                configPayload: {
+                    maxEntryDeviationBps: Number.isFinite(Number(args.max_entry_deviation_bps))
+                        ? Number(args.max_entry_deviation_bps)
+                        : DEFAULT_COPYTRADE_ENTRY_DEVIATION_BPS,
+                } as any,
                 signatureScheme: 'legacy_unsigned',
                 requiresResign: false,
             },
@@ -142,6 +152,7 @@ export const CreateCopyTradeConfigTool: Tool = {
             targetWallet: config.targetWallet,
             chainId: config.chainId,
             buyAmountUsd: config.buyAmountUsd,
+            maxEntryDeviationBps: resolveMaxEntryDeviationBps(config).maxEntryDeviationBps,
             status: config.status,
             createdAt: config.createdAt,
         };
@@ -176,6 +187,7 @@ export const ListCopyTradeConfigsTool: Tool = {
                 id: c.id,
                 target: c.targetWallet,
                 buy_amount: `$${c.buyAmountUsd}`,
+                max_entry_deviation_bps: resolveMaxEntryDeviationBps(c).maxEntryDeviationBps,
                 status: c.status,
             }));
         } catch (error: any) {

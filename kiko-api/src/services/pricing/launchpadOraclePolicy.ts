@@ -105,3 +105,68 @@ export function decideLaunchpadOraclePrice(params: {
     deviationRatio
   };
 }
+
+export function decideValidatedMarketPrice(params: {
+  rpcPriceUsd: number;
+  provider?: string;
+  liquidityPriceUsd?: number;
+  dexPriceUsd?: number;
+  maxDeviationRatio?: number;
+}): LaunchpadOracleDecision {
+  const rpcPriceUsd = Number(params.rpcPriceUsd || 0);
+  const provider = params.provider || 'rpc+api';
+  const maxDeviationRatio = Math.max(
+    1,
+    Number(params.maxDeviationRatio || DEFAULT_LAUNCHPAD_MAX_DEVIATION_RATIO)
+  );
+  const referenceCandidates = [
+    { priceUsd: Number(params.dexPriceUsd || 0), provider: '0x-dex', reasonCode: 'market_price_deviation_dex' },
+    { priceUsd: Number(params.liquidityPriceUsd || 0), provider: 'dexscreener-liquidity', reasonCode: 'market_price_deviation_liquidity' }
+  ].filter((candidate) => Number.isFinite(candidate.priceUsd) && candidate.priceUsd > 0);
+
+  if (!Number.isFinite(rpcPriceUsd) || rpcPriceUsd <= 0) {
+    return {
+      finalPriceUsd: 0,
+      finalProvider: provider,
+      fallbackUsed: false
+    };
+  }
+  if (!referenceCandidates.length) {
+    return {
+      finalPriceUsd: rpcPriceUsd,
+      finalProvider: provider,
+      fallbackUsed: false,
+      reasonCode: 'market_validator_unavailable'
+    };
+  }
+
+  const reference = referenceCandidates[0];
+  const deviationRatio = priceRatio(rpcPriceUsd, reference.priceUsd);
+  if (!Number.isFinite(deviationRatio) || deviationRatio <= maxDeviationRatio) {
+    return {
+      finalPriceUsd: rpcPriceUsd,
+      finalProvider: provider,
+      referencePriceUsd: reference.priceUsd,
+      referenceProvider: reference.provider,
+      fallbackUsed: false,
+      deviationRatio
+    };
+  }
+
+  return {
+    finalPriceUsd: reference.priceUsd,
+    finalProvider: reference.provider,
+    referencePriceUsd: reference.priceUsd,
+    referenceProvider: reference.provider,
+    reasonCode: reference.reasonCode,
+    fallbackUsed: true,
+    deviationRatio
+  };
+}
+
+function priceRatio(a: number, b: number): number {
+  const high = Math.max(a, b);
+  const low = Math.min(a, b);
+  if (!Number.isFinite(high) || !Number.isFinite(low) || low <= 0) return Number.POSITIVE_INFINITY;
+  return high / low;
+}

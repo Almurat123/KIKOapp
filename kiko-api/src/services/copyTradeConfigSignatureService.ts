@@ -9,6 +9,7 @@ import {
 
 export const COPYTRADE_SIGNATURE_SCHEME = 'eip712_v1';
 export const COPYTRADE_INTENT_VERSION = 'copytrade_config_intent_v1';
+export const COPYTRADE_INTENT_VERSION_V2 = 'copytrade_config_intent_v2';
 
 const DOMAIN = {
   name: 'KiKo CopyTrade Config',
@@ -29,6 +30,32 @@ const TYPES = {
     { name: 'targetWallet', type: 'string' },
     { name: 'buyAmountUsd', type: 'string' },
     { name: 'maxSlippageBps', type: 'string' },
+    { name: 'minMarketCapUsd', type: 'string' },
+    { name: 'minLiquidityUsd', type: 'string' },
+    { name: 'minTargetValueUsd', type: 'string' },
+    { name: 'copyTradeTokenCooldownMinutes', type: 'string' },
+    { name: 'executionMode', type: 'string' },
+    { name: 'disableTokenInfo', type: 'bool' },
+    { name: 'takeProfitPct', type: 'string' },
+    { name: 'stopLossPct', type: 'string' },
+    { name: 'mirrorSell', type: 'bool' },
+    { name: 'aiAnalysisMode', type: 'string' },
+    { name: 'enableDynamicTP', type: 'bool' },
+    { name: 'dynamicTPMinProfitPct', type: 'string' },
+  ],
+  CopyTradeConfigIntentV2: [
+    { name: 'version', type: 'string' },
+    { name: 'action', type: 'string' },
+    { name: 'configId', type: 'string' },
+    { name: 'userId', type: 'string' },
+    { name: 'signerAddress', type: 'address' },
+    { name: 'nonce', type: 'uint256' },
+    { name: 'expiresAtMs', type: 'uint256' },
+    { name: 'chainId', type: 'uint256' },
+    { name: 'targetWallet', type: 'string' },
+    { name: 'buyAmountUsd', type: 'string' },
+    { name: 'maxSlippageBps', type: 'string' },
+    { name: 'maxEntryDeviationBps', type: 'string' },
     { name: 'minMarketCapUsd', type: 'string' },
     { name: 'minLiquidityUsd', type: 'string' },
     { name: 'minTargetValueUsd', type: 'string' },
@@ -70,6 +97,33 @@ const CANONICAL_KEYS = [
   'dynamicTPMinProfitPct',
 ] as const;
 
+const CANONICAL_KEYS_V2 = [
+  'version',
+  'action',
+  'configId',
+  'userId',
+  'signerAddress',
+  'nonce',
+  'expiresAtMs',
+  'chainId',
+  'targetWallet',
+  'buyAmountUsd',
+  'maxSlippageBps',
+  'maxEntryDeviationBps',
+  'minMarketCapUsd',
+  'minLiquidityUsd',
+  'minTargetValueUsd',
+  'copyTradeTokenCooldownMinutes',
+  'executionMode',
+  'disableTokenInfo',
+  'takeProfitPct',
+  'stopLossPct',
+  'mirrorSell',
+  'aiAnalysisMode',
+  'enableDynamicTP',
+  'dynamicTPMinProfitPct',
+] as const;
+
 type Action = 'create' | 'update' | 'delete';
 
 export interface CopyTradeSignedPayload {
@@ -84,6 +138,7 @@ export interface CopyTradeSignedPayload {
   targetWallet: string;
   buyAmountUsd: string;
   maxSlippageBps: string;
+  maxEntryDeviationBps?: string;
   minMarketCapUsd: string;
   minLiquidityUsd: string;
   minTargetValueUsd: string;
@@ -126,6 +181,7 @@ function parsePayload(raw: unknown): Record<string, unknown> {
 
 export function normalizeSignedPayload(raw: unknown, opts?: { enforceNotExpired?: boolean }): CopyTradeSignedPayload {
   const payload = parsePayload(raw);
+  const version = String(payload.version || COPYTRADE_INTENT_VERSION).trim();
   const nonce = Number(payload.nonce);
   const expiresAtMs = Number(payload.expiresAtMs ?? payload.expiresAt);
   const chainId = Number(payload.chainId);
@@ -148,6 +204,9 @@ export function normalizeSignedPayload(raw: unknown, opts?: { enforceNotExpired?
   if (action !== 'create' && action !== 'update' && action !== 'delete') {
     throw new AppError(400, 'action must be create, update or delete', 'SIGNATURE_INVALID');
   }
+  if (version !== COPYTRADE_INTENT_VERSION && version !== COPYTRADE_INTENT_VERSION_V2) {
+    throw new AppError(400, 'unsupported signature payload version', 'SIGNATURE_INVALID');
+  }
 
   const targetWallet = String(payload.targetWallet || '').trim();
   const signerAddress = normalizeAddress(String(payload.signerAddress || '').trim());
@@ -162,7 +221,7 @@ export function normalizeSignedPayload(raw: unknown, opts?: { enforceNotExpired?
   }
 
   return {
-    version: String(payload.version || COPYTRADE_INTENT_VERSION),
+    version,
     action,
     configId: String(payload.configId || ''),
     userId,
@@ -173,6 +232,9 @@ export function normalizeSignedPayload(raw: unknown, opts?: { enforceNotExpired?
     targetWallet,
     buyAmountUsd: strNum(payload.buyAmountUsd),
     maxSlippageBps: strNum(payload.maxSlippageBps, '300'),
+    maxEntryDeviationBps: version === COPYTRADE_INTENT_VERSION_V2
+      ? strNum(payload.maxEntryDeviationBps, '1500')
+      : undefined,
     minMarketCapUsd: strNum(payload.minMarketCapUsd),
     minLiquidityUsd: strNum(payload.minLiquidityUsd),
     minTargetValueUsd: strNum(payload.minTargetValueUsd),
@@ -190,7 +252,10 @@ export function normalizeSignedPayload(raw: unknown, opts?: { enforceNotExpired?
 
 function canonicalPayload(payload: CopyTradeSignedPayload): string {
   const canonical: Record<string, unknown> = {};
-  for (const key of CANONICAL_KEYS) {
+  const keys = payload.version === COPYTRADE_INTENT_VERSION_V2
+    ? CANONICAL_KEYS_V2
+    : CANONICAL_KEYS;
+  for (const key of keys) {
     canonical[key] = payload[key];
   }
   return JSON.stringify(canonical);
@@ -205,6 +270,16 @@ function typedDataMessage(payload: CopyTradeSignedPayload) {
     ...payload,
     signerAddress: ethers.getAddress(payload.signerAddress),
   };
+}
+
+function getTypedDataTypes(payload: CopyTradeSignedPayload) {
+  const typed: Record<string, typeof TYPES.CopyTradeConfigIntentV1> = {};
+  if (payload.version === COPYTRADE_INTENT_VERSION_V2) {
+    typed.CopyTradeConfigIntentV2 = TYPES.CopyTradeConfigIntentV2;
+    return typed;
+  }
+  typed.CopyTradeConfigIntentV1 = TYPES.CopyTradeConfigIntentV1;
+  return typed;
 }
 
 export function verifyCopyTradeConfigSignature(args: {
@@ -228,7 +303,7 @@ export function verifyCopyTradeConfigSignature(args: {
   if (!userWalletAddress || !userWalletAddress.startsWith('0x')) {
     throw new AppError(400, 'user does not have a valid EVM wallet for signature verification', 'SIGNATURE_INVALID');
   }
-  if (normalized.version !== COPYTRADE_INTENT_VERSION) {
+  if (normalized.version !== COPYTRADE_INTENT_VERSION && normalized.version !== COPYTRADE_INTENT_VERSION_V2) {
     throw new AppError(400, 'unsupported signature payload version', 'SIGNATURE_INVALID');
   }
   if (normalized.userId !== args.userId) {
@@ -253,7 +328,7 @@ export function verifyCopyTradeConfigSignature(args: {
   let recoveredAddress = '';
   try {
     recoveredAddress = normalizeAddress(
-      ethers.verifyTypedData(DOMAIN, TYPES, typedDataMessage(normalized), signature)
+      ethers.verifyTypedData(DOMAIN, getTypedDataTypes(normalized), typedDataMessage(normalized), signature)
     );
   } catch {
     throw new AppError(403, 'signature verification failed', 'SIGNATURE_INVALID');
@@ -305,7 +380,7 @@ export function assertConfigExecutable(config: any, userWalletAddress: string): 
 
   try {
     const recovered = normalizeAddress(
-      ethers.verifyTypedData(DOMAIN, TYPES, typedDataMessage(payload), config.configSignature)
+      ethers.verifyTypedData(DOMAIN, getTypedDataTypes(payload), typedDataMessage(payload), config.configSignature)
     );
     if (recovered !== normalizeAddress(config.signerAddress)) {
       return { ok: false, reason: 'signature_recover_mismatch' };

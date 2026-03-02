@@ -867,6 +867,8 @@ export interface DecodedSwap {
     sourceTxInput?: string;
     sourceTxValue?: string;
     sourceSelector?: string;
+    poolAmountIn?: string;
+    poolTokenIn?: string;
     tokenIn: string;
     tokenOut: string;
     amountIn: string;
@@ -1014,6 +1016,29 @@ function attachRouteContext(
 
     swap.routeHopCount = routeHops.length;
     swap.routeHops = routeHops;
+
+    if (routeHops.length === 1 && routeHops[0]?.poolAddress) {
+        const inferredPoolFlow = inferSwapFromPoolTransfers(logs, routeHops[0].poolAddress);
+        if (inferredPoolFlow && isSamePoolPair(
+            swap.tokenIn,
+            swap.tokenOut,
+            inferredPoolFlow.tokenIn,
+            inferredPoolFlow.tokenOut,
+            chainId
+        )) {
+            const swapIn = normalizePairToken(swap.tokenIn, chainId);
+            const inferredIn = normalizePairToken(inferredPoolFlow.tokenIn, chainId);
+            const wrappedNative = getChainConfig(chainId).wrappedNativeAddress.toLowerCase();
+            const poolTokenIn = inferredIn === wrappedNative ? NATIVE_TOKEN_ADDRESS : inferredPoolFlow.tokenIn;
+            const poolAmountIn = swapIn === inferredIn
+                ? inferredPoolFlow.amountIn
+                : inferredPoolFlow.amountOut;
+            if (poolAmountIn > 0n) {
+                swap.poolAmountIn = poolAmountIn.toString();
+                swap.poolTokenIn = String(poolTokenIn).toLowerCase();
+            }
+        }
+    }
 
     if (!swap.resolvedPoolHint) {
         swap.canUseResolvedPoolFastPath = false;
