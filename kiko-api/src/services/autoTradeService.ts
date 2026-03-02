@@ -81,6 +81,8 @@ import {
 } from './copytrade/buy/buyConfirmationPolicy.js';
 import { buildCopytradeBuyPlannedArtifact } from './copytrade/buy/plannedExecutionArtifact.js';
 import { shouldAbortCopytradeBuyRetry } from './copytrade/buy/copytradeBuyRetryGuard.js';
+import { evaluateBuyPriceDeviationGuard } from './copytrade/buy/buyGuardPriceDeviation.js';
+import { reconcileOpenPositionsForExit } from './copytrade/exit/openPositionReconciliation.js';
 import { collectDirectSwapFeeFromSettlement } from './swap/fee/directSwapFeeCollector.js';
 
 export { getTokenInfo } from './tokenService.js';
@@ -393,6 +395,18 @@ function resolveDisplayTokenSymbol(symbol: unknown, tokenAddress: string): strin
     const addr = String(tokenAddress || '').trim();
     if (!addr) return 'TOKEN';
     return addr.slice(0, 6);
+}
+
+async function resolveDisplayTokenSymbolAsync(symbol: unknown, tokenAddress: string, chainId: number): Promise<string> {
+    const current = resolveDisplayTokenSymbol(symbol, tokenAddress);
+    const fallbackPrefix = String(tokenAddress || '').slice(0, 6);
+    if (current !== fallbackPrefix) return current;
+    try {
+        const meta = await getTokenMetadata(chainId, tokenAddress, { rpcStrategy: 'fast' });
+        return resolveDisplayTokenSymbol(meta?.symbol, tokenAddress);
+    } catch {
+        return current;
+    }
 }
 
 async function getSolanaMintBalanceRaw(userId: string, mintAddress: string): Promise<bigint> {
@@ -1791,46 +1805,57 @@ async function processSingleUserBuy(
             // Compare Oracle price vs the IMPLIED execution price from the TARGET wallet's trade.
             // This protects against buying at the absolute top of a "scam wick" or high slippage event.
             let targetExecutionPrice = 0;
-            if (tokenInfo.price > 0 && chainId !== 900 && targetSwapValueUsd > 0) { // Skip for Solana (diff mechanic)
+            if (chainId !== 900 && targetSwapValueUsd > 0) { // Skip for Solana (diff mechanic)
                 try {
                     const estimatedOut = Number(ethers.formatUnits(swap.amountOut, tokenInfo.decimals || 18));
                     if (estimatedOut > 0) {
-                        const priceGuardValueUsd = strictTargetSwapValueReliable
-                            && strictTargetSwapValueUsd > 0
-                            && ['cash_leg_hint', 'native_like_pool_amount_in'].includes(String(strictTargetSwapValueSource || ''))
-                            ? strictTargetSwapValueUsd
-                            : targetSwapValueUsd;
-                        // Calculate IMPLIED execution price from TARGET WALLET's trade
-                        // This is how much the target ACTUALLY paid per token
-                        targetExecutionPrice = priceGuardValueUsd / estimatedOut;
-                        const priceDeviation = targetExecutionPrice / tokenInfo.price;
-                        guardAudit.priceDeviation = {
-                            oraclePrice: roundGuardNumber(tokenInfo.price, 8),
-                            targetExecutionPrice: roundGuardNumber(targetExecutionPrice, 8),
-                            ratio: roundGuardNumber(priceDeviation, 4),
-                            maxRatio: 3,
-                            pass: priceDeviation <= 3.0,
+                        const priceDeviationGuard = evaluateBuyPriceDeviationGuard({
+                            chainId,
+                            oraclePrice: Number(tokenInfo.price || 0),
                             oracleProvider: tokenInfo.provider,
                             oracleDexName: tokenInfo.rpcDexName,
                             oracleValidationReason: tokenInfo.priceValidationReason,
-                            referencePrice: roundGuardNumber(tokenInfo.referencePrice, 8),
+                            referencePrice: tokenInfo.referencePrice,
                             referenceProvider: tokenInfo.referenceProvider,
-                            oracleFallbackUsed: Boolean(tokenInfo.priceFallbackUsed)
+                            oracleFallbackUsed: Boolean(tokenInfo.priceFallbackUsed),
+                            estimatedOut,
+                            targetSwapValueUsd,
+                            strictTargetSwapValueUsd,
+                            strictTargetSwapValueReliable,
+                            strictTargetSwapValueSource,
+                            policy: guardPolicy,
+                            maxRatio: 3,
+                        });
+                        targetExecutionPrice = priceDeviationGuard.targetExecutionPrice;
+                        guardAudit.priceDeviation = {
+                            oraclePrice: roundGuardNumber(priceDeviationGuard.metrics.oraclePrice, 8),
+                            targetExecutionPrice: roundGuardNumber(targetExecutionPrice, 8),
+                            ratio: roundGuardNumber(priceDeviationGuard.ratio, 4),
+                            maxRatio: priceDeviationGuard.metrics.maxRatio,
+                            pass: priceDeviationGuard.passed,
+                            oracleProvider: priceDeviationGuard.metrics.oracleProvider,
+                            oracleDexName: priceDeviationGuard.metrics.oracleDexName,
+                            oracleValidationReason: priceDeviationGuard.metrics.oracleValidationReason,
+                            referencePrice: roundGuardNumber(priceDeviationGuard.metrics.referencePrice, 8),
+                            referenceProvider: priceDeviationGuard.metrics.referenceProvider,
+                            oracleFallbackUsed: Boolean(priceDeviationGuard.metrics.oracleFallbackUsed),
+                            reasonCode: priceDeviationGuard.reasonCode
                         };
 
-                        if (shouldEnforceBuyGuard(guardPolicy, 'priceDeviationRatio') && priceDeviation > 3.0) { // Allow up to 3x (200% increase) but no more
-                            logger.info(LogCode.DEC_PRICE_IMPACT_HIGH, `🚨 Price Deviation too high! Oracle: $${tokenInfo.price.toFixed(6)}, Target Paid: $${targetExecutionPrice.toFixed(6)} (${priceDeviation.toFixed(1)}x)`, {
+                        if (!priceDeviationGuard.passed && priceDeviationGuard.reasonCode === 'PRICE_DEVIATION_TOO_HIGH') {
+                            logger.info(LogCode.DEC_PRICE_IMPACT_HIGH, `🚨 Price Deviation too high! Oracle: $${Number(tokenInfo.price || 0).toFixed(6)}, Target Paid: $${targetExecutionPrice.toFixed(6)} (${Number(priceDeviationGuard.ratio || 0).toFixed(1)}x)`, {
                                 userId: config.userId,
                                 token: tokenToBuy,
                                 targetSwapValueUsd,
-                                priceGuardValueUsd,
+                                priceGuardValueUsd: priceDeviationGuard.metrics.priceGuardValueUsd,
                                 estimatedOut,
-                                oracleProvider: tokenInfo.provider,
-                                oracleDexName: tokenInfo.rpcDexName,
-                                oracleValidationReason: tokenInfo.priceValidationReason,
-                                referencePrice: tokenInfo.referencePrice,
-                                referenceProvider: tokenInfo.referenceProvider,
-                                oracleFallbackUsed: Boolean(tokenInfo.priceFallbackUsed)
+                                oracleProvider: priceDeviationGuard.metrics.oracleProvider,
+                                oracleDexName: priceDeviationGuard.metrics.oracleDexName,
+                                oracleValidationReason: priceDeviationGuard.metrics.oracleValidationReason,
+                                referencePrice: priceDeviationGuard.metrics.referencePrice,
+                                referenceProvider: priceDeviationGuard.metrics.referenceProvider,
+                                oracleFallbackUsed: Boolean(priceDeviationGuard.metrics.oracleFallbackUsed),
+                                reasonCode: priceDeviationGuard.reasonCode
                             });
 
                             sendNotificationAsync({
@@ -1842,15 +1867,27 @@ async function processSingleUserBuy(
                                     tokenAddress: tokenToBuy,
                                     targetWallet: targetWallet,
                                     chainId: chainId,
-                                    skipReason: `Price deviation too high (${priceDeviation.toFixed(1)}x). Oracle: $${tokenInfo.price.toFixed(6)}, Target paid: $${targetExecutionPrice.toFixed(6)}`,
+                                    skipReason: `Price deviation too high (${Number(priceDeviationGuard.ratio || 0).toFixed(1)}x). Oracle: $${Number(tokenInfo.price || 0).toFixed(6)}, Target paid: $${targetExecutionPrice.toFixed(6)}`,
                                     targetBuyValue: targetSwapValueUsd.toFixed(2),
                                     marketCap: tokenInfo.marketCap ? tokenInfo.marketCap.toFixed(0) : undefined,
                                     liquidity: tokenInfo.liquidity ? tokenInfo.liquidity.toFixed(0) : undefined,
-                                    priceImpact: `${priceDeviation.toFixed(1)}x deviation`
+                                    priceImpact: `${Number(priceDeviationGuard.ratio || 0).toFixed(1)}x deviation`
                                 }
                             }, 'copytrade_skip_price_deviation');
                             emitGuardAudit('skip', 'price_deviation_ratio_exceeded');
                             return; // SKIP TRADE
+                        }
+                        if (!priceDeviationGuard.passed && ['PRICE_REFERENCE_UNAVAILABLE', 'PRICE_REFERENCE_ZERO'].includes(priceDeviationGuard.reasonCode)) {
+                            logger.warn(LogCode.DEC_PRICE_IMPACT_HIGH, 'Price deviation guard skipped strict enforcement due to unavailable oracle reference', {
+                                userId: config.userId,
+                                token: tokenToBuy,
+                                chainId,
+                                reasonCode: priceDeviationGuard.reasonCode,
+                                oracleProvider: priceDeviationGuard.metrics.oracleProvider,
+                                oracleValidationReason: priceDeviationGuard.metrics.oracleValidationReason,
+                                referenceProvider: priceDeviationGuard.metrics.referenceProvider,
+                                referencePrice: priceDeviationGuard.metrics.referencePrice,
+                            });
                         }
                     }
                 } catch (e) { }
@@ -2581,7 +2618,7 @@ async function processSingleUserBuy(
                     farcasterFid: config.user.farcasterFid,
                     type: 'TRADE_SUCCESS_BUY',
                     data: {
-                        tokenSymbol: resolveDisplayTokenSymbol(tokenInfo.symbol || (swap as any)?.tokenSymbol, tokenToBuy),
+                        tokenSymbol: await resolveDisplayTokenSymbolAsync(tokenInfo.symbol || (swap as any)?.tokenSymbol, tokenToBuy, chainId),
                         usdValue: usdAmount.toFixed(2),
                         targetWallet: targetWallet,
                         txHash: txHash,
@@ -3063,7 +3100,7 @@ async function executePositionExit(params: {
                 farcasterFid: user.farcasterFid,
                 type: 'TRADE_SUCCESS_SELL',
                 data: {
-                    tokenSymbol: resolveDisplayTokenSymbol(tokenInfo.symbol, tokenAddress),
+                    tokenSymbol: await resolveDisplayTokenSymbolAsync(tokenInfo.symbol, tokenAddress, chainId),
                     usdValue: sellVolUsd.toFixed(2),
                     targetWallet: config.targetWallet,
                     txHash: txHash,
@@ -3263,25 +3300,28 @@ async function handleTargetSell(
 
         const [positions, tokenInfo] = await Promise.all([
             prisma.position.findMany({
-                where: { userId: config.userId, tokenAddress: tokenToSell, status: 'open' },
+                where: { userId: config.userId, chainId, status: 'open' },
             }),
             getTokenInfo(tokenToSell, chainId, { priority: 'high', rpcStrategy: 'fast', fastMode: true })
         ]);
 
-        if (positions.length === 0) {
+        const reconciledPositions = reconcileOpenPositionsForExit(positions, tokenToSell, chainId);
+        if (reconciledPositions.matchedPositions.length === 0) {
             logger.info(LogCode.WTC_TX_SKIPPED, 'Mirror sell skipped: no open positions after reconciliation', {
                 userId: config.userId,
                 token: tokenToSell,
-                chainId
+                reasonCode: reconciledPositions.reasonCode,
+                ...reconciledPositions.metrics
             });
             return;
         }
+        const matchedPositions = reconciledPositions.matchedPositions;
 
         // Leader stat tracking (only for mirror sell)
-        const balanceUsdForStats = positions.reduce((sum, p) => sum + (p.entryUsdValue || 0), 0);
+        const balanceUsdForStats = matchedPositions.reduce((sum, p) => sum + (p.entryUsdValue || 0), 0);
         recordNewTrade(targetWallet, chainId, 'sell', balanceUsdForStats);
 
-        const positionIds = positions.map(p => p.id);
+        const positionIds = matchedPositions.map(p => p.id);
         if (positionIds.some(id => positionsBeingExited.has(id))) {
             logger.throttled(LogCode.WTC_TX_SKIPPED, 'Mirror sell skipped: position already being processed', { userId: config.userId, token: tokenToSell });
             return;

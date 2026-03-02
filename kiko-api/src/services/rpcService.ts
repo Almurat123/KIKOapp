@@ -188,16 +188,12 @@ export async function getTokenMetadata(
     // Solana path preserves old behavior with graceful fallback metadata.
     if (chainId === 900) {
         try {
-            const result = await callRpc<any>(chainId, 'getAccountInfo', [
-                normalized,
-                { encoding: 'jsonParsed' }
-            ], { rpcClass: 'best_effort_read', path: 'token_metadata' });
-
-            const info = result?.value?.data?.parsed?.info;
+            const { getSolanaTokenMetadata } = await import('../utils/solanaToken.js');
+            const solMeta = await getSolanaTokenMetadata(normalized);
             const meta: OnChainMetadata = {
-                name: 'Solana Token',
-                symbol: 'SOL-TOKEN',
-                decimals: Number(info?.decimals ?? decimals)
+                name: solMeta?.name || 'Unknown Token',
+                symbol: solMeta?.symbol || 'UNK',
+                decimals: Number(solMeta?.decimals ?? decimals)
             };
             await setMetadataCache(chainId, normalized, meta);
             await setDecimalsCache(chainId, normalized, meta.decimals);

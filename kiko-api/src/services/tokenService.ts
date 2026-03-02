@@ -150,9 +150,7 @@ async function fetchTokenInfoFromAPIs(
 
     const liquidityPromise = getLiquidityData(tokenAddress, chainId, priority);
 
-    const metaPromise = isSolana
-        ? Promise.resolve({ symbol: 'UNKNOWN', name: 'Unknown Token', decimals: 9 })
-        : getTokenMetadata(chainId, tokenAddress, { rpcStrategy });
+    const metaPromise = getTokenMetadata(chainId, tokenAddress, { rpcStrategy });
 
     const [rpcData, metadata] = await Promise.allSettled([rpcPromise, metaPromise]);
 

@@ -60,6 +60,16 @@ function applyCopyTradePriorityFee(quote: SolanaQuote | null, feeContext?: Solan
     return quote;
 }
 
+function shouldRetryAlternativeRoute(error: any): boolean {
+    const message = String(error?.message || error || '').toLowerCase();
+    return (
+        message.includes('0x1771') ||
+        message.includes('transaction simulation failed') ||
+        message.includes('custom program error') ||
+        message.includes('slippage')
+    );
+}
+
 async function executeSolanaSwapWithDeps(
     params: SolanaSwapParams,
     deps: SolanaExecutorDeps
@@ -100,75 +110,94 @@ async function executeSolanaSwapWithDeps(
     logger.info(LogCode.EXE_TX_BROADCAST, 'SolanaExecutor: Executing Swap', { tokenInMint, tokenOutMint, amountIn });
     const blockhashConnection = deps.getSolanaConnection();
 
-    // 1. Get Quote & Transaction (mode-aware)
-    // - turbo: single-route Jupiter Metis/Swap for lowest latency
-    // - normal/safe: auto route comparison
+    // 1) Quote + send with adaptive aggregator fallback on simulation failures.
     const selectedAggregator = resolveSelectedAggregator(preferredAggregator, executionMode, launchpadProvider);
+    const aggregatorCandidates: SolanaAggregator[] = selectedAggregator === 'auto'
+        ? ['auto', 'meteora', 'raydium', 'jupiter']
+        : [selectedAggregator];
 
-    const quote = selectedAggregator === 'auto'
-        ? await deps.getSolanaQuote(
-            tokenInMint,
-            tokenOutMint,
-            amountIn,
-            slippageBps,
-            'auto',
-            walletAddress,
-            undefined,
-            params.feeContext
-        )
-        : await deps.getSolanaQuoteFromAggregator(
-            selectedAggregator,
-            tokenInMint,
-            tokenOutMint,
-            amountIn,
-            slippageBps,
-            walletAddress,
-            undefined,
-            params.feeContext,
-            // For turbo, keep the low-latency public Metis/Swap path explicit.
-            executionMode === 'turbo' ? { forcePublicApi: true } : undefined
-        );
+    let signature = '';
+    let lastError: any = null;
 
-    const adjustedQuote = applyCopyTradePriorityFee(quote, params.feeContext);
+    for (let idx = 0; idx < aggregatorCandidates.length; idx++) {
+        const candidate = aggregatorCandidates[idx];
+        const attemptSlippageBps = Math.min(slippageBps + (idx * 300), 3500);
 
-    if (!adjustedQuote) {
+        let attemptAmount = amountIn;
+        try {
+            const amountBigInt = BigInt(amountIn);
+            const reductionBps = idx === 0 ? 0n : idx === 1 ? 50n : idx === 2 ? 100n : 200n; // 0%, 0.5%, 1%, 2%
+            const reduced = (amountBigInt * (10000n - reductionBps)) / 10000n;
+            attemptAmount = reduced > 0n ? reduced.toString() : amountIn;
+        } catch {
+            attemptAmount = amountIn;
+        }
+
+        const quote = candidate === 'auto'
+            ? await deps.getSolanaQuote(
+                tokenInMint,
+                tokenOutMint,
+                attemptAmount,
+                attemptSlippageBps,
+                'auto',
+                walletAddress,
+                undefined,
+                params.feeContext
+            )
+            : await deps.getSolanaQuoteFromAggregator(
+                candidate,
+                tokenInMint,
+                tokenOutMint,
+                attemptAmount,
+                attemptSlippageBps,
+                walletAddress,
+                undefined,
+                params.feeContext,
+                executionMode === 'turbo' ? { forcePublicApi: true } : undefined
+            );
+
+        const adjustedQuote = applyCopyTradePriorityFee(quote, params.feeContext);
+        if (!adjustedQuote || !adjustedQuote.swapTransaction) {
+            lastError = new AppError(500, `Solana swap quote/tx missing for aggregator=${candidate}`, 'SWAP_BUILD_FAILED');
+            continue;
+        }
+
+        logger.debug(LogCode.SYS_INFO, 'SolanaExecutor: Swap prepared', {
+            aggregator: adjustedQuote.aggregator,
+            outAmount: adjustedQuote.outAmount,
+            attempt: idx + 1,
+            candidate,
+            attemptSlippageBps,
+            attemptAmount
+        });
+
+        try {
+            const transactionBuffer = Buffer.from(adjustedQuote.swapTransaction, 'base64');
+            const transaction = deps.deserializeTransaction(transactionBuffer);
+            const blockhashResult = await deps.getLatestSolanaBlockhash(blockhashConnection, 'swap_executor');
+            transaction.message.recentBlockhash = blockhashResult.blockhash;
+            const freshTransactionBase64 = Buffer.from(transaction.serialize()).toString('base64');
+            signature = await deps.sendSolanaTransactionWithContext(userId, freshTransactionBase64, signingContext);
+            break;
+        } catch (sendErr: any) {
+            lastError = sendErr;
+            if (idx < aggregatorCandidates.length - 1 && shouldRetryAlternativeRoute(sendErr)) {
+                logger.warn(LogCode.EXE_TX_REVERTED, 'SolanaExecutor: route send failed, trying fallback aggregator', {
+                    candidate,
+                    nextCandidate: aggregatorCandidates[idx + 1],
+                    attempt: idx + 1,
+                    error: sendErr?.message || String(sendErr)
+                });
+                continue;
+            }
+            throw sendErr;
+        }
+    }
+
+    if (!signature) {
+        if (lastError) throw lastError;
         throw new AppError(400, 'Solana Swap Failed: No valid quotes found from Jupiter Metis/Swap, Raydium, or Meteora', 'QUOTE_FAILED');
     }
-
-    if (!adjustedQuote.swapTransaction) {
-        throw new AppError(500, `Solana Swap Failed: Quote found from ${adjustedQuote.aggregator} but failed to build transaction`, 'SWAP_BUILD_FAILED');
-    }
-
-    logger.debug(LogCode.SYS_INFO, 'SolanaExecutor: Swap prepared', { aggregator: adjustedQuote.aggregator, outAmount: adjustedQuote.outAmount });
-
-    // 2. Refresh Blockhash & Execute Transaction
-    // CRITICAL: Raydium/Jupiter quotes might have stale blockhashes (TTL ~1min)
-    // To prevent "Blockhash not found" errors, we deserialize and inject a FRESH blockhash
-    logger.debug(LogCode.SYS_INFO, 'SolanaExecutor: Refreshing blockhash before sending');
-
-    // We need to pass the base64 string to sendSolanaTransaction first
-    // But since sendSolanaTransaction handles deserialization, we should modify it there or do it here.
-    // Let's do it here for clarity and control:
-
-    // Deserialize
-    const transactionBuffer = Buffer.from(adjustedQuote.swapTransaction, 'base64');
-    let transaction = deps.deserializeTransaction(transactionBuffer);
-
-    // Fetch fresh blockhash
-    const blockhashResult = await deps.getLatestSolanaBlockhash(blockhashConnection, 'swap_executor');
-    logger.debug(LogCode.SYS_INFO, 'SolanaExecutor: Fresh blockhash obtained', {
-        blockhash: blockhashResult.blockhash,
-        commitmentUsed: blockhashResult.commitmentUsed,
-        fallbackUsed: blockhashResult.fallbackUsed,
-    });
-
-    // Update blockhash
-    transaction.message.recentBlockhash = blockhashResult.blockhash;
-
-    // Reserialize to base64
-    const freshTransactionBase64 = Buffer.from(transaction.serialize()).toString('base64');
-
-    const signature = await deps.sendSolanaTransactionWithContext(userId, freshTransactionBase64, signingContext);
 
     logger.info(LogCode.EXE_TX_BROADCAST, 'SolanaExecutor: Transaction sent', { signature });
 
