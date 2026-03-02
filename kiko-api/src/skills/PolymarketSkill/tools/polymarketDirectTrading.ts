@@ -34,6 +34,7 @@ export const CheckPolymarketReadinessTool: Tool = {
             return {
                 ready: readiness.isReady,
                 credentials: readiness.hasCredentials,
+                delegation: readiness.hasDelegatedEvm,
                 approvals: {
                     usdc: readiness.hasUsdcApproval ? '✅' : '❌',
                     ctf: readiness.hasCtfApproval ? '✅' : '❌'

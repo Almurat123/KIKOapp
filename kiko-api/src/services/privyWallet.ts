@@ -1759,6 +1759,39 @@ export async function getDelegatedSolanaWallet(userId: string): Promise<{ id: st
 }
 
 /**
+ * Get user's delegated EVM wallet (if they have authorized server-side signing)
+ */
+export async function getDelegatedEvmWallet(userId: string): Promise<{ id: string; address: string } | null> {
+    const client = getPrivyClient();
+
+    try {
+        const user = await client.getUser(userId);
+
+        const delegatedWallet = user.linkedAccounts?.find(
+            (account: any) =>
+                account.type === 'wallet' &&
+                account.walletClientType === 'privy' &&
+                account.chainType === 'ethereum' &&
+                account.delegated === true
+        );
+
+        if (!delegatedWallet) {
+            logger.debug(LogCode.SYS_INFO, 'User has no delegated EVM wallet', { userId });
+            return null;
+        }
+
+        const walletData = delegatedWallet as any;
+        return {
+            id: walletData.id || walletData.address,
+            address: walletData.address || ''
+        };
+    } catch (error: any) {
+        logger.error(LogCode.SYS_ERROR, 'Error checking delegated EVM wallet', { userId, error: error.message });
+        return null;
+    }
+}
+
+/**
  * Send a Solana transaction using user's delegated wallet or fallback to server wallet
  * Prefers user's delegated wallet for better fund isolation
  */

@@ -13,6 +13,16 @@ export interface PrivyAuthorizationConfig {
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8001';
 
+function firstNonEmptyString(values: unknown[]): string | undefined {
+  for (const value of values) {
+    if (typeof value === 'string') {
+      const trimmed = value.trim();
+      if (trimmed.length > 0) return trimmed;
+    }
+  }
+  return undefined;
+}
+
 export async function getPrivyAuthorizationConfig(): Promise<PrivyAuthorizationConfig> {
   const response = await fetch(`${API_URL}/api/config/auth-key-id`);
   if (!response.ok) {
@@ -20,15 +30,44 @@ export async function getPrivyAuthorizationConfig(): Promise<PrivyAuthorizationC
   }
 
   const data = await response.json();
+  const autoTrading = data?.policies?.autoTrading || {};
+  const billing = data?.policies?.billing || {};
+
+  const ethereumPolicy = firstNonEmptyString([
+    autoTrading?.ethereum,
+    autoTrading?.evm,
+    autoTrading?.eth,
+    data?.policies?.ethereum,
+    data?.policyIds?.autoTrading?.ethereum,
+    data?.policyIds?.autoTrading?.evm,
+    data?.policyIds?.autoTrading,
+  ]);
+
+  const solanaPolicy = firstNonEmptyString([
+    autoTrading?.solana,
+    autoTrading?.sol,
+    data?.policies?.solana,
+    data?.policyIds?.autoTrading?.solana,
+    data?.policyIds?.autoTrading?.sol,
+  ]);
+
+  const billingPolicy = firstNonEmptyString([
+    billing?.ethereum,
+    billing?.evm,
+    data?.policyIds?.billing?.ethereum,
+    data?.policyIds?.billing,
+    ethereumPolicy,
+  ]);
+
   return {
-    authKeyId: String(data.authKeyId || ''),
+    authKeyId: firstNonEmptyString([data?.authKeyId, data?.authorizationKeyId]) || '',
     policies: {
       autoTrading: {
-        ethereum: data?.policies?.autoTrading?.ethereum || undefined,
-        solana: data?.policies?.autoTrading?.solana || undefined,
+        ethereum: ethereumPolicy,
+        solana: solanaPolicy,
       },
       billing: {
-        ethereum: data?.policies?.billing?.ethereum || undefined,
+        ethereum: billingPolicy,
       },
     },
   };

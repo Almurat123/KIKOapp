@@ -266,23 +266,41 @@ fastify.get('/health', async (request, reply) => {
 
 // Config endpoint for frontend Session Signers
 fastify.get('/api/config/auth-key-id', async (request, reply) => {
+    const pickEnv = (...keys: string[]) => {
+        for (const key of keys) {
+            const value = (process as any).env[key];
+            if (typeof value === 'string' && value.trim().length > 0) {
+                return value.trim();
+            }
+        }
+        return undefined;
+    };
+
     const authKeyId = (process as any).env.PRIVY_AUTHORIZATION_KEY_ID;
     if (!authKeyId) {
         return reply.status(500).send({ error: 'Authorization key not configured' });
     }
-    const autoTradePolicyEthereum =
-        (process as any).env.PRIVY_POLICY_ID_AUTOTRADE_EVM
-        || (process as any).env.PRIVY_POLICY_ID_AUTOTRADE
-        || undefined;
-    const autoTradePolicySolana =
-        (process as any).env.PRIVY_POLICY_ID_AUTOTRADE_SOLANA
-        || (process as any).env.PRIVY_POLICY_ID_SOLANA_AUTOTRADE
-        || (process as any).env.PRIVY_POLICY_ID_AUTOTRADE
-        || undefined;
-    const billingPolicyEthereum =
-        (process as any).env.PRIVY_POLICY_ID_BILLING_EVM
-        || (process as any).env.PRIVY_POLICY_ID_BILLING
-        || undefined;
+    const autoTradePolicyEthereum = pickEnv(
+        'PRIVY_POLICY_ID_AUTOTRADE_EVM',
+        'PRIVY_POLICY_ID_EVM_AUTOTRADE',
+        'PRIVY_POLICY_ID_AUTOTRADE_ETHEREUM',
+        'PRIVY_POLICY_ID_ETHEREUM_AUTOTRADE',
+        'PRIVY_POLICY_ID_AUTOTRADE'
+    );
+    const autoTradePolicySolana = pickEnv(
+        'PRIVY_POLICY_ID_AUTOTRADE_SOLANA',
+        'PRIVY_POLICY_ID_SOLANA_AUTOTRADE',
+        'PRIVY_POLICY_ID_SOL_AUTOTRADE',
+        'PRIVY_POLICY_ID_AUTOTRADE_SOL',
+        'PRIVY_POLICY_ID_AUTOTRADE'
+    );
+    const billingPolicyEthereum = pickEnv(
+        'PRIVY_POLICY_ID_BILLING_EVM',
+        'PRIVY_POLICY_ID_EVM_BILLING',
+        'PRIVY_POLICY_ID_BILLING_ETHEREUM',
+        'PRIVY_POLICY_ID_ETHEREUM_BILLING',
+        'PRIVY_POLICY_ID_BILLING'
+    );
     // Return the raw cuid2 format ID (Session Signers expect this format)
     return reply.send({
         authKeyId,

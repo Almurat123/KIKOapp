@@ -7,6 +7,7 @@
 
 import { ethers } from 'ethers';
 import prisma from '../db/prisma.js';
+import { getDelegatedEvmWallet } from './privyWallet.js';
 
 // Contract addresses on Polygon (chainId: 137)
 const POLYGON_CONTRACTS = {
@@ -69,8 +70,7 @@ export async function checkUsdcApproval(walletAddress: string): Promise<{
     const formattedAllowance = ethers.formatUnits(allowance, decimals);
     const formattedBalance = ethers.formatUnits(balance, decimals);
 
-    // Consider approved if allowance > 1000 USDC (reasonable threshold)
-    const isApproved = parseFloat(formattedAllowance) > 1000;
+    const isApproved = allowance > 0n;
 
     return {
         approved: isApproved,
@@ -191,6 +191,7 @@ export async function getRequiredApprovals(walletAddress: string): Promise<{
  */
 export async function checkTradingReadiness(userId: string): Promise<{
     hasCredentials: boolean;
+    hasDelegatedEvm: boolean;
     hasUsdcApproval: boolean;
     hasCtfApproval: boolean;
     usdcBalance: string;
@@ -204,8 +205,10 @@ export async function checkTradingReadiness(userId: string): Promise<{
     });
 
     if (!creds) {
+        const delegatedEvmWallet = await getDelegatedEvmWallet(userId);
         return {
             hasCredentials: false,
+            hasDelegatedEvm: !!delegatedEvmWallet,
             hasUsdcApproval: false,
             hasCtfApproval: false,
             usdcBalance: '0',
@@ -215,12 +218,17 @@ export async function checkTradingReadiness(userId: string): Promise<{
         };
     }
 
-    const [usdcStatus, ctfApproved] = await Promise.all([
+    const [delegatedEvmWallet, usdcStatus, ctfApproved] = await Promise.all([
+        getDelegatedEvmWallet(userId),
         checkUsdcApproval(creds.walletAddress),
         checkCtfApproval(creds.walletAddress)
     ]);
 
     const missingSteps: string[] = [];
+
+    if (!delegatedEvmWallet) {
+        missingSteps.push('Enable EVM server-side signing delegation in Settings');
+    }
 
     if (!usdcStatus.approved) {
         missingSteps.push('Approve USDC for Polymarket');
@@ -234,6 +242,7 @@ export async function checkTradingReadiness(userId: string): Promise<{
 
     return {
         hasCredentials: true,
+        hasDelegatedEvm: !!delegatedEvmWallet,
         hasUsdcApproval: usdcStatus.approved,
         hasCtfApproval: ctfApproved,
         usdcBalance: usdcStatus.balance,

@@ -54,15 +54,17 @@
     height: var(--settings-input-height);
     padding: 0 20px;
     border-radius: var(--settings-input-radius);
-    border: 0.5px solid var(--liquid-glass-border);
-    background: var(--liquid-glass-bg);
-    backdrop-filter: blur(20px) saturate(180%);
-    -webkit-backdrop-filter: blur(20px) saturate(180%);
-    box-shadow: var(--liquid-glass-shadow);
+    border: 1px solid rgba(255, 255, 255, 0.24);
+    background: transparent;
     font-size: var(--settings-label-fs);
     font-weight: 600;
     cursor: pointer;
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    transition: color 0.2s ease, border-color 0.2s ease, opacity 0.2s ease;
+}
+
+:global(.light) .button {
+    border-color: rgba(0, 0, 0, 0.2);
+    background: #ffffff;
 }
 
 .button:disabled {
@@ -71,31 +73,30 @@
 }
 
 .authorizeButton {
-    color: #f4f4f5;
+    color: #ffffff;
 }
 
 :global(.light) .authorizeButton {
-    color: #4b5563;
+    color: #18181b;
 }
 
 .authorizeButton:hover:not(:disabled) {
-    background: var(--liquid-glass-hover-bg);
-    border-color: var(--liquid-glass-hover-border);
-    transform: scale(1.02);
+    background: transparent;
+}
+
+:global(.light) .authorizeButton:hover:not(:disabled) {
+    background: #ffffff;
 }
 
 .revokeButton {
     color: #ef4444;
-    border-color: rgba(239, 68, 68, 0.2);
-    background: rgba(239, 68, 68, 0.05);
-    backdrop-filter: blur(20px) saturate(180%);
-    -webkit-backdrop-filter: blur(20px) saturate(180%);
+    border-color: rgba(239, 68, 68, 0.55);
+    background: transparent;
 }
 
 .revokeButton:hover:not(:disabled) {
-    background: rgba(239, 68, 68, 0.1);
-    border-color: rgba(239, 68, 68, 0.3);
-    transform: scale(1.02);
+    background: transparent;
+    border-color: rgba(239, 68, 68, 0.55);
 }
 
 .error {
