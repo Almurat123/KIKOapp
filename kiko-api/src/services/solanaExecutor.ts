@@ -87,11 +87,15 @@ async function executeSolanaSwapWithDeps(
     // Try user's delegated wallet first, fallback to server wallet
     const signingContext = await deps.getSolanaSigningContext(userId);
     const walletAddress = signingContext.address;
-    logger.info(LogCode.SYS_INFO, 'SolanaExecutor: Using signing context', {
+    logger.info(
+        LogCode.SYS_INFO,
+        `SolanaExecutor: Using signing context source=${signingContext.walletSource} reason=${signingContext.reasonCode} address=${walletAddress.slice(0, 6)}...${walletAddress.slice(-6)}`,
+        {
         address: walletAddress,
         walletSource: signingContext.walletSource,
         reasonCode: signingContext.reasonCode,
-    });
+        }
+    );
 
     logger.info(LogCode.EXE_TX_BROADCAST, 'SolanaExecutor: Executing Swap', { tokenInMint, tokenOutMint, amountIn });
     const blockhashConnection = deps.getSolanaConnection();

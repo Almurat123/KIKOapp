@@ -58,7 +58,20 @@ export async function sendSolanaTransactionWithContextDeps(
       || error?.details
       || null;
 
-    logger.error(LogCode.EXE_TX_REVERTED, 'Solana transaction failed via Privy', {
+    const detailsPreview = (() => {
+      try {
+        if (!errorDetails) return '';
+        const text = JSON.stringify(errorDetails);
+        return text.length > 300 ? `${text.slice(0, 300)}...` : text;
+      } catch {
+        return String(errorDetails || '');
+      }
+    })();
+
+    logger.error(
+      LogCode.EXE_TX_REVERTED,
+      `Solana transaction failed via Privy source=${context.walletSource} reason=${context.reasonCode} code=${errorCode || 'n/a'} status=${errorStatus || 'n/a'} error=${errorMessage}${detailsPreview ? ` details=${detailsPreview}` : ''}`,
+      {
       error: errorMessage,
       code: errorCode || undefined,
       status: errorStatus,
@@ -66,7 +79,8 @@ export async function sendSolanaTransactionWithContextDeps(
       userId,
       walletSource: context.walletSource,
       reasonCode: context.reasonCode,
-    });
+      }
+    );
 
     const lower = errorMessage.toLowerCase();
     if (lower.includes('not delegated')) {
