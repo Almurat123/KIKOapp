@@ -439,27 +439,38 @@ export class MainSwapService {
             tokenOut: request.tokenOut
           });
         } else if (isSolana && isCopytrade) {
-          // Solana copytrade: enable launchpad direct routing for supported providers.
-          try {
-            const detection = await this.detectLaunchpad(request.tokenOut, request.chainId)
-              || await this.detectLaunchpad(request.tokenIn, request.chainId);
+          // Solana copytrade launchpad-direct is opt-in (default OFF) to keep legacy stability.
+          const enableSolanaCopytradeLaunchpadDirect =
+            (process.env.SOLANA_COPYTRADE_ENABLE_LAUNCHPAD_DIRECT || 'false').toLowerCase() === 'true';
 
-            if (
-              detection?.provider === 'pumpfun'
-              || detection?.provider === 'pumpswap'
-              || detection?.provider === 'bonkfun'
-            ) {
-              request.launchpadProvider = detection.provider;
-              logger.info(LogCode.SYS_INFO, trace(`Solana copytrade launchpad detected: ${detection.provider}`), {
-                provider: detection.provider,
-                chainId: detection.chainId,
+          if (enableSolanaCopytradeLaunchpadDirect) {
+            try {
+              const detection = await this.detectLaunchpad(request.tokenOut, request.chainId)
+                || await this.detectLaunchpad(request.tokenIn, request.chainId);
+
+              if (
+                detection?.provider === 'pumpfun'
+                || detection?.provider === 'pumpswap'
+                || detection?.provider === 'bonkfun'
+              ) {
+                request.launchpadProvider = detection.provider;
+                logger.info(LogCode.SYS_INFO, trace(`Solana copytrade launchpad detected: ${detection.provider}`), {
+                  provider: detection.provider,
+                  chainId: detection.chainId,
+                  tokenIn: request.tokenIn,
+                  tokenOut: request.tokenOut
+                });
+              }
+            } catch (detectErr: any) {
+              logger.warn(LogCode.SYS_ERROR, trace(`Solana copytrade launchpad detection failed: ${detectErr.message}`), {
+                error: detectErr.message,
                 tokenIn: request.tokenIn,
                 tokenOut: request.tokenOut
               });
             }
-          } catch (detectErr: any) {
-            logger.warn(LogCode.SYS_ERROR, trace(`Solana copytrade launchpad detection failed: ${detectErr.message}`), {
-              error: detectErr.message,
+          } else {
+            logger.debug(LogCode.SYS_INFO, trace('Copytrade: Solana launchpad direct detection disabled'), {
+              chainId: request.chainId,
               tokenIn: request.tokenIn,
               tokenOut: request.tokenOut
             });
