@@ -9,6 +9,7 @@ export type LiquidityGuardSnapshot = {
     reliable: boolean;
     poolCount: number;
     fallbackUsed: boolean;
+    metadata?: Record<string, unknown>;
 };
 
 function normalizeFinitePositive(value: unknown): number {
@@ -35,7 +36,8 @@ export async function resolveBuyLiquidityGuardSnapshot(
                     source: 'direct_pool_tvl',
                     reliable: Boolean(directLiquidity?.reliable),
                     poolCount,
-                    fallbackUsed: false
+                    fallbackUsed: false,
+                    metadata: (directLiquidity?.metadata as Record<string, unknown> | undefined) || undefined,
                 };
             }
 
@@ -45,7 +47,8 @@ export async function resolveBuyLiquidityGuardSnapshot(
                     source: poolCount > 0 ? 'direct_pool_unpriced' : 'token_info_fallback',
                     reliable: true,
                     poolCount,
-                    fallbackUsed: true
+                    fallbackUsed: true,
+                    metadata: (directLiquidity?.metadata as Record<string, unknown> | undefined) || undefined,
                 };
             }
 
@@ -54,7 +57,8 @@ export async function resolveBuyLiquidityGuardSnapshot(
                 source: poolCount > 0 ? 'direct_pool_unpriced' : 'unavailable',
                 reliable: false,
                 poolCount,
-                fallbackUsed: false
+                fallbackUsed: false,
+                metadata: (directLiquidity?.metadata as Record<string, unknown> | undefined) || undefined,
             };
         } catch (error: any) {
             logger.warn(LogCode.API_FETCH_FAILED, '[CopyTradeGuard] Solana direct liquidity lookup failed', {
@@ -68,7 +72,7 @@ export async function resolveBuyLiquidityGuardSnapshot(
                 source: fallbackLiquidityUsd > 0 ? 'token_info_fallback' : 'unavailable',
                 reliable: fallbackLiquidityUsd > 0,
                 poolCount: 0,
-                fallbackUsed: fallbackLiquidityUsd > 0
+                fallbackUsed: fallbackLiquidityUsd > 0,
             };
         }
     }

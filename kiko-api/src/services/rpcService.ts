@@ -97,20 +97,40 @@ async function getSolanaMetadataViaRpc(mintAddress: string): Promise<{ name: str
         ], { rpcClass: 'best_effort_read', path: 'token_metadata' });
 
         const encoded = result?.value?.data?.[0];
-        if (!encoded || typeof encoded !== 'string') return null;
+        if (encoded && typeof encoded === 'string') {
+            const data = Buffer.from(encoded, 'base64');
+            if (data.length >= 1 + 32 + 32 + 4) {
+                let offset = 1 + 32 + 32;
+                const nameRead = readBorshString(data, offset);
+                offset = nameRead.nextOffset;
+                const symbolRead = readBorshString(data, offset);
+                if (nameRead.value || symbolRead.value) {
+                    return {
+                        name: nameRead.value || 'Unknown Token',
+                        symbol: symbolRead.value || 'UNK',
+                    };
+                }
+            }
+        }
+    } catch {
+        // fall through to DAS-style RPC metadata
+    }
 
-        const data = Buffer.from(encoded, 'base64');
-        if (data.length < 1 + 32 + 32 + 4) return null;
+    try {
+        const asset = await callRpc<any>('solana', 'getAsset', [mintAddress], {
+            rpcClass: 'best_effort_read',
+            path: 'token_metadata_asset',
+            importance: 'critical',
+            exhaustiveFailover: true,
+        });
 
-        let offset = 1 + 32 + 32;
-        const nameRead = readBorshString(data, offset);
-        offset = nameRead.nextOffset;
-        const symbolRead = readBorshString(data, offset);
+        const contentMeta = asset?.content?.metadata || {};
+        const extMeta = asset?.mint_extensions?.metadata || {};
+        const name = String(contentMeta?.name || extMeta?.name || '').trim();
+        const symbol = String(contentMeta?.symbol || extMeta?.symbol || '').trim();
+        if (!name || !symbol) return null;
 
-        return {
-            name: nameRead.value || 'Unknown Token',
-            symbol: symbolRead.value || 'UNK',
-        };
+        return { name, symbol };
     } catch {
         return null;
     }
@@ -167,13 +187,22 @@ async function setDecimalsCache(chainId: number, address: string, decimals: numb
 async function getMetadataFromCache(chainId: number, address: string): Promise<OnChainMetadata | null> {
     const key = metadataCacheKey(chainId, address);
     const l1 = getFromL1(metadataL1Cache, key);
-    if (l1) return l1;
+    if (l1) {
+        if (chainId === 900 && /^unk(nown)?$/i.test(String(l1.symbol || ''))) {
+            metadataL1Cache.delete(key);
+        } else {
+            return l1;
+        }
+    }
 
     const l2Raw = await cacheClient.get(key).catch(() => null);
     if (!l2Raw) return null;
     try {
         const parsed = JSON.parse(l2Raw) as OnChainMetadata;
         if (typeof parsed?.decimals !== 'number') return null;
+        if (chainId === 900 && /^unk(nown)?$/i.test(String(parsed?.symbol || ''))) {
+            return null;
+        }
         setL1(metadataL1Cache, key, parsed, METADATA_L1_TTL_MS);
         setL1(decimalsL1Cache, decimalsCacheKey(chainId, address), parsed.decimals, METADATA_L1_TTL_MS);
         return parsed;

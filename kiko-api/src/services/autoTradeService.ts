@@ -1064,6 +1064,7 @@ async function processBuyWithInfo(
     tokenInfo.guardLiquiditySource = liquidityGuardSnapshot.source;
     tokenInfo.guardLiquidityReliable = liquidityGuardSnapshot.reliable;
     tokenInfo.guardLiquidityPoolCount = liquidityGuardSnapshot.poolCount;
+    tokenInfo.guardLiquidityMeta = liquidityGuardSnapshot.metadata || null;
     if (liquidityGuardSnapshot.liquidityUsd > 0) {
         tokenInfo.liquidity = liquidityGuardSnapshot.liquidityUsd;
     }
@@ -1075,7 +1076,8 @@ async function processBuyWithInfo(
         guardLiquidityUsd: liquidityGuardSnapshot.liquidityUsd,
         guardLiquiditySource: liquidityGuardSnapshot.source,
         guardLiquidityReliable: liquidityGuardSnapshot.reliable,
-        guardLiquidityPoolCount: liquidityGuardSnapshot.poolCount
+        guardLiquidityPoolCount: liquidityGuardSnapshot.poolCount,
+        guardLiquidityMeta: liquidityGuardSnapshot.metadata || undefined,
     });
 
     let judgeDecisionId: string | null = null;
@@ -1606,7 +1608,11 @@ async function processSingleUserBuy(
             priceDeviation: null,
             cooldown: null,
             marketCap: null,
-            minLiquidity: null
+            minLiquidity: null,
+            liquiditySource: tokenInfo?.guardLiquiditySource || null,
+            liquidityPoolCount: tokenInfo?.guardLiquidityPoolCount ?? null,
+            liquidityProgram: tokenInfo?.guardLiquidityMeta?.dominantProgramLabel || tokenInfo?.guardLiquidityMeta?.dominantProgram || null,
+            liquidityScanSource: tokenInfo?.guardLiquidityMeta?.source || null,
         };
         const emitGuardAudit = (
             decision: 'pass' | 'skip',

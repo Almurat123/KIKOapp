@@ -385,7 +385,7 @@ function getSolanaEndpoints(primaryUrl?: string): RpcEndpointConfig[] {
       `https://mainnet.helius-rpc.com/?api-key=${env.apiKeys.helius}`,
       true,
       'premium',
-      { methods: ['getAssetsByOwner', 'getAssetBatch'] }
+      { methods: ['getAsset', 'getAssetsByOwner', 'getAssetBatch'] }
     );
   }
 
