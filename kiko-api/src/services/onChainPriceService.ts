@@ -1714,21 +1714,50 @@ async function fetchPriceFromBondingCurve(
             blockTag
         );
 
-        const lastPrice = tokenInfo[3]; // lastPrice from return values
-        const quote = tokenInfo[2]; // quote token address
+        const lastPrice = tokenInfo[3];
+        const quote = String(tokenInfo[2] || '').toLowerCase();
+        const liquidityAdded = Boolean(tokenInfo[11]);
+        const chainConfig = getChainConfig(chainId);
 
-        // Convert price to USD
-        let priceUsd = Number(lastPrice) / 1e18; // Price is in wei
+        if (liquidityAdded) {
+            logger.info(LogCode.API_FETCH_FAILED, 'Skipping bonding-curve price after launchpad graduation', {
+                token: tokenAddress,
+                chainId,
+                dexName,
+                reasonCode: 'fourmeme_liquidity_graduated'
+            });
+            return null;
+        }
 
-        // If quote is not BNB (address(0)), need to get quote token price
-        if (quote !== '0x0000000000000000000000000000000000000000') {
-            // Quote is BEP20, need to convert to USD
-            const quotePriceUsd = await getNativeTokenPriceUsd(chainId, blockTag);
-            priceUsd = priceUsd * quotePriceUsd;
-        } else {
-            // Quote is BNB
-            const bnbPrice = await getNativeTokenPriceUsd(chainId, blockTag);
-            priceUsd = priceUsd * bnbPrice;
+        const priceInQuote = Number(lastPrice) / 1e18;
+        if (!Number.isFinite(priceInQuote) || priceInQuote <= 0) {
+            return null;
+        }
+
+        let quotePriceUsd = 0;
+        if (!quote || quote === ZERO_ADDRESS || isNativeEquivalent(quote, chainConfig.wrappedNativeAddress)) {
+            quotePriceUsd = await getNativeTokenPriceUsd(chainId, blockTag);
+        } else if (chainConfig.stablecoins.includes(quote)) {
+            quotePriceUsd = 1;
+        } else if (quote !== tokenAddress.toLowerCase()) {
+            const quoteInfo = await getOnChainPrice(quote, chainId, { rpcStrategy, blockTag });
+            quotePriceUsd = Number(quoteInfo?.price || 0);
+        }
+
+        if (!Number.isFinite(quotePriceUsd) || quotePriceUsd <= 0) {
+            logger.info(LogCode.API_FETCH_FAILED, 'Bonding-curve quote token USD price unavailable', {
+                token: tokenAddress,
+                quote,
+                chainId,
+                dexName,
+                reasonCode: 'fourmeme_quote_price_unavailable'
+            });
+            return null;
+        }
+
+        const priceUsd = priceInQuote * quotePriceUsd;
+        if (!Number.isFinite(priceUsd) || priceUsd <= 0) {
+            return null;
         }
 
         // Calculate market cap

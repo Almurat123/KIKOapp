@@ -1895,7 +1895,13 @@ async function processSingleUserBuy(
                             targetExecutionPrice: roundGuardNumber(targetExecutionPrice, 8),
                             ratio: roundGuardNumber(priceDeviation, 4),
                             maxRatio: 3,
-                            pass: priceDeviation <= 3.0
+                            pass: priceDeviation <= 3.0,
+                            oracleProvider: tokenInfo.provider,
+                            oracleDexName: tokenInfo.rpcDexName,
+                            oracleValidationReason: tokenInfo.priceValidationReason,
+                            referencePrice: roundGuardNumber(tokenInfo.referencePrice, 8),
+                            referenceProvider: tokenInfo.referenceProvider,
+                            oracleFallbackUsed: Boolean(tokenInfo.priceFallbackUsed)
                         };
 
                         if (shouldEnforceBuyGuard(guardPolicy, 'priceDeviationRatio') && priceDeviation > 3.0) { // Allow up to 3x (200% increase) but no more
@@ -1903,7 +1909,13 @@ async function processSingleUserBuy(
                                 userId: config.userId,
                                 token: tokenToBuy,
                                 targetSwapValueUsd,
-                                estimatedOut
+                                estimatedOut,
+                                oracleProvider: tokenInfo.provider,
+                                oracleDexName: tokenInfo.rpcDexName,
+                                oracleValidationReason: tokenInfo.priceValidationReason,
+                                referencePrice: tokenInfo.referencePrice,
+                                referenceProvider: tokenInfo.referenceProvider,
+                                oracleFallbackUsed: Boolean(tokenInfo.priceFallbackUsed)
                             });
 
                             sendNotificationAsync({

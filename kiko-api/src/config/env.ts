@@ -35,7 +35,6 @@ export interface EnvConfig {
         moralis?: string; // Moralis API key for wallet PNL analysis and token balances
         zerion?: string; // Zerion API key for wallet-level PNL analysis
         zeroEx?: string; // 0x API key for swap quotes and prices
-        jupiter?: string; // Jupiter Ultra Swap API key for Solana swaps
         okxApiKey?: string; // OKX DEX API key
         okxSecretKey?: string; // OKX DEX secret
         okxPassphrase?: string; // OKX DEX passphrase
@@ -290,7 +289,6 @@ function validateEnv(): EnvConfig {
             moralis: process.env.MORALIS_API_KEY,
             zerion: process.env.ZERION_API_KEY,
             zeroEx: process.env.ZEROX_API_KEY,
-            jupiter: process.env.JUPITER_API_KEY,
             infuraGas: process.env.INFURA_GAS_API_KEY,
             infuraGasSecret: process.env.INFURA_GAS_API_SECRET,
             infura: process.env.INFURA_API_KEY,

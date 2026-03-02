@@ -8,6 +8,7 @@ import { getTokenMetadata } from './rpcService.js';
 import { fetchJson, ApiPriority } from '../config/unifiedApiService.js';
 import { cacheHub } from '../cache/DataCacheHub.js'; // 🔗 连接缓存中心
 import { getDexPrice } from './dexPriceService.js'; // 🔗 DEX 价格 fallback
+import { decideLaunchpadOraclePrice, isLaunchpadOracleSource } from './pricing/launchpadOraclePolicy.js';
 
 /**
  * Token Service
@@ -170,6 +171,7 @@ async function fetchTokenInfoFromAPIs(
     const rpc = rpcData.status === 'fulfilled' ? rpcData.value : null;
     const liq = liquidityData && liquidityData.status === 'fulfilled' ? liquidityData.value : null;
     const meta = metadata.status === 'fulfilled' ? metadata.value : null;
+    const rpcDexName = rpc && typeof rpc === 'object' && 'dexName' in rpc ? String(rpc.dexName || '') : undefined;
 
     // 🛡️ MERGE STRATEGY: Use best data from each source
     let price = rpc?.price || 0;
@@ -180,11 +182,66 @@ async function fetchTokenInfoFromAPIs(
     let name = meta?.name || 'Unknown Token';
     let decimals = meta?.decimals || 18;
     let provider = 'rpc+api';
+    let priceValidationReason: string | undefined;
+    let referencePrice: number | undefined;
+    let referenceProvider: string | undefined;
+    let priceFallbackUsed = false;
 
     // If RPC is unavailable but DexScreener has pair price, use it before full failure.
     if ((price <= 0 || isNaN(price)) && liq?.priceUsd && liq.priceUsd > 0) {
         price = liq.priceUsd;
         provider = 'dexscreener-liquidity';
+    }
+
+    if (price > 0 && isLaunchpadOracleSource({ chainId, dexName: rpcDexName, provider })) {
+        let dexValidatorPrice = 0;
+        try {
+            const dexChainId = isSolana ? 'solana' : chainId;
+            const timeoutMs = fastMode ? 500 : 900;
+            dexValidatorPrice = await Promise.race([
+                getDexPrice(tokenAddress, dexChainId),
+                new Promise<number>((resolve) => setTimeout(() => resolve(0), timeoutMs))
+            ]);
+        } catch {
+            dexValidatorPrice = 0;
+        }
+
+        const decision = decideLaunchpadOraclePrice({
+            chainId,
+            rpcPriceUsd: price,
+            rpcDexName,
+            provider,
+            liquidityPriceUsd: liq?.priceUsd,
+            dexPriceUsd: dexValidatorPrice
+        });
+
+        price = decision.finalPriceUsd;
+        provider = decision.finalProvider;
+        referencePrice = decision.referencePriceUsd;
+        referenceProvider = decision.referenceProvider;
+        priceValidationReason = decision.reasonCode;
+        priceFallbackUsed = decision.fallbackUsed;
+        if (decision.fallbackUsed) {
+            if (liq?.fdv && liq.fdv > 0) {
+                marketCap = liq.fdv;
+            } else if (rpc?.marketCap && rpc?.price) {
+                marketCap = rpc.marketCap * (price / rpc.price);
+            }
+        }
+
+        if (decision.fallbackUsed) {
+            logger.warn(LogCode.API_FETCH_FAILED, 'Launchpad oracle price overridden by validated market reference', {
+                token: tokenAddress,
+                chainId,
+                rpcDexName,
+                rpcPriceUsd: rpc?.price,
+                selectedPriceUsd: price,
+                referencePriceUsd: referencePrice,
+                referenceProvider,
+                reasonCode: priceValidationReason,
+                deviationRatio: decision.deviationRatio
+            });
+        }
     }
 
     // 🛡️ FALLBACK: If RPC price failed, try full API fetch as last resort
@@ -256,14 +313,21 @@ async function fetchTokenInfoFromAPIs(
         pairCreatedAt: Date.now(),
         socials: [],
         websites: [],
-        provider
+        provider,
+        priceValidationReason,
+        referencePrice,
+        referenceProvider,
+        priceFallbackUsed,
+        rpcDexName
     };
 
     logger.info(LogCode.API_FETCH_SUCCESS, '✅ Hybrid fetch complete', {
         symbol: result.symbol,
         price: result.price,
         liquidity: result.liquidity,
-        provider: result.provider
+        provider: result.provider,
+        priceValidationReason: result.priceValidationReason,
+        priceFallbackUsed: result.priceFallbackUsed
     });
 
     return result;

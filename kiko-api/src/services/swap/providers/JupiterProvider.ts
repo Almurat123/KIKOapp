@@ -1,6 +1,6 @@
 /**
  * Jupiter Aggregator Provider (Solana)
- * Wraps existing Jupiter/Solana swap logic
+ * Wraps the Jupiter Metis/Swap default routing path.
  */
 
 import { BaseSwapProvider } from './BaseProvider.js';

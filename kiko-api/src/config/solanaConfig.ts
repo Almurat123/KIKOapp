@@ -4,13 +4,9 @@ export const SOLANA_CONFIG = {
     // Chain ID for Solana (internal mapping, not on-chain ID)
     CHAIN_ID: 900,
 
-    // Jupiter Aggregator API
-    // Official API URL: https://api.jup.ag
-    // Note: Ultra API requires API key from portal.jup.ag (optional for now, use Legacy API for dev)
-    // Legacy API (v6): /v6/quote and /v6/swap
-    // Ultra API (new): /ultra/v1/order and /ultra/v1/execute (requires API key)
-    JUPITER_API_URL: process.env.JUPITER_API_URL || 'https://api.jup.ag/v6',
-    JUPITER_API_KEY: process.env.JUPITER_API_KEY || '',
+    // Jupiter Metis/Swap API
+    // Official public swap API path is configured in solanaSwap.ts.
+    JUPITER_API_URL: process.env.JUPITER_API_URL || 'https://lite-api.jup.ag/swap/v1',
 
     // Token Addresses
     TOKENS: {

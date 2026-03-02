@@ -1,19 +1,18 @@
 /**
  * Solana Swap Service
  * Aggregates multiple Solana DEX aggregators:
- * - Jupiter Ultra Swap API (primary) - Aggregates 20+ DEXs including Orca, Raydium, Serum, etc.
- * - Jupiter (DEX-filtered) for Meteora routes
+ * - Jupiter Metis/Swap API (primary) - Aggregates 20+ DEXs including Orca, Raydium, Serum, etc.
+ * - Jupiter Metis/Swap (DEX-filtered) for Meteora routes
  * - Raydium API (alternative)
  * 
  * **Note**: Jupiter aggregator already includes Orca Whirlpools and 20+ other DEXs,
  * so there's no need for separate Orca integration.
  * 
  * Documentation:
- * - Jupiter Ultra Swap: https://dev.jup.ag/get-started
+ * - Jupiter Swap API: https://dev.jup.ag/api-reference/swap
  * - Raydium: https://docs.raydium.io/raydium/traders/trade-api
  */
 
-import { env } from '../config/env.js';
 import {
   getAssociatedTokenAddress,
   getSolanaTokenMetadata,
@@ -26,7 +25,6 @@ import { AppError } from '../middleware/errorHandler.js';
 import { TOKEN_REGISTRY, SOLANA_NATIVE_MINT } from '../config/tokenRegistry.js';
 import { SOLANA_CONFIG } from '../config/solanaConfig.js';
 import { fetchJson } from '../config/unifiedApiService.js';
-import { getPlatformFee } from './platformFeeService.js';
 
 export interface SolanaQuote {
   inputMint: string;
@@ -39,9 +37,9 @@ export interface SolanaQuote {
   routePlan?: any;
   fee?: string;
   estimatedGas?: string;
-  otherAmountThreshold?: string; // Required for Jupiter V6/Ultra swap
-  swapMode?: string;             // Required for Jupiter V6/Ultra swap
-  slippageBps?: number;          // Required for Jupiter V6/Ultra swap
+  otherAmountThreshold?: string; // Required for Jupiter Swap API
+  swapMode?: string;             // Required for Jupiter Swap API
+  slippageBps?: number;          // Required for Jupiter Swap API
   rawQuoteResponse?: any;        // Raw quote response from API (for swap endpoint)
   priorityFeeMaxLamports?: number; // Jupiter /swap prioritizationFeeLamports maxLamports cap
   computeUnitPriceMicroLamports?: number; // Deprecated alias kept for backward compatibility
@@ -57,21 +55,11 @@ export interface SolanaPrice {
   priceImpact?: string;
 }
 
-// Jupiter Ultra Swap API base URLs
-// Jupiter Legacy Swap API base (official public endpoint).
+// Jupiter Metis/Swap API base (official public endpoint).
 // [Ref] https://dev.jup.ag/api-reference/swap/quote
 const JUPITER_PUBLIC_API = process.env.JUPITER_PUBLIC_API_BASE || 'https://lite-api.jup.ag/swap/v1';
 
-// Jupiter Ultra API (Authenticated)
-// Documentation: https://station.jup.ag/docs/ultra/get-order
-const JUPITER_ULTRA_API = 'https://api.jup.ag/ultra/v1';
-
 const FETCH_TIMEOUT = 30000; // 30 seconds timeout
-
-// Get Jupiter API key from environment
-const getJupiterApiKey = (): string | undefined => {
-  return env.apiKeys.jupiter || process.env.JUPITER_API_KEY;
-};
 
 // Raydium API base URLs - according to latest docs
 const RAYDIUM_SWAP_HOST = 'https://transaction-v1.raydium.io';
@@ -91,13 +79,14 @@ function resolvePriorityFeeMaxLamportsFromQuote(quote: SolanaQuote): number | un
   );
 }
 
+type JupiterRouteReason =
+  | 'JUPITER_PUBLIC_DEFAULT'
+  | 'JUPITER_PUBLIC_FORCED'
+  | 'JUPITER_PUBLIC_DEX_FILTERED';
+
 /**
- * Get swap quote from Jupiter Ultra API
- * Documentation: https://dev.jup.ag/api-reference/ultra/order
- * 
- * Strategy: For max balance swaps, we use a two-step approach:
- * 1. Get quote from Ultra API WITHOUT taker (bypasses balance check)
- * 2. Get transaction from Legacy /swap endpoint
+ * Get swap quote from Jupiter.
+ * Uses the Metis/Swap public `/quote + /swap` flow.
  */
 async function getJupiterQuote(
   inputMint: string,
@@ -119,47 +108,23 @@ async function getJupiterQuote(
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
     };
-
-    const apiKey = getJupiterApiKey();
     const dexesParam = options?.dexes?.length
       ? `&dexes=${encodeURIComponent(options.dexes.join(','))}`
       : '';
+    const quoteUrl = `${JUPITER_PUBLIC_API}/quote?inputMint=${inputMint}&outputMint=${outputMint}&amount=${amount}&slippageBps=${slippageBps}${dexesParam}`;
+    const routeReason = options?.forcePublicApi
+      ? 'JUPITER_PUBLIC_FORCED'
+      : options?.dexes?.length
+        ? 'JUPITER_PUBLIC_DEX_FILTERED'
+        : 'JUPITER_PUBLIC_DEFAULT';
 
-    if (apiKey && !options?.forcePublicApi) {
-      headers['x-api-key'] = apiKey;
-    }
-
-    // STRATEGY:
-    // - If API Key is present, use ULTRA API (/order) - Faster, 1-step (Quote + TX)
-    // - If NO Key, use PUBLIC API (/quote + /swap) - Slower, 2-step, Rate-limited
-
-    let quoteUrl: string;
-    let isUltra = false;
-
-    if (apiKey && !options?.forcePublicApi) {
-      // ULTRA API: /order
-      isUltra = true;
-      const takerParam = userAddress ? `&taker=${userAddress}` : '';
-      const fee = getPlatformFee(feeContext === 'copyTrade' ? 'copyTrade' : 'swap');
-      const referralParam =
-        fee.bps > 0 && fee.solanaRecipient
-          ? `&referralAccount=${encodeURIComponent(fee.solanaRecipient)}&referralFee=${fee.bps}`
-          : '';
-      quoteUrl = `${JUPITER_ULTRA_API}/order?inputMint=${inputMint}&outputMint=${outputMint}&amount=${amount}&slippageBps=${slippageBps}${takerParam}${referralParam}`;
-      logger.debug(LogCode.EXE_QUOTE_FETCHED, 'Fetching Jupiter Ultra quote', { inputMint, outputMint, amount });
-    } else {
-      // PUBLIC API: /quote
-      quoteUrl = `${JUPITER_PUBLIC_API}/quote?inputMint=${inputMint}&outputMint=${outputMint}&amount=${amount}&slippageBps=${slippageBps}${dexesParam}`;
-      logger.debug(LogCode.EXE_QUOTE_FETCHED, 'Fetching Jupiter Public quote', {
-        inputMint,
-        outputMint,
-        amount,
-        dexes: options?.dexes
-      });
-    }
-
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT);
+    logger.debug(LogCode.EXE_QUOTE_FETCHED, 'Fetching Jupiter Public quote', {
+      inputMint,
+      outputMint,
+      amount,
+      dexes: options?.dexes,
+      routeReason,
+    });
 
     const quoteStartTime = Date.now();
     let quoteData = await fetchJson({
@@ -173,54 +138,7 @@ async function getJupiterQuote(
 
     let swapTransaction: string | undefined;
 
-    if (isUltra) {
-      // Parse ULTRA response
-      const ultraData = quoteData as any;
-      if (ultraData.error) {
-        const ultraErr = String(ultraData.error || '');
-        logger.warn(LogCode.API_FETCH_FAILED, 'Jupiter Ultra API error, falling back to Public Quote', {
-          error: ultraErr,
-          inputMint,
-          outputMint
-        });
-
-        // Fallback path: use Public Quote endpoint (optionally with dex filters)
-        return getJupiterQuote(
-          inputMint,
-          outputMint,
-          amount,
-          slippageBps,
-          userAddress,
-          priorityFeeMaxLamports,
-          feeContext,
-          {
-            ...(options || {}),
-            forcePublicApi: true
-          }
-        );
-      }
-      quoteData = {
-        inputMint: ultraData.inputMint,
-        outputMint: ultraData.outputMint,
-        inAmount: ultraData.inAmount,
-        outAmount: ultraData.outAmount,
-        otherAmountThreshold: ultraData.otherAmountThreshold,
-        swapMode: ultraData.swapMode || 'ExactIn',
-        priceImpactPct: ultraData.priceImpactPct || ultraData.priceImpact,
-        slippageBps: ultraData.slippageBps,
-        routePlan: ultraData.routePlan.map((r: any) => ({
-          ...r,
-          percent: Math.round(r.percent)
-        }))
-      };
-      // Ultra returns transaction directly if taker was provided
-      if (ultraData.transaction) {
-        swapTransaction = ultraData.transaction;
-      }
-    } else {
-      // Parse PUBLIC response - store the full raw response for /swap endpoint
-      // quoteData is already parsed from fetchJson
-    }
+    // Public response - store the full raw response for /swap endpoint.
 
     if (!quoteData || quoteData.error) {
       logger.error(LogCode.API_FETCH_FAILED, 'Jupiter API quote data error', { error: quoteData?.error });
@@ -229,32 +147,34 @@ async function getJupiterQuote(
 
     // Step 2: Swap Transaction Logic (only if needed)
     if (userAddress && !swapTransaction) {
-      if (isUltra) {
-        logger.warn(LogCode.EXE_TX_BROADCAST, 'Jupiter Ultra: User address provided but no transaction returned');
-      } else {
-        logger.debug(LogCode.EXE_TX_BROADCAST, 'Jupiter Public: Getting swap transaction');
-        try {
-          const swapData = await fetchJson({
-            url: `${JUPITER_PUBLIC_API}/swap`,
-            method: 'POST',
-            headers,
-            body: JSON.stringify({
-              quoteResponse: quoteData,
-              userPublicKey: userAddress,
-              wrapAndUnwrapSol: true,
-              dynamicComputeUnitLimit: true,
-              // Jupiter /swap expects max lamports cap for prioritizationFeeLamports.
-              prioritizationFeeLamports: normalizedPriorityFeeMaxLamports
-                ? { priorityLevelWithMaxLamports: { priorityLevel: "veryHigh", maxLamports: normalizedPriorityFeeMaxLamports } }
-                : 'auto',
-            })
-          });
+      logger.debug(LogCode.EXE_TX_BROADCAST, 'Jupiter Public: Getting swap transaction', {
+        routeReason,
+      });
+      try {
+        const swapData = await fetchJson({
+          url: `${JUPITER_PUBLIC_API}/swap`,
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            quoteResponse: quoteData,
+            userPublicKey: userAddress,
+            wrapAndUnwrapSol: true,
+            dynamicComputeUnitLimit: true,
+            // Jupiter /swap expects max lamports cap for prioritizationFeeLamports.
+            prioritizationFeeLamports: normalizedPriorityFeeMaxLamports
+              ? { priorityLevelWithMaxLamports: { priorityLevel: "veryHigh", maxLamports: normalizedPriorityFeeMaxLamports } }
+              : 'auto',
+          })
+        });
 
-          swapTransaction = swapData.swapTransaction;
-          logger.debug(LogCode.EXE_TX_BROADCAST, 'Jupiter Public: Got swap transaction successfully');
-        } catch (error: any) {
-          logger.error(LogCode.API_FETCH_FAILED, 'Jupiter Public swap transaction failed', { error: error.message });
-        }
+        swapTransaction = swapData.swapTransaction;
+        logger.debug(LogCode.EXE_TX_BROADCAST, 'Jupiter Public: Got swap transaction successfully');
+      } catch (error: any) {
+        logger.error(LogCode.API_FETCH_FAILED, 'Jupiter Public swap transaction failed', {
+          error: error.message,
+          reasonCode: 'SWAP_BUILD_FAILED',
+          routeReason,
+        });
       }
     }
 
@@ -275,7 +195,10 @@ async function getJupiterQuote(
       computeUnitPriceMicroLamports: normalizedPriorityFeeMaxLamports,
     };
   } catch (error: any) {
-    logger.error(LogCode.API_FETCH_FAILED, 'Jupiter API error fetching quote', { error: error.message });
+    logger.error(LogCode.API_FETCH_FAILED, 'Jupiter API error fetching quote', {
+      error: error.message,
+      reasonCode: 'QUOTE_FETCH_FAILED',
+    });
     return null;
   }
 }
@@ -291,22 +214,11 @@ export async function getJupiterSwapTransaction(
 ): Promise<string | null> {
   try {
     const priorityFeeMaxLamports = resolvePriorityFeeMaxLamportsFromQuote(quote);
-    // Build headers with API key if available
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
     };
 
-    // Note: With Ultra API strategy, swap transaction is usually returned in the quote response directly.
-    // This function is primarily a fallback for the Public API flow.
-
-    const apiKey = getJupiterApiKey();
-    if (apiKey) {
-      headers['x-api-key'] = apiKey;
-    }
-
-    // If we are here, we are likely using the Public API or need a standalone swap build.
-    // The standalone /swap endpoint is part of the V6/Public API.
-    // Ultra does not seem to have a standalone /swap endpoint documented in the same way.
+    // Default transaction build path is the public Jupiter Swap API.
     const url = `${JUPITER_PUBLIC_API}/swap`;
 
     const data = await fetchJson<{ swapTransaction: string }>({
@@ -552,7 +464,7 @@ export async function getSolanaQuoteFromAggregator(
         feeContext,
         {
           forcePublicApi: options?.forcePublicApi,
-          dexes: options?.dexes
+          dexes: options?.dexes,
         }
       );
     case 'meteora':
@@ -583,12 +495,12 @@ export async function getSolanaQuoteFromAggregator(
  * Get best Solana swap quote by aggregating multiple DEXs
  * 
  * **Aggregator options**:
- * - 'jupiter': Jupiter aggregator (includes 20+ DEXs: Orca, Raydium, Serum, etc.)
- * - 'meteora': Jupiter quote constrained to Meteora DLMM/Meteora pools
+ * - 'jupiter': Jupiter Metis/Swap aggregator (includes 20+ DEXs: Orca, Raydium, Serum, etc.)
+ * - 'meteora': Jupiter Metis/Swap quote constrained to Meteora DLMM/Meteora pools
  * - 'raydium': Raydium only
  * - 'auto': Try all available aggregators and pick best quote
  * 
- * **Recommendation**: Use 'jupiter' or 'auto' as Jupiter already routes through
+ * **Recommendation**: Use 'jupiter' or 'auto' as Jupiter Metis/Swap already routes through
  * Orca Whirlpools and provides the best execution across all major Solana DEXs.
  */
 export async function getSolanaQuote(
@@ -641,7 +553,11 @@ export async function getSolanaQuote(
       return currentAmount > bestAmount ? current : best;
     });
 
-    logger.info(LogCode.EXE_QUOTE_FETCHED, `Solana Swap: Selected ${bestQuote.aggregator} as best route`, { duration: `${Date.now() - startTime}ms` });
+    logger.info(LogCode.EXE_QUOTE_FETCHED, `Solana Swap: Selected ${bestQuote.aggregator} as best route`, {
+      duration: `${Date.now() - startTime}ms`,
+      reasonCode: 'BEST_QUOTE_SELECTED',
+      comparedRoutes: validQuotes.map(q => q.aggregator),
+    });
 
     // If userAddress was provided, build the transaction only for the BEST quote
     if (userAddress) {
@@ -653,7 +569,9 @@ export async function getSolanaQuote(
           bestQuote.swapTransaction = tx;
         } else {
           // Jupiter/Meteora TX build failed - fallback to Raydium if available
-          logger.warn(LogCode.EXE_TX_BROADCAST, 'Solana Swap: Jupiter/Meteora transaction build failed, trying Raydium fallback');
+          logger.warn(LogCode.EXE_TX_BROADCAST, 'Solana Swap: Jupiter/Meteora transaction build failed, trying Raydium fallback', {
+            reasonCode: 'FALLBACK_RAYDIUM_AFTER_JUPITER_BUILD_FAIL',
+          });
 
           // CRITICAL: Don't use the stale raydium quote from the parallel fetch!
           // It might be 5-10 seconds old by now, causing 0x9ca deadline errors.
@@ -667,7 +585,9 @@ export async function getSolanaQuote(
             if (raydiumTx) {
               freshRaydiumQuote.swapTransaction = raydiumTx;
               bestQuote = freshRaydiumQuote; // Switch to Raydium
-              logger.info(LogCode.EXE_TX_BROADCAST, 'Solana Swap: Successfully fell back to fresh Raydium quote');
+              logger.info(LogCode.EXE_TX_BROADCAST, 'Solana Swap: Successfully fell back to fresh Raydium quote', {
+                reasonCode: 'FALLBACK_RAYDIUM_SUCCESS',
+              });
             }
           }
         }
@@ -679,20 +599,28 @@ export async function getSolanaQuote(
           bestQuote.swapTransaction = tx;
         } else {
           // Raydium TX build failed - fallback to Jupiter if available
-          logger.warn(LogCode.EXE_TX_BROADCAST, 'Solana Swap: Raydium transaction build failed, trying Jupiter fallback');
+          logger.warn(LogCode.EXE_TX_BROADCAST, 'Solana Swap: Raydium transaction build failed, trying Jupiter fallback', {
+            reasonCode: 'FALLBACK_JUPITER_AFTER_RAYDIUM_BUILD_FAIL',
+          });
           const jupiterQuote = validQuotes.find(q => q.aggregator === 'jupiter');
           if (jupiterQuote) {
             const jupiterTx = await getJupiterSwapTransaction(jupiterQuote, userAddress, true, feeContext);
             if (jupiterTx) {
               jupiterQuote.swapTransaction = jupiterTx;
               bestQuote = jupiterQuote; // Switch to Jupiter
-              logger.info(LogCode.EXE_TX_BROADCAST, 'Solana Swap: Successfully fell back to Jupiter');
+              logger.info(LogCode.EXE_TX_BROADCAST, 'Solana Swap: Successfully fell back to Jupiter', {
+                reasonCode: 'FALLBACK_JUPITER_SUCCESS',
+              });
             }
           }
         }
       }
 
-      logger.info(LogCode.EXE_TX_BROADCAST, 'Solana Swap: Best quote with transaction complete', { duration: `${Date.now() - startTime}ms` });
+      logger.info(LogCode.EXE_TX_BROADCAST, 'Solana Swap: Best quote with transaction complete', {
+        duration: `${Date.now() - startTime}ms`,
+        reasonCode: 'SWAP_TRANSACTION_READY',
+        selectedAggregator: bestQuote.aggregator,
+      });
     }
 
     return bestQuote;

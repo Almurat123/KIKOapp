@@ -2,7 +2,7 @@
 import { getSolanaConnection, SOLANA_CONFIG } from '../config/solanaConfig.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { getServerSolanaWalletAddress, sendSolanaTransaction, getDelegatedSolanaWallet } from './privyWallet.js';
-import { getSolanaQuote, getSolanaQuoteFromAggregator, SolanaAggregator } from './solanaSwap.js';
+import { getSolanaQuote, getSolanaQuoteFromAggregator, SolanaAggregator, type SolanaQuote } from './solanaSwap.js';
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
 import { PublicKey, VersionedTransaction } from '@solana/web3.js';
@@ -21,7 +21,47 @@ export interface SolanaSwapParams {
     preferredAggregator?: Exclude<SolanaAggregator, 'auto'>;
 }
 
-export async function executeSolanaSwap(params: SolanaSwapParams): Promise<string> {
+type SolanaExecutorDeps = {
+    getDelegatedSolanaWallet: typeof getDelegatedSolanaWallet;
+    getServerSolanaWalletAddress: typeof getServerSolanaWalletAddress;
+    getSolanaQuote: typeof getSolanaQuote;
+    getSolanaQuoteFromAggregator: typeof getSolanaQuoteFromAggregator;
+    getSolanaConnection: typeof getSolanaConnection;
+    deserializeTransaction: typeof VersionedTransaction.deserialize;
+    sendSolanaTransaction: typeof sendSolanaTransaction;
+};
+
+const defaultSolanaExecutorDeps: SolanaExecutorDeps = {
+    getDelegatedSolanaWallet,
+    getServerSolanaWalletAddress,
+    getSolanaQuote,
+    getSolanaQuoteFromAggregator,
+    getSolanaConnection,
+    deserializeTransaction: VersionedTransaction.deserialize,
+    sendSolanaTransaction,
+};
+
+function resolveSelectedAggregator(
+    preferredAggregator: SolanaSwapParams['preferredAggregator'],
+    executionMode: NonNullable<SolanaSwapParams['executionMode']>,
+    launchpadProvider?: SolanaSwapParams['launchpadProvider']
+): SolanaAggregator {
+    return preferredAggregator
+        || (executionMode === 'turbo' || launchpadProvider === 'pumpswap' ? 'jupiter' : 'auto');
+}
+
+function applyCopyTradePriorityFee(quote: SolanaQuote | null, feeContext?: SolanaSwapParams['feeContext']): SolanaQuote | null {
+    if (quote && feeContext === 'copyTrade') {
+        quote.priorityFeeMaxLamports = 100000;
+        quote.computeUnitPriceMicroLamports = quote.priorityFeeMaxLamports;
+    }
+    return quote;
+}
+
+async function executeSolanaSwapWithDeps(
+    params: SolanaSwapParams,
+    deps: SolanaExecutorDeps
+): Promise<string> {
     const {
         userId,
         tokenInMint,
@@ -44,27 +84,25 @@ export async function executeSolanaSwap(params: SolanaSwapParams): Promise<strin
     // CRITICAL: Use the SAME wallet for building and signing!
     // Try user's delegated wallet first, fallback to server wallet
     let walletAddress: string;
-    const delegatedWallet = await getDelegatedSolanaWallet(userId);
+    const delegatedWallet = await deps.getDelegatedSolanaWallet(userId);
     if (delegatedWallet) {
         walletAddress = delegatedWallet.address;
         logger.debug(LogCode.SYS_INFO, 'SolanaExecutor: Using delegated wallet', { address: walletAddress });
     } else {
-        walletAddress = await getServerSolanaWalletAddress();
+        walletAddress = await deps.getServerSolanaWalletAddress();
         logger.debug(LogCode.SYS_INFO, 'SolanaExecutor: Using server wallet', { address: walletAddress });
     }
 
     logger.info(LogCode.EXE_TX_BROADCAST, 'SolanaExecutor: Executing Swap', { tokenInMint, tokenOutMint, amountIn });
-    const blockhashConnection = getSolanaConnection();
+    const blockhashConnection = deps.getSolanaConnection();
 
     // 1. Get Quote & Transaction (mode-aware)
-    // - turbo: single-route Jupiter for lowest latency (skip Ultra balance check path)
+    // - turbo: single-route Jupiter Metis/Swap for lowest latency
     // - normal/safe: auto route comparison
-    const selectedAggregator: SolanaAggregator =
-        preferredAggregator
-            || (executionMode === 'turbo' || launchpadProvider === 'pumpswap' ? 'jupiter' : 'auto');
+    const selectedAggregator = resolveSelectedAggregator(preferredAggregator, executionMode, launchpadProvider);
 
     const quote = selectedAggregator === 'auto'
-        ? await getSolanaQuote(
+        ? await deps.getSolanaQuote(
             tokenInMint,
             tokenOutMint,
             amountIn,
@@ -74,7 +112,7 @@ export async function executeSolanaSwap(params: SolanaSwapParams): Promise<strin
             undefined,
             params.feeContext
         )
-        : await getSolanaQuoteFromAggregator(
+        : await deps.getSolanaQuoteFromAggregator(
             selectedAggregator,
             tokenInMint,
             tokenOutMint,
@@ -83,27 +121,21 @@ export async function executeSolanaSwap(params: SolanaSwapParams): Promise<strin
             walletAddress,
             undefined,
             params.feeContext,
-            // For turbo, always avoid Ultra taker balance gate and use public quote path directly.
+            // For turbo, keep the low-latency public Metis/Swap path explicit.
             executionMode === 'turbo' ? { forcePublicApi: true } : undefined
         );
 
-    // [Expert Logic]: Add explicit priority fee context for copytrading
-    // Competitive environment requires > 50th percentile of recent fees
-    if (quote && params.feeContext === 'copyTrade') {
-        // Jupiter /swap uses prioritizationFeeLamports.maxLamports (lamports cap), not micro-lamports.
-        quote.priorityFeeMaxLamports = 100000; // 0.0001 SOL cap as aggressive baseline
-        quote.computeUnitPriceMicroLamports = quote.priorityFeeMaxLamports; // Backward-compatible alias
+    const adjustedQuote = applyCopyTradePriorityFee(quote, params.feeContext);
+
+    if (!adjustedQuote) {
+        throw new AppError(400, 'Solana Swap Failed: No valid quotes found from Jupiter Metis/Swap, Raydium, or Meteora', 'QUOTE_FAILED');
     }
 
-    if (!quote) {
-        throw new AppError(400, 'Solana Swap Failed: No valid quotes found from Jupiter/Raydium/Meteora', 'QUOTE_FAILED');
+    if (!adjustedQuote.swapTransaction) {
+        throw new AppError(500, `Solana Swap Failed: Quote found from ${adjustedQuote.aggregator} but failed to build transaction`, 'SWAP_BUILD_FAILED');
     }
 
-    if (!quote.swapTransaction) {
-        throw new AppError(500, `Solana Swap Failed: Quote found from ${quote.aggregator} but failed to build transaction`, 'SWAP_BUILD_FAILED');
-    }
-
-    logger.debug(LogCode.SYS_INFO, 'SolanaExecutor: Swap prepared', { aggregator: quote.aggregator, outAmount: quote.outAmount });
+    logger.debug(LogCode.SYS_INFO, 'SolanaExecutor: Swap prepared', { aggregator: adjustedQuote.aggregator, outAmount: adjustedQuote.outAmount });
 
     // 2. Refresh Blockhash & Execute Transaction
     // CRITICAL: Raydium/Jupiter quotes might have stale blockhashes (TTL ~1min)
@@ -115,8 +147,8 @@ export async function executeSolanaSwap(params: SolanaSwapParams): Promise<strin
     // Let's do it here for clarity and control:
 
     // Deserialize
-    const transactionBuffer = Buffer.from(quote.swapTransaction, 'base64');
-    let transaction = VersionedTransaction.deserialize(transactionBuffer);
+    const transactionBuffer = Buffer.from(adjustedQuote.swapTransaction, 'base64');
+    let transaction = deps.deserializeTransaction(transactionBuffer);
 
     // Fetch fresh blockhash
     const { blockhash, lastValidBlockHeight } = await blockhashConnection.getLatestBlockhash('finalized');
@@ -128,7 +160,7 @@ export async function executeSolanaSwap(params: SolanaSwapParams): Promise<strin
     // Reserialize to base64
     const freshTransactionBase64 = Buffer.from(transaction.serialize()).toString('base64');
 
-    const signature = await sendSolanaTransaction(userId, freshTransactionBase64);
+    const signature = await deps.sendSolanaTransaction(userId, freshTransactionBase64);
 
     logger.info(LogCode.EXE_TX_BROADCAST, 'SolanaExecutor: Transaction sent', { signature });
 
@@ -138,7 +170,7 @@ export async function executeSolanaSwap(params: SolanaSwapParams): Promise<strin
     }
 
     // Alchemy HTTP RPC doesn't support WebSocket methods like signatureSubscribe
-    const connection = getSolanaConnection();
+    const connection = deps.getSolanaConnection();
     try {
         logger.debug(LogCode.SYS_INFO, 'SolanaExecutor: Polling for confirmation', { signature });
 
@@ -175,3 +207,13 @@ export async function executeSolanaSwap(params: SolanaSwapParams): Promise<strin
 
     return signature;
 }
+
+export async function executeSolanaSwap(params: SolanaSwapParams): Promise<string> {
+    return executeSolanaSwapWithDeps(params, defaultSolanaExecutorDeps);
+}
+
+export const __solanaExecutorTest = {
+    applyCopyTradePriorityFee,
+    executeSolanaSwapWithDeps,
+    resolveSelectedAggregator,
+};
