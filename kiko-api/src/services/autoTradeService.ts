@@ -84,6 +84,7 @@ import { shouldAbortCopytradeBuyRetry } from './copytrade/buy/copytradeBuyRetryG
 import { evaluateBuyPriceDeviationGuard } from './copytrade/buy/buyGuardPriceDeviation.js';
 import { reconcileOpenPositionsForExit } from './copytrade/exit/openPositionReconciliation.js';
 import { collectDirectSwapFeeFromSettlement } from './swap/fee/directSwapFeeCollector.js';
+import { getCopytradeBuySharedWarmup } from './copytrade/buy/buySharedWarmup.js';
 import {
     evaluateCopyTradeDelay,
     getCopyTradeDispatchDetectedAt,
@@ -269,11 +270,12 @@ const NO_OPEN_POSITIONS_LOG_WINDOW_MS = Number(process.env.NO_OPEN_POSITIONS_LOG
 const COPYTRADE_ENABLE_DETECTION_PREWARM = (process.env.COPYTRADE_ENABLE_DETECTION_PREWARM || 'false') === 'true';
 const COPYTRADE_SKIP_ON_DIRECTION_CONFLICT = (process.env.COPYTRADE_SKIP_ON_DIRECTION_CONFLICT || 'true') === 'true';
 const COPYTRADE_ENABLE_TOKEN_TO_TOKEN_PARALLEL = (process.env.COPYTRADE_ENABLE_TOKEN_TO_TOKEN_PARALLEL || 'false') === 'true';
-const ALLOWED_LAUNCHPAD_PROVIDERS = new Set(['zora', 'fourmeme']);
+const ALLOWED_LAUNCHPAD_PROVIDERS = new Set(['zora', 'fourmeme', 'pumpfun', 'pumpswap', 'bonkfun']);
 const COPYTRADE_DISABLE_MIRROR_SELL_DUST_SWEEP = (process.env.COPYTRADE_DISABLE_MIRROR_SELL_DUST_SWEEP || 'true') === 'true';
 const CHAIN_LAUNCHPAD_PROVIDERS: Record<number, Set<string>> = {
     8453: new Set(['zora']),
-    56: new Set(['fourmeme'])
+    56: new Set(['fourmeme']),
+    900: new Set(['pumpfun', 'pumpswap', 'bonkfun'])
 };
 
 // State for graceful shutdown and cleanup
@@ -862,12 +864,10 @@ async function handleTargetBuy(
     }
 
     const userIds = [...new Set(rawConfigs.map(c => c.userId))];
-    // ⚡ Fire token metadata in parallel with the user DB query so both arrive together.
+    // ⚡ Fire token metadata in parallel with the shared warmup so both arrive together.
     const turboMetaPromise = getTokenMetadata(chainId, tokenToBuy, { rpcStrategy: 'fast' }).catch(() => null);
-    const users = await prisma.user.findMany({
-        where: { privyDid: { in: userIds } }
-    });
-    const userMap = new Map(users.map(u => [u.privyDid, u]));
+    const sharedWarmup = await getCopytradeBuySharedWarmup(chainId, userIds);
+    const userMap = sharedWarmup.userMap;
     const allowSelfTarget = (process.env.COPYTRADE_ALLOW_SELF_TARGET || 'false') === 'true';
     const configs = rawConfigs
         .map((c: any) => ({
@@ -933,7 +933,7 @@ async function handleTargetBuy(
 
     const tokenInfoCache = new Map<string, Promise<any>>();
 
-    const launchpadPromise = (chainId === 8453 || chainId === 56)
+    const launchpadPromise = (chainId === 8453 || chainId === 56 || chainId === 900)
         ? detectLaunchpadToken(tokenToBuy, chainId).catch(() => null)
         : Promise.resolve(null);
 
@@ -963,7 +963,7 @@ async function handleTargetBuy(
                 chainId
             });
 
-            await processBuyWithInfo(targetWallet, tokenToBuy, swap, chainId, uniqueExecutableConfigs, fallbackInfo, true, launchpadPromise, tokenInfoCache, context?.timing, detectedAt);
+            await processBuyWithInfo(targetWallet, tokenToBuy, swap, chainId, uniqueExecutableConfigs, fallbackInfo, true, launchpadPromise, tokenInfoCache, sharedWarmup, context?.timing, detectedAt);
             return;
         } catch (err: any) {
             logger.warn(LogCode.API_FETCH_FAILED, '[CopyTrade] Token info disabled but metadata fallback failed', {
@@ -1015,7 +1015,7 @@ async function handleTargetBuy(
             // NOTE: We must be careful about price calculations later.
             // If price is 0, we can only do "Buy X ETH worth", not "Buy Y Tokens".
             // Our logic below handles "Target Swap Value" based on Input ETH, so we are safe.
-            await processBuyWithInfo(targetWallet, tokenToBuy, swap, chainId, uniqueExecutableConfigs, fallbackInfo, true, launchpadPromise, tokenInfoCache, context?.timing, detectedAt);
+            await processBuyWithInfo(targetWallet, tokenToBuy, swap, chainId, uniqueExecutableConfigs, fallbackInfo, true, launchpadPromise, tokenInfoCache, sharedWarmup, context?.timing, detectedAt);
             return;
         }
 
@@ -1045,7 +1045,7 @@ async function handleTargetBuy(
                     chainId
                 });
 
-                await processBuyWithInfo(targetWallet, tokenToBuy, swap, chainId, uniqueExecutableConfigs, fallbackInfo, true, launchpadPromise, tokenInfoCache, context?.timing, detectedAt);
+                await processBuyWithInfo(targetWallet, tokenToBuy, swap, chainId, uniqueExecutableConfigs, fallbackInfo, true, launchpadPromise, tokenInfoCache, sharedWarmup, context?.timing, detectedAt);
                 return;
             } catch (metaErr: any) {
                 logger.warn(LogCode.API_FETCH_FAILED, 'Metadata fallback failed', { token: tokenToBuy, error: metaErr.message });
@@ -1056,7 +1056,7 @@ async function handleTargetBuy(
         return;
     }
 
-    await processBuyWithInfo(targetWallet, tokenToBuy, swap, chainId, uniqueExecutableConfigs, tokenInfo, false, launchpadPromise, tokenInfoCache, context?.timing, detectedAt);
+    await processBuyWithInfo(targetWallet, tokenToBuy, swap, chainId, uniqueExecutableConfigs, tokenInfo, false, launchpadPromise, tokenInfoCache, sharedWarmup, context?.timing, detectedAt);
 }
 
 /**
@@ -1072,6 +1072,7 @@ async function processBuyWithInfo(
     isFallbackMode: boolean,
     launchpadPromise?: Promise<any>,
     tokenInfoCache?: Map<string, Promise<any>>,
+    sharedWarmup?: Awaited<ReturnType<typeof getCopytradeBuySharedWarmup>>,
     timing?: CopyTradeTimingSnapshot,
     detectedAt?: number
 ) {
@@ -1225,13 +1226,8 @@ async function processBuyWithInfo(
     if (turboConfigs.length > 0) {
         const turboUserIds = [...new Set(turboConfigs.map(c => c.userId).filter(Boolean))];
         // ⚡ Parallel: native price fetch + user settings warmup run concurrently (~100ms saved)
-        const [quickNativePrice, turboUserSettingsMap] = await Promise.all([
-            getNativeTokenPriceUsd(chainId).catch(() => 0),
-            cacheHub.warmupUserSettings(
-                turboUserIds,
-                async (userId) => prisma.userSettings.findUnique({ where: { userId } })
-            )
-        ]);
+        const quickNativePrice = sharedWarmup!.nativePriceUsd;
+        const turboUserSettingsMap = sharedWarmup!.userSettingsMap;
         logger.info(LogCode.EXE_QUOTE_FETCHED, '[CopyTrade] Turbo fast lane enabled', {
             userCount: turboConfigs.length,
             token: tokenToBuy,
@@ -1286,17 +1282,8 @@ async function processBuyWithInfo(
 
     // ⚡ PERFORMANCE OPTIMIZATION: Fetch shared data ONCE for all users via Cache Hub
     const cacheStart = Date.now();
-    const [userSettingsMap, sharedNativePrice] = await Promise.all([
-        // 1. 批量预热用户设置缓存
-        cacheHub.warmupUserSettings(
-            workingConfigs.map(c => c.userId).filter(Boolean),
-            async (userId) => prisma.userSettings.findUnique({ where: { userId } })
-        ),
-        // 2. 获取 Native 价格（通过缓存中心）
-        cacheHub.getNativePrice(chainId, async () => {
-            return getNativeTokenPriceUsd(chainId);
-        })
-    ]);
+    const userSettingsMap = sharedWarmup!.userSettingsMap;
+    const sharedNativePrice = sharedWarmup!.nativePriceUsd;
     const cacheMs = Date.now() - cacheStart;
 
     logger.debug(LogCode.EXE_QUOTE_FETCHED, '⚡ Shared data fetched via Cache Hub', {
@@ -2161,6 +2148,9 @@ async function processSingleUserBuy(
         let orderRuntimeContext: any = undefined;
         let swapMetadata: MainSwapResult['metadata'] | undefined;
 
+        // Turbo mode skips launchpad detection on critical path for lower latency.
+        const launchpad = turboMode ? null : await resolveLaunchpad(launchpadPromise, chainId);
+
         if (chainId === 900) {
             // Dynamically fetch Solana wallet from Privy (not from database field)
             let solAddress: string | null = null;
@@ -2239,6 +2229,7 @@ async function processSingleUserBuy(
                             slippageBps: attemptSlippage,
                             feeContext: 'copyTrade',
                             executionMode: 'turbo',
+                            launchpadProvider: launchpad?.provider as any,
                             waitForConfirmation: false
                         });
                         break;
@@ -2263,7 +2254,8 @@ async function processSingleUserBuy(
                     amountIn: amountInLamports,
                     slippageBps: effectiveConfig.maxSlippageBps,
                     feeContext: 'copyTrade',
-                    executionMode
+                    executionMode,
+                    launchpadProvider: launchpad?.provider as any
                 });
             }
 
@@ -2272,8 +2264,6 @@ async function processSingleUserBuy(
 
 
             // SPECIALIZED ZORA INTERACTION - Use async launchpad detection (non-blocking)
-            // Turbo mode skips launchpad detection on critical path for lower latency.
-            const launchpad = turboMode ? null : await resolveLaunchpad(launchpadPromise, chainId);
             const isFastExecutionEnabled = userSettings?.fastSwapMode === true;
 
             let useStandardSwap = true;

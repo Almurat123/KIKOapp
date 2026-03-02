@@ -1,0 +1,139 @@
+import { get as cacheGet, set as cacheSet } from '../../../cache/cacheClient.js';
+import { normalizeTxIdentity } from '../../../utils/txIdentity.js';
+
+export type CopyTradeIngressState = {
+    chainId: number;
+    txHash: string;
+    firstSeenAt?: number;
+    confirmedSeenAt?: number;
+    swapReadyAt?: number;
+    executionEnqueuedAt?: number;
+    sourceFlags?: Record<string, boolean>;
+};
+
+const COPYTRADE_INGRESS_STATE_TTL_SEC = Number(process.env.COPYTRADE_INGRESS_STATE_TTL_SEC || 600);
+const ingressStateMemory = new Map<string, CopyTradeIngressState>();
+
+function ingressStateKey(chainId: number, txHash: string): string {
+    return `copytrade:ingress_state:${chainId}:${normalizeTxIdentity(chainId, txHash)}`;
+}
+
+function setMemoryWithTtl<T>(map: Map<string, T>, key: string, value: T, ttlSec: number): void {
+    map.set(key, value);
+    setTimeout(() => map.delete(key), Math.max(1, ttlSec) * 1000).unref();
+}
+
+function mergeFlags(
+    current?: Record<string, boolean>,
+    incoming?: Record<string, boolean>
+): Record<string, boolean> | undefined {
+    if (!current && !incoming) return undefined;
+    return {
+        ...(current || {}),
+        ...(incoming || {})
+    };
+}
+
+function mergeIngressState(
+    current: CopyTradeIngressState | undefined,
+    incoming: Partial<CopyTradeIngressState>,
+    chainId: number,
+    txHash: string
+): CopyTradeIngressState {
+    return {
+        chainId,
+        txHash,
+        firstSeenAt: incoming.firstSeenAt ?? current?.firstSeenAt,
+        confirmedSeenAt: incoming.confirmedSeenAt ?? current?.confirmedSeenAt,
+        swapReadyAt: incoming.swapReadyAt ?? current?.swapReadyAt,
+        executionEnqueuedAt: incoming.executionEnqueuedAt ?? current?.executionEnqueuedAt,
+        sourceFlags: mergeFlags(current?.sourceFlags, incoming.sourceFlags)
+    };
+}
+
+export async function getCopyTradeIngressState(
+    chainId: number,
+    txHash: string
+): Promise<CopyTradeIngressState | null> {
+    if (!txHash) return null;
+    const key = ingressStateKey(chainId, txHash);
+    const memory = ingressStateMemory.get(key);
+    if (memory) return memory;
+    const raw = await cacheGet(key).catch(() => null);
+    if (!raw) return null;
+    try {
+        const parsed = JSON.parse(raw) as CopyTradeIngressState;
+        setMemoryWithTtl(ingressStateMemory, key, parsed, COPYTRADE_INGRESS_STATE_TTL_SEC);
+        return parsed;
+    } catch {
+        return null;
+    }
+}
+
+export async function updateCopyTradeIngressState(
+    chainId: number,
+    txHash: string,
+    incoming: Partial<CopyTradeIngressState>
+): Promise<CopyTradeIngressState | null> {
+    if (!txHash) return null;
+    const key = ingressStateKey(chainId, txHash);
+    const current = await getCopyTradeIngressState(chainId, txHash).catch(() => null);
+    const merged = mergeIngressState(current || undefined, incoming, chainId, normalizeTxIdentity(chainId, txHash) || txHash);
+    setMemoryWithTtl(ingressStateMemory, key, merged, COPYTRADE_INGRESS_STATE_TTL_SEC);
+    await cacheSet(key, JSON.stringify(merged), COPYTRADE_INGRESS_STATE_TTL_SEC).catch(() => { });
+    return merged;
+}
+
+export async function markCopyTradeIngressFirstSeen(
+    chainId: number,
+    txHash: string,
+    firstSeenAt = Date.now(),
+    source = 'pending'
+): Promise<CopyTradeIngressState | null> {
+    const current = await getCopyTradeIngressState(chainId, txHash).catch(() => null);
+    return updateCopyTradeIngressState(chainId, txHash, {
+        firstSeenAt: current?.firstSeenAt ? Math.min(current.firstSeenAt, firstSeenAt) : firstSeenAt,
+        sourceFlags: { [source]: true }
+    });
+}
+
+export async function markCopyTradeIngressConfirmed(
+    chainId: number,
+    txHash: string,
+    confirmedSeenAt = Date.now(),
+    source = 'webhook'
+): Promise<CopyTradeIngressState | null> {
+    return updateCopyTradeIngressState(chainId, txHash, {
+        confirmedSeenAt,
+        sourceFlags: { [source]: true }
+    });
+}
+
+export async function markCopyTradeIngressSwapReady(
+    chainId: number,
+    txHash: string,
+    swapReadyAt = Date.now(),
+    source = 'decode'
+): Promise<CopyTradeIngressState | null> {
+    return updateCopyTradeIngressState(chainId, txHash, {
+        swapReadyAt,
+        sourceFlags: { [source]: true }
+    });
+}
+
+export async function tryMarkCopyTradeIngressEnqueued(
+    chainId: number,
+    txHash: string,
+    enqueuedAt = Date.now(),
+    source = 'dispatcher'
+): Promise<{ state: CopyTradeIngressState | null; accepted: boolean }> {
+    const current = await getCopyTradeIngressState(chainId, txHash).catch(() => null);
+    if (current?.executionEnqueuedAt) {
+        return { state: current, accepted: false };
+    }
+    const state = await updateCopyTradeIngressState(chainId, txHash, {
+        executionEnqueuedAt: enqueuedAt,
+        sourceFlags: { [source]: true }
+    });
+    return { state, accepted: true };
+}

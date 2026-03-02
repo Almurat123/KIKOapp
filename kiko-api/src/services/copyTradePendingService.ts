@@ -1,4 +1,3 @@
-import prisma from '../db/prisma.js';
 import { callRpc, callRpcCustom } from './rpcManager.js';
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
@@ -19,26 +18,31 @@ import {
     markCopyTradeTaskEnqueued
 } from './copytrade/timing/copyTradeTimingModel.js';
 import { emitCopyTradeTimingAudit } from './copytrade/timing/copyTradeTimingAudit.js';
+import {
+    markCopyTradeIngressFirstSeen,
+    markCopyTradeIngressSwapReady
+} from './copytrade/ingress/copyTradeIngressState.js';
+import { dispatchCopyTradeIfReady } from './copytrade/ingress/copyTradeFastDispatcher.js';
+import {
+    getTrackedWalletSet,
+    refreshTrackedWalletSnapshot
+} from './copytrade/ingress/trackedWalletSnapshot.js';
 
 const ENABLED = (process.env.COPYTRADE_PENDING_WATCH_ENABLED || 'true') === 'true';
 const REFRESH_WALLETS_MS = Number(process.env.COPYTRADE_PENDING_WALLET_REFRESH_MS || 10000);
 const POLL_INTERVAL_MS = Number(process.env.COPYTRADE_PENDING_POLL_MS || 1500);
-const EVM_CHAIN_IDS = [1, 8453, 56, 137, 42161, 10];
 const LOCAL_DEDUP_TTL_MS = Number(process.env.COPYTRADE_PENDING_DEDUP_TTL_MS || 60_000);
 const PREFETCH_ENABLED = (process.env.COPYTRADE_PENDING_PREFETCH_ENABLED || 'true') === 'true';
 const PREFETCH_MAX_WAIT_MS = Number(process.env.COPYTRADE_PENDING_PREFETCH_MAX_WAIT_MS || 500);
 const PREFETCH_POLL_MS = Number(process.env.COPYTRADE_PENDING_PREFETCH_POLL_MS || 250);
 const PREFETCH_MAX_INFLIGHT = Number(process.env.COPYTRADE_PENDING_PREFETCH_MAX_INFLIGHT || 2);
 const PENDING_RPC_MODE = String(process.env.COPYTRADE_PENDING_RPC_MODE || 'free').trim().toLowerCase(); // free | auto
-const COPYTRADE_PENDING_REFRESH_LOG_WINDOW_MS = Number(process.env.COPYTRADE_PENDING_REFRESH_LOG_WINDOW_MS || 180_000);
-
 let running = false;
 let tickInFlight = false;
 let refreshTimer: NodeJS.Timeout | null = null;
 let pollTimer: NodeJS.Timeout | null = null;
 let chainIndex = 0;
 
-const trackedByChain = new Map<number, Set<string>>();
 const seenPendingLocal = new Map<string, number>();
 const prefetchInFlight = new Set<string>();
 
@@ -146,6 +150,7 @@ async function warmConfirmedSwapFromPending(
                     wallet: targetWallet.slice(0, 10),
                     dex: swap.dexName || null
                 });
+                await markCopyTradeIngressSwapReady(chainId, txHash, timing.swapReadyAt || Date.now(), 'pending_prefetch').catch(() => { });
 
                 await markPendingPredecodedSwap(chainId, txHash, targetWallet, swap, start).catch(() => { });
                 const ctx = buildSwapExecutionContext({
@@ -173,10 +178,14 @@ async function warmConfirmedSwapFromPending(
                         dexName: swap.dexName || null
                     })
                 }).catch(() => { });
-                const { enqueueCopyTradeTask } = await import('./copyTradeQueue.js');
-                enqueueCopyTradeTask(targetWallet, swap, chainId, {
+                await dispatchCopyTradeIfReady({
+                    chainId,
+                    txHash,
+                    targetWallet,
+                    swap,
                     detectedAt: timing.dispatchEligibleAt || timing.swapReadyAt || start,
-                    timing
+                    timing,
+                    source: 'pending_prefetch'
                 });
                 await markCopyTradeTxState(chainId, txHash, 'swap_decoded', {
                     source: 'pending_prefetch',
@@ -204,36 +213,8 @@ async function warmConfirmedSwapFromPending(
     }
 }
 
-async function refreshTrackedWallets(): Promise<void> {
-    const rows = await prisma.trackedWallet.findMany({
-        where: {
-            activeConfigs: { gt: 0 },
-            chainId: { in: EVM_CHAIN_IDS }
-        },
-        select: {
-            address: true,
-            chainId: true
-        }
-    });
-
-    const next = new Map<number, Set<string>>();
-    for (const row of rows) {
-        const addr = normalizeAddress(row.address);
-        if (!addr.startsWith('0x')) continue;
-        if (!next.has(row.chainId)) next.set(row.chainId, new Set());
-        next.get(row.chainId)!.add(addr);
-    }
-    trackedByChain.clear();
-    for (const [chainId, set] of next) trackedByChain.set(chainId, set);
-
-    logger.throttled(LogCode.SYS_INFO, '[CopyTradePending] Tracked wallet snapshot refreshed', {
-        chains: Array.from(trackedByChain.keys()),
-        totalWallets: rows.length
-    }, COPYTRADE_PENDING_REFRESH_LOG_WINDOW_MS);
-}
-
 async function pollOneChainPending(chainId: number): Promise<void> {
-    const tracked = trackedByChain.get(chainId);
+    const tracked = getTrackedWalletSet(chainId);
     if (!tracked || tracked.size === 0) return;
 
     const block = await (async () => {
@@ -277,6 +258,7 @@ async function pollOneChainPending(chainId: number): Promise<void> {
 
         await Promise.allSettled([
             markPendingTxHint(chainId, txHash, matchedWallet),
+            markCopyTradeIngressFirstSeen(chainId, txHash, Date.now(), 'pending_block'),
             markCopyTradeTxState(chainId, txHash, 'pending_seen', { source: 'pending_block', wallet: matchedWallet })
         ]);
         void warmConfirmedSwapFromPending(chainId, txHash, matchedWallet, tx);
@@ -289,7 +271,9 @@ async function tick(): Promise<void> {
     tickInFlight = true;
     cleanupLocalDedup();
     try {
-        const chains = Array.from(trackedByChain.keys());
+        const chains = CHAIN_SLUG_BY_ID
+            ? Object.keys(CHAIN_SLUG_BY_ID).map((value) => Number(value)).filter((chainId) => !!getTrackedWalletSet(chainId))
+            : [];
         if (chains.length === 0) return;
 
         // Poll one chain per tick (round-robin) to cap RPC load.
@@ -310,14 +294,14 @@ export async function startCopyTradePendingWatcher(): Promise<void> {
     }
     running = true;
 
-    await refreshTrackedWallets().catch((err: any) => {
+    await refreshTrackedWalletSnapshot().catch((err: any) => {
         logger.warn(LogCode.SYS_INFO, '[CopyTradePending] Initial wallet refresh failed', {
             error: err?.message || String(err)
         });
     });
 
     refreshTimer = setInterval(() => {
-        refreshTrackedWallets().catch(() => { });
+        refreshTrackedWalletSnapshot().catch(() => { });
     }, REFRESH_WALLETS_MS);
 
     pollTimer = setInterval(() => {

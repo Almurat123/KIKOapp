@@ -36,6 +36,19 @@ import {
     markCopyTradeTaskEnqueued,
     mergeCopyTradeTimingSnapshots
 } from '../services/copytrade/timing/copyTradeTimingModel.js';
+import {
+    getCopyTradeIngressState,
+    markCopyTradeIngressConfirmed,
+    markCopyTradeIngressFirstSeen,
+    markCopyTradeIngressSwapReady
+} from '../services/copytrade/ingress/copyTradeIngressState.js';
+import { dispatchCopyTradeIfReady } from '../services/copytrade/ingress/copyTradeFastDispatcher.js';
+import {
+    refreshTrackedWalletSnapshot,
+    resolveTrackedWalletsFromSnapshot
+} from '../services/copytrade/ingress/trackedWalletSnapshot.js';
+import { logWebhookTiming, resolveDetectedAt, safeSecretEquals, waitMs, withTimeout } from './webhookHelpers.js';
+import { queueWebhookBatch, type WebhookBatchContext } from './webhookBatching.js';
 
 interface ProcessTxBody { wallet: string; txHash: string; network: string; }
 const NETWORK_TO_CHAIN_ID: Record<string, number> = {
@@ -73,16 +86,6 @@ type ActivityCashHint = {
     cashSpentUsd?: number;
     cashReceivedUsd?: number;
     inferredTxType?: 'TARGET_BUY' | 'TARGET_SELL' | 'TARGET_TOKEN_SWAP';
-};
-
-type WebhookBatchContext = {
-    txHash: string;
-    chainId: number;
-    categories: Set<string>;
-    receivedAt: number;
-    flushAt: number;
-    payloads: any[];
-    timer?: NodeJS.Timeout;
 };
 
 const webhookBatchByTxHash = new Map<string, WebhookBatchContext>();
@@ -137,31 +140,6 @@ function collectEvmActivityCandidates(activities: any[]): string[] {
     }
 
     return Array.from(addresses);
-}
-
-function logWebhookTiming(scope: string, txHash: string, timings: Record<string, number | string | boolean | undefined>): void {
-    const printable = Object.entries(timings)
-        .filter(([, v]) => v !== undefined)
-        .map(([k, v]) => `${k}=${v}`)
-        .join(' ');
-    console.log(`[WebhookTiming][${scope}] tx=${txHash.slice(0, 12)} ${printable}`);
-}
-
-function resolveDetectedAt(...candidates: Array<number | undefined | null>): number {
-    const now = Date.now();
-    for (const candidate of candidates) {
-        if (!Number.isFinite(candidate as number)) continue;
-        const value = Number(candidate);
-        if (value <= 0) continue;
-        if (now - value <= COPYTRADE_DETECTED_AT_STALE_MS) {
-            return value;
-        }
-    }
-    return now;
-}
-
-function waitMs(ms: number): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 async function persistSwapContext(params: {
@@ -233,7 +211,6 @@ async function attemptReceiptRecovery(
     if (!fullTx) return { recovered: false, swaps: 0, reason: 'tx_missing' };
 
     let swaps = 0;
-    const { enqueueCopyTradeTask } = await import('../services/copyTradeQueue.js');
     for (const trackedTarget of trackedWallets) {
         const swap = await parseSwapTransaction(
             {
@@ -252,6 +229,7 @@ async function attemptReceiptRecovery(
         ).catch(() => null);
 
         if (!swap) continue;
+        await markCopyTradeIngressSwapReady(chainId, txHash, Date.now(), 'receipt_recovery').catch(() => { });
         swaps += 1;
         console.log(`[Webhook] ✅ Recovery swap detected for tracked wallet ${trackedTarget.slice(0, 10)}:`, {
             tokenIn: swap.tokenIn,
@@ -277,7 +255,22 @@ async function attemptReceiptRecovery(
         });
         // Recovery path can be delayed by receipt availability; use current time to avoid
         // false "copytrade delay exceeded" skips in turbo mode.
-        enqueueCopyTradeTask(trackedTarget, swap, chainId, { detectedAt: Date.now() });
+        await dispatchCopyTradeIfReady({
+            chainId,
+            txHash,
+            targetWallet: trackedTarget,
+            swap,
+            detectedAt: Date.now(),
+            timing: markCopyTradeTaskEnqueued(
+                markCopyTradeSwapReady(
+                    buildCopyTradeFirstSeenTiming(Date.now(), 'receipt_recovery'),
+                    Date.now(),
+                    'receipt_recovery'
+                ),
+                Date.now()
+            ),
+            source: 'receipt_recovery'
+        });
     }
 
     await markTxAsProcessedDistributed(txHash, chainId).catch(() => { });
@@ -317,19 +310,6 @@ function scheduleReceiptRecovery(
     })();
 }
 
-async function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
-    let timer: NodeJS.Timeout | null = null;
-    try {
-        return await Promise.race([
-            promise,
-            new Promise<T>((_, reject) => {
-                timer = setTimeout(() => reject(new Error(`timeout_${label}_${ms}ms`)), ms);
-            })
-        ]);
-    } finally {
-        if (timer) clearTimeout(timer);
-    }
-}
 
 function parseAlchemyNetworkFromRawBody(rawBody: string): string | undefined {
     try {
@@ -370,13 +350,6 @@ function selectAlchemySecretsForNetwork(rawNetwork?: string): string[] {
     return [...new Set(secrets.filter(Boolean))];
 }
 
-function safeSecretEquals(provided: unknown, expected: string): boolean {
-    if (typeof provided !== 'string') return false;
-    const providedBuf = Buffer.from(provided);
-    const expectedBuf = Buffer.from(expected);
-    if (providedBuf.length !== expectedBuf.length) return false;
-    return crypto.timingSafeEqual(providedBuf, expectedBuf);
-}
 
 function buildTxSkeletonFromAlchemyActivity(activities: any | any[], txHash: string): {
     hash: string;
@@ -539,120 +512,29 @@ async function buildActivityCashHint(activities: any[], walletAddressRaw: string
     };
 }
 
-function collectWebhookBatchContexts(payload: any): Array<{ chainId: number; txHash: string; categories: Set<string> }> {
-    const network = extractAlchemyNetwork(payload);
-    const chainId = NETWORK_TO_CHAIN_ID[String(network || '').toUpperCase()] || NETWORK_TO_CHAIN_ID[String(network || '')];
-    if (!chainId) return [];
-
-    const activityItems = payload?.event?.activity;
-    if (activityItems) {
-        const list = Array.isArray(activityItems) ? activityItems : [activityItems];
-        const byTx = new Map<string, Set<string>>();
-        for (const item of list) {
-            const txHash = normalizeTxHash(chainId, String(item?.hash || ''));
-            if (!txHash) continue;
-            const categories = byTx.get(txHash) || new Set<string>();
-            categories.add(String(item?.category || 'unknown'));
-            byTx.set(txHash, categories);
-        }
-        return Array.from(byTx.entries()).map(([txHash, categories]) => ({ chainId, txHash, categories }));
-    }
-
-    const solItems = payload?.event?.event?.transaction;
-    if (!solItems) return [];
-    const list = Array.isArray(solItems) ? solItems : [solItems];
-    const out: Array<{ chainId: number; txHash: string; categories: Set<string> }> = [];
-    for (const item of list) {
-        const txHash = normalizeTxHash(chainId, String(item?.signature || item?.hash || ''));
-        if (!txHash) continue;
-        out.push({ chainId, txHash, categories: new Set<string>(['solana']) });
-    }
-    return out;
-}
-
-function buildBatchedPayload(batch: WebhookBatchContext): any {
-    const first = batch.payloads[0] || {};
-    const event = first?.event || {};
-    const activity: any[] = [];
-    const transactions: any[] = [];
-
-    for (const payload of batch.payloads) {
-        const list = payload?.event?.activity;
-        if (list) {
-            const arr = Array.isArray(list) ? list : [list];
-            for (const item of arr) {
-                if (normalizeTxHash(batch.chainId, String(item?.hash || '')) === batch.txHash) {
-                    activity.push(item);
-                }
-            }
-        }
-        const sol = payload?.event?.event?.transaction;
-        if (sol) {
-            const arr = Array.isArray(sol) ? sol : [sol];
-            for (const item of arr) {
-                const hash = normalizeTxHash(batch.chainId, String(item?.signature || item?.hash || ''));
-                if (hash === batch.txHash) transactions.push(item);
-            }
-        }
-    }
-
-    if (activity.length > 0) {
-        return {
-            ...first,
-            event: {
-                ...event,
-                activity
-            }
-        };
-    }
-
-    return {
-        ...first,
-        event: {
-            ...event,
-            event: {
-                ...(event?.event || {}),
-                transaction: transactions
-            }
-        }
-    };
-}
-
 async function queueAlchemyWebhookBatch(payload: any): Promise<void> {
-    const contexts = collectWebhookBatchContexts(payload);
-    if (contexts.length === 0) {
-        await processAlchemyWebhookPayload(payload);
-        return;
-    }
-
-    const now = Date.now();
-    for (const ctx of contexts) {
-        const key = `${ctx.chainId}:${ctx.txHash}`;
-        const existing = webhookBatchByTxHash.get(key);
-        if (existing) {
-            existing.payloads.push(payload);
-            for (const category of ctx.categories) existing.categories.add(category);
-            continue;
-        }
-
-        const batch: WebhookBatchContext = {
-            txHash: ctx.txHash,
-            chainId: ctx.chainId,
-            categories: new Set(ctx.categories),
-            payloads: [payload],
-            receivedAt: now,
-            flushAt: now + WEBHOOK_BATCH_WINDOW_MS
-        };
-        batch.timer = setTimeout(async () => {
-            webhookBatchByTxHash.delete(key);
-            const merged = buildBatchedPayload(batch);
-            console.log(`[Webhook] Batched tx=${batch.txHash.slice(0, 12)} categories=${Array.from(batch.categories).join(',')} payloads=${batch.payloads.length} windowMs=${WEBHOOK_BATCH_WINDOW_MS}`);
-            await processAlchemyWebhookPayload(merged).catch((err: any) => {
-                console.error(`[Webhook] Batched processing failed tx=${batch.txHash.slice(0, 12)} err=${err?.message || String(err)}`);
+    await queueWebhookBatch({
+        payload,
+        batchWindowMs: WEBHOOK_BATCH_WINDOW_MS,
+        batchMap: webhookBatchByTxHash,
+        processPayload: processAlchemyWebhookPayload,
+        shouldFastTrack: async (contexts) => {
+            const chainIds = [...new Set(contexts.map((ctx) => ctx.chainId))];
+            await Promise.all(chainIds.map((chainId) => refreshTrackedWalletSnapshot().catch(() => null)));
+            const ingressSnapshots = await Promise.all(
+                contexts.map((ctx) => getCopyTradeIngressState(ctx.chainId, ctx.txHash).catch(() => null))
+            );
+            const trackedHit = contexts.some((ctx) => {
+                const payloadCandidates = collectEvmActivityCandidates(
+                    Array.isArray(payload?.event?.activity) ? payload.event.activity : (payload?.event?.activity ? [payload.event.activity] : [])
+                );
+                return resolveTrackedWalletsFromSnapshot(ctx.chainId, payloadCandidates).length > 0;
             });
-        }, WEBHOOK_BATCH_WINDOW_MS);
-        webhookBatchByTxHash.set(key, batch);
-    }
+            return trackedHit || ingressSnapshots.some((snapshot) => snapshot?.firstSeenAt || snapshot?.swapReadyAt);
+        },
+        resolveChainId: (network) => NETWORK_TO_CHAIN_ID[String(network || '').toUpperCase()] || NETWORK_TO_CHAIN_ID[String(network || '')],
+        normalizeTxHash
+    });
 }
 
 async function processAlchemyWebhookPayload(payload: any): Promise<void> {
@@ -758,6 +640,8 @@ async function processAlchemyWebhookPayload(payload: any): Promise<void> {
         }
         // Fire-and-forget: don't await state marking on the critical path
         markCopyTradeTxState(chainId, txHash, 'confirmed_seen', { source: 'alchemy_webhook' }).catch(() => { });
+        markCopyTradeIngressFirstSeen(chainId, txHash, Date.now(), 'alchemy_webhook').catch(() => { });
+        markCopyTradeIngressConfirmed(chainId, txHash, Date.now(), 'alchemy_webhook').catch(() => { });
         reportWebhookSeen({
             chainId,
             txHash,
@@ -766,16 +650,19 @@ async function processAlchemyWebhookPayload(payload: any): Promise<void> {
         });
 
         try {
+            const trackedWalletsFromSnapshot = resolveTrackedWalletsFromSnapshot(chainId, candidates);
             const [pendingHint, trackedWalletRows] = await Promise.all([
                 getPendingTxHint(chainId, txHash).catch(() => null),
-                prisma.trackedWallet.findMany({
-                    where: {
-                        address: { in: candidates, mode: 'insensitive' },
-                        chainId,
-                        activeConfigs: { gt: 0 }
-                    },
-                    select: { address: true }
-                })
+                trackedWalletsFromSnapshot.length > 0
+                    ? Promise.resolve(trackedWalletsFromSnapshot.map((address) => ({ address })))
+                    : prisma.trackedWallet.findMany({
+                        where: {
+                            address: { in: candidates, mode: 'insensitive' },
+                            chainId,
+                            activeConfigs: { gt: 0 }
+                        },
+                        select: { address: true }
+                    })
             ]);
             const adjudicatedSnapshot = getAdjudicatedSnapshot({ chainId, txHash });
             const isBoundSelfOrderWebhook = Boolean(adjudicatedSnapshot?.orderId);
@@ -1046,7 +933,6 @@ async function processAlchemyWebhookPayload(payload: any): Promise<void> {
                     })()
                 }).catch(() => { });
 
-                const { enqueueCopyTradeTask } = await import('../services/copyTradeQueue.js');
                 // When we decoded from receipt in this request (no cached predecoded), use now as detectedAt
                 // so the turbo delay is measured from "swap ready + enqueued", not from an older pendingHint
                 // (pending watcher may have set pendingHint seconds earlier, which would make delay exceed 2.5s)
@@ -1071,7 +957,21 @@ async function processAlchemyWebhookPayload(payload: any): Promise<void> {
                         Date.now()
                     );
                 const detectedAt = timing.dispatchEligibleAt || timing.swapReadyAt || Date.now();
-                enqueueCopyTradeTask(trackedTarget, swap, chainId, { detectedAt, timing });
+                await markCopyTradeIngressSwapReady(
+                    chainId,
+                    txHash,
+                    timing.swapReadyAt || Date.now(),
+                    cached ? 'webhook_cached_predecoded' : 'webhook_decode'
+                ).catch(() => { });
+                await dispatchCopyTradeIfReady({
+                    chainId,
+                    txHash,
+                    targetWallet: trackedTarget,
+                    swap,
+                    detectedAt,
+                    timing,
+                    source: cached ? 'webhook_cached_predecoded' : 'webhook_decode'
+                });
             }));
             if (swapsDetected > 0) {
                 await markTxAsProcessedDistributed(txHash, chainId);
@@ -1208,10 +1108,9 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
                             Date.now(),
                             'process_tx_pending_prefetch'
                         );
-                        return timing.dispatchEligibleAt || timing.swapReadyAt || resolveDetectedAt(predecoded.detectedAt, pendingHint?.detectedAt);
+                        return timing.dispatchEligibleAt || timing.swapReadyAt || resolveDetectedAt(COPYTRADE_DETECTED_AT_STALE_MS, predecoded.detectedAt, pendingHint?.detectedAt);
                     })()
                 });
-                const { enqueueCopyTradeTask } = await import('../services/copyTradeQueue.js');
                 const timing = markCopyTradeTaskEnqueued(
                     markCopyTradeSwapReady(
                         mergeCopyTradeTimingSnapshots(predecoded.timing, pendingHint?.timing),
@@ -1220,9 +1119,26 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
                     ),
                     Date.now()
                 );
-                enqueueCopyTradeTask(wallet, predecoded.swap, chainId, {
-                    detectedAt: timing.dispatchEligibleAt || timing.swapReadyAt || resolveDetectedAt(predecoded.detectedAt, pendingHint?.detectedAt),
-                    timing
+                await markCopyTradeIngressFirstSeen(
+                    chainId,
+                    txHashNormalized,
+                    timing.firstSeenAt || Date.now(),
+                    'process_tx_pending_prefetch'
+                ).catch(() => { });
+                await markCopyTradeIngressSwapReady(
+                    chainId,
+                    txHashNormalized,
+                    timing.swapReadyAt || Date.now(),
+                    'process_tx_pending_prefetch'
+                ).catch(() => { });
+                await dispatchCopyTradeIfReady({
+                    chainId,
+                    txHash: txHashNormalized,
+                    targetWallet: wallet,
+                    swap: predecoded.swap,
+                    detectedAt: timing.dispatchEligibleAt || timing.swapReadyAt || resolveDetectedAt(COPYTRADE_DETECTED_AT_STALE_MS, predecoded.detectedAt, pendingHint?.detectedAt),
+                    timing,
+                    source: 'process_tx_pending_prefetch'
                 });
                 await markTxAsProcessedDistributed(txHashNormalized, chainId);
                 tEnqueue = Date.now() - enqueueStart;
@@ -1344,13 +1260,12 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
                         Date.now(),
                         'internal_process_tx'
                     );
-                    return timing.dispatchEligibleAt || timing.swapReadyAt || resolveDetectedAt(pendingHint?.detectedAt);
+                    return timing.dispatchEligibleAt || timing.swapReadyAt || resolveDetectedAt(COPYTRADE_DETECTED_AT_STALE_MS, pendingHint?.detectedAt);
                 })()
             });
 
             // Enqueue copy trade for async execution
             const enqueueStart = Date.now();
-            const { enqueueCopyTradeTask } = await import('../services/copyTradeQueue.js');
             const timing = markCopyTradeTaskEnqueued(
                 markCopyTradeSwapReady(
                     mergeCopyTradeTimingSnapshots(
@@ -1359,12 +1274,29 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
                     ),
                     Date.now(),
                     'internal_process_tx'
-                ),
-                Date.now()
-            );
-            enqueueCopyTradeTask(wallet, swap, chainId, {
-                detectedAt: timing.dispatchEligibleAt || timing.swapReadyAt || resolveDetectedAt(pendingHint?.detectedAt),
-                timing
+                    ),
+                    Date.now()
+                );
+            await markCopyTradeIngressFirstSeen(
+                chainId,
+                txHashNormalized,
+                timing.firstSeenAt || Date.now(),
+                'internal_process_tx'
+            ).catch(() => { });
+            await markCopyTradeIngressSwapReady(
+                chainId,
+                txHashNormalized,
+                timing.swapReadyAt || Date.now(),
+                'internal_process_tx'
+            ).catch(() => { });
+            await dispatchCopyTradeIfReady({
+                chainId,
+                txHash: txHashNormalized,
+                targetWallet: wallet,
+                swap,
+                detectedAt: timing.dispatchEligibleAt || timing.swapReadyAt || resolveDetectedAt(COPYTRADE_DETECTED_AT_STALE_MS, pendingHint?.detectedAt),
+                timing,
+                source: 'internal_process_tx'
             });
             await markTxAsProcessedDistributed(txHashNormalized, chainId);
             tEnqueue = Date.now() - enqueueStart;

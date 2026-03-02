@@ -1,8 +1,6 @@
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
 import type { DecodedSwap } from './txDecoder.js';
-import { acquireLock, releaseLock, get as cacheGet, set as cacheSet } from '../cache/cacheClient.js';
-import { randomUUID } from 'node:crypto';
 import { getPendingTxHint, markCopyTradeTxState } from './copyTradeTxStateService.js';
 import {
     evaluateCopyTradeDelay,
@@ -22,9 +20,9 @@ type QueueTask = {
 
 const queue: QueueTask[] = [];
 let inFlight = 0;
+const localDone = new Map<string, number>();
 
 const MAX_CONCURRENCY = Number(process.env.COPYTRADE_QUEUE_CONCURRENCY || 20);
-const COPYTRADE_TASK_LOCK_TTL_SECONDS = Number(process.env.COPYTRADE_TASK_LOCK_TTL_SECONDS || 120);
 const COPYTRADE_TASK_DEDUP_TTL_SECONDS = Number(process.env.COPYTRADE_TASK_DEDUP_TTL_SECONDS || 300);
 
 function getTaskKey(task: QueueTask): string {
@@ -32,33 +30,35 @@ function getTaskKey(task: QueueTask): string {
     return `copytrade:task:${task.chainId}:${task.targetWallet.toLowerCase()}:${txHash}`;
 }
 
+function isLocallyDone(taskKey: string): boolean {
+    const expiresAt = localDone.get(taskKey);
+    if (!expiresAt) return false;
+    if (expiresAt <= Date.now()) {
+        localDone.delete(taskKey);
+        return false;
+    }
+    return true;
+}
+
+function markLocallyDone(taskKey: string): void {
+    localDone.set(taskKey, Date.now() + COPYTRADE_TASK_DEDUP_TTL_SECONDS * 1000);
+}
+
 function processQueue(): void {
     while (inFlight < MAX_CONCURRENCY && queue.length > 0) {
         const task = queue.shift();
         if (!task) return;
 
+        const taskKey = getTaskKey(task);
+        if (isLocallyDone(taskKey)) {
+            continue;
+        }
         inFlight += 1;
         Promise.resolve()
             .then(async () => {
-                const taskKey = getTaskKey(task);
-                const doneKey = `${taskKey}:done`;
-                const lockKey = `${taskKey}:lock`;
-                const lockValue = randomUUID();
-
-                // ⚡ Parallel: dedup check + lock acquisition + pending hint in one round-trip
-                const [alreadyDone, claimed, pendingHint] = await Promise.all([
-                    cacheGet(doneKey).catch(() => null),
-                    acquireLock(lockKey, COPYTRADE_TASK_LOCK_TTL_SECONDS, lockValue).catch(() => false),
-                    task.swap?.txHash
-                        ? getPendingTxHint(task.chainId, task.swap.txHash).catch(() => null)
-                        : Promise.resolve(null)
-                ]);
-                if (alreadyDone) {
-                    if (claimed) await releaseLock(lockKey, lockValue).catch(() => { });
-                    return;
-                }
-                if (!claimed) return;
-
+                const pendingHint = task.swap?.txHash
+                    ? await getPendingTxHint(task.chainId, task.swap.txHash).catch(() => null)
+                    : null;
                 const { handleSwapDetected } = await import('./autoTradeService.js');
                 try {
                     const timing = markCopyTradeTaskEnqueued(mergeCopyTradeTimingSnapshots(
@@ -98,12 +98,12 @@ function processQueue(): void {
                     }).catch(() => { });
                     await handleSwapDetected(task.targetWallet, task.swap, task.chainId, { detectedAt, timing });
                     // Post-execution bookkeeping: fire-and-forget
-                    cacheSet(doneKey, '1', COPYTRADE_TASK_DEDUP_TTL_SECONDS).catch(() => { });
+                    markLocallyDone(taskKey);
                     markCopyTradeTxState(task.chainId, task.swap.txHash || 'nohash', 'executed', {
                         wallet: task.targetWallet
                     }).catch(() => { });
-                } finally {
-                    await releaseLock(lockKey, lockValue).catch(() => { });
+                } catch (err) {
+                    throw err;
                 }
             })
             .catch((err: any) => {
