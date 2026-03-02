@@ -14,9 +14,13 @@ interface PolymarketAuthButtonProps {
 interface ReadinessData {
     isReady: boolean;
     hasCredentials: boolean;
+    hasDelegatedEvm?: boolean;
+    hasUsdcApproval?: boolean;
+    hasCtfApproval?: boolean;
     needsUsdcApproval?: boolean;
     needsCtfApproval?: boolean;
     usdcBalance?: string;
+    missingSteps?: string[];
 }
 
 /**
@@ -99,12 +103,23 @@ export const PolymarketAuthButton: React.FC<PolymarketAuthButtonProps> = ({
             const approvalData = await approvalResponse.json();
 
             // Update readiness state
+            const missingSteps: string[] = [];
+            if (approvalData.data?.needsUsdcApproval) {
+                missingSteps.push('Approve USDC for Polymarket');
+            }
+            if (approvalData.data?.needsCtfApproval) {
+                missingSteps.push('Approve CTF tokens for Polymarket');
+            }
+
             setReadiness({
-                isReady: true,
+                isReady: missingSteps.length === 0,
                 hasCredentials: true,
+                hasUsdcApproval: !approvalData.data?.needsUsdcApproval,
+                hasCtfApproval: !approvalData.data?.needsCtfApproval,
                 needsUsdcApproval: approvalData.data?.needsUsdcApproval,
                 needsCtfApproval: approvalData.data?.needsCtfApproval,
-                usdcBalance: approvalData.data?.usdcBalance
+                usdcBalance: approvalData.data?.usdcBalance,
+                missingSteps
             });
 
             onSuccess?.();
@@ -162,7 +177,9 @@ export const PolymarketAuthButton: React.FC<PolymarketAuthButtonProps> = ({
         return null;
     }
 
-    const isAuthorized = readiness?.hasCredentials === true;
+    const isReadyToTrade = readiness?.isReady === true;
+    const hasCredentials = readiness?.hasCredentials === true;
+    const canRevoke = hasCredentials;
 
     return (
         <>
@@ -177,11 +194,19 @@ export const PolymarketAuthButton: React.FC<PolymarketAuthButtonProps> = ({
                 </div>
 
                 <p className={styles.description}>
-                    {isAuthorized
+                    {isReadyToTrade
                         ? 'Polymarket trading is enabled. You can place prediction market orders.'
+                        : hasCredentials
+                            ? 'Polymarket credentials are active, but setup is incomplete. Complete missing steps before placing orders.'
                         : 'Enable Polymarket trading to place bets on prediction markets. Requires USDC on Polygon.'
                     }
                 </p>
+
+                {!!readiness?.missingSteps?.length && (
+                    <p className={styles.error}>
+                        {readiness.missingSteps[0]}
+                    </p>
+                )}
 
                 {readiness?.usdcBalance && (
                     <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: '8px 0 0 0' }}>
@@ -196,14 +221,14 @@ export const PolymarketAuthButton: React.FC<PolymarketAuthButtonProps> = ({
                 )}
 
                 <button
-                    className={`${styles.button} ${isAuthorized ? styles.revokeButton : styles.authorizeButton} ${isLoading ? styles.loading : ''}`}
-                    onClick={isAuthorized ? executeRevoke : executeAuthorize}
+                    className={`${styles.button} ${canRevoke ? styles.revokeButton : styles.authorizeButton} ${isLoading ? styles.loading : ''}`}
+                    onClick={canRevoke ? executeRevoke : executeAuthorize}
                     disabled={isLoading}
                     {...(agentId ? agentAttrs({ id: agentId, role: 'button', action: 'confirm', page: 'settings', key: 'polymarket_trading' }) : {})}
                 >
                     {isLoading
-                        ? (isAuthorized ? 'Revoking' : 'Enabling')
-                        : isAuthorized
+                        ? (canRevoke ? 'Revoking' : 'Enabling')
+                        : canRevoke
                             ? 'Revoke Polymarket Trading'
                             : 'Enable Polymarket Trading'
                     }

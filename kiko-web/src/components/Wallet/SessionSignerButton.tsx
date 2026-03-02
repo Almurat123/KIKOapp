@@ -36,6 +36,7 @@ export const SessionSignerButton: React.FC<SessionSignerButtonProps> = ({
     const { evmWallet, solanaWallet } = usePrivyEmbeddedWallets();
 
     const embeddedWallet = chainType === 'ethereum' ? evmWallet : solanaWallet;
+    const requiresPolicy = chainType === 'solana';
 
     // 检查是否已授权
     useEffect(() => {
@@ -69,19 +70,23 @@ export const SessionSignerButton: React.FC<SessionSignerButtonProps> = ({
     };
 
     const handleConfirmAuthorize = async () => {
-        if (!embeddedWallet?.address || !authKeyId || !policyId) {
+        if (!embeddedWallet?.address || !authKeyId) {
             onError?.(new Error('Missing wallet or authorization configuration.'));
+            return;
+        }
+        if (requiresPolicy && !policyId) {
+            onError?.(new Error('Missing Solana auto-trading policy configuration.'));
             return;
         }
 
         setIsLoading(true);
         try {
+            const signer = policyId
+                ? { signerId: authKeyId, policyIds: [policyId] }
+                : { signerId: authKeyId };
             await addSessionSigners({
                 address: embeddedWallet.address,
-                signers: [{
-                    signerId: authKeyId,
-                    policyIds: [policyId]
-                }]
+                signers: [signer as any]
             });
             setShowConfirmModal(false);
             setIsDelegated(true);
@@ -149,7 +154,7 @@ export const SessionSignerButton: React.FC<SessionSignerButtonProps> = ({
                 onClick={isDelegated ? handleRevoke : handleAuthorizeClick}
                 disabled={isDelegated
                     ? (isLoading || !authKeyId || !embeddedWallet)
-                    : (isLoading || !authKeyId || !policyId || !embeddedWallet)
+                    : (isLoading || !authKeyId || !embeddedWallet || (requiresPolicy && !policyId))
                 }
                 {...(agentId ? agentAttrs({ id: agentId, role: 'toggle', action: 'toggle', page: 'settings', key: `session_signer_${chainType}` }) : {})}
             >
@@ -168,9 +173,11 @@ export const SessionSignerButton: React.FC<SessionSignerButtonProps> = ({
                 confirming={isLoading}
             />
 
-            {(configError || !authKeyId || !policyId) && (
+            {(configError || !authKeyId || (requiresPolicy && !policyId)) && (
                 <p className={styles.error}>
-                    {configError || `Missing ${chainType === 'ethereum' ? 'EVM' : 'Solana'} auto-trading policy configuration.`}
+                    {configError || ((requiresPolicy && !policyId)
+                        ? 'Missing Solana auto-trading policy configuration.'
+                        : 'Authorization configuration unavailable. Please try again later.')}
                 </p>
             )}
         </div>

@@ -106,17 +106,22 @@ export const AuthorizationPromptModal: React.FC = () => {
 
         try {
             if (evmWallet && evmNeedsAuth) {
-                if (!evmPolicyId) throw new Error('Missing EVM auto-trading policy configuration.');
+                const evmSigner = evmPolicyId
+                    ? { signerId: authKeyId, policyIds: [evmPolicyId] }
+                    : { signerId: authKeyId };
                 await addSessionSigners({
                     address: evmWallet.address,
-                    signers: [{ signerId: authKeyId, policyIds: [evmPolicyId] }]
+                    signers: [evmSigner as any]
                 });
             }
             if (solanaWallet && solanaNeedsAuth) {
                 if (!solPolicyId) throw new Error('Missing Solana auto-trading policy configuration.');
+                const solSigner = solPolicyId
+                    ? { signerId: authKeyId, policyIds: [solPolicyId] }
+                    : { signerId: authKeyId };
                 await addSessionSigners({
                     address: solanaWallet.address,
-                    signers: [{ signerId: authKeyId, policyIds: [solPolicyId] }]
+                    signers: [solSigner as any]
                 });
             }
             setShowConfirmModal(false);

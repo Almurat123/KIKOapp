@@ -214,7 +214,7 @@ fastify.addHook('preHandler', async (request, reply) => {
     // - /health: health check
     // - /api/chat/ws: WebSocket (uses JWT token in URL)
     // - /api/webhook/: server-to-server webhooks (have HMAC verification)
-    const skipPaths = ['/health', '/api/chat/ws', '/v2/chat/ws', '/api/webhook/', '/webhook/', '/api/images', '/internal/tools/'];
+    const skipPaths = ['/health', '/api/chat/ws', '/v2/chat/ws', '/api/webhook/', '/webhook/', '/api/images', '/internal/tools/', '/api/config/auth-key-id'];
     if (skipPaths.some(p => request.url === p || request.url.startsWith(p))) {
         return;
     }

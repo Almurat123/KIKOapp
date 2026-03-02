@@ -57,16 +57,19 @@ export const BillingConsentButton: React.FC<BillingConsentButtonProps> = ({ onSu
   };
 
   const handleConfirmAuthorize = async () => {
-    if (!embeddedWallet?.address || !authKeyId || !policyId) {
+    if (!embeddedWallet?.address || !authKeyId) {
       onError?.(new Error('Missing wallet or authorization configuration.'));
       return;
     }
 
     setIsLoading(true);
     try {
+      const signer = policyId
+        ? { signerId: authKeyId, policyIds: [policyId] }
+        : { signerId: authKeyId };
       await addSessionSigners({
         address: embeddedWallet.address,
-        signers: [{ signerId: authKeyId, policyIds: [policyId] }]
+        signers: [signer as any]
       });
       await grantBillingConsent('settings');
       setHasConsent(true);
@@ -134,7 +137,7 @@ export const BillingConsentButton: React.FC<BillingConsentButtonProps> = ({ onSu
         onClick={active ? handleRevoke : handleAuthorizeClick}
         disabled={active
           ? (isLoading || !authKeyId || !embeddedWallet)
-          : (isLoading || !authKeyId || !policyId || !embeddedWallet)
+          : (isLoading || !authKeyId || !embeddedWallet)
         }
       >
         {isLoading ? 'Processing...' : active ? 'Revoke Billing Authorization' : 'Authorize Billing'}
@@ -147,7 +150,7 @@ export const BillingConsentButton: React.FC<BillingConsentButtonProps> = ({ onSu
         confirming={isLoading}
       />
 
-      {(!authKeyId || !policyId) && (
+      {!authKeyId && (
         <p className={styles.error}>
           Unable to fetch authorization configuration. Please try again later.
         </p>
