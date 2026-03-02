@@ -392,90 +392,50 @@ export class MainSwapService {
       const isCopytrade = request.mode === 'copytrade';
       const isTurboCopytrade = isCopytrade && request.userSettings?.copyTradeExecutionMode === 'turbo';
 
-      // 4. LAUNCHPAD DETECTION
-      if (!request.launchpadProvider) {
-        // EVM (non-copytrade): keep existing detection behavior
-        // DISABLED: ClankerService not ready - use standard DEX (0x/Kyber) for all tokens
-        if (isEvm && !isCopytrade) {
-          try {
-            // Check both tokenOut (for BUY) and tokenIn (for SELL)
-            const launchpadDetection = await this.detectLaunchpad(request.tokenOut, request.chainId)
-              || await this.detectLaunchpad(request.tokenIn, request.chainId);
+      // 4. LAUNCHPAD DETECTION (EVM only)
+      // DISABLED: ClankerService not ready - use standard DEX (0x/Kyber) for all tokens
+      if (isEvm && !request.launchpadProvider && !isCopytrade) {
+        try {
+          // Check both tokenOut (for BUY) and tokenIn (for SELL)
+          const launchpadDetection = await this.detectLaunchpad(request.tokenOut, request.chainId)
+            || await this.detectLaunchpad(request.tokenIn, request.chainId);
 
-            if (
-              launchpadDetection &&
-              launchpadDetection.provider !== 'clanker' &&
-              launchpadDetection.provider !== 'flap' &&
-              launchpadDetection.provider !== 'doppler' &&
-              launchpadDetection.provider !== 'flaunch' &&
-              launchpadDetection.provider !== 'creatorbid'
-            ) {
-              // Use launchpad routing for non-Clanker tokens only
-              logger.info(LogCode.SYS_INFO, trace(`Launchpad detected: ${launchpadDetection.provider}`), {
-                provider: launchpadDetection.provider,
-                chainId: launchpadDetection.chainId
-              });
-              request.launchpadProvider = launchpadDetection.provider as any;
-            } else if (
-              launchpadDetection?.provider === 'clanker' ||
-              launchpadDetection?.provider === 'flap' ||
-              launchpadDetection?.provider === 'doppler' ||
-              launchpadDetection?.provider === 'flaunch' ||
-              launchpadDetection?.provider === 'creatorbid'
-            ) {
-              // These platforms are currently detected-only and route through standard DEX path.
-              logger.info(LogCode.SYS_INFO, trace(`${launchpadDetection.provider} token detected - routing to standard DEX (0x/Kyber)`));
-            }
-          } catch (detectErr: any) {
-            logger.warn(LogCode.SYS_ERROR, trace(`Launchpad detection failed: ${detectErr.message}`), {
-              error: detectErr.message
+          if (
+            launchpadDetection &&
+            launchpadDetection.provider !== 'clanker' &&
+            launchpadDetection.provider !== 'flap' &&
+            launchpadDetection.provider !== 'doppler' &&
+            launchpadDetection.provider !== 'flaunch' &&
+            launchpadDetection.provider !== 'creatorbid'
+          ) {
+            // Use launchpad routing for non-Clanker tokens only
+            logger.info(LogCode.SYS_INFO, trace(`Launchpad detected: ${launchpadDetection.provider}`), {
+              provider: launchpadDetection.provider,
+              chainId: launchpadDetection.chainId
             });
-            // Continue with standard routing if detection fails
+            request.launchpadProvider = launchpadDetection.provider as any;
+          } else if (
+            launchpadDetection?.provider === 'clanker' ||
+            launchpadDetection?.provider === 'flap' ||
+            launchpadDetection?.provider === 'doppler' ||
+            launchpadDetection?.provider === 'flaunch' ||
+            launchpadDetection?.provider === 'creatorbid'
+          ) {
+            // These platforms are currently detected-only and route through standard DEX path.
+            logger.info(LogCode.SYS_INFO, trace(`${launchpadDetection.provider} token detected - routing to standard DEX (0x/Kyber)`));
           }
-        } else if (isEvm && isCopytrade) {
-          logger.debug(LogCode.SYS_INFO, trace('Copytrade: skip launchpad detection on critical path'), {
-            chainId: request.chainId,
-            tokenIn: request.tokenIn,
-            tokenOut: request.tokenOut
+        } catch (detectErr: any) {
+          logger.warn(LogCode.SYS_ERROR, trace(`Launchpad detection failed: ${detectErr.message}`), {
+            error: detectErr.message
           });
-        } else if (isSolana && isCopytrade) {
-          // Solana copytrade launchpad-direct is opt-in (default OFF) to keep legacy stability.
-          const enableSolanaCopytradeLaunchpadDirect =
-            (process.env.SOLANA_COPYTRADE_ENABLE_LAUNCHPAD_DIRECT || 'false').toLowerCase() === 'true';
-
-          if (enableSolanaCopytradeLaunchpadDirect) {
-            try {
-              const detection = await this.detectLaunchpad(request.tokenOut, request.chainId)
-                || await this.detectLaunchpad(request.tokenIn, request.chainId);
-
-              if (
-                detection?.provider === 'pumpfun'
-                || detection?.provider === 'pumpswap'
-                || detection?.provider === 'bonkfun'
-              ) {
-                request.launchpadProvider = detection.provider;
-                logger.info(LogCode.SYS_INFO, trace(`Solana copytrade launchpad detected: ${detection.provider}`), {
-                  provider: detection.provider,
-                  chainId: detection.chainId,
-                  tokenIn: request.tokenIn,
-                  tokenOut: request.tokenOut
-                });
-              }
-            } catch (detectErr: any) {
-              logger.warn(LogCode.SYS_ERROR, trace(`Solana copytrade launchpad detection failed: ${detectErr.message}`), {
-                error: detectErr.message,
-                tokenIn: request.tokenIn,
-                tokenOut: request.tokenOut
-              });
-            }
-          } else {
-            logger.debug(LogCode.SYS_INFO, trace('Copytrade: Solana launchpad direct detection disabled'), {
-              chainId: request.chainId,
-              tokenIn: request.tokenIn,
-              tokenOut: request.tokenOut
-            });
-          }
+          // Continue with standard routing if detection fails
         }
+      } else if (isEvm && isCopytrade) {
+        logger.debug(LogCode.SYS_INFO, trace('Copytrade: skip launchpad detection on critical path'), {
+          chainId: request.chainId,
+          tokenIn: request.tokenIn,
+          tokenOut: request.tokenOut
+        });
       }
 
       // 5. ROUTE TO APPROPRIATE EXECUTOR

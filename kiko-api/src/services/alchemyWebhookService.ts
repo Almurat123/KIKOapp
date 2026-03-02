@@ -1,4 +1,4 @@
-import { normalizeAddress } from '../utils/address.js';
+import { normalizeAddress, isSolanaAddress } from '../utils/address.js';
 import { fetchJson } from '../config/unifiedApiService.js';
 
 const ALCHEMY_AUTH_TOKEN = process.env.ALCHEMY_AUTH_TOKEN || '';
@@ -40,9 +40,13 @@ export async function addAddressToWebhook(
     console.log(`[AlchemyWebhook] Using webhook ID: ${webhookId.slice(0, 10)}... for chain ${chainId}`);
 
     try {
+        // Alchemy lowercases Solana (Base58) addresses internally.
+        // We must send lowercase to match their stored representation.
+        const normalized = normalizeAddress(address);
+        const alchemyAddr = isSolanaAddress(normalized) ? normalized.toLowerCase() : normalized;
         const body = {
             webhook_id: webhookId,
-            addresses_to_add: [normalizeAddress(address)],
+            addresses_to_add: [alchemyAddr],
             addresses_to_remove: [], // Required field - empty array when not removing
         };
 
@@ -85,6 +89,9 @@ export async function removeAddressFromWebhook(
     }
 
     try {
+        // Alchemy stores Solana addresses lowercased — match their format for removal.
+        const normalizedRemove = normalizeAddress(address);
+        const alchemyRemoveAddr = isSolanaAddress(normalizedRemove) ? normalizedRemove.toLowerCase() : normalizedRemove;
         await fetchJson({
             url: ALCHEMY_NOTIFY_URL,
             method: 'PATCH',
@@ -95,7 +102,7 @@ export async function removeAddressFromWebhook(
             body: JSON.stringify({
                 webhook_id: webhookId,
                 addresses_to_add: [], // Required field - empty array when not adding
-                addresses_to_remove: [normalizeAddress(address)],
+                addresses_to_remove: [alchemyRemoveAddr],
             }),
         });
 

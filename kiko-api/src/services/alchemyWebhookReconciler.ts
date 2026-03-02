@@ -1,6 +1,7 @@
 import prisma from '../db/prisma.js';
 import { fetchJson } from '../config/unifiedApiService.js';
-import { normalizeAddress } from '../utils/address.js';
+import { normalizeAddress, isSolanaAddress } from '../utils/address.js';
+import { SOLANA_CONFIG } from '../config/solanaConfig.js';
 
 const ALCHEMY_AUTH_TOKEN = process.env.ALCHEMY_AUTH_TOKEN || '';
 const ALCHEMY_UPDATE_URL = 'https://dashboard.alchemy.com/api/update-webhook-addresses';
@@ -51,6 +52,11 @@ async function listWebhookAddresses(chainId: number): Promise<string[]> {
 }
 
 async function patchWebhookAddresses(chainId: number, add: string[], remove: string[]): Promise<void> {
+    // Alchemy lowercases Solana Base58 addresses internally.
+    // Always send lowercase for Solana to match their storage format.
+    const isSolanaChain = chainId === SOLANA_CONFIG.CHAIN_ID;
+    const toAlchemyFormat = (addr: string) => isSolanaChain ? addr.toLowerCase() : addr;
+
     await fetchJson({
         url: ALCHEMY_UPDATE_URL,
         method: 'PATCH',
@@ -63,8 +69,8 @@ async function patchWebhookAddresses(chainId: number, add: string[], remove: str
         },
         body: JSON.stringify({
             webhook_id: getWebhookId(chainId),
-            addresses_to_add: add,
-            addresses_to_remove: remove,
+            addresses_to_add: add.map(toAlchemyFormat),
+            addresses_to_remove: remove.map(toAlchemyFormat),
         }),
     });
 }
@@ -130,10 +136,15 @@ export async function reconcileCopyTradeWebhookChain(
         };
     }
 
-    const desiredSet = new Set(desired);
-    const currentSet = new Set(current);
-    const added = desired.filter((address) => !currentSet.has(address));
-    const removed = current.filter((address) => !desiredSet.has(address));
+    // Alchemy lowercases ALL addresses (including Solana Base58) internally.
+    // For Solana, we must compare case-insensitively to avoid perpetual add/remove churn.
+    const isSolanaChain = chainId === SOLANA_CONFIG.CHAIN_ID;
+    const normalizeForComparison = (addr: string) => isSolanaChain ? addr.toLowerCase() : addr;
+
+    const desiredSet = new Set(desired.map(normalizeForComparison));
+    const currentSet = new Set(current.map(normalizeForComparison));
+    const added = desired.filter((address) => !currentSet.has(normalizeForComparison(address)));
+    const removed = current.filter((address) => !desiredSet.has(normalizeForComparison(address)));
 
     try {
         if (added.length > 0 || removed.length > 0) {
