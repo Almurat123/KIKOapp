@@ -29,16 +29,21 @@ const metadataL1Cache = new Map<string, LocalCacheEntry<OnChainMetadata>>();
 const decimalsL1Cache = new Map<string, LocalCacheEntry<number>>();
 const negativeCache = new Map<string, LocalCacheEntry<true>>();
 
+function normalizeCacheAddress(chainId: number, address: string): string {
+    const raw = String(address || '').trim();
+    return chainId === 900 ? raw : raw.toLowerCase();
+}
+
 function metadataCacheKey(chainId: number, address: string): string {
-    return `token_meta:v1:${chainId}:${address.toLowerCase()}`;
+    return `token_meta:v1:${chainId}:${normalizeCacheAddress(chainId, address)}`;
 }
 
 function decimalsCacheKey(chainId: number, address: string): string {
-    return `token_decimals:v1:${chainId}:${address.toLowerCase()}`;
+    return `token_decimals:v1:${chainId}:${normalizeCacheAddress(chainId, address)}`;
 }
 
 function negativeCacheKey(chainId: number, address: string): string {
-    return `token_meta_neg:v1:${chainId}:${address.toLowerCase()}`;
+    return `token_meta_neg:v1:${chainId}:${normalizeCacheAddress(chainId, address)}`;
 }
 
 function getFromL1<T>(cache: Map<string, LocalCacheEntry<T>>, key: string): T | null {
@@ -55,8 +60,9 @@ function setL1<T>(cache: Map<string, LocalCacheEntry<T>>, key: string, value: T,
     cache.set(key, { value, expiresAt: Date.now() + ttlMs });
 }
 
-function parseAddress(address: string): string {
-    return String(address || '').toLowerCase();
+function parseAddress(address: string, chainId?: number): string {
+    const raw = String(address || '').trim();
+    return chainId === 900 ? raw : raw.toLowerCase();
 }
 
 function deriveSolanaMetadataPda(mintAddress: string): string {
@@ -187,7 +193,7 @@ export async function getTokenDecimals(
     address: string,
     options: { rpcStrategy?: 'fast' | 'cheap'; defaultDecimals?: number } = {}
 ): Promise<number> {
-    const normalized = parseAddress(address);
+    const normalized = parseAddress(address, chainId);
     const fallbackDecimals = Number(options.defaultDecimals ?? DEFAULT_DECIMALS);
 
     if (isNativePlaceholder(normalized)) {
@@ -242,7 +248,7 @@ export async function getTokenMetadata(
     address: string,
     options: { rpcStrategy?: 'fast' | 'cheap' } = {}
 ): Promise<OnChainMetadata> {
-    const normalized = parseAddress(address);
+    const normalized = parseAddress(address, chainId);
     const rpcStrategy = options.rpcStrategy || 'cheap';
 
     if (isNativePlaceholder(normalized)) {
@@ -253,7 +259,7 @@ export async function getTokenMetadata(
     if (cached) return cached;
 
     const decimals = await getTokenDecimals(chainId, normalized, { rpcStrategy, defaultDecimals: DEFAULT_DECIMALS });
-    if (await hasNegativeCache(chainId, normalized)) {
+    if (chainId !== 900 && await hasNegativeCache(chainId, normalized)) {
         return { name: 'Unknown Token', symbol: 'UNK', decimals };
     }
 
@@ -261,16 +267,23 @@ export async function getTokenMetadata(
     if (chainId === 900) {
         try {
             const solMeta = await getSolanaMetadataViaRpc(normalized);
+            const resolvedName = String(solMeta?.name || '').trim();
+            const resolvedSymbol = String(solMeta?.symbol || '').trim();
+            const validMetadata = !!resolvedName && !!resolvedSymbol && !/^unk(nown)?$/i.test(resolvedSymbol);
+
+            if (!validMetadata) {
+                return { name: 'Unknown Token', symbol: 'UNK', decimals };
+            }
+
             const meta: OnChainMetadata = {
-                name: solMeta?.name || 'Unknown Token',
-                symbol: solMeta?.symbol || 'UNK',
+                name: resolvedName,
+                symbol: resolvedSymbol,
                 decimals
             };
             await setMetadataCache(chainId, normalized, meta);
             await setDecimalsCache(chainId, normalized, meta.decimals);
             return meta;
         } catch {
-            await setNegativeCache(chainId, normalized);
             return { name: 'Unknown Token', symbol: 'UNK', decimals };
         }
     }

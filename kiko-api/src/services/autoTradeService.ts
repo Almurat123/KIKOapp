@@ -41,7 +41,7 @@ import { getDexPrice } from './dexPriceService.js';
 import { cacheHub } from '../cache/DataCacheHub.js';
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
-import { getNativeBalance as rpcGetNativeBalance, getErc20Balance, getErc20Decimals, getTransactionReceipt } from './rpcManager.js';
+import { callRpc, getNativeBalance as rpcGetNativeBalance, getErc20Balance, getErc20Decimals, getTransactionReceipt } from './rpcManager.js';
 import { startCopyTradePendingWatcher, stopCopyTradePendingWatcher } from './copyTradePendingService.js';
 import { assertConfigExecutable } from './copyTradeConfigSignatureService.js';
 import { determineCopyTradeDirection } from './copyTradeDirection.js';
@@ -1126,9 +1126,63 @@ async function processBuyWithInfo(
                     impliedPrice: impliedPrice.toFixed(9),
                     valueUsd: targetSwapValueUsd
                 });
+
+                if (chainId === 900 && (!tokenInfo.marketCap || tokenInfo.marketCap <= 0)) {
+                    try {
+                        const supplyResp = await callRpc<any>('solana', 'getTokenSupply', [tokenToBuy], {
+                            rpcClass: 'best_effort_read',
+                            path: 'token_supply_market_cap'
+                        });
+                        const rawAmount = String(supplyResp?.value?.amount || '0');
+                        const supplyDecimals = Number(supplyResp?.value?.decimals ?? decimals);
+                        const totalSupply = Number(rawAmount) / Math.pow(10, Number.isFinite(supplyDecimals) ? supplyDecimals : decimals);
+                        if (Number.isFinite(totalSupply) && totalSupply > 0) {
+                            tokenInfo.marketCap = totalSupply * impliedPrice;
+                            tokenInfo.fdv = tokenInfo.marketCap;
+                            logger.info(LogCode.DATA_RECOVERY, 'Derived Solana market cap from RPC supply and implied price', {
+                                token: tokenToBuy,
+                                marketCap: tokenInfo.marketCap,
+                                totalSupply,
+                                impliedPrice
+                            });
+                        }
+                    } catch (supplyErr: any) {
+                        logger.warn(LogCode.API_FETCH_FAILED, 'Failed to derive Solana market cap from RPC supply', {
+                            token: tokenToBuy,
+                            error: supplyErr?.message || String(supplyErr)
+                        });
+                    }
+                }
             }
         } catch (err) {
             logger.warn(LogCode.DATA_CORRUPTION, 'Failed to derive implied price', { error: err });
+        }
+    }
+
+    if (chainId === 900 && tokenInfo.price > 0 && (!tokenInfo.marketCap || tokenInfo.marketCap <= 0)) {
+        try {
+            const supplyResp = await callRpc<any>('solana', 'getTokenSupply', [tokenToBuy], {
+                rpcClass: 'best_effort_read',
+                path: 'token_supply_market_cap'
+            });
+            const supplyRaw = String(supplyResp?.value?.amount || '0');
+            const supplyDecimals = Number(supplyResp?.value?.decimals ?? tokenInfo.decimals ?? 6);
+            const totalSupply = Number(supplyRaw) / Math.pow(10, Number.isFinite(supplyDecimals) ? supplyDecimals : 6);
+            if (Number.isFinite(totalSupply) && totalSupply > 0) {
+                tokenInfo.marketCap = totalSupply * Number(tokenInfo.price);
+                tokenInfo.fdv = tokenInfo.marketCap;
+                logger.info(LogCode.DATA_RECOVERY, 'Hydrated Solana market cap from RPC supply', {
+                    token: tokenToBuy,
+                    marketCap: tokenInfo.marketCap,
+                    totalSupply,
+                    price: tokenInfo.price
+                });
+            }
+        } catch (supplyErr: any) {
+            logger.warn(LogCode.API_FETCH_FAILED, 'Unable to hydrate Solana market cap from RPC supply', {
+                token: tokenToBuy,
+                error: supplyErr?.message || String(supplyErr)
+            });
         }
     }
 

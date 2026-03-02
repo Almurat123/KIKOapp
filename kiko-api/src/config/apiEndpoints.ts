@@ -157,6 +157,11 @@ export function getRpcEndpointsWithStrategy(
   if (strategy === 'fast' && override.length > 0) {
     return override;
   }
+  // Solana policy: always keep public RPC endpoints first.
+  // Paid endpoints (Alchemy/Helius/Primary) are fallback in all modes.
+  if (chainSlug === 'solana') {
+    return getSolanaEndpoints(primaryUrl);
+  }
   if (chainSlug === 'base') {
     const list = strategy === 'fast'
       ? getBasePreferredEndpoints(primaryUrl)
@@ -384,9 +389,7 @@ function getSolanaEndpoints(primaryUrl?: string): RpcEndpointConfig[] {
     );
   }
 
-  if (primaryUrl) {
-    push('Primary', primaryUrl, true, 'premium');
-  }
+  // Solana intentionally does not include env Primary endpoint.
 
   const seen = new Set<string>();
   return endpoints.filter(ep => {

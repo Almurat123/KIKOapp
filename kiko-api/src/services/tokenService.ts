@@ -279,12 +279,19 @@ async function fetchTokenInfoFromAPIs(
         }
     }
 
-    // 🛡️ FALLBACK: If RPC price failed, try full API fetch as last resort
+    // 🛡️ FALLBACK: If price failed
     if (price <= 0 || isNaN(price)) {
-        logger.warn(LogCode.API_FETCH_FAILED, 'RPC price failed, falling back to full API fetch', {
-            token: tokenAddress,
-            rpcPrice: rpc?.price
-        });
+        if (isSolana) {
+            logger.warn(LogCode.API_FETCH_FAILED, 'RPC price failed under Solana RPC-only mode (no external price fallback)', {
+                token: tokenAddress,
+                rpcPrice: rpc?.price
+            });
+        } else {
+            logger.warn(LogCode.API_FETCH_FAILED, 'RPC price failed, falling back to full API fetch', {
+                token: tokenAddress,
+                rpcPrice: rpc?.price
+            });
+        }
 
         const tryDex = async () => {
             const dexChainId = isSolana ? 'solana' : chainId;
