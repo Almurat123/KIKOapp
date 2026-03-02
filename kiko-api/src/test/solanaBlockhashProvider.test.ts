@@ -26,6 +26,19 @@ describe('solana blockhash provider', () => {
     assert.deepEqual(rpcCalls, ['finalized']);
   });
 
+  test('normalizes nested Solana RPC blockhash response shape', () => {
+    const result = __solanaBlockhashProviderTest.normalizeBlockhashResult({
+      context: { slot: 123 },
+      value: {
+        blockhash: 'nested-hash',
+        lastValidBlockHeight: 42,
+      },
+    } as any);
+
+    assert.equal(result.blockhash, 'nested-hash');
+    assert.equal(result.lastValidBlockHeight, 42);
+  });
+
   test('falls back to confirmed when finalized fetch fails', async () => {
     const rpcCalls: string[] = [];
     const result = await __solanaBlockhashProviderTest.getLatestSolanaBlockhashWithDeps(
@@ -110,5 +123,45 @@ describe('solana blockhash provider', () => {
       { endpoint: 'https://rpc-2', commitment: 'finalized' },
       { endpoint: 'https://rpc-3', commitment: 'finalized' },
     ]);
+  });
+
+  test('replay: nested RPC response shape does not break recentBlockhash injection path', async () => {
+    const result = await __solanaBlockhashProviderTest.getLatestSolanaBlockhashWithDeps(
+      undefined,
+      'copytrade_nested_shape',
+      {
+        getRpcEndpointsWithStrategy: () => [{ name: 'rpc-1', url: 'https://rpc-1', priority: 1, requiresAuth: false, type: 'public' }],
+        callRpcCustom: async () => ({
+          context: { slot: 999 },
+          value: {
+            blockhash: 'nested-replay-blockhash',
+            lastValidBlockHeight: 88,
+          },
+        }),
+      } as any
+    );
+
+    assert.equal(result.blockhash, 'nested-replay-blockhash');
+    assert.equal(result.lastValidBlockHeight, 88);
+    assert.equal(result.commitmentUsed, 'finalized');
+  });
+
+  test('throws SOLANA_BLOCKHASH_FETCH_FAILED when RPC returns invalid blockhash shape', async () => {
+    await assert.rejects(
+      () => __solanaBlockhashProviderTest.getLatestSolanaBlockhashWithDeps(
+        undefined,
+        'invalid_shape',
+        {
+          getRpcEndpointsWithStrategy: () => [{ name: 'rpc-1', url: 'https://rpc-1', priority: 1, requiresAuth: false, type: 'public' }],
+          callRpcCustom: async () => ({ value: { blockhash: null, lastValidBlockHeight: 1 } }),
+        } as any
+      ),
+      (error: unknown) => {
+        assert.ok(error instanceof AppError);
+        assert.equal(error.code, 'SOLANA_BLOCKHASH_FETCH_FAILED');
+        assert.match(error.message, /Invalid getLatestBlockhash response shape/);
+        return true;
+      }
+    );
   });
 });

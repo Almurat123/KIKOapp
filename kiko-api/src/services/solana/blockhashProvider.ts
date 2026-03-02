@@ -16,6 +16,10 @@ type BlockhashRpcResult = {
   blockhash: string;
   lastValidBlockHeight: number;
 };
+type BlockhashRpcEnvelope = {
+  context?: unknown;
+  value?: Partial<BlockhashRpcResult> | null;
+} & Partial<BlockhashRpcResult>;
 
 type BlockhashProviderDeps = {
   getRpcEndpointsWithStrategy: typeof getRpcEndpointsWithStrategy;
@@ -26,6 +30,28 @@ const defaultDeps: BlockhashProviderDeps = {
   getRpcEndpointsWithStrategy,
   callRpcCustom,
 };
+
+function normalizeBlockhashResult(result: BlockhashRpcEnvelope): BlockhashRpcResult {
+  const candidate = typeof result?.blockhash === 'string'
+    ? result
+    : result?.value && typeof result.value === 'object'
+      ? result.value
+      : null;
+
+  const blockhash = typeof candidate?.blockhash === 'string' ? candidate.blockhash : null;
+  const lastValidBlockHeight = typeof candidate?.lastValidBlockHeight === 'number'
+    ? candidate.lastValidBlockHeight
+    : null;
+
+  if (!blockhash || lastValidBlockHeight === null) {
+    throw new Error('Invalid getLatestBlockhash response shape');
+  }
+
+  return {
+    blockhash,
+    lastValidBlockHeight,
+  };
+}
 
 async function getLatestSolanaBlockhashWithDeps(
   connection: BlockhashFetcher | undefined,
@@ -39,12 +65,13 @@ async function getLatestSolanaBlockhashWithDeps(
   for (let i = 0; i < attempts.length; i++) {
     const commitment = attempts[i];
     try {
-      const result = await deps.callRpcCustom<BlockhashRpcResult>(
+      const rawResult = await deps.callRpcCustom<BlockhashRpcEnvelope>(
         endpoints,
         'getLatestBlockhash',
         [{ commitment }],
         { importance: 'critical' }
       );
+      const result = normalizeBlockhashResult(rawResult);
       return {
         blockhash: result.blockhash,
         lastValidBlockHeight: result.lastValidBlockHeight,
@@ -91,4 +118,5 @@ export async function getLatestSolanaBlockhash(
 
 export const __solanaBlockhashProviderTest = {
   getLatestSolanaBlockhashWithDeps,
+  normalizeBlockhashResult,
 };
