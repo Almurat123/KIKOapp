@@ -20,6 +20,8 @@ import { callRpc, getErc20Balance, getErc20Decimals, getErc20Allowance } from '.
 import { monitorEvmTransaction, scheduleSpeedUp, waitForReceipt, waitForTransactionConfirmation } from './confirmationCoordinator.js';
 import { appendPermit2SignatureToCalldata, executeApproval, tryBuildKyberPermit, validatePermit2Payload } from './permitHelpers.js';
 import type { OrderRuntimeContext } from '../order-runtime/types.js';
+import { extendFailoverSendContext, type FailoverSendContext } from './failover/failoverSendContext.js';
+import { scoreEvmSellReliability } from './reliability/evmSellReliabilityScorer.js';
 
 // ⚡ In-process decimals cache: avoids repeated RPC calls for the same token
 // Keyed by "chainId:tokenAddress" (lowercase). Decimals are immutable once deployed.
@@ -84,6 +86,7 @@ export interface SwapParams {
         sourceAmountOut?: string | null;
     };
     runtimeContext?: OrderRuntimeContext;
+    failoverSendContext?: FailoverSendContext;
 }
 
 export interface SwapResult {
@@ -371,7 +374,13 @@ export class SwapExecutor {
             logger.info(LogCode.SYS_INFO, '[SwapExecutor] Turbo copytrade: skipping refPrice fetch');
         }
 
-        let preferPermit2 = params.preferPermit2 !== false;
+        const sellReliability = scoreEvmSellReliability({
+            isSellTx,
+            waitForConfirmation: params.waitForConfirmation,
+            runtimeContext: params.runtimeContext
+        });
+
+        let preferPermit2 = params.preferPermit2 !== false && sellReliability.preferPermit2;
         if (preferPermit2 && isSellTx && !isNativeIn) {
             const holder = ZEROX_ALLOWANCE_HOLDER_BY_CHAIN[chainId];
             if (holder) {
@@ -393,6 +402,12 @@ export class SwapExecutor {
                     });
                 }
             }
+        } else if (params.preferPermit2 !== false && isSellTx && !isNativeIn && !sellReliability.preferPermit2) {
+            logger.info(LogCode.SYS_INFO, 'Sell reliability scorer disabled permit2 preference', {
+                chainId,
+                token: actualTokenInFixed,
+                reasonCode: sellReliability.reasonCode || 'sell_reliability_explicit_approval'
+            });
         }
 
         const { best } = await getBestQuote({
@@ -508,7 +523,15 @@ export class SwapExecutor {
 
             if (needsApproval) {
                 let permitApprovalCovered = false;
-                if (isSellTx && !isNativeIn && best.dex === '0x' && best.approvalKind === 'permit2_24h' && best.requiresTypedSignature && best.permit2Payload) {
+                if (
+                    sellReliability.allowSignedPermit
+                    && isSellTx
+                    && !isNativeIn
+                    && best.dex === '0x'
+                    && best.approvalKind === 'permit2_24h'
+                    && best.requiresTypedSignature
+                    && best.permit2Payload
+                ) {
                     try {
                         validatePermit2Payload(best.permit2Payload, chainId, best.permit2Expiry ?? null);
                         const signature = await signTypedData(userId, best.permit2Payload as any, chainId);
@@ -527,7 +550,15 @@ export class SwapExecutor {
                     }
                 }
 
-                if (!permitApprovalCovered && isSellTx && !isNativeIn && best.dex === 'kyber') {
+                if (!permitApprovalCovered && !sellReliability.allowSignedPermit && isSellTx && !isNativeIn && (best.dex === '0x' || best.dex === 'kyber')) {
+                    logger.info(LogCode.EXE_TX_BROADCAST, 'Sell reliability scorer prefers explicit approval over signed permit', {
+                        chainId,
+                        dex: best.dexName,
+                        reasonCode: sellReliability.reasonCode || 'sell_reliability_explicit_approval'
+                    });
+                }
+
+                if (!permitApprovalCovered && sellReliability.allowSignedPermit && isSellTx && !isNativeIn && best.dex === 'kyber') {
                     try {
                         const kyberPermit = await tryBuildKyberPermit({
                             userId,
@@ -1070,7 +1101,13 @@ export class SwapExecutor {
                         });
                         return this.executeEvm({
                             ...params,
-                            excludeDex: best.dex
+                            excludeDex: best.dex,
+                            failoverSendContext: extendFailoverSendContext(params.failoverSendContext, {
+                                previousDex: best.dex,
+                                previousDexName: best.dexName,
+                                previousReasonCode: 'confirmed_revert',
+                                acceptedTxHash: txHash
+                            })
                         });
                     }
                     if (isFirstInternalRetry && nextSlippage <= MAX_INTERNAL_RETRY_SLIPPAGE) {
@@ -1224,7 +1261,12 @@ export class SwapExecutor {
                     ...params,
                     excludeDex: undefined,
                     preferPermit2: false,
-                    permit2ExecutionFallbackTried: true
+                    permit2ExecutionFallbackTried: true,
+                    failoverSendContext: extendFailoverSendContext(params.failoverSendContext, {
+                        previousDex: best?.dex,
+                        previousDexName: best?.dexName,
+                        previousReasonCode: 'permit2_execution_failed'
+                    })
                 });
             }
 
@@ -1237,7 +1279,12 @@ export class SwapExecutor {
                 });
                 return this.executeEvm({
                     ...params,
-                    excludeDex: best.dex
+                    excludeDex: best.dex,
+                    failoverSendContext: extendFailoverSendContext(params.failoverSendContext, {
+                        previousDex: best.dex,
+                        previousDexName: best.dexName,
+                        previousReasonCode: 'execution_error'
+                    })
                 });
             }
 

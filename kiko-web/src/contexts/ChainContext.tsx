@@ -69,7 +69,7 @@ interface ChainContextType {
   supportedChains: ChainInfo[];
 }
 
-const ChainContext = createContext<ChainContextType | null>(null);
+export const ChainContext = createContext<ChainContextType | null>(null);
 
 export const useChain = () => {
   const context = useContext(ChainContext);

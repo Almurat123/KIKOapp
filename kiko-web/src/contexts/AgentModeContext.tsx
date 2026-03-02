@@ -11,7 +11,7 @@ interface AgentModeContextType {
 
 const STORAGE_KEY = 'kiko-agent-mode-enabled';
 
-const AgentModeContext = createContext<AgentModeContextType | undefined>(undefined);
+export const AgentModeContext = createContext<AgentModeContextType | undefined>(undefined);
 
 const parseQueryOverride = (): boolean | null => {
   try {

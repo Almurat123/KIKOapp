@@ -42,6 +42,8 @@ import {
 import { inferOrderReasonCode } from './order-runtime/reasonCodes.js';
 import { bindOrderToTxHash, reportRpcUncertain, reportSendAccepted } from './order-runtime/adjudicator/service.js';
 import { shouldRetryAfterBroadcastUnseen } from './rpc/visibilityPolicy.js';
+import { resolveSolanaWalletRecord } from './solana/solanaWalletResolver.js';
+import { sendSolanaTransactionWithDeps } from './solana/solanaPrivySender.js';
 
 // Initialize Privy client
 const PRIVY_APP_ID = process.env.VITE_PRIVY_APP_ID || process.env.PRIVY_APP_ID || '';
@@ -552,6 +554,21 @@ function invalidatePendingNonce(chainId: number, walletAddress: string): void {
     pendingNonceInflight.delete(key);
 }
 
+function seedNextPendingNonce(chainId: number, walletAddress: string, nonce?: string): void {
+    if (!walletAddress || !nonce) return;
+    try {
+        const nextNonce = (BigInt(nonce) + 1n).toString();
+        const key = buildPendingNonceKey(chainId, walletAddress);
+        pendingNonceCache.set(key, {
+            nonce: nextNonce,
+            timestamp: Date.now()
+        });
+        pendingNonceInflight.delete(key);
+    } catch {
+        invalidatePendingNonce(chainId, walletAddress);
+    }
+}
+
 export function isTransactionQueueBusy(userId: string, chainId: number): boolean {
     const chainKey = buildUserChainKey(userId, chainId);
     return (userChainInflightTx.get(chainKey) || 0) > 0 || userTransactionLocks.has(userId);
@@ -1052,6 +1069,7 @@ export async function sendTransactionLifecycle(
                         });
                         if (rawLifecycle.txHash && isTxLifecycleSendAccepted(rawLifecycle)) {
                             priorAcceptedLifecycle = { ...rawLifecycle };
+                            seedNextPendingNonce(txWithNonce.chainId, walletInfo.address, txWithNonce.nonce);
                             reportAcceptedEvidence(tx, rawLifecycle.txHash, 'raw_broadcast');
                         }
                         if (runtimeContext) {
@@ -1177,6 +1195,7 @@ export async function sendTransactionLifecycle(
                         chainId: txWithNonce.chainId
                     };
                     priorAcceptedLifecycle = { ...lifecycleBase };
+                    seedNextPendingNonce(txWithNonce.chainId, walletInfo.address, txWithNonce.nonce);
                     reportAcceptedEvidence(tx, response.hash, 'privy_sendtx');
                     if (runtimeContext) {
                         attachOrderTxHash(runtimeContext, response.hash, { canonical: true });
@@ -1322,6 +1341,9 @@ export async function sendTransactionLifecycle(
                                 expectedFrom: walletInfo.address,
                                 txPurpose: txWithNonce.txPurpose
                             });
+                            if (fallbackLifecycle.txHash && isTxLifecycleSendAccepted(fallbackLifecycle)) {
+                                seedNextPendingNonce(txWithNonce.chainId, walletInfo.address, txWithNonce.nonce);
+                            }
                             if (runtimeContext) {
                                 recordLifecycleOnOrder(runtimeContext, fallbackLifecycle, {
                                     reasonCode: inferOrderReasonCode(fallbackLifecycle.lastRpcError || fallbackLifecycle.status)
@@ -1386,6 +1408,9 @@ export async function sendTransactionLifecycle(
                                 expectedFrom: walletInfo.address,
                                 txPurpose: txWithNonce.txPurpose
                             });
+                            if (transientFallback.txHash && isTxLifecycleSendAccepted(transientFallback)) {
+                                seedNextPendingNonce(txWithNonce.chainId, walletInfo.address, txWithNonce.nonce);
+                            }
                             if (runtimeContext) {
                                 recordLifecycleOnOrder(runtimeContext, transientFallback, {
                                     reasonCode: inferOrderReasonCode(transientFallback.lastRpcError || transientFallback.status)
@@ -1711,13 +1736,21 @@ export async function getDelegatedSolanaWallet(userId: string): Promise<{ id: st
             return null;
         }
 
-        const walletData = delegatedWallet as any;
-        logger.debug(LogCode.SYS_INFO, 'Found delegated Solana wallet for user', { address: walletData.address, userId });
+        const resolution = resolveSolanaWalletRecord(delegatedWallet);
+        if (!resolution.wallet) {
+            logger.warn(LogCode.SYS_ERROR, 'Delegated Solana wallet is invalid, ignoring delegated path', {
+                userId,
+                reasonCode: resolution.reasonCode
+            });
+            return null;
+        }
 
-        return {
-            id: walletData.id,
-            address: walletData.address
-        };
+        logger.debug(LogCode.SYS_INFO, 'Found delegated Solana wallet for user', {
+            address: resolution.wallet.address,
+            userId
+        });
+
+        return resolution.wallet;
     } catch (error: any) {
         logger.error(LogCode.SYS_ERROR, 'Error getting delegated wallet from Privy', { userId, error: error.message });
         return null;
@@ -1733,46 +1766,12 @@ export async function sendSolanaTransaction(
     transactionBase64: string // Base64 encoded transaction from Jupiter
 ): Promise<string> {
     const client = getPrivyClient();
-
-    try {
-        // Try to get user's delegated wallet first (preferred for fund isolation)
-        let wallet = await getDelegatedSolanaWallet(userId);
-        let walletSource = 'delegated';
-
-        // Fallback to server wallet if user hasn't granted delegation
-        if (!wallet) {
-            wallet = await getOrCreateServerSolanaWallet();
-            walletSource = 'server';
-            logger.info(LogCode.SYS_INFO, 'Using server wallet (user has not delegated)', { userId });
-        }
-
-        logger.debug(LogCode.EXE_TX_BROADCAST, 'Sending Solana transaction via Privy', {
-            walletSource,
-            address: wallet.address,
-            userId,
-        });
-
-        // Deserialize transaction
-        const transactionBuffer = Buffer.from(transactionBase64, 'base64');
-        const transaction = VersionedTransaction.deserialize(transactionBuffer);
-
-        // Sign and send with Privy using walletId
-        const response = await client.walletApi.solana.signAndSendTransaction({
-            walletId: wallet.id,
-            caip2: 'solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp', // Solana Mainnet-Beta
-            transaction: transaction,
-        });
-
-        logger.info(LogCode.EXE_TX_BROADCAST, 'Solana transaction sent via Privy', { txHash: response.hash });
-        return response.hash;
-    } catch (error: any) {
-        logger.error(LogCode.EXE_TX_REVERTED, 'Solana transaction failed via Privy', { error: error.message, userId });
-        throw new AppError(
-            500,
-            `Failed to send Solana transaction: ${error.message || 'Unknown error'}`,
-            'SOLANA_TRANSACTION_FAILED'
-        );
-    }
+    return sendSolanaTransactionWithDeps(userId, transactionBase64, {
+        getDelegatedWallet: (targetUserId) => getDelegatedSolanaWallet(targetUserId),
+        getServerWallet: () => getOrCreateServerSolanaWallet(),
+        deserializeTransaction: VersionedTransaction.deserialize,
+        signAndSendTransaction: (params) => client.walletApi.solana.signAndSendTransaction(params),
+    });
 }
 
 /**
