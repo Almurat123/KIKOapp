@@ -84,6 +84,12 @@ import { shouldAbortCopytradeBuyRetry } from './copytrade/buy/copytradeBuyRetryG
 import { evaluateBuyPriceDeviationGuard } from './copytrade/buy/buyGuardPriceDeviation.js';
 import { reconcileOpenPositionsForExit } from './copytrade/exit/openPositionReconciliation.js';
 import { collectDirectSwapFeeFromSettlement } from './swap/fee/directSwapFeeCollector.js';
+import {
+    evaluateCopyTradeDelay,
+    getCopyTradeDispatchDetectedAt,
+    type CopyTradeTimingSnapshot
+} from './copytrade/timing/copyTradeTimingModel.js';
+import { emitCopyTradeTimingAudit } from './copytrade/timing/copyTradeTimingAudit.js';
 
 export { getTokenInfo } from './tokenService.js';
 
@@ -236,26 +242,26 @@ const COPYTRADE_HARD_MAX_DELAY_MS = Number(process.env.COPYTRADE_HARD_MAX_DELAY_
 
 /**
  * Pure delay check for copy trade (used in processBuyWithInfo; exported for tests).
- * @param detectedAt - Timestamp when swap was detected (webhook enqueue or pending prefetch)
- * @param turboMode - If true use COPYTRADE_TURBO_MAX_DELAY_MS (2.5s), else COPYTRADE_MAX_DELAY_MS (5s)
+ * @param detectedAtOrTiming - Legacy detectedAt or structured timing snapshot
+ * @param turboMode - If true use COPYTRADE_TURBO_MAX_DELAY_MS, else COPYTRADE_MAX_DELAY_MS
  * @param nowMs - Current time (default Date.now(); inject for tests)
  */
 export function isCopyTradeDelayExceeded(
-    detectedAt: number | undefined,
+    detectedAtOrTiming: number | CopyTradeTimingSnapshot | undefined,
     turboMode: boolean,
     nowMs: number = Date.now()
-): { skip: boolean; delayMs: number; maxDelayMs: number } {
-    const maxDelayMs = turboMode ? COPYTRADE_TURBO_MAX_DELAY_MS : COPYTRADE_MAX_DELAY_MS;
-    const delayMs = detectedAt ? Math.max(0, nowMs - detectedAt) : 0;
-    let skip = false;
-    if (detectedAt) {
-        if (delayMs > COPYTRADE_HARD_MAX_DELAY_MS) {
-            skip = true;
-        } else if (turboMode && delayMs > maxDelayMs) {
-            skip = true;
-        }
-    }
-    return { skip, delayMs, maxDelayMs };
+): {
+    skip: boolean;
+    delayMs: number;
+    maxDelayMs: number;
+    hardDelayMs: number;
+    delayAnchor: string;
+    reasonCode?: string;
+} {
+    return evaluateCopyTradeDelay(detectedAtOrTiming, turboMode, {
+        maxDelayMs: turboMode ? COPYTRADE_TURBO_MAX_DELAY_MS : COPYTRADE_MAX_DELAY_MS,
+        hardMaxDelayMs: COPYTRADE_HARD_MAX_DELAY_MS
+    }, nowMs);
 }
 const COPYTRADE_PRICE_CHECK_TIMEOUT_MS = Number(process.env.COPYTRADE_PRICE_CHECK_TIMEOUT_MS || '1200');
 const COPYTRADE_LOG_ERROR_SLICE = Math.max(80, Number(process.env.COPYTRADE_LOG_ERROR_SLICE || '240'));
@@ -626,9 +632,9 @@ export async function handleSwapDetected(
     targetWallet: string,
     swap: DecodedSwap,
     chainId: number,
-    context?: { detectedAt?: number }
+    context?: { detectedAt?: number; timing?: CopyTradeTimingSnapshot }
 ): Promise<void> {
-    const detectedAt = context?.detectedAt || Date.now();
+    const detectedAt = getCopyTradeDispatchDetectedAt(context?.timing, context?.detectedAt) || Date.now();
     // 🛑 SHUTDOWN CHECK (Risk #2 Mitigation)
     if (isServiceShuttingDown) {
         logger.warn(LogCode.SYS_SHUTDOWN, 'Service shutting down, rejecting new swap webhook', { wallet: targetWallet });
@@ -795,21 +801,31 @@ async function handleTargetBuy(
     targetWallet: string,
     swap: DecodedSwap,
     chainId: number,
-    context?: { detectedAt?: number }
+    context?: { detectedAt?: number; timing?: CopyTradeTimingSnapshot }
 ): Promise<void> {
     // Find all configs watching this wallet
     // NOTE: Solana addresses are case-sensitive (Base58), only lowercase EVM addresses
     const normalizedWallet = normalizeAddress(targetWallet);
 
     const tokenToBuy = swap.tokenOut;
-    const detectedAt = context?.detectedAt ?? Date.now();
+    const detectedAt = getCopyTradeDispatchDetectedAt(context?.timing, context?.detectedAt) ?? Date.now();
     logger.info(LogCode.EXE_QUOTE_FETCHED, '[CopyTradeTiming] target buy start', {
         targetWallet,
         token: tokenToBuy,
         chainId,
         txHash: swap.txHash,
         detectedAt,
+        firstSeenAt: context?.timing?.firstSeenAt || null,
+        swapReadyAt: context?.timing?.swapReadyAt || null,
+        dispatchEligibleAt: context?.timing?.dispatchEligibleAt || null,
         elapsedMs: Date.now() - detectedAt
+    });
+    emitCopyTradeTimingAudit('target_buy_start', context?.timing, {
+        targetWallet,
+        token: tokenToBuy,
+        chainId,
+        txHash: swap.txHash,
+        dispatchDetectedAt: detectedAt
     });
 
     logger.debug(LogCode.EXE_QUOTE_FETCHED, `Fast path execution started for ${tokenToBuy}`, { targetWallet, token: tokenToBuy });
@@ -947,7 +963,7 @@ async function handleTargetBuy(
                 chainId
             });
 
-            await processBuyWithInfo(targetWallet, tokenToBuy, swap, chainId, uniqueExecutableConfigs, fallbackInfo, true, launchpadPromise, tokenInfoCache, detectedAt);
+            await processBuyWithInfo(targetWallet, tokenToBuy, swap, chainId, uniqueExecutableConfigs, fallbackInfo, true, launchpadPromise, tokenInfoCache, context?.timing, detectedAt);
             return;
         } catch (err: any) {
             logger.warn(LogCode.API_FETCH_FAILED, '[CopyTrade] Token info disabled but metadata fallback failed', {
@@ -999,7 +1015,7 @@ async function handleTargetBuy(
             // NOTE: We must be careful about price calculations later.
             // If price is 0, we can only do "Buy X ETH worth", not "Buy Y Tokens".
             // Our logic below handles "Target Swap Value" based on Input ETH, so we are safe.
-            await processBuyWithInfo(targetWallet, tokenToBuy, swap, chainId, uniqueExecutableConfigs, fallbackInfo, true, launchpadPromise, tokenInfoCache, detectedAt);
+            await processBuyWithInfo(targetWallet, tokenToBuy, swap, chainId, uniqueExecutableConfigs, fallbackInfo, true, launchpadPromise, tokenInfoCache, context?.timing, detectedAt);
             return;
         }
 
@@ -1029,7 +1045,7 @@ async function handleTargetBuy(
                     chainId
                 });
 
-                await processBuyWithInfo(targetWallet, tokenToBuy, swap, chainId, uniqueExecutableConfigs, fallbackInfo, true, launchpadPromise, tokenInfoCache, detectedAt);
+                await processBuyWithInfo(targetWallet, tokenToBuy, swap, chainId, uniqueExecutableConfigs, fallbackInfo, true, launchpadPromise, tokenInfoCache, context?.timing, detectedAt);
                 return;
             } catch (metaErr: any) {
                 logger.warn(LogCode.API_FETCH_FAILED, 'Metadata fallback failed', { token: tokenToBuy, error: metaErr.message });
@@ -1040,7 +1056,7 @@ async function handleTargetBuy(
         return;
     }
 
-    await processBuyWithInfo(targetWallet, tokenToBuy, swap, chainId, uniqueExecutableConfigs, tokenInfo, false, launchpadPromise, tokenInfoCache, detectedAt);
+    await processBuyWithInfo(targetWallet, tokenToBuy, swap, chainId, uniqueExecutableConfigs, tokenInfo, false, launchpadPromise, tokenInfoCache, context?.timing, detectedAt);
 }
 
 /**
@@ -1056,6 +1072,7 @@ async function processBuyWithInfo(
     isFallbackMode: boolean,
     launchpadPromise?: Promise<any>,
     tokenInfoCache?: Map<string, Promise<any>>,
+    timing?: CopyTradeTimingSnapshot,
     detectedAt?: number
 ) {
     const PROFILE = process.env.COPYTRADE_PROFILE ? process.env.COPYTRADE_PROFILE === 'true' : true;
@@ -1241,6 +1258,7 @@ async function processBuyWithInfo(
                     quickNativePrice,
                     launchpadPromise,
                     tokenInfoCache,
+                    timing,
                     detectedAt
                 )
             )
@@ -1475,6 +1493,7 @@ async function processBuyWithInfo(
                     sharedNativePrice, // ⚡ Pass shared native price to avoid repeated queries
                     launchpadPromise,
                     tokenInfoCache,
+                    timing,
                     detectedAt
                 ).catch(error => {
                     logger.error(LogCode.SYS_ERROR, `Error in batch execution`, {
@@ -1593,6 +1612,7 @@ async function processSingleUserBuy(
     sharedNativePrice: number = 0,
     launchpadPromise?: Promise<any>,
     tokenInfoCache?: Map<string, Promise<any>>,
+    timing?: CopyTradeTimingSnapshot,
     detectedAt?: number
 ): Promise<void> {
     // Lock per userId:token so different tokens can execute concurrently for the same user.
@@ -1631,25 +1651,44 @@ async function processSingleUserBuy(
         };
 
         try {
-            const inboundDelayMs = detectedAt ? Math.max(0, Date.now() - detectedAt) : null;
+            const dispatchDetectedAt = getCopyTradeDispatchDetectedAt(timing, detectedAt);
+            const inboundDelayMs = dispatchDetectedAt ? Math.max(0, Date.now() - dispatchDetectedAt) : null;
             if (inboundDelayMs !== null && inboundDelayMs > 800) {
                 logger.info(LogCode.EXE_QUOTE_FETCHED, '[CopyTradeTiming] user buy dispatch delay', {
                     userId: config.userId,
                     token: tokenToBuy,
                     chainId,
                     inboundDelayMs,
+                    delayFirstSeenMs: timing?.firstSeenAt ? Math.max(0, Date.now() - timing.firstSeenAt) : null,
+                    delayAnchor: timing?.dispatchEligibleAt ? 'dispatch_eligible' : (timing?.swapReadyAt ? 'swap_ready' : 'legacy_detected_at'),
                     executionMode
                 });
             }
-            const delayCheck = isCopyTradeDelayExceeded(detectedAt, turboMode);
+            const delayCheck = isCopyTradeDelayExceeded(timing || detectedAt, turboMode);
+            emitCopyTradeTimingAudit('buy_dispatch_gate', timing, {
+                userId: config.userId,
+                token: tokenToBuy,
+                chainId,
+                executionMode,
+                turboMode,
+                delayMs: delayCheck.delayMs,
+                hardDelayMs: delayCheck.hardDelayMs,
+                maxDelayMs: delayCheck.maxDelayMs,
+                delayAnchor: delayCheck.delayAnchor,
+                reasonCode: delayCheck.reasonCode || null,
+                skip: delayCheck.skip
+            });
             if (delayCheck.skip) {
                 logger.info(LogCode.WTC_TX_SKIPPED, 'Skipping trade: copytrade delay exceeded', {
                     userId: config.userId,
                     token: tokenToBuy,
                     delayMs: delayCheck.delayMs,
+                    hardDelayMs: delayCheck.hardDelayMs,
                     maxDelayMs: delayCheck.maxDelayMs,
+                    delayAnchor: delayCheck.delayAnchor,
+                    reasonCode: delayCheck.reasonCode,
                     turboMode,
-                    hint: 'delay is from detectedAt (webhook enqueue or pending prefetch) to this check'
+                    hint: 'dispatch delay is from dispatchEligibleAt/swapReadyAt; hard cap still uses firstSeenAt'
                 });
                 return;
             }

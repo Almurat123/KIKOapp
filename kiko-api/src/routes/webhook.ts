@@ -30,6 +30,12 @@ import { getAdjudicatedSnapshot, reportReceiptSeen, reportWebhookSeen } from '..
 import { normalizeSolanaWebhookItem } from '../services/solana/webhookNormalizer.js';
 import { resolveSolanaTrackedWallets } from '../services/solana/trackedWalletResolver.js';
 import { processSolanaWebhookTx } from '../services/solana/solanaWebhookHandler.js';
+import {
+    buildCopyTradeFirstSeenTiming,
+    markCopyTradeSwapReady,
+    markCopyTradeTaskEnqueued,
+    mergeCopyTradeTimingSnapshots
+} from '../services/copytrade/timing/copyTradeTimingModel.js';
 
 interface ProcessTxBody { wallet: string; txHash: string; network: string; }
 const NETWORK_TO_CHAIN_ID: Record<string, number> = {
@@ -1032,19 +1038,40 @@ async function processAlchemyWebhookPayload(payload: any): Promise<void> {
                     receiptLogs: receipt?.logs || [],
                     swap,
                     targetWallet: trackedTarget,
-                    detectedAt: cached
-                        ? resolveDetectedAt(cached.detectedAt, pendingHint?.detectedAt)
-                        : Date.now()
+                    detectedAt: (() => {
+                        const timing = cached?.timing
+                            ? markCopyTradeSwapReady(mergeCopyTradeTimingSnapshots(cached.timing, pendingHint?.timing), Date.now(), 'webhook_cached_predecoded')
+                            : markCopyTradeSwapReady(buildCopyTradeFirstSeenTiming(Date.now(), 'webhook_decode'), Date.now(), 'webhook_decode');
+                        return timing.dispatchEligibleAt || timing.swapReadyAt || Date.now();
+                    })()
                 }).catch(() => { });
 
                 const { enqueueCopyTradeTask } = await import('../services/copyTradeQueue.js');
                 // When we decoded from receipt in this request (no cached predecoded), use now as detectedAt
                 // so the turbo delay is measured from "swap ready + enqueued", not from an older pendingHint
                 // (pending watcher may have set pendingHint seconds earlier, which would make delay exceed 2.5s)
-                const detectedAt = cached
-                    ? resolveDetectedAt(cached.detectedAt, pendingHint?.detectedAt)
-                    : Date.now();
-                enqueueCopyTradeTask(trackedTarget, swap, chainId, { detectedAt });
+                const timing = cached?.timing
+                    ? markCopyTradeTaskEnqueued(
+                        markCopyTradeSwapReady(
+                            mergeCopyTradeTimingSnapshots(cached.timing, pendingHint?.timing),
+                            Date.now(),
+                            'webhook_cached_predecoded'
+                        ),
+                        Date.now()
+                    )
+                    : markCopyTradeTaskEnqueued(
+                        markCopyTradeSwapReady(
+                            mergeCopyTradeTimingSnapshots(
+                                buildCopyTradeFirstSeenTiming(Date.now(), 'webhook_decode'),
+                                pendingHint?.timing
+                            ),
+                            Date.now(),
+                            'webhook_decode'
+                        ),
+                        Date.now()
+                    );
+                const detectedAt = timing.dispatchEligibleAt || timing.swapReadyAt || Date.now();
+                enqueueCopyTradeTask(trackedTarget, swap, chainId, { detectedAt, timing });
             }));
             if (swapsDetected > 0) {
                 await markTxAsProcessedDistributed(txHash, chainId);
@@ -1175,11 +1202,27 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
                     txValue: predecoded.swap.sourceTxValue,
                     swap: predecoded.swap,
                     targetWallet: wallet,
-                    detectedAt: resolveDetectedAt(predecoded.detectedAt, pendingHint?.detectedAt)
+                    detectedAt: (() => {
+                        const timing = markCopyTradeSwapReady(
+                            mergeCopyTradeTimingSnapshots(predecoded.timing, pendingHint?.timing),
+                            Date.now(),
+                            'process_tx_pending_prefetch'
+                        );
+                        return timing.dispatchEligibleAt || timing.swapReadyAt || resolveDetectedAt(predecoded.detectedAt, pendingHint?.detectedAt);
+                    })()
                 });
                 const { enqueueCopyTradeTask } = await import('../services/copyTradeQueue.js');
+                const timing = markCopyTradeTaskEnqueued(
+                    markCopyTradeSwapReady(
+                        mergeCopyTradeTimingSnapshots(predecoded.timing, pendingHint?.timing),
+                        Date.now(),
+                        'process_tx_pending_prefetch'
+                    ),
+                    Date.now()
+                );
                 enqueueCopyTradeTask(wallet, predecoded.swap, chainId, {
-                    detectedAt: resolveDetectedAt(predecoded.detectedAt, pendingHint?.detectedAt)
+                    detectedAt: timing.dispatchEligibleAt || timing.swapReadyAt || resolveDetectedAt(predecoded.detectedAt, pendingHint?.detectedAt),
+                    timing
                 });
                 await markTxAsProcessedDistributed(txHashNormalized, chainId);
                 tEnqueue = Date.now() - enqueueStart;
@@ -1292,14 +1335,36 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
                 swap,
                 targetWallet: wallet,
                 receiptLogs: receipt.logs || [],
-                detectedAt: resolveDetectedAt(pendingHint?.detectedAt)
+                detectedAt: (() => {
+                    const timing = markCopyTradeSwapReady(
+                        mergeCopyTradeTimingSnapshots(
+                            pendingHint?.timing,
+                            buildCopyTradeFirstSeenTiming(Date.now(), 'internal_process_tx')
+                        ),
+                        Date.now(),
+                        'internal_process_tx'
+                    );
+                    return timing.dispatchEligibleAt || timing.swapReadyAt || resolveDetectedAt(pendingHint?.detectedAt);
+                })()
             });
 
             // Enqueue copy trade for async execution
             const enqueueStart = Date.now();
             const { enqueueCopyTradeTask } = await import('../services/copyTradeQueue.js');
+            const timing = markCopyTradeTaskEnqueued(
+                markCopyTradeSwapReady(
+                    mergeCopyTradeTimingSnapshots(
+                        pendingHint?.timing,
+                        buildCopyTradeFirstSeenTiming(Date.now(), 'internal_process_tx')
+                    ),
+                    Date.now(),
+                    'internal_process_tx'
+                ),
+                Date.now()
+            );
             enqueueCopyTradeTask(wallet, swap, chainId, {
-                detectedAt: resolveDetectedAt(pendingHint?.detectedAt)
+                detectedAt: timing.dispatchEligibleAt || timing.swapReadyAt || resolveDetectedAt(pendingHint?.detectedAt),
+                timing
             });
             await markTxAsProcessedDistributed(txHashNormalized, chainId);
             tEnqueue = Date.now() - enqueueStart;

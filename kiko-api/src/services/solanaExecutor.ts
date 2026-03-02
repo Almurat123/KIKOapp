@@ -119,9 +119,11 @@ async function executeSolanaSwapWithDeps(
     let signature = '';
     let lastError: any = null;
 
+    candidateLoop:
     for (let idx = 0; idx < aggregatorCandidates.length; idx++) {
         const candidate = aggregatorCandidates[idx];
-        const attemptSlippageBps = Math.min(slippageBps + (idx * 300), 3500);
+        const baseSlippageBps = Math.min(slippageBps + (idx * 300), 3500);
+        const maxSameAggregatorRetries = 1;
 
         let attemptAmount = amountIn;
         try {
@@ -132,65 +134,91 @@ async function executeSolanaSwapWithDeps(
         } catch {
             attemptAmount = amountIn;
         }
+        for (let retry = 0; retry <= maxSameAggregatorRetries; retry++) {
+            const attemptSlippageBps = Math.min(baseSlippageBps + (retry * 250), 5000);
+            let retryAmount = attemptAmount;
+            if (retry > 0) {
+                try {
+                    const base = BigInt(attemptAmount);
+                    const reduced = (base * 9950n) / 10000n; // additional 0.5% reduction on retry
+                    retryAmount = reduced > 0n ? reduced.toString() : attemptAmount;
+                } catch {
+                    retryAmount = attemptAmount;
+                }
+            }
 
-        const quote = candidate === 'auto'
-            ? await deps.getSolanaQuote(
-                tokenInMint,
-                tokenOutMint,
-                attemptAmount,
-                attemptSlippageBps,
-                'auto',
-                walletAddress,
-                undefined,
-                params.feeContext
-            )
-            : await deps.getSolanaQuoteFromAggregator(
-                candidate,
-                tokenInMint,
-                tokenOutMint,
-                attemptAmount,
-                attemptSlippageBps,
-                walletAddress,
-                undefined,
-                params.feeContext,
-                executionMode === 'turbo' ? { forcePublicApi: true } : undefined
-            );
-
-        const adjustedQuote = applyCopyTradePriorityFee(quote, params.feeContext);
-        if (!adjustedQuote || !adjustedQuote.swapTransaction) {
-            lastError = new AppError(500, `Solana swap quote/tx missing for aggregator=${candidate}`, 'SWAP_BUILD_FAILED');
-            continue;
-        }
-
-        logger.debug(LogCode.SYS_INFO, 'SolanaExecutor: Swap prepared', {
-            aggregator: adjustedQuote.aggregator,
-            outAmount: adjustedQuote.outAmount,
-            attempt: idx + 1,
-            candidate,
-            attemptSlippageBps,
-            attemptAmount
-        });
-
-        try {
-            const transactionBuffer = Buffer.from(adjustedQuote.swapTransaction, 'base64');
-            const transaction = deps.deserializeTransaction(transactionBuffer);
-            const blockhashResult = await deps.getLatestSolanaBlockhash(blockhashConnection, 'swap_executor');
-            transaction.message.recentBlockhash = blockhashResult.blockhash;
-            const freshTransactionBase64 = Buffer.from(transaction.serialize()).toString('base64');
-            signature = await deps.sendSolanaTransactionWithContext(userId, freshTransactionBase64, signingContext);
-            break;
-        } catch (sendErr: any) {
-            lastError = sendErr;
-            if (idx < aggregatorCandidates.length - 1 && shouldRetryAlternativeRoute(sendErr)) {
-                logger.warn(LogCode.EXE_TX_REVERTED, 'SolanaExecutor: route send failed, trying fallback aggregator', {
+            const quote = candidate === 'auto'
+                ? await deps.getSolanaQuote(
+                    tokenInMint,
+                    tokenOutMint,
+                    retryAmount,
+                    attemptSlippageBps,
+                    'auto',
+                    walletAddress,
+                    undefined,
+                    params.feeContext
+                )
+                : await deps.getSolanaQuoteFromAggregator(
                     candidate,
-                    nextCandidate: aggregatorCandidates[idx + 1],
-                    attempt: idx + 1,
-                    error: sendErr?.message || String(sendErr)
-                });
+                    tokenInMint,
+                    tokenOutMint,
+                    retryAmount,
+                    attemptSlippageBps,
+                    walletAddress,
+                    undefined,
+                    params.feeContext,
+                    executionMode === 'turbo' ? { forcePublicApi: true } : undefined
+                );
+
+            const adjustedQuote = applyCopyTradePriorityFee(quote, params.feeContext);
+            if (!adjustedQuote || !adjustedQuote.swapTransaction) {
+                lastError = new AppError(500, `Solana swap quote/tx missing for aggregator=${candidate}`, 'SWAP_BUILD_FAILED');
                 continue;
             }
-            throw sendErr;
+
+            logger.debug(LogCode.SYS_INFO, 'SolanaExecutor: Swap prepared', {
+                aggregator: adjustedQuote.aggregator,
+                outAmount: adjustedQuote.outAmount,
+                attempt: idx + 1,
+                candidate,
+                attemptSlippageBps,
+                attemptAmount: retryAmount,
+                retry
+            });
+
+            try {
+                const transactionBuffer = Buffer.from(adjustedQuote.swapTransaction, 'base64');
+                const transaction = deps.deserializeTransaction(transactionBuffer);
+                const blockhashResult = await deps.getLatestSolanaBlockhash(blockhashConnection, 'swap_executor');
+                transaction.message.recentBlockhash = blockhashResult.blockhash;
+                const freshTransactionBase64 = Buffer.from(transaction.serialize()).toString('base64');
+                signature = await deps.sendSolanaTransactionWithContext(userId, freshTransactionBase64, signingContext);
+                break candidateLoop;
+            } catch (sendErr: any) {
+                lastError = sendErr;
+                const retryable = shouldRetryAlternativeRoute(sendErr);
+                if (retryable && retry < maxSameAggregatorRetries) {
+                    logger.warn(LogCode.EXE_TX_REVERTED, 'SolanaExecutor: route send failed, retrying same aggregator with relaxed params', {
+                        candidate,
+                        attempt: idx + 1,
+                        retry,
+                        nextSlippageBps: Math.min(baseSlippageBps + ((retry + 1) * 250), 5000),
+                        error: sendErr?.message || String(sendErr)
+                    });
+                    continue;
+                }
+
+                if (idx < aggregatorCandidates.length - 1 && retryable) {
+                    logger.warn(LogCode.EXE_TX_REVERTED, 'SolanaExecutor: route send failed, trying fallback aggregator', {
+                        candidate,
+                        nextCandidate: aggregatorCandidates[idx + 1],
+                        attempt: idx + 1,
+                        error: sendErr?.message || String(sendErr)
+                    });
+                    break;
+                }
+                throw sendErr;
+            }
         }
     }
 

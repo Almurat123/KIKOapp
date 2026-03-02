@@ -335,11 +335,19 @@ async function fetchTokenInfoFromAPIs(
 
     // Final validation
     if (price <= 0 || isNaN(price)) {
-        logger.error(LogCode.API_FETCH_FAILED, 'Critical: No valid price data available', {
-            token: tokenAddress,
-            rpcResult: rpc,
-            liquidityResult: liq
-        });
+        if (isSolana) {
+            logger.warn(LogCode.API_FETCH_FAILED, 'No valid Solana price from token service (caller may derive swap-implied fallback)', {
+                token: tokenAddress,
+                rpcResult: rpc,
+                liquidityResult: liq
+            });
+        } else {
+            logger.error(LogCode.API_FETCH_FAILED, 'Critical: No valid price data available', {
+                token: tokenAddress,
+                rpcResult: rpc,
+                liquidityResult: liq
+            });
+        }
         return null;
     }
 

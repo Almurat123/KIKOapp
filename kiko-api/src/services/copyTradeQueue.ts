@@ -4,12 +4,20 @@ import type { DecodedSwap } from './txDecoder.js';
 import { acquireLock, releaseLock, get as cacheGet, set as cacheSet } from '../cache/cacheClient.js';
 import { randomUUID } from 'node:crypto';
 import { getPendingTxHint, markCopyTradeTxState } from './copyTradeTxStateService.js';
+import {
+    evaluateCopyTradeDelay,
+    markCopyTradeTaskEnqueued,
+    mergeCopyTradeTimingSnapshots,
+    type CopyTradeTimingSnapshot
+} from './copytrade/timing/copyTradeTimingModel.js';
+import { emitCopyTradeTimingAudit } from './copytrade/timing/copyTradeTimingAudit.js';
 
 type QueueTask = {
     targetWallet: string;
     swap: DecodedSwap;
     chainId: number;
     detectedAt?: number;
+    timing?: CopyTradeTimingSnapshot;
 };
 
 const queue: QueueTask[] = [];
@@ -53,14 +61,32 @@ function processQueue(): void {
 
                 const { handleSwapDetected } = await import('./autoTradeService.js');
                 try {
-                    const detectedAt = task.detectedAt || pendingHint?.detectedAt;
-                    const queueDelayMs = detectedAt ? Math.max(0, Date.now() - detectedAt) : null;
+                    const timing = markCopyTradeTaskEnqueued(mergeCopyTradeTimingSnapshots(
+                        task.timing,
+                        pendingHint?.timing
+                    ));
+                    const detectedAt = timing.dispatchEligibleAt || timing.swapReadyAt || task.detectedAt || pendingHint?.detectedAt;
+                    const queueDelay = evaluateCopyTradeDelay(timing, true, {
+                        maxDelayMs: Number.MAX_SAFE_INTEGER,
+                        hardMaxDelayMs: Number.MAX_SAFE_INTEGER
+                    });
+                    const queueDelayMs = queueDelay.delayMs > 0 ? queueDelay.delayMs : null;
+                    emitCopyTradeTimingAudit('queue_dispatch', timing, {
+                        chainId: task.chainId,
+                        txHash: task.swap?.txHash || null,
+                        targetWallet: task.targetWallet,
+                        queueDelayMs,
+                        delayAnchor: queueDelay.delayAnchor,
+                        inFlight,
+                        queued: queue.length
+                    });
                     if (queueDelayMs !== null && queueDelayMs > 500) {
                         logger.info(LogCode.SYS_INFO, '[CopyTradeTiming] queue dispatch delay', {
                             chainId: task.chainId,
                             txHash: task.swap?.txHash,
                             targetWallet: task.targetWallet,
                             queueDelayMs,
+                            delayAnchor: queueDelay.delayAnchor,
                             inFlight,
                             queued: queue.length
                         });
@@ -70,7 +96,7 @@ function processQueue(): void {
                     markCopyTradeTxState(task.chainId, task.swap.txHash || 'nohash', 'executing', {
                         wallet: task.targetWallet
                     }).catch(() => { });
-                    await handleSwapDetected(task.targetWallet, task.swap, task.chainId, { detectedAt });
+                    await handleSwapDetected(task.targetWallet, task.swap, task.chainId, { detectedAt, timing });
                     // Post-execution bookkeeping: fire-and-forget
                     cacheSet(doneKey, '1', COPYTRADE_TASK_DEDUP_TTL_SECONDS).catch(() => { });
                     markCopyTradeTxState(task.chainId, task.swap.txHash || 'nohash', 'executed', {
@@ -105,12 +131,18 @@ export function enqueueCopyTradeTask(
     targetWallet: string,
     swap: DecodedSwap,
     chainId: number,
-    context?: { detectedAt?: number }
+    context?: { detectedAt?: number; timing?: CopyTradeTimingSnapshot }
 ): void {
     markCopyTradeTxState(chainId, swap?.txHash || 'nohash', 'task_enqueued', {
         wallet: targetWallet
     }).catch(() => { });
-    queue.push({ targetWallet, swap, chainId, detectedAt: context?.detectedAt });
+    queue.push({
+        targetWallet,
+        swap,
+        chainId,
+        detectedAt: context?.detectedAt,
+        timing: markCopyTradeTaskEnqueued(context?.timing)
+    });
     if (inFlight < MAX_CONCURRENCY) {
         setImmediate(processQueue);
     }

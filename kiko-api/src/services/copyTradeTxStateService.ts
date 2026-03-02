@@ -1,6 +1,11 @@
 import { get as cacheGet, set as cacheSet } from '../cache/cacheClient.js';
 import type { DecodedSwap } from './txDecoder.js';
 import { normalizeTxIdentity } from '../utils/txIdentity.js';
+import {
+    buildCopyTradeFirstSeenTiming,
+    markCopyTradeSwapReady,
+    type CopyTradeTimingSnapshot
+} from './copytrade/timing/copyTradeTimingModel.js';
 
 export type CopyTradeTxState =
     | 'pending_seen'
@@ -13,6 +18,7 @@ export type CopyTradeTxState =
 
 type PendingHint = {
     detectedAt: number;
+    timing?: CopyTradeTimingSnapshot;
     targetWallet: string;
     chainId: number;
     txHash: string;
@@ -21,6 +27,7 @@ type PendingHint = {
 type PendingPredecodedSwap = {
     detectedAt: number;
     preparedAt: number;
+    timing?: CopyTradeTimingSnapshot;
     targetWallet: string;
     chainId: number;
     txHash: string;
@@ -64,7 +71,13 @@ export async function markPendingTxHint(chainId: number, txHash: string, targetW
     if (!txHash) return;
     const key = pendingHintKey(chainId, txHash);
     const normalizedTxHash = normalizeTxIdentity(chainId, txHash) || txHash;
-    const hint: PendingHint = { detectedAt, targetWallet, chainId, txHash: normalizedTxHash };
+    const hint: PendingHint = {
+        detectedAt,
+        timing: buildCopyTradeFirstSeenTiming(detectedAt, 'pending_hint'),
+        targetWallet,
+        chainId,
+        txHash: normalizedTxHash
+    };
     setMemoryWithTtl(pendingHintMemory, key, hint, PENDING_HINT_TTL_SEC);
     await cacheSet(key, JSON.stringify(hint), PENDING_HINT_TTL_SEC).catch(() => { });
 }
@@ -79,9 +92,15 @@ export async function markPendingPredecodedSwap(
     if (!txHash || !targetWallet) return;
     const key = pendingPredecodedKey(chainId, txHash, targetWallet);
     const normalizedTxHash = normalizeTxIdentity(chainId, txHash) || txHash;
+    const preparedAt = Date.now();
     const payload: PendingPredecodedSwap = {
         detectedAt,
-        preparedAt: Date.now(),
+        preparedAt,
+        timing: markCopyTradeSwapReady(
+            buildCopyTradeFirstSeenTiming(detectedAt, 'pending_prefetch'),
+            preparedAt,
+            'pending_prefetch'
+        ),
         targetWallet: targetWallet.toLowerCase(),
         chainId,
         txHash: normalizedTxHash,
@@ -101,6 +120,9 @@ export async function getPendingTxHint(chainId: number, txHash: string): Promise
     if (!raw) return null;
     try {
         const parsed = JSON.parse(raw) as PendingHint;
+        if (!parsed.timing && parsed.detectedAt) {
+            parsed.timing = buildCopyTradeFirstSeenTiming(parsed.detectedAt, 'pending_hint_legacy');
+        }
         setMemoryWithTtl(pendingHintMemory, key, parsed, PENDING_HINT_TTL_SEC);
         return parsed;
     } catch {
@@ -122,6 +144,13 @@ export async function getPendingPredecodedSwap(
     if (!raw) return null;
     try {
         const parsed = JSON.parse(raw) as PendingPredecodedSwap;
+        if (!parsed.timing && parsed.detectedAt) {
+            parsed.timing = markCopyTradeSwapReady(
+                buildCopyTradeFirstSeenTiming(parsed.detectedAt, 'pending_prefetch_legacy'),
+                parsed.preparedAt || parsed.detectedAt,
+                'pending_prefetch_legacy'
+            );
+        }
         setMemoryWithTtl(pendingPredecodedMemory, key, parsed, PENDING_PREDECODED_TTL_SEC);
         return parsed;
     } catch {

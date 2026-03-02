@@ -13,6 +13,12 @@ import { recordSuccessSample } from './copytrade/planner/sampleLibrary.js';
 import { getChainConfig } from '../config/chainConfig.js';
 import { reportReceiptSeen, reportWebhookSeen } from './order-runtime/adjudicator/service.js';
 import { normalizeTxIdentity } from '../utils/txIdentity.js';
+import {
+    buildCopyTradeFirstSeenTiming,
+    markCopyTradeSwapReady,
+    markCopyTradeTaskEnqueued
+} from './copytrade/timing/copyTradeTimingModel.js';
+import { emitCopyTradeTimingAudit } from './copytrade/timing/copyTradeTimingAudit.js';
 
 const ENABLED = (process.env.COPYTRADE_PENDING_WATCH_ENABLED || 'true') === 'true';
 const REFRESH_WALLETS_MS = Number(process.env.COPYTRADE_PENDING_WALLET_REFRESH_MS || 10000);
@@ -126,6 +132,20 @@ async function warmConfirmedSwapFromPending(
                     targetWallet
                 );
                 if (!swap) return;
+                const timing = markCopyTradeTaskEnqueued(
+                    markCopyTradeSwapReady(
+                        buildCopyTradeFirstSeenTiming(start, 'pending_prefetch'),
+                        Date.now(),
+                        'pending_prefetch'
+                    ),
+                    Date.now()
+                );
+                emitCopyTradeTimingAudit('pending_prefetch_enqueued', timing, {
+                    chainId,
+                    txHash: txHash.slice(0, 12),
+                    wallet: targetWallet.slice(0, 10),
+                    dex: swap.dexName || null
+                });
 
                 await markPendingPredecodedSwap(chainId, txHash, targetWallet, swap, start).catch(() => { });
                 const ctx = buildSwapExecutionContext({
@@ -134,7 +154,7 @@ async function warmConfirmedSwapFromPending(
                     decodedSwap: swap,
                     chainId,
                     targetWallet,
-                    detectedAt: start
+                    detectedAt: timing.dispatchEligibleAt || timing.swapReadyAt || start
                 });
                 await putContext(ctx).catch(() => { });
                 await recordSuccessSample({
@@ -154,12 +174,17 @@ async function warmConfirmedSwapFromPending(
                     })
                 }).catch(() => { });
                 const { enqueueCopyTradeTask } = await import('./copyTradeQueue.js');
-                enqueueCopyTradeTask(targetWallet, swap, chainId, { detectedAt: start });
+                enqueueCopyTradeTask(targetWallet, swap, chainId, {
+                    detectedAt: timing.dispatchEligibleAt || timing.swapReadyAt || start,
+                    timing
+                });
                 await markCopyTradeTxState(chainId, txHash, 'swap_decoded', {
                     source: 'pending_prefetch',
                     wallet: targetWallet,
                     dex: swap.dexName,
-                    prepareMs: Date.now() - start
+                    prepareMs: Date.now() - start,
+                    dispatchEligibleAt: timing.dispatchEligibleAt || null,
+                    firstSeenAt: timing.firstSeenAt || null
                 }).catch(() => { });
                 logger.info(LogCode.SYS_INFO, '[CopyTradePending] Prefetched confirmed swap from pending path', {
                     chainId,
