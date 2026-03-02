@@ -6,13 +6,12 @@
 
 import React, { useEffect, useState } from 'react';
 import { usePrivy, useSessionSigners } from '@privy-io/react-auth';
-import type { WalletWithMetadata } from '@privy-io/react-auth';
 import { ShieldCheck, AlertTriangle, Loader2, X } from 'lucide-react';
 import { AutoTradingConfirmModal } from './AutoTradingConfirmModal';
 import styles from './AuthorizationPromptModal.module.css';
 import { getBillingConsent, grantBillingConsent } from '../../services/billingApi';
-
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8001';
+import { usePrivyEmbeddedWallets } from '../../hooks/usePrivyEmbeddedWallets';
+import { getPrivyAuthorizationConfig } from '../../services/privyAuthConfig';
 const DISMISSED_KEY = 'kiko_billing_consent_dismissed';
 
 export const BillingConsentPromptModal: React.FC = () => {
@@ -22,15 +21,10 @@ export const BillingConsentPromptModal: React.FC = () => {
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [authKeyId, setAuthKeyId] = useState<string | null>(null);
+  const [policyId, setPolicyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [hasConsent, setHasConsent] = useState(false);
-
-  const evmWallet = user?.linkedAccounts?.find(
-    (account): account is WalletWithMetadata =>
-      account.type === 'wallet' &&
-      account.walletClientType === 'privy' &&
-      account.chainType === 'ethereum'
-  );
+  const { evmWallet } = usePrivyEmbeddedWallets();
 
   const evmNeedsAuth = evmWallet && !('delegated' in evmWallet && evmWallet.delegated);
 
@@ -38,11 +32,9 @@ export const BillingConsentPromptModal: React.FC = () => {
     if (!authenticated) return;
     const fetchAuthKeyId = async () => {
       try {
-        const response = await fetch(`${API_URL}/api/config/auth-key-id`);
-        if (response.ok) {
-          const data = await response.json();
-          setAuthKeyId(data.authKeyId);
-        }
+        const data = await getPrivyAuthorizationConfig();
+        setAuthKeyId(data.authKeyId);
+        setPolicyId(data.policies.billing.ethereum || data.policies.autoTrading.ethereum || null);
       } catch (error) {
         if (import.meta.env.DEV) {
           console.error('Failed to fetch auth key ID:', error);
@@ -103,7 +95,7 @@ export const BillingConsentPromptModal: React.FC = () => {
   };
 
   const handleConfirmAuthorize = async () => {
-    if (!authKeyId || !evmWallet?.address) {
+    if (!authKeyId || !policyId || !evmWallet?.address) {
       setError('Authorization configuration unavailable.');
       return;
     }
@@ -113,7 +105,7 @@ export const BillingConsentPromptModal: React.FC = () => {
     try {
       await addSessionSigners({
         address: evmWallet.address,
-        signers: [{ signerId: authKeyId, policyIds: [] }]
+        signers: [{ signerId: authKeyId, policyIds: [policyId] }]
       });
       await grantBillingConsent('prompt');
       setHasConsent(true);

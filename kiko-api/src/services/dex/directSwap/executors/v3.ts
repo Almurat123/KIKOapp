@@ -381,6 +381,7 @@ export async function executeV3Swap(
   return {
     success: true,
     txHash,
+    amountOut: baseOut.toString(),
     txLifecycle,
     runtimeContext: params.runtimeContext,
     provider: dex === 'pancake' ? 'pancake-v3' : 'uniswap-v3',

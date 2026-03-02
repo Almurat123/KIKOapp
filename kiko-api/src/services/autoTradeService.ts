@@ -8,7 +8,7 @@ import prisma, { withRetry } from '../db/prisma.js';
 import { DecodedSwap } from './txDecoder.js';
 import { onSwapDetected } from './watcherService.js';
 import { enqueueCopyTradeTask } from './copyTradeQueue.js';
-import { MainSwapService, type DirectSwapHint, type MainSwapRequest } from './MainSwapService.js';
+import { MainSwapService, type DirectSwapHint, type MainSwapRequest, type MainSwapResult } from './MainSwapService.js';
 import { detectLaunchpadToken } from './ai/launchpadDetector.js';
 import { zoraSniperService } from './zoraSniperService.js';
 import { fourMemeService } from './fourMemeService.js';
@@ -50,16 +50,9 @@ import {
     type CopyTradeExecutionMode
 } from './copyTradeExecutionMode.js';
 import { preheatSellApprovalForToken } from './sellApprovalPreheater.js';
-import { isP2PlannerEnabled, getP2AllowedChains } from './copytrade/planner/featureFlags.js';
-import { buildExecutionPlan } from './copytrade/planner/pathPlanner.js';
-import type { PlannerInput, ExecutionSide } from './copytrade/planner/types.js';
 import { persistTargetSwapEvent } from './targetWalletTrackingService.js';
-import { buildSwapExecutionContext } from './copytrade/context/contextBuilder.js';
-import { getContextByTxHash, putContext } from './copytrade/context/contextStore.js';
-import type { ContextStoreHit } from './copytrade/context/types.js';
 import {
     buildOrderAuditFields,
-    resolvePositionOpeningStatus
 } from './order-runtime/sinks/persistence.js';
 import type { OrderRuntimeContext } from './order-runtime/types.js';
 import { buildEvmExitPlan } from './copytrade/exit/planner.js';
@@ -69,7 +62,6 @@ import {
     persistSuccessfulExit,
     reconcileNoopExitPosition
 } from './copytrade/exit/persistence.js';
-import { waitForPreheatConfirmation } from './copytrade/preheatConfirmation.js';
 import {
     computeBuyTargetValueSnapshot,
     getMinTargetEffectiveFloorUsd,
@@ -83,7 +75,13 @@ import { evaluateStaticBuyGuards } from './copytrade/guards/evaluator.js';
 import { emitBatchFilterAudit } from './copytrade/guards/batchFilterAudit.js';
 import { resolveBuyGuardPolicy, shouldEnforceBuyGuard } from './copytrade/guards/policy.js';
 import { resolveMaxEntryDeviationBps } from './copytrade/config/entryDeviationPolicy.js';
+import {
+    resolveCopytradeBuyPositionStatus,
+    waitForCopytradeBuyConfirmation
+} from './copytrade/buy/buyConfirmationPolicy.js';
+import { buildCopytradeBuyPlannedArtifact } from './copytrade/buy/plannedExecutionArtifact.js';
 import { shouldAbortCopytradeBuyRetry } from './copytrade/buy/copytradeBuyRetryGuard.js';
+import { collectDirectSwapFeeFromSettlement } from './swap/fee/directSwapFeeCollector.js';
 
 export { getTokenInfo } from './tokenService.js';
 
@@ -361,134 +359,6 @@ function buildDirectSwapHintFromSwap(swap: DecodedSwap): DirectSwapHint | undefi
         preferredDex,
         bypassReferencePrice: true
     };
-}
-
-function inferExecutionSideFromTokens(tokenIn: string, tokenOut: string, chainId: number): ExecutionSide {
-    const chain = getChainConfig(chainId);
-    const stableSet = new Set((chain.stablecoins || []).map((x) => String(x || '').toLowerCase()));
-    const wrappedNative = String(chain.wrappedNativeAddress || '').toLowerCase();
-    const isCashLike = (value: string): boolean => {
-        const v = String(value || '').toLowerCase();
-        return v === 'eth'
-            || v === 'bnb'
-            || v === '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee'
-            || v === wrappedNative
-            || stableSet.has(v);
-    };
-    return isCashLike(tokenIn) && !isCashLike(tokenOut) ? 'buy' : 'sell';
-}
-
-function isSourceReplayEligibleInput(sourceTxInput?: string): boolean {
-    const selector = String(sourceTxInput || '').slice(0, 10).toLowerCase();
-    if (!/^0x[0-9a-f]{8}$/.test(selector)) return false;
-    const knownReplaySelectors = new Set([
-        '0x3593564c', // UR execute
-        '0x24856bc3', // Aerodrome route
-        '0xcae6a6b3', // custom target router path seen in production
-        '0x0f27c5c1', // custom router family
-        '0xd1ee211d', // custom router family
-        '0x2213bc0b', // custom router family
-        '0x784e2685', // custom router family
-        '0x12aa3caf', // 0x transformERC20
-        '0x1fff991f', // 0x allowance-holder swap
-        '0x414bf389', // v4 swap exact in variant
-        '0xc04b8d59', // v4 swap exact in variant
-        '0x7ff36ab5', // v2 swapExactETHForTokens
-        '0x18cbafe5', // v2 swapExactTokensForETH
-        '0x38ed1739', // v2 swapExactTokensForTokens
-        '0x04e45aaf'  // v3 exactInputSingle
-    ]);
-    return knownReplaySelectors.has(selector);
-}
-
-async function buildPlannedExecutionContext(args: {
-    chainId: number;
-    walletAddress: string;
-    tokenIn: string;
-    tokenOut: string;
-    amountIn: string;
-    swap?: DecodedSwap;
-}) {
-    const sourceTxHash = String(args.swap?.txHash || '').toLowerCase();
-    let contextStoreHit: ContextStoreHit = { context: null, source: 'miss' };
-    if (sourceTxHash) {
-        contextStoreHit = await getContextByTxHash(args.chainId, sourceTxHash).catch(() => ({ context: null, source: 'miss' }));
-    }
-    const inlineContext = args.swap?.txHash
-        ? buildSwapExecutionContext({
-            tx: {
-                hash: String(args.swap.txHash),
-                to: String(args.swap.router || ''),
-                input: String(args.swap.sourceTxInput || ''),
-                value: String(args.swap.sourceTxValue || '0')
-            },
-            decodedSwap: args.swap,
-            chainId: args.chainId,
-            targetWallet: undefined
-        })
-        : null;
-    const context = contextStoreHit.context || inlineContext;
-    if (inlineContext && !contextStoreHit.context) {
-        await putContext(inlineContext).catch(() => { });
-    }
-
-    const contextHitSource: 'redis' | 'db' | 'inline' | 'miss' = contextStoreHit.context
-        ? contextStoreHit.source
-        : (inlineContext ? 'inline' : 'miss');
-
-    const executionContext = {
-        sourceTxHash: context?.sourceTxHash || args.swap?.txHash,
-        sourceRouter: context?.sourceRouter || args.swap?.router,
-        sourceTxInput: context?.sourceTxInput || args.swap?.sourceTxInput,
-        sourceTxValue: context?.sourceTxValue || args.swap?.sourceTxValue,
-        sourceTokenIn: context?.tokenIn || args.swap?.tokenIn,
-        sourceTokenOut: context?.tokenOut || args.swap?.tokenOut,
-        sourceAmountIn: context?.amountIn || args.swap?.amountIn,
-        sourceAmountOut: context?.amountOut || args.swap?.amountOut,
-        contextId: contextStoreHit.contextId,
-        contextSnapshot: context || undefined,
-        contextHitSource,
-        strictReplica: false
-    };
-    const sourceInput = context?.sourceTxInput || args.swap?.sourceTxInput;
-    const sourceRouter = context?.sourceRouter || args.swap?.router;
-    const sourceSelector = context?.sourceSelector
-        || (/^0x[0-9a-fA-F]{8}/.test(String(sourceInput || '')) ? String(sourceInput).slice(0, 10).toLowerCase() : undefined);
-    const hasSourceReplayContext = !!sourceInput
-        && !!sourceRouter
-        && isSourceReplayEligibleInput(sourceInput);
-    if (!isP2PlannerEnabled() && !hasSourceReplayContext) {
-        return { executionContext, executionPlan: undefined };
-    }
-    if (!getP2AllowedChains().includes(args.chainId) && !hasSourceReplayContext) {
-        return { executionContext, executionPlan: undefined };
-    }
-    try {
-        const plannerInput: PlannerInput = {
-            chainId: args.chainId,
-            side: inferExecutionSideFromTokens(args.tokenIn, args.tokenOut, args.chainId),
-            tokenIn: args.tokenIn,
-            tokenOut: args.tokenOut,
-            amountIn: args.amountIn,
-            walletAddress: args.walletAddress,
-            sourceWallet: context?.trace?.targetWallet,
-            sourceTxHash: context?.sourceTxHash || args.swap?.txHash,
-            sourceRouter: sourceRouter,
-            sourceSelector,
-            sourceTxInput: sourceInput,
-            sourceTxValue: context?.sourceTxValue || args.swap?.sourceTxValue
-        };
-        const executionPlan = await buildExecutionPlan(plannerInput);
-        return { executionContext, executionPlan };
-    } catch (error: any) {
-        logger.warn(LogCode.SYS_ERROR, '[P2] Planner build failed in autoTradeService', {
-            error: error?.message || String(error),
-            chainId: args.chainId,
-            tokenIn: args.tokenIn,
-            tokenOut: args.tokenOut
-        });
-        return { executionContext, executionPlan: undefined };
-    }
 }
 
 function normalizeFiniteNumber(value: unknown): number | null {
@@ -2118,6 +1988,7 @@ async function processSingleUserBuy(
         let txHash = '';
         let txLifecycleStatus: string | undefined;
         let orderRuntimeContext: any = undefined;
+        let swapMetadata: MainSwapResult['metadata'] | undefined;
 
         if (chainId === 900) {
             // Dynamically fetch Solana wallet from Privy (not from database field)
@@ -2302,6 +2173,13 @@ async function processSingleUserBuy(
 	                    isJudgeEnabledByCopyTradeConfig(config)
 	                        ? env.platformFees.copyTradeAiBps
 	                        : undefined;
+                    const plannedArtifact = await buildCopytradeBuyPlannedArtifact({
+                        chainId,
+                        walletAddress: effectiveConfig.user.walletAddress,
+                        tokenIn: 'ETH',
+                        tokenOut: tokenToBuy,
+                        swap
+                    });
                     let step1Request: MainSwapRequest | undefined;
 
 	                try {
@@ -2313,14 +2191,7 @@ async function processSingleUserBuy(
                     });
                     const fastSwapOverride = userSettings?.fastSwapMode === true; // allow direct on buy when enabled
                     const amountStep1 = baseAmount.toFixed(18);
-                    const plannedStep1 = await buildPlannedExecutionContext({
-                        chainId,
-                        walletAddress: effectiveConfig.user.walletAddress,
-                        tokenIn: 'ETH',
-                        tokenOut: tokenToBuy,
-                        amountIn: amountStep1,
-                        swap
-                    });
+                    const plannedStep1 = await plannedArtifact.getExecutionPlan(amountStep1);
                     step1Request = {
                         userId: effectiveConfig.user.privyDid,
                         walletAddress: effectiveConfig.user.walletAddress,
@@ -2334,10 +2205,10 @@ async function processSingleUserBuy(
                         feeBpsOverride: copyTradeFeeBpsOverride,
                         directSwapHint: buildDirectSwapHintFromSwap(swap),
                         executionContext: {
-                            ...plannedStep1.executionContext,
+                            ...plannedArtifact.executionContextBase,
                             executionStep: 'buy_step_1'
                         },
-                        executionPlan: plannedStep1.executionPlan,
+                        executionPlan: plannedStep1,
                         userSettings: {
                             fastSwapMode: fastSwapOverride || userSettings?.fastSwapMode,
                             copyTradeExecutionMode: executionMode
@@ -2349,6 +2220,7 @@ async function processSingleUserBuy(
                     txHash = result1.txHash!;
                     txLifecycleStatus = result1.txLifecycle?.status || result1.metadata?.txLifecycleStatus;
                     orderRuntimeContext = result1.runtimeContext;
+                    swapMetadata = result1.metadata;
                     logger.info(LogCode.EXE_TX_BROADCAST, '[CopyTradeTiming] buy step 1 success', {
                         userId: effectiveConfig.userId,
                         token: tokenToBuy,
@@ -2436,14 +2308,7 @@ async function processSingleUserBuy(
                             logger.info(LogCode.EXE_TX_BROADCAST, `Buy Step 2: 99% amount, ${slippage2 / 100}% slippage`, { userId: effectiveConfig.userId, eth: amount99.toFixed(6) });
                             const fastSwapOverride = userSettings?.fastSwapMode === true; // allow direct on buy when enabled
                             const amountStep2 = amount99.toFixed(18);
-                            const plannedStep2 = await buildPlannedExecutionContext({
-                                chainId,
-                                walletAddress: effectiveConfig.user.walletAddress,
-                                tokenIn: 'ETH',
-                                tokenOut: tokenToBuy,
-                                amountIn: amountStep2,
-                                swap
-                            });
+                            const plannedStep2 = await plannedArtifact.getExecutionPlan(amountStep2);
                             step2Request = {
                                 userId: effectiveConfig.user.privyDid,
                                 walletAddress: effectiveConfig.user.walletAddress,
@@ -2457,10 +2322,10 @@ async function processSingleUserBuy(
                                 feeBpsOverride: copyTradeFeeBpsOverride,
                                 directSwapHint: buildDirectSwapHintFromSwap(swap),
                                 executionContext: {
-                                    ...plannedStep2.executionContext,
+                                    ...plannedArtifact.executionContextBase,
                                     executionStep: 'buy_step_2'
                                 },
-                                executionPlan: plannedStep2.executionPlan,
+                                executionPlan: plannedStep2,
                                 userSettings: {
                                     fastSwapMode: fastSwapOverride || userSettings?.fastSwapMode,
                                     copyTradeExecutionMode: executionMode
@@ -2471,6 +2336,7 @@ async function processSingleUserBuy(
                             txHash = result2.txHash!;
                             txLifecycleStatus = result2.txLifecycle?.status || result2.metadata?.txLifecycleStatus;
                             orderRuntimeContext = result2.runtimeContext;
+                            swapMetadata = result2.metadata;
                         } catch (buyErr2: any) {
                             logger.warn(LogCode.EXE_TX_REVERTED, 'Buy Step 2 failed, retrying final step...', {
                                 userId: config.userId,
@@ -2503,14 +2369,7 @@ async function processSingleUserBuy(
                                 logger.info(LogCode.EXE_TX_BROADCAST, `Buy Step 3: 98% amount, ${slippage3 / 100}% slippage`, { userId: effectiveConfig.userId, eth: amount98.toFixed(6) });
                                 const fastSwapOverride = userSettings?.fastSwapMode === true; // allow direct on buy when enabled
                                 const amountStep3 = amount98.toFixed(18);
-                                const plannedStep3 = await buildPlannedExecutionContext({
-                                    chainId,
-                                    walletAddress: effectiveConfig.user.walletAddress,
-                                    tokenIn: 'ETH',
-                                    tokenOut: tokenToBuy,
-                                    amountIn: amountStep3,
-                                    swap
-                                });
+                                const plannedStep3 = await plannedArtifact.getExecutionPlan(amountStep3);
                                 const step3Request: MainSwapRequest = {
                                     userId: effectiveConfig.user.privyDid,
                                     walletAddress: effectiveConfig.user.walletAddress,
@@ -2524,10 +2383,10 @@ async function processSingleUserBuy(
                                     feeBpsOverride: copyTradeFeeBpsOverride,
                                     directSwapHint: buildDirectSwapHintFromSwap(swap),
                                     executionContext: {
-                                        ...plannedStep3.executionContext,
+                                        ...plannedArtifact.executionContextBase,
                                         executionStep: 'buy_step_3'
                                     },
-                                    executionPlan: plannedStep3.executionPlan,
+                                    executionPlan: plannedStep3,
                                     userSettings: {
                                         fastSwapMode: fastSwapOverride || userSettings?.fastSwapMode,
                                         copyTradeExecutionMode: executionMode
@@ -2538,6 +2397,7 @@ async function processSingleUserBuy(
                                 txHash = result3.txHash!;
                                 txLifecycleStatus = result3.txLifecycle?.status || result3.metadata?.txLifecycleStatus;
                                 orderRuntimeContext = result3.runtimeContext;
+                                swapMetadata = result3.metadata;
                                 } catch (buyErr3: any) {
                                     logger.error(LogCode.EXE_TX_REVERTED, 'All buy steps failed for token', {
                                         userId: config.userId,
@@ -2573,14 +2433,13 @@ async function processSingleUserBuy(
         }
 
         // Update PENDING position to OPEN with real details
-        const nextPositionStatus = resolvePositionOpeningStatus(orderRuntimeContext, txLifecycleStatus
+        const nextPositionStatus = resolveCopytradeBuyPositionStatus(orderRuntimeContext, txLifecycleStatus
             ? {
                 status: txLifecycleStatus as any,
                 attempts: 1,
                 chainId
             }
             : null);
-        const shouldPromoteToOpen = nextPositionStatus === 'open';
         if (pendingPositionId) {
             await prisma.position.update({
                 where: { id: pendingPositionId },
@@ -2619,13 +2478,41 @@ async function processSingleUserBuy(
             ...buildOrderAuditFields(orderRuntimeContext)
         });
 
-        // Warm sell approval only after buy tx is confirmed to avoid nonce/queue contention.
-        // Turbo: send "Bought" DM only after on-chain confirmation (never on broadcast-only).
+        // Drive all post-buy actions from a single confirmation outcome so fee recovery,
+        // position promotion, notification and preheat stay on the same state boundary.
         setTimeout(() => {
             void (async () => {
                 if (!txHash) return;
-                const confirmed = await waitTxConfirmedForPreheat(chainId, txHash);
-                if (!confirmed) {
+                const confirmation = await waitForCopytradeBuyConfirmation({
+                    chainId,
+                    txHash,
+                    timeoutMs: SELL_PREHEAT_CONFIRM_TIMEOUT_MS,
+                    pollMs: SELL_PREHEAT_CONFIRM_POLL_MS
+                }).catch(() => null);
+                if (!confirmation) {
+                    logger.warn(LogCode.SYS_ERROR, '[CopyTradeBuyConfirm] Confirmation wait failed', {
+                        chainId,
+                        token: tokenToBuy,
+                        txHash
+                    });
+                    return;
+                }
+                if (confirmation.kind === 'confirmed_failed') {
+                    if (pendingPositionId) {
+                        await prisma.position.updateMany({
+                            where: { id: pendingPositionId, status: positionStatusCompat.pendingCreateStatus as any },
+                            data: { status: positionStatusCompat.failedFinalStatus as any }
+                        }).catch((e) => logger.error(LogCode.SYS_ERROR, 'Failed to mark pending buy position as failed', { error: e }));
+                    }
+                    logger.warn(LogCode.EXE_TX_REVERTED, '[CopyTradeBuyConfirm] Buy transaction failed after submission', {
+                        chainId,
+                        token: tokenToBuy,
+                        txHash,
+                        reason: confirmation.reason || 'confirmed_failed'
+                    });
+                    return;
+                }
+                if (confirmation.kind !== 'confirmed_success') {
                     logger.info(LogCode.SYS_INFO, '[SellApprovalPreheat] Skipped: buy tx not confirmed yet', {
                         chainId,
                         token: tokenToBuy,
@@ -2633,21 +2520,47 @@ async function processSingleUserBuy(
                     });
                     return;
                 }
-                // Turbo mode: send success DM only after tx confirmed (avoids "Bought" when tx never landed or reverted).
-                if (turboMode) {
-                    sendNotificationAsync({
-                        userId: config.user.privyDid,
-                        farcasterFid: config.user.farcasterFid,
-                        type: 'TRADE_SUCCESS_BUY',
-                        data: {
-                            tokenSymbol: tokenInfo.symbol,
-                            usdValue: usdAmount.toFixed(2),
-                            targetWallet: targetWallet,
-                            txHash: txHash,
-                            chainId: chainId
-                        }
-                    }, 'copytrade_buy_success_confirmed');
+
+                if (pendingPositionId) {
+                    await prisma.position.updateMany({
+                        where: { id: pendingPositionId, status: positionStatusCompat.pendingCreateStatus as any },
+                        data: { status: 'open' as any, entryTxHash: txHash }
+                    }).catch((e) => logger.error(LogCode.SYS_ERROR, 'Failed to promote pending buy position to open', { error: e }));
                 }
+
+                if (swapMetadata?.directFeeSettlement?.deferred) {
+                    try {
+                        await collectDirectSwapFeeFromSettlement({
+                            userId: effectiveConfig.user.privyDid,
+                            settlement: {
+                                ...swapMetadata.directFeeSettlement,
+                                deferred: false,
+                                reasonCode: 'confirmed_success_recovery'
+                            },
+                            trace: (msg: string) => `[CopyTradeBuyFeeRecovery] ${msg}`
+                        });
+                    } catch (feeErr: any) {
+                        logger.warn(LogCode.SYS_ERROR, 'Deferred direct swap fee recovery failed', {
+                            userId: config.userId,
+                            token: tokenToBuy,
+                            txHash,
+                            error: feeErr?.message || String(feeErr)
+                        });
+                    }
+                }
+
+                sendNotificationAsync({
+                    userId: config.user.privyDid,
+                    farcasterFid: config.user.farcasterFid,
+                    type: 'TRADE_SUCCESS_BUY',
+                    data: {
+                        tokenSymbol: tokenInfo.symbol,
+                        usdValue: usdAmount.toFixed(2),
+                        targetWallet: targetWallet,
+                        txHash: txHash,
+                        chainId: chainId
+                    }
+                }, 'copytrade_buy_success_confirmed');
                 await preheatSellApprovalForToken({
                     userId: effectiveConfig.user.privyDid,
                     walletAddress: effectiveConfig.user.walletAddress,
@@ -2760,25 +2673,8 @@ ${analysis.rawAnalysis}
         }
         // =================================================================
 
-        // =================================================================
-        // 🟣 Send Farcaster Direct Cast (Success)
-        // Turbo: DM is sent only after on-chain confirmation (in setTimeout above), not on broadcast.
-        // =================================================================
-        if (!turboMode && shouldPromoteToOpen) {
-            sendNotificationAsync({
-                userId: config.user.privyDid,
-                farcasterFid: config.user.farcasterFid,
-                type: 'TRADE_SUCCESS_BUY',
-                data: {
-                    tokenSymbol: tokenInfo.symbol,
-                    usdValue: usdAmount.toFixed(2),
-                    targetWallet: targetWallet,
-                    txHash: txHash,
-                    chainId: chainId
-                }
-            }, 'copytrade_buy_success');
-        } else if (!shouldPromoteToOpen) {
-            logger.warn(LogCode.SYS_INFO, 'Buy notification deferred: tx not yet visible on-chain', {
+        if (nextPositionStatus !== 'open') {
+            logger.warn(LogCode.SYS_INFO, 'Buy notification deferred until on-chain confirmation', {
                 userId: config.userId,
                 token: tokenToBuy,
                 txHash,
@@ -3931,12 +3827,3 @@ export const __copyTradeGuardTestHelpers = {
 const SELL_PREHEAT_DELAY_MS = Math.max(0, Number(process.env.COPYTRADE_SELL_APPROVAL_PREHEAT_DELAY_MS || '15000'));
 const SELL_PREHEAT_CONFIRM_TIMEOUT_MS = Math.max(5000, Number(process.env.COPYTRADE_SELL_APPROVAL_PREHEAT_CONFIRM_TIMEOUT_MS || '45000'));
 const SELL_PREHEAT_CONFIRM_POLL_MS = Math.max(500, Number(process.env.COPYTRADE_SELL_APPROVAL_PREHEAT_CONFIRM_POLL_MS || '1200'));
-
-async function waitTxConfirmedForPreheat(chainId: number, txHash: string): Promise<boolean> {
-    return await waitForPreheatConfirmation({
-        chainId,
-        txHash,
-        timeoutMs: SELL_PREHEAT_CONFIRM_TIMEOUT_MS,
-        pollMs: SELL_PREHEAT_CONFIRM_POLL_MS
-    });
-}

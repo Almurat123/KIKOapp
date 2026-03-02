@@ -16,6 +16,48 @@ export interface DirectSwapFeeRequest {
   mode: string;
 }
 
+export interface DirectSwapFeeSettlement {
+  amountIn: string;
+  chainId: number;
+  mode: string;
+  accessToken?: string;
+  feeBpsOverride?: number;
+  normalizedTokenIn: string;
+  normalizedTokenOut: string;
+  amountOutBase?: string;
+  feeContext: FeeContext;
+  deferred: boolean;
+  reasonCode: string;
+}
+
+export function buildDirectSwapFeeSettlement(params: {
+  request: DirectSwapFeeRequest;
+  normalizedTokenIn: string;
+  normalizedTokenOut: string;
+  amountOutBase?: string;
+  feeContext: FeeContext;
+  deferred: boolean;
+  reasonCode: string;
+}): DirectSwapFeeSettlement | null {
+  const fee = getPlatformFee(params.feeContext, params.request.feeBpsOverride);
+  if (fee.bps <= 0 || !isValidEvmAddress(fee.evmRecipient)) {
+    return null;
+  }
+  return {
+    amountIn: params.request.amountIn,
+    chainId: params.request.chainId,
+    mode: params.request.mode,
+    accessToken: params.request.accessToken,
+    feeBpsOverride: params.request.feeBpsOverride,
+    normalizedTokenIn: params.normalizedTokenIn,
+    normalizedTokenOut: params.normalizedTokenOut,
+    amountOutBase: params.amountOutBase,
+    feeContext: params.feeContext,
+    deferred: params.deferred,
+    reasonCode: params.reasonCode
+  };
+}
+
 export async function collectDirectSwapFee(params: {
   request: DirectSwapFeeRequest;
   normalizedTokenIn: string;
@@ -115,5 +157,28 @@ export async function collectDirectSwapFee(params: {
     feeAmount: feeAmount.toString(),
     feeRecipient: fee.evmRecipient,
     authMode: auth.mode
+  });
+}
+
+export async function collectDirectSwapFeeFromSettlement(params: {
+  userId: string;
+  settlement: DirectSwapFeeSettlement;
+  trace: (msg: string) => string;
+}): Promise<void> {
+  const { settlement, trace } = params;
+  await collectDirectSwapFee({
+    request: {
+      userId: params.userId,
+      accessToken: settlement.accessToken,
+      amountIn: settlement.amountIn,
+      chainId: settlement.chainId,
+      feeBpsOverride: settlement.feeBpsOverride,
+      mode: settlement.mode
+    },
+    normalizedTokenIn: settlement.normalizedTokenIn,
+    normalizedTokenOut: settlement.normalizedTokenOut,
+    amountOutBase: settlement.amountOutBase,
+    feeContext: settlement.feeContext,
+    trace
   });
 }

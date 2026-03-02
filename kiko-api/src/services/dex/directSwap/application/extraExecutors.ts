@@ -102,6 +102,7 @@ export async function executeZoraSdkSwap(
     return {
       success: true,
       txHash,
+      amountOut: (quote as any)?.amountOut?.toString?.() || undefined,
       runtimeContext: params.runtimeContext,
       provider: 'zora-sdk',
       poolInfo: {
@@ -244,6 +245,7 @@ export async function executeV3VirtualBridgeSwap(
   return {
     success: true,
     txHash,
+    amountOut: quote.amountOut.toString(),
     runtimeContext: params.runtimeContext,
     provider: 'uniswap-v3',
     poolInfo: {

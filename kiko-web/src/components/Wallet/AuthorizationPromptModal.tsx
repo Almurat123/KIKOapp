@@ -7,12 +7,11 @@
 
 import React, { useState, useEffect } from 'react';
 import { usePrivy, useSessionSigners } from '@privy-io/react-auth';
-import type { WalletWithMetadata } from '@privy-io/react-auth';
 import { ShieldCheck, AlertTriangle, Loader2, X } from 'lucide-react';
 import { AutoTradingConfirmModal } from './AutoTradingConfirmModal';
 import styles from './AuthorizationPromptModal.module.css';
-
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8001';
+import { usePrivyEmbeddedWallets } from '../../hooks/usePrivyEmbeddedWallets';
+import { getPrivyAuthorizationConfig } from '../../services/privyAuthConfig';
 const DISMISSED_KEY = 'kiko_auth_prompt_dismissed';
 
 export const AuthorizationPromptModal: React.FC = () => {
@@ -22,22 +21,10 @@ export const AuthorizationPromptModal: React.FC = () => {
     const [showConfirmModal, setShowConfirmModal] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
     const [authKeyId, setAuthKeyId] = useState<string | null>(null);
+    const [evmPolicyId, setEvmPolicyId] = useState<string | null>(null);
+    const [solPolicyId, setSolPolicyId] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
-
-    // Get embedded wallets
-    const evmWallet = user?.linkedAccounts?.find(
-        (account): account is WalletWithMetadata =>
-            account.type === 'wallet' &&
-            account.walletClientType === 'privy' &&
-            account.chainType === 'ethereum'
-    );
-
-    const solanaWallet = user?.linkedAccounts?.find(
-        (account): account is WalletWithMetadata =>
-            account.type === 'wallet' &&
-            account.walletClientType === 'privy' &&
-            account.chainType === 'solana'
-    );
+    const { evmWallet, solanaWallet } = usePrivyEmbeddedWallets();
 
     // Check if wallets need authorization
     const evmNeedsAuth = evmWallet && !('delegated' in evmWallet && evmWallet.delegated);
@@ -50,11 +37,10 @@ export const AuthorizationPromptModal: React.FC = () => {
 
         const fetchAuthKeyId = async () => {
             try {
-                const response = await fetch(`${API_URL}/api/config/auth-key-id`);
-                if (response.ok) {
-                    const data = await response.json();
-                    setAuthKeyId(data.authKeyId);
-                }
+                const data = await getPrivyAuthorizationConfig();
+                setAuthKeyId(data.authKeyId);
+                setEvmPolicyId(data.policies.autoTrading.ethereum || null);
+                setSolPolicyId(data.policies.autoTrading.solana || null);
             } catch (error) {
                 console.error('Failed to fetch auth key ID:', error);
             }
@@ -120,15 +106,17 @@ export const AuthorizationPromptModal: React.FC = () => {
 
         try {
             if (evmWallet && evmNeedsAuth) {
+                if (!evmPolicyId) throw new Error('Missing EVM auto-trading policy configuration.');
                 await addSessionSigners({
                     address: evmWallet.address,
-                    signers: [{ signerId: authKeyId, policyIds: [] }]
+                    signers: [{ signerId: authKeyId, policyIds: [evmPolicyId] }]
                 });
             }
             if (solanaWallet && solanaNeedsAuth) {
+                if (!solPolicyId) throw new Error('Missing Solana auto-trading policy configuration.');
                 await addSessionSigners({
                     address: solanaWallet.address,
-                    signers: [{ signerId: authKeyId, policyIds: [] }]
+                    signers: [{ signerId: authKeyId, policyIds: [solPolicyId] }]
                 });
             }
             setShowConfirmModal(false);

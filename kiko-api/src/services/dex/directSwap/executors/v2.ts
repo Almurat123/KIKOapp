@@ -119,6 +119,7 @@ export async function executeV2Swap(
   return {
     success: true,
     txHash,
+    amountOut: expectedOut.toString(),
     txLifecycle,
     runtimeContext: params.runtimeContext,
     provider: params.chainId === 56 ? 'pancake-v2' : 'uniswap-v2',

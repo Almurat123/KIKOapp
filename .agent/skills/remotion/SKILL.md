@@ -103,9 +103,82 @@ Serverless environments (Lambda/Cloud Run) lack GPUs. CPU-bound rendering is slo
 
 ---
 
-## 9. Deterministic High-Fidelity Backgrounds (WebGL & Canvas 2D)
-Complex backgrounds (WebGL/Three.js) can be problematic in serverless/headless environments.
-- **WebGL Context Failures**: Headless Chromium often fails to create WebGL contexts (`BindToCurrentSequence failed`). In React 19, this can trigger recursive re-render loops in passive effects (`useEffect`).
-- **Canvas 2D Fallback**: Always provide a high-fidelity Canvas 2D fallback for backgrounds to ensure 100% stability in headless rendering.
-- **Determinism**: Use `useCurrentFrame()` for all animation timing. Synchronize Three.js/Canvas updates with provide frame counts.
-- **Resource Management**: Move heavy resource creation (Geometries, Textures) outside the render loop or into stable `useMemo` hooks with fixed data.
+## 9. ✅ PROVEN RECIPE: Native WebGL / Three.js Parity in Remotion
+
+> This recipe was battle-tested on the Kiko project (March 2026). Follow it exactly to replicate existing Three.js / WebGL React components 1:1 in Remotion video output.
+
+### Step 1: Enable the Correct OpenGL Renderer (CRITICAL)
+
+Without this, Headless Chrome on macOS (Apple Silicon) will crash with `BindToCurrentSequence failed` and trigger a React 19 infinite recursive re-render loop.
+
+```typescript
+// remotion.config.ts
+Config.setChromiumOpenGlRenderer('angle'); // macOS (uses Apple Metal via ANGLE)
+// Config.setChromiumOpenGlRenderer('swangle'); // Linux/CI with no GPU (SwiftShader software renderer)
+```
+
+### Step 2: Import Global CSS in Root.tsx
+
+Without this, Tailwind classes are stripped and the UI layout will look completely wrong.
+
+```tsx
+// src/remotion/Root.tsx
+import '../index.css'; // ← Add this line FIRST
+```
+
+### Step 3: Split One-time Setup from Per-Frame Rendering
+
+This is the pattern that eliminates the React 19 recursion loop. Two separate `useEffect` hooks, never one combined loop.
+
+```tsx
+// ✅ Correct Pattern
+const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
+const sceneRef = useRef<THREE.Scene | null>(null);
+const uniformsRef = useRef<{uTime: {value: number}} | null>(null);
+
+// Effect 1: ONE-TIME setup. Runs once, creates the WebGL context.
+useEffect(() => {
+    if (rendererRef.current) return; // Guard against double-run (StrictMode)
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setPixelRatio(1); // Always 1 for deterministic video output
+    rendererRef.current = renderer;
+    // ... build scene, geometry, shaders ...
+    return () => { renderer.dispose(); rendererRef.current = null; };
+}, []); // Empty deps = truly one-time
+
+// Effect 2: PER-FRAME render. Driven by Remotion's frame clock.
+useEffect(() => {
+    if (!rendererRef.current || !uniformsRef.current) return;
+    const seconds = frame / fps;
+    uniformsRef.current.uTime.value = seconds * ORIGINAL_SPEED_FACTOR;
+    rendererRef.current.render(sceneRef.current!, cameraRef.current!);
+}, [frame, fps]); // Runs every time Remotion advances to a new frame
+```
+
+### Step 4: Replace All Non-Deterministic Time Sources
+
+| ❌ Original (Non-Deterministic) | ✅ Remotion Replacement |
+|---|---|
+| `Date.now() * 0.0001` | `(frame / fps) * 0.0001` |
+| `state.clock.elapsedTime` (R3F `useFrame`) | `frame / fps` |
+| `count += 0.02` per rAF | `(frame / fps) * (fps * 0.02)` |
+| `delta` for decay animations | Remove; set to animated fixed values |
+
+### Step 5: Use Seeded Pseudo-Random for Particle Initialization
+
+`Math.random()` is fine in setup but can differ across render threads. Use a seeded function for true reproducibility:
+
+```ts
+const randomSeed = (s: number) => () => {
+    s = Math.sin(s) * 10000;
+    return s - Math.floor(s);
+};
+const rand = randomSeed(42); // Always use the same seed
+```
+
+### Step 6: Remove Interaction Effects
+
+Mouse hover, pointer events, focus effects — these cannot exist in a headless render. Remove all `addEventListener` calls and interaction-driven uniform updates from `.remotion.tsx` files.
+
+### Known Remaining Issue (Low Priority)
+The `LiquidGlassEffect` canvas may render as a white box because the canvas `width`/`height` are not set from a style-derived pixel size at mount time in a headless environment. Fix by reading dimensions from `useVideoConfig()` instead of `clientWidth`.

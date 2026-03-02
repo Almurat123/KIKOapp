@@ -266,13 +266,36 @@ fastify.get('/health', async (request, reply) => {
 
 // Config endpoint for frontend Session Signers
 fastify.get('/api/config/auth-key-id', async (request, reply) => {
-    const PORT = (process as any).env.PORT || 3001;
     const authKeyId = (process as any).env.PRIVY_AUTHORIZATION_KEY_ID;
     if (!authKeyId) {
         return reply.status(500).send({ error: 'Authorization key not configured' });
     }
+    const autoTradePolicyEthereum =
+        (process as any).env.PRIVY_POLICY_ID_AUTOTRADE_EVM
+        || (process as any).env.PRIVY_POLICY_ID_AUTOTRADE
+        || undefined;
+    const autoTradePolicySolana =
+        (process as any).env.PRIVY_POLICY_ID_AUTOTRADE_SOLANA
+        || (process as any).env.PRIVY_POLICY_ID_SOLANA_AUTOTRADE
+        || (process as any).env.PRIVY_POLICY_ID_AUTOTRADE
+        || undefined;
+    const billingPolicyEthereum =
+        (process as any).env.PRIVY_POLICY_ID_BILLING_EVM
+        || (process as any).env.PRIVY_POLICY_ID_BILLING
+        || undefined;
     // Return the raw cuid2 format ID (Session Signers expect this format)
-    return reply.send({ authKeyId });
+    return reply.send({
+        authKeyId,
+        policies: {
+            autoTrading: {
+                ethereum: autoTradePolicyEthereum,
+                solana: autoTradePolicySolana,
+            },
+            billing: {
+                ethereum: billingPolicyEthereum,
+            }
+        }
+    });
 });
 
 // Register routes

@@ -1,11 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { usePrivy, useSessionSigners } from '@privy-io/react-auth';
-import type { WalletWithMetadata } from '@privy-io/react-auth';
 import { AutoTradingConfirmModal } from './AutoTradingConfirmModal';
 import styles from './SessionSignerButton.module.css';
 import { agentAttrs } from '../../agent/attrs';
-
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8001';
+import { usePrivyEmbeddedWallets } from '../../hooks/usePrivyEmbeddedWallets';
+import { getPrivyAuthorizationConfig } from '../../services/privyAuthConfig';
 
 interface SessionSignerButtonProps {
     chainType: 'ethereum' | 'solana';
@@ -26,20 +25,17 @@ export const SessionSignerButton: React.FC<SessionSignerButtonProps> = ({
     onSuccess,
     onError
 }) => {
-    const { ready, authenticated, user } = usePrivy();
+    const { ready, authenticated } = usePrivy();
     const { addSessionSigners, removeSessionSigners } = useSessionSigners();
     const [isLoading, setIsLoading] = useState(false);
     const [isDelegated, setIsDelegated] = useState(false);
     const [authKeyId, setAuthKeyId] = useState<string | null>(null);
+    const [policyId, setPolicyId] = useState<string | null>(null);
     const [showConfirmModal, setShowConfirmModal] = useState(false);
+    const [configError, setConfigError] = useState<string | null>(null);
+    const { evmWallet, solanaWallet } = usePrivyEmbeddedWallets();
 
-    // 获取用户的嵌入式钱包
-    const embeddedWallet = user?.linkedAccounts?.find(
-        (account): account is WalletWithMetadata =>
-            account.type === 'wallet' &&
-            account.walletClientType === 'privy' &&
-            account.chainType === chainType
-    );
+    const embeddedWallet = chainType === 'ethereum' ? evmWallet : solanaWallet;
 
     // 检查是否已授权
     useEffect(() => {
@@ -54,26 +50,26 @@ export const SessionSignerButton: React.FC<SessionSignerButtonProps> = ({
     useEffect(() => {
         const fetchAuthKeyId = async () => {
             try {
-                const response = await fetch(`${API_URL}/api/config/auth-key-id`);
-                if (response.ok) {
-                    const data = await response.json();
-                    setAuthKeyId(data.authKeyId);
-                }
+                const data = await getPrivyAuthorizationConfig();
+                setAuthKeyId(data.authKeyId);
+                setPolicyId(chainType === 'ethereum' ? (data.policies.autoTrading.ethereum || null) : (data.policies.autoTrading.solana || null));
+                setConfigError(null);
             } catch (error) {
+                setConfigError('Unable to fetch authorization configuration. Please try again later.');
                 if (import.meta.env.DEV) {
                     console.error('Failed to fetch auth key ID:', error);
                 }
             }
         };
         fetchAuthKeyId();
-    }, []);
+    }, [chainType]);
 
     const handleAuthorizeClick = () => {
         setShowConfirmModal(true);
     };
 
     const handleConfirmAuthorize = async () => {
-        if (!embeddedWallet?.address || !authKeyId) return;
+        if (!embeddedWallet?.address || !authKeyId || !policyId) return;
 
         setIsLoading(true);
         try {
@@ -81,7 +77,7 @@ export const SessionSignerButton: React.FC<SessionSignerButtonProps> = ({
                 address: embeddedWallet.address,
                 signers: [{
                     signerId: authKeyId,
-                    policyIds: []
+                    policyIds: [policyId]
                 }]
             });
             setShowConfirmModal(false);
@@ -118,8 +114,7 @@ export const SessionSignerButton: React.FC<SessionSignerButtonProps> = ({
         }
     };
 
-    // 未登录或无钱包时不显示
-    if (!ready || !authenticated || !embeddedWallet) {
+    if (!ready || !authenticated) {
         return null;
     }
 
@@ -135,7 +130,9 @@ export const SessionSignerButton: React.FC<SessionSignerButtonProps> = ({
             </div>
 
             <p className={styles.description}>
-                {isDelegated
+                {!embeddedWallet
+                    ? `No embedded ${chainType === 'ethereum' ? 'EVM' : 'Solana'} wallet detected in current Privy session.`
+                    : isDelegated
                     ? '✅ Server authorized for signing. Copy Trading is active.'
                     : 'Authorize the server to execute Copy Trading transactions on your behalf. You can revoke this at any time.'
                 }
@@ -144,7 +141,7 @@ export const SessionSignerButton: React.FC<SessionSignerButtonProps> = ({
             <button
                 className={`${styles.button} ${isDelegated ? styles.revokeButton : styles.authorizeButton}`}
                 onClick={isDelegated ? handleRevoke : handleAuthorizeClick}
-                disabled={isLoading || !authKeyId}
+                disabled={isLoading || !authKeyId || !policyId || !embeddedWallet}
                 {...(agentId ? agentAttrs({ id: agentId, role: 'toggle', action: 'toggle', page: 'settings', key: `session_signer_${chainType}` }) : {})}
             >
                 {isLoading
@@ -162,9 +159,9 @@ export const SessionSignerButton: React.FC<SessionSignerButtonProps> = ({
                 confirming={isLoading}
             />
 
-            {!authKeyId && (
+            {(configError || !authKeyId || !policyId) && (
                 <p className={styles.error}>
-                    Unable to fetch authorization configuration. Please try again later.
+                    {configError || `Missing ${chainType === 'ethereum' ? 'EVM' : 'Solana'} auto-trading policy configuration.`}
                 </p>
             )}
         </div>

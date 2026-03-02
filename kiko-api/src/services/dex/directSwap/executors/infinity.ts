@@ -244,6 +244,7 @@ export async function executeInfinitySwap(
   return {
     success: true,
     txHash,
+    amountOut: quote.amountOut.toString(),
     txLifecycle,
     runtimeContext: params.runtimeContext,
     provider: 'pancake-infinity',

@@ -1,5 +1,16 @@
 # 3D Integration & WebGL in Remotion
 
+> ✅ **Proven working as of March 2026 (Kiko project)**. See `SKILL.md` Section 9 for the definitive recipe checklist.
+
+## TL;DR — The 4 Non-Negotiable Rules
+
+1. **Set `Config.setChromiumOpenGlRenderer('angle')`** in `remotion.config.ts` or WebGL will fail on macOS.
+2. **Split `useEffect` into TWO**: one for setup (empty deps), one for rendering (deps: `[frame, fps]`).
+3. **Replace every time source** (`Date.now()`, `delta`, `clock.elapsedTime`) with `frame / fps`.
+4. **Use seeded pseudo-random** (`sin(seed)`) instead of `Math.random()` for particle attributes.
+
+---
+
 Integrating 3D elements (via `three.js` and `@react-three/fiber`) into Remotion requires strict adherence to deterministic rendering principles. If a 3D animation relies on real-time clocks (`Date.now()`) or non-deterministic loops (`requestAnimationFrame`), the resulting video will have jitter, flickering, or completely desynced frames.
 
 ## The Golden Rule: `useCurrentFrame()` is your only clock

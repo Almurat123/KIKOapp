@@ -375,6 +375,7 @@ export class SwapExecutor {
         }
 
         const sellReliability = scoreEvmSellReliability({
+            chainId,
             isSellTx,
             waitForConfirmation: params.waitForConfirmation,
             runtimeContext: params.runtimeContext

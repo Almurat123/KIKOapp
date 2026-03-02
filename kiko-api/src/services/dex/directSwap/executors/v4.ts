@@ -417,6 +417,7 @@ export async function executeV4Swap(
   return {
     success: true,
     txHash,
+    amountOut: baseOutWei.toString(),
     txLifecycle,
     runtimeContext: params.runtimeContext,
     provider: 'uniswap-v4',

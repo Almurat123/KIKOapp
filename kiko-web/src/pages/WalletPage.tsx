@@ -14,6 +14,7 @@ import { TransactionList } from '../components/Wallet/TransactionList';
 import { PolymarketOrderCard, PolymarketHistoryItem } from '../components/Wallet/PolymarketSection';
 import { agentAttrs } from '../agent/attrs';
 import styles from './WalletPage.module.css';
+import { usePrivyEmbeddedWallets } from '../hooks/usePrivyEmbeddedWallets';
 
 export default function WalletPage() {
   const navigate = useNavigate(); // Hook for navigation
@@ -24,6 +25,7 @@ export default function WalletPage() {
     getAccessToken, portfolioStats, setOrders, setPendingOrders, error,
     refreshData
   } = useWalletPageData();
+  const { evmWallet, solanaWallet } = usePrivyEmbeddedWallets();
 
   const [isReceiveOpen, setIsReceiveOpen] = useState(false);
   const [isSendOpen, setIsSendOpen] = useState(false);
@@ -35,11 +37,8 @@ export default function WalletPage() {
   const swapScopedHoldings = holdings.filter(h => h.chainId === chainId);
 
   const needsAuthorization = (() => {
-    const linked = (user?.linkedAccounts || []) as any[];
-    const evm = linked.find(a => a.type === 'wallet' && a.walletClientType === 'privy' && a.chainType === 'ethereum');
-    const sol = linked.find(a => a.type === 'wallet' && a.walletClientType === 'privy' && a.chainType === 'solana');
-    const evmNeeds = !!evm && !evm.delegated;
-    const solNeeds = !!sol && !sol.delegated;
+    const evmNeeds = !!evmWallet && !evmWallet.delegated;
+    const solNeeds = !!solanaWallet && !solanaWallet.delegated;
     return evmNeeds || solNeeds;
   })();
 

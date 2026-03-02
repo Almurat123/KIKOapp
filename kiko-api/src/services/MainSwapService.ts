@@ -29,7 +29,11 @@ import { SolanaLaunchpadSwapService } from './solanaLaunchpadSwapService.js';
 import { buildSolanaDirectRequest, executeSolanaDirectLaunchpad } from './solana/direct/router.js';
 import { getTokenInfo } from './tokenService.js';
 import { getPlatformFee, isValidEvmAddress, type FeeContext } from './platformFeeService.js';
-import { collectDirectSwapFee as collectDirectSwapFeeWithAuth } from './swap/fee/directSwapFeeCollector.js';
+import {
+  buildDirectSwapFeeSettlement,
+  collectDirectSwapFee as collectDirectSwapFeeWithAuth,
+  type DirectSwapFeeSettlement
+} from './swap/fee/directSwapFeeCollector.js';
 import { NATIVE_TOKEN_ADDRESS, SOLANA_NATIVE_MINT, isNativeToken } from '../config/tokenRegistry.js';
 import { toWei } from './zeroEx.js';
 import { ethers } from 'ethers';
@@ -198,6 +202,7 @@ export interface MainSwapResult {
     gasUsed?: string;
     launchpad?: string; // Set if launchpad swap
     txLifecycleStatus?: TxLifecycleResult['status'];
+    directFeeSettlement?: DirectSwapFeeSettlement;
   };
 }
 
@@ -1347,6 +1352,22 @@ export class MainSwapService {
         direct_start_at: Date.now()
       };
       const toDirectSuccessResult = (result: Awaited<ReturnType<typeof executeDirectSwap>>): MainSwapResult => {
+        const directFeeSettlement = buildDirectSwapFeeSettlement({
+          request: {
+            userId: request.userId,
+            accessToken: request.accessToken,
+            amountIn: request.amountIn,
+            chainId: request.chainId,
+            feeBpsOverride: request.feeBpsOverride,
+            mode: request.mode
+          },
+          normalizedTokenIn,
+          normalizedTokenOut,
+          amountOutBase: result.amountOut,
+          feeContext,
+          deferred: result.txLifecycle?.status === 'broadcasted_unseen',
+          reasonCode: result.txLifecycle?.status || 'direct_swap_result'
+        });
         return {
           success: true,
           txHash: result.txHash,
@@ -1356,7 +1377,8 @@ export class MainSwapService {
           metadata: {
             provider: result.provider,
             mode: request.mode,
-            txLifecycleStatus: result.txLifecycle?.status
+            txLifecycleStatus: result.txLifecycle?.status,
+            directFeeSettlement: directFeeSettlement || undefined
           }
         };
       };
@@ -1468,6 +1490,22 @@ export class MainSwapService {
                   txHash: acceptedInflight.txHash || directResult.txHash,
                   txLifecycle: acceptedResult.txLifecycle || directResult.txLifecycle
                 };
+                const directFeeSettlement = buildDirectSwapFeeSettlement({
+                  request: {
+                    userId: request.userId,
+                    accessToken: request.accessToken,
+                    amountIn: request.amountIn,
+                    chainId: request.chainId,
+                    feeBpsOverride: request.feeBpsOverride,
+                    mode: request.mode
+                  },
+                  normalizedTokenIn,
+                  normalizedTokenOut,
+                  amountOutBase: adoptedResult.amountOut,
+                  feeContext,
+                  deferred: acceptedInflight.shouldDeferFeeCollection,
+                  reasonCode: acceptedInflight.reasonCode
+                });
                 logger.warn(LogCode.SYS_INFO, trace('Direct swap accepted but still unseen; locking inflight tx and stopping buy retries'), {
                   attempt,
                   txHash: adoptedResult.txHash,
@@ -1502,7 +1540,9 @@ export class MainSwapService {
                     reasonCode: acceptedInflight.reasonCode
                   });
                 }
-                return toDirectSuccessResult(adoptedResult);
+                const successResult = toDirectSuccessResult(adoptedResult);
+                successResult.metadata.directFeeSettlement = directFeeSettlement || undefined;
+                return successResult;
               }
               directTimeoutReason = 'visibility_timeout';
               if (attempt < DIRECT_SWAP_MAX_ATTEMPTS) {

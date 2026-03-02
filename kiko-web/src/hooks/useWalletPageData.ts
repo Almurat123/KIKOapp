@@ -2,7 +2,6 @@ import { useState, useEffect, useMemo, useRef } from 'react';
 import { usePrivy } from '@privy-io/react-auth';
 import { useChain } from '../contexts/ChainContext';
 import { getAddress, type Address } from 'viem';
-import type { WalletWithMetadata } from '@privy-io/react-auth';
 import { formatUsd } from '../utils/format';
 import { getAllChainBalances, getWalletTransactions, type WalletTransaction } from '../services/walletApi';
 import {
@@ -11,6 +10,7 @@ import {
     readImportedSwapTokensFromStorage,
     type ImportedSwapToken
 } from '../utils/importedSwapTokens';
+import { usePrivyEmbeddedWallets } from './usePrivyEmbeddedWallets';
 
 // [Logic]: Define standard TokenHolding interface to ensure type safety.
 // [Ref]: Verified against WalletPage.tsx original implementation.
@@ -97,26 +97,7 @@ export function useWalletPageData() {
     const { currentChain } = useChain();
     const chainId = currentChain.id;
     const isSolana = chainId === 900;
-
-    // [Logic]: Extract Solana wallet from Privy linked accounts.
-    // [Risk]: User might have multiple Solana wallets; currently picking first Privy one.
-    const solanaWallet = useMemo(() => {
-        return user?.linkedAccounts?.find(
-            (account): account is WalletWithMetadata =>
-                account.type === 'wallet' &&
-                account.walletClientType === 'privy' &&
-                account.chainType === 'solana'
-        );
-    }, [user]);
-
-    const evmWallet = useMemo(() => {
-        return user?.linkedAccounts?.find(
-            (account): account is WalletWithMetadata =>
-                account.type === 'wallet' &&
-                account.walletClientType === 'privy' &&
-                account.chainType === 'ethereum'
-        );
-    }, [user]);
+    const { solanaWallet, evmWallet } = usePrivyEmbeddedWallets();
 
     const walletAddress = isSolana ? solanaWallet?.address : (evmWallet?.address || user?.wallet?.address);
 

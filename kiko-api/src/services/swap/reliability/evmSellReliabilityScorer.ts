@@ -1,37 +1,17 @@
 import type { OrderRuntimeContext } from '../../order-runtime/types.js';
+import { resolveEvmApprovalPolicy } from '../capabilities/evmApprovalPolicy.js';
 
 export interface EvmSellReliabilityDecision {
   preferPermit2: boolean;
   allowSignedPermit: boolean;
-  reasonCode?: 'copytrade_exit_explicit_approval_preferred';
-}
-
-function isCopytradeExit(runtimeContext?: OrderRuntimeContext): boolean {
-  return String(runtimeContext?.metadata?.flow || '') === 'copytrade_exit';
+  reasonCode?: 'copytrade_exit_explicit_approval_preferred' | 'bsc_confirmed_sell_explicit_approval_preferred';
 }
 
 export function scoreEvmSellReliability(params: {
+  chainId: number;
   isSellTx: boolean;
   waitForConfirmation?: boolean;
   runtimeContext?: OrderRuntimeContext;
 }): EvmSellReliabilityDecision {
-  if (!params.isSellTx) {
-    return {
-      preferPermit2: true,
-      allowSignedPermit: true
-    };
-  }
-
-  if (params.waitForConfirmation && isCopytradeExit(params.runtimeContext)) {
-    return {
-      preferPermit2: false,
-      allowSignedPermit: false,
-      reasonCode: 'copytrade_exit_explicit_approval_preferred'
-    };
-  }
-
-  return {
-    preferPermit2: true,
-    allowSignedPermit: true
-  };
+  return resolveEvmApprovalPolicy(params);
 }
