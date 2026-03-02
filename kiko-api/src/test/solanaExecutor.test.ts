@@ -34,14 +34,19 @@ function createDeps(overrides: Record<string, unknown> = {}) {
     getLatestBlockhash: async () => ({ blockhash: 'fresh-blockhash', lastValidBlockHeight: 1 }),
     getSignatureStatus: async () => ({ value: { confirmationStatus: 'confirmed', err: null } }),
   };
-  const sent: { userId?: string; tx?: string } = {};
+  const sent: { userId?: string; tx?: string; context?: any } = {};
   const aggregatorCalls: Array<{ aggregator: string; options?: unknown }> = [];
+  const signingContext = {
+    walletId: 'server-wallet-id',
+    address: 'server-wallet',
+    walletSource: 'server',
+    reasonCode: 'SOLANA_SERVER_WALLET_FALLBACK',
+  };
 
   const deps = {
     sent,
     aggregatorCalls,
-    getDelegatedSolanaWallet: async () => null,
-    getServerSolanaWalletAddress: async () => 'server-wallet',
+    getSolanaSigningContext: async () => signingContext,
     getSolanaQuote: async (...args: unknown[]) => {
       aggregatorCalls.push({ aggregator: 'auto', options: args[7] });
       return createQuote({ aggregator: 'jupiter' });
@@ -55,9 +60,10 @@ function createDeps(overrides: Record<string, unknown> = {}) {
       message: { recentBlockhash: 'stale-blockhash' },
       serialize: () => Buffer.from('reserialized-transaction'),
     }),
-    sendSolanaTransaction: async (userId: string, tx: string) => {
+    sendSolanaTransactionWithContext: async (userId: string, tx: string, context: any) => {
       sent.userId = userId;
       sent.tx = tx;
+      sent.context = context;
       return 'signature-123';
     },
     getLatestSolanaBlockhash,
@@ -102,6 +108,8 @@ describe('solanaExecutor execution flow', () => {
     assert.deepEqual(deps.aggregatorCalls, [{ aggregator: 'jupiter', options: { forcePublicApi: true } }]);
     assert.equal(deps.sent.userId, 'user-1');
     assert.ok(typeof deps.sent.tx === 'string' && deps.sent.tx.length > 0);
+    assert.equal(deps.sent.context.walletId, 'server-wallet-id');
+    assert.equal(deps.sent.context.address, 'server-wallet');
   });
 
   test('copyTrade quote gets priority fee before broadcast', async () => {
@@ -150,6 +158,30 @@ describe('solanaExecutor execution flow', () => {
     );
 
     assert.equal(signature, 'signature-123');
+  });
+
+  test('reuses the same signing context for quote build and send', async () => {
+    const deps = createDeps({
+      getSolanaSigningContext: async () => ({
+        walletId: 'delegated-wallet-id',
+        address: 'delegated-wallet-address',
+        walletSource: 'delegated',
+        reasonCode: 'SOLANA_DELEGATED_WALLET_OK',
+      }),
+      getSolanaQuoteFromAggregator: async (_aggregator: string, ...rest: unknown[]) => {
+        assert.equal(rest[4], 'delegated-wallet-address');
+        return createQuote({ aggregator: 'jupiter' });
+      },
+    });
+
+    const signature = await __solanaExecutorTest.executeSolanaSwapWithDeps(
+      { ...baseParams, executionMode: 'turbo' },
+      deps as any
+    );
+
+    assert.equal(signature, 'signature-123');
+    assert.equal(deps.sent.context.walletId, 'delegated-wallet-id');
+    assert.equal(deps.sent.context.address, 'delegated-wallet-address');
   });
 
   test('throws QUOTE_FAILED when no quote is available', async () => {

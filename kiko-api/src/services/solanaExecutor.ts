@@ -1,12 +1,13 @@
 
 import { getSolanaConnection, SOLANA_CONFIG } from '../config/solanaConfig.js';
 import { AppError } from '../middleware/errorHandler.js';
-import { getServerSolanaWalletAddress, sendSolanaTransaction, getDelegatedSolanaWallet } from './privyWallet.js';
+import { getSolanaSigningContext, sendSolanaTransactionWithContext } from './privyWallet.js';
 import { getSolanaQuote, getSolanaQuoteFromAggregator, SolanaAggregator, type SolanaQuote } from './solanaSwap.js';
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
 import { PublicKey, VersionedTransaction } from '@solana/web3.js';
 import { getLatestSolanaBlockhash } from './solana/blockhashProvider.js';
+import type { ResolvedSolanaSigningContext } from './solana/solanaSigningContext.js';
 
 export interface SolanaSwapParams {
     userId: string;
@@ -23,24 +24,22 @@ export interface SolanaSwapParams {
 }
 
 type SolanaExecutorDeps = {
-    getDelegatedSolanaWallet: typeof getDelegatedSolanaWallet;
-    getServerSolanaWalletAddress: typeof getServerSolanaWalletAddress;
+    getSolanaSigningContext: typeof getSolanaSigningContext;
     getSolanaQuote: typeof getSolanaQuote;
     getSolanaQuoteFromAggregator: typeof getSolanaQuoteFromAggregator;
     getSolanaConnection: typeof getSolanaConnection;
     deserializeTransaction: typeof VersionedTransaction.deserialize;
-    sendSolanaTransaction: typeof sendSolanaTransaction;
+    sendSolanaTransactionWithContext: typeof sendSolanaTransactionWithContext;
     getLatestSolanaBlockhash: typeof getLatestSolanaBlockhash;
 };
 
 const defaultSolanaExecutorDeps: SolanaExecutorDeps = {
-    getDelegatedSolanaWallet,
-    getServerSolanaWalletAddress,
+    getSolanaSigningContext,
     getSolanaQuote,
     getSolanaQuoteFromAggregator,
     getSolanaConnection,
     deserializeTransaction: VersionedTransaction.deserialize,
-    sendSolanaTransaction,
+    sendSolanaTransactionWithContext,
     getLatestSolanaBlockhash,
 };
 
@@ -86,15 +85,13 @@ async function executeSolanaSwapWithDeps(
 
     // CRITICAL: Use the SAME wallet for building and signing!
     // Try user's delegated wallet first, fallback to server wallet
-    let walletAddress: string;
-    const delegatedWallet = await deps.getDelegatedSolanaWallet(userId);
-    if (delegatedWallet) {
-        walletAddress = delegatedWallet.address;
-        logger.debug(LogCode.SYS_INFO, 'SolanaExecutor: Using delegated wallet', { address: walletAddress });
-    } else {
-        walletAddress = await deps.getServerSolanaWalletAddress();
-        logger.debug(LogCode.SYS_INFO, 'SolanaExecutor: Using server wallet', { address: walletAddress });
-    }
+    const signingContext = await deps.getSolanaSigningContext(userId);
+    const walletAddress = signingContext.address;
+    logger.debug(LogCode.SYS_INFO, 'SolanaExecutor: Using signing context', {
+        address: walletAddress,
+        walletSource: signingContext.walletSource,
+        reasonCode: signingContext.reasonCode,
+    });
 
     logger.info(LogCode.EXE_TX_BROADCAST, 'SolanaExecutor: Executing Swap', { tokenInMint, tokenOutMint, amountIn });
     const blockhashConnection = deps.getSolanaConnection();
@@ -167,7 +164,7 @@ async function executeSolanaSwapWithDeps(
     // Reserialize to base64
     const freshTransactionBase64 = Buffer.from(transaction.serialize()).toString('base64');
 
-    const signature = await deps.sendSolanaTransaction(userId, freshTransactionBase64);
+    const signature = await deps.sendSolanaTransactionWithContext(userId, freshTransactionBase64, signingContext);
 
     logger.info(LogCode.EXE_TX_BROADCAST, 'SolanaExecutor: Transaction sent', { signature });
 

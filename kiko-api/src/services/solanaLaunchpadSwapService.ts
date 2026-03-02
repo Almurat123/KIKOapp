@@ -13,11 +13,12 @@ import {
     getAssociatedTokenAddress
 } from '../utils/solanaToken.js';
 import { getSolanaConnection } from '../config/solanaConfig.js';
-import { sendSolanaTransaction, getDelegatedSolanaWallet, getServerSolanaWalletAddress } from './privyWallet.js';
+import { getSolanaSigningContext, sendSolanaTransactionWithContext } from './privyWallet.js';
 import { getPlatformFee } from './platformFeeService.js';
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
 import { getLatestSolanaBlockhash } from './solana/blockhashProvider.js';
+import type { ResolvedSolanaSigningContext } from './solana/solanaSigningContext.js';
 
 // Pump.fun Constants
 const PUMP_FUN_PROGRAM_ID = new PublicKey('6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P');
@@ -162,15 +163,8 @@ export class SolanaLaunchpadSwapService {
         const connection = getSolanaConnection();
         const mint = new PublicKey(mintStr);
 
-        // 1. Get Wallet
-        let walletAddress: string;
-        const delegatedWallet = await getDelegatedSolanaWallet(userId);
-        if (delegatedWallet) {
-            walletAddress = delegatedWallet.address;
-        } else {
-            walletAddress = await getServerSolanaWalletAddress();
-        }
-        const userPubkey = new PublicKey(walletAddress);
+        const signingContext = await getSolanaSigningContext(userId);
+        const userPubkey = new PublicKey(signingContext.address);
 
         let amountBI: bigint;
         try {
@@ -208,18 +202,18 @@ export class SolanaLaunchpadSwapService {
 
         let txHash: string;
         if (provider === 'pumpfun') {
-            txHash = await this.executePumpFunSwap(connection, userPubkey, mint, effectiveAmount, isBuy, userId, params.slippageBps || 100);
+            txHash = await this.executePumpFunSwap(connection, userPubkey, mint, effectiveAmount, isBuy, userId, signingContext, params.slippageBps || 100);
         } else if (provider === 'bonkfun') {
             // For Raydium/Bonk.fun, we need mintB (WSOL usually). Assuming paired with SOL.
             const WSOL_MINT = new PublicKey('So11111111111111111111111111111111111111112');
-            txHash = await this.executeRaydiumSwap(connection, userPubkey, mint, WSOL_MINT, effectiveAmount, isBuy, userId, params.slippageBps || 100);
+            txHash = await this.executeRaydiumSwap(connection, userPubkey, mint, WSOL_MINT, effectiveAmount, isBuy, userId, signingContext, params.slippageBps || 100);
         } else {
             throw new Error(`Unsupported launchpad provider: ${provider}`);
         }
 
         if (isBuy && feeRecipient && feeAmount > 0n) {
             try {
-                const feeTxHash = await this.sendSolFeeTransfer(connection, userPubkey, feeRecipient, feeAmount, userId);
+                const feeTxHash = await this.sendSolFeeTransfer(connection, userPubkey, feeRecipient, feeAmount, userId, signingContext);
                 logger.info(LogCode.EXE_TX_CONFIRMED, 'Solana launchpad fee sent', {
                     provider,
                     feeAmount: feeAmount.toString(),
@@ -242,7 +236,8 @@ export class SolanaLaunchpadSwapService {
         payer: PublicKey,
         recipient: PublicKey,
         amountLamports: bigint,
-        userId: string
+        userId: string,
+        signingContext: ResolvedSolanaSigningContext
     ): Promise<string> {
         const transferIx = SystemProgram.transfer({
             fromPubkey: payer,
@@ -259,7 +254,7 @@ export class SolanaLaunchpadSwapService {
 
         const transaction = new VersionedTransaction(messageV0);
         const serializedTx = Buffer.from(transaction.serialize()).toString('base64');
-        return sendSolanaTransaction(userId, serializedTx);
+        return sendSolanaTransactionWithContext(userId, serializedTx, signingContext);
     }
 
     /**
@@ -272,6 +267,7 @@ export class SolanaLaunchpadSwapService {
         amount: string,
         isBuy: boolean,
         userId: string,
+        signingContext: ResolvedSolanaSigningContext,
         slippageBps: number
     ): Promise<string> {
         const bondingCurve = this.getBondingCurvePDA(mint);
@@ -370,7 +366,7 @@ export class SolanaLaunchpadSwapService {
         const transaction = new VersionedTransaction(messageV0);
         const serializedTx = Buffer.from(transaction.serialize()).toString('base64');
 
-        return sendSolanaTransaction(userId, serializedTx);
+        return sendSolanaTransactionWithContext(userId, serializedTx, signingContext);
     }
 
     private async executeRaydiumSwap(
@@ -381,6 +377,7 @@ export class SolanaLaunchpadSwapService {
         amount: string,
         isBuy: boolean,
         userId: string,
+        signingContext: ResolvedSolanaSigningContext,
         slippageBps: number
     ): Promise<string> {
         const poolId = this.getRaydiumPoolPDA(mintA, mintB);
@@ -516,7 +513,7 @@ export class SolanaLaunchpadSwapService {
         const transaction = new VersionedTransaction(messageV0);
         const serializedTx = Buffer.from(transaction.serialize()).toString('base64');
 
-        return sendSolanaTransaction(userId, serializedTx);
+        return sendSolanaTransactionWithContext(userId, serializedTx, signingContext);
     }
 
     private toBuffer(value: bigint, length: number): Buffer {

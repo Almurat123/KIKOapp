@@ -54,6 +54,7 @@ import { logOrderRuntimeSnapshot } from './order-runtime/sinks/logger.js';
 import { inferOrderReasonCode } from './order-runtime/reasonCodes.js';
 import { resolveTxFinalState } from './order-runtime/adjudicator/finalState.js';
 import { describeVisibilityFailure, shouldPassVisibilityGate } from './rpc/visibilityPolicy.js';
+import { evaluateCopytradeBuyAcceptedInflight } from './copytrade/buy/copytradeBuyAcceptedInflight.js';
 import type { ExecutionPlanV1, ReplayDriftDiagnosis, ReplayPrecheckResult } from './copytrade/planner/types.js';
 import { isP2ExecutorEnabled, isP2SampleLearningEnabled, isP2ShadowRunEnabled } from './copytrade/planner/featureFlags.js';
 import {
@@ -1453,6 +1454,56 @@ export class MainSwapService {
               : await enforceVisibilityGate(directResult, `attempt_${attempt}`);
             lastDirectResult = acceptedResult;
             if (!acceptedResult.success) {
+              const acceptedInflight = evaluateCopytradeBuyAcceptedInflight({
+                mode: request.mode,
+                isBuyDirection,
+                chainId: request.chainId,
+                txHash: acceptedResult.txHash,
+                runtimeContext: request.runtimeContext,
+                lifecycle: acceptedResult.txLifecycle || null
+              });
+              if (acceptedInflight.adoptAcceptedTx) {
+                const adoptedResult = {
+                  ...directResult,
+                  txHash: acceptedInflight.txHash || directResult.txHash,
+                  txLifecycle: acceptedResult.txLifecycle || directResult.txLifecycle
+                };
+                logger.warn(LogCode.SYS_INFO, trace('Direct swap accepted but still unseen; locking inflight tx and stopping buy retries'), {
+                  attempt,
+                  txHash: adoptedResult.txHash,
+                  reasonCode: acceptedInflight.reasonCode,
+                  deferFeeCollection: acceptedInflight.shouldDeferFeeCollection
+                });
+                if (!acceptedInflight.shouldDeferFeeCollection) {
+                  const runFeeCollection = async () => {
+                    try {
+                      await this.collectDirectSwapFee(
+                        request,
+                        normalizedTokenIn,
+                        normalizedTokenOut,
+                        adoptedResult.amountOut,
+                        feeContext,
+                        trace
+                      );
+                    } catch (feeErr: any) {
+                      logger.warn(LogCode.SYS_ERROR, trace('Direct swap fee transfer failed (non-fatal)'), {
+                        error: feeErr?.message || String(feeErr)
+                      });
+                    }
+                  };
+                  if (isTurboCopytrade) {
+                    void runFeeCollection();
+                  } else {
+                    await runFeeCollection();
+                  }
+                } else {
+                  logger.warn(LogCode.SYS_INFO, trace('Direct swap fee deferred until tx visibility improves'), {
+                    txHash: adoptedResult.txHash,
+                    reasonCode: acceptedInflight.reasonCode
+                  });
+                }
+                return toDirectSuccessResult(adoptedResult);
+              }
               directTimeoutReason = 'visibility_timeout';
               if (attempt < DIRECT_SWAP_MAX_ATTEMPTS) {
                 logger.warn(LogCode.SYS_INFO, trace('Direct swap visibility gate failed, retrying next attempt'), {
@@ -1647,6 +1698,34 @@ export class MainSwapService {
             }
           }
         }
+      }
+
+      const acceptedBeforeFallback = evaluateCopytradeBuyAcceptedInflight({
+        mode: request.mode,
+        isBuyDirection,
+        chainId: request.chainId,
+        txHash: runtimeAcceptedDirectTxHash(),
+        runtimeContext: request.runtimeContext,
+        lifecycle: lastDirectResult?.txLifecycle || null
+      });
+      if (acceptedBeforeFallback.adoptAcceptedTx && runtimeAcceptedDirectTxHash()) {
+        logger.warn(LogCode.SYS_INFO, trace('Direct swap has accepted buy evidence before fallback; locking tx and skipping fallback path'), {
+          txHash: acceptedBeforeFallback.txHash,
+          reasonCode: acceptedBeforeFallback.reasonCode,
+          deferFeeCollection: acceptedBeforeFallback.shouldDeferFeeCollection
+        });
+        return {
+          success: true,
+          txHash: acceptedBeforeFallback.txHash,
+          amountOut: lastDirectResult?.amountOut,
+          txLifecycle: lastDirectResult?.txLifecycle,
+          runtimeContext: request.runtimeContext,
+          metadata: {
+            provider: lastDirectResult?.provider || 'direct-swap',
+            mode: request.mode,
+            txLifecycleStatus: lastDirectResult?.txLifecycle?.status
+          }
+        };
       }
 
       const routeMs = directTraceState.first_send_at

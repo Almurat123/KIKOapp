@@ -5,6 +5,7 @@ Config.setVideoImageFormat('jpeg');
 Config.setOverwriteOutput(true);
 Config.setCodec('h264');
 Config.setCrf(18);
+Config.setChromiumOpenGlRenderer('angle'); // Force WebGL GPU acceleration
 
 Config.overrideWebpackConfig((config) => {
     return {

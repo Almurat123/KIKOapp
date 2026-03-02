@@ -8,7 +8,7 @@ import prisma, { withRetry } from '../db/prisma.js';
 import { DecodedSwap } from './txDecoder.js';
 import { onSwapDetected } from './watcherService.js';
 import { enqueueCopyTradeTask } from './copyTradeQueue.js';
-import { MainSwapService, type DirectSwapHint } from './MainSwapService.js';
+import { MainSwapService, type DirectSwapHint, type MainSwapRequest } from './MainSwapService.js';
 import { detectLaunchpadToken } from './ai/launchpadDetector.js';
 import { zoraSniperService } from './zoraSniperService.js';
 import { fourMemeService } from './fourMemeService.js';
@@ -83,6 +83,7 @@ import { evaluateStaticBuyGuards } from './copytrade/guards/evaluator.js';
 import { emitBatchFilterAudit } from './copytrade/guards/batchFilterAudit.js';
 import { resolveBuyGuardPolicy, shouldEnforceBuyGuard } from './copytrade/guards/policy.js';
 import { resolveMaxEntryDeviationBps } from './copytrade/config/entryDeviationPolicy.js';
+import { shouldAbortCopytradeBuyRetry } from './copytrade/buy/copytradeBuyRetryGuard.js';
 
 export { getTokenInfo } from './tokenService.js';
 
@@ -1530,6 +1531,7 @@ async function processBuyWithInfo(
 
             // 📊 Optional: Re-check price after high-impact batches
             if (impactRatio > 0.05 && i + dynamicBatchSize * 2 < sortedConfigs.length) {
+                let step1Request: MainSwapRequest | undefined;
                 try {
                     const freshInfo = tokenInfoCache
                         ? await getTokenInfoOnce(tokenInfoCache, tokenToBuy, chainId, { forceRefresh: true, priority: 'high', rpcStrategy: 'fast' })
@@ -2296,12 +2298,13 @@ async function processSingleUserBuy(
                 const timingDetectedAt = Date.now();
                 // Use universal global slippage
                 const baseSlippage = effectiveConfig.maxSlippageBps;
-                const copyTradeFeeBpsOverride =
-                    isJudgeEnabledByCopyTradeConfig(config)
-                        ? env.platformFees.copyTradeAiBps
-                        : undefined;
+	                const copyTradeFeeBpsOverride =
+	                    isJudgeEnabledByCopyTradeConfig(config)
+	                        ? env.platformFees.copyTradeAiBps
+	                        : undefined;
+                    let step1Request: MainSwapRequest | undefined;
 
-                try {
+	                try {
                     // Step 1: Try with 100% amount, user's base slippage (default 15%)
                     logger.info(LogCode.EXE_TX_BROADCAST, `Buy Step 1: 100% amount, ${baseSlippage / 100}% slippage`, {
                         userId: effectiveConfig.userId,
@@ -2318,7 +2321,7 @@ async function processSingleUserBuy(
                         amountIn: amountStep1,
                         swap
                     });
-                    const result1 = await MainSwapService.executeSwap({
+                    step1Request = {
                         userId: effectiveConfig.user.privyDid,
                         walletAddress: effectiveConfig.user.walletAddress,
                         tokenIn: 'ETH',
@@ -2340,7 +2343,8 @@ async function processSingleUserBuy(
                             copyTradeExecutionMode: executionMode
                         },
                         preWarmedNonce: getPendingNonce(chainId, effectiveConfig.user.walletAddress)
-                    });
+                    };
+                    const result1 = await MainSwapService.executeSwap(step1Request);
                     if (!result1.success) throw new Error(result1.error);
                     txHash = result1.txHash!;
                     txLifecycleStatus = result1.txLifecycle?.status || result1.metadata?.txLifecycleStatus;
@@ -2361,7 +2365,21 @@ async function processSingleUserBuy(
                         chainId,
                         token: tokenToBuy
                     });
-                    if (turboMode) {
+                    const step1RetryDecision = shouldAbortCopytradeBuyRetry({
+                        chainId,
+                        runtimeContext: step1Request?.runtimeContext
+                    });
+                    if (step1RetryDecision.shouldAbortRetry && step1RetryDecision.txHash) {
+                        orderRuntimeContext = step1Request?.runtimeContext;
+                        txHash = step1RetryDecision.txHash;
+                        txLifecycleStatus = orderRuntimeContext?.lastLifecycle?.status || 'broadcasted_unseen';
+                        logger.warn(LogCode.SYS_INFO, 'Accepted buy tx already exists after Step 1 failure; aborting further buy retries', {
+                            userId: config.userId,
+                            token: tokenToBuy,
+                            txHash,
+                            reasonCode: step1RetryDecision.reasonCode
+                        });
+                    } else if (turboMode) {
                         // MainSwapService already did 2 direct attempts (1st + 光速 2nd, cache hot); no 120ms + second executeSwap here
                         logger.warn(LogCode.EXE_TX_REVERTED, 'Turbo mode: skip slow multi-step retries after step1 failure', {
                             userId: config.userId,
@@ -2408,6 +2426,7 @@ async function processSingleUserBuy(
                         logger.info(LogCode.EXE_TX_BROADCAST, 'Aggressive Mode: Initiating retry sequence...', { userId: config.userId });
                         await new Promise(resolve => setTimeout(resolve, 500)); // 🚀 Optimized: 1000ms → 500ms
 
+                        let step2Request: MainSwapRequest | undefined;
                         try {
                             // Step 2: Try with 99% amount + 1.25x slippage
                             // NOTE: We intentionally do NOT re-run Price Deviation Check here.
@@ -2425,7 +2444,7 @@ async function processSingleUserBuy(
                                 amountIn: amountStep2,
                                 swap
                             });
-                            const result2 = await MainSwapService.executeSwap({
+                            step2Request = {
                                 userId: effectiveConfig.user.privyDid,
                                 walletAddress: effectiveConfig.user.walletAddress,
                                 tokenIn: 'ETH',
@@ -2446,7 +2465,8 @@ async function processSingleUserBuy(
                                     fastSwapMode: fastSwapOverride || userSettings?.fastSwapMode,
                                     copyTradeExecutionMode: executionMode
                                 }
-                            });
+                            };
+                            const result2 = await MainSwapService.executeSwap(step2Request);
                             if (!result2.success) throw new Error(result2.error);
                             txHash = result2.txHash!;
                             txLifecycleStatus = result2.txLifecycle?.status || result2.metadata?.txLifecycleStatus;
@@ -2459,9 +2479,24 @@ async function processSingleUserBuy(
                                 chainId,
                                 token: tokenToBuy
                             });
-                            await new Promise(resolve => setTimeout(resolve, 500)); // 🚀 Optimized: 1000ms → 500ms
+                            const step2RetryDecision = shouldAbortCopytradeBuyRetry({
+                                chainId,
+                                runtimeContext: step2Request?.runtimeContext
+                            });
+                            if (step2RetryDecision.shouldAbortRetry && step2RetryDecision.txHash) {
+                                orderRuntimeContext = step2Request?.runtimeContext;
+                                txHash = step2RetryDecision.txHash;
+                                txLifecycleStatus = orderRuntimeContext?.lastLifecycle?.status || 'broadcasted_unseen';
+                                logger.warn(LogCode.SYS_INFO, 'Accepted buy tx already exists after Step 2 failure; aborting final buy retry', {
+                                    userId: config.userId,
+                                    token: tokenToBuy,
+                                    txHash,
+                                    reasonCode: step2RetryDecision.reasonCode
+                                });
+                            } else {
+                                await new Promise(resolve => setTimeout(resolve, 500)); // 🚀 Optimized: 1000ms → 500ms
 
-                            try {
+                                try {
                                 // Step 3: Final attempt with 98% amount + 1.5x slippage
                                 const amount98 = baseAmount * 0.98;
                                 const slippage3 = Math.min(Math.floor(baseSlippage * 1.5), 2500); // Max 25% or 1.5x user setting
@@ -2476,7 +2511,7 @@ async function processSingleUserBuy(
                                     amountIn: amountStep3,
                                     swap
                                 });
-                                const result3 = await MainSwapService.executeSwap({
+                                const step3Request: MainSwapRequest = {
                                     userId: effectiveConfig.user.privyDid,
                                     walletAddress: effectiveConfig.user.walletAddress,
                                     tokenIn: 'ETH',
@@ -2497,22 +2532,24 @@ async function processSingleUserBuy(
                                         fastSwapMode: fastSwapOverride || userSettings?.fastSwapMode,
                                         copyTradeExecutionMode: executionMode
                                     }
-                                });
+                                };
+                                const result3 = await MainSwapService.executeSwap(step3Request);
                                 if (!result3.success) throw new Error(result3.error);
                                 txHash = result3.txHash!;
                                 txLifecycleStatus = result3.txLifecycle?.status || result3.metadata?.txLifecycleStatus;
                                 orderRuntimeContext = result3.runtimeContext;
-                            } catch (buyErr3: any) {
-                                logger.error(LogCode.EXE_TX_REVERTED, 'All buy steps failed for token', {
-                                    userId: config.userId,
-                                    token: tokenToBuy,
-                                    error: compactCopyTradeError(buyErr3),
-                                    bugHint: inferCopyTradeBugHint(buyErr3),
-                                    chainId
-                                });
-                                return; // Skip to next config
+                                } catch (buyErr3: any) {
+                                    logger.error(LogCode.EXE_TX_REVERTED, 'All buy steps failed for token', {
+                                        userId: config.userId,
+                                        token: tokenToBuy,
+                                        error: compactCopyTradeError(buyErr3),
+                                        bugHint: inferCopyTradeBugHint(buyErr3),
+                                        chainId
+                                    });
+                                    return; // Skip to next config
                                 }
                             }
+                        }
                         }
                     }
                 }

@@ -1,4 +1,5 @@
 import { Composition, registerRoot } from 'remotion';
+import '../index.css'; // Add global Tailwind styles
 import { MyVideo } from './MyVideo.tsx';
 
 export const RemotionRoot = () => {

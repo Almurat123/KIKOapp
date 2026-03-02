@@ -43,7 +43,8 @@ import { inferOrderReasonCode } from './order-runtime/reasonCodes.js';
 import { bindOrderToTxHash, reportRpcUncertain, reportSendAccepted } from './order-runtime/adjudicator/service.js';
 import { shouldRetryAfterBroadcastUnseen } from './rpc/visibilityPolicy.js';
 import { resolveSolanaWalletRecord } from './solana/solanaWalletResolver.js';
-import { sendSolanaTransactionWithDeps } from './solana/solanaPrivySender.js';
+import { sendSolanaTransactionWithContextDeps } from './solana/solanaPrivySender.js';
+import { resolveSolanaSigningContext, type ResolvedSolanaSigningContext } from './solana/solanaSigningContext.js';
 
 // Initialize Privy client
 const PRIVY_APP_ID = process.env.VITE_PRIVY_APP_ID || process.env.PRIVY_APP_ID || '';
@@ -1765,10 +1766,23 @@ export async function sendSolanaTransaction(
     userId: string,
     transactionBase64: string // Base64 encoded transaction from Jupiter
 ): Promise<string> {
-    const client = getPrivyClient();
-    return sendSolanaTransactionWithDeps(userId, transactionBase64, {
+    return sendSolanaTransactionWithContext(userId, transactionBase64, await getSolanaSigningContext(userId));
+}
+
+export async function getSolanaSigningContext(userId: string): Promise<ResolvedSolanaSigningContext> {
+    return resolveSolanaSigningContext(userId, {
         getDelegatedWallet: (targetUserId) => getDelegatedSolanaWallet(targetUserId),
         getServerWallet: () => getOrCreateServerSolanaWallet(),
+    });
+}
+
+export async function sendSolanaTransactionWithContext(
+    userId: string,
+    transactionBase64: string,
+    signingContext: ResolvedSolanaSigningContext
+): Promise<string> {
+    const client = getPrivyClient();
+    return sendSolanaTransactionWithContextDeps(userId, transactionBase64, signingContext, {
         deserializeTransaction: VersionedTransaction.deserialize,
         signAndSendTransaction: (params) => client.walletApi.solana.signAndSendTransaction(params),
     });

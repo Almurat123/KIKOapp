@@ -3,7 +3,7 @@ import { SOLANA_CONFIG, getSolanaConnection } from '../../../config/solanaConfig
 import { logger } from '../../../utils/logger.js';
 import { LogCode } from '../../../config/logRegistry.js';
 import { getPlatformFee } from '../../platformFeeService.js';
-import { sendSolanaTransaction, getDelegatedSolanaWallet, getServerSolanaWalletAddress } from '../../privyWallet.js';
+import { getSolanaSigningContext, sendSolanaTransactionWithContext } from '../../privyWallet.js';
 import { getLatestSolanaBlockhash } from '../blockhashProvider.js';
 import {
   ASSOCIATED_TOKEN_PROGRAM_ID,
@@ -11,6 +11,7 @@ import {
   TOKEN_PROGRAM_ID,
 } from '../../../utils/solanaToken.js';
 import type { SolDirectExecutionRequest, SolDirectExecutionResult } from './types.js';
+import type { ResolvedSolanaSigningContext } from '../solanaSigningContext.js';
 
 const PUMPFUN_PROGRAM_ID = new PublicKey(SOLANA_CONFIG.PROGRAMS.PUMP_FUN);
 const PUMP_SWAP_PROGRAM_ID = new PublicKey(SOLANA_CONFIG.PROGRAMS.PUMP_SWAP);
@@ -83,12 +84,8 @@ function createCloseAccountInstruction(
   });
 }
 
-async function getWalletPubkey(userId: string): Promise<PublicKey> {
-  const delegatedWallet = await getDelegatedSolanaWallet(userId);
-  if (delegatedWallet?.address) {
-    return new PublicKey(delegatedWallet.address);
-  }
-  return new PublicKey(await getServerSolanaWalletAddress());
+async function getWalletSigningContext(userId: string): Promise<ResolvedSolanaSigningContext> {
+  return getSolanaSigningContext(userId);
 }
 
 async function getMintProgramId(connection: Connection, mint: PublicKey): Promise<PublicKey> {
@@ -234,7 +231,8 @@ export async function executePumpSwapDirect(
     const connection = getSolanaConnection('fast', 'critical');
     const mint = new PublicKey(request.mint);
     const creator = new PublicKey(creatorAddress);
-    const user = await getWalletPubkey(request.userId);
+    const signingContext = await getWalletSigningContext(request.userId);
+    const user = new PublicKey(signingContext.address);
     const baseProgramId = await getMintProgramId(connection, mint);
     const pool = derivePoolPda(mint);
     const poolInfo = await connection.getAccountInfo(pool, 'confirmed');
@@ -388,7 +386,7 @@ export async function executePumpSwapDirect(
 
     const transaction = new VersionedTransaction(messageV0);
     const serializedTx = Buffer.from(transaction.serialize()).toString('base64');
-    const txHash = await sendSolanaTransaction(request.userId, serializedTx);
+    const txHash = await sendSolanaTransactionWithContext(request.userId, serializedTx, signingContext);
 
     logger.info(LogCode.EXE_TX_BROADCAST, '[PumpSwapDirect] Transaction sent', {
       txHash,
