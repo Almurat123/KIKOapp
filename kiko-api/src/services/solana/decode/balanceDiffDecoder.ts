@@ -16,7 +16,7 @@ export function decodeSolanaSwapFromBalanceDiff(
     const changes = new Map<string, { delta: bigint; mint: string }>();
 
     const accountIndex = tx.transaction.message.accountKeys.findIndex(
-        (key: any) => key?.pubkey?.toBase58?.() === context.walletAddress || key?.toBase58?.() === context.walletAddress
+        (key: any) => extractAccountKey(key) === context.walletAddress
     );
 
     if (accountIndex !== -1) {
@@ -120,5 +120,14 @@ function normalizeProgramId(programId: any): string {
     if (!programId) return '';
     if (typeof programId === 'string') return programId;
     if (programId?.toBase58) return programId.toBase58();
+    return '';
+}
+
+function extractAccountKey(key: any): string {
+    if (!key) return '';
+    if (typeof key === 'string') return key;
+    if (typeof key?.pubkey === 'string') return key.pubkey;
+    if (key?.pubkey?.toBase58) return key.pubkey.toBase58();
+    if (key?.toBase58) return key.toBase58();
     return '';
 }
