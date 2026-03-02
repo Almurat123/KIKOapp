@@ -117,6 +117,45 @@ export const PolymarketAuthButton: React.FC<PolymarketAuthButtonProps> = ({
         }
     };
 
+    const executeRevoke = async () => {
+        setIsLoading(true);
+        setError(null);
+
+        try {
+            const token = await getAccessToken();
+            if (!token) {
+                throw new Error('No access token');
+            }
+
+            const response = await fetch(`${API_URL}/api/polymarket/trading/credentials/revoke`, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            if (!response.ok) {
+                const errData = await response.json();
+                throw new Error(errData.error || 'Failed to revoke Polymarket credentials');
+            }
+
+            setReadiness((prev) => ({
+                ...(prev || { isReady: false, hasCredentials: false }),
+                isReady: false,
+                hasCredentials: false
+            }));
+
+            onSuccess?.();
+        } catch (err: any) {
+            console.error('[PolymarketAuth] Revoke failed:', err);
+            setError(err.message);
+            onError?.(err);
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
 
     // Not ready or not authenticated
     if (!ready || !authenticated) {
@@ -158,15 +197,14 @@ export const PolymarketAuthButton: React.FC<PolymarketAuthButtonProps> = ({
 
                 <button
                     className={`${styles.button} ${isAuthorized ? styles.revokeButton : styles.authorizeButton} ${isLoading ? styles.loading : ''}`}
-                    onClick={isAuthorized ? undefined : executeAuthorize}
-                    disabled={isLoading || isAuthorized}
-                    style={isAuthorized ? { opacity: 0.6, cursor: 'default' } : undefined}
+                    onClick={isAuthorized ? executeRevoke : executeAuthorize}
+                    disabled={isLoading}
                     {...(agentId ? agentAttrs({ id: agentId, role: 'button', action: 'confirm', page: 'settings', key: 'polymarket_trading' }) : {})}
                 >
                     {isLoading
-                        ? 'Enabling'
+                        ? (isAuthorized ? 'Revoking' : 'Enabling')
                         : isAuthorized
-                            ? 'Trading Enabled'
+                            ? 'Revoke Polymarket Trading'
                             : 'Enable Polymarket Trading'
                     }
                 </button>

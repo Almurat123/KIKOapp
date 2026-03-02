@@ -116,7 +116,7 @@ export const LiquidGlassEffect: React.FC<LiquidGlassEffectProps> = ({
   enabled = true,
 }) => {
   const frame = useCurrentFrame();
-  const { fps } = useVideoConfig();
+  const { fps, width: videoWidth, height: videoHeight } = useVideoConfig();
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
@@ -129,8 +129,9 @@ export const LiquidGlassEffect: React.FC<LiquidGlassEffectProps> = ({
     if (!canvasRef.current || rendererRef.current || !enabled) return;
 
     const canvas = canvasRef.current;
-    const canvasW = canvas.clientWidth || 600;
-    const canvasH = canvas.clientHeight || 200;
+    // clientWidth returns 0 in headless Chrome - use composition dimensions instead
+    const canvasW = videoWidth;
+    const canvasH = videoHeight;
 
     let renderer: THREE.WebGLRenderer;
     try {

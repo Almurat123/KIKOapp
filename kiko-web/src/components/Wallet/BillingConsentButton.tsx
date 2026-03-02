@@ -57,7 +57,10 @@ export const BillingConsentButton: React.FC<BillingConsentButtonProps> = ({ onSu
   };
 
   const handleConfirmAuthorize = async () => {
-    if (!embeddedWallet?.address || !authKeyId || !policyId) return;
+    if (!embeddedWallet?.address || !authKeyId || !policyId) {
+      onError?.(new Error('Missing wallet or authorization configuration.'));
+      return;
+    }
 
     setIsLoading(true);
     try {
@@ -81,7 +84,10 @@ export const BillingConsentButton: React.FC<BillingConsentButtonProps> = ({ onSu
   };
 
   const handleRevoke = async () => {
-    if (!embeddedWallet?.address || !authKeyId) return;
+    if (!embeddedWallet?.address || !authKeyId) {
+      onError?.(new Error('Missing wallet or authorization key for revoke.'));
+      return;
+    }
 
     setIsLoading(true);
     try {
@@ -126,7 +132,10 @@ export const BillingConsentButton: React.FC<BillingConsentButtonProps> = ({ onSu
       <button
         className={`${styles.button} ${active ? styles.revokeButton : styles.authorizeButton}`}
         onClick={active ? handleRevoke : handleAuthorizeClick}
-        disabled={isLoading || !authKeyId || !policyId}
+        disabled={active
+          ? (isLoading || !authKeyId || !embeddedWallet)
+          : (isLoading || !authKeyId || !policyId || !embeddedWallet)
+        }
       >
         {isLoading ? 'Processing...' : active ? 'Revoke Billing Authorization' : 'Authorize Billing'}
       </button>

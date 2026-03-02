@@ -271,7 +271,7 @@ export async function createOrDeriveCredentials(userId: string): Promise<{
  */
 export async function deleteCredentials(userId: string): Promise<boolean> {
     try {
-        await prisma.polymarketApiCreds.delete({
+        await prisma.polymarketApiCreds.deleteMany({
             where: { userId }
         });
         return true;

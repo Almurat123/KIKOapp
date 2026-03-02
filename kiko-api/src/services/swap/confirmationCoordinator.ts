@@ -17,6 +17,12 @@ export interface ConfirmationOutcome {
     visible?: boolean;
 }
 
+const confirmationInflight = new Map<string, Promise<ConfirmationOutcome>>();
+
+function buildConfirmationInflightKey(chainId: number, txHash: string): string {
+    return `${chainId}:${String(txHash || '').toLowerCase()}`;
+}
+
 function sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -50,6 +56,35 @@ async function resolveReceiptOutcome(chainId: number, txHash: string): Promise<C
 }
 
 export async function waitForTransactionConfirmation(params: {
+    txHash: string;
+    chainId: number;
+    dexName: string;
+    timeoutMs?: number;
+    pollMs?: number;
+}): Promise<ConfirmationOutcome> {
+    const inflightKey = buildConfirmationInflightKey(params.chainId, params.txHash);
+    const existing = confirmationInflight.get(inflightKey);
+    if (existing) {
+        logger.info(LogCode.SYS_INFO, '[ConfirmWait] Reusing inflight confirmation promise', {
+            chainId: params.chainId,
+            txHash: params.txHash,
+            dexName: params.dexName
+        });
+        return await existing;
+    }
+
+    const task = waitForTransactionConfirmationUncached(params)
+        .finally(() => {
+            const current = confirmationInflight.get(inflightKey);
+            if (current === task) {
+                confirmationInflight.delete(inflightKey);
+            }
+        });
+    confirmationInflight.set(inflightKey, task);
+    return await task;
+}
+
+async function waitForTransactionConfirmationUncached(params: {
     txHash: string;
     chainId: number;
     dexName: string;

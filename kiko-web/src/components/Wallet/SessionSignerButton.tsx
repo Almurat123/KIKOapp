@@ -69,7 +69,10 @@ export const SessionSignerButton: React.FC<SessionSignerButtonProps> = ({
     };
 
     const handleConfirmAuthorize = async () => {
-        if (!embeddedWallet?.address || !authKeyId || !policyId) return;
+        if (!embeddedWallet?.address || !authKeyId || !policyId) {
+            onError?.(new Error('Missing wallet or authorization configuration.'));
+            return;
+        }
 
         setIsLoading(true);
         try {
@@ -94,7 +97,10 @@ export const SessionSignerButton: React.FC<SessionSignerButtonProps> = ({
     };
 
     const handleRevoke = async () => {
-        if (!embeddedWallet?.address || !authKeyId) return;
+        if (!embeddedWallet?.address || !authKeyId) {
+            onError?.(new Error('Missing wallet or authorization key for revoke.'));
+            return;
+        }
 
         setIsLoading(true);
         try {
@@ -141,7 +147,10 @@ export const SessionSignerButton: React.FC<SessionSignerButtonProps> = ({
             <button
                 className={`${styles.button} ${isDelegated ? styles.revokeButton : styles.authorizeButton}`}
                 onClick={isDelegated ? handleRevoke : handleAuthorizeClick}
-                disabled={isLoading || !authKeyId || !policyId || !embeddedWallet}
+                disabled={isDelegated
+                    ? (isLoading || !authKeyId || !embeddedWallet)
+                    : (isLoading || !authKeyId || !policyId || !embeddedWallet)
+                }
                 {...(agentId ? agentAttrs({ id: agentId, role: 'toggle', action: 'toggle', page: 'settings', key: `session_signer_${chainType}` }) : {})}
             >
                 {isLoading

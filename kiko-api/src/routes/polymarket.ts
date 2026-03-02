@@ -175,6 +175,38 @@ export const polymarketRoutes: FastifyPluginAsync = async (fastify) => {
     });
 
     /**
+     * POST /api/polymarket/trading/credentials/revoke
+     * Revoke (delete) user's Polymarket API credentials
+     * Requires: JWT auth
+     */
+    fastify.post('/trading/credentials/revoke', { preHandler: requireAuth }, async (request, reply) => {
+        try {
+            const user = (request as any).user;
+            const privyDid = user?.sub || user?.privyDid;
+            if (!privyDid) {
+                return reply.status(401).send({ success: false, error: 'Authentication required' });
+            }
+
+            const { deleteCredentials } = await import('../services/polymarketCredService.js');
+            const deleted = await deleteCredentials(privyDid);
+
+            if (!deleted) {
+                return reply.status(500).send({ success: false, error: 'Failed to revoke Polymarket credentials' });
+            }
+
+            return {
+                success: true,
+                data: {
+                    revoked: true
+                }
+            };
+        } catch (error: any) {
+            console.error('[Polymarket] Error revoking credentials:', error);
+            return reply.status(500).send({ success: false, error: error.message });
+        }
+    });
+
+    /**
      * GET /api/polymarket/trading/approvals
      * Get required approval transactions for the user
      * Requires: JWT auth
