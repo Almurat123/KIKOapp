@@ -1,12 +1,14 @@
 import { callRpc } from './rpcManager.js';
 import { getChainConfig } from '../config/chainConfig.js';
 import cacheClient from '../cache/cacheClient.js';
+import { PublicKey } from '@solana/web3.js';
 import { decodeFunctionResult, encodeFunctionData, parseAbi } from 'viem';
 
 const METADATA_L1_TTL_MS = Math.max(30_000, Number(process.env.COPYTRADE_METADATA_L1_TTL_MS || 10 * 60_000));
 const METADATA_L2_TTL_SECONDS = Math.max(30, Number(process.env.COPYTRADE_METADATA_L2_TTL_SECONDS || 30 * 60));
 const METADATA_NEGATIVE_TTL_SECONDS = Math.max(10, Number(process.env.COPYTRADE_METADATA_NEGATIVE_TTL_SECONDS || 60));
 const DEFAULT_DECIMALS = 18;
+const METAPLEX_METADATA_PROGRAM_ID = new PublicKey('metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s');
 
 // Minimal ABI for ERC20 metadata
 const ERC20_ABI = parseAbi([
@@ -55,6 +57,57 @@ function setL1<T>(cache: Map<string, LocalCacheEntry<T>>, key: string, value: T,
 
 function parseAddress(address: string): string {
     return String(address || '').toLowerCase();
+}
+
+function deriveSolanaMetadataPda(mintAddress: string): string {
+    const mint = new PublicKey(mintAddress);
+    const [pda] = PublicKey.findProgramAddressSync(
+        [
+            Buffer.from('metadata', 'utf8'),
+            METAPLEX_METADATA_PROGRAM_ID.toBuffer(),
+            mint.toBuffer(),
+        ],
+        METAPLEX_METADATA_PROGRAM_ID
+    );
+    return pda.toBase58();
+}
+
+function readBorshString(buffer: Buffer, offset: number): { value: string; nextOffset: number } {
+    if (offset + 4 > buffer.length) return { value: '', nextOffset: buffer.length };
+    const length = buffer.readUInt32LE(offset);
+    const start = offset + 4;
+    const end = Math.min(start + length, buffer.length);
+    const raw = buffer.subarray(start, end).toString('utf8');
+    const cleaned = raw.replace(/\0/g, '').trim();
+    return { value: cleaned, nextOffset: end };
+}
+
+async function getSolanaMetadataViaRpc(mintAddress: string): Promise<{ name: string; symbol: string } | null> {
+    try {
+        const metadataPda = deriveSolanaMetadataPda(mintAddress);
+        const result = await callRpc<any>('solana', 'getAccountInfo', [
+            metadataPda,
+            { encoding: 'base64' }
+        ], { rpcClass: 'best_effort_read', path: 'token_metadata' });
+
+        const encoded = result?.value?.data?.[0];
+        if (!encoded || typeof encoded !== 'string') return null;
+
+        const data = Buffer.from(encoded, 'base64');
+        if (data.length < 1 + 32 + 32 + 4) return null;
+
+        let offset = 1 + 32 + 32;
+        const nameRead = readBorshString(data, offset);
+        offset = nameRead.nextOffset;
+        const symbolRead = readBorshString(data, offset);
+
+        return {
+            name: nameRead.value || 'Unknown Token',
+            symbol: symbolRead.value || 'UNK',
+        };
+    } catch {
+        return null;
+    }
 }
 
 function isNativePlaceholder(normalized: string): boolean {
@@ -141,6 +194,25 @@ export async function getTokenDecimals(
         return defaultMetadata(chainId).decimals;
     }
 
+    if (chainId === 900) {
+        const cachedSol = await getDecimalsFromCache(chainId, normalized);
+        if (typeof cachedSol === 'number') return cachedSol;
+        try {
+            const supply = await callRpc<any>('solana', 'getTokenSupply', [normalized], {
+                rpcClass: 'best_effort_read',
+                path: 'token_decimals'
+            });
+            const decimals = Number(supply?.value?.decimals);
+            if (Number.isFinite(decimals) && decimals >= 0 && decimals <= 255) {
+                await setDecimalsCache(chainId, normalized, decimals);
+                return decimals;
+            }
+        } catch {
+            // ignore
+        }
+        return fallbackDecimals;
+    }
+
     const cached = await getDecimalsFromCache(chainId, normalized);
     if (typeof cached === 'number') return cached;
 
@@ -185,15 +257,14 @@ export async function getTokenMetadata(
         return { name: 'Unknown Token', symbol: 'UNK', decimals };
     }
 
-    // Solana path preserves old behavior with graceful fallback metadata.
+    // Solana RPC-only path: Metaplex metadata PDA + getTokenSupply decimals.
     if (chainId === 900) {
         try {
-            const { getSolanaTokenMetadata } = await import('../utils/solanaToken.js');
-            const solMeta = await getSolanaTokenMetadata(normalized);
+            const solMeta = await getSolanaMetadataViaRpc(normalized);
             const meta: OnChainMetadata = {
                 name: solMeta?.name || 'Unknown Token',
                 symbol: solMeta?.symbol || 'UNK',
-                decimals: Number(solMeta?.decimals ?? decimals)
+                decimals
             };
             await setMetadataCache(chainId, normalized, meta);
             await setDecimalsCache(chainId, normalized, meta.decimals);

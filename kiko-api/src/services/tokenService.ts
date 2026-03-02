@@ -65,7 +65,7 @@ async function getLiquidityData(
     tokenAddress: string,
     chainId: number,
     priority: ApiPriority = 'normal'
-): Promise<{ liquidity: number; volume24h: number; fdv?: number; priceUsd?: number } | null> {
+): Promise<{ liquidity: number; volume24h: number; fdv?: number; priceUsd?: number; symbol?: string; name?: string } | null> {
     const chainSlug = getChainSlug(chainId);
     const dsSlug = chainSlug.dexScreener;
     // --- STEP 1: Try DexScreener (Primary) ---
@@ -91,7 +91,9 @@ async function getLiquidityData(
                     liquidity: pair.liquidity?.usd || 0,
                     volume24h: pair.volume?.h24 || 0,
                     fdv: pair.fdv || 0,
-                    priceUsd: Number(pair.priceUsd || 0) || undefined
+                    priceUsd: Number(pair.priceUsd || 0) || undefined,
+                    symbol: pair.baseToken?.symbol || undefined,
+                    name: pair.baseToken?.name || undefined
                 };
             }
         }
@@ -148,7 +150,9 @@ async function fetchTokenInfoFromAPIs(
             })())
         : Promise.resolve(null);
 
-    const liquidityPromise = getLiquidityData(tokenAddress, chainId, priority);
+    const liquidityPromise = isSolana
+        ? Promise.resolve(null)
+        : getLiquidityData(tokenAddress, chainId, priority);
 
     const metaPromise = getTokenMetadata(chainId, tokenAddress, { rpcStrategy });
 
@@ -186,13 +190,13 @@ async function fetchTokenInfoFromAPIs(
     let priceFallbackUsed = false;
 
     // If RPC is unavailable but DexScreener has pair price, use it before full failure.
-    if ((price <= 0 || isNaN(price)) && liq?.priceUsd && liq.priceUsd > 0) {
+    if (!isSolana && (price <= 0 || isNaN(price)) && liq?.priceUsd && liq.priceUsd > 0) {
         price = liq.priceUsd;
         provider = 'dexscreener-liquidity';
     }
 
     let dexValidatorPrice = 0;
-    if (price > 0) {
+    if (price > 0 && !isSolana) {
         try {
             const dexChainId = isSolana ? 'solana' : chainId;
             const timeoutMs = fastMode ? 500 : 900;
@@ -288,7 +292,7 @@ async function fetchTokenInfoFromAPIs(
             return dexPrice > 0 ? dexPrice : null;
         };
 
-        if (fastMode) {
+        if (fastMode && !isSolana) {
             const timeout = new Promise<null>((resolve) => setTimeout(() => resolve(null), 800));
             const winner = await Promise.race([tryDex(), timeout]);
             if (typeof winner === 'number') {
@@ -300,7 +304,7 @@ async function fetchTokenInfoFromAPIs(
         }
 
         // 🔗 FINAL FALLBACK: Try DEX price (0x for EVM, Jupiter for Solana)
-        if (price <= 0 || isNaN(price)) {
+        if (!isSolana && (price <= 0 || isNaN(price))) {
             try {
                 const dexChainId = isSolana ? 'solana' : chainId;
                 const dexPrice = await getDexPrice(tokenAddress, dexChainId);
