@@ -378,9 +378,37 @@ function resolveEffectivePositiveThreshold(configValue: unknown, userSettingValu
 }
 
 function parsePositiveBigInt(value: unknown): bigint {
+
     try {
         const parsed = BigInt(String(value ?? '0'));
         return parsed > 0n ? parsed : 0n;
+    } catch {
+        return 0n;
+    }
+}
+
+function resolveDisplayTokenSymbol(symbol: unknown, tokenAddress: string): string {
+    const raw = String(symbol || '').trim();
+    if (raw && !/^unknown$/i.test(raw)) return raw;
+    const addr = String(tokenAddress || '').trim();
+    if (!addr) return 'TOKEN';
+    return addr.slice(0, 6);
+}
+
+async function getSolanaMintBalanceRaw(userId: string, mintAddress: string): Promise<bigint> {
+    try {
+        const solAddress = await getSolanaEmbeddedWalletAddress(userId);
+        if (!solAddress) return 0n;
+        const connection = getSolanaConnection();
+        const { value } = await connection.getParsedTokenAccountsByOwner(
+            new PublicKey(solAddress),
+            { mint: new PublicKey(mintAddress) }
+        );
+        let balance = 0n;
+        for (const acc of value) {
+            balance += BigInt(acc.account.data.parsed.info.tokenAmount.amount || '0');
+        }
+        return balance;
     } catch {
         return 0n;
     }
@@ -751,7 +779,6 @@ async function handleTargetBuy(
     // NOTE: Solana addresses are case-sensitive (Base58), only lowercase EVM addresses
     const normalizedWallet = normalizeAddress(targetWallet);
 
-    // I will fix this logic now too: `const tokenToBuy = swap.tokenOut`.
     const tokenToBuy = swap.tokenOut;
     const detectedAt = context?.detectedAt ?? Date.now();
     logger.info(LogCode.EXE_QUOTE_FETCHED, '[CopyTradeTiming] target buy start', {
@@ -2457,7 +2484,7 @@ async function processSingleUserBuy(
                     userId: effectiveConfig.userId,
                     configId: effectiveConfig.id,
                     tokenAddress: tokenToBuy,
-                    tokenSymbol: tokenInfo.symbol,
+                    tokenSymbol: resolveDisplayTokenSymbol(tokenInfo.symbol || (swap as any)?.tokenSymbol, tokenToBuy),
                     chainId,
                     entryPrice: tokenInfo.price,
                     entryAmount: (usdAmount / nativePrice).toString(),
@@ -2554,7 +2581,7 @@ async function processSingleUserBuy(
                     farcasterFid: config.user.farcasterFid,
                     type: 'TRADE_SUCCESS_BUY',
                     data: {
-                        tokenSymbol: tokenInfo.symbol,
+                        tokenSymbol: resolveDisplayTokenSymbol(tokenInfo.symbol || (swap as any)?.tokenSymbol, tokenToBuy),
                         usdValue: usdAmount.toFixed(2),
                         targetWallet: targetWallet,
                         txHash: txHash,
@@ -2605,7 +2632,7 @@ async function processSingleUserBuy(
                 data: {
                     configId: config.id,
                     tokenAddress: tokenToBuy,
-                    tokenSymbol: tokenInfo.symbol || 'UNKNOWN',
+                    tokenSymbol: resolveDisplayTokenSymbol(tokenInfo.symbol || (swap as any)?.tokenSymbol, tokenToBuy),
                     aiDecision: analysis.decision,
                     confidenceScore: analysis.confidence,
                     analysisJson: JSON.stringify(analysis),
@@ -2615,7 +2642,7 @@ async function processSingleUserBuy(
             try {
                 const session = await createSession(
                     config.user.privyDid,
-                    `🤖 AI Trade Analysis: ${tokenInfo.symbol}`,
+                    `🤖 AI Trade Analysis: ${resolveDisplayTokenSymbol(tokenInfo.symbol || (swap as any)?.tokenSymbol, tokenToBuy)}`,
                     env.aiModel
                 );
                 const sessionId = session.id;
@@ -2623,7 +2650,7 @@ async function processSingleUserBuy(
                 const messageContent = `
 ✅ **Copy Trade Executed**
 Target Wallet: \`${targetWallet.slice(0, 6)}...${targetWallet.slice(-4)}\`
-Token: **${tokenInfo.symbol}** (\`${tokenToBuy}\`)
+Token: **${resolveDisplayTokenSymbol(tokenInfo.symbol || (swap as any)?.tokenSymbol, tokenToBuy)}** (\`${tokenToBuy}\`)
 
 🧠 **AI Decision**: ${analysis.decision === 'BUY' ? '✅ BUY' : '❌ SKIP'}
 **Confidence**: ${analysis.confidence}%
@@ -2699,7 +2726,7 @@ ${analysis.rawAnalysis}
             farcasterFid: config.user.farcasterFid,
             type: 'TRADE_FAILURE',
             data: {
-                tokenSymbol: tokenInfo.symbol || 'Unknown',
+                tokenSymbol: resolveDisplayTokenSymbol(tokenInfo.symbol || (swap as any)?.tokenSymbol, tokenToBuy),
                 error: compactCopyTradeError(error),
                 targetWallet: targetWallet,
                 chainId: chainId
@@ -3036,7 +3063,7 @@ async function executePositionExit(params: {
                 farcasterFid: user.farcasterFid,
                 type: 'TRADE_SUCCESS_SELL',
                 data: {
-                    tokenSymbol: tokenInfo.symbol,
+                    tokenSymbol: resolveDisplayTokenSymbol(tokenInfo.symbol, tokenAddress),
                     usdValue: sellVolUsd.toFixed(2),
                     targetWallet: config.targetWallet,
                     txHash: txHash,
@@ -3205,7 +3232,7 @@ async function handleTargetSell(
             });
             if (pendingPositions.length > 0 && config.user?.walletAddress) {
                 const onChainBal = chainId === 900
-                    ? 0n
+                    ? await getSolanaMintBalanceRaw(config.userId, tokenToSell)
                     : await getErc20Balance(tokenToSell, config.user.walletAddress, chainId);
                 if (onChainBal > 0n) {
                     const pendingIds = pendingPositions.map((p) => p.id);
