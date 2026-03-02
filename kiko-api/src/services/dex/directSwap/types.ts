@@ -34,11 +34,17 @@ export interface DirectSwapResult {
 
 export interface TokenLiquidity {
   totalTvlUsd: number;
+  reliable?: boolean;
+  source?: string;
   pools: {
     version: string;
     fee: number;
     tvlUsd: number;
     address: string;
+    source?: string;
+    reliable?: boolean;
+    initializedTickCount?: number;
+    intervalCount?: number;
   }[];
 }
 

@@ -410,9 +410,10 @@ export function calculatePriceFromSqrtX96(
     decimals1: number
 ): number {
     const Q96 = BigInt(2) ** BigInt(96);
-    const priceRaw = (sqrtPriceX96 * sqrtPriceX96) / (Q96 * Q96);
+    const sqrtPrice = Number(sqrtPriceX96) / Number(Q96);
+    const priceRaw = sqrtPrice * sqrtPrice;
     const decimalAdjustment = 10 ** (decimals0 - decimals1);
-    return Number(priceRaw) * decimalAdjustment;
+    return priceRaw * decimalAdjustment;
 }
 
 /**

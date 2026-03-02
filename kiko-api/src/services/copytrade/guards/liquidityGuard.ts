@@ -82,7 +82,7 @@ export async function resolveBuyLiquidityGuardSnapshot(
             return {
                 liquidityUsd: directLiquidityUsd,
                 source: 'direct_pool_tvl',
-                reliable: true,
+                reliable: Boolean(directLiquidity?.reliable),
                 poolCount,
                 fallbackUsed: false
             };

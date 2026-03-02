@@ -3,6 +3,7 @@ import { logger } from '../../../../utils/logger.js';
 import { LogCode } from '../../../../config/logRegistry.js';
 import { findTokenPools, type PoolInfo } from '../../poolInfo.js';
 import { calculateV3TVL } from '../../v3Math.js';
+import { reconstructV3PoolLiquidityUsd } from '../../v3LiquidityReconstruction.js';
 import { getTokenDetails } from '../../../geckoTerminal.js';
 import { getNativeTokenPriceUsd } from '../../../onChainPriceService.js';
 import { getTokenDecimals, getTokenMetadata } from '../../../rpcService.js';
@@ -172,35 +173,86 @@ export async function getTokenLiquidity(
 
   try {
     const pools = await findTokenPools(tokenAddress, weth, chainId);
-    const result: TokenLiquidity = { totalTvlUsd: 0, pools: [] };
+    const result: TokenLiquidity = { totalTvlUsd: 0, pools: [], reliable: false, source: 'unavailable' };
 
     for (const pool of pools) {
       let tvlUsd = 0;
+      let source = 'v3_liquidity_formula_estimate';
+      let reliable = false;
+      let initializedTickCount: number | undefined;
+      let intervalCount: number | undefined;
       if (pool.liquidity && pool.sqrtPriceX96) {
         const isToken0 = pool.token0.toLowerCase() === tokenAddress.toLowerCase();
         const decimals0 = pool.token0Decimals || 18;
         const decimals1 = pool.token1Decimals || 18;
         const nativePriceUsd = await getNativePriceUsd(chainId);
-        const price0USD = isToken0 ? 0 : nativePriceUsd;
-        const price1USD = isToken0 ? nativePriceUsd : 0;
+        const poolSpotPrice = Number(pool.price || 0);
+        let price0USD = 0;
+        let price1USD = 0;
 
-        tvlUsd = calculateV3TVL(
-          BigInt(pool.sqrtPriceX96),
-          BigInt(pool.liquidity),
-          decimals0,
-          decimals1,
-          price0USD,
-          price1USD
-        );
+        if (nativePriceUsd > 0) {
+          if (isToken0) {
+            price1USD = nativePriceUsd;
+            price0USD = poolSpotPrice > 0 ? poolSpotPrice * nativePriceUsd : 0;
+          } else {
+            price0USD = nativePriceUsd;
+            price1USD = poolSpotPrice > 0 ? nativePriceUsd / poolSpotPrice : 0;
+          }
+        }
+
+        if (pool.version === 'v3') {
+          const reconstructed = await reconstructV3PoolLiquidityUsd({
+            poolAddress: pool.poolAddress,
+            chainId,
+            decimals0,
+            decimals1,
+            price0Usd: price0USD,
+            price1Usd: price1USD
+          });
+          if (reconstructed && reconstructed.totalValueLockedUsd > 0) {
+            tvlUsd = reconstructed.totalValueLockedUsd;
+            source = 'v3_tick_reconstruction';
+            reliable = true;
+            initializedTickCount = reconstructed.initializedTickCount;
+            intervalCount = reconstructed.intervalCount;
+          } else {
+            tvlUsd = calculateV3TVL(
+              BigInt(pool.sqrtPriceX96),
+              BigInt(pool.liquidity),
+              decimals0,
+              decimals1,
+              price0USD,
+              price1USD
+            );
+          }
+        } else {
+          tvlUsd = calculateV3TVL(
+            BigInt(pool.sqrtPriceX96),
+            BigInt(pool.liquidity),
+            decimals0,
+            decimals1,
+            price0USD,
+            price1USD
+          );
+        }
       }
 
       result.pools.push({
         version: pool.version || 'v3',
         fee: pool.fee || 0,
         tvlUsd,
-        address: pool.poolAddress
+        address: pool.poolAddress,
+        source,
+        reliable,
+        initializedTickCount,
+        intervalCount
       });
       result.totalTvlUsd += tvlUsd;
+      result.reliable = result.reliable || reliable;
+    }
+
+    if (result.totalTvlUsd > 0) {
+      result.source = result.reliable ? 'v3_tick_reconstruction' : 'estimate_only';
     }
 
     return result;

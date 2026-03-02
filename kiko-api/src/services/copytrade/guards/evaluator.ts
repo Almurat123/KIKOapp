@@ -6,6 +6,7 @@ import {
 import { shouldEnforceBuyGuard } from './policy.js';
 import type { BuyGuardPolicy } from './types.js';
 import type { LiquidityGuardSnapshot } from './liquidityGuard.js';
+import { evaluateBscPancakeV3ExecutableDepth } from './bscPancakeV3ExecutableDepth.js';
 
 function safeNumber(value: any, fieldName: string): number {
     const num = Number(value);
@@ -108,7 +109,19 @@ export async function evaluateStaticBuyGuards(
     }
 
     if (shouldEnforceBuyGuard(policy, 'minLiquidity') && minLiquidityUsd > 0 && liquidity < minLiquidityUsd) {
-        return { passed: false, reason: `Liquidity $${liquidity.toFixed(0)} < min $${minLiquidityUsd.toFixed(0)}` };
+        const depthCheck = await evaluateBscPancakeV3ExecutableDepth({
+            chainId: Number(config.chainId || 0),
+            tokenAddress: String(tokenInfo?.address || tokenInfo?.tokenAddress || ''),
+            tokenInfo,
+            config
+        });
+        if (depthCheck?.eligible) {
+            return { passed: true };
+        }
+        const depthSuffix = depthCheck
+            ? `; ${depthCheck.reasonCode}; impact=${Number(depthCheck.priceImpactPct || 0).toFixed(2)}%; ticks=${Number(depthCheck.initializedTicksCrossed || 0)}`
+            : '';
+        return { passed: false, reason: `Liquidity $${liquidity.toFixed(0)} < min $${minLiquidityUsd.toFixed(0)}${depthSuffix}` };
     }
 
     const MIN_LIQUIDITY_FAST = 500;

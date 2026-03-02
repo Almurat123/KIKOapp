@@ -1140,6 +1140,7 @@ async function processBuyWithInfo(
 ) {
     const PROFILE = process.env.COPYTRADE_PROFILE ? process.env.COPYTRADE_PROFILE === 'true' : true;
     const tStart = Date.now();
+    tokenInfo.tokenAddress = tokenToBuy;
     const targetValueSnapshot = await computeBuyTargetValueSnapshot(swap, chainId, tokenInfo);
     let targetSwapValueUsd = targetValueSnapshot.targetSwapValueUsd;
     let strictTargetSwapValueUsd = targetValueSnapshot.strictTargetSwapValueUsd;

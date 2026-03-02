@@ -61,6 +61,8 @@ export interface PoolInfo {
     reserve1?: string;  // Raw reserve amount
     liquidity?: string;  // V3/V4 liquidity (raw L value)
     sqrtPriceX96?: string;  // V3/V4 price
+    tick?: number;
+    tickSpacing?: number;
     fee?: number;  // Fee tier
     tvlUsd?: number;  // Calculated TVL in USD
     price?: number;  // token1/token0 price
@@ -212,7 +214,10 @@ async function getV3PoolInfoInternal(
         const liquidity = v3PoolInterface.decodeFunctionResult('liquidity', liquidityResult)[0] as bigint;
         const slot0 = v3PoolInterface.decodeFunctionResult('slot0', slot0Result);
         const sqrtPriceX96 = slot0[0] as bigint;
+        const tick = Number(slot0[1]);
         const fee = feeResult ? Number(v3PoolInterface.decodeFunctionResult('fee', feeResult)[0]) : 0;
+        const tickSpacingResult = await callRpc<string>(chainId, 'eth_call', [{ to: poolAddress, data: v3PoolInterface.encodeFunctionData('tickSpacing') }, 'latest'], options).catch(() => null);
+        const tickSpacing = tickSpacingResult ? Number(v3PoolInterface.decodeFunctionResult('tickSpacing', tickSpacingResult)[0]) : undefined;
 
         const token0 = ethers.getAddress('0x' + token0Result!.slice(-40));
         const token1 = ethers.getAddress('0x' + token1Result!.slice(-40));
@@ -240,6 +245,8 @@ async function getV3PoolInfoInternal(
             token1Decimals: token1Meta.decimals,
             liquidity: liquidity.toString(),
             sqrtPriceX96: sqrtPriceX96.toString(),
+            tick,
+            tickSpacing,
             fee,
             price: includeMetadata ? price : undefined,
             version: 'v3'
