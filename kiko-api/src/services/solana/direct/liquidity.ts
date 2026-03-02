@@ -69,8 +69,11 @@ async function getPumpFunBondingCurveLiquidityUsd(tokenAddress: string): Promise
     const state = await service.getBondingCurveState(connection, mint);
     const nativePrice = await getNativeTokenPriceUsd(900).catch(() => 0);
     if (!(nativePrice > 0)) return null;
-    if (state.realSolReserves <= 0n) return null;
-    const solSideUsd = (Number(state.realSolReserves) / 1e9) * nativePrice;
+    const depthSolLamports = state.virtualSolReserves > 0n
+      ? state.virtualSolReserves
+      : state.realSolReserves;
+    if (depthSolLamports <= 0n) return null;
+    const solSideUsd = (Number(depthSolLamports) / 1e9) * nativePrice;
     if (!(solSideUsd > 0)) return null;
     return solSideUsd * 2;
   } catch {
@@ -199,14 +202,17 @@ function deriveRaydiumPoolPda(mintA: PublicKey, mintB: PublicKey): PublicKey {
   return PublicKey.findProgramAddressSync([RAYDIUM_POOL_SEED, mintA.toBuffer(), mintB.toBuffer()], RAYDIUM_LAUNCHPAD_PROGRAM_ID)[0];
 }
 
-export async function resolveSolanaDirectLiquidity(tokenAddress: string): Promise<SolDirectLiquiditySnapshot | null> {
+export async function resolveSolanaDirectLiquidity(
+  tokenAddress: string,
+  tokenPriceUsd: number = 0,
+  options?: { includeProgramScan?: boolean }
+): Promise<SolDirectLiquiditySnapshot | null> {
   const detection = await detectLaunchpadToken(tokenAddress, 900, { mode: 'cheap' }).catch(() => null);
   const detectionProvider = detection?.provider || null;
   const creatorAddress = pickCreatorAddress(detection?.data);
   const hintedPoolId = pickPoolId(detection?.data);
 
-  const nativePricePromise = getNativeTokenPriceUsd(900).catch(() => 0);
-  const [pumpSwapLiquidity, pumpFunBondingLiquidity, raydiumLaunchlab, nativePrice] = await Promise.all([
+  const [pumpSwapLiquidity, pumpFunBondingLiquidity, raydiumLaunchlab] = await Promise.all([
     getPumpSwapLiquidityUsd(tokenAddress, creatorAddress).catch(() => null),
     getPumpFunBondingCurveLiquidityUsd(tokenAddress).catch(() => null),
     (async () => {
@@ -238,10 +244,13 @@ export async function resolveSolanaDirectLiquidity(tokenAddress: string): Promis
         return { liquidityUsd: 0, poolCount: 0, source: 'raydium_launchlab_error' };
       }
     })(),
-    nativePricePromise,
   ]);
 
-  const scanned = await resolveProgramVaultLiquidityByMint(tokenAddress, nativePrice || 0);
+  const effectiveTokenPriceUsd = normalizePositive(tokenPriceUsd);
+  const includeProgramScan = options?.includeProgramScan === true;
+  const scanned = includeProgramScan && effectiveTokenPriceUsd > 0
+    ? await resolveProgramVaultLiquidityByMint(tokenAddress, effectiveTokenPriceUsd)
+    : null;
 
   const pumpLiquidityUsd = normalizePositive(pumpSwapLiquidity);
   const pumpFunLiquidityUsd = normalizePositive(pumpFunBondingLiquidity);

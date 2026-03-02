@@ -818,7 +818,8 @@ async function processAlchemyWebhookPayload(payload: any): Promise<void> {
                         chainId,
                         txHash,
                         trackedWallets: resolved.trackedWallets,
-                        parsedTx: resolved.parsedTx
+                        parsedTx: resolved.parsedTx,
+                        detectedAt: itemStart
                     });
                     if (swapsDetected > 0) {
                         await markTxAsProcessedDistributed(txHash, chainId);

@@ -230,8 +230,9 @@ async function withTradeLock<T>(userId: string, fn: () => Promise<T>): Promise<T
 const recentSwaps = new Map<string, number>(); // swapKey -> timestamp
 const SWAP_DEDUP_WINDOW_MS = 60000; // 1 minute
 const LAUNCHPAD_DET_TIMEOUT_MS = Number(process.env.LAUNCHPAD_DET_TIMEOUT_MS || '500');
-const COPYTRADE_MAX_DELAY_MS = Number(process.env.COPYTRADE_MAX_DELAY_MS || '5000');
-const COPYTRADE_TURBO_MAX_DELAY_MS = Number(process.env.COPYTRADE_TURBO_MAX_DELAY_MS || '2500');
+const COPYTRADE_MAX_DELAY_MS = Number(process.env.COPYTRADE_MAX_DELAY_MS || '45000');
+const COPYTRADE_TURBO_MAX_DELAY_MS = Number(process.env.COPYTRADE_TURBO_MAX_DELAY_MS || '12000');
+const COPYTRADE_HARD_MAX_DELAY_MS = Number(process.env.COPYTRADE_HARD_MAX_DELAY_MS || '180000');
 
 /**
  * Pure delay check for copy trade (used in processBuyWithInfo; exported for tests).
@@ -246,7 +247,14 @@ export function isCopyTradeDelayExceeded(
 ): { skip: boolean; delayMs: number; maxDelayMs: number } {
     const maxDelayMs = turboMode ? COPYTRADE_TURBO_MAX_DELAY_MS : COPYTRADE_MAX_DELAY_MS;
     const delayMs = detectedAt ? Math.max(0, nowMs - detectedAt) : 0;
-    const skip = !!(detectedAt && delayMs > maxDelayMs);
+    let skip = false;
+    if (detectedAt) {
+        if (delayMs > COPYTRADE_HARD_MAX_DELAY_MS) {
+            skip = true;
+        } else if (turboMode && delayMs > maxDelayMs) {
+            skip = true;
+        }
+    }
     return { skip, delayMs, maxDelayMs };
 }
 const COPYTRADE_PRICE_CHECK_TIMEOUT_MS = Number(process.env.COPYTRADE_PRICE_CHECK_TIMEOUT_MS || '1200');

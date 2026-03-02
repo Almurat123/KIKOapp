@@ -36,6 +36,7 @@ export async function processSolanaWebhookTx(params: {
     trackedWallets: Array<{ address: string }>;
     parsedTx?: ParsedTransactionWithMeta | null;
     chainId: number;
+    detectedAt?: number;
 }): Promise<number> {
     return processResolvedSolanaWebhookTx(params);
 }

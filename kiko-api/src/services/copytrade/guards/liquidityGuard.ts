@@ -3,6 +3,9 @@ import { LogCode } from '../../../config/logRegistry.js';
 import { getTokenLiquidity } from '../../dex/directSwap/pipeline/poolLayer.js';
 import { resolveSolanaDirectLiquidity } from '../../solana/direct/liquidity.js';
 
+const COPYTRADE_SOL_LIQ_TIMEOUT_MS = Number(process.env.COPYTRADE_SOL_LIQ_TIMEOUT_MS || '1800');
+const COPYTRADE_SOL_LIQUIDITY_SCAN_ALL_POOLS = (process.env.COPYTRADE_SOL_LIQUIDITY_SCAN_ALL_POOLS || 'false') === 'true';
+
 export type LiquidityGuardSnapshot = {
     liquidityUsd: number;
     source: 'direct_pool_tvl' | 'token_info_fallback' | 'direct_pool_unpriced' | 'unavailable';
@@ -26,7 +29,14 @@ export async function resolveBuyLiquidityGuardSnapshot(
 
     if (chainId === 900) {
         try {
-            const directLiquidity = await resolveSolanaDirectLiquidity(tokenAddress);
+            const tokenPriceUsd = normalizeFinitePositive(tokenInfo?.price);
+            const timeout = new Promise<null>((resolve) => setTimeout(() => resolve(null), COPYTRADE_SOL_LIQ_TIMEOUT_MS));
+            const directLiquidity = await Promise.race([
+                resolveSolanaDirectLiquidity(tokenAddress, tokenPriceUsd, {
+                    includeProgramScan: COPYTRADE_SOL_LIQUIDITY_SCAN_ALL_POOLS,
+                }),
+                timeout,
+            ]);
             const directLiquidityUsd = normalizeFinitePositive(directLiquidity?.liquidityUsd);
             const poolCount = Number(directLiquidity?.poolCount || 0);
 

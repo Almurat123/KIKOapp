@@ -1,6 +1,6 @@
 import type { ParsedTransactionWithMeta } from '@solana/web3.js';
 import { decodeSolanaSwap } from '../solanaDecoder.js';
-import { handleSwapDetected } from '../autoTradeService.js';
+import { enqueueCopyTradeTask } from '../copyTradeQueue.js';
 import { fetchSolanaTxDetails } from './txDetailsFetcher.js';
 
 export async function processResolvedSolanaWebhookTx(params: {
@@ -8,6 +8,7 @@ export async function processResolvedSolanaWebhookTx(params: {
     trackedWallets: Array<{ address: string }>;
     parsedTx?: ParsedTransactionWithMeta | null;
     chainId: number;
+    detectedAt?: number;
 }): Promise<number> {
     let tx = params.parsedTx || null;
 
@@ -24,7 +25,9 @@ export async function processResolvedSolanaWebhookTx(params: {
         params.trackedWallets.map(async (walletRecord) => {
             const swap = await decodeSolanaSwap(tx!, walletRecord.address);
             if (!swap) return false;
-            await handleSwapDetected(walletRecord.address, swap, params.chainId);
+            enqueueCopyTradeTask(walletRecord.address, swap, params.chainId, {
+                detectedAt: params.detectedAt || Date.now()
+            });
             return true;
         })
     );
