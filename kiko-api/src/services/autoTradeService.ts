@@ -2805,8 +2805,14 @@ async function processSingleUserBuy(
                         logger.error(LogCode.SYS_ERROR, 'Failed to promote pending buy position to open', { error: e });
                         return null;
                     });
-                    logger.info(LogCode.SYS_INFO, `[CopyTradePosition] Buy confirmation promotion result: rowsUpdated=${promoteResult?.count ?? 'error'} positionId=${pendingPositionId} txHash=${txHash}`, {
+                    // rowsUpdated=0 is expected when the position was already promoted to
+                    // 'open' by the immediate-write path (Solana + txHash). It is NOT a bug.
+                    const promotionOutcome = promoteResult === null
+                        ? 'error'
+                        : promoteResult.count > 0 ? 'PROMOTED_NOW' : 'ALREADY_OPEN';
+                    logger.info(LogCode.SYS_INFO, `[CopyTradePosition] Buy confirmation promotion result: ${promotionOutcome} rowsUpdated=${promoteResult?.count ?? 'error'} positionId=${pendingPositionId}`, {
                         positionId: pendingPositionId,
+                        promotionOutcome,
                         rowsUpdated: promoteResult?.count ?? null,
                         txHash,
                         chainId,

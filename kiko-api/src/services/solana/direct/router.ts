@@ -1,7 +1,6 @@
-import { detectLaunchpadToken } from '../../ai/launchpadDetector.js';
 import { SolanaLaunchpadSwapService } from '../../solanaLaunchpadSwapService.js';
 import type { SolDirectExecutionRequest, SolDirectExecutionResult, SolDirectProvider } from './types.js';
-import { executePumpSwapDirect, extractPumpSwapCreatorAddress } from './pumpswapExecutor.js';
+import { executePumpSwapDirect } from './pumpswapExecutor.js';
 import { executeRaydiumLaunchlabDirect } from './raydiumLaunchlabExecutor.js';
 import { logger } from '../../../utils/logger.js';
 import { LogCode } from '../../../config/logRegistry.js';
@@ -44,25 +43,15 @@ export async function executeSolanaDirectLaunchpad(request: SolDirectExecutionRe
       const msg = error?.message || String(error);
 
       // Token graduated to PumpSwap AMM — bonding curve is closed.
-      // Auto-reroute: detect creator on-chain and execute via pumpswap direct.
+      // Re-route to pumpswap direct. executePumpSwapDirect will parse the creator
+      // from the on-chain pool account data (offset 40), no external API needed.
       if (msg.includes('PUMPFUN_GRADUATED')) {
-        logger.info(LogCode.SYS_INFO, `[SolDirectRouter] pumpfun token graduated, auto-routing to pumpswap direct`, {
+        logger.info(LogCode.SYS_INFO, `[SolDirectRouter] pumpfun token graduated, auto-routing to pumpswap direct (creator resolved on-chain)`, {
           mint: request.mint,
           isBuy: request.isBuy
         });
         try {
-          const detection = await detectLaunchpadToken(request.mint, 900, { mode: 'cheap', requireCreator: true }).catch(() => null);
-          const detectionData = detection?.provider === 'pumpswap' ? detection.data : null;
-          const creatorAddress = extractPumpSwapCreatorAddress(detectionData);
-          if (!creatorAddress) {
-            logger.warn(LogCode.SYS_ERROR, `[SolDirectRouter] graduated pumpfun: could not detect pumpswap creator, giving up`, { mint: request.mint });
-            return { ok: false, provider: 'pumpswap', reasonCode: 'missing_creator', message: 'graduated pumpfun: pumpswap creator not found' };
-          }
-          logger.info(LogCode.SYS_INFO, `[SolDirectRouter] graduated pumpfun: executing via pumpswap direct`, {
-            mint: request.mint,
-            creatorAddress
-          });
-          return await executePumpSwapDirect({ ...request, provider: 'pumpswap', creatorAddress, poolId: null });
+          return await executePumpSwapDirect({ ...request, provider: 'pumpswap', creatorAddress: null, poolId: null });
         } catch (psErr: any) {
           return { ok: false, provider: 'pumpswap', reasonCode: 'build_failed', message: psErr?.message || String(psErr) };
         }
@@ -99,26 +88,11 @@ export async function buildSolanaDirectRequest(input: {
     throw new Error(`unsupported sol direct provider ${input.provider}`);
   }
 
-  if (input.provider !== 'pumpswap') {
-    return {
-      ...input,
-      provider: mapped,
-      creatorAddress: null,
-      poolId: null,
-    };
-  }
-
-  const detection = await detectLaunchpadToken(input.mint, 900, { mode: 'cheap', requireCreator: true }).catch(() => null);
-  const detectionData = detection?.provider === 'pumpswap' ? detection.data : null;
-  const creatorAddress = extractPumpSwapCreatorAddress(detectionData);
-  const poolId = detectionData && typeof detectionData === 'object'
-    ? String((detectionData as Record<string, unknown>).poolId || (detectionData as Record<string, unknown>).pool_id || (detectionData as Record<string, unknown>).pool || '') || null
-    : null;
-
+  // creatorAddress for pumpswap is resolved on-chain inside executePumpSwapDirect.
   return {
     ...input,
     provider: mapped,
-    creatorAddress,
-    poolId,
+    creatorAddress: null,
+    poolId: null,
   };
 }

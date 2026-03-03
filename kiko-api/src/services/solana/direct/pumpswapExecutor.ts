@@ -223,14 +223,8 @@ export async function executePumpSwapDirect(
       return { ok: false, provider: 'pumpswap', reasonCode: 'invalid_amount', message: `invalid amount ${request.amountAtomic}` };
     }
 
-    const creatorAddress = request.creatorAddress || null;
-    if (!creatorAddress) {
-      return { ok: false, provider: 'pumpswap', reasonCode: 'missing_creator', message: 'missing creatorAddress for pumpswap direct path' };
-    }
-
     const connection = getSolanaConnection('fast', 'critical');
     const mint = new PublicKey(request.mint);
-    const creator = new PublicKey(creatorAddress);
     const signingContext = await getWalletSigningContext(request.userId);
     const user = new PublicKey(signingContext.address);
     const baseProgramId = await getMintProgramId(connection, mint);
@@ -239,6 +233,24 @@ export async function executePumpSwapDirect(
     if (!poolInfo) {
       return { ok: false, provider: 'pumpswap', reasonCode: 'pool_not_found', message: 'pumpswap pool not found' };
     }
+
+    // Resolve creator: prefer caller-supplied, otherwise parse directly from pool account data.
+    // PumpSwap pool layout: [0-7] discriminator, [8-39] global_config, [40-71] creator.
+    // This avoids any external API call and works even for graduated pumpfun tokens.
+    let creatorAddress = request.creatorAddress || null;
+    if (!creatorAddress) {
+      try {
+        creatorAddress = new PublicKey(poolInfo.data.slice(40, 72)).toString();
+        logger.info(LogCode.SYS_INFO, '[PumpSwapDirect] Resolved creator from on-chain pool data', {
+          mint: request.mint,
+          creatorAddress,
+          pool: pool.toBase58()
+        });
+      } catch {
+        return { ok: false, provider: 'pumpswap', reasonCode: 'missing_creator', message: 'could not parse creator from pool account data' };
+      }
+    }
+    const creator = new PublicKey(creatorAddress);
 
     const userBaseAta = getAssociatedTokenAddress(mint, user, false, baseProgramId);
     const userQuoteAta = getAssociatedTokenAddress(WSOL_MINT, user, false, TOKEN_PROGRAM_ID);
