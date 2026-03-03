@@ -53,10 +53,13 @@ const fragmentShader = `
     vec2 boxSize = vec2(0.48 * aspect, 0.48);
     float radius = uBorderRadius;
     
+    // Signed distance to the edge
     float dist = roundedBoxSDF(adjustedUv, boxSize, radius);
     
-    float edgeMask = 1.0 - smoothstep(-uEdgeWidth, 0.0, dist);
-    float innerMask = smoothstep(-uEdgeWidth * 2.0, -uEdgeWidth, dist);
+    // Edge mask - only affect the rim area. 
+    // Higher precision and tighter glow to prevent any haze.
+    float edgeMask = 1.0 - smoothstep(-0.02, 0.0, dist);
+    float innerMask = smoothstep(-0.06, -0.04, dist);
     float rimMask = edgeMask * innerMask;
     
     vec2 gradient = normalize(adjustedUv);
@@ -98,14 +101,8 @@ const fragmentShader = `
     
     finalColor += vec3(fresnel);
     
-    // Only show the rim and a very subtle inner glow, avoid solid "white box" inside
-    float pulseAlpha = uInteractionPulse * 0.2;
-    float alpha = max(rimMask * 0.92, step(0.0, -dist) * (0.001 + pulseAlpha));
-    
-    // Final safety: if it's way inside the box, let it be transparent
-    if (dist < -uEdgeWidth * 2.0) {
-        alpha = 0.0 + pulseAlpha;
-    }
+    // ONLY show the rim. The interior MUST be 100% transparent to avoid "white box"
+    float alpha = rimMask * 0.92;
     
     gl_FragColor = vec4(finalColor, alpha);
   }
@@ -157,6 +154,7 @@ export const LiquidGlassEffect: React.FC<LiquidGlassEffectProps> = ({
 
     renderer.setPixelRatio(1); // Deterministic
     renderer.setSize(canvasW, canvasH, false);
+    renderer.setClearColor(0x000000, 0); // Explicitly transparent
     rendererRef.current = renderer;
 
     // Orthographic camera (mirrors R3F Canvas orthographic + zoom=1)
@@ -172,9 +170,10 @@ export const LiquidGlassEffect: React.FC<LiquidGlassEffectProps> = ({
     texCanvas.width = canvasW;
     texCanvas.height = canvasH;
     const ctx = texCanvas.getContext('2d')!;
+    // Use a much darker, nearly invisible gradient for the reflection base
     const gradient = ctx.createLinearGradient(0, 0, canvasW, canvasH);
-    gradient.addColorStop(0, 'rgba(255,255,255,0.12)');
-    gradient.addColorStop(1, 'rgba(245,246,252,0.06)');
+    gradient.addColorStop(0, 'rgba(0,0,0,0.05)');
+    gradient.addColorStop(1, 'rgba(0,0,0,0.02)');
     ctx.fillStyle = gradient;
     ctx.fillRect(0, 0, canvasW, canvasH);
     const texture = new THREE.CanvasTexture(texCanvas);
@@ -241,11 +240,18 @@ export const LiquidGlassEffect: React.FC<LiquidGlassEffectProps> = ({
           zIndex: 0,
           borderRadius: 'inherit',
           overflow: 'hidden',
+          background: 'transparent',
         }}
       >
         <canvas
           ref={canvasRef}
-          style={{ width: '100%', height: '100%', display: 'block' }}
+          style={{
+            width: '100%',
+            height: '100%',
+            display: 'block',
+            background: 'transparent',
+            mixBlendMode: 'normal'
+          }}
         />
       </div>
 

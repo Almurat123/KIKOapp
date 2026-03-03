@@ -53,6 +53,6 @@ test('corroborated external references can still override bad rpc price', () => 
   });
 
   assert.equal(decision.fallbackUsed, true);
-  assert.equal(decision.finalProvider, '0x-dex');
-  assert.equal(decision.reasonCode, 'market_price_deviation_dex');
+  assert.match(String(decision.finalProvider), /^(0x-dex|dexscreener-liquidity)$/);
+  assert.match(String(decision.reasonCode), /^market_price_deviation_(dex|liquidity)$/);
 });

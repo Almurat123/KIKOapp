@@ -15,12 +15,40 @@
  * we reduce the CSS pseudo-element opacity to avoid doubling up.
  */
 
-/* Tone down the Fresnel Edge Highlight pseudo-element */
-[class*="inputWrapper"]::before {
-  opacity: 0.35 !important;
+/* Tone down the Fresnel Edge Highlight pseudo-element - COMPLETELY DISABLE */
+[class*="inputWrapper"]::before,
+[class*="inputWrapper"]:focus-within::before,
+[class*="inputArea"]::before,
+[class*="inputContainer"]::before {
+  opacity: 0 !important;
+  display: none !important;
+  content: none !important;
 }
 
-/* Tone down the Chromatic Aberration pseudo-element */
-[class*="inputWrapper"]::after {
-  opacity: 0.25 !important;
+/* Tone down the Chromatic Aberration pseudo-element - COMPLETELY DISABLE */
+[class*="inputWrapper"]::after,
+[class*="inputWrapper"]:focus-within::after,
+[class*="inputArea"]::after,
+[class*="inputContainer"]::after {
+  opacity: 0 !important;
+  display: none !important;
+  content: none !important;
+}
+
+/* Ensure no background box exists */
+[class*="inputWrapper"],
+[class*="inputArea"],
+[class*="inputContainer"],
+[class*="textareaContainer"] {
+  background: transparent !important;
+  border: none !important;
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+/* Remove any focus rings or outlines */
+textarea:focus,
+input:focus {
+  outline: none !important;
+  box-shadow: none !important;
 }
