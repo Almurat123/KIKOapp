@@ -992,13 +992,47 @@ export class MainSwapService {
             }
           );
 
-          const result = await this.executeSolanaSwap(request, feeContext, trace, ctx);
-          result.metadata = {
-            ...(result.metadata || {}),
-            launchpad: provider,
-            provider: `${result.metadata?.provider || 'solana'}:${provider}:fallback`
-          };
-          return result;
+          try {
+            const result = await this.executeSolanaSwap(request, feeContext, trace, ctx);
+            result.metadata = {
+              ...(result.metadata || {}),
+              launchpad: provider,
+              provider: `${result.metadata?.provider || 'solana'}:${provider}:fallback`
+            };
+            return result;
+          } catch (fallbackErr: any) {
+            const msg = String(fallbackErr?.message || fallbackErr || '');
+            const isSlippageFailure =
+              msg.includes('0x1771')
+              || msg.includes('custom error: 6001')
+              || msg.toLowerCase().includes('slippage');
+
+            if (isSlippageFailure) {
+              const baseSlippage = Number(request.slippageBps || 100);
+              const retrySlippage = Math.max(150, Math.min(1200, Math.floor(baseSlippage * 3)));
+              logger.warn(LogCode.EXE_TX_REVERTED, trace(`launchpad fallback swap hit slippage, retrying with widened slippage`), {
+                launchpad: provider,
+                baseSlippage,
+                retrySlippage,
+                error: msg.slice(0, 240)
+              });
+
+              const retryResult = await this.executeSolanaSwap(
+                { ...request, slippageBps: retrySlippage },
+                feeContext,
+                trace,
+                ctx
+              );
+              retryResult.metadata = {
+                ...(retryResult.metadata || {}),
+                launchpad: provider,
+                provider: `${retryResult.metadata?.provider || 'solana'}:${provider}:fallback_retry:${retrySlippage}bps`
+              };
+              return retryResult;
+            }
+
+            throw fallbackErr;
+          }
         }
 
         default:

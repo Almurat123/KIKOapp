@@ -1,6 +1,7 @@
 import { SolanaLaunchpadSwapService } from '../../solanaLaunchpadSwapService.js';
 import { detectLaunchpadToken } from '../../ai/launchpadDetector.js';
 import { getSolanaConnection } from '../../../config/solanaConfig.js';
+import { PublicKey } from '@solana/web3.js';
 import type { SolDirectExecutionRequest, SolDirectExecutionResult, SolDirectProvider } from './types.js';
 import { executePumpSwapDirect } from './pumpswapExecutor.js';
 import { executeRaydiumLaunchlabDirect } from './raydiumLaunchlabExecutor.js';
@@ -9,7 +10,7 @@ import { LogCode } from '../../../config/logRegistry.js';
 
 const PUMP_SWAP_PROGRAM_ID = 'pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA';
 
-async function extractPumpSwapPoolIdFromSourceTx(sourceTxHash?: string | null): Promise<string | null> {
+async function extractPumpSwapPoolIdFromSourceTx(sourceTxHash: string | null | undefined, targetMint: string): Promise<string | null> {
   if (!sourceTxHash) return null;
   try {
     const connection = getSolanaConnection('fast', 'critical');
@@ -19,26 +20,68 @@ async function extractPumpSwapPoolIdFromSourceTx(sourceTxHash?: string | null): 
     });
     if (!tx) return null;
 
-    const pickPoolFromInstruction = (instruction: any): string | null => {
+    const targetMintLower = targetMint.toLowerCase();
+    const wsolLower = 'So11111111111111111111111111111111111111112'.toLowerCase();
+
+    const collectInstructionAccounts = (instruction: any): string[] => {
+      const accs: string[] = [];
+      const accounts = instruction?.accounts;
+      if (!Array.isArray(accounts)) return accs;
+      for (const a of accounts) {
+        if (typeof a === 'string' && a) {
+          accs.push(a);
+          continue;
+        }
+        if (a?.pubkey) {
+          accs.push(String(a.pubkey));
+          continue;
+        }
+        if (a?.toBase58) {
+          accs.push(a.toBase58());
+        }
+      }
+      return accs;
+    };
+
+    const pickPoolFromInstruction = async (instruction: any): Promise<string | null> => {
       const programId = instruction?.programId?.toBase58?.() || instruction?.programId?.toString?.() || String(instruction?.programId || '');
       if (programId !== PUMP_SWAP_PROGRAM_ID) return null;
-      const accounts = instruction?.accounts;
-      if (!Array.isArray(accounts) || accounts.length === 0) return null;
-      const first = accounts[0];
-      if (typeof first === 'string' && first) return first;
-      if (first?.pubkey) return String(first.pubkey);
-      if (first?.toBase58) return first.toBase58();
+
+      const accountCandidates = collectInstructionAccounts(instruction);
+      for (const account of accountCandidates) {
+        try {
+          const info = await connection.getAccountInfo(new PublicKey(account), 'confirmed');
+          if (!info) continue;
+          if (info.owner.toBase58() !== PUMP_SWAP_PROGRAM_ID) continue;
+          if (info.data.length < 232) continue;
+
+          const baseMint = new PublicKey(info.data.slice(72, 104)).toBase58();
+          const quoteMint = new PublicKey(info.data.slice(104, 136)).toBase58();
+          const baseLower = baseMint.toLowerCase();
+          const quoteLower = quoteMint.toLowerCase();
+
+          const isTargetWsolPair =
+            (baseLower === targetMintLower && quoteLower === wsolLower) ||
+            (quoteLower === targetMintLower && baseLower === wsolLower);
+
+          if (isTargetWsolPair) {
+            return account;
+          }
+        } catch {
+          // ignore malformed account candidates
+        }
+      }
       return null;
     };
 
     for (const instruction of tx.transaction.message.instructions || []) {
-      const poolId = pickPoolFromInstruction(instruction);
+      const poolId = await pickPoolFromInstruction(instruction);
       if (poolId) return poolId;
     }
 
     for (const inner of tx.meta?.innerInstructions || []) {
       for (const instruction of inner.instructions || []) {
-        const poolId = pickPoolFromInstruction(instruction);
+        const poolId = await pickPoolFromInstruction(instruction);
         if (poolId) return poolId;
       }
     }
@@ -100,7 +143,7 @@ export async function executeSolanaDirectLaunchpad(request: SolDirectExecutionRe
             ? String(detectionData.poolId || detectionData.pool_id || detectionData.pool || detectionData.poolAddress || '') || null
             : null;
           if (!poolId && request.sourceTxHash) {
-            poolId = await extractPumpSwapPoolIdFromSourceTx(request.sourceTxHash);
+            poolId = await extractPumpSwapPoolIdFromSourceTx(request.sourceTxHash, request.mint);
             if (poolId) {
               logger.info(LogCode.SYS_INFO, '[SolDirectRouter] resolved pumpswap pool from source tx', {
                 mint: request.mint,
