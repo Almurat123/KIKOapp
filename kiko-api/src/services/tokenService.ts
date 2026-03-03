@@ -279,27 +279,25 @@ async function fetchTokenInfoFromAPIs(
         }
     }
 
-    // 🛡️ FALLBACK: If price failed
+    // 🛡️ FALLBACK: External API first (Jupiter v2 / 0x), RPC was already attempted above
+    // For Solana: Jupiter Price API v2 → Raydium (via getDexPrice)
+    // For EVM:    0x API (via getDexPrice)
     if (price <= 0 || isNaN(price)) {
-        if (isSolana) {
-            logger.warn(LogCode.API_FETCH_FAILED, 'RPC price failed under Solana RPC-only mode (no external price fallback)', {
-                token: tokenAddress,
-                rpcPrice: rpc?.price
-            });
-        } else {
-            logger.warn(LogCode.API_FETCH_FAILED, 'RPC price failed, falling back to full API fetch', {
-                token: tokenAddress,
-                rpcPrice: rpc?.price
-            });
-        }
+        logger.warn(LogCode.API_FETCH_FAILED, 'Primary price failed, falling back to external DEX API', {
+            token: tokenAddress,
+            chain: isSolana ? 'solana' : chainId,
+            rpcPrice: rpc?.price
+        });
+
+        const dexChainId = isSolana ? 'solana' : chainId;
 
         const tryDex = async () => {
-            const dexChainId = isSolana ? 'solana' : chainId;
             const dexPrice = await getDexPrice(tokenAddress, dexChainId);
             return dexPrice > 0 ? dexPrice : null;
         };
 
-        if (fastMode && !isSolana) {
+        // Fast-mode: race against timeout so TP/SL loop doesn't stall
+        if (fastMode) {
             const timeout = new Promise<null>((resolve) => setTimeout(() => resolve(null), 800));
             const winner = await Promise.race([tryDex(), timeout]);
             if (typeof winner === 'number') {
@@ -307,25 +305,20 @@ async function fetchTokenInfoFromAPIs(
                 provider = isSolana ? 'jupiter-dex' : '0x-dex';
             }
         } else {
-            // No GeckoTerminal fallback in non-fast mode
-        }
-
-        // 🔗 FINAL FALLBACK: Try DEX price (0x for EVM, Jupiter for Solana)
-        if (!isSolana && (price <= 0 || isNaN(price))) {
+            // Non-fast: give it a full attempt (no timeout race)
             try {
-                const dexChainId = isSolana ? 'solana' : chainId;
                 const dexPrice = await getDexPrice(tokenAddress, dexChainId);
                 if (dexPrice > 0) {
                     price = dexPrice;
                     provider = isSolana ? 'jupiter-dex' : '0x-dex';
-                    logger.info(LogCode.API_FETCH_SUCCESS, 'Fallback: Got price from DEX aggregator', {
+                    logger.info(LogCode.API_FETCH_SUCCESS, 'Fallback: Got price from external DEX API', {
                         token: tokenAddress.slice(0, 10),
                         price,
                         provider
                     });
                 }
             } catch (dexErr: any) {
-                logger.error(LogCode.API_FETCH_FAILED, 'DEX price fallback also failed', {
+                logger.error(LogCode.API_FETCH_FAILED, 'External DEX API fallback also failed', {
                     token: tokenAddress,
                     error: dexErr.message
                 });
