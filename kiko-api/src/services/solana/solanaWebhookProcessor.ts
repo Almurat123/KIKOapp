@@ -21,6 +21,13 @@ export async function processResolvedSolanaWebhookTx(params: {
         tx = fetched.tx;
     }
 
+    // Critical: never mirror failed target transactions.
+    // Alchemy webhook may still deliver tx payloads for reverted txs; if we decode only instructions
+    // without checking meta.err, we can incorrectly copy a failed target buy/sell.
+    if (tx?.meta?.err) {
+        return 0;
+    }
+
     const results = await Promise.allSettled(
         params.trackedWallets.map(async (walletRecord) => {
             const swap = await decodeSolanaSwap(tx!, walletRecord.address);

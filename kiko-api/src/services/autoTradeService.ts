@@ -2254,16 +2254,60 @@ async function processSingleUserBuy(
                     throw lastSolErr;
                 }
             } else {
-                txHash = await executeSolanaSwap({
-                    userId: effectiveConfig.user.privyDid,
-                    tokenInMint: SOLANA_CONFIG.TOKENS.SOL,
-                    tokenOutMint: tokenToBuy,
-                    amountIn: amountInLamports,
-                    slippageBps: effectiveConfig.maxSlippageBps,
-                    feeContext: 'copyTrade',
-                    executionMode,
-                    launchpadProvider: launchpad?.provider as any
-                });
+                const solAttempts: Array<{ amountIn: string; slippageBps: number; label: string }> = [
+                    {
+                        amountIn: amountInLamports,
+                        slippageBps: effectiveConfig.maxSlippageBps,
+                        label: 'primary'
+                    },
+                    {
+                        amountIn: amountInLamports,
+                        slippageBps: Math.min((effectiveConfig.maxSlippageBps || 300) + 500, 4900),
+                        label: 'retry_relaxed_slippage'
+                    }
+                ];
+
+                let lastSolErr: any = null;
+                for (let i = 0; i < solAttempts.length; i++) {
+                    const attempt = solAttempts[i];
+                    try {
+                        if (i > 0) {
+                            logger.warn(LogCode.EXE_TX_REVERTED, '[Solana Buy] Retrying non-turbo buy after failure', {
+                                userId: config.userId,
+                                token: tokenToBuy,
+                                attempt: attempt.label,
+                                slippageBps: attempt.slippageBps,
+                                prevError: String(lastSolErr?.message || '').slice(0, 160)
+                            });
+                        }
+
+                        txHash = await executeSolanaSwap({
+                            userId: effectiveConfig.user.privyDid,
+                            tokenInMint: SOLANA_CONFIG.TOKENS.SOL,
+                            tokenOutMint: tokenToBuy,
+                            amountIn: attempt.amountIn,
+                            slippageBps: attempt.slippageBps,
+                            feeContext: 'copyTrade',
+                            executionMode,
+                            launchpadProvider: launchpad?.provider as any
+                        });
+                        break;
+                    } catch (solErr: any) {
+                        lastSolErr = solErr;
+                        const msg = String(solErr?.message || '').toLowerCase();
+                        const retryable = msg.includes('failed on-chain')
+                            || msg.includes('simulation failed')
+                            || msg.includes('custom program error')
+                            || msg.includes('slippage')
+                            || msg.includes('exceedmaxcost')
+                            || msg.includes('0x1771')
+                            || msg.includes('6001');
+
+                        if (i >= solAttempts.length - 1 || !retryable) {
+                            throw solErr;
+                        }
+                    }
+                }
             }
 
         } else {
