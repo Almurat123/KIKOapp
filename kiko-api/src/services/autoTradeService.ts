@@ -2184,6 +2184,60 @@ async function processSingleUserBuy(
             const amountInLamports = Math.floor((usdAmount / nativePrice) * 1e9).toString();
             const amountInSol = Number(amountInLamports) / 1e9;
 
+            const lamportsToSolAmount = (lamports: string): string => {
+                const value = BigInt(lamports);
+                const whole = value / 1000000000n;
+                const frac = value % 1000000000n;
+                const fracStr = frac.toString().padStart(9, '0').replace(/0+$/, '');
+                return fracStr ? `${whole.toString()}.${fracStr}` : whole.toString();
+            };
+
+            const executeSolanaCopytradeAttempt = async (
+                attemptLamports: string,
+                attemptSlippageBps: number,
+                modeForAttempt: CopyTradeExecutionMode
+            ): Promise<MainSwapResult> => {
+                const result = await MainSwapService.executeSwap({
+                    userId: effectiveConfig.user.privyDid,
+                    walletAddress: solAddress,
+                    tokenIn: SOLANA_CONFIG.TOKENS.SOL,
+                    tokenOut: tokenToBuy,
+                    amountIn: lamportsToSolAmount(attemptLamports),
+                    chainId,
+                    slippageBps: attemptSlippageBps,
+                    mode: 'copytrade',
+                    launchpadProvider: launchpad?.provider as any,
+                    userSettings: {
+                        fastSwapMode: modeForAttempt === 'turbo',
+                        copyTradeExecutionMode: modeForAttempt
+                    },
+                    executionContext: {
+                        executionStep: 'copytrade_buy',
+                        strictReplica: false,
+                        sellRoutePolicy: 'direct_primary',
+                        sourceTxHash: leaderTxHash || undefined
+                    }
+                });
+
+                if (!result.success || !result.txHash) {
+                    throw new Error(result.error || 'Solana copytrade buy failed');
+                }
+
+                const provider = String(result.metadata?.provider || 'unknown');
+                const route = provider.includes('fallback') || provider.includes('jupiter') ? 'jupiter' : 'direct';
+                logger.info(LogCode.SYS_INFO, '[CopyTradeRoute][solana_buy]', {
+                    userId: config.userId,
+                    token: tokenToBuy,
+                    launchpadProvider: launchpad?.provider || 'unknown',
+                    route,
+                    provider,
+                    slippageBps: attemptSlippageBps,
+                    amountLamports: attemptLamports
+                });
+
+                return result;
+            };
+
             logger.debug(LogCode.EXE_QUOTE_FETCHED, 'Solana trade calculation complete', {
                 buyAmountUsd: usdAmount,
                 solPrice: nativePrice,
@@ -2228,17 +2282,14 @@ async function processSingleUserBuy(
                         });
                     }
                     try {
-                        txHash = await executeSolanaSwap({
-                            userId: effectiveConfig.user.privyDid,
-                            tokenInMint: SOLANA_CONFIG.TOKENS.SOL,
-                            tokenOutMint: tokenToBuy,
-                            amountIn: attemptLamports,
-                            slippageBps: attemptSlippage,
-                            feeContext: 'copyTrade',
-                            executionMode: 'turbo',
-                            launchpadProvider: launchpad?.provider as any,
-                            waitForConfirmation: false
-                        });
+                        const result = await executeSolanaCopytradeAttempt(attemptLamports, attemptSlippage, 'turbo');
+                        txHash = result.txHash!;
+                        txLifecycleStatus = result.txLifecycle?.status || txLifecycleStatus;
+                        swapMetadata = {
+                            ...(swapMetadata || {}),
+                            mainSwapProvider: result.metadata?.provider,
+                            mainSwapRouteMode: result.metadata?.launchpad || launchpad?.provider || 'unknown'
+                        } as any;
                         break;
                     } catch (solErr: any) {
                         lastSolErr = solErr;
@@ -2281,16 +2332,14 @@ async function processSingleUserBuy(
                             });
                         }
 
-                        txHash = await executeSolanaSwap({
-                            userId: effectiveConfig.user.privyDid,
-                            tokenInMint: SOLANA_CONFIG.TOKENS.SOL,
-                            tokenOutMint: tokenToBuy,
-                            amountIn: attempt.amountIn,
-                            slippageBps: attempt.slippageBps,
-                            feeContext: 'copyTrade',
-                            executionMode,
-                            launchpadProvider: launchpad?.provider as any
-                        });
+                        const result = await executeSolanaCopytradeAttempt(attempt.amountIn, attempt.slippageBps, executionMode);
+                        txHash = result.txHash!;
+                        txLifecycleStatus = result.txLifecycle?.status || txLifecycleStatus;
+                        swapMetadata = {
+                            ...(swapMetadata || {}),
+                            mainSwapProvider: result.metadata?.provider,
+                            mainSwapRouteMode: result.metadata?.launchpad || launchpad?.provider || 'unknown'
+                        } as any;
                         break;
                     } catch (solErr: any) {
                         lastSolErr = solErr;
