@@ -96,6 +96,8 @@ import {
     resolveBuyConfirmationPromotionAction,
     resolvePendingMirrorSellIntent
 } from './copytrade/positions/buySellRaceCoordinator.js';
+import { verifyTargetFullExit } from './copytrade/reconcile/targetSellFullExitVerifier.js';
+import { runTargetSellReconciliationCycle } from './copytrade/reconcile/targetSellReconciliationJob.js';
 import { collectDirectSwapFeeFromSettlement } from './swap/fee/directSwapFeeCollector.js';
 import { getCopytradeBuySharedWarmup } from './copytrade/buy/buySharedWarmup.js';
 import {
@@ -124,6 +126,8 @@ type PositionStatusCompat = {
 
 let positionStatusCompatCache: { value: PositionStatusCompat; ts: number } | null = null;
 const POSITION_STATUS_COMPAT_TTL_MS = 30_000;
+let zombieCleanupInterval: NodeJS.Timeout | null = null;
+let targetSellReconciliationInterval: NodeJS.Timeout | null = null;
 
 async function getPositionStatusCompat(): Promise<PositionStatusCompat> {
     const cached = positionStatusCompatCache;
@@ -285,6 +289,7 @@ const COPYTRADE_SKIP_ON_DIRECTION_CONFLICT = (process.env.COPYTRADE_SKIP_ON_DIRE
 const COPYTRADE_ENABLE_TOKEN_TO_TOKEN_PARALLEL = (process.env.COPYTRADE_ENABLE_TOKEN_TO_TOKEN_PARALLEL || 'false') === 'true';
 const ALLOWED_LAUNCHPAD_PROVIDERS = new Set(['zora', 'fourmeme', 'pumpfun', 'pumpswap', 'bonkfun']);
 const COPYTRADE_DISABLE_MIRROR_SELL_DUST_SWEEP = (process.env.COPYTRADE_DISABLE_MIRROR_SELL_DUST_SWEEP || 'true') === 'true';
+const TARGET_SELL_RECONCILIATION_INTERVAL_MS = Math.max(15_000, Number(process.env.COPYTRADE_TARGET_SELL_RECONCILIATION_INTERVAL_MS || '30000'));
 const CHAIN_LAUNCHPAD_PROVIDERS: Record<number, Set<string>> = {
     8453: new Set(['zora']),
     56: new Set(['fourmeme']),
@@ -293,7 +298,6 @@ const CHAIN_LAUNCHPAD_PROVIDERS: Record<number, Set<string>> = {
 
 // State for graceful shutdown and cleanup
 let isServiceShuttingDown = false;
-let zombieCleanupInterval: NodeJS.Timeout | null = null;
 
 // Per-user-per-token-per-sourceTx lock to suppress duplicate webhook fan-out for the same target swap.
 // Different target tx hashes for the same token should still be allowed to execute.
@@ -1651,6 +1655,7 @@ async function processSingleUserBuy(
             emitCopyTradeBuyGuardAudit(guardAudit, decision, reason, extra);
         };
         let pendingPositionId: string | null = null;
+        let pendingPositionCreatedAt: Date | null = null;
         let pendingPositionSettled = false;
         let attributedEntryAmountHuman: string | null = null;
         let txHash = '';
@@ -2145,6 +2150,7 @@ async function processSingleUserBuy(
                 });
             });
             pendingPositionId = pendingPos.id;
+            pendingPositionCreatedAt = pendingPos.createdAt;
             logger.info(LogCode.EXE_TX_BROADCAST, 'Created PENDING position lock', { userId: config.userId, token: tokenToBuy, positionId: pendingPositionId });
         } catch (err: any) {
             const isUniqueConflict = String(err?.code || '').toUpperCase() === 'P2002'
@@ -2754,6 +2760,7 @@ async function processSingleUserBuy(
                 },
             });
             persistedPositionId = createdPosition.id;
+            pendingPositionCreatedAt = createdPosition.createdAt;
             pendingPositionSettled = true;
         }
 
@@ -2844,7 +2851,8 @@ async function processSingleUserBuy(
                     targetWallet,
                     tokenAddress: tokenToBuy,
                     chainId,
-                    leaderBuyTxHash: leaderTxHash || undefined
+                    leaderBuyTxHash: leaderTxHash || undefined,
+                    positionCreatedAt: pendingPositionCreatedAt
                 }).catch(() => null);
 
                 const promotionAction = await resolveBuyConfirmationPromotionAction({
@@ -3705,6 +3713,24 @@ async function handleTargetSell(
     });
     if (executableConfigs.length === 0) return;
 
+    const strictFullExit = await verifyTargetFullExit({
+        targetWallet,
+        chainId,
+        tokenAddress: tokenToSell,
+    });
+    if (!strictFullExit.isFullExit) {
+        logger.warn(LogCode.WTC_TX_SKIPPED, 'Mirror sell skipped: target sell is not a strict full-balance exit', {
+            targetWallet: normalizedWallet,
+            chainId,
+            token: tokenToSell,
+            targetSellTxHash: swap.txHash,
+            reasonCode: strictFullExit.reasonCode,
+            remainingBalanceRaw: strictFullExit.remainingBalanceRaw,
+            dustThresholdRaw: strictFullExit.dustThresholdRaw,
+        });
+        return;
+    }
+
     const uniqueExecutableConfigs = dedupeConfigsByUser(executableConfigs);
     if (uniqueExecutableConfigs.length !== executableConfigs.length) {
         logger.warn(LogCode.WTC_TX_SKIPPED, 'Mirror sell deduped duplicate configs for same user', {
@@ -3842,6 +3868,19 @@ export function initAutoTradeService(): void {
     // Start Zombie Cleanup Job (Risk #1 Mitigation)
     // Runs every 5 minutes to remove stale PENDING locks
     zombieCleanupInterval = setInterval(cleanupPendingPositions, 5 * 60 * 1000);
+    targetSellReconciliationInterval = setInterval(() => {
+        void runTargetSellReconciliationCycle()
+            .then((result) => {
+                if (result.scheduledOpen > 0 || result.armedPending > 0 || result.fullExitMatches > 0) {
+                    logger.info(LogCode.SYS_INFO, '[TargetSellReconcile] Cycle completed', result);
+                }
+            })
+            .catch((err: any) => {
+                logger.warn(LogCode.SYS_ERROR, '[TargetSellReconcile] Cycle failed', {
+                    error: err?.message || String(err)
+                });
+            });
+    }, TARGET_SELL_RECONCILIATION_INTERVAL_MS);
 }
 
 /**
@@ -3853,6 +3892,10 @@ export async function stopAutoTradeService(): Promise<void> {
     if (zombieCleanupInterval) {
         clearInterval(zombieCleanupInterval);
         zombieCleanupInterval = null;
+    }
+    if (targetSellReconciliationInterval) {
+        clearInterval(targetSellReconciliationInterval);
+        targetSellReconciliationInterval = null;
     }
     stopCopyTradePendingWatcher();
     // Note: watchers are event-driven, setting flag stops processing
