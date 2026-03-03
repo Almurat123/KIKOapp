@@ -1,6 +1,7 @@
 import { ethers } from 'ethers';
 import prisma from '../../../db/prisma.js';
 import type { AttributedPositionLike } from '../positions/positionAttribution.js';
+import { consumePendingAttributedPositions } from '../positions/pendingAttributedPositionLedger.js';
 
 export async function reconcileNoopExitPosition(params: {
   positions: Array<AttributedPositionLike & { id: string }>;
@@ -65,6 +66,12 @@ export async function persistSuccessfulExit(params: {
       }
     });
   }
+
+  await consumePendingAttributedPositions({
+    positionIds: openPositions.map((position) => position.id),
+    exitTxHash: params.txHash,
+    reasonCode: `exit_persisted:${params.exitReason}`,
+  }).catch(() => 0);
 
   return { openPositions, sellVolUsd };
 }

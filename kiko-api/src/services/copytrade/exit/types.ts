@@ -1,6 +1,7 @@
 import type { CopyTradeExecutionMode } from '../../copyTradeExecutionMode.js';
 import type { OrderRuntimeContext } from '../../order-runtime/types.js';
 import type { AttributedPositionLike, PositionAttributionReasonCode } from '../positions/positionAttribution.js';
+import type { PendingAttributedPositionLotLike } from '../positions/pendingAttributedPositionLedger.js';
 
 export type PositionExitReason = 'mirror_sell' | 'take_profit' | 'stop_loss' | 'manual' | 'dynamic_take_profit';
 export type SellRoutePolicy = 'external_primary' | 'direct_primary';
@@ -42,11 +43,16 @@ export interface EvmExitSwapPlan {
   sellRoutePolicy: SellRoutePolicy;
   runtimeContext: OrderRuntimeContext;
   positions: AttributedPositionLike[];
+  pendingAttributedLotIds?: string[];
   attributedReasonCode: PositionAttributionReasonCode;
   hasExternalBalance: boolean;
 }
 
 export type EvmExitPlan = ExitNoopPlan | EvmExitSwapPlan;
+
+export interface PendingAttributedExitContext {
+  pendingLots?: PendingAttributedPositionLotLike[];
+}
 
 export interface EvmExitExecutionResult {
   success: boolean;

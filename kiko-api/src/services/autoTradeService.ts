@@ -86,6 +86,16 @@ import { shouldAbortCopytradeBuyRetry } from './copytrade/buy/copytradeBuyRetryG
 import { evaluateBuyPriceDeviationGuard } from './copytrade/buy/buyGuardPriceDeviation.js';
 import { reconcileOpenPositionsForExit } from './copytrade/exit/openPositionReconciliation.js';
 import { resolveAttributedPositionExitAmount } from './copytrade/positions/positionAttribution.js';
+import {
+    armPendingAttributedPositionsForMirrorSell,
+    cancelPendingAttributedPosition,
+    listPendingAttributedPositions,
+    upsertPendingAttributedPosition
+} from './copytrade/positions/pendingAttributedPositionLedger.js';
+import {
+    resolveBuyConfirmationPromotionAction,
+    resolvePendingMirrorSellIntent
+} from './copytrade/positions/buySellRaceCoordinator.js';
 import { collectDirectSwapFeeFromSettlement } from './swap/fee/directSwapFeeCollector.js';
 import { getCopytradeBuySharedWarmup } from './copytrade/buy/buySharedWarmup.js';
 import {
@@ -2712,6 +2722,7 @@ async function processSingleUserBuy(
             : resolveCopytradeBuyPositionStatus(orderRuntimeContext, txLifecycleStatus
                 ? { status: txLifecycleStatus as any, attempts: 1, chainId }
                 : null);
+        let persistedPositionId = pendingPositionId;
         if (pendingPositionId) {
             await prisma.position.update({
                 where: { id: pendingPositionId },
@@ -2726,7 +2737,7 @@ async function processSingleUserBuy(
             pendingPositionSettled = true;
         } else {
             // Fallback (should not happen if logic is correct): Create new if pending failed for some reason
-            await prisma.position.create({
+            const createdPosition = await prisma.position.create({
                 data: {
                     userId: effectiveConfig.userId,
                     configId: effectiveConfig.id,
@@ -2742,7 +2753,33 @@ async function processSingleUserBuy(
                     status: nextPositionStatus as any,
                 },
             });
+            persistedPositionId = createdPosition.id;
             pendingPositionSettled = true;
+        }
+
+        if (chainId !== 900 && persistedPositionId) {
+            const expectedAmountRaw = swapMetadata?.directFeeSettlement?.amountOutBase || undefined;
+            const expectedAmountDec = expectedAmountRaw ? null : attributedEntryAmountHuman;
+            await upsertPendingAttributedPosition({
+                positionId: persistedPositionId,
+                userId: effectiveConfig.userId,
+                chainId,
+                tokenAddress: tokenToBuy,
+                entryTxHash: txHash,
+                leaderBuyTxHash: leaderTxHash || undefined,
+                expectedAmountRaw,
+                expectedAmountDec,
+                reasonCode: expectedAmountRaw ? 'swap_amount_out_base' : 'swap_amount_out_human_fallback',
+            }).catch((lotErr: any) => {
+                logger.warn(LogCode.SYS_ERROR, 'Failed to upsert pending attributed position lot', {
+                    userId: effectiveConfig.userId,
+                    token: tokenToBuy,
+                    chainId,
+                    txHash,
+                    positionId: persistedPositionId,
+                    error: lotErr?.message || String(lotErr)
+                });
+            });
         }
 
         logger.info(LogCode.EXE_TX_CONFIRMED, 'Copy trade buy submitted and position state updated', {
@@ -2751,6 +2788,7 @@ async function processSingleUserBuy(
             txHash,
             txLifecycleStatus: txLifecycleStatus || 'unknown',
             positionStatus: nextPositionStatus,
+            positionId: persistedPositionId,
             ...buildOrderAuditFields(orderRuntimeContext)
         });
 
@@ -2774,12 +2812,16 @@ async function processSingleUserBuy(
                     return;
                 }
                 if (confirmation.kind === 'confirmed_failed') {
-                    if (pendingPositionId) {
+                    if (persistedPositionId) {
                         await prisma.position.updateMany({
-                            where: { id: pendingPositionId, status: positionStatusCompat.pendingCreateStatus as any },
+                            where: { id: persistedPositionId, status: positionStatusCompat.pendingCreateStatus as any },
                             data: { status: positionStatusCompat.failedFinalStatus as any }
                         }).catch((e) => logger.error(LogCode.SYS_ERROR, 'Failed to mark pending buy position as failed', { error: e }));
                     }
+                    await cancelPendingAttributedPosition({
+                        positionId: persistedPositionId,
+                        reasonCode: 'buy_confirmation_failed'
+                    }).catch(() => 0);
                     logger.warn(LogCode.EXE_TX_REVERTED, '[CopyTradeBuyConfirm] Buy transaction failed after submission', {
                         chainId,
                         token: tokenToBuy,
@@ -2797,27 +2839,77 @@ async function processSingleUserBuy(
                     return;
                 }
 
-                if (pendingPositionId) {
-                    const promoteResult = await prisma.position.updateMany({
-                        where: { id: pendingPositionId, status: positionStatusCompat.pendingCreateStatus as any },
-                        data: { status: 'open' as any, entryTxHash: txHash }
-                    }).catch((e) => {
-                        logger.error(LogCode.SYS_ERROR, 'Failed to promote pending buy position to open', { error: e });
-                        return null;
-                    });
-                    // rowsUpdated=0 is expected when the position was already promoted to
-                    // 'open' by the immediate-write path (Solana + txHash). It is NOT a bug.
-                    const promotionOutcome = promoteResult === null
-                        ? 'error'
-                        : promoteResult.count > 0 ? 'PROMOTED_NOW' : 'ALREADY_OPEN';
-                    logger.info(LogCode.SYS_INFO, `[CopyTradePosition] Buy confirmation promotion result: ${promotionOutcome} rowsUpdated=${promoteResult?.count ?? 'error'} positionId=${pendingPositionId}`, {
-                        positionId: pendingPositionId,
+                const pendingMirrorIntent = chainId === 900 ? null : await resolvePendingMirrorSellIntent({
+                    positionId: persistedPositionId,
+                    targetWallet,
+                    tokenAddress: tokenToBuy,
+                    chainId,
+                    leaderBuyTxHash: leaderTxHash || undefined
+                }).catch(() => null);
+
+                const promotionAction = await resolveBuyConfirmationPromotionAction({
+                    positionId: persistedPositionId
+                }).catch(() => ({ action: 'missing' as const }));
+
+                if (persistedPositionId) {
+                    let promotionOutcome = 'POSITION_PROMOTION_SKIPPED';
+                    let rowsUpdated: number | null = null;
+                    if (promotionAction.action === 'promote_open') {
+                        const promoteResult = await prisma.position.updateMany({
+                            where: { id: persistedPositionId, status: positionStatusCompat.pendingCreateStatus as any },
+                            data: { status: 'open' as any, entryTxHash: txHash }
+                        }).catch((e) => {
+                            logger.error(LogCode.SYS_ERROR, 'Failed to promote pending buy position to open', { error: e });
+                            return null;
+                        });
+                        rowsUpdated = promoteResult?.count ?? null;
+                        promotionOutcome = promoteResult === null
+                            ? 'error'
+                            : promoteResult.count > 0 ? 'PROMOTED_NOW' : 'POSITION_PROMOTION_SKIPPED';
+                    } else if (promotionAction.action === 'already_open') {
+                        promotionOutcome = 'ALREADY_OPEN';
+                    } else if (promotionAction.action === 'closed_before_open') {
+                        promotionOutcome = 'CLOSED_BEFORE_OPEN';
+                    } else {
+                        promotionOutcome = 'POSITION_PROMOTION_SKIPPED';
+                    }
+                    logger.info(LogCode.SYS_INFO, `[CopyTradePosition] Buy confirmation promotion result: ${promotionOutcome} rowsUpdated=${rowsUpdated ?? 'n/a'} positionId=${persistedPositionId}`, {
+                        positionId: persistedPositionId,
                         promotionOutcome,
-                        rowsUpdated: promoteResult?.count ?? null,
+                        rowsUpdated,
                         txHash,
                         chainId,
-                        token: tokenToBuy
+                        token: tokenToBuy,
+                        targetSellTxHash: pendingMirrorIntent?.targetSellTxHash || undefined,
+                        targetSellReasonCode: pendingMirrorIntent?.reasonCode || undefined
                     });
+                }
+
+                if (pendingMirrorIntent?.shouldMirrorSell && persistedPositionId) {
+                    const mirrorSellPosition = await prisma.position.findUnique({
+                        where: { id: persistedPositionId }
+                    });
+                    if (mirrorSellPosition && mirrorSellPosition.status !== 'closed') {
+                        logger.warn(LogCode.SYS_INFO, '[CopyTradeRace] Target already sold while buy was pending; executing mirror sell on confirmation', {
+                            userId: config.userId,
+                            token: tokenToBuy,
+                            chainId,
+                            txHash,
+                            positionId: persistedPositionId,
+                            targetSellTxHash: pendingMirrorIntent.targetSellTxHash,
+                            reasonCode: pendingMirrorIntent.reasonCode
+                        });
+                        await executePositionExit({
+                            userId: config.userId,
+                            tokenAddress: tokenToBuy,
+                            chainId,
+                            exitReason: 'mirror_sell',
+                            tokenInfo,
+                            config: { ...effectiveConfig, user: effectiveConfig.user },
+                            positions: [mirrorSellPosition]
+                        });
+                    }
+                    return;
                 }
 
                 if (swapMetadata?.directFeeSettlement?.deferred) {
@@ -3043,6 +3135,7 @@ async function executePositionExit(params: {
     config: any;
     userSettings?: any;
     positions?: Array<any>;
+    pendingAttributedLots?: Array<any>;
 }): Promise<string | null> {
     const { userId, tokenAddress, chainId, exitReason, config } = params;
     const tokenInfo = params.tokenInfo ?? { price: 0, symbol: 'UNKNOWN' };
@@ -3335,7 +3428,8 @@ async function executePositionExit(params: {
                 universalSlippageBps,
                 executionMode,
                 targetWallet: config.targetWallet,
-                positions: exitPositions
+                positions: exitPositions,
+                pendingLots: params.pendingAttributedLots
             });
 
             balance = exitPlan.balance;
@@ -3547,7 +3641,6 @@ async function handleTargetSell(
     chainId: number
 ): Promise<void> {
     const tokenToSell = swap.tokenIn;
-    const positionStatusCompat = await getPositionStatusCompat();
     const normalizedWallet = normalizeAddress(targetWallet);
     logger.info(LogCode.EXE_QUOTE_FETCHED, '[CopyTradeTiming] target sell start', {
         targetWallet: normalizedWallet,
@@ -3631,35 +3724,6 @@ async function handleTargetSell(
     await Promise.all(uniqueExecutableConfigs.map(async (config) => {
         // Never infer copytrade ownership from wallet balance alone.
         // Manual holdings and external transfers must not be converted into copytrade positions.
-        try {
-            const pendingPositions = await prisma.position.findMany({
-                where: {
-                    userId: config.userId,
-                    tokenAddress: tokenToSell,
-                    chainId,
-                    status: { in: positionStatusCompat.lockStatuses as any }
-                },
-                orderBy: { createdAt: 'desc' },
-                take: 3
-            });
-            if (pendingPositions.length > 0) {
-                logger.warn(LogCode.WTC_TX_SKIPPED, 'Pending positions left untouched on mirror sell because on-chain balance is not ownership proof', {
-                    userId: config.userId,
-                    chainId,
-                    token: tokenToSell,
-                    pendingCount: pendingPositions.length,
-                    pendingIds: pendingPositions.map((position) => position.id)
-                });
-            }
-        } catch (reconcileErr: any) {
-            logger.warn(LogCode.SYS_ERROR, 'Failed to inspect pending positions in mirror sell', {
-                userId: config.userId,
-                token: tokenToSell,
-                chainId,
-                error: reconcileErr?.message || String(reconcileErr)
-            });
-        }
-
         const [positions, tokenInfo] = await Promise.all([
             prisma.position.findMany({
                 // Include 'pending' positions: sell signal can arrive while buy tx is still confirming on-chain.
@@ -3692,6 +3756,36 @@ async function handleTargetSell(
             return;
         }
         const matchedPositions = reconciledPositions.matchedPositions;
+        const pendingMatchedPositionIds = matchedPositions
+            .filter((position) => String(position.status || '') !== 'open')
+            .map((position) => position.id);
+        if (pendingMatchedPositionIds.length > 0) {
+            const armedCount = await armPendingAttributedPositionsForMirrorSell({
+                userId: config.userId,
+                chainId,
+                tokenAddress: tokenToSell,
+                positionIds: pendingMatchedPositionIds,
+                targetSellTxHash: swap.txHash || undefined,
+                reasonCode: 'target_sell_detected'
+            }).catch(() => 0);
+            logger.info(LogCode.SYS_INFO, 'Mirror sell armed pending attributed lots', {
+                userId: config.userId,
+                token: tokenToSell,
+                chainId,
+                pendingPositionIds: pendingMatchedPositionIds,
+                armedCount,
+                targetSellTxHash: swap.txHash || undefined
+            });
+        }
+        const pendingAttributedLots = pendingMatchedPositionIds.length > 0
+            ? await listPendingAttributedPositions({
+                userId: config.userId,
+                chainId,
+                tokenAddress: tokenToSell,
+                positionIds: pendingMatchedPositionIds,
+                statuses: ['armed', 'sell_armed']
+            }).catch(() => [])
+            : [];
 
         // Leader stat tracking (only for mirror sell)
         const balanceUsdForStats = matchedPositions.reduce((sum, p) => sum + (p.entryUsdValue || 0), 0);
@@ -3712,7 +3806,8 @@ async function handleTargetSell(
                 exitReason: 'mirror_sell',
                 tokenInfo,
                 config: { ...config, user: (config as any).user },
-                positions: matchedPositions
+                positions: matchedPositions,
+                pendingAttributedLots
             });
         } finally {
             positionIds.forEach(id => positionsBeingExited.delete(id));

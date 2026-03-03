@@ -408,6 +408,7 @@ model Position {
   realizedPnlPctDec  Decimal?        @db.Decimal(38, 18)
   realizedPnlUsdDec  Decimal?        @db.Decimal(38, 18)
   config             CopyTradeConfig @relation(fields: [configId], references: [id], onDelete: Cascade)
+  pendingAttributed  PendingAttributedPosition?
   user               User            @relation(fields: [userId], references: [privyDid], onDelete: Cascade)
 
   @@unique([userId, chainId, tokenAddress, leaderTxHash], map: "Position_user_chain_token_leaderTxHash_key")
@@ -420,6 +421,31 @@ model Position {
   @@index([userId, chainId, tokenAddress, status])
   @@index([userId, chainId, tokenAddress, status, createdAt(sort: Desc)])
   @@index([status, exitRetryCount, lastExitAttempt])
+}
+
+model PendingAttributedPosition {
+  id                String    @id @default(cuid())
+  positionId        String    @unique @map("position_id")
+  userId            String    @map("user_id")
+  chainId           Int       @map("chain_id")
+  tokenAddress      String    @map("token_address")
+  entryTxHash       String    @map("entry_tx_hash")
+  leaderBuyTxHash   String?   @map("leader_buy_tx_hash")
+  expectedAmountRaw String?   @map("expected_amount_raw")
+  expectedAmountDec Decimal?  @map("expected_amount_dec") @db.Decimal(38, 18)
+  status            String    @default("armed")
+  reasonCode        String?   @map("reason_code")
+  targetSellTxHash  String?   @map("target_sell_tx_hash")
+  exitTxHash        String?   @map("exit_tx_hash")
+  consumedAt        DateTime? @map("consumed_at")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+  position          Position  @relation(fields: [positionId], references: [id], onDelete: Cascade)
+
+  @@index([userId, chainId, tokenAddress, status])
+  @@index([entryTxHash])
+  @@index([targetSellTxHash])
+  @@map("pending_attributed_positions")
 }
 
 model ChatSession {

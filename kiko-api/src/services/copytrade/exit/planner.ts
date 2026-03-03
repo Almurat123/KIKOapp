@@ -7,6 +7,8 @@ import {
   resolveAttributedPositionExitAmount,
   type AttributedPositionLike,
 } from '../positions/positionAttribution.js';
+import { resolveMirrorSellAttributedAmount } from './mirrorSellAttribution.js';
+import type { PendingAttributedExitContext } from './types.js';
 
 function formatTokenAmount(amount: bigint, decimals: number): number {
   const value = Number(ethers.formatUnits(amount, decimals));
@@ -24,7 +26,7 @@ export async function buildEvmExitPlan(input: {
   executionMode: CopyTradeExecutionMode;
   targetWallet?: string;
   positions: AttributedPositionLike[];
-}): Promise<EvmExitPlan> {
+} & PendingAttributedExitContext): Promise<EvmExitPlan> {
   const { userId, walletAddress, tokenAddress, chainId, exitReason, tokenInfo } = input;
   const hasValidPrice = Number.isFinite(tokenInfo?.price) && Number(tokenInfo.price) > 0;
   const dec = await getErc20Decimals(tokenAddress, chainId).catch(() => 18);
@@ -43,11 +45,18 @@ export async function buildEvmExitPlan(input: {
   const decimals = Number(dec);
   const balanceUsd = formatTokenAmount(balance, decimals) * (hasValidPrice ? Number(tokenInfo.price) : 0);
   const treatAsEmptyOrDust = balance <= 0n || (!isMirrorSell && hasValidPrice && balanceUsd < 0.1);
-  const attribution = resolveAttributedPositionExitAmount({
-    positions: input.positions,
-    decimals,
-    onChainBalanceRaw: balance,
-  });
+  const attribution = isMirrorSell
+    ? resolveMirrorSellAttributedAmount({
+        positions: input.positions as Array<AttributedPositionLike & { status?: string; id: string }>,
+        pendingLots: input.pendingLots || [],
+        decimals,
+        onChainBalanceRaw: balance,
+      })
+    : resolveAttributedPositionExitAmount({
+        positions: input.positions,
+        decimals,
+        onChainBalanceRaw: balance,
+      });
 
   if (treatAsEmptyOrDust) {
     if (isMirrorSell && balance <= 0n) {
@@ -136,9 +145,10 @@ export async function buildEvmExitPlan(input: {
     retrySlippageBps: Math.min(Math.floor(input.universalSlippageBps * 1.5), 2500),
     executionMode: input.executionMode,
     sellRoutePolicy: 'external_primary',
-    positions: attribution.eligiblePositions,
-    attributedReasonCode: attribution.reasonCode,
-    hasExternalBalance: attribution.metrics.hasExternalBalance,
+      positions: attribution.eligiblePositions,
+      pendingAttributedLotIds: 'pendingAttributedLotIds' in attribution ? attribution.pendingAttributedLotIds : undefined,
+      attributedReasonCode: attribution.reasonCode,
+      hasExternalBalance: attribution.metrics.hasExternalBalance,
     runtimeContext: createExitOrderRuntimeContext({
       userId,
       walletAddress,

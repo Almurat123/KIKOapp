@@ -14,7 +14,11 @@ export type PositionAttributionReasonCode =
   | 'NO_CONFIRMED_POSITIONS'
   | 'ATTRIBUTED_AMOUNT_UNAVAILABLE'
   | 'ONCHAIN_BALANCE_EMPTY'
-  | 'FULL_BALANCE_FALLBACK';
+  | 'FULL_BALANCE_FALLBACK'
+  | 'PENDING_ATTRIBUTED_AMOUNT_RESOLVED'
+  | 'PENDING_ATTRIBUTED_AMOUNT_CLAMPED_TO_ONCHAIN_BALANCE'
+  | 'PENDING_BALANCE_NOT_VISIBLE_YET'
+  | 'PENDING_EXPECTED_AMOUNT_UNAVAILABLE';
 
 export interface PositionAttributionResult<T extends AttributedPositionLike> {
   eligiblePositions: T[];
@@ -125,4 +129,3 @@ export function resolveAttributedPositionExitAmount<T extends AttributedPosition
     },
   };
 }
-

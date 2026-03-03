@@ -28,3 +28,15 @@ __pycache__/
 .idea/
 .vscode/
 
+
+# 额外的构建目录 (Antigravity 优化)
+kiko-web/.next/
+**/.output/
+
+# 大型数据/索引目录
+kiko-python/chroma_db/
+**/__pycache__/
+
+# 额外的编译器缓存
+.cache/
+.eslintcache
