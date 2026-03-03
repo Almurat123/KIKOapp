@@ -1639,6 +1639,13 @@ async function processSingleUserBuy(
         ) => {
             emitCopyTradeBuyGuardAudit(guardAudit, decision, reason, extra);
         };
+        let pendingPositionId: string | null = null;
+        let pendingPositionSettled = false;
+        let attributedEntryAmountHuman: string | null = null;
+        let txHash = '';
+        let txLifecycleStatus: string | undefined;
+        let orderRuntimeContext: any = undefined;
+        let swapMetadata: MainSwapResult['metadata'] | undefined;
 
         try {
             const dispatchDetectedAt = getCopyTradeDispatchDetectedAt(timing, detectedAt);
@@ -2092,13 +2099,6 @@ async function processSingleUserBuy(
 
         // 🛡️ DB TRANSACTION LOCK (Prevents Concurrent Buys)
         // Create a PENDING position record atomically. If one exists, this will fail.
-        let pendingPositionId: string | null = null;
-        let pendingPositionSettled = false;
-        let attributedEntryAmountHuman: string | null = null;
-        let txHash = '';
-        let txLifecycleStatus: string | undefined;
-        let orderRuntimeContext: any = undefined;
-        let swapMetadata: MainSwapResult['metadata'] | undefined;
         try {
             const pendingPos = await prisma.$transaction(async (tx) => {
                 const positionWhere = buildDuplicateTradeWhere({
@@ -2901,7 +2901,7 @@ ${analysis.rawAnalysis}
                     userId: config.userId,
                     token: tokenToBuy,
                     pendingPositionId,
-                    txHash: txHash || null
+                    txHash: txHash || undefined
                 });
             }
         }
@@ -2943,13 +2943,16 @@ async function executePositionExit(params: {
     let txHash = '';
     let exitRuntimeContext: OrderRuntimeContext | undefined;
     const user = config.user;
+    let exitPositions: any[] = [];
+    let persistedExitPositions: any[] = [];
+    let persistedExitBalance = balance;
 
     // Fetch universal global slippage from UserSettings
     const settings = params.userSettings || await prisma.userSettings.findUnique({ where: { userId } });
     const universalSlippageBps = getSlippageBps(settings);
 
     try {
-        const exitPositions = params.positions && params.positions.length > 0
+        exitPositions = params.positions && params.positions.length > 0
             ? params.positions
             : await prisma.position.findMany({
                 where: { userId, tokenAddress, chainId, status: 'open' }
@@ -2964,8 +2967,8 @@ async function executePositionExit(params: {
             });
             return null;
         }
-        let persistedExitPositions = exitPositions;
-        let persistedExitBalance = balance;
+        persistedExitPositions = exitPositions;
+        persistedExitBalance = balance;
 
         if (chainId === 900) {
             // SOLANA Logic

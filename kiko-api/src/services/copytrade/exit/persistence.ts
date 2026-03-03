@@ -1,15 +1,15 @@
 import { ethers } from 'ethers';
 import prisma from '../../../db/prisma.js';
+import type { AttributedPositionLike } from '../positions/positionAttribution.js';
 
 export async function reconcileNoopExitPosition(params: {
-  userId: string;
-  tokenAddress: string;
+  positions: Array<AttributedPositionLike & { id: string }>;
   action: 'keep_open' | 'close_position';
   closeReason?: 'balance_empty' | 'balance_dust';
 }): Promise<void> {
-  if (params.action !== 'close_position') return;
+  if (params.action !== 'close_position' || params.positions.length === 0) return;
   await prisma.position.updateMany({
-    where: { userId: params.userId, tokenAddress: params.tokenAddress, status: 'open' },
+    where: { id: { in: params.positions.map((position) => position.id) }, status: 'open' },
     data: {
       status: 'closed',
       exitReason: params.closeReason,
@@ -19,22 +19,27 @@ export async function reconcileNoopExitPosition(params: {
 }
 
 export async function persistSuccessfulExit(params: {
-  userId: string;
-  tokenAddress: string;
+  positions: Array<AttributedPositionLike & {
+    id: string;
+    entryPrice: number;
+    entryUsdValue: number | null;
+    entryAmountDec?: { toString(): string } | string | number | null;
+  }>;
   txHash: string;
   exitReason: string;
   balance: bigint;
   decimals: number;
   exitPrice: number;
 }): Promise<{ openPositions: any[]; sellVolUsd: number }> {
-  const openPositions = await prisma.position.findMany({
-    where: { userId: params.userId, tokenAddress: params.tokenAddress, status: 'open' }
-  });
+  const openPositions = params.positions;
   const sellAmount = Number(ethers.formatUnits(params.balance, params.decimals));
   const sellVolUsd = Number.isFinite(sellAmount) ? sellAmount * params.exitPrice : 0;
+  const totalEntryUsd = openPositions.reduce((sum, pos) => sum + (pos.entryUsdValue || 0), 0);
 
   for (const pos of openPositions) {
-    let realizedPnlUsd = sellVolUsd - (pos.entryUsdValue || 0);
+    const positionWeight = totalEntryUsd > 0 ? (pos.entryUsdValue || 0) / totalEntryUsd : (openPositions.length > 0 ? 1 / openPositions.length : 0);
+    const positionExitUsd = sellVolUsd * positionWeight;
+    let realizedPnlUsd = positionExitUsd - (pos.entryUsdValue || 0);
     const realizedPnlPct = pos.entryPrice && pos.entryPrice > 0
       ? ((params.exitPrice - pos.entryPrice) / pos.entryPrice) * 100
       : 0;
@@ -49,8 +54,10 @@ export async function persistSuccessfulExit(params: {
         exitTxHash: params.txHash,
         exitReason: params.exitReason,
         closedAt: new Date(),
+        exitAmount: pos.entryAmountDec ? String(pos.entryAmountDec) : undefined,
+        exitAmountDec: pos.entryAmountDec ? String(pos.entryAmountDec) : undefined,
         exitPrice: params.exitPrice,
-        exitUsdValue: sellVolUsd,
+        exitUsdValue: positionExitUsd,
         realizedPnlUsd,
         realizedPnlPct
       }
@@ -61,18 +68,16 @@ export async function persistSuccessfulExit(params: {
 }
 
 export async function persistFailedExitState(params: {
-  userId: string;
-  tokenAddress: string;
+  positions: Array<AttributedPositionLike & { id: string; exitRetryCount?: number | null }>;
   exitReason: string;
   maxRetries: number;
 }): Promise<{ retryCount: number; terminal: boolean }> {
-  const position = await prisma.position.findFirst({
-    where: { userId: params.userId, tokenAddress: params.tokenAddress, status: 'open' }
-  });
+  const position = params.positions[0];
   const retryCount = (position?.exitRetryCount || 0) + 1;
+  const ids = params.positions.map((entry) => entry.id);
   if (retryCount <= params.maxRetries) {
     await prisma.position.updateMany({
-      where: { userId: params.userId, tokenAddress: params.tokenAddress, status: 'open' },
+      where: { id: { in: ids }, status: 'open' },
       data: {
         exitRetryCount: retryCount,
         lastExitAttempt: new Date(),
@@ -83,7 +88,7 @@ export async function persistFailedExitState(params: {
   }
 
   await prisma.position.updateMany({
-    where: { userId: params.userId, tokenAddress: params.tokenAddress, status: 'open' },
+    where: { id: { in: ids }, status: 'open' },
     data: {
       status: 'closed',
       exitReason: 'exit_failed_max_retries',

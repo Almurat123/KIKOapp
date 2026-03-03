@@ -3,6 +3,10 @@ import { getErc20Balance, getErc20Decimals } from '../../rpcManager.js';
 import type { CopyTradeExecutionMode } from '../../copyTradeExecutionMode.js';
 import type { EvmExitPlan, ExitTokenInfo, PositionExitReason } from './types.js';
 import { createExitOrderRuntimeContext } from './runtime.js';
+import {
+  resolveAttributedPositionExitAmount,
+  type AttributedPositionLike,
+} from '../positions/positionAttribution.js';
 
 function formatTokenAmount(amount: bigint, decimals: number): number {
   const value = Number(ethers.formatUnits(amount, decimals));
@@ -19,6 +23,7 @@ export async function buildEvmExitPlan(input: {
   universalSlippageBps: number;
   executionMode: CopyTradeExecutionMode;
   targetWallet?: string;
+  positions: AttributedPositionLike[];
 }): Promise<EvmExitPlan> {
   const { userId, walletAddress, tokenAddress, chainId, exitReason, tokenInfo } = input;
   const hasValidPrice = Number.isFinite(tokenInfo?.price) && Number(tokenInfo.price) > 0;
@@ -38,6 +43,11 @@ export async function buildEvmExitPlan(input: {
   const decimals = Number(dec);
   const balanceUsd = formatTokenAmount(balance, decimals) * (hasValidPrice ? Number(tokenInfo.price) : 0);
   const treatAsEmptyOrDust = balance <= 0n || (!isMirrorSell && hasValidPrice && balanceUsd < 0.1);
+  const attribution = resolveAttributedPositionExitAmount({
+    positions: input.positions,
+    decimals,
+    onChainBalanceRaw: balance,
+  });
 
   if (treatAsEmptyOrDust) {
     if (isMirrorSell && balance <= 0n) {
@@ -47,7 +57,9 @@ export async function buildEvmExitPlan(input: {
         balance,
         decimals,
         balanceUsd,
-        isMirrorSell
+        isMirrorSell,
+        attributedReasonCode: attribution.reasonCode,
+        positions: attribution.eligiblePositions
       };
     }
     return {
@@ -57,25 +69,54 @@ export async function buildEvmExitPlan(input: {
       balance,
       decimals,
       balanceUsd,
-      isMirrorSell
+      isMirrorSell,
+      attributedReasonCode: attribution.reasonCode,
+      positions: attribution.eligiblePositions
     };
   }
 
-  const amountInHuman = ethers.formatUnits(balance, decimals);
-  if (!amountInHuman || Number(amountInHuman) <= 0) {
+  if (attribution.sellAmountRaw <= 0n) {
     return {
       kind: 'noop',
-      action: 'close_position',
-      closeReason: 'balance_dust',
+      action: 'keep_open',
       balance,
       decimals,
       balanceUsd,
-      isMirrorSell
+      isMirrorSell,
+      attributedReasonCode: attribution.reasonCode,
+      positions: attribution.eligiblePositions
     };
   }
 
-  const safeBalance999Raw = (balance * 999n) / 1000n;
-  const retryBalance = safeBalance999Raw > 0n ? safeBalance999Raw : balance;
+  if (attribution.reasonCode === 'ATTRIBUTED_AMOUNT_CLAMPED_TO_ONCHAIN_BALANCE') {
+    return {
+      kind: 'noop',
+      action: 'keep_open',
+      balance,
+      decimals,
+      balanceUsd,
+      isMirrorSell,
+      attributedReasonCode: attribution.reasonCode,
+      positions: attribution.eligiblePositions
+    };
+  }
+
+  const amountInHuman = ethers.formatUnits(attribution.sellAmountRaw, decimals);
+  if (!amountInHuman || Number(amountInHuman) <= 0) {
+    return {
+      kind: 'noop',
+      action: 'keep_open',
+      balance,
+      decimals,
+      balanceUsd,
+      isMirrorSell,
+      attributedReasonCode: attribution.reasonCode,
+      positions: attribution.eligiblePositions
+    };
+  }
+
+  const safeBalance999Raw = (attribution.sellAmountRaw * 999n) / 1000n;
+  const retryBalance = safeBalance999Raw > 0n ? safeBalance999Raw : attribution.sellAmountRaw;
   const retryAmountInHuman = ethers.formatUnits(retryBalance, decimals);
   return {
     kind: 'swap',
@@ -88,12 +129,16 @@ export async function buildEvmExitPlan(input: {
     balance,
     decimals,
     balanceUsd,
+    attributedBalance: attribution.sellAmountRaw,
     amountInHuman,
     retryAmountInHuman,
     initialSlippageBps: input.universalSlippageBps,
     retrySlippageBps: Math.min(Math.floor(input.universalSlippageBps * 1.5), 2500),
     executionMode: input.executionMode,
     sellRoutePolicy: 'external_primary',
+    positions: attribution.eligiblePositions,
+    attributedReasonCode: attribution.reasonCode,
+    hasExternalBalance: attribution.metrics.hasExternalBalance,
     runtimeContext: createExitOrderRuntimeContext({
       userId,
       walletAddress,

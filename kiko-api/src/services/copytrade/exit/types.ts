@@ -1,5 +1,6 @@
 import type { CopyTradeExecutionMode } from '../../copyTradeExecutionMode.js';
 import type { OrderRuntimeContext } from '../../order-runtime/types.js';
+import type { AttributedPositionLike, PositionAttributionReasonCode } from '../positions/positionAttribution.js';
 
 export type PositionExitReason = 'mirror_sell' | 'take_profit' | 'stop_loss' | 'manual' | 'dynamic_take_profit';
 export type SellRoutePolicy = 'external_primary' | 'direct_primary';
@@ -17,6 +18,8 @@ export interface ExitNoopPlan {
   decimals: number;
   balanceUsd: number;
   isMirrorSell: boolean;
+  attributedReasonCode?: PositionAttributionReasonCode;
+  positions: AttributedPositionLike[];
 }
 
 export interface EvmExitSwapPlan {
@@ -30,6 +33,7 @@ export interface EvmExitSwapPlan {
   balance: bigint;
   decimals: number;
   balanceUsd: number;
+  attributedBalance: bigint;
   amountInHuman: string;
   retryAmountInHuman: string;
   initialSlippageBps: number;
@@ -37,6 +41,9 @@ export interface EvmExitSwapPlan {
   executionMode: CopyTradeExecutionMode;
   sellRoutePolicy: SellRoutePolicy;
   runtimeContext: OrderRuntimeContext;
+  positions: AttributedPositionLike[];
+  attributedReasonCode: PositionAttributionReasonCode;
+  hasExternalBalance: boolean;
 }
 
 export type EvmExitPlan = ExitNoopPlan | EvmExitSwapPlan;
