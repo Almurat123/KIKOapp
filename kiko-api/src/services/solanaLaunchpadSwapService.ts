@@ -298,6 +298,14 @@ export class SolanaLaunchpadSwapService {
         if (isBuy) {
             // For Buy, 'amount' is the SOL to spend (lamports)
             const state = await this.getBondingCurveState(connection, mint);
+
+            // If the bonding curve is complete the token has graduated to PumpSwap AMM.
+            // Interacting with a completed bonding curve will always fail on-chain.
+            // Throw a tagged error so the router can re-route to pumpswap direct.
+            if (state.complete) {
+                throw new Error('PUMPFUN_GRADUATED: token has migrated to PumpSwap AMM, bonding curve is closed');
+            }
+
             const tokensOut = this.calculateTokensOut(state, amountBI);
 
             if (tokensOut <= BigInt(0)) {
@@ -320,6 +328,11 @@ export class SolanaLaunchpadSwapService {
         } else {
             // Sell: 'amount' is tokens
             const state = await this.getBondingCurveState(connection, mint);
+
+            if (state.complete) {
+                throw new Error('PUMPFUN_GRADUATED: token has migrated to PumpSwap AMM, bonding curve is closed');
+            }
+
             const solOut = this.calculateSolOut(state, amountBI);
 
             // data: [disc, tokens, min_sol]
