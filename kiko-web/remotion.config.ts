@@ -15,8 +15,10 @@ Config.overrideWebpackConfig((config) => {
             alias: {
                 ...config.resolve?.alias,
                 '@privy-io/react-auth': path.resolve(process.cwd(), 'src/remotion/mock-privy.tsx'),
-                [path.resolve(process.cwd(), 'src/components/Effects/LiquidGlassEffect')]: path.resolve(process.cwd(), 'src/remotion/LiquidGlassEffect.remotion.tsx'),
-                [path.resolve(process.cwd(), 'src/components/Effects/StardustBackground')]: path.resolve(process.cwd(), 'src/remotion/StardustBackground.remotion.tsx'),
+                '../../components/Effects/LiquidGlassEffect': path.resolve(process.cwd(), 'src/remotion/LiquidGlassEffect.remotion.tsx'),
+                '../Effects/LiquidGlassEffect': path.resolve(process.cwd(), 'src/remotion/LiquidGlassEffect.remotion.tsx'),
+                '../../components/Effects/StardustBackground': path.resolve(process.cwd(), 'src/remotion/StardustBackground.remotion.tsx'),
+                '../Effects/StardustBackground': path.resolve(process.cwd(), 'src/remotion/StardustBackground.remotion.tsx'),
                 '@': path.resolve(process.cwd(), 'src'),
             },
         },

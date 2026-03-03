@@ -1,54 +1,48 @@
-/*
- * Remotion-specific CSS overrides
- * 
- * In headless Chrome rendering, certain CSS effects appear differently
- * than in a live browser. These overrides compensate for those differences.
- */
+/* Global Overrides for Remotion Cinematic Intro */
 
-/* 
- * The WelcomeScreen & Chat inputWrapper use ::before/::after pseudo-elements
- * to create a bright gradient border. In the live frontend, this blends subtly
- * with the interactive background, but in Remotion's headless render, 
- * the gradient appears as a harsh "white box".
- * 
- * Since the WebGL LiquidGlassEffect already provides the rim/fresnel effect,
- * we reduce the CSS pseudo-element opacity to avoid doubling up.
- */
+:root {
+  --ui-opacity: 0;
+  --bg-opacity: 0;
+  --zoom-scale: 1.2;
+}
 
-/* Tone down the Fresnel Edge Highlight pseudo-element - COMPLETELY DISABLE */
-[class*="inputWrapper"]::before,
-[class*="inputWrapper"]:focus-within::before,
-[class*="inputArea"]::before,
-[class*="inputContainer"]::before {
-  opacity: 0 !important;
+#remotion-stardust-root {
+  opacity: var(--bg-opacity) !important;
+}
+
+#liquid-glass-canvas {
+  opacity: 1 !important;
+  visibility: visible !important;
+  z-index: 9999 !important;
+}
+
+/* Suppression of original hero text */
+[class*="heroText"],
+[class*="WelcomeScreen_heroText"] {
   display: none !important;
-  content: none !important;
 }
 
-/* Tone down the Chromatic Aberration pseudo-element - COMPLETELY DISABLE */
-[class*="inputWrapper"]::after,
-[class*="inputWrapper"]:focus-within::after,
-[class*="inputArea"]::after,
-[class*="inputContainer"]::after {
-  opacity: 0 !important;
-  display: none !important;
-  content: none !important;
+/* Hide original UI elements across the entire app during intro */
+/* Targeted suppression using CSS variables */
+[class*="WelcomeScreen"] textarea,
+[class*="WelcomeScreen"] button,
+[class*="WelcomeScreen"] h1,
+[class*="WelcomeScreen"] h2,
+[class*="WelcomeScreen"] p,
+[class*="WelcomeScreen"] [class*="inputFooter"],
+[class*="Chat_inputArea"] textarea,
+[class*="Chat_inputArea"] button,
+[class*="ChatInputSuggestions"] {
+  opacity: var(--ui-opacity) !important;
+  pointer-events: none !important;
 }
 
-/* Ensure no background box exists */
-[class*="inputWrapper"],
-[class*="inputArea"],
-[class*="inputContainer"],
-[class*="textareaContainer"] {
-  background: transparent !important;
-  border: none !important;
-  outline: none !important;
-  box-shadow: none !important;
-}
+/* Force hidden for Phase 1 by making them zero height if needed, 
+   but opacity 0 should be enough if z-index is right */
 
-/* Remove any focus rings or outlines */
-textarea:focus,
-input:focus {
-  outline: none !important;
-  box-shadow: none !important;
+/* Zoom container */
+[class*="welcomeContainer"],
+[class*="WelcomeScreen_container"] {
+  transform: scale(var(--zoom-scale)) !important;
+  transform-origin: center center !important;
 }

@@ -11,7 +11,7 @@
  */
 import React, { useEffect, useRef } from 'react';
 import * as THREE from 'three';
-import { useCurrentFrame, useVideoConfig } from 'remotion';
+import { interpolate, useCurrentFrame, useVideoConfig } from 'remotion';
 
 
 // Vertex shader - simple pass-through (unchanged from original)
@@ -36,6 +36,7 @@ const fragmentShader = `
   uniform float uEdgeTwist;
   uniform float uEdgeContact;
   uniform vec2 uInteractionCenter;
+  uniform float uDrawProgress; // 0.0 to 1.0
   varying vec2 vUv;
 
   float roundedBoxSDF(vec2 centerPosition, vec2 size, float radius) {
@@ -101,10 +102,23 @@ const fragmentShader = `
     
     finalColor += vec3(fresnel);
     
-    // ONLY show the rim. The interior MUST be 100% transparent to avoid "white box"
-    float alpha = rimMask * 0.92;
+    // --- PERIMETER TRACE LOGIC ---
+    // Use angle as a proxy for perimeter progress (cinematic look)
+    float angle = atan(adjustedUv.y, adjustedUv.x); 
+    // Normalize angle to [0, 1] starting from the top center
+    float pathDist = mod((angle / 6.28318) + 0.25, 1.0);
     
-    gl_FragColor = vec4(finalColor, alpha);
+    // Draw only if pathDist < uDrawProgress
+    float traceMask = smoothstep(uDrawProgress + 0.1, uDrawProgress, pathDist);
+    
+    // Laser tip glow - BRIGHT GREEN
+    float tipGlow = exp(-abs(pathDist - uDrawProgress) * 40.0) * 10.0;
+    
+    // Force visibility for debug
+    finalColor = vec3(0.0, 1.0, 0.5); // BRIGHT CYAN-GREEN
+    float alpha = max(traceMask * rimMask, tipGlow);
+    
+    gl_FragColor = vec4(finalColor, min(1.0, alpha));
   }
 `;
 
@@ -122,6 +136,15 @@ export const LiquidGlassEffect: React.FC<LiquidGlassEffectProps> = ({
   const frame = useCurrentFrame();
   const { fps, width: videoWidth, height: videoHeight } = useVideoConfig();
 
+  // Cinematic Trace Progress: 0s to 4s (at 30fps = 120 frames)
+  const drawProgress = interpolate(frame, [0, 120], [0, 1], {
+    extrapolateRight: 'clamp',
+    extrapolateLeft: 'clamp',
+  });
+
+  console.log("[REMOTION] LiquidGlassEffect loading at frame", frame);
+
+  const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
@@ -155,6 +178,9 @@ export const LiquidGlassEffect: React.FC<LiquidGlassEffectProps> = ({
     renderer.setPixelRatio(1); // Deterministic
     renderer.setSize(canvasW, canvasH, false);
     renderer.setClearColor(0x000000, 0); // Explicitly transparent
+    canvas.id = 'liquid-glass-canvas';
+
+    // 5. Plane geometry for the effect
     rendererRef.current = renderer;
 
     // Orthographic camera (mirrors R3F Canvas orthographic + zoom=1)
@@ -190,6 +216,7 @@ export const LiquidGlassEffect: React.FC<LiquidGlassEffectProps> = ({
       uEdgeTwist: { value: 0 },
       uEdgeContact: { value: 0 },
       uInteractionCenter: { value: new THREE.Vector2(0.5, 0.5) },
+      uDrawProgress: { value: drawProgress },
     };
     uniformsRef.current = uniforms;
 
@@ -221,9 +248,15 @@ export const LiquidGlassEffect: React.FC<LiquidGlassEffectProps> = ({
     // Map Remotion frame → shader time (matches original `state.clock.elapsedTime`)
     const elapsedTime = frame / fps;
     (uniformsRef.current.uTime as { value: number }).value = elapsedTime;
+    (uniformsRef.current.uDrawProgress as { value: number }).value = drawProgress;
+
+    // DIAGNOSTIC only: set a faint red background to see the canvas bounds
+    if (canvasRef.current) {
+      canvasRef.current.style.background = drawProgress < 1.0 ? 'rgba(255,0,0,0.1)' : 'transparent';
+    }
 
     rendererRef.current.render(sceneRef.current, cameraRef.current);
-  }, [frame, fps]);
+  }, [frame, fps, drawProgress]);
 
   if (!enabled) {
     return <div className={className}>{children}</div>;

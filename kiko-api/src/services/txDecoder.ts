@@ -11,64 +11,10 @@ import { callRpc as rpcCall } from './rpcManager.js';
 import { NATIVE_TOKEN_ADDRESS } from '../config/tokenRegistry.js';
 import { get as getDbCache, set as setDbCache } from '../cache/dbCache.js';
 import { matchV4PoolKeyById } from './dex/uniswapV4.js';
-
-// Common DEX Router method signatures
-const DEX_SIGNATURES = {
-    // Uniswap V2 / Sushiswap / etc
-    swapExactTokensForTokens: '0x38ed1739',
-    swapTokensForExactTokens: '0x8803dbee',
-    swapExactETHForTokens: '0x7ff36ab5',
-    swapTokensForExactETH: '0x4a25d94a',
-    swapExactTokensForETH: '0x18cbafe5',
-    swapETHForExactTokens: '0xfb3bdb41',
-
-    // Uniswap V3
-    exactInputSingle: '0x414bf389',
-    exactOutputSingle: '0xdb3e2198',
-    exactInput: '0xc04b8d59',
-    exactOutput: '0xf28c0498',
-    multicall: '0xac9650d8',
-    universalExecute: '0x3593564c',
-
-    // 0x Protocol
-    transformERC20: '0x415565b0',
-    sellToUniswap: '0xd9627aa4',
-    sellToPancakeSwap: '0xd9627aa4',
-
-    // KyberSwap
-    swap: '0x12aa3caf',
-    swapGeneric: '0xe21fd0e9',
-
-    // Aerodrome / V2 Forks
-    swapExactInput: '0xb80c2f09', // Often used by Aerodrome/Velodrome router proxies
-    swapExactTokensForTokensSupportingFeeOnTransferTokens: '0x5c11d795',
-    swapExactETHForTokensSupportingFeeOnTransferTokens: '0xb6f9de95',
-    swapExactTokensForETHSupportingFeeOnTransferTokens: '0x791ac947',
-    exactInputSingleV3Alt: '0x04e45aaf',
-    exactInputV3Alt: '0xb858183f',
-    exactOutputSingleV3Alt: '0x5023b4df',
-    exactOutputV3Alt: '0x09b81346',
-    // Aerodrome/Base router variants observed in production traces
-    aeroRouteA: '0x0ddd588d',
-    aeroRouteB: '0xcac88ea9',
-    aeroRouteC: '0x95435ac9',
-    aeroRouteD: '0x24856bc3',
-    aeroRouteE: '0xc6b7f1b6',
-    aeroRouteF: '0x7129bae2',
-    aeroRouteG: '0x903638a4',
-    aeroRouteH: '0x088890dc',
-    aeroRouteI: '0x5c20f68c',
-    aeroRouteJ: '0xf2c42696',
-    aeroRouteK: '0x1dcee3c8',
-    aeroRouteL: '0x0f27c5c1',
-    aeroRouteM: '0xe9ae5c53',
-    aeroRouteN: '0x73fc4457',
-    aeroRouteO: '0xc7a76969',
-    aeroRouteP: '0x1c5cf072',
-    aeroRouteQ: '0x09c182c3',
-    aeroRouteR: '0x4dbe83ed',
-    aeroRouteS: '0xbc61b9ce',
-};
+import { decodeSwapFromLogs } from './txDecoder/evmTransferFallback.js';
+import { isSwapTransaction, shouldAttemptTransferBasedDecode } from './txDecoder/evmSwapEvidence.js';
+export { decodeSwapFromLogs } from './txDecoder/evmTransferFallback.js';
+export { isSwapTransaction } from './txDecoder/evmSwapEvidence.js';
 
 
 
@@ -1074,16 +1020,6 @@ function attachRouteContext(
 }
 
 /**
- * Check if a transaction is a swap
- */
-export function isSwapTransaction(txData: string): boolean {
-    if (!txData || txData.length < 10) return false;
-
-    const selector = txData.slice(0, 10).toLowerCase();
-    return Object.values(DEX_SIGNATURES).some(sig => sig.toLowerCase() === selector);
-}
-
-/**
  * Get DEX name from router address
  */
 export function getDexName(routerAddress: string, chainId: number): string {
@@ -1145,141 +1081,6 @@ export function getDexName(routerAddress: string, chainId: number): string {
     }
 
     return 'Unknown DEX';
-}
-
-/**
- * Decode swap from transaction receipt logs
- * Uses Transfer events to determine tokens and amounts
- */
-export function decodeSwapFromLogs(
-    logs: Array<{ address: string; topics: string[]; data: string }>,
-    walletAddress: string,
-    nativeValue: string = '0'
-): DecodedSwap | null {
-    logger.debug(LogCode.DEC_SWAP_DETECTION, 'Decoding swap from transaction logs', {
-        logCount: logs.length,
-        from: walletAddress,
-        nativeValue
-    });
-
-    const transfers = extractTransfersFromLogs(logs);
-
-    logger.debug(LogCode.DEC_SWAP_DETECTION, `Found ${transfers.length} Transfer events in logs`);
-    for (const t of transfers) {
-        logger.debug(LogCode.DEC_SWAP_DETECTION, 'Log transfer detail', {
-            token: t.token,
-            from: t.from,
-            to: t.to,
-            amount: t.amount.toString()
-        });
-    }
-
-    if (transfers.length < 1) {
-        logger.debug(LogCode.DEC_SWAP_DETECTION, 'No transfer events found in logs');
-        return null;
-    }
-
-    // Find token in (sent TO user's wallet) - what they BOUGHT
-    // Logic: 
-    // 1. Filter out transfers that are likely internal router operations (e.g. 1inch aggregator itself)
-    // 2. Taking the LAST transfer usually represents the final output of the swap chain
-    // 3. Filter out zero value transfers
-
-    const incomingTransfers = transfers.filter(t => t.to.toLowerCase() === walletAddress.toLowerCase());
-    logger.debug(LogCode.DEC_SWAP_DETECTION, 'Incoming transfers detected', { count: incomingTransfers.length, wallet: walletAddress });
-
-    // Known router/system addresses to ignore as "tokens"
-    const IGNORED_ADDRESSES = [
-        '0xdef1c0ded9bec7f1a1670819833240f027b25eff', // 0x V4
-        '0x0000000000000000000000000000000000000000', // Null
-    ];
-
-    // Identify what user RECEIVED (Result of Swap -> tokenOut) by largest incoming amount
-    const incomingTotals = new Map<string, bigint>();
-    for (const t of incomingTransfers) {
-        if (IGNORED_ADDRESSES.includes(t.token.toLowerCase()) || t.amount <= 0n) continue;
-        incomingTotals.set(t.token, (incomingTotals.get(t.token) || 0n) + t.amount);
-    }
-    const tokenReceived = [...incomingTotals.entries()]
-        .sort((a, b) => (b[1] > a[1] ? 1 : -1))[0];
-
-    // Identify what user SENT (Source of Swap -> tokenIn) by largest outgoing amount
-    const outgoingTransfers = transfers.filter(t => t.from.toLowerCase() === walletAddress.toLowerCase());
-    const outgoingTotals = new Map<string, bigint>();
-    for (const t of outgoingTransfers) {
-        if (IGNORED_ADDRESSES.includes(t.token.toLowerCase()) || t.amount <= 0n) continue;
-        outgoingTotals.set(t.token, (outgoingTotals.get(t.token) || 0n) + t.amount);
-    }
-    const tokenSent = [...outgoingTotals.entries()]
-        .sort((a, b) => (b[1] > a[1] ? 1 : -1))[0];
-    let tokenSentAddress = tokenSent?.[0];
-    let amountSent = tokenSent?.[1]?.toString();
-
-    logger.debug(LogCode.DEC_SWAP_DETECTION, 'Transaction logic analysis', {
-        received: tokenReceived?.[0],
-        sent: tokenSentAddress
-    });
-
-    // Handle Native ETH Sent case (User sent ETH, so no outgoing Transfer event)
-    if (!tokenSent && BigInt(nativeValue) > 0) {
-        logger.debug(LogCode.DEC_SWAP_DETECTION, 'No outgoing token transfer found but native value present; assuming native asset input');
-        tokenSentAddress = '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee'; // Native ETH placeholder
-        amountSent = nativeValue;
-    }
-
-    // FALLBACK: If we found a valid tokenSent (SELL) but no tokenReceived
-    // This happens when the tokenSent goes to a proxy, and the ETH/Result comes back via internal tx (often not logged as Transfer if Native ETH)
-    // If we detected a SELL (Token Out from Wallet) but no Token In:
-    if (tokenSentAddress && !tokenReceived) {
-        logger.debug(LogCode.DEC_SWAP_DETECTION, 'Found source token but no incoming transfer; assuming native asset output');
-        return {
-            tokenIn: tokenSentAddress, // What user sent
-            tokenOut: '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee', // Result is ETH
-            amountIn: amountSent || '0',
-            amountOut: '0', // Unknown
-            router: '',
-            dexName: '',
-        };
-    }
-
-    if (!tokenReceived || !tokenSentAddress || !amountSent) {
-        logger.debug(LogCode.DEC_SWAP_DETECTION, 'Decoding failed: missing required swap fields', {
-            hasReceived: !!tokenReceived,
-            hasSent: !!tokenSentAddress,
-            hasAmount: !!amountSent
-        });
-        return null;
-    }
-    if (tokenReceived[0].toLowerCase() === tokenSentAddress.toLowerCase()) {
-        logger.debug(LogCode.DEC_SWAP_DETECTION, 'Decoded same token in/out; falling back to other decoders', {
-            token: tokenSentAddress
-        });
-        return null;
-    }
-
-    // Standard Case: User Sent A, Received B
-    // tokenIn = What Sent (Source)
-    // tokenOut = What Received (Result)
-    // Standard Case: User Sent A, Received B
-    // tokenIn = What Sent (Source)
-    // tokenOut = What Received (Result)
-    logger.info(LogCode.DEC_SUCCESS, 'Swap successfully decoded from logs', {
-        tokenIn: tokenSentAddress,
-        tokenOut: tokenReceived[0]
-    });
-    logger.debug(LogCode.DEC_SUCCESS, 'Decoded swap values', {
-        amountIn: amountSent,
-        amountOut: tokenReceived[1].toString()
-    });
-
-    return {
-        tokenIn: tokenSentAddress,
-        tokenOut: tokenReceived[0],
-        amountIn: amountSent,
-        amountOut: tokenReceived[1].toString(),
-        router: '',
-        dexName: '',
-    };
 }
 
 /**
@@ -1366,10 +1167,15 @@ export async function parseSwapTransaction(
     const hasKnownSwapSelector = isSwapTransaction(tx.input || '');
     const knownRouter = tx.to ? getDexName(tx.to, chainId) !== 'Unknown DEX' : false;
     const hasDexIntentEvidence = hasKnownSwapSelector && knownRouter;
+    const hasTransferEvidence = shouldAttemptTransferBasedDecode({
+        hasPoolSwapEvidence,
+        hasDexIntentEvidence,
+        logs: receipt.logs,
+        walletAddress: effectiveWallet,
+        nativeValue: tx.value
+    });
 
-    // Guardrail: prevent plain transfer/spam airdrop tx from being misclassified as swaps.
-    // Require either on-chain swap events, or a known router + known swap selector.
-    if (!hasPoolSwapEvidence && !hasDexIntentEvidence) {
+    if (!hasTransferEvidence) {
         if (PROFILE) {
             logger.info(LogCode.DEC_SWAP_DETECTION, '[Profile] parseSwapTransaction', {
                 tx: tx.hash?.slice(0, 12),
@@ -1380,7 +1186,6 @@ export async function parseSwapTransaction(
         return null;
     }
 
-    // Cache Pancake Infinity pool keys (non-blocking)
     cacheInfinityPoolKeysFromLogs(receipt.logs, chainId);
 
     const toPositiveBigInt = (value?: string): bigint => {
@@ -1466,15 +1271,12 @@ export async function parseSwapTransaction(
         return { repaired, reversed: reversedDirection };
     };
 
-    // 1) Prefer transfer-based decode for the target wallet (wallet perspective)
     const tTransferStart = Date.now();
     const transferSwap = decodeSwapFromLogs(receipt.logs, effectiveWallet, tx.value);
     if (transferSwap) {
         let finalTransferSwap = transferSwap;
         let decodePath = 'transfer_logs';
 
-        // If transfer-based decoding misses one leg amount (commonly native out),
-        // repair amounts using pool swap events before persisting.
         if (hasMissingLegAmount(finalTransferSwap)) {
             if (hasV4Swap) {
                 const hintedV4 = await decodeSwapFromV4Events(receipt.logs, chainId, {
@@ -1514,9 +1316,6 @@ export async function parseSwapTransaction(
             }
         }
 
-        // Always try to extract resolvedPoolHint from V3/V2 Swap events if not already set.
-        // This is critical for copy-trade: the pool address from the target's tx lets us
-        // skip pool discovery entirely and execute through the same pool.
         if (!finalTransferSwap.resolvedPoolHint && !hasV4Swap) {
             const poolSwap = await decodeSwapFromPoolEvents(receipt.logs, chainId);
             if (poolSwap?.resolvedPoolHint) {
@@ -1527,7 +1326,6 @@ export async function parseSwapTransaction(
         finalTransferSwap.router = tx.to;
         finalTransferSwap.dexName = hasV4Swap ? 'Uniswap v4' : getDexName(tx.to, chainId);
         finalTransferSwap.txHash = tx.hash;
-        // Normalize Wrapped Native to Native for display
         const NATIVE_ADDRESS = '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
         const chainConfig = getChainConfig(chainId);
         const WRAPPED_NATIVE = chainConfig.wrappedNativeAddress;
@@ -1548,14 +1346,12 @@ export async function parseSwapTransaction(
         return attachRouteContext(attachSourceTx(finalTransferSwap), receipt.logs, chainId);
     }
 
-    // 2) If V4 swap exists, decode from V4 events as fallback
     if (hasV4Swap) {
         const tV4Start = Date.now();
         const v4Swap = await decodeSwapFromV4Events(receipt.logs, chainId);
         if (v4Swap) {
             v4Swap.router = tx.to;
             v4Swap.txHash = tx.hash;
-            // Normalize wrapped native to native for display and downstream direction checks.
             const NATIVE_ADDRESS = '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
             const chainConfig = getChainConfig(chainId);
             const WRAPPED_NATIVE = chainConfig.wrappedNativeAddress;
@@ -1577,7 +1373,6 @@ export async function parseSwapTransaction(
         }
     }
 
-    // 3) Pool Swap events (V2/V3)
     const tPoolStart = Date.now();
     const poolSwap = await decodeSwapFromPoolEvents(receipt.logs, chainId);
     if (poolSwap) {
@@ -1585,7 +1380,6 @@ export async function parseSwapTransaction(
         const routerDex = getDexName(tx.to, chainId);
         poolSwap.dexName = routerDex !== 'Unknown DEX' ? routerDex : poolSwap.dexName;
         poolSwap.txHash = tx.hash;
-        // Normalize wrapped native to native for display
         const NATIVE_ADDRESS = '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
         const chainConfig = getChainConfig(chainId);
         const WRAPPED_NATIVE = chainConfig.wrappedNativeAddress;
@@ -1606,7 +1400,6 @@ export async function parseSwapTransaction(
         return attachRouteContext(attachSourceTx(poolSwap), receipt.logs, chainId);
     }
 
-    // 4) Router-intent fallback: infer pool-like token flow when router tx has no explicit swap topic.
     if (hasDexIntentEvidence) {
         const inferred = inferSwapFromAnyPoolLikeAddress(receipt.logs);
         if (inferred) {
@@ -1635,14 +1428,6 @@ export async function parseSwapTransaction(
         }
     }
 
-    // OLD: Check if it's a swap transaction based on method signature
-    // This was too strict - many DEXes use custom methods
-    // if (!isSwapTransaction(tx.input)) return null;
-
-    // NEW: Just try to decode from logs - if there are valid transfers, it's a swap
-    // This approach works with ANY DEX, aggregator, or custom router
-
-    // Decode from logs, PASSING tx.value
     const tFallbackStart = Date.now();
     const swap = decodeSwapFromLogs(receipt.logs, effectiveWallet, tx.value);
     if (!swap) {
@@ -1657,34 +1442,13 @@ export async function parseSwapTransaction(
         return null;
     }
 
-    // Add router info
     swap.router = tx.to;
     swap.dexName = hasV4Swap ? 'Uniswap v4' : getDexName(tx.to, chainId);
     swap.txHash = tx.hash;
 
-    // Handle native ETH
     const NATIVE_ADDRESS = '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
     const chainConfig = getChainConfig(chainId);
     const WRAPPED_NATIVE = chainConfig.wrappedNativeAddress;
-
-    // If value > 0, user sent Native Token (e.g. Buying something with BNB)
-    // We do NOT override tokenOut here. tokenOut is determined by what was RECEIVED (Logs).
-    // tokenIn is already handled in decodeSwapFromLogs or by assuming Native input if no outgoing transfer.
-
-    // Logic was:
-    // if (BigInt(tx.value) > 0) {
-    //    swap.tokenOut = NATIVE_ADDRESS;
-    //    swap.amountOut = tx.value;
-    // }
-    // This was WRONG for BUYs. Removing it.
-
-    // However, if we detected it was a swap where we couldn't find tokenOut from logs,
-    // AND it was a simple send, it wouldn't be here.
-    // We already handled "Native Sent" in decodeSwapFromLogs:
-    // "No tokenSent found but nativeValue > 0, assuming User SENT ETH/BNB" -> tokenIn = Native.
-
-
-    // Normalize Wrapped Native to Native for display
     if (swap.tokenIn.toLowerCase() === WRAPPED_NATIVE.toLowerCase()) {
         swap.tokenIn = NATIVE_ADDRESS;
     }
