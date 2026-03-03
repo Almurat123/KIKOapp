@@ -109,23 +109,25 @@ const fragmentShader = `
     float pathDist = mod((angle / 6.28318) + 0.25, 1.0);
     
     // Draw only if pathDist < uDrawProgress
-    float traceMask = smoothstep(uDrawProgress + 0.1, uDrawProgress, pathDist);
+    float traceMask = smoothstep(uDrawProgress + 0.05, uDrawProgress, pathDist);
     
-    // Laser tip glow - BRIGHT GREEN
-    float tipGlow = exp(-abs(pathDist - uDrawProgress) * 40.0) * 10.0;
+    // Laser tip glow - Cinematic White/Blue
+    float tipGlow = exp(-abs(pathDist - uDrawProgress) * 60.0) * 8.0;
     
-    // Force visibility for debug
-    finalColor = vec3(0.0, 1.0, 0.5); // BRIGHT CYAN-GREEN
-    float alpha = max(traceMask * rimMask, tipGlow);
+    // Cinematic colors
+    vec3 laserTraceColor = vec3(0.4, 0.8, 1.0); // Electric Blue
+    finalColor = mix(finalColor, laserTraceColor, tipGlow);
+    
+    float alpha = max(traceMask * rimMask, tipGlow * 0.9);
     
     gl_FragColor = vec4(finalColor, min(1.0, alpha));
   }
 `;
 
 interface LiquidGlassEffectProps {
-  children: React.ReactNode;
   className?: string;
-  enabled?: boolean;
+  enabled: boolean;
+  children?: React.ReactNode;
 }
 
 export const LiquidGlassEffect: React.FC<LiquidGlassEffectProps> = ({
@@ -142,7 +144,6 @@ export const LiquidGlassEffect: React.FC<LiquidGlassEffectProps> = ({
     extrapolateLeft: 'clamp',
   });
 
-  console.log("[REMOTION] LiquidGlassEffect loading at frame", frame);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -250,10 +251,11 @@ export const LiquidGlassEffect: React.FC<LiquidGlassEffectProps> = ({
     (uniformsRef.current.uTime as { value: number }).value = elapsedTime;
     (uniformsRef.current.uDrawProgress as { value: number }).value = drawProgress;
 
-    // DIAGNOSTIC only: set a faint red background to see the canvas bounds
-    if (canvasRef.current) {
-      canvasRef.current.style.background = drawProgress < 1.0 ? 'rgba(255,0,0,0.1)' : 'transparent';
-    }
+    const w = containerRef.current?.clientWidth || 768;
+    const h = containerRef.current?.clientHeight || 90;
+
+    rendererRef.current.setSize(w, h);
+    (uniformsRef.current.uResolution as { value: THREE.Vector2 }).value.set(w, h);
 
     rendererRef.current.render(sceneRef.current, cameraRef.current);
   }, [frame, fps, drawProgress]);
@@ -263,7 +265,7 @@ export const LiquidGlassEffect: React.FC<LiquidGlassEffectProps> = ({
   }
 
   return (
-    <div ref={undefined} className={className} style={{ position: 'relative' }}>
+    <div ref={containerRef} className={className} style={{ position: 'relative', width: '100%', height: '100%' }}>
       {/* WebGL Canvas Layer */}
       <div
         style={{

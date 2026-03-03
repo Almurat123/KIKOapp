@@ -63,7 +63,8 @@ function processQueue(): void {
                 try {
                     const timing = markCopyTradeTaskEnqueued(mergeCopyTradeTimingSnapshots(
                         task.timing,
-                        pendingHint?.timing
+                        pendingHint?.timing,
+                        { chainId: task.chainId }
                     ));
                     const detectedAt = timing.dispatchEligibleAt || timing.swapReadyAt || task.detectedAt || pendingHint?.detectedAt;
                     const queueDelay = evaluateCopyTradeDelay(timing, true, {
@@ -141,7 +142,9 @@ export function enqueueCopyTradeTask(
         swap,
         chainId,
         detectedAt: context?.detectedAt,
-        timing: markCopyTradeTaskEnqueued(context?.timing)
+        timing: markCopyTradeTaskEnqueued(
+            mergeCopyTradeTimingSnapshots(context?.timing, { chainId })
+        )
     });
     if (inFlight < MAX_CONCURRENCY) {
         setImmediate(processQueue);

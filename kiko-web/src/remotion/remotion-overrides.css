@@ -1,48 +1,57 @@
-/* Global Overrides for Remotion Cinematic Intro */
+/* 
+  Remotion-specific CSS Overrides
+  This file is imported in Root.tsx and MyVideo.tsx 
+  to suppress existing UI elements and fix layout for video.
+*/
 
+/* 1. Hide scrollbars globally */
+* {
+  scrollbar-width: none !important;
+  -ms-overflow-style: none !important;
+}
+
+*::-webkit-scrollbar {
+  display: none !important;
+}
+
+/* 2. Control UI opacity via CSS Variable */
 :root {
   --ui-opacity: 0;
   --bg-opacity: 0;
   --zoom-scale: 1.2;
 }
 
-#remotion-stardust-root {
-  opacity: var(--bg-opacity) !important;
-}
-
-#liquid-glass-canvas {
-  opacity: 1 !important;
-  visibility: visible !important;
-  z-index: 9999 !important;
-}
-
-/* Suppression of original hero text */
-[class*="heroText"],
-[class*="WelcomeScreen_heroText"] {
+/* 3. Aggressive suppression of WelcomeScreen elements that conflict with the cinematic intro */
+[class*="WelcomeScreen"] [class*="heroText"],
+[class*="WelcomeScreen"] [class*="heroTitle"],
+[class*="WelcomeScreen"] [class*="heroSubTitleSecondary"],
+[class*="WelcomeScreen"] [class*="ambientLight"],
+[class*="WelcomeScreen"] #remotion-stardust-root {
   display: none !important;
-}
-
-/* Hide original UI elements across the entire app during intro */
-/* Targeted suppression using CSS variables */
-[class*="WelcomeScreen"] textarea,
-[class*="WelcomeScreen"] button,
-[class*="WelcomeScreen"] h1,
-[class*="WelcomeScreen"] h2,
-[class*="WelcomeScreen"] p,
-[class*="WelcomeScreen"] [class*="inputFooter"],
-[class*="Chat_inputArea"] textarea,
-[class*="Chat_inputArea"] button,
-[class*="ChatInputSuggestions"] {
-  opacity: var(--ui-opacity) !important;
+  opacity: 0 !important;
+  visibility: hidden !important;
   pointer-events: none !important;
 }
 
-/* Force hidden for Phase 1 by making them zero height if needed, 
-   but opacity 0 should be enough if z-index is right */
+/* 4. Hide the sidebar and navigation during the intro if needed */
+[class*="Sidebar"],
+[class*="Navbar"] {
+  opacity: var(--ui-opacity) !important;
+}
 
-/* Zoom container */
-[class*="welcomeContainer"],
-[class*="WelcomeScreen_container"] {
-  transform: scale(var(--zoom-scale)) !important;
-  transform-origin: center center !important;
+/* 5. Force the input box to be centered if it's drifting */
+[class*="WelcomeScreen"] [class*="mainContent"] {
+  justify-content: center !important;
+  padding-top: 0 !important;
+}
+
+/* 6. Ensure the input wrapper itself is visible when ui-opacity > 0 */
+[class*="inputContainer"] {
+  opacity: var(--ui-opacity) !important;
+}
+
+/* 7. Hide the default glass effect when our custom trace is active */
+/* (Handled by the enabled={frame > 120} logic in MyVideo but as a backup:) */
+[class*="LiquidGlassEffect"] canvas {
+  opacity: var(--ui-opacity) !important;
 }

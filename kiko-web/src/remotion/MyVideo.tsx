@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo } from 'react';
+import React, { useEffect } from 'react';
 import {
     AbsoluteFill,
     interpolate,
@@ -6,9 +6,10 @@ import {
 } from 'remotion';
 import { MockProviders } from './MockProviders';
 import { ChatInterface } from '../components/Chat/ChatInterface';
-import { LiquidGlassEffect } from './LiquidGlassEffect.remotion';
+import { LaserTrace } from './LaserTrace';
+import { StardustBackground } from './StardustBackground.remotion';
 
-// Import global overrides for basic things
+// Import global overrides
 import './remotion-overrides.css';
 
 // Timing constants (frames at 30fps)
@@ -24,7 +25,6 @@ const BG_STARDUST_END = 450; // 15s
 
 const START_TYPING = 360; // 12s
 const END_TYPING = 440;
-const SWITCH_TO_CHAT = 450;
 
 const PROMPT = 'Analyze the latest Solana tokens...';
 
@@ -82,74 +82,79 @@ export const MyVideo: React.FC = () => {
 
     return (
         <AbsoluteFill style={{ backgroundColor: '#000000', overflow: 'hidden' }}>
-            {/* Cinematic Titles */}
-            <div style={{
-                position: 'absolute',
-                top: '38%',
-                left: 0,
-                right: 0,
-                textAlign: 'center',
-                fontFamily: 'Inter, sans-serif',
-                color: 'white',
-                fontWeight: 700,
-                fontSize: '84px',
-                opacity: titleOpacity,
-                letterSpacing: `${titleLetterSpacing}px`,
-                pointerEvents: 'none',
-                zIndex: 100,
-                textShadow: '0 0 20px rgba(255,255,255,0.3)',
-                display: titleOpacity < 0.01 ? 'none' : 'block'
-            }}>
-                I am KIKO.
-            </div>
+            <MockProviders
+                chatStarted={false}
+                messages={[]}
+                activeConversationId={null}
+            >
+                {/* Cinematic Stardust Background (Revealed late) */}
+                <div style={{ opacity: bgOpacity, position: 'absolute', inset: 0 }}>
+                    <StardustBackground />
+                </div>
 
-            <div style={{
-                position: 'absolute',
-                top: '48%',
-                left: 0,
-                right: 0,
-                textAlign: 'center',
-                fontFamily: 'Inter, sans-serif',
-                color: 'rgba(255,255,255,0.5)',
-                fontSize: '32px',
-                opacity: titleOpacity,
-                pointerEvents: 'none',
-                zIndex: 100,
-                display: titleOpacity < 0.01 ? 'none' : 'block'
-            }}>
-                The best way to trade.
-            </div>
-
-            {/* PHASE 1: Direct, absolute laser trace over a black screen */}
-            {frame <= TRACE_END && (
+                {/* Cinematic Titles */}
                 <div style={{
                     position: 'absolute',
-                    top: '50%',
-                    left: '50%',
-                    transform: `translate(-50%, -50%) scale(${zoom})`,
-                    width: '768px',
-                    height: '90px', // Matches inputWrapper height roughly
-                    zIndex: 200,
+                    top: '38%',
+                    left: 0,
+                    right: 0,
+                    textAlign: 'center',
+                    fontFamily: 'Inter, sans-serif',
+                    color: 'white',
+                    fontWeight: 700,
+                    fontSize: '84px',
+                    opacity: titleOpacity,
+                    letterSpacing: `${titleLetterSpacing}px`,
+                    pointerEvents: 'none',
+                    zIndex: 100,
+                    textShadow: '0 0 20px rgba(255,255,255,0.3)',
+                    display: titleOpacity < 0.01 ? 'none' : 'block'
                 }}>
-                    <LiquidGlassEffect enabled={true} />
+                    I am KIKO.
                 </div>
-            )}
 
-            {/* MAIN APP: Revealed after trace */}
-            <div style={{
-                width: '100%',
-                height: '100%',
-                opacity: uiOpacity,
-                visibility: uiOpacity < 0.01 ? 'hidden' : 'visible'
-            }}>
-                <MockProviders
-                    chatStarted={false}
-                    messages={[]}
-                    activeConversationId={null}
-                >
+                <div style={{
+                    position: 'absolute',
+                    top: '48%',
+                    left: 0,
+                    right: 0,
+                    textAlign: 'center',
+                    fontFamily: 'Inter, sans-serif',
+                    color: 'rgba(255,255,255,0.5)',
+                    fontSize: '32px',
+                    opacity: titleOpacity,
+                    pointerEvents: 'none',
+                    zIndex: 100,
+                    display: titleOpacity < 0.01 ? 'none' : 'block'
+                }}>
+                    The best way to trade.
+                </div>
+
+                {/* PHASE 1: SVG trace over a black screen */}
+                {frame <= TRACE_END && (
+                    <div style={{
+                        position: 'absolute',
+                        top: '50%',
+                        left: '50%',
+                        transform: `translate(-50%, -50%) scale(${zoom})`,
+                        zIndex: 200,
+                    }}>
+                        <LaserTrace />
+                    </div>
+                )}
+
+                {/* MAIN APP: Revealed after trace */}
+                <div style={{
+                    width: '100%',
+                    height: '100%',
+                    opacity: uiOpacity,
+                    visibility: uiOpacity < 0.01 ? 'hidden' : 'visible',
+                    transform: `scale(${zoom})`,
+                    transformOrigin: 'center center'
+                }}>
                     <ChatInterface />
-                </MockProviders>
-            </div>
+                </div>
+            </MockProviders>
         </AbsoluteFill>
     );
 };

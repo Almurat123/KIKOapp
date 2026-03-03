@@ -43,6 +43,7 @@ function getCachedDecimals(chainId: number, address: string): number | undefined
     return ERC20_DECIMALS_PROCESS_CACHE.get(`${chainId}:${address.toLowerCase()}`);
 }
 import { recordProviderReliabilityOutcome } from '../copytrade/learning/quoteReliability.js';
+import { resolveEthCopytradeFeePolicy } from '../copytrade/eth/ethFeePolicy.js';
 
 // 0x AllowanceHolder address (Base). If a token already has sufficient allowance here,
 // we can skip Permit2 first-try and reduce sell failure risk for problematic tokens.
@@ -904,6 +905,12 @@ export class SwapExecutor {
 
             const isBase = chainId === 8453;
             const isL2 = isBase || chainId === 10 || chainId === 42161;
+            const ethFeePolicy = resolveEthCopytradeFeePolicy({
+                chainId,
+                mode: 'copytrade',
+                executionMode: params.executionMode,
+            });
+            const useEthAggressivePolicy = chainId === 1 && feeContext === 'copyTrade';
 
             const minPriority = isBase
                 ? 10_000_000n   // 0.01 gwei
@@ -918,10 +925,19 @@ export class SwapExecutor {
 
             let priority = suggestedPriority ?? maxPriorityFeeCap ?? 0n;
             if (priority > 0n) {
-                priority = priority * 200n / 100n; // 2x boost for copytrade
+                const multiplierBps = useEthAggressivePolicy
+                    ? BigInt(Number(ethFeePolicy.priorityMultiplierBps || 25000))
+                    : 20000n;
+                priority = priority * multiplierBps / 10000n;
             }
-            if (priority < minPriority) priority = minPriority;
-            if (priority > maxPriorityCap) priority = maxPriorityCap;
+            const effectiveMinPriority = useEthAggressivePolicy
+                ? (ethFeePolicy.minPriorityFeeWei || minPriority)
+                : minPriority;
+            const effectiveMaxPriorityCap = useEthAggressivePolicy
+                ? (ethFeePolicy.maxPriorityFeeWei || maxPriorityCap)
+                : maxPriorityCap;
+            if (priority < effectiveMinPriority) priority = effectiveMinPriority;
+            if (priority > effectiveMaxPriorityCap) priority = effectiveMaxPriorityCap;
 
             maxPriorityFeeCap = priority;
 

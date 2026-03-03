@@ -72,6 +72,8 @@ import {
 import { recordPlanRun, recordSuccessSample } from './copytrade/planner/sampleLibrary.js';
 import type { SwapExecutionContextV1 } from './copytrade/context/types.js';
 import { buildDirectSwapHintFromContext } from './copytrade/context/contextStore.js';
+import { resolveEthCopytradeRelayPolicy } from './copytrade/eth/ethRelayPolicy.js';
+import { resolveEthCopytradeFeePolicy } from './copytrade/eth/ethFeePolicy.js';
 
 /**
  * Swap execution mode to determine behavior and fee structure
@@ -1033,9 +1035,17 @@ export class MainSwapService {
     trace: (msg: string) => string,
     ctx: TradeContext
   ): Promise<MainSwapResult> {
-    const shouldEnableMevProtection = request.mode === 'copytrade'
-      ? request.userSettings?.copyTradeExecutionMode !== 'turbo'
-      : request.mode === 'fast-swap';
+    const relayPolicy = resolveEthCopytradeRelayPolicy({
+      chainId: request.chainId,
+      mode: request.mode,
+      executionMode: request.userSettings?.copyTradeExecutionMode,
+    });
+    const feePolicy = resolveEthCopytradeFeePolicy({
+      chainId: request.chainId,
+      mode: request.mode,
+      executionMode: request.userSettings?.copyTradeExecutionMode,
+    });
+    const shouldEnableMevProtection = relayPolicy.mevProtection;
     const TURBO_TOTAL_BUDGET_MS = 6500;
     const TURBO_DIRECT_ATTEMPT_TIMEOUT_MS = 4200;
     const TURBO_DIRECT_MAX_ATTEMPTS = 2;
@@ -1915,8 +1925,16 @@ export class MainSwapService {
       waitForConfirmation: shouldWaitForConfirmation,
       confirmationTimeoutMs,
       returnOnConfirmTimeout: requireConfirmedTx ? false : (request.mode === 'allowance' || request.mode === 'copytrade'),
-      speedUpAfterMs: request.mode === 'allowance' || request.mode === 'copytrade' ? (isTurboCopytrade ? 1200 : 6000) : undefined,
-      speedUpBumpBps: request.mode === 'copytrade' ? (isTurboCopytrade ? 22000 : 15000) : request.mode === 'allowance' ? 13000 : undefined,
+      speedUpAfterMs: request.mode === 'allowance'
+        ? 1200
+        : request.mode === 'copytrade'
+          ? (feePolicy.speedUpAfterMs ?? (isTurboCopytrade ? 1200 : 6000))
+          : undefined,
+      speedUpBumpBps: request.mode === 'copytrade'
+        ? (feePolicy.speedUpBumpBps ?? (isTurboCopytrade ? 22000 : 15000))
+        : request.mode === 'allowance'
+          ? 13000
+          : undefined,
       executionMode: request.userSettings?.copyTradeExecutionMode,
       mevProtection: shouldEnableMevProtection,
       preWarmedNonce: request.preWarmedNonce,

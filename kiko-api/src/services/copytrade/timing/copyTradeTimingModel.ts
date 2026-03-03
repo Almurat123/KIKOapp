@@ -1,4 +1,7 @@
+import { resolveCopyTradeLatencyLimits } from '../eth/ethLatencyPolicy.js';
+
 export type CopyTradeTimingSnapshot = {
+    chainId?: number;
     firstSeenAt?: number;
     swapReadyAt?: number;
     dispatchEligibleAt?: number;
@@ -30,6 +33,9 @@ export function mergeCopyTradeTimingSnapshots(
     const merged: CopyTradeTimingSnapshot = {};
     for (const candidate of candidates) {
         if (!candidate) continue;
+        if (merged.chainId === undefined && Number.isFinite(candidate.chainId as number)) {
+            merged.chainId = Number(candidate.chainId);
+        }
         const firstSeenAt = sanitizeTimestamp(candidate.firstSeenAt, nowMs);
         const swapReadyAt = sanitizeTimestamp(candidate.swapReadyAt, nowMs);
         const dispatchEligibleAt = sanitizeTimestamp(candidate.dispatchEligibleAt, nowMs);
@@ -112,6 +118,12 @@ export function evaluateCopyTradeDelay(
 ): CopyTradeDelayCheckResult {
     const legacyDetectedAt = typeof timingOrDetectedAt === 'number' ? timingOrDetectedAt : undefined;
     const timing = typeof timingOrDetectedAt === 'number' ? undefined : timingOrDetectedAt;
+    const policy = resolveCopyTradeLatencyLimits({
+        chainId: timing?.chainId,
+        turboMode,
+        defaultMaxDelayMs: limits.maxDelayMs,
+        defaultHardMaxDelayMs: limits.hardMaxDelayMs,
+    });
     const dispatchAnchor = sanitizeTimestamp(
         getCopyTradeDispatchDetectedAt(timing, legacyDetectedAt),
         nowMs
@@ -120,12 +132,12 @@ export function evaluateCopyTradeDelay(
     const delayMs = dispatchAnchor ? Math.max(0, nowMs - dispatchAnchor) : 0;
     const hardDelayMs = firstSeenAt ? Math.max(0, nowMs - firstSeenAt) : delayMs;
 
-    if (firstSeenAt && hardDelayMs > limits.hardMaxDelayMs) {
+    if (firstSeenAt && hardDelayMs > policy.hardMaxDelayMs) {
         return {
             skip: true,
             delayMs,
             hardDelayMs,
-            maxDelayMs: limits.maxDelayMs,
+            maxDelayMs: policy.maxDelayMs,
             delayAnchor: dispatchAnchor === firstSeenAt
                 ? (legacyDetectedAt ? 'legacy_detected_at' : 'first_seen')
                 : 'dispatch_eligible',
@@ -133,7 +145,7 @@ export function evaluateCopyTradeDelay(
         };
     }
 
-    if (turboMode && dispatchAnchor && delayMs > limits.maxDelayMs) {
+    if (dispatchAnchor && delayMs > policy.maxDelayMs) {
         let delayAnchor: CopyTradeDelayCheckResult['delayAnchor'] = 'dispatch_eligible';
         if (!timing?.dispatchEligibleAt && timing?.swapReadyAt && dispatchAnchor === timing.swapReadyAt) {
             delayAnchor = 'swap_ready';
@@ -146,7 +158,7 @@ export function evaluateCopyTradeDelay(
             skip: true,
             delayMs,
             hardDelayMs,
-            maxDelayMs: limits.maxDelayMs,
+            maxDelayMs: policy.maxDelayMs,
             delayAnchor,
             reasonCode: 'copytrade_delay_exceeded_dispatch'
         };
@@ -156,7 +168,7 @@ export function evaluateCopyTradeDelay(
         skip: false,
         delayMs,
         hardDelayMs,
-        maxDelayMs: limits.maxDelayMs,
+        maxDelayMs: policy.maxDelayMs,
         delayAnchor: dispatchAnchor ? 'dispatch_eligible' : 'none'
     };
 }

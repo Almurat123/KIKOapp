@@ -27,6 +27,7 @@ import {
     getTrackedWalletSet,
     refreshTrackedWalletSnapshot
 } from './copytrade/ingress/trackedWalletSnapshot.js';
+import { prioritizeCopyTradePendingChains } from './copytrade/eth/ethSignalPolicy.js';
 
 const ENABLED = (process.env.COPYTRADE_PENDING_WATCH_ENABLED || 'true') === 'true';
 const REFRESH_WALLETS_MS = Number(process.env.COPYTRADE_PENDING_WALLET_REFRESH_MS || 10000);
@@ -271,9 +272,9 @@ async function tick(): Promise<void> {
     tickInFlight = true;
     cleanupLocalDedup();
     try {
-        const chains = CHAIN_SLUG_BY_ID
+        const chains = prioritizeCopyTradePendingChains(CHAIN_SLUG_BY_ID
             ? Object.keys(CHAIN_SLUG_BY_ID).map((value) => Number(value)).filter((chainId) => !!getTrackedWalletSet(chainId))
-            : [];
+            : []);
         if (chains.length === 0) return;
 
         // Poll one chain per tick (round-robin) to cap RPC load.
