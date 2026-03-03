@@ -5,6 +5,7 @@ export interface AttributedPositionLike {
   tokenAddress: string;
   chainId?: number;
   entryTxHash?: string | null;
+  entryAmountExact?: string | null;
   entryAmountDec?: { toString(): string } | string | number | null;
 }
 
@@ -40,7 +41,14 @@ const INVALID_ENTRY_TX_PREFIXES = [
   'FAILED_',
 ];
 
-function parseHumanAmount(value: AttributedPositionLike['entryAmountDec']): string | null {
+function parseHumanAmount(
+  exactValue: AttributedPositionLike['entryAmountExact'],
+  decimalValue: AttributedPositionLike['entryAmountDec']
+): string | null {
+  const exact = exactValue === null || exactValue === undefined ? null : String(exactValue).trim();
+  if (exact && exact !== '0') return exact;
+
+  const value = decimalValue;
   if (value === null || value === undefined) return null;
   const raw = typeof value === 'object' && 'toString' in value ? value.toString() : String(value);
   const normalized = raw.trim();
@@ -70,7 +78,7 @@ export function resolveAttributedPositionExitAmount<T extends AttributedPosition
       excludedPositions.push(position);
       continue;
     }
-    const humanAmount = parseHumanAmount(position.entryAmountDec);
+    const humanAmount = parseHumanAmount(position.entryAmountExact, position.entryAmountDec);
     if (!humanAmount) {
       excludedPositions.push(position);
       continue;
@@ -125,4 +133,3 @@ export function resolveAttributedPositionExitAmount<T extends AttributedPosition
     },
   };
 }
-

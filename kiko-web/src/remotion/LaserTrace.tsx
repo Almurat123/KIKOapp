@@ -1,68 +1,86 @@
 import React from 'react';
-import { interpolate, useCurrentFrame } from 'remotion';
 
-export const LaserTrace: React.FC = () => {
-    const frame = useCurrentFrame();
+interface LaserTraceProps {
+    progress: number;
+    width: number;
+    height: number;
+    strokeWidth?: number;
+}
 
-    // Progress 0-1 (trace duration 4s = 120 frames)
-    const progress = interpolate(frame, [0, 120], [0, 1], {
-        extrapolateLeft: 'clamp',
-        extrapolateRight: 'clamp',
-    });
+export const LaserTrace: React.FC<LaserTraceProps> = ({
+    progress,
+    width,
+    height,
+    strokeWidth = 2
+}) => {
+    const radius = 32; // Matching the ChatBoxFrame border-radius
+    const perimeter = 2 * (width + height);
 
-    // Box dimensions (matches the input box)
-    const width = 768;
-    const height = 90;
-    const radius = 24;
-    const perimeter = 2 * (width + height); // Simplified, but enough for dash
-
-    // Tip position calculation (Roughly matches perimeter)
-    // 0 -> Top edge
-    // 0.25 -> Right edge
-    // 0.5 -> Bottom edge
-    // 0.75 -> Left edge
-    let tx = width / 2;
-    let ty = 0;
-
-    if (progress < 0.25) {
-        tx = interpolate(progress, [0, 0.25], [width / 2, width]);
-        ty = 0;
-    } else if (progress < 0.5) {
-        tx = width;
-        ty = interpolate(progress, [0.25, 0.5], [0, height]);
-    } else if (progress < 0.75) {
-        tx = interpolate(progress, [0.5, 0.75], [width, 0]);
-        ty = height;
-    } else {
-        tx = 0;
-        ty = interpolate(progress, [0.75, 1], [height, 0]);
+    // Smooth path calculation (Top -> Right -> Bottom -> Left)
+    // We offset by half strokeWidth to center the stroke on the box edge
+    const p = progress * 4;
+    if (p < 1) {
+        // tx/ty logic was here but moved to MyVideo for camera. 
+        // We still need them if we want to render something AT the tip, 
+        // but user said "remove spark", so we just keep the path.
     }
 
     return (
-        <div style={{
-            width,
-            height,
-            position: 'relative',
-            display: 'flex',
-            justifyContent: 'center',
-            alignItems: 'center',
-        }}>
+        <div
+            style={{
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                width: '100%',
+                height: '100%',
+                pointerEvents: 'none',
+                zIndex: 50
+            }}
+        >
             <svg
                 width={width + 100}
                 height={height + 100}
                 viewBox={`-50 -50 ${width + 100} ${height + 100}`}
                 style={{
+                    position: 'absolute',
+                    top: -50,
+                    left: -50,
                     overflow: 'visible',
                 }}
             >
                 <defs>
-                    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
-                        <feGaussianBlur stdDeviation="4" result="blur" />
-                        <feComposite in="SourceGraphic" in2="blur" operator="over" />
+                    {/* Chromatic Glow Gradient */}
+                    <linearGradient id="laserGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+                        <stop offset="0%" stopColor="rgba(255, 100, 100, 0)" />
+                        <stop offset="80%" stopColor="rgba(100, 150, 255, 0.5)" />
+                        <stop offset="100%" stopColor="rgba(255, 255, 255, 1)" />
+                    </linearGradient>
+
+                    <filter id="laserBlur" x="-50%" y="-50%" width="200%" height="200%">
+                        <feGaussianBlur stdDeviation="3" result="blur1" />
+                        <feGaussianBlur stdDeviation="8" result="blur2" />
+                        <feMerge>
+                            <feMergeNode in="blur2" />
+                            <feMergeNode in="blur1" />
+                            <feMergeNode in="SourceGraphic" />
+                        </feMerge>
+                    </filter>
+
+                    {/* Chromatic Aberration Fringe Filter */}
+                    <filter id="chromaticFringe">
+                        <feOffset in="SourceGraphic" dx="-1" dy="0" result="red" />
+                        <feOffset in="SourceGraphic" dx="1" dy="0" result="blue" />
+                        <feColorMatrix in="red" type="matrix" values="1 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 1 0" result="redP" />
+                        <feColorMatrix in="blue" type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 1 0 0  0 0 0 1 0" result="blueP" />
+                        <feMerge>
+                            <feMergeNode in="redP" />
+                            <feMergeNode in="blueP" />
+                            <feMergeNode in="SourceGraphic" />
+                        </feMerge>
                     </filter>
                 </defs>
 
-                {/* Outer Glow Path */}
+                {/* The Trace Trail */}
                 <rect
                     x="0"
                     y="0"
@@ -70,31 +88,17 @@ export const LaserTrace: React.FC = () => {
                     height={height}
                     rx={radius}
                     fill="none"
-                    stroke="rgba(59, 130, 246, 0.2)"
-                    strokeWidth="1"
-                />
-
-                {/* Active Laser Trace */}
-                <rect
-                    x="0"
-                    y="0"
-                    width={width}
-                    height={height}
-                    rx={radius}
-                    fill="none"
-                    stroke="white"
-                    strokeWidth="2"
+                    stroke="url(#laserGradient)"
+                    strokeWidth={strokeWidth}
                     strokeDasharray={perimeter}
                     strokeDashoffset={perimeter * (1 - progress)}
                     strokeLinecap="round"
-                    filter="url(#glow)"
+                    style={{
+                        filter: 'blur(1px)'
+                    }}
                 />
 
-                {/* The "Laser" Tip */}
-                <g transform={`translate(${tx}, ${ty})`}>
-                    <circle r="4" fill="white" filter="url(#glow)" />
-                    <circle r="12" fill="rgba(59, 130, 246, 0.4)" filter="url(#glow)" />
-                </g>
+                {/* The Rim Trace only - No spark head as requested */}
             </svg>
         </div>
     );

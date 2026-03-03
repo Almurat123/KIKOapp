@@ -83,8 +83,9 @@ import { cleanupPendingCopytradePosition } from './copytrade/buy/pendingLifecycl
 import { buildCopytradeBuyPlannedArtifact } from './copytrade/buy/plannedExecutionArtifact.js';
 import { shouldAbortCopytradeBuyRetry } from './copytrade/buy/copytradeBuyRetryGuard.js';
 import { evaluateBuyPriceDeviationGuard } from './copytrade/buy/buyGuardPriceDeviation.js';
-import { reconcileOpenPositionsForExit } from './copytrade/exit/openPositionReconciliation.js';
 import { resolveAttributedPositionExitAmount } from './copytrade/positions/positionAttribution.js';
+import { finalizeCopytradeBuyPosition } from './copytrade/positions/positionPersistence.js';
+import { evaluateExitEligibilityPreflight } from './copytrade/exit/exitEligibilityPreflight.js';
 import { collectDirectSwapFeeFromSettlement } from './swap/fee/directSwapFeeCollector.js';
 import { getCopytradeBuySharedWarmup } from './copytrade/buy/buySharedWarmup.js';
 import {
@@ -2704,38 +2705,22 @@ async function processSingleUserBuy(
                 chainId
             }
             : null);
-        if (pendingPositionId) {
-            await prisma.position.update({
-                where: { id: pendingPositionId },
-                data: {
-                    entryPrice: tokenInfo.price,
-                    entryAmount: (usdAmount / nativePrice).toString(), // Native amount spent
-                    entryAmountDec: attributedEntryAmountHuman || undefined,
-                    entryTxHash: txHash,
-                    status: nextPositionStatus as any,
-                },
-            });
-            pendingPositionSettled = true;
-        } else {
-            // Fallback (should not happen if logic is correct): Create new if pending failed for some reason
-            await prisma.position.create({
-                data: {
-                    userId: effectiveConfig.userId,
-                    configId: effectiveConfig.id,
-                    tokenAddress: tokenToBuy,
-                    tokenSymbol: resolveDisplayTokenSymbol(tokenInfo.symbol || (swap as any)?.tokenSymbol, tokenToBuy),
-                    chainId,
-                    entryPrice: tokenInfo.price,
-                    entryAmount: (usdAmount / nativePrice).toString(),
-                    entryAmountDec: attributedEntryAmountHuman || undefined,
-                    entryTxHash: txHash,
-                    leaderTxHash: leaderTxHash || undefined,
-                    entryUsdValue: usdAmount,
-                    status: nextPositionStatus as any,
-                },
-            });
-            pendingPositionSettled = true;
-        }
+        const persistenceResult = await finalizeCopytradeBuyPosition({
+            pendingPositionId,
+            userId: effectiveConfig.userId,
+            configId: effectiveConfig.id,
+            tokenAddress: tokenToBuy,
+            tokenSymbol: resolveDisplayTokenSymbol(tokenInfo.symbol || (swap as any)?.tokenSymbol, tokenToBuy),
+            chainId,
+            entryPrice: tokenInfo.price,
+            entryAmount: (usdAmount / nativePrice).toString(),
+            attributedEntryAmountExact: attributedEntryAmountHuman || undefined,
+            entryTxHash: txHash,
+            leaderTxHash: leaderTxHash || undefined,
+            entryUsdValue: usdAmount,
+            status: nextPositionStatus as any,
+        });
+        pendingPositionSettled = true;
 
         logger.info(LogCode.EXE_TX_CONFIRMED, 'Copy trade buy submitted and position state updated', {
             userId: config.userId,
@@ -2743,6 +2728,7 @@ async function processSingleUserBuy(
             txHash,
             txLifecycleStatus: txLifecycleStatus || 'unknown',
             positionStatus: nextPositionStatus,
+            amountStorageReasonCode: persistenceResult.reasonCode,
             ...buildOrderAuditFields(orderRuntimeContext)
         });
 
@@ -3564,8 +3550,13 @@ async function handleTargetSell(
 
     logger.info(LogCode.EXE_TX_BROADCAST, `Mirror sell: Processing open positions for token`, { token: tokenToSell, configCount: uniqueExecutableConfigs.length, targetWallet });
 
-    // PERFECT EVM-LIKE SHARING: Fetch token info once instead of N times concurrently, preventing RPC explosion
-    const sharedTokenInfoPromise = getTokenInfo(tokenToSell, chainId, { priority: 'high', rpcStrategy: 'fast', fastMode: true }).catch(() => null);
+    let sharedTokenInfoPromise: Promise<any> | null = null;
+    const getSharedTokenInfoPromise = () => {
+        if (!sharedTokenInfoPromise) {
+            sharedTokenInfoPromise = getTokenInfo(tokenToSell, chainId, { priority: 'high', rpcStrategy: 'fast', fastMode: true }).catch(() => null);
+        }
+        return sharedTokenInfoPromise;
+    };
 
     await Promise.all(uniqueExecutableConfigs.map(async (config) => {
         // Never infer copytrade ownership from wallet balance alone.
@@ -3599,32 +3590,38 @@ async function handleTargetSell(
             });
         }
 
-        const [positions, tokenInfo] = await Promise.all([
-            prisma.position.findMany({
-                // Include 'pending' positions: sell signal can arrive while buy tx is still confirming on-chain.
-                // Attribution logic will further check if entryTxHash is a real hash (not PENDING_ prefix).
-                where: { userId: config.userId, chainId, status: { in: ['open', 'pending'] } },
-            }),
-            sharedTokenInfoPromise
-        ]);
+        const executionMode = resolveExecutionModeForConfig(config);
+        const preflight = await evaluateExitEligibilityPreflight({
+            userId: config.userId,
+            walletAddress: config.user.walletAddress,
+            tokenAddress: tokenToSell,
+            chainId,
+            executionMode,
+            universalSlippageBps: 300
+        });
 
-        if (!tokenInfo) {
-            // tokenInfo is used for price display only — NOT a prerequisite for executing the sell.
-            // Log a warning and continue; the sell will proceed with price = 0 (position closed, no USD shown).
-            logger.warn(LogCode.API_FETCH_FAILED, 'Mirror sell: Token info unavailable (RPC/API down), proceeding with price=0', { token: tokenToSell, userId: config.userId });
-        }
-
-        const reconciledPositions = reconcileOpenPositionsForExit(positions, tokenToSell, chainId);
-        if (reconciledPositions.matchedPositions.length === 0) {
+        if (!preflight.allowed) {
+            if (preflight.closeReason && preflight.matchedPositions.length > 0) {
+                await reconcileNoopExitPosition({
+                    positions: preflight.matchedPositions as any,
+                    action: 'close_position',
+                    closeReason: preflight.closeReason
+                });
+            }
             logger.info(LogCode.WTC_TX_SKIPPED, 'Mirror sell skipped: no open positions after reconciliation', {
                 userId: config.userId,
                 token: tokenToSell,
-                reasonCode: reconciledPositions.reasonCode,
-                ...reconciledPositions.metrics
+                reasonCode: preflight.reasonCode,
+                ...preflight.metrics
             });
             return;
         }
-        const matchedPositions = reconciledPositions.matchedPositions;
+        const matchedPositions = preflight.matchedPositions;
+
+        const tokenInfo = await getSharedTokenInfoPromise();
+        if (!tokenInfo) {
+            logger.warn(LogCode.API_FETCH_FAILED, 'Mirror sell: Token info unavailable (RPC/API down), proceeding with price=0', { token: tokenToSell, userId: config.userId });
+        }
 
         // Leader stat tracking (only for mirror sell)
         const balanceUsdForStats = matchedPositions.reduce((sum, p) => sum + (p.entryUsdValue || 0), 0);

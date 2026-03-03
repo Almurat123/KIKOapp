@@ -23,6 +23,7 @@ export async function persistSuccessfulExit(params: {
     id: string;
     entryPrice: number;
     entryUsdValue: number | null;
+    entryAmountExact?: string | null;
     entryAmountDec?: { toString(): string } | string | number | null;
   }>;
   txHash: string;
@@ -54,6 +55,7 @@ export async function persistSuccessfulExit(params: {
         exitTxHash: params.txHash,
         exitReason: params.exitReason,
         closedAt: new Date(),
+        exitAmountExact: pos.entryAmountExact ? String(pos.entryAmountExact) : undefined,
         exitAmount: pos.entryAmountDec ? String(pos.entryAmountDec) : undefined,
         exitAmountDec: pos.entryAmountDec ? String(pos.entryAmountDec) : undefined,
         exitPrice: params.exitPrice,

@@ -398,9 +398,11 @@ model Position {
   updatedAt          DateTime        @updatedAt
   entryPriceDec      Decimal?        @db.Decimal(38, 18)
   entryAmountDec     Decimal?        @db.Decimal(38, 18)
+  entryAmountExact   String?         @map("entry_amount_exact")
   entryUsdValueDec   Decimal?        @db.Decimal(38, 18)
   currentPriceDec    Decimal?        @db.Decimal(38, 18)
   exitAmountDec      Decimal?        @db.Decimal(38, 18)
+  exitAmountExact    String?         @map("exit_amount_exact")
   exitPriceDec       Decimal?        @db.Decimal(38, 18)
   exitUsdValueDec    Decimal?        @db.Decimal(38, 18)
   realizedPnlPctDec  Decimal?        @db.Decimal(38, 18)

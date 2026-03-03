@@ -61,4 +61,24 @@ describe('copytrade position attribution', () => {
     assert.equal(result.sellAmountRaw, 0n);
     assert.equal(result.eligiblePositions.length, 0);
   });
+
+  test('uses exact string amount when decimal helper field is unavailable', () => {
+    const result = resolveAttributedPositionExitAmount({
+      positions: [
+        {
+          id: 'large_pos',
+          tokenAddress: '0xToken',
+          entryTxHash: '0xconfirmed',
+          entryAmountExact: '123456789012345678901.5',
+          entryAmountDec: null,
+        },
+      ],
+      decimals: 1,
+      onChainBalanceRaw: 1234567890123456789015n,
+    });
+
+    assert.equal(result.reasonCode, 'ATTRIBUTED_AMOUNT_RESOLVED');
+    assert.equal(result.sellAmountRaw, 1234567890123456789015n);
+    assert.equal(result.eligiblePositions.length, 1);
+  });
 });
