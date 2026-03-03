@@ -1,0 +1,26 @@
+/*
+ * Remotion-specific CSS overrides
+ * 
+ * In headless Chrome rendering, certain CSS effects appear differently
+ * than in a live browser. These overrides compensate for those differences.
+ */
+
+/* 
+ * The WelcomeScreen & Chat inputWrapper use ::before/::after pseudo-elements
+ * to create a bright gradient border. In the live frontend, this blends subtly
+ * with the interactive background, but in Remotion's headless render, 
+ * the gradient appears as a harsh "white box".
+ * 
+ * Since the WebGL LiquidGlassEffect already provides the rim/fresnel effect,
+ * we reduce the CSS pseudo-element opacity to avoid doubling up.
+ */
+
+/* Tone down the Fresnel Edge Highlight pseudo-element */
+[class*="inputWrapper"]::before {
+  opacity: 0.35 !important;
+}
+
+/* Tone down the Chromatic Aberration pseudo-element */
+[class*="inputWrapper"]::after {
+  opacity: 0.25 !important;
+}

@@ -272,83 +272,46 @@ export async function runDiscoveryJob(force = false): Promise<void> {
     zoraService.clearCache();
 
     try {
-    // ===== STEP 1: Get quality users from local storage (no Dune API call) =====
-    const qualityFids = await getQualityUserFids();
+      // ===== STEP 1: Get quality users from local storage (no Dune API call) =====
+      const qualityFids = await getQualityUserFids();
 
-    if (qualityFids.length === 0) {
-      // Check if we have existing data - if so, keep it
-      const { getTrendingCasts: getExistingCasts } = await import('../repositories/socialRepository.js');
-      const existingCasts = await getExistingCasts(50);
-      if (existingCasts.length > 0) {
+      if (qualityFids.length === 0) {
+        // Check if we have existing data - if so, keep it
+        const { getTrendingCasts: getExistingCasts } = await import('../repositories/socialRepository.js');
+        const existingCasts = await getExistingCasts(50);
+        if (existingCasts.length > 0) {
+          setDiscoveryStatus({
+            status: 'skipped',
+            lastFinishedAt: new Date().toISOString(),
+            lastDurationMs: Date.now() - startedAt,
+            note: 'skip_no_quality_fids_keep_existing',
+          });
+          return;
+        }
         setDiscoveryStatus({
-          status: 'skipped',
+          status: 'error',
           lastFinishedAt: new Date().toISOString(),
           lastDurationMs: Date.now() - startedAt,
-          note: 'skip_no_quality_fids_keep_existing',
+          lastError: 'No quality FIDs available',
+          note: 'no_quality_fids',
         });
         return;
       }
-      setDiscoveryStatus({
-        status: 'error',
-        lastFinishedAt: new Date().toISOString(),
-        lastDurationMs: Date.now() - startedAt,
-        lastError: 'No quality FIDs available',
-        note: 'no_quality_fids',
-      });
-      return;
-    }
 
-    // ===== STEP 2: Fetch casts from Snapchain Hub =====
-    // Empty DB bootstrap mode: widen time window + smaller target for faster first-fill
-    const TARGET_CASTS = isDbEmpty ? 300 : 1000;
-    const CASTS_PER_USER = isDbEmpty ? 4 : 8;
-    const MAX_AGE_DAYS = isDbEmpty ? 365 : 30;
-    const FETCH_FIDS = isDbEmpty ? qualityFids.slice(0, Math.min(120, qualityFids.length)) : qualityFids;
+      // ===== STEP 2: Fetch casts from Snapchain Hub =====
+      // Empty DB bootstrap mode: widen time window + smaller target for faster first-fill
+      const TARGET_CASTS = isDbEmpty ? 300 : 1000;
+      const CASTS_PER_USER = isDbEmpty ? 4 : 8;
+      const MAX_AGE_DAYS = isDbEmpty ? 365 : 30;
+      const FETCH_FIDS = isDbEmpty ? qualityFids.slice(0, Math.min(120, qualityFids.length)) : qualityFids;
 
-    try {
-      // Use the quality users list (from Dune or hardcoded fallback)
-      const snapchainResults = await fetchCastsFromUsers(FETCH_FIDS, MAX_AGE_DAYS, 1, TARGET_CASTS, CASTS_PER_USER);
+      try {
+        // Use the quality users list (from Dune or hardcoded fallback)
+        const snapchainResults = await fetchCastsFromUsers(FETCH_FIDS, MAX_AGE_DAYS, 1, TARGET_CASTS, CASTS_PER_USER);
 
-      if (snapchainResults.length > 0) {
-        // Convert Snapchain format to TrendingCast format (take up to TARGET_CASTS)
-        newCasts = snapchainResults.slice(0, TARGET_CASTS)
-          .map(result => snapchainService.snapchainToTrendingCast(result))
-          .filter((converted): converted is any => converted !== null)
-          .map(converted => ({
-            hash: converted.hash,
-            fid: converted.fid,
-            author: {
-              fid: converted.author.fid,
-              username: converted.author.username,
-              displayName: converted.author.displayName,
-              avatar: converted.author.avatar,
-              verified: converted.author.verified,
-              bio: converted.author.bio,
-            },
-            text: converted.text,
-            timestamp: converted.timestamp,
-            embeds: converted.embeds,
-            parentCastId: undefined,
-            stats: converted.stats,
-            heatScore: converted.heatScore,
-            mentions: converted.mentions,
-          } as TrendingCast));
-      }
-    } catch (snapchainError) {
-      console.error('[SocialJob] Snapchain fetch error:', snapchainError);
-      // Hub fetch failed; recovery path below will handle bootstrap safely
-    }
-
-    // ===== ERROR HANDLING: Only save if we got new data =====
-    if (newCasts.length === 0) {
-      // Empty DB is a distinct failure mode: force a lightweight recovery sweep.
-      if (isDbEmpty) {
-        console.warn('[SocialJob] DB is empty and primary fetch returned 0, entering recovery mode...');
-        const recoveryFids = Array.from(new Set([3, 129, 239, 5650, 2, 4, 5, 20, 194, ...QUALITY_FIDS.slice(0, 40)]));
-        // Recovery mode for empty DB must tolerate stale upstream sources.
-        const recoveryResults = await fetchCastsFromUsers(recoveryFids, 1095, 0, 200, 4);
-        if (recoveryResults.length > 0) {
-          newCasts = recoveryResults
+        if (snapchainResults.length > 0) {
+          // Convert Snapchain format to TrendingCast format (take up to TARGET_CASTS)
+          newCasts = snapchainResults.slice(0, TARGET_CASTS)
             .map(result => snapchainService.snapchainToTrendingCast(result))
             .filter((converted): converted is any => converted !== null)
             .map(converted => ({
@@ -370,147 +333,184 @@ export async function runDiscoveryJob(force = false): Promise<void> {
               heatScore: converted.heatScore,
               mentions: converted.mentions,
             } as TrendingCast));
-          console.log(`[SocialJob] Recovery mode loaded ${newCasts.length} casts`);
+        }
+      } catch (snapchainError) {
+        console.error('[SocialJob] Snapchain fetch error:', snapchainError);
+        // Hub fetch failed; recovery path below will handle bootstrap safely
+      }
+
+      // ===== ERROR HANDLING: Only save if we got new data =====
+      if (newCasts.length === 0) {
+        // Empty DB is a distinct failure mode: force a lightweight recovery sweep.
+        if (isDbEmpty) {
+          console.warn('[SocialJob] DB is empty and primary fetch returned 0, entering recovery mode...');
+          const recoveryFids = Array.from(new Set([3, 129, 239, 5650, 2, 4, 5, 20, 194, ...QUALITY_FIDS.slice(0, 40)]));
+          // Recovery mode for empty DB must tolerate stale upstream sources.
+          const recoveryResults = await fetchCastsFromUsers(recoveryFids, 1095, 0, 200, 4);
+          if (recoveryResults.length > 0) {
+            newCasts = recoveryResults
+              .map(result => snapchainService.snapchainToTrendingCast(result))
+              .filter((converted): converted is any => converted !== null)
+              .map(converted => ({
+                hash: converted.hash,
+                fid: converted.fid,
+                author: {
+                  fid: converted.author.fid,
+                  username: converted.author.username,
+                  displayName: converted.author.displayName,
+                  avatar: converted.author.avatar,
+                  verified: converted.author.verified,
+                  bio: converted.author.bio,
+                },
+                text: converted.text,
+                timestamp: converted.timestamp,
+                embeds: converted.embeds,
+                parentCastId: undefined,
+                stats: converted.stats,
+                heatScore: converted.heatScore,
+                mentions: converted.mentions,
+              } as TrendingCast));
+            console.log(`[SocialJob] Recovery mode loaded ${newCasts.length} casts`);
+          }
         }
       }
-    }
 
-    if (newCasts.length === 0) {
-      // No new casts fetched - keep existing database data as-is
-      console.log('[SocialJob] No new casts from Hub, preserving existing database data');
+      if (newCasts.length === 0) {
+        // No new casts fetched - keep existing database data as-is
+        console.log('[SocialJob] No new casts from Hub, preserving existing database data');
+        setDiscoveryStatus({
+          status: 'skipped',
+          lastFinishedAt: new Date().toISOString(),
+          lastDurationMs: Date.now() - startedAt,
+          lastFetchedCount: 0,
+          lastSavedCount: 0,
+          source: 'hub',
+          note: 'skip_no_new_casts',
+        });
+        return;
+      }
+
+      const latestFetchedTs = newCasts.reduce<number | null>((maxTs, cast) => {
+        const ts = typeof cast.timestamp === 'number'
+          ? cast.timestamp
+          : new Date(cast.timestamp as any).getTime();
+        if (!Number.isFinite(ts)) return maxTs;
+        return maxTs === null ? ts : Math.max(maxTs, ts);
+      }, null);
+      const latestFetchedIso = latestFetchedTs ? new Date(latestFetchedTs).toISOString() : null;
       setDiscoveryStatus({
-        status: 'skipped',
-        lastFinishedAt: new Date().toISOString(),
-        lastDurationMs: Date.now() - startedAt,
-        lastFetchedCount: 0,
-        lastSavedCount: 0,
+        lastFetchedCount: newCasts.length,
+        latestFetchedCastTimestamp: latestFetchedIso,
         source: 'hub',
-        note: 'skip_no_new_casts',
+        note: null,
       });
-      return;
-    }
 
-    const latestFetchedTs = newCasts.reduce<number | null>((maxTs, cast) => {
-      const ts = typeof cast.timestamp === 'number'
-        ? cast.timestamp
-        : new Date(cast.timestamp as any).getTime();
-      if (!Number.isFinite(ts)) return maxTs;
-      return maxTs === null ? ts : Math.max(maxTs, ts);
-    }, null);
-    const latestFetchedIso = latestFetchedTs ? new Date(latestFetchedTs).toISOString() : null;
-    setDiscoveryStatus({
-      lastFetchedCount: newCasts.length,
-      latestFetchedCastTimestamp: latestFetchedIso,
-      source: 'hub',
-      note: null,
-    });
-
-    // === OPTIMIZE: Load quality users ONCE ===
-    const allQualityUsers = await qualityUsersRepo.getQualityUsers(2000);
-    const userCoinMap = new Map<number, { hasCoin: boolean; coinAddress?: string; lastCheck: number }>();
-    allQualityUsers.forEach((u: any) => {
-      userCoinMap.set(u.fid, {
-        hasCoin: u.hasCreatorCoin ?? false,
-        coinAddress: u.creatorCoinAddress,
-        lastCheck: u.lastCoinCheck ? new Date(u.lastCoinCheck).getTime() : 0
+      // === OPTIMIZE: Load quality users ONCE ===
+      const allQualityUsers = await qualityUsersRepo.getQualityUsers(2000);
+      const userCoinMap = new Map<number, { hasCoin: boolean; coinAddress?: string; lastCheck: number }>();
+      allQualityUsers.forEach((u: any) => {
+        userCoinMap.set(u.fid, {
+          hasCoin: u.hasCreatorCoin ?? false,
+          coinAddress: u.creatorCoinAddress,
+          lastCheck: u.lastCoinCheck ? new Date(u.lastCoinCheck).getTime() : 0
+        });
       });
-    });
 
-    const oneDayMs = 24 * 60 * 60 * 1000;
-    const now = Date.now();
+      const oneDayMs = 24 * 60 * 60 * 1000;
+      const now = Date.now();
 
-    console.log(`[SocialJob] Checking Zora coin status for ${newCasts.length} casts...`);
-    // Process in parallel with rate limiting (batch of 10)
-    const batchSize = 10;
-    for (let i = 0; i < newCasts.length; i += batchSize) {
-      const batch = newCasts.slice(i, i + batchSize);
-      await Promise.all(batch.map(async (cast) => {
-        try {
+      console.log(`[SocialJob] Checking Zora coin status for ${newCasts.length} casts...`);
+      // Process in parallel with rate limiting (batch of 10)
+      const batchSize = 10;
+      for (let i = 0; i < newCasts.length; i += batchSize) {
+        const batch = newCasts.slice(i, i + batchSize);
+        await Promise.all(batch.map(async (cast) => {
           try {
+            try {
 
 
-            // === OPTIMIZED Creator Coin Check ===
-            if (cast.author?.fid) {
-              const cached = userCoinMap.get(cast.author.fid);
-              const isStale = !cached || (now - cached.lastCheck) > oneDayMs;
+              // === OPTIMIZED Creator Coin Check ===
+              if (cast.author?.fid) {
+                const cached = userCoinMap.get(cast.author.fid);
+                const isStale = !cached || (now - cached.lastCheck) > oneDayMs;
 
-              if (cached && !isStale) {
-                // Fast path: Use cached data, skip API entirely for "no coin" users
-                if (cached.hasCoin && cached.coinAddress) {
+                if (cached && !isStale) {
+                  // Fast path: Use cached data, skip API entirely for "no coin" users
+                  if (cached.hasCoin && cached.coinAddress) {
+                    try {
+                      const creatorCoin = await zoraService.getCoinByAddress(cached.coinAddress);
+                      if (creatorCoin) {
+                        cast.author.creatorCoin = creatorCoin;
+                      }
+                    } catch (e) { }
+                  }
+                  // If hasCoin is false, we just skip - no API call!
+                } else {
+                  // Stale or new user: Check API and update cache
                   try {
-                    const creatorCoin = await zoraService.getCoinByAddress(cached.coinAddress);
+                    const userData = await snapchainService.getUserDataByFid(cast.author.fid);
+                    let creatorCoin = null;
+                    if (userData?.verifications && userData.verifications.length > 0) {
+                      for (const ver of userData.verifications) {
+                        const address = typeof ver === 'string' ? ver : ver.address;
+                        if (!address.startsWith('0x')) continue;
+                        creatorCoin = await zoraService.getUserCreatorCoin(address);
+                        if (creatorCoin) break;
+                      }
+                    }
+
+                    // Update DB cache
+                    await qualityUsersRepo.updateUserCoinStatus(
+                      cast.author.fid,
+                      !!creatorCoin,
+                      creatorCoin?.address
+                    );
+
+                    // Update local map for future casts in this batch
+                    userCoinMap.set(cast.author.fid, {
+                      hasCoin: !!creatorCoin,
+                      coinAddress: creatorCoin?.address,
+                      lastCheck: now
+                    });
+
                     if (creatorCoin) {
                       cast.author.creatorCoin = creatorCoin;
                     }
-                  } catch (e) { }
-                }
-                // If hasCoin is false, we just skip - no API call!
-              } else {
-                // Stale or new user: Check API and update cache
-                try {
-                  const userData = await snapchainService.getUserDataByFid(cast.author.fid);
-                  let creatorCoin = null;
-                  if (userData?.verifications && userData.verifications.length > 0) {
-                    for (const ver of userData.verifications) {
-                      const address = typeof ver === 'string' ? ver : ver.address;
-                      if (!address.startsWith('0x')) continue;
-                      creatorCoin = await zoraService.getUserCreatorCoin(address);
-                      if (creatorCoin) break;
-                    }
+                  } catch (e) {
+                    // Ignore errors
                   }
-
-                  // Update DB cache
-                  await qualityUsersRepo.updateUserCoinStatus(
-                    cast.author.fid,
-                    !!creatorCoin,
-                    creatorCoin?.address
-                  );
-
-                  // Update local map for future casts in this batch
-                  userCoinMap.set(cast.author.fid, {
-                    hasCoin: !!creatorCoin,
-                    coinAddress: creatorCoin?.address,
-                    lastCheck: now
-                  });
-
-                  if (creatorCoin) {
-                    cast.author.creatorCoin = creatorCoin;
-                  }
-                } catch (e) {
-                  // Ignore errors
                 }
               }
+
+            } catch (innerError) {
+              console.warn(`[SocialJob] Error checking coin for cast ${cast.hash}:`, innerError);
             }
-
-          } catch (innerError) {
-            console.warn(`[SocialJob] Error checking coin for cast ${cast.hash}:`, innerError);
+          } catch (e) {
+            // Ignore individual failures
           }
-        } catch (e) {
-          // Ignore individual failures
-        }
-      }));
-    }
+        }));
+      }
 
-    await saveTrendingCasts(newCasts);
-    console.log(`[SocialJob] Casts refreshed: ${newCasts.length} saved`);
-    setDiscoveryStatus({
-      status: 'success',
-      lastFinishedAt: new Date().toISOString(),
-      lastDurationMs: Date.now() - startedAt,
-      lastSavedCount: newCasts.length,
-      note: null,
-    });
+      await saveTrendingCasts(newCasts);
+      console.log(`[SocialJob] Casts refreshed: ${newCasts.length} saved`);
+      setDiscoveryStatus({
+        status: 'success',
+        lastFinishedAt: new Date().toISOString(),
+        lastDurationMs: Date.now() - startedAt,
+        lastSavedCount: newCasts.length,
+        note: null,
+      });
 
-    // ===== STEP 3: OGP Prefetching (Background) =====
-    // Trigger OGP fetch for new casts to populate cache before users see them
-    const prefetchLimit = 50; // Prefetch top 50 only to save resources
-    const castsToPrefetch = newCasts.slice(0, prefetchLimit);
+      // ===== STEP 3: OGP Prefetching (Background) =====
+      // Trigger OGP fetch for new casts to populate cache before users see them
+      const prefetchLimit = 50; // Prefetch top 50 only to save resources
+      const castsToPrefetch = newCasts.slice(0, prefetchLimit);
 
-    console.log(`[SocialJob] 🚀 Triggering OGP Prefetch for top ${castsToPrefetch.length} casts...`);
+      console.log(`[SocialJob] 🚀 Triggering OGP Prefetch for top ${castsToPrefetch.length} casts...`);
 
-    // Important: finish prefetch before ending this run, so user first-open is warm.
-    await prefetchOgpForCasts(castsToPrefetch);
-    console.log('[SocialJob] ✅ OGP prefetch completed');
+      // Important: finish prefetch before ending this run, so user first-open is warm.
+      await prefetchOgpForCasts(castsToPrefetch);
+      console.log('[SocialJob] ✅ OGP prefetch completed');
     } catch (error) {
       console.error('[SocialJob] Error:', error instanceof Error ? error.message : error);
       setDiscoveryStatus({
@@ -647,12 +647,14 @@ async function fetchCastsFromUsers(
     }
   }
 
-  const sortedResults = results.map(r => {
-    const castTime = snapchainService.farcasterToUnixTimestamp(r.cast.timestamp);
-    const ageHours = (now - castTime) / (1000 * 60 * 60);
-    let timeMultiplier = ageHours < 24 ? 2.0 : ageHours < 72 ? 1.5 : ageHours < 168 ? 1.2 : 1.0;
-    return { ...r, weightedScore: r.score * timeMultiplier };
-  }).sort((a, b) => b.weightedScore - a.weightedScore);
+  // [FIX]: Previously sorted by `score * timeMultiplier` which heavily boosted <24H posts (2x),
+  // causing the job to always save the most recent posts first. This starved the DB of older
+  // high-engagement content - making 7D/30D filters show the same data as 24H.
+  // Now we sort by pure engagement score; time-window decay is applied at READ time
+  // by `computeWindowTrendingScore` in the repository layer.
+  const sortedResults = results
+    .map(r => ({ ...r, weightedScore: r.score }))
+    .sort((a, b) => b.weightedScore - a.weightedScore);
 
   return sortedResults.slice(0, targetCasts);
 }

@@ -380,13 +380,16 @@ export async function saveTrendingCasts(casts: TrendingCast[]): Promise<void> {
                     }
                 });
 
-                // HARD CAP: Keep only 1000 casts maximum
-                const MAX_CASTS = 1000;
+                // HARD CAP: Keep only 1500 casts maximum, prioritized by heatScore
+                // [FIX]: Previously used timestamp: 'desc' which ejected all older posts,
+                // preventing 7D/30D filters from having any historical data to show.
+                // Now use heatScore: 'desc' so high-engagement historical posts survive.
+                const MAX_CASTS = 1500;
                 const totalCasts = await tx.trendingCast.count();
                 if (totalCasts > MAX_CASTS) {
-                    // Find the oldest casts beyond the limit and delete them
+                    // Keep the posts with the highest heat scores (not just the newest)
                     const castsToKeep = await tx.trendingCast.findMany({
-                        orderBy: [{ timestamp: 'desc' }, { likes: 'desc' }],
+                        orderBy: [{ heatScore: 'desc' }, { timestamp: 'desc' }],
                         take: MAX_CASTS,
                         select: { hash: true }
                     });
@@ -397,7 +400,7 @@ export async function saveTrendingCasts(casts: TrendingCast[]): Promise<void> {
                             hash: { notIn: hashesToKeep }
                         }
                     });
-                    console.log(`[SocialRepo] Cleaned up ${totalCasts - MAX_CASTS} old casts (cap: ${MAX_CASTS})`);
+                    console.log(`[SocialRepo] Cleaned up ${totalCasts - MAX_CASTS} low-score casts (cap: ${MAX_CASTS})`);
                 }
             }, {
                 timeout: 60000, // 60 seconds (default is 5s)

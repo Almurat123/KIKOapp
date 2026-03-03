@@ -98,7 +98,14 @@ const fragmentShader = `
     
     finalColor += vec3(fresnel);
     
-    float alpha = max(rimMask * 0.92, step(0.0, -dist) * 0.006);
+    // Only show the rim and a very subtle inner glow, avoid solid "white box" inside
+    float pulseAlpha = uInteractionPulse * 0.2;
+    float alpha = max(rimMask * 0.92, step(0.0, -dist) * (0.001 + pulseAlpha));
+    
+    // Final safety: if it's way inside the box, let it be transparent
+    if (dist < -uEdgeWidth * 2.0) {
+        alpha = 0.0 + pulseAlpha;
+    }
     
     gl_FragColor = vec4(finalColor, alpha);
   }
@@ -129,9 +136,11 @@ export const LiquidGlassEffect: React.FC<LiquidGlassEffectProps> = ({
     if (!canvasRef.current || rendererRef.current || !enabled) return;
 
     const canvas = canvasRef.current;
-    // clientWidth returns 0 in headless Chrome - use composition dimensions instead
-    const canvasW = videoWidth;
-    const canvasH = videoHeight;
+
+    // Use composition dimensions but allow them to be capped for small UI elements.
+    // Most chat inputs are around 800px wide. 
+    const canvasW = Math.min(videoWidth, 800);
+    const canvasH = Math.min(videoHeight, 240);
 
     let renderer: THREE.WebGLRenderer;
     try {

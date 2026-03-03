@@ -1613,7 +1613,10 @@ export const TokensPage: React.FC<TokensPageProps> = ({
 
   // Convert token list data to detail page format
   const getFallbackDetail = (token: Token) => {
-    const priceNum = parseFloat(token.price.replace('$', '').replace(',', '').replace(/\.\.\..*/, '') || '0');
+    // Use priceRaw (the original numeric value) directly instead of re-parsing
+    // the formatted price string. Re-parsing "$0.0₄464" via parseFloat would stop
+    // at the subscript character and return 0, causing the detail page to show $0.00.
+    const priceNum = token.priceRaw && Number.isFinite(token.priceRaw) ? token.priceRaw : 0;
     const priceChange = parseFloat(token.c24h.replace('%', '').replace('+', '') || '0');
     const symbol = token.symbol || token.name || 'UNKNOWN';
 
@@ -1622,7 +1625,7 @@ export const TokensPage: React.FC<TokensPageProps> = ({
       symbol: symbol,
       pair: `${symbol} / ${getNativeTokenSymbol(token.chain)}`,
       chain: token.chain,
-      price: isNaN(priceNum) ? '0.000000' : priceNum.toFixed(18),
+      price: priceNum > 0 ? priceNum.toString() : '0',
       priceChange24h: isNaN(priceChange) ? 0 : priceChange,
       address: token.address || '',
       fdv: token.fdv,
