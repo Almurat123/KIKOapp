@@ -434,6 +434,7 @@ async function processAlchemyWebhookPayload(payload: any): Promise<void> {
         const itemStart = Date.now();
         let txHash = '';
         let candidates: string[] = [];
+        let signerCandidates: string[] = [];
         let receiptMs = 0;
         let fullTxMs = 0;
         let parseSkeletonMs = 0;
@@ -445,6 +446,7 @@ async function processAlchemyWebhookPayload(payload: any): Promise<void> {
             const normalized = normalizeSolanaWebhookItem(item);
             txHash = normalized.txHash;
             candidates = normalized.candidateAddresses;
+            signerCandidates = normalized.signerAddresses;
 
             if (candidates.length === 0) {
                 const solTx = Array.isArray(item?.transaction) ? item.transaction[0] : item?.transaction;
@@ -533,6 +535,7 @@ async function processAlchemyWebhookPayload(payload: any): Promise<void> {
                         chainId,
                         txHash,
                         rawCandidates: candidates,
+                        rawSignerCandidates: signerCandidates,
                         pendingTargetWallet: pendingHint?.targetWallet,
                         preResolvedTrackedWallets: trackedWalletRows
                     });

@@ -3,6 +3,7 @@ import { normalizeAddress } from '../../utils/address.js';
 export type NormalizedSolanaWebhookItem = {
     txHash: string;
     candidateAddresses: string[];
+    signerAddresses: string[];
 };
 
 function extractSolanaTransaction(item: any): any {
@@ -24,8 +25,28 @@ export function normalizeSolanaWebhookItem(item: any): NormalizedSolanaWebhookIt
         .map((key: any) => normalizeAddress(typeof key === 'string' ? key : key?.pubkey || key?.toString()))
         .filter(Boolean);
 
+    let signerAddresses = rawKeys
+        .map((key: any) => {
+            if (!key || typeof key === 'string') return '';
+            const isSigner = key.signer === true || key.isSigner === true;
+            if (!isSigner) return '';
+            return normalizeAddress(key.pubkey || key.toString?.());
+        })
+        .filter(Boolean);
+
+    if (signerAddresses.length === 0) {
+        const requiredSignatures = Number(solMsg?.header?.numRequiredSignatures || 0);
+        if (requiredSignatures > 0 && Array.isArray(rawKeys) && rawKeys.length >= requiredSignatures) {
+            signerAddresses = rawKeys
+                .slice(0, requiredSignatures)
+                .map((key: any) => normalizeAddress(typeof key === 'string' ? key : key?.pubkey || key?.toString?.()))
+                .filter(Boolean);
+        }
+    }
+
     return {
         txHash,
-        candidateAddresses: Array.from(new Set(candidateAddresses))
+        candidateAddresses: Array.from(new Set(candidateAddresses)),
+        signerAddresses: Array.from(new Set(signerAddresses))
     };
 }

@@ -58,6 +58,7 @@ export interface SolanaPrice {
 // Jupiter Metis/Swap API base (official public endpoint).
 // [Ref] https://dev.jup.ag/api-reference/swap/quote
 const JUPITER_PUBLIC_API = process.env.JUPITER_PUBLIC_API_BASE || 'https://lite-api.jup.ag/swap/v1';
+const JUPITER_FALLBACK_API = process.env.JUPITER_FALLBACK_API_BASE || 'https://api.jup.ag/swap/v1';
 
 const FETCH_TIMEOUT = 30000; // 30 seconds timeout
 
@@ -111,7 +112,8 @@ async function getJupiterQuote(
     const dexesParam = options?.dexes?.length
       ? `&dexes=${encodeURIComponent(options.dexes.join(','))}`
       : '';
-    const quoteUrl = `${JUPITER_PUBLIC_API}/quote?inputMint=${inputMint}&outputMint=${outputMint}&amount=${amount}&slippageBps=${slippageBps}${dexesParam}`;
+    const quotePath = `/quote?inputMint=${inputMint}&outputMint=${outputMint}&amount=${amount}&slippageBps=${slippageBps}${dexesParam}`;
+    const jupiterBases = [JUPITER_PUBLIC_API, JUPITER_FALLBACK_API].filter((value, index, self) => self.indexOf(value) === index);
     const routeReason = options?.forcePublicApi
       ? 'JUPITER_PUBLIC_FORCED'
       : options?.dexes?.length
@@ -127,12 +129,27 @@ async function getJupiterQuote(
     });
 
     const quoteStartTime = Date.now();
-    let quoteData = await fetchJson({
-      url: quoteUrl,
-      method: 'GET',
-      headers,
-      timeout: FETCH_TIMEOUT
-    });
+    let quoteData: any = null;
+    let quoteErr: any = null;
+    for (const base of jupiterBases) {
+      try {
+        quoteData = await fetchJson({
+          url: `${base}${quotePath}`,
+          method: 'GET',
+          headers,
+          timeout: FETCH_TIMEOUT,
+          endpointName: 'jupiter_quote',
+          retry: { retries: 1, minTimeout: 150, maxTimeout: 700, factor: 2 }
+        });
+        if (quoteData) break;
+      } catch (err: any) {
+        quoteErr = err;
+      }
+    }
+
+    if (!quoteData && quoteErr) {
+      throw quoteErr;
+    }
 
     logger.debug(LogCode.SYS_INFO, 'Jupiter API quote fetched', { duration: `${Date.now() - quoteStartTime}ms` });
 
@@ -151,21 +168,35 @@ async function getJupiterQuote(
         routeReason,
       });
       try {
-        const swapData = await fetchJson({
-          url: `${JUPITER_PUBLIC_API}/swap`,
-          method: 'POST',
-          headers,
-          body: JSON.stringify({
-            quoteResponse: quoteData,
-            userPublicKey: userAddress,
-            wrapAndUnwrapSol: true,
-            dynamicComputeUnitLimit: true,
-            // Jupiter /swap expects max lamports cap for prioritizationFeeLamports.
-            prioritizationFeeLamports: normalizedPriorityFeeMaxLamports
-              ? { priorityLevelWithMaxLamports: { priorityLevel: "veryHigh", maxLamports: normalizedPriorityFeeMaxLamports } }
-              : 'auto',
-          })
-        });
+        let swapData: any = null;
+        let swapErr: any = null;
+        for (const base of jupiterBases) {
+          try {
+            swapData = await fetchJson({
+              url: `${base}/swap`,
+              method: 'POST',
+              headers,
+              endpointName: 'jupiter_swap',
+              retry: { retries: 1, minTimeout: 150, maxTimeout: 700, factor: 2 },
+              body: JSON.stringify({
+                quoteResponse: quoteData,
+                userPublicKey: userAddress,
+                wrapAndUnwrapSol: true,
+                dynamicComputeUnitLimit: true,
+                prioritizationFeeLamports: normalizedPriorityFeeMaxLamports
+                  ? { priorityLevelWithMaxLamports: { priorityLevel: "veryHigh", maxLamports: normalizedPriorityFeeMaxLamports } }
+                  : 'auto',
+              })
+            });
+            if (swapData) break;
+          } catch (err: any) {
+            swapErr = err;
+          }
+        }
+
+        if (!swapData && swapErr) {
+          throw swapErr;
+        }
 
         swapTransaction = swapData.swapTransaction;
         logger.debug(LogCode.EXE_TX_BROADCAST, 'Jupiter Public: Got swap transaction successfully');
@@ -218,35 +249,50 @@ export async function getJupiterSwapTransaction(
       'Content-Type': 'application/json',
     };
 
-    // Default transaction build path is the public Jupiter Swap API.
-    const url = `${JUPITER_PUBLIC_API}/swap`;
+    const jupiterBases = [JUPITER_PUBLIC_API, JUPITER_FALLBACK_API].filter((value, index, self) => self.indexOf(value) === index);
+    let data: { swapTransaction: string } | null = null;
+    let swapErr: any = null;
+    for (const base of jupiterBases) {
+      try {
+        data = await fetchJson<{ swapTransaction: string }>({
+          url: `${base}/swap`,
+          method: 'POST',
+          headers,
+          endpointName: 'jupiter_swap',
+          retry: { retries: 1, minTimeout: 150, maxTimeout: 700, factor: 2 },
+          body: JSON.stringify({
+            quoteResponse: quote.rawQuoteResponse || {
+              inputMint: quote.inputMint,
+              outputMint: quote.outputMint,
+              inAmount: quote.inAmount,
+              outAmount: quote.outAmount,
+              otherAmountThreshold: quote.otherAmountThreshold,
+              swapMode: quote.swapMode || 'ExactIn',
+              slippageBps: quote.slippageBps,
+              priceImpactPct: quote.priceImpact,
+              routePlan: quote.routePlan,
+            },
+            userPublicKey,
+            wrapUnwrapSOL,
+            dynamicComputeUnitLimit: true,
+            prioritizationFeeLamports: priorityFeeMaxLamports
+              ? { priorityLevelWithMaxLamports: { priorityLevel: "veryHigh", maxLamports: priorityFeeMaxLamports } }
+              : 'auto',
+          })
+        });
+        if (data) break;
+      } catch (err: any) {
+        swapErr = err;
+      }
+    }
 
-    const data = await fetchJson<{ swapTransaction: string }>({
-      url,
-      method: 'POST',
-      headers,
-      body: JSON.stringify({
-        // CRITICAL: Use the raw quote response if available to include all market data
-        // This prevents "Market not found" errors from stale/incomplete quote data
-        quoteResponse: quote.rawQuoteResponse || {
-          inputMint: quote.inputMint,
-          outputMint: quote.outputMint,
-          inAmount: quote.inAmount,
-          outAmount: quote.outAmount,
-          otherAmountThreshold: quote.otherAmountThreshold,
-          swapMode: quote.swapMode || 'ExactIn',
-          slippageBps: quote.slippageBps,
-          priceImpactPct: quote.priceImpact,
-          routePlan: quote.routePlan,
-        },
-        userPublicKey,
-        wrapUnwrapSOL,
-        dynamicComputeUnitLimit: true,
-        prioritizationFeeLamports: priorityFeeMaxLamports
-          ? { priorityLevelWithMaxLamports: { priorityLevel: "veryHigh", maxLamports: priorityFeeMaxLamports } }
-          : 'auto',
-      })
-    });
+    if (!data && swapErr) {
+      throw swapErr;
+    }
+
+    if (!data) {
+      return null;
+    }
 
     return data.swapTransaction;
   } catch (error: any) {
