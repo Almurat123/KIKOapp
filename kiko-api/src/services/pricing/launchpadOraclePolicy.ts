@@ -1,4 +1,5 @@
 const DEFAULT_LAUNCHPAD_MAX_DEVIATION_RATIO = 2.5;
+const DEFAULT_SINGLE_SOURCE_OUTLIER_RATIO = 8;
 
 export type LaunchpadOracleDecision = {
   finalPriceUsd: number;
@@ -12,6 +13,55 @@ export type LaunchpadOracleDecision = {
 
 function normalizeLabel(value: string | undefined): string {
   return String(value || '').trim().toLowerCase();
+}
+
+type ReferenceCandidate = {
+  priceUsd: number;
+  provider: string;
+  reasonCode: string;
+};
+
+type ReferenceSelection = {
+  selected?: ReferenceCandidate;
+  reasonCode?: string;
+  conflictDetected: boolean;
+};
+
+function selectValidatedReference(params: {
+  rpcPriceUsd: number;
+  candidates: ReferenceCandidate[];
+  maxDeviationRatio: number;
+  singleSourceOutlierRatio?: number;
+}): ReferenceSelection {
+  const candidates = params.candidates.filter((candidate) => Number.isFinite(candidate.priceUsd) && candidate.priceUsd > 0);
+  if (!candidates.length) {
+    return { conflictDetected: false };
+  }
+
+  if (candidates.length === 1) {
+    const candidate = candidates[0];
+    const deviationRatio = priceRatio(params.rpcPriceUsd, candidate.priceUsd);
+    if (Number.isFinite(deviationRatio) && deviationRatio > (params.singleSourceOutlierRatio || DEFAULT_SINGLE_SOURCE_OUTLIER_RATIO)) {
+      return {
+        conflictDetected: true,
+        reasonCode: 'market_validator_single_source_outlier_rejected',
+      };
+    }
+    return { selected: candidate, conflictDetected: false };
+  }
+
+  const sorted = [...candidates].sort((a, b) => priceRatio(params.rpcPriceUsd, a.priceUsd) - priceRatio(params.rpcPriceUsd, b.priceUsd));
+  const [closest, second] = sorted;
+  const candidateConsensusRatio = priceRatio(closest.priceUsd, second.priceUsd);
+  if (Number.isFinite(candidateConsensusRatio) && candidateConsensusRatio > params.maxDeviationRatio) {
+    return {
+      conflictDetected: true,
+      reasonCode: 'market_validator_reference_conflict',
+      selected: closest,
+    };
+  }
+
+  return { selected: closest, conflictDetected: false };
 }
 
 export function isLaunchpadOracleSource(params: {
@@ -79,7 +129,20 @@ export function decideLaunchpadOraclePrice(params: {
     };
   }
 
-  const reference = referenceCandidates[0];
+  const selection = selectValidatedReference({
+    rpcPriceUsd,
+    candidates: referenceCandidates,
+    maxDeviationRatio,
+  });
+  if (!selection.selected) {
+    return {
+      finalPriceUsd: rpcPriceUsd,
+      finalProvider: provider,
+      fallbackUsed: false,
+      reasonCode: selection.reasonCode || 'launchpad_oracle_validator_unavailable',
+    };
+  }
+  const reference = selection.selected;
   const high = Math.max(rpcPriceUsd, reference.priceUsd);
   const low = Math.min(rpcPriceUsd, reference.priceUsd);
   const deviationRatio = low > 0 ? high / low : Number.POSITIVE_INFINITY;
@@ -91,7 +154,8 @@ export function decideLaunchpadOraclePrice(params: {
       referencePriceUsd: reference.priceUsd,
       referenceProvider: reference.provider,
       fallbackUsed: false,
-      deviationRatio
+      deviationRatio,
+      reasonCode: selection.conflictDetected ? selection.reasonCode : undefined,
     };
   }
 
@@ -140,7 +204,20 @@ export function decideValidatedMarketPrice(params: {
     };
   }
 
-  const reference = referenceCandidates[0];
+  const selection = selectValidatedReference({
+    rpcPriceUsd,
+    candidates: referenceCandidates,
+    maxDeviationRatio,
+  });
+  if (!selection.selected) {
+    return {
+      finalPriceUsd: rpcPriceUsd,
+      finalProvider: provider,
+      fallbackUsed: false,
+      reasonCode: selection.reasonCode || 'market_validator_unavailable'
+    };
+  }
+  const reference = selection.selected;
   const deviationRatio = priceRatio(rpcPriceUsd, reference.priceUsd);
   if (!Number.isFinite(deviationRatio) || deviationRatio <= maxDeviationRatio) {
     return {
@@ -149,7 +226,8 @@ export function decideValidatedMarketPrice(params: {
       referencePriceUsd: reference.priceUsd,
       referenceProvider: reference.provider,
       fallbackUsed: false,
-      deviationRatio
+      deviationRatio,
+      reasonCode: selection.conflictDetected ? selection.reasonCode : undefined
     };
   }
 
