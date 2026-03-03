@@ -13,10 +13,12 @@
 
 import { getZeroExPrice } from './zeroEx.js';
 import { getSolanaTokenPrice } from './solanaOnChainPriceService.js';
+import { callRpc } from './rpcManager.js';
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
 
 const RAYDIUM_PRICE_API = 'https://api-v3.raydium.io/mint/price';
+const PUMP_FUN_PROGRAM_ID = '6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P';
 
 // USDC 地址映射
 const USDC_ADDRESSES: Record<number, string> = {
@@ -149,61 +151,117 @@ async function getEvmPriceUsd(tokenAddress: string, chainId: number): Promise<nu
  * Solana 价格获取
  *
  * 策略 (按优先级):
- *   1. Jupiter Price API v2 (轻量 GET，无需 swap 模拟)
- *   2. Raydium Mint Price API (兜底)
- *
- * 明确 NOT 使用全量 swap quote (重型操作，容易超时/失败)
+ *   1. Jupiter Price API v2   — 外部 API，轻量 GET，无需 swap 模拟
+ *   2. Raydium Mint Price API — 外部 API，兜底
+ *   3. DexScreener REST API  — 外部 API，免费，第三道保险
+ *   4. Solana 免费 RPC 节点  — 最后兜底：读链上 PumpFun bonding curve 储量推导价格
  */
 async function getSolanaPriceUsd(tokenMint: string): Promise<number> {
-    // 跳过 USDC 本身
-    if (tokenMint === SOLANA_USDC_MINT) {
-        return 1.0;
-    }
+    if (tokenMint === SOLANA_USDC_MINT) return 1.0;
 
-    // Strategy 1: Jupiter Price API v2 (lightweight GET - no swap simulation needed)
+    // ── Strategy 1: Jupiter Price API v2 (external, fast GET) ─────────────
     try {
         const jupiterPrice = await getSolanaTokenPrice(tokenMint);
         if (jupiterPrice && jupiterPrice > 0) {
             logger.debug(LogCode.API_FETCH_SUCCESS, 'Solana price from Jupiter Price API v2', {
-                token: tokenMint.slice(0, 10),
-                price: jupiterPrice.toFixed(8)
+                token: tokenMint.slice(0, 10), price: jupiterPrice.toFixed(8)
             });
             return jupiterPrice;
         }
     } catch (err: any) {
-        logger.debug(LogCode.API_FETCH_FAILED, 'Jupiter Price API v2 failed, trying Raydium', {
-            token: tokenMint.slice(0, 10),
-            error: err?.message
-        });
+        logger.debug(LogCode.API_FETCH_FAILED, 'Jupiter Price API v2 failed', { token: tokenMint.slice(0, 10), error: err?.message });
     }
 
-    // Strategy 2: Raydium Mint Price API (fallback)
+    // ── Strategy 2: Raydium Mint Price API (external) ─────────────────────
     try {
-        const url = `${RAYDIUM_PRICE_API}?mints=${tokenMint}`;
-        const resp = await fetch(url, {
+        const resp = await fetch(`${RAYDIUM_PRICE_API}?mints=${tokenMint}`, {
             headers: { 'Accept': 'application/json' },
             signal: AbortSignal.timeout(3000)
         });
         if (resp.ok) {
             const data: any = await resp.json();
-            // Response format: { data: { [mint]: price_string } }
             const priceRaw = data?.data?.[tokenMint];
             if (priceRaw) {
                 const price = typeof priceRaw === 'number' ? priceRaw : parseFloat(priceRaw);
                 if (Number.isFinite(price) && price > 0) {
                     logger.debug(LogCode.API_FETCH_SUCCESS, 'Solana price from Raydium API', {
-                        token: tokenMint.slice(0, 10),
-                        price: price.toFixed(8)
+                        token: tokenMint.slice(0, 10), price: price.toFixed(8)
                     });
                     return price;
                 }
             }
         }
     } catch (err: any) {
-        logger.debug(LogCode.API_FETCH_FAILED, 'Raydium price API failed', {
-            token: tokenMint.slice(0, 10),
-            error: err?.message
+        logger.debug(LogCode.API_FETCH_FAILED, 'Raydium price API failed', { token: tokenMint.slice(0, 10), error: err?.message });
+    }
+
+    // ── Strategy 3: DexScreener REST API (external, free) ─────────────────
+    try {
+        const resp = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${tokenMint}`, {
+            headers: { 'Accept': 'application/json' },
+            signal: AbortSignal.timeout(3000)
         });
+        if (resp.ok) {
+            const data: any = await resp.json();
+            const pairs: any[] = data?.pairs || [];
+            if (pairs.length > 0) {
+                // Pick the pair with highest liquidity
+                const best = pairs.sort((a: any, b: any) => (b.liquidity?.usd || 0) - (a.liquidity?.usd || 0))[0];
+                const price = parseFloat(best?.priceUsd || '0');
+                if (Number.isFinite(price) && price > 0) {
+                    logger.debug(LogCode.API_FETCH_SUCCESS, 'Solana price from DexScreener REST', {
+                        token: tokenMint.slice(0, 10), price: price.toFixed(8)
+                    });
+                    return price;
+                }
+            }
+        }
+    } catch (err: any) {
+        logger.debug(LogCode.API_FETCH_FAILED, 'DexScreener REST failed', { token: tokenMint.slice(0, 10), error: err?.message });
+    }
+
+    // ── Strategy 4: Cheap RPC fallback — read PumpFun bonding curve on-chain ─
+    // Works for non-graduated pump.fun tokens whose bonding curve PDA is derivable.
+    // Price = (virtualSolReserves_lamports / 1e9) / (virtualTokenReserves_units / 1e6) * SOL_USD
+    try {
+        const { PublicKey } = await import('@solana/web3.js');
+        const mintPubkey = new PublicKey(tokenMint);
+        const [bondingCurvePda] = PublicKey.findProgramAddressSync(
+            [Buffer.from('bonding-curve'), mintPubkey.toBuffer()],
+            new PublicKey(PUMP_FUN_PROGRAM_ID)
+        );
+
+        const accountResult = await callRpc<any>(
+            'solana', 'getAccountInfo',
+            [bondingCurvePda.toString(), { encoding: 'base64' }],
+            { strategy: 'cheap' }
+        );
+
+        const dataArr: string[] | undefined = accountResult?.value?.data;
+        if (dataArr && dataArr.length > 0) {
+            const raw = Buffer.from(dataArr[0], 'base64');
+            if (raw.length >= 49) {
+                const virtualTokenReserves = raw.readBigUInt64LE(8);   // u64 @ offset 8
+                const virtualSolReserves   = raw.readBigUInt64LE(16);  // u64 @ offset 16
+                const complete             = raw[48] !== 0;             // bool @ offset 48
+
+                if (!complete && virtualTokenReserves > 0n && virtualSolReserves > 0n) {
+                    // pump tokens have 6 decimals; SOL has 9
+                    const priceSol = Number(virtualSolReserves) / (Number(virtualTokenReserves) * 1e3);
+                    const { getNativeTokenPriceUsd } = await import('./onChainPriceService.js');
+                    const solUsd = await getNativeTokenPriceUsd(900).catch(() => 0);
+                    if (solUsd > 0) {
+                        const price = priceSol * solUsd;
+                        logger.debug(LogCode.API_FETCH_SUCCESS, 'Solana price from PumpFun bonding curve (cheap RPC)', {
+                            token: tokenMint.slice(0, 10), price: price.toFixed(8)
+                        });
+                        return price;
+                    }
+                }
+            }
+        }
+    } catch (err: any) {
+        logger.debug(LogCode.API_FETCH_FAILED, 'PumpFun bonding curve RPC fallback failed', { token: tokenMint.slice(0, 10), error: err?.message });
     }
 
     return 0;
