@@ -161,24 +161,23 @@ async function resolveReserves(
 }
 
 function computeBuyAmounts(quoteInLamports: bigint, baseReserves: bigint, quoteReserves: bigint, slippageBps: number) {
+  // PumpSwap buy instruction: base_amount_out (tokens to receive) + max_quote_amount_in (max SOL to pay).
+  // Given a fixed SOL spend (quoteInLamports), calculate expected tokenOut via constant-product AMM.
+  //
+  // Constant product with 0.3% protocol fee applied on the input:
+  //   effectiveQuoteIn = quoteInLamports * (10000 - feeBps) / 10000
+  //   tokenOut = baseReserves * effectiveQuoteIn / (quoteReserves + effectiveQuoteIn)
+  //
+  // maxQuoteAmountIn = quoteInLamports * (1 + slippage) — the most SOL we'll pay for tokenOut tokens.
   const feeBps = 30n;
-  const tokenOut = quoteInLamports;
-  if (baseReserves < tokenOut) {
-    throw new Error(`insufficient base reserves: need ${tokenOut}, have ${baseReserves}`);
-  }
-  const k = baseReserves * quoteReserves;
-  const newBaseReserves = baseReserves - tokenOut;
-  if (newBaseReserves <= 0n) {
-    throw new Error('cannot consume full pool reserves');
-  }
-  let quoteIn = (k / newBaseReserves) - quoteReserves;
-  if (k % newBaseReserves !== 0n) quoteIn += 1n;
-  if (quoteIn < 0n) quoteIn = 0n;
-  let quoteInWithFee = (quoteIn * 10000n) / (10000n - feeBps);
-  if ((quoteIn * 10000n) % (10000n - feeBps) !== 0n) quoteInWithFee += 1n;
+  const effectiveQuoteIn = (quoteInLamports * (10000n - feeBps)) / 10000n;
+  if (effectiveQuoteIn <= 0n) throw new Error('effective quote-in is zero after fee');
+
+  const tokenOut = (baseReserves * effectiveQuoteIn) / (quoteReserves + effectiveQuoteIn);
+  if (tokenOut <= 0n) throw new Error('calculated zero tokens out from AMM');
+
   const slip = BigInt(slippageBps);
-  let maxQuoteAmountIn = (quoteInWithFee * (10000n + slip)) / 10000n;
-  if ((quoteInWithFee * (10000n + slip)) % 10000n !== 0n) maxQuoteAmountIn += 1n;
+  const maxQuoteAmountIn = (quoteInLamports * (10000n + slip)) / 10000n;
   return { tokenOut, maxQuoteAmountIn };
 }
 
