@@ -14,9 +14,6 @@ import { parseSwapTransaction, decodeSwapFromLogs } from '../services/txDecoder.
 import { env } from '../config/env.js';
 import crypto from 'node:crypto';
 import { getPendingPredecodedSwap, getPendingTxHint, markCopyTradeTxState } from '../services/copyTradeTxStateService.js';
-import { getChainConfig } from '../config/chainConfig.js';
-import { getCachedNativeTokenPriceUsd } from '../services/onChainPriceService.js';
-import { ethers } from 'ethers';
 import {
     enqueueAlchemyWebhookEvent,
     ensureAlchemyWebhookInboxTable,
@@ -47,6 +44,14 @@ import {
     refreshTrackedWalletSnapshot,
     resolveTrackedWalletsFromSnapshot
 } from '../services/copytrade/ingress/trackedWalletSnapshot.js';
+import {
+    buildActivityCashHint,
+    buildTxSkeletonFromAlchemyActivity,
+    pickBestActivity,
+    shouldForceFullTxRepair,
+    shouldPreferSwapSourceField,
+    type ActivityCashHint
+} from './webhook/evmWebhookDecode.js';
 import { logWebhookTiming, resolveDetectedAt, safeSecretEquals, waitMs, withTimeout } from './webhookHelpers.js';
 import { queueWebhookBatch, type WebhookBatchContext } from './webhookBatching.js';
 
@@ -79,14 +84,7 @@ const WEBHOOK_RECEIPT_RECOVERY_DELAYS_MS = String(process.env.COPYTRADE_WEBHOOK_
     .filter((v) => Number.isFinite(v) && v > 0);
 const localTxInflight = new Map<string, number>();
 const receiptRecoveryInflight = new Set<string>();
-const NATIVE_TOKEN_PLACEHOLDER = normalizeAddress('0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee');
 const EVM_ADDRESS_REGEX = /0x[a-fA-F0-9]{40}/g;
-
-type ActivityCashHint = {
-    cashSpentUsd?: number;
-    cashReceivedUsd?: number;
-    inferredTxType?: 'TARGET_BUY' | 'TARGET_SELL' | 'TARGET_TOKEN_SWAP';
-};
 
 const webhookBatchByTxHash = new Map<string, WebhookBatchContext>();
 
@@ -155,12 +153,14 @@ async function persistSwapContext(params: {
     detectedAt?: number;
 }): Promise<void> {
     try {
+        const explicitTxInput = shouldPreferSwapSourceField(params.txInput) ? undefined : params.txInput;
+        const explicitTxValue = shouldPreferSwapSourceField(params.txValue) ? undefined : params.txValue;
         const ctx = buildSwapExecutionContext({
             tx: {
                 hash: params.txHash,
                 to: params.txTo || params.swap?.router || '',
-                input: params.txInput || params.swap?.sourceTxInput || '0x',
-                value: params.txValue || params.swap?.sourceTxValue || '0x0'
+                input: explicitTxInput || params.swap?.sourceTxInput || '0x',
+                value: explicitTxValue || params.swap?.sourceTxValue || '0x0'
             },
             receipt: {
                 logs: params.receiptLogs || []
@@ -351,168 +351,6 @@ function selectAlchemySecretsForNetwork(rawNetwork?: string): string[] {
     if (env.security.alchemyWebhookSecret) secrets.push(env.security.alchemyWebhookSecret);
 
     return [...new Set(secrets.filter(Boolean))];
-}
-
-
-function buildTxSkeletonFromAlchemyActivity(activities: any | any[], txHash: string): {
-    hash: string;
-    from: string;
-    to: string;
-    input: string;
-    value: string;
-} {
-    const activityList = Array.isArray(activities) ? activities : [activities];
-    if (activityList.length === 0) {
-        return { hash: txHash, from: '', to: '', input: '0x', value: '0' };
-    }
-
-    // `from` and `to` from the "best" activity (usually the main contract call or first transfer)
-    const bestActivity = pickBestActivity(activityList) || activityList[0];
-    const from = normalizeAddress(bestActivity?.fromAddress || activityList[0]?.fromAddress || '');
-    const to = normalizeAddress(bestActivity?.toAddress || activityList[0]?.toAddress || '');
-
-    // The transaction `value` (native ETH/BNB) should come from the `external` category activity.
-    // ERC20 transfers (category: token) do not contribute to `tx.value`.
-    const externalActivity = activityList.find(a => a?.category === 'external');
-
-    let value = '0';
-    if (externalActivity?.rawContract?.rawValue) {
-        value = externalActivity.rawContract.rawValue;
-    } else if (externalActivity?.value) {
-        // Fallback to decimal value if rawValue is missing
-        try {
-            value = ethers.parseUnits(Number(externalActivity.value).toFixed(18), 18).toString();
-        } catch {
-            value = '0';
-        }
-    }
-
-    return {
-        hash: txHash,
-        from,
-        to,
-        input: '0x',
-        value
-    };
-}
-
-function parseFlexibleInt(raw: unknown, fallback: number): number {
-    if (raw === null || raw === undefined) return fallback;
-    const text = String(raw).trim();
-    if (!text) return fallback;
-    const parsed = text.startsWith('0x') ? Number.parseInt(text, 16) : Number.parseInt(text, 10);
-    return Number.isFinite(parsed) && parsed >= 0 && parsed <= 36 ? parsed : fallback;
-}
-
-function parseFlexibleBigInt(raw: unknown): bigint | null {
-    if (raw === null || raw === undefined) return null;
-    const text = String(raw).trim();
-    if (!text) return null;
-    try {
-        return BigInt(text);
-    } catch {
-        return null;
-    }
-}
-
-function getActivityRawAmount(item: any, decimals: number): bigint | null {
-    const fromRaw = parseFlexibleBigInt(item?.rawContract?.rawValue ?? item?.rawContract?.value);
-    if (fromRaw && fromRaw > 0n) return fromRaw;
-
-    const amountNum = Number(item?.value || 0);
-    if (!Number.isFinite(amountNum) || amountNum <= 0) return null;
-    try {
-        return ethers.parseUnits(amountNum.toFixed(Math.min(8, decimals)), decimals);
-    } catch {
-        return null;
-    }
-}
-
-function pickBestActivity(activities: any[]): any {
-    if (!activities.length) return null;
-    let best = activities[0];
-    let bestScore = -1;
-    for (const activity of activities) {
-        // We want to prefer contract interaction activities if possible, but any activity with full from/to is good.
-        // We reduce the score of token transfers so they don't override the external (native) activity as the "best" representation of the tx skeleton if there is an external activity.
-        let score = Number(!!activity?.rawContract?.address) + Number(!!activity?.fromAddress) + Number(!!activity?.toAddress);
-        if (activity?.category === 'token') {
-            score -= 1; // Un-prioritize token transfers slightly
-        }
-        if (score >= bestScore) {
-            best = activity;
-            bestScore = score;
-        }
-    }
-    return best;
-}
-
-async function buildActivityCashHint(activities: any[], walletAddressRaw: string, chainId: number): Promise<ActivityCashHint | null> {
-    if (!activities.length) return null;
-    const walletAddress = normalizeAddress(walletAddressRaw);
-    const chainConfig = getChainConfig(chainId);
-    const wrappedNative = normalizeAddress(chainConfig.wrappedNativeAddress);
-    const stableSet = new Set(chainConfig.stablecoins.map((s) => normalizeAddress(s)));
-    const cashSet = new Set<string>([NATIVE_TOKEN_PLACEHOLDER, wrappedNative, ...stableSet]);
-    const nativePrice = Number(await getCachedNativeTokenPriceUsd(chainId).catch(() => 0));
-
-    let cashSpentUsd = 0;
-    let cashReceivedUsd = 0;
-    let netCashUsd = 0;
-
-    // Track native+WETH spent/received separately to avoid double-counting ETH wraps.
-    // When a Universal Router tx wraps ETH→WETH, Alchemy emits both a native ETH activity
-    // row AND a WETH transfer log — both from the wallet — for the same underlying amount.
-    // We keep only the larger of the two so the real 0.5 ETH doesn't become 1.0 ETH.
-    let nativeLikeSpentUsd = 0;
-    let nativeLikeReceivedUsd = 0;
-
-    for (const item of activities) {
-        const from = normalizeAddress(item?.fromAddress || '');
-        const to = normalizeAddress(item?.toAddress || '');
-        const tokenAddress = normalizeAddress(item?.rawContract?.address || NATIVE_TOKEN_PLACEHOLDER);
-        if (!cashSet.has(tokenAddress)) continue;
-        const isNativeLike = tokenAddress === NATIVE_TOKEN_PLACEHOLDER || tokenAddress === wrappedNative;
-        const decimals = parseFlexibleInt(item?.rawContract?.decimal, isNativeLike ? 18 : 6);
-        const amountRaw = getActivityRawAmount(item, decimals);
-        if (!amountRaw || amountRaw <= 0n) continue;
-
-        let usd = 0;
-        if (stableSet.has(tokenAddress)) {
-            usd = Number(ethers.formatUnits(amountRaw, decimals));
-        } else if (isNativeLike && nativePrice > 0) {
-            usd = Number(ethers.formatUnits(amountRaw, 18)) * nativePrice;
-        }
-        if (!Number.isFinite(usd) || usd <= 0) continue;
-
-        if (isNativeLike) {
-            // Accumulate via max to deduplicate ETH + WETH wrap for the same leg
-            if (from === walletAddress) nativeLikeSpentUsd = Math.max(nativeLikeSpentUsd, usd);
-            if (to === walletAddress) nativeLikeReceivedUsd = Math.max(nativeLikeReceivedUsd, usd);
-        } else {
-            if (from === walletAddress) { cashSpentUsd += usd; netCashUsd -= usd; }
-            if (to === walletAddress) { cashReceivedUsd += usd; netCashUsd += usd; }
-        }
-    }
-
-    // Merge deduplicated native-like amounts
-    if (nativeLikeSpentUsd > 0) { cashSpentUsd += nativeLikeSpentUsd; netCashUsd -= nativeLikeSpentUsd; }
-    if (nativeLikeReceivedUsd > 0) { cashReceivedUsd += nativeLikeReceivedUsd; netCashUsd += nativeLikeReceivedUsd; }
-
-    if (cashSpentUsd <= 0 && cashReceivedUsd <= 0) return null;
-    // Use net cash flow to avoid misclassification when webhook bundles multiple
-    // internal/external activity rows for one tx (gross in/out can both be large).
-    const netAbs = Math.abs(netCashUsd);
-    const turnover = cashSpentUsd + cashReceivedUsd;
-    const hasDirectionalNet = netAbs > 0.01 && (turnover <= 0 || (netAbs / turnover) >= 0.2);
-    const inferBuy = hasDirectionalNet && netCashUsd < 0;
-    const inferSell = hasDirectionalNet && netCashUsd > 0;
-
-    return {
-        cashSpentUsd: cashSpentUsd > 0 ? cashSpentUsd : undefined,
-        cashReceivedUsd: cashReceivedUsd > 0 ? cashReceivedUsd : undefined,
-        inferredTxType: inferBuy ? 'TARGET_BUY' : inferSell ? 'TARGET_SELL' : 'TARGET_TOKEN_SWAP'
-    };
 }
 
 async function queueAlchemyWebhookBatch(payload: any): Promise<void> {
@@ -756,7 +594,7 @@ async function processAlchemyWebhookPayload(payload: any): Promise<void> {
                 : (Array.isArray(item?.activities) && item.activities.length
                     ? item.activities
                     : (item ? [item] : []));
-            const txSkeleton = buildTxSkeletonFromAlchemyActivity(item?.sample || evmActivities[0] || item, txHash);
+            const txSkeleton = buildTxSkeletonFromAlchemyActivity(evmActivities, txHash);
             const predecodedRows = await Promise.all(
                 trackedWallets.map(async (walletRecord) => ({
                     wallet: walletRecord.address,
@@ -838,6 +676,8 @@ async function processAlchemyWebhookPayload(payload: any): Promise<void> {
                 const trackedTarget = walletRecord.address;
                 const cached = predecodedByWallet.get(trackedTarget.toLowerCase());
                 let swap = cached?.swap || null;
+                let resolvedTxForContext = txSkeleton;
+                let activityCashHint: ActivityCashHint | null = null;
                 if (cached?.swap) usedPredecoded += 1;
 
                 if (!swap && receipt) {
@@ -853,28 +693,49 @@ async function processAlchemyWebhookPayload(payload: any): Promise<void> {
                     ), WEBHOOK_PARSE_TIMEOUT_MS, 'parse_skeleton').catch(() => null);
                     parseSkeletonMs += Date.now() - parseSkeletonStart;
 
-                    if (!swap) {
-                        const skipFullTxFallback = Boolean(cached || pendingHint);
-                        if (!skipFullTxFallback && Date.now() < decodeDeadline) {
-                            const fullTx = await fetchFullTxOnce();
-                            if (fullTx) {
-                                const parseFullStart = Date.now();
-                                swap = await withTimeout(parseSwapTransaction(
-                                    {
-                                        hash: txHash,
-                                        from: fullTx.from,
-                                        to: fullTx.to,
-                                        input: fullTx.input,
-                                        value: fullTx.value,
-                                    },
-                                    {
-                                        logs: receipt.logs,
-                                        status: parseInt(receipt.status, 16),
-                                    },
-                                    chainId,
-                                    trackedTarget
-                                ), WEBHOOK_PARSE_TIMEOUT_MS, 'parse_fulltx').catch(() => null);
-                                parseFullMs += Date.now() - parseFullStart;
+                    if (Date.now() < decodeDeadline) {
+                        activityCashHint = await buildActivityCashHint(evmActivities, trackedTarget, chainId).catch(() => null);
+                    }
+
+                    const shouldAttemptFullTxFallback = !cached && (
+                        !swap
+                        || shouldForceFullTxRepair({
+                            chainId,
+                            swap,
+                            cashHint: activityCashHint,
+                            hasCachedSwap: Boolean(cached)
+                        })
+                    );
+
+                    if (shouldAttemptFullTxFallback && Date.now() < decodeDeadline) {
+                        const fullTx = await fetchFullTxOnce();
+                        if (fullTx) {
+                            const parseFullStart = Date.now();
+                            const reparsed = await withTimeout(parseSwapTransaction(
+                                {
+                                    hash: txHash,
+                                    from: fullTx.from,
+                                    to: fullTx.to,
+                                    input: fullTx.input,
+                                    value: fullTx.value,
+                                },
+                                {
+                                    logs: receipt.logs,
+                                    status: parseInt(receipt.status, 16),
+                                },
+                                chainId,
+                                trackedTarget
+                            ), WEBHOOK_PARSE_TIMEOUT_MS, 'parse_fulltx').catch(() => null);
+                            parseFullMs += Date.now() - parseFullStart;
+                            if (reparsed) {
+                                swap = reparsed;
+                                resolvedTxForContext = {
+                                    hash: txHash,
+                                    from: fullTx.from,
+                                    to: fullTx.to,
+                                    input: fullTx.input,
+                                    value: fullTx.value,
+                                };
                             }
                         }
                     }
@@ -884,16 +745,16 @@ async function processAlchemyWebhookPayload(payload: any): Promise<void> {
                 // use ERC20 Transfer events + cash flow from Alchemy activities to detect swaps.
                 // This is more universal than requiring DEX-specific pool events.
                 if (!swap && receipt) {
-                    const cashHint = await buildActivityCashHint(evmActivities, trackedTarget, chainId).catch(() => null);
+                    const cashHint = activityCashHint || await buildActivityCashHint(evmActivities, trackedTarget, chainId).catch(() => null);
                     if (cashHint && ((cashHint.cashSpentUsd || 0) > 0 || (cashHint.cashReceivedUsd || 0) > 0)) {
                         const transferSwap = decodeSwapFromLogs(
                             receipt.logs,
                             trackedTarget.toLowerCase(),
-                            txSkeleton.value
+                            resolvedTxForContext.value
                         );
                         if (transferSwap && transferSwap.tokenIn !== transferSwap.tokenOut) {
                             transferSwap.txHash = txHash;
-                            transferSwap.router = txSkeleton.to || '';
+                            transferSwap.router = resolvedTxForContext.to || '';
                             transferSwap.dexName = 'Cash-Leg Fallback';
                             transferSwap.cashLegHint = cashHint;
                             swap = transferSwap;
@@ -908,7 +769,7 @@ async function processAlchemyWebhookPayload(payload: any): Promise<void> {
                 }
                 if (!swap) return;
                 swapsDetected += 1;
-                const activityCashHint = await buildActivityCashHint(evmActivities, trackedTarget, chainId).catch(() => null);
+                activityCashHint = activityCashHint || await buildActivityCashHint(evmActivities, trackedTarget, chainId).catch(() => null);
                 if (activityCashHint) {
                     swap.cashLegHint = activityCashHint;
                 }
@@ -921,10 +782,10 @@ async function processAlchemyWebhookPayload(payload: any): Promise<void> {
                 persistSwapContext({
                     chainId,
                     txHash,
-                    txFrom: txSkeleton.from,
-                    txTo: txSkeleton.to,
-                    txInput: txSkeleton.input,
-                    txValue: txSkeleton.value,
+                    txFrom: resolvedTxForContext.from,
+                    txTo: resolvedTxForContext.to,
+                    txInput: resolvedTxForContext.input,
+                    txValue: resolvedTxForContext.value,
                     receiptLogs: receipt?.logs || [],
                     swap,
                     targetWallet: trackedTarget,
