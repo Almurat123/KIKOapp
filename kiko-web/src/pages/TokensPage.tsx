@@ -394,6 +394,7 @@ function formatPrice(value: number | undefined | null | string): string {
   // Convert to number if it's a string
   let numValue: number;
   if (typeof value === 'string') {
+    if (value.startsWith('$')) return value;
     numValue = parseFloat(value);
     if (isNaN(numValue)) return '$0.00';
   } else if (typeof value === 'number') {
@@ -496,6 +497,7 @@ function formatCurrency(value: number | undefined | null | string): string {
   // Convert to number if it's a string
   let numValue: number;
   if (typeof value === 'string') {
+    if (value.startsWith('$') || value === '<$1') return value;
     numValue = parseFloat(value);
     if (isNaN(numValue)) return '$0';
   } else if (typeof value === 'number') {
@@ -520,6 +522,7 @@ function formatChange(value: number | undefined | null | string): string {
   // Convert to number if it's a string
   let numValue: number;
   if (typeof value === 'string') {
+    if (value.endsWith('%')) return value;
     numValue = parseFloat(value);
     if (isNaN(numValue)) return '0%';
   } else if (typeof value === 'number') {

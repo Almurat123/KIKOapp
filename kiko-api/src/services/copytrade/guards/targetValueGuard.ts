@@ -9,6 +9,7 @@ import { cacheHub } from '../../../cache/DataCacheHub.js';
 import { getTokenDecimalsFromRegistry } from '../../../config/tokenRegistry.js';
 import { logger } from '../../../utils/logger.js';
 import { LogCode } from '../../../config/logRegistry.js';
+import { resolveNativeLikeTargetValue, type TargetValueReasonCode } from './targetValueResolver.js';
 
 const ZORA_TOKEN = '0x1111111111166b7fe7bd91427724b487980afc69';
 
@@ -18,6 +19,8 @@ export type TargetValueSnapshot = {
     strictTargetSwapValueReliable: boolean;
     strictTargetSwapValueSource: string;
     strictMinGuardRequired: boolean;
+    targetValueReasonCode?: TargetValueReasonCode;
+    broadTargetSwapValueUsd?: number;
 };
 
 const EVM_NATIVE_PLACEHOLDER = '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
@@ -121,6 +124,8 @@ export async function computeBuyTargetValueSnapshot(
     let strictTargetSwapValueUsd = 0;
     let strictTargetSwapValueReliable = false;
     let strictTargetSwapValueSource = 'none';
+    let targetValueReasonCode: TargetValueReasonCode = 'TARGET_VALUE_UNAVAILABLE';
+    let broadTargetSwapValueUsd = 0;
     const strictMinGuardRequired = isTokenInStrictCash;
 
     if (isTokenInCashLike) {
@@ -139,10 +144,12 @@ export async function computeBuyTargetValueSnapshot(
                 : (registryDecimals && registryDecimals > 0 ? registryDecimals : null);
             const decimalsIn = strictDecimalsIn ?? 6;
             targetSwapValueUsd = formatTokenAmount(amountInBN, decimalsIn);
+            broadTargetSwapValueUsd = targetSwapValueUsd;
             if (strictDecimalsIn !== null) {
                 strictTargetSwapValueUsd = formatTokenAmount(amountInBN, strictDecimalsIn);
                 strictTargetSwapValueReliable = true;
                 strictTargetSwapValueSource = 'stable_amount_in';
+                targetValueReasonCode = 'TARGET_VALUE_STRICT_AMOUNT_IN_SELECTED';
             }
         } else if (isZoraIn) {
             const zoraInfo = await getTokenInfo(ZORA_TOKEN, chainId, { rpcStrategy: 'fast', fastMode: true });
@@ -153,9 +160,11 @@ export async function computeBuyTargetValueSnapshot(
                 targetSwapValueUsd = 0;
             } else {
                 targetSwapValueUsd = formatTokenAmount(amountInBN, 18) * zoraInfo.price;
+                broadTargetSwapValueUsd = targetSwapValueUsd;
                 strictTargetSwapValueUsd = targetSwapValueUsd;
                 strictTargetSwapValueReliable = false;
                 strictTargetSwapValueSource = 'zora_amount_in_estimate';
+                targetValueReasonCode = 'TARGET_VALUE_ESTIMATE_ONLY';
                 logger.warn(LogCode.WTC_TX_SKIPPED, '[CopyTradeGuard] ZORA input value treated as estimate, not strict cash value', {
                     txHash: swap.txHash,
                     chainId,
@@ -175,30 +184,33 @@ export async function computeBuyTargetValueSnapshot(
                     const poolAmountInWei = normalizedPoolTokenIn === normalizedTokenIn
                         ? parsePositiveBigInt(swap?.poolAmountIn)
                         : 0n;
-                    targetSwapValueUsd = formatTokenAmount(amountInBN, nativeLikeDecimals) * nativePrice;
+                    broadTargetSwapValueUsd = formatTokenAmount(amountInBN, nativeLikeDecimals) * nativePrice;
+                    targetSwapValueUsd = broadTargetSwapValueUsd;
                     const hintedCashSpentUsd = Number(swap?.cashLegHint?.cashSpentUsd || 0);
                     const sourceTxValueWei = parsePositiveBigInt(swap?.sourceTxValue);
-                    const strictAmountWei = poolAmountInWei > 0n
-                        ? poolAmountInWei
-                        : (sourceTxValueWei > 0n ? sourceTxValueWei : amountInBN);
+                    const resolvedTargetValue = resolveNativeLikeTargetValue({
+                        broadTargetValueUsd: broadTargetSwapValueUsd,
+                        hintedCashSpentUsd,
+                        amountInUsd: formatTokenAmount(amountInBN, nativeLikeDecimals) * nativePrice,
+                        sourceTxValueUsd: sourceTxValueWei > 0n ? formatTokenAmount(sourceTxValueWei, nativeLikeDecimals) * nativePrice : 0,
+                        poolAmountInUsd: poolAmountInWei > 0n ? formatTokenAmount(poolAmountInWei, nativeLikeDecimals) * nativePrice : 0,
+                        txHash: swap.txHash,
+                        chainId,
+                    });
 
-                    if (Number.isFinite(hintedCashSpentUsd) && hintedCashSpentUsd > 0) {
-                        strictTargetSwapValueUsd = hintedCashSpentUsd;
-                        strictTargetSwapValueReliable = true;
-                        strictTargetSwapValueSource = 'cash_leg_hint';
-                    } else if (strictAmountWei > 0n) {
-                        strictTargetSwapValueUsd = formatTokenAmount(strictAmountWei, nativeLikeDecimals) * nativePrice;
-                        strictTargetSwapValueReliable = true;
-                        strictTargetSwapValueSource = poolAmountInWei > 0n
-                            ? 'native_like_pool_amount_in'
-                            : (sourceTxValueWei > 0n
-                                ? 'native_like_source_tx_value'
-                                : 'native_like_amount_in');
+                    targetSwapValueUsd = resolvedTargetValue.targetSwapValueUsd;
+                    strictTargetSwapValueUsd = resolvedTargetValue.strictTargetSwapValueUsd;
+                    strictTargetSwapValueReliable = resolvedTargetValue.strictTargetSwapValueReliable;
+                    strictTargetSwapValueSource = resolvedTargetValue.strictTargetSwapValueSource;
+                    targetValueReasonCode = resolvedTargetValue.reasonCode;
+
+                    if (strictTargetSwapValueReliable && strictTargetSwapValueUsd > 0) {
                         logger.info(LogCode.EXE_QUOTE_FETCHED, '[CopyTradeGuard] Native-like amount treated as trusted input; USD derived from native price', {
                             txHash: swap.txHash,
                             chainId,
                             strictSource: strictTargetSwapValueSource,
                             strictValueUsd: Number(strictTargetSwapValueUsd.toFixed(4)),
+                            targetValueReasonCode,
                             nativeLikeDecimals,
                             poolAmountInWei: poolAmountInWei > 0n ? poolAmountInWei.toString() : undefined
                         });
@@ -218,24 +230,12 @@ export async function computeBuyTargetValueSnapshot(
         const splitDecimals = tokenInfo.decimals || 18;
         const formattedAmountOut = formatTokenAmount(amountOutBN, splitDecimals);
         targetSwapValueUsd = formattedAmountOut * Number(tokenInfo.price || 0);
+        broadTargetSwapValueUsd = targetSwapValueUsd;
+        targetValueReasonCode = targetSwapValueUsd > 0 ? 'TARGET_VALUE_ESTIMATE_ONLY' : 'TARGET_VALUE_UNAVAILABLE';
         logger.debug(LogCode.EXE_QUOTE_FETCHED, 'Calculated value from token output', {
             valueUsd: targetSwapValueUsd,
             token: swap.tokenOut
         });
-    }
-
-    const hintedCashSpentUsd = Number(swap?.cashLegHint?.cashSpentUsd || 0);
-    if (isTokenInCashLike && Number.isFinite(hintedCashSpentUsd) && hintedCashSpentUsd > 0) {
-        const previous = targetSwapValueUsd;
-        targetSwapValueUsd = Math.max(targetSwapValueUsd, hintedCashSpentUsd);
-        if (targetSwapValueUsd > previous) {
-            logger.debug(LogCode.EXE_QUOTE_FETCHED, 'Using higher activity cash hint for target swap value', {
-                txHash: swap.txHash,
-                previousValueUsd: Number.isFinite(previous) ? Number(previous.toFixed(4)) : previous,
-                hintedCashSpentUsd: Number(hintedCashSpentUsd.toFixed(4)),
-                selectedValueUsd: Number(targetSwapValueUsd.toFixed(4))
-            });
-        }
     }
 
     if (!Number.isFinite(targetSwapValueUsd) || targetSwapValueUsd < 0) {
@@ -267,6 +267,8 @@ export async function computeBuyTargetValueSnapshot(
         strictTargetSwapValueUsd,
         strictTargetSwapValueReliable,
         strictTargetSwapValueSource,
-        strictMinGuardRequired
+        strictMinGuardRequired,
+        targetValueReasonCode,
+        broadTargetSwapValueUsd: broadTargetSwapValueUsd > 0 ? broadTargetSwapValueUsd : undefined
     };
 }

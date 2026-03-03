@@ -45,7 +45,13 @@ export interface PriceDeviationGuardResult {
   };
 }
 
-const STRICT_TARGET_VALUE_SOURCES = new Set(['cash_leg_hint', 'native_like_pool_amount_in']);
+const STRICT_TARGET_VALUE_SOURCES = new Set([
+  'cash_leg_hint',
+  'native_like_pool_amount_in',
+  'native_like_source_tx_value',
+  'native_like_amount_in',
+  'stable_amount_in',
+]);
 
 export function evaluateBuyPriceDeviationGuard(
   params: PriceDeviationGuardParams

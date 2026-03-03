@@ -463,7 +463,7 @@ export async function getTrendingCasts(
 
         const rows = await prisma.trendingCast.findMany({
             where,
-            orderBy: [{ timestamp: 'desc' }, { likes: 'desc' }, { hash: 'desc' }],
+            orderBy: [{ heatScore: 'desc' }, { timestamp: 'desc' }, { hash: 'desc' }],
             take: queryLimit,
         });
 
@@ -928,7 +928,7 @@ export async function getTrendingCastsWithCursor(
             where: baseWhere,
             orderBy: sortBy === 'newest'
                 ? [{ timestamp: 'desc' as const }, { hash: 'desc' as const }]
-                : [{ timestamp: 'desc' as const }, { likes: 'desc' as const }, { hash: 'desc' as const }],
+                : [{ heatScore: 'desc' as const }, { timestamp: 'desc' as const }, { hash: 'desc' as const }],
             take: FULL_LIST_LIMIT,
         });
 

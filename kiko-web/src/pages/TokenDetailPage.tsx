@@ -84,6 +84,7 @@ function formatPrice(value: number | undefined | null | string): string {
   // Convert to number if it's a string
   let numValue: number;
   if (typeof value === 'string') {
+    if (value.startsWith('$')) return value; // ALREADY FORMATTED
     numValue = parseFloat(value);
     if (isNaN(numValue)) return '$0.00';
   } else if (typeof value === 'number') {
