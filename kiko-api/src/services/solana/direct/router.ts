@@ -1,10 +1,52 @@
 import { SolanaLaunchpadSwapService } from '../../solanaLaunchpadSwapService.js';
 import { detectLaunchpadToken } from '../../ai/launchpadDetector.js';
+import { getSolanaConnection } from '../../../config/solanaConfig.js';
 import type { SolDirectExecutionRequest, SolDirectExecutionResult, SolDirectProvider } from './types.js';
 import { executePumpSwapDirect } from './pumpswapExecutor.js';
 import { executeRaydiumLaunchlabDirect } from './raydiumLaunchlabExecutor.js';
 import { logger } from '../../../utils/logger.js';
 import { LogCode } from '../../../config/logRegistry.js';
+
+const PUMP_SWAP_PROGRAM_ID = 'pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA';
+
+async function extractPumpSwapPoolIdFromSourceTx(sourceTxHash?: string | null): Promise<string | null> {
+  if (!sourceTxHash) return null;
+  try {
+    const connection = getSolanaConnection('fast', 'critical');
+    const tx = await connection.getParsedTransaction(sourceTxHash, {
+      commitment: 'confirmed',
+      maxSupportedTransactionVersion: 0,
+    });
+    if (!tx) return null;
+
+    const pickPoolFromInstruction = (instruction: any): string | null => {
+      const programId = instruction?.programId?.toBase58?.() || instruction?.programId?.toString?.() || String(instruction?.programId || '');
+      if (programId !== PUMP_SWAP_PROGRAM_ID) return null;
+      const accounts = instruction?.accounts;
+      if (!Array.isArray(accounts) || accounts.length === 0) return null;
+      const first = accounts[0];
+      if (typeof first === 'string' && first) return first;
+      if (first?.pubkey) return String(first.pubkey);
+      if (first?.toBase58) return first.toBase58();
+      return null;
+    };
+
+    for (const instruction of tx.transaction.message.instructions || []) {
+      const poolId = pickPoolFromInstruction(instruction);
+      if (poolId) return poolId;
+    }
+
+    for (const inner of tx.meta?.innerInstructions || []) {
+      for (const instruction of inner.instructions || []) {
+        const poolId = pickPoolFromInstruction(instruction);
+        if (poolId) return poolId;
+      }
+    }
+  } catch {
+    // ignore and let other hints/fallbacks handle routing
+  }
+  return null;
+}
 
 function mapProvider(provider: string): SolDirectProvider | null {
   if (provider === 'pumpfun') return 'pumpfun';
@@ -53,10 +95,20 @@ export async function executeSolanaDirectLaunchpad(request: SolDirectExecutionRe
         });
         try {
           const detection = await detectLaunchpadToken(request.mint, 900, { mode: 'cheap', requireCreator: false }).catch(() => null);
-          const detectionData = detection?.provider === 'pumpswap' ? detection.data as Record<string, unknown> : null;
-          const poolId = detectionData
+          const detectionData = detection?.data as Record<string, unknown> | undefined;
+          let poolId = detectionData
             ? String(detectionData.poolId || detectionData.pool_id || detectionData.pool || detectionData.poolAddress || '') || null
             : null;
+          if (!poolId && request.sourceTxHash) {
+            poolId = await extractPumpSwapPoolIdFromSourceTx(request.sourceTxHash);
+            if (poolId) {
+              logger.info(LogCode.SYS_INFO, '[SolDirectRouter] resolved pumpswap pool from source tx', {
+                mint: request.mint,
+                sourceTxHash: request.sourceTxHash,
+                poolId,
+              });
+            }
+          }
           return await executePumpSwapDirect({ ...request, provider: 'pumpswap', creatorAddress: null, poolId });
         } catch (psErr: any) {
           return { ok: false, provider: 'pumpswap', reasonCode: 'build_failed', message: psErr?.message || String(psErr) };
@@ -88,6 +140,7 @@ export async function buildSolanaDirectRequest(input: {
   slippageBps: number;
   provider: 'pumpfun' | 'pumpswap' | 'bonkfun';
   feeContext?: 'swap' | 'copyTrade';
+  sourceTxHash?: string | null;
 }): Promise<SolDirectExecutionRequest> {
   const mapped = mapProvider(input.provider);
   if (!mapped) {

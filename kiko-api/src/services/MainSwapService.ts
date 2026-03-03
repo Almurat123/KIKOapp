@@ -971,7 +971,8 @@ export class MainSwapService {
             isBuy: true,
             slippageBps: request.slippageBps || 300,
             provider: provider as 'pumpfun' | 'pumpswap' | 'bonkfun',
-            feeContext
+            feeContext,
+            sourceTxHash: request.executionContext?.sourceTxHash || request.executionContext?.contextSnapshot?.sourceTxHash || null
           });
           const directResult = await executeSolanaDirectLaunchpad(directRequest);
 

@@ -21,6 +21,7 @@ export type SolDirectExecutionRequest = {
   feeContext?: FeeContext;
   creatorAddress?: string | null;
   poolId?: string | null;
+  sourceTxHash?: string | null;
 };
 
 export type SolDirectExecutionResult =
