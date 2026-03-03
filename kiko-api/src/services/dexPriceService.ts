@@ -153,8 +153,7 @@ async function getEvmPriceUsd(tokenAddress: string, chainId: number): Promise<nu
  * 策略 (按优先级):
  *   1. Jupiter Price API v2   — 外部 API，轻量 GET，无需 swap 模拟
  *   2. Raydium Mint Price API — 外部 API，兜底
- *   3. DexScreener REST API  — 外部 API，免费，第三道保险
- *   4. Solana 免费 RPC 节点  — 最后兜底：读链上 PumpFun bonding curve 储量推导价格
+ *   3. Solana 免费 RPC 节点  — 最后兜底：读链上 PumpFun bonding curve 储量推导价格
  */
 async function getSolanaPriceUsd(tokenMint: string): Promise<number> {
     if (tokenMint === SOLANA_USDC_MINT) return 1.0;
@@ -195,32 +194,7 @@ async function getSolanaPriceUsd(tokenMint: string): Promise<number> {
         logger.debug(LogCode.API_FETCH_FAILED, 'Raydium price API failed', { token: tokenMint.slice(0, 10), error: err?.message });
     }
 
-    // ── Strategy 3: DexScreener REST API (external, free) ─────────────────
-    try {
-        const resp = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${tokenMint}`, {
-            headers: { 'Accept': 'application/json' },
-            signal: AbortSignal.timeout(3000)
-        });
-        if (resp.ok) {
-            const data: any = await resp.json();
-            const pairs: any[] = data?.pairs || [];
-            if (pairs.length > 0) {
-                // Pick the pair with highest liquidity
-                const best = pairs.sort((a: any, b: any) => (b.liquidity?.usd || 0) - (a.liquidity?.usd || 0))[0];
-                const price = parseFloat(best?.priceUsd || '0');
-                if (Number.isFinite(price) && price > 0) {
-                    logger.debug(LogCode.API_FETCH_SUCCESS, 'Solana price from DexScreener REST', {
-                        token: tokenMint.slice(0, 10), price: price.toFixed(8)
-                    });
-                    return price;
-                }
-            }
-        }
-    } catch (err: any) {
-        logger.debug(LogCode.API_FETCH_FAILED, 'DexScreener REST failed', { token: tokenMint.slice(0, 10), error: err?.message });
-    }
-
-    // ── Strategy 4: Cheap RPC fallback — read PumpFun bonding curve on-chain ─
+    // ── Strategy 3: Cheap RPC fallback — read PumpFun bonding curve on-chain ─
     // Works for non-graduated pump.fun tokens whose bonding curve PDA is derivable.
     // Price = (virtualSolReserves_lamports / 1e9) / (virtualTokenReserves_units / 1e6) * SOL_USD
     try {
