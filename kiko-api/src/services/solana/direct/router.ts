@@ -1,4 +1,5 @@
 import { SolanaLaunchpadSwapService } from '../../solanaLaunchpadSwapService.js';
+import { detectLaunchpadToken } from '../../ai/launchpadDetector.js';
 import type { SolDirectExecutionRequest, SolDirectExecutionResult, SolDirectProvider } from './types.js';
 import { executePumpSwapDirect } from './pumpswapExecutor.js';
 import { executeRaydiumLaunchlabDirect } from './raydiumLaunchlabExecutor.js';
@@ -51,7 +52,12 @@ export async function executeSolanaDirectLaunchpad(request: SolDirectExecutionRe
           isBuy: request.isBuy
         });
         try {
-          return await executePumpSwapDirect({ ...request, provider: 'pumpswap', creatorAddress: null, poolId: null });
+          const detection = await detectLaunchpadToken(request.mint, 900, { mode: 'cheap', requireCreator: false }).catch(() => null);
+          const detectionData = detection?.provider === 'pumpswap' ? detection.data as Record<string, unknown> : null;
+          const poolId = detectionData
+            ? String(detectionData.poolId || detectionData.pool_id || detectionData.pool || detectionData.poolAddress || '') || null
+            : null;
+          return await executePumpSwapDirect({ ...request, provider: 'pumpswap', creatorAddress: null, poolId });
         } catch (psErr: any) {
           return { ok: false, provider: 'pumpswap', reasonCode: 'build_failed', message: psErr?.message || String(psErr) };
         }

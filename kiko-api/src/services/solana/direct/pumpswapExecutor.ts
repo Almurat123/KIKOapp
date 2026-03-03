@@ -111,6 +111,83 @@ function derivePoolPda(mint: PublicKey, quoteMint: PublicKey = WSOL_MINT, poolIn
   )[0];
 }
 
+type PumpSwapPoolLayout = {
+  creator: PublicKey;
+  baseMint: PublicKey;
+  quoteMint: PublicKey;
+  baseVault: PublicKey;
+  quoteVault: PublicKey;
+};
+
+function decodePumpSwapPoolLayout(data: Buffer): PumpSwapPoolLayout {
+  return {
+    creator: new PublicKey(data.slice(40, 72)),
+    baseMint: new PublicKey(data.slice(72, 104)),
+    quoteMint: new PublicKey(data.slice(104, 136)),
+    baseVault: new PublicKey(data.slice(168, 200)),
+    quoteVault: new PublicKey(data.slice(200, 232)),
+  };
+}
+
+async function resolvePumpSwapPoolForMint(
+  connection: Connection,
+  mint: PublicKey,
+  hintedPoolId?: string | null
+): Promise<{ pool: PublicKey; info: NonNullable<Awaited<ReturnType<Connection['getAccountInfo']>>>; layout: PumpSwapPoolLayout } | null> {
+  if (hintedPoolId) {
+    try {
+      const hintedPool = new PublicKey(hintedPoolId);
+      const hintedInfo = await connection.getAccountInfo(hintedPool, 'confirmed');
+      if (hintedInfo) {
+        const layout = decodePumpSwapPoolLayout(hintedInfo.data);
+        if (layout.baseMint.equals(mint) && layout.quoteMint.equals(WSOL_MINT)) {
+          return { pool: hintedPool, info: hintedInfo, layout };
+        }
+      }
+    } catch {
+      // ignore invalid hinted pool id
+    }
+  }
+
+  // Try deterministic PDA path first (fast path)
+  const derived = derivePoolPda(mint);
+  const derivedInfo = await connection.getAccountInfo(derived, 'confirmed');
+  if (derivedInfo) {
+    const layout = decodePumpSwapPoolLayout(derivedInfo.data);
+    if (layout.baseMint.equals(mint) && layout.quoteMint.equals(WSOL_MINT)) {
+      return { pool: derived, info: derivedInfo, layout };
+    }
+  }
+
+  // Fallback: scan PumpSwap program accounts where baseMint == target mint and quoteMint == WSOL.
+  // Offsets are from pool layout decode above.
+  let candidates: Awaited<ReturnType<Connection['getProgramAccounts']>> = [];
+  try {
+    candidates = await connection.getProgramAccounts(PUMP_SWAP_PROGRAM_ID, {
+      commitment: 'confirmed',
+      filters: [
+        { dataSize: 301 },
+        { memcmp: { offset: 72, bytes: mint.toBase58() } },
+        { memcmp: { offset: 104, bytes: WSOL_MINT.toBase58() } },
+      ],
+    });
+  } catch (scanErr: any) {
+    logger.warn(LogCode.API_FETCH_FAILED, '[PumpSwapDirect] pool scan failed, fallback to derived-only pool resolution', {
+      mint: mint.toBase58(),
+      error: scanErr?.message || String(scanErr),
+    });
+    candidates = [];
+  }
+
+  if (!candidates.length) {
+    return null;
+  }
+
+  const picked = candidates[0];
+  const layout = decodePumpSwapPoolLayout(picked.account.data);
+  return { pool: picked.pubkey, info: picked.account, layout };
+}
+
 function derivePoolV2Pda(mint: PublicKey): PublicKey {
   return PublicKey.findProgramAddressSync([Buffer.from('pool-v2'), mint.toBuffer()], PUMP_SWAP_PROGRAM_ID)[0];
 }
@@ -226,11 +303,21 @@ export async function executePumpSwapDirect(
     const mint = new PublicKey(request.mint);
     const signingContext = await getWalletSigningContext(request.userId);
     const user = new PublicKey(signingContext.address);
-    const baseProgramId = await getMintProgramId(connection, mint);
-    const pool = derivePoolPda(mint);
-    const poolInfo = await connection.getAccountInfo(pool, 'confirmed');
-    if (!poolInfo) {
+    const resolvedPool = await resolvePumpSwapPoolForMint(connection, mint, request.poolId || null);
+    if (!resolvedPool) {
       return { ok: false, provider: 'pumpswap', reasonCode: 'pool_not_found', message: 'pumpswap pool not found' };
+    }
+    const { pool, info: poolInfo, layout } = resolvedPool;
+
+    const baseProgramId = await getMintProgramId(connection, layout.baseMint);
+
+    if (!layout.baseMint.equals(mint) || !layout.quoteMint.equals(WSOL_MINT)) {
+      return {
+        ok: false,
+        provider: 'pumpswap',
+        reasonCode: 'pool_not_found',
+        message: `resolved pumpswap pool does not match expected mint/WSOL pair (base=${layout.baseMint.toBase58()}, quote=${layout.quoteMint.toBase58()})`
+      };
     }
 
     // Resolve creator: prefer caller-supplied, otherwise parse directly from pool account data.
@@ -239,7 +326,7 @@ export async function executePumpSwapDirect(
     let creatorAddress = request.creatorAddress || null;
     if (!creatorAddress) {
       try {
-        creatorAddress = new PublicKey(poolInfo.data.slice(40, 72)).toString();
+        creatorAddress = layout.creator.toBase58();
         logger.info(LogCode.SYS_INFO, '[PumpSwapDirect] Resolved creator from on-chain pool data', {
           mint: request.mint,
           creatorAddress,
@@ -251,10 +338,10 @@ export async function executePumpSwapDirect(
     }
     const creator = new PublicKey(creatorAddress);
 
-    const userBaseAta = getAssociatedTokenAddress(mint, user, false, baseProgramId);
+    const userBaseAta = getAssociatedTokenAddress(layout.baseMint, user, false, baseProgramId);
     const userQuoteAta = getAssociatedTokenAddress(WSOL_MINT, user, false, TOKEN_PROGRAM_ID);
-    const poolBaseAta = getAssociatedTokenAddress(mint, pool, true, baseProgramId);
-    const poolQuoteAta = getAssociatedTokenAddress(WSOL_MINT, pool, true, TOKEN_PROGRAM_ID);
+    const poolBaseAta = layout.baseVault;
+    const poolQuoteAta = layout.quoteVault;
     const protocolFeeAta = getAssociatedTokenAddress(WSOL_MINT, PROTOCOL_FEE_RECIPIENT, true, TOKEN_PROGRAM_ID);
     const creatorVaultAuthority = deriveCreatorVaultAuthority(creator);
     const creatorVaultAta = PublicKey.findProgramAddressSync(
@@ -266,7 +353,7 @@ export async function executePumpSwapDirect(
     const eventAuthority = deriveEventAuthority();
     const globalVolumeAccumulator = deriveGlobalVolumeAccumulator();
     const userVolumeAccumulator = deriveUserVolumeAccumulator(user);
-    const poolV2 = derivePoolV2Pda(mint);
+    const poolV2 = derivePoolV2Pda(layout.baseMint);
 
     const [baseExists, quoteExists, poolV2Exists] = await Promise.all([
       connection.getAccountInfo(userBaseAta, 'confirmed'),
@@ -309,7 +396,7 @@ export async function executePumpSwapDirect(
           { pubkey: pool, isSigner: false, isWritable: true },
           { pubkey: user, isSigner: true, isWritable: true },
           { pubkey: globalConfig, isSigner: false, isWritable: false },
-          { pubkey: mint, isSigner: false, isWritable: false },
+          { pubkey: layout.baseMint, isSigner: false, isWritable: false },
           { pubkey: WSOL_MINT, isSigner: false, isWritable: false },
           { pubkey: userBaseAta, isSigner: false, isWritable: true },
           { pubkey: userQuoteAta, isSigner: false, isWritable: true },
@@ -349,7 +436,7 @@ export async function executePumpSwapDirect(
           { pubkey: pool, isSigner: false, isWritable: true },
           { pubkey: user, isSigner: true, isWritable: true },
           { pubkey: globalConfig, isSigner: false, isWritable: false },
-          { pubkey: mint, isSigner: false, isWritable: false },
+          { pubkey: layout.baseMint, isSigner: false, isWritable: false },
           { pubkey: WSOL_MINT, isSigner: false, isWritable: false },
           { pubkey: userBaseAta, isSigner: false, isWritable: true },
           { pubkey: userQuoteAta, isSigner: false, isWritable: true },
