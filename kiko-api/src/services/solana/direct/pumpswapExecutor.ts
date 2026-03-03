@@ -305,7 +305,12 @@ export async function executePumpSwapDirect(
     const user = new PublicKey(signingContext.address);
     const resolvedPool = await resolvePumpSwapPoolForMint(connection, mint, request.poolId || null);
     if (!resolvedPool) {
-      return { ok: false, provider: 'pumpswap', reasonCode: 'pool_not_found', message: 'pumpswap pool not found' };
+      return {
+        ok: false,
+        provider: 'pumpswap',
+        reasonCode: 'pool_not_found',
+        message: `pumpswap pool not found for mint=${request.mint} (no validated mint/WSOL pool resolved)`,
+      };
     }
     const { pool, info: poolInfo, layout } = resolvedPool;
 
