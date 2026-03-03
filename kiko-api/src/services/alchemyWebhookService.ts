@@ -1,15 +1,14 @@
 import { normalizeAddress, isSolanaAddress } from '../utils/address.js';
 import { fetchJson } from '../config/unifiedApiService.js';
+import {
+    getAlchemyWebhookChainLabel,
+    getAlchemyWebhookEnvKeys,
+    getAlchemyWebhookId,
+    hasAlchemyWebhookConfigured,
+} from './alchemyWebhookConfig.js';
 
 const ALCHEMY_AUTH_TOKEN = process.env.ALCHEMY_AUTH_TOKEN || '';
 const ALCHEMY_NOTIFY_URL = 'https://dashboard.alchemy.com/api/update-webhook-addresses';
-
-// Webhook IDs for each chain (set these after creating webhooks in Alchemy dashboard)
-const WEBHOOK_IDS: Record<number, string> = {
-    8453: process.env.ALCHEMY_WEBHOOK_ID_BASE || '',    // Base
-    56: process.env.ALCHEMY_WEBHOOK_ID_BSC || '',       // BSC
-    900: process.env.ALCHEMY_WEBHOOK_ID_SOL || '',      // Solana (custom chain ID)
-};
 
 interface WebhookAddressUpdate {
     webhook_id: string;
@@ -26,9 +25,13 @@ export async function addAddressToWebhook(
 ): Promise<boolean> {
     console.log(`[AlchemyWebhook] addAddressToWebhook called: address=${address.slice(0, 12)}, chainId=${chainId}`);
 
-    const webhookId = WEBHOOK_IDS[chainId];
+    const webhookId = getAlchemyWebhookId(chainId);
     if (!webhookId) {
-        console.warn(`[AlchemyWebhook] ❌ No webhook ID configured for chain ${chainId}. Available chains: ${Object.keys(WEBHOOK_IDS).join(', ')}`);
+        console.warn('[AlchemyWebhook] ❌ No webhook ID configured', {
+            chainId,
+            chain: getAlchemyWebhookChainLabel(chainId),
+            expectedEnvKeys: getAlchemyWebhookEnvKeys(chainId),
+        });
         return false;
     }
 
@@ -77,9 +80,13 @@ export async function removeAddressFromWebhook(
     address: string,
     chainId: number
 ): Promise<boolean> {
-    const webhookId = WEBHOOK_IDS[chainId];
+    const webhookId = getAlchemyWebhookId(chainId);
     if (!webhookId) {
-        console.warn(`[AlchemyWebhook] No webhook configured for chain ${chainId}`);
+        console.warn('[AlchemyWebhook] No webhook configured', {
+            chainId,
+            chain: getAlchemyWebhookChainLabel(chainId),
+            expectedEnvKeys: getAlchemyWebhookEnvKeys(chainId),
+        });
         return false;
     }
 
@@ -118,5 +125,5 @@ export async function removeAddressFromWebhook(
  * Check if Alchemy webhooks are configured
  */
 export function isWebhookConfigured(chainId: number): boolean {
-    return !!WEBHOOK_IDS[chainId] && !!ALCHEMY_AUTH_TOKEN;
+    return hasAlchemyWebhookConfigured(chainId) && !!ALCHEMY_AUTH_TOKEN;
 }

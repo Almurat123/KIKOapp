@@ -333,9 +333,12 @@ function selectAlchemySecretsForNetwork(rawNetwork?: string): string[] {
     const secrets: string[] = [];
 
     if (!network) {
+        if (env.security.alchemyWebhookSecretEth) secrets.push(env.security.alchemyWebhookSecretEth);
         if (env.security.alchemyWebhookSecretBase) secrets.push(env.security.alchemyWebhookSecretBase);
         if (env.security.alchemyWebhookSecretBsc) secrets.push(env.security.alchemyWebhookSecretBsc);
         if (env.security.alchemyWebhookSecretSol) secrets.push(env.security.alchemyWebhookSecretSol);
+    } else if (network.includes('ETH')) {
+        if (env.security.alchemyWebhookSecretEth) secrets.push(env.security.alchemyWebhookSecretEth);
     } else if (network.includes('BASE')) {
         if (env.security.alchemyWebhookSecretBase) secrets.push(env.security.alchemyWebhookSecretBase);
     } else if (network.includes('BSC') || network.includes('BNB')) {

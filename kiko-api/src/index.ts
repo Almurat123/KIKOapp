@@ -356,6 +356,7 @@ async function start() {
             privy: isPrivyConfigured() ? '✅ Configured' : '❌ Not Configured',
             webhookSecurity: {
                 alchemySecretConfigured: Boolean(env.security.alchemyWebhookSecret),
+                alchemySecretEthConfigured: Boolean(env.security.alchemyWebhookSecretEth),
                 alchemySecretBaseConfigured: Boolean(env.security.alchemyWebhookSecretBase),
                 alchemySecretBscConfigured: Boolean(env.security.alchemyWebhookSecretBsc),
                 alchemySecretSolConfigured: Boolean(env.security.alchemyWebhookSecretSol),

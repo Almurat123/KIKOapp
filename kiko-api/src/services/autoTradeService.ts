@@ -2148,8 +2148,10 @@ async function processSingleUserBuy(
         let orderRuntimeContext: any = undefined;
         let swapMetadata: MainSwapResult['metadata'] | undefined;
 
-        // Turbo mode skips launchpad detection on critical path for lower latency.
-        const launchpad = turboMode ? null : await resolveLaunchpad(launchpadPromise, chainId);
+        // Fetch launchpad detection. 
+        // Previously turboMode forced this to null, which breaks pump.fun in Solana 
+        // because un-migrated pump tokens MUST be routed through direct bonding curve.
+        const launchpad = await resolveLaunchpad(launchpadPromise, chainId);
 
         if (chainId === 900) {
             // Dynamically fetch Solana wallet from Privy (not from database field)

@@ -122,6 +122,7 @@ export interface EnvConfig {
     };
     security: {
         alchemyWebhookSecret?: string; // Legacy global secret for verifying Alchemy webhooks
+        alchemyWebhookSecretEth?: string; // Ethereum-specific webhook signing key
         alchemyWebhookSecretBase?: string; // Base-specific webhook signing key
         alchemyWebhookSecretBsc?: string; // BSC-specific webhook signing key
         alchemyWebhookSecretSol?: string; // Solana-specific webhook signing key
@@ -177,6 +178,7 @@ function validateEnv(): EnvConfig {
     const billingToolPricePerCall = parseFloat(process.env.BILLING_TOOL_PRICE_PER_CALL || '0.005');
     const billingTermsVersion = process.env.BILLING_TERMS_VERSION || 'billing-terms-v1';
     const alchemyWebhookSecret = process.env.ALCHEMY_WEBHOOK_SECRET;
+    const alchemyWebhookSecretEth = process.env.ALCHEMY_WEBHOOK_SECRET_ETH;
     const alchemyWebhookSecretBase = process.env.ALCHEMY_WEBHOOK_SECRET_BASE;
     const alchemyWebhookSecretBsc = process.env.ALCHEMY_WEBHOOK_SECRET_BSC;
     const alchemyWebhookSecretSol = process.env.ALCHEMY_WEBHOOK_SECRET_SOL;
@@ -191,6 +193,7 @@ function validateEnv(): EnvConfig {
 
     const hasAlchemyWebhookSecret =
         Boolean(alchemyWebhookSecret) ||
+        Boolean(alchemyWebhookSecretEth) ||
         Boolean(alchemyWebhookSecretBase) ||
         Boolean(alchemyWebhookSecretBsc) ||
         Boolean(alchemyWebhookSecretSol);
@@ -376,6 +379,7 @@ function validateEnv(): EnvConfig {
         },
         security: {
             alchemyWebhookSecret,
+            alchemyWebhookSecretEth,
             alchemyWebhookSecretBase,
             alchemyWebhookSecretBsc,
             alchemyWebhookSecretSol,
