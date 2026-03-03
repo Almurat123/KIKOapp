@@ -13,7 +13,8 @@ export type PositionAttributionReasonCode =
   | 'ATTRIBUTED_AMOUNT_CLAMPED_TO_ONCHAIN_BALANCE'
   | 'NO_CONFIRMED_POSITIONS'
   | 'ATTRIBUTED_AMOUNT_UNAVAILABLE'
-  | 'ONCHAIN_BALANCE_EMPTY';
+  | 'ONCHAIN_BALANCE_EMPTY'
+  | 'FULL_BALANCE_FALLBACK';
 
 export interface PositionAttributionResult<T extends AttributedPositionLike> {
   eligiblePositions: T[];
@@ -57,6 +58,8 @@ export function resolveAttributedPositionExitAmount<T extends AttributedPosition
   positions: T[];
   decimals: number;
   onChainBalanceRaw: bigint;
+  /** When true (mirror sell), if attribution fails but on-chain balance exists, sell the full balance */
+  allowFullBalanceFallback?: boolean;
 }): PositionAttributionResult<T> {
   const eligiblePositions: T[] = [];
   const excludedPositions: T[] = [];
@@ -86,6 +89,14 @@ export function resolveAttributedPositionExitAmount<T extends AttributedPosition
   if (params.onChainBalanceRaw <= 0n) {
     sellAmountRaw = 0n;
     reasonCode = 'ONCHAIN_BALANCE_EMPTY';
+  } else if (eligiblePositions.length === 0 && params.allowFullBalanceFallback && params.positions.length > 0) {
+    // Mirror sell fallback: positions exist but none have confirmed entryAmountDec yet
+    // (e.g. sell signal arrived while buy tx is still confirming on-chain).
+    // Sell the full on-chain balance instead of skipping the sell entirely.
+    sellAmountRaw = params.onChainBalanceRaw;
+    reasonCode = 'FULL_BALANCE_FALLBACK';
+    // Treat all passed positions as eligible for closure
+    eligiblePositions.push(...excludedPositions.splice(0));
   } else if (eligiblePositions.length === 0) {
     sellAmountRaw = 0n;
     reasonCode = 'NO_CONFIRMED_POSITIONS';

@@ -2955,7 +2955,8 @@ async function executePositionExit(params: {
         exitPositions = params.positions && params.positions.length > 0
             ? params.positions
             : await prisma.position.findMany({
-                where: { userId, tokenAddress, chainId, status: 'open' }
+                // Include 'pending': sell can fire while buy is still confirming on-chain
+                where: { userId, tokenAddress, chainId, status: { in: ['open', 'pending'] } }
             });
 
         if (exitPositions.length === 0) {
@@ -3037,6 +3038,9 @@ async function executePositionExit(params: {
                 positions: exitPositions,
                 decimals,
                 onChainBalanceRaw: balance,
+                // Mirror sell: if attribution can't resolve (e.g. position still pending confirmation),
+                // sell the full on-chain balance rather than skipping.
+                allowFullBalanceFallback: exitReason === 'mirror_sell',
             });
 
             const balanceUsd = formatTokenAmount(balance, decimals) * (hasValidPrice ? tokenInfo.price : 0);
@@ -3504,7 +3508,9 @@ async function handleTargetSell(
 
         const [positions, tokenInfo] = await Promise.all([
             prisma.position.findMany({
-                where: { userId: config.userId, chainId, status: 'open' },
+                // Include 'pending' positions: sell signal can arrive while buy tx is still confirming on-chain.
+                // Attribution logic will further check if entryTxHash is a real hash (not PENDING_ prefix).
+                where: { userId: config.userId, chainId, status: { in: ['open', 'pending'] } },
             }),
             sharedTokenInfoPromise
         ]);
