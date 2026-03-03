@@ -3510,8 +3510,9 @@ async function handleTargetSell(
         ]);
 
         if (!tokenInfo) {
-            logger.error(LogCode.API_FETCH_FAILED, 'Mirror sell skipped: Shared token info could not be fetched (RPC/API fully failed)', { token: tokenToSell, userId: config.userId });
-            return;
+            // tokenInfo is used for price display only — NOT a prerequisite for executing the sell.
+            // Log a warning and continue; the sell will proceed with price = 0 (position closed, no USD shown).
+            logger.warn(LogCode.API_FETCH_FAILED, 'Mirror sell: Token info unavailable (RPC/API down), proceeding with price=0', { token: tokenToSell, userId: config.userId });
         }
 
         const reconciledPositions = reconcileOpenPositionsForExit(positions, tokenToSell, chainId);

@@ -12,9 +12,11 @@
  */
 
 import { getZeroExPrice } from './zeroEx.js';
-import { getSolanaPrice } from './solanaSwap.js';
+import { getSolanaTokenPrice } from './solanaOnChainPriceService.js';
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
+
+const RAYDIUM_PRICE_API = 'https://api-v3.raydium.io/mint/price';
 
 // USDC 地址映射
 const USDC_ADDRESSES: Record<number, string> = {
@@ -144,9 +146,13 @@ async function getEvmPriceUsd(tokenAddress: string, chainId: number): Promise<nu
 }
 
 /**
- * Solana 价格获取 (使用 Jupiter)
- * 
- * 策略: 获取 Token -> USDC 的报价，反推价格
+ * Solana 价格获取
+ *
+ * 策略 (按优先级):
+ *   1. Jupiter Price API v2 (轻量 GET，无需 swap 模拟)
+ *   2. Raydium Mint Price API (兜底)
+ *
+ * 明确 NOT 使用全量 swap quote (重型操作，容易超时/失败)
  */
 async function getSolanaPriceUsd(tokenMint: string): Promise<number> {
     // 跳过 USDC 本身
@@ -154,30 +160,53 @@ async function getSolanaPriceUsd(tokenMint: string): Promise<number> {
         return 1.0;
     }
 
-    // 获取 1 单位代币能换多少 USDC
-    const amount = '1000000000'; // 1e9 (1 SOL-like token with 9 decimals)
-
-    const quote = await getSolanaPrice(tokenMint, SOLANA_USDC_MINT, amount);
-
-    if (!quote || !quote.outAmount) {
-        return 0;
+    // Strategy 1: Jupiter Price API v2 (lightweight GET - no swap simulation needed)
+    try {
+        const jupiterPrice = await getSolanaTokenPrice(tokenMint);
+        if (jupiterPrice && jupiterPrice > 0) {
+            logger.debug(LogCode.API_FETCH_SUCCESS, 'Solana price from Jupiter Price API v2', {
+                token: tokenMint.slice(0, 10),
+                price: jupiterPrice.toFixed(8)
+            });
+            return jupiterPrice;
+        }
+    } catch (err: any) {
+        logger.debug(LogCode.API_FETCH_FAILED, 'Jupiter Price API v2 failed, trying Raydium', {
+            token: tokenMint.slice(0, 10),
+            error: err?.message
+        });
     }
 
-    // 计算价格: outAmount (USDC, 6 decimals) / inAmount (token, 9 decimals)
-    // price = (outAmount / 1e6) / (inAmount / 1e9)
-    // price = outAmount * 1e3 / inAmount
-    const outAmountBigInt = BigInt(quote.outAmount);
-    const inAmountBigInt = BigInt(amount);
+    // Strategy 2: Raydium Mint Price API (fallback)
+    try {
+        const url = `${RAYDIUM_PRICE_API}?mints=${tokenMint}`;
+        const resp = await fetch(url, {
+            headers: { 'Accept': 'application/json' },
+            signal: AbortSignal.timeout(3000)
+        });
+        if (resp.ok) {
+            const data: any = await resp.json();
+            // Response format: { data: { [mint]: price_string } }
+            const priceRaw = data?.data?.[tokenMint];
+            if (priceRaw) {
+                const price = typeof priceRaw === 'number' ? priceRaw : parseFloat(priceRaw);
+                if (Number.isFinite(price) && price > 0) {
+                    logger.debug(LogCode.API_FETCH_SUCCESS, 'Solana price from Raydium API', {
+                        token: tokenMint.slice(0, 10),
+                        price: price.toFixed(8)
+                    });
+                    return price;
+                }
+            }
+        }
+    } catch (err: any) {
+        logger.debug(LogCode.API_FETCH_FAILED, 'Raydium price API failed', {
+            token: tokenMint.slice(0, 10),
+            error: err?.message
+        });
+    }
 
-    const priceBigInt = (outAmountBigInt * BigInt(1e3)) / inAmountBigInt;
-    const price = Number(priceBigInt) / 1e3;
-
-    logger.debug(LogCode.API_FETCH_SUCCESS, 'Solana price from Jupiter', {
-        token: tokenMint.slice(0, 10),
-        price: price.toFixed(8)
-    });
-
-    return price;
+    return 0;
 }
 
 /**
