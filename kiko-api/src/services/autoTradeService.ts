@@ -79,10 +79,12 @@ import {
     resolveCopytradeBuyPositionStatus,
     waitForCopytradeBuyConfirmation
 } from './copytrade/buy/buyConfirmationPolicy.js';
+import { cleanupPendingCopytradePosition } from './copytrade/buy/pendingLifecycle.js';
 import { buildCopytradeBuyPlannedArtifact } from './copytrade/buy/plannedExecutionArtifact.js';
 import { shouldAbortCopytradeBuyRetry } from './copytrade/buy/copytradeBuyRetryGuard.js';
 import { evaluateBuyPriceDeviationGuard } from './copytrade/buy/buyGuardPriceDeviation.js';
 import { reconcileOpenPositionsForExit } from './copytrade/exit/openPositionReconciliation.js';
+import { resolveAttributedPositionExitAmount } from './copytrade/positions/positionAttribution.js';
 import { collectDirectSwapFeeFromSettlement } from './swap/fee/directSwapFeeCollector.js';
 import { getCopytradeBuySharedWarmup } from './copytrade/buy/buySharedWarmup.js';
 import {
@@ -429,7 +431,8 @@ async function getSolanaMintBalanceRaw(userId: string, mintAddress: string): Pro
     try {
         const solAddress = await getSolanaEmbeddedWalletAddress(userId);
         if (!solAddress) return 0n;
-        const connection = getSolanaConnection();
+        // Use fast+critical: this is called on sell reconciliation path (money at stake)
+        const connection = getSolanaConnection('fast', 'critical');
         const { value } = await connection.getParsedTokenAccountsByOwner(
             new PublicKey(solAddress),
             { mint: new PublicKey(mintAddress) }
@@ -2090,6 +2093,12 @@ async function processSingleUserBuy(
         // 🛡️ DB TRANSACTION LOCK (Prevents Concurrent Buys)
         // Create a PENDING position record atomically. If one exists, this will fail.
         let pendingPositionId: string | null = null;
+        let pendingPositionSettled = false;
+        let attributedEntryAmountHuman: string | null = null;
+        let txHash = '';
+        let txLifecycleStatus: string | undefined;
+        let orderRuntimeContext: any = undefined;
+        let swapMetadata: MainSwapResult['metadata'] | undefined;
         try {
             const pendingPos = await prisma.$transaction(async (tx) => {
                 const positionWhere = buildDuplicateTradeWhere({
@@ -2143,10 +2152,6 @@ async function processSingleUserBuy(
             wallet: config.user.walletAddress,
             usdAmount
         });
-        let txHash = '';
-        let txLifecycleStatus: string | undefined;
-        let orderRuntimeContext: any = undefined;
-        let swapMetadata: MainSwapResult['metadata'] | undefined;
 
         // Fetch launchpad detection. 
         // Previously turboMode forced this to null, which breaks pump.fun in Solana 
@@ -2381,6 +2386,7 @@ async function processSingleUserBuy(
                     const result1 = await MainSwapService.executeSwap(step1Request);
                     if (!result1.success) throw new Error(result1.error);
                     txHash = result1.txHash!;
+                    attributedEntryAmountHuman = result1.amountOut || attributedEntryAmountHuman;
                     txLifecycleStatus = result1.txLifecycle?.status || result1.metadata?.txLifecycleStatus;
                     orderRuntimeContext = result1.runtimeContext;
                     swapMetadata = result1.metadata;
@@ -2497,6 +2503,7 @@ async function processSingleUserBuy(
                             const result2 = await MainSwapService.executeSwap(step2Request);
                             if (!result2.success) throw new Error(result2.error);
                             txHash = result2.txHash!;
+                            attributedEntryAmountHuman = result2.amountOut || attributedEntryAmountHuman;
                             txLifecycleStatus = result2.txLifecycle?.status || result2.metadata?.txLifecycleStatus;
                             orderRuntimeContext = result2.runtimeContext;
                             swapMetadata = result2.metadata;
@@ -2558,6 +2565,7 @@ async function processSingleUserBuy(
                                 const result3 = await MainSwapService.executeSwap(step3Request);
                                 if (!result3.success) throw new Error(result3.error);
                                 txHash = result3.txHash!;
+                                attributedEntryAmountHuman = result3.amountOut || attributedEntryAmountHuman;
                                 txLifecycleStatus = result3.txLifecycle?.status || result3.metadata?.txLifecycleStatus;
                                 orderRuntimeContext = result3.runtimeContext;
                                 swapMetadata = result3.metadata;
@@ -2609,10 +2617,12 @@ async function processSingleUserBuy(
                 data: {
                     entryPrice: tokenInfo.price,
                     entryAmount: (usdAmount / nativePrice).toString(), // Native amount spent
+                    entryAmountDec: attributedEntryAmountHuman || undefined,
                     entryTxHash: txHash,
                     status: nextPositionStatus as any,
                 },
             });
+            pendingPositionSettled = true;
         } else {
             // Fallback (should not happen if logic is correct): Create new if pending failed for some reason
             await prisma.position.create({
@@ -2624,12 +2634,14 @@ async function processSingleUserBuy(
                     chainId,
                     entryPrice: tokenInfo.price,
                     entryAmount: (usdAmount / nativePrice).toString(),
+                    entryAmountDec: attributedEntryAmountHuman || undefined,
                     entryTxHash: txHash,
                     leaderTxHash: leaderTxHash || undefined,
                     entryUsdValue: usdAmount,
                     status: nextPositionStatus as any,
                 },
             });
+            pendingPositionSettled = true;
         }
 
         logger.info(LogCode.EXE_TX_CONFIRMED, 'Copy trade buy submitted and position state updated', {
@@ -2868,6 +2880,31 @@ ${analysis.rawAnalysis}
                 chainId: chainId
             }
         }, 'copytrade_buy_failure');
+    } finally {
+        if (pendingPositionId && !pendingPositionSettled) {
+            const cleaned = await cleanupPendingCopytradePosition({
+                pendingPositionId,
+                reasonCode: txHash ? 'buy_unsettled_cleanup' : 'buy_failed_cleanup'
+            }).catch((cleanupError) => {
+                logger.error(LogCode.SYS_ERROR, 'Failed to cleanup pending copytrade position', {
+                    configId: config.id,
+                    userId: config.userId,
+                    pendingPositionId,
+                    error: cleanupError instanceof Error ? cleanupError.message : String(cleanupError)
+                });
+                return false;
+            });
+
+            if (cleaned) {
+                logger.warn(LogCode.SYS_INFO, 'Pending copytrade position cleaned up before attribution could be established', {
+                    configId: config.id,
+                    userId: config.userId,
+                    token: tokenToBuy,
+                    pendingPositionId,
+                    txHash: txHash || null
+                });
+            }
+        }
     }
     });
 }
@@ -2888,6 +2925,7 @@ async function executePositionExit(params: {
     tokenInfo?: any;
     config: any;
     userSettings?: any;
+    positions?: Array<any>;
 }): Promise<string | null> {
     const { userId, tokenAddress, chainId, exitReason, config } = params;
     const tokenInfo = params.tokenInfo ?? { price: 0, symbol: 'UNKNOWN' };
@@ -2911,6 +2949,24 @@ async function executePositionExit(params: {
     const universalSlippageBps = getSlippageBps(settings);
 
     try {
+        const exitPositions = params.positions && params.positions.length > 0
+            ? params.positions
+            : await prisma.position.findMany({
+                where: { userId, tokenAddress, chainId, status: 'open' }
+            });
+
+        if (exitPositions.length === 0) {
+            logger.info(LogCode.WTC_TX_SKIPPED, 'Skipping position exit: no attributed open positions supplied', {
+                userId,
+                token: tokenAddress,
+                chainId,
+                reason: exitReason
+            });
+            return null;
+        }
+        let persistedExitPositions = exitPositions;
+        let persistedExitBalance = balance;
+
         if (chainId === 900) {
             // SOLANA Logic
             let solAddress: string | null = null;
@@ -2926,20 +2982,46 @@ async function executePositionExit(params: {
             }
 
             // 1. Robust Balance Fetching with Retries
-            // Handle RPC latency where balance might not appear immediately
+            // EVM-like strategy rotation: each retry hits a DIFFERENT endpoint pool
+            // because getSolanaConnection caches per URL (60s TTL):
+            //   attempt 0 → fast+critical  (premium dedicated node)
+            //   attempt 1 → cheap+critical (backup pool, different URL)
+            //   attempt 2 → fast+normal    (last resort, ignores circuit state)
+            const BALANCE_FETCH_STRATEGIES: Array<['fast'|'cheap', 'critical'|'normal']> = [
+                ['fast', 'critical'],
+                ['cheap', 'critical'],
+                ['fast', 'normal'],
+            ];
             let accounts: any = { value: [] };
-            for (let i = 0; i < 3; i++) {
+            let fetchSuccess = false;
+            for (let i = 0; i < BALANCE_FETCH_STRATEGIES.length; i++) {
+                const [strategy, importance] = BALANCE_FETCH_STRATEGIES[i];
                 try {
-                    const connection = getSolanaConnection();
+                    const connection = getSolanaConnection(strategy, importance);
                     accounts = await connection.getParsedTokenAccountsByOwner(
                         new PublicKey(solAddress),
                         { mint: new PublicKey(tokenAddress) }
                     );
+                    fetchSuccess = true;
                     if (accounts.value.length > 0) break; // Found accounts, stop retrying
-                    await new Promise(resolve => setTimeout(resolve, 500)); // Wait 500ms before retry
+                    // Empty result (no token accounts yet) - brief wait and try next strategy
+                    if (i < BALANCE_FETCH_STRATEGIES.length - 1) {
+                        await new Promise(resolve => setTimeout(resolve, 300));
+                    }
                 } catch (err) {
-                    if (i === 2) logger.error(LogCode.API_FETCH_FAILED, 'Solana balance fetch failed after retries', { userId, error: (err as Error).message });
+                    const isLast = i === BALANCE_FETCH_STRATEGIES.length - 1;
+                    logger[isLast ? 'error' : 'warn'](
+                        LogCode.API_FETCH_FAILED,
+                        `Solana balance fetch failed [${strategy}/${importance}]${isLast ? ' after all strategies' : ', trying next strategy'}`,
+                        { userId, token: tokenAddress, attempt: i, error: (err as Error).message }
+                    );
+                    if (!isLast) await new Promise(resolve => setTimeout(resolve, 400));
                 }
+            }
+
+            if (!fetchSuccess) {
+                logger.warn(LogCode.API_FETCH_FAILED, 'Skipping Solana sell: All RPC strategies exhausted, keeping position open', { userId, token: tokenAddress });
+                return null; // Safely skip — keep position open, do NOT treat RPC failure as zero balance
             }
 
             for (const acc of accounts.value) {
@@ -2947,6 +3029,12 @@ async function executePositionExit(params: {
                 balance += amount;
                 decimals = acc.account.data.parsed.info.tokenAmount.decimals;
             }
+
+            const attribution = resolveAttributedPositionExitAmount({
+                positions: exitPositions,
+                decimals,
+                onChainBalanceRaw: balance,
+            });
 
             const balanceUsd = formatTokenAmount(balance, decimals) * (hasValidPrice ? tokenInfo.price : 0);
 
@@ -2965,9 +3053,10 @@ async function executePositionExit(params: {
                         reason: exitReason,
                         isMirrorSell
                     });
-                    await prisma.position.updateMany({
-                        where: { userId: userId, tokenAddress: tokenAddress, status: 'open' },
-                        data: { status: 'closed', exitReason: balance <= 0n ? 'balance_empty' : 'balance_dust', closedAt: new Date() }
+                    await reconcileNoopExitPosition({
+                        positions: exitPositions,
+                        action: 'close_position',
+                        closeReason: balance <= 0n ? 'balance_empty' : 'balance_dust'
                     });
 
                     // OPTIONAL: We could add CloseAccount instruction here if account exists but has dust, 
@@ -2976,11 +3065,26 @@ async function executePositionExit(params: {
                 }
             }
 
+            if (attribution.sellAmountRaw <= 0n) {
+                logger.warn(LogCode.WTC_TX_SKIPPED, 'Skipping Solana auto-exit: attributed position amount unavailable', {
+                    userId,
+                    token: tokenAddress,
+                    chainId,
+                    reason: exitReason,
+                    reasonCode: attribution.reasonCode,
+                    ...attribution.metrics
+                });
+                return null;
+            }
+
             logger.info(LogCode.EXE_TX_BROADCAST, 'Selling token on Solana', {
                 userId,
-                balance: balance.toString(),
+                balance: attribution.sellAmountRaw.toString(),
                 valueUsd: balanceUsd.toFixed(2)
             });
+            balance = attribution.sellAmountRaw;
+            persistedExitPositions = attribution.eligiblePositions as any;
+            persistedExitBalance = attribution.sellAmountRaw;
 
             let isPartialSell = false;
             try {
@@ -2988,7 +3092,7 @@ async function executePositionExit(params: {
                     userId: user.privyDid,
                     tokenInMint: tokenAddress,
                     tokenOutMint: SOLANA_CONFIG.TOKENS.SOL,
-                    amountIn: balance.toString(),
+                    amountIn: attribution.sellAmountRaw.toString(),
                     // Use universal global slippage
                     slippageBps: universalSlippageBps
                 });
@@ -3001,12 +3105,12 @@ async function executePositionExit(params: {
                         userId: user.privyDid,
                         tokenInMint: tokenAddress,
                         tokenOutMint: SOLANA_CONFIG.TOKENS.SOL,
-                        amountIn: balance.toString(),
+                        amountIn: attribution.sellAmountRaw.toString(),
                         slippageBps: aggressiveSlippage
                     });
                 } catch (e2: any) {
                     try {
-                        const safeBalance999 = (balance * 999n) / 1000n;
+                        const safeBalance999 = (attribution.sellAmountRaw * 999n) / 1000n;
                         // Retry with 1.5x slippage (Survival Mode)
                         const survivalSlippage = Math.min(Math.floor(universalSlippageBps * 1.5), 2500);
                         txHash = await executeSolanaSwap({
@@ -3024,14 +3128,22 @@ async function executePositionExit(params: {
                 }
             }
 
-            // Sweep dust
-            if (txHash) {
+            // Dust sweep is intentionally disabled for attributed exits.
+            // Any remaining token balance may belong to manual or external holdings.
+            if (txHash && attribution.metrics.hasExternalBalance) {
+                logger.info(LogCode.SYS_INFO, 'Skipping Solana dust sweep due to external holdings detected', {
+                    userId,
+                    token: tokenAddress,
+                    chainId,
+                    ...attribution.metrics
+                });
+            } else if (txHash) {
                 try {
                     const connection = getSolanaConnection();
                     const postSellAccounts = await connection.getParsedTokenAccountsByOwner(new PublicKey(solAddress), { mint: new PublicKey(tokenAddress) });
                     let remainingBalance = 0n;
                     for (const acc of postSellAccounts.value) { remainingBalance += BigInt(acc.account.data.parsed.info.tokenAmount.amount); }
-                    if (remainingBalance > 0n) {
+                    if (remainingBalance > 0n && !attribution.metrics.hasExternalBalance) {
                         const dustUsd = formatTokenAmount(remainingBalance, decimals) * (tokenInfo?.price || 0);
                         if (dustUsd >= 0.05 || isPartialSell) {
                             await executeSolanaSwap({
@@ -3061,18 +3173,22 @@ async function executePositionExit(params: {
                 tokenInfo,
                 universalSlippageBps,
                 executionMode,
-                targetWallet: config.targetWallet
+                targetWallet: config.targetWallet,
+                positions: exitPositions
             });
 
             balance = exitPlan.balance;
             decimals = exitPlan.decimals;
+            persistedExitPositions = exitPlan.positions as any;
+            persistedExitBalance = exitPlan.kind === 'swap' ? exitPlan.attributedBalance : balance;
 
             if (exitPlan.kind === 'noop') {
                 if (exitPlan.action === 'keep_open') {
-                    logger.warn(LogCode.WTC_TX_SKIPPED, 'Mirror sell skipped: zero token balance after retries; position left open', {
+                    logger.warn(LogCode.WTC_TX_SKIPPED, 'Automatic exit skipped: attributed position amount unavailable or wallet balance not safely attributable', {
                         userId,
                         tokenAddress,
-                        chainId
+                        chainId,
+                        reasonCode: exitPlan.attributedReasonCode || 'UNKNOWN'
                     });
                     return null;
                 }
@@ -3085,8 +3201,7 @@ async function executePositionExit(params: {
                     isMirrorSell: exitPlan.isMirrorSell
                 });
                 await reconcileNoopExitPosition({
-                    userId,
-                    tokenAddress,
+                    positions: exitPlan.positions as any,
                     action: exitPlan.action,
                     closeReason: exitPlan.closeReason
                 });
@@ -3104,12 +3219,13 @@ async function executePositionExit(params: {
             const isPartialSell = exitResult.isPartialSell;
 
             if (txHash) {
-                const skipDustSweepForMirrorSell = exitReason === 'mirror_sell' && COPYTRADE_DISABLE_MIRROR_SELL_DUST_SWEEP;
+                const skipDustSweepForMirrorSell = exitReason === 'mirror_sell' && (COPYTRADE_DISABLE_MIRROR_SELL_DUST_SWEEP || exitPlan.hasExternalBalance);
                 if (skipDustSweepForMirrorSell) {
                     logger.debug(LogCode.SYS_INFO, 'Mirror sell dust sweep skipped to prevent duplicate sell race', {
                         userId,
                         tokenAddress,
-                        chainId
+                        chainId,
+                        hasExternalBalance: exitPlan.hasExternalBalance
                     });
                 } else {
                     try {
@@ -3146,11 +3262,8 @@ async function executePositionExit(params: {
 
         // Update DB with PNL calculation
         if (txHash) {
-            const openPositions = await prisma.position.findMany({
-                where: { userId: userId, tokenAddress: tokenAddress, status: 'open' }
-            });
-            const fallbackExitPrice = openPositions.find((p) => (p.currentPrice || 0) > 0)?.currentPrice
-                ?? openPositions.find((p) => (p.entryPrice || 0) > 0)?.entryPrice
+            const fallbackExitPrice = persistedExitPositions.find((p: any) => (p.currentPrice || 0) > 0)?.currentPrice
+                ?? persistedExitPositions.find((p: any) => (p.entryPrice || 0) > 0)?.entryPrice
                 ?? 0;
             const exitPrice = hasValidPrice ? tokenInfo.price : fallbackExitPrice;
             if (!hasValidPrice && exitPrice > 0) {
@@ -3161,11 +3274,10 @@ async function executePositionExit(params: {
                 });
             }
             const { sellVolUsd } = await persistSuccessfulExit({
-                userId,
-                tokenAddress,
+                positions: persistedExitPositions as any,
                 txHash,
                 exitReason,
-                balance,
+                balance: persistedExitBalance,
                 decimals,
                 exitPrice
             });
@@ -3224,8 +3336,7 @@ async function executePositionExit(params: {
 
         try {
             const { retryCount, terminal } = await persistFailedExitState({
-                userId,
-                tokenAddress,
+                positions: exitPositions as any,
                 exitReason,
                 maxRetries: MAX_EXIT_RETRIES
             });
@@ -3353,8 +3464,12 @@ async function handleTargetSell(
 
     logger.info(LogCode.EXE_TX_BROADCAST, `Mirror sell: Processing open positions for token`, { token: tokenToSell, configCount: uniqueExecutableConfigs.length, targetWallet });
 
+    // PERFECT EVM-LIKE SHARING: Fetch token info once instead of N times concurrently, preventing RPC explosion
+    const sharedTokenInfoPromise = getTokenInfo(tokenToSell, chainId, { priority: 'high', rpcStrategy: 'fast', fastMode: true }).catch(() => null);
+
     await Promise.all(uniqueExecutableConfigs.map(async (config) => {
-        // Reconcile rare turbo race: tx settled on-chain but position stayed pending.
+        // Never infer copytrade ownership from wallet balance alone.
+        // Manual holdings and external transfers must not be converted into copytrade positions.
         try {
             const pendingPositions = await prisma.position.findMany({
                 where: {
@@ -3366,30 +3481,17 @@ async function handleTargetSell(
                 orderBy: { createdAt: 'desc' },
                 take: 3
             });
-            if (pendingPositions.length > 0 && config.user?.walletAddress) {
-                const onChainBal = chainId === 900
-                    ? await getSolanaMintBalanceRaw(config.userId, tokenToSell)
-                    : await getErc20Balance(tokenToSell, config.user.walletAddress, chainId);
-                if (onChainBal > 0n) {
-                    const pendingIds = pendingPositions.map((p) => p.id);
-                    await prisma.position.updateMany({
-                        where: { id: { in: pendingIds }, status: { in: positionStatusCompat.lockStatuses as any } },
-                        data: {
-                            status: 'open',
-                            entryTxHash: `RECOVERED_ONCHAIN_${Date.now()}`
-                        }
-                    });
-                    logger.warn(LogCode.SYS_INFO, 'Recovered pending positions to open by on-chain balance (mirror sell path)', {
-                        userId: config.userId,
-                        chainId,
-                        token: tokenToSell,
-                        pendingCount: pendingPositions.length,
-                        recoveredIds: pendingIds
-                    });
-                }
+            if (pendingPositions.length > 0) {
+                logger.warn(LogCode.WTC_TX_SKIPPED, 'Pending positions left untouched on mirror sell because on-chain balance is not ownership proof', {
+                    userId: config.userId,
+                    chainId,
+                    token: tokenToSell,
+                    pendingCount: pendingPositions.length,
+                    pendingIds: pendingPositions.map((position) => position.id)
+                });
             }
         } catch (reconcileErr: any) {
-            logger.warn(LogCode.SYS_ERROR, 'Failed pending->open reconciliation in mirror sell', {
+            logger.warn(LogCode.SYS_ERROR, 'Failed to inspect pending positions in mirror sell', {
                 userId: config.userId,
                 token: tokenToSell,
                 chainId,
@@ -3401,8 +3503,13 @@ async function handleTargetSell(
             prisma.position.findMany({
                 where: { userId: config.userId, chainId, status: 'open' },
             }),
-            getTokenInfo(tokenToSell, chainId, { priority: 'high', rpcStrategy: 'fast', fastMode: true })
+            sharedTokenInfoPromise
         ]);
+
+        if (!tokenInfo) {
+            logger.error(LogCode.API_FETCH_FAILED, 'Mirror sell skipped: Shared token info could not be fetched (RPC/API fully failed)', { token: tokenToSell, userId: config.userId });
+            return;
+        }
 
         const reconciledPositions = reconcileOpenPositionsForExit(positions, tokenToSell, chainId);
         if (reconciledPositions.matchedPositions.length === 0) {
@@ -3434,7 +3541,8 @@ async function handleTargetSell(
                 chainId,
                 exitReason: 'mirror_sell',
                 tokenInfo,
-                config: { ...config, user: (config as any).user }
+                config: { ...config, user: (config as any).user },
+                positions: matchedPositions
             });
         } finally {
             positionIds.forEach(id => positionsBeingExited.delete(id));
@@ -3568,7 +3676,8 @@ export async function checkPositionsForExits(): Promise<void> {
                     chainId: position.chainId,
                     exitReason: (position.exitReason as any) || 'mirror_sell', // Use original reason or default
                     tokenInfo,
-                    config: { ...config, user: position.user }
+                    config: { ...config, user: position.user },
+                    positions: [position]
                 });
             } catch (err: any) {
                 logger.error(LogCode.SYS_ERROR, 'Error during position exit retry', {
@@ -3816,7 +3925,8 @@ export async function checkPositionsForExits(): Promise<void> {
                             chainId: position.chainId,
                             exitReason: 'take_profit',
                             tokenInfo: tokenInfo,
-                            config: { ...config, user: position.user }
+                            config: { ...config, user: position.user },
+                            positions: [position]
                         });
                     } finally {
                         clearTpslHit(position.id);
@@ -3850,7 +3960,8 @@ export async function checkPositionsForExits(): Promise<void> {
                             chainId: position.chainId,
                             exitReason: 'stop_loss',
                             tokenInfo: tokenInfo,
-                            config: { ...config, user: position.user }
+                            config: { ...config, user: position.user },
+                            positions: [position]
                         });
                     } finally {
                         clearTpslHit(position.id);
@@ -3902,6 +4013,7 @@ export async function checkPositionsForExits(): Promise<void> {
                                     exitReason: 'dynamic_take_profit',
                                     tokenInfo: tokenInfo,
                                     config: { ...config, user: position.user },
+                                    positions: [position],
                                     // Pass overriding slippage if needed (requires support in executePositionExit, 
                                     // otherwise it uses default. For now assume default is okay or logic inside handles it)
                                 });

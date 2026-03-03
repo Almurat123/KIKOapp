@@ -987,21 +987,6 @@ export class MainSwapService {
             message: directResult.message
           });
 
-          if (provider === 'pumpfun') {
-            const service = new SolanaLaunchpadSwapService();
-            txHash = await service.fastSwap({
-              userId: request.userId,
-              mint: request.tokenOut,
-              amount: amountAtomic,
-              isBuy: true,
-              slippageBps: request.slippageBps || 300,
-              provider: 'pumpfun',
-              feeContext
-            });
-            providerName = 'pumpfun';
-            break;
-          }
-
           const result = await this.executeSolanaSwap(request, feeContext, trace, ctx);
           result.metadata = {
             ...(result.metadata || {}),
