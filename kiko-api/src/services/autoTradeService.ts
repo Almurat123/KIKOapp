@@ -77,16 +77,15 @@ import { resolveBuyGuardPolicy, shouldEnforceBuyGuard } from './copytrade/guards
 import { resolveMaxEntryDeviationBps } from './copytrade/config/entryDeviationPolicy.js';
 import {
     resolveCopytradeBuyPositionStatus,
-    waitForCopytradeBuyConfirmation
+    waitForCopytradeBuyConfirmation,
+    type CopytradeBuyPositionStatus
 } from './copytrade/buy/buyConfirmationPolicy.js';
 import { cleanupPendingCopytradePosition } from './copytrade/buy/pendingLifecycle.js';
 import { buildCopytradeBuyPlannedArtifact } from './copytrade/buy/plannedExecutionArtifact.js';
 import { shouldAbortCopytradeBuyRetry } from './copytrade/buy/copytradeBuyRetryGuard.js';
 import { evaluateBuyPriceDeviationGuard } from './copytrade/buy/buyGuardPriceDeviation.js';
+import { reconcileOpenPositionsForExit } from './copytrade/exit/openPositionReconciliation.js';
 import { resolveAttributedPositionExitAmount } from './copytrade/positions/positionAttribution.js';
-import { finalizeCopytradeBuyPosition } from './copytrade/positions/positionPersistence.js';
-import { promoteCopytradePositionAfterConfirmation } from './copytrade/positions/positionPromotionBridge.js';
-import { evaluateExitEligibilityPreflight } from './copytrade/exit/exitEligibilityPreflight.js';
 import { collectDirectSwapFeeFromSettlement } from './swap/fee/directSwapFeeCollector.js';
 import { getCopytradeBuySharedWarmup } from './copytrade/buy/buySharedWarmup.js';
 import {
@@ -2227,7 +2226,10 @@ async function processSingleUserBuy(
 
                 const provider = String(result.metadata?.provider || 'unknown');
                 const route = provider.includes('fallback') || provider.includes('jupiter') ? 'jupiter' : 'direct';
-                logger.info(LogCode.SYS_INFO, '[CopyTradeRoute][solana_buy]', {
+                logger.info(
+                    LogCode.SYS_INFO,
+                    `[CopyTradeRoute][solana_buy] route=${route} provider=${provider} launchpad=${String(launchpad?.provider || 'unknown')} slippageBps=${attemptSlippageBps} lamports=${attemptLamports}`,
+                    {
                     userId: config.userId,
                     token: tokenToBuy,
                     launchpadProvider: launchpad?.provider || 'unknown',
@@ -2235,7 +2237,8 @@ async function processSingleUserBuy(
                     provider,
                     slippageBps: attemptSlippageBps,
                     amountLamports: attemptLamports
-                });
+                    }
+                );
 
                 return result;
             };
@@ -2699,29 +2702,48 @@ async function processSingleUserBuy(
         }
 
         // Update PENDING position to OPEN with real details
-        const nextPositionStatus = resolveCopytradeBuyPositionStatus(orderRuntimeContext, txLifecycleStatus
-            ? {
-                status: txLifecycleStatus as any,
-                attempts: 1,
-                chainId
-            }
-            : null);
-        const persistenceResult = await finalizeCopytradeBuyPosition({
-            pendingPositionId,
-            userId: effectiveConfig.userId,
-            configId: effectiveConfig.id,
-            tokenAddress: tokenToBuy,
-            tokenSymbol: resolveDisplayTokenSymbol(tokenInfo.symbol || (swap as any)?.tokenSymbol, tokenToBuy),
-            chainId,
-            entryPrice: tokenInfo.price,
-            entryAmount: (usdAmount / nativePrice).toString(),
-            attributedEntryAmountExact: attributedEntryAmountHuman || undefined,
-            entryTxHash: txHash,
-            leaderTxHash: leaderTxHash || undefined,
-            entryUsdValue: usdAmount,
-            status: nextPositionStatus as any,
-        });
-        pendingPositionSettled = true;
+        // For Solana: when txHash is available, mark as 'open' immediately.
+        // Solana uses fire-and-forget submission (waitForConfirmation: false), so a
+        // successful txHash means the transaction was accepted by the network.
+        // Relying on the delayed setTimeout promotion (15 s) caused mirror sells to
+        // fire before the promotion ran and miss the position entirely.
+        const nextPositionStatus: CopytradeBuyPositionStatus = (txHash && chainId === 900)
+            ? 'open'
+            : resolveCopytradeBuyPositionStatus(orderRuntimeContext, txLifecycleStatus
+                ? { status: txLifecycleStatus as any, attempts: 1, chainId }
+                : null);
+        if (pendingPositionId) {
+            await prisma.position.update({
+                where: { id: pendingPositionId },
+                data: {
+                    entryPrice: tokenInfo.price,
+                    entryAmount: (usdAmount / nativePrice).toString(), // Native amount spent
+                    entryAmountDec: attributedEntryAmountHuman || undefined,
+                    entryTxHash: txHash,
+                    status: nextPositionStatus as any,
+                },
+            });
+            pendingPositionSettled = true;
+        } else {
+            // Fallback (should not happen if logic is correct): Create new if pending failed for some reason
+            await prisma.position.create({
+                data: {
+                    userId: effectiveConfig.userId,
+                    configId: effectiveConfig.id,
+                    tokenAddress: tokenToBuy,
+                    tokenSymbol: resolveDisplayTokenSymbol(tokenInfo.symbol || (swap as any)?.tokenSymbol, tokenToBuy),
+                    chainId,
+                    entryPrice: tokenInfo.price,
+                    entryAmount: (usdAmount / nativePrice).toString(),
+                    entryAmountDec: attributedEntryAmountHuman || undefined,
+                    entryTxHash: txHash,
+                    leaderTxHash: leaderTxHash || undefined,
+                    entryUsdValue: usdAmount,
+                    status: nextPositionStatus as any,
+                },
+            });
+            pendingPositionSettled = true;
+        }
 
         logger.info(LogCode.EXE_TX_CONFIRMED, 'Copy trade buy submitted and position state updated', {
             userId: config.userId,
@@ -2729,7 +2751,6 @@ async function processSingleUserBuy(
             txHash,
             txLifecycleStatus: txLifecycleStatus || 'unknown',
             positionStatus: nextPositionStatus,
-            amountStorageReasonCode: persistenceResult.reasonCode,
             ...buildOrderAuditFields(orderRuntimeContext)
         });
 
@@ -2776,20 +2797,20 @@ async function processSingleUserBuy(
                     return;
                 }
 
-                const promotion = await promoteCopytradePositionAfterConfirmation({
-                    positionId: pendingPositionId,
-                    txHash
-                }).catch((e) => {
-                    logger.error(LogCode.SYS_ERROR, 'Failed to promote pending buy position to open', { error: e });
-                    return null;
-                });
-                if (promotion) {
-                    logger.info(LogCode.SYS_INFO, '[CopyTradePosition] Buy confirmation promotion result', {
-                        chainId,
-                        token: tokenToBuy,
+                if (pendingPositionId) {
+                    const promoteResult = await prisma.position.updateMany({
+                        where: { id: pendingPositionId, status: positionStatusCompat.pendingCreateStatus as any },
+                        data: { status: 'open' as any, entryTxHash: txHash }
+                    }).catch((e) => {
+                        logger.error(LogCode.SYS_ERROR, 'Failed to promote pending buy position to open', { error: e });
+                        return null;
+                    });
+                    logger.info(LogCode.SYS_INFO, `[CopyTradePosition] Buy confirmation promotion result: rowsUpdated=${promoteResult?.count ?? 'error'} positionId=${pendingPositionId} txHash=${txHash}`, {
+                        positionId: pendingPositionId,
+                        rowsUpdated: promoteResult?.count ?? null,
                         txHash,
-                        reasonCode: promotion.reasonCode,
-                        updated: promotion.updated
+                        chainId,
+                        token: tokenToBuy
                     });
                 }
 
@@ -3561,13 +3582,8 @@ async function handleTargetSell(
 
     logger.info(LogCode.EXE_TX_BROADCAST, `Mirror sell: Processing open positions for token`, { token: tokenToSell, configCount: uniqueExecutableConfigs.length, targetWallet });
 
-    let sharedTokenInfoPromise: Promise<any> | null = null;
-    const getSharedTokenInfoPromise = () => {
-        if (!sharedTokenInfoPromise) {
-            sharedTokenInfoPromise = getTokenInfo(tokenToSell, chainId, { priority: 'high', rpcStrategy: 'fast', fastMode: true }).catch(() => null);
-        }
-        return sharedTokenInfoPromise;
-    };
+    // PERFECT EVM-LIKE SHARING: Fetch token info once instead of N times concurrently, preventing RPC explosion
+    const sharedTokenInfoPromise = getTokenInfo(tokenToSell, chainId, { priority: 'high', rpcStrategy: 'fast', fastMode: true }).catch(() => null);
 
     await Promise.all(uniqueExecutableConfigs.map(async (config) => {
         // Never infer copytrade ownership from wallet balance alone.
@@ -3601,38 +3617,38 @@ async function handleTargetSell(
             });
         }
 
-        const executionMode = resolveExecutionModeForConfig(config);
-        const preflight = await evaluateExitEligibilityPreflight({
-            userId: config.userId,
-            walletAddress: config.user.walletAddress,
-            tokenAddress: tokenToSell,
-            chainId,
-            executionMode,
-            universalSlippageBps: 300
-        });
+        const [positions, tokenInfo] = await Promise.all([
+            prisma.position.findMany({
+                // Include 'pending' positions: sell signal can arrive while buy tx is still confirming on-chain.
+                // Attribution logic will further check if entryTxHash is a real hash (not PENDING_ prefix).
+                // tokenAddress filter added as safety net — reconcileOpenPositionsForExit also normalizes,
+                // but an explicit DB filter prevents empty-array false negatives.
+                where: { userId: config.userId, chainId, tokenAddress: tokenToSell, status: { in: ['open', 'pending'] } },
+            }),
+            sharedTokenInfoPromise
+        ]);
 
-        if (!preflight.allowed) {
-            if (preflight.closeReason && preflight.matchedPositions.length > 0) {
-                await reconcileNoopExitPosition({
-                    positions: preflight.matchedPositions as any,
-                    action: 'close_position',
-                    closeReason: preflight.closeReason
-                });
-            }
-            logger.info(LogCode.WTC_TX_SKIPPED, 'Mirror sell skipped: no open positions after reconciliation', {
-                userId: config.userId,
-                token: tokenToSell,
-                reasonCode: preflight.reasonCode,
-                ...preflight.metrics
-            });
-            return;
-        }
-        const matchedPositions = preflight.matchedPositions;
-
-        const tokenInfo = await getSharedTokenInfoPromise();
         if (!tokenInfo) {
+            // tokenInfo is used for price display only — NOT a prerequisite for executing the sell.
+            // Log a warning and continue; the sell will proceed with price = 0 (position closed, no USD shown).
             logger.warn(LogCode.API_FETCH_FAILED, 'Mirror sell: Token info unavailable (RPC/API down), proceeding with price=0', { token: tokenToSell, userId: config.userId });
         }
+
+        const reconciledPositions = reconcileOpenPositionsForExit(positions, tokenToSell, chainId);
+        if (reconciledPositions.matchedPositions.length === 0) {
+            logger.info(
+                LogCode.WTC_TX_SKIPPED,
+                `Mirror sell skipped: no open positions after reconciliation (token=${tokenToSell}, before=${reconciledPositions.metrics.positionCountBefore}, after=${reconciledPositions.metrics.positionCountAfter}, normalized=${reconciledPositions.metrics.normalizedTokenAddress}, reasonCode=${reconciledPositions.reasonCode})`,
+                {
+                    userId: config.userId,
+                    token: tokenToSell,
+                    reasonCode: reconciledPositions.reasonCode,
+                    ...reconciledPositions.metrics
+                }
+            );
+            return;
+        }
+        const matchedPositions = reconciledPositions.matchedPositions;
 
         // Leader stat tracking (only for mirror sell)
         const balanceUsdForStats = matchedPositions.reduce((sum, p) => sum + (p.entryUsdValue || 0), 0);
