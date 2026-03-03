@@ -34,7 +34,36 @@ export async function persistSuccessfulExit(params: {
   exitPrice: number;
 }): Promise<{ openPositions: any[]; sellVolUsd: number }> {
   const openPositions = params.positions;
-  const sellAmount = Number(ethers.formatUnits(params.balance, params.decimals));
+  let attributedRawTotal = 0n;
+  for (const pos of openPositions) {
+    const rawExact = pos.entryAmountExact ? String(pos.entryAmountExact).trim() : '';
+    if (rawExact && rawExact !== '0') {
+      try {
+        attributedRawTotal += BigInt(rawExact);
+        continue;
+      } catch {
+        // fall through to decimal parse
+      }
+    }
+    const decValue = pos.entryAmountDec == null ? '' : String(pos.entryAmountDec).trim();
+    if (decValue && decValue !== '0') {
+      try {
+        attributedRawTotal += ethers.parseUnits(decValue, params.decimals);
+      } catch {
+        // ignore malformed historical amount
+      }
+    }
+  }
+
+  let effectiveBalanceRaw = params.balance;
+  if (attributedRawTotal > 0n) {
+    const maxReasonableRaw = attributedRawTotal * 5n;
+    if (effectiveBalanceRaw > maxReasonableRaw) {
+      effectiveBalanceRaw = attributedRawTotal;
+    }
+  }
+
+  const sellAmount = Number(ethers.formatUnits(effectiveBalanceRaw, params.decimals));
   const sellVolUsd = Number.isFinite(sellAmount) ? sellAmount * params.exitPrice : 0;
   const totalEntryUsd = openPositions.reduce((sum, pos) => sum + (pos.entryUsdValue || 0), 0);
 
