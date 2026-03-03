@@ -56,6 +56,49 @@ function parseHumanAmount(
   return normalized;
 }
 
+function parseAttributedAmountRaw(params: {
+  exactValue: AttributedPositionLike['entryAmountExact'];
+  decimalValue: AttributedPositionLike['entryAmountDec'];
+  decimals: number;
+}): bigint | null {
+  const exact = parseHumanAmount(params.exactValue, null);
+  const decimal = parseHumanAmount(null, params.decimalValue);
+
+  if (exact && !exact.includes('.')) {
+    try {
+      const exactRaw = BigInt(exact);
+      if (decimal) {
+        const decimalRaw = ethers.parseUnits(decimal, params.decimals);
+        const delta = exactRaw > decimalRaw ? exactRaw - decimalRaw : decimalRaw - exactRaw;
+        const tolerance = (decimalRaw / 1_000_000n) + 10n;
+        if (delta <= tolerance) {
+          return exactRaw;
+        }
+      }
+    } catch {
+      // Fall through to decimal parsing.
+    }
+  }
+
+  if (exact) {
+    try {
+      return ethers.parseUnits(exact, params.decimals);
+    } catch {
+      // Fall through to decimal helper.
+    }
+  }
+
+  if (decimal) {
+    try {
+      return ethers.parseUnits(decimal, params.decimals);
+    } catch {
+      return null;
+    }
+  }
+
+  return null;
+}
+
 export function isConfirmedAttributedPosition(position: AttributedPositionLike): boolean {
   const txHash = String(position.entryTxHash || '').trim();
   if (!txHash) return false;
@@ -78,17 +121,17 @@ export function resolveAttributedPositionExitAmount<T extends AttributedPosition
       excludedPositions.push(position);
       continue;
     }
-    const humanAmount = parseHumanAmount(position.entryAmountExact, position.entryAmountDec);
-    if (!humanAmount) {
+    const amountRaw = parseAttributedAmountRaw({
+      exactValue: position.entryAmountExact,
+      decimalValue: position.entryAmountDec,
+      decimals: params.decimals,
+    });
+    if (amountRaw === null || amountRaw <= 0n) {
       excludedPositions.push(position);
       continue;
     }
-    try {
-      attributedAmountRaw += ethers.parseUnits(humanAmount, params.decimals);
-      eligiblePositions.push(position);
-    } catch {
-      excludedPositions.push(position);
-    }
+    attributedAmountRaw += amountRaw;
+    eligiblePositions.push(position);
   }
 
   let reasonCode: PositionAttributionReasonCode = 'ATTRIBUTED_AMOUNT_RESOLVED';

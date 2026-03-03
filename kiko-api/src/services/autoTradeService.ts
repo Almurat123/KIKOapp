@@ -85,6 +85,7 @@ import { shouldAbortCopytradeBuyRetry } from './copytrade/buy/copytradeBuyRetryG
 import { evaluateBuyPriceDeviationGuard } from './copytrade/buy/buyGuardPriceDeviation.js';
 import { resolveAttributedPositionExitAmount } from './copytrade/positions/positionAttribution.js';
 import { finalizeCopytradeBuyPosition } from './copytrade/positions/positionPersistence.js';
+import { promoteCopytradePositionAfterConfirmation } from './copytrade/positions/positionPromotionBridge.js';
 import { evaluateExitEligibilityPreflight } from './copytrade/exit/exitEligibilityPreflight.js';
 import { collectDirectSwapFeeFromSettlement } from './swap/fee/directSwapFeeCollector.js';
 import { getCopytradeBuySharedWarmup } from './copytrade/buy/buySharedWarmup.js';
@@ -2775,11 +2776,21 @@ async function processSingleUserBuy(
                     return;
                 }
 
-                if (pendingPositionId) {
-                    await prisma.position.updateMany({
-                        where: { id: pendingPositionId, status: positionStatusCompat.pendingCreateStatus as any },
-                        data: { status: 'open' as any, entryTxHash: txHash }
-                    }).catch((e) => logger.error(LogCode.SYS_ERROR, 'Failed to promote pending buy position to open', { error: e }));
+                const promotion = await promoteCopytradePositionAfterConfirmation({
+                    positionId: pendingPositionId,
+                    txHash
+                }).catch((e) => {
+                    logger.error(LogCode.SYS_ERROR, 'Failed to promote pending buy position to open', { error: e });
+                    return null;
+                });
+                if (promotion) {
+                    logger.info(LogCode.SYS_INFO, '[CopyTradePosition] Buy confirmation promotion result', {
+                        chainId,
+                        token: tokenToBuy,
+                        txHash,
+                        reasonCode: promotion.reasonCode,
+                        updated: promotion.updated
+                    });
                 }
 
                 if (swapMetadata?.directFeeSettlement?.deferred) {

@@ -2,6 +2,7 @@ import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
 import type { DecodedSwap } from './txDecoder.js';
 import { getPendingTxHint, markCopyTradeTxState } from './copyTradeTxStateService.js';
+import { resolveCopyTradeQueuePriority } from './copytrade/eth/ethBuyFastPath.js';
 import {
     evaluateCopyTradeDelay,
     markCopyTradeTaskEnqueued,
@@ -16,10 +17,14 @@ type QueueTask = {
     chainId: number;
     detectedAt?: number;
     timing?: CopyTradeTimingSnapshot;
+    source?: string;
+    priority: number;
+    sequence: number;
 };
 
 const queue: QueueTask[] = [];
 let inFlight = 0;
+let localSequence = 0;
 const localDone = new Map<string, number>();
 
 const MAX_CONCURRENCY = Number(process.env.COPYTRADE_QUEUE_CONCURRENCY || 20);
@@ -76,6 +81,7 @@ function processQueue(): void {
                         chainId: task.chainId,
                         txHash: task.swap?.txHash || null,
                         targetWallet: task.targetWallet,
+                        source: task.source || 'unknown',
                         queueDelayMs,
                         delayAnchor: queueDelay.delayAnchor,
                         inFlight,
@@ -86,6 +92,7 @@ function processQueue(): void {
                             chainId: task.chainId,
                             txHash: task.swap?.txHash,
                             targetWallet: task.targetWallet,
+                            source: task.source || 'unknown',
                             queueDelayMs,
                             delayAnchor: queueDelay.delayAnchor,
                             inFlight,
@@ -132,7 +139,7 @@ export function enqueueCopyTradeTask(
     targetWallet: string,
     swap: DecodedSwap,
     chainId: number,
-    context?: { detectedAt?: number; timing?: CopyTradeTimingSnapshot }
+    context?: { detectedAt?: number; timing?: CopyTradeTimingSnapshot; source?: string }
 ): void {
     markCopyTradeTxState(chainId, swap?.txHash || 'nohash', 'task_enqueued', {
         wallet: targetWallet
@@ -142,9 +149,16 @@ export function enqueueCopyTradeTask(
         swap,
         chainId,
         detectedAt: context?.detectedAt,
+        source: context?.source,
+        priority: resolveCopyTradeQueuePriority({ chainId, source: context?.source }),
+        sequence: ++localSequence,
         timing: markCopyTradeTaskEnqueued(
             mergeCopyTradeTimingSnapshots(context?.timing, { chainId })
         )
+    });
+    queue.sort((left, right) => {
+        if (right.priority !== left.priority) return right.priority - left.priority;
+        return left.sequence - right.sequence;
     });
     if (inFlight < MAX_CONCURRENCY) {
         setImmediate(processQueue);

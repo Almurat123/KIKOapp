@@ -49,7 +49,8 @@ export async function dispatchCopyTradeIfReady(params: DispatchParams): Promise<
 
     enqueueCopyTradeTask(params.targetWallet, params.swap, params.chainId, {
         detectedAt: timing.dispatchEligibleAt || timing.swapReadyAt || params.detectedAt,
-        timing
+        timing,
+        source: params.source
     });
     return true;
 }

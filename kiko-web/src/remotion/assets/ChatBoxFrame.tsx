@@ -25,7 +25,7 @@ export const ChatBoxFrame: React.FC<ChatBoxFrameProps> = ({ opacity, scale }) =>
                 style={{
                     background: 'rgba(20, 20, 30, 0.03)',
                     backdropFilter: 'blur(1px) saturate(165%)',
-                    minHeight: '120px', // Placeholder height for the trace
+                    minHeight: '160px', // Matches boxH in MyVideo
                     display: 'flex',
                     flexDirection: 'column',
                     borderRadius: '32px',

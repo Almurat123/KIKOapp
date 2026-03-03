@@ -14,16 +14,16 @@ export const LaserTrace: React.FC<LaserTraceProps> = ({
     strokeWidth = 2
 }) => {
     const radius = 32; // Matching the ChatBoxFrame border-radius
-    const perimeter = 2 * (width + height);
+
+    // Physical perimeter calculation (Exact same as MyVideo.tsx)
+    const sideW = width - 2 * radius;
+    const sideH = height - 2 * radius;
+    const cornerL = (Math.PI * radius) / 2;
+    const perimeter = 2 * sideW + 2 * sideH + 4 * cornerL;
 
     // Smooth path calculation (Top -> Right -> Bottom -> Left)
     // We offset by half strokeWidth to center the stroke on the box edge
-    const p = progress * 4;
-    if (p < 1) {
-        // tx/ty logic was here but moved to MyVideo for camera. 
-        // We still need them if we want to render something AT the tip, 
-        // but user said "remove spark", so we just keep the path.
-    }
+    // (Start at 0,0 -> Top Side)
 
     return (
         <div

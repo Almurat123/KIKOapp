@@ -19,91 +19,143 @@ export const MyVideo: React.FC = () => {
     const { fps, width, height } = useVideoConfig();
 
     // 1. Timeline Definitions (Total 450 frames / 15s)
-    const tracePhaseEnd = 240; // 0-8s (Slower, more deliberate)
-    const pullBackPhaseEnd = 330; // 8-11s
-    const revealPhaseEnd = 450; // 11-15s
-
-    // 2. Laser Path Progress
+    // 2. Laser Path Progress (Continuous for 15s)
+    const tracePhaseEnd = 450;
     const traceProgress = interpolate(frame, [0, tracePhaseEnd], [0, 1], {
         extrapolateLeft: 'clamp',
         extrapolateRight: 'clamp',
     });
 
-    // 3. Camera Math (AE-Style)
-    // We get the laser head position from the same math used in LaserTrace
-    // Box dimensions (matching the CSS max-width 48rem ~ 768px)
-    const boxW = 768;
-    const boxH = 120;
+    // 2b. Camera Animation Phases (Decoupled from Trace)
+    const macroEnd = 150; // 5s: End of locked macro follow
+    const pullBackEnd = 240; // 8s: Camera reaches wide shot
+
+    // 3. Camera Math (Arc-Length Synchronized)
+    const boxW = width > 1080 ? 768 : 1000; // Wider for mobile (1080px composition)
+    const boxH = 160; // Taller for mobile input look
+    const radius = 32; // Corner radius matching LaserTrace
     const boxX = (width - boxW) / 2;
     const boxY = (height - boxH) / 2;
 
-    // Corrected path math to match LaserTrace.tsx (Middle-Top start)
     const getLaserPos = (progress: number) => {
-        const p = progress * 4;
-        let localX: number;
-        let localY: number;
+        // Perimeter Math:
+        // 4 straight sides: (W-2R), (H-2R), (W-2R), (H-2R)
+        // 4 corners: 4 * (PI * R / 2) = 2 * PI * R
+        const sideW = boxW - 2 * radius;
+        const sideH = boxH - 2 * radius;
+        const cornerL = (Math.PI * radius) / 2;
+        const totalL = 2 * sideW + 2 * sideH + 4 * cornerL;
 
-        if (p < 1) {
-            localX = boxW / 2 + (p * boxW / 2);
-            localY = 0;
-        } else if (p < 2) {
-            localX = boxW;
-            localY = (p - 1) * boxH;
-        } else if (p < 3) {
-            localX = boxW - (p - 2) * boxW;
-            localY = boxH;
-        } else {
-            localX = 0;
-            localY = boxH - (p - 3) * boxH;
+        let currentL = progress * totalL;
+
+        // Origin: Top-Left (0,0) -> Standard SVG direction
+        // Segment 1: Top horizontal
+        if (currentL <= sideW) {
+            return { x: boxX + radius + currentL, y: boxY };
         }
+        currentL -= sideW;
 
-        return { x: boxX + localX, y: boxY + localY };
+        // Segment 2: Top-Right corner
+        if (currentL <= cornerL) {
+            const angle = currentL / radius;
+            return {
+                x: boxX + boxW - radius + Math.sin(angle) * radius,
+                y: boxY + radius - Math.cos(angle) * radius
+            };
+        }
+        currentL -= cornerL;
+
+        // Segment 3: Right vertical
+        if (currentL <= sideH) {
+            return { x: boxX + boxW, y: boxY + radius + currentL };
+        }
+        currentL -= sideH;
+
+        // Segment 4: Bottom-Right corner
+        if (currentL <= cornerL) {
+            const angle = currentL / radius;
+            return {
+                x: boxX + boxW - radius + Math.cos(angle) * radius,
+                y: boxY + boxH - radius + Math.sin(angle) * radius
+            };
+        }
+        currentL -= cornerL;
+
+        // Segment 5: Bottom horizontal
+        if (currentL <= sideW) {
+            return { x: boxX + boxW - radius - currentL, y: boxY + boxH };
+        }
+        currentL -= sideW;
+
+        // Segment 6: Bottom-Left corner
+        if (currentL <= cornerL) {
+            const angle = currentL / radius;
+            return {
+                x: boxX + radius - Math.sin(angle) * radius,
+                y: boxY + boxH - radius + Math.cos(angle) * radius
+            };
+        }
+        currentL -= cornerL;
+
+        // Segment 7: Left vertical
+        if (currentL <= sideH) {
+            return { x: boxX, y: boxY + boxH - radius - currentL };
+        }
+        currentL -= sideH;
+
+        // Segment 8: Top-Left corner
+        const angle = currentL / radius;
+        return {
+            x: boxX + radius - Math.cos(angle) * radius,
+            y: boxY + radius - Math.sin(angle) * radius
+        };
     };
 
     const laserHead = getLaserPos(traceProgress);
 
-    // Zoom & Follow Logic (Extreme Macro for Shot 1)
+    // Zoom Logic: 4x -> 1x between 5s and 8s
     const zoom = interpolate(frame,
-        [0, tracePhaseEnd, pullBackPhaseEnd],
-        [4.0, 4.0, 1.0], // 4x Zoom for extreme close-up
+        [0, macroEnd, pullBackEnd],
+        [4.0, 4.0, 1.0],
         { extrapolateRight: 'clamp' }
     );
 
-    // Camera targets THE HEAD during trace
+    // Follow Logic: Lock on head until macroEnd, then fade out centering influence
     const followX = (width / 2 - laserHead.x);
     const followY = (height / 2 - laserHead.y);
 
-    // Spring for smooth centering after trace
-    const centerSpring = spring({
-        frame: frame - tracePhaseEnd,
-        fps,
-        config: { damping: 12 }
+    // Interpolate centering strength: 1 (locked) until 5s, 0 (centered scene) by 8s
+    const followStrength = interpolate(frame, [macroEnd, pullBackEnd], [1, 0], {
+        extrapolateLeft: 'clamp',
+        extrapolateRight: 'clamp'
     });
 
-    const finalTranslateX = followX * (1 - centerSpring);
-    const finalTranslateY = followY * (1 - centerSpring);
+    const finalTranslateX = followX * followStrength;
+    const finalTranslateY = followY * followStrength;
 
-    // 4. Asset Opacity & Animation (Absolute Shot 1 Isolation)
-    // Background stars appear LATER (after trace + delay)
-    const backgroundOpacity = interpolate(frame, [tracePhaseEnd + 60, tracePhaseEnd + 120], [0, 1], { extrapolateLeft: 'clamp' });
+    // 4. Asset Opacity & Animation (Staggered Reveal during/after pull-back)
+    // Background stars appear immediately at low opacity to provide motion reference, then fade to full
+    const backgroundRevealStart = 0;
+    const backgroundRevealEnd = pullBackEnd;
+    const backgroundOpacity = interpolate(frame, [backgroundRevealStart, backgroundRevealEnd], [0.4, 1], { extrapolateLeft: 'clamp' });
 
-    // Box only starts fading in once the rim is nearly done
-    const boxOpacity = interpolate(frame, [tracePhaseEnd - 10, tracePhaseEnd], [0, 1], { extrapolateLeft: 'clamp' });
+    // Box starts fading in slightly before pull-back ends
+    const boxOpacity = interpolate(frame, [backgroundRevealEnd - 40, backgroundRevealEnd], [0, 1], { extrapolateLeft: 'clamp' });
 
     const badgeOpacity = spring({
-        frame: frame - (tracePhaseEnd + 20),
+        frame: frame - (backgroundRevealEnd + 10),
         fps,
         config: { damping: 12 }
     });
 
     const buttonsOpacity = spring({
-        frame: frame - (tracePhaseEnd + 40),
+        frame: frame - (backgroundRevealEnd + 20),
         fps,
         config: { damping: 12 }
     });
 
     const titleOpacity = spring({
-        frame: frame - (tracePhaseEnd + 60), // Titles appear last
+        frame: frame - (backgroundRevealEnd + 40),
         fps,
         config: { damping: 12 }
     });
@@ -111,47 +163,59 @@ export const MyVideo: React.FC = () => {
     return (
         <MockProviders>
             <AbsoluteFill style={{ backgroundColor: '#000' }}>
-                {/* Background (Strict Isolation - Opacity handled via wrapper) */}
-                <div style={{ opacity: backgroundOpacity }}>
+                {/* Background Layer */}
+                <AbsoluteFill style={{ opacity: backgroundOpacity }}>
                     <StardustBackground />
-                </div>
+                </AbsoluteFill>
 
-                {/* Cinematic World (Camera Applied Here) */}
-                <div
+                {/* Cinematic World (Camera Layer) */}
+                <AbsoluteFill
                     style={{
-                        width: '100%',
-                        height: '100%',
-                        // Camera follows head exactly during trace, then centers
                         transform: `scale(${zoom}) translate(${finalTranslateX}px, ${finalTranslateY}px)`,
-                        display: 'flex',
-                        flexDirection: 'column',
-                        alignItems: 'center',
-                        justifyContent: 'center'
                     }}
                 >
-                    {/* Hero Titles */}
-                    <div style={{ opacity: titleOpacity }}>
-                        <HeroTitles opacity={1} y={interpolate(titleOpacity, [0, 1], [30, 0])} />
-                    </div>
+                    {/* All Hero Elements are layered independently to avoid flex-shifts */}
 
-                    {/* Chat Box Asset */}
-                    <div style={{ position: 'relative', width: boxW, height: boxH }}>
-                        {/* THE RIM (Shot 1 Focus) - Always on top early on */}
+                    {/* 1. The Chat Box Group (Main Tracking Target) */}
+                    <div
+                        style={{
+                            position: 'absolute',
+                            top: '50%',
+                            left: '50%',
+                            width: boxW,
+                            height: boxH,
+                            transform: 'translate(-50%, -50%)'
+                        }}
+                    >
+                        {/* THE RIM (Target of follow) */}
                         <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', zIndex: 100 }}>
                             <LaserTrace
                                 progress={traceProgress}
                                 width={boxW}
                                 height={boxH}
-                                strokeWidth={4} // Thicker for macro tracking
+                                strokeWidth={4}
                             />
                         </div>
 
-                        {/* Internal Elements (Delayed Fade-in) */}
+                        {/* Internal Elements */}
                         <ChatBoxFrame opacity={boxOpacity} scale={1} />
                         <ModelBadge opacity={badgeOpacity} y={interpolate(badgeOpacity, [0, 1], [10, 0])} />
                         <ActionButtons opacity={buttonsOpacity} x={interpolate(buttonsOpacity, [0, 1], [20, 0])} />
                     </div>
-                </div>
+
+                    {/* 2. Hero Titles (Positioned relative to center) */}
+                    <div
+                        style={{
+                            position: 'absolute',
+                            top: '50%',
+                            left: '50%',
+                            transform: 'translate(-50%, -320px)', // Even higher for 9:16 vertical space
+                            opacity: titleOpacity
+                        }}
+                    >
+                        <HeroTitles opacity={1} y={interpolate(titleOpacity, [0, 1], [30, 0])} />
+                    </div>
+                </AbsoluteFill>
             </AbsoluteFill>
         </MockProviders>
     );

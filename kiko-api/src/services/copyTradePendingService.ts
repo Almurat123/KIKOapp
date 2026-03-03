@@ -28,6 +28,7 @@ import {
     refreshTrackedWalletSnapshot
 } from './copytrade/ingress/trackedWalletSnapshot.js';
 import { prioritizeCopyTradePendingChains } from './copytrade/eth/ethSignalPolicy.js';
+import { buildEthAwarePendingPollPlan } from './copytrade/eth/ethPendingIngressPolicy.js';
 
 const ENABLED = (process.env.COPYTRADE_PENDING_WATCH_ENABLED || 'true') === 'true';
 const REFRESH_WALLETS_MS = Number(process.env.COPYTRADE_PENDING_WALLET_REFRESH_MS || 10000);
@@ -277,10 +278,14 @@ async function tick(): Promise<void> {
             : []);
         if (chains.length === 0) return;
 
-        // Poll one chain per tick (round-robin) to cap RPC load.
-        const chainId = chains[chainIndex % chains.length];
-        chainIndex = (chainIndex + 1) % chains.length;
-        await pollOneChainPending(chainId);
+        const plan = buildEthAwarePendingPollPlan({
+            chainIds: chains,
+            cursor: chainIndex
+        });
+        chainIndex = plan.nextCursor;
+        for (const chainId of plan.chainIdsToPoll) {
+            await pollOneChainPending(chainId);
+        }
     } finally {
         tickInFlight = false;
     }
