@@ -3140,15 +3140,52 @@ async function executePositionExit(params: {
                 }
             }
 
+            let usedDbBalanceFallback = false;
             if (!fetchSuccess) {
-                logger.warn(LogCode.API_FETCH_FAILED, 'Skipping Solana sell: All RPC strategies exhausted, keeping position open', { userId, token: tokenAddress });
-                return null; // Safely skip — keep position open, do NOT treat RPC failure as zero balance
+                // RPC is fully degraded — we cannot get the on-chain token balance.
+                // For mirror_sell: fall back to the DB-stored entryAmountExact (raw bigint
+                // token units stored at buy time). Using DB amount and failing on-chain is
+                // far better than silently skipping the sell and leaving an open position.
+                if (exitReason === 'mirror_sell' && exitPositions.length > 0) {
+                    for (const pos of exitPositions) {
+                        // entryAmountExact is the raw integer token amount written during buy.
+                        const rawExact = pos.entryAmountExact != null ? String(pos.entryAmountExact).trim() : '';
+                        if (rawExact && rawExact !== '0') {
+                            try { balance += BigInt(rawExact); } catch { /* skip */ }
+                        }
+                        // fallback: entryAmountDec is the human amount; use it with known decimals
+                        if (balance === 0n) {
+                            const dec = tokenInfo?.decimals ?? null;
+                            const rawDecStr = pos.entryAmountDec != null ? String(pos.entryAmountDec).trim() : '';
+                            if (dec != null && rawDecStr && rawDecStr !== '0') {
+                                try { balance += ethers.parseUnits(rawDecStr, dec); } catch { /* skip */ }
+                            }
+                        }
+                        // Use tokenInfo decimals for display; if unavailable default to 6 (safe for dust check)
+                        decimals = tokenInfo?.decimals ?? 6;
+                    }
+                    if (balance > 0n) {
+                        usedDbBalanceFallback = true;
+                        logger.warn(LogCode.API_FETCH_FAILED, 'Solana RPC exhausted during mirror sell — using DB position amount as balance fallback', {
+                            userId, token: tokenAddress, balanceFallback: balance.toString(), decimals,
+                            positionCount: exitPositions.length
+                        });
+                    } else {
+                        logger.warn(LogCode.API_FETCH_FAILED, 'Skipping Solana sell: RPC exhausted and no usable amount in DB positions', { userId, token: tokenAddress });
+                        return null;
+                    }
+                } else {
+                    logger.warn(LogCode.API_FETCH_FAILED, 'Skipping Solana sell: All RPC strategies exhausted, keeping position open', { userId, token: tokenAddress });
+                    return null; // Safely skip — keep position open, do NOT treat RPC failure as zero balance
+                }
             }
 
-            for (const acc of accounts.value) {
-                const amount = BigInt(acc.account.data.parsed.info.tokenAmount.amount);
-                balance += amount;
-                decimals = acc.account.data.parsed.info.tokenAmount.decimals;
+            if (!usedDbBalanceFallback) {
+                for (const acc of accounts.value) {
+                    const amount = BigInt(acc.account.data.parsed.info.tokenAmount.amount);
+                    balance += amount;
+                    decimals = acc.account.data.parsed.info.tokenAmount.decimals;
+                }
             }
 
             const attribution = resolveAttributedPositionExitAmount({
