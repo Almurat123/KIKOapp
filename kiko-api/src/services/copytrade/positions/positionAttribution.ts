@@ -5,7 +5,6 @@ export interface AttributedPositionLike {
   tokenAddress: string;
   chainId?: number;
   entryTxHash?: string | null;
-  entryAmountExact?: string | null;
   entryAmountDec?: { toString(): string } | string | number | null;
 }
 
@@ -41,62 +40,12 @@ const INVALID_ENTRY_TX_PREFIXES = [
   'FAILED_',
 ];
 
-function parseHumanAmount(
-  exactValue: AttributedPositionLike['entryAmountExact'],
-  decimalValue: AttributedPositionLike['entryAmountDec']
-): string | null {
-  const exact = exactValue === null || exactValue === undefined ? null : String(exactValue).trim();
-  if (exact && exact !== '0') return exact;
-
-  const value = decimalValue;
+function parseHumanAmount(value: AttributedPositionLike['entryAmountDec']): string | null {
   if (value === null || value === undefined) return null;
   const raw = typeof value === 'object' && 'toString' in value ? value.toString() : String(value);
   const normalized = raw.trim();
   if (!normalized || normalized === '0') return null;
   return normalized;
-}
-
-function parseAttributedAmountRaw(params: {
-  exactValue: AttributedPositionLike['entryAmountExact'];
-  decimalValue: AttributedPositionLike['entryAmountDec'];
-  decimals: number;
-}): bigint | null {
-  const exact = parseHumanAmount(params.exactValue, null);
-  const decimal = parseHumanAmount(null, params.decimalValue);
-
-  if (exact && !exact.includes('.')) {
-    try {
-      const exactRaw = BigInt(exact);
-      if (decimal) {
-        const decimalRaw = ethers.parseUnits(decimal, params.decimals);
-        const delta = exactRaw > decimalRaw ? exactRaw - decimalRaw : decimalRaw - exactRaw;
-        const tolerance = (decimalRaw / 1_000_000n) + 10n;
-        if (delta <= tolerance) {
-          return exactRaw;
-        }
-      }
-    } catch {
-      // Fall through to decimal parsing.
-    }
-  }
-
-  if (exact) {
-    try {
-      return ethers.parseUnits(exact, params.decimals);
-    } catch {
-      // Fall through to decimal helper.
-    }
-  }
-
-  if (decimal) {
-    try {
-      return ethers.parseUnits(decimal, params.decimals);
-    } catch {
-      return null;
-    }
-  }
-
-  return null;
 }
 
 export function isConfirmedAttributedPosition(position: AttributedPositionLike): boolean {
@@ -121,17 +70,17 @@ export function resolveAttributedPositionExitAmount<T extends AttributedPosition
       excludedPositions.push(position);
       continue;
     }
-    const amountRaw = parseAttributedAmountRaw({
-      exactValue: position.entryAmountExact,
-      decimalValue: position.entryAmountDec,
-      decimals: params.decimals,
-    });
-    if (amountRaw === null || amountRaw <= 0n) {
+    const humanAmount = parseHumanAmount(position.entryAmountDec);
+    if (!humanAmount) {
       excludedPositions.push(position);
       continue;
     }
-    attributedAmountRaw += amountRaw;
-    eligiblePositions.push(position);
+    try {
+      attributedAmountRaw += ethers.parseUnits(humanAmount, params.decimals);
+      eligiblePositions.push(position);
+    } catch {
+      excludedPositions.push(position);
+    }
   }
 
   let reasonCode: PositionAttributionReasonCode = 'ATTRIBUTED_AMOUNT_RESOLVED';
@@ -176,3 +125,4 @@ export function resolveAttributedPositionExitAmount<T extends AttributedPosition
     },
   };
 }
+

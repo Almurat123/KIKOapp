@@ -11,12 +11,11 @@
  * - 多链支持
  */
 
-import { getZeroExPrice, getZeroExTokenMetadata, getNativeTokenAddress, toWei } from './zeroEx.js';
+import { getZeroExPrice } from './zeroEx.js';
 import { getSolanaTokenPrice } from './solanaOnChainPriceService.js';
 import { callRpc } from './rpcManager.js';
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
-import { computeUsdPriceFromQuote } from './pricing/evmUsdPriceMath.js';
 
 const RAYDIUM_PRICE_API = 'https://api-v3.raydium.io/mint/price';
 const PUMP_FUN_PROGRAM_ID = '6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P';
@@ -118,51 +117,30 @@ async function getEvmPriceUsd(tokenAddress: string, chainId: number): Promise<nu
         return 1.0;
     }
 
-    let actualTokenAddress = tokenAddress;
-    const lowerToken = tokenAddress?.toLowerCase() || '';
-    if (
-        lowerToken === '0x0000000000000000000000000000000000000000'
-        || lowerToken === '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee'
-        || !tokenAddress
-    ) {
-        const wrappedNativeAddress = getNativeTokenAddress(chainId);
-        if (!wrappedNativeAddress) {
-            logger.warn(LogCode.API_FETCH_FAILED, 'Missing wrapped native token address for 0x price', { chainId });
-            return 0;
-        }
-        actualTokenAddress = wrappedNativeAddress;
-    }
+    // 获取 1 单位代币能换多少 USDC
+    // 使用较小金额以获取更准确的价格 (避免滑点影响)
+    const sellAmount = '1000000000000000000'; // 1e18 (1 token with 18 decimals)
 
-    const [tokenMetadata, usdcMetadata] = await Promise.all([
-        getZeroExTokenMetadata(actualTokenAddress, chainId),
-        getZeroExTokenMetadata(usdcAddress, chainId),
-    ]);
-    const tokenDecimals = tokenMetadata?.decimals || 18;
-    const usdcDecimals = usdcMetadata?.decimals || 6;
-
-    // Quote exactly 1 token using correct token decimals.
-    const sellAmount = toWei('1', tokenDecimals);
-
-    const quote = await getZeroExPrice(actualTokenAddress, usdcAddress, sellAmount, chainId);
+    const quote = await getZeroExPrice(tokenAddress, usdcAddress, sellAmount, chainId);
 
     if (!quote || !quote.buyAmount) {
         return 0;
     }
 
-    const price = computeUsdPriceFromQuote({
-        buyAmount: quote.buyAmount,
-        sellAmount,
-        buyTokenDecimals: usdcDecimals,
-        sellTokenDecimals: tokenDecimals,
-    });
+    // 计算价格: buyAmount (USDC, 6 decimals) / sellAmount (token, 18 decimals)
+    // price = (buyAmount / 1e6) / (sellAmount / 1e18)
+    // price = buyAmount * 1e12 / sellAmount
+    const buyAmountBigInt = BigInt(quote.buyAmount);
+    const sellAmountBigInt = BigInt(sellAmount);
+
+    // USDC has 6 decimals, most tokens have 18
+    // Price = (buyAmount / 10^6) / (sellAmount / 10^18) = buyAmount * 10^12 / sellAmount
+    const priceBigInt = (buyAmountBigInt * BigInt(1e12)) / sellAmountBigInt;
+    const price = Number(priceBigInt) / 1e12;
 
     logger.debug(LogCode.API_FETCH_SUCCESS, 'EVM price from 0x', {
         token: tokenAddress.slice(0, 10),
         chainId,
-        buyAmount: quote.buyAmount,
-        sellAmount,
-        tokenDecimals,
-        usdcDecimals,
         price: price.toFixed(8)
     });
 

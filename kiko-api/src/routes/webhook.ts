@@ -713,13 +713,6 @@ async function processAlchemyWebhookPayload(payload: any): Promise<void> {
                     if (shouldAttemptFullTxFallback && Date.now() < decodeDeadline) {
                         const fullTx = await fetchFullTxOnce();
                         if (fullTx) {
-                            resolvedTxForContext = {
-                                hash: txHash,
-                                from: fullTx.from,
-                                to: fullTx.to,
-                                input: fullTx.input,
-                                value: fullTx.value,
-                            };
                             const parseFullStart = Date.now();
                             const reparsed = await withTimeout(parseSwapTransaction(
                                 {
@@ -739,6 +732,13 @@ async function processAlchemyWebhookPayload(payload: any): Promise<void> {
                             parseFullMs += Date.now() - parseFullStart;
                             if (reparsed) {
                                 swap = reparsed;
+                                resolvedTxForContext = {
+                                    hash: txHash,
+                                    from: fullTx.from,
+                                    to: fullTx.to,
+                                    input: fullTx.input,
+                                    value: fullTx.value,
+                                };
                             }
                         }
                     }
