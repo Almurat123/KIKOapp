@@ -49,16 +49,21 @@ export function mapSwapResultToOutcome(
   context?: TradingOutcomeMappingContext,
 ): CopytradeExecutionOutcome {
   if (result.success) {
+    const lifecycleStatus = result.txLifecycle?.status;
+    const reasonCode: CopytradeExecutionOutcome['reasonCode'] = lifecycleStatus === 'confirmed_success'
+      ? 'ok_buy_confirmed_open'
+      : lifecycleStatus === 'broadcasted_unseen'
+        ? 'trading_execution_uncertain'
+        : 'ok_buy_submitted';
     const successOutcome: CopytradeExecutionOutcome = {
       status: mapSuccessStatus(result),
       txHash: result.txHash || null,
-      reasonCode: result.txLifecycle?.status === 'confirmed_success'
-        ? 'ok_buy_confirmed_open'
-        : 'ok_buy_submitted',
+      reasonCode,
       retryable: false,
       metadata: {
         provider: result.metadata?.provider || 'unknown',
-        txLifecycleStatus: result.txLifecycle?.status || null,
+        txLifecycleStatus: lifecycleStatus || null,
+        uncertainVisibility: lifecycleStatus === 'broadcasted_unseen',
       },
     };
     const lifecycleState: CopytradeLifecycleState = successOutcome.status === 'confirmed'

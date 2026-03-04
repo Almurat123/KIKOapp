@@ -62,6 +62,12 @@ export class CopytradeV2Runtime {
       detectedAt: context?.detectedAt,
       mode,
     });
+    const executionStatus = result.executionOutcome?.status || null;
+    const executionReasonCode = result.executionOutcome?.reasonCode || null;
+    const executionTxHash = result.executionOutcome?.txHash || null;
+    const executionSkipReason = typeof result.executionOutcome?.metadata?.reason === 'string'
+      ? result.executionOutcome.metadata.reason
+      : null;
 
     logger.info(LogCode.SYS_INFO, '[CopyTradeV2] order processed', {
       orderId: result.order.id,
@@ -70,9 +76,26 @@ export class CopytradeV2Runtime {
       skipped: result.skipped,
       lifecycleState: result.order.lifecycleState,
       reasonCode: result.reasonCode,
+      executionStatus,
+      executionReasonCode,
+      executionTxHash,
+      executionSkipReason,
       txHash: swap?.txHash || undefined,
       targetWallet,
     });
+
+    if (chainId === 900 && executionStatus && !executionTxHash) {
+      logger.warn(LogCode.WTC_TX_SKIPPED, '[CopyTradeV2] Solana order processed without execution tx hash', {
+        orderId: result.order.id,
+        lifecycleState: result.order.lifecycleState,
+        reasonCode: result.reasonCode,
+        executionStatus,
+        executionReasonCode,
+        executionSkipReason,
+        sourceTxHash: swap?.txHash || null,
+        targetWallet,
+      });
+    }
   }
 
   private async resolveMode(targetWallet: string, chainId: number): Promise<CopytradeMode> {

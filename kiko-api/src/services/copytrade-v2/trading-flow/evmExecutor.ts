@@ -140,7 +140,11 @@ export class EvmTradingFlowExecutor implements CopytradeExecutionPort {
         };
       }
 
-      if (sellDirection && (outcome.status === 'submitted' || outcome.status === 'accepted')) {
+      if (
+        sellDirection
+        && (outcome.status === 'submitted' || outcome.status === 'accepted')
+        && outcome.reasonCode !== 'trading_execution_uncertain'
+      ) {
         return {
           ...outcome,
           reasonCode: 'ok_exit_submitted',

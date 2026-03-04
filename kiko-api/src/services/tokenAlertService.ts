@@ -3,7 +3,7 @@ import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
 import { initAutoTradeService } from './autoTradeService.js';
 import { getTokenInfo } from './tokenService.js';
-import { notificationService } from './notificationService.js';
+import { notificationService } from './notifications/farcaster/index.js';
 // autoTradeService is not an exported instance, but a set of functions
 
 class TokenAlertService {

@@ -7,7 +7,7 @@ import { validateAddress } from '../utils/validation.js';
 import { getSolanaConnection } from '../config/solanaConfig.js';
 import { TOKEN_PROGRAM_ID } from '../utils/solanaToken.js';
 import { PublicKey, SystemProgram } from '@solana/web3.js';
-import { notificationService } from '../services/notificationService.js';
+import { notificationService } from '../services/notifications/farcaster/index.js';
 import { isErc20ContractAddress } from '../utils/evmTokenCheck.js';
 import { getTargetWalletStatus } from '../services/targetWalletTrackingService.js';
 import {

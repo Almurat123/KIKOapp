@@ -1,6 +1,6 @@
 import { ethers } from 'ethers';
 import { zoraService, ZORA_CREATOR_COIN_HOOKS } from './zoraService.js';
-import { notificationService } from './notificationService.js';
+import { notificationService } from './notifications/farcaster/index.js';
 import { prisma } from '../db/prisma.js';
 import { sendTransaction, isPrivyConfigured } from './privyWallet.js';
 import { logger } from '../utils/logger.js';

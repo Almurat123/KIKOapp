@@ -1,6 +1,8 @@
 import { executeSwapViaPort } from '../../swap/swapExecutionPort.js';
 import { getSolanaEmbeddedWalletAddress } from '../../privyWallet.js';
 import type { MainSwapRequest } from '../../MainSwapService.js';
+import { logger } from '../../../utils/logger.js';
+import { LogCode } from '../../../config/logRegistry.js';
 import type { CopytradeExecutionOutcome } from '../contracts/outcomes.js';
 import type { CopytradeExecutionPort, CopytradeIngressSignal } from '../contracts/ports.js';
 import type { CopytradeOrderAggregate } from '../contracts/aggregate.js';
@@ -37,9 +39,14 @@ export class SolanaTradingFlowExecutor implements CopytradeExecutionPort {
 
     const context = await resolveTradingContext(order);
     if (!context || !context.userId) {
+      logger.warn(LogCode.WTC_TX_SKIPPED, '[CopyTradeV2][SolanaExecution] skipped before send: missing trading context', {
+        orderId: order.id,
+        chainId: signal.chainId,
+        txHash: signal.swap?.txHash || undefined,
+      });
       return {
         status: 'failed_terminal',
-        reasonCode: 'failed_terminal',
+        reasonCode: 'validation_unroutable',
         retryable: false,
         metadata: {
           reason: 'missing_trading_context',
@@ -50,9 +57,15 @@ export class SolanaTradingFlowExecutor implements CopytradeExecutionPort {
 
     const walletAddress = context.walletAddress || await getSolanaEmbeddedWalletAddress(context.userId) || '';
     if (!walletAddress) {
+      logger.warn(LogCode.WTC_TX_SKIPPED, '[CopyTradeV2][SolanaExecution] skipped before send: missing solana wallet', {
+        orderId: order.id,
+        userId: context.userId,
+        chainId: signal.chainId,
+        txHash: signal.swap?.txHash || undefined,
+      });
       return {
         status: 'failed_terminal',
-        reasonCode: 'failed_terminal',
+        reasonCode: 'validation_unroutable',
         retryable: false,
         metadata: {
           reason: 'missing_solana_wallet',
@@ -77,6 +90,14 @@ export class SolanaTradingFlowExecutor implements CopytradeExecutionPort {
         })).amountInHuman;
 
     if (!amountInHuman || Number(amountInHuman) <= 0) {
+      logger.info(LogCode.WTC_TX_SKIPPED, '[CopyTradeV2][SolanaExecution] skipped before send: amount resolution failed', {
+        orderId: order.id,
+        chainId: signal.chainId,
+        txHash: signal.swap?.txHash || undefined,
+        sellDirection,
+        tokenIn: signal.swap.tokenIn,
+        tokenOut: signal.swap.tokenOut,
+      });
       return {
         status: 'deferred',
         reasonCode: 'deferred_retry_later',
@@ -128,7 +149,11 @@ export class SolanaTradingFlowExecutor implements CopytradeExecutionPort {
         };
       }
 
-      if (sellDirection && (outcome.status === 'submitted' || outcome.status === 'accepted')) {
+      if (
+        sellDirection
+        && (outcome.status === 'submitted' || outcome.status === 'accepted')
+        && outcome.reasonCode !== 'trading_execution_uncertain'
+      ) {
         return {
           ...outcome,
           reasonCode: 'ok_exit_submitted',

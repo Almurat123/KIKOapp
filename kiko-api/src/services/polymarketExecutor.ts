@@ -14,7 +14,7 @@ import { createLimitOrderData, buildSignedOrder, SignedOrder, getUserWalletAddre
 import { getEmbeddedWalletInfo } from './privyWallet.js';
 import { fetchJson } from '../config/unifiedApiService.js';
 import crypto from 'crypto';
-import { notificationService } from './notificationService.js';
+import { notificationService } from './notifications/farcaster/index.js';
 
 // CLOB API endpoints
 const CLOB_API = 'https://clob.polymarket.com';

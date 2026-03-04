@@ -68,6 +68,14 @@ const PRIVY_FAST_TRADE_SYNC_VISIBILITY_RETRIES = 1;
 const PRIVY_FAST_TRADE_SYNC_VISIBILITY_DELAY_MS = 0;
 const PRIVY_FAST_TRADE_SKIP_SYNC_VISIBILITY = (process.env.PRIVY_FAST_TRADE_SKIP_SYNC_VISIBILITY || 'true').toLowerCase() === 'true';
 const PRIVY_FAST_TRADE_FORCE_RAW_PATH = (process.env.PRIVY_FAST_TRADE_FORCE_RAW_PATH || 'false').toLowerCase() === 'true';
+const PRIVY_FAST_TRADE_UNRESOLVED_VISIBILITY_RETRIES = Math.max(1, Number(process.env.PRIVY_FAST_TRADE_UNRESOLVED_VISIBILITY_RETRIES || '3'));
+const PRIVY_FAST_TRADE_UNRESOLVED_VISIBILITY_DELAY_MS = Math.max(0, Number(process.env.PRIVY_FAST_TRADE_UNRESOLVED_VISIBILITY_DELAY_MS || '140'));
+const PRIVY_FAST_TRADE_UNRESOLVED_VISIBILITY_CHAIN_IDS = new Set(
+    String(process.env.PRIVY_FAST_TRADE_UNRESOLVED_VISIBILITY_CHAIN_IDS || '8453')
+        .split(',')
+        .map((value) => Number(value.trim()))
+        .filter((value) => Number.isInteger(value) && value > 0)
+);
 const PRIVY_FAST_TRADE_BASE_GAS_BUMP_BPS = BigInt(Math.max(10000, Number(process.env.PRIVY_FAST_TRADE_BASE_GAS_BUMP_BPS || '22000')));
 const PRIVY_FAST_TRADE_BSC_GAS_BUMP_BPS = BigInt(Math.max(10000, Number(process.env.PRIVY_FAST_TRADE_BSC_GAS_BUMP_BPS || '17000')));
 const PRIVY_FAST_TRADE_DEFAULT_GAS_BUMP_BPS = BigInt(Math.max(10000, Number(process.env.PRIVY_FAST_TRADE_DEFAULT_GAS_BUMP_BPS || '15000')));
@@ -297,6 +305,63 @@ function scheduleTxVisibilityCheck(params: {
             });
         }
     })();
+}
+
+async function tryResolveFastTradeUnresolvedVisibility(params: {
+    lifecycle: TxLifecycleResult;
+    chainId: number;
+    txHash?: string;
+    expectedFrom?: string;
+    path: 'raw_sign_broadcast' | 'privy_sendtx';
+}): Promise<TxLifecycleResult> {
+    const { lifecycle, chainId, txHash, expectedFrom, path } = params;
+    if (lifecycle.status !== 'broadcasted_unseen' || !txHash) return lifecycle;
+    if (!PRIVY_FAST_TRADE_UNRESOLVED_VISIBILITY_CHAIN_IDS.has(chainId)) return lifecycle;
+
+    try {
+        const visibility = await verifyTxVisibility(chainId, txHash, expectedFrom, {
+            retries: PRIVY_FAST_TRADE_UNRESOLVED_VISIBILITY_RETRIES,
+            delayMs: PRIVY_FAST_TRADE_UNRESOLVED_VISIBILITY_DELAY_MS
+        });
+        if (visibility.visible) {
+            logger.info(LogCode.SYS_INFO, 'Fast trade visibility resolved via short sync probe', {
+                chainId,
+                txHash,
+                path,
+                checks: visibility.checks,
+                seenFrom: visibility.from,
+                seenNonce: visibility.nonce
+            });
+            return {
+                ...lifecycle,
+                status: 'visible_pending',
+                firstSeenAt: lifecycle.firstSeenAt || Date.now(),
+                attempts: Math.max(lifecycle.attempts || 1, visibility.checks || 1),
+                lastRpcError: undefined
+            };
+        }
+
+        logger.warn(LogCode.SYS_INFO, 'Fast trade visibility remained unresolved after short sync probe', {
+            chainId,
+            txHash,
+            path,
+            checks: visibility.checks,
+            lastError: visibility.lastError || null
+        });
+        return {
+            ...lifecycle,
+            attempts: Math.max(lifecycle.attempts || 1, visibility.checks || 1),
+            lastRpcError: lifecycle.lastRpcError || visibility.lastError || 'not_found_by_rpc'
+        };
+    } catch (error: any) {
+        logger.warn(LogCode.SYS_INFO, 'Fast trade visibility short sync probe failed', {
+            chainId,
+            txHash,
+            path,
+            error: error?.message || String(error)
+        });
+        return lifecycle;
+    }
 }
 
 /**
@@ -1134,12 +1199,22 @@ export async function sendTransactionLifecycle(
                             && rawLifecycle.status === 'broadcasted_unseen'
                             && !!txWithNonce.nonce
                         ) {
+                            const upgradedLifecycle = await tryResolveFastTradeUnresolvedVisibility({
+                                lifecycle: rawLifecycle,
+                                chainId: txWithNonce.chainId,
+                                txHash: rawLifecycle.txHash,
+                                expectedFrom: walletInfo.address,
+                                path: 'raw_sign_broadcast'
+                            });
+                            if (upgradedLifecycle.status !== 'broadcasted_unseen') {
+                                return upgradedLifecycle;
+                            }
                             logger.warn(LogCode.SYS_INFO, 'Fast trade raw path unresolved visibility; returning uncertain lifecycle', {
                                 chainId: txWithNonce.chainId,
                                 txHash: rawLifecycle.txHash,
                                 attempts: attempt
                             });
-                            return rawLifecycle;
+                            return upgradedLifecycle;
                         }
                         return rawLifecycle;
                     }
@@ -1286,12 +1361,22 @@ export async function sendTransactionLifecycle(
                         && lifecycleBase.status === 'broadcasted_unseen'
                         && !!txWithNonce.nonce
                     ) {
+                        const upgradedLifecycle = await tryResolveFastTradeUnresolvedVisibility({
+                            lifecycle: lifecycleBase,
+                            chainId: txWithNonce.chainId,
+                            txHash: response.hash,
+                            expectedFrom: walletInfo.address,
+                            path: 'privy_sendtx'
+                        });
+                        if (upgradedLifecycle.status !== 'broadcasted_unseen') {
+                            return upgradedLifecycle;
+                        }
                         logger.warn(LogCode.SYS_INFO, 'Privy fast trade send unresolved visibility; returning uncertain lifecycle', {
                             chainId: txWithNonce.chainId,
                             txHash: response.hash,
                             attempts: attempt
                         });
-                        return lifecycleBase;
+                        return upgradedLifecycle;
                     }
 
                     if (fastTradePath) {
@@ -1453,9 +1538,10 @@ export async function sendTransactionLifecycle(
                         lowerErrorMessage.includes('fee too low') ||
                         lowerErrorMessage.includes('max fee per gas less than block base fee');
 
-                    const isNonceError = lowerErrorMessage.includes('nonce too low') ||
-                        lowerErrorMessage.includes('nonce has already been used') ||
-                        lowerErrorMessage.includes('replacement transaction underpriced');
+                    const isNonceTooLowError = lowerErrorMessage.includes('nonce too low')
+                        || lowerErrorMessage.includes('nonce has already been used');
+                    const isReplacementUnderpricedError = lowerErrorMessage.includes('replacement transaction underpriced');
+                    const isNonceError = isNonceTooLowError || isReplacementUnderpricedError;
 
                     const isNetworkError = lowerErrorMessage.includes('fetch failed') ||
                         lowerErrorMessage.includes('econnreset') ||
@@ -1501,7 +1587,7 @@ export async function sendTransactionLifecycle(
                             });
                         }
                         const reason = isNonceError
-                            ? 'Nonce error'
+                            ? (isReplacementUnderpricedError ? 'Replacement underpriced' : 'Nonce error')
                             : (hasUnderpricedHint ? 'Underpriced tx' : 'Network failure');
                         if (isNonceError) {
                             const keepSameNonceForSafety =
@@ -1515,27 +1601,48 @@ export async function sendTransactionLifecycle(
                                     });
                                     throw new AppError(500, 'Trade nonce missing; aborting retry for safety', 'TRADE_NONCE_MISSING');
                                 }
-                                const bumpBps = 12500n;
-                                if (txWithNonce.gasPrice) {
-                                    const current = BigInt(txWithNonce.gasPrice);
-                                    const bumped = (current * bumpBps + 9999n) / 10000n;
+                                if (isReplacementUnderpricedError) {
+                                    const bumpBps = 12500n;
+                                    if (txWithNonce.gasPrice) {
+                                        const current = BigInt(txWithNonce.gasPrice);
+                                        const bumped = (current * bumpBps + 9999n) / 10000n;
+                                        txWithNonce = {
+                                            ...txWithNonce,
+                                            gasPrice: (bumped > current ? bumped : (current + 1n)).toString()
+                                        };
+                                    } else {
+                                        const nextTx = { ...txWithNonce };
+                                        if (nextTx.maxFeePerGas) {
+                                            const current = BigInt(nextTx.maxFeePerGas);
+                                            const bumped = (current * bumpBps + 9999n) / 10000n;
+                                            nextTx.maxFeePerGas = (bumped > current ? bumped : (current + 1n)).toString();
+                                        }
+                                        if (nextTx.maxPriorityFeePerGas) {
+                                            const current = BigInt(nextTx.maxPriorityFeePerGas);
+                                            const bumped = (current * bumpBps + 9999n) / 10000n;
+                                            nextTx.maxPriorityFeePerGas = (bumped > current ? bumped : (current + 1n)).toString();
+                                        }
+                                        txWithNonce = nextTx;
+                                    }
+                                } else {
+                                    invalidatePendingNonce(txWithNonce.chainId, walletInfo.address);
+                                    const currentNonce = txWithNonce.nonce ? BigInt(txWithNonce.nonce) : null;
+                                    const refreshedNonceHex = await getPendingNonce(txWithNonce.chainId, walletInfo.address);
+                                    const refreshedNonce = refreshedNonceHex ? BigInt(refreshedNonceHex) : null;
+                                    const nextNonce = refreshedNonce !== null
+                                        ? (currentNonce !== null && refreshedNonce <= currentNonce ? currentNonce + 1n : refreshedNonce)
+                                        : (currentNonce !== null ? currentNonce + 1n : null);
                                     txWithNonce = {
                                         ...txWithNonce,
-                                        gasPrice: (bumped > current ? bumped : (current + 1n)).toString()
+                                        nonce: nextNonce !== null ? nextNonce.toString() : txWithNonce.nonce
                                     };
-                                } else {
-                                    const nextTx = { ...txWithNonce };
-                                    if (nextTx.maxFeePerGas) {
-                                        const current = BigInt(nextTx.maxFeePerGas);
-                                        const bumped = (current * bumpBps + 9999n) / 10000n;
-                                        nextTx.maxFeePerGas = (bumped > current ? bumped : (current + 1n)).toString();
-                                    }
-                                    if (nextTx.maxPriorityFeePerGas) {
-                                        const current = BigInt(nextTx.maxPriorityFeePerGas);
-                                        const bumped = (current * bumpBps + 9999n) / 10000n;
-                                        nextTx.maxPriorityFeePerGas = (bumped > current ? bumped : (current + 1n)).toString();
-                                    }
-                                    txWithNonce = nextTx;
+                                    logger.warn(LogCode.EXE_TX_BROADCAST, 'Nonce too low on deterministic trade tx, advanced nonce for retry', {
+                                        chainId: txWithNonce.chainId,
+                                        attempt,
+                                        currentNonce: currentNonce?.toString() || null,
+                                        refreshedNonce: refreshedNonce?.toString() || null,
+                                        nextNonce: txWithNonce.nonce || null
+                                    });
                                 }
                             } else {
                                 invalidatePendingNonce(txWithNonce.chainId, walletInfo.address);
