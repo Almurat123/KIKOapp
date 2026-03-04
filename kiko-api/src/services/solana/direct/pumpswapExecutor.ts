@@ -5,6 +5,7 @@ import { LogCode } from '../../../config/logRegistry.js';
 import { getPlatformFee } from '../../platformFeeService.js';
 import { getSolanaSigningContext, sendSolanaTransactionWithContext } from '../../privyWallet.js';
 import { getLatestSolanaBlockhash } from '../blockhashProvider.js';
+import { getJupiterSwapTransaction, getSolanaQuoteFromAggregator } from '../../solanaSwap.js';
 import {
   ASSOCIATED_TOKEN_PROGRAM_ID,
   getAssociatedTokenAddress,
@@ -222,6 +223,78 @@ function toU64LE(value: bigint): Buffer {
   return buf;
 }
 
+async function executePumpAmmViaJupiterDirect(params: {
+  request: SolDirectExecutionRequest;
+  signingContext: ResolvedSolanaSigningContext;
+  connection: Connection;
+}): Promise<SolDirectExecutionResult> {
+  const { request, signingContext, connection } = params;
+  const inputMint = request.isBuy ? WSOL_MINT.toBase58() : request.mint;
+  const outputMint = request.isBuy ? request.mint : WSOL_MINT.toBase58();
+
+  const quote = await getSolanaQuoteFromAggregator(
+    'jupiter',
+    inputMint,
+    outputMint,
+    request.amountAtomic,
+    request.slippageBps,
+    signingContext.address,
+    undefined,
+    request.feeContext,
+    {
+      forcePublicApi: true,
+      dexes: ['Pump.fun Amm', 'Pump.fun AMM', 'Pump.fun'],
+    }
+  );
+
+  if (!quote) {
+    return {
+      ok: false,
+      provider: 'pumpswap',
+      reasonCode: 'pool_not_found',
+      message: `pumpswap direct fallback quote unavailable for mint=${request.mint}`,
+    };
+  }
+
+  let swapTransaction = quote.swapTransaction;
+  if (!swapTransaction) {
+    const builtSwapTx = await getJupiterSwapTransaction(quote, signingContext.address, true, request.feeContext);
+    if (builtSwapTx) {
+      swapTransaction = builtSwapTx;
+    }
+  }
+  if (!swapTransaction) {
+    return {
+      ok: false,
+      provider: 'pumpswap',
+      reasonCode: 'build_failed',
+      message: `pumpswap direct fallback failed to build Jupiter swap tx for mint=${request.mint}`,
+    };
+  }
+
+  const tx = VersionedTransaction.deserialize(Buffer.from(swapTransaction, 'base64'));
+  const recentBlockhash = await getLatestSolanaBlockhash(connection, 'pumpswap_direct_jupiter_fallback');
+  tx.message.recentBlockhash = recentBlockhash.blockhash;
+  const refreshedTxBase64 = Buffer.from(tx.serialize()).toString('base64');
+  const txHash = await sendSolanaTransactionWithContext(request.userId, refreshedTxBase64, signingContext);
+
+  logger.info(LogCode.EXE_TX_BROADCAST, '[PumpSwapDirect] Executed via Jupiter Pump.fun AMM direct fallback', {
+    txHash,
+    mint: request.mint,
+    side: request.isBuy ? 'buy' : 'sell',
+  });
+
+  return {
+    ok: true,
+    txHash,
+    provider: 'pumpswap',
+    route: 'direct',
+    metadata: {
+      mode: 'pumpswap_direct_jupiter_filtered',
+    },
+  };
+}
+
 async function resolveReserves(
   connection: Connection,
   poolBaseAta: PublicKey,
@@ -305,12 +378,11 @@ export async function executePumpSwapDirect(
     const user = new PublicKey(signingContext.address);
     const resolvedPool = await resolvePumpSwapPoolForMint(connection, mint, request.poolId || null);
     if (!resolvedPool) {
-      return {
-        ok: false,
-        provider: 'pumpswap',
-        reasonCode: 'pool_not_found',
-        message: `pumpswap pool not found for mint=${request.mint} (no validated mint/WSOL pool resolved)`,
-      };
+      logger.warn(LogCode.API_FETCH_FAILED, '[PumpSwapDirect] no validated mint/WSOL pool resolved, trying Jupiter Pump.fun AMM direct fallback', {
+        mint: request.mint,
+        side: request.isBuy ? 'buy' : 'sell',
+      });
+      return executePumpAmmViaJupiterDirect({ request, signingContext, connection });
     }
     const { pool, info: poolInfo, layout } = resolvedPool;
 
