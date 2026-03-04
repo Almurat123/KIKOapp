@@ -1,4 +1,5 @@
 import prisma from '../../../db/prisma.js';
+import { hasPositiveAttributionAmount } from '../positions/positionAttributionAmount.js';
 import { resolveCopytradeLedgerMode } from './copytradeLedgerMode.js';
 
 const BUY_PENDING_STATES = [
@@ -6,13 +7,6 @@ const BUY_PENDING_STATES = [
   'FOLLOWER_BUY_ACCEPTED',
   'FOLLOWER_BUY_AWAITING_CONFIRMATION',
 ] as const;
-
-function hasPositiveDecimal(value: unknown): boolean {
-  const normalized = String(value ?? '').trim();
-  if (!normalized) return false;
-  if (!/^[+-]?\d+(?:\.\d+)?$/.test(normalized)) return false;
-  return Number(normalized) > 0;
-}
 
 export async function findLedgerFirstPendingCleanupPositionIds(params: {
   createdBefore: Date;
@@ -208,7 +202,9 @@ export async function findLedgerFirstRepairCandidates() {
       .filter((position) => {
         const exact = String(position.entryAmountExact || '').trim();
         const entryAmount = String(position.entryAmount || '').trim();
-        return !hasPositiveDecimal(exact) && !hasPositiveDecimal(position.entryAmountDec) && hasPositiveDecimal(entryAmount);
+        return !hasPositiveAttributionAmount(exact)
+          && !hasPositiveAttributionAmount(position.entryAmountDec)
+          && hasPositiveAttributionAmount(entryAmount);
       })
       .map((position) => position.id),
   );

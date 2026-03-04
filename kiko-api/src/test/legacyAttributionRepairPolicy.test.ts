@@ -40,4 +40,18 @@ describe('legacy attribution repair policy', () => {
     assert.equal(decision.source, 'position_entry_amount');
     assert.equal(decision.repairedExactAmount, '0.0015195066668355');
   });
+
+  test('still repairs from entry amount text when decimal attribution is zero-like', () => {
+    const decision = resolveLegacyAttributionRepair({
+      hasExactAmount: false,
+      hasDecimalAmount: false,
+      entryAmount: '0.0015195066668355008',
+      decimals: 18,
+      pendingLots: [],
+    });
+
+    assert.equal(decision.shouldRepair, true);
+    assert.equal(decision.reasonCode, 'repair_from_position_entry_amount');
+    assert.equal(decision.repairedExactAmount, '0.0015195066668355');
+  });
 });

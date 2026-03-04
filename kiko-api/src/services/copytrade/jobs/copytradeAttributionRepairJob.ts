@@ -6,6 +6,7 @@ import { findLedgerFirstRepairCandidates } from '../ledger/copytradeLedgerSelect
 import { resolveCopytradeLedger } from '../ledger/copytradeLedgerService.js';
 import { syncCopytradeLedgerFromLegacy } from '../ledger/copytradeLedgerRepository.js';
 import { resolveLegacyAttributionRepair } from '../positions/legacyAttributionRepairPolicy.js';
+import { hasPositiveAttributionAmount } from '../positions/positionAttributionAmount.js';
 import { evaluatePositionAttributionIntegrity } from '../positions/positionAttributionIntegrityGate.js';
 import { encodePositionTokenAmount } from '../positions/positionDecimalCodec.js';
 
@@ -51,8 +52,8 @@ export async function repairCopytradePositionAttribution(params: {
 
   const decimals = await getErc20Decimals(params.tokenAddress, params.chainId).catch(() => 18);
   const repair = resolveLegacyAttributionRepair({
-    hasExactAmount: !!String(position.entryAmountExact || '').trim() && String(position.entryAmountExact || '').trim() !== '0',
-    hasDecimalAmount: !!String(position.entryAmountDec || '').trim() && String(position.entryAmountDec || '').trim() !== '0',
+    hasExactAmount: hasPositiveAttributionAmount(position.entryAmountExact),
+    hasDecimalAmount: hasPositiveAttributionAmount(position.entryAmountDec),
     entryAmount: position.entryAmount,
     pendingLots: ledger?.pendingLots || [],
     ledgerEffectiveOwnedAmountRaw: ledger?.metrics.effectiveOwnedAmountRaw,
