@@ -49,7 +49,18 @@ function resolveSelectedAggregator(
     launchpadProvider?: SolanaSwapParams['launchpadProvider']
 ): SolanaAggregator {
     return preferredAggregator
-        || (executionMode === 'turbo' || launchpadProvider === 'pumpswap' ? 'jupiter' : 'auto');
+        || (executionMode === 'turbo' || launchpadProvider === 'pumpswap' || launchpadProvider === 'pumpfun' ? 'jupiter' : 'auto');
+}
+
+function resolveJupiterDexFiltersForLaunchpad(
+    launchpadProvider?: SolanaSwapParams['launchpadProvider']
+): string[] | undefined {
+    if (launchpadProvider === 'pumpfun' || launchpadProvider === 'pumpswap') {
+        // Jupiter dex label for pAMM routes (label is case-sensitive in practice).
+        // Keep aliases for compatibility across API variants.
+        return ['Pump.fun Amm', 'Pump.fun AMM', 'Pump.fun'];
+    }
+    return undefined;
 }
 
 function applyCopyTradePriorityFee(quote: SolanaQuote | null, feeContext?: SolanaSwapParams['feeContext']): SolanaQuote | null {
@@ -112,6 +123,7 @@ async function executeSolanaSwapWithDeps(
 
     // 1) Quote + send with adaptive aggregator fallback on simulation failures.
     const selectedAggregator = resolveSelectedAggregator(preferredAggregator, executionMode, launchpadProvider);
+    const launchpadDexFilters = resolveJupiterDexFiltersForLaunchpad(launchpadProvider);
     const aggregatorCandidates: SolanaAggregator[] = selectedAggregator === 'auto'
         ? ['auto', 'meteora', 'raydium', 'jupiter']
         : [selectedAggregator];
@@ -167,7 +179,10 @@ async function executeSolanaSwapWithDeps(
                     walletAddress,
                     undefined,
                     params.feeContext,
-                    executionMode === 'turbo' ? { forcePublicApi: true } : undefined
+                    {
+                        forcePublicApi: executionMode === 'turbo',
+                        dexes: candidate === 'jupiter' ? launchpadDexFilters : undefined,
+                    }
                 );
 
             const adjustedQuote = applyCopyTradePriorityFee(quote, params.feeContext);
