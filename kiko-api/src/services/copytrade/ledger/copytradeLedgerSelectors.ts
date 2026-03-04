@@ -7,6 +7,13 @@ const BUY_PENDING_STATES = [
   'FOLLOWER_BUY_AWAITING_CONFIRMATION',
 ] as const;
 
+function hasPositiveDecimal(value: unknown): boolean {
+  const normalized = String(value ?? '').trim();
+  if (!normalized) return false;
+  if (!/^[+-]?\d+(?:\.\d+)?$/.test(normalized)) return false;
+  return Number(normalized) > 0;
+}
+
 export async function findLedgerFirstPendingCleanupPositionIds(params: {
   createdBefore: Date;
 }): Promise<string[]> {
@@ -200,9 +207,8 @@ export async function findLedgerFirstRepairCandidates() {
     positions
       .filter((position) => {
         const exact = String(position.entryAmountExact || '').trim();
-        const dec = String(position.entryAmountDec || '').trim();
         const entryAmount = String(position.entryAmount || '').trim();
-        return (!exact || exact === '0') && (!dec || dec === '0') && !!entryAmount && entryAmount !== '0';
+        return !hasPositiveDecimal(exact) && !hasPositiveDecimal(position.entryAmountDec) && hasPositiveDecimal(entryAmount);
       })
       .map((position) => position.id),
   );

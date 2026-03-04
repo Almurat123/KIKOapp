@@ -19,6 +19,21 @@ describe('position attribution integrity gate', () => {
     assert.equal(decision.reasonCode, 'integrity_missing_entry_attribution');
   });
 
+  test('treats zero-like decimal strings as missing attribution', () => {
+    const decision = evaluatePositionAttributionIntegrity({
+      entryAmountExact: null,
+      entryAmountDec: '0.000000000000000000',
+      ledger: {
+        metrics: {
+          effectiveOwnedAmountRaw: 0n,
+        },
+      },
+    });
+
+    assert.equal(decision.repairRequired, true);
+    assert.equal(decision.reasonCode, 'integrity_missing_entry_attribution');
+  });
+
   test('passes when ledger already has effective owned amount', () => {
     const decision = evaluatePositionAttributionIntegrity({
       entryAmountExact: null,

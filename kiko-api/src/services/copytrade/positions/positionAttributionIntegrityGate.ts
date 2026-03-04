@@ -1,6 +1,8 @@
 function hasPositiveDecimal(value: unknown): boolean {
   const normalized = String(value ?? '').trim();
-  return !!normalized && normalized !== '0';
+  if (!normalized) return false;
+  if (!/^[+-]?\d+(?:\.\d+)?$/.test(normalized)) return false;
+  return Number(normalized) > 0;
 }
 
 function hasPositiveLedgerAmount(params: {
