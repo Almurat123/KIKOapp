@@ -88,6 +88,7 @@ import { buildCopytradeBuyPlannedArtifact } from './copytrade/buy/plannedExecuti
 import { shouldAbortCopytradeBuyRetry } from './copytrade/buy/copytradeBuyRetryGuard.js';
 import { evaluateBuyPriceDeviationGuard } from './copytrade/buy/buyGuardPriceDeviation.js';
 import { reconcileOpenPositionsForExit } from './copytrade/exit/openPositionReconciliation.js';
+import { evaluateMirrorSellExecutionPolicy } from './copytrade/exit/mirrorSellExecutionPolicy.js';
 import { resolveAttributedPositionExitAmount } from './copytrade/positions/positionAttribution.js';
 import { finalizeCopytradeBuyPosition } from './copytrade/positions/positionPersistence.js';
 import {
@@ -95,7 +96,6 @@ import {
     listPendingAttributedPositions,
     upsertPendingAttributedPosition
 } from './copytrade/positions/pendingAttributedPositionLedger.js';
-import { verifyTargetFullExit } from './copytrade/reconcile/targetSellFullExitVerifier.js';
 import { runTargetSellReconciliationCycle } from './copytrade/reconcile/targetSellReconciliationJob.js';
 import { getCopytradeBuySharedWarmup } from './copytrade/buy/buySharedWarmup.js';
 import { shouldDeferStrongRpcMonitoring } from './copytrade/buy/preConfirmationRpcPolicy.js';
@@ -3692,24 +3692,6 @@ async function handleTargetSell(
     });
     if (executableConfigs.length === 0) return;
 
-    const strictFullExit = await verifyTargetFullExit({
-        targetWallet,
-        chainId,
-        tokenAddress: tokenToSell,
-    });
-    if (!strictFullExit.isFullExit) {
-        logger.warn(LogCode.WTC_TX_SKIPPED, 'Mirror sell skipped: target sell is not a strict full-balance exit', {
-            targetWallet: normalizedWallet,
-            chainId,
-            token: tokenToSell,
-            targetSellTxHash: swap.txHash,
-            reasonCode: strictFullExit.reasonCode,
-            remainingBalanceRaw: strictFullExit.remainingBalanceRaw,
-            dustThresholdRaw: strictFullExit.dustThresholdRaw,
-        });
-        return;
-    }
-
     const uniqueExecutableConfigs = dedupeConfigsByUser(executableConfigs);
     if (uniqueExecutableConfigs.length !== executableConfigs.length) {
         logger.warn(LogCode.WTC_TX_SKIPPED, 'Mirror sell deduped duplicate configs for same user', {
@@ -3791,6 +3773,32 @@ async function handleTargetSell(
                 statuses: ['armed', 'sell_armed']
             }).catch(() => [])
             : [];
+
+        const mirrorSellExecutionPolicy = evaluateMirrorSellExecutionPolicy({
+            matchedPositions,
+            pendingAttributedLots
+        });
+        if (!mirrorSellExecutionPolicy.allowed) {
+            logger.info(LogCode.WTC_TX_SKIPPED, 'Mirror sell skipped: follower-side execution policy blocked immediate sell', {
+                userId: config.userId,
+                token: tokenToSell,
+                chainId,
+                targetWallet: normalizedWallet,
+                targetSellTxHash: swap.txHash,
+                reasonCode: mirrorSellExecutionPolicy.reasonCode,
+                ...mirrorSellExecutionPolicy.metrics
+            });
+            return;
+        }
+        logger.info(LogCode.SYS_INFO, 'Mirror sell immediate gate passed', {
+            userId: config.userId,
+            token: tokenToSell,
+            chainId,
+            targetWallet: normalizedWallet,
+            targetSellTxHash: swap.txHash,
+            reasonCode: mirrorSellExecutionPolicy.reasonCode,
+            ...mirrorSellExecutionPolicy.metrics
+        });
 
         // Leader stat tracking (only for mirror sell)
         const balanceUsdForStats = matchedPositions.reduce((sum, p) => sum + (p.entryUsdValue || 0), 0);
