@@ -2,14 +2,14 @@ import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
 import type { DecodedSwap } from './txDecoder.js';
 import { getPendingTxHint, markCopyTradeTxState } from './copyTradeTxStateService.js';
-import { resolveCopyTradeQueuePriority } from './copytrade/eth/ethBuyFastPath.js';
+import { resolveCopyTradeQueuePriority } from './copytrade-v2/eth/ethBuyFastPath.js';
 import {
     evaluateCopyTradeDelay,
     markCopyTradeTaskEnqueued,
     mergeCopyTradeTimingSnapshots,
     type CopyTradeTimingSnapshot
-} from './copytrade/timing/copyTradeTimingModel.js';
-import { emitCopyTradeTimingAudit } from './copytrade/timing/copyTradeTimingAudit.js';
+} from './copytrade-v2/timing/copyTradeTimingModel.js';
+import { emitCopyTradeTimingAudit } from './copytrade-v2/timing/copyTradeTimingAudit.js';
 
 type QueueTask = {
     targetWallet: string;

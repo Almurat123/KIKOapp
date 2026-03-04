@@ -1,7 +1,7 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { evaluateOrphanRecovery } from '../services/copytrade/recovery/orphanRecoveryPolicy.js';
+import { evaluateOrphanRecovery } from '../services/copytrade-v2/recovery/orphanRecoveryPolicy.js';
 
 describe('orphan recovery policy', () => {
   test('forces exit when target full exit is verified for a single uncontaminated open position', () => {

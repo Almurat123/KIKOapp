@@ -1,12 +1,12 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { resolveExitExecutionContext } from '../services/copytrade/exit/exitContextResolver.js';
-import { resolveRetryExitExecutionContext } from '../services/copytrade/exit/exitRetryContextBridge.js';
-import { buildEvmExitAttributionSnapshotFromResolvedInputs } from '../services/copytrade/exit/exitAttributionSnapshotBuilder.js';
-import { buildEvmExitPlanFromSnapshot } from '../services/copytrade/exit/planner.js';
-import type { ExitSnapshotPosition } from '../services/copytrade/exit/exitSnapshotTypes.js';
-import type { PendingAttributedPositionLotLike } from '../services/copytrade/positions/pendingAttributedPositionLedger.js';
+import { resolveExitExecutionContext } from '../services/copytrade-v2/exit/exitContextResolver.js';
+import { resolveRetryExitExecutionContext } from '../services/copytrade-v2/exit/exitRetryContextBridge.js';
+import { buildEvmExitAttributionSnapshotFromResolvedInputs } from '../services/copytrade-v2/exit/exitAttributionSnapshotBuilder.js';
+import { buildEvmExitPlanFromSnapshot } from '../services/copytrade-v2/exit/planner.js';
+import type { ExitSnapshotPosition } from '../services/copytrade-v2/exit/exitSnapshotTypes.js';
+import type { PendingAttributedPositionLotLike } from '../services/copytrade-v2/positions/pendingAttributedPositionLedger.js';
 
 const TOKEN = '0x6b175474e89094c44da98b954eedeac495271d0f';
 const WALLET = '0xFB64Ce8d64CEC808a8aCb977d3Ee7bE1169f1a2B';

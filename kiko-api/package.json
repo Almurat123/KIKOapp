@@ -11,7 +11,8 @@
     "postinstall": "test -f prisma/schema.prisma && prisma generate || echo 'Skipping prisma generate (schema not found)'",
     "start": "node dist/index.js",
     "test": "tsx --test",
-    "test:copytrade": "tsx --test src/services/copytrade/__tests__/*.test.ts",
+    "test:copytrade": "tsx --test src/services/copytrade-v2/__tests__/*.test.ts",
+    "test:ct136-replay": "tsx src/scripts/replayCt136Reproduction.ts",
     "migrate": "prisma migrate deploy",
     "migrate:dev": "prisma migrate dev",
     "diagnostic:db": "node dist/scripts/diagnostic-db.js",
@@ -44,8 +45,10 @@
     "check-tx": "tsx src/scripts/checkTxOnChain.ts",
     "moralis:top-gainers": "tsx src/scripts/moralisTopTokenGainers.ts",
     "samples:prepare:10k": "tsx src/scripts/prepareSamples10kMultiChain.ts",
-    "replay:webhook:10k": "tsx src/scripts/replayWebhook10k.ts"
-    ,"backfill:copytrade-ledger": "tsx src/scripts/backfillCopytradeLedger.ts"
+    "replay:webhook:10k": "tsx src/scripts/replayWebhook10k.ts",
+    "backfill:copytrade-ledger": "tsx src/scripts/backfillCopytradeLedger.ts",
+    "migrate:copytrade-v2": "tsx src/scripts/migrateCopytradeV2Orders.ts",
+    "validate:copytrade-v2": "tsx src/scripts/validateCopytradeV2Migration.ts"
   },
   "dependencies": {
     "@coinbase/cdp-sdk": "^1.40.0",

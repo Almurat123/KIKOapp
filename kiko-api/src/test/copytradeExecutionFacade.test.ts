@@ -1,7 +1,7 @@
 import { afterEach, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { submitCopytradeBuy, submitCopytradeExit } from '../services/copytrade/execution/copytradeExecutionFacade.js';
+import { submitCopytradeBuy, submitCopytradeExit } from '../services/copytrade-v2/execution/copytradeExecutionFacade.js';
 import {
   getCapturedSwapExecutions,
   installCopytradeExecutionPortHarness,

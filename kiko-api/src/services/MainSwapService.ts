@@ -58,9 +58,9 @@ import { logOrderRuntimeSnapshot } from './order-runtime/sinks/logger.js';
 import { inferOrderReasonCode } from './order-runtime/reasonCodes.js';
 import { resolveTxFinalState } from './order-runtime/adjudicator/finalState.js';
 import { describeVisibilityFailure, shouldPassVisibilityGate } from './rpc/visibilityPolicy.js';
-import { evaluateCopytradeBuyAcceptedInflight } from './copytrade/buy/copytradeBuyAcceptedInflight.js';
-import type { ExecutionPlanV1, ReplayDriftDiagnosis, ReplayPrecheckResult } from './copytrade/planner/types.js';
-import { isP2ExecutorEnabled, isP2SampleLearningEnabled, isP2ShadowRunEnabled } from './copytrade/planner/featureFlags.js';
+import { evaluateCopytradeBuyAcceptedInflight } from './copytrade-v2/buy/copytradeBuyAcceptedInflight.js';
+import type { ExecutionPlanV1, ReplayDriftDiagnosis, ReplayPrecheckResult } from './copytrade-v2/planner/types.js';
+import { isP2ExecutorEnabled, isP2SampleLearningEnabled, isP2ShadowRunEnabled } from './copytrade-v2/planner/featureFlags.js';
 import {
   buildPlanCalldata,
   buildPlanValue,
@@ -68,10 +68,10 @@ import {
   isSourceReplayPlan,
   precheckReplaySell,
   simulatePlan
-} from './copytrade/planner/shadowRunner.js';
-import { recordPlanRun, recordSuccessSample } from './copytrade/planner/sampleLibrary.js';
-import type { SwapExecutionContextV1 } from './copytrade/context/types.js';
-import { buildDirectSwapHintFromContext } from './copytrade/context/contextStore.js';
+} from './copytrade-v2/planner/shadowRunner.js';
+import { recordPlanRun, recordSuccessSample } from './copytrade-v2/planner/sampleLibrary.js';
+import type { SwapExecutionContextV1 } from './copytrade-v2/context/types.js';
+import { buildDirectSwapHintFromContext } from './copytrade-v2/context/contextStore.js';
 
 /**
  * Swap execution mode to determine behavior and fee structure

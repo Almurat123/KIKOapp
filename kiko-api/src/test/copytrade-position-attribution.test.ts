@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import {
   isConfirmedAttributedPosition,
   resolveAttributedPositionExitAmount,
-} from '../services/copytrade/positions/positionAttribution.js';
+} from '../services/copytrade-v2/positions/positionAttribution.js';
 
 describe('copytrade position attribution', () => {
   test('sells only attributed amount when wallet balance includes external holdings', () => {

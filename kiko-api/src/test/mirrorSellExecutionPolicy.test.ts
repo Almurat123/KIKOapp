@@ -1,7 +1,7 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { evaluateMirrorSellExecutionPolicy } from '../services/copytrade/exit/mirrorSellExecutionPolicy.js';
+import { evaluateMirrorSellExecutionPolicy } from '../services/copytrade-v2/exit/mirrorSellExecutionPolicy.js';
 
 describe('mirror sell execution policy', () => {
   test('allows immediate sell when follower has open attributed exposure even without pending lots', () => {

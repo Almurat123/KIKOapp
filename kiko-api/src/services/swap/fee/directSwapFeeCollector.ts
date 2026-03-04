@@ -2,7 +2,7 @@ import { ethers } from 'ethers';
 import { LogCode } from '../../../config/logRegistry.js';
 import { isNativeToken } from '../../../config/tokenRegistry.js';
 import { logger } from '../../../utils/logger.js';
-import { resolveCopytradeExecutionAuth } from '../../copytrade/auth/copytradeExecutionAuth.js';
+import { resolveCopytradeExecutionAuth } from '../../copytrade-v2/auth/copytradeExecutionAuth.js';
 import { getPlatformFee, isValidEvmAddress, type FeeContext } from '../../platformFeeService.js';
 import { sendTransaction } from '../../privyWallet.js';
 import { getTokenInfo } from '../../tokenService.js';

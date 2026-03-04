@@ -8,7 +8,7 @@ import {
   markCopyTradeIngressSwapReady,
   tryMarkCopyTradeIngressEnqueued,
   updateCopyTradeIngressState,
-} from '../services/copytrade/ingress/copyTradeIngressState.js';
+} from '../services/copytrade-v2/ingress/copyTradeIngressState.js';
 
 const BASE_CHAIN_ID = 8453;
 

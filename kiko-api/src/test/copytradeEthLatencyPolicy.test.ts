@@ -1,7 +1,7 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { evaluateCopyTradeDelay } from '../services/copytrade/timing/copyTradeTimingModel.js';
+import { evaluateCopyTradeDelay } from '../services/copytrade-v2/timing/copyTradeTimingModel.js';
 
 describe('copytrade eth latency policy', () => {
   test('eth mainnet uses latency-first dispatch cutoff', () => {

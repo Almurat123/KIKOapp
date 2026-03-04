@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { evaluateBuyPriceDeviationGuard } from '../services/copytrade/buy/buyGuardPriceDeviation.js';
-import { resolveBuyGuardPolicy } from '../services/copytrade/guards/policy.js';
-import { reconcileOpenPositionsForExit } from '../services/copytrade/exit/openPositionReconciliation.js';
+import { evaluateBuyPriceDeviationGuard } from '../services/copytrade-v2/buy/buyGuardPriceDeviation.js';
+import { resolveBuyGuardPolicy } from '../services/copytrade-v2/guards/policy.js';
+import { reconcileOpenPositionsForExit } from '../services/copytrade-v2/exit/openPositionReconciliation.js';
 
 test('buy price deviation guard does not misclassify zero oracle price as extreme deviation', () => {
   const result = evaluateBuyPriceDeviationGuard({

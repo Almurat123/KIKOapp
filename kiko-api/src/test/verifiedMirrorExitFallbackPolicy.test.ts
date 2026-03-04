@@ -1,7 +1,7 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { evaluateVerifiedMirrorExitFallback } from '../services/copytrade/exit/verifiedMirrorExitFallbackPolicy.js';
+import { evaluateVerifiedMirrorExitFallback } from '../services/copytrade-v2/exit/verifiedMirrorExitFallbackPolicy.js';
 
 describe('verified mirror exit fallback policy', () => {
   test('allows full balance fallback for strict full-exit legacy open position', () => {

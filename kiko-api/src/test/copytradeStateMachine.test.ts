@@ -1,7 +1,7 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { handleCopytradeStateEvent } from '../services/copytrade/state/copytradeStateMachine.js';
+import { handleCopytradeStateEvent } from '../services/copytrade-v2/state/copytradeStateMachine.js';
 
 describe('copytrade state machine', () => {
   test('buy confirmed success promotes open when target has not exited', () => {

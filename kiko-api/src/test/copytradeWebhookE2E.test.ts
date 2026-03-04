@@ -6,8 +6,8 @@ import fastifyRawBody from 'fastify-raw-body';
 import prisma from '../db/prisma.js';
 import { env } from '../config/env.js';
 import webhookRoutes from '../routes/webhook.js';
-import { refreshTrackedWalletSnapshot } from '../services/copytrade/ingress/trackedWalletSnapshot.js';
-import { getCopyTradeIngressState } from '../services/copytrade/ingress/copyTradeIngressState.js';
+import { refreshTrackedWalletSnapshot } from '../services/copytrade-v2/ingress/trackedWalletSnapshot.js';
+import { getCopyTradeIngressState } from '../services/copytrade-v2/ingress/copyTradeIngressState.js';
 import {
   getCopyTradeTxState,
   markPendingPredecodedSwap,

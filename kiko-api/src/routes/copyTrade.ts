@@ -19,7 +19,8 @@ import { resolveExecutionModeFromConfig } from '../services/copyTradeExecutionMo
 import { getEmbeddedWalletAddress } from '../services/privyWallet.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { syncCopyTradeWebhookChain } from '../services/copyTradeWebhookSync.js';
-import { resolveMaxEntryDeviationBps } from '../services/copytrade/config/entryDeviationPolicy.js';
+import { resolveMaxEntryDeviationBps } from '../services/copytrade-v2/config/entryDeviationPolicy.js';
+import { CopytradeV2QueryService } from '../services/copytrade-v2/data-flow/queryService.js';
 
 interface CreateConfigBody {
     signedPayload: Record<string, unknown> | string;
@@ -74,6 +75,8 @@ function serializeCopyTradeConfig(config: any) {
 }
 
 export default async function copyTradeRoutes(fastify: FastifyInstance) {
+    const v2QueryService = new CopytradeV2QueryService();
+
     function handleCopyTradeError(reply: any, error: unknown, fallbackMessage: string) {
         if (error instanceof AppError) {
             return reply.status(error.statusCode).send({ error: error.message, code: error.code });
@@ -713,4 +716,63 @@ export default async function copyTradeRoutes(fastify: FastifyInstance) {
             }
         }
     );
+
+    /**
+     * GET /api/copy-trade/v2/orders
+     * v2 order aggregate query model (single truth: lifecycle + reasonCode)
+     */
+    fastify.get('/v2/orders', { preHandler: requireAuth }, async (request, reply) => {
+        const userId = (request as any).user?.sub;
+        if (!userId) {
+            return reply.status(401).send({ error: 'Unauthorized' });
+        }
+
+        const query = (request as any).query || {};
+        const chainId = query.chainId ? Number(query.chainId) : undefined;
+        const take = query.take ? Number(query.take) : 50;
+        const states = String(query.states || '')
+            .split(',')
+            .map((item) => item.trim())
+            .filter(Boolean);
+
+        const rows = await v2QueryService.listOrders({
+            userId,
+            chainId: Number.isFinite(chainId as number) ? chainId : undefined,
+            states: states.length > 0 ? (states as any) : undefined,
+            take: Number.isFinite(take) ? take : 50,
+        });
+
+        return reply.send({
+            orders: rows,
+            count: rows.length,
+        });
+    });
+
+    /**
+     * GET /api/copy-trade/v2/orders/:id/events
+     */
+    fastify.get<{ Params: { id: string } }>('/v2/orders/:id/events', { preHandler: requireAuth }, async (request, reply) => {
+        const userId = (request as any).user?.sub;
+        if (!userId) {
+            return reply.status(401).send({ error: 'Unauthorized' });
+        }
+
+        const { id } = request.params;
+        const order = await v2QueryService.getOrderById(id);
+        if (!order) {
+            return reply.status(404).send({ error: 'Order not found' });
+        }
+        if (order.userId !== userId) {
+            return reply.status(404).send({ error: 'Order not found' });
+        }
+
+        const take = Number((request as any).query?.take || 200);
+        const events = await v2QueryService.getOrderEvents(id, Number.isFinite(take) ? take : 200);
+        return reply.send({
+            orderId: id,
+            lifecycleState: order.lifecycleState,
+            lastReasonCode: order.lastReasonCode,
+            events,
+        });
+    });
 }

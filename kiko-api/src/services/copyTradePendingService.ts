@@ -6,9 +6,9 @@ import { normalizeAddress } from '../utils/address.js';
 import { fetchTransactionReceipt } from './watcherService.js';
 import { parseSwapTransaction } from './txDecoder.js';
 import { getVerifiedFreeEndpoints, RpcEndpointConfig } from '../config/apiEndpoints.js';
-import { buildSwapExecutionContext } from './copytrade/context/contextBuilder.js';
-import { putContext } from './copytrade/context/contextStore.js';
-import { recordSuccessSample } from './copytrade/planner/sampleLibrary.js';
+import { buildSwapExecutionContext } from './copytrade-v2/context/contextBuilder.js';
+import { putContext } from './copytrade-v2/context/contextStore.js';
+import { recordSuccessSample } from './copytrade-v2/planner/sampleLibrary.js';
 import { getChainConfig } from '../config/chainConfig.js';
 import { reportReceiptSeen, reportWebhookSeen } from './order-runtime/adjudicator/service.js';
 import { normalizeTxIdentity } from '../utils/txIdentity.js';
@@ -16,21 +16,21 @@ import {
     buildCopyTradeFirstSeenTiming,
     markCopyTradeSwapReady,
     markCopyTradeTaskEnqueued
-} from './copytrade/timing/copyTradeTimingModel.js';
-import { emitCopyTradeTimingAudit } from './copytrade/timing/copyTradeTimingAudit.js';
+} from './copytrade-v2/timing/copyTradeTimingModel.js';
+import { emitCopyTradeTimingAudit } from './copytrade-v2/timing/copyTradeTimingAudit.js';
 import {
     markCopyTradeIngressFirstSeen,
     markCopyTradeIngressSwapReady
-} from './copytrade/ingress/copyTradeIngressState.js';
-import { dispatchCopyTradeIfReady } from './copytrade/ingress/copyTradeFastDispatcher.js';
+} from './copytrade-v2/ingress/copyTradeIngressState.js';
+import { dispatchCopyTradeIfReady } from './copytrade-v2/ingress/copyTradeFastDispatcher.js';
 import {
     getTrackedWalletSet,
     refreshTrackedWalletSnapshot
-} from './copytrade/ingress/trackedWalletSnapshot.js';
-import { prioritizeCopyTradePendingChains } from './copytrade/eth/ethSignalPolicy.js';
-import { buildEthAwarePendingPollPlan } from './copytrade/eth/ethPendingIngressPolicy.js';
-import { inferEthPendingSwapIntent } from './copytrade/eth/ethPendingSwapIntent.js';
-import { buildEthPendingPredecodedSwap } from './copytrade/eth/ethPendingPredecodedSwap.js';
+} from './copytrade-v2/ingress/trackedWalletSnapshot.js';
+import { prioritizeCopyTradePendingChains } from './copytrade-v2/eth/ethSignalPolicy.js';
+import { buildEthAwarePendingPollPlan } from './copytrade-v2/eth/ethPendingIngressPolicy.js';
+import { inferEthPendingSwapIntent } from './copytrade-v2/eth/ethPendingSwapIntent.js';
+import { buildEthPendingPredecodedSwap } from './copytrade-v2/eth/ethPendingPredecodedSwap.js';
 
 const ENABLED = (process.env.COPYTRADE_PENDING_WATCH_ENABLED || 'true') === 'true';
 const REFRESH_WALLETS_MS = Number(process.env.COPYTRADE_PENDING_WALLET_REFRESH_MS || 10000);

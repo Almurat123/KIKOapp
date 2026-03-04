@@ -4,7 +4,7 @@ import { normalizeAddress } from '../../../utils/address.js';
 import { validateAddress } from '../../../utils/validation.js';
 import { resolveExecutionModeFromConfig } from '../../../services/copyTradeExecutionMode.js';
 import { syncCopyTradeWebhookChain } from '../../../services/copyTradeWebhookSync.js';
-import { DEFAULT_COPYTRADE_ENTRY_DEVIATION_BPS, resolveMaxEntryDeviationBps } from '../../../services/copytrade/config/entryDeviationPolicy.js';
+import { DEFAULT_COPYTRADE_ENTRY_DEVIATION_BPS, resolveMaxEntryDeviationBps } from '../../../services/copytrade-v2/config/entryDeviationPolicy.js';
 
 export const CreateCopyTradeConfigTool: Tool = {
     definition: {

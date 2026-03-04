@@ -1,7 +1,7 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { scheduleLateBuyConfirmationRecovery } from '../services/copytrade/buy/lateBuyConfirmationRecovery.js';
+import { scheduleLateBuyConfirmationRecovery } from '../services/copytrade-v2/buy/lateBuyConfirmationRecovery.js';
 
 describe('late buy confirmation recovery', () => {
   test('resolves a late confirmed success after initial defer', async () => {

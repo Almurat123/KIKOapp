@@ -3,16 +3,16 @@ import assert from 'node:assert/strict';
 import { Decimal } from '@prisma/client/runtime/library.js';
 
 import prisma from '../db/prisma.js';
-import { finalizeCopytradeBuyPosition } from '../services/copytrade/positions/positionPersistence.js';
+import { finalizeCopytradeBuyPosition } from '../services/copytrade-v2/positions/positionPersistence.js';
 import {
   armPendingAttributedPositionsForMirrorSell,
   upsertPendingAttributedPosition,
-} from '../services/copytrade/positions/pendingAttributedPositionLedger.js';
-import { resolveBuyConfirmationPromotionAction } from '../services/copytrade/positions/buySellRaceCoordinator.js';
-import { resolvePositionLedgerSnapshot } from '../services/copytrade/positions/positionLedgerResolver.js';
-import { buildEvmExitAttributionSnapshotFromResolvedInputs } from '../services/copytrade/exit/exitAttributionSnapshotBuilder.js';
-import { buildEvmExitPlanFromSnapshot } from '../services/copytrade/exit/planner.js';
-import { persistSuccessfulExit } from '../services/copytrade/exit/persistence.js';
+} from '../services/copytrade-v2/positions/pendingAttributedPositionLedger.js';
+import { resolveBuyConfirmationPromotionAction } from '../services/copytrade-v2/positions/buySellRaceCoordinator.js';
+import { resolvePositionLedgerSnapshot } from '../services/copytrade-v2/positions/positionLedgerResolver.js';
+import { buildEvmExitAttributionSnapshotFromResolvedInputs } from '../services/copytrade-v2/exit/exitAttributionSnapshotBuilder.js';
+import { buildEvmExitPlanFromSnapshot } from '../services/copytrade-v2/exit/planner.js';
+import { persistSuccessfulExit } from '../services/copytrade-v2/exit/persistence.js';
 import {
   cleanupCopytradeExecutionFixture,
   createCopytradeExecutionFixture,

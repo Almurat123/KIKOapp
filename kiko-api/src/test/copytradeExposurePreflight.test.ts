@@ -1,8 +1,8 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { evaluateCopytradeExposurePreflightFromPositions } from '../services/copytrade/buy/exposurePreflight.js';
-import { buildCooldownThrottleWhere, buildDuplicateTradeWhere, describeCooldownMode } from '../services/copytrade/guards/cooldownPolicy.js';
+import { evaluateCopytradeExposurePreflightFromPositions } from '../services/copytrade-v2/buy/exposurePreflight.js';
+import { buildCooldownThrottleWhere, buildDuplicateTradeWhere, describeCooldownMode } from '../services/copytrade-v2/guards/cooldownPolicy.js';
 
 describe('copytrade exposure preflight', () => {
   test('open exposure blocks rebuy even after cooldown window has elapsed', () => {

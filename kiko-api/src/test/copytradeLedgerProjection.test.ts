@@ -1,7 +1,7 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { projectCopytradeLedgerSnapshot } from '../services/copytrade/ledger/copytradeLedgerProjector.js';
+import { projectCopytradeLedgerSnapshot } from '../services/copytrade-v2/ledger/copytradeLedgerProjector.js';
 
 describe('copytrade ledger projection', () => {
   test('prefers confirmed owned amount when open position and pending lot coexist', () => {

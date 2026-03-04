@@ -2,8 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { decideValidatedMarketPrice } from '../services/pricing/launchpadOraclePolicy.js';
-import { evaluateBuyPriceDeviationGuard } from '../services/copytrade/buy/buyGuardPriceDeviation.js';
-import { resolveBuyGuardPolicy } from '../services/copytrade/guards/policy.js';
+import { evaluateBuyPriceDeviationGuard } from '../services/copytrade-v2/buy/buyGuardPriceDeviation.js';
+import { resolveBuyGuardPolicy } from '../services/copytrade-v2/guards/policy.js';
 
 test('single-source near-zero external validator cannot override sane rpc market price', () => {
   const decision = decideValidatedMarketPrice({

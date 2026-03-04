@@ -1,7 +1,7 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { evaluatePositionAttributionIntegrity } from '../services/copytrade/positions/positionAttributionIntegrityGate.js';
+import { evaluatePositionAttributionIntegrity } from '../services/copytrade-v2/positions/positionAttributionIntegrityGate.js';
 
 describe('position attribution integrity gate', () => {
   test('requires repair when no exact amount, no decimal amount, and ledger has no owned amount', () => {

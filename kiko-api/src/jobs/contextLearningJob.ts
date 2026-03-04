@@ -1,8 +1,8 @@
 import cron from 'node-cron';
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
-import { isContextLearningEnabled } from '../services/copytrade/context/featureFlags.js';
-import { learnTemplateCandidateDrafts } from '../services/copytrade/learning/contextLearner.js';
+import { isContextLearningEnabled } from '../services/copytrade-v2/context/featureFlags.js';
+import { learnTemplateCandidateDrafts } from '../services/copytrade-v2/learning/contextLearner.js';
 
 let started = false;
 let running = false;

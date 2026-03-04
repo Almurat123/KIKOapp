@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import {
   canStoreDecimal3818,
   encodePositionTokenAmount,
-} from '../services/copytrade/positions/positionDecimalCodec.js';
+} from '../services/copytrade-v2/positions/positionDecimalCodec.js';
 
 describe('positionDecimalCodec', () => {
   test('stores safe decimal amounts in both exact and decimal fields', () => {

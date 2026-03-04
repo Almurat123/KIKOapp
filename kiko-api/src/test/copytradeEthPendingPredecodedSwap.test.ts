@@ -1,9 +1,9 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { buildEthPendingPredecodedSwap } from '../services/copytrade/eth/ethPendingPredecodedSwap.js';
-import { resolveCopyTradeQueuePriority } from '../services/copytrade/eth/ethBuyFastPath.js';
-import { resolveEthPendingSelectorCapability } from '../services/copytrade/eth/ethPendingSelectorRegistry.js';
+import { buildEthPendingPredecodedSwap } from '../services/copytrade-v2/eth/ethPendingPredecodedSwap.js';
+import { resolveCopyTradeQueuePriority } from '../services/copytrade-v2/eth/ethBuyFastPath.js';
+import { resolveEthPendingSelectorCapability } from '../services/copytrade-v2/eth/ethPendingSelectorRegistry.js';
 
 describe('copytrade ETH pending calldata predecoded swap', () => {
   test('builds a provisional native buy swap from supported ETH calldata', () => {

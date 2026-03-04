@@ -1,7 +1,7 @@
 import { afterEach, describe, mock, test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { readExitBalanceOracle } from '../services/copytrade/oracle/exitBalanceOracle.js';
+import { readExitBalanceOracle } from '../services/copytrade-v2/oracle/exitBalanceOracle.js';
 
 describe('exitBalanceOracle', () => {
   afterEach(() => {

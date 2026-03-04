@@ -1,8 +1,8 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { resolveCopyTradeQueuePriority } from '../services/copytrade/eth/ethBuyFastPath.js';
-import { buildEthAwarePendingPollPlan } from '../services/copytrade/eth/ethPendingIngressPolicy.js';
+import { resolveCopyTradeQueuePriority } from '../services/copytrade-v2/eth/ethBuyFastPath.js';
+import { buildEthAwarePendingPollPlan } from '../services/copytrade-v2/eth/ethPendingIngressPolicy.js';
 
 describe('copytrade eth execution policy', () => {
   test('polls eth on every tick while rotating non-eth chains', () => {

@@ -1,7 +1,7 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { shouldDeferStrongRpcMonitoring } from '../services/copytrade/buy/preConfirmationRpcPolicy.js';
+import { shouldDeferStrongRpcMonitoring } from '../services/copytrade-v2/buy/preConfirmationRpcPolicy.js';
 
 describe('preConfirmationRpcPolicy', () => {
   test('defers strong rpc monitoring for newly created positions', () => {

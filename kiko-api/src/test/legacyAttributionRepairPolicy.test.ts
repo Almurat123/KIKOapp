@@ -1,7 +1,7 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { resolveLegacyAttributionRepair } from '../services/copytrade/positions/legacyAttributionRepairPolicy.js';
+import { resolveLegacyAttributionRepair } from '../services/copytrade-v2/positions/legacyAttributionRepairPolicy.js';
 
 describe('legacy attribution repair policy', () => {
   test('repairs from pending lot raw before falling back to position entry amount text', () => {

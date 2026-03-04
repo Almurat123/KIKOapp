@@ -1,7 +1,7 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { buildCopytradeDomainAuditFields } from '../services/copytrade/audit/copytradeDomainAudit.js';
+import { buildCopytradeDomainAuditFields } from '../services/copytrade-v2/audit/copytradeDomainAudit.js';
 
 describe('copytrade domain audit', () => {
   test('builds unified business audit fields from ledger and lifecycle inputs', () => {

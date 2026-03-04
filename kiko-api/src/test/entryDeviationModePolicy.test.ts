@@ -5,7 +5,7 @@ import {
   NORMAL_MIN_ENTRY_DEVIATION_BPS,
   TURBO_MIN_ENTRY_DEVIATION_BPS,
   resolveEntryDeviationModePolicy,
-} from '../services/copytrade/config/entryDeviationModePolicy.js';
+} from '../services/copytrade-v2/config/entryDeviationModePolicy.js';
 
 test('normal mode enforces minimum 1500bps even when config is lower', () => {
   const policy = resolveEntryDeviationModePolicy({

@@ -1,12 +1,12 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { evaluateCopyTradeDelay } from '../services/copytrade/timing/copyTradeTimingModel.js';
-import { reconcileOpenPositionsForExit } from '../services/copytrade/exit/openPositionReconciliation.js';
-import { buildEvmExitAttributionSnapshotFromResolvedInputs } from '../services/copytrade/exit/exitAttributionSnapshotBuilder.js';
-import { buildEvmExitPlanFromSnapshot } from '../services/copytrade/exit/planner.js';
-import type { PendingAttributedPositionLotLike } from '../services/copytrade/positions/pendingAttributedPositionLedger.js';
-import type { ExitSnapshotPosition } from '../services/copytrade/exit/exitSnapshotTypes.js';
+import { evaluateCopyTradeDelay } from '../services/copytrade-v2/timing/copyTradeTimingModel.js';
+import { reconcileOpenPositionsForExit } from '../services/copytrade-v2/exit/openPositionReconciliation.js';
+import { buildEvmExitAttributionSnapshotFromResolvedInputs } from '../services/copytrade-v2/exit/exitAttributionSnapshotBuilder.js';
+import { buildEvmExitPlanFromSnapshot } from '../services/copytrade-v2/exit/planner.js';
+import type { PendingAttributedPositionLotLike } from '../services/copytrade-v2/positions/pendingAttributedPositionLedger.js';
+import type { ExitSnapshotPosition } from '../services/copytrade-v2/exit/exitSnapshotTypes.js';
 
 const BASE_CHAIN_ID = 8453;
 const TOKEN = '0xf30bf00edd0c22db54c9274b90d2a4c21fc09b07';

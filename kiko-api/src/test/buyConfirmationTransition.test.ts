@@ -1,7 +1,7 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { applyBuyConfirmationTransition } from '../services/copytrade/buy/buyConfirmationTransition.js';
+import { applyBuyConfirmationTransition } from '../services/copytrade-v2/buy/buyConfirmationTransition.js';
 
 describe('buy confirmation transition', () => {
   test('treats timeout as deferred without side effects', async () => {

@@ -1,7 +1,7 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { inferEthPendingSwapIntent } from '../services/copytrade/eth/ethPendingSwapIntent.js';
+import { inferEthPendingSwapIntent } from '../services/copytrade-v2/eth/ethPendingSwapIntent.js';
 
 describe('copytrade ETH pending intent', () => {
   test('detects native-funded ETH pending swap intent from tracked sender', () => {

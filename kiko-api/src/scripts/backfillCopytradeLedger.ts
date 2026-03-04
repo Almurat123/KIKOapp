@@ -1,7 +1,7 @@
 import prisma from '../db/prisma.js';
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
-import { syncCopytradeLedgerFromLegacy } from '../services/copytrade/ledger/copytradeLedgerRepository.js';
+import { syncCopytradeLedgerFromLegacy } from '../services/copytrade-v2/ledger/copytradeLedgerRepository.js';
 
 async function main(): Promise<void> {
   let cursor: string | undefined;

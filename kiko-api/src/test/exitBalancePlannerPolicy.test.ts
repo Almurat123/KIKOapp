@@ -1,7 +1,7 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { buildEvmExitPlanFromSnapshot } from '../services/copytrade/exit/planner.js';
+import { buildEvmExitPlanFromSnapshot } from '../services/copytrade-v2/exit/planner.js';
 
 describe('exit balance planner policy', () => {
   test('mirror sell defers exit when balance oracle is uncertain', () => {

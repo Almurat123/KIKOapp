@@ -47,6 +47,7 @@ model User {
   billingConsents     BillingConsent[]
   billingUsage        BillingUsageLedger[]
   dailyBilling        DailyBilling[]
+  copytradeOrdersV2   CopytradeOrder[]
 }
 
 model WalletExport {
@@ -131,6 +132,7 @@ model CopyTradeConfig {
   analyses                      CopyTradeAnalysis[]
   user                          User                  @relation(fields: [userId], references: [privyDid], onDelete: Cascade)
   positions                     Position[]
+  copytradeOrdersV2             CopytradeOrder[]
 
   @@index([targetWallet])
   @@index([userId])
@@ -479,6 +481,73 @@ model CopytradePositionLedger {
   @@index([followerBuyTxHash])
   @@index([followerExitTxHash])
   @@map("copytrade_position_ledger")
+}
+
+model CopytradeOrder {
+  id              String                 @id
+  chainId         Int                    @map("chain_id")
+  txHash          String                 @map("tx_hash")
+  targetWallet    String                 @map("target_wallet")
+  tokenIn         String                 @map("token_in")
+  tokenOut        String                 @map("token_out")
+  mode            String
+  direction       String                 @default("unknown")
+  lifecycleState  String                 @map("lifecycle_state")
+  lastReasonCode  String                 @map("last_reason_code")
+  retryCount      Int                    @default(0) @map("retry_count")
+  userId          String?                @map("user_id")
+  configId        String?                @map("config_id")
+  detectedAt      DateTime?              @map("detected_at")
+  lastExecutionAt DateTime?              @map("last_execution_at")
+  metadataJson    Json?                  @map("metadata_json")
+  closedAt        DateTime?              @map("closed_at")
+  createdAt       DateTime               @default(now()) @map("created_at")
+  updatedAt       DateTime               @updatedAt @map("updated_at")
+  config          CopyTradeConfig?       @relation(fields: [configId], references: [id], onDelete: SetNull)
+  user            User?                  @relation(fields: [userId], references: [privyDid], onDelete: SetNull)
+  events          CopytradeOrderEvent[]
+  executions      CopytradeOrderExecution[]
+
+  @@unique([chainId, txHash, targetWallet], map: "copytrade_orders_identity_key")
+  @@index([lifecycleState, updatedAt(sort: Desc)], map: "idx_copytrade_orders_state_updated")
+  @@index([userId, createdAt(sort: Desc)], map: "idx_copytrade_orders_user_created")
+  @@index([configId, createdAt(sort: Desc)], map: "idx_copytrade_orders_config_created")
+  @@map("copytrade_orders")
+}
+
+model CopytradeOrderEvent {
+  id             String         @id
+  orderId        String         @map("order_id")
+  eventType      String         @map("event_type")
+  lifecycleState String         @map("lifecycle_state")
+  reasonCode     String         @map("reason_code")
+  payloadJson    Json?          @map("payload_json")
+  createdAt      DateTime       @default(now()) @map("created_at")
+  order          CopytradeOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId, createdAt], map: "idx_copytrade_order_events_order_created")
+  @@index([reasonCode, createdAt(sort: Desc)], map: "idx_copytrade_order_events_reason_created")
+  @@map("copytrade_order_events")
+}
+
+model CopytradeOrderExecution {
+  id          String         @id
+  orderId     String         @map("order_id")
+  attemptNo   Int            @map("attempt_no")
+  mode        String
+  status      String
+  txHash      String?        @map("tx_hash")
+  reasonCode  String         @map("reason_code")
+  retryable   Boolean        @default(false)
+  durationMs  Int?           @map("duration_ms")
+  metadataJson Json?         @map("metadata_json")
+  createdAt   DateTime       @default(now()) @map("created_at")
+  order       CopytradeOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@unique([orderId, attemptNo], map: "copytrade_order_executions_order_attempt_key")
+  @@index([status, createdAt(sort: Desc)], map: "idx_copytrade_order_executions_status_created")
+  @@index([txHash], map: "idx_copytrade_order_executions_tx_hash")
+  @@map("copytrade_order_executions")
 }
 
 model DirectSwapFeeExecution {

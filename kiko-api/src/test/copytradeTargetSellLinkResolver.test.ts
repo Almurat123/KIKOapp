@@ -2,7 +2,7 @@ import { afterEach, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import prisma from '../db/prisma.js';
-import { resolveTargetSellLink } from '../services/copytrade/reconcile/copytradeTargetSellLinkResolver.js';
+import { resolveTargetSellLink } from '../services/copytrade-v2/reconcile/copytradeTargetSellLinkResolver.js';
 import { cleanupCopytradeExecutionFixture, createCopytradeExecutionFixture, makeTxHash } from './helpers/copytradeExecutionHarness.js';
 
 const cleanupQueue: Array<{ userId: string; configId: string; txHashes: string[] }> = [];

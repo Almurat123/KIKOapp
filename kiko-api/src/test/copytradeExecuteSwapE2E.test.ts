@@ -4,19 +4,19 @@ import assert from 'node:assert/strict';
 import prisma from '../db/prisma.js';
 import { executeSwapViaPort } from '../services/swap/swapExecutionPort.js';
 import { createOrderRuntimeContext, recordLifecycleOnOrder } from '../services/order-runtime/context.js';
-import { createExitOrderRuntimeContext } from '../services/copytrade/exit/runtime.js';
-import { executeEvmExitPlan } from '../services/copytrade/exit/executor.js';
-import { finalizeCopytradeBuyPosition } from '../services/copytrade/positions/positionPersistence.js';
+import { createExitOrderRuntimeContext } from '../services/copytrade-v2/exit/runtime.js';
+import { executeEvmExitPlan } from '../services/copytrade-v2/exit/executor.js';
+import { finalizeCopytradeBuyPosition } from '../services/copytrade-v2/positions/positionPersistence.js';
 import {
   armPendingAttributedPositionsForMirrorSell,
   listPendingAttributedPositions,
   upsertPendingAttributedPosition,
-} from '../services/copytrade/positions/pendingAttributedPositionLedger.js';
-import { resolvePositionLedgerSnapshot } from '../services/copytrade/positions/positionLedgerResolver.js';
-import { buildEvmExitAttributionSnapshotFromResolvedInputs } from '../services/copytrade/exit/exitAttributionSnapshotBuilder.js';
-import { buildEvmExitPlanFromSnapshot } from '../services/copytrade/exit/planner.js';
-import { persistSuccessfulExit } from '../services/copytrade/exit/persistence.js';
-import { resolveBuyConfirmationPromotionAction } from '../services/copytrade/positions/buySellRaceCoordinator.js';
+} from '../services/copytrade-v2/positions/pendingAttributedPositionLedger.js';
+import { resolvePositionLedgerSnapshot } from '../services/copytrade-v2/positions/positionLedgerResolver.js';
+import { buildEvmExitAttributionSnapshotFromResolvedInputs } from '../services/copytrade-v2/exit/exitAttributionSnapshotBuilder.js';
+import { buildEvmExitPlanFromSnapshot } from '../services/copytrade-v2/exit/planner.js';
+import { persistSuccessfulExit } from '../services/copytrade-v2/exit/persistence.js';
+import { resolveBuyConfirmationPromotionAction } from '../services/copytrade-v2/positions/buySellRaceCoordinator.js';
 import {
   cleanupCopytradeExecutionFixture,
   createCopytradeExecutionFixture,

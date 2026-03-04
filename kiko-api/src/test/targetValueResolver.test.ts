@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { resolveNativeLikeTargetValue } from '../services/copytrade/guards/targetValueResolver.js';
+import { resolveNativeLikeTargetValue } from '../services/copytrade-v2/guards/targetValueResolver.js';
 
 test('native-like target value prefers source tx value over widened cash hint on multihop routes', () => {
   const result = resolveNativeLikeTargetValue({

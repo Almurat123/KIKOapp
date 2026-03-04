@@ -5,7 +5,7 @@ import {
     buildCopyTradeFirstSeenTiming,
     markCopyTradeSwapReady,
     type CopyTradeTimingSnapshot
-} from './copytrade/timing/copyTradeTimingModel.js';
+} from './copytrade-v2/timing/copyTradeTimingModel.js';
 
 export type CopyTradeTxState =
     | 'pending_seen'

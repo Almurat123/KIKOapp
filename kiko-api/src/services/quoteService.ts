@@ -3,7 +3,7 @@ import { getZeroExQuote } from './zeroEx.js';
 import { getKyberQuote } from './kyberAggregator.js';
 import { AppError } from '../middleware/errorHandler.js';
 import type { ZeroExAffiliateFee } from './zeroEx.js';
-import { getProviderReliability } from './copytrade/learning/quoteReliability.js';
+import { getProviderReliability } from './copytrade-v2/learning/quoteReliability.js';
 
 export interface QuoteResult {
     dex: string;

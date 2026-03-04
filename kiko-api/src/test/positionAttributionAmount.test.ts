@@ -1,7 +1,7 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { hasPositiveAttributionAmount } from '../services/copytrade/positions/positionAttributionAmount.js';
+import { hasPositiveAttributionAmount } from '../services/copytrade-v2/positions/positionAttributionAmount.js';
 
 describe('position attribution amount helper', () => {
   test('treats zero-like decimal strings as zero', () => {

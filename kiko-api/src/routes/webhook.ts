@@ -20,8 +20,8 @@ import {
     processAlchemyWebhookInboxEventById,
     startAlchemyWebhookInboxWorker
 } from '../services/alchemyWebhookInboxService.js';
-import { buildSwapExecutionContext } from '../services/copytrade/context/contextBuilder.js';
-import { putContext } from '../services/copytrade/context/contextStore.js';
+import { buildSwapExecutionContext } from '../services/copytrade-v2/context/contextBuilder.js';
+import { putContext } from '../services/copytrade-v2/context/contextStore.js';
 import { setCachedSinglePoolWinnerHint } from '../services/dex/directSwap/cache.js';
 import { getAdjudicatedSnapshot, reportReceiptSeen, reportWebhookSeen } from '../services/order-runtime/adjudicator/service.js';
 import { normalizeSolanaWebhookItem } from '../services/solana/webhookNormalizer.js';
@@ -32,18 +32,18 @@ import {
     markCopyTradeSwapReady,
     markCopyTradeTaskEnqueued,
     mergeCopyTradeTimingSnapshots
-} from '../services/copytrade/timing/copyTradeTimingModel.js';
+} from '../services/copytrade-v2/timing/copyTradeTimingModel.js';
 import {
     getCopyTradeIngressState,
     markCopyTradeIngressConfirmed,
     markCopyTradeIngressFirstSeen,
     markCopyTradeIngressSwapReady
-} from '../services/copytrade/ingress/copyTradeIngressState.js';
-import { dispatchCopyTradeIfReady } from '../services/copytrade/ingress/copyTradeFastDispatcher.js';
+} from '../services/copytrade-v2/ingress/copyTradeIngressState.js';
+import { dispatchCopyTradeIfReady } from '../services/copytrade-v2/ingress/copyTradeFastDispatcher.js';
 import {
     refreshTrackedWalletSnapshot,
     resolveTrackedWalletsFromSnapshot
-} from '../services/copytrade/ingress/trackedWalletSnapshot.js';
+} from '../services/copytrade-v2/ingress/trackedWalletSnapshot.js';
 import {
     buildActivityCashHint,
     buildTxSkeletonFromAlchemyActivity,

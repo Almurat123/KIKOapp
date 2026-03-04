@@ -2,7 +2,7 @@ import { afterEach, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import prisma from '../db/prisma.js';
-import { syncCopytradeLedgerFromLegacy } from '../services/copytrade/ledger/copytradeLedgerRepository.js';
+import { syncCopytradeLedgerFromLegacy } from '../services/copytrade-v2/ledger/copytradeLedgerRepository.js';
 import { createCopytradeExecutionFixture, cleanupCopytradeExecutionFixture, makeTxHash } from './helpers/copytradeExecutionHarness.js';
 
 const CHAIN_ID = 8453;

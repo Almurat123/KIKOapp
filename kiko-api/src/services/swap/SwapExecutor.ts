@@ -42,8 +42,8 @@ function setCachedDecimals(chainId: number, address: string, decimals: number): 
 function getCachedDecimals(chainId: number, address: string): number | undefined {
     return ERC20_DECIMALS_PROCESS_CACHE.get(`${chainId}:${address.toLowerCase()}`);
 }
-import { recordProviderReliabilityOutcome } from '../copytrade/learning/quoteReliability.js';
-import { resolveEthCopytradeFeePolicy } from '../copytrade/eth/ethFeePolicy.js';
+import { recordProviderReliabilityOutcome } from '../copytrade-v2/learning/quoteReliability.js';
+import { resolveEthCopytradeFeePolicy } from '../copytrade-v2/eth/ethFeePolicy.js';
 
 // 0x AllowanceHolder address (Base). If a token already has sufficient allowance here,
 // we can skip Permit2 first-try and reduce sell failure risk for problematic tokens.

@@ -1,8 +1,8 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { evaluateMirrorSellGate } from '../services/copytrade/exit/mirrorSellGate.js';
-import { evaluateDeferredMirrorSellIntent } from '../services/copytrade/reconcile/mirrorSellReconcilePolicy.js';
+import { evaluateMirrorSellGate } from '../services/copytrade-v2/exit/mirrorSellGate.js';
+import { evaluateDeferredMirrorSellIntent } from '../services/copytrade-v2/reconcile/mirrorSellReconcilePolicy.js';
 
 describe('mirror sell gate', () => {
   test('allows immediate sell when open attributed exposure exists even without strict full-exit confirmation', () => {
