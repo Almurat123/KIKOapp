@@ -5,7 +5,7 @@ export interface PositionLike {
   id: string;
   tokenAddress: string;
   chainId?: number;
-  status?: string;
+  status?: string | null;
 }
 
 export interface OpenPositionReconciliationResult<T extends PositionLike> {

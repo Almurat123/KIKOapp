@@ -717,6 +717,16 @@ export async function hybridSearchCasts(
 export async function getFarcasterProfile(username: string): Promise<any | null> {
     const cacheKey = `fc:profile:${username.toLowerCase()}`;
 
+    // Optimization: Hardcode 'kikoapp' official profile to avoid API lookups entirely for the follow check
+    if (username.toLowerCase() === 'kikoapp') {
+        return {
+            fid: 1576616,
+            username: 'kikoapp',
+            displayName: 'kikoapp',
+            pfp: 'https://imagedelivery.net/BXluQx4ige9GuW0Ia56BHw/ea891190-307c-4f75-2b36-cea864cb6800/original'
+        };
+    }
+
     try {
         // 1. Check DB Cache table
         const cached = await prisma.cache.findUnique({
@@ -749,11 +759,31 @@ export async function getFarcasterProfile(username: string): Promise<any | null>
                 }
             });
             return profile;
+        } else {
+            // 4. Negative caching: Neynar failed (e.g. 402 error) or user doesn't exist
+            // Cache the "null" result for 5 minutes (300,000 ms) to prevent infinite API spam
+            const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
+            await prisma.cache.upsert({
+                where: { key: cacheKey },
+                update: {
+                    value: JSON.stringify(null), // Store 'null'
+                    expiresAt,
+                    updatedAt: new Date()
+                },
+                create: {
+                    key: cacheKey,
+                    value: JSON.stringify(null),
+                    expiresAt,
+                    updatedAt: new Date()
+                }
+            });
+            return null;
         }
 
         // If fetch failed but we have stale cache, return it as fallback
-        if (cached && cached.value) {
-            return JSON.parse(cached.value);
+        const staleValue = cached?.value;
+        if (typeof staleValue === 'string' && staleValue !== 'null') {
+            return JSON.parse(String(staleValue));
         }
 
         return null;
@@ -770,11 +800,9 @@ export async function checkUserFollowsKiko(fid: number): Promise<boolean> {
     try {
         const { checkIsFollowing } = await import('../services/neynarService.js');
 
-        // 1. Get Kiko's FID (cached via getFarcasterProfile)
-        const kikoProfile = await getFarcasterProfile('kikoapp');
-        if (!kikoProfile) return false;
-
-        const kikoFid = kikoProfile.fid;
+        // 1. Get Kiko's FID
+        // We bypass getFarcasterProfile for standard operations to avoid extra DB hits
+        const kikoFid = 1576616;
 
         // 2. Check if user follows Kiko
         const isFollowing = await checkIsFollowing(fid, kikoFid);

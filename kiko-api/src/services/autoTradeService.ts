@@ -101,6 +101,8 @@ import {
 import { verifyTargetFullExit } from './copytrade/reconcile/targetSellFullExitVerifier.js';
 import { runTargetSellReconciliationCycle } from './copytrade/reconcile/targetSellReconciliationJob.js';
 import { evaluateMirrorSellGate } from './copytrade/exit/mirrorSellGate.js';
+import { resolveExitExecutionContext } from './copytrade/exit/exitContextResolver.js';
+import { resolveRetryExitExecutionContext } from './copytrade/exit/exitRetryContextBridge.js';
 import { collectDirectSwapFeeFromSettlement } from './swap/fee/directSwapFeeCollector.js';
 import { getCopytradeBuySharedWarmup } from './copytrade/buy/buySharedWarmup.js';
 import {
@@ -121,6 +123,10 @@ import {
     loadLedgerFirstRetryPositions,
 } from './copytrade/jobs/copytradeLifecycleJobs.js';
 import { resolveRetryTerminalization } from './copytrade/retry/retryTerminalizationPolicy.js';
+import {
+    repairCopytradePositionAttribution,
+    runCopytradeAttributionRepairCycle,
+} from './copytrade/jobs/copytradeAttributionRepairJob.js';
 
 export { getTokenInfo } from './tokenService.js';
 
@@ -3072,6 +3078,30 @@ async function processSingleUserBuy(
                             ? 'buy_confirmed_target_already_exited'
                             : 'buy_confirmed_success',
                     });
+                    if (promotionAction.action === 'promote_open' && persistedPositionId) {
+                        const repairOutcome = await repairCopytradePositionAttribution({
+                            positionId: persistedPositionId,
+                            chainId,
+                            tokenAddress: tokenToBuy,
+                            targetWallet,
+                        }).catch(() => 'repair_required' as const);
+                        if (repairOutcome !== 'not_needed') {
+                            emitCopytradeSummaryAudit('BUY_FLOW_SUMMARY', {
+                                action: repairOutcome === 'repaired' ? 'buy_attribution_repaired' : 'buy_repair_required',
+                                userId: config.userId,
+                                chainId,
+                                tokenAddress: tokenToBuy,
+                                targetWallet,
+                                leaderBuyTxHash: leaderTxHash || null,
+                                followerBuyTxHash: txHash,
+                                positionId: persistedPositionId,
+                                reasonCode: repairOutcome === 'repaired'
+                                    ? 'buy_confirmation_repaired_missing_attribution'
+                                    : 'buy_confirmation_missing_attribution_requires_repair',
+                                legacyFallbackUsed: false,
+                            });
+                        }
+                    }
                 }
 
                 if (pendingMirrorIntent?.shouldMirrorSell && persistedPositionId) {
@@ -3088,6 +3118,13 @@ async function processSingleUserBuy(
                             targetSellTxHash: pendingMirrorIntent.targetSellTxHash,
                             reasonCode: pendingMirrorIntent.reasonCode
                         });
+                        const resolvedExitContext = await resolveExitExecutionContext({
+                            userId: config.userId,
+                            chainId,
+                            tokenAddress: tokenToBuy,
+                            exitReason: 'mirror_sell',
+                            positions: [mirrorSellPosition as any],
+                        });
                         await executePositionExit({
                             userId: config.userId,
                             tokenAddress: tokenToBuy,
@@ -3095,7 +3132,8 @@ async function processSingleUserBuy(
                             exitReason: 'mirror_sell',
                             tokenInfo,
                             config: { ...effectiveConfig, user: effectiveConfig.user },
-                            positions: [mirrorSellPosition]
+                            positions: resolvedExitContext.positions,
+                            pendingAttributedLots: resolvedExitContext.pendingAttributedLots,
                         });
                     }
                     return;
@@ -4146,7 +4184,15 @@ async function handleTargetSell(
         const balanceUsdForStats = matchedPositions.reduce((sum, p) => sum + (p.entryUsdValue || 0), 0);
         recordNewTrade(targetWallet, chainId, 'sell', balanceUsdForStats);
 
-        const positionIds = matchedPositions.map(p => p.id);
+        const resolvedExitContext = await resolveExitExecutionContext({
+            userId: config.userId,
+            chainId,
+            tokenAddress: tokenToSell,
+            exitReason: 'mirror_sell',
+            positions: matchedPositions as any,
+            pendingAttributedLots: pendingAttributedLots as any,
+        });
+        const positionIds = resolvedExitContext.positions.map(p => p.id);
         if (positionIds.some(id => positionsBeingExited.has(id))) {
             logger.throttled(LogCode.WTC_TX_SKIPPED, 'Mirror sell skipped: position already being processed', { userId: config.userId, token: tokenToSell });
             return;
@@ -4161,8 +4207,8 @@ async function handleTargetSell(
                 exitReason: 'mirror_sell',
                 tokenInfo,
                 config: { ...config, user: (config as any).user },
-                positions: matchedPositions,
-                pendingAttributedLots
+                positions: resolvedExitContext.positions,
+                pendingAttributedLots: resolvedExitContext.pendingAttributedLots
             });
         } finally {
             positionIds.forEach(id => positionsBeingExited.delete(id));
@@ -4257,6 +4303,12 @@ export async function checkPositionsForExits(): Promise<void> {
     pruneTpslTracker();
     const positionStatusCompat = await getPositionStatusCompat();
 
+    await runCopytradeAttributionRepairCycle().catch((err: any) => {
+        logger.warn(LogCode.SYS_ERROR, 'Attribution repair cycle failed', {
+            error: err?.message || String(err),
+        });
+    });
+
     // 🔄 STEP 0: Retry failed exit attempts (Mirror Sell, Take Profit, Stop Loss)
     // Check for positions with exitRetry Count > 0 and retry them if cooldown has passed
     const RETRY_COOLDOWN_MS = 60 * 1000; // 1 minute (Reduced from 5min for faster emergency exit)
@@ -4305,6 +4357,13 @@ export async function checkPositionsForExits(): Promise<void> {
                 });
 
                 // Retry the exit
+                const resolvedRetryExitContext = await resolveRetryExitExecutionContext({
+                    userId: position.userId,
+                    tokenAddress: position.tokenAddress,
+                    chainId: position.chainId,
+                    exitReason: (position.exitReason as any) || 'mirror_sell',
+                    position: position as any,
+                });
                 await executePositionExit({
                     userId: position.userId,
                     tokenAddress: position.tokenAddress,
@@ -4312,7 +4371,8 @@ export async function checkPositionsForExits(): Promise<void> {
                     exitReason: (position.exitReason as any) || 'mirror_sell', // Use original reason or default
                     tokenInfo,
                     config: { ...config, user: position.user },
-                    positions: [position],
+                    positions: resolvedRetryExitContext.positions,
+                    pendingAttributedLots: resolvedRetryExitContext.pendingAttributedLots,
                     isRetryAttempt: true
                 });
             } catch (err: any) {

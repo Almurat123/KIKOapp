@@ -51,7 +51,10 @@ export async function findLedgerFirstRetryPositions(params: {
   const rows = await prisma.copytradePositionLedger.findMany({
     where: {
       lifecycleState: 'FOLLOWER_EXIT_FAILED_RETRYABLE',
-      updatedAt: { lt: params.retryBefore },
+      OR: [
+        { updatedAt: { lt: params.retryBefore } },
+        { lastExecutionReasonCode: { startsWith: 'repair_from_' } },
+      ],
       closedAt: null,
       positionIdLegacy: { not: null },
     },
@@ -74,7 +77,7 @@ export async function findLedgerFirstMonitorPositions() {
   if (resolveCopytradeLedgerMode() !== 'v2_primary') return [];
   const rows = await prisma.copytradePositionLedger.findMany({
     where: {
-      lifecycleState: 'FOLLOWER_OPEN',
+      lifecycleState: { in: ['FOLLOWER_OPEN', 'FOLLOWER_OPEN_REPAIR_REQUIRED'] },
       closedAt: null,
       positionIdLegacy: { not: null },
     },
@@ -94,7 +97,7 @@ export async function findLedgerFirstReconcileOpenCandidates(params: {
   if (resolveCopytradeLedgerMode() !== 'v2_primary') return [];
   const rows = await prisma.copytradePositionLedger.findMany({
     where: {
-      lifecycleState: { in: ['FOLLOWER_OPEN', 'FOLLOWER_EXIT_FAILED_RETRYABLE'] },
+      lifecycleState: { in: ['FOLLOWER_OPEN', 'FOLLOWER_OPEN_REPAIR_REQUIRED', 'FOLLOWER_EXIT_FAILED_RETRYABLE'] },
       OR: [
         { createdAt: { gte: params.createdAfter } },
         { updatedAt: { gte: params.createdAfter } },
@@ -162,4 +165,54 @@ export async function findLedgerFirstReconcilePendingCandidates(params: {
     take: 100,
     orderBy: { createdAt: 'desc' },
   });
+}
+
+export async function findLedgerFirstRepairCandidates() {
+  if (resolveCopytradeLedgerMode() !== 'v2_primary') return [];
+  const rows = await prisma.copytradePositionLedger.findMany({
+    where: {
+      lifecycleState: { in: ['FOLLOWER_OPEN', 'FOLLOWER_OPEN_REPAIR_REQUIRED', 'FOLLOWER_EXIT_FAILED_RETRYABLE'] },
+      closedAt: null,
+      positionIdLegacy: { not: null },
+    },
+    select: {
+      positionIdLegacy: true,
+      chainId: true,
+      tokenAddress: true,
+      targetWallet: true,
+      targetFullExitVerified: true,
+    },
+    take: 100,
+    orderBy: { updatedAt: 'desc' },
+  });
+  if (rows.length === 0) return [];
+  const ids = rows.map((row) => row.positionIdLegacy).filter((value): value is string => Boolean(value));
+  const positions = await prisma.position.findMany({
+    where: { id: { in: ids }, status: 'open' },
+    select: {
+      id: true,
+      entryAmount: true,
+      entryAmountDec: true,
+      entryAmountExact: true,
+    },
+  });
+  const brokenIds = new Set(
+    positions
+      .filter((position) => {
+        const exact = String(position.entryAmountExact || '').trim();
+        const dec = String(position.entryAmountDec || '').trim();
+        const entryAmount = String(position.entryAmount || '').trim();
+        return (!exact || exact === '0') && (!dec || dec === '0') && !!entryAmount && entryAmount !== '0';
+      })
+      .map((position) => position.id),
+  );
+  return rows
+    .filter((row) => row.positionIdLegacy && brokenIds.has(row.positionIdLegacy))
+    .map((row) => ({
+      positionId: row.positionIdLegacy as string,
+      chainId: row.chainId,
+      tokenAddress: row.tokenAddress,
+      targetWallet: row.targetWallet,
+      targetFullExitVerified: row.targetFullExitVerified,
+    }));
 }

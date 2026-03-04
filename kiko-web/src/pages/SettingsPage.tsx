@@ -72,8 +72,17 @@ const FollowKikoButton: React.FC = () => {
         const handleEvents = () => { if (document.visibilityState === 'visible') checkFollowStatus(); };
         document.addEventListener('visibilitychange', handleEvents);
         window.addEventListener('focus', handleEvents);
-        const pollInterval = setInterval(checkFollowStatus, 3000);
-        setTimeout(() => clearInterval(pollInterval), 30000);
+
+        let attempts = 0;
+        const pollInterval = setInterval(() => {
+            if (attempts >= 5) { // Cap at 5 attempts (15 seconds total)
+                clearInterval(pollInterval);
+                return;
+            }
+            checkFollowStatus();
+            attempts++;
+        }, 3000);
+
         return () => {
             document.removeEventListener('visibilitychange', handleEvents);
             window.removeEventListener('focus', handleEvents);

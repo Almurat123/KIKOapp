@@ -8,7 +8,8 @@ export type CopytradeSummaryEvent =
   | 'RECONCILE_CYCLE_SUMMARY'
   | 'CLEANUP_CYCLE_SUMMARY'
   | 'RETRY_CYCLE_SUMMARY'
-  | 'MONITOR_CYCLE_SUMMARY';
+  | 'MONITOR_CYCLE_SUMMARY'
+  | 'REPAIR_CYCLE_SUMMARY';
 
 export function emitCopytradeSummaryAudit(
   event: CopytradeSummaryEvent,
