@@ -3516,13 +3516,25 @@ async function executePositionExit(params: {
                 'dynamic_take_profit': '🎯 Dynamic Take Profit'
             };
 
+            // When exit price was unavailable (RPC down), sellVolUsd = 0.
+            // Fall back to sum of entry USD values so DM shows a meaningful number.
+            const totalEntryUsd = persistedExitPositions.reduce(
+                (sum: number, p: any) => sum + (Number(p.entryUsdValue) || 0),
+                0
+            );
+            const displaySellValue = sellVolUsd > 0
+                ? sellVolUsd.toFixed(2)
+                : totalEntryUsd > 0
+                    ? `~${totalEntryUsd.toFixed(2)}`
+                    : '—';
+
             await notificationService.sendNotification({
                 userId: user.privyDid,
                 farcasterFid: user.farcasterFid,
                 type: 'TRADE_SUCCESS_SELL',
                 data: {
                     tokenSymbol: await resolveDisplayTokenSymbolAsync(tokenInfo.symbol, tokenAddress, chainId),
-                    usdValue: sellVolUsd.toFixed(2),
+                    usdValue: displaySellValue,
                     targetWallet: config.targetWallet,
                     txHash: txHash,
                     chainId: chainId,

@@ -118,14 +118,20 @@ type PumpSwapPoolLayout = {
   quoteMint: PublicKey;
   baseVault: PublicKey;
   quoteVault: PublicKey;
+  // v2 pools do NOT store coin_creator in the pool account — coin_creator_vault_authority
+  // must come from Jupiter/pAMM config; skip custom instruction for these pools.
+  layoutVersion: 1 | 2;
 };
 
 // Known pAMM pool layout variants (offsets differ by token/deployment generation).
 // Layout v1 (original): creator=40, baseMint=72, quoteMint=104, baseVault=168, quoteVault=200
-// Layout v2 (graduated tokens): creator=11, baseMint=43, quoteMint=75, baseVault=139, quoteVault=171
+// Layout v2 (graduated/new pAMM): baseMint=43, quoteMint=75, baseVault=139, quoteVault=171
+//   NOTE: v2 coin_creator is NOT in the pool account at offset 11 (that byte range is pool metadata).
+//   Using v2 creator from pool data causes ConstraintSeeds(2006) on coin_creator_vault_authority.
+//   v2 pools must use Jupiter routing (which reads coin_creator from pAMM global config).
 const POOL_LAYOUTS = [
-  { creator: 40, baseMint: 72, quoteMint: 104, baseVault: 168, quoteVault: 200 },
-  { creator: 11, baseMint: 43, quoteMint: 75, baseVault: 139, quoteVault: 171 },
+  { version: 1 as const, creator: 40, baseMint: 72, quoteMint: 104, baseVault: 168, quoteVault: 200 },
+  { version: 2 as const, creator: 11, baseMint: 43, quoteMint: 75, baseVault: 139, quoteVault: 171 },
 ];
 
 function decodePumpSwapPoolLayout(data: Buffer, hintMint?: PublicKey): PumpSwapPoolLayout {
@@ -138,10 +144,10 @@ function decodePumpSwapPoolLayout(data: Buffer, hintMint?: PublicKey): PumpSwapP
       const quoteVault = new PublicKey(data.slice(layout.quoteVault, layout.quoteVault + 32));
       const creator = new PublicKey(data.slice(layout.creator, layout.creator + 32));
       if (hintMint && baseMint.equals(hintMint)) {
-        return { creator, baseMint, quoteMint, baseVault, quoteVault };
+        return { creator, baseMint, quoteMint, baseVault, quoteVault, layoutVersion: layout.version };
       }
       if (!hintMint) {
-        return { creator, baseMint, quoteMint, baseVault, quoteVault };
+        return { creator, baseMint, quoteMint, baseVault, quoteVault, layoutVersion: layout.version };
       }
     } catch { /* try next layout */ }
   }
@@ -152,6 +158,7 @@ function decodePumpSwapPoolLayout(data: Buffer, hintMint?: PublicKey): PumpSwapP
     quoteMint: new PublicKey(data.slice(104, 136)),
     baseVault: new PublicKey(data.slice(168, 200)),
     quoteVault: new PublicKey(data.slice(200, 232)),
+    layoutVersion: 1,
   };
 }
 
@@ -438,6 +445,16 @@ export async function executePumpSwapDirect(
       return executePumpAmmViaJupiterDirect({ request, signingContext, connection });
     }
     const { pool, info: poolInfo, layout } = resolvedPool;
+
+    // v2 pools don't embed coin_creator reliably; coin_creator_vault_authority must be
+    // sourced from pAMM config, which only Jupiter knows. Skip custom instruction path.
+    if (layout.layoutVersion === 2) {
+      logger.info(LogCode.SYS_INFO, '[PumpSwapDirect] v2 pool detected, routing to Jupiter (coin_creator not in pool account)', {
+        mint: request.mint,
+        pool: pool.toBase58(),
+      });
+      return executePumpAmmViaJupiterDirect({ request, signingContext, connection });
+    }
 
     const baseProgramId = await getMintProgramId(connection, layout.baseMint);
 
