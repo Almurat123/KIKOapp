@@ -1,7 +1,7 @@
 import { ethers } from 'ethers';
 import { getErc20Balance, getErc20Decimals } from '../../rpcManager.js';
 import { resolveAttributedPositionExitAmount } from '../positions/positionAttribution.js';
-import { resolvePositionLedgerSnapshot } from '../positions/positionLedgerResolver.js';
+import { resolveCopytradeLedger } from '../ledger/copytradeLedgerService.js';
 import { resolveMirrorSellAttributedAmount } from './mirrorSellAttribution.js';
 import type { ExitAttributionSnapshot, ExitSnapshotPosition } from './exitSnapshotTypes.js';
 import type { ExitTokenInfo, PendingAttributedExitContext, PositionExitReason } from './types.js';
@@ -86,7 +86,7 @@ export async function buildEvmExitAttributionSnapshot(input: {
     }
   }
 
-  const ledger = await resolvePositionLedgerSnapshot({
+  const ledger = await resolveCopytradeLedger({
     chainId: input.chainId,
     tokenAddress: input.tokenAddress,
     targetWallet: input.targetWallet,

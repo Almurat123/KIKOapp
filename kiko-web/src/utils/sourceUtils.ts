@@ -8,20 +8,57 @@ export type Citation = string | { url: string; avatar_url?: string };
  * Extract URL from citation (string or object)
  */
 export function getCitationUrl(citation: Citation): string {
-  if (typeof citation === 'string') {
-    return citation;
+  const parsed = parseCitation(citation);
+  if (typeof parsed === 'string') {
+    return parsed;
   }
-  return citation.url;
+  return parsed.url || '';
 }
 
 /**
  * Extract avatar URL from citation if available
  */
 export function getCitationAvatarUrl(citation: Citation): string | null {
-  if (typeof citation === 'object' && citation.avatar_url) {
-    return citation.avatar_url;
+  const parsed = parseCitation(citation);
+  if (typeof parsed === 'object' && ('avatar_url' in parsed || 'avatarUrl' in parsed)) {
+    return (parsed as any).avatar_url || (parsed as any).avatarUrl || null;
   }
   return null;
+}
+
+/**
+ * Robustly parse poorly-formatted citations from backend (e.g. Python string lists "['url']")
+ */
+export function parseCitation(citation: Citation): Citation {
+  let parsedCitation: any = citation;
+
+  if (typeof citation === 'string' && citation.startsWith('[') && citation.endsWith(']')) {
+    try {
+      const parsed = JSON.parse(citation.replace(/'/g, '"'));
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        parsedCitation = { url: parsed[0] };
+      }
+    } catch {
+      parsedCitation = { url: citation };
+    }
+  } else if (typeof citation === 'object' && citation !== null && (citation as any).url) {
+    const urlValue = (citation as any).url;
+    if (typeof urlValue === 'string' && urlValue.startsWith('[') && urlValue.endsWith(']')) {
+      try {
+        const parsed = JSON.parse(urlValue.replace(/'/g, '"'));
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          parsedCitation = {
+            ...citation,
+            url: parsed[0],
+          };
+        }
+      } catch {
+        // Keep original
+      }
+    }
+  }
+
+  return parsedCitation as Citation;
 }
 
 /**

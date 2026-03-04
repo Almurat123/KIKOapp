@@ -40,10 +40,40 @@ export async function evaluateUsageAccess(params: { userId: string; model: strin
     const normalUsed = counts.deepseek;
     const advancedUsed = counts.grok;
 
+    // 1. Check strict hard cap total limit
     if (totalLimit > 0 && totalUsed >= totalLimit) {
         return {
             allowed: false,
-            reason: 'DAILY_LIMIT_REACHED',
+            reason: 'DAILY_TOTAL_LIMIT_REACHED',
+            dateUtc,
+            totalUsed,
+            totalLimit,
+            tokenBalance,
+            normalUsed,
+            advancedUsed,
+            modelCategory
+        };
+    }
+
+    // 2. Check individual model category limits
+    if (modelCategory === 'grok' && advancedUsed >= env.billing.dailyFreeGrok) {
+        return {
+            allowed: false,
+            reason: 'DAILY_ADVANCED_LIMIT_REACHED',
+            dateUtc,
+            totalUsed,
+            totalLimit,
+            tokenBalance,
+            normalUsed,
+            advancedUsed,
+            modelCategory
+        };
+    }
+
+    if (modelCategory === 'deepseek' && normalUsed >= env.billing.dailyFreeDeepseek) {
+        return {
+            allowed: false,
+            reason: 'DAILY_NORMAL_LIMIT_REACHED',
             dateUtc,
             totalUsed,
             totalLimit,

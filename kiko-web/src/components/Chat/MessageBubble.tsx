@@ -17,7 +17,7 @@ import { ThinkingTimer } from './ThinkingTimer';
 import { TokenCapsule } from './TokenCapsule';
 import { CitationRenderer } from './CitationRenderer';
 import { XPostCard } from './XPostCard';
-import { getSourceLogoProps, getSourceTitle } from '../../utils/sourceUtils';
+import { getSourceLogoProps, getSourceTitle, parseCitation } from '../../utils/sourceUtils';
 import { logger } from '../../utils/logger';
 import { chatApi } from '../../services/api';
 import { calculateCost, formatCost } from '../../utils/llmPricing';
@@ -415,6 +415,20 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({ message, isGroup
                                                             onError={(e) => {
                                                                 const target = e.target as HTMLImageElement;
                                                                 target.style.display = 'none';
+                                                                const parent = target.parentElement;
+                                                                if (parent && !parent.querySelector('svg')) {
+                                                                    const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+                                                                    icon.setAttribute('width', '14');
+                                                                    icon.setAttribute('height', '14');
+                                                                    icon.setAttribute('viewBox', '0 0 24 24');
+                                                                    icon.setAttribute('fill', 'none');
+                                                                    icon.setAttribute('stroke', 'currentColor');
+                                                                    icon.setAttribute('stroke-width', '2');
+                                                                    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                                                                    path.setAttribute('d', 'M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6M15 3h6v6M10 14L21 3');
+                                                                    icon.appendChild(path);
+                                                                    parent.appendChild(icon);
+                                                                }
                                                             }}
                                                         />
                                                     ) : logoProps.isX ? (
@@ -453,35 +467,7 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({ message, isGroup
                                 </div>
                                 <div className={styles.sourcesSidebarList}>
                                     {message.citations.map((citation, index) => {
-                                        // Additional parsing in case citation is still a string list
-                                        let parsedCitation: any = citation;
-                                        if (typeof citation === 'string' && citation.startsWith('[') && citation.endsWith(']')) {
-                                            try {
-                                                const parsed = JSON.parse(citation.replace(/'/g, '"'));
-                                                if (Array.isArray(parsed) && parsed.length > 0) {
-                                                    parsedCitation = { url: parsed[0] };
-                                                }
-                                            } catch {
-                                                parsedCitation = { url: citation };
-                                            }
-                                        } else if (typeof citation === 'object' && citation !== null && (citation as any).url) {
-                                            const urlValue = (citation as any).url;
-                                            if (typeof urlValue === 'string' && urlValue.startsWith('[') && urlValue.endsWith(']')) {
-                                                try {
-                                                    const parsed = JSON.parse(urlValue.replace(/'/g, '"'));
-                                                    if (Array.isArray(parsed) && parsed.length > 0) {
-                                                        parsedCitation = {
-                                                            ...parsedCitation, // Preserve all original props including snippet/content
-                                                            url: parsed[0],
-                                                            avatar_url: parsedCitation.avatar_url || parsedCitation.avatarUrl,
-                                                            title: parsedCitation.title
-                                                        };
-                                                    }
-                                                } catch {
-                                                    // Keep original
-                                                }
-                                            }
-                                        }
+                                        const parsedCitation: any = parseCitation(citation);
 
                                         const logoProps = getSourceLogoProps(parsedCitation);
                                         const validUrl = logoProps.url;

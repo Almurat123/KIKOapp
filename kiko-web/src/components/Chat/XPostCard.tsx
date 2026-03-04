@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { ExternalLink, X as XIcon, RefreshCw } from 'lucide-react';
 import clsx from 'clsx';
 import styles from './XPostCard.module.css';
-import { resolveCoreApiBase } from '../../utils/coreApiBase';
+
 
 interface XPostCardProps {
     url: string;
@@ -16,6 +16,7 @@ interface TweetData {
     content: string;
     loading: boolean;
     error?: string;
+    avatarUrl?: string;
 }
 
 /**
@@ -51,32 +52,33 @@ export const XPostCard: React.FC<XPostCardProps> = ({ url, avatarUrl, className 
     useEffect(() => {
         const fetchTweetData = async () => {
             try {
-                // Use Twitter oEmbed API via our backend proxy
-                const API_BASE = resolveCoreApiBase();
-                const response = await fetch(
-                    `${API_BASE}/api/social/tweet-oembed?url=${encodeURIComponent(url)}`
-                );
+                // Extract tweet ID and potential username from URL
+                const tweetMatch = url.match(/(?:twitter\.com|x\.com)\/([^/]+)\/status\/(\d+)/i);
+                if (!tweetMatch) {
+                    throw new Error('Invalid Twitter URL format');
+                }
+                const [, usernameMatch, tweetId] = tweetMatch;
+
+                // Use the public API of vxtwitter to get rich metadata including avatars
+                // Using corsproxy to bypass potential CORS issues if calling directly from browser
+                // Wait, typically api.vxtwitter.com supports CORS. Let's try direct first.
+                const response = await fetch(`https://api.vxtwitter.com/${usernameMatch}/status/${tweetId}`);
 
                 if (!response.ok) {
-                    throw new Error('Failed to fetch tweet');
+                    throw new Error('Failed to fetch tweet from vxtwitter');
                 }
 
                 const responseBody = await response.json();
-                const data = (responseBody && responseBody.data) ? responseBody.data : responseBody;
+                const data = responseBody;
 
-                // Parse HTML to extract text content
-                const htmlContent = data.html || '';
-                // Extract text from blockquote - remove HTML tags
-                const textMatch = htmlContent.match(/<p[^>]*>([\s\S]*?)<\/p>/);
-                const textContent = textMatch
-                    ? textMatch[1].replace(/<[^>]+>/g, '').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
-                    : '';
+                const avatarUrlFromApi = data.user_profile_image_url || avatarUrl;
 
                 setTweetData({
-                    authorName: data.author_name || parseUsernameFromUrl(url),
-                    authorHandle: parseUsernameFromUrl(data.author_url || url),
-                    content: textContent || 'Tweet content unavailable',
+                    authorName: data.user_name || parseUsernameFromUrl(url),
+                    authorHandle: data.user_screen_name || parseUsernameFromUrl(url),
+                    content: data.text || 'Tweet content unavailable',
                     loading: false,
+                    avatarUrl: avatarUrlFromApi,
                 });
             } catch (error) {
                 console.error('[XPostCard] Failed to fetch tweet:', error);
@@ -90,7 +92,7 @@ export const XPostCard: React.FC<XPostCardProps> = ({ url, avatarUrl, className 
         };
 
         fetchTweetData();
-    }, [url]);
+    }, [url, avatarUrl]);
 
     const handleClick = () => {
         window.open(url, '_blank', 'noopener,noreferrer');
@@ -107,9 +109,9 @@ export const XPostCard: React.FC<XPostCardProps> = ({ url, avatarUrl, className 
             {/* Header: Avatar + Username */}
             <div className={styles.header}>
                 <div className={styles.avatarWrapper}>
-                    {avatarUrl ? (
+                    {(avatarUrl || tweetData.avatarUrl) ? (
                         <img
-                            src={avatarUrl}
+                            src={avatarUrl || tweetData.avatarUrl}
                             alt={tweetData.authorHandle}
                             className={styles.avatar}
                             onError={(e) => {

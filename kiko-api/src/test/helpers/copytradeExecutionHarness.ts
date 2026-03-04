@@ -1,7 +1,9 @@
+import { createHash } from 'node:crypto';
+
 import prisma from '../../db/prisma.js';
 
 function makeHex(seed: string, length: number): string {
-  return Buffer.from(seed).toString('hex').padEnd(length, '0').slice(0, length);
+  return createHash('sha256').update(seed).digest('hex').slice(0, length);
 }
 
 export function makeAddress(seed: string): string {
@@ -65,6 +67,9 @@ export async function cleanupCopytradeExecutionFixture(params: {
     }).catch(() => undefined);
   }
   if (params.userIds?.length) {
+    await prisma.copytradePositionLedger.deleteMany({
+      where: { userId: { in: params.userIds } },
+    }).catch(() => undefined);
     await prisma.pendingAttributedPosition.deleteMany({
       where: { userId: { in: params.userIds } },
     }).catch(() => undefined);

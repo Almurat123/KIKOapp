@@ -4,6 +4,13 @@ import { logger } from '../../../utils/logger.js';
 import { normalizeAddress } from '../../../utils/address.js';
 import { verifyTargetFullExit, formatTargetRemainingBalance } from './targetSellFullExitVerifier.js';
 import { armPendingAttributedPositionsForMirrorSell } from '../positions/pendingAttributedPositionLedger.js';
+import { emitCopytradeDomainAudit } from '../audit/copytradeDomainAudit.js';
+import { applyCopytradeStateEvent } from '../state/copytradeStateRuntime.js';
+import {
+  findLedgerFirstReconcileOpenCandidates,
+  findLedgerFirstReconcilePendingCandidates,
+} from '../ledger/copytradeLedgerSelectors.js';
+import { emitCopytradeSummaryAudit } from '../audit/copytradeSummaryAudit.js';
 
 const TARGET_SELL_RECONCILE_WINDOW_MS = Math.max(60_000, Number(process.env.COPYTRADE_TARGET_SELL_RECONCILE_WINDOW_MS || '21600000'));
 
@@ -21,19 +28,7 @@ export async function runTargetSellReconciliationCycle(): Promise<{
   let scheduledOpen = 0;
   let fullExitMatches = 0;
 
-  const openCandidates = await prisma.position.findMany({
-    where: {
-      status: 'open',
-      createdAt: { gte: createdAfter },
-      config: { mirrorSell: true, status: 'active' },
-    },
-    include: {
-      config: true,
-      user: true,
-    },
-    take: 100,
-    orderBy: { createdAt: 'desc' },
-  });
+  const openCandidates = await findLedgerFirstReconcileOpenCandidates({ createdAfter });
 
   for (const position of openCandidates) {
     scannedOpen += 1;
@@ -57,6 +52,17 @@ export async function runTargetSellReconciliationCycle(): Promise<{
     });
     if (!fullExit.isFullExit) continue;
     fullExitMatches += 1;
+    emitCopytradeDomainAudit('TARGET_FULL_EXIT_VERIFIED', {
+      extra: {
+        userId: position.userId,
+        tokenAddress: position.tokenAddress,
+        chainId: position.chainId,
+        targetWallet: position.config.targetWallet,
+        targetSellTxHash: latestSell.txHash,
+        reasonCode: fullExit.reasonCode,
+        remainingBalanceRaw: fullExit.remainingBalanceRaw,
+      }
+    });
 
     const updated = await prisma.position.updateMany({
       where: {
@@ -75,6 +81,17 @@ export async function runTargetSellReconciliationCycle(): Promise<{
       },
     });
     if (updated.count > 0) {
+      await applyCopytradeStateEvent({
+        event: { type: 'TARGET_FULL_EXIT_VERIFIED' },
+        chainId: position.chainId,
+        tokenAddress: position.tokenAddress,
+        targetWallet: position.config.targetWallet,
+        positionIds: [position.id],
+        targetFullExitVerified: true,
+        targetSellTxHash: latestSell.txHash,
+        lastExecutionState: 'target_full_exit_verified',
+        lastExecutionReasonCode: fullExit.reasonCode,
+      });
       scheduledOpen += updated.count;
       logger.info(LogCode.SYS_INFO, '[TargetSellReconcile] Scheduled open position for mirror-sell retry after strict full-exit verification', {
         positionId: position.id,
@@ -91,24 +108,7 @@ export async function runTargetSellReconciliationCycle(): Promise<{
     }
   }
 
-  const pendingCandidates = await prisma.pendingAttributedPosition.findMany({
-    where: {
-      status: { in: ['armed', 'sell_armed'] },
-      createdAt: { gte: createdAfter },
-      position: {
-        config: { mirrorSell: true, status: 'active' },
-      },
-    },
-    include: {
-      position: {
-        include: {
-          config: true,
-        },
-      },
-    },
-    take: 100,
-    orderBy: { createdAt: 'desc' },
-  });
+  const pendingCandidates = await findLedgerFirstReconcilePendingCandidates({ createdAfter });
 
   for (const lot of pendingCandidates) {
     scannedPending += 1;
@@ -132,6 +132,17 @@ export async function runTargetSellReconciliationCycle(): Promise<{
     });
     if (!fullExit.isFullExit) continue;
     fullExitMatches += 1;
+    emitCopytradeDomainAudit('TARGET_FULL_EXIT_VERIFIED', {
+      extra: {
+        userId: lot.userId,
+        tokenAddress: lot.tokenAddress,
+        chainId: lot.chainId,
+        targetWallet: lot.position.config.targetWallet,
+        targetSellTxHash: latestSell.txHash,
+        reasonCode: fullExit.reasonCode,
+        remainingBalanceRaw: fullExit.remainingBalanceRaw,
+      }
+    });
 
     const count = await armPendingAttributedPositionsForMirrorSell({
       userId: lot.userId,
@@ -143,6 +154,17 @@ export async function runTargetSellReconciliationCycle(): Promise<{
     });
     armedPending += count;
     if (count > 0) {
+      await applyCopytradeStateEvent({
+        event: { type: 'TARGET_FULL_EXIT_VERIFIED' },
+        chainId: lot.chainId,
+        tokenAddress: lot.tokenAddress,
+        targetWallet: lot.position.config.targetWallet,
+        positionIds: [lot.positionId],
+        targetFullExitVerified: true,
+        targetSellTxHash: latestSell.txHash,
+        lastExecutionState: 'target_full_exit_verified',
+        lastExecutionReasonCode: fullExit.reasonCode,
+      });
       logger.info(LogCode.SYS_INFO, '[TargetSellReconcile] Armed pending attributed lot after strict full-exit verification', {
         lotId: lot.id,
         positionId: lot.positionId,
@@ -159,11 +181,21 @@ export async function runTargetSellReconciliationCycle(): Promise<{
     }
   }
 
-  return {
+  const result = {
     scannedOpen,
     scannedPending,
     armedPending,
     scheduledOpen,
     fullExitMatches,
   };
+  emitCopytradeSummaryAudit('RECONCILE_CYCLE_SUMMARY', {
+    action: fullExitMatches > 0 ? 'processed_full_exit_matches' : 'noop',
+    scannedOpen,
+    scannedPending,
+    armedPending,
+    scheduledOpen,
+    fullExitMatches,
+    legacyFallbackUsed: false,
+  });
+  return result;
 }

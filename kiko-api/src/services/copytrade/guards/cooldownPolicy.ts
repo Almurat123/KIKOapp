@@ -3,39 +3,58 @@ export type PositionStatusCompatLike = {
 };
 
 export type DuplicateTradeWhere = Record<string, unknown>;
+export type CooldownThrottleWhere = Record<string, unknown>;
 
 export function buildDuplicateTradeWhere(params: {
     userId: string;
     tokenAddress: string;
+    chainId?: number;
+    configId?: string;
     cooldownMinutes: number;
     positionStatusCompat: PositionStatusCompatLike;
 }): DuplicateTradeWhere {
-    const cooldownMinutes = Math.max(0, Number(params.cooldownMinutes || 0));
     const pendingStatuses = Array.from(new Set(
-        (params.positionStatusCompat.lockStatuses || []).filter(Boolean)
+        [
+            ...(params.positionStatusCompat.lockStatuses || []).filter(Boolean),
+            'pending_broadcast',
+            'broadcasted_unseen',
+        ]
     ));
 
+    return {
+        userId: params.userId,
+        ...(params.configId ? { configId: params.configId } : {}),
+        tokenAddress: params.tokenAddress,
+        ...(Number.isFinite(Number(params.chainId)) ? { chainId: params.chainId } : {}),
+        status: { in: pendingStatuses }
+    };
+}
+
+export function buildCooldownThrottleWhere(params: {
+    userId: string;
+    tokenAddress: string;
+    chainId: number;
+    configId: string;
+    cooldownMinutes: number;
+}): CooldownThrottleWhere | null {
+    const cooldownMinutes = Math.max(0, Number(params.cooldownMinutes || 0));
     if (cooldownMinutes <= 0) {
-        return {
-            userId: params.userId,
-            tokenAddress: params.tokenAddress,
-            status: { in: pendingStatuses }
-        };
+        return null;
     }
 
     const createdAfter = new Date(Date.now() - cooldownMinutes * 60 * 1000);
     return {
         userId: params.userId,
+        configId: params.configId,
         tokenAddress: params.tokenAddress,
-        OR: [
-            { status: { in: pendingStatuses } },
-            { status: 'open', createdAt: { gte: createdAfter } }
-        ]
+        chainId: params.chainId,
+        status: { in: ['open', 'closing', 'close_pending', 'closed'] },
+        createdAt: { gte: createdAfter }
     };
 }
 
-export function describeCooldownMode(cooldownMinutes: number): 'pending_only' | 'pending_and_recent_open' {
+export function describeCooldownMode(cooldownMinutes: number): 'disabled' | 'recent_strategy_activity' {
     return Math.max(0, Number(cooldownMinutes || 0)) > 0
-        ? 'pending_and_recent_open'
-        : 'pending_only';
+        ? 'recent_strategy_activity'
+        : 'disabled';
 }

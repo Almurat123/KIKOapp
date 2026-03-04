@@ -2,10 +2,12 @@ import { logger } from '../../../utils/logger.js';
 import { LogCode } from '../../../config/logRegistry.js';
 import { snapshotOrderRuntime } from '../context.js';
 import type { OrderRuntimeContext } from '../types.js';
+import { buildExecutionLifecycleAuditFields } from '../../swap/lifecycle/executionLifecycleTranslator.js';
 
 export function logOrderRuntimeSnapshot(ctx: OrderRuntimeContext, label: string): void {
   const snapshot = snapshotOrderRuntime(ctx);
   logger.info(LogCode.SYS_INFO, label, {
+    ...buildExecutionLifecycleAuditFields({ runtimeContext: ctx }),
     orderId: snapshot.orderId,
     state: snapshot.state,
     reasonCode: snapshot.reasonCode,

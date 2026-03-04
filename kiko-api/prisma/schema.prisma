@@ -448,6 +448,39 @@ model PendingAttributedPosition {
   @@map("pending_attributed_positions")
 }
 
+model CopytradePositionLedger {
+  id                      String    @id @default(cuid())
+  userId                  String    @map("user_id")
+  configId                String    @map("config_id")
+  chainId                 Int       @map("chain_id")
+  tokenAddress            String    @map("token_address")
+  targetWallet            String    @map("target_wallet")
+  leaderBuyTxHash         String?   @map("leader_buy_tx_hash")
+  targetSellTxHash        String?   @map("target_sell_tx_hash")
+  followerBuyTxHash       String?   @map("follower_buy_tx_hash")
+  followerExitTxHash      String?   @map("follower_exit_tx_hash")
+  lifecycleState          String    @map("lifecycle_state")
+  targetFullExitVerified  Boolean   @default(false) @map("target_full_exit_verified")
+  confirmedOwnedAmountRaw String?   @map("confirmed_owned_amount_raw")
+  pendingOwnedAmountRaw   String?   @map("pending_owned_amount_raw")
+  effectiveOwnedAmountRaw String?   @map("effective_owned_amount_raw")
+  sellableAmountRaw       String?   @map("sellable_amount_raw")
+  lastExecutionState      String?   @map("last_execution_state")
+  lastExecutionReasonCode String?   @map("last_execution_reason_code")
+  positionIdLegacy        String?   @unique @map("position_id_legacy")
+  pendingLotIdLegacy      String?   @unique @map("pending_lot_id_legacy")
+  createdAt               DateTime  @default(now()) @map("created_at")
+  updatedAt               DateTime  @updatedAt @map("updated_at")
+  closedAt                DateTime? @map("closed_at")
+
+  @@unique([userId, configId, chainId, tokenAddress, leaderBuyTxHash], map: "copytrade_position_ledger_identity_key")
+  @@index([userId, lifecycleState])
+  @@index([targetWallet, chainId, tokenAddress])
+  @@index([followerBuyTxHash])
+  @@index([followerExitTxHash])
+  @@map("copytrade_position_ledger")
+}
+
 model ChatSession {
   id                       String        @id @default(cuid())
   userId                   String

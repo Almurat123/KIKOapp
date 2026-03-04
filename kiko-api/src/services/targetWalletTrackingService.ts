@@ -396,7 +396,8 @@ async function fillUsdFromDecodedLeg(params: {
       nativePrice = Number(await getNativeTokenPriceUsd(params.chainId).catch(() => 0));
     }
     if (!Number.isFinite(nativePrice) || nativePrice <= 0) return null;
-    const usd = Number(ethers.formatUnits(amountBn, 18)) * nativePrice;
+    const nativeDecimals = chainCfg.nativeCurrency?.decimals || 18;
+    const usd = Number(ethers.formatUnits(amountBn, nativeDecimals)) * nativePrice;
     return Number.isFinite(usd) ? usd : null;
   }
 

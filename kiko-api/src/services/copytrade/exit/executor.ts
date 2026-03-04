@@ -3,7 +3,7 @@ import { LogCode } from '../../../config/logRegistry.js';
 import { logOrderRuntimeSnapshot } from '../../order-runtime/sinks/logger.js';
 import type { EvmExitExecutionResult, EvmExitSwapPlan, SellRoutePolicy } from './types.js';
 import { createExitOrderRuntimeContext, mergeSwapResultIntoExitRuntime } from './runtime.js';
-import { executeSwapViaPort } from '../../swap/swapExecutionPort.js';
+import { submitCopytradeExit } from '../execution/copytradeExecutionFacade.js';
 
 function compactError(error: unknown): string {
   const message = String((error as any)?.message || error || 'unknown_error').trim();
@@ -19,7 +19,7 @@ async function runExitSwapAttempt(
   runtimeContext = plan.runtimeContext
 ) {
   const useDirectPrimary = sellRoutePolicy === 'direct_primary';
-  return await executeSwapViaPort({
+  const result = await submitCopytradeExit({
     userId: plan.userId,
     walletAddress: plan.walletAddress,
     tokenIn: plan.tokenAddress,
@@ -40,6 +40,7 @@ async function runExitSwapAttempt(
       copyTradeExecutionMode: plan.executionMode
     }
   });
+  return result.swapResult;
 }
 
 export async function executeEvmExitPlan(plan: EvmExitSwapPlan): Promise<EvmExitExecutionResult> {

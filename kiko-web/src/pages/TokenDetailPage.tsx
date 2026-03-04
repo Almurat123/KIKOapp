@@ -221,6 +221,31 @@ export const TokenDetailPage: React.FC<TokenDetailPageProps> = ({ token: propTok
   const isDark = resolvedTheme === 'dark';
   const [loading, setLoading] = useState(true);
 
+  /**
+   * Helper to normalize network names (canonical form)
+   * Consistent with TokensPage.tsx
+   */
+  const formatNetworkName = (network: string): string => {
+    const networkMap: Record<string, string> = {
+      'eth': 'ETH',
+      'ethereum': 'ETH',
+      'bsc': 'BSC',
+      'solana': 'SOL',
+      'sol': 'SOL',
+      'base': 'BASE',
+      'arbitrum': 'ARB',
+      'arb': 'ARB',
+      'optimism': 'OP',
+      'op': 'OP',
+      'polygon': 'MATIC',
+      'matic': 'MATIC',
+      'avax': 'AVAX',
+      'avalanche': 'AVAX',
+      'fantom': 'FTM',
+    };
+    return networkMap[network.toLowerCase()] || network.toUpperCase();
+  };
+
   // Helper to convert API result to TokenInfo
   const mapApiToTokenInfo = useCallback((details: any, chainparam: string, addrparam: string): TokenInfo => {
     // Helper to safely get number
@@ -234,7 +259,7 @@ export const TokenDetailPage: React.FC<TokenDetailPageProps> = ({ token: propTok
       name: details.name || 'Unknown',
       symbol: details.symbol || 'UNK',
       pair: `${details.symbol || 'UNK'} / -`, // We might not have pair info easily
-      chain: details.network || chainparam,
+      chain: formatNetworkName(details.network || chainparam),
       price: (details.price || 0).toString(),
       priceChange24h: getNum(details.priceChange24h),
       priceChange6h: getNum(details.priceChange6h),
@@ -402,30 +427,36 @@ export const TokenDetailPage: React.FC<TokenDetailPageProps> = ({ token: propTok
 
   const getChainColor = (chain: string): string => {
     switch (chain?.toUpperCase()) {
-      case 'SOL': return '#9945FF';
-      case 'ETH': return '#627EEA';
-      case 'BSC': return '#F0B90B';
+      case 'SOL':
+      case 'SOLANA': return '#9945FF';
+      case 'ETH':
+      case 'ETHEREUM': return '#627EEA';
+      case 'BSC':
+      case 'BINANCE': return '#F0B90B';
       case 'BASE': return '#0052FF';
-      case 'ARB': return '#28A0F0';
-      case 'OP': return '#FF0420';
-      case 'AVAX': return '#E84142';
-      case 'MATIC': return '#8247E5';
+      case 'ARB':
+      case 'ARBITRUM': return '#28A0F0';
+      case 'OP':
+      case 'OPTIMISM': return '#FF0420';
+      case 'AVAX':
+      case 'AVALANCHE': return '#E84142';
+      case 'MATIC':
+      case 'POLYGON': return '#8247E5';
       default: return '#666666';
     }
   };
 
   const getChainLogo = (chain: string): string => {
-    switch (chain?.toUpperCase()) {
-      case 'SOL': return 'https://assets.coingecko.com/coins/images/4128/small/solana.png';
-      case 'ETH': return 'https://assets.coingecko.com/coins/images/279/small/ethereum.png';
-      case 'BSC': return 'https://assets.coingecko.com/coins/images/825/small/binance-coin-logo.png';
-      case 'BASE': return 'https://assets.coingecko.com/asset_platforms/images/131/small/base.png';
-      case 'ARB': return 'https://assets.coingecko.com/asset_platforms/images/33/small/arbitrum-one.png';
-      case 'OP': return 'https://assets.coingecko.com/asset_platforms/images/41/small/optimism.png';
-      case 'AVAX': return 'https://assets.coingecko.com/coins/images/2790/small/avalanche.png';
-      case 'MATIC': return 'https://assets.coingecko.com/coins/images/4713/small/matic-token-icon.png';
-      default: return '';
-    }
+    const c = chain?.toUpperCase();
+    if (c === 'SOL' || c === 'SOLANA') return '/assets/tokens/sol.png';
+    if (c === 'ETH' || c === 'ETHEREUM') return '/assets/tokens/eth.png';
+    if (c === 'BSC' || c === 'BINANCE') return '/assets/tokens/bsc.png';
+    if (c === 'BASE') return '/assets/tokens/base.png';
+    if (c === 'ARB' || c === 'ARBITRUM') return '/assets/tokens/arbitrum.png';
+    if (c === 'OP' || c === 'OPTIMISM') return '/assets/tokens/optimism.png';
+    if (c === 'MATIC' || c === 'POLYGON') return '/assets/tokens/polygon.png';
+    if (c === 'AVAX' || c === 'AVALANCHE') return 'https://assets.coingecko.com/coins/images/12559/small/Avalanche_Circle_RedWhite_Trans.png';
+    return '';
   };
 
   const formatNumber = (val: string | number | undefined) => {

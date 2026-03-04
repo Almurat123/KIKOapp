@@ -1,6 +1,6 @@
 import prisma from '../../../db/prisma.js';
 import { armPendingAttributedPositionsForMirrorSell } from './pendingAttributedPositionLedger.js';
-import { resolvePositionLedgerSnapshot } from './positionLedgerResolver.js';
+import { resolveCopytradeLedger } from '../ledger/copytradeLedgerService.js';
 import * as targetSellFullExitVerifier from '../reconcile/targetSellFullExitVerifier.js';
 
 export async function resolvePendingMirrorSellIntent(params: {
@@ -21,7 +21,7 @@ export async function resolvePendingMirrorSellIntent(params: {
     | 'TARGET_SELL_BALANCE_UNVERIFIED'
     | 'NO_PENDING_MIRROR_SELL_INTENT';
 }> {
-  const ledger = await resolvePositionLedgerSnapshot({
+  const ledger = await resolveCopytradeLedger({
     chainId: params.chainId,
     tokenAddress: params.tokenAddress,
     targetWallet: params.targetWallet,

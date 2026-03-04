@@ -234,11 +234,11 @@ function validateEnv(): EnvConfig {
             console.warn('[Env] Failed to parse USAGE_LIMITS_TIERS_JSON, using default tiers.');
         }
     }
-    const deepseekModels = (process.env.BILLING_DEEPSEEK_MODELS || 'deepseek-chat,deepseek-reasoner,gpt-5-mini')
+    const deepseekModels = (process.env.BILLING_DEEPSEEK_MODELS || 'deepseek-chat,deepseek-reasoner,gpt-5-mini,grok-4-1-fast-non-reasoning')
         .split(',')
         .map(v => v.trim())
         .filter(Boolean);
-    const grokModels = (process.env.BILLING_GROK_MODELS || 'grok-4-1-fast-reasoning,grok-4-1-fast-non-reasoning')
+    const grokModels = (process.env.BILLING_GROK_MODELS || 'grok-4-1-fast-reasoning')
         .split(',')
         .map(v => v.trim())
         .filter(Boolean);
