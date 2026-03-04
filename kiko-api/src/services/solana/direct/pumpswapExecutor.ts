@@ -120,7 +120,32 @@ type PumpSwapPoolLayout = {
   quoteVault: PublicKey;
 };
 
-function decodePumpSwapPoolLayout(data: Buffer): PumpSwapPoolLayout {
+// Known pAMM pool layout variants (offsets differ by token/deployment generation).
+// Layout v1 (original): creator=40, baseMint=72, quoteMint=104, baseVault=168, quoteVault=200
+// Layout v2 (graduated tokens): creator=11, baseMint=43, quoteMint=75, baseVault=139, quoteVault=171
+const POOL_LAYOUTS = [
+  { creator: 40, baseMint: 72, quoteMint: 104, baseVault: 168, quoteVault: 200 },
+  { creator: 11, baseMint: 43, quoteMint: 75, baseVault: 139, quoteVault: 171 },
+];
+
+function decodePumpSwapPoolLayout(data: Buffer, hintMint?: PublicKey): PumpSwapPoolLayout {
+  // Try each known layout; pick the one whose baseMint matches hintMint (or first valid decode)
+  for (const layout of POOL_LAYOUTS) {
+    try {
+      const baseMint = new PublicKey(data.slice(layout.baseMint, layout.baseMint + 32));
+      const quoteMint = new PublicKey(data.slice(layout.quoteMint, layout.quoteMint + 32));
+      const baseVault = new PublicKey(data.slice(layout.baseVault, layout.baseVault + 32));
+      const quoteVault = new PublicKey(data.slice(layout.quoteVault, layout.quoteVault + 32));
+      const creator = new PublicKey(data.slice(layout.creator, layout.creator + 32));
+      if (hintMint && baseMint.equals(hintMint)) {
+        return { creator, baseMint, quoteMint, baseVault, quoteVault };
+      }
+      if (!hintMint) {
+        return { creator, baseMint, quoteMint, baseVault, quoteVault };
+      }
+    } catch { /* try next layout */ }
+  }
+  // Default to v1 if no hint match found
   return {
     creator: new PublicKey(data.slice(40, 72)),
     baseMint: new PublicKey(data.slice(72, 104)),
@@ -140,7 +165,7 @@ async function resolvePumpSwapPoolForMint(
       const hintedPool = new PublicKey(hintedPoolId);
       const hintedInfo = await connection.getAccountInfo(hintedPool, 'confirmed');
       if (hintedInfo) {
-        const layout = decodePumpSwapPoolLayout(hintedInfo.data);
+        const layout = decodePumpSwapPoolLayout(hintedInfo.data, mint);
         if (layout.baseMint.equals(mint) && layout.quoteMint.equals(WSOL_MINT)) {
           return { pool: hintedPool, info: hintedInfo, layout };
         }
@@ -154,39 +179,47 @@ async function resolvePumpSwapPoolForMint(
   const derived = derivePoolPda(mint);
   const derivedInfo = await connection.getAccountInfo(derived, 'confirmed');
   if (derivedInfo) {
-    const layout = decodePumpSwapPoolLayout(derivedInfo.data);
+    const layout = decodePumpSwapPoolLayout(derivedInfo.data, mint);
     if (layout.baseMint.equals(mint) && layout.quoteMint.equals(WSOL_MINT)) {
       return { pool: derived, info: derivedInfo, layout };
     }
   }
 
-  // Fallback: scan PumpSwap program accounts where baseMint == target mint and quoteMint == WSOL.
-  // Offsets are from pool layout decode above.
-  let candidates: Awaited<ReturnType<Connection['getProgramAccounts']>> = [];
-  try {
-    candidates = await connection.getProgramAccounts(PUMP_SWAP_PROGRAM_ID, {
-      commitment: 'confirmed',
-      filters: [
-        { dataSize: 301 },
-        { memcmp: { offset: 72, bytes: mint.toBase58() } },
-        { memcmp: { offset: 104, bytes: WSOL_MINT.toBase58() } },
-      ],
-    });
-  } catch (scanErr: any) {
-    logger.warn(LogCode.API_FETCH_FAILED, '[PumpSwapDirect] pool scan failed, fallback to derived-only pool resolution', {
-      mint: mint.toBase58(),
-      error: scanErr?.message || String(scanErr),
-    });
-    candidates = [];
+  // Scan using both known pool layout offsets (v1: 72/104, v2: 43/75)
+  const scanLayouts = [
+    { baseMintOffset: 72, quoteMintOffset: 104 }, // v1
+    { baseMintOffset: 43, quoteMintOffset: 75 },  // v2 (graduated tokens)
+  ];
+
+  for (const scanLayout of scanLayouts) {
+    let candidates: Awaited<ReturnType<Connection['getProgramAccounts']>> = [];
+    try {
+      candidates = await connection.getProgramAccounts(PUMP_SWAP_PROGRAM_ID, {
+        commitment: 'confirmed',
+        filters: [
+          { dataSize: 301 },
+          { memcmp: { offset: scanLayout.baseMintOffset, bytes: mint.toBase58() } },
+          { memcmp: { offset: scanLayout.quoteMintOffset, bytes: WSOL_MINT.toBase58() } },
+        ],
+      });
+    } catch (scanErr: any) {
+      logger.warn(LogCode.API_FETCH_FAILED, '[PumpSwapDirect] pool scan failed for layout', {
+        mint: mint.toBase58(),
+        baseMintOffset: scanLayout.baseMintOffset,
+        error: scanErr?.message || String(scanErr),
+      });
+      continue;
+    }
+    if (candidates.length > 0) {
+      const picked = candidates[0];
+      const layout = decodePumpSwapPoolLayout(picked.account.data, mint);
+      if (layout.baseMint.equals(mint) && layout.quoteMint.equals(WSOL_MINT)) {
+        return { pool: picked.pubkey, info: picked.account, layout };
+      }
+    }
   }
 
-  if (!candidates.length) {
-    return null;
-  }
-
-  const picked = candidates[0];
-  const layout = decodePumpSwapPoolLayout(picked.account.data);
-  return { pool: picked.pubkey, info: picked.account, layout };
+  return null;
 }
 
 function derivePoolV2Pda(mint: PublicKey): PublicKey {

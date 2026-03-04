@@ -76,7 +76,7 @@ export function getRpcEndpoints(chainSlug: string, primaryUrl?: string): RpcEndp
     return getBasePreferredEndpoints(primaryUrl);
   }
   if (chainSlug === 'solana') {
-    return getSolanaEndpoints(primaryUrl);
+    return getSolanaEndpoints(primaryUrl, 'cheap');
   }
 
   const endpoints: RpcEndpointConfig[] = [];
@@ -157,10 +157,9 @@ export function getRpcEndpointsWithStrategy(
   if (strategy === 'fast' && override.length > 0) {
     return override;
   }
-  // Solana policy: always keep public RPC endpoints first.
-  // Paid endpoints (Alchemy/Helius/Primary) are fallback in all modes.
+  // Solana: premium first for fast strategy, public first for cheap.
   if (chainSlug === 'solana') {
-    return getSolanaEndpoints(primaryUrl);
+    return getSolanaEndpoints(primaryUrl, strategy);
   }
   if (chainSlug === 'base') {
     const list = strategy === 'fast'
@@ -345,7 +344,7 @@ function getBaseCheapEndpoints(primaryUrl?: string): RpcEndpointConfig[] {
   });
 }
 
-function getSolanaEndpoints(primaryUrl?: string): RpcEndpointConfig[] {
+function getSolanaEndpoints(primaryUrl?: string, strategy: 'fast' | 'cheap' = 'cheap'): RpcEndpointConfig[] {
   const endpoints: RpcEndpointConfig[] = [];
   let priority = 1;
 
@@ -368,28 +367,46 @@ function getSolanaEndpoints(primaryUrl?: string): RpcEndpointConfig[] {
     });
   };
 
-  // Public endpoints first (cheap strategy)
-  push('PublicNode', 'https://solana-rpc.publicnode.com', false, 'public');
-  push('Ankr Public', 'https://rpc.ankr.com/solana', false, 'public');
-  push('Solana Official', 'https://api.mainnet-beta.solana.com', false, 'public');
-  // dRPC free tier blocks some standard methods (e.g. getSlot/getTransaction), keep only as last fallback.
-  push('DRPC', 'https://solana.drpc.org', false, 'fallback');
+  const premiumFirst = strategy === 'fast';
 
-  // Premium / authenticated endpoints
-  if (env.apiKeys.alchemy) {
-    push('Alchemy', `https://solana-mainnet.g.alchemy.com/v2/${env.apiKeys.alchemy}`, true, 'premium');
+  if (premiumFirst) {
+    // fast/critical: paid nodes first for lowest latency on copytrade/sniper paths
+    if (env.apiKeys.helius) {
+      push(
+        'Helius',
+        `https://mainnet.helius-rpc.com/?api-key=${env.apiKeys.helius}`,
+        true,
+        'premium',
+        { methods: ['getAsset', 'getAssetsByOwner', 'getAssetBatch'] }
+      );
+    }
+    if (env.apiKeys.alchemy) {
+      push('Alchemy', `https://solana-mainnet.g.alchemy.com/v2/${env.apiKeys.alchemy}`, true, 'premium');
+    }
+    // Public as backup
+    push('PublicNode', 'https://solana-rpc.publicnode.com', false, 'public');
+    push('Ankr Public', 'https://rpc.ankr.com/solana', false, 'public');
+    push('Solana Official', 'https://api.mainnet-beta.solana.com', false, 'public');
+    push('DRPC', 'https://solana.drpc.org', false, 'fallback');
+  } else {
+    // cheap: public nodes first to conserve paid quota
+    push('PublicNode', 'https://solana-rpc.publicnode.com', false, 'public');
+    push('Ankr Public', 'https://rpc.ankr.com/solana', false, 'public');
+    push('Solana Official', 'https://api.mainnet-beta.solana.com', false, 'public');
+    push('DRPC', 'https://solana.drpc.org', false, 'fallback');
+    if (env.apiKeys.alchemy) {
+      push('Alchemy', `https://solana-mainnet.g.alchemy.com/v2/${env.apiKeys.alchemy}`, true, 'premium');
+    }
+    if (env.apiKeys.helius) {
+      push(
+        'Helius',
+        `https://mainnet.helius-rpc.com/?api-key=${env.apiKeys.helius}`,
+        true,
+        'premium',
+        { methods: ['getAsset', 'getAssetsByOwner', 'getAssetBatch'] }
+      );
+    }
   }
-  if (env.apiKeys.helius) {
-    push(
-      'Helius',
-      `https://mainnet.helius-rpc.com/?api-key=${env.apiKeys.helius}`,
-      true,
-      'premium',
-      { methods: ['getAsset', 'getAssetsByOwner', 'getAssetBatch'] }
-    );
-  }
-
-  // Solana intentionally does not include env Primary endpoint.
 
   const seen = new Set<string>();
   return endpoints.filter(ep => {
