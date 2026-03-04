@@ -239,3 +239,113 @@ test('order flow: safety mode blocks low-confidence signal before execution', as
   assert.equal(result.reasonCode, 'validation_low_confidence');
   assert.equal(result.order.lifecycleState, 'QUARANTINED');
 });
+
+test('order flow: tx finality success promotes BUY_ACCEPTED to EXIT_ARMED', async () => {
+  const repo = new InMemoryOrderRepo();
+
+  const flow = new CopytradeOrderFlowOrchestrator({
+    orderRepo: repo,
+    eventStore: new InMemoryEventStore(),
+    executionPort: {
+      async execute() {
+        return {
+          status: 'accepted',
+          reasonCode: 'ok_buy_accepted',
+          retryable: false,
+          sourceTxHash: '0xsource',
+          txHash: '0xacceptedtx',
+        } as any;
+      },
+    },
+    executionRecorder: new InMemoryExecutionRecorder(),
+    modeResolver: new DefaultCopytradeModeResolver(),
+    retryScheduler: new InMemoryScheduler(),
+    observability: new NoopObservability(),
+  });
+
+  const primary = await flow.processSignal({
+    targetWallet: '0xfinality-success',
+    chainId: 8453,
+    mode: 'normal',
+    swap: {
+      txHash: '0x4',
+      tokenIn: '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee',
+      tokenOut: '0xToken',
+      amountIn: '1000000000000000000',
+      amountOut: '1000',
+      router: '0xRouter',
+      dexName: 'test-dex',
+    },
+  });
+
+  assert.equal(primary.order.lifecycleState, 'BUY_ACCEPTED');
+
+  const finality = await flow.processTxFinalityEvent({
+    orderId: primary.order.id,
+    chainId: 8453,
+    txHash: '0xacceptedtx',
+    sourceTxHash: '0xsource',
+    kind: 'confirmed_success',
+    reasonCode: 'ok_buy_confirmed_open',
+    observedAt: new Date(),
+  });
+
+  assert.equal(finality.applied, true);
+  assert.equal(finality.order?.lifecycleState, 'EXIT_ARMED');
+  assert.equal(finality.order?.lastReasonCode, 'ok_exit_armed');
+});
+
+test('order flow: tx finality failure drives BUY_ACCEPTED to FAILED_TERMINAL', async () => {
+  const repo = new InMemoryOrderRepo();
+
+  const flow = new CopytradeOrderFlowOrchestrator({
+    orderRepo: repo,
+    eventStore: new InMemoryEventStore(),
+    executionPort: {
+      async execute() {
+        return {
+          status: 'accepted',
+          reasonCode: 'ok_buy_accepted',
+          retryable: false,
+          sourceTxHash: '0xsource',
+          txHash: '0xacceptedtx',
+        } as any;
+      },
+    },
+    executionRecorder: new InMemoryExecutionRecorder(),
+    modeResolver: new DefaultCopytradeModeResolver(),
+    retryScheduler: new InMemoryScheduler(),
+    observability: new NoopObservability(),
+  });
+
+  const primary = await flow.processSignal({
+    targetWallet: '0xfinality-failed',
+    chainId: 8453,
+    mode: 'normal',
+    swap: {
+      txHash: '0x5',
+      tokenIn: '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee',
+      tokenOut: '0xToken',
+      amountIn: '1000000000000000000',
+      amountOut: '1000',
+      router: '0xRouter',
+      dexName: 'test-dex',
+    },
+  });
+
+  assert.equal(primary.order.lifecycleState, 'BUY_ACCEPTED');
+
+  const finality = await flow.processTxFinalityEvent({
+    orderId: primary.order.id,
+    chainId: 8453,
+    txHash: '0xacceptedtx',
+    sourceTxHash: '0xsource',
+    kind: 'confirmed_failed',
+    reasonCode: 'failed_terminal',
+    observedAt: new Date(),
+  });
+
+  assert.equal(finality.applied, true);
+  assert.equal(finality.order?.lifecycleState, 'FAILED_TERMINAL');
+  assert.equal(finality.order?.lastReasonCode, 'failed_terminal');
+});

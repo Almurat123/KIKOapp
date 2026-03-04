@@ -7,9 +7,10 @@ import {
   type PositionLedgerPosition,
   type PositionLedgerSnapshot,
 } from './positionLedgerSnapshot.js';
+import { normalizeToken, normalizeWallet } from '../runtime/chainIdentityNormalizer.js';
 
-function normalizeTokenAddress(value: string): string {
-  return String(value || '').trim().toLowerCase();
+function normalizeTokenAddress(chainId: number, value: string): string {
+  return normalizeToken(chainId, value);
 }
 
 function mergePendingLots(params: {
@@ -35,11 +36,11 @@ export async function resolvePositionLedgerSnapshot(params: {
   pendingLots?: PendingAttributedPositionLotLike[];
   positionIds?: string[];
 }): Promise<PositionLedgerSnapshot> {
-  const tokenAddress = normalizeTokenAddress(params.tokenAddress);
+  const tokenAddress = normalizeTokenAddress(params.chainId, params.tokenAddress);
   const positions = params.positions && params.positions.length > 0
     ? params.positions.map((position) => ({
         ...position,
-        tokenAddress: normalizeTokenAddress(position.tokenAddress),
+        tokenAddress: normalizeTokenAddress(position.chainId || params.chainId, position.tokenAddress),
       }))
     : await prisma.position.findMany({
         where: {
@@ -80,7 +81,7 @@ export async function resolvePositionLedgerSnapshot(params: {
 
   let latestTargetSellTxHash: string | null = null;
   let latestTargetSellAt: Date | null = null;
-  const normalizedWallet = String(params.targetWallet || '').trim().toLowerCase();
+  const normalizedWallet = normalizeWallet(params.chainId, params.targetWallet);
   if (normalizedWallet) {
     const linkedSell = await resolveTargetSellLink({
       targetWallet: normalizedWallet,

@@ -31,6 +31,7 @@ import { prioritizeCopyTradePendingChains } from './copytrade-v2/eth/ethSignalPo
 import { buildEthAwarePendingPollPlan } from './copytrade-v2/eth/ethPendingIngressPolicy.js';
 import { inferEthPendingSwapIntent } from './copytrade-v2/eth/ethPendingSwapIntent.js';
 import { buildEthPendingPredecodedSwap } from './copytrade-v2/eth/ethPendingPredecodedSwap.js';
+import { normalizeWallet } from './copytrade-v2/runtime/chainIdentityNormalizer.js';
 
 const ENABLED = (process.env.COPYTRADE_PENDING_WATCH_ENABLED || 'true') === 'true';
 const REFRESH_WALLETS_MS = Number(process.env.COPYTRADE_PENDING_WALLET_REFRESH_MS || 10000);
@@ -108,7 +109,8 @@ async function warmConfirmedSwapFromPending(
     tx: any
 ): Promise<void> {
     if (!PREFETCH_ENABLED) return;
-    const warmKey = `${chainId}:${normalizeTxIdentity(chainId, txHash)}:${targetWallet.toLowerCase()}`;
+    const normalizedTargetWallet = normalizeWallet(chainId, targetWallet);
+    const warmKey = `${chainId}:${normalizeTxIdentity(chainId, txHash)}:${normalizedTargetWallet}`;
     if (prefetchInFlight.has(warmKey)) return;
     if (prefetchInFlight.size >= PREFETCH_MAX_INFLIGHT) return;
     prefetchInFlight.add(warmKey);

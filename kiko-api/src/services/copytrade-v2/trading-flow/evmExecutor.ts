@@ -51,6 +51,7 @@ export class EvmTradingFlowExecutor implements CopytradeExecutionPort {
         status: 'failed_terminal',
         reasonCode: 'failed_terminal',
         retryable: false,
+        sourceTxHash: signal.swap?.txHash || null,
         metadata: {
           reason: 'evm_executor_received_solana_chain',
           chainId: signal.chainId,
@@ -64,6 +65,7 @@ export class EvmTradingFlowExecutor implements CopytradeExecutionPort {
         status: 'failed_terminal',
         reasonCode: 'failed_terminal',
         retryable: false,
+        sourceTxHash: signal.swap?.txHash || null,
         metadata: {
           reason: 'missing_trading_context',
           orderId: order.id,
@@ -90,6 +92,7 @@ export class EvmTradingFlowExecutor implements CopytradeExecutionPort {
         status: 'deferred',
         reasonCode: 'deferred_retry_later',
         retryable: true,
+        sourceTxHash: signal.swap?.txHash || null,
         metadata: {
           reason: 'amount_resolution_failed',
           sellDirection,
@@ -131,6 +134,7 @@ export class EvmTradingFlowExecutor implements CopytradeExecutionPort {
       const result = await executeSwapViaPort(request);
       const outcome = mapSwapResultToOutcome(result, {
         preferredIssueId: resolveCtIssueHint(signal, order),
+        sourceTxHash: signal.swap?.txHash || null,
       });
 
       if (sellDirection && outcome.status === 'confirmed') {
@@ -155,6 +159,7 @@ export class EvmTradingFlowExecutor implements CopytradeExecutionPort {
     } catch (error) {
       return mapThrownErrorToOutcome(error, {
         preferredIssueId: resolveCtIssueHint(signal, order),
+        sourceTxHash: signal.swap?.txHash || null,
       });
     }
   }

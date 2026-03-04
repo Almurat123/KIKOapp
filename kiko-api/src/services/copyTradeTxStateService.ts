@@ -1,6 +1,7 @@
 import { get as cacheGet, set as cacheSet } from '../cache/cacheClient.js';
 import type { DecodedSwap } from './txDecoder.js';
 import { normalizeTxIdentity } from '../utils/txIdentity.js';
+import { normalizeWallet } from './copytrade-v2/runtime/chainIdentityNormalizer.js';
 import {
     buildCopyTradeFirstSeenTiming,
     markCopyTradeSwapReady,
@@ -59,7 +60,8 @@ function txStateKey(chainId: number, txHash: string): string {
 }
 
 function pendingPredecodedKey(chainId: number, txHash: string, targetWallet: string): string {
-    return `copytrade:pending_predecoded:${chainId}:${normalizeTxIdentity(chainId, txHash)}:${targetWallet.toLowerCase()}`;
+    const normalizedWallet = normalizeWallet(chainId, targetWallet);
+    return `copytrade:pending_predecoded:${chainId}:${normalizeTxIdentity(chainId, txHash)}:${normalizedWallet}`;
 }
 
 function setMemoryWithTtl<T>(map: Map<string, T>, key: string, value: T, ttlSec: number): void {
@@ -102,7 +104,7 @@ export async function markPendingPredecodedSwap(
             preparedAt,
             source
         ),
-        targetWallet: targetWallet.toLowerCase(),
+        targetWallet: normalizeWallet(chainId, targetWallet),
         chainId,
         txHash: normalizedTxHash,
         swap

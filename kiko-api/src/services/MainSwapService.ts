@@ -311,7 +311,8 @@ export class MainSwapService {
         amountIn: request.amountIn,
         chainId: request.chainId,
         feeBpsOverride: request.feeBpsOverride,
-        mode: request.mode
+        mode: request.mode,
+        sourceTxHash: request.executionContext?.sourceTxHash || request.executionContext?.contextSnapshot?.sourceTxHash,
       },
       normalizedTokenIn,
       normalizedTokenOut,

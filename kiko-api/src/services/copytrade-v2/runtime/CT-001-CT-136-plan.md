@@ -19,6 +19,22 @@ Every copytrade-v2 PR must reference one or more CT IDs from this file.
 - `npm run -s test:ct136-replay` 当前结果：136/136 可重放并命中对应 CT 链接。
 - 修复低置信度语义漂移：`strictRiskChecks` 下保留 `validation_low_confidence` reasonCode，避免被 `quarantined_policy` 覆盖。
 
+## Current Execution Delta (2026-03-05)
+- `CT-001..CT-012`、`CT-047..CT-052`、`CT-093..CT-100`：`in_progress`
+  - 已落地 `ChainIdentityNormalizer` 并替换 copytrade-v2 + queue/pending 关键路径手写 `toLowerCase`。
+  - Solana 地址大小写保真；EVM 维持归一化。
+- `CT-019..CT-036`、`CT-065..CT-076`、`CT-101..CT-112`：`in_progress`
+  - 已落地 `TxFinalityBridge` + `CopytradeTxFinalityEvent` 消费回写。
+  - 受理后异步终态可回推到订单状态机（success/failed/uncertain）。
+- `CT-013..CT-030`、`CT-053..CT-064`、`CT-113..CT-122`：`in_progress`
+  - 已落地买入落仓桥：`BUY_ACCEPTED` 建 pending，finality success promote `open`，failed 标记失败并取消 pending lot。
+- `CT-025..CT-036`、`CT-081..CT-092`、`CT-119..CT-128`：`in_progress`
+  - 已落地 copytrade-v2 统一 DM 事件发布器，覆盖 `BUY_ACCEPTED/BUY_CONFIRMED_OPEN/EXIT_SUBMITTED/EXIT_CONFIRMED_CLOSED/EXECUTION_FAILED/SKIPPED`。
+- `CT-059..CT-064`、`CT-133..CT-136`：`in_progress`
+  - 已补 `MainSwapService.collectDirectSwapFee*` 对 `sourceTxHash` 的透传，避免 fee 幂等键静默降级。
+
+> 注：上述范围是“代码已接入并通过现有单测+编译”，尚未进入全量 `closed`，需要补齐每条 CT 的三证据（测试断言、线上日志样本、指标前后对比）。
+
 ## Status Legend
 - `open`: not fully fixed
 - `in_progress`: code changes landed, waiting evidence

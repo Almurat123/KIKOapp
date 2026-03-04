@@ -30,6 +30,7 @@ export class SolanaTradingFlowExecutor implements CopytradeExecutionPort {
         status: 'failed_terminal',
         reasonCode: 'failed_terminal',
         retryable: false,
+        sourceTxHash: signal.swap?.txHash || null,
         metadata: {
           reason: 'solana_executor_received_non_solana_chain',
           chainId: signal.chainId,
@@ -48,6 +49,7 @@ export class SolanaTradingFlowExecutor implements CopytradeExecutionPort {
         status: 'failed_terminal',
         reasonCode: 'validation_unroutable',
         retryable: false,
+        sourceTxHash: signal.swap?.txHash || null,
         metadata: {
           reason: 'missing_trading_context',
           orderId: order.id,
@@ -67,6 +69,7 @@ export class SolanaTradingFlowExecutor implements CopytradeExecutionPort {
         status: 'failed_terminal',
         reasonCode: 'validation_unroutable',
         retryable: false,
+        sourceTxHash: signal.swap?.txHash || null,
         metadata: {
           reason: 'missing_solana_wallet',
           orderId: order.id,
@@ -102,6 +105,7 @@ export class SolanaTradingFlowExecutor implements CopytradeExecutionPort {
         status: 'deferred',
         reasonCode: 'deferred_retry_later',
         retryable: true,
+        sourceTxHash: signal.swap?.txHash || null,
         metadata: {
           reason: 'amount_resolution_failed',
           sellDirection,
@@ -140,6 +144,7 @@ export class SolanaTradingFlowExecutor implements CopytradeExecutionPort {
       const result = await executeSwapViaPort(request);
       const outcome = mapSwapResultToOutcome(result, {
         preferredIssueId: resolveCtIssueHint(signal, order),
+        sourceTxHash: signal.swap?.txHash || null,
       });
 
       if (sellDirection && outcome.status === 'confirmed') {
@@ -164,6 +169,7 @@ export class SolanaTradingFlowExecutor implements CopytradeExecutionPort {
     } catch (error) {
       return mapThrownErrorToOutcome(error, {
         preferredIssueId: resolveCtIssueHint(signal, order),
+        sourceTxHash: signal.swap?.txHash || null,
       });
     }
   }

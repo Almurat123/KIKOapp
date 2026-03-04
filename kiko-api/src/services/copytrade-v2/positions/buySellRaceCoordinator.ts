@@ -3,6 +3,7 @@ import { armPendingAttributedPositionsForMirrorSell } from './pendingAttributedP
 import { resolveCopytradeLedger } from '../ledger/copytradeLedgerService.js';
 import * as targetSellFullExitVerifier from '../reconcile/targetSellFullExitVerifier.js';
 import { evaluateDeferredMirrorSellIntent } from '../reconcile/mirrorSellReconcilePolicy.js';
+import { normalizeWallet } from '../runtime/chainIdentityNormalizer.js';
 
 export async function resolvePendingMirrorSellIntent(params: {
   positionId?: string | null;
@@ -41,7 +42,7 @@ export async function resolvePendingMirrorSellIntent(params: {
     });
   }
 
-  const normalizedWallet = String(params.targetWallet || '').trim().toLowerCase();
+  const normalizedWallet = normalizeWallet(params.chainId, params.targetWallet);
   if (!normalizedWallet) {
     return {
       shouldMirrorSell: false,

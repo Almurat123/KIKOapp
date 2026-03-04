@@ -198,6 +198,7 @@ function buildSignal(issue: CtIssueDefinition, reasonCode: CopytradeReasonCode, 
 }
 
 function buildOutcome(reasonCode: CopytradeReasonCode): CopytradeExecutionOutcome {
+  const sourceTxHash = '0xsource';
   switch (reasonCode) {
     case 'deferred_retry_later':
     case 'deferred_confirmation_pending':
@@ -205,6 +206,7 @@ function buildOutcome(reasonCode: CopytradeReasonCode): CopytradeExecutionOutcom
         status: 'deferred',
         reasonCode,
         retryable: true,
+        sourceTxHash,
         metadata: {},
       };
     case 'quarantined_policy':
@@ -213,6 +215,7 @@ function buildOutcome(reasonCode: CopytradeReasonCode): CopytradeExecutionOutcom
         status: 'quarantined',
         reasonCode,
         retryable: false,
+        sourceTxHash,
         metadata: {},
       };
     case 'trading_execution_failed':
@@ -221,6 +224,7 @@ function buildOutcome(reasonCode: CopytradeReasonCode): CopytradeExecutionOutcom
         status: 'failed_retryable',
         reasonCode: reasonCode === 'failed_retryable' ? 'failed_retryable' : 'trading_execution_failed',
         retryable: true,
+        sourceTxHash,
         metadata: {},
       };
     case 'failed_terminal':
@@ -229,6 +233,7 @@ function buildOutcome(reasonCode: CopytradeReasonCode): CopytradeExecutionOutcom
         status: 'failed_terminal',
         reasonCode: reasonCode === 'failed_retry_budget_exhausted' ? 'failed_terminal' : reasonCode,
         retryable: false,
+        sourceTxHash,
         metadata: {},
       };
     case 'ok_exit_submitted':
@@ -236,6 +241,7 @@ function buildOutcome(reasonCode: CopytradeReasonCode): CopytradeExecutionOutcom
         status: 'submitted',
         reasonCode,
         retryable: false,
+        sourceTxHash,
         txHash: '0xexit',
         metadata: {},
       };
@@ -244,6 +250,7 @@ function buildOutcome(reasonCode: CopytradeReasonCode): CopytradeExecutionOutcom
         status: 'accepted',
         reasonCode,
         retryable: false,
+        sourceTxHash,
         txHash: '0xexit',
         metadata: {},
       };
@@ -252,6 +259,7 @@ function buildOutcome(reasonCode: CopytradeReasonCode): CopytradeExecutionOutcom
         status: 'confirmed',
         reasonCode,
         retryable: false,
+        sourceTxHash,
         txHash: '0xexit',
         metadata: {},
       };
@@ -260,6 +268,7 @@ function buildOutcome(reasonCode: CopytradeReasonCode): CopytradeExecutionOutcom
         status: 'accepted',
         reasonCode,
         retryable: false,
+        sourceTxHash,
         txHash: '0xbuy',
         metadata: {},
       };
@@ -269,6 +278,7 @@ function buildOutcome(reasonCode: CopytradeReasonCode): CopytradeExecutionOutcom
         status: 'confirmed',
         reasonCode: 'ok_buy_confirmed_open',
         retryable: false,
+        sourceTxHash,
         txHash: '0xbuy',
         metadata: {},
       };
@@ -400,7 +410,7 @@ async function reproduceTradingIssue(issue: CtIssueDefinition): Promise<CtReprod
     'trading_execution_uncertain',
   ]);
 
-  const context = { preferredIssueId: issue.id };
+  const context = { preferredIssueId: issue.id, sourceTxHash: '0xsource' };
   const mapperCapableReasons = new Set<CopytradeReasonCode>([
     'trading_execution_failed',
     'failed_terminal',
@@ -474,26 +484,27 @@ function inferLifecycleStateForReason(reasonCode: CopytradeReasonCode): Copytrad
 }
 
 function inferOutcomeForReason(reasonCode: CopytradeReasonCode): CopytradeExecutionOutcome {
-  if (reasonCode === 'failed_terminal') return { status: 'failed_terminal', reasonCode, retryable: false };
+  const sourceTxHash = '0xsource';
+  if (reasonCode === 'failed_terminal') return { status: 'failed_terminal', reasonCode, retryable: false, sourceTxHash };
   if (reasonCode === 'failed_retryable' || reasonCode === 'trading_execution_failed') {
-    return { status: 'failed_retryable', reasonCode, retryable: true };
+    return { status: 'failed_retryable', reasonCode, retryable: true, sourceTxHash };
   }
   if (reasonCode === 'ok_exit_confirmed_closed') {
-    return { status: 'confirmed', reasonCode, retryable: false, txHash: '0x1' };
+    return { status: 'confirmed', reasonCode, retryable: false, sourceTxHash, txHash: '0x1' };
   }
   if (reasonCode === 'ok_exit_accepted') {
-    return { status: 'accepted', reasonCode, retryable: false, txHash: '0x1' };
+    return { status: 'accepted', reasonCode, retryable: false, sourceTxHash, txHash: '0x1' };
   }
   if (reasonCode === 'ok_exit_submitted') {
-    return { status: 'submitted', reasonCode, retryable: false, txHash: '0x1' };
+    return { status: 'submitted', reasonCode, retryable: false, sourceTxHash, txHash: '0x1' };
   }
   if (reasonCode === 'deferred_retry_later' || reasonCode === 'deferred_confirmation_pending') {
-    return { status: 'deferred', reasonCode, retryable: true };
+    return { status: 'deferred', reasonCode, retryable: true, sourceTxHash };
   }
   if (reasonCode === 'quarantined_policy' || reasonCode === 'quarantine_direction_conflict') {
-    return { status: 'quarantined', reasonCode, retryable: false };
+    return { status: 'quarantined', reasonCode, retryable: false, sourceTxHash };
   }
-  return { status: 'accepted', reasonCode: 'ok_buy_accepted', retryable: false, txHash: '0x1' };
+  return { status: 'accepted', reasonCode: 'ok_buy_accepted', retryable: false, sourceTxHash, txHash: '0x1' };
 }
 
 async function reproduceDataIssue(issue: CtIssueDefinition): Promise<CtReproductionResult> {

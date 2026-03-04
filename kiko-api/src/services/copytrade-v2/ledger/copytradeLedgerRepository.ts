@@ -3,6 +3,7 @@ import { projectCopytradeLedgerSnapshot } from './copytradeLedgerProjector.js';
 import type { CopytradeLedgerSnapshot } from './copytradeLedgerTypes.js';
 import { resolvePositionLedgerSnapshot } from '../positions/positionLedgerResolver.js';
 import type { PositionLedgerLifecyclePhase } from '../positions/positionLedgerSnapshot.js';
+import { normalizeWallet } from '../runtime/chainIdentityNormalizer.js';
 
 type LedgerRecord = Awaited<ReturnType<typeof prisma.copytradePositionLedger.findFirst>>;
 
@@ -128,6 +129,7 @@ export async function syncCopytradeLedgerFromLegacy(params: {
   });
   const projected = projectCopytradeLedgerSnapshot(reloaded);
   const pendingLot = reloaded.pendingLots.find((lot) => lot.positionId === params.positionId) || null;
+  const normalizedTargetWallet = normalizeWallet(position.chainId, params.targetWallet);
 
   await prisma.copytradePositionLedger.upsert({
     where: {
@@ -138,7 +140,7 @@ export async function syncCopytradeLedgerFromLegacy(params: {
       configId: position.configId || '',
       chainId: position.chainId,
       tokenAddress: position.tokenAddress,
-      targetWallet: String(params.targetWallet || '').toLowerCase(),
+      targetWallet: normalizedTargetWallet,
       leaderBuyTxHash: position.leaderTxHash || null,
       targetSellTxHash: params.targetSellTxHash || projected.latestTargetSellTxHash || null,
       followerBuyTxHash: params.followerBuyTxHash || position.entryTxHash || null,
@@ -160,7 +162,7 @@ export async function syncCopytradeLedgerFromLegacy(params: {
       configId: position.configId || '',
       chainId: position.chainId,
       tokenAddress: position.tokenAddress,
-      targetWallet: String(params.targetWallet || '').toLowerCase(),
+      targetWallet: normalizedTargetWallet,
       leaderBuyTxHash: position.leaderTxHash || null,
       targetSellTxHash: params.targetSellTxHash || projected.latestTargetSellTxHash || null,
       followerBuyTxHash: params.followerBuyTxHash || position.entryTxHash || null,

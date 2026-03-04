@@ -5,6 +5,7 @@ import type { CopytradeOrderAggregate } from '../contracts/aggregate.js';
 import type { CopytradeReasonCode } from '../contracts/lifecycle.js';
 import type { CopytradeMode } from '../contracts/modePolicy.js';
 import type { CopytradeIngressSignal, CopytradeOrderRepositoryPort } from '../contracts/ports.js';
+import { normalizeToken, normalizeTxHash, normalizeWallet } from '../runtime/chainIdentityNormalizer.js';
 
 function toAggregate(row: any): CopytradeOrderAggregate {
   return {
@@ -61,8 +62,8 @@ export class PrismaCopytradeOrderRepository implements CopytradeOrderRepositoryP
     signal: CopytradeIngressSignal,
     mode: CopytradeMode,
   ): Promise<{ order: CopytradeOrderAggregate; claimed: boolean }> {
-    const txHash = String(signal.swap.txHash || '').trim().toLowerCase();
-    const targetWallet = String(signal.targetWallet || '').trim().toLowerCase();
+    const txHash = normalizeTxHash(signal.chainId, signal.swap.txHash);
+    const targetWallet = normalizeWallet(signal.chainId, signal.targetWallet);
 
     const existing = await prisma.copytradeOrder.findUnique({
       where: {
@@ -87,8 +88,8 @@ export class PrismaCopytradeOrderRepository implements CopytradeOrderRepositoryP
           chainId: signal.chainId,
           txHash,
           targetWallet,
-          tokenIn: String(signal.swap.tokenIn || '').toLowerCase(),
-          tokenOut: String(signal.swap.tokenOut || '').toLowerCase(),
+          tokenIn: normalizeToken(signal.chainId, signal.swap.tokenIn),
+          tokenOut: normalizeToken(signal.chainId, signal.swap.tokenOut),
           mode,
           direction: 'unknown',
           lifecycleState: 'DETECTED',

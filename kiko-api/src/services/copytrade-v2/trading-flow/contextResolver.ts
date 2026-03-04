@@ -1,6 +1,7 @@
 import prisma from '../../../db/prisma.js';
 import type { CopytradeMode } from '../contracts/modePolicy.js';
 import type { CopytradeOrderAggregate } from '../contracts/aggregate.js';
+import { normalizeWallet } from '../runtime/chainIdentityNormalizer.js';
 
 export interface ResolvedTradingContext {
   userId: string;
@@ -34,7 +35,7 @@ function toModeExecution(mode: CopytradeMode): 'safe' | 'normal' | 'turbo' {
 }
 
 export async function resolveTradingContext(order: CopytradeOrderAggregate): Promise<ResolvedTradingContext | null> {
-  const normalizedTargetWallet = String(order.targetWallet || '').trim().toLowerCase();
+  const normalizedTargetWallet = normalizeWallet(order.chainId, order.targetWallet);
 
   const config = order.configId
     ? await prisma.copyTradeConfig.findUnique({
@@ -91,7 +92,7 @@ export async function resolveTradingContext(order: CopytradeOrderAggregate): Pro
     executionMode: modeExecution,
     maxSlippageBps: Math.max(50, Math.min(5000, Number(config.maxSlippageBps || 300))),
     buyAmountUsd: Number(config.buyAmountUsd || 0),
-    targetWallet: String(config.targetWallet || '').trim().toLowerCase(),
+    targetWallet: normalizeWallet(order.chainId, config.targetWallet),
     userSettings: {
       swapMethod: (user.settings?.swapMethod as any) || 'wallet_sign',
       fastSwapMode: modeExecution === 'turbo',

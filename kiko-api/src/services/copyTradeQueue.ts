@@ -3,6 +3,8 @@ import { LogCode } from '../config/logRegistry.js';
 import type { DecodedSwap } from './txDecoder.js';
 import { getPendingTxHint, markCopyTradeTxState } from './copyTradeTxStateService.js';
 import { resolveCopyTradeQueuePriority } from './copytrade-v2/eth/ethBuyFastPath.js';
+import { normalizeTxIdentity } from '../utils/txIdentity.js';
+import { normalizeWallet } from './copytrade-v2/runtime/chainIdentityNormalizer.js';
 import {
     evaluateCopyTradeDelay,
     markCopyTradeTaskEnqueued,
@@ -39,8 +41,9 @@ const MAX_CONCURRENCY = Number(process.env.COPYTRADE_QUEUE_CONCURRENCY || 20);
 const COPYTRADE_TASK_DEDUP_TTL_SECONDS = Number(process.env.COPYTRADE_TASK_DEDUP_TTL_SECONDS || 300);
 
 function getTaskKey(task: QueueTask): string {
-    const txHash = (task.swap?.txHash || 'nohash').toLowerCase();
-    return `copytrade:task:${task.chainId}:${task.targetWallet.toLowerCase()}:${txHash}`;
+    const txHash = normalizeTxIdentity(task.chainId, task.swap?.txHash) || 'nohash';
+    const targetWallet = normalizeWallet(task.chainId, task.targetWallet);
+    return `copytrade:task:${task.chainId}:${targetWallet}:${txHash}`;
 }
 
 function isLocallyDone(taskKey: string): boolean {

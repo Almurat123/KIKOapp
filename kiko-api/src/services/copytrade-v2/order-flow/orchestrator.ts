@@ -4,9 +4,10 @@ import { CopytradeDomainError } from '../contracts/errors.js';
 import {
   type CopytradeLifecycleEvent,
   type CopytradeReasonCode,
+  isTerminalState,
 } from '../contracts/lifecycle.js';
 import type { CopytradeModePolicy, CopytradeModeResolver } from '../contracts/modePolicy.js';
-import type { CopytradeExecutionOutcome } from '../contracts/outcomes.js';
+import type { CopytradeExecutionOutcome, CopytradeTxFinalityEvent } from '../contracts/outcomes.js';
 import {
   type CopytradeExecutionRecorderPort,
   type CopytradeEventStorePort,
@@ -21,6 +22,7 @@ import { resolveCtIssueTrace } from '../governance/ct136Linker.js';
 import { normalizeCtIssueId } from '../governance/ct136Types.js';
 import { resolveRetryAt } from './scheduler.js';
 import { applyOrderLifecycleEvent } from './stateMachine.js';
+import { normalizeTxHash, normalizeWallet } from '../runtime/chainIdentityNormalizer.js';
 
 export interface CopytradeOrderFlowResult {
   order: CopytradeOrderAggregate;
@@ -28,6 +30,12 @@ export interface CopytradeOrderFlowResult {
   skipped: boolean;
   reasonCode: CopytradeReasonCode;
   executionOutcome?: CopytradeExecutionOutcome;
+}
+
+export interface CopytradeTxFinalityApplyResult {
+  order: CopytradeOrderAggregate | null;
+  applied: boolean;
+  reasonCode?: CopytradeReasonCode;
 }
 
 export interface CopytradeOrderFlowDeps {
@@ -57,8 +65,8 @@ export class CopytradeOrderFlowOrchestrator {
   constructor(private readonly deps: CopytradeOrderFlowDeps) {}
 
   async processSignal(signal: CopytradeIngressSignal): Promise<CopytradeOrderFlowResult> {
-    const normalizedWallet = String(signal.targetWallet || '').trim().toLowerCase();
-    const txHash = String(signal.swap?.txHash || '').trim().toLowerCase();
+    const normalizedWallet = normalizeWallet(signal.chainId, signal.targetWallet);
+    const txHash = normalizeTxHash(signal.chainId, signal.swap?.txHash);
 
     if (!normalizedWallet || !txHash) {
       throw new CopytradeDomainError({
@@ -372,6 +380,114 @@ export class CopytradeOrderFlowOrchestrator {
       reasonCode: retryable.lastReasonCode,
       executionOutcome: outcome,
     };
+  }
+
+  async processTxFinalityEvent(event: CopytradeTxFinalityEvent): Promise<CopytradeTxFinalityApplyResult> {
+    const order = await this.deps.orderRepo.getById(event.orderId);
+    if (!order) {
+      this.deps.observability.emit('copytrade_v2_finality_order_missing', {
+        orderId: event.orderId,
+        chainId: event.chainId,
+        txHash: event.txHash,
+        kind: event.kind,
+      });
+      return { order: null, applied: false };
+    }
+
+    await this.deps.eventStore.append({
+      orderId: order.id,
+      eventType: `TX_FINALITY_${event.kind.toUpperCase()}`,
+      lifecycleState: order.lifecycleState,
+      reasonCode: event.reasonCode,
+      payload: {
+        txHash: event.txHash,
+        sourceTxHash: event.sourceTxHash,
+        observedAt: event.observedAt.toISOString(),
+        kind: event.kind,
+      },
+    });
+
+    if (isTerminalState(order.lifecycleState)) {
+      this.deps.observability.emit('copytrade_v2_finality_ignored_terminal', {
+        orderId: order.id,
+        lifecycleState: order.lifecycleState,
+        kind: event.kind,
+      });
+      return {
+        order,
+        applied: false,
+        reasonCode: order.lastReasonCode,
+      };
+    }
+
+    let current = order;
+    if (event.kind === 'confirmed_success') {
+      if (current.lifecycleState === 'BUY_ACCEPTED' || current.lifecycleState === 'BUY_SUBMITTING') {
+        current = await this.transition(current, 'BUY_CONFIRM_OPEN', 'ok_buy_confirmed_open', {
+          txFinality: event,
+        });
+        current = await this.transition(current, 'ARM_EXIT', 'ok_exit_armed', {
+          txFinality: event,
+        });
+        return { order: current, applied: true, reasonCode: current.lastReasonCode };
+      }
+
+      if (current.lifecycleState === 'EXIT_ACCEPTED' || current.lifecycleState === 'EXIT_SUBMITTING') {
+        current = await this.transition(current, 'EXIT_CONFIRM_CLOSED', 'ok_exit_confirmed_closed', {
+          txFinality: event,
+        });
+        return { order: current, applied: true, reasonCode: current.lastReasonCode };
+      }
+
+      return { order: current, applied: false, reasonCode: current.lastReasonCode };
+    }
+
+    if (event.kind === 'confirmed_failed') {
+      current = await this.transition(current, 'FAIL_TERMINAL', 'failed_terminal', {
+        txFinality: event,
+      });
+      return { order: current, applied: true, reasonCode: current.lastReasonCode };
+    }
+
+    if (
+      current.lifecycleState === 'BUY_ACCEPTED'
+      || current.lifecycleState === 'BUY_SUBMITTING'
+      || current.lifecycleState === 'EXIT_ACCEPTED'
+      || current.lifecycleState === 'EXIT_SUBMITTING'
+    ) {
+      current = await this.transition(current, 'DEFER', 'deferred_confirmation_pending', {
+        txFinality: event,
+      });
+      return { order: current, applied: true, reasonCode: current.lastReasonCode };
+    }
+
+    return { order: current, applied: false, reasonCode: current.lastReasonCode };
+  }
+
+  async patchOrderMetadata(orderId: string, metadata: Record<string, unknown>): Promise<CopytradeOrderAggregate | null> {
+    const order = await this.deps.orderRepo.getById(orderId);
+    if (!order) return null;
+
+    const next = await this.deps.orderRepo.updateState({
+      orderId: order.id,
+      lifecycleState: order.lifecycleState,
+      reasonCode: order.lastReasonCode,
+      retryCount: order.retryCount,
+      direction: order.direction,
+      lastExecutionAt: order.lastExecutionAt || undefined,
+      closedAt: order.closedAt || undefined,
+      metadata,
+    });
+
+    await this.deps.eventStore.append({
+      orderId: next.id,
+      eventType: 'METADATA_PATCH',
+      lifecycleState: next.lifecycleState,
+      reasonCode: next.lastReasonCode,
+      payload: metadata,
+    });
+
+    return next;
   }
 
   private async transition(
