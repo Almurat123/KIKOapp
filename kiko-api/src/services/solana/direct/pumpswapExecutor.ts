@@ -232,7 +232,8 @@ async function executePumpAmmViaJupiterDirect(params: {
   const inputMint = request.isBuy ? WSOL_MINT.toBase58() : request.mint;
   const outputMint = request.isBuy ? request.mint : WSOL_MINT.toBase58();
 
-  const quote = await getSolanaQuoteFromAggregator(
+  // First attempt: Pump.fun AMM filtered quote (single-hop, deterministic)
+  let quote = await getSolanaQuoteFromAggregator(
     'jupiter',
     inputMint,
     outputMint,
@@ -247,12 +248,31 @@ async function executePumpAmmViaJupiterDirect(params: {
     }
   );
 
+  // Second attempt: unfiltered Jupiter (token may not be on Pump.fun AMM)
+  if (!quote) {
+    logger.warn(LogCode.API_FETCH_FAILED, '[PumpSwapDirect] Pump.fun AMM filtered quote unavailable, retrying with unfiltered Jupiter', {
+      mint: request.mint,
+      side: request.isBuy ? 'buy' : 'sell',
+    });
+    quote = await getSolanaQuoteFromAggregator(
+      'jupiter',
+      inputMint,
+      outputMint,
+      request.amountAtomic,
+      request.slippageBps,
+      signingContext.address,
+      undefined,
+      request.feeContext,
+      { forcePublicApi: true }
+    );
+  }
+
   if (!quote) {
     return {
       ok: false,
       provider: 'pumpswap',
       reasonCode: 'pool_not_found',
-      message: `pumpswap direct fallback quote unavailable for mint=${request.mint}`,
+      message: `pumpswap direct fallback: no Jupiter quote available for mint=${request.mint}`,
     };
   }
 
