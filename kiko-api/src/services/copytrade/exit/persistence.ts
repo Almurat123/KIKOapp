@@ -2,10 +2,11 @@ import { ethers } from 'ethers';
 import prisma from '../../../db/prisma.js';
 import type { AttributedPositionLike } from '../positions/positionAttribution.js';
 import { consumePendingAttributedPositions } from '../positions/pendingAttributedPositionLedger.js';
+import { syncCopytradeLedgerFromLegacy } from '../ledger/copytradeLedgerRepository.js';
 
 export async function reconcileNoopExitPosition(params: {
   positions: Array<AttributedPositionLike & { id: string }>;
-  action: 'keep_open' | 'close_position' | 'quarantine';
+  action: 'keep_open' | 'close_position' | 'quarantine' | 'retry_later';
   closeReason?: 'balance_empty' | 'balance_dust';
 }): Promise<void> {
   if (params.action !== 'close_position' || params.positions.length === 0) return;
@@ -17,6 +18,34 @@ export async function reconcileNoopExitPosition(params: {
       closedAt: new Date()
     }
   });
+}
+
+export async function persistDeferredExitRetryState(params: {
+  positions: Array<AttributedPositionLike & { id: string; exitRetryCount?: number | null; chainId?: number; tokenAddress?: string; }>;
+  targetWallet?: string | null;
+  exitReason: string;
+  reasonCode: string;
+}): Promise<void> {
+  if (params.positions.length === 0) return;
+  const ids = params.positions.map((entry) => entry.id);
+  const retryCount = Math.max(1, ...params.positions.map((position) => Number(position.exitRetryCount || 0) + 1));
+  await prisma.position.updateMany({
+    where: { id: { in: ids }, status: 'open' },
+    data: {
+      exitRetryCount: retryCount,
+      lastExitAttempt: new Date(),
+      exitReason: params.exitReason,
+    },
+  });
+  await Promise.all(params.positions.map(async (position) => {
+    await syncCopytradeLedgerFromLegacy({
+      positionId: position.id,
+      targetWallet: params.targetWallet,
+      lifecycleState: 'FOLLOWER_EXIT_FAILED_RETRYABLE',
+      lastExecutionState: 'uncertain',
+      lastExecutionReasonCode: params.reasonCode,
+    }).catch(() => null);
+  }));
 }
 
 export async function persistSuccessfulExit(params: {

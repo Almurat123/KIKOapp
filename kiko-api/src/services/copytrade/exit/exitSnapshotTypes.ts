@@ -4,6 +4,7 @@ import type {
   PositionAttributionResult,
 } from '../positions/positionAttribution.js';
 import type { PendingAttributedPositionLotLike } from '../positions/pendingAttributedPositionLedger.js';
+import type { RpcFactResult } from '../../oracle/rpcFactResult.js';
 
 export interface ExitSnapshotPosition extends AttributedPositionLike {
   id: string;
@@ -22,6 +23,7 @@ export interface ExitAttributionSnapshot {
   balanceRaw: bigint;
   balanceUsd: number;
   treatAsEmptyOrDust: boolean;
+  balanceRead: RpcFactResult<bigint>;
   positions: ExitSnapshotPosition[];
   pendingLots: PendingAttributedPositionLotLike[];
   latestTargetSellTxHash?: string | null;

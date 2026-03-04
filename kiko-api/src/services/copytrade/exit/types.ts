@@ -13,7 +13,7 @@ export interface ExitTokenInfo {
 
 export interface ExitNoopPlan {
   kind: 'noop';
-  action: 'keep_open' | 'close_position' | 'quarantine';
+  action: 'keep_open' | 'close_position' | 'quarantine' | 'retry_later';
   closeReason?: 'balance_empty' | 'balance_dust';
   balance: bigint;
   decimals: number;

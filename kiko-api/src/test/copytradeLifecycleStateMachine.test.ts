@@ -124,6 +124,14 @@ class CopytradeLifecycleHarness {
       tokenInfo: { price: 1, symbol: 'FELIX' },
       decimals: 18,
       onChainBalanceRaw: this.followerBalanceRaw,
+      balanceRead: {
+        status: 'success',
+        value: this.followerBalanceRaw,
+        reasonCode: this.followerBalanceRaw > 0n ? 'EXIT_BALANCE_CONFIRMED_POSITIVE' : 'EXIT_BALANCE_CONFIRMED_ZERO',
+        attemptCount: 1,
+        lastError: null,
+        providerSource: 'test',
+      },
       positions: reconciled.matchedPositions,
       pendingLots: this.pendingLots,
     });

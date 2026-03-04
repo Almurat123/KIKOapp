@@ -69,6 +69,14 @@ describe('exit context resolver', () => {
       tokenInfo: { price: 1, symbol: 'TEST' },
       decimals: 18,
       onChainBalanceRaw: 9000000000000000000n,
+      balanceRead: {
+        status: 'success',
+        value: 9000000000000000000n,
+        reasonCode: 'EXIT_BALANCE_CONFIRMED_POSITIVE',
+        attemptCount: 1,
+        lastError: null,
+        providerSource: 'test',
+      },
       positions: resolved.positions,
       pendingLots: resolved.pendingAttributedLots,
     });

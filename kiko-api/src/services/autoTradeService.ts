@@ -58,6 +58,7 @@ import { buildEvmExitPlan } from './copytrade/exit/planner.js';
 import { executeEvmExitPlan } from './copytrade/exit/executor.js';
 import {
     persistFailedExitState,
+    persistDeferredExitRetryState,
     persistSuccessfulExit,
     reconcileNoopExitPosition
 } from './copytrade/exit/persistence.js';
@@ -97,6 +98,7 @@ import {
 import { verifyTargetFullExit } from './copytrade/reconcile/targetSellFullExitVerifier.js';
 import { runTargetSellReconciliationCycle } from './copytrade/reconcile/targetSellReconciliationJob.js';
 import { getCopytradeBuySharedWarmup } from './copytrade/buy/buySharedWarmup.js';
+import { shouldDeferStrongRpcMonitoring } from './copytrade/buy/preConfirmationRpcPolicy.js';
 import {
     evaluateCopyTradeDelay,
     getCopyTradeDispatchDetectedAt,
@@ -3403,6 +3405,24 @@ async function executePositionExit(params: {
                     return null;
                 }
 
+                if (exitPlan.action === 'retry_later') {
+                    logger.warn(LogCode.WTC_TX_SKIPPED, 'Exit deferred: balance oracle returned uncertain result', {
+                        userId,
+                        tokenAddress,
+                        chainId,
+                        exitReason,
+                        reasonCode: exitPlan.attributedReasonCode || 'EXIT_BALANCE_RPC_UNCERTAIN',
+                        attributionMetrics: exitPlan.attributionMetrics || null
+                    });
+                    await persistDeferredExitRetryState({
+                        positions: exitPlan.positions as any,
+                        targetWallet: config.targetWallet,
+                        exitReason,
+                        reasonCode: exitPlan.attributedReasonCode || 'EXIT_BALANCE_RPC_UNCERTAIN'
+                    });
+                    return null;
+                }
+
                 logger.throttled(LogCode.WTC_TX_SKIPPED, 'Negligible EVM balance, closing database records', {
                     userId,
                     tokenAddress,
@@ -4160,6 +4180,17 @@ export async function checkPositionsForExits(): Promise<void> {
                         token: position.tokenSymbol || 'Unknown',
                         ageMs: positionAgeMs,
                         minAgeMs: MIN_POSITION_AGE_FOR_TPSL_MS,
+                        pnlPct: Number.isFinite(profitLossPct) ? profitLossPct.toFixed(2) : 'NaN'
+                    });
+                    return;
+                }
+
+                if (shouldDeferStrongRpcMonitoring(position.createdAt)) {
+                    clearTpslHit(position.id);
+                    logger.debug(LogCode.SYS_INFO, 'TP/SL guard: deferred until confirmation settles', {
+                        positionId: position.id,
+                        token: position.tokenSymbol || 'Unknown',
+                        ageMs: positionAgeMs,
                         pnlPct: Number.isFinite(profitLossPct) ? profitLossPct.toFixed(2) : 'NaN'
                     });
                     return;

@@ -1,5 +1,5 @@
 import { ethers } from 'ethers';
-import { getErc20Balance, getErc20Decimals } from '../../rpcManager.js';
+import { getErc20Decimals } from '../../rpcManager.js';
 import { resolveAttributedPositionExitAmount } from '../positions/positionAttribution.js';
 import { resolveCopytradeLedger } from '../ledger/copytradeLedgerService.js';
 import { resolveTargetSellLink } from '../reconcile/copytradeTargetSellLinkResolver.js';
@@ -7,6 +7,8 @@ import { verifyTargetFullExit } from '../reconcile/targetSellFullExitVerifier.js
 import { resolveMirrorSellAttributedAmount } from './mirrorSellAttribution.js';
 import type { ExitAttributionSnapshot, ExitSnapshotPosition } from './exitSnapshotTypes.js';
 import type { ExitTokenInfo, PendingAttributedExitContext, PositionExitReason } from './types.js';
+import { readExitBalanceOracle } from '../oracle/exitBalanceOracle.js';
+import { emitCopytradeOracleAudit } from '../audit/copytradeOracleAudit.js';
 
 function formatTokenAmount(amount: bigint, decimals: number): number {
   const value = Number(ethers.formatUnits(amount, decimals));
@@ -21,6 +23,7 @@ export function buildEvmExitAttributionSnapshotFromResolvedInputs(input: {
   tokenInfo: ExitTokenInfo;
   decimals: number;
   onChainBalanceRaw: bigint;
+  balanceRead: ExitAttributionSnapshot['balanceRead'];
   positions: ExitSnapshotPosition[];
   pendingLots?: PendingAttributedExitContext['pendingLots'];
   latestTargetSellTxHash?: string | null;
@@ -31,7 +34,8 @@ export function buildEvmExitAttributionSnapshotFromResolvedInputs(input: {
   const isMirrorSell = input.exitReason === 'mirror_sell';
   const pendingLots = [...(input.pendingLots || [])];
   const balanceUsd = formatTokenAmount(input.onChainBalanceRaw, input.decimals) * (hasValidPrice ? Number(input.tokenInfo.price) : 0);
-  const treatAsEmptyOrDust = input.onChainBalanceRaw <= 0n || (!isMirrorSell && hasValidPrice && balanceUsd < 0.1);
+  const treatAsEmptyOrDust = input.balanceRead.status === 'success'
+    && (input.onChainBalanceRaw <= 0n || (!isMirrorSell && hasValidPrice && balanceUsd < 0.1));
   const attribution = isMirrorSell
     ? resolveMirrorSellAttributedAmount({
         positions: input.positions,
@@ -55,6 +59,7 @@ export function buildEvmExitAttributionSnapshotFromResolvedInputs(input: {
     balanceRaw: input.onChainBalanceRaw,
     balanceUsd,
     treatAsEmptyOrDust,
+    balanceRead: input.balanceRead,
     positions: input.positions,
     pendingLots,
     latestTargetSellTxHash: input.latestTargetSellTxHash,
@@ -83,16 +88,20 @@ export async function buildEvmExitAttributionSnapshot(input: {
   const hasValidPrice = Number.isFinite(input.tokenInfo?.price) && Number(input.tokenInfo.price) > 0;
   const isMirrorSell = input.exitReason === 'mirror_sell';
   const dec = await getErc20Decimals(input.tokenAddress, input.chainId).catch(() => 18);
-  let balance = await getErc20Balance(input.tokenAddress, input.walletAddress, input.chainId).catch(() => 0n);
-
-  if (isMirrorSell && balance <= 0n) {
-    for (let i = 0; i < 3; i++) {
-      await new Promise((resolve) => setTimeout(resolve, 220));
-      const retryBalance = await getErc20Balance(input.tokenAddress, input.walletAddress, input.chainId).catch(() => 0n);
-      if (retryBalance > balance) balance = retryBalance;
-      if (balance > 0n) break;
-    }
-  }
+  const balanceRead = await readExitBalanceOracle({
+    tokenAddress: input.tokenAddress,
+    walletAddress: input.walletAddress,
+    chainId: input.chainId,
+    isMirrorSell,
+  });
+  emitCopytradeOracleAudit('EXIT_BALANCE_ORACLE', {
+    tokenAddress: input.tokenAddress,
+    chainId: input.chainId,
+    walletAddress: input.walletAddress,
+    exitReason: input.exitReason,
+    result: balanceRead,
+  });
+  const balance = balanceRead.value ?? 0n;
 
   const ledger = await resolveCopytradeLedger({
     chainId: input.chainId,
@@ -141,6 +150,7 @@ export async function buildEvmExitAttributionSnapshot(input: {
     tokenInfo: input.tokenInfo,
     decimals: Number(dec),
     onChainBalanceRaw: balance,
+    balanceRead,
     positions: ledger.positions,
     pendingLots: ledger.pendingLots,
     latestTargetSellTxHash,

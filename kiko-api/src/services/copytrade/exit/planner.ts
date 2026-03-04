@@ -9,6 +9,7 @@ import type { PendingAttributedExitContext } from './types.js';
 import { evaluateVerifiedMirrorExitFallback } from './verifiedMirrorExitFallbackPolicy.js';
 import { evaluateOrphanRecovery } from '../recovery/orphanRecoveryPolicy.js';
 import { buildForcedExitSwapPlan } from '../recovery/forcedExitPlanner.js';
+import { resolveExitBalanceAdaptation } from '../../oracle/rpcAdaptationPolicy.js';
 
 export async function buildEvmExitPlan(input: {
   userId: string;
@@ -64,6 +65,29 @@ export function buildEvmExitPlanFromSnapshot(input: {
   const attribution = snapshot.attribution;
   const verifiedFallback = evaluateVerifiedMirrorExitFallback(snapshot);
   const orphanRecovery = evaluateOrphanRecovery(snapshot);
+  const balanceAdaptation = resolveExitBalanceAdaptation(snapshot.balanceRead);
+
+  if (isMirrorSell && balanceAdaptation !== 'accept') {
+    return {
+      kind: 'noop',
+      action: balanceAdaptation === 'quarantine' ? 'quarantine' : 'retry_later',
+      balance,
+      decimals,
+      balanceUsd,
+      isMirrorSell,
+      attributedReasonCode: snapshot.balanceRead.reasonCode === 'EXIT_BALANCE_RPC_FAILED'
+        ? 'EXIT_BALANCE_RPC_FAILED'
+        : 'EXIT_BALANCE_RPC_UNCERTAIN',
+      attributionMetrics: {
+        ...attribution.metrics,
+        oracleStatus: snapshot.balanceRead.status,
+        oracleReasonCode: snapshot.balanceRead.reasonCode,
+        oracleAttemptCount: snapshot.balanceRead.attemptCount,
+        oracleLastError: snapshot.balanceRead.lastError || null,
+      },
+      positions: snapshot.positions,
+    };
+  }
 
   if (snapshot.treatAsEmptyOrDust) {
     if (isMirrorSell && balance <= 0n) {

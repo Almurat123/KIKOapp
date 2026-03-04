@@ -204,12 +204,20 @@ describe('copytrade execution ledger E2E', () => {
         chainId: BASE_CHAIN_ID,
         walletAddress: fixture.walletAddress,
         exitReason: 'mirror_sell',
-        tokenInfo: { price: 1, symbol: 'FELIX' },
-        decimals: 18,
-        onChainBalanceRaw: 2500000000000000000000n,
-        positions: ledger.positions,
-        pendingLots: ledger.pendingLots,
-      });
+      tokenInfo: { price: 1, symbol: 'FELIX' },
+      decimals: 18,
+      onChainBalanceRaw: 2500000000000000000000n,
+      balanceRead: {
+        status: 'success',
+        value: 2500000000000000000000n,
+        reasonCode: 'EXIT_BALANCE_CONFIRMED_POSITIVE',
+        attemptCount: 1,
+        lastError: null,
+        providerSource: 'test',
+      },
+      positions: ledger.positions,
+      pendingLots: ledger.pendingLots,
+    });
       assert.equal(snapshot.attribution.reasonCode, 'ATTRIBUTED_AMOUNT_RESOLVED');
       assert.equal(snapshot.attribution.sellAmountRaw, 2500000000000000000000n);
 
@@ -302,6 +310,14 @@ describe('copytrade execution ledger E2E', () => {
         balanceRaw: 1000n,
         balanceUsd: 1,
         treatAsEmptyOrDust: false,
+        balanceRead: {
+          status: 'success',
+          value: 1000n,
+          reasonCode: 'EXIT_BALANCE_CONFIRMED_POSITIVE',
+          attemptCount: 1,
+          lastError: null,
+          providerSource: 'test',
+        },
         positions: [{
           id: 'pos-1',
           tokenAddress: TOKEN,

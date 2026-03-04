@@ -285,6 +285,14 @@ describe('copytrade executeSwap boundary E2E', () => {
         tokenInfo: { price: 1, symbol: 'FELIX' },
         decimals: 18,
         onChainBalanceRaw: 2500000000000000000000n,
+        balanceRead: {
+          status: 'success',
+          value: 2500000000000000000000n,
+          reasonCode: 'EXIT_BALANCE_CONFIRMED_POSITIVE',
+          attemptCount: 1,
+          lastError: null,
+          providerSource: 'test',
+        },
         positions: ledger.positions,
         pendingLots: ledger.pendingLots,
       });
