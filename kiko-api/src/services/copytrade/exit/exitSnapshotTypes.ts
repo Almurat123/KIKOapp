@@ -8,6 +8,8 @@ import type { PendingAttributedPositionLotLike } from '../positions/pendingAttri
 export interface ExitSnapshotPosition extends AttributedPositionLike {
   id: string;
   status?: string | null;
+  leaderTxHash?: string | null;
+  createdAt?: Date | null;
 }
 
 export interface ExitAttributionSnapshot {
@@ -24,6 +26,7 @@ export interface ExitAttributionSnapshot {
   pendingLots: PendingAttributedPositionLotLike[];
   latestTargetSellTxHash?: string | null;
   targetFullExitVerified?: boolean;
+  targetFullExitReasonCode?: string | null;
   attribution: {
     eligiblePositions: ExitSnapshotPosition[];
     pendingAttributedLotIds?: string[];

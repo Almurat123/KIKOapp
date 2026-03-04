@@ -3732,6 +3732,59 @@ async function executePositionExit(params: {
                     return null;
                 }
 
+                if (exitPlan.action === 'quarantine') {
+                    const ledger = await resolveCopytradeLedger({
+                        chainId,
+                        tokenAddress,
+                        targetWallet: config.targetWallet,
+                        positionIds: exitPlan.positions.map((position) => position.id),
+                        positions: exitPlan.positions as any,
+                        pendingLots: params.pendingAttributedLots,
+                    }).catch(() => null);
+                    emitCopytradeDomainAudit('FOLLOWER_EXIT_QUARANTINED', {
+                        ledger,
+                        runtimeContext: exitRuntimeContext,
+                        extra: {
+                            userId,
+                            tokenAddress,
+                            chainId,
+                            exitReason,
+                            attributedReasonCode: exitPlan.attributedReasonCode || 'TARGET_EXIT_QUARANTINED',
+                            attributionMetrics: exitPlan.attributionMetrics || null,
+                        }
+                    });
+                    emitCopytradeSummaryAudit('EXIT_FLOW_SUMMARY', {
+                        action: 'exit_quarantined',
+                        userId,
+                        chainId,
+                        tokenAddress,
+                        targetWallet: config.targetWallet,
+                        positionIds: exitPlan.positions.map((position: any) => position.id),
+                        reasonCode: exitPlan.attributedReasonCode || 'TARGET_EXIT_QUARANTINED',
+                        ledgerLifecycleState: 'FOLLOWER_EXIT_FAILED_TERMINAL',
+                        legacyFallbackUsed: false,
+                    });
+                    await applyCopytradeStateEvent({
+                        event: { type: 'EXIT_TX_CONFIRMED_FAILED', retryable: false },
+                        chainId,
+                        tokenAddress,
+                        targetWallet: config.targetWallet,
+                        positionIds: exitPlan.positions.map((position: any) => position.id),
+                        targetFullExitVerified: ledger?.targetFullExitVerified,
+                        targetSellTxHash: ledger?.latestTargetSellTxHash || undefined,
+                        lastExecutionState: 'terminal_failure',
+                        lastExecutionReasonCode: exitPlan.attributedReasonCode || 'TARGET_EXIT_QUARANTINED',
+                    });
+                    await prisma.position.updateMany({
+                        where: { id: { in: exitPlan.positions.map((position: any) => position.id) } },
+                        data: {
+                            exitRetryCount: 0,
+                            lastExitAttempt: new Date(),
+                        }
+                    });
+                    return null;
+                }
+
                 logger.throttled(LogCode.WTC_TX_SKIPPED, 'Negligible EVM balance, closing database records', {
                     userId,
                     tokenAddress,

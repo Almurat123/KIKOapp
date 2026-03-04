@@ -51,42 +51,50 @@ export const XPostCard: React.FC<XPostCardProps> = ({ url, avatarUrl, className 
 
     useEffect(() => {
         const fetchTweetData = async () => {
+            const tweetMatch = url.match(/(?:twitter\.com|x\.com)\/([^/]+)\/status\/(\d+)/i);
+            const usernameFromMatch = tweetMatch ? tweetMatch[1] : parseUsernameFromUrl(url);
+
+            // Set unavatar as early as possible if no prop avatar is provided
+            const fallbackAvatar = `https://unavatar.io/x/${usernameFromMatch}`;
+
             try {
-                // Extract tweet ID and potential username from URL
-                const tweetMatch = url.match(/(?:twitter\.com|x\.com)\/([^/]+)\/status\/(\d+)/i);
                 if (!tweetMatch) {
                     throw new Error('Invalid Twitter URL format');
                 }
                 const [, usernameMatch, tweetId] = tweetMatch;
 
-                // Use the public API of vxtwitter to get rich metadata including avatars
-                // Using corsproxy to bypass potential CORS issues if calling directly from browser
-                // Wait, typically api.vxtwitter.com supports CORS. Let's try direct first.
+                // Attempt to fetch metadata from vxtwitter
                 const response = await fetch(`https://api.vxtwitter.com/${usernameMatch}/status/${tweetId}`);
 
                 if (!response.ok) {
                     throw new Error('Failed to fetch tweet from vxtwitter');
                 }
 
-                const responseBody = await response.json();
-                const data = responseBody;
+                // Check content type before parsing as JSON
+                const contentType = response.headers.get('content-type');
+                if (!contentType || !contentType.includes('application/json')) {
+                    throw new Error('vxtwitter returned non-JSON response');
+                }
 
-                const avatarUrlFromApi = data.user_profile_image_url || avatarUrl;
+                const data = await response.json();
 
                 setTweetData({
-                    authorName: data.user_name || parseUsernameFromUrl(url),
-                    authorHandle: data.user_screen_name || parseUsernameFromUrl(url),
+                    authorName: data.user_name || usernameMatch,
+                    authorHandle: data.user_screen_name || usernameMatch,
                     content: data.text || 'Tweet content unavailable',
                     loading: false,
-                    avatarUrl: avatarUrlFromApi,
+                    avatarUrl: data.user_profile_image_url || avatarUrl || fallbackAvatar,
                 });
             } catch (error) {
-                console.error('[XPostCard] Failed to fetch tweet:', error);
+                console.error('[XPostCard] Failed to fetch tweet metadata:', error);
+                // Fallback to minimal data and unavatar
                 setTweetData(prev => ({
                     ...prev,
-                    content: 'Could not load tweet preview',
+                    authorName: usernameFromMatch,
+                    authorHandle: usernameFromMatch,
+                    content: 'Tweet content loaded from X.com',
                     loading: false,
-                    error: 'Failed to load',
+                    avatarUrl: avatarUrl || fallbackAvatar,
                 }));
             }
         };

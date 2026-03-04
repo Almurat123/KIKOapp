@@ -7,6 +7,8 @@ import { buildEvmExitAttributionSnapshot } from './exitAttributionSnapshotBuilde
 import type { ExitAttributionSnapshot } from './exitSnapshotTypes.js';
 import type { PendingAttributedExitContext } from './types.js';
 import { evaluateVerifiedMirrorExitFallback } from './verifiedMirrorExitFallbackPolicy.js';
+import { evaluateOrphanRecovery } from '../recovery/orphanRecoveryPolicy.js';
+import { buildForcedExitSwapPlan } from '../recovery/forcedExitPlanner.js';
 
 export async function buildEvmExitPlan(input: {
   userId: string;
@@ -61,6 +63,7 @@ export function buildEvmExitPlanFromSnapshot(input: {
   const isMirrorSell = snapshot.isMirrorSell;
   const attribution = snapshot.attribution;
   const verifiedFallback = evaluateVerifiedMirrorExitFallback(snapshot);
+  const orphanRecovery = evaluateOrphanRecovery(snapshot);
 
   if (snapshot.treatAsEmptyOrDust) {
     if (isMirrorSell && balance <= 0n) {
@@ -87,6 +90,58 @@ export function buildEvmExitPlanFromSnapshot(input: {
       attributedReasonCode: attribution.reasonCode,
       attributionMetrics: attribution.metrics,
       positions: attribution.eligiblePositions
+    };
+  }
+
+  if (orphanRecovery.action === 'close_as_empty') {
+    return {
+      kind: 'noop',
+      action: 'close_position',
+      closeReason: 'balance_empty',
+      balance,
+      decimals,
+      balanceUsd,
+      isMirrorSell,
+      attributedReasonCode: 'TARGET_EXIT_QUARANTINED',
+      attributionMetrics: {
+        ...attribution.metrics,
+        orphanRecoveryReasonCode: orphanRecovery.reasonCode,
+        targetFullExitReasonCode: snapshot.targetFullExitReasonCode || null,
+      },
+      positions: snapshot.positions,
+    };
+  }
+
+  if (orphanRecovery.action === 'force_exit') {
+    return buildForcedExitSwapPlan({
+      userId,
+      tokenAddress,
+      chainId,
+      exitReason,
+      tokenInfo,
+      universalSlippageBps: input.universalSlippageBps,
+      executionMode: input.executionMode,
+      targetWallet: input.targetWallet,
+      snapshot,
+      reasonCode: orphanRecovery.reasonCode,
+    });
+  }
+
+  if (orphanRecovery.action === 'quarantine') {
+    return {
+      kind: 'noop',
+      action: 'quarantine',
+      balance,
+      decimals,
+      balanceUsd,
+      isMirrorSell,
+      attributedReasonCode: 'TARGET_EXIT_QUARANTINED',
+      attributionMetrics: {
+        ...attribution.metrics,
+        orphanRecoveryReasonCode: orphanRecovery.reasonCode,
+        targetFullExitReasonCode: snapshot.targetFullExitReasonCode || null,
+      },
+      positions: snapshot.positions,
     };
   }
 

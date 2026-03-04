@@ -6,6 +6,7 @@ import { resolveTxFinalState } from '../order-runtime/adjudicator/finalState.js'
 import { reportReceiptSeen, reportTxByHashSeen } from '../order-runtime/adjudicator/service.js';
 import type { OrderRuntimeContext } from '../order-runtime/types.js';
 import { waitForSolanaTransactionConfirmation } from '../solana/confirmation/solanaConfirmationCoordinator.js';
+import { waitForReplacementVisibility } from './replacementVisibilityGate.js';
 
 export type ConfirmationKind = 'confirmed_success' | 'confirmed_failed' | 'timeout' | 'uncertain';
 
@@ -262,7 +263,7 @@ export function scheduleSpeedUp(params: {
             if (gasPrice) gasPrice = bump(gasPrice);
 
             const speedUpProfile = tx.chainId === 8453 ? 'base-sniper' : tx.chainId === 56 ? 'bsc-sniper' : undefined;
-            await sendTransaction(userId, accessToken, {
+            const replacementTxHash = await sendTransaction(userId, accessToken, {
                 to: tx.to,
                 data: tx.data,
                 value: tx.value,
@@ -277,11 +278,38 @@ export function scheduleSpeedUp(params: {
                 runtimeContext,
                 ...(speedUpProfile ? { executionProfile: speedUpProfile } : {})
             });
+            const replacementVisibility = await waitForReplacementVisibility({
+                chainId,
+                replacementTxHash,
+                sender: sender || undefined,
+                targetNonce: BigInt(nonceHex),
+            });
 
-            logger.info(LogCode.EXE_TX_BROADCAST, 'SpeedUp replacement tx sent', {
+            if (replacementVisibility.visible) {
+                reportTxByHashSeen({
+                    chainId,
+                    txHash: replacementTxHash,
+                    from: sender || undefined,
+                    source: 'rpc_tx'
+                });
+                logger.info(LogCode.EXE_TX_BROADCAST, 'SpeedUp replacement tx visible', {
+                    txHash,
+                    chainId,
+                    replacementTxHash,
+                    replacementNonce: BigInt(nonceHex).toString(),
+                    reasonCode: replacementVisibility.reasonCode,
+                    ...replacementVisibility.metrics,
+                });
+                return;
+            }
+
+            logger.warn(LogCode.SYS_INFO, 'SpeedUp replacement attempted but not visible', {
                 txHash,
                 chainId,
-                replacementNonce: BigInt(nonceHex).toString()
+                replacementTxHash,
+                replacementNonce: BigInt(nonceHex).toString(),
+                reasonCode: replacementVisibility.reasonCode,
+                ...replacementVisibility.metrics,
             });
         } catch (err: any) {
             logger.warn(LogCode.SYS_ERROR, 'SpeedUp replacement failed', { txHash, chainId, error: err.message });

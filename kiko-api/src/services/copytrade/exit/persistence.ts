@@ -5,7 +5,7 @@ import { consumePendingAttributedPositions } from '../positions/pendingAttribute
 
 export async function reconcileNoopExitPosition(params: {
   positions: Array<AttributedPositionLike & { id: string }>;
-  action: 'keep_open' | 'close_position';
+  action: 'keep_open' | 'close_position' | 'quarantine';
   closeReason?: 'balance_empty' | 'balance_dust';
 }): Promise<void> {
   if (params.action !== 'close_position' || params.positions.length === 0) return;

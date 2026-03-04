@@ -2,6 +2,8 @@ import { ethers } from 'ethers';
 import { getErc20Balance, getErc20Decimals } from '../../rpcManager.js';
 import { resolveAttributedPositionExitAmount } from '../positions/positionAttribution.js';
 import { resolveCopytradeLedger } from '../ledger/copytradeLedgerService.js';
+import { resolveTargetSellLink } from '../reconcile/copytradeTargetSellLinkResolver.js';
+import { verifyTargetFullExit } from '../reconcile/targetSellFullExitVerifier.js';
 import { resolveMirrorSellAttributedAmount } from './mirrorSellAttribution.js';
 import type { ExitAttributionSnapshot, ExitSnapshotPosition } from './exitSnapshotTypes.js';
 import type { ExitTokenInfo, PendingAttributedExitContext, PositionExitReason } from './types.js';
@@ -23,6 +25,7 @@ export function buildEvmExitAttributionSnapshotFromResolvedInputs(input: {
   pendingLots?: PendingAttributedExitContext['pendingLots'];
   latestTargetSellTxHash?: string | null;
   targetFullExitVerified?: boolean;
+  targetFullExitReasonCode?: string | null;
 }): ExitAttributionSnapshot {
   const hasValidPrice = Number.isFinite(input.tokenInfo?.price) && Number(input.tokenInfo.price) > 0;
   const isMirrorSell = input.exitReason === 'mirror_sell';
@@ -56,6 +59,7 @@ export function buildEvmExitAttributionSnapshotFromResolvedInputs(input: {
     pendingLots,
     latestTargetSellTxHash: input.latestTargetSellTxHash,
     targetFullExitVerified: input.targetFullExitVerified,
+    targetFullExitReasonCode: input.targetFullExitReasonCode,
     attribution: {
       eligiblePositions: attribution.eligiblePositions,
       pendingAttributedLotIds: 'pendingAttributedLotIds' in attribution ? attribution.pendingAttributedLotIds : undefined,
@@ -98,6 +102,37 @@ export async function buildEvmExitAttributionSnapshot(input: {
     pendingLots: input.pendingLots,
     positionIds: input.positions.map((position) => position.id).filter(Boolean),
   });
+  let latestTargetSellTxHash = ledger.latestTargetSellTxHash;
+  let targetFullExitVerified = ledger.targetFullExitVerified;
+  let targetFullExitReasonCode: string | null = null;
+
+  if (isMirrorSell && input.targetWallet && (!latestTargetSellTxHash || !targetFullExitVerified)) {
+    const linkedSell = await resolveTargetSellLink({
+      targetWallet: input.targetWallet,
+      chainId: input.chainId,
+      tokenAddress: input.tokenAddress,
+      leaderBuyTxHash: input.positions.find((position: any) => position.leaderTxHash)?.leaderTxHash || null,
+      positionCreatedAt: (input.positions[0] as any)?.createdAt || null,
+      pendingCreatedAt: input.pendingLots?.[0]?.createdAt || null,
+      allowUnanchoredVerifiedFallback: true,
+      targetFullExitVerified: true,
+    }).catch(() => null);
+
+    if (linkedSell?.txHash) {
+      latestTargetSellTxHash = linkedSell.txHash;
+      targetFullExitReasonCode = linkedSell.reasonCode;
+      const verification = await verifyTargetFullExit({
+        targetWallet: input.targetWallet,
+        chainId: input.chainId,
+        tokenAddress: input.tokenAddress,
+      }).catch(() => null);
+      if (verification) {
+        targetFullExitVerified = verification.isFullExit;
+        targetFullExitReasonCode = verification.reasonCode;
+      }
+    }
+  }
+
   return buildEvmExitAttributionSnapshotFromResolvedInputs({
     tokenAddress: input.tokenAddress,
     chainId: input.chainId,
@@ -108,7 +143,8 @@ export async function buildEvmExitAttributionSnapshot(input: {
     onChainBalanceRaw: balance,
     positions: ledger.positions,
     pendingLots: ledger.pendingLots,
-    latestTargetSellTxHash: ledger.latestTargetSellTxHash,
-    targetFullExitVerified: ledger.targetFullExitVerified,
+    latestTargetSellTxHash,
+    targetFullExitVerified,
+    targetFullExitReasonCode,
   });
 }

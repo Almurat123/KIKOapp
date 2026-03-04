@@ -281,4 +281,48 @@ describe('copytrade execution ledger E2E', () => {
       });
     }
   });
+
+  test('planner forces exit for orphan mirror sell when target full exit is verified', () => {
+    const plan = buildEvmExitPlanFromSnapshot({
+      userId: 'user-1',
+      tokenAddress: TOKEN,
+      chainId: BASE_CHAIN_ID,
+      exitReason: 'mirror_sell',
+      tokenInfo: { price: 1 },
+      universalSlippageBps: 500,
+      executionMode: 'normal',
+      targetWallet: makeAddress('target'),
+      snapshot: {
+        tokenAddress: TOKEN,
+        chainId: BASE_CHAIN_ID,
+        walletAddress: makeAddress('wallet'),
+        isMirrorSell: true,
+        hasValidPrice: true,
+        decimals: 18,
+        balanceRaw: 1000n,
+        balanceUsd: 1,
+        treatAsEmptyOrDust: false,
+        positions: [{
+          id: 'pos-1',
+          tokenAddress: TOKEN,
+          status: 'open',
+          entryTxHash: 'MANUAL_BROKEN',
+        }],
+        pendingLots: [],
+        latestTargetSellTxHash: makeTxHash('target-sell'),
+        targetFullExitVerified: true,
+        targetFullExitReasonCode: 'TARGET_FULL_EXIT_CONFIRMED',
+        attribution: {
+          eligiblePositions: [],
+          sellAmountRaw: 0n,
+          reasonCode: 'NO_CONFIRMED_POSITIONS',
+          metrics: {},
+          hasExternalBalance: false,
+        },
+      },
+    });
+
+    assert.equal(plan.kind, 'swap');
+    assert.equal(plan.attributedReasonCode, 'FORCED_FULL_EXIT_FROM_LEDGER');
+  });
 });

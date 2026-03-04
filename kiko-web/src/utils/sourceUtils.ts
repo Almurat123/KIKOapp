@@ -103,15 +103,29 @@ export function getSourceTitle(url: string): string {
  */
 export function getSourceLogoProps(citation: Citation) {
   const url = getCitationUrl(citation);
-  const avatarUrl = getCitationAvatarUrl(citation);
+  let avatarUrl = getCitationAvatarUrl(citation);
   const domain = getSourceDomain(url);
   const isX = isXPost(url);
+
+  // For X/Twitter posts, if we don't have a specific avatar from the backend,
+  // we can use a reliable third-party service like unavatar.io to get the profile picture.
+  if (isX && !avatarUrl) {
+    try {
+      const urlObj = new URL(url);
+      const pathParts = urlObj.pathname.split('/').filter(Boolean);
+      if (pathParts.length >= 1 && pathParts[0] !== 'status') {
+        avatarUrl = `https://unavatar.io/x/${pathParts[0]}`;
+      }
+    } catch {
+      // Ignore URL errors
+    }
+  }
 
   return {
     url,
     domain,
     isX,
-    // Always use favicon as fallback if no avatar_url (including for X/Twitter)
+    // Use avatarUrl if found, otherwise fallback to favicon
     avatarUrl: avatarUrl || getFaviconUrl(domain),
   };
 }
