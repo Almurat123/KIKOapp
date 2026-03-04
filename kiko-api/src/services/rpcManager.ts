@@ -25,6 +25,13 @@ import {
 import { resolveTxFinalState, toLifecycleResultFromFinalState } from './order-runtime/adjudicator/finalState.js';
 import { buildRpcSelectionExplain } from './rpc/explain.js';
 import { inferRpcLane, shouldUpgradeRpcStrategy } from './rpc/policy.js';
+import {
+    classifyFailoverReason,
+    extendCheapBudgetToIncludePremiumFallback,
+    isRateLimitedFailure,
+    shouldSkipFailoverDelay,
+    summarizeTopFailoverReasons,
+} from './rpc/failoverPolicy.js';
 import { buildRpcScoreTable, sortRpcEndpointsByScore } from './rpc/score.js';
 import {
     getErc20AllowanceSnapshot,
@@ -871,6 +878,7 @@ export async function callRpc<T = any>(
         : chainIdOrName.toLowerCase();
     let primaryUrl: string | undefined;
     let chainId: number;
+    const requestedStrategy: 'fast' | 'cheap' = options.strategy || 'cheap';
 
     const isLatestBlockRead =
         method === 'eth_getBlockByNumber'
@@ -901,7 +909,7 @@ export async function callRpc<T = any>(
         const config = getChainConfig(chainId);
         chainName = config.name;
         chainSlug = CHAIN_ID_TO_NAME[chainId] || 'eth';
-        const strategy = options.strategy || 'cheap';
+        const strategy = requestedStrategy;
         primaryUrl = getPrimaryRpcUrl(chainSlug);
         endpoints = getRpcEndpointsWithStrategy(chainSlug, strategy, primaryUrl);
         endpoints = filterEndpointsByMethod(endpoints, method);
@@ -1022,7 +1030,15 @@ export async function callRpc<T = any>(
             if (backgroundPressure) {
                 endpointBudget = Math.max(1, Math.min(endpointBudget, 1));
             }
+            endpointBudget = extendCheapBudgetToIncludePremiumFallback({
+                strategy: requestedStrategy,
+                sortedEndpoints,
+                endpointBudget,
+                forceExhaustiveFailover
+            });
             const selectedEndpoints = sortedEndpoints.slice(0, endpointBudget);
+            const selectedPremiumCount = selectedEndpoints.filter((endpoint) => endpoint.type === 'premium').length;
+            const selectedPublicCount = selectedEndpoints.filter((endpoint) => endpoint.type === 'public').length;
             const txLifecycleCritical =
                 effectiveImportance === 'critical'
                 && (
@@ -1053,6 +1069,16 @@ export async function callRpc<T = any>(
             }
 
             let lastError: Error | null = null;
+            let rateLimitedFailures = 0;
+            let paidFallbackSuccess = false;
+            const failureReasonCounts = new Map<string, number>();
+            const registerFailureReason = (message: string): void => {
+                const reason = classifyFailoverReason(message);
+                failureReasonCounts.set(reason, (failureReasonCounts.get(reason) || 0) + 1);
+                if (isRateLimitedFailure(message)) {
+                    rateLimitedFailures += 1;
+                }
+            };
 
         const runEndpointAttempt = async (endpoint: RpcEndpointConfig, delayMs = 0): Promise<T> => {
             if (options.signal?.aborted) {
@@ -1334,12 +1360,17 @@ export async function callRpc<T = any>(
                 }
 
                 if (i > 0) {
+                    if (endpoint.type === 'premium') {
+                        paidFallbackSuccess = true;
+                    }
                     logger.debug(LogCode.API_FETCH_SUCCESS, `RPC failover success`, {
                         chain: chainName,
                         endpoint: i + 1,
                         total: selectedEndpoints.length,
                         endpointBudget,
                         responseTime: Date.now() - startTime,
+                        paid_fallback_success: paidFallbackSuccess,
+                        rate_limited_failures: rateLimitedFailures,
                         role: LogRole.METRIC
                     });
                 }
@@ -1350,6 +1381,7 @@ export async function callRpc<T = any>(
                 const message = String(error?.message || error || '');
                 if (message === 'circuit_open') {
                     lastError = new Error('all_endpoints_circuit_open');
+                    registerFailureReason(message);
                     logger.debug(LogCode.API_FETCH_FAILED, `RPC circuit open, skipping endpoint`, {
                         chain: chainName,
                         endpoint: maskEndpoint(endpoint.url),
@@ -1359,6 +1391,7 @@ export async function callRpc<T = any>(
                 }
                 if (message.startsWith('capacity_limited:')) {
                     lastError = new Error(message);
+                    registerFailureReason(message);
                     logger.debug(LogCode.API_FETCH_FAILED, `RPC capacity limited, skipping endpoint`, {
                         chain: chainName,
                         endpoint: maskEndpoint(endpoint.url),
@@ -1369,10 +1402,12 @@ export async function callRpc<T = any>(
                 }
                 if (message === 'endpoint_method_timeout_cooldown') {
                     lastError = new Error(message);
+                    registerFailureReason(message);
                     continue;
                 }
 
                 lastError = error instanceof Error ? error : new Error(message);
+                registerFailureReason(message);
 
                 const isContractError = isNonRetryableRpcErrorMessage(message);
                 if (isContractError) {
@@ -1395,7 +1430,9 @@ export async function callRpc<T = any>(
                     if (options.signal?.aborted) {
                         throw lastError;
                     }
-                    await new Promise(resolve => setTimeout(resolve, 50));
+                    if (!shouldSkipFailoverDelay(message)) {
+                        await new Promise(resolve => setTimeout(resolve, 50));
+                    }
                     continue;
                 }
             }
@@ -1412,8 +1449,12 @@ export async function callRpc<T = any>(
                     rpc_failure_code: rpcFailureCode,
                     totalEndpoints: sortedEndpoints.length,
                     attemptedEndpoints: selectedEndpoints.length,
+                    selectedPremiumCount,
+                    selectedPublicCount,
                     endpointBudget,
                     exhaustiveFailover: forceExhaustiveFailover,
+                    rate_limited_failures: rateLimitedFailures,
+                    failure_reason_top: summarizeTopFailoverReasons(failureReasonCounts),
                     cooldownMs: Math.max(0, newBackoff.cooldownUntil - Date.now()),
                     lastError: lastError?.message,
                     role: LogRole.METRIC
@@ -1616,6 +1657,7 @@ export async function callRpcRaw<T = any>(
     let endpoints: RpcEndpointConfig[] = [];
     let chainName = typeof chainIdOrName === 'string' ? chainIdOrName : `Chain ${chainIdOrName}`;
     let chainId: number;
+    const requestedStrategy: 'fast' | 'cheap' = options.strategy || 'cheap';
 
     // Resolve Chain ID
     if (typeof chainIdOrName === 'number') {
@@ -1633,7 +1675,7 @@ export async function callRpcRaw<T = any>(
         const config = getChainConfig(chainId);
         chainName = config.name;
         const chainSlug = CHAIN_ID_TO_NAME[chainId] || 'eth';
-        const strategy = options.strategy || 'cheap';
+        const strategy = requestedStrategy;
         const primaryUrl = getPrimaryRpcUrl(chainSlug);
         endpoints = getRpcEndpointsWithStrategy(chainSlug, strategy, primaryUrl);
         endpoints = filterEndpointsByMethod(endpoints, method);
@@ -1698,14 +1740,22 @@ export async function callRpcRaw<T = any>(
         });
         const sortedEndpoints = scoreTable.map((row) => row.endpoint);
         const forceExhaustiveFailover = shouldForceExhaustiveFailover(method, effectiveImportance, options);
-        const endpointBudget = getEndpointAttemptBudget(
+        let endpointBudget = getEndpointAttemptBudget(
             method,
             effectiveImportance,
             sortedEndpoints.length,
             cooldownActive,
             forceExhaustiveFailover
         );
+        endpointBudget = extendCheapBudgetToIncludePremiumFallback({
+            strategy: requestedStrategy,
+            sortedEndpoints,
+            endpointBudget,
+            forceExhaustiveFailover
+        });
         const selectedEndpoints = sortedEndpoints.slice(0, endpointBudget);
+        const selectedPremiumCount = selectedEndpoints.filter((endpoint) => endpoint.type === 'premium').length;
+        const selectedPublicCount = selectedEndpoints.filter((endpoint) => endpoint.type === 'public').length;
         if (RPC_EXPLAIN_ENABLED && effectiveImportance === 'critical') {
             logger.info(LogCode.SYS_INFO, 'RPC raw selection explain', {
                 chain: chainName,
@@ -1725,6 +1775,16 @@ export async function callRpcRaw<T = any>(
             });
         }
         let lastError: Error | null = null;
+        let rateLimitedFailures = 0;
+        let paidFallbackSuccess = false;
+        const failureReasonCounts = new Map<string, number>();
+        const registerFailureReason = (message: string): void => {
+            const reason = classifyFailoverReason(message);
+            failureReasonCounts.set(reason, (failureReasonCounts.get(reason) || 0) + 1);
+            if (isRateLimitedFailure(message)) {
+                rateLimitedFailures += 1;
+            }
+        };
 
         for (let i = 0; i < selectedEndpoints.length; i++) {
             const endpoint = selectedEndpoints[i];
@@ -1733,6 +1793,7 @@ export async function callRpcRaw<T = any>(
             markRpcMethodUsage(chainId, method, effectiveImportance, rpcClass, path, 'endpointAttempts');
             if (isCircuitOpen(endpoint.url)) {
                 lastError = new Error('all_endpoints_circuit_open');
+                registerFailureReason('circuit_open');
                 logger.debug(LogCode.API_FETCH_FAILED, 'RPC circuit open, skipping endpoint', {
                     chain: chainName,
                     endpoint: maskEndpoint(endpoint.url)
@@ -1743,6 +1804,7 @@ export async function callRpcRaw<T = any>(
             const capacity = checkAndReserveCapacity(endpoint, effectiveImportance);
             if (!capacity.ok) {
                 lastError = new Error(`capacity_limited:${capacity.reason || 'unknown'}`);
+                registerFailureReason(`capacity_limited:${capacity.reason || 'unknown'}`);
                 logger.debug(LogCode.API_FETCH_FAILED, 'RPC capacity limited, skipping endpoint', {
                     chain: chainName,
                     endpoint: maskEndpoint(endpoint.url),
@@ -1780,12 +1842,17 @@ export async function callRpcRaw<T = any>(
                 markRpcMethodUsage(chainId, method, effectiveImportance, rpcClass, path, 'successes');
 
                 if (i > 0) {
+                    if (endpoint.type === 'premium') {
+                        paidFallbackSuccess = true;
+                    }
                     logger.debug(LogCode.API_FETCH_SUCCESS, 'RPC failover success', {
                         chain: chainName,
                         endpoint: i + 1,
                         total: selectedEndpoints.length,
                         endpointBudget,
-                        responseTime
+                        responseTime,
+                        paid_fallback_success: paidFallbackSuccess,
+                        rate_limited_failures: rateLimitedFailures,
                     });
                 }
 
@@ -1799,6 +1866,7 @@ export async function callRpcRaw<T = any>(
                     markRpcMethodUsage(chainId, method, effectiveImportance, rpcClass, path, 'timeoutErrors');
                 }
                 lastError = error instanceof Error ? error : new Error(msg);
+                registerFailureReason(msg);
 
                 const isContractError = isNonRetryableRpcErrorMessage(msg);
                 if (isContractError) {
@@ -1817,7 +1885,9 @@ export async function callRpcRaw<T = any>(
                 }
 
                 if (!isLast) {
-                    await new Promise(resolve => setTimeout(resolve, 50));
+                    if (!shouldSkipFailoverDelay(msg)) {
+                        await new Promise(resolve => setTimeout(resolve, 50));
+                    }
                     continue;
                 }
             } finally {
@@ -1835,8 +1905,12 @@ export async function callRpcRaw<T = any>(
                 rpc_failure_code: classifyRpcFailureCode(lastError),
                 totalEndpoints: sortedEndpoints.length,
                 attemptedEndpoints: selectedEndpoints.length,
+                selectedPremiumCount,
+                selectedPublicCount,
                 endpointBudget,
                 exhaustiveFailover: forceExhaustiveFailover,
+                rate_limited_failures: rateLimitedFailures,
+                failure_reason_top: summarizeTopFailoverReasons(failureReasonCounts),
                 cooldownMs: Math.max(0, newBackoff.cooldownUntil - Date.now()),
                 lastError: lastError?.message
             });

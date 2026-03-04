@@ -1,5 +1,5 @@
 import { ethers } from 'ethers';
-import { callRpc, getErc20Allowance, getErc20Balance, getErc20Decimals } from '../../rpcManager.js';
+import { callRpc, getErc20Allowance } from '../../rpcManager.js';
 import type {
   ExecutionPlanV1,
   ReplayDriftDiagnosis,
@@ -9,6 +9,7 @@ import type {
 import { logger } from '../../../utils/logger.js';
 import { LogCode } from '../../../config/logRegistry.js';
 import { resolveReplaySpender } from './adapters/registry.js';
+import { readEvmTokenBalanceFast, readEvmTokenDecimalsFast } from '../../rpc/balanceRpcReader.js';
 
 const ROUTER_EXECUTE_ABI = [
   'function execute(bytes commands, bytes[] inputs) payable returns (uint256 amountOut)'
@@ -337,7 +338,11 @@ export async function precheckReplaySell(params: {
 
   let decimals = 18;
   try {
-    decimals = await getErc20Decimals(tokenIn, params.chainId);
+    decimals = await readEvmTokenDecimalsFast({
+      tokenAddress: tokenIn,
+      chainId: params.chainId,
+      path: 'copytrade_shadow_precheck_decimals',
+    });
   } catch {
     decimals = 18;
   }
@@ -358,7 +363,12 @@ export async function precheckReplaySell(params: {
     };
   }
 
-  const tokenBalance = await getErc20Balance(tokenIn, params.walletAddress, params.chainId);
+  const tokenBalance = await readEvmTokenBalanceFast({
+    tokenAddress: tokenIn,
+    walletAddress: params.walletAddress,
+    chainId: params.chainId,
+    path: 'copytrade_shadow_precheck_balance',
+  });
   if (tokenBalance < requiredAmount) {
     return {
       ok: false,

@@ -1,4 +1,4 @@
-import { getErc20Balance } from '../../rpcManager.js';
+import { readEvmTokenBalanceFast } from '../../rpc/balanceRpcReader.js';
 import {
   createRpcFactFailure,
   createRpcFactSuccess,
@@ -24,10 +24,16 @@ export async function readExitBalanceOracle(params: {
   attempts?: number;
   retryDelayMs?: number;
   balanceReader?: (tokenAddress: string, walletAddress: string, chainId: number) => Promise<bigint>;
+  rpcPath?: string;
 }): Promise<RpcFactResult<bigint>> {
   const attempts = Math.max(1, Number(params.attempts ?? (params.isMirrorSell ? 6 : 2)));
   const retryDelayMs = Math.max(150, Number(params.retryDelayMs ?? (params.isMirrorSell ? 450 : 250)));
-  const balanceReader = params.balanceReader ?? getErc20Balance;
+  const balanceReader = params.balanceReader ?? ((tokenAddress, walletAddress, chainId) => readEvmTokenBalanceFast({
+    tokenAddress,
+    walletAddress,
+    chainId,
+    path: params.rpcPath || 'copytrade_exit_balance',
+  }));
 
   let sawFailure = false;
   let lastError: string | null = null;
@@ -37,7 +43,7 @@ export async function readExitBalanceOracle(params: {
     try {
       const balance = await balanceReader(params.tokenAddress, params.walletAddress, params.chainId);
       if (balance > 0n) {
-        return createRpcFactSuccess(balance, 'EXIT_BALANCE_CONFIRMED_POSITIVE', attempt, 'rpcManager:getErc20Balance');
+        return createRpcFactSuccess(balance, 'EXIT_BALANCE_CONFIRMED_POSITIVE', attempt, 'balanceRpcReader:readEvmTokenBalanceFast');
       }
       successfulZeroReads += 1;
     } catch (error: any) {
@@ -51,12 +57,12 @@ export async function readExitBalanceOracle(params: {
   }
 
   if (!sawFailure && successfulZeroReads === attempts) {
-    return createRpcFactSuccess(0n, 'EXIT_BALANCE_CONFIRMED_ZERO', attempts, 'rpcManager:getErc20Balance');
+    return createRpcFactSuccess(0n, 'EXIT_BALANCE_CONFIRMED_ZERO', attempts, 'balanceRpcReader:readEvmTokenBalanceFast');
   }
 
   if (successfulZeroReads > 0) {
-    return createRpcFactUncertain(0n, 'EXIT_BALANCE_RPC_UNCERTAIN', attempts, lastError, 'rpcManager:getErc20Balance');
+    return createRpcFactUncertain(0n, 'EXIT_BALANCE_RPC_UNCERTAIN', attempts, lastError, 'balanceRpcReader:readEvmTokenBalanceFast');
   }
 
-  return createRpcFactFailure('EXIT_BALANCE_RPC_FAILED', attempts, lastError, 'rpcManager:getErc20Balance');
+  return createRpcFactFailure('EXIT_BALANCE_RPC_FAILED', attempts, lastError, 'balanceRpcReader:readEvmTokenBalanceFast');
 }

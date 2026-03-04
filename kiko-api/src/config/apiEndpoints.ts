@@ -154,44 +154,37 @@ export function getRpcEndpointsWithStrategy(
   const preferPremium = (process.env.RPC_FAST_PREFER_PREMIUM || 'true').toLowerCase() === 'true';
   const onlyPremium = (process.env.RPC_FAST_ONLY_PREMIUM || 'false').toLowerCase() === 'true';
   const override = getFastOverride(chainSlug);
+  const applyFastPremiumPolicy = (list: RpcEndpointConfig[]): RpcEndpointConfig[] => {
+    const ordered = preferPremium ? prioritizePremium(list) : list;
+    if (!onlyPremium) return ordered;
+    const premium = ordered.filter(e => e.type === 'premium');
+    return premium.length > 0 ? premium : ordered;
+  };
+
   if (strategy === 'fast' && override.length > 0) {
     return override;
   }
   // Solana: premium first for fast strategy, public first for cheap.
   if (chainSlug === 'solana') {
-    return getSolanaEndpoints(primaryUrl, strategy);
+    const list = getSolanaEndpoints(primaryUrl, strategy);
+    return strategy === 'fast' ? applyFastPremiumPolicy(list) : list;
   }
   if (chainSlug === 'base') {
     const list = strategy === 'fast'
       ? getBasePreferredEndpoints(primaryUrl)
       : getBaseCheapEndpoints(primaryUrl);
-    const ordered = strategy === 'fast' && preferPremium ? prioritizePremium(list) : list;
-    if (strategy === 'fast' && onlyPremium) {
-      const premium = ordered.filter(e => e.type === 'premium');
-      return premium.length > 0 ? premium : ordered;
-    }
-    return ordered;
+    return strategy === 'fast' ? applyFastPremiumPolicy(list) : list;
   }
   if (chainSlug === 'bsc') {
     const list = strategy === 'fast'
       ? getBscPreferredEndpoints(primaryUrl)
       : getBscCheapEndpoints(primaryUrl);
-    const ordered = strategy === 'fast' && preferPremium ? prioritizePremium(list) : list;
-    if (strategy === 'fast' && onlyPremium) {
-      const premium = ordered.filter(e => e.type === 'premium');
-      return premium.length > 0 ? premium : ordered;
-    }
-    return ordered;
+    return strategy === 'fast' ? applyFastPremiumPolicy(list) : list;
   }
 
   // For other chains, keep existing ordering until we benchmark them.
   const list = getRpcEndpoints(chainSlug, primaryUrl);
-  const ordered = strategy === 'fast' && preferPremium ? prioritizePremium(list) : list;
-  if (strategy === 'fast' && onlyPremium) {
-    const premium = ordered.filter(e => e.type === 'premium');
-    return premium.length > 0 ? premium : ordered;
-  }
-  return ordered;
+  return strategy === 'fast' ? applyFastPremiumPolicy(list) : list;
 }
 
 function getBscPreferredEndpoints(primaryUrl?: string): RpcEndpointConfig[] {

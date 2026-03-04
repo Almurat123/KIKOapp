@@ -5977,6 +5977,15 @@ Chain: ${chainName}${chainId ? ` (${chainId})` : ''}
             logLabel: 'Grok final update',
         });
 
+        await this.persistBillingUsage({
+            assistantMessageId,
+            userId,
+            model: task.model,
+            usage: lastUsage,
+            toolContext: task.toolContext,
+            toolCallsCount: iteration,
+        });
+
         this.broadcastLatencyMetrics(userId, task, {
             latencyMs: Date.now() - taskProcessStartedAt,
             inputTokensEstimated: lastBudgetMetrics?.inputTokensEstimated,

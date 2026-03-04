@@ -88,11 +88,13 @@ export async function buildEvmExitAttributionSnapshot(input: {
   const hasValidPrice = Number.isFinite(input.tokenInfo?.price) && Number(input.tokenInfo.price) > 0;
   const isMirrorSell = input.exitReason === 'mirror_sell';
   const dec = await getErc20Decimals(input.tokenAddress, input.chainId).catch(() => 18);
+  // Execution amount always comes from follower wallet; target wallet is used as a sell-signal verifier.
   const balanceRead = await readExitBalanceOracle({
     tokenAddress: input.tokenAddress,
     walletAddress: input.walletAddress,
     chainId: input.chainId,
     isMirrorSell,
+    rpcPath: 'copytrade_exit_balance_follower',
   });
   emitCopytradeOracleAudit('EXIT_BALANCE_ORACLE', {
     tokenAddress: input.tokenAddress,
@@ -114,6 +116,18 @@ export async function buildEvmExitAttributionSnapshot(input: {
   let latestTargetSellTxHash = ledger.latestTargetSellTxHash;
   let targetFullExitVerified = ledger.targetFullExitVerified;
   let targetFullExitReasonCode: string | null = null;
+
+  if (isMirrorSell && input.targetWallet) {
+    const targetVerification = await verifyTargetFullExit({
+      targetWallet: input.targetWallet,
+      chainId: input.chainId,
+      tokenAddress: input.tokenAddress,
+    }).catch(() => null);
+    if (targetVerification) {
+      targetFullExitVerified = targetFullExitVerified || targetVerification.isFullExit;
+      targetFullExitReasonCode = targetVerification.reasonCode;
+    }
+  }
 
   if (isMirrorSell && input.targetWallet && (!latestTargetSellTxHash || !targetFullExitVerified)) {
     const linkedSell = await resolveTargetSellLink({

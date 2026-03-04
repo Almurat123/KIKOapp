@@ -1,8 +1,13 @@
 import { getWalletTransactions as fetchAlchemyTransactions, WalletBalance, getPortfolio } from './alchemy.js';
 import prisma from '../db/prisma.js';
-import { getNativeBalance, getErc20Balance, getErc20Decimals } from './rpcManager.js';
 import { ethers } from 'ethers';
 import { get as cacheGet, set as cacheSet } from '../cache/cacheClient.js';
+import {
+    readEvmTokenBalanceFast,
+    readEvmTokenDecimalsFast,
+    readNativeBalanceFast,
+    readSolanaTokenBalanceFast,
+} from './rpc/balanceRpcReader.js';
 
 const ALL_BALANCES_CACHE_TTL_MS = 60_000;
 // [Perf]: In-memory mirror of Redis cache for zero-latency repeat reads within same process.
@@ -70,7 +75,12 @@ export const walletService = {
             return filterSpamTokens(balance);
         } catch (err) {
             // Fallback to direct RPC (native balance only)
-            const raw = await getNativeBalance(address, chain);
+            const rawBigInt = await readNativeBalanceFast({
+                walletAddress: address,
+                chainIdOrName: chain,
+                path: 'wallet_service_fallback_native',
+            });
+            const raw = chain === 'solana' ? rawBigInt.toString() : `0x${rawBigInt.toString(16)}`;
             let formatted = 0;
             try {
                 if (chain === 'solana') {
@@ -143,7 +153,12 @@ export const walletService = {
      */
     async getTokenBalance(address: string, chain: string, tokenAddress: string, fallbackDecimals?: number): Promise<{ rawBalance: string; decimals: number; formatted: string }> {
         if (isNativeTokenAddress(tokenAddress, chain)) {
-            const raw = await getNativeBalance(address, chain);
+            const rawBigInt = await readNativeBalanceFast({
+                walletAddress: address,
+                chainIdOrName: chain,
+                path: 'wallet_service_native_balance',
+            });
+            const raw = chain === 'solana' ? rawBigInt.toString() : `0x${rawBigInt.toString(16)}`;
             const decimals = chain === 'solana' ? 9 : 18;
             const formatted = chain === 'solana'
                 ? (Number(raw) / 1e9).toString()
@@ -152,8 +167,17 @@ export const walletService = {
         }
 
         if (chain !== 'solana') {
-            const rawBigInt = await getErc20Balance(tokenAddress, address, chain);
-            const decimals = await getErc20Decimals(tokenAddress, chain).catch(() => fallbackDecimals ?? 18);
+            const rawBigInt = await readEvmTokenBalanceFast({
+                tokenAddress,
+                walletAddress: address,
+                chainId: chain,
+                path: 'wallet_service_token_balance',
+            });
+            const decimals = await readEvmTokenDecimalsFast({
+                tokenAddress,
+                chainId: chain,
+                path: 'wallet_service_token_decimals',
+            }).catch(() => fallbackDecimals ?? 18);
             const formatted = ethers.formatUnits(rawBigInt, decimals);
             return {
                 rawBalance: `0x${rawBigInt.toString(16)}`,
@@ -162,19 +186,32 @@ export const walletService = {
             };
         }
 
-        // Solana SPL fallback via portfolio lookup.
-        const portfolio = await getPortfolio(address, ['solana'], address);
-        const sol = portfolio.solana || { tokens: [] as any[] };
-        const token = (sol.tokens || []).find((t: any) => String(t.contractAddress || '').toLowerCase() === tokenAddress.toLowerCase());
-        const decimals = typeof token?.decimals === 'number' ? token.decimals : (fallbackDecimals ?? 9);
-        const formatted = String(token?.tokenBalance || '0');
-        let rawBalance = '0';
         try {
-            rawBalance = `0x${ethers.parseUnits(formatted, decimals).toString(16)}`;
+            const { balanceRaw, decimals } = await readSolanaTokenBalanceFast({
+                walletAddress: address,
+                tokenAddress,
+                path: 'wallet_service_solana_token_balance',
+            });
+            return {
+                rawBalance: `0x${balanceRaw.toString(16)}`,
+                decimals,
+                formatted: ethers.formatUnits(balanceRaw, decimals),
+            };
         } catch {
-            rawBalance = '0';
+            // Solana SPL fallback via portfolio lookup.
+            const portfolio = await getPortfolio(address, ['solana'], address);
+            const sol = portfolio.solana || { tokens: [] as any[] };
+            const token = (sol.tokens || []).find((t: any) => String(t.contractAddress || '').toLowerCase() === tokenAddress.toLowerCase());
+            const decimals = typeof token?.decimals === 'number' ? token.decimals : (fallbackDecimals ?? 9);
+            const formatted = String(token?.tokenBalance || '0');
+            let rawBalance = '0';
+            try {
+                rawBalance = `0x${ethers.parseUnits(formatted, decimals).toString(16)}`;
+            } catch {
+                rawBalance = '0';
+            }
+            return { rawBalance, decimals, formatted };
         }
-        return { rawBalance, decimals, formatted };
     },
 
     /**

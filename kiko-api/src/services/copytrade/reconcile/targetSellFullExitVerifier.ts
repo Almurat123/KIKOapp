@@ -1,8 +1,10 @@
-import { PublicKey } from '@solana/web3.js';
 import { ethers } from 'ethers';
-import { getSolanaConnection } from '../../../config/solanaConfig.js';
 import { normalizeAddress } from '../../../utils/address.js';
-import { getErc20Balance, getErc20Decimals } from '../../rpcManager.js';
+import {
+  readEvmTokenBalanceFast,
+  readEvmTokenDecimalsFast,
+  readSolanaTokenBalanceFast,
+} from '../../rpc/balanceRpcReader.js';
 
 export type TargetFullExitReasonCode =
   | 'TARGET_FULL_EXIT_CONFIRMED'
@@ -41,18 +43,11 @@ export async function verifyTargetFullExit(params: {
 
   try {
     if (params.chainId === 900) {
-      const connection = getSolanaConnection('fast', 'critical');
-      const accounts = await connection.getParsedTokenAccountsByOwner(
-        new PublicKey(params.targetWallet),
-        { mint: new PublicKey(params.tokenAddress) }
-      );
-      let remaining = 0n;
-      let decimals = 6;
-      for (const account of accounts.value) {
-        const tokenAmount = account.account.data.parsed.info.tokenAmount;
-        remaining += BigInt(String(tokenAmount.amount || '0'));
-        decimals = Number(tokenAmount.decimals ?? decimals);
-      }
+      const { balanceRaw: remaining, decimals } = await readSolanaTokenBalanceFast({
+        walletAddress: params.targetWallet,
+        tokenAddress: params.tokenAddress,
+        path: 'copytrade_target_full_exit_verify',
+      });
       const dustThresholdRaw = computeDustThresholdRaw(decimals);
       return {
         isFullExit: remaining <= dustThresholdRaw,
@@ -66,8 +61,17 @@ export async function verifyTargetFullExit(params: {
     const normalizedTargetWallet = normalizeAddress(params.targetWallet);
     const normalizedToken = normalizeAddress(params.tokenAddress);
     const [remaining, decimalsRaw] = await Promise.all([
-      getErc20Balance(normalizedToken, normalizedTargetWallet, params.chainId),
-      getErc20Decimals(normalizedToken, params.chainId).catch(() => 18),
+      readEvmTokenBalanceFast({
+        tokenAddress: normalizedToken,
+        walletAddress: normalizedTargetWallet,
+        chainId: params.chainId,
+        path: 'copytrade_target_full_exit_verify',
+      }),
+      readEvmTokenDecimalsFast({
+        tokenAddress: normalizedToken,
+        chainId: params.chainId,
+        path: 'copytrade_target_decimals_verify',
+      }).catch(() => 18),
     ]);
     const decimals = Number(decimalsRaw);
     const dustThresholdRaw = computeDustThresholdRaw(decimals);
