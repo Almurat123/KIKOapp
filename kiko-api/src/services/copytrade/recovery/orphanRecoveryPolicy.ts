@@ -1,6 +1,6 @@
 import type { ExitAttributionSnapshot } from '../exit/exitSnapshotTypes.js';
 
-export type OrphanRecoveryAction = 'noop' | 'force_exit' | 'close_as_empty' | 'quarantine';
+export type OrphanRecoveryAction = 'noop' | 'force_exit' | 'quarantine';
 
 export interface OrphanRecoveryDecision {
   action: OrphanRecoveryAction;
@@ -16,8 +16,10 @@ export function evaluateOrphanRecovery(snapshot: ExitAttributionSnapshot): Orpha
   }
 
   const openPositions = snapshot.positions.filter((position) => String(position.status || '').toLowerCase() === 'open');
+  // Mirror-sell must never auto-close DB position on a single zero-balance read.
+  // Keep position open and let retry/next sell signal handle eventual consistency.
   if (snapshot.balanceRaw <= 0n) {
-    return { action: 'close_as_empty', reasonCode: 'orphan_recovery_target_exit_balance_empty' };
+    return { action: 'noop', reasonCode: 'orphan_recovery_target_exit_balance_empty_keep_open' };
   }
   if (!snapshot.latestTargetSellTxHash) {
     return { action: 'quarantine', reasonCode: 'orphan_recovery_missing_target_sell_link' };

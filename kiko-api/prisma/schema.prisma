@@ -481,6 +481,31 @@ model CopytradePositionLedger {
   @@map("copytrade_position_ledger")
 }
 
+model DirectSwapFeeExecution {
+  id          String   @id @default(cuid())
+  feeKey      String   @unique @map("fee_key")
+  userId      String   @map("user_id")
+  chainId     Int      @map("chain_id")
+  sourceTxHash String  @map("source_tx_hash")
+  mode        String
+  feeToken    String   @map("fee_token")
+  feeRecipient String  @map("fee_recipient")
+  feeBps      Int      @map("fee_bps")
+  feeAmount   String?  @map("fee_amount")
+  feeTxHash   String?  @map("fee_tx_hash")
+  status      String   @default("sending")
+  attemptCount Int     @default(1) @map("attempt_count")
+  lastError   String?  @map("last_error")
+  sentAt      DateTime? @map("sent_at")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@index([userId, chainId, createdAt(sort: Desc)], map: "idx_direct_swap_fee_exec_user_chain_created")
+  @@index([sourceTxHash], map: "idx_direct_swap_fee_exec_source_tx_hash")
+  @@index([status, updatedAt(sort: Desc)], map: "idx_direct_swap_fee_exec_status_updated")
+  @@map("direct_swap_fee_execution")
+}
+
 model ChatSession {
   id                       String        @id @default(cuid())
   userId                   String

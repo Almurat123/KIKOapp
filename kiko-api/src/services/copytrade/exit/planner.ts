@@ -117,25 +117,6 @@ export function buildEvmExitPlanFromSnapshot(input: {
     };
   }
 
-  if (orphanRecovery.action === 'close_as_empty') {
-    return {
-      kind: 'noop',
-      action: 'close_position',
-      closeReason: 'balance_empty',
-      balance,
-      decimals,
-      balanceUsd,
-      isMirrorSell,
-      attributedReasonCode: 'TARGET_EXIT_QUARANTINED',
-      attributionMetrics: {
-        ...attribution.metrics,
-        orphanRecoveryReasonCode: orphanRecovery.reasonCode,
-        targetFullExitReasonCode: snapshot.targetFullExitReasonCode || null,
-      },
-      positions: snapshot.positions,
-    };
-  }
-
   if (orphanRecovery.action === 'force_exit') {
     return buildForcedExitSwapPlan({
       userId,
