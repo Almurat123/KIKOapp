@@ -29,6 +29,7 @@ export async function resolveCopytradeLedger(params: {
       return {
         ...projected,
         latestTargetSellTxHash: physical.latestTargetSellTxHash || projected.latestTargetSellTxHash,
+        targetFullExitVerified: physical.targetFullExitVerified ?? projected.targetFullExitVerified,
         metrics: {
           ...projected.metrics,
           effectiveOwnedAmountRaw: physical.metrics.effectiveOwnedAmountRaw || projected.metrics.effectiveOwnedAmountRaw,

@@ -21,6 +21,8 @@ export function buildEvmExitAttributionSnapshotFromResolvedInputs(input: {
   onChainBalanceRaw: bigint;
   positions: ExitSnapshotPosition[];
   pendingLots?: PendingAttributedExitContext['pendingLots'];
+  latestTargetSellTxHash?: string | null;
+  targetFullExitVerified?: boolean;
 }): ExitAttributionSnapshot {
   const hasValidPrice = Number.isFinite(input.tokenInfo?.price) && Number(input.tokenInfo.price) > 0;
   const isMirrorSell = input.exitReason === 'mirror_sell';
@@ -52,6 +54,8 @@ export function buildEvmExitAttributionSnapshotFromResolvedInputs(input: {
     treatAsEmptyOrDust,
     positions: input.positions,
     pendingLots,
+    latestTargetSellTxHash: input.latestTargetSellTxHash,
+    targetFullExitVerified: input.targetFullExitVerified,
     attribution: {
       eligiblePositions: attribution.eligiblePositions,
       pendingAttributedLotIds: 'pendingAttributedLotIds' in attribution ? attribution.pendingAttributedLotIds : undefined,
@@ -104,5 +108,7 @@ export async function buildEvmExitAttributionSnapshot(input: {
     onChainBalanceRaw: balance,
     positions: ledger.positions,
     pendingLots: ledger.pendingLots,
+    latestTargetSellTxHash: ledger.latestTargetSellTxHash,
+    targetFullExitVerified: ledger.targetFullExitVerified,
   });
 }

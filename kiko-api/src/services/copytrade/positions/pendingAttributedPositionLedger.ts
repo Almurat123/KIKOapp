@@ -17,6 +17,7 @@ export interface PendingAttributedPositionLotLike {
   reasonCode?: string | null;
   targetSellTxHash?: string | null;
   exitTxHash?: string | null;
+  createdAt?: Date | null;
 }
 
 function normalizeOptionalAmount(value?: string | null): string | null {

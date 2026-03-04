@@ -2,6 +2,7 @@ import prisma from '../../../db/prisma.js';
 import { armPendingAttributedPositionsForMirrorSell } from './pendingAttributedPositionLedger.js';
 import { resolveCopytradeLedger } from '../ledger/copytradeLedgerService.js';
 import * as targetSellFullExitVerifier from '../reconcile/targetSellFullExitVerifier.js';
+import { evaluateDeferredMirrorSellIntent } from '../reconcile/mirrorSellReconcilePolicy.js';
 
 export async function resolvePendingMirrorSellIntent(params: {
   positionId?: string | null;
@@ -17,6 +18,7 @@ export async function resolvePendingMirrorSellIntent(params: {
     | 'PENDING_TARGET_SELL_ARMED'
     | 'TARGET_SELL_SEEN_IN_LEDGER'
     | 'TARGET_SELL_SEEN_IN_HISTORY'
+    | 'TARGET_SELL_SEEN_IN_HISTORY_UNVERIFIED'
     | 'TARGET_SELL_PARTIAL_BALANCE_REMAINING'
     | 'TARGET_SELL_BALANCE_UNVERIFIED'
     | 'NO_PENDING_MIRROR_SELL_INTENT';
@@ -33,11 +35,10 @@ export async function resolvePendingMirrorSellIntent(params: {
     ? ledger.pendingLots.find((entry) => entry.positionId === params.positionId) || null
     : null;
   if (lot?.status === 'sell_armed' && lot.targetSellTxHash) {
-    return {
-      shouldMirrorSell: true,
-      targetSellTxHash: lot.targetSellTxHash,
-      reasonCode: 'TARGET_SELL_SEEN_IN_LEDGER',
-    };
+    return evaluateDeferredMirrorSellIntent({
+      latestTargetSellTxHash: lot.targetSellTxHash,
+      armedLotAlreadyPresent: true,
+    });
   }
 
   const normalizedWallet = String(params.targetWallet || '').trim().toLowerCase();
@@ -60,15 +61,6 @@ export async function resolvePendingMirrorSellIntent(params: {
     chainId: params.chainId,
     tokenAddress: params.tokenAddress,
   });
-  if (!fullExit.isFullExit) {
-    return {
-      shouldMirrorSell: false,
-      reasonCode: fullExit.reasonCode === 'TARGET_BALANCE_REMAINING'
-        ? 'TARGET_SELL_PARTIAL_BALANCE_REMAINING'
-        : 'TARGET_SELL_BALANCE_UNVERIFIED',
-    };
-  }
-
   await armPendingAttributedPositionsForMirrorSell({
     userId: ledger.userId || lot?.userId || '',
     chainId: params.chainId,
@@ -78,11 +70,24 @@ export async function resolvePendingMirrorSellIntent(params: {
     reasonCode: 'target_sell_seen_in_history',
   }).catch(() => 0);
 
-  return {
-    shouldMirrorSell: true,
-    targetSellTxHash: ledger.latestTargetSellTxHash,
-    reasonCode: 'TARGET_SELL_SEEN_IN_HISTORY',
-  };
+  if (!fullExit.isFullExit && fullExit.reasonCode === 'TARGET_BALANCE_UNAVAILABLE') {
+    return {
+      shouldMirrorSell: false,
+      reasonCode: 'TARGET_SELL_BALANCE_UNVERIFIED',
+    };
+  }
+
+  if (!fullExit.isFullExit && fullExit.reasonCode === 'TARGET_BALANCE_REMAINING') {
+    return evaluateDeferredMirrorSellIntent({
+      latestTargetSellTxHash: ledger.latestTargetSellTxHash,
+      strictFullExit: fullExit,
+    });
+  }
+
+  return evaluateDeferredMirrorSellIntent({
+    latestTargetSellTxHash: ledger.latestTargetSellTxHash,
+    strictFullExit: fullExit,
+  });
 }
 
 export async function resolveBuyConfirmationPromotionAction(params: {

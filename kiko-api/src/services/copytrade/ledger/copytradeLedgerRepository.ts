@@ -37,6 +37,7 @@ function toLegacySnapshot(record: NonNullable<LedgerRecord>): CopytradeLedgerSna
     pendingLots: [] as CopytradeLedgerSnapshot['pendingLots'],
     latestTargetSellTxHash: record.targetSellTxHash,
     latestTargetSellAt: null,
+    targetFullExitVerified: record.targetFullExitVerified,
     lifecyclePhase,
   };
   return {

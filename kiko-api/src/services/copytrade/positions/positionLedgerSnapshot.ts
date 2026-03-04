@@ -24,6 +24,7 @@ export interface PositionLedgerSnapshot {
   pendingLots: PendingAttributedPositionLotLike[];
   latestTargetSellTxHash?: string | null;
   latestTargetSellAt?: Date | null;
+  targetFullExitVerified?: boolean;
   lifecyclePhase: PositionLedgerLifecyclePhase;
 }
 

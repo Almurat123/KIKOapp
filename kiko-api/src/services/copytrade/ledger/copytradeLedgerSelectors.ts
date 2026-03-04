@@ -95,7 +95,10 @@ export async function findLedgerFirstReconcileOpenCandidates(params: {
   const rows = await prisma.copytradePositionLedger.findMany({
     where: {
       lifecycleState: { in: ['FOLLOWER_OPEN', 'FOLLOWER_EXIT_FAILED_RETRYABLE'] },
-      createdAt: { gte: params.createdAfter },
+      OR: [
+        { createdAt: { gte: params.createdAfter } },
+        { updatedAt: { gte: params.createdAfter } },
+      ],
       closedAt: null,
       positionIdLegacy: { not: null },
     },
@@ -127,7 +130,10 @@ export async function findLedgerFirstReconcilePendingCandidates(params: {
   const rows = await prisma.copytradePositionLedger.findMany({
     where: {
       lifecycleState: { in: ['FOLLOWER_BUY_AWAITING_CONFIRMATION', 'FOLLOWER_EXIT_ARMED'] },
-      createdAt: { gte: params.createdAfter },
+      OR: [
+        { createdAt: { gte: params.createdAfter } },
+        { updatedAt: { gte: params.createdAfter } },
+      ],
       pendingLotIdLegacy: { not: null },
       closedAt: null,
     },

@@ -80,6 +80,7 @@ export function projectCopytradeLedgerSnapshot(snapshot: PositionLedgerSnapshot)
     pendingLots: snapshot.pendingLots,
     latestTargetSellTxHash: snapshot.latestTargetSellTxHash,
     latestTargetSellAt: snapshot.latestTargetSellAt,
+    targetFullExitVerified: snapshot.targetFullExitVerified,
     lifecyclePhase: snapshot.lifecyclePhase,
     metrics: {
       openPositionCount,

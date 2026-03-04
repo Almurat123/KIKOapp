@@ -1,11 +1,11 @@
 import prisma from '../../../db/prisma.js';
 import { LogCode } from '../../../config/logRegistry.js';
 import { logger } from '../../../utils/logger.js';
-import { normalizeAddress } from '../../../utils/address.js';
 import { verifyTargetFullExit, formatTargetRemainingBalance } from './targetSellFullExitVerifier.js';
 import { armPendingAttributedPositionsForMirrorSell } from '../positions/pendingAttributedPositionLedger.js';
 import { emitCopytradeDomainAudit } from '../audit/copytradeDomainAudit.js';
 import { applyCopytradeStateEvent } from '../state/copytradeStateRuntime.js';
+import { resolveTargetSellLink } from './copytradeTargetSellLinkResolver.js';
 import {
   findLedgerFirstReconcileOpenCandidates,
   findLedgerFirstReconcilePendingCandidates,
@@ -32,25 +32,22 @@ export async function runTargetSellReconciliationCycle(): Promise<{
 
   for (const position of openCandidates) {
     scannedOpen += 1;
-    const latestSell = await prisma.walletTransaction.findFirst({
-      where: {
-        walletAddress: { equals: normalizeAddress(String(position.config.targetWallet || '')), mode: 'insensitive' },
-        chainId: position.chainId,
-        txType: 'TARGET_SELL',
-        tokenAddress: { equals: normalizeAddress(position.tokenAddress), mode: 'insensitive' },
-        blockTimestamp: { gte: position.createdAt },
-      },
-      orderBy: [{ blockTimestamp: 'desc' }, { createdAt: 'desc' }],
-      select: { txHash: true, blockTimestamp: true },
-    });
-    if (!latestSell?.txHash) continue;
-
     const fullExit = await verifyTargetFullExit({
       targetWallet: position.config.targetWallet,
       chainId: position.chainId,
       tokenAddress: position.tokenAddress,
     });
     if (!fullExit.isFullExit) continue;
+    const latestSell = await resolveTargetSellLink({
+      targetWallet: position.config.targetWallet,
+      chainId: position.chainId,
+      tokenAddress: position.tokenAddress,
+      leaderBuyTxHash: position.leaderTxHash,
+      positionCreatedAt: position.createdAt,
+      allowUnanchoredVerifiedFallback: true,
+      targetFullExitVerified: true,
+    });
+    if (!latestSell.txHash) continue;
     fullExitMatches += 1;
     emitCopytradeDomainAudit('TARGET_FULL_EXIT_VERIFIED', {
       extra: {
@@ -112,25 +109,23 @@ export async function runTargetSellReconciliationCycle(): Promise<{
 
   for (const lot of pendingCandidates) {
     scannedPending += 1;
-    const latestSell = await prisma.walletTransaction.findFirst({
-      where: {
-        walletAddress: { equals: normalizeAddress(String(lot.position.config.targetWallet || '')), mode: 'insensitive' },
-        chainId: lot.chainId,
-        txType: 'TARGET_SELL',
-        tokenAddress: { equals: normalizeAddress(lot.tokenAddress), mode: 'insensitive' },
-        blockTimestamp: { gte: lot.position.createdAt },
-      },
-      orderBy: [{ blockTimestamp: 'desc' }, { createdAt: 'desc' }],
-      select: { txHash: true },
-    });
-    if (!latestSell?.txHash) continue;
-
     const fullExit = await verifyTargetFullExit({
       targetWallet: lot.position.config.targetWallet,
       chainId: lot.chainId,
       tokenAddress: lot.tokenAddress,
     });
     if (!fullExit.isFullExit) continue;
+    const latestSell = await resolveTargetSellLink({
+      targetWallet: lot.position.config.targetWallet,
+      chainId: lot.chainId,
+      tokenAddress: lot.tokenAddress,
+      leaderBuyTxHash: lot.position.leaderTxHash,
+      positionCreatedAt: lot.position.createdAt,
+      pendingCreatedAt: lot.createdAt,
+      allowUnanchoredVerifiedFallback: true,
+      targetFullExitVerified: true,
+    });
+    if (!latestSell.txHash) continue;
     fullExitMatches += 1;
     emitCopytradeDomainAudit('TARGET_FULL_EXIT_VERIFIED', {
       extra: {

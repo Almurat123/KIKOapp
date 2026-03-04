@@ -17,6 +17,7 @@ export interface CopytradeLedgerSnapshot {
   pendingLots: PendingAttributedPositionLotLike[];
   latestTargetSellTxHash?: string | null;
   latestTargetSellAt?: Date | null;
+  targetFullExitVerified?: boolean;
   lifecyclePhase: PositionLedgerLifecyclePhase;
   metrics: {
     openPositionCount: number;

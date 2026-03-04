@@ -100,6 +100,7 @@ import {
 } from './copytrade/positions/buySellRaceCoordinator.js';
 import { verifyTargetFullExit } from './copytrade/reconcile/targetSellFullExitVerifier.js';
 import { runTargetSellReconciliationCycle } from './copytrade/reconcile/targetSellReconciliationJob.js';
+import { evaluateMirrorSellGate } from './copytrade/exit/mirrorSellGate.js';
 import { collectDirectSwapFeeFromSettlement } from './swap/fee/directSwapFeeCollector.js';
 import { getCopytradeBuySharedWarmup } from './copytrade/buy/buySharedWarmup.js';
 import {
@@ -119,6 +120,7 @@ import {
     loadLedgerFirstMonitorPositions,
     loadLedgerFirstRetryPositions,
 } from './copytrade/jobs/copytradeLifecycleJobs.js';
+import { resolveRetryTerminalization } from './copytrade/retry/retryTerminalizationPolicy.js';
 
 export { getTokenInfo } from './tokenService.js';
 
@@ -3323,6 +3325,7 @@ async function executePositionExit(params: {
     userSettings?: any;
     positions?: Array<any>;
     pendingAttributedLots?: Array<any>;
+    isRetryAttempt?: boolean;
 }): Promise<string | null> {
     const { userId, tokenAddress, chainId, exitReason, config } = params;
     const tokenInfo = params.tokenInfo ?? { price: 0, symbol: 'UNKNOWN' };
@@ -3662,6 +3665,32 @@ async function executePositionExit(params: {
                         reasonCode: exitPlan.attributedReasonCode || 'UNKNOWN',
                         attributionMetrics: exitPlan.attributionMetrics || null
                     });
+                    const retryDecision = resolveRetryTerminalization({
+                        isRetryAttempt: Boolean(params.isRetryAttempt),
+                        attributedReasonCode: exitPlan.attributedReasonCode,
+                        existingRetryCount: Math.max(...exitPlan.positions.map((position: any) => Number(position.exitRetryCount || 0)), 0),
+                    });
+                    if (retryDecision) {
+                        const terminalizedAt = new Date();
+                        await prisma.position.updateMany({
+                            where: { id: { in: exitPlan.positions.map((position: any) => position.id) } },
+                            data: {
+                                exitRetryCount: retryDecision.shouldTerminalize ? 0 : retryDecision.nextRetryCount,
+                                lastExitAttempt: terminalizedAt,
+                            }
+                        });
+                        await applyCopytradeStateEvent({
+                            event: { type: 'EXIT_TX_CONFIRMED_FAILED', retryable: !retryDecision.shouldTerminalize },
+                            chainId,
+                            tokenAddress,
+                            targetWallet: config.targetWallet,
+                            positionIds: exitPlan.positions.map((position: any) => position.id),
+                            targetFullExitVerified: ledger?.targetFullExitVerified,
+                            targetSellTxHash: ledger?.latestTargetSellTxHash || undefined,
+                            lastExecutionState: retryDecision.shouldTerminalize ? 'terminal_failure' : 'retryable_failure',
+                            lastExecutionReasonCode: retryDecision.reasonCode,
+                        });
+                    }
                     return null;
                 }
 
@@ -4008,24 +4037,6 @@ async function handleTargetSell(
     });
     if (executableConfigs.length === 0) return;
 
-    const strictFullExit = await verifyTargetFullExit({
-        targetWallet,
-        chainId,
-        tokenAddress: tokenToSell,
-    });
-    if (!strictFullExit.isFullExit) {
-        logger.warn(LogCode.WTC_TX_SKIPPED, 'Mirror sell skipped: target sell is not a strict full-balance exit', {
-            targetWallet: normalizedWallet,
-            chainId,
-            token: tokenToSell,
-            targetSellTxHash: swap.txHash,
-            reasonCode: strictFullExit.reasonCode,
-            remainingBalanceRaw: strictFullExit.remainingBalanceRaw,
-            dustThresholdRaw: strictFullExit.dustThresholdRaw,
-        });
-        return;
-    }
-
     const uniqueExecutableConfigs = dedupeConfigsByUser(executableConfigs);
     if (uniqueExecutableConfigs.length !== executableConfigs.length) {
         logger.warn(LogCode.WTC_TX_SKIPPED, 'Mirror sell deduped duplicate configs for same user', {
@@ -4076,6 +4087,29 @@ async function handleTargetSell(
             );
             return;
         }
+        const mirrorSellGate = evaluateMirrorSellGate(reconciledPositions.matchedPositions);
+        if (!mirrorSellGate.allowed) {
+            logger.info(
+                LogCode.WTC_TX_SKIPPED,
+                'Mirror sell skipped: no attributed follower exposure available for immediate sell',
+                {
+                    userId: config.userId,
+                    token: tokenToSell,
+                    chainId,
+                    reasonCode: mirrorSellGate.reasonCode,
+                    ...mirrorSellGate.metrics,
+                }
+            );
+            return;
+        }
+        logger.info(LogCode.SYS_INFO, 'Mirror sell immediate gate passed', {
+            userId: config.userId,
+            token: tokenToSell,
+            chainId,
+            reasonCode: mirrorSellGate.reasonCode,
+            ...mirrorSellGate.metrics,
+            targetSellTxHash: swap.txHash || undefined,
+        });
         const matchedPositions = reconciledPositions.matchedPositions;
         const pendingMatchedPositionIds = matchedPositions
             .filter((position) => String(position.status || '') !== 'open')
@@ -4278,7 +4312,8 @@ export async function checkPositionsForExits(): Promise<void> {
                     exitReason: (position.exitReason as any) || 'mirror_sell', // Use original reason or default
                     tokenInfo,
                     config: { ...config, user: position.user },
-                    positions: [position]
+                    positions: [position],
+                    isRetryAttempt: true
                 });
             } catch (err: any) {
                 logger.error(LogCode.SYS_ERROR, 'Error during position exit retry', {

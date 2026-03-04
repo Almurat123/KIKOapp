@@ -22,6 +22,8 @@ export interface ExitAttributionSnapshot {
   treatAsEmptyOrDust: boolean;
   positions: ExitSnapshotPosition[];
   pendingLots: PendingAttributedPositionLotLike[];
+  latestTargetSellTxHash?: string | null;
+  targetFullExitVerified?: boolean;
   attribution: {
     eligiblePositions: ExitSnapshotPosition[];
     pendingAttributedLotIds?: string[];

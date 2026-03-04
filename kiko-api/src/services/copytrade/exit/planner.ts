@@ -6,6 +6,7 @@ import type { AttributedPositionLike } from '../positions/positionAttribution.js
 import { buildEvmExitAttributionSnapshot } from './exitAttributionSnapshotBuilder.js';
 import type { ExitAttributionSnapshot } from './exitSnapshotTypes.js';
 import type { PendingAttributedExitContext } from './types.js';
+import { evaluateVerifiedMirrorExitFallback } from './verifiedMirrorExitFallbackPolicy.js';
 
 export async function buildEvmExitPlan(input: {
   userId: string;
@@ -59,6 +60,7 @@ export function buildEvmExitPlanFromSnapshot(input: {
   const balanceUsd = snapshot.balanceUsd;
   const isMirrorSell = snapshot.isMirrorSell;
   const attribution = snapshot.attribution;
+  const verifiedFallback = evaluateVerifiedMirrorExitFallback(snapshot);
 
   if (snapshot.treatAsEmptyOrDust) {
     if (isMirrorSell && balance <= 0n) {
@@ -88,7 +90,17 @@ export function buildEvmExitPlanFromSnapshot(input: {
     };
   }
 
-  if (attribution.sellAmountRaw <= 0n) {
+  const effectiveSellAmountRaw = verifiedFallback.shouldFallback
+    ? verifiedFallback.sellAmountRaw
+    : attribution.sellAmountRaw;
+  const effectivePositions = verifiedFallback.shouldFallback
+    ? verifiedFallback.positions
+    : attribution.eligiblePositions;
+  const effectiveReasonCode = verifiedFallback.shouldFallback
+    ? verifiedFallback.reasonCode
+    : attribution.reasonCode;
+
+  if (effectiveSellAmountRaw <= 0n) {
     return {
       kind: 'noop',
       action: 'keep_open',
@@ -96,9 +108,9 @@ export function buildEvmExitPlanFromSnapshot(input: {
       decimals,
       balanceUsd,
       isMirrorSell,
-      attributedReasonCode: attribution.reasonCode,
+      attributedReasonCode: effectiveReasonCode,
       attributionMetrics: attribution.metrics,
-      positions: attribution.eligiblePositions
+      positions: effectivePositions
     };
   }
 
@@ -116,7 +128,7 @@ export function buildEvmExitPlanFromSnapshot(input: {
     };
   }
 
-  const amountInHuman = ethers.formatUnits(attribution.sellAmountRaw, decimals);
+  const amountInHuman = ethers.formatUnits(effectiveSellAmountRaw, decimals);
   if (!amountInHuman || Number(amountInHuman) <= 0) {
     return {
       kind: 'noop',
@@ -125,14 +137,14 @@ export function buildEvmExitPlanFromSnapshot(input: {
       decimals,
       balanceUsd,
       isMirrorSell,
-      attributedReasonCode: attribution.reasonCode,
+      attributedReasonCode: effectiveReasonCode,
       attributionMetrics: attribution.metrics,
-      positions: attribution.eligiblePositions
+      positions: effectivePositions
     };
   }
 
-  const safeBalance999Raw = (attribution.sellAmountRaw * 999n) / 1000n;
-  const retryBalance = safeBalance999Raw > 0n ? safeBalance999Raw : attribution.sellAmountRaw;
+  const safeBalance999Raw = (effectiveSellAmountRaw * 999n) / 1000n;
+  const retryBalance = safeBalance999Raw > 0n ? safeBalance999Raw : effectiveSellAmountRaw;
   const retryAmountInHuman = ethers.formatUnits(retryBalance, decimals);
   return {
     kind: 'swap',
@@ -145,16 +157,16 @@ export function buildEvmExitPlanFromSnapshot(input: {
     balance,
     decimals,
     balanceUsd,
-    attributedBalance: attribution.sellAmountRaw,
+    attributedBalance: effectiveSellAmountRaw,
     amountInHuman,
     retryAmountInHuman,
     initialSlippageBps: input.universalSlippageBps,
     retrySlippageBps: Math.min(Math.floor(input.universalSlippageBps * 1.5), 2500),
     executionMode: input.executionMode,
     sellRoutePolicy: 'external_primary',
-    positions: attribution.eligiblePositions,
+    positions: effectivePositions,
     pendingAttributedLotIds: attribution.pendingAttributedLotIds,
-    attributedReasonCode: attribution.reasonCode,
+    attributedReasonCode: effectiveReasonCode,
     attributionMetrics: attribution.metrics,
     hasExternalBalance: attribution.hasExternalBalance,
     runtimeContext: createExitOrderRuntimeContext({

@@ -1,6 +1,7 @@
 import prisma from '../../../db/prisma.js';
 import type { PendingAttributedPositionLotLike } from './pendingAttributedPositionLedger.js';
 import { listPendingAttributedPositions } from './pendingAttributedPositionLedger.js';
+import { resolveTargetSellLink } from '../reconcile/copytradeTargetSellLinkResolver.js';
 import {
   derivePositionLedgerLifecyclePhase,
   type PositionLedgerPosition,
@@ -81,20 +82,16 @@ export async function resolvePositionLedgerSnapshot(params: {
   let latestTargetSellAt: Date | null = null;
   const normalizedWallet = String(params.targetWallet || '').trim().toLowerCase();
   if (normalizedWallet) {
-    const latestSell = await prisma.walletTransaction.findFirst({
-      where: {
-        walletAddress: { equals: normalizedWallet, mode: 'insensitive' },
-        chainId: params.chainId,
-        txType: 'TARGET_SELL',
-        tokenAddress: { equals: tokenAddress, mode: 'insensitive' },
-        ...(params.positionCreatedAt ? { blockTimestamp: { gte: params.positionCreatedAt } } : {}),
-        ...(params.leaderBuyTxHash ? { txHash: { not: params.leaderBuyTxHash } } : {}),
-      },
-      orderBy: [{ blockTimestamp: 'desc' }, { createdAt: 'desc' }],
-      select: { txHash: true, blockTimestamp: true },
+    const linkedSell = await resolveTargetSellLink({
+      targetWallet: normalizedWallet,
+      chainId: params.chainId,
+      tokenAddress,
+      leaderBuyTxHash: params.leaderBuyTxHash || positions.find((position) => position.leaderTxHash)?.leaderTxHash || null,
+      positionCreatedAt: params.positionCreatedAt || positions[0]?.createdAt || null,
+      pendingCreatedAt: pendingLots[0]?.createdAt || null,
     });
-    latestTargetSellTxHash = latestSell?.txHash || null;
-    latestTargetSellAt = latestSell?.blockTimestamp || null;
+    latestTargetSellTxHash = linkedSell.txHash || null;
+    latestTargetSellAt = linkedSell.blockTimestamp || null;
   }
 
   return {
