@@ -8,7 +8,7 @@ import prisma, { withRetry } from '../db/prisma.js';
 import { DecodedSwap } from './txDecoder.js';
 import { onSwapDetected } from './watcherService.js';
 import { enqueueCopyTradeTask } from './copyTradeQueue.js';
-import { MainSwapService, type DirectSwapHint, type MainSwapRequest, type MainSwapResult } from './MainSwapService.js';
+import type { DirectSwapHint, MainSwapRequest, MainSwapResult } from './MainSwapService.js';
 import { detectLaunchpadToken } from './ai/launchpadDetector.js';
 import { zoraSniperService } from './zoraSniperService.js';
 import { fourMemeService } from './fourMemeService.js';
@@ -86,6 +86,7 @@ import { shouldAbortCopytradeBuyRetry } from './copytrade/buy/copytradeBuyRetryG
 import { evaluateBuyPriceDeviationGuard } from './copytrade/buy/buyGuardPriceDeviation.js';
 import { reconcileOpenPositionsForExit } from './copytrade/exit/openPositionReconciliation.js';
 import { resolveAttributedPositionExitAmount } from './copytrade/positions/positionAttribution.js';
+import { finalizeCopytradeBuyPosition } from './copytrade/positions/positionPersistence.js';
 import {
     armPendingAttributedPositionsForMirrorSell,
     cancelPendingAttributedPosition,
@@ -106,6 +107,7 @@ import {
     type CopyTradeTimingSnapshot
 } from './copytrade/timing/copyTradeTimingModel.js';
 import { emitCopyTradeTimingAudit } from './copytrade/timing/copyTradeTimingAudit.js';
+import { executeSwapViaPort } from './swap/swapExecutionPort.js';
 
 export { getTokenInfo } from './tokenService.js';
 
@@ -2214,7 +2216,7 @@ async function processSingleUserBuy(
                 attemptSlippageBps: number,
                 modeForAttempt: CopyTradeExecutionMode
             ): Promise<MainSwapResult> => {
-                const result = await MainSwapService.executeSwap({
+                const result = await executeSwapViaPort({
                     userId: effectiveConfig.user.privyDid,
                     walletAddress: solAddress,
                     tokenIn: SOLANA_CONFIG.TOKENS.SOL,
@@ -2497,7 +2499,7 @@ async function processSingleUserBuy(
                         },
                         preWarmedNonce: getPendingNonce(chainId, effectiveConfig.user.walletAddress)
                     };
-                    const result1 = await MainSwapService.executeSwap(step1Request);
+                    const result1 = await executeSwapViaPort(step1Request);
                     if (!result1.success) throw new Error(result1.error);
                     txHash = result1.txHash!;
                     attributedEntryAmountHuman = result1.amountOut || attributedEntryAmountHuman;
@@ -2614,7 +2616,7 @@ async function processSingleUserBuy(
                                     copyTradeExecutionMode: executionMode
                                 }
                             };
-                            const result2 = await MainSwapService.executeSwap(step2Request);
+                            const result2 = await executeSwapViaPort(step2Request);
                             if (!result2.success) throw new Error(result2.error);
                             txHash = result2.txHash!;
                             attributedEntryAmountHuman = result2.amountOut || attributedEntryAmountHuman;
@@ -2676,7 +2678,7 @@ async function processSingleUserBuy(
                                         copyTradeExecutionMode: executionMode
                                     }
                                 };
-                                const result3 = await MainSwapService.executeSwap(step3Request);
+                                const result3 = await executeSwapViaPort(step3Request);
                                 if (!result3.success) throw new Error(result3.error);
                                 txHash = result3.txHash!;
                                 attributedEntryAmountHuman = result3.amountOut || attributedEntryAmountHuman;
@@ -2728,41 +2730,26 @@ async function processSingleUserBuy(
             : resolveCopytradeBuyPositionStatus(orderRuntimeContext, txLifecycleStatus
                 ? { status: txLifecycleStatus as any, attempts: 1, chainId }
                 : null);
-        let persistedPositionId = pendingPositionId;
-        if (pendingPositionId) {
-            await prisma.position.update({
-                where: { id: pendingPositionId },
-                data: {
-                    entryPrice: tokenInfo.price,
-                    entryAmount: (usdAmount / nativePrice).toString(), // Native amount spent
-                    entryAmountDec: attributedEntryAmountHuman || undefined,
-                    entryTxHash: txHash,
-                    status: nextPositionStatus as any,
-                },
-            });
-            pendingPositionSettled = true;
-        } else {
-            // Fallback (should not happen if logic is correct): Create new if pending failed for some reason
-            const createdPosition = await prisma.position.create({
-                data: {
-                    userId: effectiveConfig.userId,
-                    configId: effectiveConfig.id,
-                    tokenAddress: tokenToBuy,
-                    tokenSymbol: resolveDisplayTokenSymbol(tokenInfo.symbol || (swap as any)?.tokenSymbol, tokenToBuy),
-                    chainId,
-                    entryPrice: tokenInfo.price,
-                    entryAmount: (usdAmount / nativePrice).toString(),
-                    entryAmountDec: attributedEntryAmountHuman || undefined,
-                    entryTxHash: txHash,
-                    leaderTxHash: leaderTxHash || undefined,
-                    entryUsdValue: usdAmount,
-                    status: nextPositionStatus as any,
-                },
-            });
-            persistedPositionId = createdPosition.id;
-            pendingPositionCreatedAt = createdPosition.createdAt;
-            pendingPositionSettled = true;
+        const persistedPosition = await finalizeCopytradeBuyPosition({
+            pendingPositionId,
+            userId: effectiveConfig.userId,
+            configId: effectiveConfig.id,
+            tokenAddress: tokenToBuy,
+            tokenSymbol: resolveDisplayTokenSymbol(tokenInfo.symbol || (swap as any)?.tokenSymbol, tokenToBuy),
+            chainId,
+            entryPrice: tokenInfo.price,
+            entryAmount: (usdAmount / nativePrice).toString(),
+            attributedEntryAmountExact: swapMetadata?.directFeeSettlement?.amountOutBase || attributedEntryAmountHuman || undefined,
+            entryTxHash: txHash,
+            leaderTxHash: leaderTxHash || undefined,
+            entryUsdValue: usdAmount,
+            status: nextPositionStatus,
+        });
+        let persistedPositionId = persistedPosition.positionId;
+        if (!pendingPositionId && persistedPosition.createdAt) {
+            pendingPositionCreatedAt = persistedPosition.createdAt;
         }
+        pendingPositionSettled = true;
 
         if (chainId !== 900 && persistedPositionId) {
             const expectedAmountRaw = swapMetadata?.directFeeSettlement?.amountOutBase || undefined;
@@ -2796,6 +2783,7 @@ async function processSingleUserBuy(
             txLifecycleStatus: txLifecycleStatus || 'unknown',
             positionStatus: nextPositionStatus,
             positionId: persistedPositionId,
+            positionAmountStorageReasonCode: persistedPosition.reasonCode,
             ...buildOrderAuditFields(orderRuntimeContext)
         });
 
@@ -3451,7 +3439,8 @@ async function executePositionExit(params: {
                         userId,
                         tokenAddress,
                         chainId,
-                        reasonCode: exitPlan.attributedReasonCode || 'UNKNOWN'
+                        reasonCode: exitPlan.attributedReasonCode || 'UNKNOWN',
+                        attributionMetrics: exitPlan.attributionMetrics || null
                     });
                     return null;
                 }
@@ -3496,7 +3485,7 @@ async function executePositionExit(params: {
                         const dustUsd = formatTokenAmount(remainingBalance, decimals) * (tokenInfo?.price || 0);
                         if (remainingBalance > 1000n && (dustUsd >= 0.05 || isPartialSell)) {
                             const dustAmountHuman = ethers.formatUnits(remainingBalance, decimals);
-                            await MainSwapService.executeSwap({
+                            await executeSwapViaPort({
                                 userId: user.privyDid,
                                 walletAddress: user.walletAddress,
                                 tokenIn: tokenAddress,

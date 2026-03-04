@@ -1,0 +1,111 @@
+import prisma from '../../../db/prisma.js';
+import type { PendingAttributedPositionLotLike } from './pendingAttributedPositionLedger.js';
+import { listPendingAttributedPositions } from './pendingAttributedPositionLedger.js';
+import {
+  derivePositionLedgerLifecyclePhase,
+  type PositionLedgerPosition,
+  type PositionLedgerSnapshot,
+} from './positionLedgerSnapshot.js';
+
+function normalizeTokenAddress(value: string): string {
+  return String(value || '').trim().toLowerCase();
+}
+
+function mergePendingLots(params: {
+  loaded: PendingAttributedPositionLotLike[];
+  supplied?: PendingAttributedPositionLotLike[];
+}): PendingAttributedPositionLotLike[] {
+  const merged = new Map<string, PendingAttributedPositionLotLike>();
+  for (const lot of params.loaded) merged.set(lot.id, lot);
+  for (const lot of params.supplied || []) {
+    if (!lot?.id) continue;
+    merged.set(lot.id, lot);
+  }
+  return [...merged.values()];
+}
+
+export async function resolvePositionLedgerSnapshot(params: {
+  chainId: number;
+  tokenAddress: string;
+  targetWallet?: string | null;
+  leaderBuyTxHash?: string | null;
+  positionCreatedAt?: Date | null;
+  positions?: PositionLedgerPosition[];
+  pendingLots?: PendingAttributedPositionLotLike[];
+  positionIds?: string[];
+}): Promise<PositionLedgerSnapshot> {
+  const tokenAddress = normalizeTokenAddress(params.tokenAddress);
+  const positions = params.positions && params.positions.length > 0
+    ? params.positions.map((position) => ({
+        ...position,
+        tokenAddress: normalizeTokenAddress(position.tokenAddress),
+      }))
+    : await prisma.position.findMany({
+        where: {
+          chainId: params.chainId,
+          tokenAddress: { equals: tokenAddress, mode: 'insensitive' },
+          ...(params.positionIds?.length ? { id: { in: params.positionIds } } : {}),
+        },
+        orderBy: { createdAt: 'asc' },
+        select: {
+          id: true,
+          userId: true,
+          configId: true,
+          tokenAddress: true,
+          chainId: true,
+          entryTxHash: true,
+          entryAmountDec: true,
+          entryAmountExact: true,
+          status: true,
+          leaderTxHash: true,
+          createdAt: true,
+        },
+      });
+
+  const positionIds = (params.positionIds?.length ? params.positionIds : positions.map((position) => position.id))
+    .filter(Boolean);
+  const loadedPendingLots = positionIds.length > 0
+    ? await listPendingAttributedPositions({
+        chainId: params.chainId,
+        tokenAddress,
+        positionIds,
+        statuses: ['armed', 'sell_armed', 'consumed', 'cancelled'],
+      }).catch(() => [])
+    : [];
+  const pendingLots = mergePendingLots({
+    loaded: loadedPendingLots,
+    supplied: params.pendingLots,
+  });
+
+  let latestTargetSellTxHash: string | null = null;
+  let latestTargetSellAt: Date | null = null;
+  const normalizedWallet = String(params.targetWallet || '').trim().toLowerCase();
+  if (normalizedWallet) {
+    const latestSell = await prisma.walletTransaction.findFirst({
+      where: {
+        walletAddress: { equals: normalizedWallet, mode: 'insensitive' },
+        chainId: params.chainId,
+        txType: 'TARGET_SELL',
+        tokenAddress: { equals: tokenAddress, mode: 'insensitive' },
+        ...(params.positionCreatedAt ? { blockTimestamp: { gte: params.positionCreatedAt } } : {}),
+        ...(params.leaderBuyTxHash ? { txHash: { not: params.leaderBuyTxHash } } : {}),
+      },
+      orderBy: [{ blockTimestamp: 'desc' }, { createdAt: 'desc' }],
+      select: { txHash: true, blockTimestamp: true },
+    });
+    latestTargetSellTxHash = latestSell?.txHash || null;
+    latestTargetSellAt = latestSell?.blockTimestamp || null;
+  }
+
+  return {
+    chainId: params.chainId,
+    tokenAddress,
+    userId: positions[0]?.userId || pendingLots[0]?.userId || null,
+    positionIds,
+    positions,
+    pendingLots,
+    latestTargetSellTxHash,
+    latestTargetSellAt,
+    lifecyclePhase: derivePositionLedgerLifecyclePhase({ positions, pendingLots }),
+  };
+}

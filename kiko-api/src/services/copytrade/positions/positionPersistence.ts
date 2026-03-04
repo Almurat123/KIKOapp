@@ -15,7 +15,7 @@ export async function finalizeCopytradeBuyPosition(params: {
   leaderTxHash?: string | null;
   entryUsdValue: number;
   status: string;
-}): Promise<{ usedPendingPosition: boolean; reasonCode: PositionAmountStorageReasonCode }> {
+}): Promise<{ usedPendingPosition: boolean; reasonCode: PositionAmountStorageReasonCode; positionId: string; createdAt?: Date }> {
   const encoded = encodePositionTokenAmount({
     exactAmount: params.attributedEntryAmountExact,
   });
@@ -36,10 +36,10 @@ export async function finalizeCopytradeBuyPosition(params: {
       where: { id: params.pendingPositionId },
       data,
     });
-    return { usedPendingPosition: true, reasonCode: encoded.reasonCode };
+    return { usedPendingPosition: true, reasonCode: encoded.reasonCode, positionId: params.pendingPositionId };
   }
 
-  await prisma.position.create({
+  const created = await prisma.position.create({
     data: {
       userId: params.userId,
       configId: params.configId,
@@ -49,5 +49,5 @@ export async function finalizeCopytradeBuyPosition(params: {
       ...data,
     },
   });
-  return { usedPendingPosition: false, reasonCode: encoded.reasonCode };
+  return { usedPendingPosition: false, reasonCode: encoded.reasonCode, positionId: created.id, createdAt: created.createdAt };
 }

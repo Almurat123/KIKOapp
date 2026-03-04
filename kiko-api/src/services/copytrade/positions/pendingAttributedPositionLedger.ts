@@ -116,7 +116,7 @@ export async function armPendingAttributedPositionsForMirrorSell(params: {
 }
 
 export async function listPendingAttributedPositions(params: {
-  userId: string;
+  userId?: string;
   chainId: number;
   tokenAddress: string;
   statuses?: PendingAttributedPositionStatus[];
@@ -124,7 +124,7 @@ export async function listPendingAttributedPositions(params: {
 }): Promise<PendingAttributedPositionLotLike[]> {
   return prisma.pendingAttributedPosition.findMany({
     where: {
-      userId: params.userId,
+      ...(params.userId ? { userId: params.userId } : {}),
       chainId: params.chainId,
       tokenAddress: params.tokenAddress,
       ...(params.statuses?.length ? { status: { in: params.statuses } } : {}),

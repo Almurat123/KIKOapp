@@ -34,6 +34,16 @@ function mergeFlags(
     };
 }
 
+function mergeTimestamp(
+    current?: number,
+    incoming?: number
+): number | undefined {
+    if (!Number.isFinite(current) && !Number.isFinite(incoming)) return undefined;
+    if (!Number.isFinite(current)) return incoming;
+    if (!Number.isFinite(incoming)) return current;
+    return Math.min(current as number, incoming as number);
+}
+
 function mergeIngressState(
     current: CopyTradeIngressState | undefined,
     incoming: Partial<CopyTradeIngressState>,
@@ -43,10 +53,10 @@ function mergeIngressState(
     return {
         chainId,
         txHash,
-        firstSeenAt: incoming.firstSeenAt ?? current?.firstSeenAt,
-        confirmedSeenAt: incoming.confirmedSeenAt ?? current?.confirmedSeenAt,
-        swapReadyAt: incoming.swapReadyAt ?? current?.swapReadyAt,
-        executionEnqueuedAt: incoming.executionEnqueuedAt ?? current?.executionEnqueuedAt,
+        firstSeenAt: mergeTimestamp(current?.firstSeenAt, incoming.firstSeenAt),
+        confirmedSeenAt: mergeTimestamp(current?.confirmedSeenAt, incoming.confirmedSeenAt),
+        swapReadyAt: mergeTimestamp(current?.swapReadyAt, incoming.swapReadyAt),
+        executionEnqueuedAt: mergeTimestamp(current?.executionEnqueuedAt, incoming.executionEnqueuedAt),
         sourceFlags: mergeFlags(current?.sourceFlags, incoming.sourceFlags)
     };
 }

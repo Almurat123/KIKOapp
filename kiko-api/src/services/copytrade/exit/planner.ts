@@ -1,19 +1,11 @@
 import { ethers } from 'ethers';
-import { getErc20Balance, getErc20Decimals } from '../../rpcManager.js';
 import type { CopyTradeExecutionMode } from '../../copyTradeExecutionMode.js';
 import type { EvmExitPlan, ExitTokenInfo, PositionExitReason } from './types.js';
 import { createExitOrderRuntimeContext } from './runtime.js';
-import {
-  resolveAttributedPositionExitAmount,
-  type AttributedPositionLike,
-} from '../positions/positionAttribution.js';
-import { resolveMirrorSellAttributedAmount } from './mirrorSellAttribution.js';
+import type { AttributedPositionLike } from '../positions/positionAttribution.js';
+import { buildEvmExitAttributionSnapshot } from './exitAttributionSnapshotBuilder.js';
+import type { ExitAttributionSnapshot } from './exitSnapshotTypes.js';
 import type { PendingAttributedExitContext } from './types.js';
-
-function formatTokenAmount(amount: bigint, decimals: number): number {
-  const value = Number(ethers.formatUnits(amount, decimals));
-  return Number.isFinite(value) ? value : 0;
-}
 
 export async function buildEvmExitPlan(input: {
   userId: string;
@@ -27,38 +19,48 @@ export async function buildEvmExitPlan(input: {
   targetWallet?: string;
   positions: AttributedPositionLike[];
 } & PendingAttributedExitContext): Promise<EvmExitPlan> {
-  const { userId, walletAddress, tokenAddress, chainId, exitReason, tokenInfo } = input;
-  const hasValidPrice = Number.isFinite(tokenInfo?.price) && Number(tokenInfo.price) > 0;
-  const dec = await getErc20Decimals(tokenAddress, chainId).catch(() => 18);
-  let balance = await getErc20Balance(tokenAddress, walletAddress, chainId).catch(() => 0n);
-  const isMirrorSell = exitReason === 'mirror_sell';
+  const snapshot = await buildEvmExitAttributionSnapshot({
+    walletAddress: input.walletAddress,
+    tokenAddress: input.tokenAddress,
+    chainId: input.chainId,
+    exitReason: input.exitReason,
+    tokenInfo: input.tokenInfo,
+    targetWallet: input.targetWallet,
+    positions: input.positions as Array<AttributedPositionLike & { id: string; status?: string | null }>,
+    pendingLots: input.pendingLots,
+  });
+  return buildEvmExitPlanFromSnapshot({
+    userId: input.userId,
+    tokenAddress: input.tokenAddress,
+    chainId: input.chainId,
+    exitReason: input.exitReason,
+    tokenInfo: input.tokenInfo,
+    universalSlippageBps: input.universalSlippageBps,
+    executionMode: input.executionMode,
+    targetWallet: input.targetWallet,
+    snapshot,
+  });
+}
 
-  if (isMirrorSell && balance <= 0n) {
-    for (let i = 0; i < 3; i++) {
-      await new Promise((resolve) => setTimeout(resolve, 220));
-      const retryBalance = await getErc20Balance(tokenAddress, walletAddress, chainId).catch(() => 0n);
-      if (retryBalance > balance) balance = retryBalance;
-      if (balance > 0n) break;
-    }
-  }
+export function buildEvmExitPlanFromSnapshot(input: {
+  userId: string;
+  tokenAddress: string;
+  chainId: number;
+  exitReason: PositionExitReason;
+  tokenInfo: ExitTokenInfo;
+  universalSlippageBps: number;
+  executionMode: CopyTradeExecutionMode;
+  targetWallet?: string;
+  snapshot: ExitAttributionSnapshot;
+}): EvmExitPlan {
+  const { userId, tokenAddress, chainId, exitReason, tokenInfo, snapshot } = input;
+  const balance = snapshot.balanceRaw;
+  const decimals = snapshot.decimals;
+  const balanceUsd = snapshot.balanceUsd;
+  const isMirrorSell = snapshot.isMirrorSell;
+  const attribution = snapshot.attribution;
 
-  const decimals = Number(dec);
-  const balanceUsd = formatTokenAmount(balance, decimals) * (hasValidPrice ? Number(tokenInfo.price) : 0);
-  const treatAsEmptyOrDust = balance <= 0n || (!isMirrorSell && hasValidPrice && balanceUsd < 0.1);
-  const attribution = isMirrorSell
-    ? resolveMirrorSellAttributedAmount({
-        positions: input.positions as Array<AttributedPositionLike & { status?: string; id: string }>,
-        pendingLots: input.pendingLots || [],
-        decimals,
-        onChainBalanceRaw: balance,
-      })
-    : resolveAttributedPositionExitAmount({
-        positions: input.positions,
-        decimals,
-        onChainBalanceRaw: balance,
-      });
-
-  if (treatAsEmptyOrDust) {
+  if (snapshot.treatAsEmptyOrDust) {
     if (isMirrorSell && balance <= 0n) {
       return {
         kind: 'noop',
@@ -68,6 +70,7 @@ export async function buildEvmExitPlan(input: {
         balanceUsd,
         isMirrorSell,
         attributedReasonCode: attribution.reasonCode,
+        attributionMetrics: attribution.metrics,
         positions: attribution.eligiblePositions
       };
     }
@@ -80,6 +83,7 @@ export async function buildEvmExitPlan(input: {
       balanceUsd,
       isMirrorSell,
       attributedReasonCode: attribution.reasonCode,
+      attributionMetrics: attribution.metrics,
       positions: attribution.eligiblePositions
     };
   }
@@ -93,6 +97,7 @@ export async function buildEvmExitPlan(input: {
       balanceUsd,
       isMirrorSell,
       attributedReasonCode: attribution.reasonCode,
+      attributionMetrics: attribution.metrics,
       positions: attribution.eligiblePositions
     };
   }
@@ -106,6 +111,7 @@ export async function buildEvmExitPlan(input: {
       balanceUsd,
       isMirrorSell,
       attributedReasonCode: attribution.reasonCode,
+      attributionMetrics: attribution.metrics,
       positions: attribution.eligiblePositions
     };
   }
@@ -120,6 +126,7 @@ export async function buildEvmExitPlan(input: {
       balanceUsd,
       isMirrorSell,
       attributedReasonCode: attribution.reasonCode,
+      attributionMetrics: attribution.metrics,
       positions: attribution.eligiblePositions
     };
   }
@@ -130,7 +137,7 @@ export async function buildEvmExitPlan(input: {
   return {
     kind: 'swap',
     userId,
-    walletAddress,
+    walletAddress: snapshot.walletAddress,
     tokenAddress,
     chainId,
     exitReason,
@@ -145,13 +152,14 @@ export async function buildEvmExitPlan(input: {
     retrySlippageBps: Math.min(Math.floor(input.universalSlippageBps * 1.5), 2500),
     executionMode: input.executionMode,
     sellRoutePolicy: 'external_primary',
-      positions: attribution.eligiblePositions,
-      pendingAttributedLotIds: 'pendingAttributedLotIds' in attribution ? attribution.pendingAttributedLotIds : undefined,
-      attributedReasonCode: attribution.reasonCode,
-      hasExternalBalance: attribution.metrics.hasExternalBalance,
+    positions: attribution.eligiblePositions,
+    pendingAttributedLotIds: attribution.pendingAttributedLotIds,
+    attributedReasonCode: attribution.reasonCode,
+    attributionMetrics: attribution.metrics,
+    hasExternalBalance: attribution.hasExternalBalance,
     runtimeContext: createExitOrderRuntimeContext({
       userId,
-      walletAddress,
+      walletAddress: snapshot.walletAddress,
       chainId,
       tokenAddress,
       exitReason,

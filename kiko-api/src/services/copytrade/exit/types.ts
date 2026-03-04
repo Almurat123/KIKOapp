@@ -20,6 +20,7 @@ export interface ExitNoopPlan {
   balanceUsd: number;
   isMirrorSell: boolean;
   attributedReasonCode?: PositionAttributionReasonCode;
+  attributionMetrics?: Record<string, unknown>;
   positions: AttributedPositionLike[];
 }
 
@@ -45,6 +46,7 @@ export interface EvmExitSwapPlan {
   positions: AttributedPositionLike[];
   pendingAttributedLotIds?: string[];
   attributedReasonCode: PositionAttributionReasonCode;
+  attributionMetrics?: Record<string, unknown>;
   hasExternalBalance: boolean;
 }
 

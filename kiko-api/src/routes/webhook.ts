@@ -876,9 +876,12 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
     await ensureAlchemyWebhookInboxTable().catch((err) => {
         console.error('[Webhook] Failed to ensure webhook inbox table:', err);
     });
-    startAlchemyWebhookInboxWorker(async (payload) => {
-        await queueAlchemyWebhookBatch(payload);
-    }, { intervalMs: 4000, batchSize: 8, maxAttempts: 20 });
+    const disableInboxWorker = (process.env.COPYTRADE_DISABLE_WEBHOOK_INBOX_WORKER || '').toLowerCase() === 'true';
+    if (!disableInboxWorker) {
+        startAlchemyWebhookInboxWorker(async (payload) => {
+            await queueAlchemyWebhookBatch(payload);
+        }, { intervalMs: 4000, batchSize: 8, maxAttempts: 20 });
+    }
 
     fastify.post<{ Body: ProcessTxBody }>('/process-tx', async (request, reply) => {
         const internalSecret = env.security.internalWebhookSecret;

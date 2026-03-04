@@ -6,6 +6,7 @@ export interface AttributedPositionLike {
   chainId?: number;
   entryTxHash?: string | null;
   entryAmountDec?: { toString(): string } | string | number | null;
+  entryAmountExact?: string | null;
 }
 
 export type PositionAttributionReasonCode =
@@ -52,6 +53,57 @@ function parseHumanAmount(value: AttributedPositionLike['entryAmountDec']): stri
   return normalized;
 }
 
+function parseExactAmountRaw(value: AttributedPositionLike['entryAmountExact']): bigint | null {
+  const normalized = String(value || '').trim();
+  if (!normalized || normalized === '0') return null;
+  if (!/^[0-9]+$/.test(normalized)) return null;
+  try {
+    const raw = BigInt(normalized);
+    return raw > 0n ? raw : null;
+  } catch {
+    return null;
+  }
+}
+
+function parseExactAmountHuman(value: AttributedPositionLike['entryAmountExact']): string | null {
+  const normalized = String(value || '').trim();
+  if (!normalized || normalized === '0') return null;
+  if (!/^[0-9]+(?:\.[0-9]+)?$/.test(normalized)) return null;
+  return normalized.includes('.') ? normalized : null;
+}
+
+function resolvePositionAmountRaw(position: AttributedPositionLike, decimals: number): bigint | null {
+  const exactRaw = parseExactAmountRaw(position.entryAmountExact);
+  const exactHuman = parseExactAmountHuman(position.entryAmountExact);
+  const humanAmount = parseHumanAmount(position.entryAmountDec);
+  if (exactRaw !== null) {
+    if (!humanAmount) return exactRaw;
+    try {
+      const normalizedHumanRaw = ethers.parseUnits(humanAmount, decimals);
+      if (normalizedHumanRaw === exactRaw) {
+        return exactRaw;
+      }
+    } catch {
+      return exactRaw;
+    }
+  }
+
+  if (exactHuman) {
+    try {
+      return ethers.parseUnits(exactHuman, decimals);
+    } catch {
+      return null;
+    }
+  }
+
+  if (!humanAmount) return null;
+  try {
+    return ethers.parseUnits(humanAmount, decimals);
+  } catch {
+    return null;
+  }
+}
+
 export function isConfirmedAttributedPosition(position: AttributedPositionLike): boolean {
   const txHash = String(position.entryTxHash || '').trim();
   if (!txHash) return false;
@@ -74,17 +126,13 @@ export function resolveAttributedPositionExitAmount<T extends AttributedPosition
       excludedPositions.push(position);
       continue;
     }
-    const humanAmount = parseHumanAmount(position.entryAmountDec);
-    if (!humanAmount) {
+    const amountRaw = resolvePositionAmountRaw(position, params.decimals);
+    if (amountRaw === null || amountRaw <= 0n) {
       excludedPositions.push(position);
       continue;
     }
-    try {
-      attributedAmountRaw += ethers.parseUnits(humanAmount, params.decimals);
-      eligiblePositions.push(position);
-    } catch {
-      excludedPositions.push(position);
-    }
+    attributedAmountRaw += amountRaw;
+    eligiblePositions.push(position);
   }
 
   let reasonCode: PositionAttributionReasonCode = 'ATTRIBUTED_AMOUNT_RESOLVED';

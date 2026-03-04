@@ -81,6 +81,7 @@ export async function evaluateExitEligibilityPreflight(params: {
         balanceUsd: plan.balanceUsd,
         action: plan.action,
         attributedReasonCode: plan.attributedReasonCode || null,
+        attributionMetrics: plan.attributionMetrics || null,
       },
     };
   }
@@ -95,6 +96,7 @@ export async function evaluateExitEligibilityPreflight(params: {
       decimals: plan.decimals,
       attributedBalanceRaw: plan.attributedBalance.toString(),
       attributedReasonCode: plan.attributedReasonCode,
+      attributionMetrics: plan.attributionMetrics || null,
       hasExternalBalance: plan.hasExternalBalance,
     },
   };

@@ -29,6 +29,8 @@ import {
 } from './copytrade/ingress/trackedWalletSnapshot.js';
 import { prioritizeCopyTradePendingChains } from './copytrade/eth/ethSignalPolicy.js';
 import { buildEthAwarePendingPollPlan } from './copytrade/eth/ethPendingIngressPolicy.js';
+import { inferEthPendingSwapIntent } from './copytrade/eth/ethPendingSwapIntent.js';
+import { buildEthPendingPredecodedSwap } from './copytrade/eth/ethPendingPredecodedSwap.js';
 
 const ENABLED = (process.env.COPYTRADE_PENDING_WATCH_ENABLED || 'true') === 'true';
 const REFRESH_WALLETS_MS = Number(process.env.COPYTRADE_PENDING_WALLET_REFRESH_MS || 10000);
@@ -256,13 +258,125 @@ async function pollOneChainPending(chainId: number): Promise<void> {
 
         const dedupKey = pendingDedupKey(chainId, txHash);
         if (seenPendingLocal.has(dedupKey)) continue;
-        seenPendingLocal.set(dedupKey, Date.now());
+        const detectedAt = Date.now();
+        seenPendingLocal.set(dedupKey, detectedAt);
 
         await Promise.allSettled([
             markPendingTxHint(chainId, txHash, matchedWallet),
-            markCopyTradeIngressFirstSeen(chainId, txHash, Date.now(), 'pending_block'),
+            markCopyTradeIngressFirstSeen(chainId, txHash, detectedAt, 'pending_block'),
             markCopyTradeTxState(chainId, txHash, 'pending_seen', { source: 'pending_block', wallet: matchedWallet })
         ]);
+        const pendingIntent = inferEthPendingSwapIntent({
+            chainId,
+            matchedWallet,
+            tx,
+        });
+        if (pendingIntent) {
+            await markCopyTradeTxState(chainId, txHash, 'pending_seen', {
+                source: 'pending_block',
+                wallet: matchedWallet,
+                side: pendingIntent.side,
+                selector: pendingIntent.selector,
+                router: pendingIntent.router,
+                dexName: pendingIntent.dexName,
+                nativeValueWei: pendingIntent.nativeValueWei,
+                reasonCode: pendingIntent.reasonCode,
+            }).catch(() => { });
+            logger.info(LogCode.SYS_INFO, '[CopyTradePending] Pending swap intent detected', {
+                chainId,
+                txHash: txHash.slice(0, 12),
+                wallet: matchedWallet.slice(0, 10),
+                side: pendingIntent.side,
+                selector: pendingIntent.selector,
+                dexName: pendingIntent.dexName,
+                reasonCode: pendingIntent.reasonCode,
+            });
+        }
+
+        const predecodedSwap = buildEthPendingPredecodedSwap({
+            chainId,
+            matchedWallet,
+            txHash,
+            tx,
+        });
+        if (predecodedSwap) {
+            const txSkeleton = buildTxSkeletonFromPending(tx, txHash);
+            const timing = markCopyTradeTaskEnqueued(
+                markCopyTradeSwapReady(
+                    buildCopyTradeFirstSeenTiming(detectedAt, 'pending_calldata_predecoded'),
+                    detectedAt,
+                    'pending_calldata_predecoded'
+                ),
+                detectedAt
+            );
+            await markCopyTradeIngressSwapReady(
+                chainId,
+                txHash,
+                timing.swapReadyAt || detectedAt,
+                'pending_calldata_predecoded'
+            ).catch(() => { });
+            await markPendingPredecodedSwap(
+                chainId,
+                txHash,
+                matchedWallet,
+                predecodedSwap,
+                detectedAt,
+                'pending_calldata_predecoded'
+            ).catch(() => { });
+            const ctx = buildSwapExecutionContext({
+                tx: txSkeleton,
+                decodedSwap: predecodedSwap,
+                chainId,
+                targetWallet: matchedWallet,
+                detectedAt: timing.dispatchEligibleAt || timing.swapReadyAt || detectedAt
+            });
+            await putContext(ctx).catch(() => { });
+            await recordSuccessSample({
+                chainId,
+                side: inferExecutionSide(chainId, predecodedSwap.tokenIn, predecodedSwap.tokenOut),
+                txHash,
+                wallet: matchedWallet,
+                tokenIn: String(predecodedSwap.tokenIn || '').toLowerCase(),
+                tokenOut: String(predecodedSwap.tokenOut || '').toLowerCase(),
+                amountIn: String(predecodedSwap.amountIn || '0'),
+                amountOut: String(predecodedSwap.amountOut || '0'),
+                router: String(predecodedSwap.router || txSkeleton.to || '').toLowerCase(),
+                selector: String(txSkeleton.input || '').slice(0, 10).toLowerCase(),
+                commandMetaJson: JSON.stringify({
+                    source: 'pending_calldata_predecoded',
+                    dexName: predecodedSwap.dexName || null,
+                    provisional: true
+                })
+            }).catch(() => { });
+            const dispatched = await dispatchCopyTradeIfReady({
+                chainId,
+                txHash,
+                targetWallet: matchedWallet,
+                swap: predecodedSwap,
+                detectedAt: timing.dispatchEligibleAt || timing.swapReadyAt || detectedAt,
+                timing,
+                source: 'pending_calldata_predecoded'
+            });
+            await markCopyTradeTxState(chainId, txHash, dispatched ? 'swap_decoded' : 'pending_seen', {
+                source: 'pending_calldata_predecoded',
+                wallet: matchedWallet,
+                side: inferExecutionSide(chainId, predecodedSwap.tokenIn, predecodedSwap.tokenOut),
+                dex: predecodedSwap.dexName,
+                selector: predecodedSwap.sourceSelector,
+                dispatched,
+                dispatchEligibleAt: timing.dispatchEligibleAt || null,
+                firstSeenAt: timing.firstSeenAt || null,
+                provisional: true
+            }).catch(() => { });
+            logger.info(LogCode.SYS_INFO, '[CopyTradePending] Pending calldata predecoded swap enqueued', {
+                chainId,
+                txHash: txHash.slice(0, 12),
+                wallet: matchedWallet.slice(0, 10),
+                selector: predecodedSwap.sourceSelector,
+                dex: predecodedSwap.dexName || null,
+                dispatched
+            });
+        }
         void warmConfirmedSwapFromPending(chainId, txHash, matchedWallet, tx);
     }
 }

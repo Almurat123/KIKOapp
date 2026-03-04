@@ -87,7 +87,8 @@ export async function markPendingPredecodedSwap(
     txHash: string,
     targetWallet: string,
     swap: DecodedSwap,
-    detectedAt = Date.now()
+    detectedAt = Date.now(),
+    source = 'pending_prefetch'
 ): Promise<void> {
     if (!txHash || !targetWallet) return;
     const key = pendingPredecodedKey(chainId, txHash, targetWallet);
@@ -97,9 +98,9 @@ export async function markPendingPredecodedSwap(
         detectedAt,
         preparedAt,
         timing: markCopyTradeSwapReady(
-            buildCopyTradeFirstSeenTiming(detectedAt, 'pending_prefetch'),
+            buildCopyTradeFirstSeenTiming(detectedAt, source),
             preparedAt,
-            'pending_prefetch'
+            source
         ),
         targetWallet: targetWallet.toLowerCase(),
         chainId,
@@ -176,4 +177,24 @@ export async function markCopyTradeTxState(
     };
     setMemoryWithTtl(txStateMemory, key, snapshot, TX_STATE_TTL_SEC);
     await cacheSet(key, JSON.stringify(snapshot), TX_STATE_TTL_SEC).catch(() => { });
+}
+
+export async function getCopyTradeTxState(
+    chainId: number,
+    txHash: string
+): Promise<TxStateSnapshot | null> {
+    if (!txHash) return null;
+    const key = txStateKey(chainId, txHash);
+    const memory = txStateMemory.get(key);
+    if (memory) return memory;
+
+    const raw = await cacheGet(key).catch(() => null);
+    if (!raw) return null;
+    try {
+        const parsed = JSON.parse(raw) as TxStateSnapshot;
+        setMemoryWithTtl(txStateMemory, key, parsed, TX_STATE_TTL_SEC);
+        return parsed;
+    } catch {
+        return null;
+    }
 }

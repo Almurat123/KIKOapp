@@ -7,6 +7,9 @@ export function resolveCopyTradeQueuePriority(params: {
     return 0;
   }
 
+  if (source.includes('pending_calldata_predecoded')) {
+    return 350;
+  }
   if (source.includes('pending_prefetch')) {
     return 300;
   }

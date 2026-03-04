@@ -40,7 +40,7 @@ function parsePendingLotAmountRaw(lot: PendingAttributedPositionLotLike, decimal
   return 0n;
 }
 
-export function resolveMirrorSellAttributedAmount<T extends AttributedPositionLike & { status?: string; id: string }>(params: {
+export function resolveMirrorSellAttributedAmount<T extends AttributedPositionLike & { status?: string | null; id: string }>(params: {
   positions: T[];
   pendingLots: PendingAttributedPositionLotLike[];
   decimals: number;
@@ -48,18 +48,20 @@ export function resolveMirrorSellAttributedAmount<T extends AttributedPositionLi
 }): MirrorSellAttributionResult<T> {
   const openPositions = params.positions.filter((position) => String(position.status || '') === 'open');
   const pendingPositions = params.positions.filter((position) => String(position.status || '') !== 'open');
-  const openAttribution = resolveAttributedPositionExitAmount({
-    positions: openPositions,
+  const baseAttribution = resolveAttributedPositionExitAmount({
+    positions: params.positions,
     decimals: params.decimals,
     onChainBalanceRaw: params.onChainBalanceRaw,
   });
+  const attributedPositionIds = new Set(baseAttribution.eligiblePositions.map((position) => position.id));
 
   const pendingLotMap = new Map(params.pendingLots.map((lot) => [lot.positionId, lot]));
   const pendingEligible: T[] = [];
   const pendingAttributedLotIds: string[] = [];
   const pendingAttributedPositionIds: string[] = [];
   let pendingAttributedAmountRaw = 0n;
-  for (const position of pendingPositions) {
+  for (const position of params.positions) {
+    if (attributedPositionIds.has(position.id)) continue;
     const lot = pendingLotMap.get(position.id);
     if (!lot || !['armed', 'sell_armed'].includes(String(lot.status || ''))) continue;
     const lotAmountRaw = parsePendingLotAmountRaw(lot, params.decimals);
@@ -70,15 +72,15 @@ export function resolveMirrorSellAttributedAmount<T extends AttributedPositionLi
     pendingAttributedPositionIds.push(position.id);
   }
 
-  const attributedAmountRaw = openAttribution.attributedAmountRaw + pendingAttributedAmountRaw;
+  const attributedAmountRaw = baseAttribution.attributedAmountRaw + pendingAttributedAmountRaw;
   if (attributedAmountRaw <= 0n) {
     return {
-      eligiblePositions: openAttribution.eligiblePositions as T[],
+      eligiblePositions: baseAttribution.eligiblePositions as T[],
       pendingAttributedPositionIds,
       pendingAttributedLotIds,
       attributedAmountRaw,
       sellAmountRaw: 0n,
-      reasonCode: pendingPositions.length > 0 ? 'PENDING_EXPECTED_AMOUNT_UNAVAILABLE' : openAttribution.reasonCode,
+      reasonCode: params.pendingLots.length > 0 ? 'PENDING_EXPECTED_AMOUNT_UNAVAILABLE' : baseAttribution.reasonCode,
       metrics: {
         openPositionCount: openPositions.length,
         pendingPositionCount: pendingPositions.length,
@@ -93,12 +95,12 @@ export function resolveMirrorSellAttributedAmount<T extends AttributedPositionLi
 
   if (params.onChainBalanceRaw <= 0n) {
     return {
-      eligiblePositions: [...(openAttribution.eligiblePositions as T[]), ...pendingEligible],
+      eligiblePositions: [...(baseAttribution.eligiblePositions as T[]), ...pendingEligible],
       pendingAttributedPositionIds,
       pendingAttributedLotIds,
       attributedAmountRaw,
       sellAmountRaw: 0n,
-      reasonCode: pendingAttributedAmountRaw > 0n ? 'PENDING_BALANCE_NOT_VISIBLE_YET' : openAttribution.reasonCode,
+      reasonCode: pendingAttributedAmountRaw > 0n ? 'PENDING_BALANCE_NOT_VISIBLE_YET' : baseAttribution.reasonCode,
       metrics: {
         openPositionCount: openPositions.length,
         pendingPositionCount: pendingPositions.length,
@@ -119,10 +121,10 @@ export function resolveMirrorSellAttributedAmount<T extends AttributedPositionLi
     ? 'PENDING_ATTRIBUTED_AMOUNT_CLAMPED_TO_ONCHAIN_BALANCE'
     : pendingAttributedAmountRaw > 0n
       ? 'PENDING_ATTRIBUTED_AMOUNT_RESOLVED'
-      : openAttribution.reasonCode;
+      : baseAttribution.reasonCode;
 
   return {
-    eligiblePositions: [...(openAttribution.eligiblePositions as T[]), ...pendingEligible],
+    eligiblePositions: [...(baseAttribution.eligiblePositions as T[]), ...pendingEligible],
     pendingAttributedPositionIds,
     pendingAttributedLotIds,
     attributedAmountRaw,

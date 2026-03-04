@@ -26,6 +26,14 @@ const queue: QueueTask[] = [];
 let inFlight = 0;
 let localSequence = 0;
 const localDone = new Map<string, number>();
+const idleWaiters = new Set<() => void>();
+type QueueHandler = (
+    targetWallet: string,
+    swap: DecodedSwap,
+    chainId: number,
+    context?: { detectedAt?: number; timing?: CopyTradeTimingSnapshot }
+) => Promise<void>;
+let queueHandlerOverride: QueueHandler | null = null;
 
 const MAX_CONCURRENCY = Number(process.env.COPYTRADE_QUEUE_CONCURRENCY || 20);
 const COPYTRADE_TASK_DEDUP_TTL_SECONDS = Number(process.env.COPYTRADE_TASK_DEDUP_TTL_SECONDS || 300);
@@ -49,6 +57,18 @@ function markLocallyDone(taskKey: string): void {
     localDone.set(taskKey, Date.now() + COPYTRADE_TASK_DEDUP_TTL_SECONDS * 1000);
 }
 
+function resolveIdleWaitersIfDrained(): void {
+    if (inFlight !== 0 || queue.length !== 0) return;
+    for (const resolve of idleWaiters) resolve();
+    idleWaiters.clear();
+}
+
+async function resolveQueueHandler(): Promise<QueueHandler> {
+    if (queueHandlerOverride) return queueHandlerOverride;
+    const { handleSwapDetected } = await import('./autoTradeService.js');
+    return handleSwapDetected;
+}
+
 function processQueue(): void {
     while (inFlight < MAX_CONCURRENCY && queue.length > 0) {
         const task = queue.shift();
@@ -64,7 +84,7 @@ function processQueue(): void {
                 const pendingHint = task.swap?.txHash
                     ? await getPendingTxHint(task.chainId, task.swap.txHash).catch(() => null)
                     : null;
-                const { handleSwapDetected } = await import('./autoTradeService.js');
+                const handleSwapDetected = await resolveQueueHandler();
                 try {
                     const timing = markCopyTradeTaskEnqueued(mergeCopyTradeTimingSnapshots(
                         task.timing,
@@ -131,8 +151,10 @@ function processQueue(): void {
                 if (queue.length > 0) {
                     setImmediate(processQueue);
                 }
+                resolveIdleWaitersIfDrained();
             });
     }
+    resolveIdleWaitersIfDrained();
 }
 
 export function enqueueCopyTradeTask(
@@ -171,4 +193,32 @@ export function getCopyTradeQueueStats() {
         queued: queue.length,
         maxConcurrency: MAX_CONCURRENCY,
     };
+}
+
+export function setCopyTradeQueueHandlerForTests(handler: QueueHandler | null): void {
+    queueHandlerOverride = handler;
+}
+
+export async function waitForCopyTradeQueueIdle(timeoutMs = 5_000): Promise<void> {
+    if (queue.length === 0 && inFlight === 0) return;
+    await new Promise<void>((resolve, reject) => {
+        const timeout = setTimeout(() => {
+            idleWaiters.delete(onIdle);
+            reject(new Error(`copytrade queue did not drain within ${timeoutMs}ms`));
+        }, timeoutMs);
+        const onIdle = () => {
+            clearTimeout(timeout);
+            resolve();
+        };
+        idleWaiters.add(onIdle);
+    });
+}
+
+export function resetCopyTradeQueueForTests(): void {
+    queue.length = 0;
+    inFlight = 0;
+    localSequence = 0;
+    localDone.clear();
+    idleWaiters.clear();
+    queueHandlerOverride = null;
 }

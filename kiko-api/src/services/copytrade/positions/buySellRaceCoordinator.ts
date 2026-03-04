@@ -1,6 +1,7 @@
 import prisma from '../../../db/prisma.js';
-import { armPendingAttributedPositionsForMirrorSell, getPendingAttributedPositionById } from './pendingAttributedPositionLedger.js';
-import { verifyTargetFullExit } from '../reconcile/targetSellFullExitVerifier.js';
+import { armPendingAttributedPositionsForMirrorSell } from './pendingAttributedPositionLedger.js';
+import { resolvePositionLedgerSnapshot } from './positionLedgerResolver.js';
+import * as targetSellFullExitVerifier from '../reconcile/targetSellFullExitVerifier.js';
 
 export async function resolvePendingMirrorSellIntent(params: {
   positionId?: string | null;
@@ -20,7 +21,17 @@ export async function resolvePendingMirrorSellIntent(params: {
     | 'TARGET_SELL_BALANCE_UNVERIFIED'
     | 'NO_PENDING_MIRROR_SELL_INTENT';
 }> {
-  const lot = await getPendingAttributedPositionById(params.positionId);
+  const ledger = await resolvePositionLedgerSnapshot({
+    chainId: params.chainId,
+    tokenAddress: params.tokenAddress,
+    targetWallet: params.targetWallet,
+    leaderBuyTxHash: params.leaderBuyTxHash,
+    positionCreatedAt: params.positionCreatedAt,
+    positionIds: params.positionId ? [params.positionId] : [],
+  });
+  const lot = params.positionId
+    ? ledger.pendingLots.find((entry) => entry.positionId === params.positionId) || null
+    : null;
   if (lot?.status === 'sell_armed' && lot.targetSellTxHash) {
     return {
       shouldMirrorSell: true,
@@ -37,27 +48,14 @@ export async function resolvePendingMirrorSellIntent(params: {
     };
   }
 
-  const latestSell = await prisma.walletTransaction.findFirst({
-    where: {
-      walletAddress: { equals: normalizedWallet, mode: 'insensitive' },
-      chainId: params.chainId,
-      txType: 'TARGET_SELL',
-      tokenAddress: { equals: params.tokenAddress, mode: 'insensitive' },
-      ...(params.positionCreatedAt ? { blockTimestamp: { gte: params.positionCreatedAt } } : {}),
-      ...(params.leaderBuyTxHash ? { txHash: { not: params.leaderBuyTxHash } } : {}),
-    },
-    orderBy: [{ blockTimestamp: 'desc' }, { createdAt: 'desc' }],
-    select: { txHash: true },
-  });
-
-  if (!latestSell?.txHash || !params.positionId) {
+  if (!ledger.latestTargetSellTxHash || !params.positionId) {
     return {
       shouldMirrorSell: false,
       reasonCode: 'NO_PENDING_MIRROR_SELL_INTENT',
     };
   }
 
-  const fullExit = await verifyTargetFullExit({
+  const fullExit = await targetSellFullExitVerifier.verifyTargetFullExit({
     targetWallet: params.targetWallet || normalizedWallet,
     chainId: params.chainId,
     tokenAddress: params.tokenAddress,
@@ -72,17 +70,17 @@ export async function resolvePendingMirrorSellIntent(params: {
   }
 
   await armPendingAttributedPositionsForMirrorSell({
-    userId: lot?.userId || '',
+    userId: ledger.userId || lot?.userId || '',
     chainId: params.chainId,
     tokenAddress: params.tokenAddress,
     positionIds: [params.positionId],
-    targetSellTxHash: latestSell.txHash,
+    targetSellTxHash: ledger.latestTargetSellTxHash,
     reasonCode: 'target_sell_seen_in_history',
   }).catch(() => 0);
 
   return {
     shouldMirrorSell: true,
-    targetSellTxHash: latestSell.txHash,
+    targetSellTxHash: ledger.latestTargetSellTxHash,
     reasonCode: 'TARGET_SELL_SEEN_IN_HISTORY',
   };
 }
