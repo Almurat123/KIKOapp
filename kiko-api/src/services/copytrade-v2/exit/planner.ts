@@ -187,7 +187,11 @@ export function buildEvmExitPlanFromSnapshot(input: {
     };
   }
 
-  if (attribution.reasonCode === 'ATTRIBUTED_AMOUNT_CLAMPED_TO_ONCHAIN_BALANCE') {
+  if (
+    attribution.reasonCode === 'ATTRIBUTED_AMOUNT_CLAMPED_TO_ONCHAIN_BALANCE'
+    && isMirrorSell
+    && !snapshot.targetFullExitVerified
+  ) {
     return {
       kind: 'noop',
       action: 'keep_open',

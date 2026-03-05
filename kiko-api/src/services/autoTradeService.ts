@@ -37,7 +37,7 @@ import { warpcastService } from './warpcastService.js';
 import { notificationService, type TradeNotificationParams } from './notificationService.js';
 import { getTokenInfo } from './tokenService.js';
 import { getTokenMetadata } from './rpcService.js';
-import { getDexPrice } from './dexPriceService.js';
+import { getDexPrice, getDexPriceDetailed } from './dexPriceService.js';
 import { cacheHub } from '../cache/DataCacheHub.js';
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
@@ -636,6 +636,20 @@ async function getDexPriceWithTimeout(tokenAddress: string, chainId: number | 's
     } catch {
         return 0;
     }
+}
+
+function isEntryDeviationPriceUnreliable(chainId: number, tokenInfo: any): boolean {
+    if (chainId === 900) return true;
+    if (!tokenInfo || typeof tokenInfo !== 'object') return true;
+    if (tokenInfo.guardLiquidityReliable === false) return true;
+
+    const poolCount = Number(tokenInfo.guardLiquidityPoolCount ?? 0);
+    if (!Number.isFinite(poolCount) || poolCount <= 0) return true;
+
+    const liquiditySource = String(tokenInfo.guardLiquiditySource || '').toLowerCase();
+    if (liquiditySource === 'direct_pool_unpriced') return true;
+
+    return false;
 }
 
 function compactCopyTradeError(error: any): string {
@@ -2062,9 +2076,7 @@ async function processSingleUserBuy(
                         thresholdPolicy: effectiveConfig.maxEntryDeviationThresholdPolicy,
                     });
                     if (shouldEnforceBuyGuard(guardPolicy, 'priceDeviationBps') && deviationBps > effectiveConfig.maxEntryDeviationBps) {
-                        const unreliableMarketPrice = chainId === 900
-                            || tokenInfo?.guardLiquidityReliable === false
-                            || Number(tokenInfo?.guardLiquidityPoolCount || 0) <= 0;
+                        const unreliableMarketPrice = isEntryDeviationPriceUnreliable(chainId, tokenInfo);
                         if (unreliableMarketPrice) {
                             logger.warn(LogCode.DEC_PRICE_IMPACT_HIGH, 'Entry deviation exceeded but bypassed due unreliable market price source', {
                                 userId: config.userId,
@@ -2076,6 +2088,7 @@ async function processSingleUserBuy(
                                 currentPrice,
                                 guardLiquidityReliable: tokenInfo?.guardLiquidityReliable ?? null,
                                 guardLiquidityPoolCount: tokenInfo?.guardLiquidityPoolCount ?? null,
+                                guardLiquiditySource: tokenInfo?.guardLiquiditySource ?? null,
                                 reasonCode: 'ENTRY_DEVIATION_UNRELIABLE_PRICE_BYPASS'
                             });
                             emitGuardAudit('pass', 'price_deviation_unreliable_price_bypass');
@@ -4148,14 +4161,15 @@ export async function checkPositionsForExits(): Promise<void> {
             try {
                 // Primary: DEX aggregator price (0x for EVM, Jupiter for Solana)
                 const dexChainId = chainId === 900 ? 'solana' : chainId;
-                const dexPrice = await getDexPrice(address, dexChainId);
+                const dexPriceResult = await getDexPriceDetailed(address, dexChainId);
+                const dexPrice = dexPriceResult.price;
 
                 if (dexPrice > 0) {
                     const info = await getTokenInfo(address, chainId).catch(() => null);
                     tokenPriceMap.set(`${address.toLowerCase()}_${chainId}`, {
                         ...(info || {}),
                         price: dexPrice,
-                        provider: chainId === 900 ? 'jupiter-dex' : '0x-dex'
+                        provider: dexPriceResult.provider || (chainId === 900 ? 'jupiter-dex' : '0x-dex')
                     });
                     return;
                 }

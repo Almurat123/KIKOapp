@@ -11,7 +11,14 @@
  * - 多链支持
  */
 
-import { getZeroExPrice } from './zeroEx.js';
+import {
+    fetchTokenDecimalsFromRPC,
+    getTokenPriceUSD,
+    getZeroExPrice,
+    getZeroExTokenMetadata,
+    toWei
+} from './zeroEx.js';
+import { getKyberQuote } from './kyberAggregator.js';
 import { getSolanaTokenPrice } from './solanaOnChainPriceService.js';
 import { callRpc } from './rpcManager.js';
 import { logger } from '../utils/logger.js';
@@ -33,9 +40,16 @@ const USDC_ADDRESSES: Record<number, string> = {
 // Solana USDC Mint
 const SOLANA_USDC_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
 
+export interface DexPriceResult {
+    price: number;
+    provider: string;
+}
+
 // 价格缓存 (30秒有效期)
-const priceCache = new Map<string, { price: number; timestamp: number }>();
+const priceCache = new Map<string, { price: number; provider: string; timestamp: number }>();
 const CACHE_TTL_MS = 30_000;
+const KYBER_PRICE_DUMMY_RECIPIENT = '0x1111111111111111111111111111111111111111';
+const KYBER_PRICE_SLIPPAGE_BPS = 100;
 
 /**
  * 获取代币 USD 价格
@@ -48,36 +62,48 @@ export async function getDexPrice(
     tokenAddress: string,
     chainId: number | 'solana'
 ): Promise<number> {
+    const result = await getDexPriceDetailed(tokenAddress, chainId);
+    return result.price;
+}
+
+export async function getDexPriceDetailed(
+    tokenAddress: string,
+    chainId: number | 'solana'
+): Promise<DexPriceResult> {
     const cacheKey = `${chainId}:${tokenAddress.toLowerCase()}`;
 
     // 检查缓存
     const cached = priceCache.get(cacheKey);
     if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
-        return cached.price;
+        return { price: cached.price, provider: cached.provider };
     }
 
     try {
         let price = 0;
+        let provider = 'unavailable';
 
         if (chainId === 'solana' || chainId === 101) {
             // Solana: 使用 Jupiter
             price = await getSolanaPriceUsd(tokenAddress);
+            provider = 'jupiter-dex';
         } else if (typeof chainId === 'number') {
             // EVM: 使用 0x
-            price = await getEvmPriceUsd(tokenAddress, chainId);
+            const result = await getEvmPriceUsd(tokenAddress, chainId);
+            price = result.price;
+            provider = result.provider;
         }
 
         // 缓存结果
-        priceCache.set(cacheKey, { price, timestamp: Date.now() });
+        priceCache.set(cacheKey, { price, provider, timestamp: Date.now() });
 
-        return price;
+        return { price, provider };
     } catch (error: any) {
         logger.warn(LogCode.API_FETCH_FAILED, 'getDexPrice failed', {
             tokenAddress: tokenAddress.slice(0, 10),
             chain: String(chainId),
             error: error.message
         });
-        return 0;
+        return { price: 0, provider: 'unavailable' };
     }
 }
 
@@ -105,16 +131,21 @@ export async function getDexPricesBatch(
  * 
  * 策略: 获取 Token -> USDC 的报价，反推价格
  */
-async function getEvmPriceUsd(tokenAddress: string, chainId: number): Promise<number> {
+async function getEvmPriceUsd(tokenAddress: string, chainId: number): Promise<DexPriceResult> {
+    const precisePrice = await getTokenPriceUSD(tokenAddress, chainId);
+    if (Number.isFinite(precisePrice) && Number(precisePrice) > 0) {
+        return { price: Number(precisePrice), provider: '0x-dex' };
+    }
+
     const usdcAddress = USDC_ADDRESSES[chainId];
     if (!usdcAddress) {
         logger.warn(LogCode.API_FETCH_FAILED, 'Unsupported chain for 0x price', { chainId });
-        return 0;
+        return { price: 0, provider: 'unavailable' };
     }
 
     // 跳过 USDC 本身
     if (tokenAddress.toLowerCase() === usdcAddress.toLowerCase()) {
-        return 1.0;
+        return { price: 1.0, provider: '0x-dex' };
     }
 
     // 获取 1 单位代币能换多少 USDC
@@ -124,7 +155,11 @@ async function getEvmPriceUsd(tokenAddress: string, chainId: number): Promise<nu
     const quote = await getZeroExPrice(tokenAddress, usdcAddress, sellAmount, chainId);
 
     if (!quote || !quote.buyAmount) {
-        return 0;
+        const kyberPrice = await getEvmPriceUsdFromKyber(tokenAddress, chainId, usdcAddress);
+        if (kyberPrice > 0) {
+            return { price: kyberPrice, provider: 'kyber-dex' };
+        }
+        return { price: 0, provider: 'unavailable' };
     }
 
     // 计算价格: buyAmount (USDC, 6 decimals) / sellAmount (token, 18 decimals)
@@ -144,7 +179,51 @@ async function getEvmPriceUsd(tokenAddress: string, chainId: number): Promise<nu
         price: price.toFixed(8)
     });
 
-    return price;
+    return { price, provider: '0x-dex' };
+}
+
+async function getEvmPriceUsdFromKyber(tokenAddress: string, chainId: number, usdcAddress: string): Promise<number> {
+    try {
+        const [tokenMeta, usdcMeta] = await Promise.all([
+            getZeroExTokenMetadata(tokenAddress, chainId).catch(() => null),
+            getZeroExTokenMetadata(usdcAddress, chainId).catch(() => null)
+        ]);
+        const tokenDecimals = Number(tokenMeta?.decimals ?? await fetchTokenDecimalsFromRPC(tokenAddress, chainId));
+        const usdcDecimals = Number(usdcMeta?.decimals ?? await fetchTokenDecimalsFromRPC(usdcAddress, chainId));
+        if (!Number.isFinite(tokenDecimals) || tokenDecimals < 0 || tokenDecimals > 24) return 0;
+        if (!Number.isFinite(usdcDecimals) || usdcDecimals < 0 || usdcDecimals > 24) return 0;
+
+        const oneTokenRaw = toWei('1', tokenDecimals);
+        const quote = await getKyberQuote(
+            tokenAddress,
+            usdcAddress,
+            oneTokenRaw,
+            chainId,
+            KYBER_PRICE_SLIPPAGE_BPS,
+            KYBER_PRICE_DUMMY_RECIPIENT,
+            'swap',
+            true
+        );
+        const amountOutRaw = quote?.amountOut || quote?.amountOutBase;
+        if (!amountOutRaw) return 0;
+        const denominator = Math.pow(10, usdcDecimals);
+        if (!Number.isFinite(denominator) || denominator <= 0) return 0;
+        const usdOut = Number(amountOutRaw) / denominator;
+        if (!Number.isFinite(usdOut) || usdOut <= 0) return 0;
+        logger.debug(LogCode.API_FETCH_SUCCESS, 'EVM price from Kyber', {
+            token: tokenAddress.slice(0, 10),
+            chainId,
+            price: usdOut.toFixed(8)
+        });
+        return usdOut;
+    } catch (error: any) {
+        logger.debug(LogCode.API_FETCH_FAILED, 'Kyber EVM price fallback failed', {
+            token: tokenAddress.slice(0, 10),
+            chainId,
+            error: error?.message
+        });
+        return 0;
+    }
 }
 
 /**

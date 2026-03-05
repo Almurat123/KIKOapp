@@ -1,5 +1,5 @@
 import React from 'react';
-import { AbsoluteFill } from 'remotion';
+
 import styles from '../../components/Chat/WelcomeScreen.module.css';
 
 interface ChatBoxFrameProps {

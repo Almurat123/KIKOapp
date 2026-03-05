@@ -91,10 +91,10 @@ const NativeMedia = ({ data, onImageClick }: any) => {
     if (!data.images && !data.videos) return null;
     return (
         <div className={styles.mediaContainer}>
-            {data.type === 'video' && data.videos?.[0] && <HlsVideoPlayer src={data.videos[0]} maxWidth="100%" maxHeight="400px" />}
-            {data.type === 'image' && data.images && (
-                <div className={styles.imageGrid} style={{ gridTemplateColumns: data.images.length > 1 ? 'repeat(2, 1fr)' : '1fr' }}>
-                    {data.images.map((img: string, idx: number) => (
+            {data.type === 'video' && data.videos?.[0] && <HlsVideoPlayer src={data.videos[0]} maxWidth="100%" maxHeight="540px" />}
+            {data.type === 'image' && data.images && data.images.length > 0 && (
+                <div className={`${styles.imageGrid} ${styles[`gridCount${Math.min(data.images.length, 4)}`]}`}>
+                    {data.images.slice(0, 4).map((img: string, idx: number) => (
                         <img
                             key={idx}
                             src={getOptimizedImageUrl(img, 500, 75)}

@@ -4,7 +4,7 @@ import prisma from '../../../db/prisma.js';
 import { logger } from '../../../utils/logger.js';
 import { LogCode } from '../../../config/logRegistry.js';
 import { DynamicTakeProfitService } from '../../dynamicTakeProfitService.js';
-import { getDexPrice } from '../../dexPriceService.js';
+import { getDexPriceDetailed } from '../../dexPriceService.js';
 import { getSolanaConnection, SOLANA_CONFIG } from '../../../config/solanaConfig.js';
 import { executeSolanaSwap } from '../../solanaExecutor.js';
 import { getSolanaEmbeddedWalletAddress } from '../../privyWallet.js';
@@ -819,14 +819,15 @@ export async function checkPositionsForExits(): Promise<void> {
             try {
                 // Primary: DEX aggregator price (0x for EVM, Jupiter for Solana)
                 const dexChainId = chainId === 900 ? 'solana' : chainId;
-                const dexPrice = await getDexPrice(address, dexChainId);
+                const dexPriceResult = await getDexPriceDetailed(address, dexChainId);
+                const dexPrice = dexPriceResult.price;
 
                 if (dexPrice > 0) {
                     const info = await getTokenInfo(address, chainId).catch(() => null);
                     tokenPriceMap.set(`${address.toLowerCase()}_${chainId}`, {
                         ...(info || {}),
                         price: dexPrice,
-                        provider: chainId === 900 ? 'jupiter-dex' : '0x-dex'
+                        provider: dexPriceResult.provider || (chainId === 900 ? 'jupiter-dex' : '0x-dex')
                     });
                     return;
                 }

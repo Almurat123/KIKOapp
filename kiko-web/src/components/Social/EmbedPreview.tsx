@@ -123,12 +123,15 @@ export const EmbedPreview: React.FC<EmbedPreviewProps> = ({ url, isDark }) => {
                     background: isDark ? 'rgba(255, 255, 255, 0.02)' : 'rgba(0,0,0,0.01)',
                     cursor: 'pointer',
                     padding: '10px 14px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    color: '#3b82f6',
+                    fontSize: '13px'
                 }}
             >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#3b82f6', fontSize: '13px' }}>
-                    <ExternalLink size={14} />
-                    <span style={{ textDecoration: 'underline', opacity: 0.8 }}>{url}</span>
-                </div>
+                <ExternalLink size={14} />
+                <span style={{ textDecoration: 'underline', opacity: 0.8, wordBreak: 'break-all' }}>{url}</span>
             </div>
         );
     }
@@ -226,7 +229,7 @@ export const EmbedPreview: React.FC<EmbedPreviewProps> = ({ url, isDark }) => {
                 {imgSrc && (
                     <div style={{
                         width: '100%',
-                        height: '100px',
+                        aspectRatio: '1.91 / 1',
                         overflow: 'hidden',
                         background: isDark ? '#18181b' : '#f4f4f5',
                         borderBottom: `1px solid ${isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)'}`,
@@ -305,7 +308,7 @@ export const EmbedPreview: React.FC<EmbedPreviewProps> = ({ url, isDark }) => {
                         </div>
                     )}
 
-                    {!data.image && !data.title && (
+                    {!data.image && !data.title && !data.description && (
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#3b82f6', fontSize: '13px' }}>
                             <ExternalLink size={14} />
                             <span style={{ textDecoration: 'underline' }}>{url}</span>

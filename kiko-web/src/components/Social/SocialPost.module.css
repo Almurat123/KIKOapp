@@ -100,21 +100,64 @@
 /* 原生媒体容器 */
 .mediaContainer {
     width: 100%;
-    border-radius: 20px;
+    border-radius: 16px;
     overflow: hidden;
     position: relative;
+    border: 1px solid var(--border-color);
 }
 
 .imageGrid {
     display: grid;
-    gap: 8px;
+    gap: 2px;
+    width: 100%;
+    height: 100%;
 }
 
 .imageGrid img {
     width: 100%;
-    aspect-ratio: 16/9;
+    height: 100%;
     object-fit: cover;
-    border-radius: 12px;
+    display: block;
+    cursor: pointer;
+}
+
+.gridCount1 {
+    grid-template-columns: 1fr;
+}
+
+.gridCount1 img {
+    max-height: 540px;
+}
+
+.gridCount2 {
+    grid-template-columns: repeat(2, 1fr);
+}
+
+.gridCount2 img {
+    aspect-ratio: 7 / 8;
+}
+
+.gridCount3 {
+    grid-template-columns: repeat(2, 1fr);
+    grid-template-rows: repeat(2, 1fr);
+}
+
+.gridCount3 img:nth-child(1) {
+    grid-row: 1 / span 2;
+    aspect-ratio: 7 / 8;
+}
+
+.gridCount3 img:nth-child(n+2) {
+    aspect-ratio: 7 / 4;
+}
+
+.gridCount4 {
+    grid-template-columns: repeat(2, 1fr);
+    grid-template-rows: repeat(2, 1fr);
+}
+
+.gridCount4 img {
+    aspect-ratio: 16 / 9;
 }
 
 /* 外部嵌入容器 */
