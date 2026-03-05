@@ -62,6 +62,7 @@ import {
     persistSuccessfulExit,
     reconcileNoopExitPosition
 } from './copytrade-v2/exit/persistence.js';
+import { resolveSolanaDbBalanceFallback } from './copytrade-v2/exit/solanaDbBalanceFallback.js';
 import {
     computeBuyTargetValueSnapshot,
     getMinTargetEffectiveFloorUsd,
@@ -2381,11 +2382,13 @@ async function processSingleUserBuy(
                     try {
                         const result = await executeSolanaCopytradeAttempt(attemptLamports, attemptSlippage, 'turbo');
                         txHash = result.txHash!;
+                        attributedEntryAmountHuman = result.amountOut || attributedEntryAmountHuman;
                         txLifecycleStatus = result.txLifecycle?.status || txLifecycleStatus;
                         swapMetadata = {
                             ...(swapMetadata || {}),
                             mainSwapProvider: result.metadata?.provider,
-                            mainSwapRouteMode: result.metadata?.launchpad || launchpad?.provider || 'unknown'
+                            mainSwapRouteMode: result.metadata?.launchpad || launchpad?.provider || 'unknown',
+                            directFeeSettlement: result.metadata?.directFeeSettlement || (swapMetadata as any)?.directFeeSettlement
                         } as any;
                         break;
                     } catch (solErr: any) {
@@ -2431,11 +2434,13 @@ async function processSingleUserBuy(
 
                         const result = await executeSolanaCopytradeAttempt(attempt.amountIn, attempt.slippageBps, executionMode);
                         txHash = result.txHash!;
+                        attributedEntryAmountHuman = result.amountOut || attributedEntryAmountHuman;
                         txLifecycleStatus = result.txLifecycle?.status || txLifecycleStatus;
                         swapMetadata = {
                             ...(swapMetadata || {}),
                             mainSwapProvider: result.metadata?.provider,
-                            mainSwapRouteMode: result.metadata?.launchpad || launchpad?.provider || 'unknown'
+                            mainSwapRouteMode: result.metadata?.launchpad || launchpad?.provider || 'unknown',
+                            directFeeSettlement: result.metadata?.directFeeSettlement || (swapMetadata as any)?.directFeeSettlement
                         } as any;
                         break;
                     } catch (solErr: any) {
@@ -2804,6 +2809,7 @@ async function processSingleUserBuy(
             : resolveCopytradeBuyPositionStatus(orderRuntimeContext, txLifecycleStatus
                 ? { status: txLifecycleStatus as any, attempts: 1, chainId }
                 : null);
+        const persistedEntryAmount = attributedEntryAmountHuman || (usdAmount / nativePrice).toString();
         const persistedPosition = await finalizeCopytradeBuyPosition({
             pendingPositionId,
             userId: effectiveConfig.userId,
@@ -2812,7 +2818,7 @@ async function processSingleUserBuy(
             tokenSymbol: resolveDisplayTokenSymbol(tokenInfo.symbol || (swap as any)?.tokenSymbol, tokenToBuy),
             chainId,
             entryPrice: tokenInfo.price,
-            entryAmount: (usdAmount / nativePrice).toString(),
+            entryAmount: persistedEntryAmount,
             attributedEntryAmountExact: swapMetadata?.directFeeSettlement?.amountOutBase || attributedEntryAmountHuman || undefined,
             entryTxHash: txHash,
             leaderTxHash: leaderTxHash || undefined,
@@ -3248,34 +3254,37 @@ async function executePositionExit(params: {
                 // token units stored at buy time). Using DB amount and failing on-chain is
                 // far better than silently skipping the sell and leaving an open position.
                 if (exitReason === 'mirror_sell' && exitPositions.length > 0) {
-                    for (const pos of exitPositions) {
-                        // entryAmountExact is the raw integer token amount written during buy.
-                        const rawExact = pos.entryAmountExact != null ? String(pos.entryAmountExact).trim() : '';
-                        if (rawExact && rawExact !== '0') {
-                            try { balance += BigInt(rawExact); } catch { /* skip */ }
-                        }
-                        // fallback: entryAmountDec is the human amount; use it with known decimals
-                        if (balance === 0n) {
-                            const dec = tokenInfo?.decimals ?? null;
-                            const rawDecStr = pos.entryAmountDec != null ? String(pos.entryAmountDec).trim() : '';
-                            if (dec != null && rawDecStr && rawDecStr !== '0') {
-                                try { balance += ethers.parseUnits(rawDecStr, dec); } catch { /* skip */ }
-                            }
-                        }
-                        // Use tokenInfo decimals for display; if unavailable default to 6 (safe for dust check)
-                        decimals = tokenInfo?.decimals ?? 6;
-                    }
+                    const fallback = resolveSolanaDbBalanceFallback({
+                        positions: exitPositions,
+                        tokenDecimals: tokenInfo?.decimals ?? null,
+                        fallbackDecimals: 6,
+                    });
+                    balance = fallback.balanceRaw;
+                    decimals = fallback.decimals;
                     if (balance > 0n) {
                         usedDbBalanceFallback = true;
                         logger.warn(LogCode.API_FETCH_FAILED, 'Solana RPC exhausted during mirror sell — using DB position amount as balance fallback', {
                             userId, token: tokenAddress, balanceFallback: balance.toString(), decimals,
-                            positionCount: exitPositions.length
+                            positionCount: exitPositions.length,
+                            fallbackSource: fallback.usedSource,
                         });
                     } else {
+                        await persistDeferredExitRetryState({
+                            positions: exitPositions as any,
+                            targetWallet: config.targetWallet,
+                            exitReason,
+                            reasonCode: 'solana_balance_rpc_exhausted_no_amount_fallback',
+                        }).catch(() => undefined);
                         logger.warn(LogCode.API_FETCH_FAILED, 'Skipping Solana sell: RPC exhausted and no usable amount in DB positions', { userId, token: tokenAddress });
                         return null;
                     }
                 } else {
+                    await persistDeferredExitRetryState({
+                        positions: exitPositions as any,
+                        targetWallet: config.targetWallet,
+                        exitReason,
+                        reasonCode: 'solana_balance_rpc_exhausted_keep_open',
+                    }).catch(() => undefined);
                     logger.warn(LogCode.API_FETCH_FAILED, 'Skipping Solana sell: All RPC strategies exhausted, keeping position open', { userId, token: tokenAddress });
                     return null; // Safely skip — keep position open, do NOT treat RPC failure as zero balance
                 }
