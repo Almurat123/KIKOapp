@@ -225,7 +225,7 @@ export async function findLedgerFirstOrphanSweepCandidates(params: {
   if (resolveCopytradeLedgerMode() !== 'v2_primary') return [];
   const rows = await prisma.copytradePositionLedger.findMany({
     where: {
-      lifecycleState: { in: ['FOLLOWER_OPEN', 'FOLLOWER_OPEN_REPAIR_REQUIRED', 'FOLLOWER_EXIT_FAILED_RETRYABLE'] },
+      lifecycleState: { in: ['FOLLOWER_OPEN', 'FOLLOWER_OPEN_REPAIR_REQUIRED', 'FOLLOWER_EXIT_FAILED_RETRYABLE', 'FOLLOWER_EXIT_ARMED'] },
       targetFullExitVerified: true,
       updatedAt: { lt: params.staleBefore },
       closedAt: null,

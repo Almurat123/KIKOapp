@@ -3451,7 +3451,8 @@ async function executePositionExit(params: {
                         'NO_CONFIRMED_POSITIONS',
                         'PENDING_EXPECTED_AMOUNT_UNAVAILABLE',
                     ]);
-                    if (repairReasonCodes.has(String(exitPlan.attributedReasonCode || ''))) {
+                    const exitKeepOpenReasonCode = String(exitPlan.attributedReasonCode || '');
+                    if (repairReasonCodes.has(exitKeepOpenReasonCode)) {
                         const repairedPositionIds: string[] = [];
                         for (const position of exitPlan.positions) {
                             const positionId = String((position as any)?.id || '').trim();
@@ -3484,6 +3485,37 @@ async function executePositionExit(params: {
                                 exitReason,
                                 repairedPositionCount: repairedPositionIds.length,
                                 repairedPositionIds,
+                            });
+                        }
+                    }
+                    const retryableKeepOpenReasonCodes = new Set([
+                        'ATTRIBUTED_AMOUNT_UNAVAILABLE',
+                        'NO_CONFIRMED_POSITIONS',
+                        'PENDING_EXPECTED_AMOUNT_UNAVAILABLE',
+                        'PENDING_BALANCE_NOT_VISIBLE_YET',
+                    ]);
+                    if (exitReason === 'mirror_sell' && retryableKeepOpenReasonCodes.has(exitKeepOpenReasonCode)) {
+                        const retryPositionIds = exitPlan.positions
+                            .map((position: any) => String(position?.id || '').trim())
+                            .filter(Boolean);
+                        if (retryPositionIds.length > 0) {
+                            await prisma.position.updateMany({
+                                where: {
+                                    id: { in: retryPositionIds },
+                                    status: { in: ['open', 'pending'] },
+                                },
+                                data: {
+                                    exitReason: 'mirror_sell',
+                                    exitRetryCount: 1,
+                                    lastExitAttempt: null,
+                                },
+                            }).catch(() => null);
+                            logger.info(LogCode.SYS_INFO, 'Mirror sell keep_open scheduled for retry', {
+                                userId,
+                                tokenAddress,
+                                chainId,
+                                reasonCode: exitKeepOpenReasonCode,
+                                retryPositionIds,
                             });
                         }
                     }
@@ -3947,7 +3979,7 @@ export function initAutoTradeService(): void {
                     logger.info(LogCode.SYS_INFO, '[TargetSellReconcile] Cycle completed', result);
                 }
                 if (result.fullExitMatches > 0) {
-                    void runCopytradeOrphanSweepCycle()
+                    void runCopytradeOrphanSweepCycle({ staleBefore: new Date() })
                         .then((sweep) => {
                             if (sweep.scheduledRetryCount > 0 || sweep.quarantinedPendingLots > 0) {
                                 logger.info(LogCode.SYS_INFO, '[CopyTradeOrphanSweep] Follow-up sweep after full-exit matches', sweep);

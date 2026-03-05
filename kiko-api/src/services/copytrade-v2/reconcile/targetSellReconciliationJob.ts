@@ -149,6 +149,20 @@ export async function runTargetSellReconciliationCycle(): Promise<{
     });
     armedPending += count;
     if (count > 0) {
+      const nextRetryCount = Math.max(1, Number((lot.position as any)?.exitRetryCount || 0));
+      await prisma.position.updateMany({
+        where: {
+          id: lot.positionId,
+          status: { in: ['open', 'pending'] },
+        },
+        data: {
+          exitReason: 'mirror_sell',
+          exitRetryCount: nextRetryCount,
+          lastExitAttempt: null,
+        },
+      }).catch(() => null);
+    }
+    if (count > 0) {
       await applyCopytradeStateEvent({
         event: { type: 'TARGET_FULL_EXIT_VERIFIED' },
         chainId: lot.chainId,

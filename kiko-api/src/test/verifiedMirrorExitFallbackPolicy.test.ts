@@ -40,4 +40,49 @@ describe('verified mirror exit fallback policy', () => {
     assert.equal(decision.sellAmountRaw, 1234n);
     assert.equal(decision.reasonCode, 'FULL_BALANCE_FALLBACK');
   });
+
+  test('allows fallback even when pending lots exist after verified full-exit', () => {
+    const decision = evaluateVerifiedMirrorExitFallback({
+      tokenAddress: '0xtoken',
+      chainId: 1,
+      walletAddress: '0xwallet',
+      isMirrorSell: true,
+      hasValidPrice: true,
+      decimals: 18,
+      balanceRaw: 555n,
+      balanceUsd: 1,
+      treatAsEmptyOrDust: false,
+      balanceRead: {
+        status: 'success',
+        value: 555n,
+        reasonCode: 'EXIT_BALANCE_CONFIRMED_POSITIVE',
+        attemptCount: 1,
+        lastError: null,
+        providerSource: 'test',
+      },
+      positions: [{ id: 'pos-1', status: 'open', tokenAddress: '0xtoken' }],
+      pendingLots: [{
+        id: 'lot-1',
+        positionId: 'pos-1',
+        userId: 'user-1',
+        chainId: 1,
+        tokenAddress: '0xtoken',
+        entryTxHash: '0xentry',
+        status: 'sell_armed',
+      }],
+      latestTargetSellTxHash: '0xsell',
+      targetFullExitVerified: true,
+      attribution: {
+        eligiblePositions: [],
+        sellAmountRaw: 0n,
+        reasonCode: 'PENDING_EXPECTED_AMOUNT_UNAVAILABLE',
+        metrics: {},
+        hasExternalBalance: false,
+      },
+    });
+
+    assert.equal(decision.shouldFallback, true);
+    assert.equal(decision.sellAmountRaw, 555n);
+    assert.equal(decision.reasonCode, 'FULL_BALANCE_FALLBACK');
+  });
 });

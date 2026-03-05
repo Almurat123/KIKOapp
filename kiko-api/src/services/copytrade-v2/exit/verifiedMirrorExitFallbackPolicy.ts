@@ -28,7 +28,7 @@ export function evaluateVerifiedMirrorExitFallback(
     return { shouldFallback: false, sellAmountRaw: 0n, reasonCode: snapshot.attribution.reasonCode, positions: snapshot.attribution.eligiblePositions };
   }
   const openPositions = snapshot.positions.filter((position) => String(position.status || '').toLowerCase() === 'open');
-  if (openPositions.length !== 1 || snapshot.pendingLots.length > 0) {
+  if (openPositions.length !== 1) {
     return { shouldFallback: false, sellAmountRaw: 0n, reasonCode: snapshot.attribution.reasonCode, positions: snapshot.attribution.eligiblePositions };
   }
   return {
