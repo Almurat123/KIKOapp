@@ -16,6 +16,7 @@
     "test:copytrade:fast": "tsx src/scripts/replayCt136Reproduction.ts && tsx --test src/test/orphanRecoveryPolicy.test.ts src/test/mirrorSellExecutionPolicy.test.ts src/test/verifiedMirrorExitFallbackPolicy.test.ts src/test/copytrade-position-attribution.test.ts src/test/exitBalancePlannerPolicy.test.ts src/test/legacyAttributionRepairPolicy.test.ts src/test/positionAttributionIntegrityGate.test.ts src/test/copytradeLifecycleStateMachine.test.ts",
     "test:ct136-replay": "tsx src/scripts/replayCt136Reproduction.ts",
     "test:eth-pepe-bps-replay": "tsx src/scripts/replayEthPepeMicroPrice.ts",
+    "test:sol:pump-direct-replay": "tsx src/scripts/replaySolanaPumpDirect.ts",
     "migrate": "prisma migrate deploy",
     "migrate:dev": "prisma migrate dev",
     "diagnostic:db": "node dist/scripts/diagnostic-db.js",

@@ -2041,6 +2041,15 @@ function getEndpointUsageView(url: string) {
     };
 }
 
+function endpointCapacityPressure(endpoint: RpcEndpointConfig): number {
+    const usage = getOrCreateUsage(endpoint.url);
+    const limits = endpoint.limits || {};
+    const rpsPressure = limits.rps ? usage.secondCount / Math.max(1, limits.rps) : 0;
+    const rpmPressure = limits.rpm ? usage.minuteCount / Math.max(1, limits.rpm) : 0;
+    const inFlightPressure = limits.maxInFlight ? usage.inFlight / Math.max(1, limits.maxInFlight) : 0;
+    return Math.max(rpsPressure, rpmPressure, inFlightPressure);
+}
+
 async function probeEndpoint(url: string, method: string, params: any[] = [], timeoutMs = BENCHMARK_TIMEOUT_MS): Promise<{ ok: boolean; ms: number }> {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
@@ -2445,7 +2454,88 @@ export function getRpcEndpoints(chainId: number, strategy?: 'fast' | 'cheap'): s
 const providerCache = new Map<number, { provider: ethers.JsonRpcProvider, url: string, timestamp: number }>();
 const PROVIDER_CACHE_TTL = 60000; // Refresh provider mapping every 1 minute
 const SOLANA_CONN_CACHE = new Map<string, { connection: Connection; timestamp: number }>();
-const SOLANA_CONN_CACHE_TTL = 60000;
+const SOLANA_CONN_CACHE_TTL = Math.max(1_000, Number(process.env.SOLANA_CONN_CACHE_TTL_MS || '15000'));
+const SOLANA_MANAGED_CONNECTION_MARKER = '__kiko_managed_solana_rpc';
+
+type SolanaBatchRequest = {
+    methodName: string;
+    args: any[];
+};
+
+function normalizeSolanaRpcArgs(args: any): any[] {
+    return Array.isArray(args) ? args : [];
+}
+
+function normalizeSolanaRpcResponse<T = any>(response: T): T {
+    if (!response || typeof response !== 'object') {
+        return response;
+    }
+    const maybeResponse = response as Record<string, any>;
+    if (!Object.prototype.hasOwnProperty.call(maybeResponse, 'id')) {
+        return response;
+    }
+    if (typeof maybeResponse.id === 'string') {
+        return response;
+    }
+    return {
+        ...maybeResponse,
+        id: String(maybeResponse.id ?? ''),
+    } as T;
+}
+
+function buildSolanaRpcPath(method: string): string {
+    const safeMethod = String(method || 'unknown').replace(/[^a-zA-Z0-9_]/g, '_');
+    return `solana_connection_${safeMethod}`;
+}
+
+function patchSolanaConnectionRpc(
+    connection: Connection,
+    strategy: 'fast' | 'cheap',
+    importance: RpcImportance
+): Connection {
+    const managedConnection = connection as Connection & {
+        _rpcRequest?: (method: string, args: any[]) => Promise<any>;
+        _rpcBatchRequest?: (requests: SolanaBatchRequest[]) => Promise<any[]>;
+        [SOLANA_MANAGED_CONNECTION_MARKER]?: string;
+    };
+
+    const markerValue = `${strategy}:${importance}`;
+    if (managedConnection[SOLANA_MANAGED_CONNECTION_MARKER] === markerValue) {
+        return managedConnection;
+    }
+
+    managedConnection._rpcRequest = async (method: string, args: any[]) => {
+        const response = await callRpcRaw(
+            'solana',
+            method,
+            normalizeSolanaRpcArgs(args),
+            {
+                strategy,
+                importance,
+                path: buildSolanaRpcPath(method),
+            }
+        );
+        return normalizeSolanaRpcResponse(response);
+    };
+
+    managedConnection._rpcBatchRequest = async (requests: SolanaBatchRequest[]) => {
+        if (!Array.isArray(requests) || requests.length === 0) {
+            return [];
+        }
+
+        return await Promise.all(
+            requests.map((request) =>
+                managedConnection._rpcRequest!(
+                    String(request?.methodName || ''),
+                    normalizeSolanaRpcArgs(request?.args)
+                )
+            )
+        );
+    };
+
+    managedConnection[SOLANA_MANAGED_CONNECTION_MARKER] = markerValue;
+    return managedConnection;
+}
 
 /**
  * Get an ethers.js Provider instance for a chain
@@ -2509,17 +2599,51 @@ export function getSolanaConnection(
     }
 
     const sorted = sortEndpointsByScore(endpoints, 'solana_connection', importance);
-    const chosen = sorted.find(ep => !isCircuitOpen(ep.url)) || sorted[0];
+    const healthy = sorted.filter(ep => !isCircuitOpen(ep.url));
+    const candidates = healthy.length > 0 ? healthy : sorted;
+    let chosen = candidates.find(ep => checkEndpointCapacity(ep, importance).ok);
+
+    if (!chosen && candidates.length > 0) {
+        chosen = [...candidates].sort((a, b) => endpointCapacityPressure(a) - endpointCapacityPressure(b))[0];
+        logger.warn(LogCode.API_FETCH_FAILED, '[RPC][Solana] All endpoints at/near capacity, selecting lowest-pressure endpoint', {
+            strategy,
+            importance,
+            selected: chosen?.name,
+            selectedEndpoint: maskEndpoint(chosen?.url || ''),
+        });
+    }
+
+    if (!chosen) {
+        chosen = sorted[0];
+    }
+
+    const reserve = checkAndReserveCapacity(chosen, importance);
+    if (!reserve.ok) {
+        // Race-safe fallback: if selected endpoint just got saturated, pick another available candidate.
+        const fallback = candidates.find(ep => ep.url !== chosen!.url && checkAndReserveCapacity(ep, importance).ok);
+        if (fallback) {
+            recordUsageEnd(fallback.url);
+            chosen = fallback;
+        } else {
+            // keep current chosen connection selection, but do not keep stale inFlight reservations
+            recordUsageEnd(chosen.url);
+        }
+    } else {
+        // Connection selection should count towards rps/rpm, but not hold long-lived inFlight.
+        recordUsageEnd(chosen.url);
+    }
+
     const url = chosen.url;
+    const cacheKey = `${url}|${strategy}|${importance}`;
     const now = Date.now();
-    const cached = SOLANA_CONN_CACHE.get(url);
+    const cached = SOLANA_CONN_CACHE.get(cacheKey);
 
     if (cached && now - cached.timestamp < SOLANA_CONN_CACHE_TTL) {
         return cached.connection;
     }
 
-    const connection = new Connection(url, 'confirmed');
-    SOLANA_CONN_CACHE.set(url, { connection, timestamp: now });
+    const connection = patchSolanaConnectionRpc(new Connection(url, 'confirmed'), strategy, importance);
+    SOLANA_CONN_CACHE.set(cacheKey, { connection, timestamp: now });
     return connection;
 }
 

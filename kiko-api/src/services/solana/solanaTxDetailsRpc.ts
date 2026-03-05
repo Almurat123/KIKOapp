@@ -1,5 +1,6 @@
 import type { ParsedTransactionWithMeta } from '@solana/web3.js';
-import { getRpcEndpointsWithStrategy } from '../../config/apiEndpoints.js';
+import { getRpcEndpointsWithStrategy, type RpcEndpointConfig } from '../../config/apiEndpoints.js';
+import { callRpcCustom } from '../rpcManager.js';
 
 type SolanaTxFetchOk = {
     ok: true;
@@ -45,7 +46,7 @@ function applyCooldown(url: string, kind: ReturnType<typeof classifyEndpointErro
     else if (kind === 'transport') setCooldown(url, 15 * 1000);
 }
 
-function buildEndpointList(): Array<{ name: string; url: string }> {
+function buildEndpointList(): RpcEndpointConfig[] {
     const all = getRpcEndpointsWithStrategy('solana', 'fast', process.env.SOLANA_RPC_URL);
     const usable = all.filter((ep) => ep.type !== 'fallback' && !isCoolingDown(ep.url));
     const premium = usable.filter((ep) => ep.type === 'premium');
@@ -57,39 +58,11 @@ function buildEndpointList(): Array<{ name: string; url: string }> {
         if (seen.has(ep.url)) return false;
         seen.add(ep.url);
         return true;
-    }).map((ep) => ({ name: ep.name, url: ep.url }));
-}
-
-async function postJsonRpc(url: string, body: unknown): Promise<any> {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 1500);
-    try {
-        const response = await fetch(url, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(body),
-            signal: controller.signal
-        });
-
-        if (!response.ok) {
-            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-        }
-
-        const json = await response.json();
-        if (json?.error) {
-            const message = typeof json.error?.message === 'string'
-                ? json.error.message
-                : JSON.stringify(json.error);
-            throw new Error(`RPC Error: ${message}`);
-        }
-        return json?.result ?? null;
-    } finally {
-        clearTimeout(timeout);
-    }
+    });
 }
 
 async function tryVariant(
-    url: string,
+    endpoint: RpcEndpointConfig,
     txHash: string,
     variant: SolanaTxFetchOk['variant']
 ): Promise<ParsedTransactionWithMeta | null> {
@@ -99,12 +72,12 @@ async function tryVariant(
         finalized_v0: [txHash, { encoding: 'jsonParsed', commitment: 'finalized', maxSupportedTransactionVersion: 0 }],
         finalized_legacy: [txHash, { encoding: 'jsonParsed', commitment: 'finalized' }]
     };
-    return await postJsonRpc(url, {
-        jsonrpc: '2.0',
-        id: `${variant}:${txHash}`,
-        method: 'getTransaction',
-        params: paramsByVariant[variant]
-    }) as ParsedTransactionWithMeta | null;
+    return await callRpcCustom<ParsedTransactionWithMeta | null>(
+        [endpoint],
+        'getTransaction',
+        paramsByVariant[variant],
+        { importance: 'critical' }
+    );
 }
 
 export async function fetchSolanaTransactionDetails(
@@ -122,7 +95,7 @@ export async function fetchSolanaTransactionDetails(
         const variants: SolanaTxFetchOk['variant'][] = ['confirmed_v0', 'confirmed_legacy', 'finalized_v0', 'finalized_legacy'];
         for (const variant of variants) {
             try {
-                const result = await tryVariant(endpoint.url, txHash, variant);
+                const result = await tryVariant(endpoint, txHash, variant);
                 if (result) {
                     return { ok: true, tx: result, sourceUrl: endpoint.url, variant };
                 }

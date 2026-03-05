@@ -1,4 +1,4 @@
-import { Connection, PublicKey, SystemProgram, TransactionInstruction, TransactionMessage, VersionedTransaction } from '@solana/web3.js';
+import { Connection, PublicKey, SystemProgram, Transaction, TransactionInstruction, TransactionMessage, VersionedTransaction } from '@solana/web3.js';
 import { SOLANA_CONFIG, getSolanaConnection } from '../../../config/solanaConfig.js';
 import { logger } from '../../../utils/logger.js';
 import { LogCode } from '../../../config/logRegistry.js';
@@ -22,11 +22,13 @@ const SYSTEM_PROGRAM_ID = SystemProgram.programId;
 const TOKEN_2022_PROGRAM_ID = new PublicKey('TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb');
 const BUY_DISCRIMINATOR = Buffer.from([102, 6, 61, 18, 1, 218, 235, 234]);
 const SELL_DISCRIMINATOR = Buffer.from([51, 230, 133, 164, 1, 127, 131, 173]);
+const GET_FEES_DISCRIMINATOR = Buffer.from([124, 254, 211, 168, 174, 57, 138, 150]);
 const FEE_CONFIG_MAGIC = Buffer.from([
   12, 20, 222, 252, 130, 94, 198, 118, 148, 37, 8, 24, 187, 101, 64, 101,
   244, 41, 141, 49, 86, 213, 113, 180, 212, 248, 9, 12, 24, 233, 168, 99,
 ]);
 const PROTOCOL_FEE_RECIPIENT = new PublicKey('62qc2CNXwrYqQScmEdiZFFAnJR262PxWEuNQtxfafNgV');
+const DEFAULT_PUMPSWAP_FEE_BPS = 30n;
 
 function encodeAtaCreate(): Buffer {
   return Buffer.alloc(0);
@@ -395,6 +397,66 @@ async function executePumpAmmViaJupiterDirect(params: {
   };
 }
 
+function ceilDiv(numerator: bigint, denominator: bigint): bigint {
+  return (numerator + denominator - 1n) / denominator;
+}
+
+function clampBps(value: number): bigint {
+  const safe = Number.isFinite(value) ? Math.floor(value) : 0;
+  if (safe <= 0) return 0n;
+  if (safe >= 9999) return 9999n;
+  return BigInt(safe);
+}
+
+async function resolvePumpSwapFeeBps(
+  connection: Connection,
+  globalConfig: PublicKey,
+  feeConfig: PublicKey
+): Promise<{ totalFeeBps: bigint; source: 'fee_program' | 'global_config' | 'fallback' }> {
+  try {
+    const ix = new TransactionInstruction({
+      programId: FEE_PROGRAM_ID,
+      keys: [{ pubkey: feeConfig, isSigner: false, isWritable: false }],
+      data: GET_FEES_DISCRIMINATOR,
+    });
+    const simulation = await connection.simulateTransaction(
+      new Transaction().add(ix),
+      undefined,
+      false
+    );
+    const rawBase64 = simulation?.value?.returnData?.data?.[0];
+    if (rawBase64) {
+      const raw = Buffer.from(rawBase64, 'base64');
+      if (raw.length >= 24) {
+        const protocolBps = raw.readBigUInt64LE(8);
+        const creatorBps = raw.readBigUInt64LE(16);
+        const total = protocolBps + creatorBps;
+        if (total > 0n && total < 10000n) {
+          return { totalFeeBps: total, source: 'fee_program' };
+        }
+      }
+    }
+  } catch {
+    // fallback below
+  }
+
+  try {
+    const globalInfo = await connection.getAccountInfo(globalConfig, 'confirmed');
+    if (globalInfo?.data?.length && globalInfo.data.length >= 56) {
+      const lpFeeBps = globalInfo.data.readBigUInt64LE(40);
+      const protocolFeeBps = globalInfo.data.readBigUInt64LE(48);
+      const total = lpFeeBps + protocolFeeBps;
+      if (total > 0n && total < 10000n) {
+        return { totalFeeBps: total, source: 'global_config' };
+      }
+    }
+  } catch {
+    // fallback below
+  }
+
+  return { totalFeeBps: DEFAULT_PUMPSWAP_FEE_BPS, source: 'fallback' };
+}
+
 async function resolveReserves(
   connection: Connection,
   poolBaseAta: PublicKey,
@@ -410,25 +472,113 @@ async function resolveReserves(
   };
 }
 
-function computeBuyAmounts(quoteInLamports: bigint, baseReserves: bigint, quoteReserves: bigint, slippageBps: number) {
-  // PumpSwap buy instruction: base_amount_out (tokens to receive) + max_quote_amount_in (max SOL to pay).
-  // Given a fixed SOL spend (quoteInLamports), calculate expected tokenOut via constant-product AMM.
-  //
-  // Constant product with 0.3% protocol fee applied on the input:
-  //   effectiveQuoteIn = quoteInLamports * (10000 - feeBps) / 10000
-  //   tokenOut = baseReserves * effectiveQuoteIn / (quoteReserves + effectiveQuoteIn)
-  //
-  // maxQuoteAmountIn = quoteInLamports * (1 + slippage) — the most SOL we'll pay for tokenOut tokens.
-  const feeBps = 30n;
-  const effectiveQuoteIn = (quoteInLamports * (10000n - feeBps)) / 10000n;
-  if (effectiveQuoteIn <= 0n) throw new Error('effective quote-in is zero after fee');
+function quoteNetQuoteInForTokenOut(tokenOut: bigint, baseReserves: bigint, quoteReserves: bigint): bigint | null {
+  if (tokenOut <= 0n || tokenOut >= baseReserves) return null;
+  const denominator = baseReserves - tokenOut;
+  if (denominator <= 0n) return null;
+  return ceilDiv(quoteReserves * tokenOut, denominator);
+}
 
-  const tokenOut = (baseReserves * effectiveQuoteIn) / (quoteReserves + effectiveQuoteIn);
-  if (tokenOut <= 0n) throw new Error('calculated zero tokens out from AMM');
+function quoteGrossQuoteInForTokenOut(
+  tokenOut: bigint,
+  baseReserves: bigint,
+  quoteReserves: bigint,
+  totalFeeBps: bigint
+): bigint | null {
+  const net = quoteNetQuoteInForTokenOut(tokenOut, baseReserves, quoteReserves);
+  if (net === null) return null;
+  if (totalFeeBps < 0n || totalFeeBps >= 10000n) return null;
+  const feeDen = 10000n - totalFeeBps;
+  if (feeDen <= 0n) return null;
+  return ceilDiv(net * 10000n, feeDen);
+}
 
-  const slip = BigInt(slippageBps);
-  const maxQuoteAmountIn = (quoteInLamports * (10000n + slip)) / 10000n;
-  return { tokenOut, maxQuoteAmountIn };
+function findMaxTokensOutForGrossBudget(
+  grossBudget: bigint,
+  baseReserves: bigint,
+  quoteReserves: bigint,
+  totalFeeBps: bigint
+): bigint {
+  if (grossBudget <= 0n || baseReserves <= 1n || quoteReserves <= 0n) return 0n;
+  if (totalFeeBps < 0n || totalFeeBps >= 10000n) return 0n;
+  let low = 0n;
+  let high = baseReserves - 1n;
+  while (low < high) {
+    const mid = (low + high + 1n) / 2n;
+    const needed = quoteGrossQuoteInForTokenOut(mid, baseReserves, quoteReserves, totalFeeBps);
+    if (needed !== null && needed <= grossBudget) {
+      low = mid;
+    } else {
+      high = mid - 1n;
+    }
+  }
+  return low;
+}
+
+function computeBuyAmounts(
+  quoteInLamports: bigint,
+  baseReserves: bigint,
+  quoteReserves: bigint,
+  slippageBps: number,
+  totalFeeBps: bigint,
+  extraTokenOutHaircutBps = 0
+) {
+  // Build PumpSwap buy in a fixed-input style:
+  // - max_quote_amount_in stays at the user's budget.
+  // - base_amount_out is conservative (slippage + optional retry haircut).
+  const tokenOutExpected = findMaxTokensOutForGrossBudget(quoteInLamports, baseReserves, quoteReserves, totalFeeBps);
+  if (tokenOutExpected <= 0n) throw new Error('calculated zero tokens out from AMM');
+  const slip = clampBps(slippageBps);
+  const retryHaircut = clampBps(extraTokenOutHaircutBps);
+  let tokenOut = (tokenOutExpected * (10000n - slip)) / 10000n;
+  tokenOut = (tokenOut * (10000n - retryHaircut)) / 10000n;
+  if (tokenOut <= 0n) tokenOut = 1n;
+  if (tokenOut >= baseReserves) tokenOut = baseReserves - 1n;
+  const maxQuoteAmountIn = quoteInLamports;
+  return { tokenOutExpected, tokenOut, maxQuoteAmountIn };
+}
+
+function extractErrorText(value: unknown): string {
+  if (!value) return '';
+  if (typeof value === 'string') return value;
+  if (typeof value === 'object') {
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return String(value);
+    }
+  }
+  return String(value);
+}
+
+function isPumpOverflowErrorMessage(message: string): boolean {
+  const m = message.toLowerCase();
+  return (
+    m.includes('error code: overflow')
+    || m.includes('custom program error: 0x1788')
+    || m.includes('custom error: 6023')
+    || m.includes('anchorerror occurred. error code: overflow')
+  );
+}
+
+async function simulateDirectTransaction(connection: Connection, tx: VersionedTransaction): Promise<{ ok: boolean; errorText: string; overflow: boolean }> {
+  try {
+    const simulation = await connection.simulateTransaction(
+      tx,
+      { sigVerify: false, replaceRecentBlockhash: true, commitment: 'processed' }
+    );
+    const errorText = [
+      extractErrorText(simulation?.value?.err),
+      ...(simulation?.value?.logs || []),
+    ].filter(Boolean).join('\n');
+    if (!simulation?.value?.err) {
+      return { ok: true, errorText, overflow: false };
+    }
+    return { ok: false, errorText, overflow: isPumpOverflowErrorMessage(errorText) };
+  } catch (error: any) {
+    const errorText = extractErrorText(error?.message || error);
+    return { ok: false, errorText, overflow: isPumpOverflowErrorMessage(errorText) };
+  }
 }
 
 function computeSellAmounts(tokenIn: bigint, baseReserves: bigint, quoteReserves: bigint, slippageBps: number) {
@@ -487,7 +637,6 @@ export async function executePumpSwapDirect(
     const { pool, layout } = resolvedPool;
 
     const baseProgramId = await getMintProgramId(connection, layout.baseMint);
-
     if (!layout.baseMint.equals(mint) || !layout.quoteMint.equals(WSOL_MINT)) {
       return {
         ok: false,
@@ -497,7 +646,6 @@ export async function executePumpSwapDirect(
       };
     }
 
-    // coin_creator_vault_authority PDA seed must use pool.coin_creator (not pool.creator).
     let effectiveCoinCreator = !isZeroLikePubkey(layout.coinCreator) ? layout.coinCreator : layout.creator;
     if (request.creatorAddress) {
       try {
@@ -521,6 +669,8 @@ export async function executePumpSwapDirect(
     const poolBaseAta = layout.baseVault;
     const poolQuoteAta = layout.quoteVault;
     const globalConfig = deriveGlobalConfig();
+    const feeConfig = deriveFeeConfig();
+    const feeSnapshot = await resolvePumpSwapFeeBps(connection, globalConfig, feeConfig);
     const protocolFeeRecipient = await resolveProtocolFeeRecipient(connection, globalConfig);
     const protocolFeeAta = getAssociatedTokenAddress(WSOL_MINT, protocolFeeRecipient, true, TOKEN_PROGRAM_ID);
     const creatorVaultAuthority = deriveCreatorVaultAuthority(effectiveCoinCreator);
@@ -528,7 +678,6 @@ export async function executePumpSwapDirect(
       [creatorVaultAuthority.toBuffer(), TOKEN_PROGRAM_ID.toBuffer(), WSOL_MINT.toBuffer()],
       ASSOCIATED_TOKEN_PROGRAM_ID,
     )[0];
-    const feeConfig = deriveFeeConfig();
     const eventAuthority = deriveEventAuthority();
     const globalVolumeAccumulator = deriveGlobalVolumeAccumulator();
     const userVolumeAccumulator = deriveUserVolumeAccumulator(user);
@@ -542,129 +691,197 @@ export async function executePumpSwapDirect(
       return { ok: false, provider: 'pumpswap', reasonCode: 'insufficient_liquidity', message: 'pumpswap reserves are empty' };
     }
 
-    const instructions: TransactionInstruction[] = [];
-
+    const baseInstructions: TransactionInstruction[] = [];
     if (!quoteExists) {
-      instructions.push(createAssociatedTokenAccountInstruction(user, userQuoteAta, user, WSOL_MINT, TOKEN_PROGRAM_ID));
+      baseInstructions.push(createAssociatedTokenAccountInstruction(user, userQuoteAta, user, WSOL_MINT, TOKEN_PROGRAM_ID));
     }
     if (!baseExists) {
-      instructions.push(createAssociatedTokenAccountInstruction(user, userBaseAta, user, mint, baseProgramId));
+      baseInstructions.push(createAssociatedTokenAccountInstruction(user, userBaseAta, user, mint, baseProgramId));
     }
 
-    if (request.isBuy) {
-      const { tokenOut, maxQuoteAmountIn } = computeBuyAmounts(amount, baseReserves, quoteReserves, request.slippageBps);
-      const wrapAmount = maxQuoteAmountIn + 500000n;
-      instructions.push(
-        SystemProgram.transfer({ fromPubkey: user, toPubkey: userQuoteAta, lamports: Number(wrapAmount) }),
-        createSyncNativeInstruction(userQuoteAta),
-      );
+    const buildPumpSwapIx = (data: Buffer, includeVolumeAccounts: boolean) => new TransactionInstruction({
+      programId: PUMP_SWAP_PROGRAM_ID,
+      keys: [
+        { pubkey: pool, isSigner: false, isWritable: true },
+        { pubkey: user, isSigner: true, isWritable: true },
+        { pubkey: globalConfig, isSigner: false, isWritable: false },
+        { pubkey: layout.baseMint, isSigner: false, isWritable: false },
+        { pubkey: WSOL_MINT, isSigner: false, isWritable: false },
+        { pubkey: userBaseAta, isSigner: false, isWritable: true },
+        { pubkey: userQuoteAta, isSigner: false, isWritable: true },
+        { pubkey: poolBaseAta, isSigner: false, isWritable: true },
+        { pubkey: poolQuoteAta, isSigner: false, isWritable: true },
+        { pubkey: protocolFeeRecipient, isSigner: false, isWritable: false },
+        { pubkey: protocolFeeAta, isSigner: false, isWritable: true },
+        { pubkey: baseProgramId, isSigner: false, isWritable: false },
+        { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
+        { pubkey: SYSTEM_PROGRAM_ID, isSigner: false, isWritable: false },
+        { pubkey: ASSOCIATED_TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
+        { pubkey: eventAuthority, isSigner: false, isWritable: false },
+        { pubkey: PUMP_SWAP_PROGRAM_ID, isSigner: false, isWritable: false },
+        { pubkey: creatorVaultAta, isSigner: false, isWritable: true },
+        { pubkey: creatorVaultAuthority, isSigner: false, isWritable: false },
+        ...(includeVolumeAccounts
+          ? [
+              { pubkey: globalVolumeAccumulator, isSigner: false, isWritable: true },
+              { pubkey: userVolumeAccumulator, isSigner: false, isWritable: true },
+            ]
+          : []),
+        { pubkey: feeConfig, isSigner: false, isWritable: false },
+        { pubkey: FEE_PROGRAM_ID, isSigner: false, isWritable: false },
+      ],
+      data,
+    });
 
-      const data = Buffer.concat([
-        BUY_DISCRIMINATOR,
-        toU64LE(tokenOut),
-        toU64LE(maxQuoteAmountIn),
-        Buffer.from([0]),
-      ]);
-
-      instructions.push(new TransactionInstruction({
-        programId: PUMP_SWAP_PROGRAM_ID,
-        keys: [
-          { pubkey: pool, isSigner: false, isWritable: true },
-          { pubkey: user, isSigner: true, isWritable: true },
-          { pubkey: globalConfig, isSigner: false, isWritable: false },
-          { pubkey: layout.baseMint, isSigner: false, isWritable: false },
-          { pubkey: WSOL_MINT, isSigner: false, isWritable: false },
-          { pubkey: userBaseAta, isSigner: false, isWritable: true },
-          { pubkey: userQuoteAta, isSigner: false, isWritable: true },
-          { pubkey: poolBaseAta, isSigner: false, isWritable: true },
-          { pubkey: poolQuoteAta, isSigner: false, isWritable: true },
-          { pubkey: protocolFeeRecipient, isSigner: false, isWritable: false },
-          { pubkey: protocolFeeAta, isSigner: false, isWritable: true },
-          { pubkey: baseProgramId, isSigner: false, isWritable: false },
-          { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
-          { pubkey: SYSTEM_PROGRAM_ID, isSigner: false, isWritable: false },
-          { pubkey: ASSOCIATED_TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
-          { pubkey: eventAuthority, isSigner: false, isWritable: false },
-          { pubkey: PUMP_SWAP_PROGRAM_ID, isSigner: false, isWritable: false },
-          { pubkey: creatorVaultAta, isSigner: false, isWritable: true },
-          { pubkey: creatorVaultAuthority, isSigner: false, isWritable: false },
-          { pubkey: globalVolumeAccumulator, isSigner: false, isWritable: true },
-          { pubkey: userVolumeAccumulator, isSigner: false, isWritable: true },
-          { pubkey: feeConfig, isSigner: false, isWritable: false },
-          { pubkey: FEE_PROGRAM_ID, isSigner: false, isWritable: false },
-        ],
-        data,
-      }));
-
-      instructions.push(createCloseAccountInstruction(userQuoteAta, user, user));
-    } else {
-      const { tokenIn, minQuoteAmountOut } = computeSellAmounts(amount, baseReserves, quoteReserves, request.slippageBps);
-      const data = Buffer.concat([
-        SELL_DISCRIMINATOR,
-        toU64LE(tokenIn),
-        toU64LE(minQuoteAmountOut),
-      ]);
-
-      instructions.push(new TransactionInstruction({
-        programId: PUMP_SWAP_PROGRAM_ID,
-        keys: [
-          { pubkey: pool, isSigner: false, isWritable: true },
-          { pubkey: user, isSigner: true, isWritable: true },
-          { pubkey: globalConfig, isSigner: false, isWritable: false },
-          { pubkey: layout.baseMint, isSigner: false, isWritable: false },
-          { pubkey: WSOL_MINT, isSigner: false, isWritable: false },
-          { pubkey: userBaseAta, isSigner: false, isWritable: true },
-          { pubkey: userQuoteAta, isSigner: false, isWritable: true },
-          { pubkey: poolBaseAta, isSigner: false, isWritable: true },
-          { pubkey: poolQuoteAta, isSigner: false, isWritable: true },
-          { pubkey: protocolFeeRecipient, isSigner: false, isWritable: false },
-          { pubkey: protocolFeeAta, isSigner: false, isWritable: true },
-          { pubkey: baseProgramId, isSigner: false, isWritable: false },
-          { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
-          { pubkey: SYSTEM_PROGRAM_ID, isSigner: false, isWritable: false },
-          { pubkey: ASSOCIATED_TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
-          { pubkey: eventAuthority, isSigner: false, isWritable: false },
-          { pubkey: PUMP_SWAP_PROGRAM_ID, isSigner: false, isWritable: false },
-          { pubkey: creatorVaultAta, isSigner: false, isWritable: true },
-          { pubkey: creatorVaultAuthority, isSigner: false, isWritable: false },
-          { pubkey: feeConfig, isSigner: false, isWritable: false },
-          { pubkey: FEE_PROGRAM_ID, isSigner: false, isWritable: false },
-        ],
-        data,
-      }));
-
-      instructions.push(createCloseAccountInstruction(userQuoteAta, user, user));
-    }
-
-    const fee = getPlatformFee(request.feeContext || 'swap');
-    if (request.isBuy && fee.bps > 0 && fee.solanaRecipient) {
-      const feeAmount = (amount * BigInt(fee.bps)) / 10000n;
+    const platformFeeInstructions: TransactionInstruction[] = [];
+    const platformFee = getPlatformFee(request.feeContext || 'swap');
+    if (request.isBuy && platformFee.bps > 0 && platformFee.solanaRecipient) {
+      const feeAmount = (amount * BigInt(platformFee.bps)) / 10000n;
       if (feeAmount > 0n) {
-        instructions.unshift(SystemProgram.transfer({
+        platformFeeInstructions.push(SystemProgram.transfer({
           fromPubkey: user,
-          toPubkey: new PublicKey(fee.solanaRecipient),
+          toPubkey: new PublicKey(platformFee.solanaRecipient),
           lamports: Number(feeAmount),
         }));
       }
     }
 
-    const recentBlockhash = await getLatestSolanaBlockhash(connection, 'pumpswap_direct');
-    const messageV0 = new TransactionMessage({
-      payerKey: user,
-      recentBlockhash: recentBlockhash.blockhash,
-      instructions,
-    }).compileToV0Message();
+    const buildTx = async (instructions: TransactionInstruction[], blockhashTag: string): Promise<VersionedTransaction> => {
+      const recentBlockhash = await getLatestSolanaBlockhash(connection, blockhashTag);
+      const messageV0 = new TransactionMessage({
+        payerKey: user,
+        recentBlockhash: recentBlockhash.blockhash,
+        instructions,
+      }).compileToV0Message();
+      return new VersionedTransaction(messageV0);
+    };
 
-    const transaction = new VersionedTransaction(messageV0);
-    const serializedTx = Buffer.from(transaction.serialize()).toString('base64');
-    const txHash = await sendSolanaTransactionWithContext(request.userId, serializedTx, signingContext);
+    if (request.isBuy) {
+      const retryHaircutsBps = [0, 500, 1000, 2000];
+      let lastBuyError = '';
+      for (const retryHaircutBps of retryHaircutsBps) {
+        const { tokenOutExpected, tokenOut, maxQuoteAmountIn } = computeBuyAmounts(
+          amount,
+          baseReserves,
+          quoteReserves,
+          request.slippageBps,
+          feeSnapshot.totalFeeBps,
+          retryHaircutBps
+        );
+        const data = Buffer.concat([
+          BUY_DISCRIMINATOR,
+          toU64LE(tokenOut),
+          toU64LE(maxQuoteAmountIn),
+          Buffer.from([0]),
+        ]);
+        const instructions = [
+          ...platformFeeInstructions,
+          ...baseInstructions,
+          SystemProgram.transfer({ fromPubkey: user, toPubkey: userQuoteAta, lamports: Number(maxQuoteAmountIn + 500000n) }),
+          createSyncNativeInstruction(userQuoteAta),
+          buildPumpSwapIx(data, true),
+          createCloseAccountInstruction(userQuoteAta, user, user),
+        ];
+        const tx = await buildTx(instructions, 'pumpswap_direct_buy');
+        const simulation = await simulateDirectTransaction(connection, tx);
+        if (!simulation.ok) {
+          lastBuyError = simulation.errorText;
+          if (simulation.overflow && retryHaircutBps < retryHaircutsBps[retryHaircutsBps.length - 1]) {
+            logger.warn(LogCode.EXE_TX_REVERTED, '[PumpSwapDirect] buy simulation overflow, retrying with tighter tokenOut', {
+              mint: request.mint,
+              retryHaircutBps,
+              tokenOutExpected: tokenOutExpected.toString(),
+              tokenOutAttempt: tokenOut.toString(),
+              feeBps: feeSnapshot.totalFeeBps.toString(),
+              feeSource: feeSnapshot.source,
+            });
+            continue;
+          }
+          if (simulation.overflow) break;
+          return {
+            ok: false,
+            provider: 'pumpswap',
+            reasonCode: 'build_failed',
+            message: simulation.errorText || 'pumpswap direct simulation failed',
+          };
+        }
+
+        try {
+          const txHash = await sendSolanaTransactionWithContext(
+            request.userId,
+            Buffer.from(tx.serialize()).toString('base64'),
+            signingContext
+          );
+          logger.info(LogCode.EXE_TX_BROADCAST, '[PumpSwapDirect] Transaction sent', {
+            txHash,
+            mint: request.mint,
+            side: 'buy',
+            retryHaircutBps,
+            tokenOutExpected: tokenOutExpected.toString(),
+            tokenOutSent: tokenOut.toString(),
+            feeBps: feeSnapshot.totalFeeBps.toString(),
+            feeSource: feeSnapshot.source,
+          });
+          return {
+            ok: true,
+            txHash,
+            provider: 'pumpswap',
+            route: 'direct',
+            metadata: {
+              creatorAddress: effectiveCoinCreator.toBase58(),
+              pool: pool.toBase58(),
+              baseProgramId: baseProgramId.toBase58(),
+              protocolFeeRecipient: protocolFeeRecipient.toBase58(),
+              layoutVersion: layout.layoutVersion,
+              buyTokenOutExpected: tokenOutExpected.toString(),
+              buyTokenOutSent: tokenOut.toString(),
+              maxQuoteAmountIn: maxQuoteAmountIn.toString(),
+              feeBps: feeSnapshot.totalFeeBps.toString(),
+              feeSource: feeSnapshot.source,
+            },
+          };
+        } catch (sendError: any) {
+          const sendText = extractErrorText(sendError?.message || sendError);
+          lastBuyError = sendText;
+          if (isPumpOverflowErrorMessage(sendText) && retryHaircutBps < retryHaircutsBps[retryHaircutsBps.length - 1]) {
+            logger.warn(LogCode.EXE_TX_REVERTED, '[PumpSwapDirect] buy send overflow, retrying with tighter tokenOut', {
+              mint: request.mint,
+              retryHaircutBps,
+              error: sendText.slice(0, 220),
+            });
+            continue;
+          }
+          throw sendError;
+        }
+      }
+
+      logger.warn(LogCode.EXE_TX_REVERTED, '[PumpSwapDirect] buy path exhausted direct retries, falling back to Jupiter', {
+        mint: request.mint,
+        error: lastBuyError.slice(0, 220),
+      });
+      return executePumpAmmViaJupiterDirect({ request, signingContext, connection });
+    }
+
+    const { tokenIn, minQuoteAmountOut } = computeSellAmounts(amount, baseReserves, quoteReserves, request.slippageBps);
+    const sellData = Buffer.concat([SELL_DISCRIMINATOR, toU64LE(tokenIn), toU64LE(minQuoteAmountOut)]);
+    const sellInstructions = [
+      ...baseInstructions,
+      buildPumpSwapIx(sellData, false),
+      createCloseAccountInstruction(userQuoteAta, user, user),
+    ];
+    const sellTx = await buildTx(sellInstructions, 'pumpswap_direct_sell');
+    const txHash = await sendSolanaTransactionWithContext(
+      request.userId,
+      Buffer.from(sellTx.serialize()).toString('base64'),
+      signingContext
+    );
 
     logger.info(LogCode.EXE_TX_BROADCAST, '[PumpSwapDirect] Transaction sent', {
       txHash,
       mint: request.mint,
-      side: request.isBuy ? 'buy' : 'sell',
+      side: 'sell',
+      minQuoteAmountOut: minQuoteAmountOut.toString(),
     });
-
     return {
       ok: true,
       txHash,
@@ -676,6 +893,7 @@ export async function executePumpSwapDirect(
         baseProgramId: baseProgramId.toBase58(),
         protocolFeeRecipient: protocolFeeRecipient.toBase58(),
         layoutVersion: layout.layoutVersion,
+        minQuoteAmountOut: minQuoteAmountOut.toString(),
       },
     };
   } catch (error: any) {
@@ -684,10 +902,13 @@ export async function executePumpSwapDirect(
       msg.includes('ConstraintSeeds')
       || msg.includes('custom program error: 0x7d6')
       || msg.includes('0x7d6');
-    if (retryableSeedMismatch) {
-      logger.warn(LogCode.EXE_TX_REVERTED, '[PumpSwapDirect] seed mismatch on direct path, falling back to Jupiter Pump.fun AMM route', {
+    const retryableOverflow = isPumpOverflowErrorMessage(msg);
+    if (retryableSeedMismatch || retryableOverflow) {
+      logger.warn(LogCode.EXE_TX_REVERTED, '[PumpSwapDirect] direct path failed, falling back to Jupiter Pump.fun AMM route', {
         mint: request.mint,
         side: request.isBuy ? 'buy' : 'sell',
+        retryableSeedMismatch,
+        retryableOverflow,
         error: msg.slice(0, 220),
       });
       try {
@@ -719,6 +940,16 @@ export function extractPumpSwapCreatorAddress(data: unknown): string | null {
 export const __pumpSwapExecutorTest = {
   decodePumpSwapPoolLayout,
   resolveProtocolFeeRecipientFromGlobalConfigData,
+  resolvePumpSwapPoolForMint,
+  resolvePumpSwapFeeBps,
+  resolveReserves,
+  deriveGlobalConfig,
+  deriveFeeConfig,
+  WSOL_MINT,
+  findMaxTokensOutForGrossBudget,
+  quoteGrossQuoteInForTokenOut,
+  computeBuyAmounts,
+  isPumpOverflowErrorMessage,
 };
 
 export async function getPumpSwapLiquidityUsd(mintAddress: string, creatorAddress?: string | null): Promise<number | null> {

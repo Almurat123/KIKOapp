@@ -50,4 +50,41 @@ describe('pump swap executor parsing', () => {
     assert.ok(parsed);
     assert.equal(parsed!.toBase58(), reserved.toBase58());
   });
+
+  test('compute buy amounts respects gross input budget and applies slippage haircut', () => {
+    const grossBudget = 1_000_000n; // 0.001 SOL
+    const baseReserves = 1_000_000_000_000n;
+    const quoteReserves = 50_000_000_000n;
+    const totalFeeBps = 30n;
+
+    const result = __pumpSwapExecutorTest.computeBuyAmounts(
+      grossBudget,
+      baseReserves,
+      quoteReserves,
+      300,
+      totalFeeBps,
+      0
+    );
+
+    assert.ok(result.tokenOutExpected > 0n);
+    assert.ok(result.tokenOut > 0n);
+    assert.ok(result.tokenOut <= result.tokenOutExpected);
+    assert.equal(result.maxQuoteAmountIn, grossBudget);
+
+    const requiredGross = __pumpSwapExecutorTest.quoteGrossQuoteInForTokenOut(
+      result.tokenOut,
+      baseReserves,
+      quoteReserves,
+      totalFeeBps
+    );
+    assert.ok(requiredGross !== null);
+    assert.ok(requiredGross! <= grossBudget);
+  });
+
+  test('detects pump overflow error texts consistently', () => {
+    assert.equal(__pumpSwapExecutorTest.isPumpOverflowErrorMessage('custom program error: 0x1788'), true);
+    assert.equal(__pumpSwapExecutorTest.isPumpOverflowErrorMessage('AnchorError occurred. Error Code: Overflow'), true);
+    assert.equal(__pumpSwapExecutorTest.isPumpOverflowErrorMessage('custom error: 6023'), true);
+    assert.equal(__pumpSwapExecutorTest.isPumpOverflowErrorMessage('insufficient funds'), false);
+  });
 });
