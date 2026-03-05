@@ -269,26 +269,26 @@ export const EmbedPreview: React.FC<EmbedPreviewProps> = ({ url, isDark }) => {
                             fontSize: '11px',
                             color: isDark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.5)',
                             marginBottom: '4px',
-                            textTransform: 'uppercase',
-                            letterSpacing: '0.05em',
-                            fontWeight: '700'
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '4px'
                         }}>
-                            {data.siteName}
+                            {/* Favicon placeholder or simple text */}
+                            <span style={{ fontWeight: '600' }}>{data.siteName}</span>
                         </div>
                     )}
 
                     {data.title && (
                         <div style={{
-                            fontSize: '13px',
+                            fontSize: '15px',
                             fontWeight: '600',
                             color: isDark ? '#ffffff' : '#111827',
-                            marginBottom: '6px',
-                            lineHeight: '1.4',
+                            marginBottom: '4px',
+                            lineHeight: '1.3',
                             display: '-webkit-box',
                             WebkitLineClamp: 2,
                             WebkitBoxOrient: 'vertical',
                             overflow: 'hidden',
-                            fontFamily: "'Fredoka', sans-serif"
                         }}>
                             {data.title}
                         </div>
@@ -296,11 +296,11 @@ export const EmbedPreview: React.FC<EmbedPreviewProps> = ({ url, isDark }) => {
 
                     {data.description && (
                         <div style={{
-                            fontSize: '12px',
+                            fontSize: '14px',
                             color: isDark ? 'rgba(255,255,255,0.6)' : 'rgba(0,0,0,0.6)',
-                            lineHeight: '1.5',
+                            lineHeight: '1.4',
                             display: '-webkit-box',
-                            WebkitLineClamp: 3,
+                            WebkitLineClamp: 2,
                             WebkitBoxOrient: 'vertical',
                             overflow: 'hidden'
                         }}>

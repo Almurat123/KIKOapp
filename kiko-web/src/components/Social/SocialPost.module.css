@@ -62,9 +62,9 @@
 }
 
 .postText {
-    font-size: 16px;
+    font-size: 15px;
     font-weight: 500;
-    line-height: 1.4;
+    line-height: 1.45;
     color: var(--text-primary);
     /* 适配正文颜色 */
     word-break: break-word;
@@ -85,6 +85,7 @@
 .truncated {
     display: -webkit-box;
     -webkit-line-clamp: 5;
+    line-clamp: 5;
     -webkit-box-orient: vertical;
     overflow: hidden;
 }
@@ -100,7 +101,7 @@
 /* 原生媒体容器 */
 .mediaContainer {
     width: 100%;
-    border-radius: 16px;
+    border-radius: 12px;
     overflow: hidden;
     position: relative;
     border: 1px solid var(--border-color);
@@ -126,25 +127,29 @@
 }
 
 .gridCount1 img {
-    max-height: 540px;
+    /* 允许竖图最高比例 4:5, 横图 16:9 */
+    max-height: 600px;
+    min-height: 200px;
+    object-fit: cover;
 }
 
 .gridCount2 {
     grid-template-columns: repeat(2, 1fr);
+    aspect-ratio: 16 / 9;
 }
 
 .gridCount2 img {
-    aspect-ratio: 7 / 8;
+    height: 100%;
 }
 
 .gridCount3 {
     grid-template-columns: repeat(2, 1fr);
     grid-template-rows: repeat(2, 1fr);
+    aspect-ratio: 16 / 9;
 }
 
 .gridCount3 img:nth-child(1) {
     grid-row: 1 / span 2;
-    aspect-ratio: 7 / 8;
 }
 
 .gridCount3 img:nth-child(n+2) {
@@ -154,6 +159,7 @@
 .gridCount4 {
     grid-template-columns: repeat(2, 1fr);
     grid-template-rows: repeat(2, 1fr);
+    aspect-ratio: 16 / 9;
 }
 
 .gridCount4 img {

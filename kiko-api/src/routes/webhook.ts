@@ -45,6 +45,10 @@ import {
     resolveTrackedWalletsFromSnapshot
 } from '../services/copytrade-v2/ingress/trackedWalletSnapshot.js';
 import {
+    getPendingPredecodeSource,
+    isPendingPredecodeTrusted
+} from '../services/copytrade-v2/ingress/pendingPredecodeTrustPolicy.js';
+import {
     buildActivityCashHint,
     buildTxSkeletonFromAlchemyActivity,
     pickBestActivity,
@@ -683,11 +687,17 @@ async function processAlchemyWebhookPayload(payload: any): Promise<void> {
                     .filter((r) => !!r.predecoded?.swap)
                     .map((r) => [r.wallet.toLowerCase(), r.predecoded!])
             );
+            const trustedPredecodedByWallet = new Map(
+                predecodedRows
+                    .filter((r) => !!r.predecoded?.swap && isPendingPredecodeTrusted(r.predecoded))
+                    .map((r) => [r.wallet.toLowerCase(), r.predecoded!])
+            );
 
             const decodeStart = Date.now();
             const decodeDeadline = decodeStart + WEBHOOK_FETCH_PARSE_BUDGET_MS;
             let receipt: any = null;
-            if (predecodedByWallet.size !== trackedWallets.length) {
+            const allWalletsHaveTrustedPredecoded = trustedPredecodedByWallet.size === trackedWallets.length && trackedWallets.length > 0;
+            if (!allWalletsHaveTrustedPredecoded) {
                 const fetchReceiptWithRetry = async () => {
                     const maxAttempts = Math.max(1, Number(process.env.COPYTRADE_WEBHOOK_RECEIPT_MAX_ATTEMPTS || 2));
                     const baseDelayMs = Math.max(40, Number(process.env.COPYTRADE_WEBHOOK_RECEIPT_RETRY_BASE_MS || 120));
@@ -717,7 +727,7 @@ async function processAlchemyWebhookPayload(payload: any): Promise<void> {
                     });
                 }
                 if (!receipt) {
-                    if (predecodedByWallet.size === 0) {
+                    if (trustedPredecodedByWallet.size === 0) {
                         console.warn(`[Webhook] Could not fetch receipt after retries: ${txHash.slice(0, 16)}`, {
                             receiptMissing: true,
                             attempts: fetched.attempts
@@ -730,8 +740,9 @@ async function processAlchemyWebhookPayload(payload: any): Promise<void> {
                         );
                         return;
                     }
-                    console.warn(`[Webhook] Receipt missing, continuing with pending predecode only: ${txHash.slice(0, 16)}`, {
+                    console.warn(`[Webhook] Receipt missing, continuing only with trusted predecode swaps: ${txHash.slice(0, 16)}`, {
                         cachedWallets: predecodedByWallet.size,
+                        trustedCachedWallets: trustedPredecodedByWallet.size,
                         trackedWallets: trackedWallets.length
                     });
                 }
@@ -752,10 +763,25 @@ async function processAlchemyWebhookPayload(payload: any): Promise<void> {
             await Promise.allSettled(trackedWallets.map(async (walletRecord) => {
                 const trackedTarget = walletRecord.address;
                 const cached = predecodedByWallet.get(trackedTarget.toLowerCase());
-                let swap = cached?.swap || null;
+                const cachedTrusted = isPendingPredecodeTrusted(cached);
+                const useCachedSwap = cachedTrusted && Boolean(cached?.swap);
+                let swap = useCachedSwap ? (cached?.swap || null) : null;
+                let swapSource: 'webhook_cached_predecoded' | 'webhook_decode' = useCachedSwap
+                    ? 'webhook_cached_predecoded'
+                    : 'webhook_decode';
                 let resolvedTxForContext = txSkeleton;
                 let activityCashHint: ActivityCashHint | null = null;
-                if (cached?.swap) usedPredecoded += 1;
+                if (useCachedSwap) {
+                    usedPredecoded += 1;
+                } else if (cached?.swap && !cachedTrusted) {
+                    console.warn('[Webhook] Ignoring untrusted pending predecoded swap until receipt-confirmed decode', {
+                        chainId,
+                        txHash,
+                        wallet: trackedTarget,
+                        predecodedSource: getPendingPredecodeSource(cached),
+                        reasonCode: 'pending_predecoded_unconfirmed_blocked'
+                    });
+                }
 
                 if (!swap && receipt) {
                     const parseSkeletonStart = Date.now();
@@ -774,13 +800,13 @@ async function processAlchemyWebhookPayload(payload: any): Promise<void> {
                         activityCashHint = await buildActivityCashHint(evmActivities, trackedTarget, chainId).catch(() => null);
                     }
 
-                    const shouldAttemptFullTxFallback = !cached && (
+                    const shouldAttemptFullTxFallback = !useCachedSwap && (
                         !swap
                         || shouldForceFullTxRepair({
                             chainId,
                             swap,
                             cashHint: activityCashHint,
-                            hasCachedSwap: Boolean(cached)
+                            hasCachedSwap: useCachedSwap
                         })
                     );
 
@@ -806,6 +832,7 @@ async function processAlchemyWebhookPayload(payload: any): Promise<void> {
                             parseFullMs += Date.now() - parseFullStart;
                             if (reparsed) {
                                 swap = reparsed;
+                                swapSource = 'webhook_decode';
                                 resolvedTxForContext = {
                                     hash: txHash,
                                     from: fullTx.from,
@@ -835,6 +862,7 @@ async function processAlchemyWebhookPayload(payload: any): Promise<void> {
                             transferSwap.dexName = 'Cash-Leg Fallback';
                             transferSwap.cashLegHint = cashHint;
                             swap = transferSwap;
+                            swapSource = 'webhook_decode';
                             console.log(`[Webhook] Cash-leg fallback decoded swap for ${trackedTarget}: ${txHash.slice(0, 16)}`, {
                                 tokenIn: transferSwap.tokenIn?.slice(0, 10),
                                 tokenOut: transferSwap.tokenOut?.slice(0, 10),
@@ -854,7 +882,7 @@ async function processAlchemyWebhookPayload(payload: any): Promise<void> {
                 markCopyTradeTxState(chainId, txHash, 'swap_decoded', {
                     wallet: trackedTarget,
                     dex: swap.dexName,
-                    source: cached ? 'pending_prefetch' : 'webhook_decode'
+                    source: swapSource === 'webhook_cached_predecoded' ? 'pending_prefetch' : 'webhook_decode'
                 }).catch(() => { });
                 persistSwapContext({
                     chainId,
@@ -867,7 +895,7 @@ async function processAlchemyWebhookPayload(payload: any): Promise<void> {
                     swap,
                     targetWallet: trackedTarget,
                     detectedAt: (() => {
-                        const timing = cached?.timing
+                        const timing = swapSource === 'webhook_cached_predecoded' && cached?.timing
                             ? markCopyTradeSwapReady(mergeCopyTradeTimingSnapshots(cached.timing, pendingHint?.timing), Date.now(), 'webhook_cached_predecoded')
                             : markCopyTradeSwapReady(buildCopyTradeFirstSeenTiming(Date.now(), 'webhook_decode'), Date.now(), 'webhook_decode');
                         return timing.dispatchEligibleAt || timing.swapReadyAt || Date.now();
@@ -877,7 +905,7 @@ async function processAlchemyWebhookPayload(payload: any): Promise<void> {
                 // When we decoded from receipt in this request (no cached predecoded), use now as detectedAt
                 // so the turbo delay is measured from "swap ready + enqueued", not from an older pendingHint
                 // (pending watcher may have set pendingHint seconds earlier, which would make delay exceed 2.5s)
-                const timing = cached?.timing
+                const timing = swapSource === 'webhook_cached_predecoded' && cached?.timing
                     ? markCopyTradeTaskEnqueued(
                         markCopyTradeSwapReady(
                             mergeCopyTradeTimingSnapshots(cached.timing, pendingHint?.timing),
@@ -902,7 +930,7 @@ async function processAlchemyWebhookPayload(payload: any): Promise<void> {
                     chainId,
                     txHash,
                     timing.swapReadyAt || Date.now(),
-                    cached ? 'webhook_cached_predecoded' : 'webhook_decode'
+                    swapSource
                 ).catch(() => { });
                 await dispatchCopyTradeIfReady({
                     chainId,
@@ -912,7 +940,7 @@ async function processAlchemyWebhookPayload(payload: any): Promise<void> {
                     sourceTxFrom: sourceTxFrom || undefined,
                     detectedAt,
                     timing,
-                    source: cached ? 'webhook_cached_predecoded' : 'webhook_decode'
+                    source: swapSource
                 });
             }));
             if (swapsDetected > 0) {
@@ -1062,8 +1090,10 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
 
             const predecodedStart = Date.now();
             const predecoded = await getPendingPredecodedSwap(chainId, txHashNormalized, wallet).catch(() => null);
+            const predecodedSource = getPendingPredecodeSource(predecoded);
+            const predecodedTrusted = isPendingPredecodeTrusted(predecoded);
             tPredecoded = Date.now() - predecodedStart;
-            if (predecoded?.swap) {
+            if (predecoded?.swap && predecodedTrusted) {
                 const enqueueStart = Date.now();
                 await markCopyTradeTxState(chainId, txHashNormalized, 'swap_decoded', {
                     wallet,
@@ -1128,6 +1158,19 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
                     totalMs: Date.now() - t0
                 });
                 return reply.send({ success: true, swap: { tokenIn: predecoded.swap.tokenIn, tokenOut: predecoded.swap.tokenOut } });
+            } else if (predecoded?.swap) {
+                await markCopyTradeTxState(chainId, txHashNormalized, 'pending_seen', {
+                    wallet,
+                    source: 'process_tx_pending_predecoded_blocked',
+                    reasonCode: 'pending_predecoded_unconfirmed_blocked',
+                    predecodedSource
+                }).catch(() => { });
+                console.warn('[Webhook] Blocked untrusted pending predecoded swap on /process-tx; waiting for receipt decode', {
+                    chainId,
+                    txHash: txHashNormalized,
+                    wallet,
+                    predecodedSource
+                });
             }
 
             const budgetStart = Date.now();
@@ -1140,6 +1183,9 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
             );
             tReceipt = Date.now() - receiptStart;
             if (!receipt) {
+                if (predecoded?.swap && !predecodedTrusted) {
+                    return reply.send({ success: true, skipped: true, reason: 'awaiting_receipt_confirmation' });
+                }
                 console.warn(`[Webhook] Could not fetch tx/receipt: ${txHashNormalized.slice(0, 16)}`);
                 return reply.status(404).send({ error: 'Transaction not found' });
             }

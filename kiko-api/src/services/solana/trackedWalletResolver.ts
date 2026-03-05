@@ -64,13 +64,8 @@ export async function resolveSolanaTrackedWallets(params: {
                 reasonCode: 'no_tracked_wallets'
             };
         }
-
-        return {
-            trackedWallets: preResolvedTrackedWallets,
-            parsedTx: null,
-            candidateAddresses: rawCandidates,
-            reasonCode: 'raw_candidates'
-        };
+        // Safety-first: raw account candidates without signer evidence are not authoritative.
+        // Continue to parsed-transaction signer resolution to avoid false target binding.
     }
 
     const rawTrackedWallets = await findTrackedWallets(params.chainId, rawCandidates);
@@ -94,26 +89,11 @@ export async function resolveSolanaTrackedWallets(params: {
                 reasonCode: 'no_tracked_wallets'
             };
         }
-
-        return {
-            trackedWallets: rawTrackedWallets,
-            parsedTx: null,
-            candidateAddresses: rawCandidates,
-            reasonCode: 'raw_candidates'
-        };
+        // Safety-first: do not accept raw non-signer matches; require parsed signer binding below.
     }
 
     const parsedTx = await fetchParsedSolanaTransaction(params.txHash);
     if (!parsedTx) {
-        const pendingTargetWallet = normalizeAddress(params.pendingTargetWallet || '');
-        if (pendingTargetWallet) {
-            return {
-                trackedWallets: [{ address: pendingTargetWallet }],
-                parsedTx: null,
-                candidateAddresses: rawCandidates,
-                reasonCode: 'pending_hint_fallback'
-            };
-        }
         return {
             trackedWallets: [],
             parsedTx: null,
@@ -124,31 +104,29 @@ export async function resolveSolanaTrackedWallets(params: {
 
     const parsedCandidates = extractCandidateAddressesFromParsedSolanaTransaction(parsedTx);
     const parsedSignerCandidates = extractSignerAddressesFromParsedSolanaTransaction(parsedTx);
-    const parsedCandidateScope = parsedSignerCandidates.length > 0 ? parsedSignerCandidates : parsedCandidates;
-    const parsedTrackedWallets = await findTrackedWallets(params.chainId, parsedCandidateScope);
+    if (parsedSignerCandidates.length === 0) {
+        return {
+            trackedWallets: [],
+            parsedTx,
+            candidateAddresses: parsedCandidates,
+            reasonCode: 'no_tracked_wallets'
+        };
+    }
+
+    const parsedTrackedWallets = await findTrackedWallets(params.chainId, parsedSignerCandidates);
     if (parsedTrackedWallets.length > 0) {
         return {
             trackedWallets: parsedTrackedWallets,
             parsedTx,
-            candidateAddresses: parsedCandidateScope,
-            reasonCode: parsedSignerCandidates.length > 0 ? 'raw_signer_candidates' : 'parsed_tx_candidates'
-        };
-    }
-
-    const pendingTargetWallet = normalizeAddress(params.pendingTargetWallet || '');
-    if (pendingTargetWallet) {
-        return {
-            trackedWallets: [{ address: pendingTargetWallet }],
-            parsedTx,
-            candidateAddresses: parsedCandidateScope,
-            reasonCode: 'pending_hint_fallback'
+            candidateAddresses: parsedSignerCandidates,
+            reasonCode: 'raw_signer_candidates'
         };
     }
 
     return {
         trackedWallets: [],
         parsedTx,
-        candidateAddresses: parsedCandidateScope,
+        candidateAddresses: parsedSignerCandidates,
         reasonCode: 'no_tracked_wallets'
     };
 }
