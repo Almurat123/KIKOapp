@@ -14,6 +14,30 @@ import { emitCopytradeSummaryAudit } from '../audit/copytradeSummaryAudit.js';
 
 const TARGET_SELL_RECONCILE_WINDOW_MS = Math.max(60_000, Number(process.env.COPYTRADE_TARGET_SELL_RECONCILE_WINDOW_MS || '21600000'));
 
+async function hasInFlightMirrorSellOrder(params: {
+  userId: string;
+  configId: string;
+  chainId: number;
+  tokenAddress: string;
+}): Promise<boolean> {
+  const order = await prisma.copytradeOrder.findFirst({
+    where: {
+      userId: params.userId,
+      configId: params.configId,
+      chainId: params.chainId,
+      direction: 'sell',
+      closedAt: null,
+      lifecycleState: { in: ['EXIT_SUBMITTING', 'EXIT_ACCEPTED'] },
+      tokenIn: {
+        equals: params.tokenAddress,
+        mode: 'insensitive',
+      },
+    },
+    select: { id: true },
+  });
+  return Boolean(order?.id);
+}
+
 export async function runTargetSellReconciliationCycle(): Promise<{
   scannedOpen: number;
   scannedPending: number;
@@ -48,6 +72,26 @@ export async function runTargetSellReconciliationCycle(): Promise<{
       targetFullExitVerified: true,
     });
     if (!latestSell.txHash) continue;
+    const hasInFlight = await hasInFlightMirrorSellOrder({
+      userId: position.userId,
+      configId: position.configId,
+      chainId: position.chainId,
+      tokenAddress: position.tokenAddress,
+    });
+    if (hasInFlight) {
+      emitCopytradeDomainAudit('mirror_sell_idempotent_skip', {
+        extra: {
+          userId: position.userId,
+          tokenAddress: position.tokenAddress,
+          chainId: position.chainId,
+          targetWallet: position.config.targetWallet,
+          targetSellTxHash: latestSell.txHash,
+          blockedReason: 'inflight',
+          reasonCode: 'reconcile_inflight_exit_order',
+        },
+      });
+      continue;
+    }
     fullExitMatches += 1;
     emitCopytradeDomainAudit('TARGET_FULL_EXIT_VERIFIED', {
       extra: {
@@ -126,6 +170,26 @@ export async function runTargetSellReconciliationCycle(): Promise<{
       targetFullExitVerified: true,
     });
     if (!latestSell.txHash) continue;
+    const hasInFlight = await hasInFlightMirrorSellOrder({
+      userId: lot.userId,
+      configId: lot.position.configId,
+      chainId: lot.chainId,
+      tokenAddress: lot.tokenAddress,
+    });
+    if (hasInFlight) {
+      emitCopytradeDomainAudit('mirror_sell_idempotent_skip', {
+        extra: {
+          userId: lot.userId,
+          tokenAddress: lot.tokenAddress,
+          chainId: lot.chainId,
+          targetWallet: lot.position.config.targetWallet,
+          targetSellTxHash: latestSell.txHash,
+          blockedReason: 'inflight',
+          reasonCode: 'reconcile_inflight_exit_order',
+        },
+      });
+      continue;
+    }
     fullExitMatches += 1;
     emitCopytradeDomainAudit('TARGET_FULL_EXIT_VERIFIED', {
       extra: {

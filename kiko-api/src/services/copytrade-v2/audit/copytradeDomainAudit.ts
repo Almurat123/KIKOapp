@@ -23,7 +23,12 @@ export type CopytradeDomainEvent =
   | 'signal_wallet_mismatch'
   | 'solana_target_resolution_observed'
   | 'forced_mirror_exit_applied'
-  | 'exit_confirmation_unresolved_retry';
+  | 'exit_confirmation_unresolved_retry'
+  | 'exit_finality_pending'
+  | 'exit_finality_confirmed'
+  | 'quarantine_auto_repaired'
+  | 'quarantine_repair_failed'
+  | 'mirror_sell_idempotent_skip';
 
 export function buildCopytradeDomainAuditFields(input: {
   ledger?: CopytradeLedgerSnapshot | null;

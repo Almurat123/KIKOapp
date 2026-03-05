@@ -1,6 +1,8 @@
 import { logger } from '../../../utils/logger.js';
 import { LogCode } from '../../../config/logRegistry.js';
 import { logOrderRuntimeSnapshot } from '../../order-runtime/sinks/logger.js';
+import { resolveTxFinalState } from '../../order-runtime/adjudicator/finalState.js';
+import { snapshotOrderRuntime } from '../../order-runtime/context.js';
 import type { EvmExitExecutionResult, EvmExitSwapPlan, SellRoutePolicy } from './types.js';
 import { createExitOrderRuntimeContext, mergeSwapResultIntoExitRuntime } from './runtime.js';
 import { submitCopytradeExit } from '../execution/copytradeExecutionFacade.js';
@@ -41,6 +43,69 @@ async function runExitSwapAttempt(
     }
   });
   return result.swapResult;
+}
+
+function resolveAttemptFinality(params: {
+  plan: EvmExitSwapPlan;
+  txHash?: string | null;
+  runtimeContext: EvmExitSwapPlan['runtimeContext'];
+  txLifecycle?: any;
+  error?: string;
+}) {
+  const snapshot = snapshotOrderRuntime(params.runtimeContext);
+  const canonicalTxHash = String(
+    snapshot.canonicalTxHash
+      || params.txHash
+      || '',
+  ).trim();
+  const allTxHashes = [...new Set(
+    [
+      ...snapshot.relatedTxHashes,
+      canonicalTxHash,
+    ].filter(Boolean),
+  )];
+  const finality = resolveTxFinalState({
+    runtimeContext: params.runtimeContext,
+    lifecycle: params.txLifecycle,
+    chainId: params.plan.chainId,
+    txHash: canonicalTxHash || undefined,
+    orderId: snapshot.orderId,
+  });
+  const pendingByAdjudicator = finality.state === 'send_accepted'
+    || finality.state === 'rpc_visible'
+    || finality.state === 'chain_observed'
+    || finality.state === 'rpc_uncertain';
+
+  if (finality.state === 'confirmed_success') {
+    return {
+      finalityState: 'confirmed_success' as const,
+      finalityReasonCode: finality.reasonCode || 'confirmed_success',
+      txHash: canonicalTxHash || undefined,
+      allTxHashes,
+    };
+  }
+  if (finality.state === 'confirmed_failed') {
+    return {
+      finalityState: 'confirmed_failed' as const,
+      finalityReasonCode: finality.reasonCode || 'confirmed_failed',
+      txHash: canonicalTxHash || undefined,
+      allTxHashes,
+    };
+  }
+  if (pendingByAdjudicator || allTxHashes.length > 0) {
+    return {
+      finalityState: 'pending_visibility' as const,
+      finalityReasonCode: finality.reasonCode || 'pending_visibility',
+      txHash: canonicalTxHash || undefined,
+      allTxHashes,
+    };
+  }
+  return {
+    finalityState: 'retryable_unresolved' as const,
+    finalityReasonCode: params.error || finality.reasonCode || 'retryable_unresolved',
+    txHash: undefined,
+    allTxHashes,
+  };
 }
 
 export async function executeEvmExitPlan(plan: EvmExitSwapPlan): Promise<EvmExitExecutionResult> {
@@ -87,6 +152,8 @@ export async function executeEvmExitPlan(plan: EvmExitSwapPlan): Promise<EvmExit
 
   let lastError = 'unknown_exit_error';
   let lastRuntime = plan.runtimeContext;
+  let lastFinality: EvmExitExecutionResult['finalityState'] = 'retryable_unresolved';
+  let pendingOutcome: Omit<EvmExitExecutionResult, 'runtimeContext' | 'isPartialSell'> | null = null;
 
   for (let index = 0; index < attempts.length; index++) {
     const attempt = attempts[index];
@@ -113,13 +180,35 @@ export async function executeEvmExitPlan(plan: EvmExitSwapPlan): Promise<EvmExit
       );
       lastRuntime = mergeSwapResultIntoExitRuntime(attempt.runtimeContext, result);
       logOrderRuntimeSnapshot(lastRuntime, '[OrderRuntime] mirror-sell-attempt-finish');
-      if (result.success && result.txHash) {
+      const finality = resolveAttemptFinality({
+        plan,
+        txHash: result.txHash,
+        runtimeContext: lastRuntime,
+        txLifecycle: result.txLifecycle,
+        error: result.error || undefined,
+      });
+      if (finality.finalityState === 'confirmed_success' && finality.txHash) {
         return {
           success: true,
-          txHash: result.txHash,
+          finalityState: 'confirmed_success',
+          finalityReasonCode: finality.finalityReasonCode,
+          txHash: finality.txHash,
+          allTxHashes: finality.allTxHashes,
           runtimeContext: lastRuntime,
           isPartialSell: attempt.partial
         };
+      }
+      lastFinality = finality.finalityState;
+      if (finality.finalityState === 'pending_visibility') {
+        pendingOutcome = {
+          success: false,
+          finalityState: 'pending_visibility',
+          finalityReasonCode: finality.finalityReasonCode,
+          txHash: finality.txHash,
+          allTxHashes: finality.allTxHashes,
+          error: result.error || 'exit_confirmation_pending',
+        };
+        break;
       }
       lastError = compactError(result.error || 'exit_swap_failed');
     } catch (error: any) {
@@ -134,8 +223,18 @@ export async function executeEvmExitPlan(plan: EvmExitSwapPlan): Promise<EvmExit
     }
   }
 
+  if (pendingOutcome) {
+    return {
+      ...pendingOutcome,
+      runtimeContext: lastRuntime,
+      isPartialSell: false,
+    };
+  }
+
   return {
     success: false,
+    finalityState: lastFinality,
+    finalityReasonCode: lastError,
     error: lastError,
     runtimeContext: lastRuntime,
     isPartialSell: false

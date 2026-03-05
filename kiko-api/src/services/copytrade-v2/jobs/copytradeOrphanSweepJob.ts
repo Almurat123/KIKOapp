@@ -1,6 +1,6 @@
 import { ethers } from 'ethers';
 import prisma from '../../../db/prisma.js';
-import { getErc20Decimals } from '../../rpcManager.js';
+import { getErc20Decimals, getTransactionReceipt } from '../../rpcManager.js';
 import { emitCopytradeDomainAudit } from '../audit/copytradeDomainAudit.js';
 import { emitCopytradeSummaryAudit } from '../audit/copytradeSummaryAudit.js';
 import { findLedgerFirstOrphanSweepCandidates } from '../ledger/copytradeLedgerSelectors.js';
@@ -9,10 +9,18 @@ import { syncCopytradeLedgerFromLegacy } from '../ledger/copytradeLedgerReposito
 const PENDING_REPAIR_QUARANTINE_REASON = 'pending_expected_amount_missing_quarantine';
 const HYGIENE_REASON_CODE = 'hygiene_position_closed';
 const HYGIENE_BACKFILL_REASON_CODE = 'hygiene_open_backfill';
+const ERC20_TRANSFER_TOPIC = ethers.id('Transfer(address,address,uint256)');
+
+type PendingRepairSource =
+  | 'order_metadata_direct_fee_settlement'
+  | 'buy_receipt_transfer'
+  | 'pending_expected_amount_dec'
+  | 'position_entry_amount_exact';
 
 function parsePositiveBigInt(value: unknown): bigint | null {
   const text = String(value || '').trim();
-  if (!/^[0-9]+$/.test(text)) return null;
+  if (!text) return null;
+  if (!/^[0-9]+$/.test(text) && !/^0x[0-9a-fA-F]+$/.test(text)) return null;
   try {
     const parsed = BigInt(text);
     return parsed > 0n ? parsed : null;
@@ -21,28 +29,128 @@ function parsePositiveBigInt(value: unknown): bigint | null {
   }
 }
 
-async function resolveFallbackExpectedAmountRaw(params: {
-  chainId: number;
-  tokenAddress: string;
-  entryAmountExact?: string | null;
-  entryAmountDec?: { toString(): string } | string | number | null;
-  entryAmount?: string | null;
-}): Promise<bigint | null> {
-  const exact = parsePositiveBigInt(params.entryAmountExact);
-  if (exact) return exact;
+function normalizeAddress(value: unknown): string {
+  return String(value || '').trim().toLowerCase();
+}
 
-  const decimalText = String(params.entryAmountDec || '').trim();
-  if (decimalText) {
-    const decimals = await getErc20Decimals(params.tokenAddress, params.chainId).catch(() => 18);
-    try {
-      const parsed = ethers.parseUnits(decimalText, decimals);
-      return parsed > 0n ? parsed : null;
-    } catch {
-      // continue to entryAmount fallback
+function extractDirectFeeSettlementAmountOutBase(value: unknown): bigint | null {
+  if (!value || typeof value !== 'object') return null;
+  const seen = new Set<any>();
+  const queue: any[] = [value];
+  while (queue.length > 0) {
+    const current = queue.shift();
+    if (!current || typeof current !== 'object') continue;
+    if (seen.has(current)) continue;
+    seen.add(current);
+
+    const directFee = (current as Record<string, unknown>).directFeeSettlement;
+    if (directFee && typeof directFee === 'object') {
+      const raw = parsePositiveBigInt((directFee as Record<string, unknown>).amountOutBase);
+      if (raw) return raw;
+    }
+
+    const maybeRaw = parsePositiveBigInt((current as Record<string, unknown>).amountOutBase);
+    if (maybeRaw) return maybeRaw;
+    for (const nested of Object.values(current as Record<string, unknown>)) {
+      if (nested && typeof nested === 'object') queue.push(nested);
     }
   }
+  return null;
+}
 
-  return parsePositiveBigInt(params.entryAmount);
+async function resolveFromOrderMetadata(params: {
+  positionId: string;
+  chainId: number;
+  pendingLotLeaderBuyTxHash?: string | null;
+}): Promise<bigint | null> {
+  const ledger = await prisma.copytradePositionLedger.findFirst({
+    where: {
+      positionIdLegacy: params.positionId,
+      chainId: params.chainId,
+    },
+    select: {
+      followerBuyTxHash: true,
+    },
+  });
+  const candidateHashes = [
+    String(ledger?.followerBuyTxHash || '').trim(),
+    String(params.pendingLotLeaderBuyTxHash || '').trim(),
+  ].filter(Boolean);
+  if (candidateHashes.length === 0) return null;
+
+  const txHashVariants = [...new Set(
+    candidateHashes.flatMap((hash) => [hash, hash.toLowerCase(), hash.toUpperCase()]),
+  )];
+  const rows = await prisma.copytradeOrderExecution.findMany({
+    where: {
+      txHash: { in: txHashVariants },
+    },
+    orderBy: { createdAt: 'desc' },
+    take: 10,
+    select: {
+      metadataJson: true,
+      order: {
+        select: {
+          metadataJson: true,
+        },
+      },
+    },
+  });
+  for (const row of rows) {
+    const fromExecution = extractDirectFeeSettlementAmountOutBase(row.metadataJson);
+    if (fromExecution) return fromExecution;
+    const fromOrder = extractDirectFeeSettlementAmountOutBase(row.order?.metadataJson);
+    if (fromOrder) return fromOrder;
+  }
+  return null;
+}
+
+async function resolveFromFollowerBuyReceipt(params: {
+  positionId: string;
+  chainId: number;
+  tokenAddress: string;
+  userId: string;
+}): Promise<bigint | null> {
+  if (params.chainId === 900) return null;
+  const ledger = await prisma.copytradePositionLedger.findFirst({
+    where: {
+      positionIdLegacy: params.positionId,
+      chainId: params.chainId,
+    },
+    select: {
+      followerBuyTxHash: true,
+    },
+  });
+  const followerBuyTxHash = String(ledger?.followerBuyTxHash || '').trim();
+  if (!followerBuyTxHash) return null;
+
+  const user = await prisma.user.findUnique({
+    where: { privyDid: params.userId },
+    select: { walletAddress: true },
+  });
+  const walletAddress = normalizeAddress(user?.walletAddress);
+  if (!walletAddress) return null;
+
+  const receipt = await getTransactionReceipt(params.chainId, followerBuyTxHash).catch(() => null);
+  const logs = Array.isArray(receipt?.logs) ? receipt.logs : [];
+  if (logs.length === 0) return null;
+
+  let sum = 0n;
+  const tokenAddress = normalizeAddress(params.tokenAddress);
+  for (const log of logs) {
+    const logAddress = normalizeAddress((log as any)?.address);
+    const topics = Array.isArray((log as any)?.topics) ? (log as any).topics : [];
+    if (logAddress !== tokenAddress) continue;
+    if (String(topics[0] || '').toLowerCase() !== ERC20_TRANSFER_TOPIC.toLowerCase()) continue;
+    if (topics.length < 3) continue;
+    const toTopic = String(topics[2] || '');
+    if (!toTopic.startsWith('0x') || toTopic.length < 42) continue;
+    const toAddress = `0x${toTopic.slice(-40)}`.toLowerCase();
+    if (toAddress !== walletAddress) continue;
+    const amount = parsePositiveBigInt((log as any)?.data);
+    if (amount) sum += amount;
+  }
+  return sum > 0n ? sum : null;
 }
 
 async function repairMissingPendingExpectedAmount(params: {
@@ -63,7 +171,9 @@ async function repairMissingPendingExpectedAmount(params: {
     select: {
       id: true,
       expectedAmountRaw: true,
+      expectedAmountDec: true,
       status: true,
+      leaderBuyTxHash: true,
       tokenAddress: true,
       chainId: true,
     },
@@ -72,23 +182,74 @@ async function repairMissingPendingExpectedAmount(params: {
 
   let repaired = 0;
   let quarantined = 0;
-  const fallbackRaw = await resolveFallbackExpectedAmountRaw(params);
-  const decimals = fallbackRaw ? await getErc20Decimals(params.tokenAddress, params.chainId).catch(() => 18) : 18;
+  const decimals = await getErc20Decimals(params.tokenAddress, params.chainId).catch(() => 18);
+  const orderMetadataRaw = await resolveFromOrderMetadata({
+    positionId: params.positionId,
+    chainId: params.chainId,
+    pendingLotLeaderBuyTxHash: pendingLots[0]?.leaderBuyTxHash || null,
+  });
+  const receiptTransferRaw = await resolveFromFollowerBuyReceipt({
+    positionId: params.positionId,
+    chainId: params.chainId,
+    tokenAddress: params.tokenAddress,
+    userId: params.userId,
+  });
+  const entryExactRaw = parsePositiveBigInt(params.entryAmountExact);
 
   for (const lot of pendingLots) {
     const hasRaw = parsePositiveBigInt(lot.expectedAmountRaw);
     if (hasRaw) continue;
 
-    if (fallbackRaw && fallbackRaw > 0n) {
+    let repairedRaw: bigint | null = null;
+    let repairSource: PendingRepairSource | null = null;
+    const expectedAmountDecText = String(lot.expectedAmountDec || '').trim();
+
+    if (orderMetadataRaw && orderMetadataRaw > 0n) {
+      repairedRaw = orderMetadataRaw;
+      repairSource = 'order_metadata_direct_fee_settlement';
+    } else if (receiptTransferRaw && receiptTransferRaw > 0n) {
+      repairedRaw = receiptTransferRaw;
+      repairSource = 'buy_receipt_transfer';
+    } else if (expectedAmountDecText) {
+      try {
+        const parsed = ethers.parseUnits(expectedAmountDecText, decimals);
+        if (parsed > 0n) {
+          repairedRaw = parsed;
+          repairSource = 'pending_expected_amount_dec';
+        }
+      } catch {
+        // ignore malformed pending decimal amount
+      }
+    } else if (entryExactRaw && entryExactRaw > 0n) {
+      repairedRaw = entryExactRaw;
+      repairSource = 'position_entry_amount_exact';
+    }
+
+    if (repairedRaw && repairedRaw > 0n && repairSource) {
       await prisma.pendingAttributedPosition.update({
         where: { id: lot.id },
         data: {
-          expectedAmountRaw: fallbackRaw.toString(),
-          expectedAmountDec: ethers.formatUnits(fallbackRaw, decimals),
-          reasonCode: 'repair_from_position_amount',
+          expectedAmountRaw: repairedRaw.toString(),
+          expectedAmountDec: ethers.formatUnits(repairedRaw, decimals),
+          status: 'sell_armed',
+          reasonCode: `repair:${repairSource}`,
         },
       });
       repaired += 1;
+      emitCopytradeDomainAudit('quarantine_auto_repaired', {
+        extra: {
+          positionId: params.positionId,
+          pendingLotId: lot.id,
+          chainId: params.chainId,
+          tokenAddress: params.tokenAddress,
+          targetWallet: params.targetWallet,
+          userId: params.userId,
+          reasonCode: 'pending_expected_amount_repaired',
+          repairAttempted: true,
+          repairSource,
+          repairResult: 'success',
+        },
+      });
       continue;
     }
 
@@ -110,6 +271,23 @@ async function repairMissingPendingExpectedAmount(params: {
         targetWallet: params.targetWallet,
         userId: params.userId,
         reasonCode: PENDING_REPAIR_QUARANTINE_REASON,
+        repairAttempted: true,
+        repairSource: 'none',
+        repairResult: 'failed',
+      },
+    });
+    emitCopytradeDomainAudit('quarantine_repair_failed', {
+      extra: {
+        positionId: params.positionId,
+        pendingLotId: lot.id,
+        chainId: params.chainId,
+        tokenAddress: params.tokenAddress,
+        targetWallet: params.targetWallet,
+        userId: params.userId,
+        reasonCode: PENDING_REPAIR_QUARANTINE_REASON,
+        repairAttempted: true,
+        repairSource: 'none',
+        repairResult: 'failed',
       },
     });
   }

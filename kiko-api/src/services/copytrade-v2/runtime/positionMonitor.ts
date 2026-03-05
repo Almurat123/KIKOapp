@@ -30,6 +30,12 @@ import { resolveAttributedPositionExitAmount } from '../positions/positionAttrib
 import { shouldDeferStrongRpcMonitoring } from '../buy/preConfirmationRpcPolicy.js';
 import { buildOrderAuditFields } from '../../order-runtime/sinks/persistence.js';
 import type { OrderRuntimeContext } from '../../order-runtime/types.js';
+import { emitCopytradeDomainAudit } from '../audit/copytradeDomainAudit.js';
+import {
+  buildMirrorSellIdempotencyKeys,
+  claimMirrorSellIdempotency,
+  settleMirrorSellIdempotency,
+} from '../exit/mirrorSellIdempotency.js';
 
 const NO_OPEN_POSITIONS_LOG_WINDOW_MS = Number(process.env.NO_OPEN_POSITIONS_LOG_WINDOW_MS || '180000');
 const COPYTRADE_DISABLE_MIRROR_SELL_DUST_SWEEP = (process.env.COPYTRADE_DISABLE_MIRROR_SELL_DUST_SWEEP || 'true') === 'true';
@@ -199,6 +205,8 @@ async function executePositionExit(params: {
     let exitPositions: any[] = [];
     let persistedExitPositions: any[] = [];
     let persistedExitBalance = balance;
+    let claimedMirrorSellIdempotency = false;
+    let mirrorSellIdempotencyKeys: string[] = [];
 
     // Fetch universal global slippage from UserSettings
     const settings = params.userSettings || await prisma.userSettings.findUnique({ where: { userId } });
@@ -523,15 +531,85 @@ async function executePositionExit(params: {
                 return null;
             }
 
-            const exitResult = await executeEvmExitPlan(exitPlan);
-            exitRuntimeContext = exitResult.runtimeContext;
-
-            if (!exitResult.success || !exitResult.txHash) {
-                throw new Error(exitResult.error || 'Unified EVM exit failed');
+            if (exitReason === 'mirror_sell') {
+                mirrorSellIdempotencyKeys = buildMirrorSellIdempotencyKeys({
+                    positionIds: (persistedExitPositions || [])
+                        .map((position: any) => String(position?.id || '').trim())
+                        .filter(Boolean),
+                    targetSellTxHash: exitPlan.latestTargetSellTxHash,
+                });
+                if (mirrorSellIdempotencyKeys.length > 0) {
+                    const claim = claimMirrorSellIdempotency({ keys: mirrorSellIdempotencyKeys });
+                    if (!claim.allowed) {
+                        emitCopytradeDomainAudit('mirror_sell_idempotent_skip', {
+                            runtimeContext: exitRuntimeContext,
+                            extra: {
+                                userId,
+                                chainId,
+                                tokenAddress,
+                                targetWallet: config.targetWallet,
+                                targetSellTxHash: exitPlan.latestTargetSellTxHash || null,
+                                blockedReason: claim.blockedReason || 'unknown',
+                                retryAfterMs: claim.retryAfterMs || null,
+                            },
+                        });
+                        return null;
+                    }
+                    claimedMirrorSellIdempotency = true;
+                }
             }
 
-            txHash = exitResult.txHash;
-            const isPartialSell = exitResult.isPartialSell;
+            const settledExitResult = await executeEvmExitPlan(exitPlan);
+            exitRuntimeContext = settledExitResult.runtimeContext;
+            if (claimedMirrorSellIdempotency && mirrorSellIdempotencyKeys.length > 0) {
+                settleMirrorSellIdempotency({
+                    keys: mirrorSellIdempotencyKeys,
+                    finalityState: settledExitResult.finalityState,
+                });
+                claimedMirrorSellIdempotency = false;
+            }
+
+            if (settledExitResult.finalityState !== 'confirmed_success' || !settledExitResult.txHash) {
+                emitCopytradeDomainAudit('exit_finality_pending', {
+                    runtimeContext: exitRuntimeContext,
+                    extra: {
+                        userId,
+                        chainId,
+                        tokenAddress,
+                        targetWallet: config.targetWallet,
+                        executionTxHash: settledExitResult.txHash || null,
+                        canonicalTxHash: settledExitResult.txHash || settledExitResult.allTxHashes?.[0] || null,
+                        allTxHashes: settledExitResult.allTxHashes || [],
+                        adjudicatedState: settledExitResult.finalityState,
+                        adjudicatedReason: settledExitResult.finalityReasonCode || settledExitResult.error || null,
+                    },
+                });
+                await persistDeferredExitRetryState({
+                    positions: persistedExitPositions as any,
+                    targetWallet: config.targetWallet,
+                    exitReason,
+                    reasonCode: `exit_finality_${settledExitResult.finalityState}:${settledExitResult.finalityReasonCode || 'unknown'}`,
+                });
+                return null;
+            }
+
+            emitCopytradeDomainAudit('exit_finality_confirmed', {
+                runtimeContext: exitRuntimeContext,
+                extra: {
+                    userId,
+                    chainId,
+                    tokenAddress,
+                    targetWallet: config.targetWallet,
+                    executionTxHash: settledExitResult.txHash,
+                    canonicalTxHash: settledExitResult.txHash || settledExitResult.allTxHashes?.[0] || null,
+                    allTxHashes: settledExitResult.allTxHashes || [],
+                    adjudicatedState: settledExitResult.finalityState,
+                    adjudicatedReason: settledExitResult.finalityReasonCode || null,
+                },
+            });
+
+            txHash = settledExitResult.txHash;
+            const isPartialSell = settledExitResult.isPartialSell;
 
             if (txHash) {
                 const skipDustSweepForMirrorSell = exitReason === 'mirror_sell' && (COPYTRADE_DISABLE_MIRROR_SELL_DUST_SWEEP || exitPlan.hasExternalBalance);
@@ -652,6 +730,13 @@ async function executePositionExit(params: {
         return txHash;
 
     } catch (error: any) {
+        if (claimedMirrorSellIdempotency && mirrorSellIdempotencyKeys.length > 0) {
+            settleMirrorSellIdempotency({
+                keys: mirrorSellIdempotencyKeys,
+                finalityState: 'retryable_unresolved',
+            });
+            claimedMirrorSellIdempotency = false;
+        }
         logger.error(LogCode.SYS_ERROR, 'Critical error during position exit', {
             userId,
             token: tokenAddress,

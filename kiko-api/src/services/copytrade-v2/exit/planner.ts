@@ -284,6 +284,7 @@ export function buildEvmExitPlanFromSnapshot(input: {
     sellRoutePolicy: 'external_primary',
     positions: effectivePositions,
     pendingAttributedLotIds: attribution.pendingAttributedLotIds,
+    latestTargetSellTxHash: snapshot.latestTargetSellTxHash || null,
     attributedReasonCode: effectiveReasonCode,
     attributionMetrics: attribution.metrics,
     hasExternalBalance: attribution.hasExternalBalance,

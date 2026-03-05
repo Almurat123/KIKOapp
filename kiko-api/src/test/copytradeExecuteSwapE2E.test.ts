@@ -78,6 +78,49 @@ function buildSwapResult(params: {
   };
 }
 
+function buildPendingVisibilityResult(params: {
+  userId: string;
+  walletAddress: string;
+  chainId: number;
+  side: 'buy' | 'sell';
+  txHash: string;
+  tokenIn: string;
+  tokenOut: string;
+}) {
+  const runtimeContext = createOrderRuntimeContext({
+    userId: params.userId,
+    walletAddress: params.walletAddress,
+    chainId: params.chainId,
+    side: params.side,
+    mode: 'copytrade',
+    tokenIn: params.tokenIn,
+    tokenOut: params.tokenOut,
+  });
+  recordLifecycleOnOrder(runtimeContext, {
+    status: 'visible_pending',
+    txHash: params.txHash,
+    attempts: 1,
+    chainId: params.chainId,
+  });
+  return {
+    success: false as const,
+    txHash: params.txHash,
+    error: 'confirmation_unresolved:timeout',
+    txLifecycle: {
+      status: 'visible_pending' as const,
+      txHash: params.txHash,
+      attempts: 1,
+      chainId: params.chainId,
+    },
+    runtimeContext,
+    metadata: {
+      provider: 'test-port',
+      mode: 'copytrade' as const,
+      txLifecycleStatus: 'visible_pending' as const,
+    },
+  };
+}
+
 afterEach(() => {
   resetCopytradeExecutionPortHarness();
 });
@@ -151,6 +194,76 @@ describe('copytrade executeSwap boundary E2E', () => {
     assert.equal(captured[1]?.request.requireConfirmedTx, true);
     assert.equal(captured[1]?.request.tokenIn, TOKEN);
     assert.equal(captured[1]?.request.tokenOut, 'ETH');
+  });
+
+  test('EVM exit executor stops retries when tx finality is still pending visibility', async () => {
+    installCopytradeExecutionPortHarness();
+
+    const pendingTxHash = makeTxHash('pending-visibility');
+    queueSwapExecutionResult(
+      buildPendingVisibilityResult({
+        userId: 'did:exec-port:pending',
+        walletAddress: makeAddress('pending-wallet'),
+        chainId: BASE_CHAIN_ID,
+        side: 'sell',
+        txHash: pendingTxHash,
+        tokenIn: TOKEN,
+        tokenOut: WETH,
+      }),
+    );
+    queueSwapExecutionResult(
+      buildSwapResult({
+        userId: 'did:exec-port:pending',
+        walletAddress: makeAddress('pending-wallet'),
+        chainId: BASE_CHAIN_ID,
+        side: 'sell',
+        txHash: makeTxHash('should-not-run'),
+        tokenIn: TOKEN,
+        tokenOut: WETH,
+      }),
+    );
+
+    const plan = {
+      kind: 'swap' as const,
+      userId: 'did:exec-port:pending',
+      walletAddress: makeAddress('pending-wallet'),
+      tokenAddress: TOKEN,
+      chainId: BASE_CHAIN_ID,
+      exitReason: 'mirror_sell' as const,
+      tokenInfo: { price: 1, symbol: 'FELIX' },
+      balance: 2500000000000000000000n,
+      decimals: 18,
+      balanceUsd: 100,
+      attributedBalance: 2500000000000000000000n,
+      amountInHuman: '2500',
+      retryAmountInHuman: '2475',
+      initialSlippageBps: 500,
+      retrySlippageBps: 900,
+      executionMode: 'turbo' as const,
+      sellRoutePolicy: 'external_primary' as const,
+      runtimeContext: createExitOrderRuntimeContext({
+        userId: 'did:exec-port:pending',
+        walletAddress: makeAddress('pending-wallet'),
+        chainId: BASE_CHAIN_ID,
+        tokenAddress: TOKEN,
+        exitReason: 'mirror_sell',
+        targetWallet: makeAddress('pending-target'),
+      }),
+      positions: [],
+      pendingAttributedLotIds: [],
+      attributedReasonCode: 'ATTRIBUTED_AMOUNT_RESOLVED' as const,
+      attributionMetrics: { source: 'test' },
+      hasExternalBalance: false,
+    };
+
+    const result = await executeEvmExitPlan(plan);
+    assert.equal(result.success, false);
+    assert.equal(result.finalityState, 'pending_visibility');
+    assert.equal(result.txHash, pendingTxHash);
+
+    const captured = getCapturedSwapExecutions();
+    assert.equal(captured.length, 1);
+    assert.equal(captured[0]?.request.executionContext?.executionStep, 'sell_external_primary');
   });
 
   test('buy result from shared execution port flows into pending lot, exit plan, and closed-before-open persistence', async () => {

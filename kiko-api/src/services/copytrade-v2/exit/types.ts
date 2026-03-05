@@ -45,6 +45,7 @@ export interface EvmExitSwapPlan {
   runtimeContext: OrderRuntimeContext;
   positions: AttributedPositionLike[];
   pendingAttributedLotIds?: string[];
+  latestTargetSellTxHash?: string | null;
   attributedReasonCode: PositionAttributionReasonCode;
   attributionMetrics?: Record<string, unknown>;
   hasExternalBalance: boolean;
@@ -58,7 +59,10 @@ export interface PendingAttributedExitContext {
 
 export interface EvmExitExecutionResult {
   success: boolean;
+  finalityState: 'confirmed_success' | 'pending_visibility' | 'retryable_unresolved' | 'confirmed_failed';
+  finalityReasonCode?: string;
   txHash?: string;
+  allTxHashes?: string[];
   runtimeContext?: OrderRuntimeContext;
   error?: string;
   isPartialSell: boolean;
