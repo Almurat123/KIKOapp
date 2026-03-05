@@ -7,6 +7,7 @@ import type { CopytradeOrderAggregate } from '../contracts/aggregate.js';
 import { resolveTradingContext } from './contextResolver.js';
 import { resolveBuyAmountInHuman, resolveSellAmountInHuman } from './amountResolver.js';
 import { mapSwapResultToOutcome, mapThrownErrorToOutcome } from './outcomeMapper.js';
+import { resolveNonceConflictDecision } from './nonceConflictPolicy.js';
 
 function toExecutionMode(mode: CopytradeOrderAggregate['mode']): 'safe' | 'normal' | 'turbo' {
   if (mode === 'safety') return 'safe';
@@ -75,12 +76,22 @@ export class EvmTradingFlowExecutor implements CopytradeExecutionPort {
 
     const sellDirection = isSellDirection(order);
 
-    const amountInHuman = sellDirection
+    const sellResolution = sellDirection
       ? await resolveSellAmountInHuman({
           walletAddress: context.walletAddress,
           tokenIn: signal.swap.tokenIn,
           chainId: signal.chainId,
+          context: {
+            userId: context.userId,
+            configId: order.configId || context.configId || null,
+            targetWallet: order.targetWallet,
+            mode: order.mode,
+            sourceAmountIn: signal.swap.amountIn,
+          },
         })
+      : null;
+    const amountInHuman = sellDirection
+      ? sellResolution?.amountInHuman || null
       : (await resolveBuyAmountInHuman({
           tokenIn: signal.swap.tokenIn,
           chainId: signal.chainId,
@@ -97,6 +108,8 @@ export class EvmTradingFlowExecutor implements CopytradeExecutionPort {
           reason: 'amount_resolution_failed',
           sellDirection,
           tokenIn: signal.swap.tokenIn,
+          sellAmountFallbackSource: sellResolution?.source || null,
+          sellAmountFallbackMetadata: sellResolution?.metadata || null,
         },
       };
     }
@@ -157,6 +170,31 @@ export class EvmTradingFlowExecutor implements CopytradeExecutionPort {
 
       return outcome;
     } catch (error) {
+      const nonceConflict = resolveNonceConflictDecision({
+        error,
+        chainId: signal.chainId,
+        mode: order.mode,
+      });
+      if (nonceConflict.matched) {
+        return {
+          status: 'failed_retryable',
+          reasonCode: 'trading_execution_failed',
+          retryable: true,
+          sourceTxHash: signal.swap?.txHash || null,
+          lifecycleStatus: 'unknown',
+          visibilityState: 'unknown',
+          finalityHint: 'none',
+          metadata: {
+            hint: nonceConflict.hint,
+            nonceConflict: true,
+            nonceStrategy: nonceConflict.strategy,
+            retryDelayMs: nonceConflict.retryDelayMs,
+            chainId: signal.chainId,
+            error: String((error as any)?.message || error || 'nonce_conflict').slice(0, 240),
+          },
+        };
+      }
+
       return mapThrownErrorToOutcome(error, {
         preferredIssueId: resolveCtIssueHint(signal, order),
         sourceTxHash: signal.swap?.txHash || null,

@@ -21,18 +21,8 @@ export function evaluateOrphanRecovery(snapshot: ExitAttributionSnapshot): Orpha
   if (snapshot.balanceRaw <= 0n) {
     return { action: 'noop', reasonCode: 'orphan_recovery_target_exit_balance_empty_keep_open' };
   }
-  if (!snapshot.latestTargetSellTxHash) {
-    return { action: 'quarantine', reasonCode: 'orphan_recovery_missing_target_sell_link' };
+  if (openPositions.length === 0) {
+    return { action: 'noop', reasonCode: 'orphan_recovery_no_open_position' };
   }
-  if (openPositions.length !== 1) {
-    return { action: 'quarantine', reasonCode: 'orphan_recovery_non_unique_open_position' };
-  }
-  if (snapshot.pendingLots.length > 0) {
-    return { action: 'quarantine', reasonCode: 'orphan_recovery_pending_lots_present' };
-  }
-  if (snapshot.attribution.hasExternalBalance) {
-    return { action: 'quarantine', reasonCode: 'orphan_recovery_external_balance_detected' };
-  }
-
   return { action: 'force_exit', reasonCode: 'orphan_recovery_force_exit_from_verified_target_sell' };
 }

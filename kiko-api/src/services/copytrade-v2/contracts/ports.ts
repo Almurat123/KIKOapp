@@ -8,6 +8,7 @@ export interface CopytradeIngressSignal {
   targetWallet: string;
   swap: DecodedSwap;
   chainId: number;
+  sourceTxFrom?: string;
   detectedAt?: number;
   mode?: CopytradeMode;
   ctIssueHintId?: `CT-${string}`;

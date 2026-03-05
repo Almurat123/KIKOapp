@@ -5,7 +5,6 @@ import { logger } from '../../../utils/logger.js';
 import { LogCode } from '../../../config/logRegistry.js';
 import { DynamicTakeProfitService } from '../../dynamicTakeProfitService.js';
 import { getDexPrice } from '../../dexPriceService.js';
-import { notificationService } from '../../notifications/farcaster/index.js';
 import { getSolanaConnection, SOLANA_CONFIG } from '../../../config/solanaConfig.js';
 import { executeSolanaSwap } from '../../solanaExecutor.js';
 import { getSolanaEmbeddedWalletAddress } from '../../privyWallet.js';
@@ -14,6 +13,7 @@ import { getTokenMetadata } from '../../rpcService.js';
 import { getErc20Balance } from '../../rpcManager.js';
 import { executeSwapViaPort } from '../../swap/swapExecutionPort.js';
 import { trackCopyTrade, trackSwap } from '../../userActivityService.js';
+import { publishCopytradeRawNotification } from '../notifications/copytradeNotificationPublisher.js';
 import {
   resolveExecutionModeFromConfig,
   type CopyTradeExecutionMode,
@@ -635,7 +635,8 @@ async function executePositionExit(params: {
                     ? `~${totalEntryUsd.toFixed(2)}`
                     : '—';
 
-            await notificationService.sendNotification({
+            await publishCopytradeRawNotification({
+                dedupeKey: `position-exit-success:${user.privyDid}:${chainId}:${tokenAddress}:${txHash}`,
                 userId: user.privyDid,
                 farcasterFid: user.farcasterFid,
                 type: 'TRADE_SUCCESS_SELL',
@@ -688,7 +689,8 @@ async function executePositionExit(params: {
                 });
 
                 if (user.farcasterFid) {
-                    await notificationService.sendNotification({
+                    await publishCopytradeRawNotification({
+                        dedupeKey: `position-exit-failure:${user.privyDid}:${chainId}:${tokenAddress}:${exitReason}`,
                         userId: user.privyDid,
                         farcasterFid: user.farcasterFid,
                         type: 'TRADE_FAILURE',
@@ -904,7 +906,8 @@ export async function checkPositionsForExits(): Promise<void> {
 
                         // Notify user that position was auto-closed
                         if (position.user?.farcasterFid) {
-                            await notificationService.sendNotification({
+                            await publishCopytradeRawNotification({
+                                dedupeKey: `position-auto-close:${position.userId}:${position.chainId}:${position.id}`,
                                 userId: position.userId,
                                 farcasterFid: position.user.farcasterFid,
                                 type: 'TRADE_SUCCESS_SELL', // Reusing sell success notification type

@@ -27,6 +27,7 @@ import {
 
 export interface HandleSwapContext {
   detectedAt?: number;
+  sourceTxFrom?: string;
 }
 
 function buildNotificationEventFromOrder(params: {
@@ -65,16 +66,6 @@ function buildNotificationEventFromOrder(params: {
       txHash,
       sourceTxHash: outcome?.sourceTxHash || order.txHash,
       error: errorMessage || reasonCode,
-    };
-  }
-
-  if (order.lifecycleState === 'BUY_ACCEPTED') {
-    return {
-      type: 'BUY_ACCEPTED',
-      order,
-      reasonCode,
-      txHash,
-      sourceTxHash: outcome?.sourceTxHash || order.txHash,
     };
   }
 
@@ -169,6 +160,7 @@ export class CopytradeV2Runtime {
       swap,
       chainId,
       detectedAt: context?.detectedAt,
+      sourceTxFrom: context?.sourceTxFrom,
       mode,
     });
     const executionStatus = result.executionOutcome?.status || null;
@@ -180,6 +172,8 @@ export class CopytradeV2Runtime {
 
     logger.info(LogCode.SYS_INFO, '[CopyTradeV2] order processed', {
       orderId: result.order.id,
+      userId: result.order.userId || undefined,
+      configId: result.order.configId || undefined,
       chainId,
       mode: result.mode,
       skipped: result.skipped,
@@ -190,6 +184,8 @@ export class CopytradeV2Runtime {
       executionTxHash,
       executionSkipReason,
       txHash: swap?.txHash || undefined,
+      sourceTxHash: swap?.txHash || undefined,
+      sourceTxFrom: context?.sourceTxFrom || null,
       targetWallet,
     });
 

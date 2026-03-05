@@ -42,6 +42,7 @@ const PREFETCH_MAX_WAIT_MS = Number(process.env.COPYTRADE_PENDING_PREFETCH_MAX_W
 const PREFETCH_POLL_MS = Number(process.env.COPYTRADE_PENDING_PREFETCH_POLL_MS || 250);
 const PREFETCH_MAX_INFLIGHT = Number(process.env.COPYTRADE_PENDING_PREFETCH_MAX_INFLIGHT || 2);
 const PENDING_RPC_MODE = String(process.env.COPYTRADE_PENDING_RPC_MODE || 'free').trim().toLowerCase(); // free | auto
+const COPYTRADE_EVM_SIGNAL_BINDING = String(process.env.COPYTRADE_EVM_SIGNAL_BINDING || 'tx_from_only').trim().toLowerCase();
 let running = false;
 let tickInFlight = false;
 let refreshTimer: NodeJS.Timeout | null = null;
@@ -189,6 +190,7 @@ async function warmConfirmedSwapFromPending(
                     txHash,
                     targetWallet,
                     swap,
+                    sourceTxFrom: txSkeleton.from || undefined,
                     detectedAt: timing.dispatchEligibleAt || timing.swapReadyAt || start,
                     timing,
                     source: 'pending_prefetch'
@@ -254,8 +256,8 @@ async function pollOneChainPending(chainId: number): Promise<void> {
         if (!txHash) continue;
 
         const fromAddr = normalizeAddress(String(tx?.from || ''));
-        const toAddr = normalizeAddress(String(tx?.to || ''));
-        const matchedWallet = tracked.has(fromAddr) ? fromAddr : tracked.has(toAddr) ? toAddr : '';
+        // Security hardening: EVM signal binding is strictly tx.from-only.
+        const matchedWallet = tracked.has(fromAddr) ? fromAddr : '';
         if (!matchedWallet) continue;
 
         const dedupKey = pendingDedupKey(chainId, txHash);
@@ -355,6 +357,7 @@ async function pollOneChainPending(chainId: number): Promise<void> {
                 txHash,
                 targetWallet: matchedWallet,
                 swap: predecodedSwap,
+                sourceTxFrom: fromAddr || undefined,
                 detectedAt: timing.dispatchEligibleAt || timing.swapReadyAt || detectedAt,
                 timing,
                 source: 'pending_calldata_predecoded'
@@ -433,7 +436,8 @@ export async function startCopyTradePendingWatcher(): Promise<void> {
     logger.info(LogCode.SYS_STARTUP, '[CopyTradePending] Pending watcher started', {
         pollIntervalMs: POLL_INTERVAL_MS,
         refreshWalletsMs: REFRESH_WALLETS_MS,
-        rpcMode: PENDING_RPC_MODE
+        rpcMode: PENDING_RPC_MODE,
+        evmSignalBinding: COPYTRADE_EVM_SIGNAL_BINDING || 'tx_from_only'
     });
 }
 

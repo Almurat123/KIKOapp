@@ -194,6 +194,51 @@ test('order flow: retryable execution schedules retry and marks FAILED_RETRYABLE
   assert.equal(scheduler.scheduled.length, 1);
 });
 
+test('order flow: deferred retryable outcome schedules short retry and keeps retryCount', async () => {
+  const repo = new InMemoryOrderRepo();
+  const scheduler = new InMemoryScheduler();
+
+  const flow = new CopytradeOrderFlowOrchestrator({
+    orderRepo: repo,
+    eventStore: new InMemoryEventStore(),
+    executionPort: {
+      async execute() {
+        return {
+          status: 'deferred',
+          reasonCode: 'deferred_retry_later',
+          retryable: true,
+          metadata: {
+            retryDelayMs: 700,
+          },
+        } as any;
+      },
+    },
+    executionRecorder: new InMemoryExecutionRecorder(),
+    modeResolver: new DefaultCopytradeModeResolver(),
+    retryScheduler: scheduler,
+    observability: new NoopObservability(),
+  });
+
+  const result = await flow.processSignal({
+    targetWallet: '0xdeferred',
+    chainId: 900,
+    mode: 'normal',
+    swap: {
+      txHash: 'deferred_tx_hash_1',
+      tokenIn: 'So11111111111111111111111111111111111111112',
+      tokenOut: 'USDC111111111111111111111111111111111111111',
+      amountIn: '0',
+      amountOut: '0',
+      router: 'solana-router',
+      dexName: 'test-dex',
+    },
+  });
+
+  assert.equal(result.order.lifecycleState, 'DEFERRED');
+  assert.equal(result.order.retryCount, 0);
+  assert.equal(scheduler.scheduled.length, 1);
+});
+
 test('order flow: safety mode blocks low-confidence signal before execution', async () => {
   const repo = new InMemoryOrderRepo();
   const events = new InMemoryEventStore();

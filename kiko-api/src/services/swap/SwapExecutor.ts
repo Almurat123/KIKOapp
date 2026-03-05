@@ -22,6 +22,7 @@ import { appendPermit2SignatureToCalldata, executeApproval, tryBuildKyberPermit,
 import type { OrderRuntimeContext } from '../order-runtime/types.js';
 import { extendFailoverSendContext, type FailoverSendContext } from './failover/failoverSendContext.js';
 import { scoreEvmSellReliability } from './reliability/evmSellReliabilityScorer.js';
+import { emitCopytradeDomainAudit } from '../copytrade-v2/audit/copytradeDomainAudit.js';
 
 // ⚡ In-process decimals cache: avoids repeated RPC calls for the same token
 // Keyed by "chainId:tokenAddress" (lowercase). Decimals are immutable once deployed.
@@ -94,6 +95,7 @@ export interface SwapResult {
     success: boolean;
     txHash?: string;
     status?: 'SUCCESS' | 'ACTION_REQUIRED' | 'FAILED';
+    finalityState?: 'confirmed_success' | 'retryable_unresolved' | 'confirmed_failed';
     amountOut?: string;
     error?: string;
     method: string;
@@ -1018,31 +1020,6 @@ export class SwapExecutor {
                     pollMs: 2000
                 });
                 if (!confirmed.success) {
-                    if ((confirmed.kind === 'timeout' || confirmed.kind === 'uncertain') && params.returnOnConfirmTimeout) {
-                        // Fast-path: return success and keep monitoring in background
-                        monitorEvmTransaction({
-                            txHash,
-                            chainId,
-                            dexName: best.dexName,
-                            expectedAmountOut: best.amountOut,
-                            userId,
-                            messageId: params.messageId
-                        }).catch(err => {
-                            logger.error(LogCode.EXE_TX_REVERTED, 'Background monitoring failed after confirm-timeout', { txHash, error: err.message });
-                        });
-                        reportAnchorAcceptance();
-                        return {
-                            success: true,
-                            status: 'ACTION_REQUIRED',
-                            txHash,
-                            amountOut: best.amountOut,
-                            method: best.dexName,
-                            metadata: {
-                                allowanceTarget: best.allowanceTarget
-                            }
-                        };
-                    }
-
                     if (confirmed.kind !== 'confirmed_failed') {
                         logger.warn(LogCode.SYS_INFO, 'Transaction confirmation unresolved; preserving single-flight tx', {
                             txHash,
@@ -1057,12 +1034,22 @@ export class SwapExecutor {
                             userId,
                             messageId: params.messageId
                         }).catch(() => { });
-                        reportAnchorAcceptance();
+                        emitCopytradeDomainAudit('exit_confirmation_unresolved_retry', {
+                            extra: {
+                                chainId,
+                                txHash,
+                                dexName: best.dexName,
+                                reasonCode: confirmed.kind,
+                                reason: confirmed.reason || null,
+                            }
+                        });
                         return {
-                            success: true,
-                            status: 'ACTION_REQUIRED',
+                            success: false,
+                            status: 'FAILED',
+                            finalityState: 'retryable_unresolved',
                             txHash,
                             amountOut: best.amountOut,
+                            error: `confirmation_unresolved:${confirmed.kind}:${confirmed.reason || 'unknown'}`,
                             method: best.dexName,
                             metadata: {
                                 allowanceTarget: best.allowanceTarget
@@ -1149,6 +1136,7 @@ export class SwapExecutor {
                     // Return failure - let autoTradeService handle higher-level retry
                     return {
                         success: false,
+                        finalityState: 'confirmed_failed',
                         error: `Transaction reverted: ${confirmed.reason || 'Slippage or price impact'}`,
                         method: best.dexName,
                         txHash
@@ -1175,6 +1163,7 @@ export class SwapExecutor {
             return {
                 success: true,
                 status: 'SUCCESS', // Changed from PENDING to align with type definition
+                finalityState: params.waitForConfirmation ? 'confirmed_success' : undefined,
                 txHash,
                 amountOut: best.amountOut,
                 method: best.dexName,

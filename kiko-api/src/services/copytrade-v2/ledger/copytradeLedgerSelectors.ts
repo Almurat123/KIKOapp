@@ -218,3 +218,64 @@ export async function findLedgerFirstRepairCandidates() {
       targetFullExitVerified: row.targetFullExitVerified,
     }));
 }
+
+export async function findLedgerFirstOrphanSweepCandidates(params: {
+  staleBefore: Date;
+}) {
+  if (resolveCopytradeLedgerMode() !== 'v2_primary') return [];
+  const rows = await prisma.copytradePositionLedger.findMany({
+    where: {
+      lifecycleState: { in: ['FOLLOWER_OPEN', 'FOLLOWER_OPEN_REPAIR_REQUIRED', 'FOLLOWER_EXIT_FAILED_RETRYABLE'] },
+      targetFullExitVerified: true,
+      updatedAt: { lt: params.staleBefore },
+      closedAt: null,
+      positionIdLegacy: { not: null },
+    },
+    select: {
+      positionIdLegacy: true,
+      chainId: true,
+      tokenAddress: true,
+      targetWallet: true,
+      targetSellTxHash: true,
+      lastExecutionReasonCode: true,
+    },
+    take: 200,
+    orderBy: { updatedAt: 'asc' },
+  });
+  const ids = rows.map((row) => row.positionIdLegacy).filter((value): value is string => Boolean(value));
+  if (ids.length === 0) return [];
+
+  const positions = await prisma.position.findMany({
+    where: {
+      id: { in: ids },
+      status: 'open',
+      exitReason: 'mirror_sell',
+      config: {
+        mirrorSell: true,
+        status: 'active',
+      },
+    },
+    include: {
+      config: {
+        select: {
+          targetWallet: true,
+          status: true,
+        }
+      },
+    },
+  });
+  const byId = new Map(positions.map((position) => [position.id, position]));
+  return rows
+    .map((row) => {
+      const id = String(row.positionIdLegacy || '');
+      const position = byId.get(id);
+      if (!position) return null;
+      return {
+        ...position,
+        ledgerTargetWallet: row.targetWallet,
+        latestTargetSellTxHash: row.targetSellTxHash,
+        lastExecutionReasonCode: row.lastExecutionReasonCode,
+      };
+    })
+    .filter((value): value is NonNullable<typeof value> => Boolean(value));
+}

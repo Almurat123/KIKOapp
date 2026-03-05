@@ -54,6 +54,7 @@ import {
 } from './webhook/evmWebhookDecode.js';
 import { logWebhookTiming, resolveDetectedAt, safeSecretEquals, waitMs, withTimeout } from './webhookHelpers.js';
 import { queueWebhookBatch, type WebhookBatchContext } from './webhookBatching.js';
+import { emitCopytradeDomainAudit } from '../services/copytrade-v2/audit/copytradeDomainAudit.js';
 
 interface ProcessTxBody { wallet: string; txHash: string; network: string; }
 const NETWORK_TO_CHAIN_ID: Record<string, number> = {
@@ -82,6 +83,7 @@ const WEBHOOK_RECEIPT_RECOVERY_DELAYS_MS = String(process.env.COPYTRADE_WEBHOOK_
     .split(',')
     .map((v) => Number(v.trim()))
     .filter((v) => Number.isFinite(v) && v > 0);
+const COPYTRADE_EVM_SIGNAL_BINDING = String(process.env.COPYTRADE_EVM_SIGNAL_BINDING || 'tx_from_only').trim().toLowerCase();
 const localTxInflight = new Map<string, number>();
 const receiptRecoveryInflight = new Set<string>();
 const EVM_ADDRESS_REGEX = /0x[a-fA-F0-9]{40}/g;
@@ -138,6 +140,22 @@ function collectEvmActivityCandidates(activities: any[]): string[] {
     }
 
     return Array.from(addresses);
+}
+
+async function resolveEvmSourceTxFrom(chainId: number, txHash: string, fallbackCandidates: string[]): Promise<string> {
+    try {
+        const tx = await withTimeout(fetchTransaction(txHash, chainId), WEBHOOK_FULL_TX_TIMEOUT_MS, 'tx_from_resolve');
+        const from = normalizeAddress(String(tx?.from || ''));
+        if (from) return from;
+    } catch {
+        // no-op, fallback to payload-derived candidates below
+    }
+
+    for (const candidate of fallbackCandidates) {
+        const normalized = normalizeAddress(candidate);
+        if (normalized) return normalized;
+    }
+    return '';
 }
 
 async function persistSwapContext(params: {
@@ -260,6 +278,7 @@ async function attemptReceiptRecovery(
             txHash,
             targetWallet: trackedTarget,
             swap,
+            sourceTxFrom: normalizeAddress(String(fullTx.from || '')) || undefined,
             detectedAt: Date.now(),
             timing: markCopyTradeTaskEnqueued(
                 markCopyTradeSwapReady(
@@ -435,6 +454,7 @@ async function processAlchemyWebhookPayload(payload: any): Promise<void> {
         let txHash = '';
         let candidates: string[] = [];
         let signerCandidates: string[] = [];
+        let sourceTxFrom = '';
         let receiptMs = 0;
         let fullTxMs = 0;
         let parseSkeletonMs = 0;
@@ -463,6 +483,17 @@ async function processAlchemyWebhookPayload(payload: any): Promise<void> {
 
         txHash = normalizeTxHash(chainId, txHash);
         if (!txHash) return;
+        if (!isSolanaItems) {
+            if (COPYTRADE_EVM_SIGNAL_BINDING !== 'tx_from_only') {
+                console.warn(`[Webhook] COPYTRADE_EVM_SIGNAL_BINDING=${COPYTRADE_EVM_SIGNAL_BINDING} is not supported, forcing tx_from_only`);
+            }
+            sourceTxFrom = await resolveEvmSourceTxFrom(chainId, txHash, candidates);
+            if (!sourceTxFrom) {
+                console.error(`[Webhook] Ignore tx ${txHash}: missing source tx.from under tx_from_only binding`);
+                return;
+            }
+            candidates = [sourceTxFrom];
+        }
         if (payloadTxDedup.has(txHash)) return;
         payloadTxDedup.add(txHash);
         if (!tryClaimLocalInflight(chainId, txHash)) {
@@ -489,7 +520,7 @@ async function processAlchemyWebhookPayload(payload: any): Promise<void> {
             chainId,
             txHash,
             source: 'alchemy_webhook',
-            matchedWallet: candidates[0] || undefined
+            matchedWallet: sourceTxFrom || candidates[0] || undefined
         });
 
         try {
@@ -507,6 +538,27 @@ async function processAlchemyWebhookPayload(payload: any): Promise<void> {
                         select: { address: true }
                     })
             ]);
+            if (!isSolanaItems) {
+                const pendingTargetWallet = normalizeAddress(String(pendingHint?.targetWallet || ''));
+                if (pendingTargetWallet && sourceTxFrom && pendingTargetWallet !== sourceTxFrom) {
+                    emitCopytradeDomainAudit('signal_wallet_mismatch', {
+                        extra: {
+                            chainId,
+                            txHash,
+                            sourceTxFrom,
+                            pendingTargetWallet,
+                            reasonCode: 'pending_hint_source_wallet_mismatch'
+                        }
+                    });
+                    console.error('[Webhook] Signal wallet mismatch detected; dropping tx', {
+                        chainId,
+                        txHash,
+                        sourceTxFrom,
+                        pendingTargetWallet
+                    });
+                    return;
+                }
+            }
             const adjudicatedSnapshot = getAdjudicatedSnapshot({ chainId, txHash });
             const isBoundSelfOrderWebhook = Boolean(adjudicatedSnapshot?.orderId);
 
@@ -597,7 +649,11 @@ async function processAlchemyWebhookPayload(payload: any): Promise<void> {
                 : (Array.isArray(item?.activities) && item.activities.length
                     ? item.activities
                     : (item ? [item] : []));
-            const txSkeleton = buildTxSkeletonFromAlchemyActivity(evmActivities, txHash);
+            const txSkeletonRaw = buildTxSkeletonFromAlchemyActivity(evmActivities, txHash);
+            const txSkeleton = {
+                ...txSkeletonRaw,
+                from: sourceTxFrom || txSkeletonRaw.from
+            };
             const predecodedRows = await Promise.all(
                 trackedWallets.map(async (walletRecord) => ({
                     wallet: walletRecord.address,
@@ -835,6 +891,7 @@ async function processAlchemyWebhookPayload(payload: any): Promise<void> {
                     txHash,
                     targetWallet: trackedTarget,
                     swap,
+                    sourceTxFrom: sourceTxFrom || undefined,
                     detectedAt,
                     timing,
                     source: cached ? 'webhook_cached_predecoded' : 'webhook_decode'
@@ -1006,6 +1063,7 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
                     txHash: txHashNormalized,
                     targetWallet: wallet,
                     swap: predecoded.swap,
+                    sourceTxFrom: normalizeAddress(wallet) || undefined,
                     detectedAt: timing.dispatchEligibleAt || timing.swapReadyAt || resolveDetectedAt(COPYTRADE_DETECTED_AT_STALE_MS, predecoded.detectedAt, pendingHint?.detectedAt),
                     timing,
                     source: 'process_tx_pending_prefetch'
@@ -1164,6 +1222,7 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
                 txHash: txHashNormalized,
                 targetWallet: wallet,
                 swap,
+                sourceTxFrom: normalizeAddress(wallet) || undefined,
                 detectedAt: timing.dispatchEligibleAt || timing.swapReadyAt || resolveDetectedAt(COPYTRADE_DETECTED_AT_STALE_MS, pendingHint?.detectedAt),
                 timing,
                 source: 'internal_process_tx'

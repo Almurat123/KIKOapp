@@ -10,6 +10,7 @@ import { evaluateVerifiedMirrorExitFallback } from './verifiedMirrorExitFallback
 import { evaluateOrphanRecovery } from '../recovery/orphanRecoveryPolicy.js';
 import { buildForcedExitSwapPlan } from '../recovery/forcedExitPlanner.js';
 import { resolveExitBalanceAdaptation } from '../../oracle/rpcAdaptationPolicy.js';
+import { emitCopytradeDomainAudit } from '../audit/copytradeDomainAudit.js';
 
 export async function buildEvmExitPlan(input: {
   userId: string;
@@ -118,6 +119,18 @@ export function buildEvmExitPlanFromSnapshot(input: {
   }
 
   if (orphanRecovery.action === 'force_exit') {
+    emitCopytradeDomainAudit('forced_mirror_exit_applied', {
+      extra: {
+        userId,
+        chainId,
+        tokenAddress,
+        targetWallet: input.targetWallet || null,
+        reasonCode: orphanRecovery.reasonCode,
+        targetFullExitVerified: snapshot.targetFullExitVerified || false,
+        latestTargetSellTxHash: snapshot.latestTargetSellTxHash || null,
+        balanceRaw: snapshot.balanceRaw.toString(),
+      }
+    });
     return buildForcedExitSwapPlan({
       userId,
       tokenAddress,

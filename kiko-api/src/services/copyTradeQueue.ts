@@ -19,6 +19,7 @@ type QueueTask = {
     chainId: number;
     detectedAt?: number;
     timing?: CopyTradeTimingSnapshot;
+    sourceTxFrom?: string;
     source?: string;
     priority: number;
     sequence: number;
@@ -33,7 +34,7 @@ type QueueHandler = (
     targetWallet: string,
     swap: DecodedSwap,
     chainId: number,
-    context?: { detectedAt?: number; timing?: CopyTradeTimingSnapshot }
+    context?: { detectedAt?: number; timing?: CopyTradeTimingSnapshot; sourceTxFrom?: string }
 ) => Promise<void>;
 let queueHandlerOverride: QueueHandler | null = null;
 
@@ -127,7 +128,11 @@ function processQueue(): void {
                     markCopyTradeTxState(task.chainId, task.swap.txHash || 'nohash', 'executing', {
                         wallet: task.targetWallet
                     }).catch(() => { });
-                    await handleSwapDetected(task.targetWallet, task.swap, task.chainId, { detectedAt, timing });
+                    await handleSwapDetected(task.targetWallet, task.swap, task.chainId, {
+                        detectedAt,
+                        timing,
+                        sourceTxFrom: task.sourceTxFrom
+                    });
                     // Post-execution bookkeeping: fire-and-forget
                     markLocallyDone(taskKey);
                     markCopyTradeTxState(task.chainId, task.swap.txHash || 'nohash', 'executed', {
@@ -164,7 +169,7 @@ export function enqueueCopyTradeTask(
     targetWallet: string,
     swap: DecodedSwap,
     chainId: number,
-    context?: { detectedAt?: number; timing?: CopyTradeTimingSnapshot; source?: string }
+    context?: { detectedAt?: number; timing?: CopyTradeTimingSnapshot; source?: string; sourceTxFrom?: string }
 ): void {
     markCopyTradeTxState(chainId, swap?.txHash || 'nohash', 'task_enqueued', {
         wallet: targetWallet
@@ -175,6 +180,7 @@ export function enqueueCopyTradeTask(
         chainId,
         detectedAt: context?.detectedAt,
         source: context?.source,
+        sourceTxFrom: context?.sourceTxFrom,
         priority: resolveCopyTradeQueuePriority({ chainId, source: context?.source }),
         sequence: ++localSequence,
         timing: markCopyTradeTaskEnqueued(

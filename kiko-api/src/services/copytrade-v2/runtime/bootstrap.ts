@@ -4,6 +4,8 @@ import { enqueueCopyTradeTask } from '../../copyTradeQueue.js';
 import { onSolanaSwapDetected, startSolanaWatcher } from '../../solanaWatcher.js';
 import { startCopyTradePendingWatcher, stopCopyTradePendingWatcher } from '../../copyTradePendingService.js';
 import { runTargetSellReconciliationCycle } from '../reconcile/targetSellReconciliationJob.js';
+import { runCopytradeAttributionRepairCycle } from '../jobs/copytradeAttributionRepairJob.js';
+import { runCopytradeOrphanSweepCycle } from '../jobs/copytradeOrphanSweepJob.js';
 import { logger } from '../../../utils/logger.js';
 import { LogCode } from '../../../config/logRegistry.js';
 import type { DecodedSwap } from '../../txDecoder.js';
@@ -11,6 +13,14 @@ import type { DecodedSwap } from '../../txDecoder.js';
 const TARGET_SELL_RECONCILIATION_INTERVAL_MS = Math.max(
   15_000,
   Number(process.env.COPYTRADE_TARGET_SELL_RECONCILIATION_INTERVAL_MS || '30000'),
+);
+const ATTRIBUTION_REPAIR_INTERVAL_MS = Math.max(
+  60_000,
+  Number(process.env.COPYTRADE_ATTRIBUTION_REPAIR_INTERVAL_MS || '600000'),
+);
+const ORPHAN_SWEEP_INTERVAL_MS = Math.max(
+  60_000,
+  Number(process.env.COPYTRADE_ORPHAN_SWEEP_INTERVAL_MS || '600000'),
 );
 
 type PositionStatusCompat = {
@@ -26,6 +36,8 @@ let initialized = false;
 let isShuttingDown = false;
 let zombieCleanupInterval: NodeJS.Timeout | null = null;
 let targetSellReconciliationInterval: NodeJS.Timeout | null = null;
+let attributionRepairInterval: NodeJS.Timeout | null = null;
+let orphanSweepInterval: NodeJS.Timeout | null = null;
 
 async function getPositionStatusCompat(): Promise<PositionStatusCompat> {
   const cached = positionStatusCompatCache;
@@ -140,6 +152,37 @@ export function initCopytradeV2Bootstrap(params: {
       });
   }, TARGET_SELL_RECONCILIATION_INTERVAL_MS);
 
+  attributionRepairInterval = setInterval(() => {
+    void runCopytradeAttributionRepairCycle()
+      .then((result) => {
+        if (result.repairedCount > 0 || result.repairRequiredCount > 0) {
+          logger.info(LogCode.SYS_INFO, '[CopyTradeV2] Attribution repair cycle completed', result);
+        }
+      })
+      .catch((error: any) => {
+        logger.warn(LogCode.SYS_ERROR, '[CopyTradeV2] Attribution repair cycle failed', {
+          error: error?.message || String(error),
+        });
+      });
+  }, ATTRIBUTION_REPAIR_INTERVAL_MS);
+
+  orphanSweepInterval = setInterval(() => {
+    void runCopytradeOrphanSweepCycle()
+      .then((result) => {
+        if (result.scheduledRetryCount > 0 || result.quarantinedPendingLots > 0) {
+          logger.info(LogCode.SYS_INFO, '[CopyTradeV2] Orphan sweep cycle completed', result);
+        }
+      })
+      .catch((error: any) => {
+        logger.warn(LogCode.SYS_ERROR, '[CopyTradeV2] Orphan sweep cycle failed', {
+          error: error?.message || String(error),
+        });
+      });
+  }, ORPHAN_SWEEP_INTERVAL_MS);
+
+  void runCopytradeAttributionRepairCycle().catch(() => { });
+  void runCopytradeOrphanSweepCycle().catch(() => { });
+
   logger.info(LogCode.SYS_STARTUP, 'CopyTrade V2 bootstrap initialized', {
     mode: 'solana-watcher+evm-webhook+pending',
   });
@@ -159,6 +202,14 @@ export async function stopCopytradeV2Bootstrap(): Promise<void> {
   if (targetSellReconciliationInterval) {
     clearInterval(targetSellReconciliationInterval);
     targetSellReconciliationInterval = null;
+  }
+  if (attributionRepairInterval) {
+    clearInterval(attributionRepairInterval);
+    attributionRepairInterval = null;
+  }
+  if (orphanSweepInterval) {
+    clearInterval(orphanSweepInterval);
+    orphanSweepInterval = null;
   }
 
   stopCopyTradePendingWatcher();

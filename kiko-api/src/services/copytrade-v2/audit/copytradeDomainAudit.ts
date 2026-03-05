@@ -19,7 +19,11 @@ export type CopytradeDomainEvent =
   | 'FOLLOWER_POSITION_REPAIRED'
   | 'FOLLOWER_EXIT_SUBMITTED'
   | 'FOLLOWER_EXIT_RETRY_SCHEDULED'
-  | 'FOLLOWER_EXIT_CLOSED';
+  | 'FOLLOWER_EXIT_CLOSED'
+  | 'signal_wallet_mismatch'
+  | 'target_not_allowlisted'
+  | 'forced_mirror_exit_applied'
+  | 'exit_confirmation_unresolved_retry';
 
 export function buildCopytradeDomainAuditFields(input: {
   ledger?: CopytradeLedgerSnapshot | null;

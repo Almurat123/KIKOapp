@@ -40,7 +40,7 @@ describe('orphan recovery policy', () => {
     assert.equal(decision.action, 'force_exit');
   });
 
-  test('quarantines when target full exit is verified but external balance contamination exists', () => {
+  test('forces exit when target full exit is verified even with external balance contamination', () => {
     const decision = evaluateOrphanRecovery({
       tokenAddress: '0xtoken',
       chainId: 8453,
@@ -73,7 +73,7 @@ describe('orphan recovery policy', () => {
       },
     });
 
-    assert.equal(decision.action, 'quarantine');
+    assert.equal(decision.action, 'force_exit');
   });
 
   test('keeps mirror sell open when verified target exit sees zero follower balance', () => {

@@ -17,3 +17,9 @@ test('scheduler: resolveRetryAt applies delay on top of now', () => {
   const retryAt = resolveRetryAt(normalPolicy, 1, now);
   assert.equal(retryAt.getTime(), now + resolveRetryDelayMs(normalPolicy, 1));
 });
+
+test('scheduler: resolveRetryAt honors override base delay', () => {
+  const now = Date.UTC(2026, 0, 1, 0, 0, 0);
+  const retryAt = resolveRetryAt(normalPolicy, 1, now, 2500);
+  assert.equal(retryAt.getTime(), now + 2500);
+});

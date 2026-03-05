@@ -23,6 +23,14 @@ function resolveCtIssueHint(signal: CopytradeIngressSignal, order: CopytradeOrde
   return raw as `CT-${string}`;
 }
 
+function resolveSolanaAmountRetryDelayMs(mode: CopytradeOrderAggregate['mode']): number {
+  if (mode === 'turbo') return 650;
+  if (mode === 'safety') return 2600;
+  return 1400;
+}
+
+const SOLANA_MIN_SELL_AMOUNT_HUMAN = 0.000001;
+
 export class SolanaTradingFlowExecutor implements CopytradeExecutionPort {
   async execute(signal: CopytradeIngressSignal, order: CopytradeOrderAggregate): Promise<CopytradeExecutionOutcome> {
     if (signal.chainId !== 900) {
@@ -80,17 +88,62 @@ export class SolanaTradingFlowExecutor implements CopytradeExecutionPort {
 
     const sellDirection = isSellDirection(order);
 
-    const amountInHuman = sellDirection
+    const sellResolution = sellDirection
       ? await resolveSellAmountInHuman({
           walletAddress,
           tokenIn: signal.swap.tokenIn,
           chainId: signal.chainId,
+          context: {
+            userId: context.userId,
+            configId: order.configId || context.configId || null,
+            targetWallet: order.targetWallet,
+            mode: order.mode,
+            sourceAmountIn: signal.swap.amountIn,
+          },
         })
+      : null;
+    const amountInHuman = sellDirection
+      ? sellResolution?.amountInHuman || null
       : (await resolveBuyAmountInHuman({
           tokenIn: signal.swap.tokenIn,
           chainId: signal.chainId,
           buyAmountUsd: context.buyAmountUsd,
         })).amountInHuman;
+    const parsedSellAmount = Number(amountInHuman || 0);
+
+    if (
+      sellDirection
+      && amountInHuman
+      && Number.isFinite(parsedSellAmount)
+      && parsedSellAmount > 0
+      && parsedSellAmount < SOLANA_MIN_SELL_AMOUNT_HUMAN
+    ) {
+      logger.info(LogCode.WTC_TX_SKIPPED, '[CopyTradeV2][SolanaExecution] deferred before send: amount below min sell threshold', {
+        orderId: order.id,
+        chainId: signal.chainId,
+        txHash: signal.swap?.txHash || undefined,
+        sellDirection,
+        amountInHuman,
+        minSellAmount: SOLANA_MIN_SELL_AMOUNT_HUMAN,
+        sellAmountFallbackSource: sellResolution?.source || null,
+      });
+      return {
+        status: 'deferred',
+        reasonCode: 'deferred_retry_later',
+        retryable: true,
+        sourceTxHash: signal.swap?.txHash || null,
+        metadata: {
+          reason: 'amount_below_min_sell_threshold',
+          sellDirection,
+          tokenIn: signal.swap.tokenIn,
+          amountInHuman,
+          minSellAmount: SOLANA_MIN_SELL_AMOUNT_HUMAN,
+          sellAmountFallbackSource: sellResolution?.source || null,
+          sellAmountFallbackMetadata: sellResolution?.metadata || null,
+          retryDelayMs: resolveSolanaAmountRetryDelayMs(order.mode),
+        },
+      };
+    }
 
     if (!amountInHuman || Number(amountInHuman) <= 0) {
       logger.info(LogCode.WTC_TX_SKIPPED, '[CopyTradeV2][SolanaExecution] skipped before send: amount resolution failed', {
@@ -100,6 +153,8 @@ export class SolanaTradingFlowExecutor implements CopytradeExecutionPort {
         sellDirection,
         tokenIn: signal.swap.tokenIn,
         tokenOut: signal.swap.tokenOut,
+        sellAmountFallbackSource: sellResolution?.source || null,
+        sellAmountFallbackMetadata: sellResolution?.metadata || null,
       });
       return {
         status: 'deferred',
@@ -110,6 +165,9 @@ export class SolanaTradingFlowExecutor implements CopytradeExecutionPort {
           reason: 'amount_resolution_failed',
           sellDirection,
           tokenIn: signal.swap.tokenIn,
+          sellAmountFallbackSource: sellResolution?.source || null,
+          sellAmountFallbackMetadata: sellResolution?.metadata || null,
+          retryDelayMs: resolveSolanaAmountRetryDelayMs(order.mode),
         },
       };
     }

@@ -100,6 +100,8 @@ export class PrismaCopytradeOrderRepository implements CopytradeOrderRepositoryP
           detectedAt: signal.detectedAt ? new Date(signal.detectedAt) : new Date(),
           metadataJson: {
             sourceDex: signal.swap.dexName || null,
+            sourceTxHash: signal.swap.txHash || txHash,
+            sourceTxFrom: signal.sourceTxFrom || null,
             amountIn: String(signal.swap.amountIn || '0'),
             amountOut: String(signal.swap.amountOut || '0'),
             routeHopCount: signal.swap.routeHopCount || signal.swap.routeHops?.length || 0,

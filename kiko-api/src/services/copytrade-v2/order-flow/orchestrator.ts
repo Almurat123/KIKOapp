@@ -61,6 +61,12 @@ function inferSignalConfidence(signal: CopytradeIngressSignal): number {
   return Math.max(0, Math.min(1, confidence));
 }
 
+function resolveRetryDelayOverride(outcome: CopytradeExecutionOutcome): number | undefined {
+  const value = Number(outcome.metadata?.retryDelayMs);
+  if (!Number.isFinite(value) || value <= 0) return undefined;
+  return value;
+}
+
 export class CopytradeOrderFlowOrchestrator {
   constructor(private readonly deps: CopytradeOrderFlowDeps) {}
 
@@ -103,6 +109,7 @@ export class CopytradeOrderFlowOrchestrator {
           chainId: signal.chainId,
           targetWallet: normalizedWallet,
           txHash,
+          sourceTxFrom: signal.sourceTxFrom || null,
           ctIssueHintId: signal.ctIssueHintId || order.metadata?.ctIssueHintId || null,
         },
       });
@@ -171,6 +178,7 @@ export class CopytradeOrderFlowOrchestrator {
         ...(order.metadata || {}),
         directionSource: direction.source,
         inferredTxType: direction.inferredTxType || null,
+        sourceTxFrom: signal.sourceTxFrom || order.metadata?.sourceTxFrom || null,
       },
     });
 
@@ -298,6 +306,28 @@ export class CopytradeOrderFlowOrchestrator {
       const deferred = await this.transition(order, 'DEFER', outcome.reasonCode, {
         execution: outcome,
       });
+      if (outcome.retryable) {
+        const attemptNo = Math.max(1, order.retryCount + 1);
+        const retryAt = resolveRetryAt(
+          policy,
+          attemptNo,
+          Date.now(),
+          resolveRetryDelayOverride(outcome),
+        );
+        await this.deps.retryScheduler.schedule({
+          orderId: deferred.id,
+          retryAt,
+          reasonCode: 'ok_retry_scheduled',
+          attemptNo,
+        });
+        this.deps.observability.emit('copytrade_v2_deferred_retry_scheduled', {
+          orderId: deferred.id,
+          retryAt: retryAt.toISOString(),
+          attemptNo,
+          mode: policy.mode,
+          reasonCode: outcome.reasonCode,
+        });
+      }
       return {
         order: deferred,
         mode: policy.mode,
@@ -357,7 +387,12 @@ export class CopytradeOrderFlowOrchestrator {
       lastExecutionAt: new Date(),
     });
 
-    const retryAt = resolveRetryAt(policy, nextRetryCount);
+    const retryAt = resolveRetryAt(
+      policy,
+      nextRetryCount,
+      Date.now(),
+      resolveRetryDelayOverride(outcome),
+    );
     await this.deps.retryScheduler.schedule({
       orderId: retryable.id,
       retryAt,

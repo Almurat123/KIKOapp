@@ -32,6 +32,8 @@ Every copytrade-v2 PR must reference one or more CT IDs from this file.
   - 已落地 copytrade-v2 统一 DM 事件发布器，覆盖 `BUY_ACCEPTED/BUY_CONFIRMED_OPEN/EXIT_SUBMITTED/EXIT_CONFIRMED_CLOSED/EXECUTION_FAILED/SKIPPED`。
 - `CT-059..CT-064`、`CT-133..CT-136`：`in_progress`
   - 已补 `MainSwapService.collectDirectSwapFee*` 对 `sourceTxHash` 的透传，避免 fee 幂等键静默降级。
+- `CT-037..CT-042`、`CT-059..CT-070`：`in_progress`
+  - 已新增交易流统一 `BSC nonce conflict` 策略：冲突分类、模式化退避窗口（Turbo/Normal/Safety）和调度器覆盖延迟（`retryDelayMs`）。
 
 > 注：上述范围是“代码已接入并通过现有单测+编译”，尚未进入全量 `closed`，需要补齐每条 CT 的三证据（测试断言、线上日志样本、指标前后对比）。
 

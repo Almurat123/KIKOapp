@@ -22,9 +22,9 @@ export function buildFarcasterNotificationMessage(type: TradeNotificationType, d
 
     switch (type) {
         case 'TRADE_SUCCESS_BUY':
-            firstLine = `🚀 Bought $${data.tokenSymbol} @ $${data.usdValue}`;
-            body = `🟢 BOUGHT $${data.tokenSymbol}\n` +
-                `💰 Value: $${data.usdValue}\n` +
+            firstLine = `✅ Buy Confirmed: $${data.tokenSymbol} @ $${data.usdValue}`;
+            body = `🟢 BUY CONFIRMED (OPEN)\n` +
+                `💰 Confirmed Value: $${data.usdValue}\n` +
                 (data.targetWallet ? `👤 Mirroring: ${data.targetWallet.slice(0, 6)}...${data.targetWallet.slice(-4)}\n` : '') +
                 (data.chainId ? `⛓️ Chain: ${getChainDisplayName(data.chainId)}\n` : '');
             break;

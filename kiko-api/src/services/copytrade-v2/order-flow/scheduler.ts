@@ -10,6 +10,17 @@ export function resolveRetryDelayMs(policy: CopytradeModePolicy, attemptNo: numb
   return Math.min(delay, RETRY_BACKOFF_CAP_MS);
 }
 
-export function resolveRetryAt(policy: CopytradeModePolicy, attemptNo: number, now = Date.now()): Date {
+export function resolveRetryAt(
+  policy: CopytradeModePolicy,
+  attemptNo: number,
+  now = Date.now(),
+  overrideBaseDelayMs?: number,
+): Date {
+  if (Number.isFinite(overrideBaseDelayMs) && Number(overrideBaseDelayMs) > 0) {
+    const baseDelay = Math.max(100, Number(overrideBaseDelayMs));
+    const retryPow = Math.max(0, attemptNo - 1);
+    const delay = Math.floor(baseDelay * Math.pow(RETRY_BACKOFF_FACTOR, retryPow));
+    return new Date(now + Math.min(delay, RETRY_BACKOFF_CAP_MS));
+  }
   return new Date(now + resolveRetryDelayMs(policy, attemptNo));
 }
