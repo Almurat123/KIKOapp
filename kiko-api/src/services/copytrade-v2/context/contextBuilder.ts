@@ -28,10 +28,32 @@ const KNOWN_SWAP_SELECTORS = new Set([
   '0xe21fd0e9'
 ]);
 
-function normalizeAddress(value?: string): string | undefined {
+function normalizeEvmAddress(value?: string): string | undefined {
   const raw = String(value || '').trim().toLowerCase();
   if (!raw) return undefined;
   return /^0x[0-9a-f]{40}$/.test(raw) ? raw : undefined;
+}
+
+function normalizeSolanaAddress(value?: string): string | undefined {
+  const raw = String(value || '').trim();
+  if (!raw) return undefined;
+  return /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(raw) ? raw : undefined;
+}
+
+function normalizeAddressForChain(chainId: number, value?: string): string | undefined {
+  return chainId === 900 ? normalizeSolanaAddress(value) : normalizeEvmAddress(value);
+}
+
+function normalizeTokenForChain(chainId: number, value?: string): string {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  return chainId === 900 ? raw : raw.toLowerCase();
+}
+
+function normalizeTxHashForChain(chainId: number, value?: string): string {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  return chainId === 900 ? raw : raw.toLowerCase();
 }
 
 function selectorFromInput(input?: string): string | undefined {
@@ -57,28 +79,28 @@ export function buildSwapExecutionContext(params: {
   return {
     version: 1,
     chainId: params.chainId,
-    sourceTxHash: String(params.tx.hash || params.decodedSwap.txHash || '').toLowerCase(),
-    sourceRouter: normalizeAddress(params.tx.to || params.decodedSwap.router),
+    sourceTxHash: normalizeTxHashForChain(params.chainId, params.tx.hash || params.decodedSwap.txHash),
+    sourceRouter: normalizeAddressForChain(params.chainId, params.tx.to || params.decodedSwap.router),
     sourceSelector: selector,
     sourceTxInput: String(params.tx.input || params.decodedSwap.sourceTxInput || ''),
     sourceTxValue: String(params.tx.value || params.decodedSwap.sourceTxValue || '0'),
-    tokenIn: String(params.decodedSwap.tokenIn || '').toLowerCase(),
-    tokenOut: String(params.decodedSwap.tokenOut || '').toLowerCase(),
+    tokenIn: normalizeTokenForChain(params.chainId, params.decodedSwap.tokenIn),
+    tokenOut: normalizeTokenForChain(params.chainId, params.decodedSwap.tokenOut),
     amountIn: String(params.decodedSwap.amountIn || '0'),
     amountOut: String(params.decodedSwap.amountOut || '0'),
     routeHops: params.decodedSwap.routeHops?.map((hop) => ({
       kind: hop.kind,
       dex: hop.dex,
-      poolAddress: normalizeAddress(hop.poolAddress),
-      tokenIn: String(hop.tokenIn || '').toLowerCase() || undefined,
-      tokenOut: String(hop.tokenOut || '').toLowerCase() || undefined,
+      poolAddress: normalizeAddressForChain(params.chainId, hop.poolAddress),
+      tokenIn: normalizeTokenForChain(params.chainId, hop.tokenIn) || undefined,
+      tokenOut: normalizeTokenForChain(params.chainId, hop.tokenOut) || undefined,
       fee: hop.fee
     })),
     resolvedPoolHint: params.decodedSwap.resolvedPoolHint
       ? {
           kind: params.decodedSwap.resolvedPoolHint.kind,
           dex: params.decodedSwap.resolvedPoolHint.dex,
-          poolAddress: normalizeAddress(params.decodedSwap.resolvedPoolHint.poolAddress),
+          poolAddress: normalizeAddressForChain(params.chainId, params.decodedSwap.resolvedPoolHint.poolAddress),
           fee: params.decodedSwap.resolvedPoolHint.fee,
           v4PoolKey: params.decodedSwap.resolvedPoolHint.v4PoolKey
             ? {
@@ -94,12 +116,12 @@ export function buildSwapExecutionContext(params: {
       : undefined,
     decodeEvidence: {
       hasSwapTopic,
-      knownRouter: Boolean(normalizeAddress(params.decodedSwap.router)),
+      knownRouter: Boolean(normalizeAddressForChain(params.chainId, params.decodedSwap.router)),
       knownSelector: Boolean(selector && KNOWN_SWAP_SELECTORS.has(selector))
     },
     trace: {
       webhookId: params.webhookId,
-      targetWallet: normalizeAddress(params.targetWallet),
+      targetWallet: normalizeAddressForChain(params.chainId, params.targetWallet),
       detectedAt: Number(params.detectedAt || Date.now())
     }
   };

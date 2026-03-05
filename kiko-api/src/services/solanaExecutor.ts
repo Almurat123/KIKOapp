@@ -19,8 +19,17 @@ export interface SolanaSwapParams {
     accessToken?: string;
     waitForConfirmation?: boolean;
     executionMode?: 'safe' | 'normal' | 'turbo';
-    launchpadProvider?: 'pumpfun' | 'pumpswap' | 'bonkfun' | 'zora' | 'fourmeme' | 'flap' | 'clanker' | 'virtuals' | 'doppler' | 'flaunch' | 'creatorbid';
+    launchpadProvider?: 'pumpfun' | 'pumpswap' | 'bonkfun' | 'meteora' | 'zora' | 'fourmeme' | 'flap' | 'clanker' | 'virtuals' | 'doppler' | 'flaunch' | 'creatorbid';
     preferredAggregator?: Exclude<SolanaAggregator, 'auto'>;
+}
+
+export interface SolanaSwapExecutionResult {
+    signature: string;
+    quoteOutAmountBase?: string;
+    quoteInAmountBase?: string;
+    quoteAggregator?: SolanaQuote['aggregator'] | SolanaAggregator;
+    quoteSlippageBps?: number;
+    usedAmountInBase?: string;
 }
 
 type SolanaExecutorDeps = {
@@ -48,6 +57,7 @@ function resolveSelectedAggregator(
     executionMode: NonNullable<SolanaSwapParams['executionMode']>,
     launchpadProvider?: SolanaSwapParams['launchpadProvider']
 ): SolanaAggregator {
+    if (launchpadProvider === 'meteora') return 'meteora';
     return preferredAggregator
         || (executionMode === 'turbo' || launchpadProvider === 'pumpswap' || launchpadProvider === 'pumpfun' ? 'jupiter' : 'auto');
 }
@@ -59,6 +69,9 @@ function resolveJupiterDexFiltersForLaunchpad(
         // Jupiter dex label for pAMM routes (label is case-sensitive in practice).
         // Keep aliases for compatibility across API variants.
         return ['Pump.fun Amm', 'Pump.fun AMM', 'Pump.fun'];
+    }
+    if (launchpadProvider === 'meteora') {
+        return ['Meteora DLMM', 'Meteora'];
     }
     return undefined;
 }
@@ -81,10 +94,10 @@ function shouldRetryAlternativeRoute(error: any): boolean {
     );
 }
 
-async function executeSolanaSwapWithDeps(
+async function executeSolanaSwapWithDepsDetailed(
     params: SolanaSwapParams,
     deps: SolanaExecutorDeps
-): Promise<string> {
+): Promise<SolanaSwapExecutionResult> {
     const {
         userId,
         tokenInMint,
@@ -101,7 +114,9 @@ async function executeSolanaSwapWithDeps(
     // === SIMULATION MODE ===
     if (process.env.SIMULATION_MODE === 'true') {
         logger.info(LogCode.EXE_TX_BROADCAST, 'SolanaExecutor: SIMULATION MODE swap', { tokenOutMint });
-        return `5SimulatedSignature${Date.now()}${Math.random().toString(36).substring(7)}`;
+        return {
+            signature: `5SimulatedSignature${Date.now()}${Math.random().toString(36).substring(7)}`
+        };
     }
 
     // CRITICAL: Use the SAME wallet for building and signing!
@@ -130,6 +145,10 @@ async function executeSolanaSwapWithDeps(
 
     let signature = '';
     let lastError: any = null;
+    let selectedQuote: SolanaQuote | null = null;
+    let selectedAttemptAmount: string | undefined;
+    let selectedAttemptSlippageBps: number | undefined;
+    let selectedCandidateAggregator: SolanaAggregator | undefined;
 
     candidateLoop:
     for (let idx = 0; idx < aggregatorCandidates.length; idx++) {
@@ -186,8 +205,12 @@ async function executeSolanaSwapWithDeps(
                 );
 
             const adjustedQuote = applyCopyTradePriorityFee(quote, params.feeContext);
-            if (!adjustedQuote || !adjustedQuote.swapTransaction) {
-                lastError = new AppError(500, `Solana swap quote/tx missing for aggregator=${candidate}`, 'SWAP_BUILD_FAILED');
+            if (!adjustedQuote) {
+                lastError = new AppError(400, `Solana quote unavailable for aggregator=${candidate}`, 'QUOTE_FAILED');
+                continue;
+            }
+            if (!adjustedQuote.swapTransaction) {
+                lastError = new AppError(500, `Solana swap tx missing for aggregator=${candidate}`, 'SWAP_BUILD_FAILED');
                 continue;
             }
 
@@ -201,15 +224,19 @@ async function executeSolanaSwapWithDeps(
                 retry
             });
 
-            try {
+                try {
                 const transactionBuffer = Buffer.from(adjustedQuote.swapTransaction, 'base64');
                 const transaction = deps.deserializeTransaction(transactionBuffer);
                 const blockhashResult = await deps.getLatestSolanaBlockhash(blockhashConnection, 'swap_executor');
                 transaction.message.recentBlockhash = blockhashResult.blockhash;
                 const freshTransactionBase64 = Buffer.from(transaction.serialize()).toString('base64');
-                signature = await deps.sendSolanaTransactionWithContext(userId, freshTransactionBase64, signingContext);
-                break candidateLoop;
-            } catch (sendErr: any) {
+                    signature = await deps.sendSolanaTransactionWithContext(userId, freshTransactionBase64, signingContext);
+                    selectedQuote = adjustedQuote;
+                    selectedAttemptAmount = retryAmount;
+                    selectedAttemptSlippageBps = attemptSlippageBps;
+                    selectedCandidateAggregator = candidate;
+                    break candidateLoop;
+                } catch (sendErr: any) {
                 lastError = sendErr;
                 const retryable = shouldRetryAlternativeRoute(sendErr);
                 if (retryable && retry < maxSameAggregatorRetries) {
@@ -246,7 +273,14 @@ async function executeSolanaSwapWithDeps(
 
     // Fast path for copytrade/sniper: return immediately after broadcast.
     if (!waitForConfirmation) {
-        return signature;
+        return {
+            signature,
+            quoteOutAmountBase: selectedQuote?.outAmount,
+            quoteInAmountBase: selectedQuote?.inAmount,
+            quoteAggregator: selectedQuote?.aggregator || selectedCandidateAggregator,
+            quoteSlippageBps: selectedAttemptSlippageBps,
+            usedAmountInBase: selectedAttemptAmount
+        };
     }
 
     // Alchemy HTTP RPC doesn't support WebSocket methods like signatureSubscribe
@@ -285,15 +319,36 @@ async function executeSolanaSwapWithDeps(
         logger.warn(LogCode.SYS_ERROR, 'SolanaExecutor: Could not confirm tx', { signature, error: confirmErr.message });
     }
 
-    return signature;
+    return {
+        signature,
+        quoteOutAmountBase: selectedQuote?.outAmount,
+        quoteInAmountBase: selectedQuote?.inAmount,
+        quoteAggregator: selectedQuote?.aggregator || selectedCandidateAggregator,
+        quoteSlippageBps: selectedAttemptSlippageBps,
+        usedAmountInBase: selectedAttemptAmount
+    };
+}
+
+async function executeSolanaSwapWithDeps(
+    params: SolanaSwapParams,
+    deps: SolanaExecutorDeps
+): Promise<string> {
+    const result = await executeSolanaSwapWithDepsDetailed(params, deps);
+    return result.signature;
+}
+
+export async function executeSolanaSwapWithResult(params: SolanaSwapParams): Promise<SolanaSwapExecutionResult> {
+    return executeSolanaSwapWithDepsDetailed(params, defaultSolanaExecutorDeps);
 }
 
 export async function executeSolanaSwap(params: SolanaSwapParams): Promise<string> {
-    return executeSolanaSwapWithDeps(params, defaultSolanaExecutorDeps);
+    const result = await executeSolanaSwapWithResult(params);
+    return result.signature;
 }
 
 export const __solanaExecutorTest = {
     applyCopyTradePriorityFee,
+    executeSolanaSwapWithDepsDetailed,
     executeSolanaSwapWithDeps,
     resolveSelectedAggregator,
 };

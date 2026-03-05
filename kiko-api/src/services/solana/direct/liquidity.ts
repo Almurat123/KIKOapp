@@ -55,9 +55,16 @@ function getSupportedLiquidityProgramIds(): Set<string> {
   return ids;
 }
 
-function mapProgramToProvider(programId: string): 'pumpswap' | 'pumpfun' | 'raydium_launchlab' {
+const METEORA_PROGRAM_IDS = new Set([
+  'LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo',
+  'Eo7WjKq67rjJQSZxS6z3YkapzY3eMj6Xy8X5EQVn5UaB',
+  'cpamdpZCGKUy5JxQXB4dcpGPiikHawvSWAd6mEn1sGG',
+]);
+
+function mapProgramToProvider(programId: string): 'pumpswap' | 'pumpfun' | 'raydium_launchlab' | 'meteora' {
   if (programId === SOLANA_CONFIG.PROGRAMS.PUMP_SWAP) return 'pumpswap';
   if (programId === SOLANA_CONFIG.PROGRAMS.PUMP_FUN) return 'pumpfun';
+  if (METEORA_PROGRAM_IDS.has(programId)) return 'meteora';
   return 'raydium_launchlab';
 }
 
@@ -84,7 +91,7 @@ async function getPumpFunBondingCurveLiquidityUsd(tokenAddress: string): Promise
 async function resolveProgramVaultLiquidityByMint(tokenAddress: string, tokenPriceUsd: number): Promise<{
   liquidityUsd: number;
   poolCount: number;
-  provider: 'pumpswap' | 'pumpfun' | 'raydium_launchlab';
+  provider: 'pumpswap' | 'pumpfun' | 'raydium_launchlab' | 'meteora';
   metadata: Record<string, unknown>;
 } | null> {
   if (!(tokenPriceUsd > 0)) return null;
@@ -294,6 +301,16 @@ export async function resolveSolanaDirectLiquidity(
       reliable: false,
       poolCount: 1,
       metadata: { source: 'pumpswap_direct_unpriced', detectionProvider },
+    };
+  }
+
+  if (detectionProvider === 'pumpfun') {
+    return {
+      liquidityUsd: 0,
+      provider: 'pumpfun',
+      reliable: false,
+      poolCount: 1,
+      metadata: { source: 'pumpfun_direct_unpriced', detectionProvider },
     };
   }
 

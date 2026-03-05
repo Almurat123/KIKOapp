@@ -84,6 +84,10 @@ describe('solanaExecutor helpers', () => {
     assert.equal(__solanaExecutorTest.resolveSelectedAggregator(undefined, 'normal', undefined), 'auto');
   });
 
+  test('resolveSelectedAggregator routes meteora launchpad to meteora aggregator', () => {
+    assert.equal(__solanaExecutorTest.resolveSelectedAggregator(undefined, 'normal', 'meteora'), 'meteora');
+  });
+
   test('applyCopyTradePriorityFee annotates quote only for copyTrade', () => {
     const quote = createQuote();
     const adjusted = __solanaExecutorTest.applyCopyTradePriorityFee(quote, 'copyTrade');
@@ -105,7 +109,9 @@ describe('solanaExecutor execution flow', () => {
     );
 
     assert.equal(signature, 'signature-123');
-    assert.deepEqual(deps.aggregatorCalls, [{ aggregator: 'jupiter', options: { forcePublicApi: true } }]);
+    assert.equal(deps.aggregatorCalls.length, 1);
+    assert.equal(deps.aggregatorCalls[0]?.aggregator, 'jupiter');
+    assert.equal((deps.aggregatorCalls[0]?.options as any)?.forcePublicApi, true);
     assert.equal(deps.sent.userId, 'user-1');
     assert.ok(typeof deps.sent.tx === 'string' && deps.sent.tx.length > 0);
     assert.equal(deps.sent.context.walletId, 'server-wallet-id');
@@ -133,6 +139,18 @@ describe('solanaExecutor execution flow', () => {
 
     assert.equal(quoteProbe.value?.priorityFeeMaxLamports, 100000);
     assert.equal(quoteProbe.value?.computeUnitPriceMicroLamports, 100000);
+  });
+
+  test('detailed execution result carries quote output amount for persistence', async () => {
+    const deps = createDeps();
+    const detailed = await __solanaExecutorTest.executeSolanaSwapWithDepsDetailed(
+      { ...baseParams, executionMode: 'turbo' },
+      deps as any
+    );
+
+    assert.equal(detailed.signature, 'signature-123');
+    assert.equal(detailed.quoteOutAmountBase, '1200');
+    assert.equal(detailed.quoteInAmountBase, baseParams.amountIn);
   });
 
   test('blockhash refresh falls back from finalized to confirmed', async () => {
@@ -187,6 +205,7 @@ describe('solanaExecutor execution flow', () => {
   test('throws QUOTE_FAILED when no quote is available', async () => {
     const deps = createDeps({
       getSolanaQuote: async () => null,
+      getSolanaQuoteFromAggregator: async () => null,
     });
 
     await assert.rejects(
@@ -198,6 +217,7 @@ describe('solanaExecutor execution flow', () => {
   test('throws SWAP_BUILD_FAILED when quote has no transaction', async () => {
     const deps = createDeps({
       getSolanaQuote: async () => createQuote({ swapTransaction: undefined }),
+      getSolanaQuoteFromAggregator: async () => createQuote({ swapTransaction: undefined }),
     });
 
     await assert.rejects(

@@ -5,6 +5,7 @@ import { PublicKey } from '@solana/web3.js';
 import type { SolDirectExecutionRequest, SolDirectExecutionResult, SolDirectProvider } from './types.js';
 import { executePumpSwapDirect } from './pumpswapExecutor.js';
 import { executeRaydiumLaunchlabDirect } from './raydiumLaunchlabExecutor.js';
+import { executeMeteoraDirect } from './meteoraExecutor.js';
 import { logger } from '../../../utils/logger.js';
 import { LogCode } from '../../../config/logRegistry.js';
 
@@ -20,8 +21,8 @@ async function extractPumpSwapPoolIdFromSourceTx(sourceTxHash: string | null | u
     });
     if (!tx) return null;
 
-    const targetMintLower = targetMint.toLowerCase();
-    const wsolLower = 'So11111111111111111111111111111111111111112'.toLowerCase();
+    const targetMintNormalized = targetMint.trim();
+    const wsolMint = 'So11111111111111111111111111111111111111112';
 
     const collectInstructionAccounts = (instruction: any): string[] => {
       const accs: string[] = [];
@@ -57,12 +58,9 @@ async function extractPumpSwapPoolIdFromSourceTx(sourceTxHash: string | null | u
 
           const baseMint = new PublicKey(info.data.slice(72, 104)).toBase58();
           const quoteMint = new PublicKey(info.data.slice(104, 136)).toBase58();
-          const baseLower = baseMint.toLowerCase();
-          const quoteLower = quoteMint.toLowerCase();
-
           const isTargetWsolPair =
-            (baseLower === targetMintLower && quoteLower === wsolLower) ||
-            (quoteLower === targetMintLower && baseLower === wsolLower);
+            (baseMint === targetMintNormalized && quoteMint === wsolMint) ||
+            (quoteMint === targetMintNormalized && baseMint === wsolMint);
 
           if (isTargetWsolPair) {
             return account;
@@ -95,6 +93,7 @@ function mapProvider(provider: string): SolDirectProvider | null {
   if (provider === 'pumpfun') return 'pumpfun';
   if (provider === 'pumpswap') return 'pumpswap';
   if (provider === 'bonkfun') return 'raydium_launchlab';
+  if (provider === 'meteora') return 'meteora';
   return null;
 }
 
@@ -105,6 +104,10 @@ export async function executeSolanaDirectLaunchpad(request: SolDirectExecutionRe
 
   if (request.provider === 'raydium_launchlab') {
     return executeRaydiumLaunchlabDirect(request);
+  }
+
+  if (request.provider === 'meteora') {
+    return executeMeteoraDirect(request);
   }
 
   if (request.provider === 'pumpfun') {
@@ -181,7 +184,7 @@ export async function buildSolanaDirectRequest(input: {
   amountAtomic: string;
   isBuy: boolean;
   slippageBps: number;
-  provider: 'pumpfun' | 'pumpswap' | 'bonkfun';
+  provider: 'pumpfun' | 'pumpswap' | 'bonkfun' | 'meteora';
   feeContext?: 'swap' | 'copyTrade';
   sourceTxHash?: string | null;
 }): Promise<SolDirectExecutionRequest> {

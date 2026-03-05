@@ -11,7 +11,7 @@ import { toWei } from '../zeroEx.js';
 import { getKyberQuote } from '../kyberAggregator.js';
 import { getDexPrice } from '../dexPriceService.js';
 import { getTokenInfo } from '../tokenService.js';
-import { executeSolanaSwap } from '../solanaExecutor.js';
+import { executeSolanaSwapWithResult } from '../solanaExecutor.js';
 import { walletService } from '../walletService.js';
 import { SOLANA_CONFIG } from '../../config/solanaConfig.js';
 import { NATIVE_TOKEN_ADDRESS, SOLANA_NATIVE_MINT, TOKEN_REGISTRY, isNativeToken } from '../../config/tokenRegistry.js';
@@ -79,7 +79,7 @@ export interface SwapParams {
     mevProtection?: boolean;
     /** Pre-warmed nonce promise (copy-trade path); when set, used for the swap tx to save one RPC round-trip. */
     preWarmedNonce?: Promise<string | undefined>;
-    launchpadProvider?: 'pumpfun' | 'pumpswap' | 'bonkfun' | 'zora' | 'fourmeme' | 'flap' | 'clanker' | 'virtuals' | 'doppler' | 'flaunch' | 'creatorbid';
+    launchpadProvider?: 'pumpfun' | 'pumpswap' | 'bonkfun' | 'meteora' | 'zora' | 'fourmeme' | 'flap' | 'clanker' | 'virtuals' | 'doppler' | 'flaunch' | 'creatorbid';
     preferredSolanaAggregator?: 'jupiter' | 'raydium' | 'meteora';
     sourceAnchor?: {
         sourceTxHash?: string;
@@ -108,6 +108,8 @@ export interface SwapResult {
     };
     metadata?: {
         allowanceTarget?: string;
+        amountOutBase?: string;
+        amountOutDecimals?: number;
     };
 }
 
@@ -1458,7 +1460,12 @@ export class SwapExecutor {
             }
         }
 
-        const txHash = await executeSolanaSwap({
+        const tokenOutInfo = await getTokenInfo(tokenOutMint, SOLANA_CONFIG.CHAIN_ID).catch(() => null);
+        const outDecimals = Number.isInteger(tokenOutInfo?.decimals)
+            ? Number(tokenOutInfo?.decimals)
+            : 6;
+
+        const solanaResult = await executeSolanaSwapWithResult({
             userId,
             tokenInMint,
             tokenOutMint,
@@ -1471,12 +1478,27 @@ export class SwapExecutor {
             launchpadProvider: params.launchpadProvider,
             preferredAggregator: params.preferredSolanaAggregator
         });
+        const txHash = solanaResult.signature;
+        const amountOutBase = String(solanaResult.quoteOutAmountBase || '').trim() || undefined;
+        let amountOutHuman: string | undefined;
+        if (amountOutBase) {
+            try {
+                amountOutHuman = ethers.formatUnits(BigInt(amountOutBase), outDecimals);
+            } catch {
+                amountOutHuman = undefined;
+            }
+        }
 
         return {
             success: true,
             status: 'SUCCESS',
             txHash,
-            method: 'jupiter'
+            amountOut: amountOutHuman,
+            method: String(solanaResult.quoteAggregator || 'jupiter'),
+            metadata: {
+                amountOutBase,
+                amountOutDecimals: outDecimals,
+            }
         };
     }
 

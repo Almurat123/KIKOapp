@@ -273,7 +273,7 @@ export async function getJupiterSwapTransaction(
               routePlan: quote.routePlan,
             },
             userPublicKey,
-            wrapUnwrapSOL,
+            wrapAndUnwrapSol: wrapUnwrapSOL,
             dynamicComputeUnitLimit: true,
             prioritizationFeeLamports: priorityFeeMaxLamports
               ? { priorityLevelWithMaxLamports: { priorityLevel: "veryHigh", maxLamports: priorityFeeMaxLamports } }

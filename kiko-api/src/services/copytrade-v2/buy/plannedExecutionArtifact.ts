@@ -67,7 +67,9 @@ export async function buildCopytradeBuyPlannedArtifact(args: {
   tokenOut: string;
   swap?: DecodedSwap;
 }): Promise<CopytradeBuyPlannedArtifact> {
-  const sourceTxHash = String(args.swap?.txHash || '').toLowerCase();
+  const sourceTxHash = args.chainId === 900
+    ? String(args.swap?.txHash || '')
+    : String(args.swap?.txHash || '').toLowerCase();
   let contextStoreHit: ContextStoreHit = { context: null, source: 'miss' };
   if (sourceTxHash) {
     contextStoreHit = await getContextByTxHash(args.chainId, sourceTxHash).catch(() => ({ context: null, source: 'miss' }));

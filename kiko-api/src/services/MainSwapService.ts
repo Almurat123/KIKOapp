@@ -154,7 +154,7 @@ export interface MainSwapRequest {
   };
 
   // Launchpad-specific
-  launchpadProvider?: 'pumpfun' | 'pumpswap' | 'bonkfun' | 'zora' | 'fourmeme' | 'flap' | 'clanker' | 'virtuals' | 'doppler' | 'flaunch' | 'creatorbid';
+  launchpadProvider?: 'pumpfun' | 'pumpswap' | 'bonkfun' | 'meteora' | 'zora' | 'fourmeme' | 'flap' | 'clanker' | 'virtuals' | 'doppler' | 'flaunch' | 'creatorbid';
 
   // Copytrade execution hint from target wallet decoded tx
   directSwapHint?: DirectSwapHint;
@@ -210,7 +210,7 @@ export interface MainSwapResult {
  * Launchpad token detection result
  */
 interface LaunchpadDetection {
-  provider: 'pumpfun' | 'pumpswap' | 'bonkfun' | 'zora' | 'fourmeme' | 'flap' | 'clanker' | 'virtuals' | 'doppler' | 'flaunch' | 'creatorbid';
+  provider: 'pumpfun' | 'pumpswap' | 'bonkfun' | 'meteora' | 'zora' | 'fourmeme' | 'flap' | 'clanker' | 'virtuals' | 'doppler' | 'flaunch' | 'creatorbid';
   data: any;
   chainId: number;
 }
@@ -957,7 +957,8 @@ export class MainSwapService {
 
         case 'pumpfun':
         case 'pumpswap':
-        case 'bonkfun': {
+        case 'bonkfun':
+        case 'meteora': {
           // ⚡ Use TradeContext-aware data fetching (auto-caches)
           const tokenInInfo = await getTokenData(request.tokenIn, SOLANA_CONFIG.CHAIN_ID, ctx);
           const decimals = tokenInInfo?.decimals || (provider === 'bonkfun' ? 6 : 9);
@@ -970,7 +971,7 @@ export class MainSwapService {
             amountAtomic,
             isBuy: true,
             slippageBps: request.slippageBps || 300,
-            provider: provider as 'pumpfun' | 'pumpswap' | 'bonkfun',
+            provider: provider as 'pumpfun' | 'pumpswap' | 'bonkfun' | 'meteora',
             feeContext,
             sourceTxHash: request.executionContext?.sourceTxHash || request.executionContext?.contextSnapshot?.sourceTxHash || null
           });
@@ -2141,13 +2142,31 @@ export class MainSwapService {
       throw new Error(result.error || 'Solana swap execution failed');
     }
 
+    const directFeeSettlement = buildDirectSwapFeeSettlement({
+      request: {
+        userId: request.userId,
+        accessToken: request.accessToken,
+        amountIn: request.amountIn,
+        chainId: request.chainId,
+        feeBpsOverride: request.feeBpsOverride,
+        mode: request.mode
+      },
+      normalizedTokenIn: request.tokenIn,
+      normalizedTokenOut: request.tokenOut,
+      amountOutBase: result.metadata?.amountOutBase,
+      feeContext,
+      deferred: false,
+      reasonCode: 'solana_quote_amount_out_base'
+    });
+
     return {
       success: true,
       txHash: result.txHash,
       amountOut: result.amountOut,
       metadata: {
         provider: result.method || 'jupiter',
-        mode: request.mode
+        mode: request.mode,
+        directFeeSettlement: directFeeSettlement || undefined
       }
     };
   }

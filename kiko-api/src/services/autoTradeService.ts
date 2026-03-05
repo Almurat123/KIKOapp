@@ -299,7 +299,7 @@ const NO_OPEN_POSITIONS_LOG_WINDOW_MS = Number(process.env.NO_OPEN_POSITIONS_LOG
 const COPYTRADE_ENABLE_DETECTION_PREWARM = (process.env.COPYTRADE_ENABLE_DETECTION_PREWARM || 'false') === 'true';
 const COPYTRADE_SKIP_ON_DIRECTION_CONFLICT = (process.env.COPYTRADE_SKIP_ON_DIRECTION_CONFLICT || 'true') === 'true';
 const COPYTRADE_ENABLE_TOKEN_TO_TOKEN_PARALLEL = (process.env.COPYTRADE_ENABLE_TOKEN_TO_TOKEN_PARALLEL || 'false') === 'true';
-const ALLOWED_LAUNCHPAD_PROVIDERS = new Set(['zora', 'fourmeme', 'pumpfun', 'pumpswap', 'bonkfun']);
+const ALLOWED_LAUNCHPAD_PROVIDERS = new Set(['zora', 'fourmeme', 'pumpfun', 'pumpswap', 'bonkfun', 'meteora']);
 const COPYTRADE_DISABLE_MIRROR_SELL_DUST_SWEEP = (process.env.COPYTRADE_DISABLE_MIRROR_SELL_DUST_SWEEP || 'true') === 'true';
 const DEFAULT_COPYTRADE_SLIPPAGE_BPS = 1500;
 const MIN_COPYTRADE_SLIPPAGE_BPS = 50;
@@ -310,7 +310,7 @@ const ORPHAN_SWEEP_INTERVAL_MS = Math.max(60_000, Number(process.env.COPYTRADE_O
 const CHAIN_LAUNCHPAD_PROVIDERS: Record<number, Set<string>> = {
     8453: new Set(['zora']),
     56: new Set(['fourmeme']),
-    900: new Set(['pumpfun', 'pumpswap', 'bonkfun'])
+    900: new Set(['pumpfun', 'pumpswap', 'bonkfun', 'meteora'])
 };
 
 // State for graceful shutdown and cleanup
@@ -366,9 +366,15 @@ function sendNotificationAsync(params: TradeNotificationParams, context: string)
         });
 }
 
-function buildDirectSwapHintFromSwap(swap: DecodedSwap): DirectSwapHint | undefined {
-    const sourceTxHash = String(swap?.txHash || '').toLowerCase();
-    const sourceRouter = String(swap?.router || '').toLowerCase();
+function normalizeCopytradeAddressValue(value: string, chainId: number): string {
+    const raw = String(value || '').trim();
+    if (!raw) return '';
+    return chainId === 900 ? raw : raw.toLowerCase();
+}
+
+function buildDirectSwapHintFromSwap(swap: DecodedSwap, chainId: number): DirectSwapHint | undefined {
+    const sourceTxHash = normalizeCopytradeAddressValue(String(swap?.txHash || ''), chainId);
+    const sourceRouter = normalizeCopytradeAddressValue(String(swap?.router || ''), chainId);
     const sourceDexName = String(swap?.dexName || '').trim();
     if (
         !sourceTxHash
@@ -531,11 +537,12 @@ function dedupeConfigsByUser(configs: any[]): any[] {
  * Check if a token is currently locked for a user (trade in progress)
  * If not locked, acquires the lock
  */
-function isTokenLockedForUser(userId: string, tokenAddress: string, sourceTxHash?: string): boolean {
-    const normalizedTxHash = String(sourceTxHash || '').toLowerCase();
+function isTokenLockedForUser(userId: string, tokenAddress: string, chainId: number, sourceTxHash?: string): boolean {
+    const normalizedTxHash = normalizeCopytradeAddressValue(String(sourceTxHash || ''), chainId);
+    const normalizedTokenAddress = normalizeCopytradeAddressValue(tokenAddress, chainId);
     const key = normalizedTxHash
-        ? `${userId}:${tokenAddress.toLowerCase()}:${normalizedTxHash}`
-        : `${userId}:${tokenAddress.toLowerCase()}`;
+        ? `${userId}:${normalizedTokenAddress}:${normalizedTxHash}`
+        : `${userId}:${normalizedTokenAddress}`;
     const lockTime = userTokenLocks.get(key);
     const now = Date.now();
 
@@ -1740,7 +1747,7 @@ async function processSingleUserBuy(
                 return;
             }
 
-            if (isTokenLockedForUser(config.userId, tokenToBuy, swap?.txHash)) {
+            if (isTokenLockedForUser(config.userId, tokenToBuy, chainId, swap?.txHash)) {
                 logger.throttled(LogCode.WTC_TX_SKIPPED, 'Skipping trade: token lock active', {
                     userId: config.userId,
                     token: tokenToBuy,
@@ -2566,7 +2573,7 @@ async function processSingleUserBuy(
                         slippageBps: baseSlippage,
                         mode: 'copytrade',
                         feeBpsOverride: copyTradeFeeBpsOverride,
-                        directSwapHint: buildDirectSwapHintFromSwap(swap),
+                        directSwapHint: buildDirectSwapHintFromSwap(swap, chainId),
                         executionContext: {
                             ...plannedArtifact.executionContextBase,
                             executionStep: 'buy_step_1'
@@ -2684,7 +2691,7 @@ async function processSingleUserBuy(
                                 slippageBps: slippage2,
                                 mode: 'copytrade',
                                 feeBpsOverride: copyTradeFeeBpsOverride,
-                                directSwapHint: buildDirectSwapHintFromSwap(swap),
+                                directSwapHint: buildDirectSwapHintFromSwap(swap, chainId),
                                 executionContext: {
                                     ...plannedArtifact.executionContextBase,
                                     executionStep: 'buy_step_2'
@@ -2746,7 +2753,7 @@ async function processSingleUserBuy(
                                     slippageBps: slippage3,
                                     mode: 'copytrade',
                                     feeBpsOverride: copyTradeFeeBpsOverride,
-                                    directSwapHint: buildDirectSwapHintFromSwap(swap),
+                                    directSwapHint: buildDirectSwapHintFromSwap(swap, chainId),
                                     executionContext: {
                                         ...plannedArtifact.executionContextBase,
                                         executionStep: 'buy_step_3'

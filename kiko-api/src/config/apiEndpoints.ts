@@ -370,7 +370,10 @@ function getSolanaEndpoints(primaryUrl?: string, strategy: 'fast' | 'cheap' = 'c
   const premiumFirst = strategy === 'fast';
 
   if (premiumFirst) {
-    // fast/critical: paid nodes first for lowest latency on copytrade/sniper paths
+    // fast/critical: primary + paid nodes first for lowest latency and higher method coverage
+    if (primaryUrl) {
+      push('Primary', primaryUrl, true, 'premium');
+    }
     if (env.apiKeys.helius) {
       push(
         'Helius',
@@ -383,17 +386,16 @@ function getSolanaEndpoints(primaryUrl?: string, strategy: 'fast' | 'cheap' = 'c
     if (env.apiKeys.alchemy) {
       push('Alchemy', `https://solana-mainnet.g.alchemy.com/v2/${env.apiKeys.alchemy}`, true, 'premium');
     }
-    // Public as backup
-    push('PublicNode', 'https://solana-rpc.publicnode.com', false, 'public');
-    push('Ankr Public', 'https://rpc.ankr.com/solana', false, 'public');
+    // Public as backup (only endpoints verified for token-account methods in production paths)
     push('Solana Official', 'https://api.mainnet-beta.solana.com', false, 'public');
-    push('DRPC', 'https://solana.drpc.org', false, 'fallback');
+    push('Pocket Network', 'https://solana.api.pocket.network', false, 'fallback');
   } else {
-    // cheap: public nodes first to conserve paid quota
-    push('PublicNode', 'https://solana-rpc.publicnode.com', false, 'public');
-    push('Ankr Public', 'https://rpc.ankr.com/solana', false, 'public');
+    // cheap: stable public first, but honor explicit primary node when configured
+    if (primaryUrl) {
+      push('Primary', primaryUrl, true, 'premium');
+    }
     push('Solana Official', 'https://api.mainnet-beta.solana.com', false, 'public');
-    push('DRPC', 'https://solana.drpc.org', false, 'fallback');
+    push('Pocket Network', 'https://solana.api.pocket.network', false, 'fallback');
     if (env.apiKeys.alchemy) {
       push('Alchemy', `https://solana-mainnet.g.alchemy.com/v2/${env.apiKeys.alchemy}`, true, 'premium');
     }

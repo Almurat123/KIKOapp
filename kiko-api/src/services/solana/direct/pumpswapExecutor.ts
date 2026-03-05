@@ -114,24 +114,21 @@ function derivePoolPda(mint: PublicKey, quoteMint: PublicKey = WSOL_MINT, poolIn
 
 type PumpSwapPoolLayout = {
   creator: PublicKey;
+  coinCreator: PublicKey;
   baseMint: PublicKey;
   quoteMint: PublicKey;
   baseVault: PublicKey;
   quoteVault: PublicKey;
-  // v2 pools do NOT store coin_creator in the pool account — coin_creator_vault_authority
-  // must come from Jupiter/pAMM config; skip custom instruction for these pools.
   layoutVersion: 1 | 2;
 };
 
-// Known pAMM pool layout variants (offsets differ by token/deployment generation).
-// Layout v1 (original): creator=40, baseMint=72, quoteMint=104, baseVault=168, quoteVault=200
-// Layout v2 (graduated/new pAMM): baseMint=43, quoteMint=75, baseVault=139, quoteVault=171
-//   NOTE: v2 coin_creator is NOT in the pool account at offset 11 (that byte range is pool metadata).
-//   Using v2 creator from pool data causes ConstraintSeeds(2006) on coin_creator_vault_authority.
-//   v2 pools must use Jupiter routing (which reads coin_creator from pAMM global config).
+// pAMM pool layout variants.
+// v1 (legacy): creator=40, baseMint=72, quoteMint=104, baseVault=168, quoteVault=200
+// v2 (current, per pump_amm IDL):
+//   creator=11, baseMint=43, quoteMint=75, baseVault=139, quoteVault=171, coinCreator=211
 const POOL_LAYOUTS = [
-  { version: 1 as const, creator: 40, baseMint: 72, quoteMint: 104, baseVault: 168, quoteVault: 200 },
-  { version: 2 as const, creator: 11, baseMint: 43, quoteMint: 75, baseVault: 139, quoteVault: 171 },
+  { version: 1 as const, creator: 40, coinCreator: 40, baseMint: 72, quoteMint: 104, baseVault: 168, quoteVault: 200 },
+  { version: 2 as const, creator: 11, coinCreator: 211, baseMint: 43, quoteMint: 75, baseVault: 139, quoteVault: 171 },
 ];
 
 function decodePumpSwapPoolLayout(data: Buffer, hintMint?: PublicKey): PumpSwapPoolLayout {
@@ -143,17 +140,19 @@ function decodePumpSwapPoolLayout(data: Buffer, hintMint?: PublicKey): PumpSwapP
       const baseVault = new PublicKey(data.slice(layout.baseVault, layout.baseVault + 32));
       const quoteVault = new PublicKey(data.slice(layout.quoteVault, layout.quoteVault + 32));
       const creator = new PublicKey(data.slice(layout.creator, layout.creator + 32));
+      const coinCreator = new PublicKey(data.slice(layout.coinCreator, layout.coinCreator + 32));
       if (hintMint && baseMint.equals(hintMint)) {
-        return { creator, baseMint, quoteMint, baseVault, quoteVault, layoutVersion: layout.version };
+        return { creator, coinCreator, baseMint, quoteMint, baseVault, quoteVault, layoutVersion: layout.version };
       }
       if (!hintMint) {
-        return { creator, baseMint, quoteMint, baseVault, quoteVault, layoutVersion: layout.version };
+        return { creator, coinCreator, baseMint, quoteMint, baseVault, quoteVault, layoutVersion: layout.version };
       }
     } catch { /* try next layout */ }
   }
   // Default to v1 if no hint match found
   return {
     creator: new PublicKey(data.slice(40, 72)),
+    coinCreator: new PublicKey(data.slice(40, 72)),
     baseMint: new PublicKey(data.slice(72, 104)),
     quoteMint: new PublicKey(data.slice(104, 136)),
     baseVault: new PublicKey(data.slice(168, 200)),
@@ -235,6 +234,47 @@ function derivePoolV2Pda(mint: PublicKey): PublicKey {
 
 function deriveCreatorVaultAuthority(creator: PublicKey): PublicKey {
   return PublicKey.findProgramAddressSync([Buffer.from('creator_vault'), creator.toBuffer()], PUMP_SWAP_PROGRAM_ID)[0];
+}
+
+function isZeroLikePubkey(pubkey: PublicKey): boolean {
+  return pubkey.equals(SystemProgram.programId);
+}
+
+function readPubkey(data: Buffer, offset: number): PublicKey | null {
+  if (offset < 0 || offset + 32 > data.length) return null;
+  try {
+    return new PublicKey(data.slice(offset, offset + 32));
+  } catch {
+    return null;
+  }
+}
+
+function resolveProtocolFeeRecipientFromGlobalConfigData(data: Buffer): PublicKey | null {
+  // GlobalConfig layout from pump_amm IDL:
+  // discriminator(8) + admin(32) + lpFeeBps(8) + protocolFeeBps(8) + disableFlags(1)
+  // + protocol_fee_recipients[8](32*8) + ... + reserved_fee_recipient(32)
+  const protocolRecipientsOffset = 57;
+  for (let i = 0; i < 8; i++) {
+    const candidate = readPubkey(data, protocolRecipientsOffset + (i * 32));
+    if (candidate && !isZeroLikePubkey(candidate)) return candidate;
+  }
+  const reservedFeeRecipientOffset = 385;
+  const reserved = readPubkey(data, reservedFeeRecipientOffset);
+  if (reserved && !isZeroLikePubkey(reserved)) return reserved;
+  return null;
+}
+
+async function resolveProtocolFeeRecipient(connection: Connection, globalConfig: PublicKey): Promise<PublicKey> {
+  try {
+    const account = await connection.getAccountInfo(globalConfig, 'confirmed');
+    if (account?.data?.length) {
+      const resolved = resolveProtocolFeeRecipientFromGlobalConfigData(account.data);
+      if (resolved) return resolved;
+    }
+  } catch {
+    // ignore and use default
+  }
+  return PROTOCOL_FEE_RECIPIENT;
 }
 
 function deriveFeeConfig(): PublicKey {
@@ -444,17 +484,7 @@ export async function executePumpSwapDirect(
       });
       return executePumpAmmViaJupiterDirect({ request, signingContext, connection });
     }
-    const { pool, info: poolInfo, layout } = resolvedPool;
-
-    // v2 pools don't embed coin_creator reliably; coin_creator_vault_authority must be
-    // sourced from pAMM config, which only Jupiter knows. Skip custom instruction path.
-    if (layout.layoutVersion === 2) {
-      logger.info(LogCode.SYS_INFO, '[PumpSwapDirect] v2 pool detected, routing to Jupiter (coin_creator not in pool account)', {
-        mint: request.mint,
-        pool: pool.toBase58(),
-      });
-      return executePumpAmmViaJupiterDirect({ request, signingContext, connection });
-    }
+    const { pool, layout } = resolvedPool;
 
     const baseProgramId = await getMintProgramId(connection, layout.baseMint);
 
@@ -467,45 +497,44 @@ export async function executePumpSwapDirect(
       };
     }
 
-    // Resolve creator: prefer caller-supplied, otherwise parse directly from pool account data.
-    // PumpSwap pool layout: [0-7] discriminator, [8-39] global_config, [40-71] creator.
-    // This avoids any external API call and works even for graduated pumpfun tokens.
-    let creatorAddress = request.creatorAddress || null;
-    if (!creatorAddress) {
+    // coin_creator_vault_authority PDA seed must use pool.coin_creator (not pool.creator).
+    let effectiveCoinCreator = !isZeroLikePubkey(layout.coinCreator) ? layout.coinCreator : layout.creator;
+    if (request.creatorAddress) {
       try {
-        creatorAddress = layout.creator.toBase58();
-        logger.info(LogCode.SYS_INFO, '[PumpSwapDirect] Resolved creator from on-chain pool data', {
-          mint: request.mint,
-          creatorAddress,
-          pool: pool.toBase58()
-        });
+        const hinted = new PublicKey(request.creatorAddress);
+        if (!hinted.equals(effectiveCoinCreator)) {
+          logger.warn(LogCode.SYS_INFO, '[PumpSwapDirect] creator hint mismatch; using on-chain coin_creator', {
+            mint: request.mint,
+            pool: pool.toBase58(),
+            hintedCreator: hinted.toBase58(),
+            onchainCoinCreator: effectiveCoinCreator.toBase58(),
+            layoutVersion: layout.layoutVersion,
+          });
+        }
       } catch {
-        return { ok: false, provider: 'pumpswap', reasonCode: 'missing_creator', message: 'could not parse creator from pool account data' };
+        // ignore malformed hint and keep on-chain value
       }
     }
-    const creator = new PublicKey(creatorAddress);
 
     const userBaseAta = getAssociatedTokenAddress(layout.baseMint, user, false, baseProgramId);
     const userQuoteAta = getAssociatedTokenAddress(WSOL_MINT, user, false, TOKEN_PROGRAM_ID);
     const poolBaseAta = layout.baseVault;
     const poolQuoteAta = layout.quoteVault;
-    const protocolFeeAta = getAssociatedTokenAddress(WSOL_MINT, PROTOCOL_FEE_RECIPIENT, true, TOKEN_PROGRAM_ID);
-    const creatorVaultAuthority = deriveCreatorVaultAuthority(creator);
+    const globalConfig = deriveGlobalConfig();
+    const protocolFeeRecipient = await resolveProtocolFeeRecipient(connection, globalConfig);
+    const protocolFeeAta = getAssociatedTokenAddress(WSOL_MINT, protocolFeeRecipient, true, TOKEN_PROGRAM_ID);
+    const creatorVaultAuthority = deriveCreatorVaultAuthority(effectiveCoinCreator);
     const creatorVaultAta = PublicKey.findProgramAddressSync(
       [creatorVaultAuthority.toBuffer(), TOKEN_PROGRAM_ID.toBuffer(), WSOL_MINT.toBuffer()],
       ASSOCIATED_TOKEN_PROGRAM_ID,
     )[0];
     const feeConfig = deriveFeeConfig();
-    const globalConfig = deriveGlobalConfig();
     const eventAuthority = deriveEventAuthority();
     const globalVolumeAccumulator = deriveGlobalVolumeAccumulator();
     const userVolumeAccumulator = deriveUserVolumeAccumulator(user);
-    const poolV2 = derivePoolV2Pda(layout.baseMint);
-
-    const [baseExists, quoteExists, poolV2Exists] = await Promise.all([
+    const [baseExists, quoteExists] = await Promise.all([
       connection.getAccountInfo(userBaseAta, 'confirmed'),
       connection.getAccountInfo(userQuoteAta, 'confirmed'),
-      connection.getAccountInfo(poolV2, 'confirmed'),
     ]);
 
     const { baseReserves, quoteReserves } = await resolveReserves(connection, poolBaseAta, poolQuoteAta);
@@ -534,7 +563,7 @@ export async function executePumpSwapDirect(
         BUY_DISCRIMINATOR,
         toU64LE(tokenOut),
         toU64LE(maxQuoteAmountIn),
-        Buffer.from([1]),
+        Buffer.from([0]),
       ]);
 
       instructions.push(new TransactionInstruction({
@@ -549,7 +578,7 @@ export async function executePumpSwapDirect(
           { pubkey: userQuoteAta, isSigner: false, isWritable: true },
           { pubkey: poolBaseAta, isSigner: false, isWritable: true },
           { pubkey: poolQuoteAta, isSigner: false, isWritable: true },
-          { pubkey: PROTOCOL_FEE_RECIPIENT, isSigner: false, isWritable: false },
+          { pubkey: protocolFeeRecipient, isSigner: false, isWritable: false },
           { pubkey: protocolFeeAta, isSigner: false, isWritable: true },
           { pubkey: baseProgramId, isSigner: false, isWritable: false },
           { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
@@ -563,7 +592,6 @@ export async function executePumpSwapDirect(
           { pubkey: userVolumeAccumulator, isSigner: false, isWritable: true },
           { pubkey: feeConfig, isSigner: false, isWritable: false },
           { pubkey: FEE_PROGRAM_ID, isSigner: false, isWritable: false },
-          ...(poolV2Exists ? [{ pubkey: poolV2, isSigner: false, isWritable: false }] : []),
         ],
         data,
       }));
@@ -589,7 +617,7 @@ export async function executePumpSwapDirect(
           { pubkey: userQuoteAta, isSigner: false, isWritable: true },
           { pubkey: poolBaseAta, isSigner: false, isWritable: true },
           { pubkey: poolQuoteAta, isSigner: false, isWritable: true },
-          { pubkey: PROTOCOL_FEE_RECIPIENT, isSigner: false, isWritable: false },
+          { pubkey: protocolFeeRecipient, isSigner: false, isWritable: false },
           { pubkey: protocolFeeAta, isSigner: false, isWritable: true },
           { pubkey: baseProgramId, isSigner: false, isWritable: false },
           { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
@@ -601,8 +629,6 @@ export async function executePumpSwapDirect(
           { pubkey: creatorVaultAuthority, isSigner: false, isWritable: false },
           { pubkey: feeConfig, isSigner: false, isWritable: false },
           { pubkey: FEE_PROGRAM_ID, isSigner: false, isWritable: false },
-          { pubkey: userVolumeAccumulator, isSigner: false, isWritable: true },
-          ...(poolV2Exists ? [{ pubkey: poolV2, isSigner: false, isWritable: false }] : []),
         ],
         data,
       }));
@@ -645,12 +671,38 @@ export async function executePumpSwapDirect(
       provider: 'pumpswap',
       route: 'direct',
       metadata: {
-        creatorAddress,
+        creatorAddress: effectiveCoinCreator.toBase58(),
         pool: pool.toBase58(),
         baseProgramId: baseProgramId.toBase58(),
+        protocolFeeRecipient: protocolFeeRecipient.toBase58(),
+        layoutVersion: layout.layoutVersion,
       },
     };
   } catch (error: any) {
+    const msg = String(error?.message || error || '');
+    const retryableSeedMismatch =
+      msg.includes('ConstraintSeeds')
+      || msg.includes('custom program error: 0x7d6')
+      || msg.includes('0x7d6');
+    if (retryableSeedMismatch) {
+      logger.warn(LogCode.EXE_TX_REVERTED, '[PumpSwapDirect] seed mismatch on direct path, falling back to Jupiter Pump.fun AMM route', {
+        mint: request.mint,
+        side: request.isBuy ? 'buy' : 'sell',
+        error: msg.slice(0, 220),
+      });
+      try {
+        const connection = getSolanaConnection('fast', 'critical');
+        const signingContext = await getWalletSigningContext(request.userId);
+        return await executePumpAmmViaJupiterDirect({ request, signingContext, connection });
+      } catch (fallbackErr: any) {
+        return {
+          ok: false,
+          provider: 'pumpswap',
+          reasonCode: 'build_failed',
+          message: fallbackErr?.message || String(fallbackErr),
+        };
+      }
+    }
     return {
       ok: false,
       provider: 'pumpswap',
@@ -663,6 +715,11 @@ export async function executePumpSwapDirect(
 export function extractPumpSwapCreatorAddress(data: unknown): string | null {
   return pickCreatorAddress(data);
 }
+
+export const __pumpSwapExecutorTest = {
+  decodePumpSwapPoolLayout,
+  resolveProtocolFeeRecipientFromGlobalConfigData,
+};
 
 export async function getPumpSwapLiquidityUsd(mintAddress: string, creatorAddress?: string | null): Promise<number | null> {
   try {
