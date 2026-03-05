@@ -757,7 +757,8 @@ export async function executePumpSwapDirect(
     };
 
     if (request.isBuy) {
-      const retryHaircutsBps = [0, 500, 1000, 2000];
+      // Progressive conservative buy-out retries to reduce Pump AMM overflow (6023) probability.
+      const retryHaircutsBps = [0, 500, 1000, 2000, 3000, 4000, 5000];
       let lastBuyError = '';
       for (const retryHaircutBps of retryHaircutsBps) {
         const { tokenOutExpected, tokenOut, maxQuoteAmountIn } = computeBuyAmounts(

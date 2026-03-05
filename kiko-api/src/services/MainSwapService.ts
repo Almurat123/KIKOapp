@@ -907,7 +907,7 @@ export class MainSwapService {
 
     try {
       let txHash: string;
-      let providerName = provider;
+      let providerName: string = provider;
 
       switch (provider) {
         case 'clanker': {
@@ -979,7 +979,11 @@ export class MainSwapService {
 
           if (directResult.ok) {
             txHash = directResult.txHash;
-            providerName = provider;
+            const directMode = String((directResult.metadata as any)?.mode || '').toLowerCase();
+            const usedJupiterFallback = directMode.includes('jupiter') || directMode.includes('fallback');
+            providerName = usedJupiterFallback
+              ? `${provider}:direct_jupiter_fallback`
+              : provider;
             break;
           }
 

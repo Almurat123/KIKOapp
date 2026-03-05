@@ -33,6 +33,7 @@ import { newsRoutes } from './routes/news.js';
 import { polymarketRoutes } from './routes/polymarket.js';
 import { zoraRoutes } from './routes/zora.js';
 import { rpcRoutes } from './routes/rpc.js';
+import copyTradeSimulationRoutes from './routes/copyTradeSimulation.js';
 import { zoraProxyRoutes } from './routes/zora-proxy.js';
 import { aiRoutes } from './routes/ai.js';
 import { internalToolsRoutes } from './routes/internalTools.js';
@@ -329,6 +330,7 @@ fastify.register(async (fastify) => {
     fastify.register(chatWSRoutes); // Handled as /api/chat/ws/:sessionId inside
     fastify.register(favoriteRoutes, { prefix: '/api/favorites' });
     fastify.register(copyTradeRoutes, { prefix: '/api/copy-trade' });
+    fastify.register(copyTradeSimulationRoutes, { prefix: '/api/copy-trade' });
     fastify.register(webhookRoutes, {
         prefix: '/api/webhook',
         config: { rawBody: true } // Enable raw body for webhook routes

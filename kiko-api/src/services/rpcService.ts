@@ -65,6 +65,17 @@ function parseAddress(address: string, chainId?: number): string {
     return chainId === 900 ? raw : raw.toLowerCase();
 }
 
+function isValidSolanaMintAddress(address: string): boolean {
+    try {
+        // PublicKey constructor validates base58 + length.
+        // If this throws, downstream getTokenSupply/getAsset calls are guaranteed to fail.
+        new PublicKey(address);
+        return true;
+    } catch {
+        return false;
+    }
+}
+
 function deriveSolanaMetadataPda(mintAddress: string): string {
     const mint = new PublicKey(mintAddress);
     const [pda] = PublicKey.findProgramAddressSync(
@@ -89,6 +100,9 @@ function readBorshString(buffer: Buffer, offset: number): { value: string; nextO
 }
 
 async function getSolanaMetadataViaRpc(mintAddress: string): Promise<{ name: string; symbol: string } | null> {
+    if (!isValidSolanaMintAddress(mintAddress)) {
+        return null;
+    }
     try {
         const metadataPda = deriveSolanaMetadataPda(mintAddress);
         const result = await callRpc<any>('solana', 'getAccountInfo', [
@@ -230,6 +244,9 @@ export async function getTokenDecimals(
     }
 
     if (chainId === 900) {
+        if (!isValidSolanaMintAddress(normalized)) {
+            return fallbackDecimals;
+        }
         const cachedSol = await getDecimalsFromCache(chainId, normalized);
         if (typeof cachedSol === 'number') return cachedSol;
         try {
@@ -294,6 +311,9 @@ export async function getTokenMetadata(
 
     // Solana RPC-only path: Metaplex metadata PDA + getTokenSupply decimals.
     if (chainId === 900) {
+        if (!isValidSolanaMintAddress(normalized)) {
+            return { name: 'Unknown Token', symbol: 'UNK', decimals };
+        }
         try {
             const solMeta = await getSolanaMetadataViaRpc(normalized);
             const resolvedName = String(solMeta?.name || '').trim();

@@ -131,6 +131,7 @@ async function getJupiterQuote(
     const quoteStartTime = Date.now();
     let quoteData: any = null;
     let quoteErr: any = null;
+    const quoteErrors: string[] = [];
     for (const base of jupiterBases) {
       try {
         quoteData = await fetchJson({
@@ -139,15 +140,22 @@ async function getJupiterQuote(
           headers,
           timeout: FETCH_TIMEOUT,
           endpointName: 'jupiter_quote',
+          suppressError: true,
           retry: { retries: 1, minTimeout: 150, maxTimeout: 700, factor: 2 }
         });
         if (quoteData) break;
       } catch (err: any) {
         quoteErr = err;
+        quoteErrors.push(`${base}: ${err?.message || String(err)}`);
       }
     }
 
     if (!quoteData && quoteErr) {
+      logger.warn(LogCode.API_FETCH_FAILED, 'Jupiter quote failed across all bases', {
+        routeReason,
+        errorCount: quoteErrors.length,
+        errors: quoteErrors.slice(0, 3)
+      });
       throw quoteErr;
     }
 
@@ -170,6 +178,7 @@ async function getJupiterQuote(
       try {
         let swapData: any = null;
         let swapErr: any = null;
+        const swapErrors: string[] = [];
         for (const base of jupiterBases) {
           try {
             swapData = await fetchJson({
@@ -177,6 +186,7 @@ async function getJupiterQuote(
               method: 'POST',
               headers,
               endpointName: 'jupiter_swap',
+              suppressError: true,
               retry: { retries: 1, minTimeout: 150, maxTimeout: 700, factor: 2 },
               body: JSON.stringify({
                 quoteResponse: quoteData,
@@ -191,10 +201,16 @@ async function getJupiterQuote(
             if (swapData) break;
           } catch (err: any) {
             swapErr = err;
+            swapErrors.push(`${base}: ${err?.message || String(err)}`);
           }
         }
 
         if (!swapData && swapErr) {
+          logger.warn(LogCode.API_FETCH_FAILED, 'Jupiter swap transaction failed across all bases', {
+            routeReason,
+            errorCount: swapErrors.length,
+            errors: swapErrors.slice(0, 3)
+          });
           throw swapErr;
         }
 
@@ -226,7 +242,9 @@ async function getJupiterQuote(
       computeUnitPriceMicroLamports: normalizedPriorityFeeMaxLamports,
     };
   } catch (error: any) {
-    logger.error(LogCode.API_FETCH_FAILED, 'Jupiter API error fetching quote', {
+    // This function is often retried by upper layers (or alternate routes are attempted).
+    // Keep this as warning to avoid false "hard failure" semantics when a later retry succeeds.
+    logger.warn(LogCode.API_FETCH_FAILED, 'Jupiter quote attempt failed (caller may retry/fallback)', {
       error: error.message,
       reasonCode: 'QUOTE_FETCH_FAILED',
     });
@@ -252,6 +270,7 @@ export async function getJupiterSwapTransaction(
     const jupiterBases = [JUPITER_PUBLIC_API, JUPITER_FALLBACK_API].filter((value, index, self) => self.indexOf(value) === index);
     let data: { swapTransaction: string } | null = null;
     let swapErr: any = null;
+    const swapErrors: string[] = [];
     for (const base of jupiterBases) {
       try {
         data = await fetchJson<{ swapTransaction: string }>({
@@ -259,6 +278,7 @@ export async function getJupiterSwapTransaction(
           method: 'POST',
           headers,
           endpointName: 'jupiter_swap',
+          suppressError: true,
           retry: { retries: 1, minTimeout: 150, maxTimeout: 700, factor: 2 },
           body: JSON.stringify({
             quoteResponse: quote.rawQuoteResponse || {
@@ -283,10 +303,15 @@ export async function getJupiterSwapTransaction(
         if (data) break;
       } catch (err: any) {
         swapErr = err;
+        swapErrors.push(`${base}: ${err?.message || String(err)}`);
       }
     }
 
     if (!data && swapErr) {
+      logger.warn(LogCode.API_FETCH_FAILED, 'Jupiter swap tx build failed across all bases', {
+        errorCount: swapErrors.length,
+        errors: swapErrors.slice(0, 3)
+      });
       throw swapErr;
     }
 
@@ -296,7 +321,7 @@ export async function getJupiterSwapTransaction(
 
     return data.swapTransaction;
   } catch (error: any) {
-    logger.error(LogCode.API_FETCH_FAILED, 'Jupiter API error fetching swap transaction', { error: error.message });
+    logger.warn(LogCode.API_FETCH_FAILED, 'Jupiter swap tx attempt failed (caller may retry/fallback)', { error: error.message });
     return null;
   }
 }

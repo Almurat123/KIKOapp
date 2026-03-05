@@ -4404,10 +4404,31 @@ export async function checkPositionsForExits(): Promise<void> {
 
                 // STEP B: Check for TP/SL
                 const tokenKey = `${position.tokenAddress.toLowerCase()}_${position.chainId}`;
-                const tokenInfo = tokenPriceMap.get(tokenKey); // Now this is the COMPLETE object
+                let tokenInfo = tokenPriceMap.get(tokenKey); // Now this is the COMPLETE object
+                if (!tokenInfo && position.chainId === 900) {
+                    // For Solana, do a per-position live retry to avoid skipping TP/SL due transient batch miss.
+                    try {
+                        const live = await getDexPriceDetailed(position.tokenAddress, 'solana');
+                        if (live.price > 0) {
+                            tokenInfo = {
+                                price: live.price,
+                                provider: live.provider || 'jupiter-dex'
+                            };
+                            tokenPriceMap.set(tokenKey, tokenInfo);
+                            logger.info(LogCode.API_FETCH_SUCCESS, 'TP/SL price recovered via per-position Solana retry', {
+                                positionId: position.id,
+                                token: position.tokenSymbol || position.tokenAddress,
+                                chainId: position.chainId,
+                                provider: tokenInfo.provider
+                            });
+                        }
+                    } catch {
+                        // Keep original skip behavior if retry also fails.
+                    }
+                }
 
                 if (!tokenInfo) {
-                    // Price not available in batch - LOG THIS! Critical for debugging TP failures
+                    // Price unavailable even after Solana retry - skip TP/SL for this cycle.
                     logger.warn(LogCode.API_FETCH_FAILED, 'TP/SL check skipped: Price not available', {
                         positionId: position.id,
                         token: position.tokenSymbol || position.tokenAddress,
