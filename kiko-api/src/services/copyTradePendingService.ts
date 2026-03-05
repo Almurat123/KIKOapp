@@ -42,7 +42,7 @@ const PREFETCH_MAX_WAIT_MS = Number(process.env.COPYTRADE_PENDING_PREFETCH_MAX_W
 const PREFETCH_POLL_MS = Number(process.env.COPYTRADE_PENDING_PREFETCH_POLL_MS || 250);
 const PREFETCH_MAX_INFLIGHT = Number(process.env.COPYTRADE_PENDING_PREFETCH_MAX_INFLIGHT || 2);
 const PENDING_RPC_MODE = String(process.env.COPYTRADE_PENDING_RPC_MODE || 'free').trim().toLowerCase(); // free | auto
-const COPYTRADE_EVM_SIGNAL_BINDING = String(process.env.COPYTRADE_EVM_SIGNAL_BINDING || 'tx_from_only').trim().toLowerCase();
+const EVM_SIGNAL_BINDING = 'tx_from_only';
 let running = false;
 let tickInFlight = false;
 let refreshTimer: NodeJS.Timeout | null = null;
@@ -437,7 +437,7 @@ export async function startCopyTradePendingWatcher(): Promise<void> {
         pollIntervalMs: POLL_INTERVAL_MS,
         refreshWalletsMs: REFRESH_WALLETS_MS,
         rpcMode: PENDING_RPC_MODE,
-        evmSignalBinding: COPYTRADE_EVM_SIGNAL_BINDING || 'tx_from_only'
+        evmSignalBinding: EVM_SIGNAL_BINDING
     });
 }
 

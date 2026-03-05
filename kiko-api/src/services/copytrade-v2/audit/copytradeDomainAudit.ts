@@ -21,7 +21,7 @@ export type CopytradeDomainEvent =
   | 'FOLLOWER_EXIT_RETRY_SCHEDULED'
   | 'FOLLOWER_EXIT_CLOSED'
   | 'signal_wallet_mismatch'
-  | 'target_not_allowlisted'
+  | 'solana_target_resolution_observed'
   | 'forced_mirror_exit_applied'
   | 'exit_confirmation_unresolved_retry';
 

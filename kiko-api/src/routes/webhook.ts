@@ -83,12 +83,12 @@ const WEBHOOK_RECEIPT_RECOVERY_DELAYS_MS = String(process.env.COPYTRADE_WEBHOOK_
     .split(',')
     .map((v) => Number(v.trim()))
     .filter((v) => Number.isFinite(v) && v > 0);
-const COPYTRADE_EVM_SIGNAL_BINDING = String(process.env.COPYTRADE_EVM_SIGNAL_BINDING || 'tx_from_only').trim().toLowerCase();
 const localTxInflight = new Map<string, number>();
 const receiptRecoveryInflight = new Set<string>();
 const EVM_ADDRESS_REGEX = /0x[a-fA-F0-9]{40}/g;
 
 const webhookBatchByTxHash = new Map<string, WebhookBatchContext>();
+let resolveEvmSourceTxFromForTest: ((chainId: number, txHash: string) => Promise<string> | string) | null = null;
 
 function normalizeTxHash(chainId: number, txHash: string): string {
     return normalizeTxIdentity(chainId, txHash) || '';
@@ -143,6 +143,10 @@ function collectEvmActivityCandidates(activities: any[]): string[] {
 }
 
 async function resolveEvmSourceTxFrom(chainId: number, txHash: string): Promise<string> {
+    if (resolveEvmSourceTxFromForTest) {
+        const resolved = await resolveEvmSourceTxFromForTest(chainId, txHash);
+        return normalizeAddress(String(resolved || ''));
+    }
     try {
         const tx = await withTimeout(fetchTransaction(txHash, chainId), WEBHOOK_FULL_TX_TIMEOUT_MS, 'tx_from_resolve');
         const from = normalizeAddress(String(tx?.from || ''));
@@ -152,6 +156,15 @@ async function resolveEvmSourceTxFrom(chainId: number, txHash: string): Promise<
     }
     return '';
 }
+
+export const __webhookTest = {
+    setResolveEvmSourceTxFromForTest(fn: ((chainId: number, txHash: string) => Promise<string> | string) | null): void {
+        resolveEvmSourceTxFromForTest = fn;
+    },
+    resetForTest(): void {
+        resolveEvmSourceTxFromForTest = null;
+    }
+};
 
 async function persistSwapContext(params: {
     chainId: number;
@@ -479,9 +492,6 @@ async function processAlchemyWebhookPayload(payload: any): Promise<void> {
         txHash = normalizeTxHash(chainId, txHash);
         if (!txHash) return;
         if (!isSolanaItems) {
-            if (COPYTRADE_EVM_SIGNAL_BINDING !== 'tx_from_only') {
-                console.warn(`[Webhook] COPYTRADE_EVM_SIGNAL_BINDING=${COPYTRADE_EVM_SIGNAL_BINDING} is not supported, forcing tx_from_only`);
-            }
             sourceTxFrom = await resolveEvmSourceTxFrom(chainId, txHash);
             if (!sourceTxFrom) {
                 console.error(`[Webhook] Ignore tx ${txHash}: missing source tx.from under tx_from_only binding`);
@@ -585,6 +595,19 @@ async function processAlchemyWebhookPayload(payload: any): Promise<void> {
                         rawSignerCandidates: signerCandidates,
                         pendingTargetWallet: pendingHint?.targetWallet,
                         preResolvedTrackedWallets: trackedWalletRows
+                    });
+                    emitCopytradeDomainAudit('solana_target_resolution_observed', {
+                        extra: {
+                            chainId,
+                            txHash,
+                            reasonCode: resolved.reasonCode,
+                            rawCandidateCount: candidates.length,
+                            rawSignerCandidateCount: signerCandidates.length,
+                            resolvedCandidateCount: resolved.candidateAddresses.length,
+                            trackedWalletCount: resolved.trackedWallets.length,
+                            parsedTxAvailable: Boolean(resolved.parsedTx),
+                            usedPendingHintFallback: resolved.reasonCode === 'pending_hint_fallback',
+                        }
                     });
 
                     if (resolved.trackedWallets.length === 0) {
@@ -968,9 +991,6 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
             const normalizedWallet = normalizeAddress(wallet);
             if (!normalizedWallet) {
                 return reply.status(400).send({ error: 'Invalid EVM wallet address' });
-            }
-            if (COPYTRADE_EVM_SIGNAL_BINDING !== 'tx_from_only') {
-                console.warn(`[Webhook] COPYTRADE_EVM_SIGNAL_BINDING=${COPYTRADE_EVM_SIGNAL_BINDING} is not supported, forcing tx_from_only`);
             }
             const sourceTxFrom = await resolveEvmSourceTxFrom(chainId, txHashNormalized);
             if (!sourceTxFrom) {

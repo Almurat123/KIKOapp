@@ -54,57 +54,57 @@ import {
     buildOrderAuditFields,
 } from './order-runtime/sinks/persistence.js';
 import type { OrderRuntimeContext } from './order-runtime/types.js';
-import { buildEvmExitPlan } from './copytrade/exit/planner.js';
-import { executeEvmExitPlan } from './copytrade/exit/executor.js';
+import { buildEvmExitPlan } from './copytrade-v2/exit/planner.js';
+import { executeEvmExitPlan } from './copytrade-v2/exit/executor.js';
 import {
     persistFailedExitState,
     persistDeferredExitRetryState,
     persistSuccessfulExit,
     reconcileNoopExitPosition
-} from './copytrade/exit/persistence.js';
+} from './copytrade-v2/exit/persistence.js';
 import {
     computeBuyTargetValueSnapshot,
     getMinTargetEffectiveFloorUsd,
     isBelowMinTargetValue,
     resolveEffectiveMinTargetValueUsd
-} from './copytrade/guards/targetValueGuard.js';
-import { emitCopyTradeBuyGuardAudit, roundGuardNumber } from './copytrade/guards/guardAudit.js';
-import { resolveBuyLiquidityGuardSnapshot } from './copytrade/guards/liquidityGuard.js';
-import { buildDuplicateTradeWhere, describeCooldownMode } from './copytrade/guards/cooldownPolicy.js';
-import { evaluateStaticBuyGuards } from './copytrade/guards/evaluator.js';
-import { emitBatchFilterAudit } from './copytrade/guards/batchFilterAudit.js';
-import { resolveBuyGuardPolicy, shouldEnforceBuyGuard } from './copytrade/guards/policy.js';
-import { resolveEntryDeviationModePolicy } from './copytrade/config/entryDeviationModePolicy.js';
-import { emitEntryDeviationSummary } from './copytrade/audit/entryDeviationAudit.js';
+} from './copytrade-v2/guards/targetValueGuard.js';
+import { emitCopyTradeBuyGuardAudit, roundGuardNumber } from './copytrade-v2/guards/guardAudit.js';
+import { resolveBuyLiquidityGuardSnapshot } from './copytrade-v2/guards/liquidityGuard.js';
+import { buildDuplicateTradeWhere, describeCooldownMode } from './copytrade-v2/guards/cooldownPolicy.js';
+import { evaluateStaticBuyGuards } from './copytrade-v2/guards/evaluator.js';
+import { emitBatchFilterAudit } from './copytrade-v2/guards/batchFilterAudit.js';
+import { resolveBuyGuardPolicy, shouldEnforceBuyGuard } from './copytrade-v2/guards/policy.js';
+import { resolveEntryDeviationModePolicy } from './copytrade-v2/config/entryDeviationModePolicy.js';
+import { emitEntryDeviationSummary } from './copytrade-v2/audit/entryDeviationAudit.js';
 import {
     resolveCopytradeBuyPositionStatus,
     waitForCopytradeBuyConfirmation,
     type CopytradeBuyPositionStatus
-} from './copytrade/buy/buyConfirmationPolicy.js';
-import { applyBuyConfirmationTransition } from './copytrade/buy/buyConfirmationTransition.js';
-import { scheduleLateBuyConfirmationRecovery } from './copytrade/buy/lateBuyConfirmationRecovery.js';
-import { cleanupPendingCopytradePosition } from './copytrade/buy/pendingLifecycle.js';
-import { buildCopytradeBuyPlannedArtifact } from './copytrade/buy/plannedExecutionArtifact.js';
-import { shouldAbortCopytradeBuyRetry } from './copytrade/buy/copytradeBuyRetryGuard.js';
-import { evaluateBuyPriceDeviationGuard } from './copytrade/buy/buyGuardPriceDeviation.js';
-import { reconcileOpenPositionsForExit } from './copytrade/exit/openPositionReconciliation.js';
-import { evaluateMirrorSellExecutionPolicy } from './copytrade/exit/mirrorSellExecutionPolicy.js';
-import { resolveAttributedPositionExitAmount } from './copytrade/positions/positionAttribution.js';
-import { finalizeCopytradeBuyPosition } from './copytrade/positions/positionPersistence.js';
+} from './copytrade-v2/buy/buyConfirmationPolicy.js';
+import { applyBuyConfirmationTransition } from './copytrade-v2/buy/buyConfirmationTransition.js';
+import { scheduleLateBuyConfirmationRecovery } from './copytrade-v2/buy/lateBuyConfirmationRecovery.js';
+import { cleanupPendingCopytradePosition } from './copytrade-v2/buy/pendingLifecycle.js';
+import { buildCopytradeBuyPlannedArtifact } from './copytrade-v2/buy/plannedExecutionArtifact.js';
+import { shouldAbortCopytradeBuyRetry } from './copytrade-v2/buy/copytradeBuyRetryGuard.js';
+import { evaluateBuyPriceDeviationGuard } from './copytrade-v2/buy/buyGuardPriceDeviation.js';
+import { reconcileOpenPositionsForExit } from './copytrade-v2/exit/openPositionReconciliation.js';
+import { evaluateMirrorSellExecutionPolicy } from './copytrade-v2/exit/mirrorSellExecutionPolicy.js';
+import { resolveAttributedPositionExitAmount } from './copytrade-v2/positions/positionAttribution.js';
+import { finalizeCopytradeBuyPosition } from './copytrade-v2/positions/positionPersistence.js';
 import {
     armPendingAttributedPositionsForMirrorSell,
     listPendingAttributedPositions,
     upsertPendingAttributedPosition
-} from './copytrade/positions/pendingAttributedPositionLedger.js';
-import { runTargetSellReconciliationCycle } from './copytrade/reconcile/targetSellReconciliationJob.js';
-import { getCopytradeBuySharedWarmup } from './copytrade/buy/buySharedWarmup.js';
-import { shouldDeferStrongRpcMonitoring } from './copytrade/buy/preConfirmationRpcPolicy.js';
+} from './copytrade-v2/positions/pendingAttributedPositionLedger.js';
+import { runTargetSellReconciliationCycle } from './copytrade-v2/reconcile/targetSellReconciliationJob.js';
+import { getCopytradeBuySharedWarmup } from './copytrade-v2/buy/buySharedWarmup.js';
+import { shouldDeferStrongRpcMonitoring } from './copytrade-v2/buy/preConfirmationRpcPolicy.js';
 import {
     evaluateCopyTradeDelay,
     getCopyTradeDispatchDetectedAt,
     type CopyTradeTimingSnapshot
-} from './copytrade/timing/copyTradeTimingModel.js';
-import { emitCopyTradeTimingAudit } from './copytrade/timing/copyTradeTimingAudit.js';
+} from './copytrade-v2/timing/copyTradeTimingModel.js';
+import { emitCopyTradeTimingAudit } from './copytrade-v2/timing/copyTradeTimingAudit.js';
 import { executeSwapViaPort } from './swap/swapExecutionPort.js';
 
 export { getTokenInfo } from './tokenService.js';

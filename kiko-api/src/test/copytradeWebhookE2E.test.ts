@@ -5,7 +5,7 @@ import fastifyRawBody from 'fastify-raw-body';
 
 import prisma from '../db/prisma.js';
 import { env } from '../config/env.js';
-import webhookRoutes from '../routes/webhook.js';
+import webhookRoutes, { __webhookTest } from '../routes/webhook.js';
 import { refreshTrackedWalletSnapshot } from '../services/copytrade-v2/ingress/trackedWalletSnapshot.js';
 import { getCopyTradeIngressState } from '../services/copytrade-v2/ingress/copyTradeIngressState.js';
 import {
@@ -197,6 +197,7 @@ describe('copytrade webhook E2E', () => {
   let createdTargetWallets: string[] = [];
   let createdUserIds: string[] = [];
   let createdConfigIds: string[] = [];
+  let sourceTxFromByHash = new Map<string, string>();
 
   beforeEach(async () => {
     captured = [];
@@ -204,6 +205,11 @@ describe('copytrade webhook E2E', () => {
     createdTargetWallets = [];
     createdUserIds = [];
     createdConfigIds = [];
+    sourceTxFromByHash = new Map<string, string>();
+    __webhookTest.setResolveEvmSourceTxFromForTest((chainId, txHash) => {
+      if (chainId === 900) return '';
+      return sourceTxFromByHash.get(String(txHash || '').toLowerCase()) || '';
+    });
     resetCopyTradeQueueForTests();
     setCopyTradeQueueHandlerForTests(async (targetWallet, swap, chainId, context) => {
       captured.push({ targetWallet, swap, chainId, detectedAt: context?.detectedAt });
@@ -214,6 +220,7 @@ describe('copytrade webhook E2E', () => {
   afterEach(async () => {
     await waitForCopyTradeQueueIdle(2_000).catch(() => undefined);
     if (app) await app.close().catch(() => undefined);
+    __webhookTest.resetForTest();
     setCopyTradeQueueHandlerForTests(null);
     resetCopyTradeQueueForTests();
     await cleanupArtifacts({
@@ -228,6 +235,7 @@ describe('copytrade webhook E2E', () => {
     const targetWallet = makeAddress('process-target-buy');
     const txHash = makeTxHash('process-buy-tx');
     createdTxHashes.push(txHash);
+    sourceTxFromByHash.set(txHash.toLowerCase(), targetWallet.toLowerCase());
     const swap = createSwap(txHash, 'buy');
 
     await markPendingTxHint(BASE_CHAIN_ID, txHash, targetWallet, Date.now() - 500);
@@ -269,6 +277,7 @@ describe('copytrade webhook E2E', () => {
     const targetWallet = makeAddress('process-target-existing');
     const txHash = makeTxHash('process-existing-position');
     createdTxHashes.push(txHash);
+    sourceTxFromByHash.set(txHash.toLowerCase(), targetWallet.toLowerCase());
     createdTargetWallets.push(targetWallet.toLowerCase());
     const fixture = await createTrackedFixture(targetWallet.toLowerCase(), 'process-existing');
     createdUserIds.push(fixture.userId);
@@ -313,6 +322,7 @@ describe('copytrade webhook E2E', () => {
     const targetWallet = makeAddress('alchemy-target-buy').toLowerCase();
     const txHash = makeTxHash('alchemy-buy-tx');
     createdTxHashes.push(txHash.toLowerCase());
+    sourceTxFromByHash.set(txHash.toLowerCase(), targetWallet);
     createdTargetWallets.push(targetWallet);
     const fixture = await createTrackedFixture(targetWallet, 'alchemy-buy');
     createdUserIds.push(fixture.userId);
@@ -363,6 +373,7 @@ describe('copytrade webhook E2E', () => {
     const targetWallet = makeAddress('alchemy-target-sell').toLowerCase();
     const txHash = makeTxHash('alchemy-sell-tx');
     createdTxHashes.push(txHash.toLowerCase());
+    sourceTxFromByHash.set(txHash.toLowerCase(), targetWallet);
     createdTargetWallets.push(targetWallet);
     const fixture = await createTrackedFixture(targetWallet, 'alchemy-sell');
     createdUserIds.push(fixture.userId);
@@ -398,5 +409,32 @@ describe('copytrade webhook E2E', () => {
     assert.equal(captured[0].targetWallet, targetWallet);
     assert.equal(captured[0].swap.tokenIn, TOKEN_OUT);
     assert.equal(captured[0].swap.cashLegHint?.inferredTxType, 'TARGET_SELL');
+  });
+
+  test('internal /process-tx drops request when wallet mismatches on-chain tx.from', async () => {
+    const targetWallet = makeAddress('process-target-owner');
+    const mismatchedWallet = makeAddress('process-alt-owner');
+    const txHash = makeTxHash('process-mismatch-tx');
+    sourceTxFromByHash.set(txHash.toLowerCase(), targetWallet.toLowerCase());
+
+    const headers = env.security.internalWebhookSecret
+      ? { 'x-internal-secret': env.security.internalWebhookSecret }
+      : undefined;
+    const response = await app!.inject({
+      method: 'POST',
+      url: '/process-tx',
+      headers,
+      payload: {
+        wallet: mismatchedWallet,
+        txHash,
+        network: BASE_NETWORK,
+      },
+    });
+
+    assert.equal(response.statusCode, 200);
+    const body = response.json();
+    assert.equal(body.skipped, true);
+    assert.equal(body.reason, 'signal_wallet_mismatch');
+    assert.equal(captured.length, 0);
   });
 });
