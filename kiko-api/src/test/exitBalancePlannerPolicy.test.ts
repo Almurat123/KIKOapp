@@ -168,4 +168,122 @@ describe('exit balance planner policy', () => {
     assert.equal(plan.kind, 'noop');
     assert.equal(plan.action, 'keep_open');
   });
+
+  test('mirror sell closes when target exit verified and follower sold >=95%', () => {
+    const plan = buildEvmExitPlanFromSnapshot({
+      userId: 'user-1',
+      tokenAddress: '0xtoken',
+      chainId: 8453,
+      exitReason: 'mirror_sell',
+      tokenInfo: { price: 1, symbol: 'TEST' },
+      universalSlippageBps: 500,
+      executionMode: 'turbo',
+      targetWallet: '0xtarget',
+      snapshot: {
+        tokenAddress: '0xtoken',
+        chainId: 8453,
+        walletAddress: '0xwallet',
+        isMirrorSell: true,
+        hasValidPrice: true,
+        decimals: 18,
+        balanceRaw: 40n,
+        balanceUsd: 0.00000000000000004,
+        treatAsEmptyOrDust: false,
+        balanceRead: {
+          status: 'success',
+          value: 40n,
+          reasonCode: 'EXIT_BALANCE_CONFIRMED_POSITIVE',
+          attemptCount: 1,
+          lastError: null,
+          providerSource: 'test',
+        },
+        positions: [{
+          id: 'pos-1',
+          tokenAddress: '0xtoken',
+          status: 'open',
+          entryTxHash: '0xbuy',
+        }],
+        pendingLots: [],
+        latestTargetSellTxHash: '0xsell',
+        targetFullExitVerified: true,
+        targetFullExitReasonCode: 'TARGET_FULL_EXIT_CONFIRMED',
+        attribution: {
+          eligiblePositions: [{
+            id: 'pos-1',
+            tokenAddress: '0xtoken',
+            status: 'open',
+            entryTxHash: '0xbuy',
+          }],
+          sellAmountRaw: 40n,
+          reasonCode: 'PENDING_ATTRIBUTED_AMOUNT_CLAMPED_TO_ONCHAIN_BALANCE',
+          metrics: {
+            attributedAmountRaw: '1000',
+          },
+          hasExternalBalance: false,
+        },
+      },
+    });
+
+    assert.equal(plan.kind, 'noop');
+    assert.equal(plan.action, 'close_position');
+    assert.equal(plan.closeReason, 'balance_dust');
+  });
+
+  test('mirror sell does not ratio-close when external balance contamination exists', () => {
+    const plan = buildEvmExitPlanFromSnapshot({
+      userId: 'user-1',
+      tokenAddress: '0xtoken',
+      chainId: 8453,
+      exitReason: 'mirror_sell',
+      tokenInfo: { price: 1, symbol: 'TEST' },
+      universalSlippageBps: 500,
+      executionMode: 'turbo',
+      targetWallet: '0xtarget',
+      snapshot: {
+        tokenAddress: '0xtoken',
+        chainId: 8453,
+        walletAddress: '0xwallet',
+        isMirrorSell: true,
+        hasValidPrice: true,
+        decimals: 18,
+        balanceRaw: 40n,
+        balanceUsd: 0.00000000000000004,
+        treatAsEmptyOrDust: false,
+        balanceRead: {
+          status: 'success',
+          value: 40n,
+          reasonCode: 'EXIT_BALANCE_CONFIRMED_POSITIVE',
+          attemptCount: 1,
+          lastError: null,
+          providerSource: 'test',
+        },
+        positions: [{
+          id: 'pos-1',
+          tokenAddress: '0xtoken',
+          status: 'open',
+          entryTxHash: '0xbuy',
+        }],
+        pendingLots: [],
+        latestTargetSellTxHash: '0xsell',
+        targetFullExitVerified: true,
+        targetFullExitReasonCode: 'TARGET_FULL_EXIT_CONFIRMED',
+        attribution: {
+          eligiblePositions: [{
+            id: 'pos-1',
+            tokenAddress: '0xtoken',
+            status: 'open',
+            entryTxHash: '0xbuy',
+          }],
+          sellAmountRaw: 40n,
+          reasonCode: 'PENDING_ATTRIBUTED_AMOUNT_CLAMPED_TO_ONCHAIN_BALANCE',
+          metrics: {
+            attributedAmountRaw: '1000',
+          },
+          hasExternalBalance: true,
+        },
+      },
+    });
+
+    assert.equal(plan.kind, 'swap');
+  });
 });

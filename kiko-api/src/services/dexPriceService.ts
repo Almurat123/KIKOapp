@@ -12,10 +12,12 @@
  */
 
 import {
+    computeUsdPriceFromRawQuote,
     fetchTokenDecimalsFromRPC,
     getTokenPriceUSD,
     getZeroExPrice,
     getZeroExTokenMetadata,
+    resolveAdaptivePriceSampleSellAmountRaw,
     toWei
 } from './zeroEx.js';
 import { getKyberQuote } from './kyberAggregator.js';
@@ -148,9 +150,20 @@ async function getEvmPriceUsd(tokenAddress: string, chainId: number): Promise<De
         return { price: 1.0, provider: '0x-dex' };
     }
 
-    // 获取 1 单位代币能换多少 USDC
-    // 使用较小金额以获取更准确的价格 (避免滑点影响)
-    const sellAmount = '1000000000000000000'; // 1e18 (1 token with 18 decimals)
+    const [tokenMeta, usdcMeta] = await Promise.all([
+        getZeroExTokenMetadata(tokenAddress, chainId).catch(() => null),
+        getZeroExTokenMetadata(usdcAddress, chainId).catch(() => null)
+    ]);
+    const tokenDecimals = Number(tokenMeta?.decimals ?? await fetchTokenDecimalsFromRPC(tokenAddress, chainId));
+    const usdcDecimals = Number(usdcMeta?.decimals ?? await fetchTokenDecimalsFromRPC(usdcAddress, chainId));
+    if (!Number.isFinite(tokenDecimals) || tokenDecimals < 0 || tokenDecimals > 24) {
+        return { price: 0, provider: 'unavailable' };
+    }
+    if (!Number.isFinite(usdcDecimals) || usdcDecimals < 0 || usdcDecimals > 24) {
+        return { price: 0, provider: 'unavailable' };
+    }
+
+    let sellAmount = toWei('1', tokenDecimals); // 1 token (decimals-aware)
 
     const quote = await getZeroExPrice(tokenAddress, usdcAddress, sellAmount, chainId);
 
@@ -162,16 +175,30 @@ async function getEvmPriceUsd(tokenAddress: string, chainId: number): Promise<De
         return { price: 0, provider: 'unavailable' };
     }
 
-    // 计算价格: buyAmount (USDC, 6 decimals) / sellAmount (token, 18 decimals)
-    // price = (buyAmount / 1e6) / (sellAmount / 1e18)
-    // price = buyAmount * 1e12 / sellAmount
-    const buyAmountBigInt = BigInt(quote.buyAmount);
-    const sellAmountBigInt = BigInt(sellAmount);
+    const adaptiveSample = resolveAdaptivePriceSampleSellAmountRaw({
+        baseSellAmountRaw: sellAmount,
+        quotedBuyAmountRaw: quote.buyAmount,
+    });
+    let finalQuote = quote;
+    if (adaptiveSample.resampled) {
+        const refinedQuote = await getZeroExPrice(tokenAddress, usdcAddress, adaptiveSample.sellAmountRaw, chainId);
+        if (refinedQuote?.buyAmount) {
+            finalQuote = refinedQuote;
+            sellAmount = adaptiveSample.sellAmountRaw;
+        }
+    }
 
-    // USDC has 6 decimals, most tokens have 18
-    // Price = (buyAmount / 10^6) / (sellAmount / 10^18) = buyAmount * 10^12 / sellAmount
-    const priceBigInt = (buyAmountBigInt * BigInt(1e12)) / sellAmountBigInt;
-    const price = Number(priceBigInt) / 1e12;
+    const price = computeUsdPriceFromRawQuote({
+        sellAmountRaw: sellAmount,
+        buyAmountRaw: finalQuote.buyAmount,
+        sellTokenDecimals: tokenDecimals,
+        buyTokenDecimals: usdcDecimals,
+    });
+    if (!(Number.isFinite(price) && price > 0)) {
+        const kyberPrice = await getEvmPriceUsdFromKyber(tokenAddress, chainId, usdcAddress);
+        if (kyberPrice > 0) return { price: kyberPrice, provider: 'kyber-dex' };
+        return { price: 0, provider: 'unavailable' };
+    }
 
     logger.debug(LogCode.API_FETCH_SUCCESS, 'EVM price from 0x', {
         token: tokenAddress.slice(0, 10),
@@ -202,13 +229,18 @@ async function getEvmPriceUsdFromKyber(tokenAddress: string, chainId: number, us
             KYBER_PRICE_SLIPPAGE_BPS,
             KYBER_PRICE_DUMMY_RECIPIENT,
             'swap',
-            true
+            true,
+            undefined,
+            { disablePlatformFee: true }
         );
         const amountOutRaw = quote?.amountOut || quote?.amountOutBase;
         if (!amountOutRaw) return 0;
-        const denominator = Math.pow(10, usdcDecimals);
-        if (!Number.isFinite(denominator) || denominator <= 0) return 0;
-        const usdOut = Number(amountOutRaw) / denominator;
+        const usdOut = computeUsdPriceFromRawQuote({
+            sellAmountRaw: oneTokenRaw,
+            buyAmountRaw: amountOutRaw,
+            sellTokenDecimals: tokenDecimals,
+            buyTokenDecimals: usdcDecimals,
+        });
         if (!Number.isFinite(usdOut) || usdOut <= 0) return 0;
         logger.debug(LogCode.API_FETCH_SUCCESS, 'EVM price from Kyber', {
             token: tokenAddress.slice(0, 10),

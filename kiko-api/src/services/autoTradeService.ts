@@ -3295,8 +3295,7 @@ async function executePositionExit(params: {
             // 2. Rent Reclamation / Dust Handling
             // If balance is effectively zero (or just dust < 1000 raw units), we consider it empty.
             if (balance < 1000n) {
-                const isMirrorSell = exitReason === 'mirror_sell';
-                const treatAsEmptyOrDust = balance <= 0n || (!isMirrorSell && hasValidPrice && balanceUsd < 0.1);
+                const treatAsEmptyOrDust = balance <= 0n || balance < 1000n || (hasValidPrice && balanceUsd < 0.1);
                 // CHECK: If we have an open position record but no balance, close it.
                 // This handles the case where an external sell happened or previous sell leftover dust.
                 if (treatAsEmptyOrDust) {
@@ -3304,8 +3303,7 @@ async function executePositionExit(params: {
                         userId,
                         token: tokenAddress,
                         balanceUsd,
-                        reason: exitReason,
-                        isMirrorSell
+                        reason: exitReason
                     });
                     await reconcileNoopExitPosition({
                         positions: exitPositions,

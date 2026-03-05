@@ -13,9 +13,12 @@ import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
 import { fetchJson } from '../config/unifiedApiService.js';
 import { callRpc } from './rpcManager.js';
+import { Decimal } from 'decimal.js';
 
 const ZEROX_BASE_URL = 'https://api.0x.org';
 const ZEROX_API_KEY = env.apiKeys.zeroEx || '';
+const PRICE_QUOTE_MIN_USDC_RAW = 100000n; // 0.1 USDC (6 decimals)
+const PRICE_QUOTE_MAX_MULTIPLIER = 1_000_000n;
 
 // Chain ID mapping for 0x API (verified supported chains only)
 // Based on: https://0x.org/docs/introduction/0x-cheat-sheet#-chain-support
@@ -1026,6 +1029,86 @@ export function toWei(amount: string | number, decimals: number = 18): string {
   return (integerWei + fractionWei).toString();
 }
 
+function parsePositiveBigInt(raw: string | number | bigint | null | undefined): bigint {
+  try {
+    const value = BigInt(String(raw ?? '0'));
+    return value > 0n ? value : 0n;
+  } catch {
+    return 0n;
+  }
+}
+
+export function resolveAdaptivePriceSampleSellAmountRaw(params: {
+  baseSellAmountRaw: string;
+  quotedBuyAmountRaw?: string | null;
+  minBuyAmountRaw?: bigint;
+  maxMultiplier?: bigint;
+}): {
+  sellAmountRaw: string;
+  multiplier: bigint;
+  resampled: boolean;
+} {
+  const baseSell = parsePositiveBigInt(params.baseSellAmountRaw);
+  const quotedBuy = parsePositiveBigInt(params.quotedBuyAmountRaw ?? '0');
+  const minBuy = params.minBuyAmountRaw && params.minBuyAmountRaw > 0n
+    ? params.minBuyAmountRaw
+    : PRICE_QUOTE_MIN_USDC_RAW;
+  const maxMultiplier = params.maxMultiplier && params.maxMultiplier > 0n
+    ? params.maxMultiplier
+    : PRICE_QUOTE_MAX_MULTIPLIER;
+
+  if (baseSell <= 0n || quotedBuy <= 0n || quotedBuy >= minBuy) {
+    return {
+      sellAmountRaw: baseSell > 0n ? baseSell.toString() : '0',
+      multiplier: 1n,
+      resampled: false,
+    };
+  }
+
+  const requiredMultiplier = (minBuy + quotedBuy - 1n) / quotedBuy;
+  const multiplier = requiredMultiplier > maxMultiplier ? maxMultiplier : requiredMultiplier;
+  if (multiplier <= 1n) {
+    return {
+      sellAmountRaw: baseSell.toString(),
+      multiplier: 1n,
+      resampled: false,
+    };
+  }
+
+  return {
+    sellAmountRaw: (baseSell * multiplier).toString(),
+    multiplier,
+    resampled: true,
+  };
+}
+
+export function computeUsdPriceFromRawQuote(params: {
+  sellAmountRaw: string;
+  buyAmountRaw: string;
+  sellTokenDecimals: number;
+  buyTokenDecimals: number;
+}): number {
+  try {
+    const sellRaw = parsePositiveBigInt(params.sellAmountRaw);
+    const buyRaw = parsePositiveBigInt(params.buyAmountRaw);
+    const sellDecimals = Number(params.sellTokenDecimals);
+    const buyDecimals = Number(params.buyTokenDecimals);
+    if (sellRaw <= 0n || buyRaw <= 0n) return 0;
+    if (!Number.isFinite(sellDecimals) || sellDecimals < 0 || sellDecimals > 30) return 0;
+    if (!Number.isFinite(buyDecimals) || buyDecimals < 0 || buyDecimals > 30) return 0;
+
+    const sellAmount = new Decimal(sellRaw.toString()).div(new Decimal(10).pow(sellDecimals));
+    const buyAmount = new Decimal(buyRaw.toString()).div(new Decimal(10).pow(buyDecimals));
+    if (sellAmount.lte(0) || buyAmount.lte(0)) return 0;
+
+    const price = buyAmount.div(sellAmount);
+    const asNumber = Number(price.toString());
+    return Number.isFinite(asNumber) && asNumber > 0 ? asNumber : 0;
+  } catch {
+    return 0;
+  }
+}
+
 export function isNativeToken(address?: string | null): boolean {
   if (!address) return true;
   const normalized = address.toLowerCase();
@@ -1108,13 +1191,13 @@ export async function getTokenPriceUSD(
     const usdcMetadata = await getZeroExTokenMetadata(usdcAddress, chainId);
     const usdcDecimals = usdcMetadata?.decimals || 6;
 
-    // Calculate 1 token unit with correct decimals
+    // First quote with 1 token (decimals-aware)
     const oneToken = toWei('1', tokenDecimals);
-
-    const price = await getZeroExPrice(
+    let sellAmountForPrice = oneToken;
+    let price = await getZeroExPrice(
       actualTokenAddress,
       usdcAddress,
-      oneToken,
+      sellAmountForPrice,
       chainId
     );
 
@@ -1122,9 +1205,32 @@ export async function getTokenPriceUSD(
       return null;
     }
 
-    // Convert buyAmount (USDC) to number using correct decimals
-    const usdcAmount = parseFloat(price.buyAmount) / Math.pow(10, usdcDecimals);
-    return usdcAmount;
+    // For very cheap tokens, 1-token quote suffers micro-USDC quantization.
+    // Resample with a larger sell size to stabilize BPS comparisons.
+    const adaptiveSample = resolveAdaptivePriceSampleSellAmountRaw({
+      baseSellAmountRaw: oneToken,
+      quotedBuyAmountRaw: price.buyAmount,
+    });
+    if (adaptiveSample.resampled) {
+      const refined = await getZeroExPrice(
+        actualTokenAddress,
+        usdcAddress,
+        adaptiveSample.sellAmountRaw,
+        chainId
+      );
+      if (refined?.buyAmount) {
+        price = refined;
+        sellAmountForPrice = adaptiveSample.sellAmountRaw;
+      }
+    }
+
+    const computed = computeUsdPriceFromRawQuote({
+      sellAmountRaw: sellAmountForPrice,
+      buyAmountRaw: price.buyAmount,
+      sellTokenDecimals: tokenDecimals,
+      buyTokenDecimals: usdcDecimals,
+    });
+    return computed > 0 ? computed : null;
   } catch (error) {
     console.error('[0x API] Error fetching token price:', error);
     return null;

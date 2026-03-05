@@ -12,6 +12,19 @@ import { buildForcedExitSwapPlan } from '../recovery/forcedExitPlanner.js';
 import { resolveExitBalanceAdaptation } from '../../oracle/rpcAdaptationPolicy.js';
 import { emitCopytradeDomainAudit } from '../audit/copytradeDomainAudit.js';
 
+const MIRROR_SELL_CLOSE_THRESHOLD_BPS = 9500;
+
+function parsePositiveBigIntMetric(metrics: Record<string, unknown> | undefined, key: string): bigint {
+  if (!metrics) return 0n;
+  const raw = String(metrics[key] ?? '').trim();
+  if (!raw || !/^\d+$/.test(raw)) return 0n;
+  try {
+    return BigInt(raw);
+  } catch {
+    return 0n;
+  }
+}
+
 export async function buildEvmExitPlan(input: {
   userId: string;
   walletAddress: string;
@@ -67,6 +80,15 @@ export function buildEvmExitPlanFromSnapshot(input: {
   const verifiedFallback = evaluateVerifiedMirrorExitFallback(snapshot);
   const orphanRecovery = evaluateOrphanRecovery(snapshot);
   const balanceAdaptation = resolveExitBalanceAdaptation(snapshot.balanceRead);
+  const attributedAmountRaw = parsePositiveBigIntMetric(attribution.metrics, 'attributedAmountRaw');
+  const mirrorSoldRatioBps = (isMirrorSell && attributedAmountRaw > 0n && snapshot.balanceRaw <= attributedAmountRaw)
+    ? Number(((attributedAmountRaw - snapshot.balanceRaw) * 10_000n) / attributedAmountRaw)
+    : 0;
+  const mirrorCloseByRatioEligible = isMirrorSell
+    && Boolean(snapshot.targetFullExitVerified)
+    && !attribution.hasExternalBalance
+    && attributedAmountRaw > 0n
+    && mirrorSoldRatioBps >= MIRROR_SELL_CLOSE_THRESHOLD_BPS;
 
   if (isMirrorSell && balanceAdaptation !== 'accept') {
     return {
@@ -115,6 +137,25 @@ export function buildEvmExitPlanFromSnapshot(input: {
       attributedReasonCode: attribution.reasonCode,
       attributionMetrics: attribution.metrics,
       positions: attribution.eligiblePositions
+    };
+  }
+
+  if (mirrorCloseByRatioEligible) {
+    return {
+      kind: 'noop',
+      action: 'close_position',
+      closeReason: 'balance_dust',
+      balance,
+      decimals,
+      balanceUsd,
+      isMirrorSell,
+      attributedReasonCode: attribution.reasonCode,
+      attributionMetrics: {
+        ...attribution.metrics,
+        mirrorCloseThresholdBps: MIRROR_SELL_CLOSE_THRESHOLD_BPS,
+        mirrorSoldRatioBps,
+      },
+      positions: attribution.eligiblePositions,
     };
   }
 

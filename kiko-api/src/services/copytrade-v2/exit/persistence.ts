@@ -10,6 +10,7 @@ export async function reconcileNoopExitPosition(params: {
   closeReason?: 'balance_empty' | 'balance_dust';
 }): Promise<void> {
   if (params.action !== 'close_position' || params.positions.length === 0) return;
+  const ids = params.positions.map((position) => position.id);
   await prisma.position.updateMany({
     where: { id: { in: params.positions.map((position) => position.id) }, status: 'open' },
     data: {
@@ -18,6 +19,21 @@ export async function reconcileNoopExitPosition(params: {
       closedAt: new Date()
     }
   });
+  await consumePendingAttributedPositions({
+    positionIds: ids,
+    exitTxHash: `NOOP_CLOSE_${String(params.closeReason || 'UNKNOWN').toUpperCase()}`,
+    reasonCode: `noop_close:${params.closeReason || 'unknown'}`,
+  }).catch(() => 0);
+  const closedAt = new Date();
+  await Promise.all(ids.map(async (positionId) => {
+    await syncCopytradeLedgerFromLegacy({
+      positionId,
+      lifecycleState: 'FOLLOWER_CLOSED',
+      lastExecutionState: 'confirmed_success',
+      lastExecutionReasonCode: `noop_close:${params.closeReason || 'unknown'}`,
+      closedAt,
+    }).catch(() => null);
+  }));
 }
 
 export async function persistDeferredExitRetryState(params: {
@@ -130,6 +146,16 @@ export async function persistSuccessfulExit(params: {
     exitTxHash: params.txHash,
     reasonCode: `exit_persisted:${params.exitReason}`,
   }).catch(() => 0);
+  await Promise.all(openPositions.map(async (position) => {
+    await syncCopytradeLedgerFromLegacy({
+      positionId: position.id,
+      lifecycleState: 'FOLLOWER_CLOSED',
+      followerExitTxHash: params.txHash,
+      lastExecutionState: 'confirmed_success',
+      lastExecutionReasonCode: `exit_persisted:${params.exitReason}`,
+      closedAt: new Date(),
+    }).catch(() => null);
+  }));
 
   return { openPositions, sellVolUsd };
 }
@@ -151,16 +177,36 @@ export async function persistFailedExitState(params: {
         exitReason: params.exitReason
       }
     });
+    await Promise.all(ids.map(async (positionId) => {
+      await syncCopytradeLedgerFromLegacy({
+        positionId,
+        lifecycleState: 'FOLLOWER_EXIT_FAILED_RETRYABLE',
+        lastExecutionState: 'retryable_failure',
+        lastExecutionReasonCode: `exit_retryable:${params.exitReason}`,
+      }).catch(() => null);
+    }));
     return { retryCount, terminal: false };
   }
 
+  // Safety-first rule:
+  // Never hard-close a position only because retry budget is exhausted.
+  // If chain balance still exists (or balance read is uncertain), forcing closed causes
+  // "closed in DB but funds still on-chain" orphan residue.
   await prisma.position.updateMany({
     where: { id: { in: ids }, status: 'open' },
     data: {
-      status: 'closed',
-      exitReason: 'exit_failed_max_retries',
-      closedAt: new Date()
+      exitRetryCount: params.maxRetries,
+      lastExitAttempt: new Date(),
+      exitReason: params.exitReason,
     }
   });
-  return { retryCount, terminal: true };
+  await Promise.all(ids.map(async (positionId) => {
+    await syncCopytradeLedgerFromLegacy({
+      positionId,
+      lifecycleState: 'FOLLOWER_EXIT_FAILED_RETRYABLE',
+      lastExecutionState: 'retryable_failure',
+      lastExecutionReasonCode: 'exit_max_retries_keep_open',
+    }).catch(() => null);
+  }));
+  return { retryCount, terminal: false };
 }

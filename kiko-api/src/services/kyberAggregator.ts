@@ -43,6 +43,7 @@ export async function getKyberQuote(
     options?: {
         permit?: string;
         deadline?: number;
+        disablePlatformFee?: boolean;
     }
 ) {
     const chainName = CHAIN_NAME_MAP[chainId];
@@ -72,7 +73,7 @@ export async function getKyberQuote(
     const normalizedFeeContext: FeeContext =
         feeContext === 'copy_trade' || feeContext === 'copyTrade' ? 'copyTrade' : 'swap';
     const fee = getPlatformFee(normalizedFeeContext);
-    if (fee.bps > 0 && isValidEvmAddress(fee.evmRecipient)) {
+    if (!options?.disablePlatformFee && fee.bps > 0 && isValidEvmAddress(fee.evmRecipient)) {
         params.set('feeReceiver', fee.evmRecipient!);
         params.set('feeAmount', String(fee.bps));
         params.set('isInBps', 'true');

@@ -35,7 +35,7 @@ export function buildEvmExitAttributionSnapshotFromResolvedInputs(input: {
   const pendingLots = [...(input.pendingLots || [])];
   const balanceUsd = formatTokenAmount(input.onChainBalanceRaw, input.decimals) * (hasValidPrice ? Number(input.tokenInfo.price) : 0);
   const treatAsEmptyOrDust = input.balanceRead.status === 'success'
-    && (input.onChainBalanceRaw <= 0n || (!isMirrorSell && hasValidPrice && balanceUsd < 0.1));
+    && (input.onChainBalanceRaw <= 0n || input.onChainBalanceRaw < 1000n || (hasValidPrice && balanceUsd < 0.1));
   const attribution = isMirrorSell
     ? resolveMirrorSellAttributedAmount({
         positions: input.positions,
