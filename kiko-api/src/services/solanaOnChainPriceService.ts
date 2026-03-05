@@ -27,40 +27,51 @@ interface JupiterQuoteResponse {
  */
 export async function getSolanaTokenPrice(tokenAddress: string): Promise<number | null> {
     try {
-        // Jupiter Price V2 API
-        const url = `https://api.jup.ag/price/v2?ids=${tokenAddress}`;
+        const bases = ['https://lite-api.jup.ag/price/v2', 'https://api.jup.ag/price/v2'];
+        for (const base of bases) {
+            const url = `${base}?ids=${tokenAddress}`;
+            try {
+                const response = await fetch(url, {
+                    headers: {
+                        'Accept': 'application/json'
+                    },
+                    signal: AbortSignal.timeout(3000)
+                });
 
-        const response = await fetch(url, {
-            headers: {
-                'Accept': 'application/json'
+                if (!response.ok) {
+                    logger.debug(LogCode.API_FETCH_FAILED, 'Jupiter price API failed', {
+                        status: response.status,
+                        token: tokenAddress,
+                        base
+                    });
+                    continue;
+                }
+
+                const data: JupiterQuoteResponse = await response.json();
+                if (!data.data || !data.data[tokenAddress]) {
+                    logger.debug(LogCode.API_FETCH_FAILED, 'No price data from Jupiter', {
+                        token: tokenAddress,
+                        base
+                    });
+                    continue;
+                }
+
+                const price = data.data[tokenAddress].price;
+                if (price && price > 0) {
+                    logger.info(LogCode.API_FETCH_SUCCESS, 'Solana price fetched from Jupiter', {
+                        token: tokenAddress,
+                        price,
+                        base
+                    });
+                    return price;
+                }
+            } catch (innerErr: any) {
+                logger.debug(LogCode.API_FETCH_FAILED, 'Jupiter API endpoint failed', {
+                    token: tokenAddress,
+                    base,
+                    error: innerErr?.message || String(innerErr)
+                });
             }
-        });
-
-        if (!response.ok) {
-            logger.debug(LogCode.API_FETCH_FAILED, 'Jupiter price API failed', {
-                status: response.status,
-                token: tokenAddress
-            });
-            return null;
-        }
-
-        const data: JupiterQuoteResponse = await response.json();
-
-        if (!data.data || !data.data[tokenAddress]) {
-            logger.debug(LogCode.API_FETCH_FAILED, 'No price data from Jupiter', {
-                token: tokenAddress
-            });
-            return null;
-        }
-
-        const price = data.data[tokenAddress].price;
-
-        if (price && price > 0) {
-            logger.info(LogCode.API_FETCH_SUCCESS, 'Solana price fetched from Jupiter', {
-                token: tokenAddress,
-                price
-            });
-            return price;
         }
 
         return null;

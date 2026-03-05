@@ -85,9 +85,10 @@ export async function getDexPriceDetailed(
         let provider = 'unavailable';
 
         if (chainId === 'solana' || chainId === 101) {
-            // Solana: 使用 Jupiter
-            price = await getSolanaPriceUsd(tokenAddress);
-            provider = 'jupiter-dex';
+            // Solana: 优先 Jupiter，兜底 Raydium
+            const solPrice = await getSolanaPriceUsd(tokenAddress);
+            price = solPrice.price;
+            provider = solPrice.provider;
         } else if (typeof chainId === 'number') {
             // EVM: 使用 0x
             const result = await getEvmPriceUsd(tokenAddress, chainId);
@@ -95,8 +96,12 @@ export async function getDexPriceDetailed(
             provider = result.provider;
         }
 
-        // 缓存结果
-        priceCache.set(cacheKey, { price, provider, timestamp: Date.now() });
+        // 仅缓存有效价格，避免 0 价格把 TP/SL 连续卡死 30 秒
+        if (Number.isFinite(price) && price > 0) {
+            priceCache.set(cacheKey, { price, provider, timestamp: Date.now() });
+        } else {
+            priceCache.delete(cacheKey);
+        }
 
         return { price, provider };
     } catch (error: any) {
@@ -266,8 +271,8 @@ async function getEvmPriceUsdFromKyber(tokenAddress: string, chainId: number, us
  *   2. Raydium Mint Price API — 外部 API，兜底
  *   3. Solana 免费 RPC 节点  — 最后兜底：读链上 PumpFun bonding curve 储量推导价格
  */
-async function getSolanaPriceUsd(tokenMint: string): Promise<number> {
-    if (tokenMint === SOLANA_USDC_MINT) return 1.0;
+async function getSolanaPriceUsd(tokenMint: string): Promise<DexPriceResult> {
+    if (tokenMint === SOLANA_USDC_MINT) return { price: 1.0, provider: 'stablecoin' };
 
     // ── Strategy 1: Jupiter Price API v2 (external, fast GET) ─────────────
     try {
@@ -276,7 +281,7 @@ async function getSolanaPriceUsd(tokenMint: string): Promise<number> {
             logger.debug(LogCode.API_FETCH_SUCCESS, 'Solana price from Jupiter Price API v2', {
                 token: tokenMint.slice(0, 10), price: jupiterPrice.toFixed(8)
             });
-            return jupiterPrice;
+            return { price: jupiterPrice, provider: 'jupiter-dex' };
         }
     } catch (err: any) {
         logger.debug(LogCode.API_FETCH_FAILED, 'Jupiter Price API v2 failed', { token: tokenMint.slice(0, 10), error: err?.message });
@@ -297,7 +302,7 @@ async function getSolanaPriceUsd(tokenMint: string): Promise<number> {
                     logger.debug(LogCode.API_FETCH_SUCCESS, 'Solana price from Raydium API', {
                         token: tokenMint.slice(0, 10), price: price.toFixed(8)
                     });
-                    return price;
+                    return { price, provider: 'raydium-dex' };
                 }
             }
         }
@@ -340,7 +345,7 @@ async function getSolanaPriceUsd(tokenMint: string): Promise<number> {
                         logger.debug(LogCode.API_FETCH_SUCCESS, 'Solana price from PumpFun bonding curve (cheap RPC)', {
                             token: tokenMint.slice(0, 10), price: price.toFixed(8)
                         });
-                        return price;
+                        return { price, provider: 'pumpfun-bonding-rpc' };
                     }
                 }
             }
@@ -349,7 +354,7 @@ async function getSolanaPriceUsd(tokenMint: string): Promise<number> {
         logger.debug(LogCode.API_FETCH_FAILED, 'PumpFun bonding curve RPC fallback failed', { token: tokenMint.slice(0, 10), error: err?.message });
     }
 
-    return 0;
+    return { price: 0, provider: 'unavailable' };
 }
 
 /**

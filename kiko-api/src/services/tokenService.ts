@@ -7,7 +7,7 @@ import { SOLANA_CONFIG } from '../config/solanaConfig.js';
 import { getTokenMetadata } from './rpcService.js';
 import { fetchJson, ApiPriority } from '../config/unifiedApiService.js';
 import { cacheHub } from '../cache/DataCacheHub.js'; // 🔗 连接缓存中心
-import { getDexPrice } from './dexPriceService.js'; // 🔗 DEX 价格 fallback
+import { getDexPriceDetailed } from './dexPriceService.js'; // 🔗 DEX 价格 fallback
 import { decideLaunchpadOraclePrice, decideValidatedMarketPrice, isLaunchpadOracleSource } from './pricing/launchpadOraclePolicy.js';
 
 /**
@@ -201,7 +201,7 @@ async function fetchTokenInfoFromAPIs(
             const dexChainId = isSolana ? 'solana' : chainId;
             const timeoutMs = fastMode ? 500 : 900;
             dexValidatorPrice = await Promise.race([
-                getDexPrice(tokenAddress, dexChainId),
+                getDexPriceDetailed(tokenAddress, dexChainId).then((res) => res.price),
                 new Promise<number>((resolve) => setTimeout(() => resolve(0), timeoutMs))
             ]);
         } catch {
@@ -292,25 +292,25 @@ async function fetchTokenInfoFromAPIs(
         const dexChainId = isSolana ? 'solana' : chainId;
 
         const tryDex = async () => {
-            const dexPrice = await getDexPrice(tokenAddress, dexChainId);
-            return dexPrice > 0 ? dexPrice : null;
+            const dex = await getDexPriceDetailed(tokenAddress, dexChainId);
+            return dex.price > 0 ? dex : null;
         };
 
         // Fast-mode: race against timeout so TP/SL loop doesn't stall
         if (fastMode) {
             const timeout = new Promise<null>((resolve) => setTimeout(() => resolve(null), 800));
             const winner = await Promise.race([tryDex(), timeout]);
-            if (typeof winner === 'number') {
-                price = winner;
-                provider = isSolana ? 'jupiter-dex' : '0x-dex';
+            if (winner && typeof winner.price === 'number') {
+                price = winner.price;
+                provider = winner.provider || (isSolana ? 'jupiter-dex' : '0x-dex');
             }
         } else {
             // Non-fast: give it a full attempt (no timeout race)
             try {
-                const dexPrice = await getDexPrice(tokenAddress, dexChainId);
-                if (dexPrice > 0) {
-                    price = dexPrice;
-                    provider = isSolana ? 'jupiter-dex' : '0x-dex';
+                const dex = await getDexPriceDetailed(tokenAddress, dexChainId);
+                if (dex.price > 0) {
+                    price = dex.price;
+                    provider = dex.provider || (isSolana ? 'jupiter-dex' : '0x-dex');
                     logger.info(LogCode.API_FETCH_SUCCESS, 'Fallback: Got price from external DEX API', {
                         token: tokenAddress.slice(0, 10),
                         price,

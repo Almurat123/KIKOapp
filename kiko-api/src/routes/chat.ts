@@ -250,6 +250,16 @@ export async function chatRoutes(fastify: FastifyInstance) {
                 }
 
                 const taskModel = normalizeTaskModel(model || session.model || 'deepseek-chat');
+
+                // Create user message first to ensure it's persisted even if checks fail
+                const userMessage = await chatRepo.createMessage(sessionId, 'user', content.trim());
+
+                // Track user activity (using privyDid as required by UserActivity schema)
+                const userRecord = await prisma.user.findUnique({ where: { privyDid: userId } });
+                if (userRecord) {
+                    trackChatMessage(userRecord.privyDid);
+                }
+
                 let billingContext: { isFree: boolean; modelCategory: string } | undefined;
 
                 try {
@@ -266,17 +276,37 @@ export async function chatRoutes(fastify: FastifyInstance) {
                             error: 'An AI task is already running for this session',
                             taskId: activeTask.id,
                             status: activeTask.status,
+                            userMessage, // Include userMessage so frontend can sync it
                         });
                     }
 
                     if (!usageDecision.allowed) {
-                        return reply.code(429).send({
-                            error: 'Daily limit reached',
-                            reason: usageDecision.reason,
-                            dateUtc: usageDecision.dateUtc,
-                            totalUsed: usageDecision.totalUsed,
-                            totalLimit: usageDecision.totalLimit,
-                            tokenBalance: usageDecision.tokenBalance
+                        // Create persistent limit notification as an assistant message
+                        let limitContent = 'Daily limit reached.';
+                        if (usageDecision.reason === 'DAILY_TOTAL_LIMIT_REACHED') {
+                            limitContent = `You have reached your daily total usage limit (${usageDecision.totalLimit} messages). Please check back tomorrow or increase your token balance to raise your limit.`;
+                        } else if (usageDecision.reason === 'DAILY_ADVANCED_LIMIT_REACHED') {
+                            limitContent = 'You have reached your daily limit for Advanced models. You can continue using Normal models or wait until tomorrow.';
+                        } else if (usageDecision.reason === 'DAILY_NORMAL_LIMIT_REACHED') {
+                            limitContent = 'You have reached your daily limit for Normal models. Please check back tomorrow.';
+                        }
+
+                        const assistantMessage = await chatRepo.createMessage(sessionId, 'assistant', limitContent, {
+                            status: 'complete',
+                        });
+
+                        // Return success so frontend persists messages and shows the notification
+                        return reply.send({
+                            success: true,
+                            userMessage,
+                            assistantMessage,
+                            task: {
+                                id: `limit-${Date.now()}`,
+                                status: 'done',
+                                sessionId,
+                                model: taskModel,
+                                createdAt: new Date(),
+                            }
                         });
                     }
 
@@ -290,15 +320,6 @@ export async function chatRoutes(fastify: FastifyInstance) {
                         error: 'Usage limit check failed',
                         reason: 'USAGE_CHECK_FAILED'
                     });
-                }
-
-                // Create user message
-                const userMessage = await chatRepo.createMessage(sessionId, 'user', content.trim());
-
-                // Track user activity (using privyDid as required by UserActivity schema)
-                const userRecord = await prisma.user.findUnique({ where: { privyDid: userId } });
-                if (userRecord) {
-                    trackChatMessage(userRecord.privyDid);
                 }
 
                 // Create empty assistant message (will be populated by worker)
