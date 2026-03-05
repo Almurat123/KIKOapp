@@ -21,8 +21,8 @@ async function extractPumpSwapPoolIdFromSourceTx(sourceTxHash: string | null | u
     });
     if (!tx) return null;
 
-    const targetMintNormalized = targetMint.trim();
-    const wsolMint = 'So11111111111111111111111111111111111111112';
+    const targetMintLower = targetMint.toLowerCase();
+    const wsolLower = 'So11111111111111111111111111111111111111112'.toLowerCase();
 
     const collectInstructionAccounts = (instruction: any): string[] => {
       const accs: string[] = [];
@@ -58,9 +58,12 @@ async function extractPumpSwapPoolIdFromSourceTx(sourceTxHash: string | null | u
 
           const baseMint = new PublicKey(info.data.slice(72, 104)).toBase58();
           const quoteMint = new PublicKey(info.data.slice(104, 136)).toBase58();
+          const baseLower = baseMint.toLowerCase();
+          const quoteLower = quoteMint.toLowerCase();
+
           const isTargetWsolPair =
-            (baseMint === targetMintNormalized && quoteMint === wsolMint) ||
-            (quoteMint === targetMintNormalized && baseMint === wsolMint);
+            (baseLower === targetMintLower && quoteLower === wsolLower) ||
+            (quoteLower === targetMintLower && baseLower === wsolLower);
 
           if (isTargetWsolPair) {
             return account;
@@ -92,8 +95,8 @@ async function extractPumpSwapPoolIdFromSourceTx(sourceTxHash: string | null | u
 function mapProvider(provider: string): SolDirectProvider | null {
   if (provider === 'pumpfun') return 'pumpfun';
   if (provider === 'pumpswap') return 'pumpswap';
-  if (provider === 'bonkfun') return 'raydium_launchlab';
   if (provider === 'meteora') return 'meteora';
+  if (provider === 'bonkfun') return 'raydium_launchlab';
   return null;
 }
 
@@ -184,7 +187,7 @@ export async function buildSolanaDirectRequest(input: {
   amountAtomic: string;
   isBuy: boolean;
   slippageBps: number;
-  provider: 'pumpfun' | 'pumpswap' | 'bonkfun' | 'meteora';
+  provider: 'pumpfun' | 'pumpswap' | 'meteora' | 'bonkfun';
   feeContext?: 'swap' | 'copyTrade';
   sourceTxHash?: string | null;
 }): Promise<SolDirectExecutionRequest> {

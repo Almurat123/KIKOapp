@@ -659,15 +659,12 @@ async function executePositionExit(params: {
 
         // Update DB with PNL calculation
         if (txHash) {
-            const fallbackExitPrice = persistedExitPositions.find((p: any) => (p.currentPrice || 0) > 0)?.currentPrice
-                ?? persistedExitPositions.find((p: any) => (p.entryPrice || 0) > 0)?.entryPrice
-                ?? 0;
-            const exitPrice = hasValidPrice ? tokenInfo.price : fallbackExitPrice;
-            if (!hasValidPrice && exitPrice > 0) {
-                logger.warn(LogCode.API_FETCH_FAILED, 'Exit price missing from live data; using fallback price', {
+            const exitPrice = hasValidPrice ? tokenInfo.price : 0;
+            if (!hasValidPrice) {
+                logger.warn(LogCode.API_FETCH_FAILED, 'Exit price missing from live data; persisting exit with unresolved USD valuation', {
                     userId,
                     token: tokenAddress,
-                    exitPrice
+                    fallbackSuppressed: true
                 });
             }
             const { sellVolUsd } = await persistSuccessfulExit({
@@ -709,7 +706,7 @@ async function executePositionExit(params: {
                 (sum: number, p: any) => sum + (Number(p.entryUsdValue) || 0),
                 0
             );
-            const displaySellValue = sellVolUsd > 0
+            const displaySellValue = hasValidPrice && sellVolUsd > 0
                 ? sellVolUsd.toFixed(2)
                 : totalEntryUsd > 0
                     ? `~${totalEntryUsd.toFixed(2)}`

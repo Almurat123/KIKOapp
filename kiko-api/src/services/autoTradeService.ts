@@ -62,7 +62,6 @@ import {
     persistSuccessfulExit,
     reconcileNoopExitPosition
 } from './copytrade-v2/exit/persistence.js';
-import { resolveSolanaDbBalanceFallback } from './copytrade-v2/exit/solanaDbBalanceFallback.js';
 import {
     computeBuyTargetValueSnapshot,
     getMinTargetEffectiveFloorUsd,
@@ -110,12 +109,6 @@ import {
 } from './copytrade-v2/timing/copyTradeTimingModel.js';
 import { emitCopyTradeTimingAudit } from './copytrade-v2/timing/copyTradeTimingAudit.js';
 import { executeSwapViaPort } from './swap/swapExecutionPort.js';
-import { emitCopytradeDomainAudit } from './copytrade-v2/audit/copytradeDomainAudit.js';
-import {
-    buildMirrorSellIdempotencyKeys,
-    claimMirrorSellIdempotency,
-    settleMirrorSellIdempotency
-} from './copytrade-v2/exit/mirrorSellIdempotency.js';
 
 export { getTokenInfo } from './tokenService.js';
 
@@ -299,7 +292,7 @@ const NO_OPEN_POSITIONS_LOG_WINDOW_MS = Number(process.env.NO_OPEN_POSITIONS_LOG
 const COPYTRADE_ENABLE_DETECTION_PREWARM = (process.env.COPYTRADE_ENABLE_DETECTION_PREWARM || 'false') === 'true';
 const COPYTRADE_SKIP_ON_DIRECTION_CONFLICT = (process.env.COPYTRADE_SKIP_ON_DIRECTION_CONFLICT || 'true') === 'true';
 const COPYTRADE_ENABLE_TOKEN_TO_TOKEN_PARALLEL = (process.env.COPYTRADE_ENABLE_TOKEN_TO_TOKEN_PARALLEL || 'false') === 'true';
-const ALLOWED_LAUNCHPAD_PROVIDERS = new Set(['zora', 'fourmeme', 'pumpfun', 'pumpswap', 'bonkfun', 'meteora']);
+const ALLOWED_LAUNCHPAD_PROVIDERS = new Set(['zora', 'fourmeme', 'pumpfun', 'pumpswap', 'bonkfun']);
 const COPYTRADE_DISABLE_MIRROR_SELL_DUST_SWEEP = (process.env.COPYTRADE_DISABLE_MIRROR_SELL_DUST_SWEEP || 'true') === 'true';
 const DEFAULT_COPYTRADE_SLIPPAGE_BPS = 1500;
 const MIN_COPYTRADE_SLIPPAGE_BPS = 50;
@@ -310,7 +303,7 @@ const ORPHAN_SWEEP_INTERVAL_MS = Math.max(60_000, Number(process.env.COPYTRADE_O
 const CHAIN_LAUNCHPAD_PROVIDERS: Record<number, Set<string>> = {
     8453: new Set(['zora']),
     56: new Set(['fourmeme']),
-    900: new Set(['pumpfun', 'pumpswap', 'bonkfun', 'meteora'])
+    900: new Set(['pumpfun', 'pumpswap', 'bonkfun'])
 };
 
 // State for graceful shutdown and cleanup
@@ -366,15 +359,9 @@ function sendNotificationAsync(params: TradeNotificationParams, context: string)
         });
 }
 
-function normalizeCopytradeAddressValue(value: string, chainId: number): string {
-    const raw = String(value || '').trim();
-    if (!raw) return '';
-    return chainId === 900 ? raw : raw.toLowerCase();
-}
-
-function buildDirectSwapHintFromSwap(swap: DecodedSwap, chainId: number): DirectSwapHint | undefined {
-    const sourceTxHash = normalizeCopytradeAddressValue(String(swap?.txHash || ''), chainId);
-    const sourceRouter = normalizeCopytradeAddressValue(String(swap?.router || ''), chainId);
+function buildDirectSwapHintFromSwap(swap: DecodedSwap): DirectSwapHint | undefined {
+    const sourceTxHash = String(swap?.txHash || '').toLowerCase();
+    const sourceRouter = String(swap?.router || '').toLowerCase();
     const sourceDexName = String(swap?.dexName || '').trim();
     if (
         !sourceTxHash
@@ -537,12 +524,11 @@ function dedupeConfigsByUser(configs: any[]): any[] {
  * Check if a token is currently locked for a user (trade in progress)
  * If not locked, acquires the lock
  */
-function isTokenLockedForUser(userId: string, tokenAddress: string, chainId: number, sourceTxHash?: string): boolean {
-    const normalizedTxHash = normalizeCopytradeAddressValue(String(sourceTxHash || ''), chainId);
-    const normalizedTokenAddress = normalizeCopytradeAddressValue(tokenAddress, chainId);
+function isTokenLockedForUser(userId: string, tokenAddress: string, sourceTxHash?: string): boolean {
+    const normalizedTxHash = String(sourceTxHash || '').toLowerCase();
     const key = normalizedTxHash
-        ? `${userId}:${normalizedTokenAddress}:${normalizedTxHash}`
-        : `${userId}:${normalizedTokenAddress}`;
+        ? `${userId}:${tokenAddress.toLowerCase()}:${normalizedTxHash}`
+        : `${userId}:${tokenAddress.toLowerCase()}`;
     const lockTime = userTokenLocks.get(key);
     const now = Date.now();
 
@@ -1747,7 +1733,7 @@ async function processSingleUserBuy(
                 return;
             }
 
-            if (isTokenLockedForUser(config.userId, tokenToBuy, chainId, swap?.txHash)) {
+            if (isTokenLockedForUser(config.userId, tokenToBuy, swap?.txHash)) {
                 logger.throttled(LogCode.WTC_TX_SKIPPED, 'Skipping trade: token lock active', {
                     userId: config.userId,
                     token: tokenToBuy,
@@ -2389,13 +2375,11 @@ async function processSingleUserBuy(
                     try {
                         const result = await executeSolanaCopytradeAttempt(attemptLamports, attemptSlippage, 'turbo');
                         txHash = result.txHash!;
-                        attributedEntryAmountHuman = result.amountOut || attributedEntryAmountHuman;
                         txLifecycleStatus = result.txLifecycle?.status || txLifecycleStatus;
                         swapMetadata = {
                             ...(swapMetadata || {}),
                             mainSwapProvider: result.metadata?.provider,
-                            mainSwapRouteMode: result.metadata?.launchpad || launchpad?.provider || 'unknown',
-                            directFeeSettlement: result.metadata?.directFeeSettlement || (swapMetadata as any)?.directFeeSettlement
+                            mainSwapRouteMode: result.metadata?.launchpad || launchpad?.provider || 'unknown'
                         } as any;
                         break;
                     } catch (solErr: any) {
@@ -2441,13 +2425,11 @@ async function processSingleUserBuy(
 
                         const result = await executeSolanaCopytradeAttempt(attempt.amountIn, attempt.slippageBps, executionMode);
                         txHash = result.txHash!;
-                        attributedEntryAmountHuman = result.amountOut || attributedEntryAmountHuman;
                         txLifecycleStatus = result.txLifecycle?.status || txLifecycleStatus;
                         swapMetadata = {
                             ...(swapMetadata || {}),
                             mainSwapProvider: result.metadata?.provider,
-                            mainSwapRouteMode: result.metadata?.launchpad || launchpad?.provider || 'unknown',
-                            directFeeSettlement: result.metadata?.directFeeSettlement || (swapMetadata as any)?.directFeeSettlement
+                            mainSwapRouteMode: result.metadata?.launchpad || launchpad?.provider || 'unknown'
                         } as any;
                         break;
                     } catch (solErr: any) {
@@ -2573,7 +2555,7 @@ async function processSingleUserBuy(
                         slippageBps: baseSlippage,
                         mode: 'copytrade',
                         feeBpsOverride: copyTradeFeeBpsOverride,
-                        directSwapHint: buildDirectSwapHintFromSwap(swap, chainId),
+                        directSwapHint: buildDirectSwapHintFromSwap(swap),
                         executionContext: {
                             ...plannedArtifact.executionContextBase,
                             executionStep: 'buy_step_1'
@@ -2691,7 +2673,7 @@ async function processSingleUserBuy(
                                 slippageBps: slippage2,
                                 mode: 'copytrade',
                                 feeBpsOverride: copyTradeFeeBpsOverride,
-                                directSwapHint: buildDirectSwapHintFromSwap(swap, chainId),
+                                directSwapHint: buildDirectSwapHintFromSwap(swap),
                                 executionContext: {
                                     ...plannedArtifact.executionContextBase,
                                     executionStep: 'buy_step_2'
@@ -2753,7 +2735,7 @@ async function processSingleUserBuy(
                                     slippageBps: slippage3,
                                     mode: 'copytrade',
                                     feeBpsOverride: copyTradeFeeBpsOverride,
-                                    directSwapHint: buildDirectSwapHintFromSwap(swap, chainId),
+                                    directSwapHint: buildDirectSwapHintFromSwap(swap),
                                     executionContext: {
                                         ...plannedArtifact.executionContextBase,
                                         executionStep: 'buy_step_3'
@@ -2816,7 +2798,6 @@ async function processSingleUserBuy(
             : resolveCopytradeBuyPositionStatus(orderRuntimeContext, txLifecycleStatus
                 ? { status: txLifecycleStatus as any, attempts: 1, chainId }
                 : null);
-        const persistedEntryAmount = attributedEntryAmountHuman || (usdAmount / nativePrice).toString();
         const persistedPosition = await finalizeCopytradeBuyPosition({
             pendingPositionId,
             userId: effectiveConfig.userId,
@@ -2825,7 +2806,7 @@ async function processSingleUserBuy(
             tokenSymbol: resolveDisplayTokenSymbol(tokenInfo.symbol || (swap as any)?.tokenSymbol, tokenToBuy),
             chainId,
             entryPrice: tokenInfo.price,
-            entryAmount: persistedEntryAmount,
+            entryAmount: (usdAmount / nativePrice).toString(),
             attributedEntryAmountExact: swapMetadata?.directFeeSettlement?.amountOutBase || attributedEntryAmountHuman || undefined,
             entryTxHash: txHash,
             leaderTxHash: leaderTxHash || undefined,
@@ -3175,8 +3156,6 @@ async function executePositionExit(params: {
     let exitPositions: any[] = [];
     let persistedExitPositions: any[] = [];
     let persistedExitBalance = balance;
-    let claimedMirrorSellIdempotency = false;
-    let mirrorSellIdempotencyKeys: string[] = [];
 
     // Fetch universal global slippage from UserSettings
     const settings = params.userSettings || await prisma.userSettings.findUnique({ where: { userId } });
@@ -3261,37 +3240,34 @@ async function executePositionExit(params: {
                 // token units stored at buy time). Using DB amount and failing on-chain is
                 // far better than silently skipping the sell and leaving an open position.
                 if (exitReason === 'mirror_sell' && exitPositions.length > 0) {
-                    const fallback = resolveSolanaDbBalanceFallback({
-                        positions: exitPositions,
-                        tokenDecimals: tokenInfo?.decimals ?? null,
-                        fallbackDecimals: 6,
-                    });
-                    balance = fallback.balanceRaw;
-                    decimals = fallback.decimals;
+                    for (const pos of exitPositions) {
+                        // entryAmountExact is the raw integer token amount written during buy.
+                        const rawExact = pos.entryAmountExact != null ? String(pos.entryAmountExact).trim() : '';
+                        if (rawExact && rawExact !== '0') {
+                            try { balance += BigInt(rawExact); } catch { /* skip */ }
+                        }
+                        // fallback: entryAmountDec is the human amount; use it with known decimals
+                        if (balance === 0n) {
+                            const dec = tokenInfo?.decimals ?? null;
+                            const rawDecStr = pos.entryAmountDec != null ? String(pos.entryAmountDec).trim() : '';
+                            if (dec != null && rawDecStr && rawDecStr !== '0') {
+                                try { balance += ethers.parseUnits(rawDecStr, dec); } catch { /* skip */ }
+                            }
+                        }
+                        // Use tokenInfo decimals for display; if unavailable default to 6 (safe for dust check)
+                        decimals = tokenInfo?.decimals ?? 6;
+                    }
                     if (balance > 0n) {
                         usedDbBalanceFallback = true;
                         logger.warn(LogCode.API_FETCH_FAILED, 'Solana RPC exhausted during mirror sell — using DB position amount as balance fallback', {
                             userId, token: tokenAddress, balanceFallback: balance.toString(), decimals,
-                            positionCount: exitPositions.length,
-                            fallbackSource: fallback.usedSource,
+                            positionCount: exitPositions.length
                         });
                     } else {
-                        await persistDeferredExitRetryState({
-                            positions: exitPositions as any,
-                            targetWallet: config.targetWallet,
-                            exitReason,
-                            reasonCode: 'solana_balance_rpc_exhausted_no_amount_fallback',
-                        }).catch(() => undefined);
                         logger.warn(LogCode.API_FETCH_FAILED, 'Skipping Solana sell: RPC exhausted and no usable amount in DB positions', { userId, token: tokenAddress });
                         return null;
                     }
                 } else {
-                    await persistDeferredExitRetryState({
-                        positions: exitPositions as any,
-                        targetWallet: config.targetWallet,
-                        exitReason,
-                        reasonCode: 'solana_balance_rpc_exhausted_keep_open',
-                    }).catch(() => undefined);
                     logger.warn(LogCode.API_FETCH_FAILED, 'Skipping Solana sell: All RPC strategies exhausted, keeping position open', { userId, token: tokenAddress });
                     return null; // Safely skip — keep position open, do NOT treat RPC failure as zero balance
                 }
@@ -3577,83 +3553,12 @@ async function executePositionExit(params: {
                 return null;
             }
 
-            if (exitReason === 'mirror_sell') {
-                mirrorSellIdempotencyKeys = buildMirrorSellIdempotencyKeys({
-                    positionIds: (persistedExitPositions || [])
-                        .map((position: any) => String(position?.id || '').trim())
-                        .filter(Boolean),
-                    targetSellTxHash: exitPlan.latestTargetSellTxHash,
-                });
-                if (mirrorSellIdempotencyKeys.length > 0) {
-                    const claim = claimMirrorSellIdempotency({ keys: mirrorSellIdempotencyKeys });
-                    if (!claim.allowed) {
-                        emitCopytradeDomainAudit('mirror_sell_idempotent_skip', {
-                            runtimeContext: exitRuntimeContext,
-                            extra: {
-                                userId,
-                                chainId,
-                                tokenAddress,
-                                targetWallet: config.targetWallet,
-                                targetSellTxHash: exitPlan.latestTargetSellTxHash || null,
-                                blockedReason: claim.blockedReason || 'unknown',
-                                retryAfterMs: claim.retryAfterMs || null,
-                            },
-                        });
-                        return null;
-                    }
-                    claimedMirrorSellIdempotency = true;
-                }
-            }
-
             const exitResult = await executeEvmExitPlan(exitPlan);
             exitRuntimeContext = exitResult.runtimeContext;
 
-            if (claimedMirrorSellIdempotency && mirrorSellIdempotencyKeys.length > 0) {
-                settleMirrorSellIdempotency({
-                    keys: mirrorSellIdempotencyKeys,
-                    finalityState: exitResult.finalityState,
-                });
-                claimedMirrorSellIdempotency = false;
+            if (!exitResult.success || !exitResult.txHash) {
+                throw new Error(exitResult.error || 'Unified EVM exit failed');
             }
-
-            if (exitResult.finalityState !== 'confirmed_success' || !exitResult.txHash) {
-                emitCopytradeDomainAudit('exit_finality_pending', {
-                    runtimeContext: exitRuntimeContext,
-                    extra: {
-                        userId,
-                        chainId,
-                        tokenAddress,
-                        targetWallet: config.targetWallet,
-                        executionTxHash: exitResult.txHash || null,
-                        canonicalTxHash: exitResult.txHash || exitResult.allTxHashes?.[0] || null,
-                        allTxHashes: exitResult.allTxHashes || [],
-                        adjudicatedState: exitResult.finalityState,
-                        adjudicatedReason: exitResult.finalityReasonCode || exitResult.error || null,
-                    },
-                });
-                await persistDeferredExitRetryState({
-                    positions: persistedExitPositions as any,
-                    targetWallet: config.targetWallet,
-                    exitReason,
-                    reasonCode: `exit_finality_${exitResult.finalityState}:${exitResult.finalityReasonCode || 'unknown'}`,
-                });
-                return null;
-            }
-
-            emitCopytradeDomainAudit('exit_finality_confirmed', {
-                runtimeContext: exitRuntimeContext,
-                extra: {
-                    userId,
-                    chainId,
-                    tokenAddress,
-                    targetWallet: config.targetWallet,
-                    executionTxHash: exitResult.txHash,
-                    canonicalTxHash: exitResult.txHash || exitResult.allTxHashes?.[0] || null,
-                    allTxHashes: exitResult.allTxHashes || [],
-                    adjudicatedState: exitResult.finalityState,
-                    adjudicatedReason: exitResult.finalityReasonCode || null,
-                },
-            });
 
             txHash = exitResult.txHash;
             const isPartialSell = exitResult.isPartialSell;
@@ -3702,15 +3607,12 @@ async function executePositionExit(params: {
 
         // Update DB with PNL calculation
         if (txHash) {
-            const fallbackExitPrice = persistedExitPositions.find((p: any) => (p.currentPrice || 0) > 0)?.currentPrice
-                ?? persistedExitPositions.find((p: any) => (p.entryPrice || 0) > 0)?.entryPrice
-                ?? 0;
-            const exitPrice = hasValidPrice ? tokenInfo.price : fallbackExitPrice;
-            if (!hasValidPrice && exitPrice > 0) {
-                logger.warn(LogCode.API_FETCH_FAILED, 'Exit price missing from live data; using fallback price', {
+            const exitPrice = hasValidPrice ? tokenInfo.price : 0;
+            if (!hasValidPrice) {
+                logger.warn(LogCode.API_FETCH_FAILED, 'Exit price missing from live data; persisting exit with unresolved USD valuation', {
                     userId,
                     token: tokenAddress,
-                    exitPrice
+                    fallbackSuppressed: true
                 });
             }
             const { sellVolUsd } = await persistSuccessfulExit({
@@ -3752,7 +3654,7 @@ async function executePositionExit(params: {
                 (sum: number, p: any) => sum + (Number(p.entryUsdValue) || 0),
                 0
             );
-            const displaySellValue = sellVolUsd > 0
+            const displaySellValue = hasValidPrice && sellVolUsd > 0
                 ? sellVolUsd.toFixed(2)
                 : totalEntryUsd > 0
                     ? `~${totalEntryUsd.toFixed(2)}`
@@ -3776,13 +3678,6 @@ async function executePositionExit(params: {
         return txHash;
 
     } catch (error: any) {
-        if (claimedMirrorSellIdempotency && mirrorSellIdempotencyKeys.length > 0) {
-            settleMirrorSellIdempotency({
-                keys: mirrorSellIdempotencyKeys,
-                finalityState: 'retryable_unresolved',
-            });
-            claimedMirrorSellIdempotency = false;
-        }
         logger.error(LogCode.SYS_ERROR, 'Critical error during position exit', {
             userId,
             token: tokenAddress,
@@ -4404,31 +4299,10 @@ export async function checkPositionsForExits(): Promise<void> {
 
                 // STEP B: Check for TP/SL
                 const tokenKey = `${position.tokenAddress.toLowerCase()}_${position.chainId}`;
-                let tokenInfo = tokenPriceMap.get(tokenKey); // Now this is the COMPLETE object
-                if (!tokenInfo && position.chainId === 900) {
-                    // For Solana, do a per-position live retry to avoid skipping TP/SL due transient batch miss.
-                    try {
-                        const live = await getDexPriceDetailed(position.tokenAddress, 'solana');
-                        if (live.price > 0) {
-                            tokenInfo = {
-                                price: live.price,
-                                provider: live.provider || 'jupiter-dex'
-                            };
-                            tokenPriceMap.set(tokenKey, tokenInfo);
-                            logger.info(LogCode.API_FETCH_SUCCESS, 'TP/SL price recovered via per-position Solana retry', {
-                                positionId: position.id,
-                                token: position.tokenSymbol || position.tokenAddress,
-                                chainId: position.chainId,
-                                provider: tokenInfo.provider
-                            });
-                        }
-                    } catch {
-                        // Keep original skip behavior if retry also fails.
-                    }
-                }
+                const tokenInfo = tokenPriceMap.get(tokenKey); // Now this is the COMPLETE object
 
                 if (!tokenInfo) {
-                    // Price unavailable even after Solana retry - skip TP/SL for this cycle.
+                    // Price not available in batch - LOG THIS! Critical for debugging TP failures
                     logger.warn(LogCode.API_FETCH_FAILED, 'TP/SL check skipped: Price not available', {
                         positionId: position.id,
                         token: position.tokenSymbol || position.tokenAddress,

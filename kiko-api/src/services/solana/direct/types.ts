@@ -1,6 +1,6 @@
 import type { FeeContext } from '../../platformFeeService.js';
 
-export type SolDirectProvider = 'pumpfun' | 'pumpswap' | 'raydium_launchlab' | 'meteora';
+export type SolDirectProvider = 'pumpfun' | 'pumpswap' | 'meteora' | 'raydium_launchlab';
 
 export type SolDirectFailureReason =
   | 'unsupported_provider'

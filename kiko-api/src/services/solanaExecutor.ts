@@ -19,17 +19,8 @@ export interface SolanaSwapParams {
     accessToken?: string;
     waitForConfirmation?: boolean;
     executionMode?: 'safe' | 'normal' | 'turbo';
-    launchpadProvider?: 'pumpfun' | 'pumpswap' | 'bonkfun' | 'meteora' | 'zora' | 'fourmeme' | 'flap' | 'clanker' | 'virtuals' | 'doppler' | 'flaunch' | 'creatorbid';
+    launchpadProvider?: 'pumpfun' | 'pumpswap' | 'meteora' | 'bonkfun' | 'zora' | 'fourmeme' | 'flap' | 'clanker' | 'virtuals' | 'doppler' | 'flaunch' | 'creatorbid';
     preferredAggregator?: Exclude<SolanaAggregator, 'auto'>;
-}
-
-export interface SolanaSwapExecutionResult {
-    signature: string;
-    quoteOutAmountBase?: string;
-    quoteInAmountBase?: string;
-    quoteAggregator?: SolanaQuote['aggregator'] | SolanaAggregator;
-    quoteSlippageBps?: number;
-    usedAmountInBase?: string;
 }
 
 type SolanaExecutorDeps = {
@@ -41,6 +32,13 @@ type SolanaExecutorDeps = {
     sendSolanaTransactionWithContext: typeof sendSolanaTransactionWithContext;
     getLatestSolanaBlockhash: typeof getLatestSolanaBlockhash;
 };
+
+export interface SolanaSwapExecutionResult {
+    signature: string;
+    quoteOutAmountBase?: string;
+    quoteInAmountBase?: string;
+    quoteAggregator?: string;
+}
 
 const defaultSolanaExecutorDeps: SolanaExecutorDeps = {
     getSolanaSigningContext,
@@ -57,9 +55,11 @@ function resolveSelectedAggregator(
     executionMode: NonNullable<SolanaSwapParams['executionMode']>,
     launchpadProvider?: SolanaSwapParams['launchpadProvider']
 ): SolanaAggregator {
+    if (preferredAggregator) return preferredAggregator;
     if (launchpadProvider === 'meteora') return 'meteora';
-    return preferredAggregator
-        || (executionMode === 'turbo' || launchpadProvider === 'pumpswap' || launchpadProvider === 'pumpfun' ? 'jupiter' : 'auto');
+    return executionMode === 'turbo' || launchpadProvider === 'pumpswap' || launchpadProvider === 'pumpfun'
+        ? 'jupiter'
+        : 'auto';
 }
 
 function resolveJupiterDexFiltersForLaunchpad(
@@ -69,9 +69,6 @@ function resolveJupiterDexFiltersForLaunchpad(
         // Jupiter dex label for pAMM routes (label is case-sensitive in practice).
         // Keep aliases for compatibility across API variants.
         return ['Pump.fun Amm', 'Pump.fun AMM', 'Pump.fun'];
-    }
-    if (launchpadProvider === 'meteora') {
-        return ['Meteora DLMM', 'Meteora'];
     }
     return undefined;
 }
@@ -145,10 +142,9 @@ async function executeSolanaSwapWithDepsDetailed(
 
     let signature = '';
     let lastError: any = null;
-    let selectedQuote: SolanaQuote | null = null;
-    let selectedAttemptAmount: string | undefined;
-    let selectedAttemptSlippageBps: number | undefined;
-    let selectedCandidateAggregator: SolanaAggregator | undefined;
+    let quoteOutAmountBase: string | undefined;
+    let quoteInAmountBase: string | undefined;
+    let quoteAggregator: string | undefined;
 
     candidateLoop:
     for (let idx = 0; idx < aggregatorCandidates.length; idx++) {
@@ -206,11 +202,10 @@ async function executeSolanaSwapWithDepsDetailed(
 
             const adjustedQuote = applyCopyTradePriorityFee(quote, params.feeContext);
             if (!adjustedQuote) {
-                lastError = new AppError(400, `Solana quote unavailable for aggregator=${candidate}`, 'QUOTE_FAILED');
                 continue;
             }
             if (!adjustedQuote.swapTransaction) {
-                lastError = new AppError(500, `Solana swap tx missing for aggregator=${candidate}`, 'SWAP_BUILD_FAILED');
+                lastError = new AppError(500, `Solana swap quote/tx missing for aggregator=${candidate}`, 'SWAP_BUILD_FAILED');
                 continue;
             }
 
@@ -224,19 +219,18 @@ async function executeSolanaSwapWithDepsDetailed(
                 retry
             });
 
-                try {
+            try {
                 const transactionBuffer = Buffer.from(adjustedQuote.swapTransaction, 'base64');
                 const transaction = deps.deserializeTransaction(transactionBuffer);
                 const blockhashResult = await deps.getLatestSolanaBlockhash(blockhashConnection, 'swap_executor');
                 transaction.message.recentBlockhash = blockhashResult.blockhash;
                 const freshTransactionBase64 = Buffer.from(transaction.serialize()).toString('base64');
-                    signature = await deps.sendSolanaTransactionWithContext(userId, freshTransactionBase64, signingContext);
-                    selectedQuote = adjustedQuote;
-                    selectedAttemptAmount = retryAmount;
-                    selectedAttemptSlippageBps = attemptSlippageBps;
-                    selectedCandidateAggregator = candidate;
-                    break candidateLoop;
-                } catch (sendErr: any) {
+                signature = await deps.sendSolanaTransactionWithContext(userId, freshTransactionBase64, signingContext);
+                quoteOutAmountBase = adjustedQuote.outAmount;
+                quoteInAmountBase = adjustedQuote.inAmount;
+                quoteAggregator = adjustedQuote.aggregator;
+                break candidateLoop;
+            } catch (sendErr: any) {
                 lastError = sendErr;
                 const retryable = shouldRetryAlternativeRoute(sendErr);
                 if (retryable && retry < maxSameAggregatorRetries) {
@@ -275,11 +269,9 @@ async function executeSolanaSwapWithDepsDetailed(
     if (!waitForConfirmation) {
         return {
             signature,
-            quoteOutAmountBase: selectedQuote?.outAmount,
-            quoteInAmountBase: selectedQuote?.inAmount,
-            quoteAggregator: selectedQuote?.aggregator || selectedCandidateAggregator,
-            quoteSlippageBps: selectedAttemptSlippageBps,
-            usedAmountInBase: selectedAttemptAmount
+            quoteOutAmountBase,
+            quoteInAmountBase,
+            quoteAggregator,
         };
     }
 
@@ -321,11 +313,9 @@ async function executeSolanaSwapWithDepsDetailed(
 
     return {
         signature,
-        quoteOutAmountBase: selectedQuote?.outAmount,
-        quoteInAmountBase: selectedQuote?.inAmount,
-        quoteAggregator: selectedQuote?.aggregator || selectedCandidateAggregator,
-        quoteSlippageBps: selectedAttemptSlippageBps,
-        usedAmountInBase: selectedAttemptAmount
+        quoteOutAmountBase,
+        quoteInAmountBase,
+        quoteAggregator,
     };
 }
 
@@ -333,22 +323,21 @@ async function executeSolanaSwapWithDeps(
     params: SolanaSwapParams,
     deps: SolanaExecutorDeps
 ): Promise<string> {
-    const result = await executeSolanaSwapWithDepsDetailed(params, deps);
-    return result.signature;
+    const detailed = await executeSolanaSwapWithDepsDetailed(params, deps);
+    return detailed.signature;
+}
+
+export async function executeSolanaSwap(params: SolanaSwapParams): Promise<string> {
+    return executeSolanaSwapWithDeps(params, defaultSolanaExecutorDeps);
 }
 
 export async function executeSolanaSwapWithResult(params: SolanaSwapParams): Promise<SolanaSwapExecutionResult> {
     return executeSolanaSwapWithDepsDetailed(params, defaultSolanaExecutorDeps);
 }
 
-export async function executeSolanaSwap(params: SolanaSwapParams): Promise<string> {
-    const result = await executeSolanaSwapWithResult(params);
-    return result.signature;
-}
-
 export const __solanaExecutorTest = {
     applyCopyTradePriorityFee,
-    executeSolanaSwapWithDepsDetailed,
     executeSolanaSwapWithDeps,
+    executeSolanaSwapWithDepsDetailed,
     resolveSelectedAggregator,
 };
