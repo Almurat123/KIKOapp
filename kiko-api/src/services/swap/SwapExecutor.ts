@@ -23,6 +23,7 @@ import type { OrderRuntimeContext } from '../order-runtime/types.js';
 import { extendFailoverSendContext, type FailoverSendContext } from './failover/failoverSendContext.js';
 import { scoreEvmSellReliability } from './reliability/evmSellReliabilityScorer.js';
 import { emitCopytradeDomainAudit } from '../copytrade-v2/audit/copytradeDomainAudit.js';
+import { resolveAdaptiveMinAnchorRatioBps } from '../dex/directSwap/domain/guards.js';
 
 // ⚡ In-process decimals cache: avoids repeated RPC calls for the same token
 // Keyed by "chainId:tokenAddress" (lowercase). Decimals are immutable once deployed.
@@ -461,14 +462,26 @@ export class SwapExecutor {
                     const expectedOutFromSource = (sourceAmountOutBase * amountInBaseBig) / sourceAmountInBase;
                     if (expectedOutFromSource > 0n && quotedOutBase > 0n) {
                         anchorRatioBps = Number((quotedOutBase * 10000n) / expectedOutFromSource);
-                        const minAnchorRatioBps = Math.max(1, Number(process.env.COPYTRADE_SOURCE_ANCHOR_MIN_RATIO_BPS || '7000'));
+                        const configuredMinAnchorRatioBps = Math.max(1, Number(process.env.COPYTRADE_SOURCE_ANCHOR_MIN_RATIO_BPS || '7000'));
+                        const adaptiveMin = resolveAdaptiveMinAnchorRatioBps({
+                            configuredMinAnchorRatioBps,
+                            sourceAmountIn: sourceAmountInBase,
+                            requestAmountIn: amountInBaseBig
+                        });
+                        const minAnchorRatioBps = adaptiveMin.effectiveMinAnchorRatioBps;
                         logger.info(LogCode.SYS_INFO, '[SwapExecutor] Source anchor quote check', {
                             sourceTxHash: sourceAnchor.sourceTxHash || null,
                             provider: best.dex,
+                            sourceAmountInBase: sourceAmountInBase.toString(),
+                            sourceAmountOutBase: sourceAmountOutBase.toString(),
+                            requestAmountInBase: amountInBaseBig.toString(),
                             quotedOutBase: quotedOutBase.toString(),
                             expectedOutFromSource: expectedOutFromSource.toString(),
                             anchorRatioBps,
-                            minAnchorRatioBps
+                            configuredMinAnchorRatioBps,
+                            minAnchorRatioBps,
+                            amountScaleBps: adaptiveMin.amountScaleBps,
+                            adaptiveMinApplied: adaptiveMin.adaptiveApplied
                         });
                         if (anchorRatioBps < minAnchorRatioBps) {
                             await recordProviderReliabilityOutcome({

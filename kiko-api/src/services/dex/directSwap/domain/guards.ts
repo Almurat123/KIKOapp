@@ -6,6 +6,9 @@ export interface SourceAnchorExpectation {
   expectedOutFromSource: bigint;
   minAnchorRatioBps: number;
   maxAnchorRatioBps?: number;
+  configuredMinAnchorRatioBps?: number;
+  amountScaleBps?: number;
+  adaptiveMinApplied?: boolean;
   sourceTxHash?: string;
 }
 
@@ -36,6 +39,47 @@ function parsePositiveBigInt(value: string | null | undefined): bigint {
   }
 }
 
+const MIN_ELASTIC_ANCHOR_RATIO_BPS = 3500;
+const MAX_ELASTIC_ANCHOR_SCALE_BPS = 30000;
+
+export function resolveAdaptiveMinAnchorRatioBps(params: {
+  configuredMinAnchorRatioBps: number;
+  sourceAmountIn: bigint;
+  requestAmountIn: bigint;
+}): {
+  effectiveMinAnchorRatioBps: number;
+  amountScaleBps: number;
+  adaptiveApplied: boolean;
+} {
+  const configured = Math.max(1, Math.floor(Number(params.configuredMinAnchorRatioBps || 1)));
+  if (params.sourceAmountIn <= 0n || params.requestAmountIn <= 0n) {
+    return {
+      effectiveMinAnchorRatioBps: configured,
+      amountScaleBps: 0,
+      adaptiveApplied: false,
+    };
+  }
+
+  const amountScaleBps = Number((params.requestAmountIn * 10000n) / params.sourceAmountIn);
+  if (!Number.isFinite(amountScaleBps) || amountScaleBps <= 10000) {
+    return {
+      effectiveMinAnchorRatioBps: configured,
+      amountScaleBps: Number.isFinite(amountScaleBps) ? amountScaleBps : 0,
+      adaptiveApplied: false,
+    };
+  }
+
+  const cappedScaleBps = Math.min(MAX_ELASTIC_ANCHOR_SCALE_BPS, Math.max(10001, Math.floor(amountScaleBps)));
+  const elasticMinBps = Math.floor((configured * 10000) / cappedScaleBps);
+  const effectiveMinAnchorRatioBps = Math.max(MIN_ELASTIC_ANCHOR_RATIO_BPS, Math.min(configured, elasticMinBps));
+
+  return {
+    effectiveMinAnchorRatioBps,
+    amountScaleBps: cappedScaleBps,
+    adaptiveApplied: effectiveMinAnchorRatioBps < configured,
+  };
+}
+
 export function resolveSourceAnchorExpectation(params: {
   hint?: DirectSwapHint;
   tokenIn: string;
@@ -58,12 +102,22 @@ export function resolveSourceAnchorExpectation(params: {
   const expectedOutFromSource = (sourceAmountOut * params.amountInWei) / sourceAmountIn;
   if (expectedOutFromSource <= 0n) return null;
 
+  const configuredMinAnchorRatioBps = Math.max(1, Number(params.minAnchorRatioBps || 1));
+  const adaptiveMin = resolveAdaptiveMinAnchorRatioBps({
+    configuredMinAnchorRatioBps,
+    sourceAmountIn,
+    requestAmountIn: params.amountInWei,
+  });
+
   return {
     expectedOutFromSource,
-    minAnchorRatioBps: Math.max(1, Number(params.minAnchorRatioBps || 1)),
+    minAnchorRatioBps: adaptiveMin.effectiveMinAnchorRatioBps,
     maxAnchorRatioBps: Number.isFinite(Number(params.maxAnchorRatioBps))
-      ? Math.max(Math.max(1, Number(params.minAnchorRatioBps || 1)), Number(params.maxAnchorRatioBps))
+      ? Math.max(configuredMinAnchorRatioBps, Number(params.maxAnchorRatioBps))
       : undefined,
+    configuredMinAnchorRatioBps,
+    amountScaleBps: adaptiveMin.amountScaleBps,
+    adaptiveMinApplied: adaptiveMin.adaptiveApplied,
     sourceTxHash: params.hint?.sourceTxHash
   };
 }

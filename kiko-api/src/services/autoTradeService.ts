@@ -99,6 +99,7 @@ import {
 import { runTargetSellReconciliationCycle } from './copytrade-v2/reconcile/targetSellReconciliationJob.js';
 import { runCopytradeAttributionRepairCycle } from './copytrade-v2/jobs/copytradeAttributionRepairJob.js';
 import { runCopytradeOrphanSweepCycle } from './copytrade-v2/jobs/copytradeOrphanSweepJob.js';
+import { repairCopytradePositionAttribution } from './copytrade-v2/jobs/copytradeAttributionRepairJob.js';
 import { getCopytradeBuySharedWarmup } from './copytrade-v2/buy/buySharedWarmup.js';
 import { shouldDeferStrongRpcMonitoring } from './copytrade-v2/buy/preConfirmationRpcPolicy.js';
 import {
@@ -293,6 +294,9 @@ const COPYTRADE_SKIP_ON_DIRECTION_CONFLICT = (process.env.COPYTRADE_SKIP_ON_DIRE
 const COPYTRADE_ENABLE_TOKEN_TO_TOKEN_PARALLEL = (process.env.COPYTRADE_ENABLE_TOKEN_TO_TOKEN_PARALLEL || 'false') === 'true';
 const ALLOWED_LAUNCHPAD_PROVIDERS = new Set(['zora', 'fourmeme', 'pumpfun', 'pumpswap', 'bonkfun']);
 const COPYTRADE_DISABLE_MIRROR_SELL_DUST_SWEEP = (process.env.COPYTRADE_DISABLE_MIRROR_SELL_DUST_SWEEP || 'true') === 'true';
+const DEFAULT_COPYTRADE_SLIPPAGE_BPS = 1500;
+const MIN_COPYTRADE_SLIPPAGE_BPS = 50;
+const MAX_COPYTRADE_SLIPPAGE_BPS = 5000;
 const TARGET_SELL_RECONCILIATION_INTERVAL_MS = Math.max(15_000, Number(process.env.COPYTRADE_TARGET_SELL_RECONCILIATION_INTERVAL_MS || '30000'));
 const ATTRIBUTION_REPAIR_INTERVAL_MS = 600_000;
 const ORPHAN_SWEEP_INTERVAL_MS = Math.max(60_000, Number(process.env.COPYTRADE_ORPHAN_SWEEP_INTERVAL_MS || '600000'));
@@ -1323,7 +1327,7 @@ async function processBuyWithInfo(
     const filterResults = await Promise.all(
         workingConfigs.map(async (config) => {
             const userSettings = userSettingsMap.get(config.userId);
-            const universalSlippageBps = getSlippageBps(userSettings);
+            const universalSlippageBps = resolveCopytradeSlippageBps(config, userSettings);
             const executionMode = resolveExecutionModeForConfig(config);
             const entryDeviationPolicy = resolveEntryDeviationModePolicy(config, executionMode);
             const effectiveConfig = {
@@ -1724,7 +1728,7 @@ async function processSingleUserBuy(
                 return;
             }
         // Universal Global Slippage (userSettings already passed in)
-        const universalSlippageBps = getSlippageBps(userSettings);
+        const universalSlippageBps = resolveCopytradeSlippageBps(config, userSettings);
         const entryDeviationPolicy = resolveEntryDeviationModePolicy(config, executionMode);
 
         const effectiveConfig = {
@@ -2058,33 +2062,54 @@ async function processSingleUserBuy(
                         thresholdPolicy: effectiveConfig.maxEntryDeviationThresholdPolicy,
                     });
                     if (shouldEnforceBuyGuard(guardPolicy, 'priceDeviationBps') && deviationBps > effectiveConfig.maxEntryDeviationBps) {
-                        logger.info(LogCode.WTC_TX_SKIPPED, 'Skipping trade: entry deviation exceeds configured threshold', {
-                            userId: config.userId,
-                            token: tokenToBuy,
-                            deviationBps: deviationBps.toFixed(0),
-                            limitBps: effectiveConfig.maxEntryDeviationBps,
-                            thresholdSource: effectiveConfig.maxEntryDeviationSource,
-                            thresholdPolicy: effectiveConfig.maxEntryDeviationThresholdPolicy,
-                            modeFloorBps: effectiveConfig.maxEntryDeviationModeFloorBps,
-                            executionMode,
-                            reasonCode: effectiveConfig.maxEntryDeviationReasonCode
-                        });
+                        const unreliableMarketPrice = chainId === 900
+                            || tokenInfo?.guardLiquidityReliable === false
+                            || Number(tokenInfo?.guardLiquidityPoolCount || 0) <= 0;
+                        if (unreliableMarketPrice) {
+                            logger.warn(LogCode.DEC_PRICE_IMPACT_HIGH, 'Entry deviation exceeded but bypassed due unreliable market price source', {
+                                userId: config.userId,
+                                token: tokenToBuy,
+                                chainId,
+                                deviationBps: deviationBps.toFixed(0),
+                                limitBps: effectiveConfig.maxEntryDeviationBps,
+                                targetExecutionPrice,
+                                currentPrice,
+                                guardLiquidityReliable: tokenInfo?.guardLiquidityReliable ?? null,
+                                guardLiquidityPoolCount: tokenInfo?.guardLiquidityPoolCount ?? null,
+                                reasonCode: 'ENTRY_DEVIATION_UNRELIABLE_PRICE_BYPASS'
+                            });
+                            emitGuardAudit('pass', 'price_deviation_unreliable_price_bypass');
+                        } else {
+                            logger.info(LogCode.WTC_TX_SKIPPED, 'Skipping trade: entry deviation exceeds configured threshold', {
+                                userId: config.userId,
+                                token: tokenToBuy,
+                                deviationBps: deviationBps.toFixed(0),
+                                limitBps: effectiveConfig.maxEntryDeviationBps,
+                                targetExecutionPrice,
+                                currentPrice,
+                                thresholdSource: effectiveConfig.maxEntryDeviationSource,
+                                thresholdPolicy: effectiveConfig.maxEntryDeviationThresholdPolicy,
+                                modeFloorBps: effectiveConfig.maxEntryDeviationModeFloorBps,
+                                executionMode,
+                                reasonCode: effectiveConfig.maxEntryDeviationReasonCode
+                            });
 
-                        sendNotificationAsync({
-                            userId: config.userId,
-                            farcasterFid: config.user.farcasterFid,
-                            type: 'COPY_TRADE_SKIPPED',
-                            data: {
-                                tokenSymbol: tokenInfo.symbol || tokenToBuy.slice(0, 10),
-                                tokenAddress: tokenToBuy,
-                                targetWallet: targetWallet,
-                                chainId: chainId,
-                                skipReason: `Entry deviation ${deviationBps.toFixed(0)} bps > limit ${effectiveConfig.maxEntryDeviationBps} bps`,
-                                targetBuyValue: targetSwapValueUsd.toFixed(2),
-                            }
-                        }, 'copytrade_skip_price_deviation_bps');
-                        emitGuardAudit('skip', 'price_deviation_bps_exceeded');
-                        return;
+                            sendNotificationAsync({
+                                userId: config.userId,
+                                farcasterFid: config.user.farcasterFid,
+                                type: 'COPY_TRADE_SKIPPED',
+                                data: {
+                                    tokenSymbol: tokenInfo.symbol || tokenToBuy.slice(0, 10),
+                                    tokenAddress: tokenToBuy,
+                                    targetWallet: targetWallet,
+                                    chainId: chainId,
+                                    skipReason: `Entry deviation ${deviationBps.toFixed(0)} bps > limit ${effectiveConfig.maxEntryDeviationBps} bps`,
+                                    targetBuyValue: targetSwapValueUsd.toFixed(2),
+                                }
+                            }, 'copytrade_skip_price_deviation_bps');
+                            emitGuardAudit('skip', 'price_deviation_bps_exceeded');
+                            return;
+                        }
                     }
                 }
             }
@@ -3121,7 +3146,7 @@ async function executePositionExit(params: {
 
     // Fetch universal global slippage from UserSettings
     const settings = params.userSettings || await prisma.userSettings.findUnique({ where: { userId } });
-    const universalSlippageBps = getSlippageBps(settings);
+    const universalSlippageBps = resolveCopytradeSlippageBps(config, settings);
 
     try {
         exitPositions = params.positions && params.positions.length > 0
@@ -3408,6 +3433,47 @@ async function executePositionExit(params: {
                         reasonCode: exitPlan.attributedReasonCode || 'UNKNOWN',
                         attributionMetrics: exitPlan.attributionMetrics || null
                     });
+                    const repairReasonCodes = new Set([
+                        'ATTRIBUTED_AMOUNT_UNAVAILABLE',
+                        'NO_CONFIRMED_POSITIONS',
+                        'PENDING_EXPECTED_AMOUNT_UNAVAILABLE',
+                    ]);
+                    if (repairReasonCodes.has(String(exitPlan.attributedReasonCode || ''))) {
+                        const repairedPositionIds: string[] = [];
+                        for (const position of exitPlan.positions) {
+                            const positionId = String((position as any)?.id || '').trim();
+                            if (!positionId) continue;
+                            const repairOutcome = await repairCopytradePositionAttribution({
+                                positionId,
+                                chainId,
+                                tokenAddress,
+                                targetWallet: config?.targetWallet || null,
+                            }).catch(() => 'repair_required' as const);
+                            if (repairOutcome === 'repaired') {
+                                repairedPositionIds.push(positionId);
+                            }
+                        }
+                        if (repairedPositionIds.length > 0) {
+                            await prisma.position.updateMany({
+                                where: {
+                                    id: { in: repairedPositionIds },
+                                    status: 'open',
+                                },
+                                data: {
+                                    lastExitAttempt: null,
+                                    exitRetryCount: 1,
+                                },
+                            }).catch(() => null);
+                            logger.info(LogCode.SYS_INFO, 'Inline attribution repair applied; scheduled immediate exit retry', {
+                                userId,
+                                tokenAddress,
+                                chainId,
+                                exitReason,
+                                repairedPositionCount: repairedPositionIds.length,
+                                repairedPositionIds,
+                            });
+                        }
+                    }
                     return null;
                 }
 
@@ -3866,6 +3932,19 @@ export function initAutoTradeService(): void {
             .then((result) => {
                 if (result.scheduledOpen > 0 || result.armedPending > 0 || result.fullExitMatches > 0) {
                     logger.info(LogCode.SYS_INFO, '[TargetSellReconcile] Cycle completed', result);
+                }
+                if (result.fullExitMatches > 0) {
+                    void runCopytradeOrphanSweepCycle()
+                        .then((sweep) => {
+                            if (sweep.scheduledRetryCount > 0 || sweep.quarantinedPendingLots > 0) {
+                                logger.info(LogCode.SYS_INFO, '[CopyTradeOrphanSweep] Follow-up sweep after full-exit matches', sweep);
+                            }
+                        })
+                        .catch((err: any) => {
+                            logger.warn(LogCode.SYS_ERROR, '[CopyTradeOrphanSweep] Follow-up sweep failed', {
+                                error: err?.message || String(err)
+                            });
+                        });
                 }
             })
             .catch((err: any) => {
@@ -4346,7 +4425,9 @@ export async function checkPositionsForExits(): Promise<void> {
                             });
 
                             // Use higher slippage for emergency exits (rug pull detection)
-                            const dynamicSlippage = dtpResult.urgency === 'emergency' ? 5000 : getSlippageBps(position.user.settings);
+                            const dynamicSlippage = dtpResult.urgency === 'emergency'
+                                ? 5000
+                                : resolveCopytradeSlippageBps(config, position.user.settings);
 
                             if (dtpResult.urgency === 'emergency') {
                                 logger.warn(LogCode.EXE_TX_BROADCAST, `⚠️  [DynamicTP] Applying EMERGENCY slippage: ${dynamicSlippage} bps`, {
@@ -4406,9 +4487,26 @@ function getChainSlug(chainId: number) {
  */
 function getSlippageBps(userSettings: any): number {
     if (!userSettings || userSettings.customSlippage === null || userSettings.customSlippage === undefined) {
-        return 1500; // Default 15% for Copy Trade (high volatility scenarios)
+        return DEFAULT_COPYTRADE_SLIPPAGE_BPS; // Default 15% for Copy Trade (high volatility scenarios)
     }
-    return Math.floor(userSettings.customSlippage * 100);
+    const percent = Number(userSettings.customSlippage);
+    if (!Number.isFinite(percent) || percent <= 0) {
+        return DEFAULT_COPYTRADE_SLIPPAGE_BPS;
+    }
+    return Math.floor(percent * 100);
+}
+
+function clampCopytradeSlippageBps(value: number): number {
+    if (!Number.isFinite(value) || value <= 0) return DEFAULT_COPYTRADE_SLIPPAGE_BPS;
+    return Math.max(MIN_COPYTRADE_SLIPPAGE_BPS, Math.min(MAX_COPYTRADE_SLIPPAGE_BPS, Math.floor(value)));
+}
+
+function resolveCopytradeSlippageBps(config: any, userSettings: any): number {
+    const configuredBps = Number(config?.maxSlippageBps);
+    if (Number.isFinite(configuredBps) && configuredBps > 0) {
+        return clampCopytradeSlippageBps(configuredBps);
+    }
+    return clampCopytradeSlippageBps(getSlippageBps(userSettings));
 }
 
 async function getNativeBalance(walletAddress: string, chainId: number): Promise<bigint | null> {

@@ -12,6 +12,8 @@
     "start": "node dist/index.js",
     "test": "tsx --test",
     "test:copytrade": "tsx --test --test-force-exit src/services/copytrade-v2/__tests__/*.test.ts",
+    "test:copytrade:nodb": "tsx src/scripts/replayCt136Reproduction.ts && tsx --test src/test/orphanRecoveryPolicy.test.ts src/test/mirrorSellExecutionPolicy.test.ts src/test/verifiedMirrorExitFallbackPolicy.test.ts src/test/copytrade-position-attribution.test.ts src/test/legacyAttributionRepairPolicy.test.ts src/test/positionAttributionIntegrityGate.test.ts",
+    "test:copytrade:fast": "tsx src/scripts/replayCt136Reproduction.ts && tsx --test src/test/orphanRecoveryPolicy.test.ts src/test/mirrorSellExecutionPolicy.test.ts src/test/verifiedMirrorExitFallbackPolicy.test.ts src/test/copytrade-position-attribution.test.ts src/test/exitBalancePlannerPolicy.test.ts src/test/legacyAttributionRepairPolicy.test.ts src/test/positionAttributionIntegrityGate.test.ts src/test/copytradeLifecycleStateMachine.test.ts",
     "test:ct136-replay": "tsx src/scripts/replayCt136Reproduction.ts",
     "migrate": "prisma migrate deploy",
     "migrate:dev": "prisma migrate dev",
