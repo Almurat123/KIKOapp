@@ -65,8 +65,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [usageSummary, setUsageSummary] = useState<{
     dateUtc: string;
     total: { used: number; limit: number };
-    normal: { used: number };
-    advanced: { used: number };
+    normal: { used: number; limit: number };
+    advanced: { used: number; limit: number };
     tokenBalance: number;
   } | null>(null);
 
@@ -457,21 +457,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
         <div className={styles.footer}>
           <div className={styles.usageSummary}>
             <div className={styles.usageRow}>
-              <span className={styles.usageLabel}>Daily</span>
-              <span className={styles.usageValue}>
-                {usageSummary ? `${usageSummary.total.used}/${usageSummary.total.limit}` : '--'}
-              </span>
-            </div>
-            <div className={styles.usageRow}>
               <span className={styles.usageLabel}>Normal</span>
               <span className={styles.usageValue}>
-                {usageSummary ? `${usageSummary.normal.used}` : '--'}
+                {usageSummary ? `${usageSummary.normal.used}/${usageSummary.normal.limit}` : '--'}
               </span>
             </div>
             <div className={styles.usageRow}>
               <span className={styles.usageLabel}>Advanced</span>
               <span className={styles.usageValue}>
-                {usageSummary ? `${usageSummary.advanced.used}` : '--'}
+                {usageSummary ? `${usageSummary.advanced.used}/${usageSummary.advanced.limit}` : '--'}
               </span>
             </div>
             <div className={styles.usageRow}>

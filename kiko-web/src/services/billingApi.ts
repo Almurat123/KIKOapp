@@ -59,8 +59,8 @@ export async function getUsageSummary(authToken?: string | null) {
   return response.json() as Promise<{
     dateUtc: string;
     total: { used: number; limit: number };
-    normal: { used: number };
-    advanced: { used: number };
+    normal: { used: number; limit: number };
+    advanced: { used: number; limit: number };
     tokenBalance: number;
   }>;
 }

@@ -1655,12 +1655,13 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                 const aiMsg: Message = {
                     id: assistantMessage.id,
                     role: 'assistant',
-                    content: '',
-                    reasoning_content: '',
+                    content: assistantMessage.content || '',
+                    reasoning_content: assistantMessage.reasoning_content || '',
                     timestamp: new Date(createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
                     date: new Date(createdAt).toISOString().split('T')[0],
-                    type: 'text',
-                    status: 'streaming',
+                    type: (assistantMessage.type as any) || 'text',
+                    data: assistantMessage.data,
+                    status: (assistantMessage.status as any) || 'streaming',
                 };
 
                 const currentMessages = messagesRef.current;

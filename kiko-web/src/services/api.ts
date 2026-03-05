@@ -102,6 +102,10 @@ export interface ChatMessage {
     content: string;
     timestamp: number;
     feedback?: 'like' | 'dislike' | null;
+    reasoning_content?: string;
+    type?: string;
+    data?: any;
+    status?: string;
 }
 
 /**
