@@ -13,6 +13,7 @@ import { resolveExitBalanceAdaptation } from '../../oracle/rpcAdaptationPolicy.j
 import { emitCopytradeDomainAudit } from '../audit/copytradeDomainAudit.js';
 
 const MIRROR_SELL_CLOSE_THRESHOLD_BPS = 9500;
+const MIRROR_SELL_RATIO_DENOMINATOR = 10_000n;
 
 function parsePositiveBigIntMetric(metrics: Record<string, unknown> | undefined, key: string): bigint {
   if (!metrics) return 0n;
@@ -89,6 +90,10 @@ export function buildEvmExitPlanFromSnapshot(input: {
     && !attribution.hasExternalBalance
     && attributedAmountRaw > 0n
     && mirrorSoldRatioBps >= MIRROR_SELL_CLOSE_THRESHOLD_BPS;
+  const rawRatioBps = Number(snapshot.targetSellRatioBps || 0);
+  const targetSellRatioBps = Number.isFinite(rawRatioBps)
+    ? Math.max(0, Math.min(10_000, Math.floor(rawRatioBps)))
+    : 0;
 
   if (isMirrorSell && balanceAdaptation !== 'accept') {
     return {
@@ -210,11 +215,36 @@ export function buildEvmExitPlanFromSnapshot(input: {
   const effectivePositions = verifiedFallback.shouldFallback
     ? verifiedFallback.positions
     : attribution.eligiblePositions;
-  const effectiveReasonCode = verifiedFallback.shouldFallback
+  let adjustedSellAmountRaw = effectiveSellAmountRaw;
+  let effectiveReasonCode = verifiedFallback.shouldFallback
     ? verifiedFallback.reasonCode
     : attribution.reasonCode;
+  let adjustedMetrics: Record<string, unknown> = { ...attribution.metrics };
 
-  if (effectiveSellAmountRaw <= 0n) {
+  if (isMirrorSell && targetSellRatioBps > 0 && targetSellRatioBps < 10_000 && balance > 0n) {
+    const ratioBaseRaw = adjustedSellAmountRaw > 0n ? adjustedSellAmountRaw : balance;
+    let ratioSellRaw = (ratioBaseRaw * BigInt(targetSellRatioBps)) / MIRROR_SELL_RATIO_DENOMINATOR;
+    if (ratioSellRaw <= 0n && ratioBaseRaw > 0n) {
+      ratioSellRaw = 1n;
+    }
+    if (ratioSellRaw > balance) {
+      ratioSellRaw = balance;
+    }
+    adjustedSellAmountRaw = ratioSellRaw;
+    if (effectiveSellAmountRaw <= 0n) {
+      effectiveReasonCode = 'FULL_BALANCE_FALLBACK';
+    }
+    adjustedMetrics = {
+      ...adjustedMetrics,
+      mirrorTargetSellRatioBps: targetSellRatioBps,
+      mirrorRatioReasonCode: snapshot.targetSellRatioReasonCode || null,
+      mirrorRatioBaseRaw: ratioBaseRaw.toString(),
+      mirrorRatioSellRaw: ratioSellRaw.toString(),
+      mirrorRatioFallbackApplied: effectiveSellAmountRaw <= 0n,
+    };
+  }
+
+  if (adjustedSellAmountRaw <= 0n) {
     return {
       kind: 'noop',
       action: 'keep_open',
@@ -223,7 +253,7 @@ export function buildEvmExitPlanFromSnapshot(input: {
       balanceUsd,
       isMirrorSell,
       attributedReasonCode: effectiveReasonCode,
-      attributionMetrics: attribution.metrics,
+      attributionMetrics: adjustedMetrics,
       positions: effectivePositions
     };
   }
@@ -246,7 +276,7 @@ export function buildEvmExitPlanFromSnapshot(input: {
     };
   }
 
-  const amountInHuman = ethers.formatUnits(effectiveSellAmountRaw, decimals);
+  const amountInHuman = ethers.formatUnits(adjustedSellAmountRaw, decimals);
   if (!amountInHuman || Number(amountInHuman) <= 0) {
     return {
       kind: 'noop',
@@ -256,13 +286,13 @@ export function buildEvmExitPlanFromSnapshot(input: {
       balanceUsd,
       isMirrorSell,
       attributedReasonCode: effectiveReasonCode,
-      attributionMetrics: attribution.metrics,
+      attributionMetrics: adjustedMetrics,
       positions: effectivePositions
     };
   }
 
-  const safeBalance999Raw = (effectiveSellAmountRaw * 999n) / 1000n;
-  const retryBalance = safeBalance999Raw > 0n ? safeBalance999Raw : effectiveSellAmountRaw;
+  const safeBalance999Raw = (adjustedSellAmountRaw * 999n) / 1000n;
+  const retryBalance = safeBalance999Raw > 0n ? safeBalance999Raw : adjustedSellAmountRaw;
   const retryAmountInHuman = ethers.formatUnits(retryBalance, decimals);
   return {
     kind: 'swap',
@@ -275,7 +305,7 @@ export function buildEvmExitPlanFromSnapshot(input: {
     balance,
     decimals,
     balanceUsd,
-    attributedBalance: effectiveSellAmountRaw,
+    attributedBalance: adjustedSellAmountRaw,
     amountInHuman,
     retryAmountInHuman,
     initialSlippageBps: input.universalSlippageBps,
@@ -286,7 +316,7 @@ export function buildEvmExitPlanFromSnapshot(input: {
     pendingAttributedLotIds: attribution.pendingAttributedLotIds,
     latestTargetSellTxHash: snapshot.latestTargetSellTxHash || null,
     attributedReasonCode: effectiveReasonCode,
-    attributionMetrics: attribution.metrics,
+    attributionMetrics: adjustedMetrics,
     hasExternalBalance: attribution.hasExternalBalance,
     runtimeContext: createExitOrderRuntimeContext({
       userId,

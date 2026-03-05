@@ -644,7 +644,11 @@ function isEntryDeviationPriceUnreliable(chainId: number, tokenInfo: any): boole
     if (tokenInfo.guardLiquidityReliable === false) return true;
 
     const poolCount = Number(tokenInfo.guardLiquidityPoolCount ?? 0);
-    if (!Number.isFinite(poolCount) || poolCount <= 0) return true;
+    if (!Number.isFinite(poolCount) || poolCount <= 0) {
+        // G6: pool 未被索引时，只有 oracle 价格本身也是 fallback 来源才跳过 BPS 检查。
+        // 如果 oracle 有直接价格且没有用 fallback，仍然执行 BPS 检查。
+        return Boolean(tokenInfo.priceFallbackUsed) || Number(tokenInfo.price || 0) <= 0;
+    }
 
     const liquiditySource = String(tokenInfo.guardLiquiditySource || '').toLowerCase();
     if (liquiditySource === 'direct_pool_unpriced') return true;
@@ -1954,9 +1958,9 @@ async function processSingleUserBuy(
             // Compare Oracle price vs the IMPLIED execution price from the TARGET wallet's trade.
             // This protects against buying at the absolute top of a "scam wick" or high slippage event.
             let targetExecutionPrice = 0;
-            if (chainId !== 900 && targetSwapValueUsd > 0) { // Skip for Solana (diff mechanic)
+            if (targetSwapValueUsd > 0) { // G2: Solana 也参与价格偏离比例检测
                 try {
-                    const estimatedOut = Number(ethers.formatUnits(swap.amountOut, tokenInfo.decimals || 18));
+                    const estimatedOut = Number(ethers.formatUnits(swap.amountOut, tokenInfo.decimals || (chainId === 900 ? 9 : 18)));
                     if (estimatedOut > 0) {
                         const priceDeviationGuard = evaluateBuyPriceDeviationGuard({
                             chainId,

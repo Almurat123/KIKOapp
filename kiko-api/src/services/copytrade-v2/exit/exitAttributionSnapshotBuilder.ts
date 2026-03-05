@@ -9,6 +9,7 @@ import type { ExitAttributionSnapshot, ExitSnapshotPosition } from './exitSnapsh
 import type { ExitTokenInfo, PendingAttributedExitContext, PositionExitReason } from './types.js';
 import { readExitBalanceOracle } from '../oracle/exitBalanceOracle.js';
 import { emitCopytradeOracleAudit } from '../audit/copytradeOracleAudit.js';
+import { resolveMirrorSellRatioContext } from './mirrorSellRatioContext.js';
 
 function formatTokenAmount(amount: bigint, decimals: number): number {
   const value = Number(ethers.formatUnits(amount, decimals));
@@ -29,6 +30,8 @@ export function buildEvmExitAttributionSnapshotFromResolvedInputs(input: {
   latestTargetSellTxHash?: string | null;
   targetFullExitVerified?: boolean;
   targetFullExitReasonCode?: string | null;
+  targetSellRatioBps?: number | null;
+  targetSellRatioReasonCode?: string | null;
 }): ExitAttributionSnapshot {
   const hasValidPrice = Number.isFinite(input.tokenInfo?.price) && Number(input.tokenInfo.price) > 0;
   const isMirrorSell = input.exitReason === 'mirror_sell';
@@ -65,6 +68,8 @@ export function buildEvmExitAttributionSnapshotFromResolvedInputs(input: {
     latestTargetSellTxHash: input.latestTargetSellTxHash,
     targetFullExitVerified: input.targetFullExitVerified,
     targetFullExitReasonCode: input.targetFullExitReasonCode,
+    targetSellRatioBps: input.targetSellRatioBps ?? null,
+    targetSellRatioReasonCode: input.targetSellRatioReasonCode ?? null,
     attribution: {
       eligiblePositions: attribution.eligiblePositions,
       pendingAttributedLotIds: 'pendingAttributedLotIds' in attribution ? attribution.pendingAttributedLotIds : undefined,
@@ -116,6 +121,8 @@ export async function buildEvmExitAttributionSnapshot(input: {
   let latestTargetSellTxHash = ledger.latestTargetSellTxHash;
   let targetFullExitVerified = ledger.targetFullExitVerified;
   let targetFullExitReasonCode: string | null = null;
+  let targetSellRatioBps: number | null = null;
+  let targetSellRatioReasonCode: string | null = null;
 
   if (isMirrorSell && input.targetWallet) {
     const targetVerification = await verifyTargetFullExit({
@@ -156,6 +163,21 @@ export async function buildEvmExitAttributionSnapshot(input: {
     }
   }
 
+  if (isMirrorSell && input.targetWallet) {
+    const ratioContext = await resolveMirrorSellRatioContext({
+      targetWallet: input.targetWallet,
+      chainId: input.chainId,
+      tokenAddress: input.tokenAddress,
+      decimals: Number(dec),
+      latestTargetSellTxHash,
+      leaderBuyTxHash: input.positions.find((position) => String((position as any)?.leaderTxHash || '').trim())?.leaderTxHash || null,
+    }).catch(() => null);
+    if (ratioContext) {
+      targetSellRatioBps = ratioContext.ratioBps;
+      targetSellRatioReasonCode = ratioContext.reasonCode;
+    }
+  }
+
   return buildEvmExitAttributionSnapshotFromResolvedInputs({
     tokenAddress: input.tokenAddress,
     chainId: input.chainId,
@@ -170,5 +192,7 @@ export async function buildEvmExitAttributionSnapshot(input: {
     latestTargetSellTxHash,
     targetFullExitVerified,
     targetFullExitReasonCode,
+    targetSellRatioBps,
+    targetSellRatioReasonCode,
   });
 }

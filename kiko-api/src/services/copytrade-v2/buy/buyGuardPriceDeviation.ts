@@ -56,7 +56,8 @@ const STRICT_TARGET_VALUE_SOURCES = new Set([
 export function evaluateBuyPriceDeviationGuard(
   params: PriceDeviationGuardParams
 ): PriceDeviationGuardResult {
-  if (params.chainId === 900 || params.targetSwapValueUsd <= 0 || params.estimatedOut <= 0) {
+  // G2: Solana 同样参与 3x 价格比例检测，移除硬跳过
+  if (params.targetSwapValueUsd <= 0 || params.estimatedOut <= 0) {
     return {
       passed: true,
       reasonCode: 'PRICE_DEVIATION_CHECK_SKIPPED',

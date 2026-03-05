@@ -95,7 +95,10 @@ export async function evaluateStaticBuyGuards(
                 return { passed: false, reason: `MCap $${marketCap.toFixed(0)} > max $${maxMarketCapUsd.toFixed(0)}` };
             }
         } else if (minMarketCapUsd > 0) {
-            return { passed: false, reason: `MCap data unavailable (token info disabled) — cannot verify min $${minMarketCapUsd.toFixed(0)} filter` };
+            return { passed: false, reason: `MCap data unavailable — cannot verify min $${minMarketCapUsd.toFixed(0)} filter` };
+        } else if (maxMarketCapUsd > 0) {
+            // G1: maxMarketCap 配置了但数据缺失时，拒绝而不是静默放行
+            return { passed: false, reason: `MCap data unavailable — cannot verify max $${maxMarketCapUsd.toFixed(0)} filter` };
         }
     }
 
@@ -130,13 +133,15 @@ export async function evaluateStaticBuyGuards(
     const isFastMode = config.fastExecutionEnabled !== false;
 
     if (isFastMode) {
-        if (shouldEnforceBuyGuard(policy, 'minLiquidity') && liquidity > 0 && liquidity < MIN_LIQUIDITY_FAST) {
+        // G3: $500 honeypot 下限无条件生效，不受 minLiquidity guard policy 开关控制
+        if (liquidity > 0 && liquidity < MIN_LIQUIDITY_FAST) {
             return { passed: false, reason: `[HONEYPOT/FAST] Liquidity $${liquidity.toFixed(0)} < $${MIN_LIQUIDITY_FAST}` };
         }
         if (config.buyAmountUsd && liquidity > 0) {
             const buyAmount = safeNumber(config.buyAmountUsd, 'buyAmountUsd');
-            const singleSideLiquidity = liquidity / 2;
-            const estimatedPriceImpact = (buyAmount / singleSideLiquidity) * 100;
+            // G7: 用 0.35 代替 0.5 作为单侧可用深度系数，集中流动性池实际可用深度远小于 TVL/2
+            const effectiveSingleSideDepth = liquidity * 0.35;
+            const estimatedPriceImpact = (buyAmount / effectiveSingleSideDepth) * 100;
             const MAX_PRICE_IMPACT = 8;
             if (estimatedPriceImpact > MAX_PRICE_IMPACT) {
                 return { passed: false, reason: `[PRICE IMPACT] Est. impact ${estimatedPriceImpact.toFixed(2)}% > ${MAX_PRICE_IMPACT}%` };
@@ -149,7 +154,8 @@ export async function evaluateStaticBuyGuards(
         return { passed: false, reason: `[HONEYPOT] Liquidity $${liquidity.toFixed(0)} < $${MIN_LIQUIDITY_NORMAL}` };
     }
 
-    if (liquidity > 50000 && volume24h > 0) {
+    // G5: 门槛从 $50000 降至 $5000，覆盖蜜罐 token 最常见的小流动性区间
+    if (liquidity > 5000 && volume24h > 0) {
         const volumeRatio = volume24h / liquidity;
         if (volumeRatio < MIN_VOLUME_RATIO) {
             return { passed: false, reason: `[HONEYPOT] Suspicious volume ratio: ${(volumeRatio * 100).toFixed(2)}%` };
@@ -158,8 +164,9 @@ export async function evaluateStaticBuyGuards(
 
     if (config.buyAmountUsd && liquidity > 0) {
         const buyAmount = safeNumber(config.buyAmountUsd, 'buyAmountUsd');
-        const singleSideLiquidity = liquidity / 2;
-        const estimatedPriceImpact = (buyAmount / singleSideLiquidity) * 100;
+        // G7: 用 0.35 代替 0.5 作为单侧可用深度系数，保守估计集中流动性池实际可用深度
+        const effectiveSingleSideDepth = liquidity * 0.35;
+        const estimatedPriceImpact = (buyAmount / effectiveSingleSideDepth) * 100;
         const MAX_PRICE_IMPACT = 5;
 
         if (estimatedPriceImpact > MAX_PRICE_IMPACT) {

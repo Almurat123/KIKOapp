@@ -23,10 +23,6 @@ async function extractPumpSwapPoolIdFromSourceTx(sourceTxHash: string | null | u
 
     const targetMintLower = targetMint.toLowerCase();
     const wsolLower = 'So11111111111111111111111111111111111111112'.toLowerCase();
-    const poolLayouts = [
-      { baseMintOffset: 72, quoteMintOffset: 104 }, // PumpSwap v1
-      { baseMintOffset: 43, quoteMintOffset: 75 },  // PumpSwap v2
-    ];
 
     const collectInstructionAccounts = (instruction: any): string[] => {
       const accs: string[] = [];
@@ -58,28 +54,19 @@ async function extractPumpSwapPoolIdFromSourceTx(sourceTxHash: string | null | u
           const info = await connection.getAccountInfo(new PublicKey(account), 'confirmed');
           if (!info) continue;
           if (info.owner.toBase58() !== PUMP_SWAP_PROGRAM_ID) continue;
-          if (info.data.length < 120) continue;
+          if (info.data.length < 232) continue;
 
-          for (const layout of poolLayouts) {
-            if (info.data.length < layout.quoteMintOffset + 32) continue;
-            let baseMint = '';
-            let quoteMint = '';
-            try {
-              baseMint = new PublicKey(info.data.slice(layout.baseMintOffset, layout.baseMintOffset + 32)).toBase58();
-              quoteMint = new PublicKey(info.data.slice(layout.quoteMintOffset, layout.quoteMintOffset + 32)).toBase58();
-            } catch {
-              continue;
-            }
+          const baseMint = new PublicKey(info.data.slice(72, 104)).toBase58();
+          const quoteMint = new PublicKey(info.data.slice(104, 136)).toBase58();
+          const baseLower = baseMint.toLowerCase();
+          const quoteLower = quoteMint.toLowerCase();
 
-            const baseLower = baseMint.toLowerCase();
-            const quoteLower = quoteMint.toLowerCase();
-            const isTargetWsolPair =
-              (baseLower === targetMintLower && quoteLower === wsolLower) ||
-              (quoteLower === targetMintLower && baseLower === wsolLower);
+          const isTargetWsolPair =
+            (baseLower === targetMintLower && quoteLower === wsolLower) ||
+            (quoteLower === targetMintLower && baseLower === wsolLower);
 
-            if (isTargetWsolPair) {
-              return account;
-            }
+          if (isTargetWsolPair) {
+            return account;
           }
         } catch {
           // ignore malformed account candidates

@@ -114,7 +114,7 @@ export async function applyBuyConfirmationTransition(params: {
     return 'deferred';
   }
 
-  const pendingMirrorIntent = chainId === 900 ? null : await resolveMirrorIntent({
+  const pendingMirrorIntent = await resolveMirrorIntent({
     positionId: persistedPositionId,
     targetWallet,
     tokenAddress: tokenToBuy,

@@ -29,6 +29,8 @@ export interface ExitAttributionSnapshot {
   latestTargetSellTxHash?: string | null;
   targetFullExitVerified?: boolean;
   targetFullExitReasonCode?: string | null;
+  targetSellRatioBps?: number | null;
+  targetSellRatioReasonCode?: string | null;
   attribution: {
     eligiblePositions: ExitSnapshotPosition[];
     pendingAttributedLotIds?: string[];

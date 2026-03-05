@@ -150,9 +150,9 @@ async function fetchTokenInfoFromAPIs(
             })())
         : Promise.resolve(null);
 
-    const liquidityPromise = isSolana
-        ? Promise.resolve(null)
-        : getLiquidityData(tokenAddress, chainId, priority);
+    // Keep liquidity/volume sampling on all chains so market context can still be
+    // populated even when primary price source is unavailable.
+    const liquidityPromise = getLiquidityData(tokenAddress, chainId, priority);
 
     const metaPromise = getTokenMetadata(chainId, tokenAddress, { rpcStrategy });
 
@@ -189,8 +189,9 @@ async function fetchTokenInfoFromAPIs(
     let referenceProvider: string | undefined;
     let priceFallbackUsed = false;
 
-    // If RPC is unavailable but DexScreener has pair price, use it before full failure.
-    if (!isSolana && (price <= 0 || isNaN(price)) && liq?.priceUsd && liq.priceUsd > 0) {
+    // If primary price is unavailable but liquidity feed has pair price, use it
+    // before falling back to heavier quote paths.
+    if ((price <= 0 || isNaN(price)) && liq?.priceUsd && liq.priceUsd > 0) {
         price = liq.priceUsd;
         provider = 'dexscreener-liquidity';
     }
@@ -296,9 +297,12 @@ async function fetchTokenInfoFromAPIs(
             return dex.price > 0 ? dex : null;
         };
 
-        // Fast-mode: race against timeout so TP/SL loop doesn't stall
+        // Fast-mode: race against timeout so TP/SL loop doesn't stall.
+        // Solana launchpad routes can be slower to become quoteable; allow a
+        // slightly wider window to reduce false nulls on fresh pools.
         if (fastMode) {
-            const timeout = new Promise<null>((resolve) => setTimeout(() => resolve(null), 800));
+            const fastFallbackTimeoutMs = isSolana ? 1600 : 800;
+            const timeout = new Promise<null>((resolve) => setTimeout(() => resolve(null), fastFallbackTimeoutMs));
             const winner = await Promise.race([tryDex(), timeout]);
             if (winner && typeof winner.price === 'number') {
                 price = winner.price;

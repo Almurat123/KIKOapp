@@ -16,9 +16,12 @@ export function buildForcedExitSwapPlan(input: {
   snapshot: ExitAttributionSnapshot;
   reasonCode: string;
 }): EvmExitSwapPlan {
-  const amountInHuman = ethers.formatUnits(input.snapshot.balanceRaw, input.snapshot.decimals);
-  const retryBalanceRaw = (input.snapshot.balanceRaw * 999n) / 1000n;
-  const retryAmountInHuman = ethers.formatUnits(retryBalanceRaw > 0n ? retryBalanceRaw : input.snapshot.balanceRaw, input.snapshot.decimals);
+  const precisionSafeSellRaw = input.snapshot.balanceRaw > 1n
+    ? input.snapshot.balanceRaw - 1n
+    : input.snapshot.balanceRaw;
+  const amountInHuman = ethers.formatUnits(precisionSafeSellRaw, input.snapshot.decimals);
+  const retryBalanceRaw = (precisionSafeSellRaw * 999n) / 1000n;
+  const retryAmountInHuman = ethers.formatUnits(retryBalanceRaw > 0n ? retryBalanceRaw : precisionSafeSellRaw, input.snapshot.decimals);
 
   return {
     kind: 'swap',
@@ -31,7 +34,7 @@ export function buildForcedExitSwapPlan(input: {
     balance: input.snapshot.balanceRaw,
     decimals: input.snapshot.decimals,
     balanceUsd: input.snapshot.balanceUsd,
-    attributedBalance: input.snapshot.balanceRaw,
+    attributedBalance: precisionSafeSellRaw,
     amountInHuman,
     retryAmountInHuman,
     initialSlippageBps: input.universalSlippageBps,
@@ -45,6 +48,7 @@ export function buildForcedExitSwapPlan(input: {
       ...input.snapshot.attribution.metrics,
       orphanRecoveryReasonCode: input.reasonCode,
       forcedExit: true,
+      precisionSafeSellRaw: precisionSafeSellRaw.toString(),
     },
     hasExternalBalance: false,
     runtimeContext: createExitOrderRuntimeContext({
