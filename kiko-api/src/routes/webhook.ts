@@ -142,18 +142,13 @@ function collectEvmActivityCandidates(activities: any[]): string[] {
     return Array.from(addresses);
 }
 
-async function resolveEvmSourceTxFrom(chainId: number, txHash: string, fallbackCandidates: string[]): Promise<string> {
+async function resolveEvmSourceTxFrom(chainId: number, txHash: string): Promise<string> {
     try {
         const tx = await withTimeout(fetchTransaction(txHash, chainId), WEBHOOK_FULL_TX_TIMEOUT_MS, 'tx_from_resolve');
         const from = normalizeAddress(String(tx?.from || ''));
         if (from) return from;
     } catch {
-        // no-op, fallback to payload-derived candidates below
-    }
-
-    for (const candidate of fallbackCandidates) {
-        const normalized = normalizeAddress(candidate);
-        if (normalized) return normalized;
+        // no-op
     }
     return '';
 }
@@ -487,7 +482,7 @@ async function processAlchemyWebhookPayload(payload: any): Promise<void> {
             if (COPYTRADE_EVM_SIGNAL_BINDING !== 'tx_from_only') {
                 console.warn(`[Webhook] COPYTRADE_EVM_SIGNAL_BINDING=${COPYTRADE_EVM_SIGNAL_BINDING} is not supported, forcing tx_from_only`);
             }
-            sourceTxFrom = await resolveEvmSourceTxFrom(chainId, txHash, candidates);
+            sourceTxFrom = await resolveEvmSourceTxFrom(chainId, txHash);
             if (!sourceTxFrom) {
                 console.error(`[Webhook] Ignore tx ${txHash}: missing source tx.from under tx_from_only binding`);
                 return;
@@ -968,6 +963,40 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
             return reply.status(400).send({ error: `Unknown network: ${network}` });
         }
         const txHashNormalized = normalizeTxHash(chainId, txHash);
+        let ingressSourceTxFrom: string | undefined = normalizeAddress(wallet) || undefined;
+        if (chainId !== 900) {
+            const normalizedWallet = normalizeAddress(wallet);
+            if (!normalizedWallet) {
+                return reply.status(400).send({ error: 'Invalid EVM wallet address' });
+            }
+            if (COPYTRADE_EVM_SIGNAL_BINDING !== 'tx_from_only') {
+                console.warn(`[Webhook] COPYTRADE_EVM_SIGNAL_BINDING=${COPYTRADE_EVM_SIGNAL_BINDING} is not supported, forcing tx_from_only`);
+            }
+            const sourceTxFrom = await resolveEvmSourceTxFrom(chainId, txHashNormalized);
+            if (!sourceTxFrom) {
+                console.error(`[Webhook] Ignore /process-tx ${txHashNormalized}: missing source tx.from under tx_from_only binding`);
+                return reply.send({ success: true, skipped: true, reason: 'missing_source_tx_from' });
+            }
+            if (sourceTxFrom !== normalizedWallet) {
+                emitCopytradeDomainAudit('signal_wallet_mismatch', {
+                    extra: {
+                        chainId,
+                        txHash: txHashNormalized,
+                        sourceTxFrom,
+                        pendingTargetWallet: normalizedWallet,
+                        reasonCode: 'process_tx_wallet_source_mismatch'
+                    }
+                });
+                console.error('[Webhook] /process-tx wallet mismatch detected; dropping tx', {
+                    chainId,
+                    txHash: txHashNormalized,
+                    sourceTxFrom,
+                    wallet: normalizedWallet
+                });
+                return reply.send({ success: true, skipped: true, reason: 'signal_wallet_mismatch' });
+            }
+            ingressSourceTxFrom = sourceTxFrom;
+        }
 
         if (!tryClaimLocalInflight(chainId, txHashNormalized)) {
             return reply.send({ success: true, skipped: true, reason: 'local_inflight_dedupe' });
@@ -1063,7 +1092,7 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
                     txHash: txHashNormalized,
                     targetWallet: wallet,
                     swap: predecoded.swap,
-                    sourceTxFrom: normalizeAddress(wallet) || undefined,
+                    sourceTxFrom: ingressSourceTxFrom,
                     detectedAt: timing.dispatchEligibleAt || timing.swapReadyAt || resolveDetectedAt(COPYTRADE_DETECTED_AT_STALE_MS, predecoded.detectedAt, pendingHint?.detectedAt),
                     timing,
                     source: 'process_tx_pending_prefetch'
@@ -1098,7 +1127,7 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
                 chainId,
                 txHash: txHashNormalized,
                 source: 'alchemy_webhook',
-                matchedWallet: wallet
+                matchedWallet: ingressSourceTxFrom || wallet
             });
             reportReceiptSeen({
                 chainId,
@@ -1222,7 +1251,7 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
                 txHash: txHashNormalized,
                 targetWallet: wallet,
                 swap,
-                sourceTxFrom: normalizeAddress(wallet) || undefined,
+                sourceTxFrom: ingressSourceTxFrom,
                 detectedAt: timing.dispatchEligibleAt || timing.swapReadyAt || resolveDetectedAt(COPYTRADE_DETECTED_AT_STALE_MS, pendingHint?.detectedAt),
                 timing,
                 source: 'internal_process_tx'
