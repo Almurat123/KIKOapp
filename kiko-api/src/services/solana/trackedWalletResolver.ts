@@ -22,10 +22,23 @@ export type ResolveSolanaTrackedWalletsResult = {
 
 async function findTrackedWallets(chainId: number, addresses: string[]): Promise<Array<{ address: string }>> {
     if (!addresses.length) return [];
+    const normalized = Array.from(new Set(addresses.map((address) => normalizeAddress(address)).filter(Boolean)));
+    if (!normalized.length) return [];
+
+    if (chainId === 900) {
+        return prisma.trackedWallet.findMany({
+            where: {
+                address: { in: normalized },
+                chainId,
+                activeConfigs: { gt: 0 }
+            },
+            select: { address: true }
+        });
+    }
 
     return prisma.trackedWallet.findMany({
         where: {
-            address: { in: addresses, mode: 'insensitive' },
+            address: { in: normalized, mode: 'insensitive' },
             chainId,
             activeConfigs: { gt: 0 }
         },

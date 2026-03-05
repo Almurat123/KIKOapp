@@ -6,6 +6,17 @@ export type NormalizedSolanaWebhookItem = {
     signerAddresses: string[];
 };
 
+function extractAddressFromSolanaKey(key: any): string {
+    if (typeof key === 'string') return normalizeAddress(key);
+    if (!key || typeof key !== 'object') return normalizeAddress(String(key || ''));
+    if (typeof key.pubkey === 'string') return normalizeAddress(key.pubkey);
+    if (key?.pubkey?.toBase58) return normalizeAddress(key.pubkey.toBase58());
+    if (key?.pubkey?.toString) return normalizeAddress(key.pubkey.toString());
+    if (key?.toBase58) return normalizeAddress(key.toBase58());
+    if (key?.toString) return normalizeAddress(key.toString());
+    return normalizeAddress(String(key || ''));
+}
+
 function extractSolanaTransaction(item: any): any {
     return Array.isArray(item?.transaction) ? item.transaction[0] : item?.transaction;
 }
@@ -22,7 +33,7 @@ export function normalizeSolanaWebhookItem(item: any): NormalizedSolanaWebhookIt
 
     const txHash = String(item?.signature || signatures[0] || '').trim();
     const candidateAddresses = rawKeys
-        .map((key: any) => normalizeAddress(typeof key === 'string' ? key : key?.pubkey || key?.toString()))
+        .map((key: any) => extractAddressFromSolanaKey(key))
         .filter(Boolean);
 
     let signerAddresses = rawKeys
@@ -30,7 +41,7 @@ export function normalizeSolanaWebhookItem(item: any): NormalizedSolanaWebhookIt
             if (!key || typeof key === 'string') return '';
             const isSigner = key.signer === true || key.isSigner === true;
             if (!isSigner) return '';
-            return normalizeAddress(key.pubkey || key.toString?.());
+            return extractAddressFromSolanaKey(key);
         })
         .filter(Boolean);
 
@@ -39,7 +50,7 @@ export function normalizeSolanaWebhookItem(item: any): NormalizedSolanaWebhookIt
         if (requiredSignatures > 0 && Array.isArray(rawKeys) && rawKeys.length >= requiredSignatures) {
             signerAddresses = rawKeys
                 .slice(0, requiredSignatures)
-                .map((key: any) => normalizeAddress(typeof key === 'string' ? key : key?.pubkey || key?.toString?.()))
+                .map((key: any) => extractAddressFromSolanaKey(key))
                 .filter(Boolean);
         }
     }
