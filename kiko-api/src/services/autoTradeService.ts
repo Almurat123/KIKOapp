@@ -97,6 +97,8 @@ import {
     upsertPendingAttributedPosition
 } from './copytrade-v2/positions/pendingAttributedPositionLedger.js';
 import { runTargetSellReconciliationCycle } from './copytrade-v2/reconcile/targetSellReconciliationJob.js';
+import { runCopytradeAttributionRepairCycle } from './copytrade-v2/jobs/copytradeAttributionRepairJob.js';
+import { runCopytradeOrphanSweepCycle } from './copytrade-v2/jobs/copytradeOrphanSweepJob.js';
 import { getCopytradeBuySharedWarmup } from './copytrade-v2/buy/buySharedWarmup.js';
 import { shouldDeferStrongRpcMonitoring } from './copytrade-v2/buy/preConfirmationRpcPolicy.js';
 import {
@@ -128,6 +130,8 @@ let positionStatusCompatCache: { value: PositionStatusCompat; ts: number } | nul
 const POSITION_STATUS_COMPAT_TTL_MS = 30_000;
 let zombieCleanupInterval: NodeJS.Timeout | null = null;
 let targetSellReconciliationInterval: NodeJS.Timeout | null = null;
+let attributionRepairInterval: NodeJS.Timeout | null = null;
+let orphanSweepInterval: NodeJS.Timeout | null = null;
 
 async function getPositionStatusCompat(): Promise<PositionStatusCompat> {
     const cached = positionStatusCompatCache;
@@ -290,6 +294,8 @@ const COPYTRADE_ENABLE_TOKEN_TO_TOKEN_PARALLEL = (process.env.COPYTRADE_ENABLE_T
 const ALLOWED_LAUNCHPAD_PROVIDERS = new Set(['zora', 'fourmeme', 'pumpfun', 'pumpswap', 'bonkfun']);
 const COPYTRADE_DISABLE_MIRROR_SELL_DUST_SWEEP = (process.env.COPYTRADE_DISABLE_MIRROR_SELL_DUST_SWEEP || 'true') === 'true';
 const TARGET_SELL_RECONCILIATION_INTERVAL_MS = Math.max(15_000, Number(process.env.COPYTRADE_TARGET_SELL_RECONCILIATION_INTERVAL_MS || '30000'));
+const ATTRIBUTION_REPAIR_INTERVAL_MS = 600_000;
+const ORPHAN_SWEEP_INTERVAL_MS = Math.max(60_000, Number(process.env.COPYTRADE_ORPHAN_SWEEP_INTERVAL_MS || '600000'));
 const CHAIN_LAUNCHPAD_PROVIDERS: Record<number, Set<string>> = {
     8453: new Set(['zora']),
     56: new Set(['fourmeme']),
@@ -3868,6 +3874,37 @@ export function initAutoTradeService(): void {
                 });
             });
     }, TARGET_SELL_RECONCILIATION_INTERVAL_MS);
+
+    attributionRepairInterval = setInterval(() => {
+        void runCopytradeAttributionRepairCycle()
+            .then((result) => {
+                if (result.repairedCount > 0 || result.repairRequiredCount > 0) {
+                    logger.info(LogCode.SYS_INFO, '[CopyTradeRepair] Cycle completed', result);
+                }
+            })
+            .catch((err: any) => {
+                logger.warn(LogCode.SYS_ERROR, '[CopyTradeRepair] Cycle failed', {
+                    error: err?.message || String(err)
+                });
+            });
+    }, ATTRIBUTION_REPAIR_INTERVAL_MS);
+
+    orphanSweepInterval = setInterval(() => {
+        void runCopytradeOrphanSweepCycle()
+            .then((result) => {
+                if (result.scheduledRetryCount > 0 || result.quarantinedPendingLots > 0) {
+                    logger.info(LogCode.SYS_INFO, '[CopyTradeOrphanSweep] Cycle completed', result);
+                }
+            })
+            .catch((err: any) => {
+                logger.warn(LogCode.SYS_ERROR, '[CopyTradeOrphanSweep] Cycle failed', {
+                    error: err?.message || String(err)
+                });
+            });
+    }, ORPHAN_SWEEP_INTERVAL_MS);
+
+    void runCopytradeAttributionRepairCycle().catch(() => { });
+    void runCopytradeOrphanSweepCycle().catch(() => { });
 }
 
 /**
@@ -3883,6 +3920,14 @@ export async function stopAutoTradeService(): Promise<void> {
     if (targetSellReconciliationInterval) {
         clearInterval(targetSellReconciliationInterval);
         targetSellReconciliationInterval = null;
+    }
+    if (attributionRepairInterval) {
+        clearInterval(attributionRepairInterval);
+        attributionRepairInterval = null;
+    }
+    if (orphanSweepInterval) {
+        clearInterval(orphanSweepInterval);
+        orphanSweepInterval = null;
     }
     stopCopyTradePendingWatcher();
     // Note: watchers are event-driven, setting flag stops processing
