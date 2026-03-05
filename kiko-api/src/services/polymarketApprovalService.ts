@@ -192,8 +192,8 @@ export async function getRequiredApprovals(walletAddress: string): Promise<{
 export async function checkTradingReadiness(userId: string): Promise<{
     hasCredentials: boolean;
     hasDelegatedEvm: boolean;
-    hasUsdcApproval: boolean;
-    hasCtfApproval: boolean;
+    hasUsdcApproval: boolean | null;
+    hasCtfApproval: boolean | null;
     usdcBalance: string;
     walletAddress: string | null;
     isReady: boolean;
@@ -218,11 +218,27 @@ export async function checkTradingReadiness(userId: string): Promise<{
         };
     }
 
-    const [delegatedEvmWallet, usdcStatus, ctfApproved] = await Promise.all([
-        getDelegatedEvmWallet(userId),
-        checkUsdcApproval(creds.walletAddress),
-        checkCtfApproval(creds.walletAddress)
-    ]);
+    // [Fix]: Wrap blockchain calls in try-catch so a Polygon RPC failure does not mask
+    // the credential status. Previously, if the RPC was down the whole function threw,
+    // the /trading/readiness endpoint returned 500, and the PolymarketAuthButton left
+    // readiness=null → hasCredentials=false → the "Revoke" button never appeared.
+    let delegatedEvmWallet: any = null;
+    let usdcStatus: { approved: boolean; balance: string } = { approved: false, balance: '0' };
+    let ctfApproved = false;
+    let blockchainCallFailed = false;
+
+    try {
+        [delegatedEvmWallet, usdcStatus, ctfApproved] = await Promise.all([
+            getDelegatedEvmWallet(userId),
+            checkUsdcApproval(creds.walletAddress),
+            checkCtfApproval(creds.walletAddress)
+        ]);
+    } catch (rpcErr: any) {
+        console.warn('[PolymarketApproval] Polygon RPC call failed, returning credential status only:', rpcErr.message);
+        blockchainCallFailed = true;
+        // Try fetching just the delegation status (no on-chain call)
+        try { delegatedEvmWallet = await getDelegatedEvmWallet(userId); } catch { /* ignore */ }
+    }
 
     const missingSteps: string[] = [];
 
@@ -230,24 +246,26 @@ export async function checkTradingReadiness(userId: string): Promise<{
         missingSteps.push('Enable EVM server-side signing delegation in Settings');
     }
 
-    if (!usdcStatus.approved) {
-        missingSteps.push('Approve USDC for Polymarket');
-    }
-    if (!ctfApproved) {
-        missingSteps.push('Approve CTF tokens for Polymarket');
-    }
-    if (parseFloat(usdcStatus.balance) < 1) {
-        missingSteps.push('Deposit USDC to your wallet on Polygon');
+    if (!blockchainCallFailed) {
+        if (!usdcStatus.approved) {
+            missingSteps.push('Approve USDC for Polymarket');
+        }
+        if (!ctfApproved) {
+            missingSteps.push('Approve CTF tokens for Polymarket');
+        }
+        if (parseFloat(usdcStatus.balance) < 1) {
+            missingSteps.push('Deposit USDC to your wallet on Polygon');
+        }
     }
 
     return {
         hasCredentials: true,
         hasDelegatedEvm: !!delegatedEvmWallet,
-        hasUsdcApproval: usdcStatus.approved,
-        hasCtfApproval: ctfApproved,
+        hasUsdcApproval: blockchainCallFailed ? null : usdcStatus.approved,
+        hasCtfApproval: blockchainCallFailed ? null : ctfApproved,
         usdcBalance: usdcStatus.balance,
         walletAddress: creds.walletAddress,
-        isReady: missingSteps.length === 0,
+        isReady: !blockchainCallFailed && missingSteps.length === 0,
         missingSteps
     };
 }

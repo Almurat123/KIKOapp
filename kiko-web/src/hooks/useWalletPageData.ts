@@ -99,7 +99,10 @@ export function useWalletPageData() {
     const isSolana = chainId === 900;
     const { solanaWallet, evmWallet } = usePrivyEmbeddedWallets();
 
-    const walletAddress = isSolana ? solanaWallet?.address : (evmWallet?.address || user?.wallet?.address);
+    // evmPrimaryAddress is always the EVM wallet address (used as the primary balance API path param)
+    const evmPrimaryAddress = evmWallet?.address || user?.wallet?.address;
+    // walletAddress is the chain-specific address shown in the UI (send/receive modals etc.)
+    const walletAddress = isSolana ? (solanaWallet?.address || evmPrimaryAddress) : evmPrimaryAddress;
 
     const [holdings, setHoldings] = useState<TokenHolding[]>([]);
     const [cachedHoldings, setCachedHoldings] = useState<TokenHolding[]>([]);
@@ -134,21 +137,23 @@ export function useWalletPageData() {
         };
     }, []);
     // [Logic]: Automated data fetching on auth/chain changes.
+    // NOTE: walletAddress (UI address) and evmPrimaryAddress (fetch address) are both deps so
+    // the effect re-runs when the Solana wallet becomes available in Privy for the first time.
     useEffect(() => {
-        if (!ready || !authenticated || !walletAddress) return;
+        if (!ready || !authenticated || !evmPrimaryAddress) return;
         const reqB = ++balanceReqId.current; const reqT = ++txReqId.current; const reqO = ++ordersReqId.current;
         const cancelled = { value: false };
         fetchBalances(reqB, cancelled); fetchTransactions(reqT, cancelled); fetchOrdersAndHistory(reqO, cancelled);
         return () => { cancelled.value = true; };
-    }, [ready, authenticated, walletAddress, chainId]);
+    }, [ready, authenticated, evmPrimaryAddress, solanaWallet?.address, chainId]);
 
     useEffect(() => {
-        if (!ready || !authenticated || !walletAddress) return;
+        if (!ready || !authenticated || !evmPrimaryAddress) return;
         const reqB = ++balanceReqId.current;
         const cancelled = { value: false };
         fetchBalances(reqB, cancelled);
         return () => { cancelled.value = true; };
-    }, [importedTokensByChain, ready, authenticated, walletAddress]);
+    }, [importedTokensByChain, ready, authenticated, evmPrimaryAddress]);
 
     // [Logic]: Calculate total portfolio value and simplified PnL.
     const portfolioStats = useMemo(() => {
@@ -182,9 +187,11 @@ export function useWalletPageData() {
                 fetch(`${apiUrl}/api/polymarket/trading/orders`, { headers }),
                 fetch(`${apiUrl}/api/polymarket/trading/history`, { headers })
             ]);
-            if (posRes.ok && !cancelled.value && reqId === ordersReqId.current) setOrders((await posRes.json()).data);
-            if (pendRes.ok && !cancelled.value && reqId === ordersReqId.current) setPendingOrders((await pendRes.json()).data);
-            if (histRes.ok && !cancelled.value && reqId === ordersReqId.current) setOrderHistory((await histRes.json()).data);
+            // [Fix]: Guard against null/undefined .data (backend may return {success:true, data:null})
+            // Calling .map() on undefined/null in WalletPage would crash the render.
+            if (posRes.ok && !cancelled.value && reqId === ordersReqId.current) setOrders((await posRes.json()).data ?? []);
+            if (pendRes.ok && !cancelled.value && reqId === ordersReqId.current) setPendingOrders((await pendRes.json()).data ?? []);
+            if (histRes.ok && !cancelled.value && reqId === ordersReqId.current) setOrderHistory((await histRes.json()).data ?? []);
         } catch (err) {
             console.error('Failed to fetch Polymarket data', err);
         } finally {
@@ -196,11 +203,19 @@ export function useWalletPageData() {
     // Server-side portfolioCache (30s inflight dedup) prevents duplicate Alchemy calls.
     // No fingerprint middleman: it added a serial HTTP round-trip and made page slower.
     const fetchBalances = async (reqId: number, cancelled: { value: boolean }, forceRefresh = false) => {
+        // [Fix]: Always use the EVM primary address as the balance API path param so that:
+        // 1. Access verification works (user record is keyed by EVM address)
+        // 2. Alchemy EVM queries receive a valid EVM address regardless of active chain
+        // 3. Solana data is fetched separately via the solanaAddress query param
+        const fetchAddr = evmPrimaryAddress || walletAddress!;
+        // Cache key includes solanaWallet address so the cache is busted when Privy
+        // loads the Solana wallet for the first time (undefined → actual address).
+        const cacheKey = `${fetchAddr}:${solanaWallet?.address || ''}`;
         const cached = globalBalanceCache;
-        const cacheStillFresh = !forceRefresh && cached && cached.address === walletAddress &&
+        const cacheStillFresh = !forceRefresh && cached && cached.address === cacheKey &&
             (Date.now() - cached.cachedAt) < GLOBAL_CACHE_TTL_MS;
 
-        if (cached && cached.address === walletAddress) {
+        if (cached && cached.address === cacheKey) {
             // Always show cached data immediately for instant UI
             setHoldings(cached.holdings); setCachedHoldings(cached.holdings); setLoading(false);
             if (cacheStillFresh) return; // Fresh enough — skip network call
@@ -208,11 +223,11 @@ export function useWalletPageData() {
             setLoading(true);
         }
         try {
-            const allBalances = await getAllChainBalances(walletAddress!, solanaWallet?.address, forceRefresh);
+            const allBalances = await getAllChainBalances(fetchAddr, solanaWallet?.address, forceRefresh);
             if (cancelled.value || reqId !== balanceReqId.current) return;
             const result = processBalances(allBalances, importedTokensByChain);
             setHoldings(result); setCachedHoldings(result);
-            globalBalanceCache = { address: walletAddress!, holdings: result, cachedAt: Date.now() };
+            globalBalanceCache = { address: cacheKey, holdings: result, cachedAt: Date.now() };
             setError(null);
         } catch (e: any) {
             console.error('Error fetching balances', e);

@@ -1999,16 +1999,24 @@ async function _getPortfolioInternal(
         }
 
         // --- Path B: Direct RPC fallback (Alchemy Solana RPC / getTokenAccountsByOwner) ---
+        // Run if no SPL tokens were found via Helius (fetch both tokens and native balance),
+        // OR if native balance is still 0 even though Helius returned SPL tokens (Helius nativeBalance bug).
         if (tokens.length === 0) {
           logger.info(LogCode.API_FETCH_SUCCESS, 'Solana: using fetchSolanaTokenAccounts RPC fallback', { addr: solAddr.slice(0, 10) });
           const fallbackTokens = await fetchSolanaTokenAccounts(solAddr);
           tokens.push(...fallbackTokens);
-          // Also fetch native SOL balance via RPC
+        }
+        // Always try to get native SOL balance from RPC if Helius didn't provide it
+        // (ethBalanceFormatted === 0 can happen when Helius returns nativeBalance=0 despite user having SOL)
+        if (ethBalanceFormatted === 0) {
           try {
             const nativeResult = await rpcManager.callRpc<{ value: number }>('solana', 'getBalance', [solAddr]) as any;
             const lamports = typeof nativeResult === 'object' ? nativeResult?.value ?? 0 : Number(nativeResult ?? 0);
-            ethBalance = `0x${Math.floor(lamports).toString(16)}`;
-            ethBalanceFormatted = lamports / 1e9;
+            if (lamports > 0) {
+              ethBalance = `0x${Math.floor(lamports).toString(16)}`;
+              ethBalanceFormatted = lamports / 1e9;
+              logger.info(LogCode.API_FETCH_SUCCESS, 'Solana native balance recovered via RPC', { addr: solAddr.slice(0, 10), lamports });
+            }
           } catch (rpcErr: any) {
             logger.warn(LogCode.API_FETCH_FAILED, 'Solana native RPC getBalance failed', { error: rpcErr.message });
           }

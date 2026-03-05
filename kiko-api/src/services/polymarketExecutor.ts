@@ -12,6 +12,7 @@ import prisma from '../db/prisma.js';
 import { PolymarketUserPosition } from './polymarketDataService.js';
 import { createLimitOrderData, buildSignedOrder, SignedOrder, getUserWalletAddress } from './polymarketOrderBuilder.js';
 import { getEmbeddedWalletInfo } from './privyWallet.js';
+import { getCredentials } from './polymarketCredService.js';
 import { fetchJson } from '../config/unifiedApiService.js';
 import crypto from 'crypto';
 import { notificationService } from './notifications/farcaster/index.js';
@@ -29,7 +30,10 @@ function getClobClient(): ClobClient {
 }
 
 /**
- * Get user's API credentials from database
+ * Get user's API credentials from database, with decryption.
+ * [Fix]: Credentials are stored encrypted; must use getCredentials() which calls decrypt().
+ * Using raw prisma fields directly was producing encrypted strings as apiKey/secret/passphrase,
+ * causing 401 errors on all CLOB requests (wrong HMAC, wrong headers).
  */
 async function getUserApiCreds(userId: string): Promise<{
     apiKey: string;
@@ -37,20 +41,8 @@ async function getUserApiCreds(userId: string): Promise<{
     passphrase: string;
     walletAddress: string;
 } | null> {
-    const creds = await prisma.polymarketApiCreds.findUnique({
-        where: { userId }
-    });
-
-    if (!creds) {
-        return null;
-    }
-
-    return {
-        apiKey: creds.apiKey,
-        apiSecret: creds.apiSecret,
-        passphrase: creds.passphrase,
-        walletAddress: creds.walletAddress
-    };
+    // getCredentials() already handles decryption via decrypt()
+    return getCredentials(userId);
 }
 
 /**

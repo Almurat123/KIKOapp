@@ -90,7 +90,6 @@ import { evaluateBuyPriceDeviationGuard } from './copytrade-v2/buy/buyGuardPrice
 import { reconcileOpenPositionsForExit } from './copytrade-v2/exit/openPositionReconciliation.js';
 import { evaluateMirrorSellExecutionPolicy } from './copytrade-v2/exit/mirrorSellExecutionPolicy.js';
 import { resolveAttributedPositionExitAmount } from './copytrade-v2/positions/positionAttribution.js';
-import { computeMirrorSellProportionalAmountRaw } from './copytrade-v2/exit/mirrorSellRatio.js';
 import { finalizeCopytradeBuyPosition } from './copytrade-v2/positions/positionPersistence.js';
 import {
     armPendingAttributedPositionsForMirrorSell,
@@ -126,12 +125,6 @@ type PositionStatusCompat = {
     activeOrLockedStatuses: string[];
     pendingCreateStatus: string;
     failedFinalStatus: string;
-};
-
-type MirrorSellRatioContext = {
-    targetWallet: string;
-    targetSellTxHash?: string;
-    targetSellAmountInRaw?: string;
 };
 
 let positionStatusCompatCache: { value: PositionStatusCompat; ts: number } | null = null;
@@ -437,84 +430,6 @@ function parsePositiveBigInt(value: unknown): bigint {
     } catch {
         return 0n;
     }
-}
-
-function chainIdToWalletTxChain(chainId: number): string {
-    if (chainId === 8453) return 'base';
-    if (chainId === 56) return 'bsc';
-    if (chainId === 900) return 'solana';
-    if (chainId === 42161) return 'arbitrum';
-    if (chainId === 10) return 'optimism';
-    if (chainId === 137) return 'polygon';
-    return 'eth';
-}
-
-async function resolveMirrorSellTargetBuyBaseRaw(params: {
-    targetWallet: string;
-    chainId: number;
-    tokenAddress: string;
-    positions: Array<{ leaderTxHash?: string | null }>;
-}): Promise<{ targetBuyBaseRaw: bigint; leaderHashCount: number; matchedLeaderHashCount: number }> {
-    const normalizedTargetWallet = normalizeAddress(params.targetWallet);
-    const normalizedTokenAddress = normalizeAddress(params.tokenAddress);
-    if (!normalizedTargetWallet || !normalizedTokenAddress) {
-        return { targetBuyBaseRaw: 0n, leaderHashCount: 0, matchedLeaderHashCount: 0 };
-    }
-
-    const leaderTxHashes = Array.from(new Set(
-        params.positions
-            .map((position) => String(position?.leaderTxHash || '').trim().toLowerCase())
-            .filter((hash) => /^0x[0-9a-f]{64}$/.test(hash))
-    ));
-    if (leaderTxHashes.length === 0) {
-        return { targetBuyBaseRaw: 0n, leaderHashCount: 0, matchedLeaderHashCount: 0 };
-    }
-
-    const chainLabel = chainIdToWalletTxChain(params.chainId);
-    const rows = await prisma.walletTransaction.findMany({
-        where: {
-            walletAddress: normalizedTargetWallet,
-            txHash: { in: leaderTxHashes },
-            OR: [
-                { chainId: params.chainId },
-                { chain: chainLabel },
-            ],
-        },
-        select: {
-            txHash: true,
-            txType: true,
-            amountOut: true,
-            tokenOutAddress: true,
-            tokenAddress: true,
-        },
-    });
-
-    const amountByLeaderHash = new Map<string, bigint>();
-    for (const row of rows) {
-        const txHash = String(row.txHash || '').trim().toLowerCase();
-        if (!txHash || amountByLeaderHash.has(txHash)) continue;
-
-        const tokenOutAddress = normalizeAddress(String(row.tokenOutAddress || ''));
-        const tokenAddress = normalizeAddress(String(row.tokenAddress || ''));
-        const tokenMatches = tokenOutAddress === normalizedTokenAddress
-            || (!tokenOutAddress && tokenAddress === normalizedTokenAddress);
-        if (!tokenMatches) continue;
-
-        const amountOutRaw = parsePositiveBigInt(row.amountOut);
-        if (amountOutRaw <= 0n) continue;
-        amountByLeaderHash.set(txHash, amountOutRaw);
-    }
-
-    let targetBuyBaseRaw = 0n;
-    for (const txHash of leaderTxHashes) {
-        targetBuyBaseRaw += amountByLeaderHash.get(txHash) || 0n;
-    }
-
-    return {
-        targetBuyBaseRaw,
-        leaderHashCount: leaderTxHashes.length,
-        matchedLeaderHashCount: amountByLeaderHash.size,
-    };
 }
 
 function resolveDisplayTokenSymbol(symbol: unknown, tokenAddress: string): string {
@@ -3221,7 +3136,6 @@ async function executePositionExit(params: {
     userSettings?: any;
     positions?: Array<any>;
     pendingAttributedLots?: Array<any>;
-    mirrorSellRatioContext?: MirrorSellRatioContext;
 }): Promise<string | null> {
     const { userId, tokenAddress, chainId, exitReason, config } = params;
     const tokenInfo = params.tokenInfo ?? { price: 0, symbol: 'UNKNOWN' };
@@ -3242,10 +3156,6 @@ async function executePositionExit(params: {
     let exitPositions: any[] = [];
     let persistedExitPositions: any[] = [];
     let persistedExitBalance = balance;
-    let mirrorRatioTargetBuyBaseRaw = 0n;
-    let mirrorRatioTargetSellAmountRaw = 0n;
-    let mirrorRatioLeaderHashCount = 0;
-    let mirrorRatioMatchedLeaderHashCount = 0;
 
     // Fetch universal global slippage from UserSettings
     const settings = params.userSettings || await prisma.userSettings.findUnique({ where: { userId } });
@@ -3270,21 +3180,6 @@ async function executePositionExit(params: {
         }
         persistedExitPositions = exitPositions;
         persistedExitBalance = balance;
-
-        if (exitReason === 'mirror_sell' && params.mirrorSellRatioContext) {
-            mirrorRatioTargetSellAmountRaw = parsePositiveBigInt(params.mirrorSellRatioContext.targetSellAmountInRaw);
-            if (mirrorRatioTargetSellAmountRaw > 0n) {
-                const ratioBase = await resolveMirrorSellTargetBuyBaseRaw({
-                    targetWallet: params.mirrorSellRatioContext.targetWallet,
-                    chainId,
-                    tokenAddress,
-                    positions: exitPositions,
-                }).catch(() => ({ targetBuyBaseRaw: 0n, leaderHashCount: 0, matchedLeaderHashCount: 0 }));
-                mirrorRatioTargetBuyBaseRaw = ratioBase.targetBuyBaseRaw;
-                mirrorRatioLeaderHashCount = ratioBase.leaderHashCount;
-                mirrorRatioMatchedLeaderHashCount = ratioBase.matchedLeaderHashCount;
-            }
-        }
 
         if (chainId === 900) {
             // SOLANA Logic
@@ -3436,64 +3331,14 @@ async function executePositionExit(params: {
                 return null;
             }
 
-            let mirrorSellAmountRaw = attribution.sellAmountRaw;
-            if (exitReason === 'mirror_sell' && mirrorRatioTargetSellAmountRaw > 0n) {
-                const ratioDecision = computeMirrorSellProportionalAmountRaw({
-                    baseSellAmountRaw: attribution.sellAmountRaw,
-                    targetSellAmountRaw: mirrorRatioTargetSellAmountRaw,
-                    targetBuyBaseRaw: mirrorRatioTargetBuyBaseRaw,
-                });
-                if (ratioDecision.applied) {
-                    mirrorSellAmountRaw = ratioDecision.sellAmountRaw;
-                    logger.info(LogCode.SYS_INFO, '[MirrorSellRatio] Applied proportional sell amount on Solana', {
-                        userId,
-                        token: tokenAddress,
-                        chainId,
-                        targetSellTxHash: params.mirrorSellRatioContext?.targetSellTxHash || null,
-                        targetSellAmountRaw: mirrorRatioTargetSellAmountRaw.toString(),
-                        targetBuyBaseRaw: mirrorRatioTargetBuyBaseRaw.toString(),
-                        ratioBps: ratioDecision.ratioBps,
-                        leaderHashCount: mirrorRatioLeaderHashCount,
-                        matchedLeaderHashCount: mirrorRatioMatchedLeaderHashCount,
-                        sellAmountRawBefore: attribution.sellAmountRaw.toString(),
-                        sellAmountRawAfter: mirrorSellAmountRaw.toString(),
-                        reasonCode: ratioDecision.reasonCode,
-                    });
-                } else {
-                    logger.warn(LogCode.SYS_INFO, '[MirrorSellRatio] Proportional sell not applied on Solana; using attributed fallback', {
-                        userId,
-                        token: tokenAddress,
-                        chainId,
-                        targetSellTxHash: params.mirrorSellRatioContext?.targetSellTxHash || null,
-                        targetSellAmountRaw: mirrorRatioTargetSellAmountRaw.toString(),
-                        targetBuyBaseRaw: mirrorRatioTargetBuyBaseRaw.toString(),
-                        leaderHashCount: mirrorRatioLeaderHashCount,
-                        matchedLeaderHashCount: mirrorRatioMatchedLeaderHashCount,
-                        sellAmountRaw: attribution.sellAmountRaw.toString(),
-                        reasonCode: ratioDecision.reasonCode,
-                    });
-                }
-            }
-
-            if (mirrorSellAmountRaw <= 0n) {
-                logger.info(LogCode.WTC_TX_SKIPPED, 'Skipping Solana mirror sell: proportional amount resolved to zero', {
-                    userId,
-                    token: tokenAddress,
-                    chainId,
-                    targetSellAmountRaw: mirrorRatioTargetSellAmountRaw.toString(),
-                    targetBuyBaseRaw: mirrorRatioTargetBuyBaseRaw.toString(),
-                });
-                return null;
-            }
-
             logger.info(LogCode.EXE_TX_BROADCAST, 'Selling token on Solana', {
                 userId,
-                balance: mirrorSellAmountRaw.toString(),
+                balance: attribution.sellAmountRaw.toString(),
                 valueUsd: balanceUsd.toFixed(2)
             });
-            balance = mirrorSellAmountRaw;
+            balance = attribution.sellAmountRaw;
             persistedExitPositions = attribution.eligiblePositions as any;
-            persistedExitBalance = mirrorSellAmountRaw;
+            persistedExitBalance = attribution.sellAmountRaw;
 
             let isPartialSell = false;
             try {
@@ -3501,7 +3346,7 @@ async function executePositionExit(params: {
                     userId: user.privyDid,
                     tokenInMint: tokenAddress,
                     tokenOutMint: SOLANA_CONFIG.TOKENS.SOL,
-                    amountIn: mirrorSellAmountRaw.toString(),
+                    amountIn: attribution.sellAmountRaw.toString(),
                     // Use universal global slippage
                     slippageBps: universalSlippageBps
                 });
@@ -3514,12 +3359,12 @@ async function executePositionExit(params: {
                         userId: user.privyDid,
                         tokenInMint: tokenAddress,
                         tokenOutMint: SOLANA_CONFIG.TOKENS.SOL,
-                        amountIn: mirrorSellAmountRaw.toString(),
+                        amountIn: attribution.sellAmountRaw.toString(),
                         slippageBps: aggressiveSlippage
                     });
                 } catch (e2: any) {
                     try {
-                        const safeBalance999 = (mirrorSellAmountRaw * 999n) / 1000n;
+                        const safeBalance999 = (attribution.sellAmountRaw * 999n) / 1000n;
                         // Retry with 1.5x slippage (Survival Mode)
                         const survivalSlippage = Math.min(Math.floor(universalSlippageBps * 1.5), 2500);
                         txHash = await executeSolanaSwap({
@@ -3676,73 +3521,6 @@ async function executePositionExit(params: {
                     closeReason: exitPlan.closeReason
                 });
                 return null;
-            }
-
-            if (exitReason === 'mirror_sell' && mirrorRatioTargetSellAmountRaw > 0n) {
-                const ratioBypass = exitPlan.attributedReasonCode === 'FORCED_FULL_EXIT_FROM_LEDGER';
-                if (!ratioBypass) {
-                    const ratioDecision = computeMirrorSellProportionalAmountRaw({
-                        baseSellAmountRaw: exitPlan.attributedBalance,
-                        targetSellAmountRaw: mirrorRatioTargetSellAmountRaw,
-                        targetBuyBaseRaw: mirrorRatioTargetBuyBaseRaw,
-                    });
-                    if (ratioDecision.applied) {
-                        if (ratioDecision.sellAmountRaw <= 0n) {
-                            logger.info(LogCode.WTC_TX_SKIPPED, 'Skipping EVM mirror sell: proportional amount resolved to zero', {
-                                userId,
-                                tokenAddress,
-                                chainId,
-                                targetSellTxHash: params.mirrorSellRatioContext?.targetSellTxHash || null,
-                                targetSellAmountRaw: mirrorRatioTargetSellAmountRaw.toString(),
-                                targetBuyBaseRaw: mirrorRatioTargetBuyBaseRaw.toString(),
-                                leaderHashCount: mirrorRatioLeaderHashCount,
-                                matchedLeaderHashCount: mirrorRatioMatchedLeaderHashCount,
-                            });
-                            return null;
-                        }
-                        exitPlan.attributedBalance = ratioDecision.sellAmountRaw;
-                        exitPlan.amountInHuman = ethers.formatUnits(ratioDecision.sellAmountRaw, exitPlan.decimals);
-                        const retryBalanceRaw = (ratioDecision.sellAmountRaw * 999n) / 1000n;
-                        exitPlan.retryAmountInHuman = ethers.formatUnits(retryBalanceRaw > 0n ? retryBalanceRaw : ratioDecision.sellAmountRaw, exitPlan.decimals);
-                        exitPlan.attributionMetrics = {
-                            ...(exitPlan.attributionMetrics || {}),
-                            mirrorSellRatioBps: ratioDecision.ratioBps,
-                            mirrorSellRatioApplied: true,
-                            mirrorSellRatioReasonCode: ratioDecision.reasonCode,
-                            mirrorSellRatioLeaderHashCount: mirrorRatioLeaderHashCount,
-                            mirrorSellRatioMatchedLeaderHashCount: mirrorRatioMatchedLeaderHashCount,
-                            mirrorSellRatioTargetSellAmountRaw: mirrorRatioTargetSellAmountRaw.toString(),
-                            mirrorSellRatioTargetBuyBaseRaw: mirrorRatioTargetBuyBaseRaw.toString(),
-                        };
-                        persistedExitBalance = ratioDecision.sellAmountRaw;
-                        logger.info(LogCode.SYS_INFO, '[MirrorSellRatio] Applied proportional sell amount on EVM', {
-                            userId,
-                            tokenAddress,
-                            chainId,
-                            targetSellTxHash: params.mirrorSellRatioContext?.targetSellTxHash || null,
-                            targetSellAmountRaw: mirrorRatioTargetSellAmountRaw.toString(),
-                            targetBuyBaseRaw: mirrorRatioTargetBuyBaseRaw.toString(),
-                            ratioBps: ratioDecision.ratioBps,
-                            leaderHashCount: mirrorRatioLeaderHashCount,
-                            matchedLeaderHashCount: mirrorRatioMatchedLeaderHashCount,
-                            sellAmountRawBefore: balance.toString(),
-                            sellAmountRawAfter: ratioDecision.sellAmountRaw.toString(),
-                            reasonCode: ratioDecision.reasonCode,
-                        });
-                    } else {
-                        logger.warn(LogCode.SYS_INFO, '[MirrorSellRatio] Proportional sell not applied on EVM; using exit plan fallback', {
-                            userId,
-                            tokenAddress,
-                            chainId,
-                            targetSellTxHash: params.mirrorSellRatioContext?.targetSellTxHash || null,
-                            targetSellAmountRaw: mirrorRatioTargetSellAmountRaw.toString(),
-                            targetBuyBaseRaw: mirrorRatioTargetBuyBaseRaw.toString(),
-                            leaderHashCount: mirrorRatioLeaderHashCount,
-                            matchedLeaderHashCount: mirrorRatioMatchedLeaderHashCount,
-                            reasonCode: ratioDecision.reasonCode,
-                        });
-                    }
-                }
             }
 
             const exitResult = await executeEvmExitPlan(exitPlan);
@@ -4127,12 +3905,7 @@ async function handleTargetSell(
                 tokenInfo,
                 config: { ...config, user: (config as any).user },
                 positions: matchedPositions,
-                pendingAttributedLots,
-                mirrorSellRatioContext: {
-                    targetWallet: normalizedWallet,
-                    targetSellTxHash: swap.txHash || undefined,
-                    targetSellAmountInRaw: swap.amountIn
-                }
+                pendingAttributedLots
             });
         } finally {
             positionIds.forEach(id => positionsBeingExited.delete(id));
