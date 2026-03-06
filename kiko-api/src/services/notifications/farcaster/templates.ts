@@ -85,6 +85,12 @@ export function buildFarcasterNotificationMessage(type: TradeNotificationType, d
                 (data.targetBuyValue ? `• Target Buy: $${data.targetBuyValue}\n` : '') +
                 (data.marketCap ? `• Market Cap: $${data.marketCap}\n` : '') +
                 (data.liquidity ? `• Liquidity: $${data.liquidity}\n` : '') +
+                (data.liquidityMode ? `• Liquidity Mode: ${data.liquidityMode}\n` : '') +
+                (data.liquiditySource ? `• Liquidity Source: ${data.liquiditySource}\n` : '') +
+                (data.liquidityScanSource ? `• Scan Source: ${data.liquidityScanSource}\n` : '') +
+                (data.liquidityProgram ? `• Liquidity Program: ${data.liquidityProgram}\n` : '') +
+                (data.liquidityPreferredProviders ? `• Preferred Providers: ${data.liquidityPreferredProviders}\n` : '') +
+                (data.liquidityTargetPools ? `• Target Pools: ${data.liquidityTargetPools}\n` : '') +
                 (data.priceImpact ? `• Price Impact: ${data.priceImpact}\n` : '') +
                 (data.chainId ? `\n⛓️ Chain: ${getChainDisplayName(data.chainId)}` : '') +
                 `\n\n💡 Adjust filters at kikoapp.app if needed`;

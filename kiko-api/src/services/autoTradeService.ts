@@ -672,6 +672,34 @@ function inferCopyTradeBugHint(error: any): string {
     return 'unknown';
 }
 
+function buildCopyTradeNotificationEvidence(
+    tokenInfo: any,
+    options?: { targetBuyValueUsd?: number }
+): Record<string, string | undefined> {
+    const meta = tokenInfo?.guardLiquidityMeta && typeof tokenInfo.guardLiquidityMeta === 'object'
+        ? tokenInfo.guardLiquidityMeta as Record<string, unknown>
+        : null;
+    const targetPoolCount = Number(meta?.targetPoolCount ?? 0);
+    const targetPoolAddresses = Array.isArray(meta?.targetPoolAddresses) ? meta.targetPoolAddresses : [];
+    const preferredProviders = Array.isArray(meta?.preferredProviders) ? meta.preferredProviders : [];
+
+    return {
+        targetBuyValue: Number.isFinite(options?.targetBuyValueUsd) && Number(options?.targetBuyValueUsd) > 0
+            ? Number(options?.targetBuyValueUsd).toFixed(2)
+            : undefined,
+        marketCap: tokenInfo?.marketCap ? Number(tokenInfo.marketCap).toFixed(0) : undefined,
+        liquidity: tokenInfo?.liquidity ? Number(tokenInfo.liquidity).toFixed(0) : undefined,
+        liquidityMode: typeof meta?.mode === 'string' ? String(meta.mode) : undefined,
+        liquiditySource: tokenInfo?.guardLiquiditySource ? String(tokenInfo.guardLiquiditySource) : undefined,
+        liquidityScanSource: typeof meta?.source === 'string' ? String(meta.source) : undefined,
+        liquidityProgram: meta?.dominantProgramLabel ? String(meta.dominantProgramLabel) : (meta?.dominantProgram ? String(meta.dominantProgram) : undefined),
+        liquidityPreferredProviders: preferredProviders.length > 0 ? preferredProviders.map(String).join(', ') : undefined,
+        liquidityTargetPools: targetPoolCount > 0
+            ? `${targetPoolCount}${targetPoolAddresses.length > 0 ? ` (${targetPoolAddresses.length} addressed)` : ''}`
+            : undefined,
+    };
+}
+
 // ... (previous functions remain)
 
 /**
@@ -1452,9 +1480,7 @@ async function processBuyWithInfo(
                     targetWallet: targetWallet,
                     chainId: chainId,
                     skipReason: reason,
-                    targetBuyValue: targetSwapValueUsd > 0 ? targetSwapValueUsd.toFixed(2) : undefined,
-                    marketCap: tokenInfo.marketCap ? tokenInfo.marketCap.toFixed(0) : undefined,
-                    liquidity: tokenInfo.liquidity ? tokenInfo.liquidity.toFixed(0) : undefined,
+                    ...buildCopyTradeNotificationEvidence(tokenInfo, { targetBuyValueUsd: targetSwapValueUsd }),
                 }
             }).catch(() => { }); // Ignore notification errors
         });
@@ -1851,9 +1877,7 @@ async function processSingleUserBuy(
                     targetWallet: targetWallet,
                     chainId: chainId,
                     skipReason: `Unable to verify target cash value for strict min gate ($${minTargetValueUsd.toFixed(2)}).`,
-                    targetBuyValue: normalizedTargetSwapValueUsd > 0 ? normalizedTargetSwapValueUsd.toFixed(2) : undefined,
-                    marketCap: tokenInfo.marketCap ? tokenInfo.marketCap.toFixed(0) : undefined,
-                    liquidity: tokenInfo.liquidity ? tokenInfo.liquidity.toFixed(0) : undefined,
+                    ...buildCopyTradeNotificationEvidence(tokenInfo, { targetBuyValueUsd: normalizedTargetSwapValueUsd }),
                 }
             }, 'copytrade_skip_min_target_guard_unavailable');
             emitGuardAudit('skip', 'min_target_guard_unavailable');
@@ -1883,9 +1907,7 @@ async function processSingleUserBuy(
                     targetWallet: targetWallet,
                     chainId: chainId,
                     skipReason: `Target buy value $${effectiveTargetSwapValueUsd.toFixed(2)} < min $${minTargetValueUsd.toFixed(2)}`,
-                    targetBuyValue: effectiveTargetSwapValueUsd > 0 ? effectiveTargetSwapValueUsd.toFixed(2) : undefined,
-                    marketCap: tokenInfo.marketCap ? tokenInfo.marketCap.toFixed(0) : undefined,
-                    liquidity: tokenInfo.liquidity ? tokenInfo.liquidity.toFixed(0) : undefined,
+                    ...buildCopyTradeNotificationEvidence(tokenInfo, { targetBuyValueUsd: effectiveTargetSwapValueUsd }),
                 }
             }, 'copytrade_skip_min_target_value');
             emitGuardAudit('skip', 'min_target_value_below_threshold');
@@ -1924,9 +1946,7 @@ async function processSingleUserBuy(
                     targetWallet: targetWallet,
                     chainId: chainId,
                     skipReason: `Invalid buy amount ($${String(config.buyAmountUsd)}). Please update your copy trade amount.`,
-                    targetBuyValue: targetSwapValueUsd > 0 ? targetSwapValueUsd.toFixed(2) : undefined,
-                    marketCap: tokenInfo.marketCap ? tokenInfo.marketCap.toFixed(0) : undefined,
-                    liquidity: tokenInfo.liquidity ? tokenInfo.liquidity.toFixed(0) : undefined,
+                    ...buildCopyTradeNotificationEvidence(tokenInfo, { targetBuyValueUsd: targetSwapValueUsd }),
                 }
             });
 
@@ -1968,9 +1988,7 @@ async function processSingleUserBuy(
                         targetWallet: targetWallet,
                         chainId: chainId,
                         skipReason: 'Native token price unavailable. Please retry in a moment.',
-                        targetBuyValue: targetSwapValueUsd > 0 ? targetSwapValueUsd.toFixed(2) : undefined,
-                        marketCap: tokenInfo.marketCap ? tokenInfo.marketCap.toFixed(0) : undefined,
-                        liquidity: tokenInfo.liquidity ? tokenInfo.liquidity.toFixed(0) : undefined,
+                        ...buildCopyTradeNotificationEvidence(tokenInfo, { targetBuyValueUsd: targetSwapValueUsd }),
                     }
                 });
 
@@ -2092,9 +2110,7 @@ async function processSingleUserBuy(
                                     targetWallet: targetWallet,
                                     chainId: chainId,
                                     skipReason: `Price deviation too high (${Number(priceDeviationGuard.ratio || 0).toFixed(1)}x). Oracle: $${Number(tokenInfo.price || 0).toFixed(6)}, Target paid: $${targetExecutionPrice.toFixed(6)}`,
-                                    targetBuyValue: targetSwapValueUsd.toFixed(2),
-                                    marketCap: tokenInfo.marketCap ? tokenInfo.marketCap.toFixed(0) : undefined,
-                                    liquidity: tokenInfo.liquidity ? tokenInfo.liquidity.toFixed(0) : undefined,
+                                    ...buildCopyTradeNotificationEvidence(tokenInfo, { targetBuyValueUsd: targetSwapValueUsd }),
                                     priceImpact: `${Number(priceDeviationGuard.ratio || 0).toFixed(1)}x deviation`
                                 }
                             }, 'copytrade_skip_price_deviation');
@@ -2196,7 +2212,7 @@ async function processSingleUserBuy(
                                     targetWallet: targetWallet,
                                     chainId: chainId,
                                     skipReason: `Entry deviation ${deviationBps.toFixed(0)} bps > limit ${effectiveConfig.maxEntryDeviationBps} bps`,
-                                    targetBuyValue: targetSwapValueUsd.toFixed(2),
+                                    ...buildCopyTradeNotificationEvidence(tokenInfo, { targetBuyValueUsd: targetSwapValueUsd }),
                                 }
                             }, 'copytrade_skip_price_deviation_bps');
                             emitGuardAudit('skip', 'price_deviation_bps_exceeded');
@@ -2250,9 +2266,7 @@ async function processSingleUserBuy(
                             targetWallet: targetWallet,
                             chainId: chainId,
                             skipReason: `Insufficient gas. Balance: ${parseFloat(balanceEth).toFixed(4)} ETH, Required: ${parseFloat(requiredEth).toFixed(4)} ETH`,
-                            targetBuyValue: targetSwapValueUsd > 0 ? targetSwapValueUsd.toFixed(2) : undefined,
-                            marketCap: tokenInfo.marketCap ? tokenInfo.marketCap.toFixed(0) : undefined,
-                            liquidity: tokenInfo.liquidity ? tokenInfo.liquidity.toFixed(0) : undefined,
+                            ...buildCopyTradeNotificationEvidence(tokenInfo, { targetBuyValueUsd: targetSwapValueUsd }),
                         }
                     });
                     emitGuardAudit('skip', 'insufficient_gas_buffer');
@@ -3600,13 +3614,23 @@ async function executePositionExit(params: {
                 }
 
                 if (exitPlan.action === 'retry_later') {
+                    const retryMetrics = exitPlan.attributionMetrics || null;
                     logger.warn(LogCode.WTC_TX_SKIPPED, 'Exit deferred: balance oracle returned uncertain result', {
                         userId,
                         tokenAddress,
                         chainId,
                         exitReason,
                         reasonCode: exitPlan.attributedReasonCode || 'EXIT_BALANCE_RPC_UNCERTAIN',
-                        attributionMetrics: exitPlan.attributionMetrics || null
+                        balanceRaw: exitPlan.balance.toString(),
+                        balanceUsd: exitPlan.balanceUsd,
+                        oracleStatus: retryMetrics?.oracleStatus || null,
+                        oracleReasonCode: retryMetrics?.oracleReasonCode || null,
+                        oracleAttemptCount: retryMetrics?.oracleAttemptCount || null,
+                        newestPositionAgeMs: retryMetrics?.newestPositionAgeMs || null,
+                        pendingLotCount: retryMetrics?.pendingLotCount || null,
+                        recentOwnershipEvidence: retryMetrics?.recentOwnershipEvidence || null,
+                        mirrorSellDustCloseDeferred: retryMetrics?.mirrorSellDustCloseDeferred || null,
+                        attributionMetrics: retryMetrics
                     });
                     await persistDeferredExitRetryState({
                         positions: exitPlan.positions as any,

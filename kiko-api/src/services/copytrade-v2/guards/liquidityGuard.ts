@@ -3,6 +3,7 @@ import { LogCode } from '../../../config/logRegistry.js';
 import { getLiquidityFromCandidatePools, getTokenLiquidity } from '../../dex/directSwap/pipeline/poolLayer.js';
 import { getV2PoolInfo, getV3PoolInfo, type PoolInfo } from '../../dex/poolInfo.js';
 import { resolveSolanaDirectLiquidity } from '../../solana/direct/liquidity.js';
+import type { SolDirectProvider } from '../../solana/direct/types.js';
 import type { DecodedSwap } from '../../txDecoder.js';
 
 // Guard-level total budget is ~1200ms, so keep direct Solana liquidity bounded.
@@ -59,6 +60,27 @@ function normalizeFinitePositive(value: unknown): number {
     return Number.isFinite(n) && n > 0 ? n : 0;
 }
 
+function deriveSolanaPreferredProviders(swap: DecodedSwap | undefined): SolDirectProvider[] {
+    const values = new Set<SolDirectProvider>();
+    const router = String(swap?.router || '').trim();
+    const dexName = String(swap?.dexName || '').toLowerCase();
+
+    if (router === 'pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA' || dexName.includes('pumpswap')) {
+        values.add('pumpswap');
+    }
+    if (router === '6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P' || dexName.includes('pump.fun')) {
+        values.add('pumpfun');
+    }
+    if (router === 'LanMV9sAd7wArD4vJFi2qDdfnVhFxYSUg6eADduJ3uj' || dexName.includes('raydium') || dexName.includes('bonkfun')) {
+        values.add('raydium_launchlab');
+    }
+    if (dexName.includes('meteora')) {
+        values.add('meteora');
+    }
+
+    return Array.from(values);
+}
+
 export async function resolveBuyLiquidityGuardSnapshot(
     tokenAddress: string,
     chainId: number,
@@ -73,12 +95,15 @@ export async function resolveBuyLiquidityGuardSnapshot(
     if (chainId === 900) {
         try {
             const tokenPriceUsd = normalizeFinitePositive(tokenInfo?.price);
+            const preferredProviders = deriveSolanaPreferredProviders(options?.swap);
             const timeout = new Promise<null>((resolve) => setTimeout(() => resolve(null), COPYTRADE_SOL_LIQ_TIMEOUT_MS));
             const directLiquidity = await Promise.race([
                 resolveSolanaDirectLiquidity(tokenAddress, tokenPriceUsd, {
                     includeProgramScan: COPYTRADE_SOL_LIQUIDITY_SCAN_ALL_POOLS,
                     budgetMs: COPYTRADE_SOL_LIQ_TIMEOUT_MS,
                     skipDetection: true,
+                    preferredProviders,
+                    stopAtLiquidityUsd: normalizeFinitePositive(options?.stopAtLiquidityUsd),
                 }),
                 timeout,
             ]);
@@ -86,24 +111,36 @@ export async function resolveBuyLiquidityGuardSnapshot(
             const poolCount = Number(directLiquidity?.poolCount || 0);
 
             if (directLiquidityUsd > 0) {
+                const directMetadata = (directLiquidity?.metadata as Record<string, unknown> | undefined) || undefined;
                 return {
                     liquidityUsd: directLiquidityUsd,
                     source: 'direct_pool_tvl',
                     reliable: Boolean(directLiquidity?.reliable),
                     poolCount,
                     fallbackUsed: false,
-                    metadata: (directLiquidity?.metadata as Record<string, unknown> | undefined) || undefined,
+                    metadata: {
+                        ...(directMetadata || {}),
+                        mode: preferredProviders.length > 0 ? 'target_provider_first' : 'multi_program_scan',
+                        preferredProviders,
+                        stopAtLiquidityUsd: normalizeFinitePositive(options?.stopAtLiquidityUsd) || undefined,
+                    },
                 };
             }
 
             if (fallbackLiquidityUsd > 0) {
+                const directMetadata = (directLiquidity?.metadata as Record<string, unknown> | undefined) || undefined;
                 return {
                     liquidityUsd: fallbackLiquidityUsd,
                     source: poolCount > 0 ? 'direct_pool_unpriced' : 'token_info_fallback',
                     reliable: true,
                     poolCount,
                     fallbackUsed: true,
-                    metadata: (directLiquidity?.metadata as Record<string, unknown> | undefined) || undefined,
+                    metadata: {
+                        ...(directMetadata || {}),
+                        mode: preferredProviders.length > 0 ? 'target_provider_first' : 'multi_program_scan',
+                        preferredProviders,
+                        stopAtLiquidityUsd: normalizeFinitePositive(options?.stopAtLiquidityUsd) || undefined,
+                    },
                 };
             }
 
@@ -113,7 +150,12 @@ export async function resolveBuyLiquidityGuardSnapshot(
                 reliable: false,
                 poolCount,
                 fallbackUsed: false,
-                metadata: (directLiquidity?.metadata as Record<string, unknown> | undefined) || undefined,
+                metadata: {
+                    ...(((directLiquidity?.metadata as Record<string, unknown> | undefined) || undefined) || {}),
+                    mode: preferredProviders.length > 0 ? 'target_provider_first' : 'multi_program_scan',
+                    preferredProviders,
+                    stopAtLiquidityUsd: normalizeFinitePositive(options?.stopAtLiquidityUsd) || undefined,
+                },
             };
         } catch (error: any) {
             logger.warn(LogCode.API_FETCH_FAILED, '[CopyTradeGuard] Solana direct liquidity lookup failed', {
@@ -152,6 +194,7 @@ export async function resolveBuyLiquidityGuardSnapshot(
                     metadata: {
                         mode: 'target_interacted_pools',
                         targetPoolCount,
+                        targetPoolAddresses: targetPools.map((pool) => pool.poolAddress),
                         stopAtLiquidityUsd: stopAtLiquidityUsd || undefined,
                     }
                 };
@@ -168,7 +211,12 @@ export async function resolveBuyLiquidityGuardSnapshot(
                 source: 'direct_pool_tvl',
                 reliable: Boolean(directLiquidity?.reliable),
                 poolCount,
-                fallbackUsed: false
+                fallbackUsed: false,
+                metadata: {
+                    mode: targetPools.length > 0 ? 'full_scan_after_target_pool_miss' : 'full_scan',
+                    targetPoolCount: targetPools.length,
+                    stopAtLiquidityUsd: normalizeFinitePositive(options?.stopAtLiquidityUsd) || undefined,
+                }
             };
         }
 

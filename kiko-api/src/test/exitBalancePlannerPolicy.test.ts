@@ -229,6 +229,68 @@ describe('exit balance planner policy', () => {
     assert.equal(plan.closeReason, 'balance_dust');
   });
 
+  test('mirror sell defers dust close when fresh ownership evidence contradicts zero-like balance read', () => {
+    const plan = buildEvmExitPlanFromSnapshot({
+      userId: 'user-1',
+      tokenAddress: '0xtoken',
+      chainId: 1,
+      exitReason: 'mirror_sell',
+      tokenInfo: { price: 0.5, symbol: 'TEST' },
+      universalSlippageBps: 500,
+      executionMode: 'turbo',
+      targetWallet: '0xtarget',
+      snapshot: {
+        tokenAddress: '0xtoken',
+        chainId: 1,
+        walletAddress: '0xwallet',
+        isMirrorSell: true,
+        hasValidPrice: true,
+        decimals: 18,
+        balanceRaw: 40n,
+        balanceUsd: 0.00000000000000002,
+        treatAsEmptyOrDust: true,
+        balanceRead: {
+          status: 'success',
+          value: 40n,
+          reasonCode: 'EXIT_BALANCE_CONFIRMED_POSITIVE',
+          attemptCount: 6,
+          lastError: null,
+          providerSource: 'test',
+        },
+        positions: [{
+          id: 'pos-1',
+          tokenAddress: '0xtoken',
+          status: 'open',
+          entryTxHash: '0xbuy',
+          createdAt: new Date(),
+        }],
+        pendingLots: [],
+        latestTargetSellTxHash: '0xsell',
+        targetFullExitVerified: true,
+        targetFullExitReasonCode: 'TARGET_FULL_EXIT_CONFIRMED',
+        attribution: {
+          eligiblePositions: [{
+            id: 'pos-1',
+            tokenAddress: '0xtoken',
+            status: 'open',
+            entryTxHash: '0xbuy',
+            createdAt: new Date(),
+          }],
+          sellAmountRaw: 40n,
+          reasonCode: 'ATTRIBUTED_AMOUNT_CLAMPED_TO_ONCHAIN_BALANCE',
+          metrics: {
+            attributedAmountRaw: '2000000000000000000',
+          },
+          hasExternalBalance: false,
+        },
+      },
+    });
+
+    assert.equal(plan.kind, 'noop');
+    assert.equal(plan.action, 'retry_later');
+    assert.equal(plan.attributedReasonCode, 'EXIT_BALANCE_RPC_UNCERTAIN');
+  });
+
   test('mirror sell does not ratio-close when external balance contamination exists', () => {
     const plan = buildEvmExitPlanFromSnapshot({
       userId: 'user-1',

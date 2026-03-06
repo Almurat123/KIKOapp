@@ -29,6 +29,12 @@ export interface TradeNotificationData {
     liquidity?: string;
     priceImpact?: string;
     targetBuyValue?: string;
+    liquidityMode?: string;
+    liquiditySource?: string;
+    liquidityScanSource?: string;
+    liquidityProgram?: string;
+    liquidityPreferredProviders?: string;
+    liquidityTargetPools?: string;
 }
 
 export interface TradeNotificationParams {

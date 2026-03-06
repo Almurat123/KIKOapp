@@ -503,13 +503,23 @@ async function executePositionExit(params: {
                 }
 
                 if (exitPlan.action === 'retry_later') {
+                    const retryMetrics = exitPlan.attributionMetrics || null;
                     logger.warn(LogCode.WTC_TX_SKIPPED, 'Exit deferred: balance oracle returned uncertain result', {
                         userId,
                         tokenAddress,
                         chainId,
                         exitReason,
                         reasonCode: exitPlan.attributedReasonCode || 'EXIT_BALANCE_RPC_UNCERTAIN',
-                        attributionMetrics: exitPlan.attributionMetrics || null
+                        balanceRaw: exitPlan.balance.toString(),
+                        balanceUsd: exitPlan.balanceUsd,
+                        oracleStatus: retryMetrics?.oracleStatus || null,
+                        oracleReasonCode: retryMetrics?.oracleReasonCode || null,
+                        oracleAttemptCount: retryMetrics?.oracleAttemptCount || null,
+                        newestPositionAgeMs: retryMetrics?.newestPositionAgeMs || null,
+                        pendingLotCount: retryMetrics?.pendingLotCount || null,
+                        recentOwnershipEvidence: retryMetrics?.recentOwnershipEvidence || null,
+                        mirrorSellDustCloseDeferred: retryMetrics?.mirrorSellDustCloseDeferred || null,
+                        attributionMetrics: retryMetrics
                     });
                     await persistDeferredExitRetryState({
                         positions: exitPlan.positions as any,

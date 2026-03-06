@@ -14,6 +14,10 @@ import { emitCopytradeDomainAudit } from '../audit/copytradeDomainAudit.js';
 
 const MIRROR_SELL_CLOSE_THRESHOLD_BPS = 9500;
 const MIRROR_SELL_RATIO_DENOMINATOR = 10_000n;
+const MIRROR_SELL_ZERO_DUST_RETRY_GRACE_MS = Math.max(
+  30_000,
+  Number(process.env.COPYTRADE_MIRROR_SELL_ZERO_DUST_RETRY_GRACE_MS || '180000')
+);
 
 function parsePositiveBigIntMetric(metrics: Record<string, unknown> | undefined, key: string): bigint {
   if (!metrics) return 0n;
@@ -24,6 +28,34 @@ function parsePositiveBigIntMetric(metrics: Record<string, unknown> | undefined,
   } catch {
     return 0n;
   }
+}
+
+function hasRecentMirrorSellOwnershipEvidence(snapshot: ExitAttributionSnapshot, attributedAmountRaw: bigint): boolean {
+  if (!snapshot.isMirrorSell) return false;
+  const now = Date.now();
+  const hasRecentPosition = snapshot.positions.some((position) => {
+    const createdAt = position.createdAt instanceof Date ? position.createdAt.getTime() : 0;
+    return createdAt > 0 && (now - createdAt) <= MIRROR_SELL_ZERO_DUST_RETRY_GRACE_MS;
+  });
+  if (hasRecentPosition) return true;
+  if ((snapshot.pendingLots?.length || 0) > 0) return true;
+  return attributedAmountRaw > 0n;
+}
+
+function getRecentMirrorSellOwnershipMetrics(snapshot: ExitAttributionSnapshot, attributedAmountRaw: bigint): Record<string, unknown> {
+  const now = Date.now();
+  const positionAgesMs = snapshot.positions
+    .map((position) => position.createdAt instanceof Date ? Math.max(0, now - position.createdAt.getTime()) : null)
+    .filter((value): value is number => typeof value === 'number');
+  const newestPositionAgeMs = positionAgesMs.length > 0 ? Math.min(...positionAgesMs) : null;
+  return {
+    recentOwnershipEvidence: hasRecentMirrorSellOwnershipEvidence(snapshot, attributedAmountRaw),
+    recentPositionCount: positionAgesMs.filter((ageMs) => ageMs <= MIRROR_SELL_ZERO_DUST_RETRY_GRACE_MS).length,
+    newestPositionAgeMs,
+    pendingLotCount: snapshot.pendingLots?.length || 0,
+    attributedAmountRaw: attributedAmountRaw.toString(),
+    onChainBalanceRaw: snapshot.balanceRaw.toString(),
+  };
 }
 
 export async function buildEvmExitPlan(input: {
@@ -94,6 +126,11 @@ export function buildEvmExitPlanFromSnapshot(input: {
   const targetSellRatioBps = Number.isFinite(rawRatioBps)
     ? Math.max(0, Math.min(10_000, Math.floor(rawRatioBps)))
     : 0;
+  const shouldDeferContradictoryDustClose = snapshot.treatAsEmptyOrDust
+    && isMirrorSell
+    && balanceAdaptation === 'accept'
+    && hasRecentMirrorSellOwnershipEvidence(snapshot, attributedAmountRaw);
+  const mirrorSellOwnershipMetrics = getRecentMirrorSellOwnershipMetrics(snapshot, attributedAmountRaw);
 
   if (isMirrorSell && balanceAdaptation !== 'accept') {
     return {
@@ -112,12 +149,37 @@ export function buildEvmExitPlanFromSnapshot(input: {
         oracleReasonCode: snapshot.balanceRead.reasonCode,
         oracleAttemptCount: snapshot.balanceRead.attemptCount,
         oracleLastError: snapshot.balanceRead.lastError || null,
+          ...mirrorSellOwnershipMetrics,
       },
       positions: snapshot.positions,
     };
   }
 
   if (snapshot.treatAsEmptyOrDust) {
+    if (shouldDeferContradictoryDustClose) {
+      return {
+        kind: 'noop',
+        action: 'retry_later',
+        balance,
+        decimals,
+        balanceUsd,
+        isMirrorSell,
+        attributedReasonCode: 'EXIT_BALANCE_RPC_UNCERTAIN',
+        attributionMetrics: {
+          ...attribution.metrics,
+          oracleStatus: snapshot.balanceRead.status,
+          oracleReasonCode: snapshot.balanceRead.reasonCode,
+          oracleAttemptCount: snapshot.balanceRead.attemptCount,
+          oracleLastError: snapshot.balanceRead.lastError || null,
+          mirrorSellDustCloseDeferred: true,
+          mirrorSellDustRetryGraceMs: MIRROR_SELL_ZERO_DUST_RETRY_GRACE_MS,
+          latestTargetSellTxHash: snapshot.latestTargetSellTxHash || null,
+          targetFullExitVerified: Boolean(snapshot.targetFullExitVerified),
+          ...mirrorSellOwnershipMetrics,
+        },
+        positions: snapshot.positions,
+      };
+    }
     if (isMirrorSell && balance <= 0n) {
       return {
         kind: 'noop',

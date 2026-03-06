@@ -4,6 +4,7 @@ import { getSolanaConnection } from '../../../config/solanaConfig.js';
 import { PublicKey } from '@solana/web3.js';
 import { TOKEN_PROGRAM_ID } from '../../../utils/solanaToken.js';
 import type { SolDirectLiquiditySnapshot } from './types.js';
+import type { SolDirectProvider } from './types.js';
 import { getPumpSwapLiquidityUsd } from './pumpswapExecutor.js';
 import { SOLANA_CONFIG } from '../../../config/solanaConfig.js';
 import { SolanaLaunchpadSwapService } from '../../solanaLaunchpadSwapService.js';
@@ -212,13 +213,95 @@ function deriveRaydiumPoolPda(mintA: PublicKey, mintB: PublicKey): PublicKey {
 export async function resolveSolanaDirectLiquidity(
   tokenAddress: string,
   tokenPriceUsd: number = 0,
-  options?: { includeProgramScan?: boolean; budgetMs?: number; skipDetection?: boolean }
+  options?: { includeProgramScan?: boolean; budgetMs?: number; skipDetection?: boolean; preferredProviders?: SolDirectProvider[]; stopAtLiquidityUsd?: number }
 ): Promise<SolDirectLiquiditySnapshot | null> {
   const startedAt = Date.now();
   const budgetMs = Number(options?.budgetMs || 0);
   const skipDetection = options?.skipDetection === true;
   const hasBudget = Number.isFinite(budgetMs) && budgetMs > 0;
   const timeLeft = () => hasBudget ? Math.max(0, budgetMs - (Date.now() - startedAt)) : Number.POSITIVE_INFINITY;
+  const stopAtLiquidityUsd = normalizePositive(options?.stopAtLiquidityUsd);
+
+  const probePreferredProvider = async (provider: SolDirectProvider): Promise<SolDirectLiquiditySnapshot | null> => {
+    if (timeLeft() <= 80) return null;
+    if (provider === 'pumpswap') {
+      const liquidityUsd = normalizePositive(await getPumpSwapLiquidityUsd(tokenAddress, null).catch(() => null));
+      if (liquidityUsd > 0) {
+        return {
+          liquidityUsd,
+          provider: 'pumpswap',
+          reliable: true,
+          poolCount: 1,
+          metadata: { source: 'target_provider_direct_pool' },
+        };
+      }
+      return null;
+    }
+    if (provider === 'pumpfun') {
+      const liquidityUsd = normalizePositive(await getPumpFunBondingCurveLiquidityUsd(tokenAddress).catch(() => null));
+      if (liquidityUsd > 0) {
+        return {
+          liquidityUsd,
+          provider: 'pumpfun',
+          reliable: true,
+          poolCount: 1,
+          metadata: { source: 'target_provider_direct_pool' },
+        };
+      }
+      return null;
+    }
+    if (provider === 'raydium_launchlab') {
+      try {
+        const connection = getSolanaConnection('cheap', 'normal');
+        const mint = new PublicKey(tokenAddress);
+        const pool = deriveRaydiumPoolPda(mint, WSOL_MINT);
+        const poolAccount = await connection.getAccountInfo(pool, 'confirmed');
+        if (!poolAccount) return null;
+        const data = poolAccount.data;
+        const mintB = new PublicKey(data.subarray(237, 269));
+        const vaultB = new PublicKey(data.subarray(301, 333));
+        if (!mintB.equals(WSOL_MINT)) return null;
+        const quoteBalResp = await connection.getTokenAccountBalance(vaultB, 'confirmed');
+        const quoteReserves = BigInt(quoteBalResp.value.amount);
+        const nativePrice = await getNativeTokenPriceUsd(900).catch(() => 0);
+        const liquidityUsd = quoteReserves > 0n && nativePrice > 0 ? (Number(quoteReserves) / 1e9) * nativePrice * 2 : 0;
+        if (liquidityUsd > 0) {
+          return {
+            liquidityUsd,
+            provider: 'raydium_launchlab',
+            reliable: true,
+            poolCount: 1,
+            metadata: { source: 'target_provider_direct_pool', raydiumPool: pool.toBase58() },
+          };
+        }
+      } catch {
+        return null;
+      }
+      return null;
+    }
+    if (provider === 'meteora' && effectiveTokenPriceUsd > 0) {
+      const scanned = await resolveProgramVaultLiquidityByMint(tokenAddress, effectiveTokenPriceUsd).catch(() => null);
+      if (scanned && scanned.provider === 'meteora' && scanned.liquidityUsd > 0) {
+        return {
+          liquidityUsd: scanned.liquidityUsd,
+          provider: 'meteora',
+          reliable: true,
+          poolCount: scanned.poolCount,
+          metadata: { source: 'target_provider_direct_pool', scanned: scanned.metadata },
+        };
+      }
+    }
+    return null;
+  };
+
+  const preferredProviders = Array.from(new Set((options?.preferredProviders || []).filter(Boolean)));
+  for (const provider of preferredProviders) {
+    if (timeLeft() <= 80) break;
+    const preferred = await probePreferredProvider(provider);
+    if (preferred && preferred.liquidityUsd > 0 && (!stopAtLiquidityUsd || preferred.liquidityUsd >= stopAtLiquidityUsd)) {
+      return preferred;
+    }
+  }
 
   const [pumpSwapLiquidity, pumpFunBondingLiquidity, raydiumLaunchlab] = await Promise.all([
     getPumpSwapLiquidityUsd(tokenAddress, null).catch(() => null),
