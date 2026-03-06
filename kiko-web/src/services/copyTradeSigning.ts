@@ -1,6 +1,6 @@
 import type { CopyTradeConfig, CreateConfigParams } from './copyTradeApi';
 
-export const COPYTRADE_INTENT_VERSION = 'copytrade_config_intent_v1';
+export const COPYTRADE_INTENT_VERSION = 'copytrade_config_intent_v2';
 
 export type CopyTradeIntentAction = 'create' | 'update' | 'delete';
 
@@ -16,6 +16,7 @@ export interface CopyTradeSignedPayload {
   targetWallet: string;
   buyAmountUsd: string;
   maxSlippageBps: string;
+  maxEntryDeviationBps: string;
   minMarketCapUsd: string;
   minLiquidityUsd: string;
   minTargetValueUsd: string;
@@ -37,7 +38,7 @@ const typedDataDomain = {
 };
 
 const typedDataTypes = {
-  CopyTradeConfigIntentV1: [
+  CopyTradeConfigIntentV2: [
     { name: 'version', type: 'string' },
     { name: 'action', type: 'string' },
     { name: 'configId', type: 'string' },
@@ -49,6 +50,7 @@ const typedDataTypes = {
     { name: 'targetWallet', type: 'string' },
     { name: 'buyAmountUsd', type: 'string' },
     { name: 'maxSlippageBps', type: 'string' },
+    { name: 'maxEntryDeviationBps', type: 'string' },
     { name: 'minMarketCapUsd', type: 'string' },
     { name: 'minLiquidityUsd', type: 'string' },
     { name: 'minTargetValueUsd', type: 'string' },
@@ -76,6 +78,17 @@ function toBoolean(value: unknown, fallback: boolean): boolean {
   return fallback;
 }
 
+function getEntryDeviationFloorBps(executionMode: string): number {
+  return executionMode === 'turbo' ? 3000 : 1500;
+}
+
+function resolveEntryDeviationBps(source: Partial<CreateConfigParams | CopyTradeConfig>, executionMode: string): string {
+  const floor = getEntryDeviationFloorBps(executionMode);
+  const raw = Number(source.maxEntryDeviationBps);
+  if (!Number.isFinite(raw) || raw <= 0) return String(floor);
+  return String(Math.max(floor, Math.floor(raw)));
+}
+
 function buildPayloadFromSource(source: Partial<CreateConfigParams | CopyTradeConfig>) {
   const requestedMode = String(source.executionMode || 'normal').toLowerCase();
   const executionMode =
@@ -87,6 +100,7 @@ function buildPayloadFromSource(source: Partial<CreateConfigParams | CopyTradeCo
     targetWallet: String(source.targetWallet || ''),
     buyAmountUsd: toNumericString(source.buyAmountUsd),
     maxSlippageBps: toNumericString(source.maxSlippageBps, '300'),
+    maxEntryDeviationBps: resolveEntryDeviationBps(source, executionMode),
     minMarketCapUsd: toNumericString(source.minMarketCapUsd),
     minLiquidityUsd: toNumericString(source.minLiquidityUsd),
     minTargetValueUsd: toNumericString(source.minTargetValueUsd),
@@ -126,6 +140,7 @@ export function createCopyTradeSignedPayload(args: {
     targetWallet: normalized.targetWallet,
     buyAmountUsd: normalized.buyAmountUsd,
     maxSlippageBps: normalized.maxSlippageBps,
+    maxEntryDeviationBps: normalized.maxEntryDeviationBps,
     minMarketCapUsd: normalized.minMarketCapUsd,
     minLiquidityUsd: normalized.minLiquidityUsd,
     minTargetValueUsd: normalized.minTargetValueUsd,
@@ -152,7 +167,7 @@ async function signWithEip1193Provider(provider: any, signerAddress: string, pay
         { name: 'chainId', type: 'uint256' },
       ],
     },
-    primaryType: 'CopyTradeConfigIntentV1',
+    primaryType: 'CopyTradeConfigIntentV2',
     message: payload,
   };
 
@@ -173,7 +188,7 @@ export async function signCopyTradeConfigIntent(args: {
     return wallet.signTypedData({
       domain: typedDataDomain,
       types: typedDataTypes,
-      primaryType: 'CopyTradeConfigIntentV1',
+      primaryType: 'CopyTradeConfigIntentV2',
       message: args.payload,
     });
   }

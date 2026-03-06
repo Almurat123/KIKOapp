@@ -18,6 +18,11 @@ const AI_ANALYSIS_OPTIONS = [
 ];
 type ExecutionMode = 'safe' | 'normal' | 'turbo';
 
+const NORMAL_MIN_LIQUIDITY_USD = 1000;
+const TURBO_MIN_LIQUIDITY_USD = 500;
+const NORMAL_MIN_ENTRY_DEVIATION_BPS = 1500;
+const TURBO_MIN_ENTRY_DEVIATION_BPS = 3000;
+
 const EXECUTION_MODE_OPTIONS: Array<{ value: ExecutionMode; label: string; desc: string }> = [
     {
         value: 'safe',
@@ -39,15 +44,18 @@ const EXECUTION_MODE_OPTIONS: Array<{ value: ExecutionMode; label: string; desc:
 export const StrategyEditForm: React.FC<StrategyEditFormProps> = ({ config, onSave }) => {
     const initialExecutionMode: ExecutionMode =
         (config.executionMode as ExecutionMode | undefined) ?? (config.disableTokenInfo ? 'turbo' : 'normal');
+    const getLiquidityFloor = (mode: ExecutionMode) => mode === 'turbo' ? TURBO_MIN_LIQUIDITY_USD : NORMAL_MIN_LIQUIDITY_USD;
+    const getEntryDeviationFloor = (mode: ExecutionMode) => mode === 'turbo' ? TURBO_MIN_ENTRY_DEVIATION_BPS : NORMAL_MIN_ENTRY_DEVIATION_BPS;
     const [formData, setFormData] = useState<Partial<CopyTradeConfig>>({
         targetWallet: config.targetWallet,
         minTargetValueUsd: config.minTargetValueUsd ?? undefined,
         minMarketCapUsd: config.minMarketCapUsd ?? undefined,
-        minLiquidityUsd: config.minLiquidityUsd ?? undefined,
+        minLiquidityUsd: Math.max(Number(config.minLiquidityUsd ?? 0), getLiquidityFloor(initialExecutionMode)),
         copyTradeTokenCooldownMinutes: config.copyTradeTokenCooldownMinutes ?? undefined,
         executionMode: initialExecutionMode,
         disableTokenInfo: initialExecutionMode === 'turbo',
         buyAmountUsd: config.buyAmountUsd,
+        maxEntryDeviationBps: Math.max(Number(config.maxEntryDeviationBps ?? 0), getEntryDeviationFloor(initialExecutionMode)),
         takeProfitPct: config.takeProfitPct || 100,
         stopLossPct: config.stopLossPct || 20,
         aiAnalysisMode: config.aiAnalysisMode || 'disabled',
@@ -80,10 +88,14 @@ export const StrategyEditForm: React.FC<StrategyEditFormProps> = ({ config, onSa
     const currentExecutionMode: ExecutionMode =
         (formData.executionMode as ExecutionMode | undefined) ?? (formData.disableTokenInfo ? 'turbo' : 'normal');
     const isTurboMode = currentExecutionMode === 'turbo';
+    const currentLiquidityFloor = getLiquidityFloor(currentExecutionMode);
+    const currentEntryDeviationFloor = getEntryDeviationFloor(currentExecutionMode);
     const updateExecutionMode = (mode: ExecutionMode) => {
         updateFormData({
             executionMode: mode,
-            disableTokenInfo: mode === 'turbo'
+            disableTokenInfo: mode === 'turbo',
+            minLiquidityUsd: Math.max(Number(formData.minLiquidityUsd ?? 0), getLiquidityFloor(mode)),
+            maxEntryDeviationBps: Math.max(Number(formData.maxEntryDeviationBps ?? 0), getEntryDeviationFloor(mode)),
         });
     };
 
@@ -101,6 +113,14 @@ export const StrategyEditForm: React.FC<StrategyEditFormProps> = ({ config, onSa
 
         // [Safety]: Allow empty string to clear the value (set to undefined)
         if (normalizedValue === '') {
+            if (field === 'minLiquidityUsd') {
+                updateFormData({ [field]: currentLiquidityFloor });
+                return;
+            }
+            if (field === 'maxEntryDeviationBps') {
+                updateFormData({ [field]: currentEntryDeviationFloor });
+                return;
+            }
             updateFormData({ [field]: undefined });
             return;
         }
@@ -121,7 +141,15 @@ export const StrategyEditForm: React.FC<StrategyEditFormProps> = ({ config, onSa
         // [Safety]: Optional Zero check
         if (!allowZero && num === 0) return;
 
-        updateFormData({ [field]: num });
+        let nextValue = num;
+        if (field === 'minLiquidityUsd') {
+            nextValue = Math.max(num, currentLiquidityFloor);
+        }
+        if (field === 'maxEntryDeviationBps') {
+            nextValue = Math.max(num, currentEntryDeviationFloor);
+        }
+
+        updateFormData({ [field]: nextValue });
     };
 
     const handleNumericInputChange = (
@@ -269,11 +297,30 @@ export const StrategyEditForm: React.FC<StrategyEditFormProps> = ({ config, onSa
                             onChange={e => handleNumericInputChange(e, 'minLiquidityUsd')}
                             onCompositionEnd={e => handleNumericCompositionEnd(e, 'minLiquidityUsd')}
                             className={styles.input}
-                            placeholder="Optional"
+                            placeholder={String(currentLiquidityFloor)}
                             disabled={isTurboMode}
                         />
                     </div>
                 </div>
+                <div className={styles.inputGroup} style={{ marginTop: '16px' }}>
+                    <label className={styles.label}>Max Entry Deviation (BPS)</label>
+                    <input
+                        type="text"
+                        inputMode="decimal"
+                        {...agentAttrs({ id: 'trade.edit.max_entry_deviation_bps', role: 'input', action: 'select', page: 'trade', key: 'maxEntryDeviationBps' })}
+                        value={formData.maxEntryDeviationBps ?? ''}
+                        onChange={e => handleNumericInputChange(e, 'maxEntryDeviationBps')}
+                        onCompositionEnd={e => handleNumericCompositionEnd(e, 'maxEntryDeviationBps')}
+                        className={styles.input}
+                        placeholder={String(currentEntryDeviationFloor)}
+                    />
+                    <p className={styles.headerDesc}>
+                        Minimum allowed in {currentExecutionMode.toUpperCase()} mode: {currentEntryDeviationFloor} bps ({(currentEntryDeviationFloor / 100).toFixed(0)}%).
+                    </p>
+                </div>
+                <p className={clsx(styles.headerDesc, styles.topMarginTwelve)}>
+                    Min Liquidity cannot be set below the enforced system floor for the selected execution mode: ${currentLiquidityFloor}.
+                </p>
                 {isTurboMode && (
                     <p className={styles.headerDesc}>
                         Turbo mode ignores Market Cap and Liquidity filters to keep entry latency minimal.
@@ -389,7 +436,7 @@ export const StrategyEditForm: React.FC<StrategyEditFormProps> = ({ config, onSa
                             className={styles.input}
                             placeholder="100"
                         />
-                        <p className={styles.headerDesc} style={{ color: '#10b981' }}>
+                        <p className={clsx(styles.headerDesc, styles.successText)}>
                             Trailing stop logic initiates once current profit exceeds this threshold.
                         </p>
                     </div>

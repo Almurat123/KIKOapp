@@ -1392,6 +1392,9 @@ export class MainSwapService {
           deferred: result.txLifecycle?.status === 'broadcasted_unseen',
           reasonCode: result.txLifecycle?.status || 'direct_swap_result'
         });
+        if (directFeeSettlement) {
+          directFeeSettlement.sourceTxHash = result.txHash;
+        }
         return {
           success: true,
           txHash: result.txHash,
@@ -1553,6 +1556,10 @@ export class MainSwapService {
                       });
                     }
                   };
+
+                  // 🔥 FIX (Deduplication): Only trigger immediate fee collection if NOT deferred.
+                  // If deferred, the fee will be collected later in buyConfirmationTransition.ts
+                  // when the transaction is actually confirmed and becomes 'visible'.
                   if (isTurboCopytrade) {
                     void runFeeCollection();
                   } else {
@@ -1565,7 +1572,11 @@ export class MainSwapService {
                   });
                 }
                 const successResult = toDirectSuccessResult(adoptedResult);
-                successResult.metadata.directFeeSettlement = directFeeSettlement || undefined;
+                // Ensure the settlement object matches the deferral decision
+                if (successResult.metadata.directFeeSettlement) {
+                  successResult.metadata.directFeeSettlement.deferred = true;
+                  successResult.metadata.directFeeSettlement.sourceTxHash = adoptedResult.txHash;
+                }
                 return successResult;
               }
               directTimeoutReason = 'visibility_timeout';

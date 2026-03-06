@@ -162,6 +162,7 @@
 
 .input[type="number"] {
     -moz-appearance: textfield;
+    appearance: textfield;
 }
 
 .input:disabled {
@@ -267,6 +268,10 @@
     color: #ffffff;
 }
 
+.topMarginTwelve {
+    margin-top: 12px;
+}
+
 :global(.light) .modeButton {
     background: #ffffff;
     border: 1px solid rgba(0, 0, 0, 0.1);
@@ -278,6 +283,10 @@
     border-color: #2563eb;
     background: rgba(37, 99, 235, 0.1);
     color: #1e3a8a;
+}
+
+.successText {
+    color: #10b981;
 }
 
 /* Actions removed to support Auto-save on Close */

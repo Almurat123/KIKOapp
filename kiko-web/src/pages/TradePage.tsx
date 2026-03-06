@@ -36,6 +36,7 @@ export const TradePage: React.FC = () => {
         targetWallet: updates?.targetWallet,
         buyAmountUsd: updates?.buyAmountUsd,
         maxSlippageBps: updates?.maxSlippageBps,
+        maxEntryDeviationBps: updates?.maxEntryDeviationBps,
         minMarketCapUsd: updates?.minMarketCapUsd,
         minLiquidityUsd: updates?.minLiquidityUsd,
         minTargetValueUsd: updates?.minTargetValueUsd,

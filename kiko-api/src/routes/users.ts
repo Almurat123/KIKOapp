@@ -23,9 +23,6 @@ interface UserSettingsBody {
     copyTradeAIMode?: string;
     fastSwapMode?: boolean;
     copyTradeTokenCooldownMinutes?: number | null;
-    minMarketCapUsd?: number | null;
-    minLiquidityUsd?: number | null;
-    minTargetValueUsd?: number | null;
 }
 
 interface WalletExportBody {
@@ -35,6 +32,17 @@ interface WalletExportBody {
 
 interface WalletExportQuery {
     walletAddress: string;
+}
+
+function serializeUserSettings(settings: any) {
+    if (!settings) return settings;
+    const {
+        minMarketCapUsd: _minMarketCapUsd,
+        minLiquidityUsd: _minLiquidityUsd,
+        minTargetValueUsd: _minTargetValueUsd,
+        ...safeSettings
+    } = settings;
+    return safeSettings;
 }
 
 export async function registerUserRoutes(app: FastifyInstance) {
@@ -72,7 +80,7 @@ export async function registerUserRoutes(app: FastifyInstance) {
                 // Return settings or null if not set
                 return {
                     success: true,
-                    data: user.settings || null
+                    data: serializeUserSettings(user.settings || null)
                 };
             } catch (error: any) {
                 console.error('[UserSettings] Error getting settings:', error);
@@ -128,9 +136,6 @@ export async function registerUserRoutes(app: FastifyInstance) {
                         copyTradeAIMode: body.copyTradeAIMode,
                         fastSwapMode: body.fastSwapMode,
                         copyTradeTokenCooldownMinutes: body.copyTradeTokenCooldownMinutes ?? undefined,
-                        minMarketCapUsd: body.minMarketCapUsd ?? undefined,
-                        minLiquidityUsd: body.minLiquidityUsd ?? undefined,
-                        minTargetValueUsd: body.minTargetValueUsd ?? undefined,
                     },
                     create: {
                         userId: user.privyDid,
@@ -147,15 +152,12 @@ export async function registerUserRoutes(app: FastifyInstance) {
                         copyTradeAIMode: body.copyTradeAIMode || 'disabled',
                         fastSwapMode: body.fastSwapMode ?? false,
                         copyTradeTokenCooldownMinutes: body.copyTradeTokenCooldownMinutes ?? 60,
-                        minMarketCapUsd: body.minMarketCapUsd ?? null,
-                        minLiquidityUsd: body.minLiquidityUsd ?? null,
-                        minTargetValueUsd: body.minTargetValueUsd ?? null,
                     }
                 });
 
                 return {
                     success: true,
-                    data: settings
+                    data: serializeUserSettings(settings)
                 };
             } catch (error: any) {
                 console.error('[UserSettings] Error updating settings:', error);

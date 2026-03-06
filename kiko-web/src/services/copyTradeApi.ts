@@ -10,6 +10,7 @@ export interface CopyTradeConfig {
     chainId: number;
     buyAmountUsd: number;
     maxSlippageBps: number;
+    maxEntryDeviationBps?: number | null;
     minMarketCapUsd?: number | null;
     minLiquidityUsd?: number | null;
     minTargetValueUsd?: number | null;
@@ -45,6 +46,7 @@ export interface CreateConfigParams {
     targetWallet: string;
     buyAmountUsd: number;
     maxSlippageBps?: number;
+    maxEntryDeviationBps?: number;
     minMarketCapUsd?: number;
     minLiquidityUsd?: number;
     minTargetValueUsd?: number;

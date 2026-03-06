@@ -1409,9 +1409,9 @@ async function processBuyWithInfo(
             const entryDeviationPolicy = resolveEntryDeviationModePolicy(config, executionMode);
             const effectiveConfig = {
                 ...config,
-                minMarketCapUsd: resolveEffectivePositiveThreshold(config.minMarketCapUsd, userSettings?.minMarketCapUsd),
-                minLiquidityUsd: resolveEffectivePositiveThreshold(config.minLiquidityUsd, userSettings?.minLiquidityUsd),
-                minTargetValueUsd: resolveEffectiveMinTargetValueUsd(config, userSettings),
+                minMarketCapUsd: resolveEffectivePositiveThreshold(config.minMarketCapUsd, null),
+                minLiquidityUsd: resolveEffectivePositiveThreshold(config.minLiquidityUsd, null),
+                minTargetValueUsd: resolveEffectiveMinTargetValueUsd(config, null),
                 maxSlippageBps: universalSlippageBps,
                 maxEntryDeviationBps: entryDeviationPolicy.maxEntryDeviationBps,
                 maxEntryDeviationSource: entryDeviationPolicy.source,
@@ -1808,9 +1808,9 @@ async function processSingleUserBuy(
 
         const effectiveConfig = {
             ...config,
-            minMarketCapUsd: resolveEffectivePositiveThreshold(config.minMarketCapUsd, userSettings?.minMarketCapUsd),
-            minLiquidityUsd: resolveEffectivePositiveThreshold(config.minLiquidityUsd, userSettings?.minLiquidityUsd),
-            minTargetValueUsd: resolveEffectiveMinTargetValueUsd(config, userSettings),
+            minMarketCapUsd: resolveEffectivePositiveThreshold(config.minMarketCapUsd, null),
+            minLiquidityUsd: resolveEffectivePositiveThreshold(config.minLiquidityUsd, null),
+            minTargetValueUsd: resolveEffectiveMinTargetValueUsd(config, null),
             maxSlippageBps: universalSlippageBps,
             maxEntryDeviationBps: entryDeviationPolicy.maxEntryDeviationBps,
             maxEntryDeviationSource: entryDeviationPolicy.source,

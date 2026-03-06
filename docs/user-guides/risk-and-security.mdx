@@ -102,11 +102,11 @@ This mechanism effectively prevents capital loss caused by:
 
 **Scope**: Copy Trading buy orders
 
-Copy Trade has its own independent price deviation detection logic:
+Copy Trade has its own independent price deviation detection logic.
 
-The system calculates the ratio between the target wallet's **actual execution price** and the current Oracle price:
+The system compares the target wallet's **actual execution price** against the current Oracle reference price and applies the configured entry-deviation threshold for the copy trade.
 
-> If the actual price paid by the target wallet exceeds the Oracle reference price by more than **3x (300%)**, the copy trade is automatically cancelled.
+> In the current version, the default threshold is **15%** for standard copy trade flows. In **Turbo** mode, the effective threshold is looser and is not lower than **30%**.
 
 This prevents following trades at "abnormal pump peaks," where the target wallet may have bought under extreme liquidity conditions, leading to an immediate loss upon copying. You will receive a notification via Farcaster explaining the reason for the skipped trade.
 

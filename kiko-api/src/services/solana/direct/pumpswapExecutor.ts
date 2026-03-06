@@ -20,7 +20,7 @@ const FEE_PROGRAM_ID = new PublicKey('pfeeUxB6jkeY1Hxd7CsFCAjcbHA9rWtchMGdZ6VojV
 const WSOL_MINT = new PublicKey(SOLANA_CONFIG.TOKENS.SOL);
 const SYSTEM_PROGRAM_ID = SystemProgram.programId;
 const TOKEN_2022_PROGRAM_ID = new PublicKey('TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb');
-const BUY_DISCRIMINATOR = Buffer.from([102, 6, 61, 18, 1, 218, 235, 234]);
+const BUY_EXACT_QUOTE_IN_DISCRIMINATOR = Buffer.from([198, 46, 21, 82, 180, 217, 232, 112]);
 const SELL_DISCRIMINATOR = Buffer.from([51, 230, 133, 164, 1, 127, 131, 173]);
 const GET_FEES_DISCRIMINATOR = Buffer.from([124, 254, 211, 168, 174, 57, 138, 150]);
 const FEE_CONFIG_MAGIC = Buffer.from([
@@ -163,68 +163,96 @@ function decodePumpSwapPoolLayout(data: Buffer, hintMint?: PublicKey): PumpSwapP
   };
 }
 
+function buildPoolDiscoveryConnections(connection: Connection): Connection[] {
+  const candidates = [
+    connection,
+    getSolanaConnection('fast', 'critical'),
+    getSolanaConnection('cheap', 'normal'),
+  ];
+  const unique = new Set<Connection>();
+  const ordered: Connection[] = [];
+  for (const candidate of candidates) {
+    if (unique.has(candidate)) continue;
+    unique.add(candidate);
+    ordered.push(candidate);
+  }
+  return ordered;
+}
+
 async function resolvePumpSwapPoolForMint(
   connection: Connection,
   mint: PublicKey,
   hintedPoolId?: string | null
 ): Promise<{ pool: PublicKey; info: NonNullable<Awaited<ReturnType<Connection['getAccountInfo']>>>; layout: PumpSwapPoolLayout } | null> {
-  if (hintedPoolId) {
+  const discoveryConnections = buildPoolDiscoveryConnections(connection);
+  const scanErrors: Array<Record<string, unknown>> = [];
+
+  for (const discoveryConnection of discoveryConnections) {
+    if (hintedPoolId) {
+      try {
+        const hintedPool = new PublicKey(hintedPoolId);
+        const hintedInfo = await discoveryConnection.getAccountInfo(hintedPool, 'confirmed');
+        if (hintedInfo) {
+          const layout = decodePumpSwapPoolLayout(hintedInfo.data, mint);
+          if (layout.baseMint.equals(mint) && layout.quoteMint.equals(WSOL_MINT)) {
+            return { pool: hintedPool, info: hintedInfo, layout };
+          }
+        }
+      } catch {
+        // ignore invalid hinted pool id
+      }
+    }
+
+    // Try deterministic PDA path first. This is cheaper and avoids provider-specific
+    // getProgramAccounts restrictions on some managed Solana RPCs.
     try {
-      const hintedPool = new PublicKey(hintedPoolId);
-      const hintedInfo = await connection.getAccountInfo(hintedPool, 'confirmed');
-      if (hintedInfo) {
-        const layout = decodePumpSwapPoolLayout(hintedInfo.data, mint);
+      const derived = derivePoolPda(mint);
+      const derivedInfo = await discoveryConnection.getAccountInfo(derived, 'confirmed');
+      if (derivedInfo) {
+        const layout = decodePumpSwapPoolLayout(derivedInfo.data, mint);
         if (layout.baseMint.equals(mint) && layout.quoteMint.equals(WSOL_MINT)) {
-          return { pool: hintedPool, info: hintedInfo, layout };
+          return { pool: derived, info: derivedInfo, layout };
         }
       }
     } catch {
-      // ignore invalid hinted pool id
+      // continue to scan fallback below
     }
-  }
 
-  // Try deterministic PDA path first (fast path)
-  const derived = derivePoolPda(mint);
-  const derivedInfo = await connection.getAccountInfo(derived, 'confirmed');
-  if (derivedInfo) {
-    const layout = decodePumpSwapPoolLayout(derivedInfo.data, mint);
-    if (layout.baseMint.equals(mint) && layout.quoteMint.equals(WSOL_MINT)) {
-      return { pool: derived, info: derivedInfo, layout };
-    }
-  }
+    const scanLayouts = [
+      { baseMintOffset: 72, quoteMintOffset: 104 },
+      { baseMintOffset: 43, quoteMintOffset: 75 },
+    ];
 
-  // Scan using both known pool layout offsets (v1: 72/104, v2: 43/75)
-  const scanLayouts = [
-    { baseMintOffset: 72, quoteMintOffset: 104 }, // v1
-    { baseMintOffset: 43, quoteMintOffset: 75 },  // v2 (graduated tokens)
-  ];
-
-  for (const scanLayout of scanLayouts) {
-    let candidates: Awaited<ReturnType<Connection['getProgramAccounts']>> = [];
-    try {
-      candidates = await connection.getProgramAccounts(PUMP_SWAP_PROGRAM_ID, {
-        commitment: 'confirmed',
-        filters: [
-          { dataSize: 301 },
-          { memcmp: { offset: scanLayout.baseMintOffset, bytes: mint.toBase58() } },
-          { memcmp: { offset: scanLayout.quoteMintOffset, bytes: WSOL_MINT.toBase58() } },
-        ],
-      });
-    } catch (scanErr: any) {
-      logger.warn(LogCode.API_FETCH_FAILED, '[PumpSwapDirect] pool scan failed for layout', {
-        mint: mint.toBase58(),
-        baseMintOffset: scanLayout.baseMintOffset,
-        error: scanErr?.message || String(scanErr),
-      });
-      continue;
-    }
-    if (candidates.length > 0) {
-      const picked = candidates[0];
-      const layout = decodePumpSwapPoolLayout(picked.account.data, mint);
-      if (layout.baseMint.equals(mint) && layout.quoteMint.equals(WSOL_MINT)) {
-        return { pool: picked.pubkey, info: picked.account, layout };
+    for (const scanLayout of scanLayouts) {
+      let candidates: Awaited<ReturnType<Connection['getProgramAccounts']>> = [];
+      try {
+        candidates = await discoveryConnection.getProgramAccounts(PUMP_SWAP_PROGRAM_ID, {
+          commitment: 'confirmed',
+          filters: [
+            { memcmp: { offset: scanLayout.baseMintOffset, bytes: mint.toBase58() } },
+            { memcmp: { offset: scanLayout.quoteMintOffset, bytes: WSOL_MINT.toBase58() } },
+          ],
+        });
+      } catch (scanErr: any) {
+        scanErrors.push({
+          mint: mint.toBase58(),
+          baseMintOffset: scanLayout.baseMintOffset,
+          error: scanErr?.message || String(scanErr),
+        });
+        continue;
+      }
+      if (candidates.length > 0) {
+        const picked = candidates[0];
+        const layout = decodePumpSwapPoolLayout(picked.account.data, mint);
+        if (layout.baseMint.equals(mint) && layout.quoteMint.equals(WSOL_MINT)) {
+          return { pool: picked.pubkey, info: picked.account, layout };
+        }
       }
     }
+  }
+
+  for (const scanError of scanErrors) {
+    logger.warn(LogCode.API_FETCH_FAILED, '[PumpSwapDirect] pool scan failed for layout', scanError);
   }
 
   return null;
@@ -538,6 +566,29 @@ function computeBuyAmounts(
   return { tokenOutExpected, tokenOut, maxQuoteAmountIn };
 }
 
+function computeBuyExactQuoteInAmounts(
+  quoteInLamports: bigint,
+  baseReserves: bigint,
+  quoteReserves: bigint,
+  slippageBps: number,
+  totalFeeBps: bigint,
+  extraTokenOutHaircutBps = 0
+) {
+  const { tokenOutExpected, tokenOut } = computeBuyAmounts(
+    quoteInLamports,
+    baseReserves,
+    quoteReserves,
+    slippageBps,
+    totalFeeBps,
+    extraTokenOutHaircutBps
+  );
+  return {
+    tokenOutExpected,
+    minBaseAmountOut: tokenOut,
+    spendableQuoteIn: quoteInLamports,
+  };
+}
+
 function extractErrorText(value: unknown): string {
   if (!value) return '';
   if (typeof value === 'string') return value;
@@ -757,11 +808,12 @@ export async function executePumpSwapDirect(
     };
 
     if (request.isBuy) {
-      // Progressive conservative buy-out retries to reduce Pump AMM overflow (6023) probability.
+      // Prefer exact-quote-in semantics for PumpSwap buys. It matches the user budget
+      // directly and is materially less fragile than fixed-output buy() on migrated pump pools.
       const retryHaircutsBps = [0, 500, 1000, 2000, 3000, 4000, 5000];
       let lastBuyError = '';
       for (const retryHaircutBps of retryHaircutsBps) {
-        const { tokenOutExpected, tokenOut, maxQuoteAmountIn } = computeBuyAmounts(
+        const { tokenOutExpected, minBaseAmountOut, spendableQuoteIn } = computeBuyExactQuoteInAmounts(
           amount,
           baseReserves,
           quoteReserves,
@@ -770,15 +822,15 @@ export async function executePumpSwapDirect(
           retryHaircutBps
         );
         const data = Buffer.concat([
-          BUY_DISCRIMINATOR,
-          toU64LE(tokenOut),
-          toU64LE(maxQuoteAmountIn),
+          BUY_EXACT_QUOTE_IN_DISCRIMINATOR,
+          toU64LE(spendableQuoteIn),
+          toU64LE(minBaseAmountOut),
           Buffer.from([0]),
         ]);
         const instructions = [
           ...platformFeeInstructions,
           ...baseInstructions,
-          SystemProgram.transfer({ fromPubkey: user, toPubkey: userQuoteAta, lamports: Number(maxQuoteAmountIn + 500000n) }),
+          SystemProgram.transfer({ fromPubkey: user, toPubkey: userQuoteAta, lamports: Number(spendableQuoteIn + 500000n) }),
           createSyncNativeInstruction(userQuoteAta),
           buildPumpSwapIx(data, true),
           createCloseAccountInstruction(userQuoteAta, user, user),
@@ -792,7 +844,7 @@ export async function executePumpSwapDirect(
               mint: request.mint,
               retryHaircutBps,
               tokenOutExpected: tokenOutExpected.toString(),
-              tokenOutAttempt: tokenOut.toString(),
+              tokenOutAttempt: minBaseAmountOut.toString(),
               feeBps: feeSnapshot.totalFeeBps.toString(),
               feeSource: feeSnapshot.source,
             });
@@ -819,7 +871,7 @@ export async function executePumpSwapDirect(
             side: 'buy',
             retryHaircutBps,
             tokenOutExpected: tokenOutExpected.toString(),
-            tokenOutSent: tokenOut.toString(),
+            tokenOutSent: minBaseAmountOut.toString(),
             feeBps: feeSnapshot.totalFeeBps.toString(),
             feeSource: feeSnapshot.source,
           });
@@ -834,9 +886,10 @@ export async function executePumpSwapDirect(
               baseProgramId: baseProgramId.toBase58(),
               protocolFeeRecipient: protocolFeeRecipient.toBase58(),
               layoutVersion: layout.layoutVersion,
+              buyMode: 'buy_exact_quote_in',
               buyTokenOutExpected: tokenOutExpected.toString(),
-              buyTokenOutSent: tokenOut.toString(),
-              maxQuoteAmountIn: maxQuoteAmountIn.toString(),
+              buyTokenOutSent: minBaseAmountOut.toString(),
+              maxQuoteAmountIn: spendableQuoteIn.toString(),
               feeBps: feeSnapshot.totalFeeBps.toString(),
               feeSource: feeSnapshot.source,
             },
