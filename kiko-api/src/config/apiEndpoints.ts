@@ -151,8 +151,10 @@ export function getRpcEndpointsWithStrategy(
   strategy: 'fast' | 'cheap' = 'cheap',
   primaryUrl?: string
 ): RpcEndpointConfig[] {
-  const preferPremium = (process.env.RPC_FAST_PREFER_PREMIUM || 'true').toLowerCase() === 'true';
-  const onlyPremium = (process.env.RPC_FAST_ONLY_PREMIUM || 'false').toLowerCase() === 'true';
+  const preferPremiumDefault = strategy === 'fast' && chainSlug === 'eth' ? 'true' : 'true';
+  const onlyPremiumDefault = strategy === 'fast' && chainSlug === 'eth' ? 'true' : 'false';
+  const preferPremium = (process.env.RPC_FAST_PREFER_PREMIUM || preferPremiumDefault).toLowerCase() === 'true';
+  const onlyPremium = (process.env.RPC_FAST_ONLY_PREMIUM || onlyPremiumDefault).toLowerCase() === 'true';
   const override = getFastOverride(chainSlug);
   if (strategy === 'fast' && override.length > 0) {
     return override;
@@ -444,10 +446,13 @@ export function getFlashbotsEndpoints(): RpcEndpointConfig[] {
  */
 export function getVerifiedFreeEndpoints(chainSlug: string): { name: string; url: string }[] {
   const endpoints: Record<string, { name: string; url: string }[]> = {
-    // ETH: PublicNode 100% 成功率
+    // ETH: diversify public reads to avoid single-endpoint exhaustion.
     'eth': [
-      { name: 'PublicNode', url: 'https://ethereum-rpc.publicnode.com' },
       { name: 'DRPC', url: 'https://eth.drpc.org' },
+      { name: 'LlamaRPC', url: 'https://eth.llamarpc.com' },
+      { name: '1RPC', url: 'https://1rpc.io/eth' },
+      { name: 'MEV Blocker', url: 'https://rpc.mevblocker.io' },
+      { name: 'PublicNode', url: 'https://ethereum-rpc.publicnode.com' },
     ],
 
     // Base: DRPC/PublicNode are generally more stable than rate-limited public endpoints

@@ -2,17 +2,28 @@ import { Composition, registerRoot } from 'remotion';
 import '../index.css'; // Add global Tailwind styles
 import './remotion-overrides.css'; // Remotion-specific CSS fixes
 import { MyVideo } from './MyVideo.tsx';
+import { AppleTypingDemo } from './AppleTypingDemo';
 
 export const RemotionRoot = () => {
     return (
-        <Composition
-            id="KikoHero"
-            component={MyVideo}
-            durationInFrames={450}
-            fps={30}
-            width={1080}
-            height={1920}
-        />
+        <>
+            <Composition
+                id="KikoHero"
+                component={MyVideo}
+                durationInFrames={450}
+                fps={30}
+                width={1080}
+                height={1920}
+            />
+            <Composition
+                id="AppleTypingDemo"
+                component={AppleTypingDemo}
+                durationInFrames={180}
+                fps={30}
+                width={1920}
+                height={1080}
+            />
+        </>
     );
 };
 

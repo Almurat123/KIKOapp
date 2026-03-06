@@ -23,6 +23,75 @@ export interface OnChainMetadata {
     decimals: number;
 }
 
+export async function getTokenSupply(
+    chainId: number,
+    address: string,
+    options: { rpcStrategy?: 'fast' | 'cheap'; defaultDecimals?: number } = {}
+): Promise<number> {
+    const normalized = parseAddress(address, chainId);
+    const rpcStrategy = options.rpcStrategy || 'cheap';
+
+    if (isNativePlaceholder(normalized)) {
+        return 0;
+    }
+
+    if (chainId === 900) {
+        if (!isValidSolanaMintAddress(normalized)) {
+            return 0;
+        }
+        try {
+            const supply = await callRpc<any>('solana', 'getTokenSupply', [normalized], {
+                strategy: rpcStrategy,
+                rpcClass: 'best_effort_read',
+                path: 'token_supply'
+            });
+            const uiAmount = Number(supply?.value?.uiAmount ?? NaN);
+            if (Number.isFinite(uiAmount) && uiAmount >= 0) return uiAmount;
+
+            const amountRaw = String(supply?.value?.amount || '0');
+            const decimals = Number(supply?.value?.decimals ?? options.defaultDecimals ?? 6);
+            if (!amountRaw || !Number.isFinite(decimals)) return 0;
+            return Number(BigInt(amountRaw)) / Math.pow(10, decimals);
+        } catch {
+            return 0;
+        }
+    }
+
+    try {
+        const decimals = await getTokenDecimals(chainId, normalized, {
+            rpcStrategy,
+            defaultDecimals: options.defaultDecimals ?? DEFAULT_DECIMALS,
+        });
+        const data = encodeFunctionData({
+            abi: ERC20_ABI,
+            functionName: 'decimals'
+        });
+        void data;
+        const totalSupplyData = encodeFunctionData({
+            abi: parseAbi(['function totalSupply() view returns (uint256)']),
+            functionName: 'totalSupply',
+        });
+        const resultHex = await callRpc<string>(
+            chainId,
+            'eth_call',
+            [{ to: normalized, data: totalSupplyData }, 'latest'],
+            {
+                strategy: rpcStrategy,
+                rpcClass: 'best_effort_read',
+                path: 'token_supply'
+            }
+        );
+        const decoded = decodeFunctionResult({
+            abi: parseAbi(['function totalSupply() view returns (uint256)']),
+            functionName: 'totalSupply',
+            data: resultHex as `0x${string}`
+        }) as bigint;
+        return Number(decoded) / Math.pow(10, decimals);
+    } catch {
+        return 0;
+    }
+}
+
 type LocalCacheEntry<T> = { value: T; expiresAt: number };
 
 const metadataL1Cache = new Map<string, LocalCacheEntry<OnChainMetadata>>();

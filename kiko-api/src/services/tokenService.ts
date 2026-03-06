@@ -9,6 +9,7 @@ import { fetchJson, ApiPriority } from '../config/unifiedApiService.js';
 import { cacheHub } from '../cache/DataCacheHub.js'; // 🔗 连接缓存中心
 import { getDexPriceDetailed } from './dexPriceService.js'; // 🔗 DEX 价格 fallback
 import { decideLaunchpadOraclePrice, decideValidatedMarketPrice, isLaunchpadOracleSource } from './pricing/launchpadOraclePolicy.js';
+import { getTokenSupply } from './rpcService.js';
 
 /**
  * Token Service
@@ -146,13 +147,64 @@ async function fetchTokenInfoFromAPIs(
             })()
             : (async () => {
                 const { getOnChainPrice } = await import('./onChainPriceService.js');
-                return getOnChainPrice(tokenAddress, chainId, { rpcStrategy });
+                // Retry with alternate RPC lane when the first pass returns null.
+                // This improves resilience when one lane is temporarily degraded.
+                const first = await getOnChainPrice(tokenAddress, chainId, {
+                    rpcStrategy,
+                    lightweight: fastMode,
+                });
+                if (first?.price && Number(first.price) > 0) return first;
+
+                if (fastMode) {
+                    return first || null;
+                }
+
+                const alternateStrategy: 'fast' | 'cheap' = rpcStrategy === 'fast' ? 'cheap' : 'fast';
+                const second = await getOnChainPrice(tokenAddress, chainId, {
+                    rpcStrategy: alternateStrategy,
+                    lightweight: fastMode,
+                });
+                if (second?.price && Number(second.price) > 0) return second;
+
+                return first || second || null;
             })())
         : Promise.resolve(null);
 
-    // Keep liquidity/volume sampling on all chains so market context can still be
-    // populated even when primary price source is unavailable.
-    const liquidityPromise = getLiquidityData(tokenAddress, chainId, priority);
+    // Prefer direct on-chain liquidity snapshots so guard-critical paths do not
+    // depend on external market APIs.
+    const liquidityPromise = isSolana
+        ? (async () => {
+            const { resolveSolanaDirectLiquidity } = await import('./solana/direct/liquidity.js');
+            const snap = await resolveSolanaDirectLiquidity(tokenAddress, 0, {
+                includeProgramScan: false,
+                budgetMs: fastMode ? 250 : 700,
+                skipDetection: fastMode,
+            }).catch(() => null);
+            if (!snap) return null;
+            return {
+                liquidity: snap.liquidityUsd,
+                volume24h: 0,
+                fdv: 0,
+                priceUsd: undefined,
+                symbol: undefined,
+                name: undefined,
+            };
+        })()
+        : (async () => {
+            const { getTokenLiquidity } = await import('./dex/directSwap/pipeline/poolLayer.js');
+            const snap = await getTokenLiquidity(tokenAddress, chainId, {
+                budgetMs: fastMode ? 250 : 900,
+            }).catch(() => null);
+            if (!snap) return null;
+            return {
+                liquidity: snap.totalTvlUsd,
+                volume24h: 0,
+                fdv: 0,
+                priceUsd: undefined,
+                symbol: undefined,
+                name: undefined,
+            };
+        })();
 
     const metaPromise = getTokenMetadata(chainId, tokenAddress, { rpcStrategy });
 
@@ -177,7 +229,7 @@ async function fetchTokenInfoFromAPIs(
 
     // 🛡️ MERGE STRATEGY: Use best data from each source
     let price = rpc?.price || 0;
-    let marketCap = rpc?.marketCap || liq?.fdv || 0;
+    let marketCap = 0;
     let liquidity = liq?.liquidity || 0;
     let volume24h = liq?.volume24h || 0;
     let symbol = meta?.symbol || 'UNKNOWN';
@@ -197,7 +249,7 @@ async function fetchTokenInfoFromAPIs(
     }
 
     let dexValidatorPrice = 0;
-    if (price > 0 && !isSolana) {
+    if (!fastMode && price > 0 && !isSolana) {
         try {
             const dexChainId = isSolana ? 'solana' : chainId;
             const timeoutMs = fastMode ? 500 : 900;
@@ -210,7 +262,7 @@ async function fetchTokenInfoFromAPIs(
         }
     }
 
-    if (price > 0 && isLaunchpadOracleSource({ chainId, dexName: rpcDexName, provider })) {
+    if (!fastMode && price > 0 && isLaunchpadOracleSource({ chainId, dexName: rpcDexName, provider })) {
         const decision = decideLaunchpadOraclePrice({
             chainId,
             rpcPriceUsd: price,
@@ -247,7 +299,7 @@ async function fetchTokenInfoFromAPIs(
                 deviationRatio: decision.deviationRatio
             });
         }
-    } else if (price > 0) {
+    } else if (!fastMode && price > 0) {
         const decision = decideValidatedMarketPrice({
             rpcPriceUsd: price,
             provider,
@@ -283,7 +335,7 @@ async function fetchTokenInfoFromAPIs(
     // 🛡️ FALLBACK: External API first (Jupiter v2 / 0x), RPC was already attempted above
     // For Solana: Jupiter Price API v2 → Raydium (via getDexPrice)
     // For EVM:    0x API (via getDexPrice)
-    if (price <= 0 || isNaN(price)) {
+    if (!fastMode && (price <= 0 || isNaN(price))) {
         logger.warn(LogCode.API_FETCH_FAILED, 'Primary price failed, falling back to external DEX API', {
             token: tokenAddress,
             chain: isSolana ? 'solana' : chainId,
@@ -346,6 +398,38 @@ async function fetchTokenInfoFromAPIs(
             });
         }
         return null;
+    }
+
+    if (price > 0) {
+        try {
+            const rpcSupply = await getTokenSupply(chainId, tokenAddress, { rpcStrategy, defaultDecimals: decimals });
+            if (rpcSupply > 0) {
+                marketCap = rpcSupply * price;
+            } else if (rpc?.marketCap && rpc.marketCap > 0) {
+                marketCap = rpc.marketCap;
+            }
+        } catch {
+            marketCap = rpc?.marketCap || liq?.fdv || 0;
+        }
+    }
+
+    if (isSolana && price > 0 && liquidity <= 0) {
+        try {
+            const { resolveSolanaDirectLiquidity } = await import('./solana/direct/liquidity.js');
+            const refreshedLiquidity = await resolveSolanaDirectLiquidity(tokenAddress, price, {
+                includeProgramScan: !fastMode,
+                budgetMs: fastMode ? 450 : 1200,
+                skipDetection: true,
+            });
+            if (refreshedLiquidity?.liquidityUsd && refreshedLiquidity.liquidityUsd > 0) {
+                liquidity = refreshedLiquidity.liquidityUsd;
+                if (provider === 'rpc+api') {
+                    provider = refreshedLiquidity.provider;
+                }
+            }
+        } catch {
+            // Keep price-only result if direct liquidity refresh fails.
+        }
     }
 
     const result = {

@@ -1,14 +1,14 @@
-const fetch = require('node-fetch');
+import fetch from 'node-fetch';
 
 const API_URL = 'http://localhost:3001/api/copy-trade/simulate';
 const APP_KEY = 'kiko_web_2c47434dc87b5b38d4d6f4122569515e';
 
-// Supported chains: Ethereum (1), BSC (56), Base (8453), Solana (900)
+// Supported chains: Ethereum (1), BSC (56), Base (8453), Arbitrum (42161)
 const CHAINS = [
     { id: 1, geckoNetwork: 'eth' },
     { id: 56, geckoNetwork: 'bsc' },
     { id: 8453, geckoNetwork: 'base' },
-    { id: 900, geckoNetwork: 'solana' }
+    { id: 42161, geckoNetwork: 'arbitrum' }
 ];
 
 // Cache real pairs from gecko terminal
@@ -16,7 +16,7 @@ const trendingPairsCache = {
     1: [],
     56: [],
     8453: [],
-    900: []
+    42161: []
 };
 
 // --- Test Settings ---
@@ -67,7 +67,7 @@ async function sendRequest(index) {
         1: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2',
         56: '0xbb4cdb9cbd36b01bd1cbaebf2de08d9173bc095c',
         8453: '0x4200000000000000000000000000000000000006',
-        900: 'So11111111111111111111111111111111111111112'
+        42161: '0x82aF49447D8a07e3bd95BD0d56f35241523fBab1'
     };
 
     const nativeToken = nativeTokens[chainId];

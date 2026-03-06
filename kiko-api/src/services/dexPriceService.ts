@@ -25,6 +25,7 @@ import { getSolanaTokenPrice } from './solanaOnChainPriceService.js';
 import { callRpc } from './rpcManager.js';
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
+import { getSolanaNativeQuotePrice } from './solana/direct/nativeQuote.js';
 
 const RAYDIUM_PRICE_API = 'https://api-v3.raydium.io/mint/price';
 const PUMP_FUN_PROGRAM_ID = '6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P';
@@ -274,7 +275,22 @@ async function getEvmPriceUsdFromKyber(tokenAddress: string, chainId: number, us
 async function getSolanaPriceUsd(tokenMint: string): Promise<DexPriceResult> {
     if (tokenMint === SOLANA_USDC_MINT) return { price: 1.0, provider: 'stablecoin' };
 
-    // ── Strategy 1: Jupiter Price API v2 (external, fast GET) ─────────────
+    // Strategy 1: program-native quote / reserve math.
+    try {
+        const nativeQuote = await getSolanaNativeQuotePrice(tokenMint, '1000000');
+        if (nativeQuote && nativeQuote.priceUsd > 0) {
+            logger.debug(LogCode.API_FETCH_SUCCESS, 'Solana price from native program quote', {
+                token: tokenMint.slice(0, 10),
+                provider: nativeQuote.provider,
+                price: nativeQuote.priceUsd.toFixed(8)
+            });
+            return { price: nativeQuote.priceUsd, provider: nativeQuote.provider };
+        }
+    } catch (err: any) {
+        logger.debug(LogCode.API_FETCH_FAILED, 'Solana native quote provider failed', { token: tokenMint.slice(0, 10), error: err?.message });
+    }
+
+    // ── Strategy 2: Jupiter Price API v2 (external, fast GET) ─────────────
     try {
         const jupiterPrice = await getSolanaTokenPrice(tokenMint);
         if (jupiterPrice && jupiterPrice > 0) {
@@ -287,7 +303,7 @@ async function getSolanaPriceUsd(tokenMint: string): Promise<DexPriceResult> {
         logger.debug(LogCode.API_FETCH_FAILED, 'Jupiter Price API v2 failed', { token: tokenMint.slice(0, 10), error: err?.message });
     }
 
-    // ── Strategy 2: Raydium Mint Price API (external) ─────────────────────
+    // ── Strategy 3: Raydium Mint Price API (external) ─────────────────────
     try {
         const resp = await fetch(`${RAYDIUM_PRICE_API}?mints=${tokenMint}`, {
             headers: { 'Accept': 'application/json' },
@@ -310,7 +326,7 @@ async function getSolanaPriceUsd(tokenMint: string): Promise<DexPriceResult> {
         logger.debug(LogCode.API_FETCH_FAILED, 'Raydium price API failed', { token: tokenMint.slice(0, 10), error: err?.message });
     }
 
-    // ── Strategy 3: Cheap RPC fallback — read PumpFun bonding curve on-chain ─
+    // ── Strategy 4: Cheap RPC fallback — read PumpFun bonding curve on-chain ─
     // Works for non-graduated pump.fun tokens whose bonding curve PDA is derivable.
     // Price = (virtualSolReserves_lamports / 1e9) / (virtualTokenReserves_units / 1e6) * SOL_USD
     try {

@@ -3,7 +3,8 @@ import { LogCode } from '../../../config/logRegistry.js';
 import { getTokenLiquidity } from '../../dex/directSwap/pipeline/poolLayer.js';
 import { resolveSolanaDirectLiquidity } from '../../solana/direct/liquidity.js';
 
-const COPYTRADE_SOL_LIQ_TIMEOUT_MS = Number(process.env.COPYTRADE_SOL_LIQ_TIMEOUT_MS || '1800');
+// Guard-level total budget is ~1200ms, so keep direct Solana liquidity bounded.
+const COPYTRADE_SOL_LIQ_TIMEOUT_MS = Number(process.env.COPYTRADE_SOL_LIQ_TIMEOUT_MS || '650');
 const COPYTRADE_SOL_LIQUIDITY_SCAN_ALL_POOLS = (process.env.COPYTRADE_SOL_LIQUIDITY_SCAN_ALL_POOLS || 'false') === 'true';
 
 export type LiquidityGuardSnapshot = {
@@ -34,6 +35,8 @@ export async function resolveBuyLiquidityGuardSnapshot(
             const directLiquidity = await Promise.race([
                 resolveSolanaDirectLiquidity(tokenAddress, tokenPriceUsd, {
                     includeProgramScan: COPYTRADE_SOL_LIQUIDITY_SCAN_ALL_POOLS,
+                    budgetMs: COPYTRADE_SOL_LIQ_TIMEOUT_MS,
+                    skipDetection: true,
                 }),
                 timeout,
             ]);

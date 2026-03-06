@@ -2,7 +2,16 @@
  * Environment Configuration
  * Validates and loads environment variables
  */
-import 'dotenv/config';
+import dotenv from 'dotenv';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+// Load .env from workspace root (kiko-api) regardless of process cwd.
+// This prevents accidental missing keys when commands run from parent folders.
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const envPath = path.resolve(__dirname, '../../.env');
+dotenv.config({ path: envPath });
 
 export interface EnvConfig {
     port: number;

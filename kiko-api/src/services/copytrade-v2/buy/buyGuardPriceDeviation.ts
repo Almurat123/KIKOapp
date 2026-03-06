@@ -4,6 +4,7 @@ import { shouldEnforceBuyGuard } from '../guards/policy.js';
 export interface PriceDeviationGuardParams {
   chainId: number;
   oraclePrice: number;
+  oraclePriceSource?: 'market_oracle_price' | 'local_quote_price';
   oracleProvider?: string;
   oracleDexName?: string;
   oracleValidationReason?: string;
@@ -19,6 +20,14 @@ export interface PriceDeviationGuardParams {
   maxRatio?: number;
 }
 
+export type GuardPriceSourceLabel = 'market_oracle_price' | 'local_quote_price' | 'target_implied_price';
+
+export type TargetImpliedPriceSourceCategory =
+  | 'target_cash_flow'
+  | 'target_native_like_flow'
+  | 'target_estimated_output'
+  | 'target_unknown';
+
 export interface PriceDeviationGuardResult {
   passed: boolean;
   reasonCode:
@@ -30,6 +39,10 @@ export interface PriceDeviationGuardResult {
   targetExecutionPrice: number;
   ratio?: number;
   metrics: {
+    oraclePriceSource?: GuardPriceSourceLabel;
+    targetExecutionPriceSource?: GuardPriceSourceLabel;
+    targetImpliedPriceSourceCategory?: TargetImpliedPriceSourceCategory;
+    targetImpliedValueSource?: string;
     oraclePrice?: number;
     targetExecutionPrice?: number;
     ratio?: number;
@@ -53,6 +66,14 @@ const STRICT_TARGET_VALUE_SOURCES = new Set([
   'stable_amount_in',
 ]);
 
+function resolveTargetImpliedPriceSourceCategory(strictTargetSwapValueSource?: string): TargetImpliedPriceSourceCategory {
+  const source = String(strictTargetSwapValueSource || 'none');
+  if (source === 'cash_leg_hint' || source === 'stable_amount_in') return 'target_cash_flow';
+  if (source.startsWith('native_like_')) return 'target_native_like_flow';
+  if (source === 'zora_amount_in_estimate') return 'target_estimated_output';
+  return 'target_unknown';
+}
+
 export function evaluateBuyPriceDeviationGuard(
   params: PriceDeviationGuardParams
 ): PriceDeviationGuardResult {
@@ -75,7 +96,12 @@ export function evaluateBuyPriceDeviationGuard(
       : Number(params.targetSwapValueUsd || 0);
 
   const targetExecutionPrice = priceGuardValueUsd / params.estimatedOut;
+  const targetImpliedPriceSourceCategory = resolveTargetImpliedPriceSourceCategory(params.strictTargetSwapValueSource);
   const metrics = {
+    oraclePriceSource: (params.oraclePriceSource || 'market_oracle_price') as GuardPriceSourceLabel,
+    targetExecutionPriceSource: 'target_implied_price' as GuardPriceSourceLabel,
+    targetImpliedPriceSourceCategory,
+    targetImpliedValueSource: String(params.strictTargetSwapValueSource || 'target_swap_value_usd'),
     oraclePrice: oraclePrice > 0 ? oraclePrice : undefined,
     targetExecutionPrice: Number.isFinite(targetExecutionPrice) && targetExecutionPrice > 0 ? targetExecutionPrice : undefined,
     maxRatio: params.maxRatio || 3,

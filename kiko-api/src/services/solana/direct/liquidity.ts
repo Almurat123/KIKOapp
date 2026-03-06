@@ -212,21 +212,22 @@ function deriveRaydiumPoolPda(mintA: PublicKey, mintB: PublicKey): PublicKey {
 export async function resolveSolanaDirectLiquidity(
   tokenAddress: string,
   tokenPriceUsd: number = 0,
-  options?: { includeProgramScan?: boolean }
+  options?: { includeProgramScan?: boolean; budgetMs?: number; skipDetection?: boolean }
 ): Promise<SolDirectLiquiditySnapshot | null> {
-  const detection = await detectLaunchpadToken(tokenAddress, 900, { mode: 'cheap' }).catch(() => null);
-  const detectionProvider = detection?.provider || null;
-  const creatorAddress = pickCreatorAddress(detection?.data);
-  const hintedPoolId = pickPoolId(detection?.data);
+  const startedAt = Date.now();
+  const budgetMs = Number(options?.budgetMs || 0);
+  const skipDetection = options?.skipDetection === true;
+  const hasBudget = Number.isFinite(budgetMs) && budgetMs > 0;
+  const timeLeft = () => hasBudget ? Math.max(0, budgetMs - (Date.now() - startedAt)) : Number.POSITIVE_INFINITY;
 
   const [pumpSwapLiquidity, pumpFunBondingLiquidity, raydiumLaunchlab] = await Promise.all([
-    getPumpSwapLiquidityUsd(tokenAddress, creatorAddress).catch(() => null),
+    getPumpSwapLiquidityUsd(tokenAddress, null).catch(() => null),
     getPumpFunBondingCurveLiquidityUsd(tokenAddress).catch(() => null),
     (async () => {
       try {
         const connection = getSolanaConnection('cheap', 'normal');
         const mint = new PublicKey(tokenAddress);
-        const pool = hintedPoolId ? new PublicKey(hintedPoolId) : deriveRaydiumPoolPda(mint, WSOL_MINT);
+        const pool = deriveRaydiumPoolPda(mint, WSOL_MINT);
         const poolAccount = await connection.getAccountInfo(pool, 'confirmed');
         if (!poolAccount) {
           return { liquidityUsd: 0, poolCount: 0, source: 'raydium_pool_missing', pool: pool.toBase58() };
@@ -282,7 +283,6 @@ export async function resolveSolanaDirectLiquidity(
       poolCount,
       metadata: {
         source: 'multi_program_direct_pool',
-        detectionProvider,
         pumpSwapLiquidityUsd: pumpLiquidityUsd,
         pumpFunBondingLiquidityUsd: pumpFunLiquidityUsd,
         raydiumLaunchlabLiquidityUsd: rayLiquidityUsd,
@@ -292,6 +292,52 @@ export async function resolveSolanaDirectLiquidity(
         scanned: scanned?.metadata,
       },
     };
+  }
+
+  // Under tight guard budgets, return the direct miss immediately rather than
+  // spending the remaining time in launchpad detection heuristics.
+  if (skipDetection || timeLeft() < 180) {
+    return null;
+  }
+
+  // Detection is comparatively expensive. Only run it after native direct probes
+  // fail so the hot path stays bounded for trade-time decisions.
+  const detection = await detectLaunchpadToken(tokenAddress, 900, { mode: 'cheap' }).catch(() => null);
+  const detectionProvider = detection?.provider || null;
+  const hintedPoolId = pickPoolId(detection?.data);
+
+  if (!rayLiquidityUsd && hintedPoolId && timeLeft() >= 120) {
+    try {
+      const connection = getSolanaConnection('cheap', 'normal');
+      const pool = new PublicKey(hintedPoolId);
+      const poolAccount = await connection.getAccountInfo(pool, 'confirmed');
+      if (poolAccount) {
+        const data = poolAccount.data;
+        const mintB = new PublicKey(data.subarray(237, 269));
+        const vaultB = new PublicKey(data.subarray(301, 333));
+        if (mintB.equals(WSOL_MINT)) {
+          const quoteBalResp = await connection.getTokenAccountBalance(vaultB, 'confirmed');
+          const quoteReserves = BigInt(quoteBalResp.value.amount);
+          const nativePrice = await getNativeTokenPriceUsd(900).catch(() => 0);
+          const hintedLiquidityUsd = quoteReserves > 0n && nativePrice > 0 ? (Number(quoteReserves) / 1e9) * nativePrice * 2 : 0;
+          if (hintedLiquidityUsd > 0) {
+            return {
+              liquidityUsd: hintedLiquidityUsd,
+              provider: 'raydium_launchlab',
+              reliable: true,
+              poolCount: 1,
+              metadata: {
+                source: 'raydium_launchlab_hint_pool',
+                detectionProvider,
+                raydiumPool: pool.toBase58(),
+              },
+            };
+          }
+        }
+      }
+    } catch {
+      // Fall through to detection-based status below.
+    }
   }
 
   if (detectionProvider === 'pumpswap') {

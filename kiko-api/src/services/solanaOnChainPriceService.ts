@@ -7,6 +7,7 @@
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
 import { callRpc } from './rpcManager.js';
+import { getSolanaNativeQuotePrice } from './solana/direct/nativeQuote.js';
 
 interface JupiterQuoteResponse {
     data: {
@@ -27,6 +28,23 @@ interface JupiterQuoteResponse {
  */
 export async function getSolanaTokenPrice(tokenAddress: string): Promise<number | null> {
     try {
+        try {
+            const native = await getSolanaNativeQuotePrice(tokenAddress, '1000000');
+            if (native?.priceUsd && native.priceUsd > 0) {
+                logger.info(LogCode.API_FETCH_SUCCESS, 'Solana price fetched from native program quote', {
+                    token: tokenAddress,
+                    price: native.priceUsd,
+                    provider: native.provider,
+                });
+                return native.priceUsd;
+            }
+        } catch (nativeErr: any) {
+            logger.debug(LogCode.API_FETCH_FAILED, 'Native Solana quote failed before Jupiter fallback', {
+                token: tokenAddress,
+                error: nativeErr?.message || String(nativeErr)
+            });
+        }
+
         const bases = ['https://lite-api.jup.ag/price/v2', 'https://api.jup.ag/price/v2'];
         for (const base of bases) {
             const url = `${base}?ids=${tokenAddress}`;
@@ -94,8 +112,8 @@ export async function getSolanaTokenInfo(tokenAddress: string): Promise<{
     provider: string;
 } | null> {
     try {
-        // Get price from Jupiter
-        const price = await getSolanaTokenPrice(tokenAddress);
+        const native = await getSolanaNativeQuotePrice(tokenAddress, '1000000').catch(() => null);
+        const price = native?.priceUsd && native.priceUsd > 0 ? native.priceUsd : await getSolanaTokenPrice(tokenAddress);
 
         if (!price) {
             return null;
@@ -122,7 +140,7 @@ export async function getSolanaTokenInfo(tokenAddress: string): Promise<{
         return {
             price,
             marketCap,
-            provider: 'Jupiter API'
+            provider: native?.provider || 'Jupiter API'
         };
     } catch (err: any) {
         logger.warn(LogCode.API_FETCH_FAILED, 'Solana token info fetch failed', {

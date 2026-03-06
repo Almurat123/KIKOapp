@@ -109,6 +109,7 @@ import {
 } from './copytrade-v2/timing/copyTradeTimingModel.js';
 import { emitCopyTradeTimingAudit } from './copytrade-v2/timing/copyTradeTimingAudit.js';
 import { executeSwapViaPort } from './swap/swapExecutionPort.js';
+import { getReferenceExpectedOutput } from './dex/directSwap/application/quoteEngines.js';
 
 export { getTokenInfo } from './tokenService.js';
 
@@ -1955,17 +1956,52 @@ async function processSingleUserBuy(
 
             // 🛡️ PRICE DEVIATION CHECK (Anti-Spike)
             // MUST run regardless of cooldownMinutes — turbo configs set cooldown=0 but still need this protection.
-            // Compare Oracle price vs the IMPLIED execution price from the TARGET wallet's trade.
+            // Compare our imminent local execution quote price vs the IMPLIED execution
+            // price from the TARGET wallet's trade. External market prices are only a
+            // fallback when no local quote is available.
             // This protects against buying at the absolute top of a "scam wick" or high slippage event.
             let targetExecutionPrice = 0;
             if (targetSwapValueUsd > 0) { // G2: Solana 也参与价格偏离比例检测
                 try {
                     const estimatedOut = Number(ethers.formatUnits(swap.amountOut, tokenInfo.decimals || (chainId === 900 ? 9 : 18)));
                     if (estimatedOut > 0) {
+                        let localQuotePriceUsd = 0;
+                        let localQuoteProvider: string | undefined;
+                        let oraclePriceSource: 'market_oracle_price' | 'local_quote_price' = 'market_oracle_price';
+                        if (chainId !== 900) {
+                            try {
+                                const amountInWei = ethers.parseUnits((usdAmount / nativePrice).toFixed(18), 18);
+                                const quotedAmountOutWei = await getReferenceExpectedOutput(
+                                    '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee',
+                                    tokenToBuy,
+                                    amountInWei,
+                                    chainId,
+                                    effectiveConfig.maxSlippageBps,
+                                    effectiveConfig.user.walletAddress,
+                                    {
+                                        enableZoraRoutes: true,
+                                        traceId: `[copytrade-guard:${config.userId}:${tokenToBuy.slice(0, 8)}]`
+                                    }
+                                ).catch(() => 0n);
+
+                                const quotedAmountOut = quotedAmountOutWei > 0n
+                                    ? Number(ethers.formatUnits(quotedAmountOutWei, tokenInfo.decimals || 18))
+                                    : 0;
+                                if (quotedAmountOut > 0) {
+                                    localQuotePriceUsd = usdAmount / quotedAmountOut;
+                                    localQuoteProvider = 'direct-reference-quote';
+                                    oraclePriceSource = 'local_quote_price';
+                                }
+                            } catch {
+                                localQuotePriceUsd = 0;
+                            }
+                        }
+
                         const priceDeviationGuard = evaluateBuyPriceDeviationGuard({
                             chainId,
-                            oraclePrice: Number(tokenInfo.price || 0),
-                            oracleProvider: tokenInfo.provider,
+                            oraclePrice: localQuotePriceUsd > 0 ? localQuotePriceUsd : Number(tokenInfo.price || 0),
+                            oraclePriceSource,
+                            oracleProvider: localQuotePriceUsd > 0 ? localQuoteProvider : tokenInfo.provider,
                             oracleDexName: tokenInfo.rpcDexName,
                             oracleValidationReason: tokenInfo.priceValidationReason,
                             referencePrice: tokenInfo.referencePrice,
@@ -1981,6 +2017,10 @@ async function processSingleUserBuy(
                         });
                         targetExecutionPrice = priceDeviationGuard.targetExecutionPrice;
                         guardAudit.priceDeviation = {
+                            oraclePriceSource: priceDeviationGuard.metrics.oraclePriceSource,
+                            targetExecutionPriceSource: priceDeviationGuard.metrics.targetExecutionPriceSource,
+                            targetImpliedPriceSourceCategory: priceDeviationGuard.metrics.targetImpliedPriceSourceCategory,
+                            targetImpliedValueSource: priceDeviationGuard.metrics.targetImpliedValueSource,
                             oraclePrice: roundGuardNumber(priceDeviationGuard.metrics.oraclePrice, 8),
                             targetExecutionPrice: roundGuardNumber(targetExecutionPrice, 8),
                             ratio: roundGuardNumber(priceDeviationGuard.ratio, 4),
@@ -1996,7 +2036,7 @@ async function processSingleUserBuy(
                         };
 
                         if (!priceDeviationGuard.passed && priceDeviationGuard.reasonCode === 'PRICE_DEVIATION_TOO_HIGH') {
-                            logger.info(LogCode.DEC_PRICE_IMPACT_HIGH, `🚨 Price Deviation too high! Oracle: $${Number(tokenInfo.price || 0).toFixed(6)}, Target Paid: $${targetExecutionPrice.toFixed(6)} (${Number(priceDeviationGuard.ratio || 0).toFixed(1)}x)`, {
+                            logger.info(LogCode.DEC_PRICE_IMPACT_HIGH, `🚨 Price Deviation too high! Local Quote: $${Number(priceDeviationGuard.metrics.oraclePrice || 0).toFixed(6)}, Target Paid: $${targetExecutionPrice.toFixed(6)} (${Number(priceDeviationGuard.ratio || 0).toFixed(1)}x)`, {
                                 userId: config.userId,
                                 token: tokenToBuy,
                                 targetSwapValueUsd,
@@ -2071,6 +2111,10 @@ async function processSingleUserBuy(
                         targetWallet,
                         chainId,
                         executionMode,
+                        currentPriceSource: 'market_oracle_price',
+                        targetExecutionPriceSource: 'target_implied_price',
+                        targetImpliedPriceSourceCategory: String((guardAudit.priceDeviation as Record<string, unknown> | undefined)?.targetImpliedPriceSourceCategory || 'target_unknown'),
+                        targetImpliedValueSource: String((guardAudit.priceDeviation as Record<string, unknown> | undefined)?.targetImpliedValueSource || 'target_swap_value_usd'),
                         targetExecutionPrice,
                         currentPrice,
                         deviationBps,

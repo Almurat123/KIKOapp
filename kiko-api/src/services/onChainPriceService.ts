@@ -310,6 +310,87 @@ async function buildNativeQuoteToken(chainId: number, blockTag: string | number 
     };
 }
 
+async function buildNativeQuoteTokenFast(chainId: number, blockTag: string | number = 'latest'): Promise<QuoteToken | null> {
+    const chainConfig = getChainConfig(chainId);
+    const wrappedNative = chainConfig.wrappedNativeAddress;
+    let nativePrice = 0;
+    if (blockTag === 'latest') {
+        nativePrice = await getCachedNativeTokenPriceUsd(chainId).catch(() => 0);
+    }
+    if (!nativePrice || nativePrice <= 0) return null;
+    return {
+        address: wrappedNative,
+        symbol: chainConfig.nativeCurrency.symbol || 'NATIVE',
+        decimals: 18,
+        usdPrice: nativePrice,
+        isStable: false
+    };
+}
+
+function buildQuoteAttempts(
+    chainId: number,
+    lightweight: boolean,
+    stableQuotes: QuoteToken[],
+    nativeQuote: QuoteToken | null
+): QuoteToken[] {
+    if (!lightweight) {
+        const quotes = [...stableQuotes];
+        if (nativeQuote) quotes.push(nativeQuote);
+        return quotes;
+    }
+
+    // ETH hot path: prioritize the most liquid, most quoted routes only.
+    if (chainId === 1) {
+        const preferredStable = stableQuotes.find((q) => q.symbol === 'USDC')
+            || stableQuotes.find((q) => q.symbol === 'USDT')
+            || stableQuotes[0]
+            || null;
+        const quotes: QuoteToken[] = [];
+        if (preferredStable) quotes.push(preferredStable);
+        return quotes;
+    }
+
+    const quotes = stableQuotes.slice(0, 1);
+    if (nativeQuote) quotes.push(nativeQuote);
+    return quotes;
+}
+
+function filterFactoriesForFastPath(
+    chainId: number,
+    factories: { name: string; address: string; version: string }[],
+    lightweight: boolean
+): { name: string; address: string; version: string }[] {
+    if (!lightweight) return factories;
+    if (chainId === 1) {
+        return factories.filter((factory) => {
+            const lower = factory.name.toLowerCase();
+            return lower.includes('uniswap') && factory.version === 'v3';
+        }).slice(0, 1);
+    }
+    return factories.slice(0, 2);
+}
+
+function filterRoutersForFastPath(
+    chainId: number,
+    routers: { name: string; address: string; type: 'v2' | 'v3' | 'aerodrome' }[],
+    lightweight: boolean
+): { name: string; address: string; type: 'v2' | 'v3' | 'aerodrome' }[] {
+    if (!lightweight) return routers;
+    if (chainId === 1) {
+        // ETH hot path should not pay Sushi router latency unless caller chooses
+        // the heavier non-lightweight path.
+        return [];
+    }
+    return routers.slice(0, 1);
+}
+
+async function raceOrNull<T>(promise: Promise<T>, timeoutMs: number): Promise<T | null> {
+    return await Promise.race([
+        promise,
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), timeoutMs)),
+    ]);
+}
+
 /**
  * Fetch token price and liquidity directly from chain
  * Falls back to multiple DEXes if first fails
@@ -318,14 +399,17 @@ async function buildNativeQuoteToken(chainId: number, blockTag: string | number 
 export async function getOnChainPrice(
     tokenAddress: string,
     chainId: number,
-    options: { rpcStrategy?: 'fast' | 'cheap'; blockTag?: string | number } = {}
+    options: { rpcStrategy?: 'fast' | 'cheap'; blockTag?: string | number; lightweight?: boolean } = {}
 ): Promise<OnChainPriceData | null> {
     const rpcStrategy = options.rpcStrategy || 'cheap';
     const blockTag = options.blockTag ?? 'latest';
+    const lightweight = Boolean(options.lightweight);
+    const startedAt = Date.now();
     const isLatestTag = blockTag === 'latest';
     const chainConfig = getChainConfig(chainId);
     const wrappedNative = chainConfig.wrappedNativeAddress;
     const tokenLower = tokenAddress.toLowerCase();
+    const ethLightweightFastPath = lightweight && chainId === 1;
 
     // Native/Wrapped native fast-path
     if (tokenLower === NATIVE_PLACEHOLDER || tokenLower === wrappedNative.toLowerCase()) {
@@ -380,18 +464,26 @@ export async function getOnChainPrice(
     }
 
     const stableQuotes = buildStableQuoteTokens(chainId);
-    const quoteAttempts: QuoteToken[] = [...stableQuotes];
-    const nativeQuote = await buildNativeQuoteToken(chainId, blockTag);
-    if (nativeQuote) quoteAttempts.push(nativeQuote);
+    const nativeQuote = ethLightweightFastPath
+        ? await buildNativeQuoteTokenFast(chainId, blockTag)
+        : await buildNativeQuoteToken(chainId, blockTag);
+    const quoteAttempts = buildQuoteAttempts(chainId, lightweight, stableQuotes, nativeQuote);
+    const factoriesToTry = filterFactoriesForFastPath(chainId, factories, lightweight);
+    const routersToTry = filterRoutersForFastPath(chainId, routers, lightweight);
+    const lightweightDeadlineMs = chainId === 1 ? 1200 : 1800;
+    const stageTimeoutMs = chainId === 1 ? 300 : 700;
     const successfulCandidates: Array<OnChainPriceCandidate<OnChainPriceData>> = [];
 
     for (const quote of quoteAttempts) {
         if (quote.address.toLowerCase() === tokenLower) continue;
+        if (lightweight && Date.now() - startedAt >= lightweightDeadlineMs) break;
 
         // ⚡ V4 QUOTER: Try Uniswap V4 quoter first (fast, no log scan)
         if (QUOTER_V4_ADDRESSES[chainId]) {
             try {
-                const v4Result = await fetchPriceFromUniswapV4(tokenAddress, quote, chainId, rpcStrategy, blockTag);
+                const v4Result = lightweight
+                    ? await raceOrNull(fetchPriceFromUniswapV4(tokenAddress, quote, chainId, rpcStrategy, blockTag), stageTimeoutMs)
+                    : await fetchPriceFromUniswapV4(tokenAddress, quote, chainId, rpcStrategy, blockTag);
                 if (v4Result && v4Result.price > 0) {
                     successfulCandidates.push({
                         data: v4Result,
@@ -407,9 +499,11 @@ export async function getOnChainPrice(
         }
 
         // ⚡ V4 poolId-based fallback (supports hooks; slower due to logs)
-        if (V4_STATE_VIEW[chainId]) {
+        if (V4_STATE_VIEW[chainId] && !(lightweight && chainId === 1)) {
             try {
-                const v4PoolResult = await fetchPriceFromUniswapV4PoolId(tokenAddress, quote, chainId, rpcStrategy, blockTag);
+                const v4PoolResult = lightweight
+                    ? await raceOrNull(fetchPriceFromUniswapV4PoolId(tokenAddress, quote, chainId, rpcStrategy, blockTag), stageTimeoutMs)
+                    : await fetchPriceFromUniswapV4PoolId(tokenAddress, quote, chainId, rpcStrategy, blockTag);
                 if (v4PoolResult && v4PoolResult.price > 0) {
                     successfulCandidates.push({
                         data: v4PoolResult,
@@ -425,39 +519,77 @@ export async function getOnChainPrice(
         }
 
         // Try each DEX factory until one succeeds
-        const fetchPromises = factories.map(async (factory) => {
+        const fetchPromises = factoriesToTry.map(async (factory) => {
             try {
                 let priceData: OnChainPriceData | null = null;
 
                 if (factory.version === 'v3') {
-                    priceData = await fetchPriceFromUniswapV3(
-                        tokenAddress,
-                        quote,
-                        factory.address,
-                        factory.name,
-                        chainId,
-                        rpcStrategy,
-                        blockTag
-                    );
+                    priceData = lightweight
+                        ? await raceOrNull(
+                            fetchPriceFromUniswapV3(
+                                tokenAddress,
+                                quote,
+                                factory.address,
+                                factory.name,
+                                chainId,
+                                rpcStrategy,
+                                blockTag
+                            ),
+                            stageTimeoutMs
+                        )
+                        : await fetchPriceFromUniswapV3(
+                            tokenAddress,
+                            quote,
+                            factory.address,
+                            factory.name,
+                            chainId,
+                            rpcStrategy,
+                            blockTag
+                        );
                 } else if (factory.version === 'bonding') {
-                    priceData = await fetchPriceFromBondingCurve(
-                        tokenAddress,
-                        factory.address,
-                        factory.name,
-                        chainId,
-                        rpcStrategy,
-                        blockTag
-                    );
+                    priceData = lightweight
+                        ? await raceOrNull(
+                            fetchPriceFromBondingCurve(
+                                tokenAddress,
+                                factory.address,
+                                factory.name,
+                                chainId,
+                                rpcStrategy,
+                                blockTag
+                            ),
+                            stageTimeoutMs
+                        )
+                        : await fetchPriceFromBondingCurve(
+                            tokenAddress,
+                            factory.address,
+                            factory.name,
+                            chainId,
+                            rpcStrategy,
+                            blockTag
+                        );
                 } else {
-                    priceData = await fetchPriceFromDex(
-                        tokenAddress,
-                        quote,
-                        factory.address,
-                        factory.name,
-                        chainId,
-                        rpcStrategy,
-                        blockTag
-                    );
+                    priceData = lightweight
+                        ? await raceOrNull(
+                            fetchPriceFromDex(
+                                tokenAddress,
+                                quote,
+                                factory.address,
+                                factory.name,
+                                chainId,
+                                rpcStrategy,
+                                blockTag
+                            ),
+                            stageTimeoutMs
+                        )
+                        : await fetchPriceFromDex(
+                            tokenAddress,
+                            quote,
+                            factory.address,
+                            factory.name,
+                            chainId,
+                            rpcStrategy,
+                            blockTag
+                        );
                 }
 
                 if (priceData && priceData.price > 0) {
@@ -488,8 +620,17 @@ export async function getOnChainPrice(
             }
         }
 
+        if (lightweight && successfulCandidates.length > 0) {
+            // Fast lane exits once one valid candidate is available.
+            break;
+        }
+
+        if (lightweight && Date.now() - startedAt >= lightweightDeadlineMs) {
+            break;
+        }
+
         // ⚡ FALLBACK: Try Router getAmountsOut
-        for (const router of routers) {
+        for (const router of routersToTry) {
             try {
                 let routerData: OnChainPriceData | null = null;
 
@@ -526,6 +667,11 @@ export async function getOnChainPrice(
             } catch (err: any) {
                 logger.debug(LogCode.API_FETCH_FAILED, `Router ${router.name} failed`, { error: err.message });
             }
+        }
+
+        if (lightweight && successfulCandidates.length > 0) {
+            // Fast lane exits once one valid candidate is available.
+            break;
         }
     }
 

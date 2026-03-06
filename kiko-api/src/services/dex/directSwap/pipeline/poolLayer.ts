@@ -17,6 +17,7 @@ import type { TokenLiquidity } from '../types.js';
 import {
   getChainSlugForUsdLookup,
   isStableTokenAddress,
+  STABLE_TOKEN_HINTS_BY_CHAIN,
   withTimeout,
   WETH_ADDRESSES
 } from './context.js';
@@ -164,95 +165,144 @@ export async function estimateAmountUsdByToken(
 
 export async function getTokenLiquidity(
   tokenAddress: string,
-  chainId: number
+  chainId: number,
+  options?: { budgetMs?: number }
 ): Promise<TokenLiquidity> {
-  const weth = WETH_ADDRESSES[chainId];
-  if (!weth) {
+  const startedAt = Date.now();
+  const budgetMs = Number(options?.budgetMs || 0);
+  const hasBudget = Number.isFinite(budgetMs) && budgetMs > 0;
+  const budgetExceeded = () => hasBudget && (Date.now() - startedAt) >= budgetMs;
+  const wrappedNative = WETH_ADDRESSES[chainId];
+  const stableHints = STABLE_TOKEN_HINTS_BY_CHAIN[chainId] || [];
+  const quoteCandidates = [wrappedNative, ...stableHints]
+    .filter((value): value is string => Boolean(value))
+    .map((value) => value.toLowerCase())
+    .filter((value, index, arr) => arr.indexOf(value) === index && value !== tokenAddress.toLowerCase());
+
+  if (quoteCandidates.length === 0) {
     return { totalTvlUsd: 0, pools: [] };
   }
 
   try {
-    const pools = await findTokenPools(tokenAddress, weth, chainId);
     const result: TokenLiquidity = { totalTvlUsd: 0, pools: [], reliable: false, source: 'unavailable' };
+    const seenPools = new Set<string>();
+    const nativePriceUsd = await getNativePriceUsd(chainId).catch(() => 0);
 
-    for (const pool of pools) {
-      let tvlUsd = 0;
-      let source = 'v3_liquidity_formula_estimate';
-      let reliable = false;
-      let initializedTickCount: number | undefined;
-      let intervalCount: number | undefined;
-      if (pool.liquidity && pool.sqrtPriceX96) {
-        const isToken0 = pool.token0.toLowerCase() === tokenAddress.toLowerCase();
-        const decimals0 = pool.token0Decimals || 18;
-        const decimals1 = pool.token1Decimals || 18;
-        const nativePriceUsd = await getNativePriceUsd(chainId);
-        const poolSpotPrice = Number(pool.price || 0);
-        let price0USD = 0;
-        let price1USD = 0;
+    for (const quoteToken of quoteCandidates) {
+      if (budgetExceeded()) break;
+      const pools = hasBudget
+        ? await withTimeout(findTokenPools(tokenAddress, quoteToken, chainId), Math.max(50, budgetMs - (Date.now() - startedAt))).catch(() => [])
+        : await findTokenPools(tokenAddress, quoteToken, chainId).catch(() => []);
+      for (const pool of pools) {
+        if (budgetExceeded()) break;
+        const poolKey = `${pool.version || 'unknown'}:${pool.poolAddress.toLowerCase()}`;
+        if (seenPools.has(poolKey)) continue;
+        seenPools.add(poolKey);
 
-        if (nativePriceUsd > 0) {
-          if (isToken0) {
-            price1USD = nativePriceUsd;
-            price0USD = poolSpotPrice > 0 ? poolSpotPrice * nativePriceUsd : 0;
-          } else {
-            price0USD = nativePriceUsd;
-            price1USD = poolSpotPrice > 0 ? nativePriceUsd / poolSpotPrice : 0;
-          }
+        let tvlUsd = 0;
+        let source = 'direct_quote_pool_estimate';
+        let reliable = false;
+        let initializedTickCount: number | undefined;
+        let intervalCount: number | undefined;
+
+        const token0Lower = pool.token0.toLowerCase();
+        const token1Lower = pool.token1.toLowerCase();
+        const quoteLower = quoteToken.toLowerCase();
+        const quoteIsToken0 = token0Lower === quoteLower;
+        const quoteIsToken1 = token1Lower === quoteLower;
+        const quoteIsStable = isStableTokenAddress(chainId, quoteLower);
+        const quotePriceUsd = quoteIsStable ? 1 : (quoteLower === wrappedNative?.toLowerCase() ? nativePriceUsd : 0);
+
+        if (quotePriceUsd <= 0 || (!quoteIsToken0 && !quoteIsToken1)) {
+          continue;
         }
 
-        if (pool.version === 'v3') {
-          const reconstructed = await reconstructV3PoolLiquidityUsd({
-            poolAddress: pool.poolAddress,
-            chainId,
-            decimals0,
-            decimals1,
-            price0Usd: price0USD,
-            price1Usd: price1USD
-          });
-          if (reconstructed && reconstructed.totalValueLockedUsd > 0) {
-            tvlUsd = reconstructed.totalValueLockedUsd;
-            source = 'v3_tick_reconstruction';
-            reliable = true;
-            initializedTickCount = reconstructed.initializedTickCount;
-            intervalCount = reconstructed.intervalCount;
+        if (pool.reserve0 && pool.reserve1) {
+          const quoteReserveRaw = quoteIsToken0 ? pool.reserve0 : pool.reserve1;
+          const quoteDecimals = quoteIsToken0 ? (pool.token0Decimals || 18) : (pool.token1Decimals || 18);
+          const quoteReserve = Number(BigInt(quoteReserveRaw)) / Math.pow(10, quoteDecimals);
+          if (Number.isFinite(quoteReserve) && quoteReserve > 0) {
+            tvlUsd = quoteReserve * quotePriceUsd * 2;
+            source = quoteIsStable ? 'v2_quote_reserve_stable' : 'v2_quote_reserve_native';
+            reliable = quoteIsStable || quotePriceUsd > 0;
+          }
+
+        } else if (pool.liquidity && pool.sqrtPriceX96) {
+          const decimals0 = pool.token0Decimals || 18;
+          const decimals1 = pool.token1Decimals || 18;
+          const poolSpotPrice = Number(pool.price || 0);
+          let price0Usd = 0;
+          let price1Usd = 0;
+
+          if (quoteIsToken0) {
+            price0Usd = quotePriceUsd;
+            price1Usd = poolSpotPrice > 0 ? quotePriceUsd / poolSpotPrice : 0;
           } else {
+            price1Usd = quotePriceUsd;
+            price0Usd = poolSpotPrice > 0 ? poolSpotPrice * quotePriceUsd : 0;
+          }
+
+          if (pool.version === 'v3') {
+            const reconstructed = hasBudget
+              ? await withTimeout(reconstructV3PoolLiquidityUsd({
+                poolAddress: pool.poolAddress,
+                chainId,
+                decimals0,
+                decimals1,
+                price0Usd,
+                price1Usd
+              }), Math.max(50, budgetMs - (Date.now() - startedAt))).catch(() => null)
+              : await reconstructV3PoolLiquidityUsd({
+                poolAddress: pool.poolAddress,
+                chainId,
+                decimals0,
+                decimals1,
+                price0Usd,
+                price1Usd
+              }).catch(() => null);
+            if (reconstructed && reconstructed.totalValueLockedUsd > 0) {
+              tvlUsd = reconstructed.totalValueLockedUsd;
+              source = 'v3_tick_reconstruction';
+              reliable = true;
+              initializedTickCount = reconstructed.initializedTickCount;
+              intervalCount = reconstructed.intervalCount;
+            }
+          }
+
+          if (!(tvlUsd > 0)) {
+            source = quoteIsStable ? 'v3_quote_side_stable' : 'v3_quote_side_native';
             tvlUsd = calculateV3TVL(
               BigInt(pool.sqrtPriceX96),
               BigInt(pool.liquidity),
               decimals0,
               decimals1,
-              price0USD,
-              price1USD
+              price0Usd,
+              price1Usd
             );
           }
-        } else {
-          tvlUsd = calculateV3TVL(
-            BigInt(pool.sqrtPriceX96),
-            BigInt(pool.liquidity),
-            decimals0,
-            decimals1,
-            price0USD,
-            price1USD
-          );
         }
+
+        result.pools.push({
+          version: pool.version || 'v3',
+          fee: pool.fee || 0,
+          tvlUsd,
+          address: pool.poolAddress,
+          source,
+          reliable,
+          initializedTickCount,
+          intervalCount
+        });
+        result.totalTvlUsd += tvlUsd;
+        result.reliable = result.reliable || reliable;
       }
 
-      result.pools.push({
-        version: pool.version || 'v3',
-        fee: pool.fee || 0,
-        tvlUsd,
-        address: pool.poolAddress,
-        source,
-        reliable,
-        initializedTickCount,
-        intervalCount
-      });
-      result.totalTvlUsd += tvlUsd;
-      result.reliable = result.reliable || reliable;
+      if (result.totalTvlUsd > 0) {
+        break;
+      }
     }
 
     if (result.totalTvlUsd > 0) {
-      result.source = result.reliable ? 'v3_tick_reconstruction' : 'estimate_only';
+      result.source = result.reliable ? 'direct_quote_pool_reconstruction' : 'direct_quote_pool_estimate';
     }
 
     return result;

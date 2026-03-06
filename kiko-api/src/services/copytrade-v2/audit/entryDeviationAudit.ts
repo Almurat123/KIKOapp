@@ -7,6 +7,10 @@ type EntryDeviationSummaryParams = {
   targetWallet: string;
   chainId: number;
   executionMode: string;
+  currentPriceSource: 'market_oracle_price';
+  targetExecutionPriceSource: 'target_implied_price';
+  targetImpliedPriceSourceCategory?: string;
+  targetImpliedValueSource?: string;
   targetExecutionPrice: number;
   currentPrice: number;
   deviationBps: number;
@@ -32,6 +36,10 @@ export function emitEntryDeviationSummary(params: EntryDeviationSummaryParams): 
     targetWallet: params.targetWallet,
     chainId: params.chainId,
     executionMode: params.executionMode,
+    currentPriceSource: params.currentPriceSource,
+    targetExecutionPriceSource: params.targetExecutionPriceSource,
+    targetImpliedPriceSourceCategory: params.targetImpliedPriceSourceCategory || 'target_unknown',
+    targetImpliedValueSource: params.targetImpliedValueSource || 'target_swap_value_usd',
     targetExecutionPrice: roundMaybe(params.targetExecutionPrice, 10),
     currentPrice: roundMaybe(params.currentPrice, 10),
     deviationBps: roundMaybe(params.deviationBps, 2),
