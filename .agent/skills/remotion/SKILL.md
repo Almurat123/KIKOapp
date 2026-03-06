@@ -737,3 +737,117 @@ If asked to create or adapt a video:
 6. Only then optimize quality and performance.
 
 This is the default path unless the user explicitly asks for something narrower.
+
+---
+
+## 23. Apple Typography Mode
+
+When the user asks for Apple-style title cards, keynote-like typography, or premium minimal text animation, use this mode by default.
+
+### 23.1 Defaults
+- prefer `SF Pro Display` / `San Francisco` style typography
+- prefer clean white-on-black or black-on-white before trying stylized palettes
+- prioritize `font-size`, `font-weight`, `letter-spacing`, `line-height`, and composition spacing before adding effects
+- keep the stage minimal and let the typography carry the frame
+
+### 23.2 What Not To Add Without Permission
+- creative glyph substitutions
+- outlined letters
+- gradient-filled type
+- pill backgrounds
+- decorative underlays
+- experimental distortions
+
+If the user says "make it like Apple", default to restraint, not decoration.
+
+---
+
+## 24. Typing Interpretation Rules
+
+When the user asks for a typing or typewriter effect, do not assume they want per-letter animation.
+
+Default interpretation:
+- characters are appended to the text string over time
+- the caret follows the currently typed text
+- the rhythm should feel like real input, not a presentation gimmick
+- animation on letters should be minimal or absent unless explicitly requested
+
+### 24.1 Default Behavior
+- use direct text append behavior first
+- use a blinking caret that sits immediately after the visible text
+- avoid large bounce, blur, or spring effects on each character
+- prefer a faster cadence over a slow demo-like cadence unless the brief says otherwise
+
+### 24.2 If The User Says "More Realistic"
+Try in this order:
+1. increase typing speed
+2. reduce per-letter animation
+3. keep caret movement tightly coupled to the appended text
+4. only then consider non-uniform cadence
+
+---
+
+## 25. Reference Hierarchy
+
+When multiple sources of direction exist, use this priority order:
+
+1. visual reference image or video
+2. precise textual instruction
+3. broad style adjectives
+4. your own taste
+
+If the reference image conflicts with earlier vague wording, explicitly note the conflict and choose one source of truth before implementing.
+
+### 25.1 Practical Rule
+If the user provides a frame, screenshot, or video:
+- treat it as the strongest visual authority
+- match typography, color relationship, spacing, and layout before inventing motion polish
+- verify key frames against the reference before extending the timeline
+
+---
+
+## 26. Text-Only Video Patterns
+
+For short text-driven videos, prefer a small set of proven structures instead of inventing a new timeline each time.
+
+### Pattern A: Typed Headline
+- line types in
+- caret follows the text
+- line holds briefly
+
+### Pattern B: Feature Statement Reveal
+- current line exits
+- next line enters from one direction
+- a key word can overscale briefly before settling
+
+### Pattern C: Sequential Taglines
+- previous line slides down or fades out
+- new line enters from above
+- new line settles
+- subtle end-scale can add weight if the user asks for emphasis
+
+If the request is mostly typography, start from one of these patterns before adding anything else.
+
+---
+
+## 27. Do Not Overdesign
+
+Premium-looking text videos often get worse when too many ideas are added.
+
+Default rule:
+- first build the pure version
+- only add decorative treatment if the user asks for it
+
+### 27.1 Warning Signs
+- adding creative letters before matching the base typography
+- adding backgrounds behind letters without reference support
+- mistaking "premium" for "complex"
+- using motion to compensate for weak spacing
+
+### 27.2 Safer Escalation Path
+1. get the text, weight, size, and spacing right
+2. get the timing right
+3. get the transition right
+4. only then propose stylization
+
+If unsure, keep it cleaner.
