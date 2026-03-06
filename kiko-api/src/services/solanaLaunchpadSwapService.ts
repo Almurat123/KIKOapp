@@ -79,6 +79,38 @@ function derivePumpFeeConfigPda(): PublicKey {
     )[0];
 }
 
+async function buildInlineSolFeeTransferInstruction(
+    connection: Connection,
+    payer: PublicKey,
+    recipient: PublicKey | null,
+    grossAmount: bigint,
+    feeBps: number
+): Promise<{ feeAmount: bigint; netSwapAmount: bigint; instruction: TransactionInstruction | null }> {
+    if (!recipient || feeBps <= 0) {
+        return { feeAmount: 0n, netSwapAmount: grossAmount, instruction: null };
+    }
+    const feeAmount = (grossAmount * BigInt(feeBps)) / 10000n;
+    if (feeAmount <= 0n) {
+        return { feeAmount: 0n, netSwapAmount: grossAmount, instruction: null };
+    }
+    if (feeAmount >= grossAmount) {
+        throw new Error('Fee is greater than or equal to swap amount');
+    }
+    const recipientInfo = await connection.getAccountInfo(recipient, 'confirmed');
+    if (!recipientInfo) {
+        throw new Error(`Solana fee recipient account does not exist: ${recipient.toBase58()}`);
+    }
+    return {
+        feeAmount,
+        netSwapAmount: grossAmount - feeAmount,
+        instruction: SystemProgram.transfer({
+            fromPubkey: payer,
+            toPubkey: recipient,
+            lamports: feeAmount,
+        }),
+    };
+}
+
 export interface SolanaLaunchpadSwapParams {
     userId: string;
     mint: string;
@@ -181,73 +213,44 @@ export class SolanaLaunchpadSwapService {
             }
         }
 
-        let feeAmount = 0n;
-        let effectiveAmount = params.amount;
-        if (isBuy && feeRecipient && fee.bps > 0) {
-            feeAmount = (amountBI * BigInt(fee.bps)) / 10000n;
-            if (feeAmount > 0n) {
-                if (feeAmount >= amountBI) {
-                    throw new Error('Fee is greater than or equal to swap amount');
-                }
-                effectiveAmount = (amountBI - feeAmount).toString();
-            }
-        }
+        const inlineFee = isBuy
+            ? await buildInlineSolFeeTransferInstruction(connection, userPubkey, feeRecipient, amountBI, fee.bps)
+            : { feeAmount: 0n, netSwapAmount: amountBI, instruction: null };
+        const preSwapInstructions = inlineFee.instruction ? [inlineFee.instruction] : [];
 
         let txHash: string;
         if (provider === 'pumpfun') {
-            txHash = await this.executePumpFunSwap(connection, userPubkey, mint, effectiveAmount, isBuy, userId, signingContext, params.slippageBps || 100);
+            txHash = await this.executePumpFunSwap(
+                connection,
+                userPubkey,
+                mint,
+                inlineFee.netSwapAmount.toString(),
+                isBuy,
+                userId,
+                signingContext,
+                params.slippageBps || 100,
+                preSwapInstructions
+            );
         } else if (provider === 'bonkfun') {
             // For Raydium/Bonk.fun, we need mintB (WSOL usually). Assuming paired with SOL.
             const WSOL_MINT = new PublicKey('So11111111111111111111111111111111111111112');
-            txHash = await this.executeRaydiumSwap(connection, userPubkey, mint, WSOL_MINT, effectiveAmount, isBuy, userId, signingContext, params.slippageBps || 100);
+            txHash = await this.executeRaydiumSwap(
+                connection,
+                userPubkey,
+                mint,
+                WSOL_MINT,
+                inlineFee.netSwapAmount.toString(),
+                isBuy,
+                userId,
+                signingContext,
+                params.slippageBps || 100,
+                preSwapInstructions
+            );
         } else {
             throw new Error(`Unsupported launchpad provider: ${provider}`);
         }
 
-        if (isBuy && feeRecipient && feeAmount > 0n) {
-            try {
-                const feeTxHash = await this.sendSolFeeTransfer(connection, userPubkey, feeRecipient, feeAmount, userId, signingContext);
-                logger.info(LogCode.EXE_TX_CONFIRMED, 'Solana launchpad fee sent', {
-                    provider,
-                    feeAmount: feeAmount.toString(),
-                    feeRecipient: feeRecipient.toString(),
-                    feeTxHash
-                });
-            } catch (feeErr: any) {
-                logger.warn(LogCode.SYS_ERROR, 'Solana launchpad fee transfer failed (non-fatal)', {
-                    provider,
-                    error: feeErr?.message || String(feeErr)
-                });
-            }
-        }
-
         return txHash;
-    }
-
-    private async sendSolFeeTransfer(
-        connection: Connection,
-        payer: PublicKey,
-        recipient: PublicKey,
-        amountLamports: bigint,
-        userId: string,
-        signingContext: ResolvedSolanaSigningContext
-    ): Promise<string> {
-        const transferIx = SystemProgram.transfer({
-            fromPubkey: payer,
-            toPubkey: recipient,
-            lamports: amountLamports
-        });
-
-        const recentBlockhash = await getLatestSolanaBlockhash(connection, 'launchpad_fee_transfer');
-        const messageV0 = new TransactionMessage({
-            payerKey: payer,
-            recentBlockhash: recentBlockhash.blockhash,
-            instructions: [transferIx]
-        }).compileToV0Message();
-
-        const transaction = new VersionedTransaction(messageV0);
-        const serializedTx = Buffer.from(transaction.serialize()).toString('base64');
-        return sendSolanaTransactionWithContext(userId, serializedTx, signingContext);
     }
 
     /**
@@ -261,7 +264,8 @@ export class SolanaLaunchpadSwapService {
         isBuy: boolean,
         userId: string,
         signingContext: ResolvedSolanaSigningContext,
-        slippageBps: number
+        slippageBps: number,
+        preInstructions: TransactionInstruction[] = []
     ): Promise<string> {
         const PumpSdkModule = await import('@pump-fun/pump-sdk');
         let amountBI: bigint;
@@ -380,7 +384,7 @@ export class SolanaLaunchpadSwapService {
         const messageV0 = new TransactionMessage({
             payerKey: userPubkey,
             recentBlockhash: recentBlockhash.blockhash,
-            instructions,
+            instructions: [...preInstructions, ...instructions],
         }).compileToV0Message();
 
         const transaction = new VersionedTransaction(messageV0);
@@ -398,7 +402,8 @@ export class SolanaLaunchpadSwapService {
         isBuy: boolean,
         userId: string,
         signingContext: ResolvedSolanaSigningContext,
-        slippageBps: number
+        slippageBps: number,
+        preInstructions: TransactionInstruction[] = []
     ): Promise<string> {
         const poolId = this.getRaydiumPoolPDA(mintA, mintB);
         const poolAccount = await connection.getAccountInfo(poolId);
@@ -527,7 +532,7 @@ export class SolanaLaunchpadSwapService {
         const messageV0 = new TransactionMessage({
             payerKey: userPubkey,
             recentBlockhash: recentBlockhash.blockhash,
-            instructions,
+            instructions: [...preInstructions, ...instructions],
         }).compileToV0Message();
 
         const transaction = new VersionedTransaction(messageV0);

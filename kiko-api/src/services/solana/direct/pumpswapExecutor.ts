@@ -745,13 +745,35 @@ export async function executePumpSwapDirect(
 
     const platformFeeInstructions: TransactionInstruction[] = [];
     const platformFee = getPlatformFee(request.feeContext || 'swap');
+    let grossQuoteIn = amount;
+    let swapQuoteIn = amount;
+    let platformFeeAmount = 0n;
     if (request.isBuy && platformFee.bps > 0 && platformFee.solanaRecipient) {
-      const feeAmount = (amount * BigInt(platformFee.bps)) / 10000n;
-      if (feeAmount > 0n) {
+      platformFeeAmount = (amount * BigInt(platformFee.bps)) / 10000n;
+      if (platformFeeAmount > 0n) {
+        if (platformFeeAmount >= amount) {
+          return {
+            ok: false,
+            provider: 'pumpswap',
+            reasonCode: 'invalid_amount',
+            message: 'platform fee is greater than or equal to swap amount',
+          };
+        }
+        const feeRecipient = new PublicKey(platformFee.solanaRecipient);
+        const recipientInfo = await connection.getAccountInfo(feeRecipient, 'confirmed');
+        if (!recipientInfo) {
+          return {
+            ok: false,
+            provider: 'pumpswap',
+            reasonCode: 'build_failed',
+            message: `solana fee recipient account does not exist: ${feeRecipient.toBase58()}`,
+          };
+        }
+        swapQuoteIn = amount - platformFeeAmount;
         platformFeeInstructions.push(SystemProgram.transfer({
           fromPubkey: user,
-          toPubkey: new PublicKey(platformFee.solanaRecipient),
-          lamports: Number(feeAmount),
+          toPubkey: feeRecipient,
+          lamports: Number(platformFeeAmount),
         }));
       }
     }
@@ -773,7 +795,7 @@ export async function executePumpSwapDirect(
       let lastBuyError = '';
       for (const retryHaircutBps of retryHaircutsBps) {
         const { tokenOutExpected, minBaseAmountOut, spendableQuoteIn } = computeBuyExactQuoteInAmounts(
-          amount,
+          swapQuoteIn,
           baseReserves,
           quoteReserves,
           request.slippageBps,
@@ -846,6 +868,8 @@ export async function executePumpSwapDirect(
               protocolFeeRecipient: protocolFeeRecipient.toBase58(),
               layoutVersion: layout.layoutVersion,
               buyMode: 'buy_exact_quote_in',
+              grossQuoteAmountIn: grossQuoteIn.toString(),
+              platformFeeAmount: platformFeeAmount.toString(),
               buyTokenOutExpected: tokenOutExpected.toString(),
               buyTokenOutSent: minBaseAmountOut.toString(),
               maxQuoteAmountIn: spendableQuoteIn.toString(),
