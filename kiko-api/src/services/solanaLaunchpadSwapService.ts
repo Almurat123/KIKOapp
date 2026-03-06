@@ -7,6 +7,7 @@ import {
     SystemProgram,
     SYSVAR_RENT_PUBKEY
 } from '@solana/web3.js';
+import BN from 'bn.js';
 import {
     TOKEN_PROGRAM_ID,
     ASSOCIATED_TOKEN_PROGRAM_ID,
@@ -19,35 +20,17 @@ import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
 import { getLatestSolanaBlockhash } from './solana/blockhashProvider.js';
 import type { ResolvedSolanaSigningContext } from './solana/solanaSigningContext.js';
+import type { FeeConfig as PumpFeeConfig } from '@pump-fun/pump-sdk';
 
-// Pump.fun Constants
 const PUMP_FUN_PROGRAM_ID = new PublicKey('6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P');
-const PUMP_FUN_GLOBAL = new PublicKey('4wTVyMKp1qLzFGZJv8P2zGjUjpasfT76MhYfNCpQ9R3J');
-const PUMP_FUN_FEE_RECIPIENT = new PublicKey('CebN5WGQ4jvEPvsVU4EoHEpgzq1VV7AbicfhtW4xC9iM');
-const PUMP_FUN_EVENT_AUTHORITY = new PublicKey('Ce6TQqeHC9p8KetsN6JsjHK7UTZk7nasjjnr7XxXp9F1');
+const PUMP_FEE_PROGRAM_ID = new PublicKey('pfeeUxB6jkeY1Hxd7CsFCAjcbHA9rWtchMGdZ6VojVZ');
+const TOKEN_2022_PROGRAM_ID = new PublicKey('TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb');
 
 // Raydium LaunchLab Constants (Bonk.fun)
 const RAYDIUM_LAUNCHPAD_PROGRAM_ID = new PublicKey('LanMV9sAd7wArD4vJFi2qDdfnVhFxYSUg6eADduJ3uj');
 const RAYDIUM_POOL_SEED = Buffer.from('pool', 'utf8');
 const RAYDIUM_AUTH_SEED = Buffer.from('vault_auth_seed', 'utf8');
 const RAYDIUM_EVENT_AUTH_SEED = Buffer.from('__event_authority', 'utf8');
-
-// Bonding Curve Account Layout
-// Discriminator: 8 bytes
-// virtualTokenReserves: u64 (8 bytes)
-// virtualSolReserves: u64 (8 bytes)
-// realTokenReserves: u64 (8 bytes)
-// realSolReserves: u64 (8 bytes)
-// tokenTotalSupply: u64 (8 bytes)
-// complete: bool (1 byte)
-interface PumpBondingCurveState {
-    virtualTokenReserves: bigint;
-    virtualSolReserves: bigint;
-    realTokenReserves: bigint;
-    realSolReserves: bigint;
-    tokenTotalSupply: bigint;
-    complete: boolean;
-}
 
 interface RaydiumPoolState {
     configId: PublicKey;
@@ -59,12 +42,42 @@ interface RaydiumPoolState {
     creator: PublicKey;
 }
 
-// Instructions Discriminators (8 bytes)
-const PUMP_BUY_DISCRIMINATOR = Buffer.from([0x66, 0x06, 0x3d, 0x12, 0x01, 0xda, 0xeb, 0xea]);
-const PUMP_SELL_DISCRIMINATOR = Buffer.from([0x33, 0xe6, 0x85, 0xa4, 0x01, 0x7f, 0x83, 0xad]);
+interface PumpBondingCurveState {
+    virtualTokenReserves: bigint;
+    virtualSolReserves: bigint;
+    realTokenReserves: bigint;
+    realSolReserves: bigint;
+    tokenTotalSupply: bigint;
+    complete: boolean;
+}
 
 const RAYDIUM_BUY_DISCRIMINATOR = Buffer.from([250, 234, 13, 123, 213, 156, 19, 236]); // buyExactIn
 const RAYDIUM_SELL_DISCRIMINATOR = Buffer.from([149, 39, 222, 155, 211, 124, 152, 26]); // sellExactIn
+
+async function getMintProgramId(connection: Connection, mint: PublicKey): Promise<PublicKey> {
+    const accountInfo = await connection.getAccountInfo(mint, 'confirmed');
+    const owner = accountInfo?.owner;
+    if (!owner) {
+        return TOKEN_PROGRAM_ID;
+    }
+    return owner.equals(TOKEN_2022_PROGRAM_ID) ? TOKEN_2022_PROGRAM_ID : TOKEN_PROGRAM_ID;
+}
+
+async function getMintSupplyBn(connection: Connection, mint: PublicKey): Promise<BN> {
+    const supply = await connection.getTokenSupply(mint, 'confirmed');
+    return new BN(supply.value.amount);
+}
+
+function derivePumpGlobalPda(): PublicKey {
+    return PublicKey.findProgramAddressSync([Buffer.from('global')], PUMP_FUN_PROGRAM_ID)[0];
+}
+
+function derivePumpFeeConfigPda(): PublicKey {
+    return PublicKey.findProgramAddressSync(
+        [Buffer.from('fee_config'), PUMP_FUN_PROGRAM_ID.toBuffer()],
+        PUMP_FEE_PROGRAM_ID
+    )[0];
+}
 
 export interface SolanaLaunchpadSwapParams {
     userId: string;
@@ -78,9 +91,6 @@ export interface SolanaLaunchpadSwapParams {
 }
 
 export class SolanaLaunchpadSwapService {
-    /**
-     * Get Bonding Curve PDA for a mint
-     */
     private getBondingCurvePDA(mint: PublicKey): PublicKey {
         return PublicKey.findProgramAddressSync(
             [Buffer.from('bonding-curve'), mint.toBuffer()],
@@ -98,61 +108,44 @@ export class SolanaLaunchpadSwapService {
         )[0];
     }
 
-    /**
-     * Fetch and parse Pump.fun bonding curve state
-     */
     async getBondingCurveState(connection: Connection, mint: PublicKey): Promise<PumpBondingCurveState> {
         const bondingCurve = this.getBondingCurvePDA(mint);
-        const accountInfo = await connection.getAccountInfo(bondingCurve);
-
+        const accountInfo = await connection.getAccountInfo(bondingCurve, 'confirmed');
         if (!accountInfo) {
-            throw new Error(`Bonding curve account not found for mint: ${mint.toString()}`);
+            throw new Error(`Bonding curve account not found for mint: ${mint.toBase58()}`);
         }
-
         const data = accountInfo.data;
         if (data.length < 49) {
-            throw new Error('Invalid bonding curve account data length');
+            throw new Error(`Invalid bonding curve account data length: ${data.length}`);
         }
-
-        // Skip 8 byte discriminator
         return {
             virtualTokenReserves: data.readBigUInt64LE(8),
             virtualSolReserves: data.readBigUInt64LE(16),
             realTokenReserves: data.readBigUInt64LE(24),
             realSolReserves: data.readBigUInt64LE(32),
             tokenTotalSupply: data.readBigUInt64LE(40),
-            complete: data[48] !== 0
+            complete: data[48] !== 0,
         };
     }
 
-    /**
-     * Calculate tokens out for a given SOL input
-     */
     calculateTokensOut(state: PumpBondingCurveState, solIn: bigint): bigint {
-        if (solIn <= BigInt(0)) return BigInt(0);
-
-        // Formula: tokensOut = virtualTokenReserves - (virtualSolReserves * virtualTokenReserves) / (virtualSolReserves + solIn)
+        if (solIn <= 0n) return 0n;
         const k = state.virtualSolReserves * state.virtualTokenReserves;
         const newVirtualSolReserves = state.virtualSolReserves + solIn;
+        if (newVirtualSolReserves <= 0n) return 0n;
         const newVirtualTokenReserves = k / newVirtualSolReserves;
         const tokensOut = state.virtualTokenReserves - newVirtualTokenReserves;
-
-        return tokensOut;
+        return tokensOut > 0n ? tokensOut : 0n;
     }
 
-    /**
-     * Calculate SOL out for a given token input
-     */
     calculateSolOut(state: PumpBondingCurveState, tokensIn: bigint): bigint {
-        if (tokensIn <= BigInt(0)) return BigInt(0);
-
-        // Formula: solOut = virtualSolReserves - (virtualSolReserves * virtualTokenReserves) / (virtualTokenReserves + tokensIn)
+        if (tokensIn <= 0n) return 0n;
         const k = state.virtualSolReserves * state.virtualTokenReserves;
         const newVirtualTokenReserves = state.virtualTokenReserves + tokensIn;
+        if (newVirtualTokenReserves <= 0n) return 0n;
         const newVirtualSolReserves = k / newVirtualTokenReserves;
         const solOut = state.virtualSolReserves - newVirtualSolReserves;
-
-        return solOut;
+        return solOut > 0n ? solOut : 0n;
     }
 
     /**
@@ -270,20 +263,7 @@ export class SolanaLaunchpadSwapService {
         signingContext: ResolvedSolanaSigningContext,
         slippageBps: number
     ): Promise<string> {
-        const bondingCurve = this.getBondingCurvePDA(mint);
-        const associatedBondingCurve = await getAssociatedTokenAddress(mint, bondingCurve, true);
-        const userATA = await getAssociatedTokenAddress(mint, userPubkey);
-
-        const instructions: TransactionInstruction[] = [];
-
-        // Note: For Pump.fun, we don't strictly need to create userATA here if we buy,
-        // but it's safer to include it or the program will fail if it's not present.
-        // However, Pump.fun's buy instruction handles ATA creation if it's passed? 
-        // Actually, it uses the userATA account.
-
-        // Buy instruction data: [disc, amountTokens, maxSol]
-        // Sell instruction data: [disc, amountTokens, minSol]
-        // IMPORTANT: amount is already atomic units.
+        const PumpSdkModule = await import('@pump-fun/pump-sdk');
         let amountBI: bigint;
         try {
             amountBI = BigInt(amount);
@@ -293,80 +273,107 @@ export class SolanaLaunchpadSwapService {
         if (amountBI <= 0n) {
             throw new Error(`Invalid atomic amount (<=0): ${amount}`);
         }
-        let data: Buffer;
+        const tokenProgram = await getMintProgramId(connection, mint);
+        const mintSupply = await getMintSupplyBn(connection, mint);
+        const slippagePercent = Math.max(slippageBps, 0) / 100;
+        const userAta = getAssociatedTokenAddress(mint, userPubkey, true, tokenProgram);
+        const [globalAccountInfo, feeConfigAccountInfo] = await Promise.all([
+            connection.getAccountInfo(derivePumpGlobalPda(), 'confirmed'),
+            connection.getAccountInfo(derivePumpFeeConfigPda(), 'confirmed'),
+        ]);
+        if (!globalAccountInfo) {
+            throw new Error('Pump global account unavailable');
+        }
+        const global = PumpSdkModule.PUMP_SDK.decodeGlobal(globalAccountInfo);
 
+        let feeConfig: PumpFeeConfig | null = null;
+        try {
+            feeConfig = feeConfigAccountInfo ? PumpSdkModule.PUMP_SDK.decodeFeeConfig(feeConfigAccountInfo) : null;
+        } catch (error: any) {
+            logger.warn(LogCode.API_FETCH_FAILED, '[PumpFunDirect] fee config unavailable, falling back to global fee params', {
+                mint: mint.toBase58(),
+                error: error?.message || String(error),
+            });
+        }
+
+        let instructions: TransactionInstruction[];
         if (isBuy) {
-            // For Buy, 'amount' is the SOL to spend (lamports)
-            const state = await this.getBondingCurveState(connection, mint);
-
-            // If the bonding curve is complete the token has graduated to PumpSwap AMM.
-            // Interacting with a completed bonding curve will always fail on-chain.
-            // Throw a tagged error so the router can re-route to pumpswap direct.
-            if (state.complete) {
+            const [bondingCurveAccountInfo, associatedUserAccountInfo] = await connection.getMultipleAccountsInfo(
+                [this.getBondingCurvePDA(mint), userAta],
+                'confirmed'
+            );
+            if (!bondingCurveAccountInfo) {
+                throw new Error(`Bonding curve account not found for mint: ${mint.toBase58()}`);
+            }
+            const bondingCurve = PumpSdkModule.PUMP_SDK.decodeBondingCurve(bondingCurveAccountInfo);
+            if (bondingCurve.complete) {
                 throw new Error('PUMPFUN_GRADUATED: token has migrated to PumpSwap AMM, bonding curve is closed');
             }
 
-            const tokensOut = this.calculateTokensOut(state, amountBI);
-
-            if (tokensOut <= BigInt(0)) {
+            const tokenAmountOut = PumpSdkModule.getBuyTokenAmountFromSolAmount({
+                global,
+                feeConfig,
+                mintSupply,
+                bondingCurve,
+                amount: new BN(amountBI.toString()),
+            });
+            if (tokenAmountOut.lte(new BN(0))) {
                 throw new Error('Calculated zero tokens out for the given SOL amount');
             }
 
-            // data: [disc, tokens, max_sol]
-            // We use a small slippage for max_sol (sol_in + 1% typically, but since we are buying 'fixed tokens'
-            // we should set max_sol to what we are actually sending or slightly more)
-            // Pump.fun instruction: if you want to buy X tokens, what's the max SOL you pay.
-            const maxSol = amountBI + (amountBI * BigInt(slippageBps) / BigInt(10000));
-
-            data = Buffer.concat([
-                PUMP_BUY_DISCRIMINATOR,
-                this.toBuffer(tokensOut, 8),
-                this.toBuffer(maxSol, 8)
-            ]);
-
-            console.log(`[PumpFun] Buying ${tokensOut} tokens for max ${maxSol} lamports (Input: ${amountBI} lamports)`);
+            instructions = await PumpSdkModule.PUMP_SDK.buyInstructions({
+                global,
+                bondingCurveAccountInfo,
+                bondingCurve,
+                associatedUserAccountInfo,
+                mint,
+                user: userPubkey,
+                amount: tokenAmountOut,
+                solAmount: new BN(amountBI.toString()),
+                slippage: slippagePercent,
+                tokenProgram,
+            });
         } else {
-            // Sell: 'amount' is tokens
-            const state = await this.getBondingCurveState(connection, mint);
-
-            if (state.complete) {
+            const [bondingCurveAccountInfo, associatedUserAccountInfo] = await connection.getMultipleAccountsInfo(
+                [this.getBondingCurvePDA(mint), userAta],
+                'confirmed'
+            );
+            if (!bondingCurveAccountInfo) {
+                throw new Error(`Bonding curve account not found for mint: ${mint.toBase58()}`);
+            }
+            if (!associatedUserAccountInfo) {
+                throw new Error(`Associated token account not found for mint: ${mint.toBase58()} and user: ${userPubkey.toBase58()}`);
+            }
+            const bondingCurve = PumpSdkModule.PUMP_SDK.decodeBondingCurve(bondingCurveAccountInfo);
+            if (bondingCurve.complete) {
                 throw new Error('PUMPFUN_GRADUATED: token has migrated to PumpSwap AMM, bonding curve is closed');
             }
 
-            const solOut = this.calculateSolOut(state, amountBI);
+            const minSolOut = PumpSdkModule.getSellSolAmountFromTokenAmount({
+                global,
+                feeConfig,
+                mintSupply,
+                bondingCurve,
+                amount: new BN(amountBI.toString()),
+            });
+            if (minSolOut.lte(new BN(0))) {
+                throw new Error('Calculated zero SOL out for the given token amount');
+            }
 
-            // data: [disc, tokens, min_sol]
-            const minSol = solOut - (solOut * BigInt(slippageBps) / BigInt(10000));
-
-            data = Buffer.concat([
-                PUMP_SELL_DISCRIMINATOR,
-                this.toBuffer(amountBI, 8),
-                this.toBuffer(minSol, 8)
-            ]);
-
-            console.log(`[PumpFun] Selling ${amountBI} tokens for min ${minSol} lamports`);
+            instructions = await PumpSdkModule.PUMP_SDK.sellInstructions({
+                global,
+                bondingCurveAccountInfo,
+                bondingCurve,
+                mint,
+                user: userPubkey,
+                amount: new BN(amountBI.toString()),
+                solAmount: minSolOut,
+                slippage: slippagePercent,
+                tokenProgram,
+                mayhemMode: bondingCurve.isMayhemMode,
+                cashback: bondingCurve.isCashbackCoin,
+            });
         }
-
-        const keys = [
-            { pubkey: PUMP_FUN_GLOBAL, isSigner: false, isWritable: false },
-            { pubkey: PUMP_FUN_FEE_RECIPIENT, isSigner: false, isWritable: true },
-            { pubkey: mint, isSigner: false, isWritable: false },
-            { pubkey: bondingCurve, isSigner: false, isWritable: true },
-            { pubkey: associatedBondingCurve, isSigner: false, isWritable: true },
-            { pubkey: userATA, isSigner: false, isWritable: true },
-            { pubkey: userPubkey, isSigner: true, isWritable: true },
-            { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
-            { pubkey: ASSOCIATED_TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
-            { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
-            { pubkey: PUMP_FUN_EVENT_AUTHORITY, isSigner: false, isWritable: false },
-            { pubkey: PUMP_FUN_PROGRAM_ID, isSigner: false, isWritable: false },
-        ];
-
-        instructions.push(new TransactionInstruction({
-            programId: PUMP_FUN_PROGRAM_ID,
-            keys,
-            data
-        }));
 
         // Build Versioned Transaction
         const recentBlockhash = await getLatestSolanaBlockhash(connection, 'launchpad_pumpfun_swap');

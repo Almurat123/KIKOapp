@@ -185,7 +185,6 @@ async function resolvePumpSwapPoolForMint(
   hintedPoolId?: string | null
 ): Promise<{ pool: PublicKey; info: NonNullable<Awaited<ReturnType<Connection['getAccountInfo']>>>; layout: PumpSwapPoolLayout } | null> {
   const discoveryConnections = buildPoolDiscoveryConnections(connection);
-  const scanErrors: Array<Record<string, unknown>> = [];
 
   for (const discoveryConnection of discoveryConnections) {
     if (hintedPoolId) {
@@ -203,8 +202,8 @@ async function resolvePumpSwapPoolForMint(
       }
     }
 
-    // Try deterministic PDA path first. This is cheaper and avoids provider-specific
-    // getProgramAccounts restrictions on some managed Solana RPCs.
+    // Only use deterministic canonical pool derivation here. Managed RPCs now reject
+    // broad PumpSwap scans, and official pump canonical pools are PDA-addressable.
     try {
       const derived = derivePoolPda(mint);
       const derivedInfo = await discoveryConnection.getAccountInfo(derived, 'confirmed');
@@ -215,51 +214,11 @@ async function resolvePumpSwapPoolForMint(
         }
       }
     } catch {
-      // continue to scan fallback below
+      // try next connection
     }
-
-    const scanLayouts = [
-      { baseMintOffset: 72, quoteMintOffset: 104 },
-      { baseMintOffset: 43, quoteMintOffset: 75 },
-    ];
-
-    for (const scanLayout of scanLayouts) {
-      let candidates: Awaited<ReturnType<Connection['getProgramAccounts']>> = [];
-      try {
-        candidates = await discoveryConnection.getProgramAccounts(PUMP_SWAP_PROGRAM_ID, {
-          commitment: 'confirmed',
-          filters: [
-            { memcmp: { offset: scanLayout.baseMintOffset, bytes: mint.toBase58() } },
-            { memcmp: { offset: scanLayout.quoteMintOffset, bytes: WSOL_MINT.toBase58() } },
-          ],
-        });
-      } catch (scanErr: any) {
-        scanErrors.push({
-          mint: mint.toBase58(),
-          baseMintOffset: scanLayout.baseMintOffset,
-          error: scanErr?.message || String(scanErr),
-        });
-        continue;
-      }
-      if (candidates.length > 0) {
-        const picked = candidates[0];
-        const layout = decodePumpSwapPoolLayout(picked.account.data, mint);
-        if (layout.baseMint.equals(mint) && layout.quoteMint.equals(WSOL_MINT)) {
-          return { pool: picked.pubkey, info: picked.account, layout };
-        }
-      }
-    }
-  }
-
-  for (const scanError of scanErrors) {
-    logger.warn(LogCode.API_FETCH_FAILED, '[PumpSwapDirect] pool scan failed for layout', scanError);
   }
 
   return null;
-}
-
-function derivePoolV2Pda(mint: PublicKey): PublicKey {
-  return PublicKey.findProgramAddressSync([Buffer.from('pool-v2'), mint.toBuffer()], PUMP_SWAP_PROGRAM_ID)[0];
 }
 
 function deriveCreatorVaultAuthority(creator: PublicKey): PublicKey {
