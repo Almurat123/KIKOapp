@@ -851,3 +851,313 @@ Default rule:
 4. only then propose stylization
 
 If unsure, keep it cleaner.
+
+---
+
+## 28. AE-Style Workflow For Remotion
+
+If the user wants to use Remotion like After Effects, treat the project as a motion design timeline, not just a React app.
+
+Default mental model:
+- composition = final edit or sequence
+- scene = shot or editorial beat
+- layer = independently animated visual element
+- keyframe logic = `interpolate()` / `spring()` / timing windows
+- precomp = nested scene/component or child composition
+
+The model should think in this order:
+1. story beat
+2. shot
+3. layers
+4. timing
+5. transitions
+6. polish
+
+Do not jump directly from idea to code without building this structure first.
+
+---
+
+## 29. Motion Production Protocol
+
+For every non-trivial Remotion task, follow this protocol before implementing.
+
+### 29.1 Intent
+Write down:
+- what the viewer should feel
+- what the viewer should understand
+- what the shot is proving
+- whether the motion should feel editorial, product-focused, cinematic, playful, or aggressive
+
+### 29.2 Scene Grammar
+Each scene must have:
+- `scene_id`
+- `purpose`
+- `start_frame`
+- `end_frame`
+- `entry`
+- `hold`
+- `exit`
+- `focus_element`
+
+If any of these are unclear, the scene is not ready to build.
+
+### 29.3 Animation Mapping
+Each scene should use only a small number of motion primitives. Do not invent new motion language for every shot.
+
+### 29.4 Implementation
+Use the scene spec to decide:
+- `Series` vs `Sequence`
+- `interpolate()` vs `spring()`
+- whether overlap is required
+- which layers need independent motion
+
+### 29.5 Validation
+Before claiming the scene works, render:
+- opening frame
+- first fully readable frame
+- transition frame
+- final frame
+- full draft clip
+
+---
+
+## 30. Scene Spec DSL
+
+Before writing motion code, produce a compact shot spec like this:
+
+```md
+## Scene Plan
+- Scene 1
+  - Purpose: typed intro
+  - Frames: 8-55
+  - Entry: type append
+  - Hold: 6f
+  - Exit: slide down
+  - Focus: main headline
+
+- Scene 2
+  - Purpose: feature statement
+  - Frames: 72-125
+  - Entry: slide from left
+  - Emphasis: keyword overscale then settle
+  - Exit: slide down
+  - Focus: key claim
+
+- Scene 3
+  - Purpose: CTA
+  - Frames: 126-180
+  - Entry: drop from top
+  - Hold: 10f
+  - Exit: scale hold / fade
+  - Focus: final line
+```
+
+This should be treated as a required planning artifact for motion-heavy work.
+
+### 30.1 Why This Matters
+- prevents timeline drift
+- keeps shots readable
+- makes transitions intentional
+- helps compare motion ideas before coding
+
+---
+
+## 31. Layering Rules
+
+When building motion like AE, think in layers.
+
+Typical layer stack:
+- background
+- atmosphere / texture
+- product or footage
+- UI overlays
+- primary text
+- secondary text
+- foreground accents
+
+### 31.1 Rules
+- animate only the layers that need movement
+- do not wrap too much content into one transform if different parts need different timing
+- isolate headline, subtitle, and supporting graphics into separate layers
+- if a transition affects only one object, do not move the entire scene
+
+### 31.2 Precomp Rule
+If a visual block has internal animation and also needs scene-level motion, split it:
+- inner component handles local animation
+- outer `Sequence` or wrapper handles scene timing and entry/exit
+
+---
+
+## 32. Timing Rules
+
+Motion quality is usually a timing problem before it is a rendering problem.
+
+### 32.1 Standard Timeline Order
+Default order:
+- enter
+- settle
+- hold
+- transition
+- exit
+
+### 32.2 Hold Time
+Do not remove holds entirely. Even fast edits need a readable hold unless the goal is intentional chaos.
+
+### 32.3 Overlap
+Use overlap deliberately:
+- overlap scenes when continuity should feel fluid
+- hard cut when contrast or emphasis is needed
+
+### 32.4 Keyframe Windows
+Write transitions as explicit frame windows, not vague duration ideas.
+
+Bad:
+- "slide in quickly"
+
+Good:
+- "frames 72-86: slide from x=-180 to x=0"
+
+---
+
+## 33. Motion Primitive Library
+
+Prefer a controlled set of primitives and combine them instead of inventing one-off effects.
+
+Core primitives:
+- `type_append`
+- `fade`
+- `slide_left`
+- `slide_right`
+- `slide_up`
+- `slide_down`
+- `drop_in`
+- `scale_settle`
+- `overscale_settle`
+- `blur_to_sharp`
+- `wipe_reveal`
+- `push_transition`
+
+### 33.1 Mapping
+- use `interpolate()` for position, opacity, blur, scale, and masks
+- use `spring()` for landings and gentle settle motion
+- use `Series` for sequential blocks
+- use `Sequence` for offsets and overlapping scenes
+
+If a requested effect can be composed from these primitives, do that before building custom systems.
+
+---
+
+## 34. Text Motion Pattern Library
+
+When the work is primarily text-based, start from one of these patterns.
+
+### Pattern 1: Typed Headline
+- append characters over time
+- caret follows the visible text
+- brief hold
+
+### Pattern 2: Slide And Replace
+- current line exits laterally or vertically
+- next line enters from the opposite direction
+
+### Pattern 3: Overscale Keyword
+- keyword enters large
+- other words lag slightly
+- keyword settles back to final scale
+
+### Pattern 4: Previous Down, Next From Top
+- outgoing line drops below baseline
+- incoming line descends from above
+- incoming line settles, then optionally grows subtly
+
+### Pattern 5: Sequential Tagline Ladder
+- multiple lines appear one after another
+- each new line inherits the last line's rhythm
+- avoid resetting visual grammar every time
+
+If the user provides a reference, choose the closest pattern and adapt it rather than inventing motion from zero.
+
+---
+
+## 35. Transitions: Order Of Construction
+
+When building transitions, use this build order:
+
+1. block timing
+2. entry path
+3. overlap or cut decision
+4. exit path
+5. opacity cleanup
+6. blur or scale polish
+
+Do not start with blur, glow, or easing polish before timing and spatial logic are correct.
+
+### 35.1 Transition Checklist
+- where does the old element go?
+- where does the new element come from?
+- do they overlap?
+- when is each fully legible?
+- does the transition support the message or distract from it?
+
+---
+
+## 36. Remotion As Motion Design System
+
+To use Remotion like AE effectively, treat code as a motion system, not a one-off render script.
+
+That means:
+- reusable primitives
+- reusable scene patterns
+- reusable timing constants
+- reusable typography presets
+- reusable validation steps
+
+Recommended reusable modules:
+- `timing.ts`
+- `motion-primitives.ts`
+- `text-patterns.tsx`
+- `scene-specs.ts`
+- `render-checklist.md` or equivalent
+
+The more the motion language is systematized, the better the model can extend it coherently.
+
+---
+
+## 37. Validation Checklist For Typography Videos
+
+For text-led work, always verify:
+- font family matches the brief
+- font weight matches the reference
+- letter spacing matches the reference
+- caret position is correct
+- line is centered or aligned intentionally
+- each frame remains readable during transitions
+- keyword emphasis does not break the line rhythm
+- transitions do not leave ghosted text longer than intended
+
+Render at least:
+- one typing frame
+- one fully typed frame
+- one transition overlap frame
+- one settled end frame
+
+---
+
+## 38. Model Behavior Rules For Motion Tasks
+
+When using this skill, the model should behave like a motion designer with engineering discipline.
+
+Always:
+- summarize the intended sequence before coding
+- identify the motion pattern being used
+- state whether the result is inferred from reference or directly matched
+- call out when typography is still approximate
+- validate with still frames before claiming the motion is right
+
+Never:
+- improvise decorative layers without a reason
+- confuse "dynamic" with "good motion"
+- treat motion polish as a substitute for weak layout
+- skip explaining the order of scenes
+
+If the user wants something visually ambitious, increase planning discipline before increasing effect complexity.
