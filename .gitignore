@@ -5,6 +5,11 @@ coverage/
 *.log
 logs/
 .DS_Store
+reference_videos/
+test/
+llmdocs/
+kikoapi/
+.agent/
 
 # Environment / secrets
 .env

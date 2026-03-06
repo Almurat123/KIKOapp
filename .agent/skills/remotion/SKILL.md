@@ -1161,3 +1161,617 @@ Never:
 - skip explaining the order of scenes
 
 If the user wants something visually ambitious, increase planning discipline before increasing effect complexity.
+
+---
+
+## 39. Apple Motion Language In Remotion
+
+Apple does not publish a single step-by-step guide for recreating keynote or commercial motion in code, but Apple does publish the design principles, typography guidance, symbol animation guidance, and motion accessibility constraints that should shape the work.
+
+This section translates those principles into Remotion-oriented practice.
+
+### 39.1 Source Principles
+Use these Apple principles as the foundation:
+- San Francisco / SF Pro is the default typographic voice for Apple platforms
+- fluid motion should feel fast, smooth, natural, and "right"
+- elasticity is useful when it reinforces natural movement and settling
+- motion should clarify hierarchy and state, not decorate arbitrarily
+- layered motion should be grouped when parts conceptually belong together
+- reduced motion support matters, especially for scaling, depth, and simulated 3D
+
+### 39.2 What This Means In Remotion
+- typography-first scenes should begin with font, spacing, and timing, not visual effects
+- use `spring()` for landing, settling, and elastic continuity
+- use `interpolate()` for exact position, opacity, blur, and scale mapping
+- use `Sequence` and `Series` to create editorial order and overlap intentionally
+- use transitions only after scene timing is already correct
+
+---
+
+## 40. Apple Animation Categories
+
+When matching Apple-like motion, sort the animation into one of these categories before implementing.
+
+### 40.1 Typography Motion
+Typical behavior:
+- direct, minimal entry
+- precise spacing
+- clear settling
+- subtle but not mushy scale changes
+
+In Remotion:
+- use clean text layers
+- avoid decorative backgrounds unless directly supported by a reference
+- prefer `type_append`, `fade`, `slide`, or restrained `scale_settle`
+
+### 40.2 Hierarchical Transition Motion
+Apple often uses motion to show structure:
+- current content exits with direction
+- incoming content arrives from a meaningful opposite direction
+- overlap is short and readable
+
+In Remotion:
+- stage each scene with `Sequence` or `TransitionSeries`
+- define overlap in frames explicitly
+- keep the old scene legible only as long as it supports the handoff
+
+### 40.3 Elastic Settle Motion
+Apple's fluid interfaces use elasticity to make motion feel natural and continuous.
+
+In Remotion:
+- use `spring()` when an element needs to come to rest
+- tune `damping`, `mass`, and `stiffness` for natural landing, not flashy bounce
+- avoid spring on every property at once
+
+### 40.4 Layered Symbol Motion
+Apple's SF Symbols guidance emphasizes deciding when layers move independently and when they move together.
+
+In Remotion:
+- group conceptual units so they move as one layer if that matches the meaning
+- split layers only when independent motion adds clarity
+- do not animate all child layers separately by default
+
+### 40.5 Reduced-Motion Alternate Motion
+Apple explicitly calls out scaling, spinning, parallax, animated blur, depth-of-field, multi-axis motion, and ongoing motion as things to reduce or replace when necessary.
+
+In Remotion:
+- for alternate motion modes, replace depth-heavy or scale-heavy transitions with dissolve, fade, color shift, or simple directional movement
+- keep the semantic transition, remove the unnecessary trigger
+
+---
+
+## 41. Apple Typography Guidance For Motion Scenes
+
+Apple's typography guidance and San Francisco sessions imply that typography quality depends on optical size, weight choice, width choice, and spacing discipline.
+
+### 41.1 Defaults For Apple-Like Title Cards
+- use `SF Pro Display`-style typography for large titles
+- prefer lighter or regular weights before jumping to heavy bold
+- adjust letter-spacing intentionally, especially for large display text
+- keep line-height tight but readable
+- use width and scale as expressive tools only when they reinforce tone
+
+### 41.2 Motion Rule
+Do not animate typography until the base line looks correct as a still frame.
+
+The model should first verify:
+- font family
+- weight
+- width feel
+- tracking
+- baseline alignment
+- overall scale in frame
+
+If the still frame is wrong, animation will only hide the problem temporarily.
+
+---
+
+## 42. Apple-Like Motion Order
+
+For Apple-style text and product scenes, this is the default order of construction.
+
+1. static layout
+2. timing windows
+3. directional entry
+4. settle behavior
+5. overlap / transition
+6. end hold
+7. subtle polish
+
+### 42.1 Default Rule
+If a scene does not already look good with no motion, do not add more motion.
+
+### 42.2 Preferred Transition Shapes
+- slide in from left or right for feature changes
+- slide down / slide up for replacing one line with another
+- overscale then settle for emphasizing one word
+- blur-to-sharp only when it adds readability or cinematic focus
+- dissolve instead of depth-heavy motion when clarity matters more than spectacle
+
+---
+
+## 43. Apple-Like Remotion Mapping
+
+Use the following mapping when translating Apple-style motion into Remotion decisions.
+
+### 43.1 Editorial Order
+- sequential scenes: `Series`
+- overlapping scenes: `Sequence` with explicit offsets
+- named timeline blocks: use `name` on sequences when helpful for timeline clarity
+
+### 43.2 Motion Curves
+- natural landing: `spring()`
+- exact directional travel: `interpolate()`
+- transition packages between scenes: `@remotion/transitions` when the edit benefits from standardized presentations
+
+### 43.3 Async Assets
+- use `useDelayRender()` for font or asset readiness
+- use `calculateMetadata()` if scene length depends on content
+
+### 43.4 Typography Clips
+- text typing: append characters over time
+- text replacement: separate outgoing and incoming layers
+- headline emphasis: scale one word independently
+
+### 43.5 Video / Footage Integration
+- use `OffthreadVideo` when source footage is part of the shot
+- keep product footage and title layers separate so they can be timed independently
+
+---
+
+## 44. Apple Motion Recipes Without Code Reuse
+
+These are conceptual recipes for the model to follow. They are not reusable code components.
+
+### Recipe A: Apple-Style Typed Headline
+- choose `SF Pro Display`-style typography
+- make the still frame correct first
+- append text characters over time
+- keep caret attached to current text
+- hold briefly
+- remove or replace line cleanly
+
+### Recipe B: Statement Replacement
+- outgoing statement exits vertically or laterally
+- incoming statement enters from the opposite side
+- overlap only long enough to communicate continuity
+- settle incoming line into a quiet hold
+
+### Recipe C: Keyword Overscale
+- incoming keyword arrives large
+- supporting words lag behind slightly
+- keyword scales back to the final reading size
+- avoid using the same trick repeatedly in adjacent scenes
+
+### Recipe D: New Line From Top
+- current line slides downward out of the center
+- new line descends from above
+- once centered, new line grows subtly over time
+- keep the final scale move modest
+
+### Recipe E: Symbol Or Layer Group Animation
+- decide if the object should move as one unit or by layer
+- if all parts belong together conceptually, group them
+- if independent layer motion adds meaning, stagger it carefully
+
+---
+
+## 45. Accessibility And Reduced-Motion Rule
+
+Apple explicitly warns that scaling, spinning, depth simulation, animated blur, depth-of-field, multi-axis motion, and ongoing motion can be problematic for motion-sensitive users.
+
+For motion-heavy Remotion work, record whether the scene includes:
+- large scale jumps
+- simulated depth
+- parallax
+- blur-as-motion
+- spinning or vortex movement
+- perpetual background motion
+
+If yes, note a reduced-motion fallback:
+- fade
+- dissolve
+- color shift
+- smaller directional move
+- reduced overlap
+
+Do not remove meaningful hierarchy transitions entirely if the motion is communicating structure. Replace them with calmer motion.
+
+---
+
+## 46. Research-Informed Rules For The Model
+
+When the user asks for Apple-like animation, the model should now assume:
+- Apple-like does not mean visually busy
+- Apple-like motion is structured, hierarchical, and restrained
+- elasticity is for believable settling, not spectacle
+- typography and spacing are usually more important than effect complexity
+- grouped motion is often more Apple-like than independently flaring sublayers
+
+### 46.1 Required Workflow
+Before coding:
+- identify the animation category
+- identify whether the scene is typography-led or product-led
+- identify the transition direction
+- identify whether the scene needs spring or interpolation
+
+After coding:
+- render still frames for typography verification
+- render a transition frame
+- render a final settled frame
+- explicitly state what was matched from reference and what was inferred from Apple principles
+
+---
+
+## 47. Sources To Anchor Apple-Style Motion Decisions
+
+Prefer these sources when refreshing Apple-oriented guidance:
+- Apple Fonts: `https://developer.apple.com/fonts/`
+- Apple WWDC: Designing Fluid Interfaces
+- Apple WWDC: The details of UI typography
+- Apple WWDC: Meet the expanded San Francisco font family
+- Apple WWDC: What’s new in SF Symbols 5
+- Apple WWDC: Create animated symbols
+- Apple Reduced Motion evaluation criteria
+
+Use these alongside Remotion docs:
+- `https://www.remotion.dev/docs/sequence`
+- `https://www.remotion.dev/docs/series`
+- `https://www.remotion.dev/docs/interpolate`
+- `https://www.remotion.dev/docs/spring`
+- `https://www.remotion.dev/docs/transitions`
+- `https://www.remotion.dev/docs/use-delay-render`
+
+If the exact Apple commercial effect is not documented, say so and derive the motion from Apple's published principles rather than pretending there is an official recipe.
+
+---
+
+## 48. Editor-Style Component Mindset
+
+Modern editors like CapCut, Jianying, Premiere, and similar tools feel productive because they expose repeatable motion components:
+- titles
+- captions
+- stickers
+- overlays
+- transitions
+- particles
+- backgrounds
+- HUDs
+- camera moves
+- beat-driven reveals
+
+When using Remotion, think in the same way.
+
+The model should first ask:
+- is this a title component?
+- is this a subtitle / caption component?
+- is this a transition component?
+- is this a decorative overlay?
+- is this a texture / atmosphere layer?
+- is this a product framing component?
+
+Then decide how to build it.
+
+Do not begin by asking "what JSX should I write?" Start by asking "what kind of editor component is this?"
+
+---
+
+## 49. Built-In Component Categories To Emulate
+
+If the user wants "editor-style" motion, sort the request into one or more of these categories.
+
+### 49.1 Title Components
+Common examples:
+- typing title
+- scale-in title
+- blur reveal title
+- split-word title
+- keyword emphasis title
+- stacked title
+
+In Remotion:
+- use separate layers for each logical text unit
+- define entry, hold, and exit in frames
+- verify still-frame typography before motion
+
+### 49.2 Caption Components
+Common examples:
+- karaoke captions
+- active-word highlight captions
+- subtitle cards
+- bottom-safe captions
+- word-by-word pop captions
+
+In Remotion:
+- treat transcript timing as data
+- map frame ranges to active words or lines
+- build bottom-safe layouts with clear margins
+- use restrained emphasis rather than random per-word effects
+
+### 49.3 Transition Components
+Common examples:
+- slide replace
+- push transition
+- zoom cut
+- blur cut
+- whip-inspired directional move
+- dissolve
+
+In Remotion:
+- define outgoing and incoming layers separately
+- write overlap explicitly
+- build the transition as scene timing first, polish second
+
+### 49.4 Decorative Overlay Components
+Common examples:
+- glows
+- grain
+- scanlines
+- stickers
+- scribbles
+- paper tears
+- spark lines
+- masks
+
+In Remotion:
+- put overlays on their own layers
+- keep them optional
+- never let them fix weak composition
+
+### 49.5 Background Components
+Common examples:
+- gradient stage
+- moving noise
+- soft spotlight
+- abstract shape field
+- image collage
+- product stage
+
+In Remotion:
+- backgrounds should support hierarchy, not compete with it
+- motion on the background should usually be slower than motion in the foreground
+
+### 49.6 Product / Device Components
+Common examples:
+- phone frame reveal
+- desktop screen reveal
+- scrolling UI card
+- feature spotlight
+- comparison panel
+
+In Remotion:
+- isolate frame, content, reflections, and shadow layers when necessary
+- animate device and UI separately if the shot needs both
+
+---
+
+## 50. How To Build Editor-Style Components In Remotion
+
+For any editor-style component, use this process:
+
+1. define the component category
+2. define the visual hierarchy
+3. define the frame window
+4. define the entry behavior
+5. define the hold behavior
+6. define the exit behavior
+7. define whether it is reusable conceptually
+8. validate the component as a still and as a moving clip
+
+### 50.1 Example Questions
+- what is the primary readable element?
+- does the component need a background plate?
+- is the motion data-driven?
+- does it sync to audio or captions?
+- does it require a reduced-motion alternative?
+
+---
+
+## 51. Resource Sourcing Rules
+
+The model should not only know how to animate. It should know where the ingredients come from and how to judge them.
+
+Resource categories:
+- fonts
+- icons / symbols
+- stock video
+- still images
+- textures
+- music
+- sound effects
+- transcripts
+- vector assets
+- UI references
+
+### 51.1 Source Priority
+Use this priority order when sourcing:
+
+1. user-provided assets
+2. official platform resources
+3. official brand resources
+4. reputable stock libraries with clear licenses
+5. community resources only with caution
+
+### 51.2 Sourcing Rule
+Never assume an asset is usable just because it is easy to download. Check:
+- license
+- attribution requirement
+- commercial use status
+- resolution
+- alpha / transparency needs
+- style consistency
+- whether the source is likely to disappear
+
+---
+
+## 52. Resource Types And Where To Look
+
+These are search directions to use when the user asks for assets or when the task clearly needs them.
+
+### 52.1 Fonts
+Look at:
+- Apple Fonts / San Francisco resources
+- official brand font resources
+- Google Fonts when a project allows it
+
+Use when:
+- typography scenes need consistent, legal, high-quality type
+
+### 52.2 Icons And Symbols
+Look at:
+- SF Symbols for Apple-like work
+- official icon sets from product or design systems
+
+Use when:
+- UI-like motion needs clean symbolic layers
+
+### 52.3 Stock Video
+Look at:
+- Pexels videos
+- Mixkit stock video
+- other reputable stock libraries with clear licensing
+
+Use when:
+- backgrounds, montage shots, or cutaway footage are needed
+
+### 52.4 Music And Sound Effects
+Look at:
+- Mixkit music and SFX
+- licensed music libraries the user already has access to
+
+Use when:
+- rhythm, transitions, or title impact needs audio support
+
+### 52.5 Design References
+Look at:
+- Apple Design Resources
+- Figma Community and official design resources
+- official product marketing pages
+
+Use when:
+- trying to match product-stage layouts, icon behavior, typography, or editorial hierarchy
+
+---
+
+## 53. Resource Search Heuristics
+
+When searching for assets, do not search vaguely.
+
+Bad:
+- "cool video background"
+
+Good:
+- "white paper texture subtle 4k"
+- "soft spotlight black background 4k"
+- "phone hand closeup neutral lighting"
+- "minimal synth rise sound effect"
+- "grain overlay loop 4k"
+
+The model should search with:
+- subject
+- style
+- color
+- duration or loopability
+- resolution
+- usage context
+
+### 53.1 Asset Quality Checklist
+- is the asset too generic?
+- does it match the motion language?
+- does it hold up at output resolution?
+- does it contain hidden branding or legal risk?
+- will it distract from the message?
+
+---
+
+## 54. Licensing And Risk Notes
+
+Free stock libraries are useful, but they are not risk-free.
+
+Default rule:
+- prefer official or clearly licensed sources
+- keep a record of where an asset came from
+- if the project is commercial or high-visibility, be stricter
+
+### 54.1 Practical Warning
+Even when a stock site says "free", uploaded content can still be risky if the uploader was not the rightful owner.
+
+Therefore:
+- save the source URL
+- save license context when relevant
+- prefer assets from stable libraries and established contributors
+- avoid building critical brand work on questionable uploads
+
+---
+
+## 55. Component Recipes Inspired By Editors
+
+These are component-style recipes to think with. They are not code templates.
+
+### Recipe A: Typing Title
+- centered or aligned headline
+- direct text append
+- caret follow
+- clean hold
+
+### Recipe B: Active Word Captions
+- line stays stable
+- active word changes weight, color, or scale
+- emphasis follows transcript timing
+
+### Recipe C: Sticker Accent
+- core message remains primary
+- sticker or accent enters on top
+- exits quickly
+- used for energy, not for readability
+
+### Recipe D: Texture Overlay
+- low-opacity grain, glow, or vignette
+- should be removable without breaking the layout
+
+### Recipe E: Slide Replace
+- previous line leaves
+- new line arrives from opposite direction
+- overlap is short and deliberate
+
+### Recipe F: Device Showcase
+- product frame enters
+- content reveals inside
+- camera or stage movement is slower than UI movement
+
+---
+
+## 56. Research-Informed Asset Sources
+
+Use these sources when appropriate, and re-check their terms when the stakes are high.
+
+### Official / Platform
+- Apple Fonts: `https://developer.apple.com/fonts/`
+- Apple Design Resources: `https://developer.apple.com/design/resources/`
+- SF Symbols: `https://developer.apple.com/sf-symbols/`
+
+### Stock / Media
+- Pexels videos help page: `https://help.pexels.com/hc/en-us/articles/360042296474-Do-you-also-provide-free-videos`
+- Pexels overview: `https://help.pexels.com/hc/en-us/articles/360042088914-What-is-Pexels-and-how-does-Pexels-work-`
+- Mixkit home: `https://mixkit.co/`
+- Mixkit music: `https://mixkit.co/free-stock-music/`
+
+### Remotion / Motion Construction
+- Remotion docs: `https://www.remotion.dev/docs/`
+- Remotion captions docs when subtitle work is needed
+- Remotion transitions docs when scene packaging is needed
+
+These are starting points, not blanket approvals. Always match the asset source to the project's legal and visual requirements.
+
+---
+
+## 57. AI Video Foundation Addendum
+
+For editor-style component systems and AI video foundation rules, also read:
+- [`AI_VIDEO_FOUNDATION.md`](/Users/almurat/KiKo/.agent/skills/remotion/AI_VIDEO_FOUNDATION.md)
+
+Use the addendum when the task needs:
+- CapCut / Jianying style component thinking
+- a larger component vocabulary
+- asset dependency planning
+- AI video system behavior rules

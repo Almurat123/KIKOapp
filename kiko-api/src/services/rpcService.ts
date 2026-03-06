@@ -57,39 +57,44 @@ export async function getTokenSupply(
         }
     }
 
-    try {
-        const decimals = await getTokenDecimals(chainId, normalized, {
-            rpcStrategy,
-            defaultDecimals: options.defaultDecimals ?? DEFAULT_DECIMALS,
-        });
-        const data = encodeFunctionData({
-            abi: ERC20_ABI,
-            functionName: 'decimals'
-        });
-        void data;
-        const totalSupplyData = encodeFunctionData({
-            abi: parseAbi(['function totalSupply() view returns (uint256)']),
-            functionName: 'totalSupply',
-        });
-        const resultHex = await callRpc<string>(
-            chainId,
-            'eth_call',
-            [{ to: normalized, data: totalSupplyData }, 'latest'],
-            {
-                strategy: rpcStrategy,
-                rpcClass: 'best_effort_read',
-                path: 'token_supply'
+    const totalSupplyAbi = parseAbi(['function totalSupply() view returns (uint256)']);
+    const totalSupplyData = encodeFunctionData({
+        abi: totalSupplyAbi,
+        functionName: 'totalSupply',
+    });
+    const strategies: Array<'fast' | 'cheap'> = rpcStrategy === 'fast' ? ['fast', 'cheap'] : ['cheap', 'fast'];
+
+    for (const strategy of strategies) {
+        try {
+            const decimals = await getTokenDecimals(chainId, normalized, {
+                rpcStrategy: strategy,
+                defaultDecimals: options.defaultDecimals ?? DEFAULT_DECIMALS,
+            });
+            const resultHex = await callRpc<string>(
+                chainId,
+                'eth_call',
+                [{ to: normalized, data: totalSupplyData }, 'latest'],
+                {
+                    strategy,
+                    rpcClass: 'best_effort_read',
+                    path: 'token_supply'
+                }
+            );
+            const decoded = decodeFunctionResult({
+                abi: totalSupplyAbi,
+                functionName: 'totalSupply',
+                data: resultHex as `0x${string}`
+            }) as bigint;
+            const supply = Number(decoded) / Math.pow(10, decimals);
+            if (Number.isFinite(supply) && supply >= 0) {
+                return supply;
             }
-        );
-        const decoded = decodeFunctionResult({
-            abi: parseAbi(['function totalSupply() view returns (uint256)']),
-            functionName: 'totalSupply',
-            data: resultHex as `0x${string}`
-        }) as bigint;
-        return Number(decoded) / Math.pow(10, decimals);
-    } catch {
-        return 0;
+        } catch {
+            // Try the alternate RPC lane before giving up and returning 0.
+        }
     }
+
+    return 0;
 }
 
 type LocalCacheEntry<T> = { value: T; expiresAt: number };

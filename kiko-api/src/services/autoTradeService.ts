@@ -36,7 +36,7 @@ import { moralisService } from './moralisService.js';
 import { warpcastService } from './warpcastService.js';
 import { notificationService, type TradeNotificationParams } from './notificationService.js';
 import { getTokenInfo } from './tokenService.js';
-import { getTokenMetadata } from './rpcService.js';
+import { getTokenMetadata, getTokenSupply } from './rpcService.js';
 import { getDexPrice, getDexPriceDetailed } from './dexPriceService.js';
 import { cacheHub } from '../cache/DataCacheHub.js';
 import { logger } from '../utils/logger.js';
@@ -1132,7 +1132,14 @@ async function processBuyWithInfo(
     let strictTargetSwapValueReliable = targetValueSnapshot.strictTargetSwapValueReliable;
     let strictTargetSwapValueSource = targetValueSnapshot.strictTargetSwapValueSource;
     const strictMinGuardRequired = targetValueSnapshot.strictMinGuardRequired;
-    const liquidityGuardSnapshot = await resolveBuyLiquidityGuardSnapshot(tokenToBuy, chainId, tokenInfo);
+    const stopAtLiquidityUsd = configs.reduce((max, config) => {
+        const next = Number(config?.minLiquidityUsd || 0);
+        return Number.isFinite(next) && next > max ? next : max;
+    }, 0);
+    const liquidityGuardSnapshot = await resolveBuyLiquidityGuardSnapshot(tokenToBuy, chainId, tokenInfo, {
+        swap,
+        stopAtLiquidityUsd,
+    });
     tokenInfo.guardLiquidityUsd = liquidityGuardSnapshot.liquidityUsd;
     tokenInfo.guardLiquiditySource = liquidityGuardSnapshot.source;
     tokenInfo.guardLiquidityReliable = liquidityGuardSnapshot.reliable;
@@ -1201,6 +1208,30 @@ async function processBuyWithInfo(
                     impliedPrice: impliedPrice.toFixed(9),
                     valueUsd: targetSwapValueUsd
                 });
+
+                if (chainId !== 900 && (!tokenInfo.marketCap || tokenInfo.marketCap <= 0)) {
+                    try {
+                        const totalSupply = await getTokenSupply(chainId, tokenToBuy, {
+                            rpcStrategy: 'fast',
+                            defaultDecimals: decimals,
+                        });
+                        if (Number.isFinite(totalSupply) && totalSupply > 0) {
+                            tokenInfo.marketCap = totalSupply * impliedPrice;
+                            tokenInfo.fdv = tokenInfo.marketCap;
+                            logger.info(LogCode.DATA_RECOVERY, 'Derived EVM market cap from RPC supply and implied price', {
+                                token: tokenToBuy,
+                                marketCap: tokenInfo.marketCap,
+                                totalSupply,
+                                impliedPrice
+                            });
+                        }
+                    } catch (supplyErr: any) {
+                        logger.warn(LogCode.API_FETCH_FAILED, 'Failed to derive EVM market cap from RPC supply', {
+                            token: tokenToBuy,
+                            error: supplyErr?.message || String(supplyErr)
+                        });
+                    }
+                }
 
                 if (chainId === 900 && (!tokenInfo.marketCap || tokenInfo.marketCap <= 0)) {
                     try {

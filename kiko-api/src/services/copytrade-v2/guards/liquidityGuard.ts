@@ -1,7 +1,9 @@
 import { logger } from '../../../utils/logger.js';
 import { LogCode } from '../../../config/logRegistry.js';
-import { getTokenLiquidity } from '../../dex/directSwap/pipeline/poolLayer.js';
+import { getLiquidityFromCandidatePools, getTokenLiquidity } from '../../dex/directSwap/pipeline/poolLayer.js';
+import { getV2PoolInfo, getV3PoolInfo, type PoolInfo } from '../../dex/poolInfo.js';
 import { resolveSolanaDirectLiquidity } from '../../solana/direct/liquidity.js';
+import type { DecodedSwap } from '../../txDecoder.js';
 
 // Guard-level total budget is ~1200ms, so keep direct Solana liquidity bounded.
 const COPYTRADE_SOL_LIQ_TIMEOUT_MS = Number(process.env.COPYTRADE_SOL_LIQ_TIMEOUT_MS || '650');
@@ -9,12 +11,48 @@ const COPYTRADE_SOL_LIQUIDITY_SCAN_ALL_POOLS = (process.env.COPYTRADE_SOL_LIQUID
 
 export type LiquidityGuardSnapshot = {
     liquidityUsd: number;
-    source: 'direct_pool_tvl' | 'token_info_fallback' | 'direct_pool_unpriced' | 'unavailable';
+    source: 'target_pool_tvl' | 'direct_pool_tvl' | 'token_info_fallback' | 'direct_pool_unpriced' | 'unavailable';
     reliable: boolean;
     poolCount: number;
     fallbackUsed: boolean;
     metadata?: Record<string, unknown>;
 };
+
+async function loadTargetInteractedPools(
+    swap: DecodedSwap | undefined,
+    chainId: number
+): Promise<PoolInfo[]> {
+    const candidates = new Map<string, { poolAddress: string; kind: string }>();
+    const pushCandidate = (poolAddress: unknown, kind: unknown) => {
+        const address = String(poolAddress || '').trim();
+        const version = String(kind || '').trim().toLowerCase();
+        if (!address || !version) return;
+        candidates.set(`${version}:${address.toLowerCase()}`, { poolAddress: address, kind: version });
+    };
+
+    pushCandidate(swap?.resolvedPoolHint?.poolAddress, swap?.resolvedPoolHint?.kind);
+    for (const hop of swap?.routeHops || []) {
+        pushCandidate(hop?.poolAddress, hop?.kind);
+    }
+
+    const pools = await Promise.all(Array.from(candidates.values()).map(async ({ poolAddress, kind }) => {
+        try {
+            if (kind === 'v2' || kind === 'aerodrome') {
+                const pool = await getV2PoolInfo(poolAddress, chainId);
+                if (!pool) return null;
+                return kind === 'aerodrome' ? { ...pool, version: 'aerodrome' as const, dex: 'aerodrome' as const } : pool;
+            }
+            if (kind === 'v3') {
+                return await getV3PoolInfo(poolAddress, chainId);
+            }
+            return null;
+        } catch {
+            return null;
+        }
+    }));
+
+    return pools.filter((pool): pool is PoolInfo => Boolean(pool));
+}
 
 function normalizeFinitePositive(value: unknown): number {
     const n = Number(value);
@@ -24,7 +62,11 @@ function normalizeFinitePositive(value: unknown): number {
 export async function resolveBuyLiquidityGuardSnapshot(
     tokenAddress: string,
     chainId: number,
-    tokenInfo: any
+    tokenInfo: any,
+    options?: {
+        swap?: DecodedSwap;
+        stopAtLiquidityUsd?: number;
+    }
 ): Promise<LiquidityGuardSnapshot> {
     const fallbackLiquidityUsd = normalizeFinitePositive(tokenInfo?.liquidity);
 
@@ -91,6 +133,31 @@ export async function resolveBuyLiquidityGuardSnapshot(
     }
 
     try {
+        const targetPools = await loadTargetInteractedPools(options?.swap, chainId).catch(() => []);
+        if (targetPools.length > 0) {
+            const targetPoolLiquidity = await getLiquidityFromCandidatePools(tokenAddress, chainId, targetPools, {
+                budgetMs: 700,
+            }).catch(() => null);
+            const targetLiquidityUsd = normalizeFinitePositive(targetPoolLiquidity?.totalTvlUsd);
+            const targetPoolCount = Array.isArray(targetPoolLiquidity?.pools) ? targetPoolLiquidity.pools.length : targetPools.length;
+            const stopAtLiquidityUsd = normalizeFinitePositive(options?.stopAtLiquidityUsd);
+
+            if (targetLiquidityUsd > 0 && (!stopAtLiquidityUsd || targetLiquidityUsd >= stopAtLiquidityUsd)) {
+                return {
+                    liquidityUsd: targetLiquidityUsd,
+                    source: 'target_pool_tvl',
+                    reliable: Boolean(targetPoolLiquidity?.reliable),
+                    poolCount: targetPoolCount,
+                    fallbackUsed: false,
+                    metadata: {
+                        mode: 'target_interacted_pools',
+                        targetPoolCount,
+                        stopAtLiquidityUsd: stopAtLiquidityUsd || undefined,
+                    }
+                };
+            }
+        }
+
         const directLiquidity = await getTokenLiquidity(tokenAddress, chainId);
         const directLiquidityUsd = normalizeFinitePositive(directLiquidity?.totalTvlUsd);
         const poolCount = Array.isArray(directLiquidity?.pools) ? directLiquidity.pools.length : 0;
