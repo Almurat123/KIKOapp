@@ -162,7 +162,7 @@ export async function socialRoutes(fastify: FastifyInstance) {
         });
       }
 
-      const metadata = await ogpService.fetchOGP(decodedUrl(url), request.headers.origin);
+      const metadata = await ogpService.fetchOGP(decodedUrl(url));
       reply.header('Cache-Control', 'public, max-age=300, stale-while-revalidate=600');
       return reply.send({ success: true, data: metadata });
     } catch (error) {

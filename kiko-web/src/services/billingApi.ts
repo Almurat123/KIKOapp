@@ -10,9 +10,6 @@ async function authFetch(path: string, options: RequestInit = {}, authToken?: st
   if (token) {
     headers.set('Authorization', `Bearer ${token}`);
   }
-  if (import.meta.env.VITE_APP_KEY) {
-    headers.set('X-App-Key', import.meta.env.VITE_APP_KEY);
-  }
   headers.set('Content-Type', 'application/json');
 
   const response = await fetch(`${API_BASE_URL}${path}`, {

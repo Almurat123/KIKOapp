@@ -90,7 +90,6 @@ export class ChatWebSocketClient {
             this.connectionResolver = resolve;
         });
 
-        const appKey = import.meta.env.VITE_APP_KEY || '';
         const url = `${WS_BASE_URL}/api/chat/ws`;
         console.log(`[ChatWS] Connecting to user WebSocket...`);
 
@@ -101,7 +100,6 @@ export class ChatWebSocketClient {
             this.socket?.send(JSON.stringify({
                 type: 'auth',
                 token,
-                ...(appKey ? { appKey } : {})
             }));
             this.authTimeout = setTimeout(() => {
                 console.warn('[ChatWS] Auth timeout, closing socket');

@@ -8,6 +8,16 @@ dotenv.config();
 
 const MODERATION_SERVICE_URL = process.env.MODERATION_SERVICE_URL || 'http://localhost:8000';
 const MODERATION_TIMEOUT_MS = Number(process.env.MODERATION_TIMEOUT_MS || '5000');
+const INTERNAL_SERVICE_KEY = process.env.INTERNAL_SERVICE_KEY || '';
+
+function buildInternalHeaders(): Record<string, string> {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (INTERNAL_SERVICE_KEY) {
+        headers['X-Service-Key'] = INTERNAL_SERVICE_KEY;
+        headers['X-Internal-Service-Key'] = INTERNAL_SERVICE_KEY;
+    }
+    return headers;
+}
 
 export interface ModerationResult {
     safe: boolean;
@@ -47,7 +57,7 @@ export class ModerationClient {
             const response = await fetchJson({
                 url: `${MODERATION_SERVICE_URL}/input`,
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: buildInternalHeaders(),
                 body: JSON.stringify({
                     text,
                     context
@@ -76,7 +86,7 @@ export class ModerationClient {
             const response = await fetchJson({
                 url: `${MODERATION_SERVICE_URL}/output`,
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: buildInternalHeaders(),
                 body: JSON.stringify({
                     text
                 }),

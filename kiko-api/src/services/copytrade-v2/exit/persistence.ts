@@ -64,6 +64,37 @@ export async function persistDeferredExitRetryState(params: {
   }));
 }
 
+export async function persistPendingExitFinalityState(params: {
+  positions: Array<AttributedPositionLike & { id: string; exitRetryCount?: number | null }>;
+  targetWallet?: string | null;
+  exitReason: string;
+  reasonCode: string;
+  txHash: string;
+}): Promise<void> {
+  if (params.positions.length === 0) return;
+  const ids = params.positions.map((entry) => entry.id);
+  const retryCount = Math.max(1, ...params.positions.map((position) => Number(position.exitRetryCount || 0) + 1));
+  await prisma.position.updateMany({
+    where: { id: { in: ids }, status: { in: ['open', 'pending'] } },
+    data: {
+      exitTxHash: params.txHash,
+      exitRetryCount: retryCount,
+      lastExitAttempt: new Date(),
+      exitReason: params.exitReason,
+    },
+  });
+  await Promise.all(params.positions.map(async (position) => {
+    await syncCopytradeLedgerFromLegacy({
+      positionId: position.id,
+      targetWallet: params.targetWallet,
+      lifecycleState: 'FOLLOWER_EXIT_AWAITING_CONFIRMATION',
+      lastExecutionState: 'pending_visibility',
+      lastExecutionReasonCode: params.reasonCode,
+      followerExitTxHash: params.txHash,
+    }).catch(() => null);
+  }));
+}
+
 export async function persistSuccessfulExit(params: {
   positions: Array<AttributedPositionLike & {
     id: string;

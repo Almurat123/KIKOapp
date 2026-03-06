@@ -43,6 +43,7 @@ export function buildForcedExitSwapPlan(input: {
     sellRoutePolicy: 'external_primary',
     positions: input.snapshot.positions.filter((position) => String(position.status || '').toLowerCase() === 'open'),
     pendingAttributedLotIds: input.snapshot.attribution.pendingAttributedLotIds,
+    latestTargetSellTxHash: input.snapshot.latestTargetSellTxHash || null,
     attributedReasonCode: 'FORCED_FULL_EXIT_FROM_LEDGER',
     attributionMetrics: {
       ...input.snapshot.attribution.metrics,

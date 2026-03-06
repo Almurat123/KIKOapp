@@ -1,8 +1,9 @@
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, Depends
 from pydantic import BaseModel
 import uvicorn
 import logging
 from moderation.models import moderation_models
+from chat_v2.auth import require_internal_service
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -24,7 +25,7 @@ async def startup_event():
 async def health():
     return {"status": "ok"}
 
-@app.post("/input")
+@app.post("/input", dependencies=[Depends(require_internal_service)])
 async def moderate_input(req: ModerationRequest):
     logger.info(f"Moderating input: {req.text[:50]}...")
 
@@ -39,7 +40,7 @@ async def moderate_input(req: ModerationRequest):
         "action": "allow" if is_safe else "block"
     }
 
-@app.post("/output")
+@app.post("/output", dependencies=[Depends(require_internal_service)])
 async def moderate_output(req: ModerationRequest):
     logger.info(f"Moderating output: {req.text[:50]}...")
     

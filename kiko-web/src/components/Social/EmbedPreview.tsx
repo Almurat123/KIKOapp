@@ -1,14 +1,23 @@
-
-import React, { useEffect, useState, useRef } from 'react';
-import { ExternalLink, Video as VideoIcon } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { ArrowUpRight, ExternalLink, Sparkles, Video as VideoIcon } from 'lucide-react';
 import { HlsVideoPlayer } from './HlsVideoPlayer';
+import { resolveCoreApiBase } from '../../utils/coreApiBase';
 
 interface EmbedPreviewProps {
     url: string;
     isDark?: boolean;
 }
 
-interface OGPData {
+type PreviewKind = 'rich' | 'compact' | 'miniapp' | 'quote' | 'unavailable';
+type PreviewStatus = 'ready' | 'degraded' | 'unavailable';
+type PreviewSource = 'html' | 'fc-meta' | 'oembed' | 'microlink' | 'puppeteer' | 'none';
+
+interface PreviewData {
+    kind?: PreviewKind;
+    status?: PreviewStatus;
+    source?: PreviewSource;
+    canonicalUrl?: string;
+    destinationUrl?: string;
     title?: string;
     description?: string;
     image?: string;
@@ -19,58 +28,125 @@ interface OGPData {
     originalImage?: string;
 }
 
-const ogpDataCache = new Map<string, OGPData | null>();
-const ogpInFlightCache = new Map<string, Promise<OGPData | null>>();
-const API_URL = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
+const previewCache = new Map<string, PreviewData | null>();
+const previewInFlightCache = new Map<string, Promise<PreviewData | null>>();
+const API_URL = resolveCoreApiBase().replace(/\/$/, '');
 
 function normalizePreviewImageUrl(src?: string): string | undefined {
-    if (!src) return src;
+    if (!src) return undefined;
     if (src.startsWith('/api/') && API_URL) {
         return `${API_URL}${src}`;
     }
     return src;
 }
 
-async function fetchOGPWithDedupe(url: string): Promise<OGPData | null> {
-    if (ogpDataCache.has(url)) {
-        return ogpDataCache.get(url) ?? null;
+function getOpenUrl(preview: PreviewData | null, fallbackUrl: string): string {
+    return preview?.destinationUrl || preview?.url || fallbackUrl;
+}
+
+async function fetchPreviewWithDedupe(url: string): Promise<PreviewData | null> {
+    if (previewCache.has(url)) {
+        return previewCache.get(url) ?? null;
     }
 
-    const existing = ogpInFlightCache.get(url);
+    const existing = previewInFlightCache.get(url);
     if (existing) return existing;
 
     const requestPromise = fetch(`${API_URL}/api/social/ogp?url=${encodeURIComponent(url)}`)
         .then(async (res) => {
             if (!res.ok) return null;
             const json = await res.json();
-            const data = json?.success ? (json.data as OGPData | null) : null;
-            ogpDataCache.set(url, data ?? null);
+            const data = json?.success ? (json.data as PreviewData | null) : null;
+            previewCache.set(url, data ?? null);
             return data ?? null;
         })
         .catch(() => null)
         .finally(() => {
-            ogpInFlightCache.delete(url);
+            previewInFlightCache.delete(url);
         });
 
-    ogpInFlightCache.set(url, requestPromise);
+    previewInFlightCache.set(url, requestPromise);
     return requestPromise;
 }
 
+async function preloadImage(src: string): Promise<boolean> {
+    return new Promise((resolve) => {
+        const img = new Image();
+        img.decoding = 'async';
+        img.onload = async () => {
+            try {
+                if (typeof img.decode === 'function') {
+                    await img.decode();
+                }
+            } catch {
+                // ignore decode errors for already-resolved images
+            }
+            resolve(true);
+        };
+        img.onerror = () => resolve(false);
+        img.src = src;
+    });
+}
+
+function PreviewLoading({ isDark }: { isDark?: boolean }) {
+    return (
+        <div style={{
+            borderRadius: '12px',
+            border: `1px solid ${isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)'}`,
+            height: '80px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            marginTop: '8px',
+            background: isDark ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.01)',
+        }}>
+            <div className="animate-pulse" style={{
+                width: '16px',
+                height: '16px',
+                borderRadius: '50%',
+                background: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)',
+            }} />
+        </div>
+    );
+}
+
+function LinkFallback({ url, isDark }: { url: string; isDark?: boolean }) {
+    return (
+        <div style={{
+            marginTop: '8px',
+            borderRadius: '12px',
+            border: `1px solid ${isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)'}`,
+            background: isDark ? 'rgba(255, 255, 255, 0.02)' : 'rgba(0,0,0,0.01)',
+            padding: '10px 14px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            color: '#3b82f6',
+            fontSize: '13px',
+            wordBreak: 'break-all',
+        }}>
+            <ExternalLink size={14} />
+            <span style={{ textDecoration: 'underline', opacity: 0.85 }}>{url}</span>
+        </div>
+    );
+}
+
 export const EmbedPreview: React.FC<EmbedPreviewProps> = ({ url, isDark }) => {
-    const [data, setData] = useState<OGPData | null>(null);
+    const [data, setData] = useState<PreviewData | null>(null);
     const [imgSrc, setImgSrc] = useState<string | undefined>(undefined);
     const [loading, setLoading] = useState(true);
+    const [imageLoading, setImageLoading] = useState(false);
     const [isVisible, setIsVisible] = useState(false);
     const containerRef = useRef<HTMLDivElement>(null);
+    const imageLoadIdRef = useRef(0);
 
-    // Lazy load observer
     useEffect(() => {
         const observer = new IntersectionObserver(([entry]) => {
             if (entry.isIntersecting) {
                 setIsVisible(true);
                 observer.disconnect();
             }
-        }, { rootMargin: '800px' }); // Aggressive preloading
+        }, { rootMargin: '800px' });
 
         if (containerRef.current) {
             observer.observe(containerRef.current);
@@ -81,89 +157,98 @@ export const EmbedPreview: React.FC<EmbedPreviewProps> = ({ url, isDark }) => {
 
     useEffect(() => {
         if (!isVisible) return;
-        const fetchOGP = async () => {
+
+        const run = async () => {
+            setLoading(true);
+            setData(null);
+            setImgSrc(undefined);
+            setImageLoading(false);
+
             try {
                 if (url.startsWith('zoraCoin:') || url.startsWith('ethereum:')) {
-                    setLoading(false);
                     return;
                 }
 
-                const ogpData = await fetchOGPWithDedupe(url);
-                if (ogpData) {
-                    setData(ogpData);
-                    setImgSrc(normalizePreviewImageUrl(ogpData.image));
-                }
+                const preview = await fetchPreviewWithDedupe(url);
+                setData(preview);
             } catch (e) {
                 if (import.meta.env.DEV) {
-                    console.error("Failed to fetch preview", e);
+                    console.error('Failed to fetch preview', e);
                 }
             } finally {
                 setLoading(false);
             }
         };
 
-        if (url) fetchOGP();
+        void run();
     }, [url, isVisible]);
+
+    useEffect(() => {
+        const nextLoadId = imageLoadIdRef.current + 1;
+        imageLoadIdRef.current = nextLoadId;
+        setImgSrc(undefined);
+
+        const candidates = [
+            normalizePreviewImageUrl(data?.image),
+            normalizePreviewImageUrl(data?.originalImage),
+        ].filter((candidate, index, arr): candidate is string => Boolean(candidate) && arr.indexOf(candidate) === index);
+
+        if (candidates.length === 0 || data?.status === 'unavailable') {
+            setImageLoading(false);
+            return;
+        }
+
+        let cancelled = false;
+        setImageLoading(true);
+
+        const load = async () => {
+            for (const candidate of candidates) {
+                const ok = await preloadImage(candidate);
+                if (!cancelled && imageLoadIdRef.current === nextLoadId && ok) {
+                    setImgSrc(candidate);
+                    setImageLoading(false);
+                    return;
+                }
+            }
+
+            if (!cancelled && imageLoadIdRef.current === nextLoadId) {
+                setImageLoading(false);
+            }
+        };
+
+        void load();
+        return () => {
+            cancelled = true;
+        };
+    }, [data?.image, data?.originalImage, data?.status]);
 
     if (!isVisible) {
         return <div ref={containerRef} style={{ height: '60px', marginTop: '12px' }} />;
     }
 
-    if (!data && !loading) {
-        return (
-            <div
-                onClick={(e) => {
-                    e.stopPropagation();
-                    window.open(url, '_blank', 'noopener,noreferrer');
-                }}
-                style={{
-                    marginTop: '8px',
-                    borderRadius: '12px',
-                    border: `1px solid ${isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)'}`,
-                    background: isDark ? 'rgba(255, 255, 255, 0.02)' : 'rgba(0,0,0,0.01)',
-                    cursor: 'pointer',
-                    padding: '10px 14px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '8px',
-                    color: '#3b82f6',
-                    fontSize: '13px'
-                }}
-            >
-                <ExternalLink size={14} />
-                <span style={{ textDecoration: 'underline', opacity: 0.8, wordBreak: 'break-all' }}>{url}</span>
-            </div>
-        );
-    }
-
     if (loading) {
+        return <PreviewLoading isDark={isDark} />;
+    }
+
+    if (!data || data.kind === 'unavailable') {
         return (
-            <div style={{
-                borderRadius: '12px',
-                border: `1px solid ${isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)'}`,
-                height: '80px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                marginTop: '8px',
-                background: isDark ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.01)'
-            }}>
-                <div className="animate-pulse" style={{ width: '16px', height: '16px', borderRadius: '50%', background: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)' }} />
-            </div>
+            <a
+                href={url}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={(e) => e.stopPropagation()}
+                style={{ textDecoration: 'none' }}
+            >
+                <LinkFallback url={url} isDark={isDark} />
+            </a>
         );
     }
 
-    if (!data) return null;
+    const openUrl = getOpenUrl(data, url);
+    const isVideo = data.type === 'video' && data.video;
+    const isMiniApp = data.kind === 'miniapp';
+    const showImageSection = Boolean(imgSrc) || imageLoading;
 
-    // Determine if it's an X/Twitter link for specific branding
-    const isX = url.includes('twitter.com') || url.includes('x.com');
-    const accentColor = isX ? (isDark ? '#ffffff' : '#000000') : '#3b82f6';
-
-    // Efficiency Protocol: Triple check media type to prevent black screen video players
-    const isExplicitImage = url.match(/\.(jpg|jpeg|png|gif|webp|avif|svg)(\?|$)/i);
-    const isVideo = data.type === 'video' && data.video && !isExplicitImage;
-
-    // Direct Video Rendering
     if (isVideo) {
         return (
             <div style={{ marginTop: '12px' }}>
@@ -174,116 +259,101 @@ export const EmbedPreview: React.FC<EmbedPreviewProps> = ({ url, isDark }) => {
                     color: isDark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.4)',
                     display: 'flex',
                     alignItems: 'center',
-                    gap: '6px'
+                    gap: '6px',
                 }}>
                     <VideoIcon size={12} />
                     <span>{data.siteName || 'Video Stream'}</span>
                     <span style={{ opacity: 0.5 }}>•</span>
-                    <a href={url} target="_blank" rel="noopener noreferrer" style={{ color: 'inherit', textDecoration: 'underline' }}>Source</a>
+                    <a href={openUrl} target="_blank" rel="noopener noreferrer" style={{ color: 'inherit', textDecoration: 'underline' }}>
+                        Source
+                    </a>
                 </div>
             </div>
         );
     }
 
     return (
-        <div
-            onClick={(e) => {
-                e.stopPropagation();
-                window.open(url, '_blank', 'noopener,noreferrer');
-            }}
+        <a
+            href={openUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(e) => e.stopPropagation()}
             style={{
                 marginTop: '12px',
                 borderRadius: '12px',
                 overflow: 'hidden',
                 border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)'}`,
-                background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#ffffff',
-                cursor: 'pointer',
-                transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                background: isDark ? 'rgba(255,255,255,0.03)' : '#ffffff',
                 display: 'flex',
                 position: 'relative',
-                minHeight: '48px',
-                boxShadow: isDark ? 'none' : '0 2px 8px rgba(0,0,0,0.02)'
-            }}
-            onMouseOver={(e) => {
-                e.currentTarget.style.background = isDark ? 'rgba(255, 255, 255, 0.06)' : '#f9f9f9';
-                e.currentTarget.style.transform = 'translateY(-1px)';
-            }}
-            onMouseOut={(e) => {
-                e.currentTarget.style.background = isDark ? 'rgba(255, 255, 255, 0.03)' : '#ffffff';
-                e.currentTarget.style.transform = 'translateY(0)';
+                minHeight: isMiniApp ? '88px' : '48px',
+                boxShadow: isDark ? 'none' : '0 2px 8px rgba(0,0,0,0.02)',
+                textDecoration: 'none',
             }}
         >
-            {/* Left accent bar - Only for X (Twitter) */}
-            {isX && (
-                <div style={{
-                    width: '4px',
-                    background: accentColor,
-                    flexShrink: 0,
-                    opacity: 0.8
-                }} />
-            )}
-
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
-                {/* X/Twitter 无法获取图片，不显示图片占位 */}
-                {/* Image Display with Fallback Logic */}
-                {imgSrc && (
+                {showImageSection && (
                     <div style={{
                         width: '100%',
-                        aspectRatio: '1.91 / 1',
+                        aspectRatio: isMiniApp ? '1.91 / 1' : '1.91 / 1',
                         overflow: 'hidden',
                         background: isDark ? '#18181b' : '#f4f4f5',
                         borderBottom: `1px solid ${isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)'}`,
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
-                        position: 'relative'
+                        position: 'relative',
                     }}>
-                        <img
-                            src={imgSrc}
-                            alt={data.title}
-                            loading="lazy"
-                            style={{
-                                width: '100%',
-                                height: '100%',
-                                objectFit: 'cover',
-                                display: 'block'
-                            }}
-                            onError={(e) => {
-                                // Fallback Strategy: Proxy -> Original -> Hide
-                                if (data.originalImage && imgSrc !== data.originalImage) {
-                                    /* [DANGER_ZONE_UNVERIFIED]: Exposes user IP to 3rd party */
-                                    setImgSrc(data.originalImage);
-                                } else {
-                                    // Final failure: Hide container
-                                    const parent = e.currentTarget.parentElement;
-                                    if (parent) parent.style.display = 'none';
-                                }
-                            }}
-                        />
+                        {imgSrc ? (
+                            <img
+                                src={imgSrc}
+                                alt=""
+                                loading="lazy"
+                                style={{
+                                    width: '100%',
+                                    height: '100%',
+                                    objectFit: 'cover',
+                                    display: 'block',
+                                }}
+                            />
+                        ) : (
+                            <div
+                                className="animate-pulse"
+                                aria-hidden="true"
+                                style={{
+                                    width: '100%',
+                                    height: '100%',
+                                    background: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
+                                }}
+                            />
+                        )}
                     </div>
                 )}
 
-                <div style={{ padding: '8px 12px' }}>
-                    {data.siteName && (
-                        <div style={{
-                            fontSize: '11px',
-                            color: isDark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.5)',
-                            marginBottom: '4px',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '4px'
-                        }}>
-                            {/* Favicon placeholder or simple text */}
-                            <span style={{ fontWeight: '600' }}>{data.siteName}</span>
-                        </div>
-                    )}
+                <div style={{ padding: isMiniApp ? '12px 14px' : '10px 12px' }}>
+                    <div style={{
+                        fontSize: '11px',
+                        color: isDark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.5)',
+                        marginBottom: '6px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                    }}>
+                        {isMiniApp ? <Sparkles size={12} /> : null}
+                        <span style={{ fontWeight: 700 }}>
+                            {isMiniApp ? 'Farcaster Mini App' : (data.siteName || 'Link Preview')}
+                        </span>
+                        {data.status === 'degraded' && !isMiniApp ? (
+                            <span style={{ opacity: 0.7 }}>Preview limited</span>
+                        ) : null}
+                    </div>
 
                     {data.title && (
                         <div style={{
-                            fontSize: '15px',
-                            fontWeight: '600',
+                            fontSize: isMiniApp ? '16px' : '15px',
+                            fontWeight: 600,
                             color: isDark ? '#ffffff' : '#111827',
-                            marginBottom: '4px',
+                            marginBottom: data.description ? '6px' : '0',
                             lineHeight: '1.3',
                             display: '-webkit-box',
                             WebkitLineClamp: 2,
@@ -300,22 +370,43 @@ export const EmbedPreview: React.FC<EmbedPreviewProps> = ({ url, isDark }) => {
                             color: isDark ? 'rgba(255,255,255,0.6)' : 'rgba(0,0,0,0.6)',
                             lineHeight: '1.4',
                             display: '-webkit-box',
-                            WebkitLineClamp: 2,
+                            WebkitLineClamp: isMiniApp ? 3 : 2,
                             WebkitBoxOrient: 'vertical',
-                            overflow: 'hidden'
+                            overflow: 'hidden',
                         }}>
                             {data.description}
                         </div>
                     )}
 
-                    {!data.image && !data.title && !data.description && (
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#3b82f6', fontSize: '13px' }}>
+                    {isMiniApp && (
+                        <div style={{
+                            marginTop: '10px',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            fontSize: '12px',
+                            fontWeight: 700,
+                            color: '#3b82f6',
+                        }}>
+                            <span>Open Mini App</span>
+                            <ArrowUpRight size={13} />
+                        </div>
+                    )}
+
+                    {!data.title && !data.description && (
+                        <div style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px',
+                            color: '#3b82f6',
+                            fontSize: '13px',
+                        }}>
                             <ExternalLink size={14} />
-                            <span style={{ textDecoration: 'underline' }}>{url}</span>
+                            <span style={{ textDecoration: 'underline' }}>{openUrl}</span>
                         </div>
                     )}
                 </div>
             </div>
-        </div>
+        </a>
     );
 };

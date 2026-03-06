@@ -79,7 +79,7 @@ export async function imageRoutes(fastify: FastifyInstance) {
       reply.header('X-Image-Proxy', source);
     };
 
-    const { url, w, q } = request.query as { url?: string; w?: string; q?: string };
+    const { url, w, q, mode } = request.query as { url?: string; w?: string; q?: string; mode?: string };
     if (!url) return reply.status(400).send({ error: 'Missing url' });
 
     const width = w ? parseInt(w, 10) : null;
@@ -158,6 +158,9 @@ export async function imageRoutes(fastify: FastifyInstance) {
         await fs.writeFile(rawMetaPath, JSON.stringify({ contentType: rawContentType, timestamp: Date.now() }));
       } catch (e: any) {
         console.error(`[ImageProxy] Upstream fetch failed for ${parsed.hostname}:`, e.message);
+        if (mode === 'preview') {
+          return reply.status(502).send({ error: 'Preview image fetch failed' });
+        }
         const label = getLabelFromUrl(parsed);
         const fallback = buildPlaceholderSvg(label);
         return serveBuffer(fallback, 'image/svg+xml', 'fallback');

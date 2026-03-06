@@ -273,11 +273,13 @@ const VALID_WS_APP_KEYS = new Set([
 ].filter(Boolean));
 
 function isValidWsAppKey(appKey?: string): boolean {
-    if (VALID_WS_APP_KEYS.size === 0) {
-        // Keep development ergonomics consistent with HTTP API key middleware.
-        return process.env.NODE_ENV !== 'production';
+    if (!appKey) {
+        return true;
     }
-    return !!appKey && VALID_WS_APP_KEYS.has(appKey);
+    if (VALID_WS_APP_KEYS.size === 0) {
+        return false;
+    }
+    return VALID_WS_APP_KEYS.has(appKey);
 }
 
 

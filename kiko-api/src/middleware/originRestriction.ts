@@ -26,6 +26,12 @@ const ALLOWED_ORIGINS = ALLOWED_ORIGINS_ENV
 // [Logic]: Allow bypassing origin check in development mode only
 const isProduction = process.env.NODE_ENV === 'production' || process.env.NODE_ENV === 'prod';
 
+function isLoopbackAddress(ip: string | undefined): boolean {
+    if (!ip) return false;
+    const normalized = ip.replace(/^::ffff:/, '');
+    return normalized === '127.0.0.1' || normalized === '::1';
+}
+
 /**
  * Validate request origin
  * [Logic]: Checks Origin or Referer header against whitelist
@@ -113,9 +119,10 @@ export async function requireAllowedOrigin(request: FastifyRequest, _reply: Fast
             allowedOrigins: ALLOWED_ORIGINS.slice(0, 5),
         });
 
-        // [Logic]: In development, warn but allow
-        if (!isProduction) {
-            console.warn('[originRestriction] DEV MODE: Allowing request despite origin mismatch');
+        // Keep local development working, but never turn "development mode"
+        // into a remote-access bypass on a shared host.
+        if (!isProduction && isLoopbackAddress(request.ip)) {
+            console.warn('[originRestriction] DEV MODE: Allowing local loopback request despite origin mismatch');
             return;
         }
 

@@ -39,11 +39,7 @@ export const securityService = {
 
             const chain = chainMap[chainId] || String(chainId);
 
-            const response = await fetch(`/api/tokens/security/${chain}/${address}`, {
-                headers: {
-                    'X-App-Key': localStorage.getItem('apiKey') || ''
-                }
-            });
+            const response = await fetch(`/api/tokens/security/${chain}/${address}`);
 
             if (!response.ok) {
                 throw new Error(`API error: ${response.status}`);

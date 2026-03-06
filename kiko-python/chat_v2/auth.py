@@ -74,6 +74,20 @@ async def require_auth(authorization: str = Header(default=None), x_service_key:
     return verify_privy_token(token)
 
 
+async def require_internal_service(
+    x_service_key: str = Header(default=None),
+    x_internal_service_key: str = Header(default=None),
+):
+    if settings.SKIP_AUTH:
+        return {"service": "dev-internal", "dev": True}
+
+    provided = x_internal_service_key or x_service_key
+    if settings.INTERNAL_SERVICE_KEY and provided == settings.INTERNAL_SERVICE_KEY:
+        return {"service": "internal"}
+
+    raise HTTPException(status_code=401, detail="Missing or invalid internal service key")
+
+
 def extract_user_id(claims: dict) -> str:
     return (
         claims.get("sub")

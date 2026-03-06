@@ -1,5 +1,12 @@
 import { adjudicateSnapshot } from './rules.js';
-import { bindOrderId, getSnapshotByOrderId, getSnapshotByTxHash, upsertSnapshot } from './store.js';
+import {
+  bindOrderId,
+  getSnapshotByOrderId,
+  getSnapshotByTxHash,
+  hydrateSharedSnapshotByOrderId,
+  hydrateSharedSnapshotByTxHash,
+  upsertSnapshot,
+} from './store.js';
 import type { TxEvidenceSnapshot, TxEvidenceSource } from './types.js';
 import { normalizeTxHash } from '../../rpc/confirmEvidence.js';
 
@@ -155,5 +162,16 @@ export function bindOrderToTxHash(orderId: string | undefined, chainId: number, 
 export function getAdjudicatedSnapshot(params: { orderId?: string | null; chainId?: number; txHash?: string | null }): TxEvidenceSnapshot | null {
   if (params.orderId) return getSnapshotByOrderId(params.orderId);
   if (params.chainId && params.txHash) return getSnapshotByTxHash(params.chainId, params.txHash);
+  return null;
+}
+
+export async function hydrateSharedAdjudicatedSnapshot(params: { orderId?: string | null; chainId?: number; txHash?: string | null }): Promise<TxEvidenceSnapshot | null> {
+  if (params.orderId) {
+    const byOrder = await hydrateSharedSnapshotByOrderId(params.orderId);
+    if (byOrder) return byOrder;
+  }
+  if (params.chainId && params.txHash) {
+    return hydrateSharedSnapshotByTxHash(params.chainId, params.txHash);
+  }
   return null;
 }

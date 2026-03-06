@@ -1646,10 +1646,40 @@ Use when:
 Look at:
 - Apple Design Resources
 - Figma Community and official design resources
+- Sketch shared design resources and UI kits
 - official product marketing pages
 
 Use when:
 - trying to match product-stage layouts, icon behavior, typography, or editorial hierarchy
+
+### 52.6 External Material-Source Skills
+
+Treat public design-resource links as a separate material-source class, not as casual inspiration links.
+
+This includes:
+- Sketch shared documents
+- Figma files and community kits
+- official UI kits
+- public design-system downloads
+- shared product bezel / device mockup libraries
+
+How to classify them:
+- these are not final assets by default
+- these are structured source materials for rebuilding UI, mockups, device shells, notification surfaces, and motion references
+- the model should extract layout logic, spacing, radii, safe areas, hierarchy, and component anatomy from them
+
+How to use them:
+- treat them as a source of component structure
+- prefer them over random screenshots when rebuilding system UI or phone mockups
+- combine them with official HIG or platform docs when accuracy matters
+- if the resource is user-provided, record the link in the skill or addendum as a known material source
+
+Example material source:
+- user-provided Sketch resource: `https://www.sketch.com/s/f63aa308-1f82-498c-8019-530f3b846db9`
+
+Naming rule:
+- in this skill system, links like the Sketch resource above should be described as `material-source references` or `material-source skills`
+- they exist to feed the model better structural design context for future video work
 
 ---
 

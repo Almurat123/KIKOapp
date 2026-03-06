@@ -29,9 +29,9 @@ services:
       - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
       - GROK_SERVICE_URL=${GROK_SERVICE_URL:-http://host.docker.internal:8000/grok}
       - INTERNAL_SERVICE_KEY=${INTERNAL_SERVICE_KEY:-}
-      - SKIP_AUTH=${SKIP_AUTH:-true}
+      - SKIP_AUTH=${SKIP_AUTH:-false}
     ports:
-      - "8101:8101"
+      - "127.0.0.1:8101:8101"
     depends_on:
       - redis
 
@@ -44,9 +44,9 @@ services:
     environment:
       - TOOL_RUNTIME_PORT=8102
       - INTERNAL_SERVICE_KEY=${INTERNAL_SERVICE_KEY:-}
-      - SKIP_AUTH=${SKIP_AUTH:-true}
+      - SKIP_AUTH=${SKIP_AUTH:-false}
     ports:
-      - "8102:8102"
+      - "127.0.0.1:8102:8102"
     depends_on:
       - redis
 
@@ -63,11 +63,11 @@ services:
       - LLM_GATEWAY_URL=http://llm-gateway:8101
       - TOOL_RUNTIME_URL=http://tool-runtime:8102
       - INTERNAL_SERVICE_KEY=${INTERNAL_SERVICE_KEY:-}
-      - SKIP_AUTH=${SKIP_AUTH:-true}
+      - SKIP_AUTH=${SKIP_AUTH:-false}
       - PRIVY_APP_ID=${PRIVY_APP_ID:-}
       - PRIVY_JWKS_URL=${PRIVY_JWKS_URL:-https://auth.privy.io/api/v1/keys}
     ports:
-      - "8100:8100"
+      - "127.0.0.1:8100:8100"
     depends_on:
       - postgres
       - redis

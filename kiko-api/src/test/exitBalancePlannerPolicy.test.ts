@@ -348,4 +348,68 @@ describe('exit balance planner policy', () => {
 
     assert.equal(plan.kind, 'swap');
   });
+
+  test('forced mirror exit preserves target sell hash for idempotency', () => {
+    const plan = buildEvmExitPlanFromSnapshot({
+      userId: 'user-1',
+      tokenAddress: '0xtoken',
+      chainId: 1,
+      exitReason: 'mirror_sell',
+      tokenInfo: { price: 1, symbol: 'TEST' },
+      universalSlippageBps: 500,
+      executionMode: 'turbo',
+      targetWallet: '0xtarget',
+      snapshot: {
+        tokenAddress: '0xtoken',
+        chainId: 1,
+        walletAddress: '0xwallet',
+        isMirrorSell: true,
+        hasValidPrice: true,
+        decimals: 18,
+        balanceRaw: 100n,
+        balanceUsd: 1,
+        treatAsEmptyOrDust: false,
+        balanceRead: {
+          status: 'success',
+          value: 100n,
+          reasonCode: 'EXIT_BALANCE_CONFIRMED_POSITIVE',
+          attemptCount: 1,
+          lastError: null,
+          providerSource: 'test',
+        },
+        positions: [{
+          id: 'pos-1',
+          tokenAddress: '0xtoken',
+          status: 'open',
+          entryTxHash: '0xbuy',
+        }],
+        pendingLots: [],
+        latestTargetSellTxHash: '0xsellhash',
+        targetFullExitVerified: true,
+        targetFullExitReasonCode: 'TARGET_FULL_EXIT_CONFIRMED',
+        targetSellRatioBps: null,
+        targetSellRatioReasonCode: null,
+        attribution: {
+          eligiblePositions: [{
+            id: 'pos-1',
+            tokenAddress: '0xtoken',
+            status: 'open',
+            entryTxHash: '0xbuy',
+          }],
+          pendingAttributedLotIds: [],
+          sellAmountRaw: 100n,
+          reasonCode: 'ATTRIBUTED_AMOUNT_RESOLVED',
+          metrics: {
+            attributedAmountRaw: '100',
+          },
+          hasExternalBalance: false,
+        },
+      },
+    });
+
+    assert.equal(plan.kind, 'swap');
+    if (plan.kind === 'swap') {
+      assert.equal(plan.latestTargetSellTxHash, '0xsellhash');
+    }
+  });
 });

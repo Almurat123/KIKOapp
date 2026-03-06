@@ -299,7 +299,6 @@ export async function fetchApi<T>(endpoint: string, options?: RequestInit): Prom
                 headers: {
                     'Pragma': 'no-cache',
                     'Cache-Control': 'no-cache',
-                    'X-App-Key': import.meta.env.VITE_APP_KEY || '',
                     ...(options?.body ? { 'Content-Type': 'application/json' } : {}),
                     ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
                     ...options?.headers,
@@ -723,7 +722,6 @@ export const socialApi = {
             cache: 'no-store',
             headers: {
                 'Content-Type': 'application/json',
-                ...(import.meta.env.VITE_APP_KEY ? { 'X-App-Key': import.meta.env.VITE_APP_KEY } : {}),
             }
         });
 
@@ -864,7 +862,6 @@ const CHAT_API_BASE = resolveChatApiBase();
 
 async function chatFetch<T>(endpoint: string, options?: RequestInit): Promise<T> {
     const doRequest = async (token: string | null) => {
-        const appKey = import.meta.env.VITE_APP_KEY || '';
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 15000);
         const externalSignal = options?.signal;
@@ -883,7 +880,6 @@ async function chatFetch<T>(endpoint: string, options?: RequestInit): Promise<T>
             ...options,
             signal: controller.signal,
             headers: {
-                ...(appKey ? { 'X-App-Key': appKey } : {}),
                 ...(options?.body ? { 'Content-Type': 'application/json' } : {}),
                 ...(token ? { Authorization: `Bearer ${token}` } : {}),
                 ...options?.headers,

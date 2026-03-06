@@ -11,7 +11,6 @@ import { getSolanaEmbeddedWalletAddress } from '../../privyWallet.js';
 import { getTokenInfo } from '../../tokenService.js';
 import { getTokenMetadata } from '../../rpcService.js';
 import { getErc20Balance } from '../../rpcManager.js';
-import { executeSwapViaPort } from '../../swap/swapExecutionPort.js';
 import { trackCopyTrade, trackSwap } from '../../userActivityService.js';
 import { publishCopytradeRawNotification } from '../notifications/copytradeNotificationPublisher.js';
 import {
@@ -19,24 +18,21 @@ import {
   type CopyTradeExecutionMode,
 } from '../../copyTradeExecutionMode.js';
 import { buildEvmExitPlan } from '../exit/planner.js';
-import { executeEvmExitPlan } from '../exit/executor.js';
+import { executePlannedEvmExitFlow } from '../exit/evmExitExecutionFlow.js';
 import {
   persistFailedExitState,
   persistDeferredExitRetryState,
+    persistPendingExitFinalityState,
   persistSuccessfulExit,
   reconcileNoopExitPosition,
 } from '../exit/persistence.js';
+import { getExitInflightRetryGraceMs, hasRecentInflightExitRetryGuard } from '../exit/retryGuard.js';
 import { resolveSolanaDbBalanceFallback } from '../exit/solanaDbBalanceFallback.js';
 import { resolveAttributedPositionExitAmount } from '../positions/positionAttribution.js';
 import { shouldDeferStrongRpcMonitoring } from '../buy/preConfirmationRpcPolicy.js';
 import { buildOrderAuditFields } from '../../order-runtime/sinks/persistence.js';
 import type { OrderRuntimeContext } from '../../order-runtime/types.js';
 import { emitCopytradeDomainAudit } from '../audit/copytradeDomainAudit.js';
-import {
-  buildMirrorSellIdempotencyKeys,
-  claimMirrorSellIdempotency,
-  settleMirrorSellIdempotency,
-} from '../exit/mirrorSellIdempotency.js';
 
 const NO_OPEN_POSITIONS_LOG_WINDOW_MS = Number(process.env.NO_OPEN_POSITIONS_LOG_WINDOW_MS || '180000');
 const COPYTRADE_DISABLE_MIRROR_SELL_DUST_SWEEP = (process.env.COPYTRADE_DISABLE_MIRROR_SELL_DUST_SWEEP || 'true') === 'true';
@@ -44,6 +40,7 @@ const MIN_POSITION_AGE_FOR_TPSL_MS = Math.max(0, Number(process.env.MIN_POSITION
 const TPSL_CONSECUTIVE_HITS_REQUIRED = Math.max(1, Number(process.env.TPSL_CONSECUTIVE_HITS_REQUIRED || '2'));
 const TPSL_HIT_WINDOW_MS = Math.max(1000, Number(process.env.TPSL_HIT_WINDOW_MS || '90000'));
 const TPSL_TRACKER_PRUNE_MS = 10 * 60 * 1000;
+const EXIT_INFLIGHT_RETRY_GRACE_MS = getExitInflightRetryGraceMs();
 
 const positionsBeingExited = new Set<string>();
 const tpslHitTracker = new Map<string, { side: 'tp' | 'sl'; hits: number; firstHitAt: number; lastHitAt: number; lastPnlPct: number }>();
@@ -206,8 +203,6 @@ async function executePositionExit(params: {
     let exitPositions: any[] = [];
     let persistedExitPositions: any[] = [];
     let persistedExitBalance = balance;
-    let claimedMirrorSellIdempotency = false;
-    let mirrorSellIdempotencyKeys: string[] = [];
 
     // Fetch universal global slippage from UserSettings
     const settings = params.userSettings || await prisma.userSettings.findUnique({ where: { userId } });
@@ -545,126 +540,23 @@ async function executePositionExit(params: {
                 return null;
             }
 
-            if (exitReason === 'mirror_sell') {
-                mirrorSellIdempotencyKeys = buildMirrorSellIdempotencyKeys({
-                    positionIds: (persistedExitPositions || [])
-                        .map((position: any) => String(position?.id || '').trim())
-                        .filter(Boolean),
-                    targetSellTxHash: exitPlan.latestTargetSellTxHash,
-                });
-                if (mirrorSellIdempotencyKeys.length > 0) {
-                    const claim = claimMirrorSellIdempotency({ keys: mirrorSellIdempotencyKeys });
-                    if (!claim.allowed) {
-                        emitCopytradeDomainAudit('mirror_sell_idempotent_skip', {
-                            runtimeContext: exitRuntimeContext,
-                            extra: {
-                                userId,
-                                chainId,
-                                tokenAddress,
-                                targetWallet: config.targetWallet,
-                                targetSellTxHash: exitPlan.latestTargetSellTxHash || null,
-                                blockedReason: claim.blockedReason || 'unknown',
-                                retryAfterMs: claim.retryAfterMs || null,
-                            },
-                        });
-                        return null;
-                    }
-                    claimedMirrorSellIdempotency = true;
-                }
-            }
-
-            const settledExitResult = await executeEvmExitPlan(exitPlan);
-            exitRuntimeContext = settledExitResult.runtimeContext;
-            if (claimedMirrorSellIdempotency && mirrorSellIdempotencyKeys.length > 0) {
-                settleMirrorSellIdempotency({
-                    keys: mirrorSellIdempotencyKeys,
-                    finalityState: settledExitResult.finalityState,
-                });
-                claimedMirrorSellIdempotency = false;
-            }
-
-            if (settledExitResult.finalityState !== 'confirmed_success' || !settledExitResult.txHash) {
-                emitCopytradeDomainAudit('exit_finality_pending', {
-                    runtimeContext: exitRuntimeContext,
-                    extra: {
-                        userId,
-                        chainId,
-                        tokenAddress,
-                        targetWallet: config.targetWallet,
-                        executionTxHash: settledExitResult.txHash || null,
-                        canonicalTxHash: settledExitResult.txHash || settledExitResult.allTxHashes?.[0] || null,
-                        allTxHashes: settledExitResult.allTxHashes || [],
-                        adjudicatedState: settledExitResult.finalityState,
-                        adjudicatedReason: settledExitResult.finalityReasonCode || settledExitResult.error || null,
-                    },
-                });
-                await persistDeferredExitRetryState({
-                    positions: persistedExitPositions as any,
-                    targetWallet: config.targetWallet,
-                    exitReason,
-                    reasonCode: `exit_finality_${settledExitResult.finalityState}:${settledExitResult.finalityReasonCode || 'unknown'}`,
-                });
+            const evmExitResult = await executePlannedEvmExitFlow({
+                exitPlan,
+                exitReason,
+                userId,
+                walletAddress: user.walletAddress,
+                chainId,
+                tokenAddress,
+                tokenInfo,
+                targetWallet: config.targetWallet,
+                persistedExitPositions: persistedExitPositions as any,
+                copyTradeDisableMirrorSellDustSweep: COPYTRADE_DISABLE_MIRROR_SELL_DUST_SWEEP,
+            });
+            exitRuntimeContext = evmExitResult.runtimeContext;
+            if (evmExitResult.status === 'pending') {
                 return null;
             }
-
-            emitCopytradeDomainAudit('exit_finality_confirmed', {
-                runtimeContext: exitRuntimeContext,
-                extra: {
-                    userId,
-                    chainId,
-                    tokenAddress,
-                    targetWallet: config.targetWallet,
-                    executionTxHash: settledExitResult.txHash,
-                    canonicalTxHash: settledExitResult.txHash || settledExitResult.allTxHashes?.[0] || null,
-                    allTxHashes: settledExitResult.allTxHashes || [],
-                    adjudicatedState: settledExitResult.finalityState,
-                    adjudicatedReason: settledExitResult.finalityReasonCode || null,
-                },
-            });
-
-            txHash = settledExitResult.txHash;
-            const isPartialSell = settledExitResult.isPartialSell;
-
-            if (txHash) {
-                const skipDustSweepForMirrorSell = exitReason === 'mirror_sell' && (COPYTRADE_DISABLE_MIRROR_SELL_DUST_SWEEP || exitPlan.hasExternalBalance);
-                if (skipDustSweepForMirrorSell) {
-                    logger.debug(LogCode.SYS_INFO, 'Mirror sell dust sweep skipped to prevent duplicate sell race', {
-                        userId,
-                        tokenAddress,
-                        chainId,
-                        hasExternalBalance: exitPlan.hasExternalBalance
-                    });
-                } else {
-                    try {
-                        const remainingBalance = await getErc20Balance(tokenAddress, user.walletAddress, chainId);
-                        const dustUsd = formatTokenAmount(remainingBalance, decimals) * (tokenInfo?.price || 0);
-                        if (remainingBalance > 1000n && (dustUsd >= 0.05 || isPartialSell)) {
-                            const dustAmountHuman = ethers.formatUnits(remainingBalance, decimals);
-                            await executeSwapViaPort({
-                                userId: user.privyDid,
-                                walletAddress: user.walletAddress,
-                                tokenIn: tokenAddress,
-                                tokenOut: 'ETH',
-                                amountIn: dustAmountHuman,
-                                chainId,
-                                slippageBps: 2000,
-                                mode: 'copytrade',
-                                executionContext: {
-                                    executionStep: 'sell_dust_sweep',
-                                    strictReplica: false,
-                                    sellRoutePolicy: 'external_primary'
-                                },
-                                userSettings: {
-                                    fastSwapMode: false,
-                                    copyTradeExecutionMode: executionMode
-                                }
-                            });
-                        }
-                    } catch (sweepErr: any) {
-                        logger.debug(LogCode.EXE_TX_REVERTED, 'EVM dust sweep failed', { error: sweepErr.message });
-                    }
-                }
-            }
+            txHash = evmExitResult.txHash || '';
         }
 
         // Update DB with PNL calculation
@@ -741,13 +633,6 @@ async function executePositionExit(params: {
         return txHash;
 
     } catch (error: any) {
-        if (claimedMirrorSellIdempotency && mirrorSellIdempotencyKeys.length > 0) {
-            settleMirrorSellIdempotency({
-                keys: mirrorSellIdempotencyKeys,
-                finalityState: 'retryable_unresolved',
-            });
-            claimedMirrorSellIdempotency = false;
-        }
         logger.error(LogCode.SYS_ERROR, 'Critical error during position exit', {
             userId,
             token: tokenAddress,
@@ -820,17 +705,29 @@ export async function checkPositionsForExits(): Promise<void> {
             OR: [
                 { lastExitAttempt: null }, // Never attempted (shouldn't happen, but handle it)
                 { lastExitAttempt: { lt: new Date(Date.now() - RETRY_COOLDOWN_MS) } }
-            ]
+            ],
+            NOT: {
+                AND: [
+                    { exitTxHash: { not: null } },
+                    { lastExitAttempt: { gte: new Date(Date.now() - EXIT_INFLIGHT_RETRY_GRACE_MS) } }
+                ]
+            }
         },
         include: {
             user: { include: { settings: true } }
         }
     });
 
-    if (positionsNeedingRetry.length > 0) {
-        logger.info(LogCode.SYS_STARTUP, `Found ${positionsNeedingRetry.length} positions needing exit retry`);
+    const retryablePositions = positionsNeedingRetry.filter((position) => !hasRecentInflightExitRetryGuard({
+        exitTxHash: (position as any).exitTxHash,
+        lastExitAttempt: position.lastExitAttempt,
+        graceMs: EXIT_INFLIGHT_RETRY_GRACE_MS,
+    }));
 
-        for (const position of positionsNeedingRetry) {
+    if (retryablePositions.length > 0) {
+        logger.info(LogCode.SYS_STARTUP, `Found ${retryablePositions.length} positions needing exit retry`);
+
+        for (const position of retryablePositions) {
             try {
                 const config = await prisma.copyTradeConfig.findUnique({
                     where: { id: position.configId }

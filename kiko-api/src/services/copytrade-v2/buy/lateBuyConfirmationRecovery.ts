@@ -1,8 +1,7 @@
-import { getTransactionReceipt } from '../../rpcManager.js';
-import { resolveTxFinalState } from '../../order-runtime/adjudicator/finalState.js';
 import { logger } from '../../../utils/logger.js';
 import { LogCode } from '../../../config/logRegistry.js';
 import type { ConfirmationOutcome } from '../../swap/confirmationCoordinator.js';
+import { waitForCopytradeBuyConfirmation } from './buyConfirmationPolicy.js';
 
 const DEFAULT_RECOVERY_TIMEOUT_MS = Math.max(30_000, Number(process.env.COPYTRADE_BUY_LATE_RECOVERY_TIMEOUT_MS || '180000'));
 const DEFAULT_RECOVERY_POLL_MS = Math.max(1_000, Number(process.env.COPYTRADE_BUY_LATE_RECOVERY_POLL_MS || '5000'));
@@ -17,34 +16,23 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function probeBuyConfirmation(chainId: number, txHash: string): Promise<ConfirmationOutcome | null> {
-  const finalState = resolveTxFinalState({ chainId, txHash });
-  if (finalState.success) {
-    return { success: true, kind: 'confirmed_success', visible: true };
+async function probeBuyConfirmation(params: {
+  chainId: number;
+  txHash: string;
+  timeoutMs: number;
+  pollMs: number;
+}): Promise<ConfirmationOutcome | null> {
+  const confirmation = await waitForCopytradeBuyConfirmation({
+    chainId: params.chainId,
+    txHash: params.txHash,
+    timeoutMs: params.timeoutMs,
+    pollMs: params.pollMs,
+  }).catch(() => null);
+  if (!confirmation) return null;
+  if (confirmation.kind === 'confirmed_success' || confirmation.kind === 'confirmed_failed') {
+    return confirmation;
   }
-  if (finalState.failed) {
-    return {
-      success: false,
-      kind: 'confirmed_failed',
-      reason: finalState.reasonCode || 'transaction_reverted',
-      visible: finalState.visible
-    };
-  }
-
-  const receipt = await getTransactionReceipt(chainId, txHash).catch(() => null);
-  if (!receipt) return null;
-
-  const success = receipt?.status === 1 || receipt?.status === '0x1' || receipt?.status === 1n;
-  if (success) {
-    return { success: true, kind: 'confirmed_success', visible: true, receipt };
-  }
-  return {
-    success: false,
-    kind: 'confirmed_failed',
-    reason: String(receipt?.revertReason || receipt?.reason || receipt?.status || 'transaction_reverted'),
-    visible: true,
-    receipt
-  };
+  return null;
 }
 
 export function scheduleLateBuyConfirmationRecovery(params: {
@@ -55,7 +43,7 @@ export function scheduleLateBuyConfirmationRecovery(params: {
   timeoutMs?: number;
   pollMs?: number;
 }, deps?: {
-  probeBuyConfirmation?: (chainId: number, txHash: string) => Promise<ConfirmationOutcome | null>;
+  probeBuyConfirmation?: (params: { chainId: number; txHash: string; timeoutMs: number; pollMs: number; }) => Promise<ConfirmationOutcome | null>;
   sleep?: (ms: number) => Promise<void>;
 }): void {
   const recoveryKey = buildRecoveryKey(params.chainId, params.txHash);
@@ -63,8 +51,8 @@ export function scheduleLateBuyConfirmationRecovery(params: {
     return;
   }
 
-  const timeoutMs = Math.max(5_000, Number(params.timeoutMs ?? DEFAULT_RECOVERY_TIMEOUT_MS));
-  const pollMs = Math.max(1_000, Number(params.pollMs ?? DEFAULT_RECOVERY_POLL_MS));
+  const timeoutMs = Math.max(100, Number(params.timeoutMs ?? DEFAULT_RECOVERY_TIMEOUT_MS));
+  const pollMs = Math.max(10, Number(params.pollMs ?? DEFAULT_RECOVERY_POLL_MS));
 
   const task = (async () => {
     logger.info(LogCode.SYS_INFO, '[CopyTradeBuyConfirm] Late confirmation recovery started', {
@@ -78,7 +66,13 @@ export function scheduleLateBuyConfirmationRecovery(params: {
 
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
-      const confirmation = await (deps?.probeBuyConfirmation || probeBuyConfirmation)(params.chainId, params.txHash);
+      const remainingTimeoutMs = Math.max(pollMs, deadline - Date.now());
+      const confirmation = await (deps?.probeBuyConfirmation || probeBuyConfirmation)({
+        chainId: params.chainId,
+        txHash: params.txHash,
+        timeoutMs: remainingTimeoutMs,
+        pollMs,
+      });
       if (confirmation) {
         logger.info(LogCode.SYS_INFO, '[CopyTradeBuyConfirm] Late confirmation resolved', {
           chainId: params.chainId,

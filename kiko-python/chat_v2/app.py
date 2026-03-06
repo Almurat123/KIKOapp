@@ -4,6 +4,7 @@ import asyncio
 from datetime import datetime
 from typing import Any
 import logging
+import os
 
 from fastapi import FastAPI, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -20,10 +21,22 @@ from .worker import ChatWorker
 from .settings import settings
 
 
+def _cors_origins() -> list[str]:
+    configured = os.getenv("ALLOWED_ORIGINS") or os.getenv("CORS_ORIGIN") or ""
+    if configured.strip():
+        return [origin.strip() for origin in configured.split(",") if origin.strip()]
+    return [
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "https://kikoapp.app",
+        "https://www.kikoapp.app",
+    ]
+
+
 app = FastAPI(title="kiko-chat-api-v2", version="2.0.0")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_cors_origins(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

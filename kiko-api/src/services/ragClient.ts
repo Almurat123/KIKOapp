@@ -6,6 +6,16 @@ import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
 
 const RAG_SERVICE_URL = process.env.RAG_SERVICE_URL || 'http://localhost:8002';
+const INTERNAL_SERVICE_KEY = process.env.INTERNAL_SERVICE_KEY || '';
+
+function buildInternalHeaders(): Record<string, string> {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (INTERNAL_SERVICE_KEY) {
+        headers['X-Service-Key'] = INTERNAL_SERVICE_KEY;
+        headers['X-Internal-Service-Key'] = INTERNAL_SERVICE_KEY;
+    }
+    return headers;
+}
 
 interface RAGResult {
     content: string;
@@ -46,7 +56,7 @@ export class RAGClient {
             const response = await fetchJson<RAGResponse>({
                 url: `${this.baseUrl}/query`,
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: buildInternalHeaders(),
                 body: JSON.stringify({
                     query: text,
                     k: k
@@ -83,7 +93,7 @@ export class RAGClient {
             await fetchJson({
                 url: `${this.baseUrl}/ingest`,
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: buildInternalHeaders(),
                 body: JSON.stringify({ url })
             });
             return true;

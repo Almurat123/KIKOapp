@@ -22,9 +22,6 @@ async function getAuthHeaders() {
     if (token) {
         headers['Authorization'] = `Bearer ${token}`;
     }
-    if (import.meta.env.VITE_APP_KEY) {
-        headers['X-App-Key'] = import.meta.env.VITE_APP_KEY;
-    }
     return headers;
 }
 

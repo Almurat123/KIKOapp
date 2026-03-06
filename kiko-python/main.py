@@ -22,6 +22,18 @@ if not os.getenv("RAILWAY_ENVIRONMENT") and not os.getenv("XAI_API_KEY"):
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+
+def _cors_origins() -> list[str]:
+    configured = os.getenv("ALLOWED_ORIGINS") or os.getenv("CORS_ORIGIN") or ""
+    if configured.strip():
+        return [origin.strip() for origin in configured.split(",") if origin.strip()]
+    return [
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "https://kikoapp.app",
+        "https://www.kikoapp.app",
+    ]
+
 # Create main FastAPI app
 app = FastAPI(
     title="KiKo Python Services",
@@ -32,7 +44,7 @@ app = FastAPI(
 # CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_cors_origins(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

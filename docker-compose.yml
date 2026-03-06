@@ -56,7 +56,7 @@ services:
     environment:
       - PORT=8003
     ports:
-      - "8003:8003"
+      - "127.0.0.1:8003:8003"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8003/health"]
       interval: 30s
@@ -73,7 +73,7 @@ services:
     environment:
       - PORT=8002
     ports:
-      - "8002:8002"
+      - "127.0.0.1:8002:8002"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8002/health"]
       interval: 30s
@@ -114,7 +114,7 @@ services:
       - USAGE_LIMITS_BASE_DAILY_LIMIT=${USAGE_LIMITS_BASE_DAILY_LIMIT:-15}
       - USAGE_LIMITS_TIERS_JSON=${USAGE_LIMITS_TIERS_JSON}
     ports:
-      - "3001:3001"
+      - "127.0.0.1:3001:3001"
     depends_on:
       postgres:
         condition: service_healthy

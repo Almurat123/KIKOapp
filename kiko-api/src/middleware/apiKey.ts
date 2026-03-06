@@ -2,9 +2,8 @@ import { FastifyRequest, FastifyReply } from 'fastify';
 import { AppError } from './errorHandler.js';
 import { env } from '../config/env.js';
 
-// [Logic]: Load valid app keys from environment variables
-// [Ref]: Environment-based configuration pattern from env.ts
-// [Risk]: If appKey is not set, all requests will be rejected
+// App keys are treated as optional public client identifiers.
+// They are not a security boundary for authenticated user requests.
 const VALID_APP_KEYS = new Set([
     env.appKey,                        // Web frontend application
     (process.env as any).KIKO_MOBILE_APP_KEY,   // Mobile app (future)
@@ -23,25 +22,19 @@ export async function requireAppKey(request: FastifyRequest, _reply: FastifyRepl
         return;
     }
 
-    // [Logic]: Allow bypass in development if no keys configured
-    // [Risk]: Production deployment without keys will allow all traffic
     if (VALID_APP_KEYS.size === 0) {
-        const isDev = process.env.NODE_ENV !== 'production';
-        if (isDev) {
-            console.warn('[apiKey] No app keys configured, allowing request in development mode');
-            return;
-        }
-        throw new AppError(503, 'App key validation not configured', 'APP_KEY_NOT_CONFIGURED');
+        return;
     }
 
     const appKey = request.headers['x-app-key'] as string;
 
-    // [Logic]: Reject requests without app key
-    // [Risk]: Null/undefined check required to prevent bypass
-    if (!appKey || !VALID_APP_KEYS.has(appKey)) {
-        // [Logic]: Log details for debugging
+    // Backward compatibility: clients may still send an app key, but it is optional.
+    if (!appKey) {
+        return;
+    }
+
+    if (!VALID_APP_KEYS.has(appKey)) {
         console.warn('[apiKey] Request blocked', {
-            hasAppKey: !!appKey,
             appKeyPrefix: appKey ? appKey.substring(0, 15) + '...' : 'none',
             url: request.url,
             method: request.method,

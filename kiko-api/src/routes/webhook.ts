@@ -495,14 +495,6 @@ async function processAlchemyWebhookPayload(payload: any): Promise<void> {
 
         txHash = normalizeTxHash(chainId, txHash);
         if (!txHash) return;
-        if (!isSolanaItems) {
-            sourceTxFrom = await resolveEvmSourceTxFrom(chainId, txHash);
-            if (!sourceTxFrom) {
-                console.error(`[Webhook] Ignore tx ${txHash}: missing source tx.from under tx_from_only binding`);
-                return;
-            }
-            candidates = [sourceTxFrom];
-        }
         if (payloadTxDedup.has(txHash)) return;
         payloadTxDedup.add(txHash);
         if (!tryClaimLocalInflight(chainId, txHash)) {
@@ -520,6 +512,14 @@ async function processAlchemyWebhookPayload(payload: any): Promise<void> {
             console.log(`[Webhook] Tx already in-flight: ${txHash}`);
             releaseLocalInflight(chainId, txHash);
             return;
+        }
+        if (!isSolanaItems) {
+            sourceTxFrom = await resolveEvmSourceTxFrom(chainId, txHash);
+            if (!sourceTxFrom) {
+                console.error(`[Webhook] Ignore tx ${txHash}: missing source tx.from under tx_from_only binding`);
+                return;
+            }
+            candidates = [sourceTxFrom];
         }
         // Fire-and-forget: don't await state marking on the critical path
         markCopyTradeTxState(chainId, txHash, 'confirmed_seen', { source: 'alchemy_webhook' }).catch(() => { });

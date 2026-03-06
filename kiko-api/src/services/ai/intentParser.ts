@@ -8,7 +8,6 @@ import type { UserContext } from './types.js';
 import { v4 as uuidv4 } from 'uuid';
 import { logger } from '../../utils/logger.js';
 import { LogCode } from '../../config/logRegistry.js';
-import { fetchJson } from '../../config/unifiedApiService.js';
 
 // High-level intent types (for system prompt selection)
 export type HighLevelIntentType =
@@ -194,79 +193,6 @@ const DETAILED_TO_HIGH_LEVEL: Record<DetailedIntentType, HighLevelIntentType> = 
     // GENERAL_CHAT
     'general_query': 'GENERAL_CHAT',
 };
-
-const DETAILED_INTENT_SYSTEM_PROMPT = `You are an AI assistant that helps users interact with Web3 DeFi protocols. Your job is to understand user intent and convert it to structured JSON.
-
-Available intent types:
-- token_info: Get information about a token (price, liquidity, volume, risk score)
-- token_search: Search for tokens by symbol or name
-- token_detail: Get detailed token information
-- token_chart: Get token price chart data
-- token_trending: Get trending tokens
-- swap: Execute a token swap
-- auto_buy: Set up automatic buy when conditions are met
-- auto_sell: Set up automatic sell when conditions are met
-- strategy_create: Create a trading strategy
-- strategy_list: List existing strategies
-- strategy_delete: Delete a strategy
-- wallet_info: Get wallet information (may show list card with transactions)
-- wallet_balance: Check wallet balance
-- wallet_transactions: Get wallet transactions
-- market_data: Get market data (trends, charts, etc.) (may show list card with trending tokens)
-- market_overview: Get market overview statistics
-- market_chains: Get blockchain chains data
-- market_protocols: Get DeFi protocols data
-- social_trending: Get trending social media posts (Farcaster)
-- social_user_info: Get Farcaster user information
-- token_security: Scan token security
-- wallet_pnl: Analyze wallet trading performance (PNL, win rate, realized profit)
-- general_query: General questions or chat
-
-For token queries, extract:
-- token_symbol (e.g., "ETH", "USDC")
-- token_address (if provided)
-- chain_id (default: 1 for Ethereum, 8453 for Base, etc.)
-
-For swap queries, extract:
-- token_in: input token symbol or address
-- token_out: output token symbol or address
-- amount: amount to swap
-- amount_asset: unit of amount (e.g., "USDC", "ETH")
-- slippage_bps: slippage tolerance in basis points (default: 1000 = 10%)
-- chain_id: blockchain network
-
-For auto_buy/auto_sell, extract:
-- token_in, token_out, amount, amount_asset
-- trigger: conditions for execution
-  - type: "price_drop_pct" | "price_rise_pct" | "price_target" | "time" | "wallet_action"
-  - value: percentage or target value
-  - window_s: time window in seconds
-- allowance_mode: "one_shot" or "unlimited"
-
-Always respond with valid JSON in this format:
-{
-  "version": "1.0",
-  "intent_id": "generated-uuid",
-  "origin": "chat",
-  "action": "intent_type",
-  ...relevant_fields...
-}
-
-If the user's intent is unclear or not related to Web3/DeFi, use action: "general_query" and include a "query" field with the user's question.
-
-IMPORTANT: If the user message contains:
-- A contract address (EVM: 0x + 40 hex, or Solana: base58 32-44 chars)
-- Swap keywords: "swap", "trade", "exchange", "convert", "buy", "sell", "swap to", "trade for"
-- Token symbols mentioned together (e.g., "ETH to USDC", "swap 100 USDC for ETH", "用SOL买USDC")
-Then the action should be "swap" and you must extract token_in, token_out, and amount if available.
-
-CONTRACT ADDRESS HANDLING:
-- If user provides a contract address (EVM or Solana format), it means they want to BUY that token
-- Set token_out to the contract address
-- Set token_address to the contract address
-- For Solana addresses, also set chain_id to 900
-- Default token_in to "USDC" unless user specifies otherwise (for Solana, use "SOL" if context suggests)
-- Don't guess addresses. Only use what is explicitly provided.`;
 
 /**
  * Detect contract address pattern
@@ -907,200 +833,6 @@ function parseHighLevelIntentHeuristic(
 }
 
 /**
- * Parse detailed intent using AI (DeepSeek API)
- */
-async function parseDetailedIntentAI(
-    userMessage: string,
-    userContext?: UserContext
-): Promise<DetailedIntent | null> {
-    const DEEPSEEK_API_URL = process.env.DEEPSEEK_API_URL || 'https://api.deepseek.com/v1/chat/completions';
-    const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY;
-    const apiKey = DEEPSEEK_API_KEY;
-
-    if (!apiKey) {
-        logger.info(LogCode.AI_INTENT_FAILED, 'IntentParser: DEEPSEEK_API_KEY not set, falling back to heuristic');
-        return null;
-    }
-
-    // Build context-aware system prompt
-    let systemPrompt = DETAILED_INTENT_SYSTEM_PROMPT;
-    if (userContext?.chainId && userContext?.chainName) {
-        systemPrompt += `\n\nUSER CONTEXT: \n- Current Chain: ${userContext.chainName} (ID: ${userContext.chainId}) \n - Wallet Connected: ${userContext.isWalletConnected ? 'Yes' : 'No'} \n\nIMPORTANT: Default to chain_id ${userContext.chainId} (${userContext.chainName}) unless the user explicitly mentions another network.`;
-    }
-
-    const messages = [
-        {
-            role: 'system' as const,
-            content: systemPrompt,
-        },
-        {
-            role: 'user' as const,
-            content: userMessage,
-        },
-    ];
-
-    try {
-        const data = await fetchJson({
-            url: DEEPSEEK_API_URL,
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${DEEPSEEK_API_KEY} `,
-            },
-            body: JSON.stringify({
-                model: 'deepseek-chat',
-                messages,
-                temperature: 0.3, // Lower temperature for more consistent JSON
-                max_tokens: 500,
-                enable_search: false, // Disable search tools for intent parsing
-            }),
-            requestTimeout: Number(process.env.INTENT_PARSER_TIMEOUT_MS || '1200'),
-            retry: { retries: 0 },
-        });
-
-        const content = data.choices[0]?.message?.content || '{}';
-
-        // Extract JSON from response (might be wrapped in markdown code blocks)
-        let jsonStr = content.trim();
-        if (jsonStr.startsWith('```json')) {
-            jsonStr = jsonStr.slice(7);
-        }
-        if (jsonStr.startsWith('```')) {
-            jsonStr = jsonStr.slice(3);
-        }
-        if (jsonStr.endsWith('```')) {
-            jsonStr = jsonStr.slice(0, -3);
-        }
-        jsonStr = jsonStr.trim();
-
-        const intent: DetailedIntent = JSON.parse(jsonStr);
-
-        // Validate and enhance intent
-        if (!intent.intent_id) {
-            intent.intent_id = uuidv4();
-        }
-        if (!intent.version) {
-            intent.version = '1.0';
-        }
-        if (!intent.origin) {
-            intent.origin = 'chat';
-        }
-
-        // Enhance swap intent with detected information
-        const contractAddress = detectContractAddress(userMessage);
-        const hasSwap = hasSwapKeywords(userMessage);
-        const tokenSymbols = extractTokenSymbols(userMessage);
-
-        // CRITICAL: Don't force swap intent for copy trade commands
-        const isCopyTrade = hasCopyTradeKeywords(userMessage);
-
-        if ((intent.action === 'swap' || hasSwap || contractAddress) && !isCopyTrade) {
-            // If AI didn't detect swap but we did, override it
-            if (intent.action !== 'swap' && (hasSwap || contractAddress)) {
-                intent.action = 'swap';
-            }
-
-            // Fill in missing swap fields from detection
-            if (contractAddress) {
-                intent.token_address = contractAddress;
-                if (!intent.token_out) {
-                    intent.token_out = contractAddress;
-                }
-
-                // Detect if this is a Solana address
-                const isSolanaAddress = !contractAddress.startsWith('0x') &&
-                    contractAddress.length >= 32 &&
-                    contractAddress.length <= 44 &&
-                    /^[1-9A-HJ-NP-Za-km-z]+$/.test(contractAddress);
-
-                if (isSolanaAddress && !intent.chain_id) {
-                    intent.chain_id = 900;
-                }
-
-                // CRITICAL FIX: Ensure tokenIn is not the same as tokenOut
-                if (!intent.token_in || intent.token_in === contractAddress) {
-                    intent.token_in = isSolanaAddress ? 'SOL' : 'ETH';
-                }
-            }
-
-            if (!intent.token_in && tokenSymbols.tokenIn) {
-                intent.token_in = tokenSymbols.tokenIn;
-            }
-            if (!intent.token_out && tokenSymbols.tokenOut) {
-                intent.token_out = tokenSymbols.tokenOut;
-            }
-
-            // If user says "buy X TOKEN" and token_out is missing but token_in is set, treat token_in as target
-            if (!intent.token_out && intent.token_in) {
-                const hasBuyVerb = /\b(buy|purchase|ape|买|购买)\b/i.test(userMessage);
-                const isNativeIn = ['ETH', 'BNB', 'SOL', 'MATIC', 'POL', 'AVAX', 'BASE'].includes(intent.token_in.toUpperCase());
-                if (hasBuyVerb && !isNativeIn) {
-                    intent.token_out = intent.token_in;
-                    intent.token_in = undefined;
-                }
-            }
-
-            // If token_out exists but token_in missing, default to native token based on chain/context
-            if (intent.token_out && !intent.token_in) {
-                const isBsc = /\bBNB\b/i.test(userMessage) || userContext?.chainId === 56 || intent.chain_id === 56;
-                const isSolana = intent.chain_id === 900;
-                const isPolygon = userContext?.chainId === 137 || intent.chain_id === 137;
-                intent.token_in = isSolana ? 'SOL' : (isBsc ? 'BNB' : (isPolygon ? 'POL' : 'ETH'));
-            }
-
-            // Normalize "BASE" to native token when on Base chain
-            if (intent.chain_id === 8453) {
-                if (intent.token_in?.toUpperCase() === 'BASE') intent.token_in = 'ETH';
-                if (intent.token_out?.toUpperCase() === 'BASE') intent.token_out = 'ETH';
-            }
-
-            // FINAL VALIDATION: Ensure tokenIn and tokenOut are different
-            if (intent.token_in && intent.token_out && intent.token_in.toLowerCase() === intent.token_out.toLowerCase()) {
-                logger.info(LogCode.SYS_INFO, 'IntentParser: AI set tokenIn === tokenOut, fixing...');
-                if (contractAddress) {
-                    intent.token_out = contractAddress;
-                    const isSolanaAddress = !contractAddress.startsWith('0x');
-                    intent.token_in = isSolanaAddress ? 'SOL' : 'ETH';
-                }
-            }
-
-            if (!intent.amount) {
-                // Try to extract amount with various patterns
-                const amountPatterns = [
-                    /(\d+\.?\d*)\s*(?:USDC|ETH|SOL|USDT|BNB)/i,
-                    /swap\s+(\d+\.?\d*)/i,
-                    /buy\s+(\d+\.?\d*)/i,
-                    /(\d+\.?\d*)\s*(?:to|for)/i
-                ];
-
-                for (const pattern of amountPatterns) {
-                    const match = userMessage.match(pattern);
-                    if (match) {
-                        intent.amount = match[1];
-                        // Try to extract the asset from the same match
-                        const assetMatch = userMessage.match(/(\d+\.?\d*)\s*(USDC|ETH|SOL|USDT|BNB)/i);
-                        if (assetMatch) {
-                            intent.amount_asset = assetMatch[2].toUpperCase();
-                        }
-                        break;
-                    }
-                }
-            }
-        }
-
-        // Set default chain_id if not provided
-        if (!intent.chain_id && userContext?.chainId) {
-            intent.chain_id = userContext.chainId;
-        }
-
-        return intent;
-    } catch (error: any) {
-        logger.error(LogCode.AI_INTENT_FAILED, 'IntentParser: Error parsing intent with AI', { error: error.message });
-        return null;
-    }
-}
-
-/**
  * Parse detailed intent using heuristics (fallback)
  */
 function parseDetailedIntentHeuristic(
@@ -1350,30 +1082,10 @@ export async function parseIntent(
     };
 
     // Step 2: Parse detailed intent
+    // Intent parsing is intentionally heuristic-only.
+    // Calling another model here adds latency, failure modes, and unrelated context pollution.
     let detailed: DetailedIntent;
-
-    // Use AI if:
-    // - Confidence is low (< 0.7)
-    // - Message is complex (long or contains multiple concepts)
-    // - Rule conflict detected
-    const shouldUseAI = highLevel.confidence < 0.7 ||
-        !!decision.conflict ||
-        userMessage.length > 100 ||
-        /(?:and|also|then|after|when)/i.test(userMessage);
-
-    if (shouldUseAI) {
-        logger.debug(LogCode.SYS_INFO, 'IntentParser: Using AI for detailed intent parsing');
-        const aiIntent = await parseDetailedIntentAI(userMessage, userContext);
-        if (aiIntent) {
-            detailed = aiIntent;
-        } else {
-            logger.debug(LogCode.SYS_INFO, 'IntentParser: AI parsing failed, falling back to heuristic for detailed intent parsing');
-            detailed = parseDetailedIntentHeuristic(userMessage, userContext);
-        }
-    } else {
-        logger.debug(LogCode.SYS_INFO, 'IntentParser: Using heuristic for detailed intent parsing');
-        detailed = parseDetailedIntentHeuristic(userMessage, userContext);
-    }
+    detailed = parseDetailedIntentHeuristic(userMessage, userContext);
 
     // Step 3: Map detailed intent to high-level (if mismatch, trust detailed)
     const mappedHighLevel = DETAILED_TO_HIGH_LEVEL[detailed.action] || highLevel.type;
@@ -1396,7 +1108,7 @@ export async function parseIntent(
         userAddress: userContext?.userAddress,
         intent: detailed.action,
         highLevelIntent: highLevel.type,
-        hasAI: shouldUseAI,
+        hasAI: false,
         confidence: highLevel.confidence,
         routingStage: decision.routing.stage,
         conflict: decision.conflict?.type,

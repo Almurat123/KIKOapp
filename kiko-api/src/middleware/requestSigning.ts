@@ -20,11 +20,8 @@ const MAX_TIMESTAMP_DRIFT_MS = 5 * 60 * 1000; // 5 minutes
  * [Risk]: Replay attacks possible within 5-minute window
  */
 export async function verifyRequestSignature(request: FastifyRequest, _reply: FastifyReply) {
-    // [Logic]: Skip if signing not configured (optional feature)
-    // [Risk]: Silent bypass if secret not set
     if (!SIGNING_SECRET) {
-        console.warn('[requestSigning] REQUEST_SIGNING_SECRET not set, skipping signature verification');
-        return;
+        throw new AppError(503, 'Request signing is not configured', 'SIGNING_NOT_CONFIGURED');
     }
 
     const timestamp = request.headers['x-timestamp'] as string;

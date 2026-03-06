@@ -1,7 +1,14 @@
 import { logger } from '../../utils/logger.js';
 import { LogCode } from '../../config/logRegistry.js';
+import {
+    acquireLock as cacheAcquireLock,
+    getJson as cacheGetJson,
+    releaseLock as cacheReleaseLock,
+    setJson as cacheSetJson,
+} from '../../cache/cacheClient.js';
 import { callRpc, getTransactionByHash, getTransactionReceipt } from '../rpcManager.js';
 import { sendTransaction } from '../privyWallet.js';
+import { hydrateSharedAdjudicatedSnapshot } from '../order-runtime/adjudicator/service.js';
 import { resolveTxFinalState } from '../order-runtime/adjudicator/finalState.js';
 import { reportReceiptSeen, reportTxByHashSeen } from '../order-runtime/adjudicator/service.js';
 import type { OrderRuntimeContext } from '../order-runtime/types.js';
@@ -19,9 +26,31 @@ export interface ConfirmationOutcome {
 }
 
 const confirmationInflight = new Map<string, Promise<ConfirmationOutcome>>();
+const CONFIRMATION_RESULT_TTL_SEC = Math.max(30, Number(process.env.COPYTRADE_CONFIRMATION_RESULT_TTL_SEC || '300'));
+const CONFIRMATION_LOCK_WAIT_POLL_MS = Math.max(250, Number(process.env.COPYTRADE_CONFIRMATION_LOCK_WAIT_POLL_MS || '1000'));
+
+const confirmationDeps = {
+    cacheAcquireLock,
+    cacheGetJson,
+    cacheReleaseLock,
+    cacheSetJson,
+    getTransactionByHash,
+    getTransactionReceipt,
+    hydrateSharedAdjudicatedSnapshot,
+    resolveTxFinalState,
+    sleep,
+};
 
 function buildConfirmationInflightKey(chainId: number, txHash: string): string {
     return `${chainId}:${String(txHash || '').toLowerCase()}`;
+}
+
+function buildConfirmationCacheKey(chainId: number, txHash: string): string {
+    return `copytrade:confirmation_outcome:${chainId}:${String(txHash || '').toLowerCase()}`;
+}
+
+function buildConfirmationLockKey(chainId: number, txHash: string): string {
+    return `copytrade:confirmation_lock:${chainId}:${String(txHash || '').toLowerCase()}`;
 }
 
 function sleep(ms: number): Promise<void> {
@@ -34,7 +63,7 @@ function isReceiptSuccess(receipt: any): boolean {
 }
 
 async function resolveReceiptOutcome(chainId: number, txHash: string): Promise<ConfirmationOutcome | null> {
-    const receipt = await getTransactionReceipt(chainId, txHash).catch(() => null);
+    const receipt = await confirmationDeps.getTransactionReceipt(chainId, txHash).catch(() => null);
     if (!receipt) return null;
 
     const success = isReceiptSuccess(receipt);
@@ -56,6 +85,39 @@ async function resolveReceiptOutcome(chainId: number, txHash: string): Promise<C
     return { success: false, kind: 'confirmed_failed', reason, receipt, visible: true };
 }
 
+function sanitizeConfirmationOutcome(outcome: ConfirmationOutcome): ConfirmationOutcome {
+    return {
+        success: outcome.success,
+        kind: outcome.kind,
+        reason: outcome.reason,
+        visible: outcome.visible,
+        receipt: null,
+    };
+}
+
+async function getCachedConfirmationOutcome(chainId: number, txHash: string): Promise<ConfirmationOutcome | null> {
+    const cached = await confirmationDeps.cacheGetJson<ConfirmationOutcome>(buildConfirmationCacheKey(chainId, txHash)).catch(() => null);
+    if (!cached) return null;
+    return sanitizeConfirmationOutcome(cached);
+}
+
+async function persistConfirmationOutcome(chainId: number, txHash: string, outcome: ConfirmationOutcome): Promise<void> {
+    await confirmationDeps.cacheSetJson(buildConfirmationCacheKey(chainId, txHash), sanitizeConfirmationOutcome(outcome), CONFIRMATION_RESULT_TTL_SEC).catch(() => { });
+}
+
+async function waitForSharedCachedOutcome(params: {
+    chainId: number;
+    txHash: string;
+    deadlineMs: number;
+}): Promise<ConfirmationOutcome | null> {
+    while (Date.now() < params.deadlineMs) {
+        const cached = await getCachedConfirmationOutcome(params.chainId, params.txHash);
+        if (cached) return cached;
+        await confirmationDeps.sleep(CONFIRMATION_LOCK_WAIT_POLL_MS);
+    }
+    return getCachedConfirmationOutcome(params.chainId, params.txHash);
+}
+
 export async function waitForTransactionConfirmation(params: {
     txHash: string;
     chainId: number;
@@ -64,6 +126,21 @@ export async function waitForTransactionConfirmation(params: {
     pollMs?: number;
 }): Promise<ConfirmationOutcome> {
     const inflightKey = buildConfirmationInflightKey(params.chainId, params.txHash);
+    const deadlineMs = Date.now() + Math.max(500, Number(params.timeoutMs ?? 60000));
+    const cached = await getCachedConfirmationOutcome(params.chainId, params.txHash);
+    if (cached) {
+        logger.info(LogCode.SYS_INFO, '[ConfirmWait] Reusing cached confirmation outcome', {
+            chainId: params.chainId,
+            txHash: params.txHash,
+            dexName: params.dexName,
+            kind: cached.kind,
+        });
+        return cached;
+    }
+    await confirmationDeps.hydrateSharedAdjudicatedSnapshot({
+        chainId: params.chainId,
+        txHash: params.txHash,
+    }).catch(() => null);
     const existing = confirmationInflight.get(inflightKey);
     if (existing) {
         logger.info(LogCode.SYS_INFO, '[ConfirmWait] Reusing inflight confirmation promise', {
@@ -74,7 +151,49 @@ export async function waitForTransactionConfirmation(params: {
         return await existing;
     }
 
-    const task = waitForTransactionConfirmationUncached(params)
+    const task = (async () => {
+        const lockKey = buildConfirmationLockKey(params.chainId, params.txHash);
+        const lockValue = `${process.pid}:${Date.now()}:${Math.random().toString(36).slice(2, 10)}`;
+        const lockTtlSec = Math.max(5, Math.ceil(Math.max(500, Number(params.timeoutMs ?? 60000)) / 1000) + 5);
+        const acquired = await confirmationDeps.cacheAcquireLock(lockKey, lockTtlSec, lockValue).catch(() => false);
+
+        if (!acquired) {
+            logger.info(LogCode.SYS_INFO, '[ConfirmWait] Waiting on distributed confirmation lock', {
+                chainId: params.chainId,
+                txHash: params.txHash,
+                dexName: params.dexName,
+            });
+            const shared = await waitForSharedCachedOutcome({
+                chainId: params.chainId,
+                txHash: params.txHash,
+                deadlineMs,
+            });
+            if (shared) return shared;
+            logger.warn(LogCode.SYS_INFO, '[ConfirmWait] Shared confirmation wait timed out without cached outcome', {
+                chainId: params.chainId,
+                txHash: params.txHash,
+            });
+            return {
+                success: false,
+                kind: 'uncertain',
+                reason: 'shared_confirmation_timeout',
+                visible: true,
+                receipt: null,
+            } satisfies ConfirmationOutcome;
+        }
+
+        try {
+            const remainingTimeoutMs = Math.max(500, deadlineMs - Date.now());
+            const outcome = await waitForTransactionConfirmationUncached({
+                ...params,
+                timeoutMs: remainingTimeoutMs,
+            });
+            await persistConfirmationOutcome(params.chainId, params.txHash, outcome);
+            return outcome;
+        } finally {
+            await confirmationDeps.cacheReleaseLock(lockKey, lockValue).catch(() => { });
+        }
+    })()
         .finally(() => {
             const current = confirmationInflight.get(inflightKey);
             if (current === task) {
@@ -109,7 +228,7 @@ async function waitForTransactionConfirmationUncached(params: {
     logger.info(LogCode.SYS_INFO, `[ConfirmWait] Waiting for confirmation: ${txHash} on ${chainId}`);
 
     while (Date.now() - startedAt < timeoutMs) {
-        const finalState = resolveTxFinalState({ chainId, txHash });
+        const finalState = confirmationDeps.resolveTxFinalState({ chainId, txHash });
         if (finalState.success) {
             logger.info(LogCode.EXE_TX_CONFIRMED, `[ConfirmWait] Transaction confirmed: ${txHash}`);
             return { success: true, kind: 'confirmed_success', visible: true };
@@ -123,22 +242,25 @@ async function waitForTransactionConfirmationUncached(params: {
         const receiptOutcome = await resolveReceiptOutcome(chainId, txHash);
         if (receiptOutcome) return receiptOutcome;
 
-        const tx = await getTransactionByHash(chainId, txHash).catch(() => null);
-        if (tx?.hash) {
-            sawVisibility = true;
-            reportTxByHashSeen({
-                chainId,
-                txHash,
-                from: tx.from || undefined,
-                blockNumber: tx.blockNumber || undefined,
-                source: 'rpc_tx'
-            });
+        const alreadyVisible = sawVisibility || finalState.visible || finalState.accepted;
+        if (!alreadyVisible) {
+            const tx = await confirmationDeps.getTransactionByHash(chainId, txHash).catch(() => null);
+            if (tx?.hash) {
+                sawVisibility = true;
+                reportTxByHashSeen({
+                    chainId,
+                    txHash,
+                    from: tx.from || undefined,
+                    blockNumber: tx.blockNumber || undefined,
+                    source: 'rpc_tx'
+                });
+            }
         }
 
-        await sleep(pollMs);
+        await confirmationDeps.sleep(pollMs);
     }
 
-    const finalState = resolveTxFinalState({ chainId, txHash });
+    const finalState = confirmationDeps.resolveTxFinalState({ chainId, txHash });
     if (finalState.success) {
         logger.info(LogCode.EXE_TX_CONFIRMED, `[ConfirmWait] Transaction confirmed: ${txHash}`);
         return { success: true, kind: 'confirmed_success', visible: true };
@@ -152,8 +274,12 @@ async function waitForTransactionConfirmationUncached(params: {
     const trailingReceipt = await resolveReceiptOutcome(chainId, txHash);
     if (trailingReceipt) return trailingReceipt;
 
-    const trailingTx = await getTransactionByHash(chainId, txHash).catch(() => null);
-    const visible = sawVisibility || Boolean(trailingTx?.hash) || finalState.visible || finalState.accepted;
+    let trailingVisible = sawVisibility || finalState.visible || finalState.accepted;
+    if (!trailingVisible) {
+        const trailingTx = await confirmationDeps.getTransactionByHash(chainId, txHash).catch(() => null);
+        trailingVisible = Boolean(trailingTx?.hash);
+    }
+    const visible = trailingVisible;
     const reason = visible ? 'tx_broadcast_unconfirmed' : 'Transaction confirmation timeout';
     logger.warn(LogCode.SYS_INFO, `[ConfirmWait] Timeout waiting for ${txHash} confirmation`, {
         chainId,
@@ -167,6 +293,23 @@ async function waitForTransactionConfirmationUncached(params: {
         visible
     };
 }
+
+export const __confirmationCoordinatorTest = {
+    setHooks(hooks: Partial<typeof confirmationDeps>): void {
+        Object.assign(confirmationDeps, hooks);
+    },
+    resetHooks(): void {
+        confirmationDeps.cacheAcquireLock = cacheAcquireLock;
+        confirmationDeps.cacheGetJson = cacheGetJson;
+        confirmationDeps.cacheReleaseLock = cacheReleaseLock;
+        confirmationDeps.cacheSetJson = cacheSetJson;
+        confirmationDeps.getTransactionByHash = getTransactionByHash;
+        confirmationDeps.getTransactionReceipt = getTransactionReceipt;
+        confirmationDeps.resolveTxFinalState = resolveTxFinalState;
+        confirmationDeps.sleep = sleep;
+        confirmationInflight.clear();
+    }
+};
 
 export function scheduleSpeedUp(params: {
     txHash: string;
