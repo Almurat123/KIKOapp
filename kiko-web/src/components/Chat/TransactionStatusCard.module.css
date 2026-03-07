@@ -189,6 +189,13 @@
     gap: 4px;
 }
 
+.amountRow {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 14px;
+}
+
 .amountLabel {
     font-size: 10px;
     text-transform: uppercase;
@@ -199,58 +206,74 @@
 }
 
 .amountValue {
-    font-size: 36px;
-    /* text-4xl */
+    font-size: clamp(2rem, 5vw, 2.75rem);
     font-weight: 300;
-    /* font-light */
     letter-spacing: var(--kiko-body-spacing);
-    /* tracking-tighter */
     font-style: var(--kiko-italic-style);
     line-height: 1.05;
     color: #ffffff;
-    display: flex;
-    align-items: center;
+    min-width: 0;
+    margin: 0;
+    overflow: hidden;
+}
+
+.amountNumber {
+    display: block;
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    line-height: 0.96;
+    letter-spacing: -0.03em;
 }
 
 .amountValueEst {
     color: rgba(96, 165, 250, 0.8);
-    /* text-blue-400/80 */
     animation: fadeInZoom 1s ease-out;
 }
 
 .tokenSymbol {
     color: rgba(255, 255, 255, 0.92);
-    font-size: 18px;
+    font-size: 16px;
     font-style: var(--kiko-italic-style);
     margin-left: 0;
     font-weight: 600;
     letter-spacing: var(--kiko-body-spacing);
+    white-space: nowrap;
 }
 
 .tokenPill {
     display: inline-flex;
     align-items: center;
     gap: 8px;
-    margin-left: 10px;
-    padding: 3px 10px 3px 6px;
+    margin-left: 0;
+    padding: 7px 12px 7px 8px;
     border-radius: 999px;
     border: 1px solid rgba(255, 255, 255, 0.16);
     background: rgba(255, 255, 255, 0.06);
-    align-self: center;
-    transform: translateY(0.5px);
+    align-self: start;
+    justify-self: end;
+    flex-shrink: 0;
+    min-height: 40px;
+    max-width: none;
+    transform: none;
 }
 
 .tokenPillIcon {
-    width: 18px;
-    height: 18px;
+    width: 20px;
+    height: 20px;
+    min-width: 20px;
+    min-height: 20px;
     border-radius: 999px;
     object-fit: cover;
     border: 1px solid rgba(255, 255, 255, 0.18);
 }
 
 .tokenPillFallback {
-    width: 18px;
-    height: 18px;
+    width: 20px;
+    height: 20px;
+    min-width: 20px;
+    min-height: 20px;
     border-radius: 999px;
     display: inline-flex;
     align-items: center;
@@ -268,6 +291,36 @@
     background: linear-gradient(to right, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.05), transparent);
     margin: 28px 0;
     /* my-7 */
+}
+
+@media (max-width: 560px) {
+    .card {
+        padding: 24px 20px;
+        border-radius: 28px;
+    }
+
+    .amountSection {
+        margin-bottom: 28px;
+    }
+
+    .amountRow {
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 8px;
+    }
+
+    .amountValue {
+        font-size: clamp(1.4rem, 7.2vw, 2rem);
+    }
+
+    .tokenPill {
+        justify-self: end;
+        min-height: 36px;
+        padding: 6px 10px 6px 8px;
+    }
+
+    .tokenSymbol {
+        font-size: 15px;
+    }
 }
 
 /* Status Section */

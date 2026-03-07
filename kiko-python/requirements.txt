@@ -1,30 +1,30 @@
 # Common
-fastapi>=0.115.0
-uvicorn>=0.32.0
-python-dotenv>=1.0.0
-pydantic>=2.0.0
-requests>=2.31.0
-httpx>=0.27.0
+fastapi==0.124.0
+uvicorn==0.38.0
+python-dotenv==1.2.1
+pydantic==2.12.4
+requests==2.32.5
+httpx==0.28.1
 
 # Grok Service
-xai-sdk>=1.4.0
-grpcio>=1.60.0
-python-jose>=3.3.0
-langchain-core>=0.1.0
-langchain-community>=0.3.0
+xai-sdk==1.5.0
+grpcio==1.76.0
+python-jose==3.5.0
+langchain-core==1.2.5
+langchain-community==0.4.1
 
 # Moderation Service (Lightweight - OpenAI API)
-openai>=1.0.0
+openai==2.8.0
 
 # RAG Service (Lightweight - OpenAI Embeddings)
-langchain>=0.3.0
-langchain-openai>=0.2.0
-langchain-chroma>=0.1.0
-beautifulsoup4>=4.12.0
-tiktoken>=0.7.0
+langchain==1.2.0
+langchain-openai==1.1.6
+langchain-chroma==1.1.0
+beautifulsoup4==4.14.3
+tiktoken==0.12.0
 
 # Chat v2 stack
-sqlalchemy>=2.0.32
-asyncpg>=0.29.0
-alembic>=1.13.2
-redis>=5.0.8
+sqlalchemy==2.0.45
+asyncpg==0.31.0
+alembic==1.18.4
+redis==7.1.1

@@ -232,7 +232,7 @@ export function useWalletPageData() {
         } catch (e: any) {
             console.error('Error fetching balances', e);
             if (!cancelled.value && reqId === balanceReqId.current) {
-                setError(e?.message || '资产加载失败，请稍后重试。');
+                setError(e?.message || 'Failed to load assets. Please try again later.');
             }
         } finally { if (reqId === balanceReqId.current) setLoading(false); }
     };

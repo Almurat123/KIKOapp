@@ -1056,7 +1056,7 @@ export async function aiRoutes(fastify: FastifyInstance) {
     );
 
     // Skills metadata endpoint for frontend
-    fastify.get('/agent/skills', async (request, reply) => {
+    fastify.get('/agent/skills', { preHandler: requireAuth }, async (request, reply) => {
         try {
             const { skillRegistryExec } = await import('../skills/registry.js');
             const allSkills = skillRegistryExec.getAllSkills();

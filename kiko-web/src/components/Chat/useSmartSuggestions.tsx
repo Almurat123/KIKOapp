@@ -16,6 +16,7 @@ export const useSmartSuggestions = (
 
     // Engine State
     const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
+    const suppressedRef = useRef(false);
 
     const handleCommit = useCallback((committedText: string) => {
         console.log('[useSmartSuggestions] handleCommit called with:', committedText);
@@ -49,6 +50,12 @@ export const useSmartSuggestions = (
 
     // Intent Detection
     const detectIntent = useCallback((text: string) => {
+        if (suppressedRef.current) {
+            setSuggestions([]);
+            setShowSuggestions(false);
+            return;
+        }
+
         if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
 
         debounceTimerRef.current = setTimeout(() => {
@@ -66,6 +73,11 @@ export const useSmartSuggestions = (
     }, [handleCommit]);
 
     const openSuggestions = useCallback(() => {
+        if (suppressedRef.current) {
+            setSuggestions([]);
+            setShowSuggestions(false);
+            return;
+        }
         const results = SuggestionEngine.getSuggestions('', handleCommit, { mode: 'focus' });
         setSuggestions(results);
         setShowSuggestions(results.length > 0);
@@ -96,6 +108,20 @@ export const useSmartSuggestions = (
         setShowSuggestions(false);
     }, []);
 
+    const suppressSuggestions = useCallback(() => {
+        suppressedRef.current = true;
+        if (debounceTimerRef.current) {
+            clearTimeout(debounceTimerRef.current);
+            debounceTimerRef.current = null;
+        }
+        setSuggestions([]);
+        setShowSuggestions(false);
+    }, []);
+
+    const resumeSuggestions = useCallback(() => {
+        suppressedRef.current = false;
+    }, []);
+
     return {
         suggestions,
         showSuggestions,
@@ -103,6 +129,8 @@ export const useSmartSuggestions = (
         setShowSuggestions,
         detectIntent,
         openSuggestions,
-        closeSuggestions
+        closeSuggestions,
+        suppressSuggestions,
+        resumeSuggestions
     };
 };

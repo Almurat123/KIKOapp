@@ -924,7 +924,7 @@ export async function tokenRoutes(fastify: FastifyInstance) {
   });
 
   // GET /api/tokens/launchpad/detect - Detect launchpad token by address
-  fastify.get('/launchpad/detect', async (request, reply) => {
+  fastify.get('/launchpad/detect', { preHandler: requireAuth }, async (request, reply) => {
     try {
       const { address, chainId } = request.query as {
         address?: string;
@@ -988,7 +988,7 @@ export async function tokenRoutes(fastify: FastifyInstance) {
   });
 
   // GET /api/tokens/:network/:address/early-buyers
-  fastify.get('/:network/:address/early-buyers', async (request, reply) => {
+  fastify.get('/:network/:address/early-buyers', { preHandler: requireAuth }, async (request, reply) => {
     try {
       const { network, address } = request.params as { network: string; address: string };
       const { limit = '10' } = request.query as { limit?: string };
@@ -1028,7 +1028,7 @@ export async function tokenRoutes(fastify: FastifyInstance) {
   });
 
   // Token Security Check Route
-  fastify.get('/security/:chain/:address', async (request, reply) => {
+  fastify.get('/security/:chain/:address', { preHandler: requireAuth }, async (request, reply) => {
     try {
       const { chain, address } = request.params as { chain: string; address: string };
 

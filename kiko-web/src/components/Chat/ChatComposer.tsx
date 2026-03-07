@@ -22,6 +22,7 @@ interface ChatComposerProps {
     inputTop: number | null;
     isKeyboardVisible: boolean;
     textareaRef: React.RefObject<HTMLTextAreaElement | null>;
+    inputAreaRef: React.RefObject<HTMLDivElement | null>;
     modelSelectorRef: React.RefObject<HTMLDivElement | null>;
     closeSuggestions: () => void;
     onScrollToBottom: () => void;
@@ -51,6 +52,7 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
     inputTop,
     isKeyboardVisible,
     textareaRef,
+    inputAreaRef,
     modelSelectorRef,
     closeSuggestions,
     onScrollToBottom,
@@ -69,6 +71,7 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
 
     return (
         <div
+            ref={inputAreaRef}
             className={clsx(styles.inputArea, styles.inputBottom, !disableChatTransitions && styles.chatUiEnterDelayed)}
             style={isKeyboardVisible && inputTop !== null ? {
                 bottom: 'auto',

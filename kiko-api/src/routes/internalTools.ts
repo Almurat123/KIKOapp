@@ -18,7 +18,10 @@ function requireInternalServiceKey(fastify: FastifyInstance, req: any, reply: an
 }
 
 export async function internalToolsRoutes(fastify: FastifyInstance) {
-    fastify.get('/internal/tools/health', async () => ({ status: 'ok', service: 'internal-tools' }));
+    fastify.get('/internal/tools/health', async (req, reply) => {
+        if (!requireInternalServiceKey(fastify, req, reply)) return;
+        return { status: 'ok' };
+    });
 
     fastify.get('/internal/tools/definitions', async (req, reply) => {
         if (!requireInternalServiceKey(fastify, req, reply)) return;

@@ -214,7 +214,9 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
         suggestions,
         showSuggestions,
         detectIntent,
-        closeSuggestions
+        closeSuggestions,
+        suppressSuggestions,
+        resumeSuggestions
     } = useSmartSuggestions(
         () => { }, // onSend is unused in hook now
         (nextInput: string) => {
@@ -770,6 +772,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
     const currentConversationIdRef = useRef<string | null>(null);
     const processedMessagesRef = useRef<Set<string>>(new Set());
     const modelSelectorRef = useRef<HTMLDivElement>(null);
+    const inputAreaRef = useRef<HTMLDivElement>(null);
 
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -782,6 +785,23 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
     const sendAbortControllerRef = useRef<AbortController | null>(null);
     const stopRequestedRef = useRef(false);
 
+    const syncScrollPaddingWithComposer = useCallback(() => {
+        if (!scrollContainerRef.current) return;
+        const scrollEl = scrollContainerRef.current;
+        const composerEl = inputAreaRef.current;
+
+        if (!composerEl) {
+            scrollEl.style.paddingBottom = '';
+            return;
+        }
+
+        const scrollRect = scrollEl.getBoundingClientRect();
+        const composerRect = composerEl.getBoundingClientRect();
+        const overlap = Math.max(0, scrollRect.bottom - composerRect.top);
+        const bottomReserve = Math.ceil(overlap + 16);
+        scrollEl.style.paddingBottom = `${bottomReserve}px`;
+    }, []);
+
     const scrollToBottom = useCallback((smooth = true) => {
         if (scrollContainerRef.current) {
             const { scrollHeight, clientHeight } = scrollContainerRef.current;
@@ -791,6 +811,23 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
             });
         }
     }, []);
+
+    useEffect(() => {
+        syncScrollPaddingWithComposer();
+        const composerEl = inputAreaRef.current;
+        if (!composerEl || typeof ResizeObserver === 'undefined') return;
+
+        const observer = new ResizeObserver(() => {
+            syncScrollPaddingWithComposer();
+        });
+        observer.observe(composerEl);
+        window.addEventListener('resize', syncScrollPaddingWithComposer);
+
+        return () => {
+            observer.disconnect();
+            window.removeEventListener('resize', syncScrollPaddingWithComposer);
+        };
+    }, [syncScrollPaddingWithComposer, showSuggestions, input, safariKeyboard.inputTop, safariKeyboard.isKeyboardVisible]);
 
     // Sync chatStarted with Layout on mount (single source: Layout's chatStarted)
     useEffect(() => {
@@ -1236,31 +1273,24 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
     // Smart scroll on new messages - follow output if user is at bottom
     useEffect(() => {
-        // IMPORTANT: If user has scrolled up, NEVER auto-scroll until they scroll back to bottom
         if (userScrolledUpRef.current) {
-            return; // Exit early - respect user's scroll position
+            return;
         }
-
-        // CRITICAL: Don't auto-scroll if user is actively selecting text
         const selection = window.getSelection();
         if (selection && selection.toString().length > 0) {
-            return; // Exit early - user is selecting text, don't interfere
+            return;
         }
 
-        if (scrollContainerRef.current && messages.length > 0) {
-            // Check if last message is from AI (indicates streaming or recent output)
+        if (scrollContainerRef.current && (messages.length > 0 || firstSendPending)) {
             const lastMessage = messages[messages.length - 1];
             const isAIMessage = lastMessage?.role === 'assistant';
             const { scrollTop, scrollHeight, clientHeight } = scrollContainerRef.current;
             const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
             const isNearBottom = distanceFromBottom < 50;
-
-            // Auto-scroll if: streaming and user at bottom, OR after streaming and user at bottom
-            const shouldScroll = isNearBottom || (isStreaming && isAIMessage);
+            const shouldScroll = isNearBottom || firstSendPending || isThinking || (isStreaming && isAIMessage);
 
             if (shouldScroll) {
                 requestAnimationFrame(() => {
-                    // Double-check user hasn't scrolled up or started selecting during the frame
                     const currentSelection = window.getSelection();
                     if (scrollContainerRef.current && !userScrolledUpRef.current &&
                         (!currentSelection || currentSelection.toString().length === 0)) {
@@ -1272,7 +1302,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                 });
             }
         }
-    }, [messages, isThinking, isStreaming]);
+    }, [messages, isThinking, isStreaming, firstSendPending]);
 
     const handleScroll = () => {
         if (scrollContainerRef.current) {
@@ -1497,16 +1527,18 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
         // [Logic]: Explicitly close suggestions to prevent the box from persisting after message is sent.
         // [Ref]: useSmartSuggestions defines closeSuggestions to set showSuggestions to false.
         // [Risk]: If closeSuggestions is not available due to hook initialization race, this might fail silently.
-        if (closeSuggestions) closeSuggestions();
+        suppressSuggestions();
 
         if (textareaRef.current) {
             textareaRef.current.style.height = 'auto';
         }
 
-        // 5. Scroll to bottom
+        // Scroll after the optimistic UI and thinking placeholder have painted.
         userScrolledUpRef.current = false;
         isAtBottomRef.current = true;
-        setTimeout(() => scrollToBottom(false), 0);
+        requestAnimationFrame(() => {
+            requestAnimationFrame(() => scrollToBottom(false));
+        });
 
         let currentConvId = conversationId;
 
@@ -1812,10 +1844,9 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
     // Auto-resize textarea like ChatGPT/Gemini
     const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
         const newValue = e.target.value;
+        resumeSuggestions();
         setInput(newValue);
         autoResizeTextarea(e.target);
-
-        // Trigger intent detection
         detectIntent(newValue);
     };
 
@@ -1829,8 +1860,9 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
         // Update message list padding to ensure content is not hidden behind input
         // Base padding needs to account for: input area + action buttons (~40px extra)
         if (scrollContainerRef.current) {
-            const extraHeight = Math.max(0, newHeight - 24);
-            scrollContainerRef.current.style.paddingBottom = `${140 + extraHeight}px`;
+            requestAnimationFrame(() => {
+                syncScrollPaddingWithComposer();
+            });
         }
     };
 
@@ -1839,9 +1871,8 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
         if (textareaRef.current && input) {
             autoResizeTextarea(textareaRef.current);
         }
-        // Reset padding when input is cleared
-        if (!input && scrollContainerRef.current) {
-            scrollContainerRef.current.style.paddingBottom = '140px';
+        if (!input) {
+            requestAnimationFrame(() => syncScrollPaddingWithComposer());
         }
 
 
@@ -1851,7 +1882,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
             // Re-focus to ensure next step works
             setTimeout(() => textareaRef.current?.focus(), 0);
         }
-    }, [input, detectIntent]);
+    }, [input, detectIntent, syncScrollPaddingWithComposer]);
 
     // Use propPendingPrompt or local state logic
     useEffect(() => {
@@ -2012,6 +2043,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                 inputTop={safariKeyboard.inputTop}
                 isKeyboardVisible={safariKeyboard.isKeyboardVisible}
                 textareaRef={textareaRef}
+                inputAreaRef={inputAreaRef}
                 modelSelectorRef={modelSelectorRef}
                 closeSuggestions={closeSuggestions}
                 onScrollToBottom={() => scrollToBottom()}

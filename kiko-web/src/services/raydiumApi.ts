@@ -1,9 +1,5 @@
 // Raydium API Service (Enhanced with Centralized Token Data & On-Chain Data)
-// Using @raydium-io/raydium-sdk-v2 and Centralized API
 import { PublicKey } from '@solana/web3.js';
-import {
-    // Raydium - removed unused import
-} from '@raydium-io/raydium-sdk-v2';
 import { tokenApi } from './api';
 import { getSolanaRpcConnection, getSolanaRpcUrl } from '../utils/solanaRpcConnection';
 

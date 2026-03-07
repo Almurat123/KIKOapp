@@ -1,4 +1,6 @@
 
+import { getAuthToken } from '../utils/authToken';
+
 export interface ClankerToken {
     id: number;
     created_at: string;
@@ -34,7 +36,10 @@ export async function getClankerToken(address: string, chainId?: number): Promis
         // Use the backend launchpad detection endpoint which has robust logic
         // This replaces the old /clanker-api proxy which was unreliable
         const cid = Number.isFinite(Number(chainId)) ? Number(chainId) : 8453;
-        const response = await fetch(`/api/tokens/launchpad/detect?address=${address}&chainId=${cid}`);
+        const token = await getAuthToken();
+        const response = await fetch(`/api/tokens/launchpad/detect?address=${address}&chainId=${cid}`, {
+            headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+        });
 
         if (!response.ok) {
             // Silently fail for 404s (not found) to avoid console noise

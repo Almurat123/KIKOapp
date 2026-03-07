@@ -140,8 +140,10 @@ export const TransactionStatusCard: React.FC<TransactionStatusCardProps> = ({
             <div className={styles.amountSection}>
                 <div className={styles.amountBlock}>
                     <p className={styles.amountLabel}>Swap Amount</p>
-                    <p className={styles.amountValue}>
-                        {amountIn || '0.00'}
+                    <div className={styles.amountRow}>
+                        <p className={styles.amountValue} title={amountIn || '0.00'}>
+                            <span className={styles.amountNumber}>{amountIn || '0.00'}</span>
+                        </p>
                         <span className={styles.tokenPill}>
                             {tokenInIcon ? (
                                 <img src={tokenInIcon} alt={tokenIn} className={styles.tokenPillIcon} />
@@ -150,7 +152,7 @@ export const TransactionStatusCard: React.FC<TransactionStatusCardProps> = ({
                             )}
                             <span className={styles.tokenSymbol}>{tokenIn}</span>
                         </span>
-                    </p>
+                    </div>
                 </div>
 
                 <div className={styles.divider} />
@@ -160,8 +162,10 @@ export const TransactionStatusCard: React.FC<TransactionStatusCardProps> = ({
                     {isLoading ? (
                         <div className={styles.skeletonRect} />
                     ) : (
-                        <p className={clsx(styles.amountValue, styles.amountValueEst)}>
-                            {amountOut || '0.00'}
+                        <div className={styles.amountRow}>
+                            <p className={clsx(styles.amountValue, styles.amountValueEst)} title={amountOut || '0.00'}>
+                                <span className={styles.amountNumber}>{amountOut || '0.00'}</span>
+                            </p>
                             <span className={styles.tokenPill}>
                                 {tokenOutIcon ? (
                                     <img src={tokenOutIcon} alt={tokenOut} className={styles.tokenPillIcon} />
@@ -170,7 +174,7 @@ export const TransactionStatusCard: React.FC<TransactionStatusCardProps> = ({
                                 )}
                                 <span className={styles.tokenSymbol}>{tokenOut}</span>
                             </span>
-                        </p>
+                        </div>
                     )}
                 </div>
             </div>

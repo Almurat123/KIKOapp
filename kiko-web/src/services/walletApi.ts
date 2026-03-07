@@ -42,15 +42,15 @@ async function buildHttpError(response: Response, fallback: string): Promise<Err
     }
 
     if (response.status === 401 || response.status === 403) {
-        return new Error('认证已过期或权限不足，请重新登录后重试。');
+        return new Error('Session expired or insufficient permissions. Please log in again.');
     }
     if (response.status === 429) {
-        return new Error('请求过于频繁，请稍后再试。');
+        return new Error('Too many requests. Please try again later.');
     }
     if (response.status >= 500) {
-        return new Error('服务暂时不可用，请稍后再试。');
+        return new Error('Service temporarily unavailable. Please try again later.');
     }
-    return new Error(message);
+    return new Error(message || 'Service temporarily unavailable. Please try again later.');
 }
 
 export interface MonitoredWallet {
@@ -142,13 +142,13 @@ export async function getAllChainBalances(address: string, solanaAddress?: strin
 
         const json = await response.json();
         if (!json.success || !json.data) {
-            throw new Error('钱包资产接口返回异常数据');
+            throw new Error('Wallet assets API returned invalid data.');
         }
         return json.data;
     } catch (error: any) {
         if (error?.name === 'AbortError') {
             console.warn('[WalletApi] All Balances request timed out');
-            throw new Error('资产请求超时，请稍后重试。');
+            throw new Error('Asset request timed out. Please try again later.');
         }
         const msg = error?.message || 'Failed to fetch all-chain balances';
         console.error('[WalletApi] Error fetching all-chain balances:', msg);

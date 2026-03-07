@@ -22,7 +22,6 @@
     "@paragraph_xyz/sdk": "^0.2.0",
     "@privy-io/react-auth": "^3.7.0",
     "@privy-io/wagmi": "^2.0.2",
-    "@raydium-io/raydium-sdk-v2": "0.1.0-alpha",
     "@react-three/drei": "^10.7.7",
     "@react-three/fiber": "^9.5.0",
     "@remotion/cli": "^4.0.431",
