@@ -27,6 +27,7 @@ export interface ConfirmationOutcome {
 
 const confirmationInflight = new Map<string, Promise<ConfirmationOutcome>>();
 const CONFIRMATION_RESULT_TTL_SEC = Math.max(30, Number(process.env.COPYTRADE_CONFIRMATION_RESULT_TTL_SEC || '300'));
+const CONFIRMATION_UNCERTAIN_TTL_SEC = Math.max(5, Number(process.env.COPYTRADE_CONFIRMATION_UNCERTAIN_TTL_SEC || '15'));
 const CONFIRMATION_LOCK_WAIT_POLL_MS = Math.max(250, Number(process.env.COPYTRADE_CONFIRMATION_LOCK_WAIT_POLL_MS || '1000'));
 
 const confirmationDeps = {
@@ -95,27 +96,43 @@ function sanitizeConfirmationOutcome(outcome: ConfirmationOutcome): Confirmation
     };
 }
 
-async function getCachedConfirmationOutcome(chainId: number, txHash: string): Promise<ConfirmationOutcome | null> {
+async function getCachedConfirmationOutcome(
+    chainId: number,
+    txHash: string,
+    options?: { includeUncertain?: boolean }
+): Promise<ConfirmationOutcome | null> {
     const cached = await confirmationDeps.cacheGetJson<ConfirmationOutcome>(buildConfirmationCacheKey(chainId, txHash)).catch(() => null);
     if (!cached) return null;
-    return sanitizeConfirmationOutcome(cached);
+    const sanitized = sanitizeConfirmationOutcome(cached);
+    if (options?.includeUncertain === false && (sanitized.kind === 'uncertain' || sanitized.kind === 'timeout')) {
+        return null;
+    }
+    return sanitized;
 }
 
 async function persistConfirmationOutcome(chainId: number, txHash: string, outcome: ConfirmationOutcome): Promise<void> {
-    await confirmationDeps.cacheSetJson(buildConfirmationCacheKey(chainId, txHash), sanitizeConfirmationOutcome(outcome), CONFIRMATION_RESULT_TTL_SEC).catch(() => { });
+    const ttlSec = outcome.kind === 'confirmed_success' || outcome.kind === 'confirmed_failed'
+        ? CONFIRMATION_RESULT_TTL_SEC
+        : CONFIRMATION_UNCERTAIN_TTL_SEC;
+    await confirmationDeps.cacheSetJson(buildConfirmationCacheKey(chainId, txHash), sanitizeConfirmationOutcome(outcome), ttlSec).catch(() => { });
 }
 
 async function waitForSharedCachedOutcome(params: {
     chainId: number;
     txHash: string;
     deadlineMs: number;
+    includeUncertain?: boolean;
 }): Promise<ConfirmationOutcome | null> {
     while (Date.now() < params.deadlineMs) {
-        const cached = await getCachedConfirmationOutcome(params.chainId, params.txHash);
+        const cached = await getCachedConfirmationOutcome(params.chainId, params.txHash, {
+            includeUncertain: params.includeUncertain,
+        });
         if (cached) return cached;
         await confirmationDeps.sleep(CONFIRMATION_LOCK_WAIT_POLL_MS);
     }
-    return getCachedConfirmationOutcome(params.chainId, params.txHash);
+    return getCachedConfirmationOutcome(params.chainId, params.txHash, {
+        includeUncertain: params.includeUncertain,
+    });
 }
 
 export async function waitForTransactionConfirmation(params: {
@@ -124,10 +141,15 @@ export async function waitForTransactionConfirmation(params: {
     dexName: string;
     timeoutMs?: number;
     pollMs?: number;
+    forceRefresh?: boolean;
+    allowCachedUncertain?: boolean;
 }): Promise<ConfirmationOutcome> {
     const inflightKey = buildConfirmationInflightKey(params.chainId, params.txHash);
     const deadlineMs = Date.now() + Math.max(500, Number(params.timeoutMs ?? 60000));
-    const cached = await getCachedConfirmationOutcome(params.chainId, params.txHash);
+    const includeUncertain = params.allowCachedUncertain !== false;
+    const cached = params.forceRefresh
+        ? null
+        : await getCachedConfirmationOutcome(params.chainId, params.txHash, { includeUncertain });
     if (cached) {
         logger.info(LogCode.SYS_INFO, '[ConfirmWait] Reusing cached confirmation outcome', {
             chainId: params.chainId,
@@ -167,6 +189,7 @@ export async function waitForTransactionConfirmation(params: {
                 chainId: params.chainId,
                 txHash: params.txHash,
                 deadlineMs,
+                includeUncertain,
             });
             if (shared) return shared;
             logger.warn(LogCode.SYS_INFO, '[ConfirmWait] Shared confirmation wait timed out without cached outcome', {

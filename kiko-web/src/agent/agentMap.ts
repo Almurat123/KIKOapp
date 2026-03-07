@@ -99,7 +99,7 @@ export const buildAgentMap = (pathname: string, agentModeEnabled: boolean): Agen
   return {
     schema_version: AGENT_SCHEMA_VERSION,
     app: {
-      name: 'kiko-web',
+      name: 'kikoapp',
       version: import.meta.env.VITE_APP_VERSION || 'dev',
       route: pathname,
       agent_mode: agentModeEnabled,

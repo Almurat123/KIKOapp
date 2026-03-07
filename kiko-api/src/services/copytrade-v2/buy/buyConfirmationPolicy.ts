@@ -28,6 +28,8 @@ export async function waitForCopytradeBuyConfirmation(params: {
   txHash: string;
   timeoutMs: number;
   pollMs: number;
+  forceRefresh?: boolean;
+  allowCachedUncertain?: boolean;
 }): Promise<ConfirmationOutcome> {
   const initialState = resolveTxFinalState({
     chainId: params.chainId,
@@ -53,6 +55,8 @@ export async function waitForCopytradeBuyConfirmation(params: {
     chainId: params.chainId,
     dexName: 'copytrade_buy',
     timeoutMs: params.timeoutMs,
-    pollMs: params.pollMs
+    pollMs: params.pollMs,
+    forceRefresh: params.forceRefresh,
+    allowCachedUncertain: params.allowCachedUncertain,
   });
 }
