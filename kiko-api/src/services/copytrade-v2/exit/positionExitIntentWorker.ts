@@ -176,7 +176,9 @@ async function processExitIntent(intent: any): Promise<void> {
       return;
     }
 
-    const tokenInfo = await getTokenInfo(intent.tokenAddress, intent.chainId).catch(() => ({ price: 0, symbol: 'UNKNOWN' }));
+    const tokenInfo = intent.exitReason === 'mirror_sell'
+      ? { price: 0, symbol: 'UNKNOWN' }
+      : await getTokenInfo(intent.tokenAddress, intent.chainId).catch(() => ({ price: 0, symbol: 'UNKNOWN' }));
     const pendingAttributedLots = intent.exitReason === 'mirror_sell'
       ? await listPendingAttributedPositions({
           userId: intent.userId,

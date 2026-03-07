@@ -2599,6 +2599,15 @@ Do NOT estimate or guess USD values.`;
             const hasSwapTarget = fastSwapDecision.hasSwapTarget;
             const hasExplicitSwapVerb = fastSwapDecision.hasExplicitSwapVerb;
 
+            if (fastSwapDecision.requiresAddressForFastSwap) {
+                logger.info(LogCode.AI_ORCHESTRATOR, 'Fast swap requires explicit contract address', {
+                    taskId: task.id,
+                    chainId: task.toolContext?.chainId || parsedIntent?.chainId,
+                    tokenOut: parsedIntent?.swapIntent?.tokenOut,
+                });
+                (task as any).systemInjection = 'FAST SWAP ADDRESS REQUIRED: Fast Swap Mode is ON. Native whitelist tokens may proceed without address, but any other token requires the exact contract address from the user before continuing. Do NOT resolve non-whitelisted token names via cache, search, or inference. Ask a short follow-up for the contract address.';
+            }
+
             if (!fastSwapAttempted && fastSwapDecision.shouldAttempt) {
                 fastSwapAttempted = true; // Mark as attempted to prevent loops
                 const assistantMessageId = task.assistantMessageId!;

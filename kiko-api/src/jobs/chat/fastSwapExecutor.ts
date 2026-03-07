@@ -13,6 +13,8 @@ type FastSwapDecision = {
     isSwapIntent: boolean;
     hasSwapTarget: boolean;
     hasExplicitSwapVerb: boolean;
+    hasResolvableAddressTarget: boolean;
+    requiresAddressForFastSwap: boolean;
     shouldAttempt: boolean;
 };
 
@@ -37,13 +39,52 @@ export type FastSwapPrepared = {
     shouldFallbackToLlm: boolean;
 };
 
+const EVM_ADDRESS_PATTERN = /^0x[a-fA-F0-9]{40}$/;
+const SOLANA_ADDRESS_PATTERN = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
+const FAST_SWAP_NATIVE_WHITELIST = new Map<number, Set<string>>([
+    [8453, new Set(['ETH', 'WETH'])],
+    [1, new Set(['ETH', 'WETH'])],
+    [56, new Set(['BNB', 'WBNB'])],
+    [137, new Set(['POL', 'MATIC', 'WMATIC'])],
+    [10, new Set(['ETH', 'WETH'])],
+    [42161, new Set(['ETH', 'WETH'])],
+    [900, new Set(['SOL', 'WSOL'])],
+]);
+
+function isAddressLike(value: unknown): boolean {
+    if (typeof value !== 'string') return false;
+    const trimmed = value.trim();
+    return EVM_ADDRESS_PATTERN.test(trimmed) || SOLANA_ADDRESS_PATTERN.test(trimmed);
+}
+
+function isWhitelistedFastSwapToken(symbol: unknown, chainId?: number): boolean {
+    if (typeof symbol !== 'string') return false;
+    const normalized = symbol.trim().toUpperCase();
+    if (!normalized) return false;
+
+    const scoped = chainId ? FAST_SWAP_NATIVE_WHITELIST.get(chainId) : undefined;
+    if (scoped?.has(normalized)) return true;
+
+    return Array.from(FAST_SWAP_NATIVE_WHITELIST.values()).some((set) => set.has(normalized));
+}
+
 export function getFastSwapDecision(input: FastSwapDecisionInput): FastSwapDecision {
     const fastSwapModeEnabled = input.toolContext?.toolConfig?.fastSwapMode === true;
     const fastSwapMode = fastSwapModeEnabled;
     const isSwapIntent = input.parsedIntent?.detailed?.action === 'swap';
     const hasSwapTarget = !!input.parsedIntent?.swapIntent?.tokenOut || !!input.parsedIntent?.contractAddress;
     const hasExplicitSwapVerb = /\b(swap|buy|sell|trade|买|卖)\b/i.test(input.lastUserMessage || '');
-    const shouldAttempt = fastSwapMode && isSwapIntent && hasSwapTarget && hasExplicitSwapVerb;
+    const chainId = input.parsedIntent?.chainId || input.toolContext?.chainId;
+    const tokenOut = input.parsedIntent?.swapIntent?.tokenOut;
+    const contractAddress = input.parsedIntent?.contractAddress;
+    const hasResolvableAddressTarget =
+        isAddressLike(contractAddress) ||
+        isAddressLike(tokenOut) ||
+        isWhitelistedFastSwapToken(tokenOut, chainId);
+    const requiresAddressForFastSwap =
+        fastSwapMode && isSwapIntent && hasSwapTarget && hasExplicitSwapVerb && !hasResolvableAddressTarget;
+    const shouldAttempt =
+        fastSwapMode && isSwapIntent && hasSwapTarget && hasExplicitSwapVerb && hasResolvableAddressTarget;
 
     logger.info(LogCode.AI_ORCHESTRATOR, 'Fast swap gating evaluated', {
         fastSwapModeEnabled,
@@ -51,6 +92,8 @@ export function getFastSwapDecision(input: FastSwapDecisionInput): FastSwapDecis
         isSwapIntent,
         hasSwapTarget,
         hasExplicitSwapVerb,
+        hasResolvableAddressTarget,
+        requiresAddressForFastSwap,
         shouldAttempt,
     });
 
@@ -60,6 +103,8 @@ export function getFastSwapDecision(input: FastSwapDecisionInput): FastSwapDecis
         isSwapIntent,
         hasSwapTarget,
         hasExplicitSwapVerb,
+        hasResolvableAddressTarget,
+        requiresAddressForFastSwap,
         shouldAttempt,
     };
 }

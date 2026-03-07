@@ -42,6 +42,7 @@ import {
 import { inferOrderReasonCode } from './order-runtime/reasonCodes.js';
 import { bindOrderToTxHash, reportRpcUncertain, reportSendAccepted } from './order-runtime/adjudicator/service.js';
 import { shouldRetryAfterBroadcastUnseen } from './rpc/visibilityPolicy.js';
+import { withWalletChainLock } from './nonce/walletNonceLane.js';
 import { resolveSolanaWalletRecord } from './solana/solanaWalletResolver.js';
 import { sendSolanaTransactionWithContextDeps } from './solana/solanaPrivySender.js';
 import { resolveSolanaSigningContext, type ResolvedSolanaSigningContext } from './solana/solanaSigningContext.js';
@@ -637,7 +638,7 @@ function seedNextPendingNonce(chainId: number, walletAddress: string, nonce?: st
 
 export function isTransactionQueueBusy(userId: string, chainId: number): boolean {
     const chainKey = buildUserChainKey(userId, chainId);
-    return (userChainInflightTx.get(chainKey) || 0) > 0 || userTransactionLocks.has(userId);
+    return (userChainInflightTx.get(chainKey) || 0) > 0 || userTransactionLocks.has(chainKey);
 }
 
 export async function getPendingNonce(chainId: number, walletAddress: string): Promise<string | undefined> {
@@ -674,10 +675,10 @@ export async function getPendingNonce(chainId: number, walletAddress: string): P
 }
 
 /**
- * Execute a function sequentially for a given user
+ * Execute a function sequentially for a scoped lock key.
  */
-async function withUserLock<T>(userId: string, fn: () => Promise<T>): Promise<T> {
-    const currentLock = userTransactionLocks.get(userId) || Promise.resolve();
+async function withUserLock<T>(lockKey: string, fn: () => Promise<T>): Promise<T> {
+    const currentLock = userTransactionLocks.get(lockKey) || Promise.resolve();
 
     // Create a new promise that chains onto the current lock
     // We catch errors in the previous lock to ensure the chain continues even if one fails
@@ -686,7 +687,7 @@ async function withUserLock<T>(userId: string, fn: () => Promise<T>): Promise<T>
         .then(() => fn());
 
     // Update the lock for this user
-    userTransactionLocks.set(userId, nextLock);
+    userTransactionLocks.set(lockKey, nextLock);
 
     return nextLock;
 }
@@ -892,8 +893,8 @@ export async function sendTransactionLifecycle(
     accessToken: string,
     tx: TransactionRequest
 ): Promise<TxLifecycleResult> {
-    // Wrap entire execution in a per-user lock
-    return withUserLock(userId, async () => withChainSendLimiter(tx.chainId, async () => {
+    const userChainKey = buildUserChainKey(userId, tx.chainId);
+    return withUserLock(userChainKey, async () => withChainSendLimiter(tx.chainId, async () => {
         const chainKey = buildUserChainKey(userId, tx.chainId);
         bumpInflightUserChainTx(chainKey, 1);
         // === SIMULATION MODE ===
@@ -950,113 +951,112 @@ export async function sendTransactionLifecycle(
             if (!isLikelyEvmAddress(walletInfo.address)) {
                 throw new AppError(400, 'User has no EVM embedded wallet', 'NO_EVM_WALLET');
             }
+            return await withWalletChainLock(tx.chainId, walletInfo.address, async () => {
+                let txWithNonce = { ...tx };
+                const hasExplicitFee =
+                    !!txWithNonce.gasPrice
+                    || !!txWithNonce.maxFeePerGas
+                    || !!txWithNonce.maxPriorityFeePerGas;
 
-            let txWithNonce = { ...tx };
-            const hasExplicitFee =
-                !!txWithNonce.gasPrice
-                || !!txWithNonce.maxFeePerGas
-                || !!txWithNonce.maxPriorityFeePerGas;
-
-            // ⚡ Parallel: fetch nonce + gasPrice concurrently (~80ms saved)
-            const needsNonce = !txWithNonce.nonce;
-            const needsGas = !hasExplicitFee;
-            if (needsNonce || needsGas) {
-                const [nonceResult, gasPriceResult] = await Promise.all([
-                    needsNonce
-                        ? getPendingNonce(txWithNonce.chainId, walletInfo.address).catch(() => undefined)
-                        : Promise.resolve(txWithNonce.nonce),
-                    needsGas
-                        ? rpcCall<string>(txWithNonce.chainId, 'eth_gasPrice', [], { strategy: 'fast', importance: 'critical' }).catch(() => null)
-                        : Promise.resolve(null)
-                ]);
-                if (needsNonce && nonceResult) {
-                    txWithNonce.nonce = nonceResult;
+                const needsNonce = !txWithNonce.nonce;
+                const needsGas = !hasExplicitFee;
+                if (needsNonce || needsGas) {
+                    const [nonceResult, gasPriceResult] = await Promise.all([
+                        needsNonce
+                            ? getPendingNonce(txWithNonce.chainId, walletInfo.address).catch(() => undefined)
+                            : Promise.resolve(txWithNonce.nonce),
+                        needsGas
+                            ? rpcCall<string>(txWithNonce.chainId, 'eth_gasPrice', [], { strategy: 'fast', importance: 'critical' }).catch(() => null)
+                            : Promise.resolve(null)
+                    ]);
+                    if (needsNonce && nonceResult) {
+                        txWithNonce.nonce = nonceResult;
+                    }
+                    if (needsGas && gasPriceResult) {
+                        try {
+                            const baseGasPrice = BigInt(gasPriceResult);
+                            const gasPolicy = resolveTradeGasPolicy(txWithNonce);
+                            const bumpedGasPrice = (baseGasPrice * gasPolicy.bumpBps + 9999n) / 10000n;
+                            const finalGasPrice = bumpedGasPrice > gasPolicy.minGasPriceWei
+                                ? bumpedGasPrice
+                                : gasPolicy.minGasPriceWei;
+                            txWithNonce = {
+                                ...txWithNonce,
+                                gasPrice: finalGasPrice.toString()
+                            };
+                            logger.info(LogCode.SYS_INFO, 'Privy gas policy applied', {
+                                chainId: txWithNonce.chainId,
+                                txPurpose: txWithNonce.txPurpose || 'other',
+                                executionProfile: txWithNonce.executionProfile || 'default',
+                                policy: gasPolicy.policy,
+                                baseGasPriceWei: baseGasPrice.toString(),
+                                bumpBps: gasPolicy.bumpBps.toString(),
+                                minGasPriceWei: gasPolicy.minGasPriceWei.toString(),
+                                finalGasPriceWei: finalGasPrice.toString()
+                            });
+                        } catch (gasErr: any) {
+                            logger.warn(LogCode.API_FETCH_FAILED, 'Failed to derive gasPrice for Privy tx; continuing without explicit gas price', {
+                                chainId: txWithNonce.chainId,
+                                txPurpose: txWithNonce.txPurpose || 'other',
+                                error: gasErr?.message || String(gasErr)
+                            });
+                        }
+                    }
                 }
-                if (needsGas && gasPriceResult) {
+                const needsDeterministicNonce =
+                    txWithNonce.txPurpose === 'trade' || txWithNonce.txPurpose === 'speedup';
+                if (needsDeterministicNonce && !txWithNonce.nonce) {
                     try {
-                        const baseGasPrice = BigInt(gasPriceResult);
-                        const gasPolicy = resolveTradeGasPolicy(txWithNonce);
-                        const bumpedGasPrice = (baseGasPrice * gasPolicy.bumpBps + 9999n) / 10000n;
-                        const finalGasPrice = bumpedGasPrice > gasPolicy.minGasPriceWei
-                            ? bumpedGasPrice
-                            : gasPolicy.minGasPriceWei;
-                        txWithNonce = {
-                            ...txWithNonce,
-                            gasPrice: finalGasPrice.toString()
-                        };
-                        logger.info(LogCode.SYS_INFO, 'Privy gas policy applied', {
+                        const provider = getEthersProvider(txWithNonce.chainId);
+                        const fallbackNonce = await provider.getTransactionCount(walletInfo.address, 'pending');
+                        txWithNonce.nonce = BigInt(fallbackNonce).toString();
+                        logger.warn(LogCode.SYS_INFO, 'Trade nonce fallback applied from ethers provider', {
                             chainId: txWithNonce.chainId,
-                            txPurpose: txWithNonce.txPurpose || 'other',
-                            executionProfile: txWithNonce.executionProfile || 'default',
-                            policy: gasPolicy.policy,
-                            baseGasPriceWei: baseGasPrice.toString(),
-                            bumpBps: gasPolicy.bumpBps.toString(),
-                            minGasPriceWei: gasPolicy.minGasPriceWei.toString(),
-                            finalGasPriceWei: finalGasPrice.toString()
+                            txPurpose: txWithNonce.txPurpose,
+                            nonce: txWithNonce.nonce
                         });
-                    } catch (gasErr: any) {
-                        logger.warn(LogCode.API_FETCH_FAILED, 'Failed to derive gasPrice for Privy tx; continuing without explicit gas price', {
+                    } catch (fallbackErr: any) {
+                        logger.error(LogCode.SYS_ERROR, 'Failed to resolve deterministic nonce for trade tx', {
                             chainId: txWithNonce.chainId,
-                            txPurpose: txWithNonce.txPurpose || 'other',
-                            error: gasErr?.message || String(gasErr)
+                            txPurpose: txWithNonce.txPurpose,
+                            error: fallbackErr?.message || String(fallbackErr)
                         });
                     }
                 }
-            }
-            const needsDeterministicNonce =
-                txWithNonce.txPurpose === 'trade' || txWithNonce.txPurpose === 'speedup';
-            if (needsDeterministicNonce && !txWithNonce.nonce) {
-                try {
-                    const provider = getEthersProvider(txWithNonce.chainId);
-                    const fallbackNonce = await provider.getTransactionCount(walletInfo.address, 'pending');
-                    txWithNonce.nonce = BigInt(fallbackNonce).toString();
-                    logger.warn(LogCode.SYS_INFO, 'Trade nonce fallback applied from ethers provider', {
+
+                const verboseTxLog = (process.env.PRIVY_TX_DEBUG || 'false') === 'true';
+                if (verboseTxLog) {
+                    console.log('[sendTransaction] ========== PRIVY TX PARAMS ==========');
+                    console.log('[sendTransaction] From:', walletInfo.address);
+                    console.log('[sendTransaction] To:', txWithNonce.to);
+                    console.log('[sendTransaction] Value:', txWithNonce.value);
+                    console.log('[sendTransaction] ValueHex:', txWithNonce.value ? `0x${BigInt(txWithNonce.value).toString(16)}` : 'undefined');
+                    console.log('[sendTransaction] Data length:', txWithNonce.data?.length);
+                    console.log('[sendTransaction] Data prefix:', txWithNonce.data?.slice?.(0, 82));
+                    console.log('[sendTransaction] ChainId:', txWithNonce.chainId);
+                    console.log('[sendTransaction] Gas:', txWithNonce.gas);
+                    console.log('[sendTransaction] GasPrice:', txWithNonce.gasPrice);
+                    console.log('[sendTransaction] MaxFeePerGas:', txWithNonce.maxFeePerGas);
+                    console.log('[sendTransaction] MaxPriorityFeePerGas:', txWithNonce.maxPriorityFeePerGas);
+                    console.log('[sendTransaction] Profile:', txWithNonce.executionProfile);
+                    console.log('[sendTransaction] ===========================================');
+                } else {
+                    logger.debug(LogCode.EXE_TX_BROADCAST, 'Privy tx prepared', {
                         chainId: txWithNonce.chainId,
-                        txPurpose: txWithNonce.txPurpose,
-                        nonce: txWithNonce.nonce
-                    });
-                } catch (fallbackErr: any) {
-                    logger.error(LogCode.SYS_ERROR, 'Failed to resolve deterministic nonce for trade tx', {
-                        chainId: txWithNonce.chainId,
-                        txPurpose: txWithNonce.txPurpose,
-                        error: fallbackErr?.message || String(fallbackErr)
+                        to: txWithNonce.to?.slice(0, 10),
+                        value: txWithNonce.value,
+                        gas: txWithNonce.gas,
+                        nonce: txWithNonce.nonce,
+                        purpose: txWithNonce.txPurpose || 'other',
+                        profile: txWithNonce.executionProfile,
+                        gasPrice: txWithNonce.gasPrice,
+                        dataLength: txWithNonce.data?.length || 0,
+                        sendTxAllowlist: Array.from(PRIVY_SEND_TX_CHAIN_IDS.values())
                     });
                 }
-            }
 
-            const verboseTxLog = (process.env.PRIVY_TX_DEBUG || 'false') === 'true';
-            if (verboseTxLog) {
-                console.log('[sendTransaction] ========== PRIVY TX PARAMS ==========');
-                console.log('[sendTransaction] From:', walletInfo.address);
-                console.log('[sendTransaction] To:', txWithNonce.to);
-                console.log('[sendTransaction] Value:', txWithNonce.value);
-                console.log('[sendTransaction] ValueHex:', txWithNonce.value ? `0x${BigInt(txWithNonce.value).toString(16)}` : 'undefined');
-                console.log('[sendTransaction] Data length:', txWithNonce.data?.length);
-                console.log('[sendTransaction] Data prefix:', txWithNonce.data?.slice?.(0, 82));
-                console.log('[sendTransaction] ChainId:', txWithNonce.chainId);
-                console.log('[sendTransaction] Gas:', txWithNonce.gas);
-                console.log('[sendTransaction] GasPrice:', txWithNonce.gasPrice);
-                console.log('[sendTransaction] MaxFeePerGas:', txWithNonce.maxFeePerGas);
-                console.log('[sendTransaction] MaxPriorityFeePerGas:', txWithNonce.maxPriorityFeePerGas);
-                console.log('[sendTransaction] Profile:', txWithNonce.executionProfile);
-                console.log('[sendTransaction] ===========================================');
-            } else {
-                logger.debug(LogCode.EXE_TX_BROADCAST, 'Privy tx prepared', {
-                    chainId: txWithNonce.chainId,
-                    to: txWithNonce.to?.slice(0, 10),
-                    value: txWithNonce.value,
-                    gas: txWithNonce.gas,
-                    nonce: txWithNonce.nonce,
-                    purpose: txWithNonce.txPurpose || 'other',
-                    profile: txWithNonce.executionProfile,
-                    gasPrice: txWithNonce.gasPrice,
-                    dataLength: txWithNonce.data?.length || 0,
-                    sendTxAllowlist: Array.from(PRIVY_SEND_TX_CHAIN_IDS.values())
-                });
-            }
-
-            let priorAcceptedLifecycle: TxLifecycleResult | null = null;
-            for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+                let priorAcceptedLifecycle: TxLifecycleResult | null = null;
+                for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
                 const attemptState = runtimeContext
                     ? addOrderAttempt(runtimeContext, {
                         attempt,
@@ -1738,6 +1738,7 @@ export async function sendTransactionLifecycle(
                 });
             }
             return terminalLifecycle;
+            });
         } finally {
             bumpInflightUserChainTx(chainKey, -1);
         }

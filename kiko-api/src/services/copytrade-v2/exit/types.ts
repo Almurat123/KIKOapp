@@ -9,6 +9,7 @@ export type SellRoutePolicy = 'external_primary' | 'direct_primary';
 export interface ExitTokenInfo {
   price?: number;
   symbol?: string;
+  decimals?: number;
 }
 
 export interface ExitNoopPlan {

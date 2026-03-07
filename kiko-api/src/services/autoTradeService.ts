@@ -78,6 +78,7 @@ import { emitEntryDeviationSummary } from './copytrade-v2/audit/entryDeviationAu
 import { executeEvmCopytradeBuySubmissionFlow } from './copytrade-v2/buy/evmBuySubmissionFlow.js';
 import { persistCopytradeBuySubmission } from './copytrade-v2/buy/buyPersistenceFlow.js';
 import { runPostBuyAiFlow } from './copytrade-v2/buy/postBuyAiFlow.js';
+import { shouldSkipCopyTradeLocalReferenceQuote } from './copytrade-v2/buy/turboReferenceGate.js';
 import { applyBuyConfirmationTransition } from './copytrade-v2/buy/buyConfirmationTransition.js';
 import { scheduleCopytradeBuyConfirmationFlow } from './copytrade-v2/buy/buyConfirmationCoordinator.js';
 import { cleanupPendingCopytradePosition } from './copytrade-v2/buy/pendingLifecycle.js';
@@ -2016,7 +2017,7 @@ async function processSingleUserBuy(
                         let localQuotePriceUsd = 0;
                         let localQuoteProvider: string | undefined;
                         let oraclePriceSource: 'market_oracle_price' | 'local_quote_price' = 'market_oracle_price';
-                        if (chainId !== 900) {
+                        if (!shouldSkipCopyTradeLocalReferenceQuote(chainId, executionMode)) {
                             try {
                                 const amountInWei = ethers.parseUnits((usdAmount / nativePrice).toFixed(18), 18);
                                 const quotedAmountOutWei = await getReferenceExpectedOutput(
@@ -2043,6 +2044,8 @@ async function processSingleUserBuy(
                             } catch {
                                 localQuotePriceUsd = 0;
                             }
+                        } else if (executionMode === 'turbo') {
+                            localQuoteProvider = 'turbo_reference_quote_skipped';
                         }
 
                         const priceDeviationGuard = evaluateBuyPriceDeviationGuard({
@@ -3552,28 +3555,18 @@ async function handleTargetSell(
 
     logger.info(LogCode.EXE_TX_BROADCAST, `Mirror sell: Processing open positions for token`, { token: tokenToSell, configCount: uniqueExecutableConfigs.length, targetWallet });
 
-    // PERFECT EVM-LIKE SHARING: Fetch token info once instead of N times concurrently, preventing RPC explosion
-    const sharedTokenInfoPromise = getTokenInfo(tokenToSell, chainId, { priority: 'high', rpcStrategy: 'fast', fastMode: true }).catch(() => null);
-
     await Promise.all(uniqueExecutableConfigs.map(async (config) => {
         // Never infer copytrade ownership from wallet balance alone.
         // Manual holdings and external transfers must not be converted into copytrade positions.
-        const [positions, tokenInfo] = await Promise.all([
-            prisma.position.findMany({
-                // Include 'pending' positions: sell signal can arrive while buy tx is still confirming on-chain.
-                // Attribution logic will further check if entryTxHash is a real hash (not PENDING_ prefix).
-                // tokenAddress filter added as safety net — reconcileOpenPositionsForExit also normalizes,
-                // but an explicit DB filter prevents empty-array false negatives.
-                where: { userId: config.userId, chainId, tokenAddress: tokenToSell, status: { in: ['open', 'pending'] } },
-            }),
-            sharedTokenInfoPromise
-        ]);
+        const positions = await prisma.position.findMany({
+            // Include 'pending' positions: sell signal can arrive while buy tx is still confirming on-chain.
+            // Attribution logic will further check if entryTxHash is a real hash (not PENDING_ prefix).
+            // tokenAddress filter added as safety net — reconcileOpenPositionsForExit also normalizes,
+            // but an explicit DB filter prevents empty-array false negatives.
+            where: { userId: config.userId, chainId, tokenAddress: tokenToSell, status: { in: ['open', 'pending'] } },
+        });
 
-        if (!tokenInfo) {
-            // tokenInfo is used for price display only — NOT a prerequisite for executing the sell.
-            // Log a warning and continue; the sell will proceed with price = 0 (position closed, no USD shown).
-            logger.warn(LogCode.API_FETCH_FAILED, 'Mirror sell: Token info unavailable (RPC/API down), proceeding with price=0', { token: tokenToSell, userId: config.userId });
-        }
+        const tokenInfo = { price: 0, symbol: 'UNKNOWN' };
 
         const reconciledPositions = reconcileOpenPositionsForExit(positions, tokenToSell, chainId);
         if (reconciledPositions.matchedPositions.length === 0) {

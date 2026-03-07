@@ -171,8 +171,15 @@ USER_QUERY_END
                 parts.push(`- Swap execution: Review mode. When calling prepare_swap_transaction, ALWAYS set execute: false parameter. User will confirm in a card before execution.`);
             }
 
+            if (config.fastSwapMode) {
+                parts.push(`- Fast Swap Mode: Enabled. For non-whitelisted tokens, require the exact contract address before proceeding. Do NOT resolve natural-language token names via cache, search, or inference in fast mode.`);
+                parts.push(`- Fast Swap Mode: Do NOT call simulate_swap first. Move directly toward a swap card / executable swap flow once the token target is explicit and valid.`);
+            }
+
             if (config.showQuoteBeforeSwap && !config.fastSwapMode) {
                 parts.push(`- Price Simulation: ENABLED. 🚨 CRITICAL RULE: You MUST call simulate_swap ONCE before the first swap execution for a given pair+amount. After the user confirms, DO NOT re-run simulate_swap or fetch ad-hoc prices; call prepare_swap_transaction directly using the confirmed parameters.`);
+            } else if (!config.fastSwapMode) {
+                parts.push(`- Price Simulation: Quote-first flow. When token identification is ambiguous, resolve the token using cached/searchable token metadata and present a quote before swap execution.`);
             }
 
             if (config.defaultSwapAmount) {

@@ -21,8 +21,10 @@ export interface TransactionStatusCardProps {
     txHash?: string;
     /** 输入Token符号 */
     tokenInSymbol?: string;
+    tokenInLogoURI?: string;
     /** 输出Token符号 */
     tokenOutSymbol?: string;
+    tokenOutLogoURI?: string;
     /** 输入金额 */
     amountIn?: string;
     /** 输出金额（预估） */
@@ -112,7 +114,9 @@ export const TransactionStatusCard: React.FC<TransactionStatusCardProps> = ({
     status,
     txHash,
     tokenInSymbol,
+    tokenInLogoURI,
     tokenOutSymbol,
+    tokenOutLogoURI,
     amountIn,
     amountOut,
     chainId = 1,
@@ -127,8 +131,8 @@ export const TransactionStatusCard: React.FC<TransactionStatusCardProps> = ({
     const formattedHash = txHash ? formatTxHash(txHash) : '';
     const tokenIn = formatTokenSymbol(tokenInSymbol);
     const tokenOut = formatTokenSymbol(tokenOutSymbol);
-    const tokenInIcon = getTokenIconUrl(tokenIn);
-    const tokenOutIcon = getTokenIconUrl(tokenOut);
+    const tokenInIcon = tokenInLogoURI || getTokenIconUrl(tokenIn);
+    const tokenOutIcon = tokenOutLogoURI || getTokenIconUrl(tokenOut);
 
     return (
         <div className={styles.card}>

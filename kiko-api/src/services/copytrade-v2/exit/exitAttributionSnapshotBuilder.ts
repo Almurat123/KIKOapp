@@ -17,6 +17,41 @@ function formatTokenAmount(amount: bigint, decimals: number): number {
   return Number.isFinite(value) ? value : 0;
 }
 
+function normalizeDecimalsCandidate(value: unknown): number | null {
+  const numeric = Number(value);
+  if (!Number.isInteger(numeric)) return null;
+  if (numeric < 0 || numeric > 36) return null;
+  return numeric;
+}
+
+function resolveSnapshotDecimalsCandidate(input: {
+  tokenInfo: ExitTokenInfo;
+  positions: ExitSnapshotPosition[];
+}): number | null {
+  const tokenInfoDecimals = normalizeDecimalsCandidate((input.tokenInfo as { decimals?: unknown })?.decimals);
+  if (tokenInfoDecimals !== null) return tokenInfoDecimals;
+
+  for (const position of input.positions) {
+    const candidates = [
+      (position as { tokenDecimals?: unknown }).tokenDecimals,
+      (position as { decimals?: unknown }).decimals,
+      (position as { metadata?: { tokenDecimals?: unknown; decimals?: unknown } | null }).metadata?.tokenDecimals,
+      (position as { metadata?: { tokenDecimals?: unknown; decimals?: unknown } | null }).metadata?.decimals,
+    ];
+    for (const candidate of candidates) {
+      const normalized = normalizeDecimalsCandidate(candidate);
+      if (normalized !== null) return normalized;
+    }
+  }
+
+  return null;
+}
+
+export const __exitAttributionSnapshotBuilderTest = {
+  normalizeDecimalsCandidate,
+  resolveSnapshotDecimalsCandidate,
+};
+
 export function buildEvmExitAttributionSnapshotFromResolvedInputs(input: {
   tokenAddress: string;
   chainId: number;
@@ -95,7 +130,8 @@ export async function buildEvmExitAttributionSnapshot(input: {
 } & PendingAttributedExitContext): Promise<ExitAttributionSnapshot> {
   const hasValidPrice = Number.isFinite(input.tokenInfo?.price) && Number(input.tokenInfo.price) > 0;
   const isMirrorSell = input.exitReason === 'mirror_sell';
-  const dec = await getErc20Decimals(input.tokenAddress, input.chainId).catch(() => 18);
+  const dec = resolveSnapshotDecimalsCandidate(input)
+    ?? await getErc20Decimals(input.tokenAddress, input.chainId).catch(() => 18);
   // Execution amount always comes from follower wallet; target wallet is used as a sell-signal verifier.
   const balanceRead = await readExitBalanceOracle({
     tokenAddress: input.tokenAddress,

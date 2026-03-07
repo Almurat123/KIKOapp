@@ -29,6 +29,7 @@ import { getStoredSlippageBps } from '@/config/slippageConfig';
 import { ChatMessageList } from './ChatMessageList';
 import { ChatComposer } from './ChatComposer';
 import { ACTION_CARD_TYPE_MAP, COMMON_TOKENS, MODEL_OPTIONS } from './chatConstants';
+import { requiresContractAddressInFastMode, resolveNativeToken, resolveTokenForChat, resolveTokenForFastSwap } from './chatTokenResolution';
 
 const CORE_API_BASE_URL = resolveCoreApiBase();
 
@@ -387,113 +388,10 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                         // This bypasses SwapCard completely for instant/allowance trades
                         const actionData = normalizedAction.payload || normalizedAction.data;
                         const targetChainId = actionData.chainId || actionData.chain_id || chainId;
-
-                        // Helper to resolve token address from symbol or object
-                        const resolveTokenAddress = (symbolOrObj: string | { address?: string; symbol?: string; name?: string } | null | undefined): string => {
-                            if (!symbolOrObj) return '';
-
-                            // If it's an object with address, use that
-                            if (typeof symbolOrObj === 'object' && symbolOrObj.address) {
-                                return symbolOrObj.address;
-                            }
-
-                            const value = typeof symbolOrObj === 'string' ? symbolOrObj : symbolOrObj?.symbol;
-                            if (!value) return '';
-
-                            // 1. Check if it's an EVM address
-                            if (value.startsWith('0x') && value.length === 42) {
-                                return value;
-                            }
-
-                            // 2. Check if it's a Solana address (Base58, 32-44 chars)
-                            // Basic regex for Base58 (alphanumeric, no 0, O, I, l)
-                            if (/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(value)) {
-                                return value;
-                            }
-
-                            // 3. Handle native tokens
-                            if (['ETH', 'BNB', 'MATIC', 'POL', 'AVAX', 'SOL'].includes(value.toUpperCase())) {
-                                // For Solana, use WSOL or native mint depending on implementation
-                                // But frontend usually handles 'SOL' specially
-                                if (value.toUpperCase() === 'SOL') return 'So11111111111111111111111111111111111111112';
-                                return '0x0000000000000000000000000000000000000000';
-                            }
-
-                            // 4. Lookup in COMMON_TOKENS
-                            const common = COMMON_TOKENS[targetChainId]?.find(t => t.symbol === value);
-                            if (common) return common.address;
-
-                            // 5. Fallback: If it looks like it MIGHT be an address (even if regex failed slightly), return it
-                            // This prevents "OG92" from being treated as address if it's clearly too short,
-                            // but allows potential non-standard addresses through.
-                            // However, we must be careful not to return symbols as addresses.
-                            if (value.length > 30) {
-                                return value;
-                            }
-
-                            return '';
-                        };
-
-                        const tokenInAddress = resolveTokenAddress(actionData.tokenIn || actionData.token_in);
-                        const tokenOutAddress = resolveTokenAddress(actionData.tokenOut || actionData.token_out);
                         const amountIn = actionData.amountIn || actionData.amount_in;
                         const slippageBps = actionData.slippageBps ?? actionData.slippage_bps ??
                             (actionData.slippage ? Math.round(Number(actionData.slippage) * 100) : getStoredSlippageBps());
-
-                        logger.debug('Executing instant swap:', {
-                            tokenIn: tokenInAddress,
-                            tokenOut: tokenOutAddress,
-                            amountIn,
-                            chainId: targetChainId,
-                            slippageBps
-                        });
-
-                        // CREATE NEW MESSAGE for transaction status
-                        const getSymbol = (token: string | { symbol?: string; name?: string } | null | undefined): string => {
-                            if (typeof token === 'string') {
-                                const t = token.trim();
-                                if (/^0x[eE]{40}$/.test(t)) return 'ETH';
-                                if (/^0x[0-9a-fA-F]{40}$/.test(t)) return `${t.slice(0, 6)}...${t.slice(-4)}`;
-                                return t;
-                            }
-                            return token?.symbol || token?.name || 'Unknown';
-                        };
-
                         const targetMessageId = event.data?.message_id || event.data?.messageId || `tx-${Date.now()}`;
-                        const txCardMsg: Message = {
-                            id: targetMessageId,
-                            role: 'assistant',
-                            content: '',
-                            reasoning_content: '',
-                            status: 'complete',
-                            timestamp: new Date().toISOString(),
-                            type: 'transaction-status-card',
-                            data: {
-                                status: 'building',  // Start with building state
-                                tokenInSymbol: getSymbol(actionData.tokenIn || actionData.token_in),
-                                tokenOutSymbol: getSymbol(actionData.tokenOut || actionData.token_out),
-                                amountIn: String(amountIn),
-                                chainId: targetChainId,
-                                isLoading: true
-                            }
-                        };
-
-                        if (conversationId) {
-                            const currentMessages = messagesRef.current;
-                            const idx = currentMessages.findIndex(m => m.id === targetMessageId);
-                            let updated: Message[];
-                            if (idx >= 0) {
-                                updated = currentMessages.map((m, i) => i === idx ? { ...m, ...txCardMsg } : m);
-                            } else {
-                                updated = [...currentMessages, txCardMsg];
-                            }
-                            messagesRef.current = updated;
-                            // card_displayed: activeTask cleared with messages
-                            updateConversation(conversationId, {
-                                messages: updated,
-                                activeTask: null
-                            });
-                        }
 
                         const patchTransactionCard = (patch: Record<string, unknown>) => {
                             if (!conversationId) return;
@@ -513,12 +411,116 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                             updateConversation(conversationId, { messages: updated });
                         };
 
-                        // Call executeSwapInstant directly
-                        import('../../services/swapService').then(({ executeSwapInstant }) => {
-                            // Update to sending state before API call
+                        const getFallbackSymbol = (token: string | { symbol?: string; name?: string } | null | undefined): string => {
+                            if (typeof token === 'string') {
+                                const t = token.trim();
+                                if (/^0x[eE]{40}$/.test(t)) return 'ETH';
+                                if (/^0x[0-9a-fA-F]{40}$/.test(t)) return `${t.slice(0, 6)}...${t.slice(-4)}`;
+                                return t;
+                            }
+                            return token?.symbol || token?.name || 'Unknown';
+                        };
+
+                        void (async () => {
+                            const rawTokenIn = actionData.tokenIn || actionData.token_in;
+                            const rawTokenOut = actionData.tokenOut || actionData.token_out;
+                            const resolveToken = customSettings?.fastSwapMode ? resolveTokenForFastSwap : resolveTokenForChat;
+                            const [resolvedIn, resolvedOut] = await Promise.all([
+                                resolveNativeToken(targetChainId, typeof rawTokenIn === 'string' ? rawTokenIn : rawTokenIn?.symbol) ||
+                                await resolveToken(rawTokenIn, targetChainId),
+                                resolveNativeToken(targetChainId, typeof rawTokenOut === 'string' ? rawTokenOut : rawTokenOut?.symbol) ||
+                                await resolveToken(rawTokenOut, targetChainId),
+                            ]);
+
+                            const tokenInAddress = resolvedIn?.address || '';
+                            const tokenOutAddress = resolvedOut?.address || '';
+
+                            if (!tokenInAddress || !tokenOutAddress) {
+                                const failedTxCardMsg: Message = {
+                                    id: targetMessageId,
+                                    role: 'assistant',
+                                    content: '',
+                                    reasoning_content: '',
+                                    status: 'complete',
+                                    timestamp: new Date().toISOString(),
+                                    type: 'transaction-status-card',
+                                    data: {
+                                        status: 'failed',
+                                        tokenInSymbol: resolvedIn?.symbol || getFallbackSymbol(rawTokenIn),
+                                        tokenOutSymbol: resolvedOut?.symbol || getFallbackSymbol(rawTokenOut),
+                                        tokenInLogoURI: resolvedIn?.logoURI,
+                                        tokenOutLogoURI: resolvedOut?.logoURI,
+                                        chainId: targetChainId,
+                                        amountIn: String(amountIn),
+                                        isLoading: false,
+                                        errorMessage: customSettings?.fastSwapMode
+                                            ? 'Fast Swap Mode requires contract addresses for non-whitelisted tokens.'
+                                            : 'Unable to resolve token metadata for this trade.',
+                                    }
+                                };
+
+                                if (conversationId) {
+                                    const currentMessages = messagesRef.current;
+                                    const idx = currentMessages.findIndex(m => m.id === targetMessageId);
+                                    const updated = idx >= 0
+                                        ? currentMessages.map((m, i) => i === idx ? { ...m, ...failedTxCardMsg } : m)
+                                        : [...currentMessages, failedTxCardMsg];
+                                    messagesRef.current = updated;
+                                    updateConversation(conversationId, {
+                                        messages: updated,
+                                        activeTask: null
+                                    });
+                                }
+                                return;
+                            }
+
+                            logger.debug('Executing instant swap:', {
+                                tokenIn: tokenInAddress,
+                                tokenOut: tokenOutAddress,
+                                amountIn,
+                                chainId: targetChainId,
+                                slippageBps
+                            });
+
+                            const txCardMsg: Message = {
+                                id: targetMessageId,
+                                role: 'assistant',
+                                content: '',
+                                reasoning_content: '',
+                                status: 'complete',
+                                timestamp: new Date().toISOString(),
+                                type: 'transaction-status-card',
+                                data: {
+                                    status: 'building',
+                                    tokenInSymbol: resolvedIn?.symbol || getFallbackSymbol(rawTokenIn),
+                                    tokenOutSymbol: resolvedOut?.symbol || getFallbackSymbol(rawTokenOut),
+                                    tokenInLogoURI: resolvedIn?.logoURI,
+                                    tokenOutLogoURI: resolvedOut?.logoURI,
+                                    tokenInAddress,
+                                    tokenOutAddress,
+                                    amountIn: String(amountIn),
+                                    chainId: targetChainId,
+                                    isLoading: true
+                                }
+                            };
+
+                            if (conversationId) {
+                                const currentMessages = messagesRef.current;
+                                const idx = currentMessages.findIndex(m => m.id === targetMessageId);
+                                const updated = idx >= 0
+                                    ? currentMessages.map((m, i) => i === idx ? { ...m, ...txCardMsg } : m)
+                                    : [...currentMessages, txCardMsg];
+                                messagesRef.current = updated;
+                                updateConversation(conversationId, {
+                                    messages: updated,
+                                    activeTask: null
+                                });
+                            }
+
+                            const { executeSwapInstant } = await import('../../services/swapService');
+
                             patchTransactionCard({ status: 'sending' });
 
-                            // Start swap execution
                             const swapPromise = executeSwapInstant({
                                 tokenIn: tokenInAddress,
                                 tokenOut: tokenOutAddress,
@@ -527,19 +529,16 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                                 slippageBps
                             });
 
-                            // Update to pending immediately - backend is now waiting for on-chain confirmation
                             patchTransactionCard({ status: 'pending' });
 
                             swapPromise.then(result => {
                                 if (result.success && result.txHash) {
-                                    // Find the transaction card we created and update it
                                     patchTransactionCard({
                                         status: 'success',
                                         txHash: result.txHash,
                                         isLoading: false,
                                     });
                                 } else {
-                                    // Update with error
                                     patchTransactionCard({
                                         status: 'failed',
                                         errorMessage: result.error,
@@ -547,14 +546,13 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                                     });
                                 }
                             }).catch(err => {
-                                // Update with error
                                 patchTransactionCard({
                                     status: 'failed',
                                     errorMessage: err.message,
                                     isLoading: false,
                                 });
                             });
-                        });
+                        })();
 
 
                         // DEPRECATED: show_swap_card removed from chat interface (kept in WalletPage)
@@ -1559,6 +1557,10 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
         }
         if (isSubmittingRef.current) return;
         if (!text.trim()) return;
+        if (customSettings?.fastSwapMode && requiresContractAddressInFastMode(text, chainId)) {
+            toast.error('Fast Swap Mode requires a contract address for non-whitelisted tokens.');
+            return;
+        }
 
         isSubmittingRef.current = true;
         if (!conversationId) {
