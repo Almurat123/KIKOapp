@@ -79,6 +79,20 @@ const replaceMessageAtIndex = (messages: Message[], idx: number, nextMessage: Me
     return updated;
 };
 
+const LOCAL_TX_CARD_TEST_COMMANDS = new Set([
+    '/test-tx-card',
+    '/tx-card-test',
+    'test tx card',
+    'tx card test',
+]);
+
+const isLocalUiTestEnvironment = () =>
+    import.meta.env.DEV ||
+    window.location.hostname === 'localhost' ||
+    window.location.hostname === '127.0.0.1';
+
+const isLocalTxCardTestCommand = (text: string) => LOCAL_TX_CARD_TEST_COMMANDS.has(text.trim().toLowerCase());
+
 export const ChatInterface: React.FC<ChatInterfaceProps> = ({
     initialMessages = [],
     pendingAIPrompt: propPendingPrompt,
@@ -1448,7 +1462,92 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
     // Always-fresh ref so event listeners can call handleSend without stale closure
     const handleSendRef = useRef<(text: string) => void>(() => { });
 
+    const injectLocalTransactionCardTest = useCallback(async (rawText: string, existingMessageId?: string) => {
+        const now = new Date();
+        const userMsg: Message = {
+            id: existingMessageId || `local-test-user-${Date.now()}`,
+            role: 'user',
+            content: rawText,
+            clientCreatedAt: now.toISOString(),
+            timestamp: now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            date: now.toISOString().split('T')[0],
+            type: 'text',
+        };
+
+        const txCardMsg: Message = {
+            id: `local-test-tx-${Date.now()}`,
+            role: 'assistant',
+            content: '',
+            reasoning_content: '',
+            timestamp: now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            date: now.toISOString().split('T')[0],
+            status: 'complete',
+            type: 'transaction-status-card',
+            data: {
+                status: 'success',
+                tokenInSymbol: 'USDC',
+                tokenOutSymbol: 'WETH',
+                amountIn: '5',
+                amountOut: '0.002517491981002632',
+                chainId,
+                isLoading: false,
+                txHash: '0xf0905b7c6df0b3ed9328',
+            }
+        };
+
+        processedMessagesRef.current.add(userMsg.id);
+        sidebar?.setChatStarted(true);
+        suppressSuggestions();
+        setInput('');
+        if (textareaRef.current) {
+            textareaRef.current.style.height = 'auto';
+        }
+        stopGeneration(true);
+        setFirstSendPending(false);
+
+        let targetConversationId = conversationId;
+        if (!targetConversationId) {
+            targetConversationId = await createConversation('Local UI Test', selectedModel.id);
+            if (!targetConversationId) {
+                toast.error('Unable to create a chat for the local transaction card test.');
+                return;
+            }
+            currentConversationIdRef.current = targetConversationId;
+            navigate(`/chat/${targetConversationId}`);
+        }
+
+        const nextMessages = [...messagesRef.current.filter(m => m.id !== userMsg.id), userMsg, txCardMsg];
+        messagesRef.current = nextMessages;
+        registerPendingLocalUserMessage(targetConversationId, userMsg);
+        updateConversation(targetConversationId, {
+            messages: nextMessages,
+            activeTask: null,
+        });
+
+        userScrolledUpRef.current = false;
+        isAtBottomRef.current = true;
+        requestAnimationFrame(() => {
+            requestAnimationFrame(() => scrollToBottom(false));
+        });
+        toast.success('Local transaction card test injected.');
+    }, [
+        chainId,
+        conversationId,
+        createConversation,
+        navigate,
+        registerPendingLocalUserMessage,
+        scrollToBottom,
+        selectedModel.id,
+        sidebar,
+        suppressSuggestions,
+        updateConversation,
+    ]);
+
     const handleSend = async (text: string = input, existingMessageId?: string) => {
+        if (isLocalUiTestEnvironment() && isLocalTxCardTestCommand(text)) {
+            await injectLocalTransactionCardTest(text, existingMessageId);
+            return;
+        }
         if (!authenticated) {
             toast.info('Login to KIKO to start chatting.');
             try {

@@ -206,11 +206,11 @@
 }
 
 .amountValue {
-    font-size: clamp(2rem, 5vw, 2.75rem);
-    font-weight: 300;
+    font-size: clamp(15.3rem, 36vw, 22.5rem);
+    font-weight: 800;
     letter-spacing: var(--kiko-body-spacing);
     font-style: var(--kiko-italic-style);
-    line-height: 1.05;
+    line-height: 1;
     color: #ffffff;
     min-width: 0;
     margin: 0;
@@ -247,14 +247,14 @@
     align-items: center;
     gap: 8px;
     margin-left: 0;
-    padding: 7px 12px 7px 8px;
+    padding: 3px 12px 3px 8px;
     border-radius: 999px;
     border: 1px solid rgba(255, 255, 255, 0.16);
     background: rgba(255, 255, 255, 0.06);
     align-self: start;
     justify-self: end;
     flex-shrink: 0;
-    min-height: 40px;
+    min-height: 24px;
     max-width: none;
     transform: none;
 }
@@ -309,13 +309,13 @@
     }
 
     .amountValue {
-        font-size: clamp(1.4rem, 7.2vw, 2rem);
+        font-size: clamp(9.9rem, 40vw, 14.4rem);
     }
 
     .tokenPill {
         justify-self: end;
-        min-height: 36px;
-        padding: 6px 10px 6px 8px;
+        min-height: 24px;
+        padding: 3px 10px 3px 8px;
     }
 
     .tokenSymbol {
