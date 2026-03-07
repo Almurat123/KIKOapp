@@ -284,6 +284,23 @@ export async function deleteCredentials(userId: string): Promise<boolean> {
  * Get user's Polymarket wallet address (their Privy wallet)
  */
 export async function getPolymarketWallet(userId: string): Promise<string | null> {
-    const walletInfo = await getEmbeddedWalletInfo(userId);
-    return walletInfo?.address || null;
+    const dbUser = await prisma.user.findUnique({
+        where: { privyDid: userId },
+        select: { walletAddress: true }
+    });
+
+    if (dbUser?.walletAddress) {
+        return dbUser.walletAddress;
+    }
+
+    try {
+        const walletInfo = await getEmbeddedWalletInfo(userId, { chainType: 'ethereum' });
+        return walletInfo?.address || null;
+    } catch (error: any) {
+        console.warn('[PolymarketCreds] Failed to resolve wallet from Privy for read-only request:', {
+            userId: userId.slice(0, 20) + '...',
+            error: error?.message || String(error)
+        });
+        return null;
+    }
 }

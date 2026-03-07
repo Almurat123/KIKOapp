@@ -6,6 +6,7 @@ import { publishToParagraph } from './paragraphPublisher.js';
 import { fetchJson } from '../../config/unifiedApiService.js';
 
 const GROK_SERVICE_URL = process.env.GROK_SERVICE_URL || 'http://localhost:8001';
+const INTERNAL_SERVICE_KEY = process.env.INTERNAL_SERVICE_KEY || '';
 
 export async function generateNewsArticle(manualTrigger = false) {
     console.log('[NewsGen] Starting news generation cycle...');
@@ -52,7 +53,10 @@ export async function generateNewsArticle(manualTrigger = false) {
         const grokResult = await fetchJson({
             url: `${GROK_SERVICE_URL}/chat/write_news`,
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+                'Content-Type': 'application/json',
+                ...(INTERNAL_SERVICE_KEY ? { 'x-service-key': INTERNAL_SERVICE_KEY } : {}),
+            },
             body: JSON.stringify({ tokens: data.tokens })
         });
 

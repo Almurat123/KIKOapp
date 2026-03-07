@@ -7,6 +7,7 @@
 import type { ExtendedUserIntent } from './aiExtendedIntentParser';
 import { getBestSwapQuote } from './dexAggregatorService';
 import { getTokenData } from './tokenDataService';
+import { getAuthToken } from '../utils/authToken';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
@@ -173,10 +174,12 @@ export class AIApiService {
         url += `?${queryString.toString()}`;
       }
 
+      const authToken = await getAuthToken();
       const response = await fetch(url, {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
+          ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
         },
       });
 
@@ -208,10 +211,12 @@ export class AIApiService {
     body?: Record<string, unknown>
   ): Promise<ApiResponse> {
     try {
+      const authToken = await getAuthToken();
       const response = await fetch(`${API_BASE_URL}${endpoint}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
         },
         body: body ? JSON.stringify(body) : undefined,
       });

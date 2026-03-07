@@ -80,6 +80,20 @@ export async function getAuthToken(): Promise<string | null> {
   return inflight;
 }
 
+export function getCachedAuthTokenSnapshot(): string | null {
+  const now = Date.now();
+  if (!cachedToken) return null;
+
+  const expMs = getTokenExpiryMs(cachedToken);
+  if (expMs && now >= (expMs - TOKEN_EXPIRY_SAFETY_MS)) {
+    cachedToken = null;
+    cachedAt = 0;
+    return null;
+  }
+
+  return cachedToken;
+}
+
 // Force refresh token on next request (useful after session changes)
 export function clearAuthTokenCache() {
   cachedToken = null;

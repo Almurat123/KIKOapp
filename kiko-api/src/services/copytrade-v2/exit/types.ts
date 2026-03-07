@@ -55,6 +55,7 @@ export type EvmExitPlan = ExitNoopPlan | EvmExitSwapPlan;
 
 export interface PendingAttributedExitContext {
   pendingLots?: PendingAttributedPositionLotLike[];
+  desiredSellRawOverride?: bigint;
 }
 
 export interface EvmExitExecutionResult {

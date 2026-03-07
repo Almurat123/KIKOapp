@@ -9,6 +9,7 @@
  */
 
 import { FastifyInstance } from 'fastify';
+import { requireAuth } from '../middleware/auth.js';
 import { getTrendingCasts, getTrendingCastsWithCursor, searchCasts, hybridSearchCasts, getFarcasterProfile, checkUserFollowsKiko } from '../repositories/socialRepository.js';
 import { getQualityUsersStats } from '../repositories/qualityUsersRepository.js';
 import { env } from '../config/env.js';
@@ -117,7 +118,7 @@ export async function socialRoutes(fastify: FastifyInstance) {
   // 1. Fetches data from Snapchain Hub
   // 2. Saves to database/cache
   // 3. Returns the updated data
-  fastify.post('/refresh', async (request, reply) => {
+  fastify.post('/refresh', { preHandler: requireAuth }, async (request, reply) => {
     try {
       const { runDiscoveryJob } = await import('../jobs/socialDataJob.js');
 
@@ -151,7 +152,7 @@ export async function socialRoutes(fastify: FastifyInstance) {
   });
 
   // GET /api/social/ogp - Fetch OGP metadata for a URL
-  fastify.get('/ogp', async (request, reply) => {
+  fastify.get('/ogp', { preHandler: requireAuth }, async (request, reply) => {
     try {
       const { url } = request.query as { url: string };
       if (!url) {
@@ -178,7 +179,7 @@ export async function socialRoutes(fastify: FastifyInstance) {
 
   // GET /api/social/tweet-oembed - Fetch Twitter oEmbed data for a tweet URL
   // Used for X post embed cards in chat citations
-  fastify.get('/tweet-oembed', async (request, reply) => {
+  fastify.get('/tweet-oembed', { preHandler: requireAuth }, async (request, reply) => {
     try {
       const { url } = request.query as { url: string };
       if (!url) {

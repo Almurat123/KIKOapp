@@ -1,11 +1,10 @@
-import React, { useState, useEffect } from 'react';
-import { ExternalLink, X } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkBreaks from 'remark-breaks';
 import clsx from 'clsx';
 import type { Citation } from '../../utils/sourceUtils';
-import { getCitationUrl } from '../../utils/sourceUtils';
+import { getCitationUrl, getSourceDomain, isXPost, parseCitation } from '../../utils/sourceUtils';
 import { preprocessMarkdown } from '../../utils/markdownUtils';
 import styles from './CitationRenderer.module.css';
 
@@ -59,22 +58,17 @@ export const CitationRenderer: React.FC<CitationRendererProps> = ({
   content,
   citations = [],
   className,
-  components
+  components,
 }) => {
-  const [hoveredCitation, setHoveredCitation] = useState<number | null>(null);
   const citationPreviews = useCitationPreviews(citations);
-
   const processedContent = preprocessMarkdown(content);
-  const citationPattern = /\[(\d+)\]/g;
+  const citationPattern = useMemo(() => /\[(\d+)\]/g, []);
 
   // Simple render if no citations to avoid complexity
   if (citations.length === 0 || !citationPattern.test(processedContent)) {
     return (
       <div className={clsx(styles.citationContainer, className)}>
-        <ReactMarkdown
-          components={components}
-          remarkPlugins={[remarkGfm, remarkBreaks]}
-        >
+        <ReactMarkdown components={components} remarkPlugins={[remarkGfm, remarkBreaks]}>
           {processedContent}
         </ReactMarkdown>
       </div>
@@ -101,7 +95,7 @@ export const CitationRenderer: React.FC<CitationRendererProps> = ({
             key={`text-${lastIndex}`}
             components={{
               ...components,
-              p: React.Fragment // Render text segments without wrapping in <p> to avoid block breaks
+              p: React.Fragment, // Render text segments without wrapping in <p> to avoid block breaks
             }}
             remarkPlugins={[remarkGfm, remarkBreaks]}
           >
@@ -111,56 +105,32 @@ export const CitationRenderer: React.FC<CitationRendererProps> = ({
       }
 
       if (citationUrl) {
-        const isXPost = citationUrl.includes('twitter.com') || citationUrl.includes('x.com');
+        const parsedCitation = parseCitation(citation);
         parts.push(
-          <sup
-            key={`citation-${match.index}`}
-            className={clsx(styles.citation, isXPost && styles.xCitation)}
-          >
+          <span key={`citation-${match.index}`} className={styles.citationInline}>
             <a
               href={citationUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className={styles.citationLink}
-              onMouseEnter={() => setHoveredCitation(citationIndex)}
-              onMouseLeave={() => setHoveredCitation(null)}
-              title={citationPreviews[citationIndex] || citationUrl}
+              className={clsx(styles.citationPill, styles.citationIndex)}
+              title={
+                (typeof parsedCitation === 'object' &&
+                  parsedCitation !== null &&
+                  'title' in parsedCitation &&
+                  (parsedCitation as any).title) ||
+                citationPreviews[citationIndex] ||
+                (isXPost(citationUrl) ? 'X Post' : getSourceDomain(citationUrl))
+              }
             >
-              [{citationIndex}]
+              <span>{citationIndex}</span>
             </a>
-            {hoveredCitation === citationIndex && (
-              <div className={styles.citationTooltip}>
-                <div className={styles.citationTooltipContent}>
-                  {isXPost ? (
-                    <div className={styles.xPostPreview}>
-                      <X size={16} />
-                      <span>X (Twitter) Post</span>
-                    </div>
-                  ) : (
-                    <div className={styles.webPreview}>
-                      <ExternalLink size={14} />
-                      <span>{citationPreviews[citationIndex] || citationUrl}</span>
-                    </div>
-                  )}
-                  <a
-                    href={citationUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className={styles.citationTooltipLink}
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    Open source
-                  </a>
-                </div>
-              </div>
-            )}
-          </sup>
+          </span>
         );
       } else {
         parts.push(
-          <sup key={`citation-${match.index}`} className={styles.citation}>
+          <span key={`citation-${match.index}`} className={styles.citationInline}>
             [{citationIndex}]
-          </sup>
+          </span>
         );
       }
 
@@ -173,7 +143,7 @@ export const CitationRenderer: React.FC<CitationRendererProps> = ({
           key={`text-${lastIndex}`}
           components={{
             ...components,
-            p: React.Fragment // Render text segments without wrapping in <p> to avoid block breaks
+            p: React.Fragment, // Render text segments without wrapping in <p> to avoid block breaks
           }}
           remarkPlugins={[remarkGfm, remarkBreaks]}
         >
@@ -185,9 +155,5 @@ export const CitationRenderer: React.FC<CitationRendererProps> = ({
     return <>{parts}</>;
   };
 
-  return (
-    <div className={clsx(styles.citationContainer, className)}>
-      {renderWithCitations()}
-    </div>
-  );
+  return <div className={clsx(styles.citationContainer, className)}>{renderWithCitations()}</div>;
 };

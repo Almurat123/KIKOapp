@@ -1,8 +1,8 @@
 .articlePage {
     width: 100%;
     min-height: 100vh;
-    background: #0a0b0d;
-    color: #e2e8f0;
+    background: var(--bg-primary);
+    color: var(--text-primary);
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -16,26 +16,25 @@
     max-width: 900px;
     aspect-ratio: 16 / 9;
     height: auto;
-    max-height: 500px;
-    margin-top: 80px;
+    max-height: 600px;
+    margin-top: 100px;
     position: relative;
     overflow: hidden;
     border-radius: 24px;
-    box-shadow: 0 20px 60px rgba(0, 82, 255, 0.15);
-    /* Blue glow */
-    border: 1px solid rgba(255, 255, 255, 0.05);
+    box-shadow: var(--card-shadow);
+    border: 1px solid var(--border-color);
+    background: var(--bg-card);
 }
 
 .heroImage {
     width: 100%;
     height: 100%;
     object-fit: cover;
-    background: #1a1b1e;
-    transition: transform 0.7s cubic-bezier(0.2, 0.8, 0.2, 1);
+    transition: transform 0.8s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
 .hero:hover .heroImage {
-    transform: scale(1.02);
+    transform: scale(1.03);
 }
 
 @media (max-width: 768px) {
@@ -50,34 +49,11 @@
 .detailMetaContainer {
     width: 100%;
     max-width: 900px;
-    padding: 40px 24px 0;
+    padding: 60px 24px 0;
     z-index: 10;
 }
 
-.backBtn {
-    position: absolute;
-    top: 24px;
-    left: 60px;
-    z-index: 100;
-    width: 36px;
-    height: 36px;
-    border-radius: 8px;
-    color: #94a3b8;
-    background: rgba(30, 41, 59, 0.5);
-    backdrop-filter: blur(8px);
-    border: 1px solid rgba(255, 255, 255, 0.05);
-    cursor: pointer;
-    transition: all 0.2s ease;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-}
-
-.backBtn:hover {
-    background: rgba(59, 130, 246, 0.2);
-    color: #60a5fa;
-    border-color: rgba(96, 165, 250, 0.3);
-}
+/* Local back button removed in favor of global layout back button */
 
 .meta {
     display: flex;
@@ -93,55 +69,45 @@
     gap: 6px;
     font-size: 14px;
     font-weight: 500;
-    color: #94a3b8;
-    background: rgba(30, 41, 59, 0.5);
+    color: var(--text-secondary);
+    background: var(--bg-secondary);
     padding: 6px 14px;
-    border-radius: 8px;
-    border: 1px solid rgba(255, 255, 255, 0.05);
+    border-radius: 10px;
+    border: 1px solid var(--border-color);
 }
 
 .title {
     font-family: 'Space Grotesk', sans-serif;
-    font-size: Clamp(2.5rem, 5vw, 4rem);
+    font-size: clamp(2rem, 6vw, 3.5rem);
     font-weight: 700;
-    line-height: 1.1;
-    color: #cbd5e1;
-    /* Slate-300 */
-    /* Slate-100 */
-    /* Slightly off-white */
-    /* Slightly off-white */
+    line-height: 1.15;
+    color: var(--text-primary);
     margin: 0;
     letter-spacing: -0.03em;
-    text-shadow: 0 0 40px rgba(255, 255, 255, 0.02);
-    /* Fainter glow */
-    /* Softer glow */
-    /* Softer glow */
 }
 
 .subtitle {
     font-family: 'Space Grotesk', sans-serif;
-    font-size: 1.1rem;
+    font-size: 1rem;
     font-weight: 500;
-    color: #64748b;
-    /* Slate-500 - muted */
-    margin-top: 12px;
-    letter-spacing: 0.02em;
+    color: var(--text-tertiary);
+    margin-top: 16px;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
 }
 
 .contentContainer {
     width: 100%;
-    max-width: 800px;
-    padding: 48px 24px 120px;
+    max-width: 900px;
+    padding: 40px 24px 120px;
 }
 
 /* Typography styles for article content */
 .prose {
     font-family: 'DM Sans', sans-serif;
-    font-size: 17px;
-    /* Reduced from 19px for better density */
-    line-height: 1.7;
-    color: #94a3b8;
-    /* Reduced brightness: Slate-200 -> Slate-400 */
+    font-size: 18px;
+    line-height: 1.8;
+    color: var(--text-secondary);
 }
 
 /* Headings */
@@ -150,14 +116,11 @@
 .prose h3,
 .prose h4 {
     font-family: 'Space Grotesk', sans-serif;
-    /* Unique Identity */
-    color: #cbd5e1;
-    /* Reduced brightness: White -> Slate-300 */
+    color: var(--text-primary);
     font-weight: 700;
-    margin-top: 2.5em;
+    margin-top: 2em;
     margin-bottom: 0.8em;
     letter-spacing: -0.02em;
-    position: relative;
 }
 
 .prose h1 {
@@ -174,20 +137,20 @@
 .prose h2::before {
     content: '';
     display: inline-block;
-    width: 8px;
-    height: 8px;
-    background: #3b82f6;
+    width: 6px;
+    height: 6px;
+    background: var(--text-primary);
     margin-right: 12px;
     transform: rotate(45deg);
     vertical-align: middle;
     position: relative;
     top: -2px;
-    box-shadow: 0 0 8px rgba(59, 130, 246, 0.6);
+    opacity: 0.5;
 }
 
 .prose h3 {
     font-size: 1.4em;
-    color: #e2e8f0;
+    color: var(--text-primary);
 }
 
 /* Paragraphs */
@@ -198,8 +161,7 @@
 
 /* Strong / Bold Text in Paragraphs */
 .prose p strong {
-    color: #cbd5e1;
-    /* Slate-300 (No longer bright blue) */
+    color: var(--text-primary);
     font-weight: 700;
 }
 
@@ -216,10 +178,10 @@
     /* Tighter spacing */
     margin-bottom: 0.8em;
     margin-bottom: 0.8em;
-    color: #cbd5e1;
+    color: var(--text-primary);
     /* Reduced brightness */
     font-weight: 700;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    border-bottom: 1px solid var(--border-color);
     /* Softer border */
     padding-bottom: 0.3em;
     line-height: 1.3;
@@ -244,10 +206,9 @@
 
 .prose ul li::before {
     content: '•';
-    /* Simple bullet, cleaner than arrow */
     position: absolute;
     left: 4px;
-    color: #3b82f6;
+    color: var(--text-tertiary);
     font-weight: bold;
     font-size: 1.2em;
     line-height: 1.4;
@@ -255,8 +216,7 @@
 
 /* Key-Value styling for tags (e.g. Narrative Tags: ...) */
 .prose li strong {
-    color: #93c5fd;
-    /* Soft blue for keys */
+    color: var(--text-primary);
     font-family: 'Space Grotesk', sans-serif;
     font-weight: 600;
     margin-right: 4px;
@@ -270,22 +230,23 @@
     content: counter(item) ".";
     position: absolute;
     left: 0;
-    color: #3b82f6;
+    color: var(--text-tertiary);
     font-family: 'Space Grotesk', sans-serif;
     font-weight: bold;
 }
 
 /* Blockquotes - High Impact */
 .prose blockquote {
-    background: linear-gradient(90deg, rgba(59, 130, 246, 0.1) 0%, rgba(0, 0, 0, 0) 100%);
-    border-left: 4px solid #3b82f6;
+    background: var(--bg-secondary);
+    border-left: 2px solid var(--text-primary);
     margin: 2.5em 0;
     padding: 24px 32px;
     border-radius: 0 16px 16px 0;
     font-family: 'Space Grotesk', sans-serif;
     font-style: italic;
     font-size: 1.1em;
-    color: #93c5fd;
+    color: var(--text-primary);
+    opacity: 0.9;
 }
 
 /* Code Blocks */
@@ -299,12 +260,13 @@
 }
 
 .prose code {
-    background: rgba(59, 130, 246, 0.1);
+    background: var(--bg-secondary);
     padding: 0.2em 0.4em;
-    border-radius: 4px;
+    border-radius: 6px;
     font-family: 'JetBrains Mono', monospace;
     font-size: 0.85em;
-    color: #60a5fa;
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
 }
 
 .prose pre code {
@@ -320,47 +282,35 @@
 .footer {
     margin-top: 80px;
     padding-top: 40px;
-    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    border-top: 1px solid var(--border-color);
     display: flex;
-    justify-content: space-between;
+    justify-content: center;
     align-items: center;
-    color: #64748b;
-    font-size: 14px;
-    font-family: 'DM Sans', sans-serif;
+    color: var(--text-tertiary);
 }
 
 .shareBtn {
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 10px 20px;
-    border-radius: 100px;
-    background: rgba(255, 255, 255, 0.03);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    color: #cbd5e1;
+    padding: 10px 24px;
+    border-radius: 12px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    color: var(--text-primary);
     cursor: pointer;
     font-family: 'Space Grotesk', sans-serif;
-    font-weight: 500;
+    font-weight: 600;
     transition: all 0.2s;
 }
 
 .shareBtn:hover {
-    background: rgba(255, 255, 255, 0.1);
-    color: white;
+    background: var(--bg-hover);
     transform: translateY(-2px);
 }
 
 @media (max-width: 768px) {
-    .backBtn {
-        position: fixed;
-        top: 12px;
-        /* Center in 60px header */
-        left: 60px;
-        /* Right of hamburger (16px pad + 36px width + 8px gap) */
-        z-index: 1000;
-        background: rgba(15, 23, 42, 0.8);
-        backdrop-filter: blur(12px);
-    }
+/* Mobile backBtn styling removed - using layout buttons */
 
     .hero {
         height: auto;

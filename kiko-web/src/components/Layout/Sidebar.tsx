@@ -386,7 +386,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
                                 <span className={styles.subItemLabel}>{sub.label}</span>
                                 {(() => {
                                   const conv = conversations.find(c => c.id === sub.id);
-                                  const isActive = !!conv?.activeTask;
+                                  const hasStreamingMessage = !!conv?.messages?.some(
+                                    message => message.role === 'assistant' && message.status === 'streaming'
+                                  );
+                                  const isActive = !!conv?.activeTask || hasStreamingMessage;
                                   return isActive ? <div className={styles.loadingSpinner} /> : null;
                                 })()}
                               </NavLink>

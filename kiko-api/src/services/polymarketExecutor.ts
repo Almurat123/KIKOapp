@@ -9,13 +9,12 @@
 
 import { ClobClient } from '@polymarket/clob-client';
 import prisma from '../db/prisma.js';
-import { PolymarketUserPosition } from './polymarketDataService.js';
-import { createLimitOrderData, buildSignedOrder, SignedOrder, getUserWalletAddress } from './polymarketOrderBuilder.js';
-import { getEmbeddedWalletInfo } from './privyWallet.js';
+import { createLimitOrderData, buildSignedOrder, SignedOrder } from './polymarketOrderBuilder.js';
 import { getCredentials } from './polymarketCredService.js';
 import { fetchJson } from '../config/unifiedApiService.js';
 import crypto from 'crypto';
 import { notificationService } from './notifications/farcaster/index.js';
+import { VoidSigner } from 'ethers';
 
 // CLOB API endpoints
 const CLOB_API = 'https://clob.polymarket.com';
@@ -27,6 +26,20 @@ function getClobClient(): ClobClient {
     if (clobClient) return clobClient;
     clobClient = new ClobClient(CLOB_API, 137);
     return clobClient;
+}
+
+function getAuthenticatedClobClient(creds: { apiKey: string; apiSecret: string; passphrase: string; walletAddress: string }): ClobClient {
+    return new ClobClient(
+        CLOB_API,
+        137,
+        new VoidSigner(creds.walletAddress) as any,
+        {
+            key: creds.apiKey,
+            secret: creds.apiSecret,
+            passphrase: creds.passphrase
+        } as any,
+        0
+    );
 }
 
 /**
@@ -219,7 +232,7 @@ export async function placeBuyOrder(params: BuyOrderParams): Promise<{ success: 
         await logPolymarketAction({
             userId: user.privyDid,
             type: 'BUY',
-            status: result.success ? 'SUCCESS' : 'FAILED',
+            status: result.success ? 'pending' : 'failed',
             marketTitle: params.question,
             marketSlug: params.marketSlug,
             outcome: params.outcome,
@@ -231,22 +244,28 @@ export async function placeBuyOrder(params: BuyOrderParams): Promise<{ success: 
             error: result.error
         });
 
-        // Create position record
-        await prisma.polymarketPosition.create({
-            data: {
-                userId: user.privyDid,
-                configId: params.configId,
-                marketSlug: params.marketSlug,
-                conditionId: params.conditionId,
-                assetId: params.tokenId,
-                question: params.question,
-                outcome: params.outcome,
-                entryPrice: params.price,
-                shares: shares,
-                costBasis: params.amountUsd,
-                status: result.success ? 'open' : 'failed'
-            }
+        const config = await prisma.polymarketCopyConfig.findUnique({
+            where: { id: params.configId }
         });
+        const isDirectTrade = config?.targetWallet === '0x0000000000000000000000000000000000000000' || params.marketSlug === 'direct-trade';
+
+        if (!isDirectTrade || !result.success) {
+            await prisma.polymarketPosition.create({
+                data: {
+                    userId: user.privyDid,
+                    configId: params.configId,
+                    marketSlug: params.marketSlug,
+                    conditionId: params.conditionId,
+                    assetId: params.tokenId,
+                    question: params.question,
+                    outcome: params.outcome,
+                    entryPrice: params.price,
+                    shares: shares,
+                    costBasis: params.amountUsd,
+                    status: result.success ? 'open' : 'failed'
+                }
+            });
+        }
 
         return result;
 
@@ -329,7 +348,7 @@ export async function placeSellOrder(params: SellOrderParams): Promise<{ success
                 await logPolymarketAction({
                     userId: user.privyDid,
                     type: 'SELL',
-                    status: result.success ? 'SUCCESS' : 'FAILED',
+                    status: result.success ? 'pending' : 'failed',
                     marketTitle,
                     marketSlug,
                     outcome: '',
@@ -359,9 +378,9 @@ export async function placeSellOrder(params: SellOrderParams): Promise<{ success
                     await prisma.polymarketPosition.update({
                         where: { id: params.positionId },
                         data: {
-                            status: 'closed',
+                            status: result.success ? 'closed' : 'open',
                             exitReason: result.success ? 'manual_sell' : `sell_failed: ${result.error?.slice(0, 100)}`,
-                            closedAt: new Date()
+                            closedAt: result.success ? new Date() : null
                         }
                     });
                 }
@@ -664,33 +683,8 @@ export async function cancelOrder(params: CancelOrderParams): Promise<{
             return { success: false, error: 'User has no Polymarket API credentials' };
         }
 
-        // Build DELETE request
-        const timestamp = Math.floor(Date.now() / 1000).toString();
-        const method = 'DELETE';
-        const requestPath = `/order/${params.orderId}`;
-
-        // Generate L2 HMAC signature
-        const signature = generateHmacSignature(
-            creds.apiSecret,
-            timestamp,
-            method,
-            requestPath,
-            '' // No body for DELETE
-        );
-
-        // Send cancellation request
-        const result = await fetchJson({
-            url: `${CLOB_API}${requestPath}`,
-            method: 'DELETE',
-            headers: {
-                'Content-Type': 'application/json',
-                'POLY_ADDRESS': creds.walletAddress,
-                'POLY_API_KEY': creds.apiKey,
-                'POLY_PASSPHRASE': creds.passphrase,
-                'POLY_TIMESTAMP': timestamp,
-                'POLY_SIGNATURE': signature
-            }
-        }) as { error?: string; message?: string; success?: boolean };
+        const client = getAuthenticatedClobClient(creds);
+        await client.cancelOrder({ orderID: params.orderId });
 
         console.log('[PolymarketExecutor] Order cancelled successfully');
 
@@ -701,7 +695,7 @@ export async function cancelOrder(params: CancelOrderParams): Promise<{
                 await logPolymarketAction({
                     userId: user.privyDid,
                     type: 'CANCEL',
-                    status: 'CANCELLED',
+                    status: 'cancelled',
                     marketTitle: 'Order Cancellation',
                     marketSlug: '',
                     outcome: '',

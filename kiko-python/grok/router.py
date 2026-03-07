@@ -2935,7 +2935,7 @@ TOOL_DEFINITIONS = """
 """.strip()
 
 
-@app.post("/chat/write_news")
+@app.post("/chat/write_news", dependencies=[Depends(require_auth)])
 async def write_news(request: NewsRequest):
     """
     Generate news article based on trending tokens

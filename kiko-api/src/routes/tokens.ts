@@ -6,6 +6,7 @@
  */
 
 import { FastifyInstance } from 'fastify';
+import { requireAuth } from '../middleware/auth.js';
 import { searchTokens as searchGeckoTerminal, getTokenDetails as getGeckoTokenDetails, getCandlestickData as getGeckoCandlestickData, getTrendingTokens as getLiveTrendingTokens, type TrendingDuration } from '../services/geckoTerminal.js';
 import { searchTokens as searchDexScreener, getTokenDetails as getDexTokenDetails, getTokenPairAddress, getCandlestickData as getDexCandlestickData, getTrendingTokensPremium } from '../services/dexscreener.js';
 import { get, set } from '../cache/cacheClient.js';
@@ -309,7 +310,7 @@ export async function tokenRoutes(fastify: FastifyInstance) {
   });
 
   // POST /api/tokens/trending/refresh - Manually trigger refresh for a specific chain
-  fastify.post('/trending/refresh', async (request, reply) => {
+  fastify.post('/trending/refresh', { preHandler: requireAuth }, async (request, reply) => {
     try {
       const body = (request.body || {}) as { chain?: string };
       const query = (request.query || {}) as { chain?: string; wait?: string | boolean };

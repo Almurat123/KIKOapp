@@ -1,4 +1,5 @@
 import { Connection, type Commitment } from '@solana/web3.js';
+import { getCachedAuthTokenSnapshot } from './authToken';
 
 const DEFAULT_RPC_URL = `${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/rpc/solana`;
 const DEFAULT_COMMITMENT: Commitment = 'confirmed';
@@ -44,9 +45,12 @@ export function getSolanaRpcConnection(options?: {
     return cached.connection;
   }
 
-  const connection = new Connection(url, commitment);
+  const authToken = getCachedAuthTokenSnapshot();
+  const connection = new Connection(url, {
+    commitment,
+    httpHeaders: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
+  });
   connectionCache.set(key, { connection, timestamp: now });
   pruneCache();
   return connection;
 }
-

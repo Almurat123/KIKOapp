@@ -3,6 +3,7 @@ import { PrivyProvider } from '@privy-io/react-auth';
 import { useTheme } from '../hooks/useTheme';
 
 const privyAppId = import.meta.env.VITE_PRIVY_APP_ID;
+const privyClientId = import.meta.env.VITE_PRIVY_CLIENT_ID;
 
 // Privy Provider with theme support
 export const ThemedPrivyProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -17,6 +18,7 @@ export const ThemedPrivyProvider: React.FC<{ children: React.ReactNode }> = ({ c
   return (
     <PrivyProvider
       appId={privyAppId}
+      clientId={privyClientId}
       config={{
         appearance: {
           accentColor: '#6A6FF5',

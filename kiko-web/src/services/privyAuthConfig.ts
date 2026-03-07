@@ -1,3 +1,5 @@
+import { getAuthToken } from '../utils/authToken';
+
 export interface PrivyAuthorizationConfig {
   authKeyId: string;
   policies: {
@@ -24,7 +26,16 @@ function firstNonEmptyString(values: unknown[]): string | undefined {
 }
 
 export async function getPrivyAuthorizationConfig(): Promise<PrivyAuthorizationConfig> {
-  const response = await fetch(`${API_URL}/api/config/auth-key-id`);
+  const authToken = await getAuthToken();
+  if (!authToken) {
+    throw new Error('Authentication required for authorization configuration.');
+  }
+
+  const response = await fetch(`${API_URL}/api/config/auth-key-id`, {
+    headers: {
+      Authorization: `Bearer ${authToken}`,
+    },
+  });
   if (!response.ok) {
     throw new Error('Authorization configuration unavailable.');
   }

@@ -1,4 +1,123 @@
-.citation {
-    font-size: 0.8em;
-    color: var(--text-secondary);
+.citationContainer {
+  display: inline;
+}
+
+.citationInline {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0 0 0 4px;
+  vertical-align: baseline;
+  flex-wrap: wrap;
+}
+
+.citationPill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 22px;
+  padding: 0 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: transparent;
+  color: rgba(255, 255, 255, 0.9);
+  text-decoration: none;
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1;
+  font-weight: 600;
+  transition:
+    background-color 0.18s ease,
+    border-color 0.18s ease,
+    color 0.18s ease,
+    box-shadow 0.18s ease;
+  user-select: none;
+  -webkit-user-select: none;
+  white-space: nowrap;
+}
+
+.citationPill,
+.citationPill * {
+  cursor: pointer !important;
+}
+
+.citationPill:hover {
+  background: transparent;
+  border-color: rgba(255, 255, 255, 0.24);
+  color: rgba(255, 255, 255, 0.96);
+}
+
+.citationPill:focus-visible {
+  outline: none;
+  border-color: rgba(255, 255, 255, 0.28);
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.08);
+}
+
+.citationPill:active {
+  background: transparent;
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.citationIndex {
+  justify-content: center;
+  min-width: 22px;
+  width: 22px;
+  padding: 0;
+  border-radius: 999px;
+}
+
+.citationSource {
+  max-width: min(170px, 46vw);
+}
+
+.citationIcon {
+  flex-shrink: 0;
+  opacity: 0.68;
+}
+
+.citationLabel {
+  display: inline-block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+:global(.light) .citationPill {
+  background: transparent;
+  border-color: rgba(15, 23, 42, 0.12);
+  color: #334155;
+}
+
+:global(.light) .citationPill:hover {
+  background: transparent;
+  border-color: rgba(15, 23, 42, 0.22);
+  color: #334155;
+}
+
+:global(.light) .citationPill:focus-visible {
+  border-color: rgba(15, 23, 42, 0.26);
+  box-shadow: 0 0 0 2px rgba(15, 23, 42, 0.08);
+}
+
+@media (max-width: 640px) {
+  .citationInline {
+    margin-left: 4px;
+    gap: 4px;
+  }
+
+  .citationPill {
+    min-height: 21px;
+    padding: 0 7px;
+    font-size: 11px;
+  }
+
+  .citationIndex {
+    min-width: 21px;
+    width: 21px;
+    padding: 0;
+  }
+
+  .citationSource {
+    max-width: min(150px, 52vw);
+  }
 }

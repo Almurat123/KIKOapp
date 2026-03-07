@@ -2876,7 +2876,7 @@ async function processSingleUserBuy(
  * Centralized logic to exit a position (used for Mirror Sell, Take Profit, and Stop Loss)
  * Handles balance checking, execution (EVM/Solana), dust sweep, DB updates, and notifications
  */
-async function executePositionExit(params: {
+export async function executePositionExit(params: {
     userId: string;
     tokenAddress: string;
     chainId: number;
@@ -2886,6 +2886,14 @@ async function executePositionExit(params: {
     userSettings?: any;
     positions?: Array<any>;
     pendingAttributedLots?: Array<any>;
+    desiredSellRawOverride?: bigint;
+    intentContext?: {
+        intentId?: string;
+        sourceEventId?: string;
+        targetSellTxHash?: string;
+        targetFullExitVerified?: boolean;
+        targetSellRatioBps?: number | null;
+    };
 }): Promise<string | null> {
     const { userId, tokenAddress, chainId, exitReason, config } = params;
     const tokenInfo = params.tokenInfo ?? { price: 0, symbol: 'UNKNOWN' };

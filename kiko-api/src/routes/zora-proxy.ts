@@ -4,6 +4,7 @@
  */
 
 import { FastifyInstance } from 'fastify';
+import { requireAuth } from '../middleware/auth.js';
 import { fetchJson } from '../config/unifiedApiService.js';
 
 const ZORA_API_BASE = 'https://api-sdk.zora.engineering';
@@ -15,7 +16,7 @@ export async function zoraProxyRoutes(fastify: FastifyInstance) {
      * GET /api/zora-proxy/coin
      * Proxy for Zora token details
      */
-    fastify.get('/coin', async (request, reply) => {
+    fastify.get('/coin', { preHandler: requireAuth }, async (request, reply) => {
         try {
             const { address, chain } = request.query as any;
 

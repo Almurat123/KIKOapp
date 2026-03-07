@@ -33,6 +33,13 @@ export async function resolveCopytradeLedger(params: {
         metrics: {
           ...projected.metrics,
           effectiveOwnedAmountRaw: physical.metrics.effectiveOwnedAmountRaw || projected.metrics.effectiveOwnedAmountRaw,
+          trackedEntryRaw: physical.metrics.trackedEntryRaw || projected.metrics.trackedEntryRaw,
+          trackedRemainingRaw: physical.metrics.trackedRemainingRaw || projected.metrics.trackedRemainingRaw,
+          trackedSoldRaw: physical.metrics.trackedSoldRaw || projected.metrics.trackedSoldRaw,
+          externalBalanceDetected: physical.metrics.externalBalanceDetected ?? projected.metrics.externalBalanceDetected,
+          lastMirroredTargetSellTxHash: physical.metrics.lastMirroredTargetSellTxHash || projected.metrics.lastMirroredTargetSellTxHash,
+          lastMirroredRatioBps: physical.metrics.lastMirroredRatioBps ?? projected.metrics.lastMirroredRatioBps,
+          exitExecutionState: physical.metrics.exitExecutionState || projected.metrics.exitExecutionState,
         },
         reasonCode: physical.reasonCode || projected.reasonCode,
       };

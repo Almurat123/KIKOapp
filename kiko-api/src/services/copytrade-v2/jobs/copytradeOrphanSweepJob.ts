@@ -5,6 +5,10 @@ import { emitCopytradeDomainAudit } from '../audit/copytradeDomainAudit.js';
 import { emitCopytradeSummaryAudit } from '../audit/copytradeSummaryAudit.js';
 import { findLedgerFirstOrphanSweepCandidates } from '../ledger/copytradeLedgerSelectors.js';
 import { syncCopytradeLedgerFromLegacy } from '../ledger/copytradeLedgerRepository.js';
+import {
+  buildTargetSellEventPayload,
+  persistTargetSellEventAndSchedulePositions,
+} from '../exit/positionExitIntentScheduler.js';
 
 const PENDING_REPAIR_QUARANTINE_REASON = 'pending_expected_amount_missing_quarantine';
 const HYGIENE_REASON_CODE = 'hygiene_position_closed';
@@ -558,6 +562,32 @@ export async function runCopytradeOrphanSweepCycle(params?: {
         exitReason: 'mirror_sell',
         exitRetryCount: nextRetryCount,
         lastExitAttempt: null,
+      },
+    }).catch(() => null);
+    await persistTargetSellEventAndSchedulePositions({
+      event: buildTargetSellEventPayload({
+        chainId: position.chainId,
+        targetWallet: String(position.ledgerTargetWallet || position.config.targetWallet || ''),
+        tokenAddress: position.tokenAddress,
+        targetSellTxHash: String(position.latestTargetSellTxHash || `ORPHAN_SWEEP_${position.id}`),
+        targetFullExitVerified: true,
+        source: 'orphan_sweep',
+        metadata: {
+          orphanSweepReasonCode: position.lastExecutionReasonCode || null,
+        },
+      }),
+      positions: [{
+        id: position.id,
+        userId: position.userId,
+        configId: position.configId,
+        chainId: position.chainId,
+        tokenAddress: position.tokenAddress,
+        entryAmountExact: position.entryAmountExact,
+        entryAmountDec: position.entryAmountDec,
+      }],
+      priority: 230,
+      metadata: {
+        orphanSweepScheduled: true,
       },
     }).catch(() => null);
     scheduledRetryCount += 1;

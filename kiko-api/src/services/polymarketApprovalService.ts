@@ -8,6 +8,7 @@
 import { ethers } from 'ethers';
 import prisma from '../db/prisma.js';
 import { getDelegatedEvmWallet } from './privyWallet.js';
+import { sendTransaction } from './privyWallet.js';
 
 // Contract addresses on Polygon (chainId: 137)
 const POLYGON_CONTRACTS = {
@@ -22,6 +23,9 @@ const POLYGON_CONTRACTS = {
 
     // Neg Risk CTF Exchange (for negatively correlated markets)
     NEG_RISK_CTF_EXCHANGE: '0xC5d563A36AE78145C45a50134d48A1215220f80a',
+
+    // Neg Risk Adapter from Polymarket clob-client contract config
+    NEG_RISK_ADAPTER: '0xd91E80cF2E7be2e162c6513ceD06f1dD0dA35296',
 
     // Conditional Tokens Framework (CTF) contract
     CTF: '0x4D97DCd97eC945f40cF65F87097ACe5EA0476045'
@@ -55,26 +59,34 @@ function getPolygonProvider(): ethers.JsonRpcProvider {
  */
 export async function checkUsdcApproval(walletAddress: string): Promise<{
     approved: boolean;
-    allowance: string;
+    allowances: Record<string, string>;
     balance: string;
 }> {
     const provider = getPolygonProvider();
     const usdc = new ethers.Contract(POLYGON_CONTRACTS.USDC, ERC20_ABI, provider);
+    const spenders = [
+        POLYGON_CONTRACTS.CTF_EXCHANGE,
+        POLYGON_CONTRACTS.NEG_RISK_ADAPTER
+    ];
 
-    const [allowance, balance, decimals] = await Promise.all([
-        usdc.allowance(walletAddress, POLYGON_CONTRACTS.CTF_EXCHANGE),
+    const [allowances, balance, decimals] = await Promise.all([
+        Promise.all(spenders.map((spender) => usdc.allowance(walletAddress, spender))),
         usdc.balanceOf(walletAddress),
         usdc.decimals()
     ]);
 
-    const formattedAllowance = ethers.formatUnits(allowance, decimals);
+    const allowanceMap = Object.fromEntries(
+        allowances.map((allowance: bigint, index: number) => [
+            spenders[index],
+            ethers.formatUnits(allowance, decimals)
+        ])
+    );
     const formattedBalance = ethers.formatUnits(balance, decimals);
-
-    const isApproved = allowance > 0n;
+    const isApproved = allowances.every((allowance: bigint) => allowance > 0n);
 
     return {
         approved: isApproved,
-        allowance: formattedAllowance,
+        allowances: allowanceMap,
         balance: formattedBalance
     };
 }
@@ -82,19 +94,31 @@ export async function checkUsdcApproval(walletAddress: string): Promise<{
 /**
  * Check if user has approved CTF tokens for the Exchange
  */
-export async function checkCtfApproval(walletAddress: string): Promise<boolean> {
+export async function checkCtfApproval(walletAddress: string): Promise<{
+    approved: boolean;
+    operators: Record<string, boolean>;
+}> {
     const provider = getPolygonProvider();
     const ctf = new ethers.Contract(POLYGON_CONTRACTS.CTF, CTF_ABI, provider);
-
-    const isApproved = await ctf.isApprovedForAll(walletAddress, POLYGON_CONTRACTS.CTF_EXCHANGE);
-    return isApproved;
+    const operators = [
+        POLYGON_CONTRACTS.CTF_EXCHANGE,
+        POLYGON_CONTRACTS.NEG_RISK_CTF_EXCHANGE
+    ];
+    const approvals = await Promise.all(operators.map((operator) => ctf.isApprovedForAll(walletAddress, operator)));
+    const operatorMap = Object.fromEntries(
+        approvals.map((approved: boolean, index: number) => [operators[index], approved])
+    );
+    return {
+        approved: approvals.every(Boolean),
+        operators: operatorMap
+    };
 }
 
 /**
  * Get the approval transaction data for USDC
  * Returns the transaction data that needs to be signed and sent
  */
-export function getUsdcApprovalTx(): {
+export function getUsdcApprovalTx(spender: string): {
     to: string;
     data: string;
     chainId: number;
@@ -104,7 +128,7 @@ export function getUsdcApprovalTx(): {
     const maxApproval = ethers.MaxUint256; // Unlimited approval
 
     const data = iface.encodeFunctionData('approve', [
-        POLYGON_CONTRACTS.CTF_EXCHANGE,
+        spender,
         maxApproval
     ]);
 
@@ -112,14 +136,14 @@ export function getUsdcApprovalTx(): {
         to: POLYGON_CONTRACTS.USDC,
         data,
         chainId: 137,
-        description: 'Approve USDC for Polymarket CTF Exchange'
+        description: `Approve USDC for ${spender}`
     };
 }
 
 /**
  * Get the approval transaction data for CTF tokens
  */
-export function getCtfApprovalTx(): {
+export function getCtfApprovalTx(operator: string): {
     to: string;
     data: string;
     chainId: number;
@@ -128,7 +152,7 @@ export function getCtfApprovalTx(): {
     const iface = new ethers.Interface(CTF_ABI);
 
     const data = iface.encodeFunctionData('setApprovalForAll', [
-        POLYGON_CONTRACTS.CTF_EXCHANGE,
+        operator,
         true
     ]);
 
@@ -136,7 +160,7 @@ export function getCtfApprovalTx(): {
         to: POLYGON_CONTRACTS.CTF,
         data,
         chainId: 137,
-        description: 'Approve CTF tokens for Polymarket Exchange'
+        description: `Approve CTF tokens for ${operator}`
     };
 }
 
@@ -169,21 +193,63 @@ export async function getRequiredApprovals(walletAddress: string): Promise<{
     }> = [];
 
     if (!usdcStatus.approved) {
-        const tx = getUsdcApprovalTx();
-        transactions.push({ type: 'usdc', ...tx });
+        for (const spender of [POLYGON_CONTRACTS.CTF_EXCHANGE, POLYGON_CONTRACTS.NEG_RISK_ADAPTER]) {
+            const allowance = Number.parseFloat(usdcStatus.allowances[spender] || '0');
+            if (allowance <= 0) {
+                const tx = getUsdcApprovalTx(spender);
+                transactions.push({ type: 'usdc', ...tx });
+            }
+        }
     }
 
-    if (!ctfApproved) {
-        const tx = getCtfApprovalTx();
-        transactions.push({ type: 'ctf', ...tx });
+    if (!ctfApproved.approved) {
+        for (const operator of [POLYGON_CONTRACTS.CTF_EXCHANGE, POLYGON_CONTRACTS.NEG_RISK_CTF_EXCHANGE]) {
+            if (!ctfApproved.operators[operator]) {
+                const tx = getCtfApprovalTx(operator);
+                transactions.push({ type: 'ctf', ...tx });
+            }
+        }
     }
 
     return {
         needsUsdcApproval: !usdcStatus.approved,
-        needsCtfApproval: !ctfApproved,
+        needsCtfApproval: !ctfApproved.approved,
         usdcBalance: usdcStatus.balance,
         transactions
     };
+}
+
+export async function executeRequiredApprovals(params: {
+    userId: string;
+    accessToken?: string;
+}): Promise<{
+    txHashes: string[];
+    readiness: Awaited<ReturnType<typeof checkTradingReadiness>>;
+}> {
+    const creds = await prisma.polymarketApiCreds.findUnique({
+        where: { userId: params.userId }
+    });
+    if (!creds) {
+        throw new Error('No credentials found. Generate Polymarket credentials first.');
+    }
+
+    const approvals = await getRequiredApprovals(creds.walletAddress);
+    const txHashes: string[] = [];
+    const provider = getPolygonProvider();
+
+    for (const tx of approvals.transactions) {
+        const txHash = await sendTransaction(params.userId, params.accessToken || '', {
+            to: tx.to,
+            data: tx.data,
+            chainId: tx.chainId,
+            txPurpose: 'approval'
+        });
+        txHashes.push(txHash);
+        await provider.waitForTransaction(txHash as `0x${string}`, 1, 60_000);
+    }
+
+    const readiness = await checkTradingReadiness(params.userId);
+    return { txHashes, readiness };
 }
 
 /**
@@ -224,7 +290,7 @@ export async function checkTradingReadiness(userId: string): Promise<{
     // readiness=null → hasCredentials=false → the "Revoke" button never appeared.
     let delegatedEvmWallet: any = null;
     let usdcStatus: { approved: boolean; balance: string } = { approved: false, balance: '0' };
-    let ctfApproved = false;
+    let ctfApproved: { approved: boolean } | null = { approved: false };
     let blockchainCallFailed = false;
 
     try {
@@ -250,7 +316,7 @@ export async function checkTradingReadiness(userId: string): Promise<{
         if (!usdcStatus.approved) {
             missingSteps.push('Approve USDC for Polymarket');
         }
-        if (!ctfApproved) {
+        if (!ctfApproved.approved) {
             missingSteps.push('Approve CTF tokens for Polymarket');
         }
         if (parseFloat(usdcStatus.balance) < 1) {
@@ -262,7 +328,7 @@ export async function checkTradingReadiness(userId: string): Promise<{
         hasCredentials: true,
         hasDelegatedEvm: !!delegatedEvmWallet,
         hasUsdcApproval: blockchainCallFailed ? null : usdcStatus.approved,
-        hasCtfApproval: blockchainCallFailed ? null : ctfApproved,
+        hasCtfApproval: blockchainCallFailed ? null : ctfApproved?.approved ?? false,
         usdcBalance: usdcStatus.balance,
         walletAddress: creds.walletAddress,
         isReady: !blockchainCallFailed && missingSteps.length === 0,

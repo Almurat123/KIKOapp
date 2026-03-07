@@ -42,6 +42,7 @@ import { billingRoutes } from './routes/billing.js';
 import { initAutoTradeService, stopAutoTradeService } from './services/autoTradeService.js';
 import { tokenAlertService } from './services/tokenAlertService.js';
 import { startPositionMonitor } from './jobs/positionMonitorJob.js';
+import { startPositionExitIntentWorker, stopPositionExitIntentWorker } from './services/copytrade-v2/exit/positionExitIntentWorker.js';
 import { isPrivyConfigured } from './services/privyWallet.js';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
 import { rateLimiter } from './middleware/rateLimiter.js';
@@ -57,6 +58,7 @@ import helmet from '@fastify/helmet';
 import { tracingHook } from './middleware/tracing.js';
 import { startRpcHealthMonitor, startRpcBenchmarkSampling } from './services/rpcManager.js';
 import { startNativePriceRefresh } from './services/onChainPriceService.js';
+import { requireAuth } from './middleware/auth.js';
 
 const fastify = Fastify({
     logger: {
@@ -160,6 +162,7 @@ if (env.nodeEnv === 'development') {
 
 // Build metadata (for deployments)
 const buildSha = process.env.BUILD_SHA || process.env.RAILWAY_GIT_COMMIT_SHA || process.env.GIT_COMMIT || 'unknown';
+const publicVersion = process.env.APP_VERSION || 'current';
 logger.info(LogCode.SYS_STARTUP, 'Build SHA', { buildSha });
 
 // Register tracing middleware (must be first)
@@ -190,7 +193,7 @@ fastify.addHook('preSerialization', async (request, _reply, payload) => {
         data.meta = {
             requestId: traceId,
             timestamp: new Date().toISOString(),
-            version: buildSha,
+            version: publicVersion,
         };
     }
 
@@ -215,7 +218,7 @@ fastify.addHook('preHandler', async (request, reply) => {
     // - /health: health check
     // - /api/chat/ws: WebSocket (uses JWT token in URL)
     // - /api/webhook/: server-to-server webhooks (have HMAC verification)
-    const skipPaths = ['/health', '/api/chat/ws', '/v2/chat/ws', '/api/webhook/', '/webhook/', '/api/images', '/internal/tools/', '/api/config/auth-key-id'];
+    const skipPaths = ['/health', '/api/chat/ws', '/v2/chat/ws', '/api/webhook/', '/webhook/', '/api/images', '/internal/tools/'];
     if (skipPaths.some(p => request.url === p || request.url.startsWith(p))) {
         return;
     }
@@ -266,7 +269,7 @@ fastify.get('/health', async (request, reply) => {
 });
 
 // Config endpoint for frontend Session Signers
-fastify.get('/api/config/auth-key-id', async (request, reply) => {
+fastify.get('/api/config/auth-key-id', { preHandler: requireAuth }, async (request, reply) => {
     const pickEnv = (...keys: string[]) => {
         for (const key of keys) {
             const value = (process as any).env[key];
@@ -458,6 +461,14 @@ async function start() {
             logger.error(LogCode.SYS_ERROR, 'Position monitor failed to start', { error: posMonError.message });
         }
 
+        logger.debug(LogCode.SYS_STARTUP, 'Starting copytrade exit intent worker...');
+        try {
+            startPositionExitIntentWorker();
+            logger.info(LogCode.SYS_STARTUP, 'Copytrade exit intent worker started');
+        } catch (exitWorkerError: any) {
+            logger.error(LogCode.SYS_ERROR, 'Copytrade exit intent worker failed to start', { error: exitWorkerError.message });
+        }
+
         // Start token alert service
         logger.debug(LogCode.SYS_STARTUP, 'Starting token alert service...');
         try {
@@ -495,6 +506,7 @@ async function start() {
 process.on('SIGTERM', async () => {
     logger.info(LogCode.SYS_SHUTDOWN, 'SIGTERM received, shutting down gracefully...');
     stopDataRetentionScheduler();
+    stopPositionExitIntentWorker();
     await stopAutoTradeService();
     if (prisma) await (prisma as any).$disconnect();
     await fastify.close();
@@ -504,6 +516,7 @@ process.on('SIGTERM', async () => {
 process.on('SIGINT', async () => {
     logger.info(LogCode.SYS_SHUTDOWN, 'SIGINT received, shutting down gracefully...');
     stopDataRetentionScheduler();
+    stopPositionExitIntentWorker();
     await stopAutoTradeService();
     if (prisma) await (prisma as any).$disconnect();
     await fastify.close();

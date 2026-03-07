@@ -1,10 +1,12 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { format } from 'date-fns';
-import { Calendar, ArrowLeft, ExternalLink, Share2 } from 'lucide-react';
+import { Calendar, ExternalLink } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import styles from './ArticleDetailPage.module.css';
 import { resolveCoreApiBase } from '../utils/coreApiBase';
+import { useSidebar } from '../components/Layout/Layout';
+import { Skeleton } from '../components/Skeleton';
 
 interface NewsArticle {
     id: string;
@@ -28,6 +30,23 @@ interface ArticleDetailPageProps {
 export default function ArticleDetailPage({ id, onBack }: ArticleDetailPageProps) {
     const [article, setArticle] = useState<NewsArticle | null>(null);
     const [loading, setLoading] = useState(true);
+    const sidebar = useSidebar();
+
+    // Register back handler with global layout
+    const handleBack = useCallback(() => {
+        onBack();
+    }, [onBack]);
+
+    useEffect(() => {
+        if (sidebar?.setOnBackHandler) {
+            sidebar.setOnBackHandler(() => handleBack);
+        }
+        return () => {
+            if (sidebar?.setOnBackHandler) {
+                sidebar.setOnBackHandler(null);
+            }
+        };
+    }, [handleBack, sidebar]);
 
     useEffect(() => {
         if (!id) return;
@@ -46,32 +65,50 @@ export default function ArticleDetailPage({ id, onBack }: ArticleDetailPageProps
 
     if (loading) {
         return (
-            <div className="flex items-center justify-center min-h-screen bg-[#0a0b0d]">
-                <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-cyan-500"></div>
+            <div className={styles.articlePage}>
+                <div className={styles.hero}>
+                    <Skeleton variant="rectangular" width="100%" height="100%" />
+                </div>
+                <div className={styles.detailMetaContainer}>
+                    <div className={styles.meta}>
+                        <Skeleton variant="text" width={120} height={32} />
+                    </div>
+                    <Skeleton variant="text" width="80%" height={60} style={{ marginBottom: 16 }} />
+                    <Skeleton variant="text" width="40%" height={24} />
+                </div>
+                <div className={styles.contentContainer}>
+                    <Skeleton variant="text" width="100%" height={20} style={{ marginBottom: 12 }} />
+                    <Skeleton variant="text" width="100%" height={20} style={{ marginBottom: 12 }} />
+                    <Skeleton variant="text" width="90%" height={20} style={{ marginBottom: 12 }} />
+                    <Skeleton variant="text" width="95%" height={20} style={{ marginBottom: 32 }} />
+                    <Skeleton variant="text" width="100%" height={20} style={{ marginBottom: 12 }} />
+                    <Skeleton variant="text" width="85%" height={20} />
+                </div>
             </div>
         );
     }
 
-    if (!article) return <div className="p-8 text-center text-slate-400 bg-[#0a0b0d] min-h-screen">Article not found</div>;
+    if (!article) {
+        return (
+            <div className={styles.articlePage}>
+                <div className="flex flex-col items-center justify-center py-20 text-center">
+                    <p className="text-slate-500 mb-4">Article not found</p>
+                    <button onClick={handleBack} className="text-cyan-500 hover:underline">Return to News</button>
+                </div>
+            </div>
+        );
+    }
 
     // Remove duplicates of title in content if they exist (common with AI generation)
     const cleanedContent = article.content.replace(new RegExp(`^#\\s*${article.title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*\\n?`, 'i'), '');
 
     return (
         <article className={styles.articlePage}>
-            <button
-                onClick={onBack}
-                className={styles.backBtn}
-                title="Back to News"
-            >
-                <ArrowLeft size={20} />
-            </button>
-
             {/* Hero Section */}
             <div className={styles.hero}>
                 {article.coverImage && (
                     <img
-                        src={article.coverImage.startsWith('http') ? article.coverImage : article.coverImage}
+                        src={article.coverImage}
                         alt={article.title}
                         className={styles.heroImage}
                     />
@@ -84,8 +121,8 @@ export default function ArticleDetailPage({ id, onBack }: ArticleDetailPageProps
                         <Calendar size={14} /> {format(new Date(article.createdAt), 'MMMM d, yyyy')}
                     </div>
                     {article.paragraphUrl && (
-                        <a href={article.paragraphUrl} target="_blank" rel="noreferrer" className="flex items-center gap-2 text-cyan-400 hover:text-cyan-300 transition-colors text-sm font-medium">
-                            View on Paragraph <ExternalLink size={14} />
+                        <a href={article.paragraphUrl} target="_blank" rel="noreferrer" className="flex items-center gap-1.5 text-xs font-semibold tracking-wider uppercase text-blue-500 hover:text-blue-400 font-medium no-underline">
+                            Source <ExternalLink size={12} />
                         </a>
                     )}
                 </div>
@@ -93,9 +130,6 @@ export default function ArticleDetailPage({ id, onBack }: ArticleDetailPageProps
                 <h1 className={styles.title}>
                     {article.title}
                 </h1>
-                <p className={styles.subtitle}>
-                    Powered by KIKO(Grok4-1-reasoning)
-                </p>
             </div>
 
             {/* Content Section */}
@@ -108,17 +142,7 @@ export default function ArticleDetailPage({ id, onBack }: ArticleDetailPageProps
 
                 {/* Footer */}
                 <div className={styles.footer}>
-                    <div>
-                        <div className="flex items-center gap-2">
-                            <div className="w-6 h-6 rounded-full bg-gradient-to-br from-cyan-400 to-blue-600 flex items-center justify-center text-[10px] font-bold text-white">
-                                AI
-                            </div>
-                            <span>Analysis by KiKo Intelligence</span>
-                        </div>
-                    </div>
-                    <button className={styles.shareBtn}>
-                        <Share2 size={16} /> Share Article
-                    </button>
+                    <span className="font-semibold tracking-tight text-secondary">KIKO Research</span>
                 </div>
             </div>
         </article>

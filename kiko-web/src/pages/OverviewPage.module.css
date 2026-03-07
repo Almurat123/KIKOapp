@@ -378,14 +378,14 @@
     font-weight: 700;
     font-style: italic;
     color: #ffffff;
-    font-size: 16px;
+    font-size: 11px;
     text-transform: uppercase;
     letter-spacing: 0.05em;
     line-height: 1.2;
 }
 
 .indicatorDesc {
-    font-size: 11px;
+    font-size: 8px;
     color: #52525b;
     font-weight: 400;
     text-transform: uppercase;
@@ -401,7 +401,7 @@
 }
 
 .value {
-    font-size: 42px;
+    font-size: 28px;
     font-weight: 700;
     font-style: italic;
     color: #ffffff;
@@ -410,7 +410,7 @@
 }
 
 .unit {
-    font-size: 12px;
+    font-size: 8px;
     color: #3f3f46;
     font-weight: 500;
     margin-left: 4px;
@@ -424,7 +424,7 @@
 .statusBadge {
     padding: 6px 12px;
     border-radius: 12px;
-    font-size: 10px;
+    font-size: 8px;
     font-weight: 800;
     text-transform: uppercase;
     letter-spacing: 0.1em;
@@ -436,7 +436,7 @@
 .rangeLabels {
     display: flex;
     justify-content: space-between;
-    font-size: 10px;
+    font-size: 8px;
     font-weight: 800;
     color: #3f3f46;
     text-transform: uppercase;

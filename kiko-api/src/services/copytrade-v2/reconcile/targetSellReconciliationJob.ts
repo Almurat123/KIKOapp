@@ -11,6 +11,10 @@ import {
   findLedgerFirstReconcilePendingCandidates,
 } from '../ledger/copytradeLedgerSelectors.js';
 import { emitCopytradeSummaryAudit } from '../audit/copytradeSummaryAudit.js';
+import {
+  buildTargetSellEventPayload,
+  persistTargetSellEventAndSchedulePositions,
+} from '../exit/positionExitIntentScheduler.js';
 
 const TARGET_SELL_RECONCILE_WINDOW_MS = Math.max(60_000, Number(process.env.COPYTRADE_TARGET_SELL_RECONCILE_WINDOW_MS || '21600000'));
 
@@ -146,6 +150,33 @@ export async function runTargetSellReconciliationCycle(): Promise<{
         dustThresholdRaw: fullExit.dustThresholdRaw,
         reasonCode: fullExit.reasonCode,
       });
+      await persistTargetSellEventAndSchedulePositions({
+        event: buildTargetSellEventPayload({
+          chainId: position.chainId,
+          targetWallet: position.config.targetWallet,
+          tokenAddress: position.tokenAddress,
+          targetSellTxHash: latestSell.txHash,
+          targetFullExitVerified: true,
+          targetRemainingBalanceRaw: fullExit.remainingBalanceRaw || null,
+          source: 'reconcile',
+          metadata: {
+            targetFullExitReasonCode: fullExit.reasonCode,
+          },
+        }),
+        positions: [{
+          id: position.id,
+          userId: position.userId,
+          configId: position.configId,
+          chainId: position.chainId,
+          tokenAddress: position.tokenAddress,
+          entryAmountExact: position.entryAmountExact,
+          entryAmountDec: position.entryAmountDec,
+        }],
+        priority: 240,
+        metadata: {
+          reconcileScheduled: true,
+        },
+      }).catch(() => null);
     }
   }
 
@@ -251,6 +282,34 @@ export async function runTargetSellReconciliationCycle(): Promise<{
         dustThresholdRaw: fullExit.dustThresholdRaw,
         reasonCode: fullExit.reasonCode,
       });
+      await persistTargetSellEventAndSchedulePositions({
+        event: buildTargetSellEventPayload({
+          chainId: lot.chainId,
+          targetWallet: lot.position.config.targetWallet,
+          tokenAddress: lot.tokenAddress,
+          targetSellTxHash: latestSell.txHash,
+          targetFullExitVerified: true,
+          targetRemainingBalanceRaw: fullExit.remainingBalanceRaw || null,
+          source: 'reconcile',
+          metadata: {
+            targetFullExitReasonCode: fullExit.reasonCode,
+          },
+        }),
+        positions: [{
+          id: lot.positionId,
+          userId: lot.userId,
+          configId: lot.position.configId,
+          chainId: lot.chainId,
+          tokenAddress: lot.tokenAddress,
+          entryAmountExact: lot.position.entryAmountExact,
+          entryAmountDec: lot.position.entryAmountDec,
+        }],
+        priority: 240,
+        metadata: {
+          reconcileScheduled: true,
+          pendingLotId: lot.id,
+        },
+      }).catch(() => null);
     }
   }
 

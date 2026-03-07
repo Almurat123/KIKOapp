@@ -343,6 +343,7 @@ model PolymarketAction {
   type        String
   status      PolymarketActionStatus @default(pending)
   marketTitle String
+  marketSlug  String
   outcome     String
   assetId     String?
   orderId     String?
@@ -467,6 +468,13 @@ model CopytradePositionLedger {
   pendingOwnedAmountRaw   String?   @map("pending_owned_amount_raw")
   effectiveOwnedAmountRaw String?   @map("effective_owned_amount_raw")
   sellableAmountRaw       String?   @map("sellable_amount_raw")
+  trackedEntryRaw         String?   @map("tracked_entry_raw")
+  trackedRemainingRaw     String?   @map("tracked_remaining_raw")
+  trackedSoldRaw          String?   @map("tracked_sold_raw")
+  lastMirroredTargetSellTxHash String? @map("last_mirrored_target_sell_tx_hash")
+  lastMirroredRatioBps    Int?      @map("last_mirrored_ratio_bps")
+  externalBalanceDetected Boolean   @default(false) @map("external_balance_detected")
+  exitExecutionState      String?   @map("exit_execution_state")
   lastExecutionState      String?   @map("last_execution_state")
   lastExecutionReasonCode String?   @map("last_execution_reason_code")
   positionIdLegacy        String?   @unique @map("position_id_legacy")
@@ -481,6 +489,59 @@ model CopytradePositionLedger {
   @@index([followerBuyTxHash])
   @@index([followerExitTxHash])
   @@map("copytrade_position_ledger")
+}
+
+model TargetSellEvent {
+  id                      String               @id @default(cuid())
+  chainId                 Int                  @map("chain_id")
+  targetWallet            String               @map("target_wallet")
+  tokenAddress            String               @map("token_address")
+  targetSellTxHash        String               @map("target_sell_tx_hash")
+  targetSellRatioBps      Int?                 @map("target_sell_ratio_bps")
+  targetFullExitVerified  Boolean              @default(false) @map("target_full_exit_verified")
+  targetRemainingBalanceRaw String?            @map("target_remaining_balance_raw")
+  detectedAt              DateTime             @map("detected_at")
+  source                  String
+  metadataJson            Json?                @map("metadata_json")
+  createdAt               DateTime             @default(now()) @map("created_at")
+  updatedAt               DateTime             @updatedAt @map("updated_at")
+  exitIntents             PositionExitIntent[]
+
+  @@unique([chainId, targetWallet, tokenAddress, targetSellTxHash], map: "target_sell_events_identity_key")
+  @@index([chainId, targetWallet, tokenAddress, updatedAt(sort: Desc)], map: "idx_target_sell_events_lookup")
+  @@map("target_sell_events")
+}
+
+model PositionExitIntent {
+  id              String           @id @default(cuid())
+  positionId      String           @map("position_id")
+  userId          String           @map("user_id")
+  configId        String           @map("config_id")
+  chainId         Int              @map("chain_id")
+  tokenAddress    String           @map("token_address")
+  exitReason      String           @map("exit_reason")
+  sourceEventId   String?          @map("source_event_id")
+  targetSellTxHash String?         @map("target_sell_tx_hash")
+  desiredSellRaw  String?          @map("desired_sell_raw")
+  intentVersion   Int              @default(1) @map("intent_version")
+  priority        Int              @default(100)
+  lane            String
+  notBefore       DateTime?        @map("not_before")
+  lifecycleState  String           @map("lifecycle_state")
+  lastReasonCode  String?          @map("last_reason_code")
+  identityKey     String           @unique @map("identity_key")
+  executionTxHash String?          @map("execution_tx_hash")
+  claimedBy       String?          @map("claimed_by")
+  claimedAt       DateTime?        @map("claimed_at")
+  closedAt        DateTime?        @map("closed_at")
+  metadataJson    Json?            @map("metadata_json")
+  createdAt       DateTime         @default(now()) @map("created_at")
+  updatedAt       DateTime         @updatedAt @map("updated_at")
+  sourceEvent     TargetSellEvent? @relation(fields: [sourceEventId], references: [id], onDelete: SetNull)
+
+  @@index([lane, lifecycleState, notBefore, priority, createdAt(sort: Asc)], map: "idx_position_exit_intents_lane")
+  @@index([positionId, updatedAt(sort: Desc)], map: "idx_position_exit_intents_position")
+  @@map("position_exit_intents")
 }
 
 model CopytradeOrder {

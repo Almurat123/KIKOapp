@@ -5,6 +5,9 @@
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
 import * as unifiedApiService from '../config/unifiedApiService.js';
+import { ClobClient } from '@polymarket/clob-client';
+import { VoidSigner } from 'ethers';
+import { getCredentials } from './polymarketCredService.js';
 
 const POLYMARKET_DATA_API = 'https://data-api.polymarket.com';
 
@@ -180,6 +183,38 @@ export interface PolymarketTrade {
     transactionHash: string;
     outcome: string;
     title: string;
+    status?: 'PENDING' | 'SUCCESS' | 'FAILED' | 'CANCELLED';
+}
+
+function normalizeActionStatus(status: string | null | undefined): 'PENDING' | 'SUCCESS' | 'FAILED' | 'CANCELLED' {
+    switch (String(status || '').toLowerCase()) {
+        case 'success':
+            return 'SUCCESS';
+        case 'failed':
+            return 'FAILED';
+        case 'cancelled':
+            return 'CANCELLED';
+        default:
+            return 'PENDING';
+    }
+}
+
+async function getAuthenticatedClobClient(userId: string, walletAddress: string): Promise<ClobClient | null> {
+    const creds = await getCredentials(userId);
+    if (!creds) return null;
+
+    const signer = new VoidSigner(walletAddress);
+    return new ClobClient(
+        'https://clob.polymarket.com',
+        137,
+        signer as any,
+        {
+            key: creds.apiKey,
+            secret: creds.apiSecret,
+            passphrase: creds.passphrase
+        } as any,
+        0
+    );
 }
 
 /**
@@ -236,7 +271,7 @@ export async function getWalletTrades(wallet: string): Promise<PolymarketTrade[]
                     transactionHash: action.txHash || '',
                     outcome: action.outcome || '',
                     title: action.marketTitle || 'Polymarket Action',
-                    status: action.status
+                    status: normalizeActionStatus(action.status)
                 }));
 
                 // Combine and deduplicate (by transaction hash or order id)
@@ -278,36 +313,24 @@ export interface PolymarketOpenOrder {
 /**
  * Get open (pending) orders for a wallet
  */
-export async function getOpenOrders(wallet: string): Promise<PolymarketOpenOrder[]> {
-    const url = `https://clob.polymarket.com/orders?maker_address=${wallet.toLowerCase()}`;
-
+export async function getOpenOrdersForUser(userId: string, wallet: string): Promise<PolymarketOpenOrder[]> {
     try {
-        const data = await unifiedApiService.fetchJson<any>({
-            url,
-            method: 'GET',
-            headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-            },
-            timeout: 10000,
-            endpointName: 'clob.polymarket.com'
-        });
-
-        // The CLOB API might return an array or an object with a data field
-        const orders = Array.isArray(data) ? data : (data?.data || data?.results || []);
-
-        if (!Array.isArray(orders)) {
+        const client = await getAuthenticatedClobClient(userId, wallet);
+        if (!client) {
             return [];
         }
 
+        const orders = await client.getOpenOrders(undefined, true);
+
         return orders.map(order => ({
-            id: order.id || order.orderID || order.orderHash || '',
-            assetId: order.asset_id || order.tokenId || '',
+            id: order.id || '',
+            assetId: order.asset_id || '',
             side: (order.side || 'BUY').toUpperCase() as 'BUY' | 'SELL',
-            size: parseFloat(order.original_size || order.size || '0'),
+            size: parseFloat(order.original_size || '0'),
             price: parseFloat(order.price || '0'),
-            filled: parseFloat(order.size_filled || '0'),
+            filled: parseFloat((order as any).size_filled || order.size_matched || '0'),
             timestamp: order.created_at ? (typeof order.created_at === 'number' ? order.created_at : new Date(order.created_at).getTime()) : Date.now(),
-            title: order.title || order.question || 'Order',
+            title: order.market || 'Order',
             outcome: order.outcome || ''
         }));
     } catch (error: any) {

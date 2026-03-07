@@ -632,7 +632,7 @@ export class SuggestionEngine {
             chains = ['BSC'];
         } else {
             // Default ETH-like
-            chains = ['Base', 'Ethereum', 'Arbitrum', 'Optimism'];
+            chains = ['Base', 'Ethereum', 'BSC', 'Solana'];
         }
 
         chains.forEach(chain => {

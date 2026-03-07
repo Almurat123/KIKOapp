@@ -8,10 +8,24 @@ import { LogCode } from '../config/logRegistry.js';
 import { getProvider } from '../config/chainConfig.js';
 import { ethers } from 'ethers';
 
+function requireInternalSimulationAccess(request: any, reply: any): boolean {
+    const expected = process.env.INTERNAL_SERVICE_KEY || '';
+    const provided = (request.headers['x-internal-service-key'] as string) || (request.headers['x-service-key'] as string) || '';
+
+    if (!expected || provided !== expected) {
+        reply.status(401).send({ success: false, error: 'Unauthorized internal request' });
+        return false;
+    }
+
+    return true;
+}
+
 export default async function (fastify: FastifyInstance) {
     // Note: In production you might want to secure this tightly, 
     // or restrict it behind a strict admin flag.
     fastify.post('/simulate', async (request, reply) => {
+        if (!requireInternalSimulationAccess(request, reply)) return;
+
         const { sourceTxHash, chainId, targetWallet, syntheticTokenIn, syntheticTokenOut } = request.body as any;
 
         if (!sourceTxHash || !chainId || !targetWallet) {
@@ -165,7 +179,9 @@ export default async function (fastify: FastifyInstance) {
         }
     });
 
-    fastify.delete('/simulate/reset', async () => {
+    fastify.delete('/simulate/reset', async (request, reply) => {
+        if (!requireInternalSimulationAccess(request, reply)) return;
+
         setSwapExecutionHandlerForTests(null);
         return { success: true, message: 'Execution handler reset to normal.' };
     });

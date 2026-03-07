@@ -33,6 +33,8 @@ interface WelcomeScreenProps {
 export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onSuggestionClick }) => {
   const [isFocused, setIsFocused] = useState(false);
   const [inputValue, setInputValue] = useState('');
+  const [isComposing, setIsComposing] = useState(false);
+  const lastCompositionEndRef = useRef<number>(0);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const autoResizeTextarea = (textarea: HTMLTextAreaElement) => {
@@ -172,10 +174,35 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onSuggestionClick 
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    const isCurrentlyComposing = isComposing || (e.nativeEvent as unknown as { isComposing?: boolean }).isComposing;
+
     if (e.key === 'Enter' && !e.shiftKey) {
+      // 1. Check if we're currently in IME composition
+      if (isCurrentlyComposing) {
+        return; // Let IME handle it
+      }
+
+      // 2. Check if composition JUST ended (within 100ms)
+      if (Date.now() - lastCompositionEndRef.current < 100) {
+        e.preventDefault();
+        return;
+      }
+
       e.preventDefault();
       handleSend();
     }
+  };
+
+  const handleCompositionStart = () => {
+    setIsComposing(true);
+  };
+
+  const handleCompositionEnd = () => {
+    lastCompositionEndRef.current = Date.now();
+    // Delay clearing the state slightly for trailing event safety
+    setTimeout(() => {
+      setIsComposing(false);
+    }, 50);
   };
 
   return (
@@ -222,6 +249,8 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onSuggestionClick 
                 }}
                 onBlur={() => setIsFocused(false)}
                 onKeyDown={handleKeyDown}
+                onCompositionStart={handleCompositionStart}
+                onCompositionEnd={handleCompositionEnd}
                 placeholder="Ask anything..."
                 rows={1}
                 className={styles.textarea}

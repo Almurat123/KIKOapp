@@ -4,6 +4,7 @@
  */
 
 import { FastifyInstance } from 'fastify';
+import { requireAuth } from '../middleware/auth.js';
 import { env } from '../config/env.js';
 import { get, set } from '../cache/cacheClient.js';
 import { AppError, handleExternalApiError } from '../middleware/errorHandler.js';
@@ -341,7 +342,7 @@ function mergeResults(goplusResult: any, quickintelResult: any): any {
 
 export async function securityRoutes(fastify: FastifyInstance) {
   // GET /api/security/scan?address=0x...&chain=eth
-  fastify.get('/scan', async (request, reply) => {
+  fastify.get('/scan', { preHandler: requireAuth }, async (request, reply) => {
     try {
       const { address, chain = 'eth' } = request.query as {
         address?: string;
@@ -386,7 +387,7 @@ export async function securityRoutes(fastify: FastifyInstance) {
 
   // GET /api/security/scan-local?address=0x...&chain=eth
   // Local contract source code scanning (three-layer analysis)
-  fastify.get('/scan-local', async (request, reply) => {
+  fastify.get('/scan-local', { preHandler: requireAuth }, async (request, reply) => {
     try {
       const { address, chain = 'eth' } = request.query as {
         address?: string;

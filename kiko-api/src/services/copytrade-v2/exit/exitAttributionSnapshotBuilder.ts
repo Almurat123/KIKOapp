@@ -10,6 +10,7 @@ import type { ExitTokenInfo, PendingAttributedExitContext, PositionExitReason } 
 import { readExitBalanceOracle } from '../oracle/exitBalanceOracle.js';
 import { emitCopytradeOracleAudit } from '../audit/copytradeOracleAudit.js';
 import { resolveMirrorSellRatioContext } from './mirrorSellRatioContext.js';
+import { writeExitBalanceHint } from './exitBalanceHintStore.js';
 
 function formatTokenAmount(amount: bigint, decimals: number): number {
   const value = Number(ethers.formatUnits(amount, decimals));
@@ -32,6 +33,7 @@ export function buildEvmExitAttributionSnapshotFromResolvedInputs(input: {
   targetFullExitReasonCode?: string | null;
   targetSellRatioBps?: number | null;
   targetSellRatioReasonCode?: string | null;
+  ledger?: ExitAttributionSnapshot['ledger'];
 }): ExitAttributionSnapshot {
   const hasValidPrice = Number.isFinite(input.tokenInfo?.price) && Number(input.tokenInfo.price) > 0;
   const isMirrorSell = input.exitReason === 'mirror_sell';
@@ -70,6 +72,7 @@ export function buildEvmExitAttributionSnapshotFromResolvedInputs(input: {
     targetFullExitReasonCode: input.targetFullExitReasonCode,
     targetSellRatioBps: input.targetSellRatioBps ?? null,
     targetSellRatioReasonCode: input.targetSellRatioReasonCode ?? null,
+    ledger: input.ledger || null,
     attribution: {
       eligiblePositions: attribution.eligiblePositions,
       pendingAttributedLotIds: 'pendingAttributedLotIds' in attribution ? attribution.pendingAttributedLotIds : undefined,
@@ -109,6 +112,14 @@ export async function buildEvmExitAttributionSnapshot(input: {
     result: balanceRead,
   });
   const balance = balanceRead.value ?? 0n;
+  if (balanceRead.status === 'success' && balance >= 0n) {
+    void writeExitBalanceHint({
+      chainId: input.chainId,
+      walletAddress: input.walletAddress,
+      tokenAddress: input.tokenAddress,
+      balanceRaw: balance,
+    });
+  }
 
   const ledger = await resolveCopytradeLedger({
     chainId: input.chainId,
@@ -194,5 +205,6 @@ export async function buildEvmExitAttributionSnapshot(input: {
     targetFullExitReasonCode,
     targetSellRatioBps,
     targetSellRatioReasonCode,
+    ledger,
   });
 }

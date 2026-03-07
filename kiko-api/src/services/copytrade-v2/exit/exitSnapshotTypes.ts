@@ -5,6 +5,7 @@ import type {
 } from '../positions/positionAttribution.js';
 import type { PendingAttributedPositionLotLike } from '../positions/pendingAttributedPositionLedger.js';
 import type { RpcFactResult } from '../../oracle/rpcFactResult.js';
+import type { CopytradeLedgerSnapshot } from '../ledger/copytradeLedgerTypes.js';
 
 export interface ExitSnapshotPosition extends AttributedPositionLike {
   id: string;
@@ -31,6 +32,7 @@ export interface ExitAttributionSnapshot {
   targetFullExitReasonCode?: string | null;
   targetSellRatioBps?: number | null;
   targetSellRatioReasonCode?: string | null;
+  ledger?: CopytradeLedgerSnapshot | null;
   attribution: {
     eligiblePositions: ExitSnapshotPosition[];
     pendingAttributedLotIds?: string[];

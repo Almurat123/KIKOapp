@@ -51,6 +51,13 @@ function toLegacySnapshot(record: NonNullable<LedgerRecord>): CopytradeLedgerSna
       confirmedOwnedAmountRaw: parseBigIntText(record.confirmedOwnedAmountRaw),
       pendingOwnedAmountRaw: parseBigIntText(record.pendingOwnedAmountRaw),
       effectiveOwnedAmountRaw: parseBigIntText(record.effectiveOwnedAmountRaw),
+      trackedEntryRaw: parseBigIntText(record.trackedEntryRaw) || parseBigIntText(record.effectiveOwnedAmountRaw),
+      trackedRemainingRaw: parseBigIntText(record.trackedRemainingRaw) || parseBigIntText(record.sellableAmountRaw) || parseBigIntText(record.effectiveOwnedAmountRaw),
+      trackedSoldRaw: parseBigIntText(record.trackedSoldRaw),
+      externalBalanceDetected: Boolean(record.externalBalanceDetected),
+      lastMirroredTargetSellTxHash: record.lastMirroredTargetSellTxHash || null,
+      lastMirroredRatioBps: record.lastMirroredRatioBps ?? null,
+      exitExecutionState: record.exitExecutionState || null,
     },
     reasonCode: projected.lifecyclePhase === 'open_only'
       ? 'LEDGER_OPEN_ONLY'
@@ -130,6 +137,33 @@ export async function syncCopytradeLedgerFromLegacy(params: {
   const projected = projectCopytradeLedgerSnapshot(reloaded);
   const pendingLot = reloaded.pendingLots.find((lot) => lot.positionId === params.positionId) || null;
   const normalizedTargetWallet = normalizeWallet(position.chainId, params.targetWallet);
+  const existing = await prisma.copytradePositionLedger.findUnique({
+    where: { positionIdLegacy: params.positionId },
+    select: {
+      trackedEntryRaw: true,
+      trackedRemainingRaw: true,
+      trackedSoldRaw: true,
+      lastMirroredTargetSellTxHash: true,
+      lastMirroredRatioBps: true,
+      externalBalanceDetected: true,
+      exitExecutionState: true,
+    },
+  }).catch(() => null);
+  const existingTrackedEntryRaw = parseBigIntText(existing?.trackedEntryRaw);
+  const existingTrackedRemainingRaw = parseBigIntText(existing?.trackedRemainingRaw);
+  const existingTrackedSoldRaw = parseBigIntText(existing?.trackedSoldRaw);
+  const projectedTrackedRemainingRaw = projected.metrics.effectiveOwnedAmountRaw;
+  const trackedEntryRaw = existingTrackedEntryRaw > 0n
+    ? (existingTrackedEntryRaw > projectedTrackedRemainingRaw + existingTrackedSoldRaw
+      ? existingTrackedEntryRaw
+      : projectedTrackedRemainingRaw + existingTrackedSoldRaw)
+    : projectedTrackedRemainingRaw + existingTrackedSoldRaw;
+  const trackedRemainingRaw = existingTrackedRemainingRaw > 0n
+    ? existingTrackedRemainingRaw
+    : projectedTrackedRemainingRaw;
+  const trackedSoldRaw = existingTrackedSoldRaw > 0n
+    ? existingTrackedSoldRaw
+    : (trackedEntryRaw > trackedRemainingRaw ? trackedEntryRaw - trackedRemainingRaw : 0n);
 
   await prisma.copytradePositionLedger.upsert({
     where: {
@@ -151,6 +185,13 @@ export async function syncCopytradeLedgerFromLegacy(params: {
       pendingOwnedAmountRaw: toText(projected.metrics.pendingOwnedAmountRaw),
       effectiveOwnedAmountRaw: toText(projected.metrics.effectiveOwnedAmountRaw),
       sellableAmountRaw: toText(projected.metrics.effectiveOwnedAmountRaw),
+      trackedEntryRaw: toText(trackedEntryRaw),
+      trackedRemainingRaw: toText(trackedRemainingRaw),
+      trackedSoldRaw: toText(trackedSoldRaw),
+      lastMirroredTargetSellTxHash: existing?.lastMirroredTargetSellTxHash || null,
+      lastMirroredRatioBps: existing?.lastMirroredRatioBps ?? null,
+      externalBalanceDetected: existing?.externalBalanceDetected || false,
+      exitExecutionState: existing?.exitExecutionState || null,
       lastExecutionState: params.lastExecutionState || null,
       lastExecutionReasonCode: params.lastExecutionReasonCode || null,
       positionIdLegacy: params.positionId,
@@ -173,6 +214,13 @@ export async function syncCopytradeLedgerFromLegacy(params: {
       pendingOwnedAmountRaw: toText(projected.metrics.pendingOwnedAmountRaw),
       effectiveOwnedAmountRaw: toText(projected.metrics.effectiveOwnedAmountRaw),
       sellableAmountRaw: toText(projected.metrics.effectiveOwnedAmountRaw),
+      trackedEntryRaw: toText(trackedEntryRaw),
+      trackedRemainingRaw: toText(trackedRemainingRaw),
+      trackedSoldRaw: toText(trackedSoldRaw),
+      lastMirroredTargetSellTxHash: existing?.lastMirroredTargetSellTxHash || undefined,
+      lastMirroredRatioBps: existing?.lastMirroredRatioBps ?? undefined,
+      externalBalanceDetected: existing?.externalBalanceDetected ?? undefined,
+      exitExecutionState: existing?.exitExecutionState ?? undefined,
       lastExecutionState: params.lastExecutionState ?? undefined,
       lastExecutionReasonCode: params.lastExecutionReasonCode ?? undefined,
       pendingLotIdLegacy: pendingLot?.id || null,

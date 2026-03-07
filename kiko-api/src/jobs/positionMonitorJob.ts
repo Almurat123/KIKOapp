@@ -3,7 +3,7 @@
  * Periodically checks open positions for take profit / stop loss triggers
  */
 
-import { checkPositionsForExits } from '../services/autoTradeService.js';
+import { checkPositionsForExits } from '../services/copytrade-v2/runtime/positionMonitor.js';
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
 

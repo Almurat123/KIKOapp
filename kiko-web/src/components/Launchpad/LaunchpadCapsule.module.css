@@ -21,16 +21,13 @@
 
 
 .logo {
-    width: 16px;
-    height: 16px;
-    border-radius: 50%;
-    object-fit: cover;
-}
-
-.logoNoCrop {
-    border-radius: 0;
+    height: 14px;
+    width: auto;
+    max-width: 28px;
     object-fit: contain;
 }
+
+
 
 .logoFlaunch {
     width: 18px;

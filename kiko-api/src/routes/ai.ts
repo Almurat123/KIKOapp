@@ -1114,9 +1114,7 @@ export async function aiRoutes(fastify: FastifyInstance) {
 
     fastify.get('/health', async (request, reply) => {
         try {
-            const hasDeepSeekApiKey = !!process.env.DEEPSEEK_API_KEY;
-            const hasOpenAIApiKey = !!process.env.OPENAI_API_KEY;
-            return reply.send({ status: 'ok', hasDeepSeekApiKey, hasOpenAIApiKey });
+            return reply.send({ status: 'ok' });
         } catch (error: any) {
             return reply.code(500).send({ status: 'error', message: error.message });
         }

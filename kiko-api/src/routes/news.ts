@@ -6,6 +6,7 @@
 import { FastifyInstance } from 'fastify';
 import { get, set } from '../cache/cacheClient.js';
 import { validateLimit } from '../utils/validation.js';
+import { prisma } from '../db/prisma.js';
 
 // Lazy-loaded Paragraph API (to avoid startup crash from broken doppler-router)
 let paragraphApi: any = null;
@@ -47,7 +48,7 @@ interface Article {
   summary: string;
   url: string;
   publishedAt: string;
-  imageUrl: string;
+  coverImage: string;
   source: string;
   tags?: string[];
   author?: {
@@ -159,7 +160,7 @@ async function fetchArticlesFromPublication(slug: string, limit: number = 5): Pr
           name: authorName,
           avatar: authorAvatar
         },
-        imageUrl: imageUrl,
+        coverImage: imageUrl,
         source: authorName, // Used as source name
         tags: post.tags?.map((t: any) => t.name) || ['Newsletter']
       };
@@ -253,11 +254,87 @@ export async function newsRoutes(fastify: FastifyInstance) {
         count: articles.length
       });
 
-    } catch (error: any) {
+    } catch (error) {
       console.error('[News] API Error:', error);
       return reply.code(500).send({
         success: false,
         error: 'Failed to fetch news articles'
+      });
+    }
+  });
+
+  // GET /api/news
+  // Serves local articles from the database
+  fastify.get('/', async (request, reply) => {
+    try {
+      const query = request.query as { limit?: string };
+      const limit = query.limit ? parseInt(query.limit, 10) : 20;
+      const validatedLimit = validateLimit(limit);
+
+      const articles = await prisma.newsArticle.findMany({
+        where: { status: 'published' },
+        orderBy: { createdAt: 'desc' },
+        take: validatedLimit
+      });
+
+      // Transform to match the frontend NewsArticle interface
+      const data = articles.map(art => ({
+        id: art.id,
+        title: art.title,
+        slug: art.slug || art.id,
+        coverImage: art.coverImage,
+        createdAt: art.createdAt.toISOString(),
+        author: 'KiKo Team'
+      }));
+
+      return reply.send({
+        success: true,
+        data: data
+      });
+    } catch (error: any) {
+      console.error('[News] Local List Error:', error);
+      return reply.code(500).send({
+        success: false,
+        error: 'Failed to fetch news articles'
+      });
+    }
+  });
+  
+  // GET /api/news/:id
+  // Serves a single article by ID or slug
+  fastify.get('/:id', async (request, reply) => {
+    try {
+      const { id } = request.params as { id: string };
+      
+      const article = await prisma.newsArticle.findFirst({
+        where: {
+          OR: [
+            { id: id },
+            { slug: id }
+          ]
+        }
+      });
+
+      if (!article) {
+        return reply.code(404).send({
+          success: false,
+          error: 'Article not found'
+        });
+      }
+
+      return reply.send({
+        success: true,
+        data: {
+          ...article,
+          author: 'KiKo Team',
+          createdAt: article.createdAt.toISOString()
+        }
+      });
+    } catch (error: any) {
+      console.error('[News] Single Article Error:', error);
+      return reply.code(500).send({
+        success: false,
+        error: 'Failed to fetch news article'
       });
     }
   });

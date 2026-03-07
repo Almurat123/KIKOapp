@@ -1,28 +1,21 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
-import { ArrowDown, ChevronDown, Settings } from 'lucide-react';
-import { LiquidGlassEffect } from '../Effects/LiquidGlassEffect';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 
 import { usePrivy, useWallets } from '@privy-io/react-auth';
 import type { WalletWithMetadata } from '@privy-io/react-auth';
-import { MessageBubble } from './MessageBubble';
 import { toast } from '../Toast';
 import { WelcomeScreen } from './WelcomeScreen';
 import { CustomAISettingsModal } from './CustomAISettingsModal';
-import { ChatInputSuggestions } from './ChatInputSuggestions';
-import { ThinkingTimer } from './ThinkingTimer';
+import type { SuggestionItem } from './ChatInputSuggestions';
 import { useSmartSuggestions } from './useSmartSuggestions.tsx';
 import { useSidebar } from '../Layout/Layout';
 import { useThemeContext } from '../../contexts/ThemeContext';
-
-// Use global ChainContext for app-wide chain state
 import { useChain } from '../../contexts/ChainContext';
 import { extractStrategiesFromMessages } from '../../utils/strategyExtractor';
 import { useStrategies } from '../../hooks/useStrategies';
 import { useSafariKeyboardFix } from '../../hooks/useSafariKeyboardFix';
 import styles from './Chat.module.css';
-import clsx from 'clsx';
 import { chatApi } from '../../services/api';
 import { getWalletBalance } from '../../services/walletApi';
 import { chatWSClient, type ChatEvent } from '../../utils/chatWebSocket';
@@ -32,44 +25,12 @@ import { useConversationContext } from '../../contexts/ConversationContext';
 import { moderationService } from '../../services/moderation';
 import { logger } from '../../utils/logger';
 import { resolveCoreApiBase } from '../../utils/coreApiBase';
-import { agentAttrs } from '../../agent/attrs';
 import { getStoredSlippageBps } from '@/config/slippageConfig';
-
-// Model options
-// DeepSeek models:
-// - deepseek-chat: DeepSeek-V3.2 (non-thinking)
-// - deepseek-reasoner: DeepSeek-V3.2 (thinking)
-// GPT models:
-// - gpt-5-mini: ChatGPT-5-mini (thinking)
-// X.ai (Grok) models:
-// - grok-4-1-fast-reasoning: Grok-4.1 Fast (Reasoning mode) - for complex multi-step workflows
-// - grok-4-1-fast-non-reasoning: Grok-4.1 Fast (Non-reasoning mode) - for fast chat, brainstorming
-const MODEL_OPTIONS = [
-    { id: 'deepseek-chat', name: 'DeepSeek-V3.2', mode: 'fast' },
-    { id: 'deepseek-reasoner', name: 'DeepSeek-V3.2', mode: 'thinking' },
-    { id: 'gpt-5-mini', name: 'ChatGPT-5-mini', mode: 'thinking' },
-    { id: 'grok-4-1-fast-reasoning', name: 'Grok-4.1-Fast', mode: 'thinking' },
-    { id: 'grok-4-1-fast-non-reasoning', name: 'Grok-4.1-Fast', mode: 'fast' },
-];
+import { ChatMessageList } from './ChatMessageList';
+import { ChatComposer } from './ChatComposer';
+import { ACTION_CARD_TYPE_MAP, COMMON_TOKENS, MODEL_OPTIONS } from './chatConstants';
 
 const CORE_API_BASE_URL = resolveCoreApiBase();
-
-// Common token addresses by chain with decimals
-const COMMON_TOKENS: Record<number, Array<{ address: string; symbol: string; decimals: number }>> = {
-    1: [
-        { address: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48', symbol: 'USDC', decimals: 6 },
-        { address: '0xdAC17F958D2ee523a2206206994597C13D831ec7', symbol: 'USDT', decimals: 6 },
-        { address: '0x6B175474E89094C44Da98b954EedeAC495271d0F', symbol: 'DAI', decimals: 18 },
-    ],
-    8453: [
-        { address: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913', symbol: 'USDC', decimals: 6 },
-        { address: '0xd9aAEc86B65D86f6A7B5B1b0c42FFA531710b6CA', symbol: 'USDbC', decimals: 6 }, // Bridged USDC (common on Base)
-        { address: '0x4200000000000000000000000000000000000006', symbol: 'WETH', decimals: 18 },
-    ],
-    56: [
-        { address: '0xe9e7CEA3DedcA5984780Bafc599bD69ADd087D56', symbol: 'BUSD', decimals: 18 },
-    ],
-};
 
 interface TaskState {
     id: string;
@@ -77,13 +38,22 @@ interface TaskState {
     [key: string]: unknown;
 }
 
+const normalizeUiTaskStatus = (status: unknown): 'queued' | 'pending' | 'running' | 'completed' | 'failed' | 'cancelled' => {
+    const normalized = String(status || '').toLowerCase();
+    if (normalized === 'queued') return 'queued';
+    if (normalized === 'pending') return 'pending';
+    if (normalized === 'running') return 'running';
+    if (normalized === 'completed' || normalized === 'done') return 'completed';
+    if (normalized === 'failed' || normalized === 'error') return 'failed';
+    return 'cancelled';
+};
+
 type PendingChunk = {
     content: string;
     reasoning: string;
 };
 
 interface ChatInterfaceProps {
-    // Props are now optional as data comes mostly from Context/Router
     conversationId?: string | null;
     initialMessages?: Message[];
     onMessagesChange?: (messages: Message[]) => void;
@@ -96,16 +66,7 @@ interface ChatInterfaceProps {
     onTaskUpdate?: (task: TaskState | null) => void;
 }
 
-const ACTION_CARD_TYPE_MAP: Record<string, 'text' | 'strategy-card' | 'chart-card' | 'transaction-status-card'> = {
-    show_strategy_card: 'strategy-card',
-    show_chart_card: 'chart-card',
-    show_transaction_status_card: 'transaction-status-card',
-    show_cross_chain_status_card: 'transaction-status-card',
-};
-
-// Helper to extract EVM addresses from text
 const extractAddresses = (text: string): string[] => {
-    // Regex for EVM address (0x followed by 40 hex chars)
     const matches = text.match(/0x[a-fA-F0-9]{40}/gi);
     return matches ? Array.from(new Set(matches)) : [];
 };
@@ -119,11 +80,7 @@ const replaceMessageAtIndex = (messages: Message[], idx: number, nextMessage: Me
 };
 
 export const ChatInterface: React.FC<ChatInterfaceProps> = ({
-    // Legacy props for backward compatibility or testing
-    // conversationId: propId,
     initialMessages = [],
-    // onMessagesChange, 
-    // onNewConversation: propOnNewConversation,
     pendingAIPrompt: propPendingPrompt,
     onAIPromptSet,
     activeTask: propActiveTask,
@@ -153,27 +110,15 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
     const navigate = useNavigate();
     const location = useLocation();
 
-    // Route is the source of truth for chat context.
-    // On "/" we must never inherit a stale activeConversationId (iOS Safari background restore issue).
     const routeConversationId = params.conversationId || null;
     const isChatRoute = location.pathname.startsWith('/chat/');
     const conversationId = isChatRoute ? (routeConversationId || activeConversationId || null) : null;
-
-    // Get current conversation from context
     const currentConv = conversations.find(c => c.id === conversationId);
-
-    // Derived messages state
     const messages = currentConv?.messages || initialMessages;
-
-    // Synchronous ref for any logic that needs it
     const messagesRef = useRef<Message[]>(messages);
     useEffect(() => {
         messagesRef.current = messages;
     }, [messages]);
-
-    // Derived streaming states from message + task state.
-    // Do NOT require activeTask for streaming detection, otherwise a premature
-    // task_status:done can briefly hide Thinking while chunks are still arriving.
     const hasStreamingAssistant = messages.some(
         m => m.role === 'assistant' && (m.status as string) === 'streaming'
     );
@@ -194,24 +139,15 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
         !isStreaming &&
         (hasActiveTaskInProgress || (hasStreamingAssistant && !hasStreamingAssistantContent));
     const activeTaskId = currentConv?.activeTask?.id || null;
-
-
-    // Get wallet address based on current chain (Solana vs EVM)
-    // If on Solana (900), try to find Solana embedded wallet first
     const walletAddress = useMemo(() => {
         if (currentChain.id === 900) {
-            // Priority: User's linked Solana embedded wallet
             const solLink = user?.linkedAccounts?.find(
                 (acc): acc is WalletWithMetadata => acc.type === 'wallet' && acc.chainType === 'solana' && acc.walletClientType === 'privy'
             );
             if (solLink) return solLink.address;
-
-            // Fallback: any Solana wallet from useWallets()
             const solWallet = wallets.find(w => w.walletClientType === 'solana');
             return solWallet?.address || '';
         }
-        // Default to EVM priority
-        // Prioritize embedded wallet if possible
         const embeddedEVM = user?.linkedAccounts?.find(
             (acc): acc is WalletWithMetadata => acc.type === 'wallet' && acc.chainType === 'ethereum' && acc.walletClientType === 'privy'
         );
@@ -238,6 +174,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
     const [firstSendPending, setFirstSendPending] = useState(false);
     const [showJumpToBottom, setShowJumpToBottom] = useState(false);
     const [isComposing, setIsComposing] = useState(false);
+    const lastCompositionEndRef = useRef<number>(0);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const [welcomePendingMessages, setWelcomePendingMessages] = useState<Message[]>([]);
     const hasAssistantTextMessage = useMemo(
@@ -840,7 +777,10 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
     const userScrolledUpRef = useRef(false);
     const lastScrollTopRef = useRef<number>(0);
     const justSwitchedConversationRef = useRef(false);
+    const pendingScrollToLatestRef = useRef(false);
     const isSendingRef = useRef(false); // Flag to prevent stopGeneration during active send
+    const sendAbortControllerRef = useRef<AbortController | null>(null);
+    const stopRequestedRef = useRef(false);
 
     const scrollToBottom = useCallback((smooth = true) => {
         if (scrollContainerRef.current) {
@@ -932,6 +872,9 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
         setThinkingText('Thinking');
         setFirstSendPending(false);
         setInput('');
+        userScrolledUpRef.current = false;
+        isAtBottomRef.current = true;
+        setShowJumpToBottom(false);
         const hasMessages = (currentConv?.messages?.length ?? initialMessages.length) > 0;
         sidebar?.setChatStarted(!!newId || isLoading || isSendingRef.current || hasMessages);
         processedMessagesRef.current.clear();
@@ -940,6 +883,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
         if (onTaskUpdate) onTaskUpdate(null);
         initialMessages.forEach(msg => processedMessagesRef.current.add(msg.id));
         justSwitchedConversationRef.current = true;
+        pendingScrollToLatestRef.current = true;
         try {
             if (loadPromise) {
                 await Promise.race([
@@ -952,6 +896,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
             toast.warning('Loading this chat is taking longer than expected. Please try again.');
         } finally {
             requestAnimationFrame(() => setIsLoadingConversation(false));
+            requestAnimationFrame(() => scrollToBottom(false));
             logger.debug('Conversation switch complete. New ID:', newId, 'Marked', initialMessages.length, 'messages as processed');
         }
     }, [conversations, currentConv, initialMessages, updateConversation, loadConversation, sidebar, isLoading, onTaskUpdate]);
@@ -1089,6 +1034,18 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
             setFirstSendPending(false);
         }
     }, [firstSendPending, hasAssistantTextMessage]);
+
+    useEffect(() => {
+        if (!pendingScrollToLatestRef.current) return;
+        if (isLoadingConversation) return;
+        requestAnimationFrame(() => {
+            userScrolledUpRef.current = false;
+            isAtBottomRef.current = true;
+            setShowJumpToBottom(false);
+            scrollToBottom(false);
+            pendingScrollToLatestRef.current = false;
+        });
+    }, [conversationId, isLoadingConversation, messages.length, scrollToBottom]);
 
     // Fetch user balances for common tokens AND tokens mentioned in chat
     useEffect(() => {
@@ -1376,6 +1333,15 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
     // silentMode: if true, doesn't trigger visual stopping state (for conversation switches)
     const stopGeneration = async (silentMode = false) => {
+        logger.debug('Stop requested', {
+            conversationId,
+            activeTaskId,
+            activeTaskStatus: currentConv?.activeTask?.status,
+            firstSendPending,
+            isThinking,
+            isStreaming,
+        });
+
         if (!isThinking && !isStreaming && !firstSendPending) return;
 
         if (firstSendPending && !isThinking && !isStreaming) {
@@ -1383,23 +1349,65 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
             return;
         }
 
+        stopRequestedRef.current = true;
+
         if (!silentMode) {
             setIsStopping(true);
         }
 
-        if (conversationId) {
-            clearActiveTask(conversationId, updateConversation, 'user_stop');
+        if (conversationId && currentConv?.activeTask) {
+            updateConversation(conversationId, {
+                activeTask: {
+                    ...currentConv.activeTask,
+                    stopRequested: true,
+                },
+            });
         }
 
-        if (activeTaskId) {
+        if (sendAbortControllerRef.current) {
+            sendAbortControllerRef.current.abort();
+            sendAbortControllerRef.current = null;
+        }
+
+        let realTaskId = activeTaskId && !activeTaskId.startsWith('task-') ? activeTaskId : null;
+
+        if (!realTaskId && conversationId) {
             try {
-                await chatApi.stopTask(activeTaskId);
+                logger.debug('No real task id in UI state, fetching session to resolve activeTask', { conversationId });
+                const sessionResp = await chatApi.getSession(conversationId);
+                const resolvedTaskId = sessionResp.activeTask?.id;
+                if (resolvedTaskId && !String(resolvedTaskId).startsWith('task-')) {
+                    realTaskId = resolvedTaskId;
+                    updateConversation(conversationId, {
+                        activeTask: {
+                            ...(currentConv?.activeTask || {}),
+                            ...(sessionResp.activeTask || {}),
+                            id: resolvedTaskId,
+                            status: normalizeUiTaskStatus(sessionResp.activeTask?.status),
+                            stopRequested: true,
+                        },
+                    });
+                }
             } catch (err) {
-                logger.error('Failed to stop task:', err);
+                logger.warn('Failed to resolve active task before stopping', err);
             }
         }
 
-        setTimeout(() => setIsStopping(false), 300);
+        if (realTaskId) {
+            try {
+                logger.debug('Stopping real task:', realTaskId);
+                await chatApi.stopTask(realTaskId);
+            } catch (err) {
+                logger.error('Failed to stop task:', err);
+            }
+        } else if (conversationId && currentConv?.activeTask) {
+            clearActiveTask(conversationId, updateConversation, 'user_stop_without_task_id');
+        }
+
+        setTimeout(() => {
+            stopRequestedRef.current = false;
+            setIsStopping(false);
+        }, 300);
     };
 
 
@@ -1503,6 +1511,10 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
         let currentConvId = conversationId;
 
         try {
+            const sendAbortController = new AbortController();
+            sendAbortControllerRef.current = sendAbortController;
+            stopRequestedRef.current = false;
+
             // Perform client-side moderation check
             const moderationResult = await moderationService.checkInput(text, conversationId, selectedModel?.id);
             if (!moderationResult.safe) {
@@ -1645,6 +1657,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                 pageContext: `${document.title || 'KiKo'} | ${window.location.pathname}`,
                 balance: userBalances,
                 context: contextPayload,
+                signal: sendAbortController.signal,
             });
 
             if (resp.success) {
@@ -1688,6 +1701,16 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
             logger.error('Error sending message:', err);
             setFirstSendPending(false);
 
+            const wasStoppedByUser = err.name === 'AbortError' || stopRequestedRef.current;
+            if (wasStoppedByUser) {
+                if (currentConvId) {
+                    clearActiveTask(currentConvId, updateConversation, 'send_aborted');
+                } else if (conversationId) {
+                    clearActiveTask(conversationId, updateConversation, 'send_aborted');
+                }
+                return;
+            }
+
             const errorMsg: Message = {
                 id: Date.now().toString(),
                 role: 'assistant',
@@ -1708,6 +1731,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                 });
             }
         } finally {
+            sendAbortControllerRef.current = null;
             // Clear sending flag
             isSendingRef.current = false;
             // Clear submission lock
@@ -1747,22 +1771,26 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
     // Intent Detection (Handled by Hook)
 
     const handleKeyDown = (e: React.KeyboardEvent) => {
-        // Don't send if user is composing text with IME (input method editor)
-        // Check BOTH the state and the native event property for maximum compatibility
         const isCurrentlyComposing = isComposing || (e.nativeEvent as unknown as { isComposing?: boolean }).isComposing;
 
         if (e.key === 'Enter' && !e.shiftKey) {
-            // If composing with IME, completely block Enter key and don't proceed
+            // 1. Check if we're currently in IME composition
             if (isCurrentlyComposing) {
+                return; // Let IME handle it
+            }
+
+            // 2. Check if composition JUST ended (within 100ms)
+            // Some browsers (like Safari) might fire a KeyDown for Enter immediately after compositionEnd
+            if (Date.now() - lastCompositionEndRef.current < 100) {
                 e.preventDefault();
                 return;
             }
-            // Prevent sending while thinking, streaming, or stopping
+
             if (isBusy || isStopping) {
                 e.preventDefault();
-                logger.debug('Blocked Enter - AI is busy');
                 return;
             }
+
             e.preventDefault();
             handleSend();
         }
@@ -1773,9 +1801,12 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
     };
 
     const handleCompositionEnd = () => {
-        // Clear composition state immediately when IME composition ends
-        // The onKeyDown handler will check the native event's isComposing property anyway
-        setIsComposing(false);
+        // Track the exact time composition ended
+        lastCompositionEndRef.current = Date.now();
+        // Delay clearing the state slightly to ensure any trailing KeyDown events are caught
+        setTimeout(() => {
+            setIsComposing(false);
+        }, 50);
     };
 
     // Auto-resize textarea like ChatGPT/Gemini
@@ -1843,32 +1874,6 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
         if (conversationId) updateConversation(conversationId, updated);
     }, [messages, conversationId, updateConversation]);
 
-    const formatDateSeparator = (dateStr: string): string => {
-        const date = new Date(dateStr);
-        const today = new Date();
-        const yesterday = new Date(today);
-        yesterday.setDate(yesterday.getDate() - 1);
-
-        const dateStrToday = today.toISOString().split('T')[0];
-        const dateStrYesterday = yesterday.toISOString().split('T')[0];
-
-        if (dateStr === dateStrToday) {
-            return 'Today';
-        } else if (dateStr === dateStrYesterday) {
-            return 'Yesterday';
-        } else {
-            return date.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: date.getFullYear() !== today.getFullYear() ? 'numeric' : undefined });
-        }
-    };
-
-    // const prompts = [ // Unused for now
-    //     { label: 'Analyze ETH', desc: 'Price, volume, and risk analysis' },
-    //     { label: 'Gas Price', desc: 'Current gas fees on Ethereum' },
-    //     { label: 'Top Gainers', desc: 'Tokens with highest 24h change' },
-    //     { label: 'DeFi Yields', desc: 'Best stablecoin APYs' },
-    // ];
-
-
     // Process messages with strategy data - MOVED to top level to avoid conditional hook call
     const enrichedMessages = useMemo(() => {
         return displayMessages.map(msg => {
@@ -1931,300 +1936,103 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                 )}
             </AnimatePresence>
 
-            {/* Message List - Always rendered, transitions via CSS classes */}
-            <div
-                className={clsx(
-                    styles.messageList,
-                    !(sidebar?.chatStarted ?? false) && styles.messageListHidden, // Hide when welcome screen is active
-                    !disableChatTransitions && (sidebar?.chatStarted ?? false) && styles.chatUiEnter // Animate in when started
-                )}
-                ref={scrollContainerRef}
-                onScroll={handleScroll}
-            >
-                {/* Find the last text-type assistant message for thinking indicator */}
-                {(() => {
-                    // Find the ID of the last text-type assistant message
-                    const lastTextAssistantId = [...enrichedMessages]
-                        .reverse()
-                        .find(m => m.role === 'assistant' && (!m.type || m.type === 'text'))?.id;
-
-                    return enrichedMessages.map((msg, index, enrichedMessages) => {
-                        const isGrouped = index > 0 && enrichedMessages[index - 1].role === msg.role;
-                        const prevMsg = index > 0 ? enrichedMessages[index - 1] : null;
-                        const showDateSeparator = prevMsg && prevMsg.date && msg.date && prevMsg.date !== msg.date;
-
-                        return (
-                            <React.Fragment key={msg.id}>
-                                {showDateSeparator && (
-                                    <div className={styles.dateSeparator}>
-                                        <span>{formatDateSeparator(msg.date!)}</span>
-                                    </div>
-                                )}
-                                <MessageBubble
-                                    message={msg}
-                                    isGrouped={isGrouped}
-                                    thinkingText={
-                                        // Only show thinking on the LAST text-type assistant message
-                                        // AND only when there is actually an active task (isThinking/isStreaming).
-                                        // Without the isBusy guard, bypass flows that leave content empty
-                                        // show "Thinking" indefinitely after task_status:done clears activeTask.
-                                        msg.role === 'assistant' &&
-                                            msg.id === lastTextAssistantId &&
-                                            (!msg.type || msg.type === 'text') &&
-                                            isBusy
-                                            ? thinkingText
-                                            : undefined
-                                    }
-                                    thinkingStartTime={thinkingStartTime}
-                                    userAddress={walletAddress}
-                                    chainId={chainId}
-                                    sessionId={conversationId || undefined}
-                                    modelId={selectedModel?.id} // Pass current model for pricing calculation
-                                    onFeedback={handleMessageFeedback}
-                                    onCardAction={(action, data) => {
-                                        if (action === 'swap-cancel') {
-                                            // Update transaction status to cancelled
-                                            const updated = messages.map(m =>
-                                                m.id === msg.id ? {
-                                                    ...m,
-                                                    transactionStatus: 'cancelled' as const
-                                                } : m
-                                            );
-                                            if (conversationId) updateConversation(conversationId, updated);
-                                        } else if (action === 'swap-success') {
-                                            // Update transaction status to success
-                                            const txHash = (data as { txHash: string }).txHash;
-                                            const updated = messages.map(m =>
-                                                m.id === msg.id ? {
-                                                    ...m,
-                                                    transactionStatus: 'success' as const,
-                                                    transactionHash: txHash
-                                                } : m
-                                            );
-                                            if (conversationId) updateConversation(conversationId, updated);
-                                        } else if (action === 'swap-error') {
-                                            // Update transaction status to failed
-                                            const updated = messages.map(m =>
-                                                m.id === msg.id ? {
-                                                    ...m,
-                                                    transactionStatus: 'failed' as const
-                                                } : m
-                                            );
-                                            if (conversationId) updateConversation(conversationId, updated);
-                                        } else if (action === 'strategy-edit') {
-                                            // Navigate to trade page or open edit modal
-                                        } else if (action === 'strategy-delete') {
-                                            const strategyId = data as string;
-                                            deleteStrategy(strategyId);
-                                            // Remove strategy card from message
-                                            const updated = messages.map(m => {
-                                                if (m.type === 'strategy-card' && m.data?.id === strategyId) {
-                                                    return {
-                                                        ...m,
-                                                        type: 'text' as const,
-                                                        data: undefined
-                                                    };
-                                                }
-                                                return m;
-                                            });
-                                            if (conversationId) updateConversation(conversationId, updated);
-                                        } else if (action === 'strategy-toggle') {
-                                            const strategyId = data as string;
-                                            toggleStrategyStatus(strategyId);
-
-                                            // Also update the message data locally to reflect the UI change immediately
-                                            const updated = messages.map(m => {
-                                                if (m.type === 'strategy-card' && m.data?.id === strategyId) {
-                                                    const newStatus = m.data.status === 'active' ? 'paused' : 'active';
-                                                    return {
-                                                        ...m,
-                                                        data: { ...m.data, status: newStatus }
-                                                    };
-                                                }
-                                                return m;
-                                            });
-                                            if (conversationId) updateConversation(conversationId, updated);
-                                        } else if (action === 'strategy-details') {
-                                            // TODO: Navigate to strategy details
-                                        }
-                                    }}
-                                />
-
-                            </React.Fragment>
+            <ChatMessageList
+                chatStarted={sidebar?.chatStarted ?? false}
+                disableChatTransitions={disableChatTransitions}
+                scrollContainerRef={scrollContainerRef}
+                messagesEndRef={messagesEndRef}
+                enrichedMessages={enrichedMessages}
+                handleScroll={handleScroll}
+                thinkingText={thinkingText}
+                thinkingStartTime={thinkingStartTime}
+                isBusy={isBusy}
+                firstSendPending={firstSendPending}
+                hasAssistantTextMessage={hasAssistantTextMessage}
+                walletAddress={walletAddress}
+                chainId={chainId}
+                conversationId={conversationId}
+                selectedModelId={selectedModel?.id}
+                onFeedback={handleMessageFeedback}
+                onCardAction={(action, data, msg) => {
+                    if (action === 'swap-cancel') {
+                        const updated = messages.map(m =>
+                            m.id === msg.id ? { ...m, transactionStatus: 'cancelled' as const } : m
                         );
-                    });
-                })()}
+                        if (conversationId) updateConversation(conversationId, updated);
+                    } else if (action === 'swap-success') {
+                        const txHash = (data as { txHash: string }).txHash;
+                        const updated = messages.map(m =>
+                            m.id === msg.id ? {
+                                ...m,
+                                transactionStatus: 'success' as const,
+                                transactionHash: txHash
+                            } : m
+                        );
+                        if (conversationId) updateConversation(conversationId, updated);
+                    } else if (action === 'swap-error') {
+                        const updated = messages.map(m =>
+                            m.id === msg.id ? { ...m, transactionStatus: 'failed' as const } : m
+                        );
+                        if (conversationId) updateConversation(conversationId, updated);
+                    } else if (action === 'strategy-delete') {
+                        const strategyId = data as string;
+                        deleteStrategy(strategyId);
+                        const updated = messages.map(m =>
+                            m.type === 'strategy-card' && m.data?.id === strategyId
+                                ? { ...m, type: 'text' as const, data: undefined }
+                                : m
+                        );
+                        if (conversationId) updateConversation(conversationId, updated);
+                    } else if (action === 'strategy-toggle') {
+                        const strategyId = data as string;
+                        toggleStrategyStatus(strategyId);
+                        const updated = messages.map(m => {
+                            if (m.type === 'strategy-card' && m.data?.id === strategyId) {
+                                const newStatus = m.data.status === 'active' ? 'paused' : 'active';
+                                return { ...m, data: { ...m.data, status: newStatus } };
+                            }
+                            return m;
+                        });
+                        if (conversationId) updateConversation(conversationId, updated);
+                    }
+                }}
+            />
 
-                {firstSendPending && !hasAssistantTextMessage && (
-                    <div className={styles.thinkingContainer}>
-                        <div className={styles.thinkingContent}>
-                            <div className={styles.thinkingSpinner} />
-                            <ThinkingTimer
-                                startTime={thinkingStartTime || Date.now()}
-                                status="thinking"
-                                text={thinkingText}
-                            />
-                        </div>
-                    </div>
-                )}
-
-                <div ref={messagesEndRef} />
-            </div>
-
-            {/* Input Area - Only show when conversation has started */}
-            {
-                (sidebar?.chatStarted ?? false) && (
-                    <div
-                        className={clsx(styles.inputArea, styles.inputBottom, !disableChatTransitions && styles.chatUiEnterDelayed)}
-                        style={safariKeyboard.isKeyboardVisible && safariKeyboard.inputTop !== null ? {
-                            bottom: 'auto',
-                            top: `${safariKeyboard.inputTop}px`,
-                            transform: 'translateY(-100%)',
-                        } : undefined}
-                    >
-                        {/* DEBUG: Render check */}
-                        {/* Jump to Bottom Button - positioned at top edge of input */}
-                        {showJumpToBottom && (
-                            <button
-                                className={styles.jumpToBottom}
-                                onClick={() => scrollToBottom()}
-                                aria-label="Scroll to bottom"
-                            >
-                                <ArrowDown size={20} />
-                            </button>
-                        )}
-                        <LiquidGlassEffect
-                            className={clsx(styles.inputWrapper, showSuggestions && styles.inputWrapperOpen)}
-                            enabled={true}
-                        >
-                            <ChatInputSuggestions
-                                suggestions={suggestions}
-                                isVisible={showSuggestions}
-                                agentId="chat.suggestions.list"
-                                onSelect={(item) => {
-                                    item.action();
-                                    // DO NOT clear suggestions here. 
-                                    // The input change will trigger the hook to either:
-                                    // 1. Show new suggestions (next step)
-                                    // 2. Clear suggestions (if no matches)
-                                    textareaRef.current?.focus();
-                                }}
-                            />
-                            <div className={styles.textareaContainer}>
-                                <textarea
-                                    ref={textareaRef}
-                                    className={styles.textArea}
-                                    {...agentAttrs({ id: 'chat.input.textarea', role: 'input', action: 'select', page: 'chat', key: 'message' })}
-                                    placeholder="Ask anything..."
-                                    rows={1}
-                                    value={input}
-                                    onChange={handleInputChange}
-                                    onKeyDown={handleKeyDown}
-                                    onFocus={handleInputFocus}
-                                    onBlur={() => {
-                                        // No timeout needed - onMouseDown in suggestions prevents blur for clicks
-                                        closeSuggestions();
-                                    }}
-                                    onCompositionStart={handleCompositionStart}
-                                    onCompositionEnd={handleCompositionEnd}
-                                />
-
-                                <div className={styles.inputActions}>
-                                    <div className={styles.modelSelector} ref={modelSelectorRef}>
-                                        <button
-                                            className={styles.modelButton}
-                                            {...agentAttrs({ id: 'chat.model.toggle', role: 'button', action: 'open', page: 'chat' })}
-                                            onClick={() => setIsModelDropdownOpen(!isModelDropdownOpen)}
-                                        >
-                                            <span className={styles.modelName}>
-                                                {MODEL_OPTIONS.find(m => m.id === selectedModel.id)?.name || selectedModel.name}
-                                            </span>
-                                            <span className={styles.modelMode}>{selectedModel.mode}</span>
-                                            <ChevronDown size={12} className={clsx(styles.chevron, isModelDropdownOpen && styles.chevronOpen)} />
-                                        </button>
-
-                                        {isModelDropdownOpen && (
-                                            <div className={styles.modelDropdown}>
-                                                {MODEL_OPTIONS.map((model) => (
-                                                    <button
-                                                        key={model.id}
-                                                        className={clsx(styles.modelOption, selectedModel.id === model.id && styles.modelOptionActive)}
-                                                        {...agentAttrs({ id: `chat.model.option.${model.id}`, role: 'button', action: 'select', page: 'chat', key: 'model_id' })}
-                                                        onClick={() => {
-                                                            setSelectedModel(model);
-                                                            setIsModelDropdownOpen(false);
-                                                            logger.debug('Model changed to:', model.id);
-                                                        }}
-                                                    >
-                                                        <span className={styles.modelOptionName}>{model.name}</span>
-                                                        <span className={styles.modelOptionMode}>{model.mode}</span>
-                                                    </button>
-                                                ))}
-                                            </div>
-                                        )}
-                                    </div>
-
-                                    <button
-                                        className={styles.settingsButton}
-                                        {...agentAttrs({ id: 'chat.settings.open', role: 'button', action: 'open', page: 'chat' })}
-                                        onClick={() => setIsSettingsOpen(true)}
-                                        title="Customize AI"
-                                    >
-                                        <Settings size={18} />
-                                    </button>
-                                    <button
-                                        className={clsx(
-                                            styles.sendBtn,
-                                            isBusy && styles.stopMode,
-                                            !isBusy && input.trim() && styles.activeMode,
-                                            isStopping && styles.stoppingMode
-                                        )}
-                                        onClick={() => isBusy ? stopGeneration() : handleSend()}
-                                        disabled={(!input.trim() && !isBusy) || isStopping}
-                                        title={isBusy ? "Stop generation" : "Send message"}
-                                        {...agentAttrs({ id: 'chat.action.send', role: 'button', action: 'submit', page: 'chat' })}
-                                    >
-                                        {/* Aurora Background Effect */}
-                                        {isBusy && <div className={styles.auroraLayer} />}
-
-                                        <motion.div
-                                            className={styles.btnIcon}
-                                            animate={{
-                                                scale: isBusy ? 1.1 : 1, // Slightly less aggressive scale with aurora
-                                                rotate: isBusy ? 0 : 0,
-                                            }}
-                                            transition={{
-                                                type: "spring",
-                                                stiffness: 300,
-                                                damping: 15
-                                            }}
-                                        >
-                                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                                                <motion.path
-                                                    initial={false}
-                                                    animate={{
-                                                        d: isBusy
-                                                            ? "M6 6h12v12H6z" // Square (Stop)
-                                                            : "M12 19V5M5 12l7-7 7 7" // Arrow Up (Send)
-                                                    }}
-                                                    transition={{
-                                                        type: "spring",
-                                                        stiffness: 200,
-                                                        damping: 20
-                                                    }}
-                                                />
-                                            </svg>
-                                        </motion.div>
-                                        {isBusy && (
-                                            <div className={styles.spinnerRing} />
-                                        )}
-                                    </button>
-                                </div>
-                            </div>
-                        </LiquidGlassEffect>
-                    </div>
-                )
-            }
+            <ChatComposer
+                chatStarted={sidebar?.chatStarted ?? false}
+                disableChatTransitions={disableChatTransitions}
+                showJumpToBottom={showJumpToBottom}
+                showSuggestions={showSuggestions}
+                suggestions={suggestions}
+                input={input}
+                selectedModel={selectedModel}
+                isModelDropdownOpen={isModelDropdownOpen}
+                isBusy={isBusy}
+                isStopping={isStopping}
+                inputTop={safariKeyboard.inputTop}
+                isKeyboardVisible={safariKeyboard.isKeyboardVisible}
+                textareaRef={textareaRef}
+                modelSelectorRef={modelSelectorRef}
+                closeSuggestions={closeSuggestions}
+                onScrollToBottom={() => scrollToBottom()}
+                onSelectSuggestion={(item: SuggestionItem) => {
+                    item.action();
+                    textareaRef.current?.focus();
+                }}
+                onInputChange={handleInputChange}
+                onInputKeyDown={handleKeyDown}
+                onInputFocus={handleInputFocus}
+                onCompositionStart={handleCompositionStart}
+                onCompositionEnd={handleCompositionEnd}
+                onToggleModelDropdown={() => setIsModelDropdownOpen(!isModelDropdownOpen)}
+                onSelectModel={(model) => {
+                    setSelectedModel(model);
+                    setIsModelDropdownOpen(false);
+                    logger.debug('Model changed to:', model.id);
+                }}
+                onOpenSettings={() => setIsSettingsOpen(true)}
+                onPrimaryAction={() => isBusy ? stopGeneration() : handleSend()}
+            />
 
             <CustomAISettingsModal
                 isOpen={isSettingsOpen}

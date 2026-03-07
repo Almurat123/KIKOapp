@@ -4,6 +4,7 @@
  */
 
 import { FastifyInstance } from 'fastify';
+import { requireAuth } from '../middleware/auth.js';
 import { get, set } from '../cache/cacheClient.js';
 import { getMarketOverview, getTrendingTokens as getTrendingFromDb, getLastUpdateTime as getMarketUpdateTime, saveTrends } from '../repositories/marketRepository.js';
 import { getChainsData, getLastUpdateTime as getChainsUpdateTime } from '../repositories/chainRepository.js';
@@ -39,7 +40,7 @@ export async function marketRoutes(fastify: FastifyInstance) {
   });
 
   // POST /api/market/refresh - Force refresh market overview data
-  fastify.post('/refresh', async (request, reply) => {
+  fastify.post('/refresh', { preHandler: requireAuth }, async (request, reply) => {
     try {
       console.log('[MarketAPI] Force refresh triggered');
       await refreshMarketOverview(true); // force = true

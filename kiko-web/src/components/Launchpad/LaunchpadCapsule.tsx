@@ -85,7 +85,7 @@ export const LaunchpadCapsule: React.FC<LaunchpadCapsuleProps> = ({
     const providerKey = detectedLaunchpad.toLowerCase().replace('.', ''); // e.g. pumpfun
     const logo = LAUNCHPAD_LOGOS[detectedLaunchpad.toLowerCase()] || (resolvedTheme === 'dark' ? kikoLogoDark : kikoLogoLight);
     const displayName = getLaunchpadDisplayName(detectedLaunchpad.toLowerCase());
-    const logoClassName = `${styles.logo} ${providerKey === 'flaunch' ? `${styles.logoNoCrop} ${styles.logoFlaunch}` : ''}`;
+    const logoClassName = `${styles.logo} ${providerKey === 'flaunch' ? styles.logoFlaunch : ''}`;
 
     return (
         <a

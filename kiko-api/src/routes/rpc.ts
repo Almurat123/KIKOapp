@@ -5,6 +5,7 @@
  */
 
 import { FastifyInstance } from 'fastify';
+import { requireAuth } from '../middleware/auth.js';
 import { callRpc, rpcManager } from '../services/rpcManager.js';
 
 function normalizeChainInput(value: unknown): number | string {
@@ -23,7 +24,7 @@ export async function rpcRoutes(fastify: FastifyInstance) {
      * POST /api/rpc/evm
      * Proxy EVM RPC calls using unified service with automatic failover
      */
-    fastify.post('/evm', async (request, reply) => {
+    fastify.post('/evm', { preHandler: requireAuth }, async (request, reply) => {
         try {
             const payload = request.body as any;
             const queryChainId = (request.query as any)?.chainId;
@@ -49,7 +50,7 @@ export async function rpcRoutes(fastify: FastifyInstance) {
      * POST /api/rpc/solana
      * Proxy Solana RPC calls using unified service
      */
-    fastify.post('/solana', async (request, reply) => {
+    fastify.post('/solana', { preHandler: requireAuth }, async (request, reply) => {
         try {
             const payload = request.body as any;
             const method = payload.method || payload[0]?.method;
@@ -68,7 +69,7 @@ export async function rpcRoutes(fastify: FastifyInstance) {
      * POST /api/rpc/batch
      * Batch RPC calls for EVM chains
      */
-    fastify.post('/batch', async (request, reply) => {
+    fastify.post('/batch', { preHandler: requireAuth }, async (request, reply) => {
         try {
             const { chainId, calls } = request.body as any;
 

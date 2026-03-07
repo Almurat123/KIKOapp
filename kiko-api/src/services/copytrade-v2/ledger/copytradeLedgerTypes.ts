@@ -27,6 +27,13 @@ export interface CopytradeLedgerSnapshot {
     confirmedOwnedAmountRaw: bigint;
     pendingOwnedAmountRaw: bigint;
     effectiveOwnedAmountRaw: bigint;
+    trackedEntryRaw: bigint;
+    trackedRemainingRaw: bigint;
+    trackedSoldRaw: bigint;
+    externalBalanceDetected?: boolean;
+    lastMirroredTargetSellTxHash?: string | null;
+    lastMirroredRatioBps?: number | null;
+    exitExecutionState?: string | null;
   };
   reasonCode: CopytradeLedgerReasonCode;
 }

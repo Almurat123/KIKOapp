@@ -972,10 +972,16 @@ export const chatApi = {
     /**
      * Send a message to a session (starts AI task)
      */
-    async sendMessage(sessionId: string, content: string, options: Record<string, unknown> = {}): Promise<{ success: boolean; userMessage: ChatMessage; assistantMessage: ChatMessage; task: ChatTask }> {
+    async sendMessage(
+        sessionId: string,
+        content: string,
+        options: Record<string, unknown> & { signal?: AbortSignal } = {}
+    ): Promise<{ success: boolean; userMessage: ChatMessage; assistantMessage: ChatMessage; task: ChatTask }> {
+        const { signal, ...payload } = options;
         return chatFetch<{ success: boolean; userMessage: ChatMessage; assistantMessage: ChatMessage; task: ChatTask }>(`/api/chat/sessions/${sessionId}/messages`, {
             method: 'POST',
-            body: JSON.stringify({ content, ...options }),
+            signal,
+            body: JSON.stringify({ content, ...payload }),
         });
     },
 

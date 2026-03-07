@@ -1,6 +1,7 @@
 // Zora Coins REST API Service
 // Documentation: https://docs.zora.co/coins/sdk/public-rest-api
 // API Docs: https://api-sdk.zora.engineering/docs
+import { getAuthToken } from '../utils/authToken';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 const ZORA_PROXY_URL = `${API_BASE_URL}/api/zora-proxy/coin`;
@@ -54,9 +55,11 @@ export async function getZoraToken(
 ): Promise<ZoraToken | null> {
     try {
         const url = `${ZORA_PROXY_URL}?address=${address}&chain=${chainId}`;
+        const token = await getAuthToken();
 
         const response = await fetch(url, {
             method: 'GET',
+            headers: token ? { Authorization: `Bearer ${token}` } : undefined,
         });
 
         if (!response.ok) {

@@ -49,25 +49,18 @@
     display: flex;
     flex-direction: column;
     background: var(--bg-card);
-    border: 1px solid var(--border-color);
     border-radius: 12px;
     overflow: hidden;
     cursor: pointer;
     transition: all 0.2s ease;
-    box-shadow: var(--card-shadow);
 }
 
-.card:hover {
-    transform: translateY(-4px);
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
-    border-color: var(--accent-hover);
-}
+
 
 .cardVisual {
     width: 100%;
     aspect-ratio: 16/9;
     background-color: var(--bg-secondary);
-    border-bottom: 1px solid var(--border-color);
     overflow: hidden;
 }
 

@@ -199,13 +199,13 @@ export const Layout: React.FC<LayoutProps> = ({
                                 <PanelLeftOpen size={20} />
                             </button>
                         )}
-                        {/* Desktop Back Button - show when there's an active conversation OR chat has started */}
-                        {isChatActive && (activeConversationId || chatStarted) && onNewChat && (
+                        {/* Desktop Back Button - show when there's an active back handler OR chat is active with a started conversation */}
+                        {((onBack || onBackHandler) || (isChatActive && (activeConversationId || chatStarted) && onNewChat)) && (
                             <button
                                 className={styles.desktopBackBtn}
-                                {...agentAttrs({ id: 'layout.desktop.back_to_welcome', role: 'button', action: 'navigate', page: 'layout' })}
-                                onClick={handleBackToWelcome}
-                                title="Back to welcome"
+                                {...agentAttrs({ id: 'layout.desktop.back', role: 'button', action: 'navigate', page: 'layout' })}
+                                onClick={mobileBackAction}
+                                title="Go back"
                             >
                                 <ArrowLeft size={20} strokeWidth={2} />
                             </button>

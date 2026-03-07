@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { ArrowUpRight, ExternalLink, Sparkles, Video as VideoIcon } from 'lucide-react';
 import { HlsVideoPlayer } from './HlsVideoPlayer';
 import { resolveCoreApiBase } from '../../utils/coreApiBase';
+import { getAuthToken } from '../../utils/authToken';
 
 interface EmbedPreviewProps {
     url: string;
@@ -52,7 +53,12 @@ async function fetchPreviewWithDedupe(url: string): Promise<PreviewData | null> 
     const existing = previewInFlightCache.get(url);
     if (existing) return existing;
 
-    const requestPromise = fetch(`${API_URL}/api/social/ogp?url=${encodeURIComponent(url)}`)
+    const requestPromise = (async () => {
+        const token = await getAuthToken();
+        return fetch(`${API_URL}/api/social/ogp?url=${encodeURIComponent(url)}`, {
+            headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+        });
+    })()
         .then(async (res) => {
             if (!res.ok) return null;
             const json = await res.json();

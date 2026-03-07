@@ -23,6 +23,15 @@ interface ReadinessData {
     missingSteps?: string[];
 }
 
+async function parseApiError(response: Response, fallback: string) {
+    try {
+        const data = await response.json();
+        return data.error || fallback;
+    } catch {
+        return fallback;
+    }
+}
+
 /**
  * PolymarketAuthButton - Enable Polymarket trading
  * 
@@ -101,26 +110,42 @@ export const PolymarketAuthButton: React.FC<PolymarketAuthButtonProps> = ({
             }
 
             const approvalData = await approvalResponse.json();
-
-            // Update readiness state
-            const missingSteps: string[] = [];
-            if (approvalData.data?.needsUsdcApproval) {
-                missingSteps.push('Approve USDC for Polymarket');
-            }
-            if (approvalData.data?.needsCtfApproval) {
-                missingSteps.push('Approve CTF tokens for Polymarket');
-            }
-
-            setReadiness({
-                isReady: missingSteps.length === 0,
+            let nextReadiness: ReadinessData = {
+                isReady: false,
                 hasCredentials: true,
                 hasUsdcApproval: !approvalData.data?.needsUsdcApproval,
                 hasCtfApproval: !approvalData.data?.needsCtfApproval,
                 needsUsdcApproval: approvalData.data?.needsUsdcApproval,
                 needsCtfApproval: approvalData.data?.needsCtfApproval,
                 usdcBalance: approvalData.data?.usdcBalance,
-                missingSteps
-            });
+                missingSteps: []
+            };
+
+            if (approvalData.data?.needsUsdcApproval || approvalData.data?.needsCtfApproval) {
+                const executeResponse = await fetch(`${API_URL}/api/polymarket/trading/approvals/execute`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({})
+                });
+
+                if (!executeResponse.ok) {
+                    throw new Error(await parseApiError(executeResponse, 'Failed to execute approvals'));
+                }
+
+                const executeData = await executeResponse.json();
+                nextReadiness = executeData.data?.readiness || nextReadiness;
+            } else {
+                nextReadiness = {
+                    ...nextReadiness,
+                    isReady: true,
+                    missingSteps: []
+                };
+            }
+
+            setReadiness(nextReadiness);
 
             onSuccess?.();
         } catch (err: any) {
@@ -180,7 +205,12 @@ export const PolymarketAuthButton: React.FC<PolymarketAuthButtonProps> = ({
 
     const isReadyToTrade = readiness?.isReady === true;
     const hasCredentials = readiness?.hasCredentials === true;
-    const canRevoke = hasCredentials;
+    const canRevoke = hasCredentials && isReadyToTrade;
+    const buttonLabel = isLoading
+        ? (canRevoke ? 'Revoking' : 'Enabling')
+        : canRevoke
+            ? 'Revoke Polymarket Trading'
+            : 'Enable Polymarket Trading';
 
     return (
         <>
@@ -227,12 +257,7 @@ export const PolymarketAuthButton: React.FC<PolymarketAuthButtonProps> = ({
                     disabled={isLoading}
                     {...(agentId ? agentAttrs({ id: agentId, role: 'button', action: 'confirm', page: 'settings', key: 'polymarket_trading' }) : {})}
                 >
-                    {isLoading
-                        ? (canRevoke ? 'Revoking' : 'Enabling')
-                        : canRevoke
-                            ? 'Revoke Polymarket Trading'
-                            : 'Enable Polymarket Trading'
-                    }
+                    {buttonLabel}
                 </button>
             </div>
         </>

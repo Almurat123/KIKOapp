@@ -77,7 +77,14 @@ export function getSourceDomain(url: string): string {
  * Check if URL is an X/Twitter post
  */
 export function isXPost(url: string): boolean {
-  return url.includes('twitter.com') || url.includes('x.com');
+  try {
+    const { hostname, pathname } = new URL(url);
+    const normalizedHost = hostname.replace(/^www\./, '');
+    const isXDomain = normalizedHost === 'x.com' || normalizedHost === 'twitter.com';
+    return isXDomain && /\/(?:i\/web\/)?status\/\d+/i.test(pathname);
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -129,4 +136,3 @@ export function getSourceLogoProps(citation: Citation) {
     avatarUrl: avatarUrl || getFaviconUrl(domain),
   };
 }
-

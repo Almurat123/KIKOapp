@@ -385,7 +385,11 @@ export const OverviewPage: React.FC = () => {
       statusBorder: marketData.fearGreedIndex > 50
         ? "rgba(22, 199, 132, 0.2)"
         : "rgba(234, 57, 67, 0.2)",
-      description: `Market is currently ${marketData.fearGreedClassification.toLowerCase()}.`,
+      description: marketData.fearGreedIndex < 30 
+        ? "Extreme fear suggests investors are overly worried, often seen as a potential buying opportunity."
+        : marketData.fearGreedIndex > 70 
+          ? "High greed indicates the market may be due for a correction as FOMO peaks."
+          : "Market sentiment is currently in a balanced, neutral phase.",
       rangeValue: marketData.fearGreedIndex,
       rangeLabels: ["Fear", "Neutral", "Greed"],
       trend: generateTrend(marketData.fearGreedIndex)
@@ -410,10 +414,10 @@ export const OverviewPage: React.FC = () => {
           ? "rgba(234, 179, 8, 0.2)"
           : "rgba(91, 141, 239, 0.2)",
       description: (marketData.altcoinSeasonIndex || 0) > 75
-        ? "Money is flowing into altcoins."
+        ? "Altcoins are significantly outperforming BTC over the last 90 days."
         : (marketData.altcoinSeasonIndex || 0) < 25
-          ? "Money is flowing into BTC."
-          : "Market is in a neutral state.",
+          ? "Bitcoin is outperforming the top 50 altcoins, indicating a BTC-led market."
+          : "Market performance is split between BTC and major altcoins.",
       rangeValue: marketData.altcoinSeasonIndex || 35,
       rangeLabels: ["BTC Season", "Neutral", "Alt Season"],
       trend: generateTrend(marketData.altcoinSeasonIndex || 35)
@@ -438,10 +442,10 @@ export const OverviewPage: React.FC = () => {
           ? "rgba(22, 199, 132, 0.2)"
           : "rgba(91, 141, 239, 0.2)",
       description: marketData.bitcoinDominance > 60
-        ? "BTC has high market dominance."
+        ? "High BTC dominance suggests a flight to quality or early bull market phase."
         : marketData.bitcoinDominance < 40
-          ? "Altcoins are gaining market share."
-          : "Market dominance is balanced.",
+          ? "Low dominance indicates high risk appetite and a flourishing altcoin ecosystem."
+          : "Capital flow between BTC and Altcoins is currently in a stable equilibrium.",
       rangeValue: marketData.bitcoinDominance,
       rangeLabels: ["Low", "Avg", "High"],
       trend: marketData.btcDomChange24h !== undefined ? (marketData.btcDomChange24h >= 0 ? 'up' : 'down') : generateTrend(marketData.bitcoinDominance)
@@ -462,7 +466,7 @@ export const OverviewPage: React.FC = () => {
         ? (marketData.globalOpenInterest > 50e9 ? "rgba(234, 57, 67, 0.2)" : marketData.globalOpenInterest > 30e9 ? "rgba(245, 158, 11, 0.2)" : "rgba(22, 199, 132, 0.2)")
         : "rgba(153, 153, 153, 0.2)",
       description: marketData.globalOpenInterest
-        ? (marketData.globalOpenInterest > 50e9 ? "High speculation activity. New trends may be emerging." : marketData.globalOpenInterest > 30e9 ? "Moderate perpetual trading activity." : "Low perpetual trading activity.")
+        ? (marketData.globalOpenInterest > 50e9 ? "High OI levels increase the risk of cascading liquidations and high volatility." : marketData.globalOpenInterest > 30e9 ? "Moderate OI levels suggest stable speculative interest in derivatives." : "Low OI indicates a spot-driven market with reduced leverage risk.")
         : "Perpetual open interest data is not available.",
       rangeValue: marketData.globalOpenInterest ? Math.min(100, (marketData.globalOpenInterest / 100e9) * 100) : 0,
       rangeLabels: ["Low", "Moderate", "High"],
@@ -486,7 +490,7 @@ export const OverviewPage: React.FC = () => {
         ? (marketData.gasLevel < 30 ? "rgba(22, 199, 132, 0.2)" : marketData.gasLevel < 60 ? "rgba(245, 158, 11, 0.2)" : marketData.gasLevel < 80 ? "rgba(234, 57, 67, 0.2)" : "rgba(220, 38, 38, 0.2)")
         : "rgba(153, 153, 153, 0.2)",
       description: (marketData.gasLevel !== undefined && marketData.gasLevel !== null)
-        ? `Network congestion level: ${marketData.gasLevelStatus || 'Unknown'}. ${marketData.gasLevel < 30 ? 'Chains are not congested.' : marketData.gasLevel < 60 ? 'Moderate network activity.' : 'High network congestion.'}`
+        ? `Average network load: ${marketData.gasLevelStatus}. ${marketData.gasLevel < 30 ? 'Ideal time for on-chain interactions.' : marketData.gasLevel < 60 ? 'Standard congestion for peak hours.' : 'High congestion; expect premium fees for fast inclusion.'}`
         : "Gas level data is not available.",
       rangeValue: marketData.gasLevel || 0,
       rangeLabels: ["Low", "Moderate", "Very High"],
@@ -536,7 +540,7 @@ export const OverviewPage: React.FC = () => {
         ? (marketData.liquidityStressIndex < 30 ? "rgba(22, 199, 132, 0.2)" : marketData.liquidityStressIndex < 60 ? "rgba(245, 158, 11, 0.2)" : marketData.liquidityStressIndex < 80 ? "rgba(234, 57, 67, 0.2)" : "rgba(220, 38, 38, 0.2)")
         : "rgba(153, 153, 153, 0.2)",
       description: marketData.liquidityStressIndex
-        ? `Liquidity stress: ${marketData.liquidityStressStatus || 'Unknown'}. ${marketData.liquidityStressIndex < 30 ? 'Low slippage expected.' : marketData.liquidityStressIndex < 60 ? 'Moderate slippage possible.' : 'High slippage likely.'}`
+        ? `Measured by depth & slippage: ${marketData.liquidityStressStatus}. ${marketData.liquidityStressIndex < 30 ? 'Deep books allow for large orders with minimal impact.' : marketData.liquidityStressIndex < 60 ? 'Reasonable liquidity for standard trade sizes.' : 'Thin books; use limit orders to avoid excessive slippage.'}`
         : "Liquidity stress data is not available.",
       rangeValue: marketData.liquidityStressIndex || 0,
       rangeLabels: ["Low", "Moderate", "Very High"],
@@ -679,7 +683,8 @@ export const OverviewPage: React.FC = () => {
             <div className={styles.listContainer}>
               {gainers.length > 0 ? gainers.slice(0, 3).map((token: any, i: number) => {
                 const isUp = (token.price_change_percentage_24h || 0) > 0;
-                const sparkData = token.sparkline_in_7d?.price?.slice(-7) || generateTrend(token.price_change_percentage_24h || 0);
+                // Last 24-30 points of 7-day sparkline (approx last day+) to look detailed
+                const sparkData = token.sparkline_in_7d?.price?.slice(-30) || generateTrend(token.price_change_percentage_24h || 0, 30);
                 return (
                   <div
                     key={token.id || i}

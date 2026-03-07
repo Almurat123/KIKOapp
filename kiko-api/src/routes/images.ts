@@ -2,6 +2,7 @@ import { FastifyInstance } from 'fastify';
 import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import net from 'node:net';
 import sharp from 'sharp';
 
 const CACHE_DIR = process.env.IMAGE_CACHE_DIR || '/tmp/kiko-image-cache';
@@ -18,6 +19,10 @@ const ALLOWED_HOSTS = new Set([
   'ui-avatars.com',
 ]);
 
+const ALLOWED_HOST_SUFFIXES = [
+  '.ipfs.io',
+];
+
 async function ensureCacheDir(): Promise<void> {
   try {
     await fs.mkdir(CACHE_DIR, { recursive: true });
@@ -28,7 +33,19 @@ async function ensureCacheDir(): Promise<void> {
 
 function isAllowedUrl(url: URL): boolean {
   const host = url.hostname.toLowerCase();
-  return ALLOWED_HOSTS.has(host);
+  if (host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local')) {
+    return false;
+  }
+
+  if (net.isIP(host)) {
+    return false;
+  }
+
+  if (ALLOWED_HOSTS.has(host)) {
+    return true;
+  }
+
+  return ALLOWED_HOST_SUFFIXES.some((suffix) => host.endsWith(suffix));
 }
 
 function hashColor(input: string): string {
@@ -96,10 +113,10 @@ export async function imageRoutes(fastify: FastifyInstance) {
       return reply.status(400).send({ error: 'Invalid protocol' });
     }
 
-    // OGP images can come from anywhere, so we allow all HTTP/HTTPS hosts
-    // if (!isAllowedUrl(parsed)) {
-    //   return reply.status(403).send({ error: 'Host not allowed' });
-    // }
+    // Restrict proxy fetches to vetted image hosts to prevent SSRF into private infrastructure.
+    if (!isAllowedUrl(parsed)) {
+      return reply.status(403).send({ error: 'Host not allowed' });
+    }
 
     reply.header('X-Image-Proxy-Host', parsed.hostname);
 

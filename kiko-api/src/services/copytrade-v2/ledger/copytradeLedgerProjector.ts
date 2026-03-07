@@ -90,6 +90,13 @@ export function projectCopytradeLedgerSnapshot(snapshot: PositionLedgerSnapshot)
       confirmedOwnedAmountRaw,
       pendingOwnedAmountRaw,
       effectiveOwnedAmountRaw,
+      trackedEntryRaw: effectiveOwnedAmountRaw,
+      trackedRemainingRaw: effectiveOwnedAmountRaw,
+      trackedSoldRaw: 0n,
+      externalBalanceDetected: false,
+      lastMirroredTargetSellTxHash: snapshot.latestTargetSellTxHash || null,
+      lastMirroredRatioBps: null,
+      exitExecutionState: null,
     },
     reasonCode: reasonCodeForLifecyclePhase(snapshot.lifecyclePhase),
   };

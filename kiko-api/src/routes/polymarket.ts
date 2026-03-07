@@ -243,12 +243,37 @@ export const polymarketRoutes: FastifyPluginAsync = async (fastify) => {
                     contracts: {
                         usdc: POLYMARKET_CONTRACTS.USDC,
                         ctfExchange: POLYMARKET_CONTRACTS.CTF_EXCHANGE,
+                        negRiskExchange: POLYMARKET_CONTRACTS.NEG_RISK_CTF_EXCHANGE,
+                        negRiskAdapter: POLYMARKET_CONTRACTS.NEG_RISK_ADAPTER,
                         ctf: POLYMARKET_CONTRACTS.CTF
                     }
                 }
             };
         } catch (error: any) {
             console.error('[Polymarket] Error getting approvals:', error);
+            return reply.status(500).send({ success: false, error: error.message });
+        }
+    });
+
+    fastify.post('/trading/approvals/execute', { preHandler: requireAuth }, async (request, reply) => {
+        try {
+            const user = (request as any).user;
+            const privyDid = user?.sub || user?.privyDid;
+            if (!privyDid) {
+                return reply.status(401).send({ success: false, error: 'Authentication required' });
+            }
+
+            const authorization = request.headers.authorization || '';
+            const accessToken = authorization.startsWith('Bearer ') ? authorization.slice(7) : '';
+            const { executeRequiredApprovals } = await import('../services/polymarketApprovalService.js');
+            const result = await executeRequiredApprovals({ userId: privyDid, accessToken });
+
+            return {
+                success: true,
+                data: result
+            };
+        } catch (error: any) {
+            console.error('[Polymarket] Error executing approvals:', error);
             return reply.status(500).send({ success: false, error: error.message });
         }
     });
@@ -406,8 +431,8 @@ export const polymarketRoutes: FastifyPluginAsync = async (fastify) => {
                 return reply.status(400).send({ success: false, error: 'Could not resolve Polymarket wallet address' });
             }
 
-            const { getOpenOrders } = await import('../services/polymarketDataService.js');
-            const orders = await getOpenOrders(walletAddress);
+            const { getOpenOrdersForUser } = await import('../services/polymarketDataService.js');
+            const orders = await getOpenOrdersForUser(privyDid, walletAddress);
 
             return {
                 success: true,

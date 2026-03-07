@@ -32,6 +32,11 @@ import { buildEthAwarePendingPollPlan } from './copytrade-v2/eth/ethPendingIngre
 import { inferEthPendingSwapIntent } from './copytrade-v2/eth/ethPendingSwapIntent.js';
 import { buildEthPendingPredecodedSwap } from './copytrade-v2/eth/ethPendingPredecodedSwap.js';
 import { normalizeWallet } from './copytrade-v2/runtime/chainIdentityNormalizer.js';
+import {
+    getPendingFastPathDecision,
+    recordPendingFastPathFailure,
+    recordPendingFastPathSuccess
+} from './copytrade-v2/ingress/pendingFastPathCooldown.js';
 
 const ENABLED = (process.env.COPYTRADE_PENDING_WATCH_ENABLED || 'true') === 'true';
 const REFRESH_WALLETS_MS = Number(process.env.COPYTRADE_PENDING_WALLET_REFRESH_MS || 10000);
@@ -111,6 +116,21 @@ async function warmConfirmedSwapFromPending(
 ): Promise<void> {
     if (!PREFETCH_ENABLED) return;
     const normalizedTargetWallet = normalizeWallet(chainId, targetWallet);
+    const pendingDecision = await getPendingFastPathDecision({
+        chainId,
+        targetWallet: normalizedTargetWallet
+    });
+    if (pendingDecision.active) {
+        logger.warn(LogCode.SYS_INFO, '[CopyTradePending] Pending fast-path cooldown active; skip receipt prefetch', {
+            chainId,
+            txHash: txHash.slice(0, 12),
+            wallet: normalizedTargetWallet.slice(0, 10),
+            failureCount: pendingDecision.failureCount,
+            activeUntilMs: pendingDecision.activeUntilMs,
+            reasonCode: pendingDecision.reasonCode || 'pending_fast_path_cooldown'
+        });
+        return;
+    }
     const warmKey = `${chainId}:${normalizeTxIdentity(chainId, txHash)}:${normalizedTargetWallet}`;
     if (prefetchInFlight.has(warmKey)) return;
     if (prefetchInFlight.size >= PREFETCH_MAX_INFLIGHT) return;
@@ -122,7 +142,15 @@ async function warmConfirmedSwapFromPending(
             const receipt = await fetchTransactionReceipt(txHash, chainId);
             if (receipt) {
                 const status = parseInt(String(receipt.status || '0x0'), 16);
-                if (status !== 1) return;
+                if (status !== 1) {
+                    await recordPendingFastPathFailure({
+                        chainId,
+                        targetWallet: normalizedTargetWallet,
+                        txHash,
+                        reasonCode: 'pending_receipt_confirmed_failed'
+                    }).catch(() => ({ active: false, failureCount: 0, activeUntilMs: null }));
+                    return;
+                }
                 reportWebhookSeen({
                     chainId,
                     txHash,
@@ -210,6 +238,10 @@ async function warmConfirmedSwapFromPending(
                     ms: Date.now() - start,
                     action: 'enqueued_copytrade_early'
                 });
+                await recordPendingFastPathSuccess({
+                    chainId,
+                    targetWallet: normalizedTargetWallet
+                }).catch(() => { });
                 return;
             }
             await new Promise((resolve) => setTimeout(resolve, PREFETCH_POLL_MS));
@@ -270,6 +302,21 @@ async function pollOneChainPending(chainId: number): Promise<void> {
             markCopyTradeIngressFirstSeen(chainId, txHash, detectedAt, 'pending_block'),
             markCopyTradeTxState(chainId, txHash, 'pending_seen', { source: 'pending_block', wallet: matchedWallet })
         ]);
+        const pendingDecision = await getPendingFastPathDecision({
+            chainId,
+            targetWallet: matchedWallet
+        });
+        if (pendingDecision.active) {
+            logger.warn(LogCode.SYS_INFO, '[CopyTradePending] Pending fast-path cooldown active; skip speculative predecode', {
+                chainId,
+                txHash: txHash.slice(0, 12),
+                wallet: matchedWallet.slice(0, 10),
+                failureCount: pendingDecision.failureCount,
+                activeUntilMs: pendingDecision.activeUntilMs,
+                reasonCode: pendingDecision.reasonCode || 'pending_fast_path_cooldown'
+            });
+            continue;
+        }
         const pendingIntent = inferEthPendingSwapIntent({
             chainId,
             matchedWallet,

@@ -1,0 +1,2 @@
+ALTER TABLE "PolymarketAction"
+ADD COLUMN IF NOT EXISTS "marketSlug" TEXT NOT NULL DEFAULT '';

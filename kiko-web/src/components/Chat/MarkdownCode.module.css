@@ -1,0 +1,249 @@
+.inlineCode {
+  display: inline-block;
+  padding: 0.14rem 0.42rem;
+  border-radius: 0.45rem;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  background: rgba(15, 23, 42, 0.04);
+  color: #c2410c;
+  font-family:
+    "JetBrains Mono", "SF Mono", SFMono-Regular, Menlo, Monaco,
+    Consolas, "Liberation Mono", monospace !important;
+  font-size: 0.92em !important;
+  font-weight: 520 !important;
+  line-height: 1.4 !important;
+  letter-spacing: -0.015em !important;
+  font-feature-settings:
+    "ss01" 1,
+    "ss02" 1,
+    "cv05" 1,
+    "zero" 1 !important;
+  text-rendering: geometricPrecision;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.metadataInlineGroup {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.metadataToken {
+  font-weight: 560 !important;
+  letter-spacing: -0.012em !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18);
+}
+
+.metadataToneRenderer {
+  border-color: rgba(14, 116, 144, 0.18);
+  background: rgba(14, 116, 144, 0.08);
+  color: #0f766e;
+}
+
+.metadataToneTool {
+  border-color: rgba(37, 99, 235, 0.18);
+  background: rgba(37, 99, 235, 0.08);
+  color: #1d4ed8;
+}
+
+.metadataToneInternal {
+  border-color: rgba(100, 116, 139, 0.2);
+  background: rgba(100, 116, 139, 0.1);
+  color: #475569;
+}
+
+.metadataToneWeb {
+  border-color: rgba(217, 119, 6, 0.2);
+  background: rgba(217, 119, 6, 0.09);
+  color: #b45309;
+}
+
+.metadataTonePost {
+  border-color: rgba(126, 34, 206, 0.18);
+  background: rgba(126, 34, 206, 0.08);
+  color: #7e22ce;
+}
+
+.metadataToneDefault {
+  border-color: rgba(15, 23, 42, 0.12);
+  background: rgba(15, 23, 42, 0.05);
+  color: #475569;
+}
+
+.plainTextBlock {
+  white-space: pre-wrap;
+}
+
+.codeBlock {
+  margin: 14px 0;
+  overflow: hidden;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 16px;
+  background: #f7f7f8;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+.codeHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 12px;
+  border-bottom: 1px solid rgba(15, 23, 42, 0.08);
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.language {
+  overflow: hidden;
+  color: #6b7280;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  text-overflow: ellipsis;
+  text-transform: lowercase;
+  white-space: nowrap;
+}
+
+.copyButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #6b7280;
+  cursor: pointer;
+  transition:
+    background-color 0.16s ease,
+    color 0.16s ease;
+  appearance: none;
+  -webkit-appearance: none;
+  color: #6b7280 !important;
+}
+
+.copyButton svg {
+  display: block;
+  width: 14px;
+  height: 14px;
+  stroke: currentColor;
+  stroke-width: 2.2;
+  fill: none;
+  flex-shrink: 0;
+  opacity: 1 !important;
+  color: inherit !important;
+}
+
+.copyButton:hover {
+  background: rgba(15, 23, 42, 0.06);
+  color: #111827;
+}
+
+.copyButton:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.18);
+}
+
+.copyButtonSuccess {
+  color: #0f766e;
+}
+
+.syntax {
+  margin: 0 !important;
+  padding: 14px 16px !important;
+  background: transparent !important;
+  font-family:
+    "JetBrains Mono", "SF Mono", SFMono-Regular, Menlo, Monaco,
+    Consolas, "Liberation Mono", monospace !important;
+  font-size: 13px !important;
+  font-weight: 500 !important;
+  line-height: 1.58 !important;
+  letter-spacing: -0.018em !important;
+  font-feature-settings:
+    "ss01" 1,
+    "ss02" 1,
+    "cv05" 1,
+    "zero" 1;
+  overflow-x: auto !important;
+}
+
+.syntax code {
+  font-family: inherit !important;
+  background: transparent !important;
+  border: 0 !important;
+  padding: 0 !important;
+}
+
+:global(.dark) .inlineCode {
+  border-color: rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.06);
+  color: #f5c184;
+}
+
+:global(.dark) .metadataToken {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+:global(.dark) .metadataToneRenderer {
+  border-color: rgba(45, 212, 191, 0.16);
+  background: rgba(20, 184, 166, 0.12);
+  color: #7dd3fc;
+}
+
+:global(.dark) .metadataToneTool {
+  border-color: rgba(96, 165, 250, 0.18);
+  background: rgba(59, 130, 246, 0.12);
+  color: #93c5fd;
+}
+
+:global(.dark) .metadataToneInternal {
+  border-color: rgba(148, 163, 184, 0.18);
+  background: rgba(148, 163, 184, 0.1);
+  color: #cbd5e1;
+}
+
+:global(.dark) .metadataToneWeb {
+  border-color: rgba(251, 191, 36, 0.18);
+  background: rgba(245, 158, 11, 0.12);
+  color: #fcd34d;
+}
+
+:global(.dark) .metadataTonePost {
+  border-color: rgba(196, 181, 253, 0.18);
+  background: rgba(139, 92, 246, 0.12);
+  color: #ddd6fe;
+}
+
+:global(.dark) .metadataToneDefault {
+  border-color: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.06);
+  color: #d1d5db;
+}
+
+:global(.dark) .codeBlock {
+  border-color: rgba(255, 255, 255, 0.08);
+  background: #1f1f22;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.02);
+}
+
+:global(.dark) .codeHeader {
+  border-bottom-color: rgba(255, 255, 255, 0.07);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+:global(.dark) .language,
+:global(.dark) .copyButton {
+  color: #9ca3af !important;
+}
+
+:global(.dark) .copyButton:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #f3f4f6;
+}
+
+:global(.dark) .copyButtonSuccess {
+  color: #5eead4;
+}

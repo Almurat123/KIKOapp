@@ -30,7 +30,13 @@ export const PolymarketOrderCard = ({ order, styles, onSell }: { order: any; sty
 // [Ref]: Migrated from WalletPage.tsx:L1278-L1342.
 export const PolymarketHistoryItem = ({ trade, styles }: { trade: any; styles: any }) => {
     const date = new Date(trade.timestamp);
-    const isProfit = trade.status === 'WON' || (trade.status === 'SUCCESS' && trade.side === 'SELL');
+    const normalizedStatus = String(trade.status || '').toUpperCase();
+    const isProfit = normalizedStatus === 'WON' || (normalizedStatus === 'SUCCESS' && trade.side === 'SELL');
+    const amountClass = normalizedStatus === 'FAILED' || normalizedStatus === 'CANCELLED'
+        ? styles.negative
+        : normalizedStatus === 'PENDING'
+            ? ''
+            : (isProfit ? styles.positive : styles.negative);
     return (
         <div className={styles.historyItemNew}>
             <div className={`${styles.dateBadge} ${isProfit ? styles.dateBadge : styles.dateBadgeNeutral}`}>
@@ -39,10 +45,10 @@ export const PolymarketHistoryItem = ({ trade, styles }: { trade: any; styles: a
             </div>
             <div className={styles.historyContent}>
                 <div className={styles.historyTitle}>{trade.title}</div>
-                <div className={styles.historyBadges}><span className={styles.statusBadge}>{trade.side} {trade.outcome}</span></div>
+                <div className={styles.historyBadges}><span className={styles.statusBadge}>{normalizedStatus} {trade.side} {trade.outcome}</span></div>
             </div>
             <div className={styles.historyResult}>
-                <div className={`${styles.resultAmount} ${isProfit ? styles.positive : styles.negative}`}>${(trade.size * trade.price).toFixed(2)}</div>
+                <div className={`${styles.resultAmount} ${amountClass}`}>${(trade.size * trade.price).toFixed(2)}</div>
                 <button className={styles.externalLink} onClick={() => window.open(`https://polymarket.com/event/${trade.market}`, '_blank')}><ExternalLink size={14} /></button>
             </div>
         </div>

@@ -168,6 +168,8 @@ export const RootLayout: React.FC = () => {
                 // Update Conversation State
                 const targetConv = conversationsRef.current.find(c => c.id === targetSessionId);
                 if (targetConv && !targetConv.messages.some(m => m.id === messageId)) {
+                    const existingTask = targetConv.activeTask;
+                    const shouldKeepExistingTask = !!existingTask?.id && !String(existingTask.id).startsWith(`task-${messageId}`);
                     const newMsg: Message = {
                         id: messageId,
                         role: 'assistant',
@@ -180,7 +182,9 @@ export const RootLayout: React.FC = () => {
                     };
                     updateConversation(targetSessionId, {
                         messages: [...targetConv.messages, newMsg],
-                        activeTask: { id: `task-${messageId}`, status: 'running' } // Implicit task
+                        activeTask: shouldKeepExistingTask
+                            ? existingTask
+                            : { id: `task-${messageId}`, status: 'running' }
                     });
                 }
             }
@@ -396,12 +400,18 @@ export const RootLayout: React.FC = () => {
                 if (targetConv) {
                     const status = event.data.status;
                     const taskId = event.data.taskId || event.data.task_id;
+                    const currentTask = targetConv.activeTask;
 
                     if (status === 'done' || status === 'completed') {
                         clearActiveTask(targetSessionId, updateConversation, 'task_status_done');
                     } else if (status === 'running' || status === 'pending') {
                         updateConversation(targetSessionId, {
-                            activeTask: { id: taskId, status: 'running', message: event.data.message }
+                            activeTask: {
+                                ...(currentTask || {}),
+                                id: taskId || currentTask?.id || `task-${event.data.messageId || event.data.message_id || Date.now()}`,
+                                status: 'running',
+                                message: event.data.message,
+                            }
                         });
                     }
                 }

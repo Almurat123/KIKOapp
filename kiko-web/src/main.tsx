@@ -65,9 +65,15 @@ if (typeof window !== 'undefined') {
 const queryClient = new QueryClient();
 
 const privyAppId = import.meta.env.VITE_PRIVY_APP_ID;
+const privyClientId = import.meta.env.VITE_PRIVY_CLIENT_ID;
 
-// Check if Privy App ID is configured
-if (!privyAppId || privyAppId === 'your-privy-app-id') {
+// Check if Privy App credentials are configured
+if (
+  !privyAppId ||
+  privyAppId === 'your-privy-app-id' ||
+  !privyClientId ||
+  privyClientId === 'your-privy-client-id'
+) {
   ReactDOM.createRoot(document.getElementById('root')!).render(
     <React.StrictMode>
       <ErrorBoundary>
