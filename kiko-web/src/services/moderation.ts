@@ -4,8 +4,6 @@ import { env } from '@xenova/transformers';
 env.allowLocalModels = false;
 env.useBrowserCache = true;
 
-import { chatApi } from './api';
-
 class ModerationService {
     private static instance: ModerationService;
     // AI classifier removed - sentiment models are NOT appropriate for safety moderation
@@ -34,8 +32,8 @@ class ModerationService {
      */
     public async checkInput(
         text: string,
-        sessionId?: string | null,
-        model?: string | null
+        _sessionId?: string | null,
+        _model?: string | null
     ): Promise<{ safe: boolean; reason?: string }> {
         let result: { safe: boolean; reason?: string } = { safe: true };
 
@@ -62,16 +60,8 @@ class ModerationService {
         // The SST-2 model is a SENTIMENT classifier (positive/negative feelings)
         // It is NOT designed for safety moderation and blocks legitimate crypto queries
 
-        // 3. Log to backend for verification and estimation
-        chatApi.logModeration({
-            channel: 'frontend_local',
-            content: text,
-            result: result,
-            sessionId: sessionId || null,
-            model: model || null
-        }).catch(err => {
-            console.debug('[Moderation] Could not log to backend (expected for guests):', err.message);
-        });
+        // Deprecated: frontend moderation telemetry was consuming chat rate-limit budget
+        // while the backend endpoint is a no-op. Keep local moderation only.
 
         return result;
     }

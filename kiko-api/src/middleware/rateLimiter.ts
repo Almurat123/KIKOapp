@@ -36,7 +36,8 @@ export async function rateLimiterMiddleware(
         request.url.startsWith('/api/webhook/') ||
         request.url.startsWith('/webhook/') ||
         request.url.startsWith('/assets/') ||
-        request.url.startsWith('/api/images/')
+        request.url.startsWith('/api/images/') ||
+        request.url === '/api/chat/moderation/log'
     ) {
         return;
     }
@@ -53,6 +54,15 @@ export async function rateLimiterMiddleware(
     if (url.includes('/sessions/') && url.includes('/messages')) {
         maxRequests = 30; // AI chat: 30/min (reasonable for active conversations)
         category = 'ai_chat';
+    } else if (request.method === 'POST' && url === '/api/chat/sessions') {
+        maxRequests = Math.max(MAX_REQUESTS_PER_WINDOW, 180);
+        category = 'chat_session_create';
+    } else if (request.method === 'GET' && (url === '/api/chat/sessions' || url.startsWith('/api/chat/sessions?'))) {
+        maxRequests = Math.max(MAX_REQUESTS_PER_WINDOW, 240);
+        category = 'chat_session_list';
+    } else if (request.method === 'GET' && url.startsWith('/api/chat/sessions/')) {
+        maxRequests = Math.max(MAX_REQUESTS_PER_WINDOW, 240);
+        category = 'chat_session_read';
     } else if (url.includes('/api/ai/') || url.includes('/api/chat/')) {
         maxRequests = 60; // Other AI endpoints: 60/min
         category = 'ai_general';

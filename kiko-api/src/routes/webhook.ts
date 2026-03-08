@@ -34,6 +34,10 @@ import {
     mergeCopyTradeTimingSnapshots
 } from '../services/copytrade-v2/timing/copyTradeTimingModel.js';
 import {
+    buildWebhookDecodeDispatchTiming,
+    buildWebhookDecodeReadyTiming
+} from '../services/copytrade-v2/timing/webhookDispatchTiming.js';
+import {
     getCopyTradeIngressState,
     markCopyTradeIngressConfirmed,
     markCopyTradeIngressFirstSeen,
@@ -968,6 +972,13 @@ async function processAlchemyWebhookPayload(payload: any): Promise<void> {
                     dex: swap.dexName,
                     source: swapSource === 'webhook_cached_predecoded' ? 'pending_prefetch' : 'webhook_decode'
                 }).catch(() => { });
+                const decodeTiming = buildWebhookDecodeReadyTiming({
+                    swapSource,
+                    cachedTiming: cached?.timing,
+                    pendingHintTiming: pendingHint?.timing,
+                    nowMs: Date.now()
+                });
+
                 persistSwapContext({
                     chainId,
                     txHash,
@@ -978,37 +989,18 @@ async function processAlchemyWebhookPayload(payload: any): Promise<void> {
                     receiptLogs: receipt?.logs || [],
                     swap,
                     targetWallet: trackedTarget,
-                    detectedAt: (() => {
-                        const timing = swapSource === 'webhook_cached_predecoded' && cached?.timing
-                            ? markCopyTradeSwapReady(mergeCopyTradeTimingSnapshots(cached.timing, pendingHint?.timing), Date.now(), 'webhook_cached_predecoded')
-                            : markCopyTradeSwapReady(buildCopyTradeFirstSeenTiming(Date.now(), 'webhook_decode'), Date.now(), 'webhook_decode');
-                        return timing.dispatchEligibleAt || timing.swapReadyAt || Date.now();
-                    })()
+                    detectedAt: decodeTiming.dispatchEligibleAt || decodeTiming.swapReadyAt || Date.now()
                 }).catch(() => { });
 
                 // When we decoded from receipt in this request (no cached predecoded), use now as detectedAt
-                // so the turbo delay is measured from "swap ready + enqueued", not from an older pendingHint
-                // (pending watcher may have set pendingHint seconds earlier, which would make delay exceed 2.5s)
-                const timing = swapSource === 'webhook_cached_predecoded' && cached?.timing
-                    ? markCopyTradeTaskEnqueued(
-                        markCopyTradeSwapReady(
-                            mergeCopyTradeTimingSnapshots(cached.timing, pendingHint?.timing),
-                            Date.now(),
-                            'webhook_cached_predecoded'
-                        ),
-                        Date.now()
-                    )
-                    : markCopyTradeTaskEnqueued(
-                        markCopyTradeSwapReady(
-                            mergeCopyTradeTimingSnapshots(
-                                buildCopyTradeFirstSeenTiming(Date.now(), 'webhook_decode'),
-                                pendingHint?.timing
-                            ),
-                            Date.now(),
-                            'webhook_decode'
-                        ),
-                        Date.now()
-                    );
+                // so delay is measured from "swap ready + enqueued", not from an older pending hint
+                // that was never trusted enough to dispatch the trade.
+                const timing = buildWebhookDecodeDispatchTiming({
+                    swapSource,
+                    cachedTiming: cached?.timing,
+                    pendingHintTiming: pendingHint?.timing,
+                    nowMs: Date.now()
+                });
                 const detectedAt = timing.dispatchEligibleAt || timing.swapReadyAt || Date.now();
                 await markCopyTradeIngressSwapReady(
                     chainId,
