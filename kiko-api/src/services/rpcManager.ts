@@ -734,6 +734,51 @@ function expandEthCallSelectionWithCheapFallback(params: {
     return expanded;
 }
 
+function expandCriticalSelectionWithPublicFallback(params: {
+    executionLane: EndpointExecutionLane;
+    selectedEndpoints: RpcEndpointConfig[];
+    chainSlug: string;
+    primaryUrl?: string;
+    method: string;
+}): RpcEndpointConfig[] {
+    if (params.executionLane !== 'critical') {
+        return params.selectedEndpoints;
+    }
+
+    if (params.selectedEndpoints.some((endpoint) => endpoint.type === 'public')) {
+        return params.selectedEndpoints;
+    }
+
+    const premiumSelected = params.selectedEndpoints.filter((endpoint) => endpoint.type === 'premium');
+    if (premiumSelected.length === 0) {
+        return params.selectedEndpoints;
+    }
+
+    const allPremiumCircuited = premiumSelected.every((endpoint) => isCircuitOpen(endpoint.url));
+    if (!allPremiumCircuited) {
+        return params.selectedEndpoints;
+    }
+
+    const cheapPublicEndpoints = filterEndpointsByMethod(
+        getRpcEndpointsForLane(params.chainSlug, 'cheap', params.primaryUrl),
+        params.method
+    ).filter((endpoint) => endpoint.type === 'public');
+
+    if (!cheapPublicEndpoints.length) {
+        return params.selectedEndpoints;
+    }
+
+    const seen = new Set(params.selectedEndpoints.map((endpoint) => endpoint.url));
+    const expanded = [...params.selectedEndpoints];
+    for (const endpoint of cheapPublicEndpoints) {
+        if (!endpoint?.url || seen.has(endpoint.url)) continue;
+        seen.add(endpoint.url);
+        expanded.push(endpoint);
+        if (expanded.length >= params.selectedEndpoints.length + 2) break;
+    }
+    return expanded;
+}
+
 function shouldForceExhaustiveFailover(
     method: string,
     importance: RpcImportance,
@@ -1107,13 +1152,20 @@ export async function callRpc<T = any>(
                 endpointBudget,
                 forceExhaustiveFailover
             });
-            const selectedEndpoints = expandEthCallSelectionWithCheapFallback({
+            const selectedAfterEthCallExpansion = expandEthCallSelectionWithCheapFallback({
                 method,
                 path,
                 importance: effectiveImportance,
                 selectedEndpoints: sortedEndpoints.slice(0, endpointBudget),
                 chainSlug,
                 primaryUrl,
+            });
+            const selectedEndpoints = expandCriticalSelectionWithPublicFallback({
+                executionLane,
+                selectedEndpoints: selectedAfterEthCallExpansion,
+                chainSlug,
+                primaryUrl,
+                method,
             });
             const selectedPremiumCount = selectedEndpoints.filter((endpoint) => endpoint.type === 'premium').length;
             const selectedPublicCount = selectedEndpoints.filter((endpoint) => endpoint.type === 'public').length;
@@ -1740,6 +1792,8 @@ export async function callRpcRaw<T = any>(
     let endpoints: RpcEndpointConfig[] = [];
     let chainName = typeof chainIdOrName === 'string' ? chainIdOrName : `Chain ${chainIdOrName}`;
     let chainId: number;
+    let chainSlug = 'eth';
+    let primaryUrl: string | undefined;
     const requestedStrategy: 'fast' | 'cheap' = options.strategy || 'cheap';
 
     // Resolve Chain ID
@@ -1758,9 +1812,9 @@ export async function callRpcRaw<T = any>(
     try {
         const config = getChainConfig(chainId);
         chainName = config.name;
-        const chainSlug = CHAIN_ID_TO_NAME[chainId] || 'eth';
+        chainSlug = CHAIN_ID_TO_NAME[chainId] || 'eth';
         const strategy = executionLane === 'critical' ? 'fast' : requestedStrategy;
-        const primaryUrl = getPrimaryRpcUrl(chainSlug);
+        primaryUrl = getPrimaryRpcUrl(chainSlug);
         endpoints = getRpcEndpointsForLane(chainSlug, executionLane, primaryUrl);
         endpoints = filterEndpointsByMethod(endpoints, method);
 
@@ -1838,7 +1892,13 @@ export async function callRpcRaw<T = any>(
             endpointBudget,
             forceExhaustiveFailover
         });
-        const selectedEndpoints = sortedEndpoints.slice(0, endpointBudget);
+        const selectedEndpoints = expandCriticalSelectionWithPublicFallback({
+            executionLane,
+            selectedEndpoints: sortedEndpoints.slice(0, endpointBudget),
+            chainSlug,
+            primaryUrl,
+            method,
+        });
         const selectedPremiumCount = selectedEndpoints.filter((endpoint) => endpoint.type === 'premium').length;
         const selectedPublicCount = selectedEndpoints.filter((endpoint) => endpoint.type === 'public').length;
         if (RPC_EXPLAIN_ENABLED && effectiveImportance === 'critical') {
@@ -3419,6 +3479,7 @@ export const __rpcManagerTest = {
     shouldTreatSendRawErrorAsKnown,
     getEndpointAttemptBudget,
     getMethodConcurrencyLimit,
+    expandCriticalSelectionWithPublicFallback,
     getMethodBackoff: (
         chainId: number,
         method: string,
@@ -3444,11 +3505,19 @@ export const __rpcManagerTest = {
     ) =>
         markMethodSuccess(buildMethodBackoffKey(chainId, executionLane, method, importance, rpcClass)),
     resetRuntimeStateForTest: () => {
+        endpointHealth.clear();
+        endpointUsage.clear();
         methodBackoff.clear();
         methodLimiter.clear();
         inflightRpcRequests.clear();
         inflightRpcRawRequests.clear();
         rawTxHashCache.clear();
         rpcMethodUsage.clear();
+    },
+    seedCircuitOpenForTest: (url: string) => {
+        const health = getOrCreateHealth(url);
+        health.circuitOpen = true;
+        health.consecutiveFailures = Math.max(health.consecutiveFailures, CIRCUIT_BREAKER_THRESHOLD);
+        health.lastFailureTime = Date.now();
     }
 };
