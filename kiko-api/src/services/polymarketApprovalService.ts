@@ -54,7 +54,7 @@ function getPolygonProvider(): ethers.JsonRpcProvider {
     return getEthersProvider(137);
 }
 
-async function estimateApprovalGas(params: {
+export async function estimateApprovalGas(params: {
     walletAddress: string;
     to: string;
     data: string;
@@ -80,6 +80,50 @@ async function estimateApprovalGas(params: {
             error: error?.message || String(error)
         });
         return fallbackGas;
+    }
+}
+
+export async function estimateApprovalFees(): Promise<{
+    maxFeePerGas: string;
+    maxPriorityFeePerGas: string;
+}> {
+    const provider = getPolygonProvider();
+    try {
+        const [feeData, latestBlock] = await Promise.all([
+            provider.getFeeData(),
+            provider.getBlock('latest').catch(() => null)
+        ]);
+
+        // Polygon validators commonly reject low/zero tips on raw-signed txs.
+        const minPriorityFeePerGas = 30_000_000_000n; // 30 gwei safety floor
+        const suggestedPriority = feeData.maxPriorityFeePerGas || feeData.gasPrice || 0n;
+        const maxPriorityFeePerGas = suggestedPriority > minPriorityFeePerGas
+            ? suggestedPriority
+            : minPriorityFeePerGas;
+
+        const baseFeePerGas = latestBlock?.baseFeePerGas || feeData.gasPrice || 0n;
+        const suggestedMaxFee = feeData.maxFeePerGas || (baseFeePerGas * 2n + maxPriorityFeePerGas);
+        const floorMaxFee = baseFeePerGas + maxPriorityFeePerGas;
+        const maxFeePerGas = suggestedMaxFee > floorMaxFee
+            ? suggestedMaxFee
+            : floorMaxFee;
+
+        return {
+            maxFeePerGas: maxFeePerGas.toString(),
+            maxPriorityFeePerGas: maxPriorityFeePerGas.toString()
+        };
+    } catch (error: any) {
+        const maxPriorityFeePerGas = 30_000_000_000n;
+        const maxFeePerGas = 90_000_000_000n;
+        console.warn('[PolymarketApproval] Fee estimation failed, using fallback EIP-1559 fees', {
+            maxFeePerGas: maxFeePerGas.toString(),
+            maxPriorityFeePerGas: maxPriorityFeePerGas.toString(),
+            error: error?.message || String(error)
+        });
+        return {
+            maxFeePerGas: maxFeePerGas.toString(),
+            maxPriorityFeePerGas: maxPriorityFeePerGas.toString()
+        };
     }
 }
 
@@ -273,10 +317,13 @@ export async function executeRequiredApprovals(params: {
             data: tx.data,
             type: tx.type
         });
+        const fees = await estimateApprovalFees();
         const txHash = await sendTransaction(params.userId, params.accessToken || '', {
             to: tx.to,
             data: tx.data,
             gas,
+            maxFeePerGas: fees.maxFeePerGas,
+            maxPriorityFeePerGas: fees.maxPriorityFeePerGas,
             chainId: tx.chainId,
             txPurpose: 'approval'
         });

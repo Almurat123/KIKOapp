@@ -46,7 +46,7 @@ const FollowKikoButton: React.FC = () => {
         };
     }, [hasClickedFollow, refresh]);
 
-    const handleFollow = () => { setHasClickedFollow(true); window.open('https://warpcast.com/kikoapp', '_blank', 'noopener,noreferrer'); };
+    const handleFollow = () => { setHasClickedFollow(true); window.open('https://farcaster.xyz/kikoapp', '_blank', 'noopener,noreferrer'); };
 
     if (loading) return null;
     const isFollowing = followsKiko === true;

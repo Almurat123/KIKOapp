@@ -717,16 +717,6 @@ export async function hybridSearchCasts(
 export async function getFarcasterProfile(username: string): Promise<any | null> {
     const cacheKey = `fc:profile:${username.toLowerCase()}`;
 
-    // Optimization: Hardcode 'kikoapp' official profile to avoid API lookups entirely for the follow check
-    if (username.toLowerCase() === 'kikoapp') {
-        return {
-            fid: 1576616,
-            username: 'kikoapp',
-            displayName: 'kikoapp',
-            pfp: 'https://imagedelivery.net/BXluQx4ige9GuW0Ia56BHw/ea891190-307c-4f75-2b36-cea864cb6800/original'
-        };
-    }
-
     try {
         // 1. Check DB Cache table
         const cached = await prisma.cache.findUnique({
@@ -735,6 +725,37 @@ export async function getFarcasterProfile(username: string): Promise<any | null>
 
         if (cached && cached.expiresAt && cached.expiresAt > new Date()) {
             return JSON.parse(cached.value);
+        }
+
+        if (username.toLowerCase() === 'kikoapp') {
+            const { resolveOfficialKikoProfile } = await import('../services/farcasterRelationshipService.js');
+            const officialProfile = await resolveOfficialKikoProfile();
+            if (officialProfile) {
+                const fallbackProfile = {
+                    fid: officialProfile.fid,
+                    username: officialProfile.username,
+                    displayName: officialProfile.username,
+                    pfp: 'https://imagedelivery.net/BXluQx4ige9GuW0Ia56BHw/ea891190-307c-4f75-2b36-cea864cb6800/original'
+                };
+
+                const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+                await prisma.cache.upsert({
+                    where: { key: cacheKey },
+                    update: {
+                        value: JSON.stringify(fallbackProfile),
+                        expiresAt,
+                        updatedAt: new Date()
+                    },
+                    create: {
+                        key: cacheKey,
+                        value: JSON.stringify(fallbackProfile),
+                        expiresAt,
+                        updatedAt: new Date()
+                    }
+                });
+
+                return fallbackProfile;
+            }
         }
 
         // 2. Cache miss or expired, fetch from Neynar
