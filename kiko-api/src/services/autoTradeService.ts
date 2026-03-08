@@ -87,6 +87,7 @@ import {
     buildGuardedTokenInfoForConfigs,
     partitionConfigsByBuyGuardBucket,
 } from './copytrade-v2/buy/guardedTokenInfo.js';
+import { resolveCopytradeSharedPreparationPolicy } from './copytrade-v2/buy/sharedPreparationPolicy.js';
 import { shouldTerminalFailStalePendingPosition } from './copytrade-v2/buy/pendingProtectionPolicy.js';
 import { applyBuyConfirmationTransition } from './copytrade-v2/buy/buyConfirmationTransition.js';
 import { scheduleCopytradeBuyConfirmationFlow } from './copytrade-v2/buy/buyConfirmationCoordinator.js';
@@ -1174,6 +1175,10 @@ async function processBuyWithInfo(
 ) {
     const PROFILE = process.env.COPYTRADE_PROFILE ? process.env.COPYTRADE_PROFILE === 'true' : true;
     const tStart = Date.now();
+    const sharedPreparationPolicy = resolveCopytradeSharedPreparationPolicy(
+        configs,
+        resolveExecutionModeForConfig
+    );
     tokenInfo.tokenAddress = tokenToBuy;
     const targetValueSnapshot = await computeBuyTargetValueSnapshot(swap, chainId, tokenInfo);
     let targetSwapValueUsd = targetValueSnapshot.targetSwapValueUsd;
@@ -1227,6 +1232,15 @@ async function processBuyWithInfo(
     });
     tokenInfo = guardedTokenInfo.tokenInfo;
     const liquidityGuardSnapshot = guardedTokenInfo.liquidityGuardSnapshot;
+
+    if (sharedPreparationPolicy.allTurbo) {
+        logger.info(LogCode.EXE_QUOTE_FETCHED, '[CopyTrade] Turbo batch fast path skipping shared liquidity scan and market-cap derivation', {
+            token: tokenToBuy,
+            chainId,
+            configCount: configs.length,
+            bucket: guardedTokenInfo.bucket
+        });
+    }
 
     logger.debug(LogCode.EXE_QUOTE_FETCHED, 'Processing configurations for buy', {
         count: configs.length,
@@ -1288,7 +1302,7 @@ async function processBuyWithInfo(
                     valueUsd: targetSwapValueUsd
                 });
 
-                if (chainId !== 900 && (!tokenInfo.marketCap || tokenInfo.marketCap <= 0)) {
+                if (!sharedPreparationPolicy.skipMarketCapDerivation && chainId !== 900 && (!tokenInfo.marketCap || tokenInfo.marketCap <= 0)) {
                     try {
                         const totalSupply = await getTokenSupply(chainId, tokenToBuy, {
                             rpcStrategy: 'fast',
@@ -1312,7 +1326,7 @@ async function processBuyWithInfo(
                     }
                 }
 
-                if (chainId === 900 && (!tokenInfo.marketCap || tokenInfo.marketCap <= 0)) {
+                if (!sharedPreparationPolicy.skipMarketCapDerivation && chainId === 900 && (!tokenInfo.marketCap || tokenInfo.marketCap <= 0)) {
                     try {
                         const supplyResp = await callRpc<any>('solana', 'getTokenSupply', [tokenToBuy], {
                             rpcClass: 'best_effort_read',
@@ -1344,7 +1358,7 @@ async function processBuyWithInfo(
         }
     }
 
-    if (chainId === 900 && tokenInfo.price > 0 && (!tokenInfo.marketCap || tokenInfo.marketCap <= 0)) {
+    if (!sharedPreparationPolicy.skipMarketCapDerivation && chainId === 900 && tokenInfo.price > 0 && (!tokenInfo.marketCap || tokenInfo.marketCap <= 0)) {
         try {
             const supplyResp = await callRpc<any>('solana', 'getTokenSupply', [tokenToBuy], {
                 rpcClass: 'best_effort_read',

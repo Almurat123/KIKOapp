@@ -2,6 +2,7 @@ import type { DecodedSwap } from '../../txDecoder.js';
 import type { CopyTradeExecutionMode } from '../../copyTradeExecutionMode.js';
 import { resolveBuyLiquidityGuardSnapshot } from '../guards/liquidityGuard.js';
 import { shouldAllowTokenInfoLiquidityFallbackForCopyTrade } from './directGuardPolicy.js';
+import { resolveCopytradeSharedPreparationPolicy } from './sharedPreparationPolicy.js';
 
 export type CopytradeBuyGuardBucket = 'safe' | 'direct';
 
@@ -41,21 +42,36 @@ export async function buildGuardedTokenInfoForConfigs<T extends Record<string, a
   const bucketGroups = partitionConfigsByBuyGuardBucket(params.configs, params.resolveExecutionMode);
   const bucket = bucketGroups.has('safe') ? 'safe' : 'direct';
   const allowTokenInfoFallback = bucket === 'safe';
+  const sharedPreparationPolicy = resolveCopytradeSharedPreparationPolicy(
+    params.configs,
+    params.resolveExecutionMode
+  );
   const stopAtLiquidityUsd = params.configs.reduce((max, config) => {
     const next = Number(config?.minLiquidityUsd || 0);
     return Number.isFinite(next) && next > max ? next : max;
   }, 0);
 
-  const liquidityGuardSnapshot = await resolveBuyLiquidityGuardSnapshot(
-    params.tokenToBuy,
-    params.chainId,
-    params.tokenInfo,
-    {
-      swap: params.swap,
-      stopAtLiquidityUsd,
-      allowTokenInfoFallback,
-    }
-  );
+  const liquidityGuardSnapshot = sharedPreparationPolicy.skipLiquidityScan
+    ? {
+        liquidityUsd: 0,
+        source: 'unavailable' as const,
+        reliable: false,
+        poolCount: 0,
+        fallbackUsed: false,
+        metadata: {
+          mode: 'turbo_skip_liquidity_scan',
+        },
+      }
+    : await resolveBuyLiquidityGuardSnapshot(
+        params.tokenToBuy,
+        params.chainId,
+        params.tokenInfo,
+        {
+          swap: params.swap,
+          stopAtLiquidityUsd,
+          allowTokenInfoFallback,
+        }
+      );
 
   const tokenInfo = {
     ...params.tokenInfo,
