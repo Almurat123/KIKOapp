@@ -20,9 +20,7 @@ import {
     processAlchemyWebhookInboxEventById,
     startAlchemyWebhookInboxWorker
 } from '../services/alchemyWebhookInboxService.js';
-import { buildSwapExecutionContext } from '../services/copytrade-v2/context/contextBuilder.js';
-import { putContext } from '../services/copytrade-v2/context/contextStore.js';
-import { setCachedSinglePoolWinnerHint } from '../services/dex/directSwap/cache.js';
+import { persistSwapExecutionContext } from '../services/copytrade-v2/context/swapContextPersistence.js';
 import { getAdjudicatedSnapshot, reportReceiptSeen, reportWebhookSeen } from '../services/order-runtime/adjudicator/service.js';
 import { normalizeSolanaWebhookItem } from '../services/solana/webhookNormalizer.js';
 import { resolveSolanaTrackedWallets } from '../services/solana/trackedWalletResolver.js';
@@ -57,12 +55,15 @@ import {
     buildTxSkeletonFromAlchemyActivity,
     pickBestActivity,
     shouldForceFullTxRepair,
-    shouldPreferSwapSourceField,
     type ActivityCashHint
 } from './webhook/evmWebhookDecode.js';
 import { logWebhookTiming, resolveDetectedAt, safeSecretEquals, waitMs, withTimeout } from './webhookHelpers.js';
 import { queueWebhookBatch, type WebhookBatchContext } from './webhookBatching.js';
 import { emitCopytradeDomainAudit } from '../services/copytrade-v2/audit/copytradeDomainAudit.js';
+import {
+    ensureCopytradeIngressTraceTable,
+    recordCopytradeIngressTrace,
+} from '../services/copytrade-v2/ingress/ingressTraceStore.js';
 
 interface ProcessTxBody { wallet: string; txHash: string; network: string; }
 const NETWORK_TO_CHAIN_ID: Record<string, number> = {
@@ -174,58 +175,6 @@ export const __webhookTest = {
     }
 };
 
-async function persistSwapContext(params: {
-    chainId: number;
-    txHash: string;
-    txFrom?: string;
-    txTo?: string;
-    txInput?: string;
-    txValue?: string;
-    receiptLogs?: Array<{ topics: string[]; address: string; data: string }>;
-    swap: any;
-    targetWallet?: string;
-    detectedAt?: number;
-}): Promise<void> {
-    try {
-        const explicitTxInput = shouldPreferSwapSourceField(params.txInput) ? undefined : params.txInput;
-        const explicitTxValue = shouldPreferSwapSourceField(params.txValue) ? undefined : params.txValue;
-        const ctx = buildSwapExecutionContext({
-            tx: {
-                hash: params.txHash,
-                to: params.txTo || params.swap?.router || '',
-                input: explicitTxInput || params.swap?.sourceTxInput || '0x',
-                value: explicitTxValue || params.swap?.sourceTxValue || '0x0'
-            },
-            receipt: {
-                logs: params.receiptLogs || []
-            },
-            decodedSwap: params.swap,
-            chainId: params.chainId,
-            targetWallet: params.targetWallet,
-            detectedAt: params.detectedAt
-        });
-        await putContext(ctx);
-        // ⚡ POOL HINT SEEDING: If we successfully decoded which DEX pool the target used,
-        // pre-warm the DirectSwap winner-hint cache so OUR swap finds the pool instantly
-        // (no pool discovery / rescue needed → eliminates ~880ms of rescue latency).
-        if (ctx.resolvedPoolHint && ctx.tokenIn && ctx.tokenOut && ctx.chainId) {
-            const hasUsableHint = ctx.resolvedPoolHint.poolAddress
-                || (ctx.resolvedPoolHint.v4PoolKey?.currency0 && ctx.resolvedPoolHint.v4PoolKey?.currency1);
-            if (hasUsableHint) {
-                setCachedSinglePoolWinnerHint(
-                    ctx.chainId,
-                    ctx.tokenIn,
-                    ctx.tokenOut,
-                    ctx.resolvedPoolHint as NonNullable<typeof ctx.resolvedPoolHint>,
-                    300 // 5-minute TTL — new pools are stable once created
-                ).catch(() => { /* best-effort */ });
-            }
-        }
-    } catch {
-        // best-effort only
-    }
-}
-
 async function attemptReceiptRecovery(
     chainId: number,
     txHash: string,
@@ -276,7 +225,7 @@ async function attemptReceiptRecovery(
             dex: swap.dexName,
             source: 'receipt_recovery'
         }).catch(() => { });
-        await persistSwapContext({
+        await persistSwapExecutionContext({
             chainId,
             txHash,
             txFrom: fullTx.from,
@@ -675,6 +624,15 @@ async function processAlchemyWebhookPayload(payload: any): Promise<void> {
                     : []);
 
             if (trackedWallets.length === 0) {
+                await recordCopytradeIngressTrace({
+                    chainId,
+                    txHash,
+                    eventType: 'no_tracked_wallets',
+                    source: 'alchemy_webhook',
+                    payload: {
+                        candidates: candidates.slice(0, 8),
+                    },
+                }).catch(() => undefined);
                 console.log(
                     `[Webhook] Ignore tx ${txHash}: no tracked wallets (from/to ${candidates.join(', ')})`
                 );
@@ -682,6 +640,16 @@ async function processAlchemyWebhookPayload(payload: any): Promise<void> {
             }
 
             console.log(`[Webhook] Found ${trackedWallets.length} tracked wallets for tx ${txHash}`);
+            await recordCopytradeIngressTrace({
+                chainId,
+                txHash,
+                eventType: 'tracked_wallets_resolved',
+                source: 'alchemy_webhook',
+                payload: {
+                    trackedWalletCount: trackedWallets.length,
+                    trackedWalletSample: trackedWallets.map((w) => w.address).slice(0, 5),
+                },
+            }).catch(() => undefined);
 
             const evmActivities: any[] = isSolanaItems
                 ? []
@@ -936,6 +904,13 @@ async function processAlchemyWebhookPayload(payload: any): Promise<void> {
                     }
                     if (!effectiveSourceTxFrom) {
                         emitDeferredBindingMissingFinal();
+                        await recordCopytradeIngressTrace({
+                            chainId,
+                            txHash,
+                            targetWallet: trackedTarget,
+                            eventType: 'missing_source_tx_from_final',
+                            source: 'alchemy_webhook',
+                        }).catch(() => undefined);
                         console.error(`[Webhook] Ignore tx ${txHash}: missing source tx.from after deferred tx_from_only binding`);
                         return;
                     }
@@ -972,6 +947,19 @@ async function processAlchemyWebhookPayload(payload: any): Promise<void> {
                     dex: swap.dexName,
                     source: swapSource === 'webhook_cached_predecoded' ? 'pending_prefetch' : 'webhook_decode'
                 }).catch(() => { });
+                await recordCopytradeIngressTrace({
+                    chainId,
+                    txHash,
+                    targetWallet: trackedTarget,
+                    eventType: 'swap_decoded',
+                    source: swapSource,
+                    payload: {
+                        tokenIn: swap.tokenIn,
+                        tokenOut: swap.tokenOut,
+                        dex: swap.dexName || null,
+                        sourceTxFrom: sourceTxFrom || null,
+                    },
+                }).catch(() => undefined);
                 const decodeTiming = buildWebhookDecodeReadyTiming({
                     swapSource,
                     cachedTiming: cached?.timing,
@@ -979,7 +967,7 @@ async function processAlchemyWebhookPayload(payload: any): Promise<void> {
                     nowMs: Date.now()
                 });
 
-                persistSwapContext({
+                persistSwapExecutionContext({
                     chainId,
                     txHash,
                     txFrom: resolvedTxForContext.from,
@@ -1008,7 +996,7 @@ async function processAlchemyWebhookPayload(payload: any): Promise<void> {
                     timing.swapReadyAt || Date.now(),
                     swapSource
                 ).catch(() => { });
-                await dispatchCopyTradeIfReady({
+                const accepted = await dispatchCopyTradeIfReady({
                     chainId,
                     txHash,
                     targetWallet: trackedTarget,
@@ -1018,6 +1006,16 @@ async function processAlchemyWebhookPayload(payload: any): Promise<void> {
                     timing,
                     source: swapSource
                 });
+                await recordCopytradeIngressTrace({
+                    chainId,
+                    txHash,
+                    targetWallet: trackedTarget,
+                    eventType: accepted ? 'dispatch_enqueued' : 'dispatch_suppressed',
+                    source: swapSource,
+                    payload: {
+                        sourceTxFrom: sourceTxFrom || null,
+                    },
+                }).catch(() => undefined);
             }));
             if (swapsDetected > 0) {
                 await markTxAsProcessedDistributed(txHash, chainId);
@@ -1054,6 +1052,9 @@ async function processAlchemyWebhookPayload(payload: any): Promise<void> {
 export default async function webhookRoutes(fastify: FastifyInstance) {
     await ensureAlchemyWebhookInboxTable().catch((err) => {
         console.error('[Webhook] Failed to ensure webhook inbox table:', err);
+    });
+    await ensureCopytradeIngressTraceTable().catch((err) => {
+        console.error('[Webhook] Failed to ensure ingress trace table:', err);
     });
     const disableInboxWorker = (process.env.COPYTRADE_DISABLE_WEBHOOK_INBOX_WORKER || '').toLowerCase() === 'true';
     if (!disableInboxWorker) {
@@ -1177,7 +1178,7 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
                     source: 'pending_prefetch'
                 }).catch(() => { });
                 const pendingHint = await getPendingTxHint(chainId, txHashNormalized).catch(() => null);
-                await persistSwapContext({
+                await persistSwapExecutionContext({
                     chainId,
                     txHash: txHashNormalized,
                     txInput: predecoded.swap.sourceTxInput,
@@ -1342,7 +1343,7 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
                 source: 'internal_process_tx'
             }).catch(() => { });
             const pendingHint = await getPendingTxHint(chainId, txHashNormalized).catch(() => null);
-            await persistSwapContext({
+            await persistSwapExecutionContext({
                 chainId,
                 txHash: txHashNormalized,
                 txInput: swap.sourceTxInput,
@@ -1564,6 +1565,20 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
                 payload,
             });
             inboxEventId = queued.id;
+            await recordCopytradeIngressTrace({
+                chainId: NETWORK_TO_CHAIN_ID[String(rawNetwork || '').toUpperCase()] || 0,
+                txHash: String(sampleHash || 'unknown'),
+                eventType: 'alchemy_webhook_received',
+                source: 'alchemy_webhook',
+                payload: {
+                    inboxEventId,
+                    status: queued.status,
+                    payloadHash,
+                    network: rawNetwork,
+                    category: sampleCategory,
+                    asset: sampleAsset,
+                },
+            }).catch(() => undefined);
         } catch (err: any) {
             console.error(`[Webhook] Failed to enqueue Alchemy webhook event:`, err?.message || String(err));
         }

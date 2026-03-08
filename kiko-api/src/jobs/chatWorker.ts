@@ -5420,6 +5420,18 @@ Chain: ${chainName}${chainId ? ` (${chainId})` : ''}
             return /0x[a-fA-F0-9]{40}|[1-9A-HJ-NP-Za-km-z]{32,44}/.test(lastUser)
                 && parsedIntent?.highLevel?.type === 'MARKET_ANALYSIS';
         })();
+        const requiresRealtimeSocialSearch = (() => {
+            const lastUser = String(lastUserMessage?.content || '');
+            if (!lastUser) return false;
+            if (forceChainContextAnswer || EXECUTION_INTENTS.has(intent)) return false;
+            return /\b(trending|trend|latest|right now|currently|now|buzz|sentiment|what.*saying|what.*people|on\s+x|on\s+twitter)\b/i.test(lastUser);
+        })();
+        if (requiresRealtimeSocialSearch) {
+            grokMessages.splice(1, 0, {
+                role: 'system',
+                content: 'REALTIME SOCIAL SEARCH REQUIRED: This request is explicitly about current/trending/social activity. You have KiKo Grok SDK search capability available. You MUST use search evidence before answering. Do not give a trend summary from memory. If evidence is thin, say it is thin after searching.'
+            });
+        }
 
         const now = Date.now();
         const last7dIso = new Date(now - 7 * 24 * 60 * 60 * 1000).toISOString();

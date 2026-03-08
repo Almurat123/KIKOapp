@@ -43,6 +43,7 @@ import { initAutoTradeService, stopAutoTradeService } from './services/autoTrade
 import { tokenAlertService } from './services/tokenAlertService.js';
 import { startPositionMonitor } from './jobs/positionMonitorJob.js';
 import { startPositionExitIntentWorker, stopPositionExitIntentWorker } from './services/copytrade-v2/exit/positionExitIntentWorker.js';
+import { startEvmMissedTradeRecovery } from './services/copytrade-v2/ingress/evmMissedTradeRecovery.js';
 import { isPrivyConfigured } from './services/privyWallet.js';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
 import { rateLimiter } from './middleware/rateLimiter.js';
@@ -450,6 +451,13 @@ async function start() {
             logger.info(LogCode.SYS_STARTUP, 'Auto trade service started');
         } catch (autoTradeError: any) {
             logger.error(LogCode.SYS_ERROR, 'Auto trade service failed to start', { error: autoTradeError.message });
+        }
+
+        try {
+            startEvmMissedTradeRecovery();
+            logger.info(LogCode.SYS_STARTUP, 'EVM missed-trade recovery started');
+        } catch (recoveryError: any) {
+            logger.error(LogCode.SYS_ERROR, 'EVM missed-trade recovery failed to start', { error: recoveryError.message });
         }
 
         // Start position monitor (TP/SL checking)
