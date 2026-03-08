@@ -16,7 +16,9 @@ export interface UserContext {
     chainName?: string;
     isWalletConnected?: boolean;
     farcaster?: {
-        followsKiko?: boolean;
+        followsKiko?: boolean | null;
+        followStatus?: 'following' | 'not_following' | 'unknown';
+        checkedAt?: string | null;
         kikoHandle?: string;
         profileUrl?: string;
     };

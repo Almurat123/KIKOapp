@@ -22,16 +22,14 @@ import { chatWSClient, type ChatEvent } from '../../utils/chatWebSocket';
 import { clearActiveTask } from '../../utils/taskLifecycle';
 import type { Message } from '../../hooks/useConversations';
 import { useConversationContext } from '../../contexts/ConversationContext';
+import { useFarcasterContext } from '../../contexts/FarcasterContext';
 import { moderationService } from '../../services/moderation';
 import { logger } from '../../utils/logger';
-import { resolveCoreApiBase } from '../../utils/coreApiBase';
 import { getStoredSlippageBps } from '@/config/slippageConfig';
 import { ChatMessageList } from './ChatMessageList';
 import { ChatComposer } from './ChatComposer';
 import { ACTION_CARD_TYPE_MAP, COMMON_TOKENS, MODEL_OPTIONS } from './chatConstants';
 import { requiresContractAddressInFastMode, resolveNativeToken, resolveTokenForChat, resolveTokenForFastSwap } from './chatTokenResolution';
-
-const CORE_API_BASE_URL = resolveCoreApiBase();
 
 interface TaskState {
     id: string;
@@ -111,8 +109,9 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
         registerPendingLocalUserMessage,
     } = useConversationContext();
 
-    const { user, authenticated, ready, login, getAccessToken } = usePrivy();
+    const { user, authenticated, ready, login } = usePrivy();
     const { wallets } = useWallets();
+    const farcasterContext = useFarcasterContext();
     const { currentChain, switchChain } = useChain();
     const { strategies, refreshUserStrategies, deleteStrategy, toggleStrategyStatus, createStrategy } = useStrategies();
     const sidebar = useSidebar();
@@ -271,53 +270,6 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
     }, []);
 
     const disableChatTransitions = true;
-
-    // Sync Farcaster FID to backend
-    useEffect(() => {
-        const syncFarcasterProfile = async () => {
-            if (!user) return;
-
-            const farcasterAccount = user.linkedAccounts?.find(
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                (acc: any) => acc.type === 'farcaster' || (acc.type === 'wallet' && acc.chainType === 'farcaster')
-            );
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const fid = (farcasterAccount as any)?.fid || (user as any).farcaster?.fid;
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const username = (farcasterAccount as any)?.username || (user as any).farcaster?.username;
-
-            if (fid) {
-                try {
-                    // Check if we already synced (localStorage persists across sessions)
-                    const storageKey = `kiko-farcaster-synced-v2-${fid}`;
-                    if (localStorage.getItem(storageKey)) return;
-
-                    const authToken = await getAccessToken();
-                    const response = await fetch(`${CORE_API_BASE_URL}/api/users/farcaster`, {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'Authorization': `Bearer ${authToken}`
-                        },
-                        body: JSON.stringify({ fid, username })
-                    });
-
-                    if (response.ok) {
-                        await response.json(); // Consume body
-                        localStorage.setItem(storageKey, 'true'); // Persist across sessions
-                        logger.debug('[ChatInterface] Synced Farcaster profile:', { fid, username });
-                    } else {
-                        const errorText = await response.text();
-                        logger.warn('[ChatInterface] Failed to sync Farcaster profile:', { status: response.status, error: errorText });
-                    }
-                } catch (error) {
-                    logger.warn('[ChatInterface] Failed to sync Farcaster profile:', error);
-                }
-            }
-        };
-
-        syncFarcasterProfile();
-    }, [user]);
 
     // Load custom settings
     useEffect(() => {
@@ -1802,7 +1754,13 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                 nativeBalance,
                 currentPage: window.location.pathname,
                 pageContext: `${document.title || 'KiKo'} | ${window.location.pathname}`,
-                farcaster: null,
+                farcaster: {
+                    followsKiko: farcasterContext.followsKiko,
+                    followStatus: farcasterContext.followStatus,
+                    checkedAt: farcasterContext.checkedAt,
+                    kikoHandle: 'kikoapp',
+                    profileUrl: farcasterContext.profileUrl,
+                },
             };
             const resp = await chatApi.sendMessage(currentConvId, text, {
                 model: modelToUse.id,
@@ -1814,6 +1772,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                 currentPage: window.location.pathname,
                 pageContext: `${document.title || 'KiKo'} | ${window.location.pathname}`,
                 balance: userBalances,
+                farcaster: contextPayload.farcaster,
                 context: contextPayload,
                 signal: sendAbortController.signal,
             });

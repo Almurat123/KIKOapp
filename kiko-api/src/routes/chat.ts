@@ -28,7 +28,9 @@ interface SendMessageBody {
     walletAddress?: string;
     chainId?: number;
     farcaster?: {
-        followsKiko?: boolean;
+        followsKiko?: boolean | null;
+        followStatus?: 'following' | 'not_following' | 'unknown';
+        checkedAt?: string | null;
         kikoHandle?: string;
         profileUrl?: string;
     };
@@ -436,6 +438,18 @@ export async function chatRoutes(fastify: FastifyInstance) {
                     }
                 }
 
+                const mergedFarcasterContext = userRecord?.farcasterFid || farcaster
+                    ? {
+                        ...farcaster,
+                        kikoHandle: farcaster?.kikoHandle || 'kikoapp',
+                        profileUrl: farcaster?.profileUrl || (
+                            userRecord?.farcasterUsername
+                                ? `https://warpcast.com/${String(userRecord.farcasterUsername).replace(/^@/, '')}`
+                                : undefined
+                        ),
+                    }
+                    : null;
+
                 const task = await chatRepo.createTask(
                     sessionId,
                     taskModel,
@@ -446,7 +460,7 @@ export async function chatRoutes(fastify: FastifyInstance) {
                         sessionId, // Add sessionId to toolContext for backend execution
                         walletAddress: resolvedWalletAddress,
                         chainId,
-                        farcaster,
+                        farcaster: mergedFarcasterContext,
                         toolConfig,
                         allowanceMode,
                         balance: resolvedBalance,

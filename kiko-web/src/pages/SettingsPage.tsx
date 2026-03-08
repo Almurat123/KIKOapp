@@ -5,71 +5,27 @@ import { SessionSignerButton } from '../components/Wallet/SessionSignerButton';
 import { PolymarketAuthButton } from '../components/Wallet/PolymarketAuthButton';
 import { PageContainer } from '../components/Layout/PageContainer';
 import styles from './SettingsPage.module.css';
-import { resolveCoreApiBase } from '../utils/coreApiBase';
 import { useAgentMode } from '../contexts/AgentModeContext';
+import { useFarcasterContext } from '../contexts/FarcasterContext';
 import { agentAttrs } from '../agent/attrs';
-
-const CORE_API_BASE_URL = resolveCoreApiBase();
 
 // [Logic]: Extract community follow button logic.
 // [Ref]: Migrated from WalletSettingsModal.tsx:L16-L191.
 const FollowKikoButton: React.FC = () => {
-    const { user, getAccessToken } = usePrivy();
-    const [isFollowing, setIsFollowing] = React.useState(false);
-    const [loading, setLoading] = React.useState(true);
+    const { fid, followsKiko, followStatus, loading, refresh } = useFarcasterContext();
     const [hasClickedFollow, setHasClickedFollow] = React.useState(false);
 
     React.useEffect(() => {
-        const syncFarcasterProfile = async () => {
-            if (!user) return;
-            const farcasterAccount = user.linkedAccounts?.find(
-                (acc: any) => acc.type === 'farcaster' || (acc.type === 'wallet' && acc.chainType === 'farcaster')
-            );
-            const fid = (farcasterAccount as any)?.fid || (user as any).farcaster?.fid;
-            const username = (farcasterAccount as any)?.username || (user as any).farcaster?.username;
-
-            if (fid) {
-                try {
-                    const storageKey = `kiko-farcaster-synced-v2-${fid}`;
-                    if (localStorage.getItem(storageKey)) return;
-                    const authToken = await getAccessToken();
-                    const response = await fetch(`${CORE_API_BASE_URL}/api/users/farcaster`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${authToken}` },
-                        body: JSON.stringify({ fid, username })
-                    });
-                    if (response.ok) { localStorage.setItem(storageKey, 'true'); }
-                } catch (error) { console.warn('[SettingsPage] Sync failed', error); }
-            }
-        };
-        syncFarcasterProfile();
-    }, [user, getAccessToken]);
-
-    const checkFollowStatus = React.useCallback(async () => {
-        if (!user) { setLoading(false); return; }
-        const farcasterAccount = user.linkedAccounts?.find(
-            (acc: any) => acc.type === 'farcaster' || (acc.type === 'wallet' && acc.chainType === 'farcaster')
-        );
-        const fid = (farcasterAccount as any)?.fid || (user as any).farcaster?.fid;
-        if (!fid) { setIsFollowing(false); setLoading(false); return; }
-        if (localStorage.getItem('kiko-farcaster-follow-dismissed') === 'true') { setIsFollowing(true); setLoading(false); return; }
-
-        try {
-            const response = await fetch(`${CORE_API_BASE_URL}/api/social/is-following/${fid}`);
-            const data = await response.json();
-            if (data.success && data.data.isFollowing) {
-                setIsFollowing(true);
-                localStorage.setItem('kiko-farcaster-follow-dismissed', 'true');
-            } else { setIsFollowing(false); }
-        } catch (e) { console.warn('[SettingsPage] Follow check failed', e); }
-        setLoading(false);
-    }, [user]);
-
-    React.useEffect(() => { checkFollowStatus(); }, [checkFollowStatus]);
+        refresh({ force: true }).catch(() => undefined);
+    }, [refresh]);
 
     React.useEffect(() => {
         if (!hasClickedFollow) return;
-        const handleEvents = () => { if (document.visibilityState === 'visible') checkFollowStatus(); };
+        const handleEvents = () => {
+            if (document.visibilityState === 'visible') {
+                refresh({ force: true }).catch(() => undefined);
+            }
+        };
         document.addEventListener('visibilitychange', handleEvents);
         window.addEventListener('focus', handleEvents);
 
@@ -79,7 +35,7 @@ const FollowKikoButton: React.FC = () => {
                 clearInterval(pollInterval);
                 return;
             }
-            checkFollowStatus();
+            refresh({ force: true }).catch(() => undefined);
             attempts++;
         }, 3000);
 
@@ -88,16 +44,20 @@ const FollowKikoButton: React.FC = () => {
             window.removeEventListener('focus', handleEvents);
             clearInterval(pollInterval);
         };
-    }, [hasClickedFollow, checkFollowStatus]);
+    }, [hasClickedFollow, refresh]);
 
     const handleFollow = () => { setHasClickedFollow(true); window.open('https://warpcast.com/kikoapp', '_blank', 'noopener,noreferrer'); };
 
     if (loading) return null;
+    const isFollowing = followsKiko === true;
+    const canCheckFollow = Boolean(fid);
     return (
         <div className={styles.groupItem} {...agentAttrs({ id: 'settings.community.follow_card', role: 'card', page: 'settings' })}>
             <div className={styles.itemHeader}>
                 <span className={styles.itemTitle}>{isFollowing ? 'Community Status' : 'Join Community'}</span>
-                <p className={styles.itemDescription}>{isFollowing ? 'You are following @kikoapp' : 'Follow for real-time alerts'}</p>
+                <p className={styles.itemDescription}>
+                    {isFollowing ? 'You are following @kikoapp' : canCheckFollow && followStatus === 'unknown' ? 'Follow status unavailable right now' : 'Follow for real-time alerts'}
+                </p>
             </div>
             {isFollowing ? (
                 <button

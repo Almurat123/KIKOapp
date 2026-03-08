@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { ExternalLink, X, Check } from 'lucide-react';
 import styles from './FarcasterFollowModal.module.css';
 import { resolveCoreApiBase } from '../../utils/coreApiBase';
+import { useFarcasterContext } from '../../contexts/FarcasterContext';
 
 interface FarcasterProfile {
     fid: number;
@@ -29,9 +30,11 @@ interface FarcasterFollowModalProps {
 
 export const FarcasterFollowModal: React.FC<FarcasterFollowModalProps> = ({ onDismiss }) => {
     const API_BASE_URL = resolveCoreApiBase();
+    const { fid, followsKiko, refresh } = useFarcasterContext();
     const [profile, setProfile] = useState<FarcasterProfile>(DEFAULT_PROFILE);
     const [isVisible, setIsVisible] = useState(false);
     const [neverShowAgain, setNeverShowAgain] = useState(false);
+    const [hasOpenedFollow, setHasOpenedFollow] = useState(false);
 
     useEffect(() => {
         // Show the modal immediately with default profile
@@ -52,7 +55,31 @@ export const FarcasterFollowModal: React.FC<FarcasterFollowModalProps> = ({ onDi
             .finally(() => clearTimeout(timeout));
     }, []);
 
+    useEffect(() => {
+        if (followsKiko === true) {
+            onDismiss(true);
+        }
+    }, [followsKiko, onDismiss]);
+
+    useEffect(() => {
+        if (!hasOpenedFollow || !fid) return;
+
+        const recheck = () => {
+            if (document.visibilityState === 'visible') {
+                refresh({ force: true }).catch(() => undefined);
+            }
+        };
+
+        document.addEventListener('visibilitychange', recheck);
+        window.addEventListener('focus', recheck);
+        return () => {
+            document.removeEventListener('visibilitychange', recheck);
+            window.removeEventListener('focus', recheck);
+        };
+    }, [fid, hasOpenedFollow, refresh]);
+
     const handleFollowClick = () => {
+        setHasOpenedFollow(true);
         window.open('https://farcaster.xyz/kikoapp', '_blank', 'noopener,noreferrer');
     };
 

@@ -1,13 +1,14 @@
 import { useState, useEffect, useRef } from 'react';
 import { usePrivy, useFundWallet } from '@privy-io/react-auth';
 import type { WalletWithMetadata } from '@privy-io/react-auth';
-import { resolveCoreApiBase } from '../utils/coreApiBase';
 import { logger } from '../utils/logger';
+import { useFarcasterContext } from '../contexts/FarcasterContext';
 
 export type OnboardingStep = 'idle' | 'funding' | 'farcaster' | 'complete';
 
 export function useOnboardingFlow() {
     const { ready, authenticated, user } = usePrivy();
+    const { fid, followsKiko, followStatus, loading: farcasterLoading } = useFarcasterContext();
     const [step, setStep] = useState<OnboardingStep>('idle');
     const isEvaluatingRef = useRef(false);
 
@@ -76,7 +77,7 @@ export function useOnboardingFlow() {
         // It might take 1-2 seconds after login for `user.linkedAccounts` to contain the wallet.
         evaluateNextStep();
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [ready, authenticated, user]);
+    }, [ready, authenticated, user, fid, followsKiko, followStatus, farcasterLoading]);
 
     const evaluateNextStep = async () => {
         if (isEvaluatingRef.current) return;
@@ -129,29 +130,20 @@ export function useOnboardingFlow() {
             const permanentDismissedFarcaster = localStorage.getItem(farcasterPermanentKey) === 'true';
 
             if (!permanentDismissedFarcaster && !hasTriggeredFarcaster) {
-                const farcasterAccount = user?.linkedAccounts?.find(
-                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                    (acc: any) => acc.type === 'farcaster' || (acc.type === 'wallet' && acc.chainType === 'farcaster')
-                );
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                const fid = (farcasterAccount as any)?.fid || (user as any)?.farcaster?.fid;
-
                 if (fid) {
-                    try {
-                        const CORE_API_BASE_URL = resolveCoreApiBase();
-                        const response = await fetch(`${CORE_API_BASE_URL}/api/social/is-following/${fid}`);
-                        const data = await response.json();
-                        if (data.success && data.data.isFollowing) {
-                            localStorage.setItem(farcasterPermanentKey, 'true');
-                        } else {
-                            logger.log('[Onboarding] Triggering Farcaster Modal');
-                            setStep('farcaster');
-                            setHasTriggeredFarcaster(true);
-                            isEvaluatingRef.current = false;
-                            return;
-                        }
-                    } catch (e) {
-                        logger.warn('Failed to check Farcaster follow status:', e);
+                    if (farcasterLoading && followStatus === 'unknown' && followsKiko === null) {
+                        isEvaluatingRef.current = false;
+                        return;
+                    }
+
+                    if (followsKiko === true) {
+                        localStorage.setItem(farcasterPermanentKey, 'true');
+                    } else if (followStatus === 'not_following') {
+                        logger.log('[Onboarding] Triggering Farcaster Modal');
+                        setStep('farcaster');
+                        setHasTriggeredFarcaster(true);
+                        isEvaluatingRef.current = false;
+                        return;
                     }
                 } else {
                     // User has no Farcaster linked account, prompt them to follow

@@ -798,16 +798,14 @@ export async function getFarcasterProfile(username: string): Promise<any | null>
  */
 export async function checkUserFollowsKiko(fid: number): Promise<boolean> {
     try {
-        const { checkIsFollowing } = await import('../services/neynarService.js');
-
-        // 1. Get Kiko's FID
-        // We bypass getFarcasterProfile for standard operations to avoid extra DB hits
-        const kikoFid = 1576616;
-
-        // 2. Check if user follows Kiko
-        const isFollowing = await checkIsFollowing(fid, kikoFid);
-        logger.info(LogCode.SOC_FOLLOW_DETECTED, 'SocialRepo: Checked follow status', { fid, isFollowing });
-        return isFollowing;
+        const { resolveKikoFollowState } = await import('../services/farcasterRelationshipService.js');
+        const followState = await resolveKikoFollowState(fid);
+        logger.info(LogCode.SOC_FOLLOW_DETECTED, 'SocialRepo: Checked follow status', {
+            fid,
+            isFollowing: followState.followsKiko,
+            status: followState.status,
+        });
+        return followState.followsKiko === true;
     } catch (error: any) {
         logger.error(LogCode.SOC_FOLLOW_DETECTED, `SocialRepo: Error checking if FID ${fid} follows Kiko`, { error: error.message });
         return false;

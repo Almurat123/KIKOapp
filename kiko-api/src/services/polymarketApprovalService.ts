@@ -54,6 +54,35 @@ function getPolygonProvider(): ethers.JsonRpcProvider {
     return getEthersProvider(137);
 }
 
+async function estimateApprovalGas(params: {
+    walletAddress: string;
+    to: string;
+    data: string;
+    type: 'usdc' | 'ctf';
+}): Promise<string> {
+    const provider = getPolygonProvider();
+    try {
+        const estimate = await provider.estimateGas({
+            from: params.walletAddress,
+            to: params.to,
+            data: params.data,
+            value: 0n
+        });
+        // Add a 25% safety buffer to raw-signed Polygon approvals.
+        return ((estimate * 125n) / 100n).toString();
+    } catch (error: any) {
+        const fallbackGas = params.type === 'usdc' ? '120000' : '180000';
+        console.warn('[PolymarketApproval] Gas estimation failed, using fallback gas limit', {
+            type: params.type,
+            to: params.to,
+            walletAddress: params.walletAddress,
+            fallbackGas,
+            error: error?.message || String(error)
+        });
+        return fallbackGas;
+    }
+}
+
 /**
  * Check if user has approved USDC for the CTF Exchange
  */
@@ -238,9 +267,16 @@ export async function executeRequiredApprovals(params: {
     const provider = getPolygonProvider();
 
     for (const tx of approvals.transactions) {
+        const gas = await estimateApprovalGas({
+            walletAddress: creds.walletAddress,
+            to: tx.to,
+            data: tx.data,
+            type: tx.type
+        });
         const txHash = await sendTransaction(params.userId, params.accessToken || '', {
             to: tx.to,
             data: tx.data,
+            gas,
             chainId: tx.chainId,
             txPurpose: 'approval'
         });

@@ -7,6 +7,7 @@ import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import prisma from '../db/prisma.js';
 import { requireAuth } from '../middleware/auth.js';
 import { trackLogin } from '../services/userActivityService.js';
+import { getCachedKikoFollowState, resolveKikoFollowState } from '../services/farcasterRelationshipService.js';
 
 // Types
 interface UserSettingsBody {
@@ -217,6 +218,60 @@ export async function registerUserRoutes(app: FastifyInstance) {
                 };
             } catch (error: any) {
                 console.error('[Farcaster] Error syncing profile:', error);
+                return reply.status(500).send({ success: false, error: error.message });
+            }
+        }
+    );
+
+    /**
+     * GET /api/users/farcaster/context
+     * Return the authenticated user's normalized Farcaster context for global UI + chat use.
+     */
+    app.get<{ Querystring: { refresh?: string } }>(
+        '/api/users/farcaster/context',
+        { preHandler: requireAuth },
+        async (request: FastifyRequest<{ Querystring: { refresh?: string } }>, reply: FastifyReply) => {
+            try {
+                const userId = (request as any).user?.sub;
+                if (!userId) {
+                    return reply.status(401).send({ success: false, error: 'Unauthorized' });
+                }
+
+                const user = await prisma.user.findUnique({
+                    where: { privyDid: userId },
+                    select: {
+                        farcasterFid: true,
+                        farcasterUsername: true,
+                    }
+                });
+
+                if (!user) {
+                    return reply.status(404).send({ success: false, error: 'User not found' });
+                }
+
+                const fid = user.farcasterFid ?? null;
+                const shouldRefresh = request.query?.refresh === '1';
+                const followState = fid
+                    ? (shouldRefresh
+                        ? await resolveKikoFollowState(fid, { forceRefresh: true })
+                        : await getCachedKikoFollowState(fid))
+                    : null;
+                const username = user.farcasterUsername || null;
+
+                return {
+                    success: true,
+                    data: {
+                        fid,
+                        username,
+                        profileUrl: username ? `https://warpcast.com/${String(username).replace(/^@/, '')}` : null,
+                        kikoHandle: 'kikoapp',
+                        followsKiko: followState?.followsKiko ?? null,
+                        followStatus: followState?.status ?? 'unknown',
+                        checkedAt: followState?.checkedAt ?? null,
+                    }
+                };
+            } catch (error: any) {
+                console.error('[Farcaster] Error loading context:', error);
                 return reply.status(500).send({ success: false, error: error.message });
             }
         }

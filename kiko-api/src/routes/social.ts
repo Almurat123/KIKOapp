@@ -10,7 +10,7 @@
 
 import { FastifyInstance } from 'fastify';
 import { requireAuth } from '../middleware/auth.js';
-import { getTrendingCasts, getTrendingCastsWithCursor, searchCasts, hybridSearchCasts, getFarcasterProfile, checkUserFollowsKiko } from '../repositories/socialRepository.js';
+import { getTrendingCasts, getTrendingCastsWithCursor, searchCasts, hybridSearchCasts, getFarcasterProfile } from '../repositories/socialRepository.js';
 import { getQualityUsersStats } from '../repositories/qualityUsersRepository.js';
 import { env } from '../config/env.js';
 import snapchainService from '../services/snapchainService.js';
@@ -18,6 +18,7 @@ import { ogpService } from '../services/ogpService.js';
 import { handleDatabaseError, handleExternalApiError } from '../middleware/errorHandler.js';
 import prisma from '../db/prisma.js';
 import { getSocialDiscoveryJobStatus } from '../jobs/socialDataJob.js';
+import { resolveKikoFollowState } from '../services/farcasterRelationshipService.js';
 
 export async function socialRoutes(fastify: FastifyInstance) {
   // GET /api/social/trending
@@ -442,11 +443,16 @@ export async function socialRoutes(fastify: FastifyInstance) {
         return reply.status(400).send({ success: false, error: 'Invalid FID' });
       }
 
-      const isFollowing = await checkUserFollowsKiko(fidNum);
+      const followState = await resolveKikoFollowState(fidNum);
 
       return reply.send({
         success: true,
-        data: { isFollowing }
+        data: {
+          isFollowing: followState.followsKiko === true,
+          followsKiko: followState.followsKiko,
+          followStatus: followState.status,
+          checkedAt: followState.checkedAt
+        }
       });
     } catch (error) {
       throw handleDatabaseError(error as Error);
