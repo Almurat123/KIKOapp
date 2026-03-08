@@ -122,7 +122,9 @@ export function buildEvmExitPlanFromSnapshot(input: {
     && Boolean(snapshot.targetFullExitVerified)
     && !attribution.hasExternalBalance
     && attributedAmountRaw > 0n
-    && mirrorSoldRatioBps >= MIRROR_SELL_CLOSE_THRESHOLD_BPS;
+    && mirrorSoldRatioBps >= MIRROR_SELL_CLOSE_THRESHOLD_BPS
+    // 95% auto-close is only safe when the remainder is actually dust-like.
+    && (snapshot.treatAsEmptyOrDust || (snapshot.hasValidPrice && snapshot.balanceUsd < 0.1));
   const rawRatioBps = Number(snapshot.targetSellRatioBps || 0);
   const targetSellRatioBps = Number.isFinite(rawRatioBps)
     ? Math.max(0, Math.min(10_000, Math.floor(rawRatioBps)))

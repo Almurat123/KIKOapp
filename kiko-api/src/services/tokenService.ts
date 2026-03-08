@@ -254,7 +254,7 @@ async function fetchTokenInfoFromAPIs(
             const dexChainId = isSolana ? 'solana' : chainId;
             const timeoutMs = fastMode ? 500 : 900;
             dexValidatorPrice = await Promise.race([
-                getDexPriceDetailed(tokenAddress, dexChainId).then((res) => res.price),
+                getDexPriceDetailed(tokenAddress, dexChainId, { allowExternalMonitorFallback: true }).then((res) => res.price),
                 new Promise<number>((resolve) => setTimeout(() => resolve(0), timeoutMs))
             ]);
         } catch {
@@ -345,7 +345,7 @@ async function fetchTokenInfoFromAPIs(
         const dexChainId = isSolana ? 'solana' : chainId;
 
         const tryDex = async () => {
-            const dex = await getDexPriceDetailed(tokenAddress, dexChainId);
+            const dex = await getDexPriceDetailed(tokenAddress, dexChainId, { allowExternalMonitorFallback: true });
             return dex.price > 0 ? dex : null;
         };
 
@@ -363,7 +363,7 @@ async function fetchTokenInfoFromAPIs(
         } else {
             // Non-fast: give it a full attempt (no timeout race)
             try {
-                const dex = await getDexPriceDetailed(tokenAddress, dexChainId);
+                const dex = await getDexPriceDetailed(tokenAddress, dexChainId, { allowExternalMonitorFallback: true });
                 if (dex.price > 0) {
                     price = dex.price;
                     provider = dex.provider || (isSolana ? 'jupiter-dex' : '0x-dex');

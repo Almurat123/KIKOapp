@@ -229,6 +229,66 @@ describe('exit balance planner policy', () => {
     assert.equal(plan.closeReason, 'balance_dust');
   });
 
+  test('mirror sell does not 95pct-close when price is unavailable and remainder is not proven dust', () => {
+    const plan = buildEvmExitPlanFromSnapshot({
+      userId: 'user-1',
+      tokenAddress: '0xtoken',
+      chainId: 1,
+      exitReason: 'mirror_sell',
+      tokenInfo: { price: 0, symbol: 'TEST' },
+      universalSlippageBps: 500,
+      executionMode: 'turbo',
+      targetWallet: '0xtarget',
+      snapshot: {
+        tokenAddress: '0xtoken',
+        chainId: 1,
+        walletAddress: '0xwallet',
+        isMirrorSell: true,
+        hasValidPrice: false,
+        decimals: 18,
+        balanceRaw: 141365064282323364n,
+        balanceUsd: 0,
+        treatAsEmptyOrDust: false,
+        balanceRead: {
+          status: 'success',
+          value: 141365064282323364n,
+          reasonCode: 'EXIT_BALANCE_CONFIRMED_POSITIVE',
+          attemptCount: 1,
+          lastError: null,
+          providerSource: 'test',
+        },
+        positions: [{
+          id: 'pos-1',
+          tokenAddress: '0xtoken',
+          status: 'open',
+          entryTxHash: '0xbuy',
+        }],
+        pendingLots: [],
+        latestTargetSellTxHash: '0xsell',
+        targetFullExitVerified: true,
+        targetFullExitReasonCode: 'TARGET_FULL_EXIT_CONFIRMED',
+        attribution: {
+          eligiblePositions: [{
+            id: 'pos-1',
+            tokenAddress: '0xtoken',
+            status: 'open',
+            entryTxHash: '0xbuy',
+          }],
+          sellAmountRaw: 141365064282323364n,
+          reasonCode: 'PENDING_ATTRIBUTED_AMOUNT_CLAMPED_TO_ONCHAIN_BALANCE',
+          metrics: {
+            attributedAmountRaw: '2827301285646467280',
+          },
+          hasExternalBalance: false,
+        },
+      },
+    });
+
+    assert.equal(plan.kind, 'swap');
+    if (plan.kind !== 'swap') return;
+    assert.equal(plan.attributedBalance, 141365064282323363n);
+  });
+
   test('mirror sell defers dust close when fresh ownership evidence contradicts zero-like balance read', () => {
     const plan = buildEvmExitPlanFromSnapshot({
       userId: 'user-1',

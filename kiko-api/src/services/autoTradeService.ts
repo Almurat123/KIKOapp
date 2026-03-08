@@ -3419,12 +3419,13 @@ export async function executePositionExit(params: {
                     return null;
                 }
 
-                logger.throttled(LogCode.WTC_TX_SKIPPED, 'Negligible EVM balance, closing database records', {
+                logger.throttled(LogCode.WTC_TX_SKIPPED, 'No-swap exit close applied', {
                     userId,
                     tokenAddress,
                     balanceUsd: exitPlan.balanceUsd,
                     reason: exitReason,
-                    isMirrorSell: exitPlan.isMirrorSell
+                    isMirrorSell: exitPlan.isMirrorSell,
+                    closeReason: exitPlan.closeReason
                 });
                 await reconcileNoopExitPosition({
                     positions: exitPlan.positions as any,
@@ -4061,7 +4062,10 @@ export async function checkPositionsForExits(): Promise<void> {
             try {
                 // Primary: DEX aggregator price (0x for EVM, Jupiter for Solana)
                 const dexChainId = chainId === 900 ? 'solana' : chainId;
-                const dexPriceResult = await getDexPriceDetailed(address, dexChainId, { lane: 'critical' });
+                const dexPriceResult = await getDexPriceDetailed(address, dexChainId, {
+                    lane: 'critical',
+                    allowExternalMonitorFallback: true
+                });
                 const dexPrice = dexPriceResult.price;
 
                 if (dexPrice > 0) {

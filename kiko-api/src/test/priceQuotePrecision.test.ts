@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {
   computeUsdPriceFromRawQuote,
   resolveAdaptivePriceSampleSellAmountRaw,
+  resolveBootstrapPriceSampleSellAmountsRaw,
 } from '../services/zeroEx.js';
 
 describe('price quote precision helpers', () => {
@@ -58,5 +59,15 @@ describe('price quote precision helpers', () => {
 
     assert.equal(adaptive.resampled, false);
     assert.equal(adaptive.multiplier, 1n);
+  });
+
+  test('widens bootstrap sell samples for micro-price token price discovery', () => {
+    const samples = resolveBootstrapPriceSampleSellAmountsRaw('1000000000'); // 1 token @ 9 decimals
+    assert.deepEqual(samples, [
+      '1000000000',
+      '1000000000000',
+      '1000000000000000',
+      '1000000000000000000',
+    ]);
   });
 });

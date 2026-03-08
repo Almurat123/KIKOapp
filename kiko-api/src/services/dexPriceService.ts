@@ -50,6 +50,11 @@ export interface DexPriceResult {
     provider: string;
 }
 
+type DexPriceOptions = {
+    lane?: RpcExecutionLane;
+    allowExternalMonitorFallback?: boolean;
+};
+
 // 价格缓存 (30秒有效期)
 const priceCache = new Map<string, { price: number; provider: string; timestamp: number }>();
 const CACHE_TTL_MS = 30_000;
@@ -68,7 +73,7 @@ type PriceFailureEntry = { kind: 'failure'; provider: string };
 export async function getDexPrice(
     tokenAddress: string,
     chainId: number | 'solana',
-    options: { lane?: RpcExecutionLane } = {}
+    options: DexPriceOptions = {}
 ): Promise<number> {
     const result = await getDexPriceDetailed(tokenAddress, chainId, options);
     return result.price;
@@ -77,7 +82,7 @@ export async function getDexPrice(
 export async function getDexPriceDetailed(
     tokenAddress: string,
     chainId: number | 'solana',
-    options: { lane?: RpcExecutionLane } = {}
+    options: DexPriceOptions = {}
 ): Promise<DexPriceResult> {
     const cacheKey = `${chainId}:${tokenAddress.toLowerCase()}`;
     const lane = options.lane || 'cheap';
@@ -111,6 +116,11 @@ export async function getDexPriceDetailed(
                 const result = await getEvmPriceUsd(tokenAddress, chainId, lane);
                 price = result.price;
                 provider = result.provider;
+                if (!(Number.isFinite(price) && price > 0) && options.allowExternalMonitorFallback) {
+                    const external = await getEvmExternalMonitorPriceUsd(tokenAddress, chainId);
+                    price = external.price;
+                    provider = external.provider;
+                }
             }
 
             if (Number.isFinite(price) && price > 0) {
@@ -231,6 +241,93 @@ async function getEvmPriceUsd(tokenAddress: string, chainId: number, lane: RpcEx
     });
 
     return { price, provider: '0x-dex' };
+}
+
+const DEX_SCREENER_CHAIN_IDS: Record<number, string> = {
+    1: 'ethereum',
+    10: 'optimism',
+    56: 'bsc',
+    137: 'polygon',
+    8453: 'base',
+    42161: 'arbitrum',
+};
+
+const GECKO_TERMINAL_NETWORK_IDS: Record<number, string> = {
+    1: 'eth',
+    10: 'optimism',
+    56: 'bsc',
+    137: 'polygon_pos',
+    8453: 'base',
+    42161: 'arbitrum',
+};
+
+export function resolveDexScreenerUsdPrice(payload: any, chainId: number): number {
+    const targetChain = DEX_SCREENER_CHAIN_IDS[chainId];
+    if (!targetChain) return 0;
+    const pairs = Array.isArray(payload?.pairs) ? payload.pairs : [];
+    const matchingPairs = pairs.filter((pair: any) => String(pair?.chainId || '').toLowerCase() === targetChain);
+    const rankedPairs = matchingPairs.sort((a: any, b: any) => {
+        const aLiquidity = Number(a?.liquidity?.usd || 0);
+        const bLiquidity = Number(b?.liquidity?.usd || 0);
+        return bLiquidity - aLiquidity;
+    });
+    for (const pair of rankedPairs) {
+        const price = Number(pair?.priceUsd || 0);
+        if (Number.isFinite(price) && price > 0) return price;
+    }
+    return 0;
+}
+
+export function resolveGeckoTerminalUsdPrice(payload: any): number {
+    const price = Number(payload?.data?.attributes?.price_usd || 0);
+    return Number.isFinite(price) && price > 0 ? price : 0;
+}
+
+async function getEvmExternalMonitorPriceUsd(tokenAddress: string, chainId: number): Promise<DexPriceResult> {
+    const dexScreenerUrl = `https://api.dexscreener.com/latest/dex/tokens/${tokenAddress}`;
+    const geckoNetwork = GECKO_TERMINAL_NETWORK_IDS[chainId];
+    const geckoUrl = geckoNetwork
+        ? `https://api.geckoterminal.com/api/v2/networks/${geckoNetwork}/tokens/${tokenAddress}`
+        : null;
+
+    try {
+        const dexResp = await fetch(dexScreenerUrl, {
+            headers: { Accept: 'application/json' },
+            signal: AbortSignal.timeout(3000),
+        });
+        if (dexResp.ok) {
+            const dexPayload = await dexResp.json();
+            const dexPrice = resolveDexScreenerUsdPrice(dexPayload, chainId);
+            if (dexPrice > 0) return { price: dexPrice, provider: 'dexscreener-monitor' };
+        }
+    } catch (error: any) {
+        logger.debug(LogCode.API_FETCH_FAILED, 'DexScreener monitor price fallback failed', {
+            token: tokenAddress.slice(0, 10),
+            chainId,
+            error: error?.message,
+        });
+    }
+
+    if (!geckoUrl) return { price: 0, provider: 'unavailable' };
+    try {
+        const geckoResp = await fetch(geckoUrl, {
+            headers: { Accept: 'application/json' },
+            signal: AbortSignal.timeout(3000),
+        });
+        if (geckoResp.ok) {
+            const geckoPayload = await geckoResp.json();
+            const geckoPrice = resolveGeckoTerminalUsdPrice(geckoPayload);
+            if (geckoPrice > 0) return { price: geckoPrice, provider: 'geckoterminal-monitor' };
+        }
+    } catch (error: any) {
+        logger.debug(LogCode.API_FETCH_FAILED, 'GeckoTerminal monitor price fallback failed', {
+            token: tokenAddress.slice(0, 10),
+            chainId,
+            error: error?.message,
+        });
+    }
+
+    return { price: 0, provider: 'unavailable' };
 }
 
 async function getEvmPriceUsdFromKyber(tokenAddress: string, chainId: number, usdcAddress: string, lane: RpcExecutionLane): Promise<number> {

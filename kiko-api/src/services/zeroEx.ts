@@ -20,6 +20,7 @@ const ZEROX_BASE_URL = 'https://api.0x.org';
 const ZEROX_API_KEY = env.apiKeys.zeroEx || '';
 const PRICE_QUOTE_MIN_USDC_RAW = 100000n; // 0.1 USDC (6 decimals)
 const PRICE_QUOTE_MAX_MULTIPLIER = 1_000_000n;
+const PRICE_BOOTSTRAP_SAMPLE_MULTIPLIERS = [1n, 1_000n, 1_000_000n, 1_000_000_000n];
 
 // Chain ID mapping for 0x API (verified supported chains only)
 // Based on: https://0x.org/docs/introduction/0x-cheat-sheet#-chain-support
@@ -1085,6 +1086,21 @@ export function resolveAdaptivePriceSampleSellAmountRaw(params: {
   };
 }
 
+export function resolveBootstrapPriceSampleSellAmountsRaw(baseSellAmountRaw: string): string[] {
+  const baseSell = parsePositiveBigInt(baseSellAmountRaw);
+  if (baseSell <= 0n) return ['0'];
+
+  const samples: string[] = [];
+  const seen = new Set<string>();
+  for (const multiplier of PRICE_BOOTSTRAP_SAMPLE_MULTIPLIERS) {
+    const candidate = (baseSell * multiplier).toString();
+    if (seen.has(candidate)) continue;
+    seen.add(candidate);
+    samples.push(candidate);
+  }
+  return samples;
+}
+
 export function computeUsdPriceFromRawQuote(params: {
   sellAmountRaw: string;
   buyAmountRaw: string;
@@ -1195,15 +1211,21 @@ export async function getTokenPriceUSD(
     const usdcMetadata = await getZeroExTokenMetadata(usdcAddress, chainId, options);
     const usdcDecimals = usdcMetadata?.decimals || 6;
 
-    // First quote with 1 token (decimals-aware)
+    // First quote with 1 token (decimals-aware). For micro-cap / low-price tokens,
+    // progressively widen the sample because 0x can return no-liquidity for tiny probes.
     const oneToken = toWei('1', tokenDecimals);
     let sellAmountForPrice = oneToken;
-    let price = await getZeroExPrice(
-      actualTokenAddress,
-      usdcAddress,
-      sellAmountForPrice,
-      chainId
-    );
+    let price = null;
+    for (const candidateSellAmount of resolveBootstrapPriceSampleSellAmountsRaw(oneToken)) {
+      sellAmountForPrice = candidateSellAmount;
+      price = await getZeroExPrice(
+        actualTokenAddress,
+        usdcAddress,
+        sellAmountForPrice,
+        chainId
+      );
+      if (price?.buyAmount) break;
+    }
 
     if (!price || !price.buyAmount) {
       return null;
