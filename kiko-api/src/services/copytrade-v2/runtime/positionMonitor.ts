@@ -810,7 +810,7 @@ export async function checkPositionsForExits(): Promise<void> {
             try {
                 // Primary: DEX aggregator price (0x for EVM, Jupiter for Solana)
                 const dexChainId = chainId === 900 ? 'solana' : chainId;
-                const dexPriceResult = await getDexPriceDetailed(address, dexChainId);
+                const dexPriceResult = await getDexPriceDetailed(address, dexChainId, { lane: 'critical' });
                 const dexPrice = dexPriceResult.price;
 
                 if (dexPrice > 0) {
@@ -866,7 +866,7 @@ export async function checkPositionsForExits(): Promise<void> {
                         }
                     } else {
                         // EVM Balance Check
-                        balance = await getErc20Balance(position.tokenAddress, position.user.walletAddress, position.chainId);
+                        balance = await getErc20Balance(position.tokenAddress, position.user.walletAddress, position.chainId, 'latest', { lane: 'critical' });
                         isBalanceCheckSuccess = true;
                     }
 
@@ -926,7 +926,7 @@ export async function checkPositionsForExits(): Promise<void> {
                 if (!tokenInfo && position.chainId === 900) {
                     // Solana-specific live retry to reduce false TP/SL skips when batch pricing is transiently unavailable.
                     try {
-                        const live = await getDexPriceDetailed(position.tokenAddress, 'solana');
+                        const live = await getDexPriceDetailed(position.tokenAddress, 'solana', { lane: 'critical' });
                         if (live.price > 0) {
                             tokenInfo = {
                                 price: live.price,

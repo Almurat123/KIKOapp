@@ -2,6 +2,7 @@ import { ethers } from 'ethers';
 import {
   resolveAttributedPositionExitAmount,
   type AttributedPositionLike,
+  isConfirmedAttributedPosition,
   type PositionAttributionReasonCode,
 } from '../positions/positionAttribution.js';
 import type { PendingAttributedPositionLotLike } from '../positions/pendingAttributedPositionLedger.js';
@@ -48,10 +49,12 @@ export function resolveMirrorSellAttributedAmount<T extends AttributedPositionLi
 }): MirrorSellAttributionResult<T> {
   const openPositions = params.positions.filter((position) => String(position.status || '') === 'open');
   const pendingPositions = params.positions.filter((position) => String(position.status || '') !== 'open');
+  const recoverablePendingPositions = pendingPositions.filter((position) => isConfirmedAttributedPosition(position));
   const baseAttribution = resolveAttributedPositionExitAmount({
     positions: params.positions,
     decimals: params.decimals,
     onChainBalanceRaw: params.onChainBalanceRaw,
+    allowFullBalanceFallback: params.onChainBalanceRaw > 0n && recoverablePendingPositions.length > 0,
   });
   const attributedPositionIds = new Set(baseAttribution.eligiblePositions.map((position) => position.id));
 
@@ -72,7 +75,10 @@ export function resolveMirrorSellAttributedAmount<T extends AttributedPositionLi
     pendingAttributedPositionIds.push(position.id);
   }
 
-  const attributedAmountRaw = baseAttribution.attributedAmountRaw + pendingAttributedAmountRaw;
+  const fullBalanceFallbackApplied = baseAttribution.reasonCode === 'FULL_BALANCE_FALLBACK' && baseAttribution.sellAmountRaw > 0n;
+  const attributedAmountRaw = fullBalanceFallbackApplied
+    ? params.onChainBalanceRaw
+    : baseAttribution.attributedAmountRaw + pendingAttributedAmountRaw;
   if (attributedAmountRaw <= 0n) {
     return {
       eligiblePositions: baseAttribution.eligiblePositions as T[],
@@ -113,15 +119,21 @@ export function resolveMirrorSellAttributedAmount<T extends AttributedPositionLi
     };
   }
 
-  const sellAmountRaw = params.onChainBalanceRaw < attributedAmountRaw
+  const sellAmountRaw = fullBalanceFallbackApplied
     ? params.onChainBalanceRaw
-    : attributedAmountRaw;
-  const hasExternalBalance = params.onChainBalanceRaw > attributedAmountRaw && attributedAmountRaw > 0n;
-  const reasonCode: PositionAttributionReasonCode = params.onChainBalanceRaw < attributedAmountRaw
-    ? 'PENDING_ATTRIBUTED_AMOUNT_CLAMPED_TO_ONCHAIN_BALANCE'
-    : pendingAttributedAmountRaw > 0n
-      ? 'PENDING_ATTRIBUTED_AMOUNT_RESOLVED'
-      : baseAttribution.reasonCode;
+    : params.onChainBalanceRaw < attributedAmountRaw
+      ? params.onChainBalanceRaw
+      : attributedAmountRaw;
+  const hasExternalBalance = fullBalanceFallbackApplied
+    ? false
+    : params.onChainBalanceRaw > attributedAmountRaw && attributedAmountRaw > 0n;
+  const reasonCode: PositionAttributionReasonCode = fullBalanceFallbackApplied
+    ? 'FULL_BALANCE_FALLBACK'
+    : params.onChainBalanceRaw < attributedAmountRaw
+      ? 'PENDING_ATTRIBUTED_AMOUNT_CLAMPED_TO_ONCHAIN_BALANCE'
+      : pendingAttributedAmountRaw > 0n
+        ? 'PENDING_ATTRIBUTED_AMOUNT_RESOLVED'
+        : baseAttribution.reasonCode;
 
   return {
     eligiblePositions: [...(baseAttribution.eligiblePositions as T[]), ...pendingEligible],

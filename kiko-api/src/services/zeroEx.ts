@@ -13,6 +13,7 @@ import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
 import { fetchJson } from '../config/unifiedApiService.js';
 import { callRpc } from './rpcManager.js';
+import type { RpcExecutionLane } from './rpc/executionLane.js';
 import { Decimal } from 'decimal.js';
 
 const ZEROX_BASE_URL = 'https://api.0x.org';
@@ -894,7 +895,8 @@ export async function getZeroExQuote(
  */
 export async function fetchTokenDecimalsFromRPC(
   tokenAddress: string,
-  chainId: number
+  chainId: number,
+  options: { lane?: RpcExecutionLane } = {}
 ): Promise<number> {
   // Default to 18 if RPC call fails
   const DEFAULT_DECIMALS = 18;
@@ -904,7 +906,7 @@ export async function fetchTokenDecimalsFromRPC(
     const result = await callRpc<string>(chainId, 'eth_call', [
       { to: tokenAddress, data: '0x313ce567' },
       'latest'
-    ]);
+    ], { lane: options.lane });
 
     if (result && result !== '0x') {
       const decimals = parseInt(result, 16);
@@ -934,7 +936,8 @@ const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
  */
 export async function getZeroExTokenMetadata(
   tokenAddress: string,
-  chainId: number
+  chainId: number,
+  _options: { lane?: RpcExecutionLane } = {}
 ): Promise<ZeroExTokenMetadata | null> {
   const cacheKey = `${chainId}:${tokenAddress.toLowerCase()}`;
 
@@ -1138,7 +1141,8 @@ export function getNativeTokenAddress(chainId: number): string | undefined {
  */
 export async function getTokenPriceUSD(
   tokenAddress: string,
-  chainId: number
+  chainId: number,
+  options: { lane?: RpcExecutionLane } = {}
 ): Promise<number | null> {
   try {
     // Use USDC as reference (most chains have USDC)
@@ -1184,11 +1188,11 @@ export async function getTokenPriceUSD(
     }
 
     // Get token metadata to determine decimals
-    const tokenMetadata = await getZeroExTokenMetadata(actualTokenAddress, chainId);
+    const tokenMetadata = await getZeroExTokenMetadata(actualTokenAddress, chainId, options);
     const tokenDecimals = tokenMetadata?.decimals || 18;
 
     // Get USDC metadata to determine its decimals
-    const usdcMetadata = await getZeroExTokenMetadata(usdcAddress, chainId);
+    const usdcMetadata = await getZeroExTokenMetadata(usdcAddress, chainId, options);
     const usdcDecimals = usdcMetadata?.decimals || 6;
 
     // First quote with 1 token (decimals-aware)

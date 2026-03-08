@@ -68,7 +68,6 @@ import {
 } from './copytrade-v2/guards/targetValueGuard.js';
 import { emitCopyTradeBuyGuardAudit, roundGuardNumber } from './copytrade-v2/guards/guardAudit.js';
 import { emitCopytradeDomainAudit } from './copytrade-v2/audit/copytradeDomainAudit.js';
-import { resolveBuyLiquidityGuardSnapshot } from './copytrade-v2/guards/liquidityGuard.js';
 import { buildDuplicateTradeWhere, describeCooldownMode } from './copytrade-v2/guards/cooldownPolicy.js';
 import { evaluateStaticBuyGuards } from './copytrade-v2/guards/evaluator.js';
 import { emitBatchFilterAudit } from './copytrade-v2/guards/batchFilterAudit.js';
@@ -79,6 +78,14 @@ import { executeEvmCopytradeBuySubmissionFlow } from './copytrade-v2/buy/evmBuyS
 import { persistCopytradeBuySubmission } from './copytrade-v2/buy/buyPersistenceFlow.js';
 import { runPostBuyAiFlow } from './copytrade-v2/buy/postBuyAiFlow.js';
 import { shouldSkipCopyTradeLocalReferenceQuote } from './copytrade-v2/buy/turboReferenceGate.js';
+import {
+    resolveCopyTradePriceGuardOracleInput,
+} from './copytrade-v2/buy/directGuardPolicy.js';
+import {
+    buildGuardedTokenInfoForConfigs,
+    partitionConfigsByBuyGuardBucket,
+} from './copytrade-v2/buy/guardedTokenInfo.js';
+import { shouldTerminalFailStalePendingPosition } from './copytrade-v2/buy/pendingProtectionPolicy.js';
 import { applyBuyConfirmationTransition } from './copytrade-v2/buy/buyConfirmationTransition.js';
 import { scheduleCopytradeBuyConfirmationFlow } from './copytrade-v2/buy/buyConfirmationCoordinator.js';
 import { cleanupPendingCopytradePosition } from './copytrade-v2/buy/pendingLifecycle.js';
@@ -1149,7 +1156,11 @@ async function processBuyWithInfo(
     tokenInfoCache?: Map<string, Promise<any>>,
     sharedWarmup?: Awaited<ReturnType<typeof getCopytradeBuySharedWarmup>>,
     timing?: CopyTradeTimingSnapshot,
-    detectedAt?: number
+    detectedAt?: number,
+    internalOptions?: {
+        skipLeaderTradeStats?: boolean;
+        guardBucket?: 'safe' | 'direct';
+    }
 ) {
     const PROFILE = process.env.COPYTRADE_PROFILE ? process.env.COPYTRADE_PROFILE === 'true' : true;
     const tStart = Date.now();
@@ -1160,22 +1171,52 @@ async function processBuyWithInfo(
     let strictTargetSwapValueReliable = targetValueSnapshot.strictTargetSwapValueReliable;
     let strictTargetSwapValueSource = targetValueSnapshot.strictTargetSwapValueSource;
     const strictMinGuardRequired = targetValueSnapshot.strictMinGuardRequired;
-    const stopAtLiquidityUsd = configs.reduce((max, config) => {
-        const next = Number(config?.minLiquidityUsd || 0);
-        return Number.isFinite(next) && next > max ? next : max;
-    }, 0);
-    const liquidityGuardSnapshot = await resolveBuyLiquidityGuardSnapshot(tokenToBuy, chainId, tokenInfo, {
-        swap,
-        stopAtLiquidityUsd,
-    });
-    tokenInfo.guardLiquidityUsd = liquidityGuardSnapshot.liquidityUsd;
-    tokenInfo.guardLiquiditySource = liquidityGuardSnapshot.source;
-    tokenInfo.guardLiquidityReliable = liquidityGuardSnapshot.reliable;
-    tokenInfo.guardLiquidityPoolCount = liquidityGuardSnapshot.poolCount;
-    tokenInfo.guardLiquidityMeta = liquidityGuardSnapshot.metadata || null;
-    if (liquidityGuardSnapshot.liquidityUsd > 0) {
-        tokenInfo.liquidity = liquidityGuardSnapshot.liquidityUsd;
+    if (!internalOptions?.guardBucket) {
+        const guardBucketGroups = partitionConfigsByBuyGuardBucket(configs, resolveExecutionModeForConfig);
+        if (guardBucketGroups.size > 1) {
+            logger.info(LogCode.EXE_QUOTE_FETCHED, '[CopyTrade] Splitting mixed-mode buy fanout by guard bucket', {
+                token: tokenToBuy,
+                chainId,
+                safeCount: guardBucketGroups.get('safe')?.length || 0,
+                directCount: guardBucketGroups.get('direct')?.length || 0,
+            });
+            recordNewTrade(targetWallet, chainId, 'buy', targetSwapValueUsd);
+            for (const bucket of ['safe', 'direct'] as const) {
+                const bucketConfigs = guardBucketGroups.get(bucket);
+                if (!bucketConfigs || bucketConfigs.length === 0) continue;
+                await processBuyWithInfo(
+                    targetWallet,
+                    tokenToBuy,
+                    swap,
+                    chainId,
+                    bucketConfigs,
+                    { ...tokenInfo },
+                    isFallbackMode,
+                    launchpadPromise,
+                    tokenInfoCache,
+                    sharedWarmup,
+                    timing,
+                    detectedAt,
+                    {
+                        skipLeaderTradeStats: true,
+                        guardBucket: bucket,
+                    }
+                );
+            }
+            return;
+        }
     }
+
+    const guardedTokenInfo = await buildGuardedTokenInfoForConfigs({
+        tokenToBuy,
+        chainId,
+        swap,
+        tokenInfo,
+        configs,
+        resolveExecutionMode: resolveExecutionModeForConfig,
+    });
+    tokenInfo = guardedTokenInfo.tokenInfo;
+    const liquidityGuardSnapshot = guardedTokenInfo.liquidityGuardSnapshot;
 
     logger.debug(LogCode.EXE_QUOTE_FETCHED, 'Processing configurations for buy', {
         count: configs.length,
@@ -1322,7 +1363,9 @@ async function processBuyWithInfo(
 
     // Record Leader Trade Stats (Buy)
     // We record it once for the leader, regardless of how many users copy it
-    recordNewTrade(targetWallet, chainId, 'buy', targetSwapValueUsd);
+    if (!internalOptions?.skipLeaderTradeStats) {
+        recordNewTrade(targetWallet, chainId, 'buy', targetSwapValueUsd);
+    }
 
     // TURBO FAST LANE:
     // Skip batch analytics/caching/delays and execute immediately for all-turbo configs.
@@ -2048,16 +2091,23 @@ async function processSingleUserBuy(
                             localQuoteProvider = 'turbo_reference_quote_skipped';
                         }
 
+                        const priceGuardOracleInput = resolveCopyTradePriceGuardOracleInput({
+                            executionMode,
+                            localQuotePriceUsd,
+                            localQuoteProvider,
+                            tokenInfo,
+                        });
+
                         const priceDeviationGuard = evaluateBuyPriceDeviationGuard({
                             chainId,
-                            oraclePrice: localQuotePriceUsd > 0 ? localQuotePriceUsd : Number(tokenInfo.price || 0),
-                            oraclePriceSource,
-                            oracleProvider: localQuotePriceUsd > 0 ? localQuoteProvider : tokenInfo.provider,
-                            oracleDexName: tokenInfo.rpcDexName,
-                            oracleValidationReason: tokenInfo.priceValidationReason,
-                            referencePrice: tokenInfo.referencePrice,
-                            referenceProvider: tokenInfo.referenceProvider,
-                            oracleFallbackUsed: Boolean(tokenInfo.priceFallbackUsed),
+                            oraclePrice: priceGuardOracleInput.oraclePrice,
+                            oraclePriceSource: priceGuardOracleInput.oraclePriceSource || oraclePriceSource,
+                            oracleProvider: priceGuardOracleInput.oracleProvider,
+                            oracleDexName: priceGuardOracleInput.oracleDexName,
+                            oracleValidationReason: priceGuardOracleInput.oracleValidationReason,
+                            referencePrice: priceGuardOracleInput.referencePrice,
+                            referenceProvider: priceGuardOracleInput.referenceProvider,
+                            oracleFallbackUsed: Boolean(priceGuardOracleInput.oracleFallbackUsed),
                             estimatedOut,
                             targetSwapValueUsd,
                             strictTargetSwapValueUsd,
@@ -3786,17 +3836,37 @@ export async function stopAutoTradeService(): Promise<void> {
 async function cleanupPendingPositions() {
     try {
         const positionStatusCompat = await getPositionStatusCompat();
-        const result = await prisma.position.updateMany({
+        const stalePendingPositions = await prisma.position.findMany({
             where: {
                 status: { in: positionStatusCompat.lockStatuses as any },
                 createdAt: { lt: new Date(Date.now() - 5 * 60 * 1000) } // Older than 5 mins
             },
-            data: {
-                status: positionStatusCompat.failedFinalStatus as any,
-                exitReason: 'pending_timeout',
-                closedAt: new Date()
+            select: {
+                id: true,
+                entryTxHash: true,
             }
         });
+        const terminalizableIds = stalePendingPositions
+            .filter((position) => shouldTerminalFailStalePendingPosition(position.entryTxHash))
+            .map((position) => position.id);
+        const protectedCount = stalePendingPositions.length - terminalizableIds.length;
+        const result = terminalizableIds.length > 0
+            ? await prisma.position.updateMany({
+                where: {
+                    id: { in: terminalizableIds }
+                },
+                data: {
+                    status: positionStatusCompat.failedFinalStatus as any,
+                    exitReason: 'pending_timeout',
+                    closedAt: new Date()
+                }
+            })
+            : { count: 0 };
+        if (protectedCount > 0) {
+            logger.warn(LogCode.SYS_INFO, 'Protected recoverable pending positions from stale terminal cleanup', {
+                protectedCount
+            });
+        }
         if (result.count > 0) {
             logger.info(LogCode.SYS_INFO, `Marked ${result.count} stale pending positions as terminal failed`);
         }
@@ -3928,7 +3998,7 @@ export async function checkPositionsForExits(): Promise<void> {
             try {
                 // Primary: DEX aggregator price (0x for EVM, Jupiter for Solana)
                 const dexChainId = chainId === 900 ? 'solana' : chainId;
-                const dexPriceResult = await getDexPriceDetailed(address, dexChainId);
+                const dexPriceResult = await getDexPriceDetailed(address, dexChainId, { lane: 'critical' });
                 const dexPrice = dexPriceResult.price;
 
                 if (dexPrice > 0) {
@@ -3984,7 +4054,7 @@ export async function checkPositionsForExits(): Promise<void> {
                         }
                     } else {
                         // EVM Balance Check
-                        balance = await getErc20Balance(position.tokenAddress, position.user.walletAddress, position.chainId);
+                        balance = await getErc20Balance(position.tokenAddress, position.user.walletAddress, position.chainId, 'latest', { lane: 'critical' });
                         isBalanceCheckSuccess = true;
                     }
 

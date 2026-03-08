@@ -131,7 +131,7 @@ export async function buildEvmExitAttributionSnapshot(input: {
   const hasValidPrice = Number.isFinite(input.tokenInfo?.price) && Number(input.tokenInfo.price) > 0;
   const isMirrorSell = input.exitReason === 'mirror_sell';
   const dec = resolveSnapshotDecimalsCandidate(input)
-    ?? await getErc20Decimals(input.tokenAddress, input.chainId).catch(() => 18);
+    ?? await getErc20Decimals(input.tokenAddress, input.chainId, 'latest', { lane: 'critical' }).catch(() => 18);
   // Execution amount always comes from follower wallet; target wallet is used as a sell-signal verifier.
   const balanceRead = await readExitBalanceOracle({
     tokenAddress: input.tokenAddress,

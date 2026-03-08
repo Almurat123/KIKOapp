@@ -245,7 +245,7 @@ export async function preheatSellApprovalForToken(params: SellApprovalPreheatPar
   try {
     const decimals = typeof params.tokenDecimals === 'number'
       ? params.tokenDecimals
-      : await getErc20Decimals(tokenAddress, params.chainId).catch(() => 18);
+      : await getErc20Decimals(tokenAddress, params.chainId, 'latest', { lane: 'critical' }).catch(() => 18);
 
     const probeAmountBase = buildProbeAmountBase(decimals, params.tokenPriceUsd);
     if (probeAmountBase <= 0n) return;
@@ -270,7 +270,7 @@ export async function preheatSellApprovalForToken(params: SellApprovalPreheatPar
     if (!spenders.length) return;
 
     for (const spender of spenders) {
-      const allowance = await getErc20Allowance(tokenAddress, walletAddress, spender, params.chainId).catch(() => 0n);
+      const allowance = await getErc20Allowance(tokenAddress, walletAddress, spender, params.chainId, 'latest', { lane: 'critical' }).catch(() => 0n);
       if (allowance >= probeAmountBase) {
         logger.debug(LogCode.SYS_INFO, '[SellApprovalPreheat] Existing allowance already sufficient', {
           chainId: params.chainId,

@@ -66,11 +66,13 @@ export async function verifyTargetFullExit(params: {
         walletAddress: normalizedTargetWallet,
         chainId: params.chainId,
         path: 'copytrade_target_full_exit_verify',
+        lane: 'critical',
       }),
       readEvmTokenDecimalsFast({
         tokenAddress: normalizedToken,
         chainId: params.chainId,
         path: 'copytrade_target_decimals_verify',
+        lane: 'critical',
       }).catch(() => 18),
     ]);
     const decimals = Number(decimalsRaw);

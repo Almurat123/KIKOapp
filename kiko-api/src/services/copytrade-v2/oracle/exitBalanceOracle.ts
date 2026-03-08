@@ -33,6 +33,7 @@ export async function readExitBalanceOracle(params: {
     walletAddress,
     chainId,
     path: params.rpcPath || 'copytrade_exit_balance',
+    lane: 'critical',
   }));
 
   let sawFailure = false;

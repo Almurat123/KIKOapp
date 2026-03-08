@@ -212,7 +212,7 @@ export class SwapExecutor {
                     if (isNativeIn) {
                         decimalsIn = 18;
                     } else {
-                        decimalsIn = await getErc20Decimals(actualTokenInFixed, chainId);
+                        decimalsIn = await getErc20Decimals(actualTokenInFixed, chainId, 'latest', { lane: 'critical' });
                         setCachedDecimals(chainId, actualTokenInFixed, decimalsIn);
                         logger.info(LogCode.SYS_INFO, 'Fetched missing decimals on-chain', { token: actualTokenInFixed, decimals: decimalsIn });
                     }
@@ -262,7 +262,7 @@ export class SwapExecutor {
                     if (isNativeOut) {
                         decimalsOut = 18;
                     } else {
-                        decimalsOut = await getErc20Decimals(actualTokenOutFixed, chainId);
+                        decimalsOut = await getErc20Decimals(actualTokenOutFixed, chainId, 'latest', { lane: 'critical' });
                         setCachedDecimals(chainId, actualTokenOutFixed, decimalsOut);
                         logger.info(LogCode.SYS_INFO, 'Fetched missing tokenOut decimals on-chain', { token: actualTokenOutFixed, decimals: decimalsOut });
                     }
@@ -319,7 +319,7 @@ export class SwapExecutor {
         } else {
             // For ERC20 sells, ensure amountInBase does not exceed on-chain balance.
             try {
-                const balanceBigInt = await getErc20Balance(actualTokenInFixed, walletAddress, chainId);
+                const balanceBigInt = await getErc20Balance(actualTokenInFixed, walletAddress, chainId, 'latest', { lane: 'critical' });
                 const amountInBigInt = BigInt(amountInBase);
                 if (amountInBigInt > balanceBigInt) {
                     amountInBase = balanceBigInt.toString();
@@ -392,7 +392,7 @@ export class SwapExecutor {
             const holder = ZEROX_ALLOWANCE_HOLDER_BY_CHAIN[chainId];
             if (holder) {
                 try {
-                    const existingAllowance = await getErc20Allowance(actualTokenInFixed, walletAddress, holder, chainId);
+                    const existingAllowance = await getErc20Allowance(actualTokenInFixed, walletAddress, holder, chainId, 'latest', { lane: 'critical' });
                     if (existingAllowance >= BigInt(amountInBase)) {
                         preferPermit2 = false;
                         logger.info(LogCode.SYS_INFO, 'Detected sufficient 0x allowance-holder allowance; bypassing permit2 for sell', {
@@ -1533,7 +1533,7 @@ export class SwapExecutor {
         if (isNativeToken(token, chainId)) return false;
 
         try {
-            const currentBigInt = await getErc20Allowance(token, owner, spender, chainId);
+            const currentBigInt = await getErc20Allowance(token, owner, spender, chainId, 'latest', { lane: 'critical' });
             const amountBigInt = BigInt(amount);
             const needsApproval = currentBigInt < amountBigInt;
 

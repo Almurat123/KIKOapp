@@ -192,8 +192,15 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
     const lastCompositionEndRef = useRef<number>(0);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const [welcomePendingMessages, setWelcomePendingMessages] = useState<Message[]>([]);
-    const hasAssistantTextMessage = useMemo(
-        () => messages.some(m => m.role === 'assistant' && (!m.type || m.type === 'text')),
+    const hasVisibleAssistantResponse = useMemo(
+        () =>
+            messages.some((message) => {
+                if (message.role !== 'assistant') return false;
+                if (message.type && message.type !== 'text') return true;
+                if ((message.content || '').trim().length > 0) return true;
+                if ((message.reasoning_content || '').trim().length > 0) return true;
+                return false;
+            }),
         [messages]
     );
     const displayMessages = useMemo(() => {
@@ -879,6 +886,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                 if (prevConv?.activeTask) clearActiveTask(prevId, updateConversation, 'conversation_switch_to_welcome');
             }
             setThinkingText('Thinking');
+            setThinkingStartTime(0);
             setFirstSendPending(false);
             setInput('');
             processedMessagesRef.current.clear();
@@ -919,6 +927,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
         }
 
         setThinkingText('Thinking');
+        setThinkingStartTime(0);
         setFirstSendPending(false);
         setInput('');
         userScrolledUpRef.current = false;
@@ -1079,10 +1088,22 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
     }, [conversationId, propActiveTask, messages, currentConv?.activeTask, onTaskUpdate, updateConversation]);
 
     useEffect(() => {
-        if (firstSendPending && hasAssistantTextMessage) {
-            setFirstSendPending(false);
+        if (!firstSendPending) return;
+        if (!hasVisibleAssistantResponse) return;
+        setFirstSendPending(false);
+    }, [firstSendPending, hasVisibleAssistantResponse]);
+
+    useEffect(() => {
+        if (isBusy) {
+            if (!thinkingStartTime) {
+                setThinkingStartTime(Date.now());
+            }
+            return;
         }
-    }, [firstSendPending, hasAssistantTextMessage]);
+        if (thinkingStartTime !== 0) {
+            setThinkingStartTime(0);
+        }
+    }, [isBusy, thinkingStartTime]);
 
     useEffect(() => {
         if (!pendingScrollToLatestRef.current) return;
@@ -2079,7 +2100,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                 thinkingStartTime={thinkingStartTime}
                 isBusy={isBusy}
                 firstSendPending={firstSendPending}
-                hasAssistantTextMessage={hasAssistantTextMessage}
+                hasVisibleAssistantResponse={hasVisibleAssistantResponse}
                 walletAddress={walletAddress}
                 chainId={chainId}
                 conversationId={conversationId}

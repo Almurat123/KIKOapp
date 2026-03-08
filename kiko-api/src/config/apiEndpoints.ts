@@ -26,6 +26,8 @@ export interface RpcEndpointConfig {
   capabilities?: RpcEndpointCapabilities; // Optional method capability hints
 }
 
+export type RpcExecutionLane = 'cheap' | 'critical';
+
 export interface RpcEndpointLimits {
   rps?: number; // Requests per second
   rpm?: number; // Requests per minute
@@ -151,48 +153,63 @@ export function getRpcEndpointsWithStrategy(
   strategy: 'fast' | 'cheap' = 'cheap',
   primaryUrl?: string
 ): RpcEndpointConfig[] {
-  const preferPremiumDefault = strategy === 'fast' && chainSlug === 'eth' ? 'true' : 'true';
-  const onlyPremiumDefault = strategy === 'fast' && chainSlug === 'eth' ? 'true' : 'false';
+  return getRpcEndpointsForLane(chainSlug, strategy === 'fast' ? 'critical' : 'cheap', primaryUrl);
+}
+
+export function getRpcEndpointsForLane(
+  chainSlug: string,
+  lane: RpcExecutionLane = 'cheap',
+  primaryUrl?: string
+): RpcEndpointConfig[] {
+  if (lane === 'cheap') {
+    if (chainSlug === 'solana') {
+      return getSolanaEndpoints(primaryUrl, 'cheap');
+    }
+    if (chainSlug === 'base') {
+      return getBaseCheapEndpoints(primaryUrl);
+    }
+    if (chainSlug === 'bsc') {
+      return getBscCheapEndpoints(primaryUrl);
+    }
+    return getRpcEndpoints(chainSlug, primaryUrl);
+  }
+
+  const preferPremiumDefault = 'true';
+  const onlyPremiumDefault = chainSlug === 'eth' ? 'true' : 'false';
   const preferPremium = (process.env.RPC_FAST_PREFER_PREMIUM || preferPremiumDefault).toLowerCase() === 'true';
   const onlyPremium = (process.env.RPC_FAST_ONLY_PREMIUM || onlyPremiumDefault).toLowerCase() === 'true';
   const override = getFastOverride(chainSlug);
-  if (strategy === 'fast' && override.length > 0) {
+  if (override.length > 0) {
     return override;
   }
-  // Solana: premium first for fast strategy, public first for cheap.
   if (chainSlug === 'solana') {
-    return getSolanaEndpoints(primaryUrl, strategy);
+    return getSolanaEndpoints(primaryUrl, 'fast');
   }
   if (chainSlug === 'base') {
-    const list = strategy === 'fast'
-      ? getBasePreferredEndpoints(primaryUrl)
-      : getBaseCheapEndpoints(primaryUrl);
-    const ordered = strategy === 'fast' && preferPremium ? prioritizePremium(list) : list;
-    if (strategy === 'fast' && onlyPremium) {
+    const list = getBasePreferredEndpoints(primaryUrl);
+    const ordered = preferPremium ? prioritizePremium(list) : list;
+    if (onlyPremium) {
       const premium = ordered.filter(e => e.type === 'premium');
       return premium.length > 0 ? premium : ordered;
     }
     return ordered;
   }
-  if (chainSlug === 'bsc') {
-    const list = strategy === 'fast'
-      ? getBscPreferredEndpoints(primaryUrl)
-      : getBscCheapEndpoints(primaryUrl);
-    const ordered = strategy === 'fast' && preferPremium ? prioritizePremium(list) : list;
-    if (strategy === 'fast' && onlyPremium) {
-      const premium = ordered.filter(e => e.type === 'premium');
-      return premium.length > 0 ? premium : ordered;
-    }
-    return ordered;
-  }
+	if (chainSlug === 'bsc') {
+	  const list = getBscPreferredEndpoints(primaryUrl);
+	  const ordered = preferPremium ? prioritizePremium(list) : list;
+	  if (onlyPremium) {
+	    const premium = ordered.filter(e => e.type === 'premium');
+	    return premium.length > 0 ? premium : ordered;
+	  }
+	  return ordered;
+	}
 
-  // For other chains, keep existing ordering until we benchmark them.
-  const list = getRpcEndpoints(chainSlug, primaryUrl);
-  const ordered = strategy === 'fast' && preferPremium ? prioritizePremium(list) : list;
-  if (strategy === 'fast' && onlyPremium) {
-    const premium = ordered.filter(e => e.type === 'premium');
-    return premium.length > 0 ? premium : ordered;
-  }
+	const list = getGenericCriticalEndpoints(chainSlug, primaryUrl);
+	const ordered = preferPremium ? prioritizePremium(list) : list;
+	if (onlyPremium) {
+	  const premium = ordered.filter(e => e.type === 'premium');
+	  return premium.length > 0 ? premium : ordered;
+	}
   return ordered;
 }
 
@@ -249,6 +266,40 @@ function prioritizePremium(endpoints: RpcEndpointConfig[]): RpcEndpointConfig[] 
   const rest = endpoints.filter(e => e.type !== 'premium');
   const ordered = [...premium, ...rest];
   return ordered.map((ep, idx) => ({ ...ep, priority: idx + 1 }));
+}
+
+function getGenericCriticalEndpoints(chainSlug: string, primaryUrl?: string): RpcEndpointConfig[] {
+  const endpoints: RpcEndpointConfig[] = [];
+  let priority = 1;
+  const push = (name: string, url?: string, requiresAuth = false, type: 'premium' | 'public' | 'fallback' = 'public') => {
+    if (!url) return;
+    endpoints.push({ name, url, priority: priority++, requiresAuth, type, limits: getDefaultLimits(type) });
+  };
+
+  if (primaryUrl) {
+    push('Primary', primaryUrl, true, 'premium');
+  }
+
+  const alchemyUrl = getAlchemyUrl(chainSlug);
+  if (env.apiKeys.alchemy && alchemyUrl && alchemyUrl !== primaryUrl) {
+    push('Alchemy', alchemyUrl, true, 'premium');
+  }
+
+  if (env.apiKeys.ankr) {
+    push('Ankr', `https://rpc.ankr.com/${chainSlug}/${env.apiKeys.ankr}`, true, 'premium');
+  }
+
+  const freeEndpoints = getVerifiedFreeEndpoints(chainSlug);
+  freeEndpoints.forEach((ep) => {
+    push(ep.name, ep.url, false, 'public');
+  });
+
+  const seen = new Set<string>();
+  return endpoints.filter(ep => {
+    if (seen.has(ep.url)) return false;
+    seen.add(ep.url);
+    return true;
+  });
 }
 
 function getFastOverride(chainSlug: string): RpcEndpointConfig[] {

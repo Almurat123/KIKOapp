@@ -165,7 +165,7 @@ async function resolveTokenDecimals(params: {
     return Number.isFinite(decimals) && decimals > 0 ? decimals : DEFAULT_SOLANA_DECIMALS;
   }
 
-  const decimals = await getErc20Decimals(tokenIn, params.chainId).catch(() => DEFAULT_EVM_DECIMALS);
+  const decimals = await getErc20Decimals(tokenIn, params.chainId, 'latest', { lane: 'critical' }).catch(() => DEFAULT_EVM_DECIMALS);
   if (Number.isFinite(decimals) && decimals > 0) return decimals;
   return DEFAULT_EVM_DECIMALS;
 }
@@ -216,8 +216,8 @@ async function resolveEvmSellAmountInHuman(params: {
   }
 
   const [rawBalance, decimals] = await Promise.all([
-    getErc20Balance(normalizedToken, params.walletAddress, params.chainId).catch(() => 0n),
-    getErc20Decimals(normalizedToken, params.chainId).catch(() => DEFAULT_EVM_DECIMALS),
+    getErc20Balance(normalizedToken, params.walletAddress, params.chainId, 'latest', { lane: 'critical' }).catch(() => 0n),
+    getErc20Decimals(normalizedToken, params.chainId, 'latest', { lane: 'critical' }).catch(() => DEFAULT_EVM_DECIMALS),
   ]);
 
   if (rawBalance <= 0n) return null;

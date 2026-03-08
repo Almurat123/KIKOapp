@@ -88,9 +88,11 @@ export async function resolveBuyLiquidityGuardSnapshot(
     options?: {
         swap?: DecodedSwap;
         stopAtLiquidityUsd?: number;
+        allowTokenInfoFallback?: boolean;
     }
 ): Promise<LiquidityGuardSnapshot> {
     const fallbackLiquidityUsd = normalizeFinitePositive(tokenInfo?.liquidity);
+    const allowTokenInfoFallback = options?.allowTokenInfoFallback !== false;
 
     if (chainId === 900) {
         try {
@@ -127,7 +129,7 @@ export async function resolveBuyLiquidityGuardSnapshot(
                 };
             }
 
-            if (fallbackLiquidityUsd > 0) {
+            if (allowTokenInfoFallback && fallbackLiquidityUsd > 0) {
                 const directMetadata = (directLiquidity?.metadata as Record<string, unknown> | undefined) || undefined;
                 return {
                     liquidityUsd: fallbackLiquidityUsd,
@@ -165,11 +167,11 @@ export async function resolveBuyLiquidityGuardSnapshot(
             });
 
             return {
-                liquidityUsd: fallbackLiquidityUsd,
-                source: fallbackLiquidityUsd > 0 ? 'token_info_fallback' : 'unavailable',
-                reliable: fallbackLiquidityUsd > 0,
+                liquidityUsd: allowTokenInfoFallback ? fallbackLiquidityUsd : 0,
+                source: allowTokenInfoFallback && fallbackLiquidityUsd > 0 ? 'token_info_fallback' : 'unavailable',
+                reliable: allowTokenInfoFallback && fallbackLiquidityUsd > 0,
                 poolCount: 0,
-                fallbackUsed: fallbackLiquidityUsd > 0,
+                fallbackUsed: allowTokenInfoFallback && fallbackLiquidityUsd > 0,
             };
         }
     }
@@ -220,7 +222,7 @@ export async function resolveBuyLiquidityGuardSnapshot(
             };
         }
 
-        if (fallbackLiquidityUsd > 0) {
+        if (allowTokenInfoFallback && fallbackLiquidityUsd > 0) {
             return {
                 liquidityUsd: fallbackLiquidityUsd,
                 source: poolCount > 0 ? 'direct_pool_unpriced' : 'token_info_fallback',
@@ -245,11 +247,11 @@ export async function resolveBuyLiquidityGuardSnapshot(
         });
 
         return {
-            liquidityUsd: fallbackLiquidityUsd,
-            source: fallbackLiquidityUsd > 0 ? 'token_info_fallback' : 'unavailable',
-            reliable: fallbackLiquidityUsd > 0,
+            liquidityUsd: allowTokenInfoFallback ? fallbackLiquidityUsd : 0,
+            source: allowTokenInfoFallback && fallbackLiquidityUsd > 0 ? 'token_info_fallback' : 'unavailable',
+            reliable: allowTokenInfoFallback && fallbackLiquidityUsd > 0,
             poolCount: 0,
-            fallbackUsed: fallbackLiquidityUsd > 0
+            fallbackUsed: allowTokenInfoFallback && fallbackLiquidityUsd > 0
         };
     }
 }

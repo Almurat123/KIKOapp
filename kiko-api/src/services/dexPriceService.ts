@@ -26,6 +26,8 @@ import { callRpc } from './rpcManager.js';
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
 import { getSolanaNativeQuotePrice } from './solana/direct/nativeQuote.js';
+import { buildScopedCacheKey, getScopedCacheValue, setScopedCacheValue, withScopedSingleFlight } from './rpc/cacheStore.js';
+import type { RpcExecutionLane } from './rpc/executionLane.js';
 
 const RAYDIUM_PRICE_API = 'https://api-v3.raydium.io/mint/price';
 const PUMP_FUN_PROGRAM_ID = '6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P';
@@ -51,8 +53,10 @@ export interface DexPriceResult {
 // 价格缓存 (30秒有效期)
 const priceCache = new Map<string, { price: number; provider: string; timestamp: number }>();
 const CACHE_TTL_MS = 30_000;
+const PRICE_UNAVAILABLE_COOLDOWN_MS = Math.max(500, Number(process.env.DEX_PRICE_UNAVAILABLE_COOLDOWN_MS || '1500'));
 const KYBER_PRICE_DUMMY_RECIPIENT = '0x1111111111111111111111111111111111111111';
 const KYBER_PRICE_SLIPPAGE_BPS = 100;
+type PriceFailureEntry = { kind: 'failure'; provider: string };
 
 /**
  * 获取代币 USD 价格
@@ -63,54 +67,68 @@ const KYBER_PRICE_SLIPPAGE_BPS = 100;
  */
 export async function getDexPrice(
     tokenAddress: string,
-    chainId: number | 'solana'
+    chainId: number | 'solana',
+    options: { lane?: RpcExecutionLane } = {}
 ): Promise<number> {
-    const result = await getDexPriceDetailed(tokenAddress, chainId);
+    const result = await getDexPriceDetailed(tokenAddress, chainId, options);
     return result.price;
 }
 
 export async function getDexPriceDetailed(
     tokenAddress: string,
-    chainId: number | 'solana'
+    chainId: number | 'solana',
+    options: { lane?: RpcExecutionLane } = {}
 ): Promise<DexPriceResult> {
     const cacheKey = `${chainId}:${tokenAddress.toLowerCase()}`;
+    const lane = options.lane || 'cheap';
+    const sharedKey = buildScopedCacheKey('dex_price_detail', [chainId, tokenAddress.toLowerCase(), lane]);
 
     // 检查缓存
     const cached = priceCache.get(cacheKey);
     if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
         return { price: cached.price, provider: cached.provider };
     }
+    const throttled = getScopedCacheValue<DexPriceResult | PriceFailureEntry>(sharedKey);
+    if (throttled && 'kind' in throttled && throttled.kind === 'failure') {
+        return { price: 0, provider: throttled.provider };
+    }
 
     try {
-        let price = 0;
-        let provider = 'unavailable';
+        return await withScopedSingleFlight(sharedKey, async () => {
+            const hot = priceCache.get(cacheKey);
+            if (hot && Date.now() - hot.timestamp < CACHE_TTL_MS) {
+                return { price: hot.price, provider: hot.provider };
+            }
 
-        if (chainId === 'solana' || chainId === 101) {
-            // Solana: 优先 Jupiter，兜底 Raydium
-            const solPrice = await getSolanaPriceUsd(tokenAddress);
-            price = solPrice.price;
-            provider = solPrice.provider;
-        } else if (typeof chainId === 'number') {
-            // EVM: 使用 0x
-            const result = await getEvmPriceUsd(tokenAddress, chainId);
-            price = result.price;
-            provider = result.provider;
-        }
+            let price = 0;
+            let provider = 'unavailable';
 
-        // 仅缓存有效价格，避免 0 价格把 TP/SL 连续卡死 30 秒
-        if (Number.isFinite(price) && price > 0) {
-            priceCache.set(cacheKey, { price, provider, timestamp: Date.now() });
-        } else {
+            if (chainId === 'solana' || chainId === 101) {
+                const solPrice = await getSolanaPriceUsd(tokenAddress, lane);
+                price = solPrice.price;
+                provider = solPrice.provider;
+            } else if (typeof chainId === 'number') {
+                const result = await getEvmPriceUsd(tokenAddress, chainId, lane);
+                price = result.price;
+                provider = result.provider;
+            }
+
+            if (Number.isFinite(price) && price > 0) {
+                priceCache.set(cacheKey, { price, provider, timestamp: Date.now() });
+                return { price, provider };
+            }
+
             priceCache.delete(cacheKey);
-        }
-
-        return { price, provider };
+            setScopedCacheValue<PriceFailureEntry>(sharedKey, { kind: 'failure', provider }, PRICE_UNAVAILABLE_COOLDOWN_MS);
+            return { price: 0, provider };
+        });
     } catch (error: any) {
         logger.warn(LogCode.API_FETCH_FAILED, 'getDexPrice failed', {
             tokenAddress: tokenAddress.slice(0, 10),
             chain: String(chainId),
             error: error.message
         });
+        setScopedCacheValue<PriceFailureEntry>(sharedKey, { kind: 'failure', provider: 'unavailable' }, PRICE_UNAVAILABLE_COOLDOWN_MS);
         return { price: 0, provider: 'unavailable' };
     }
 }
@@ -139,8 +157,8 @@ export async function getDexPricesBatch(
  * 
  * 策略: 获取 Token -> USDC 的报价，反推价格
  */
-async function getEvmPriceUsd(tokenAddress: string, chainId: number): Promise<DexPriceResult> {
-    const precisePrice = await getTokenPriceUSD(tokenAddress, chainId);
+async function getEvmPriceUsd(tokenAddress: string, chainId: number, lane: RpcExecutionLane): Promise<DexPriceResult> {
+    const precisePrice = await getTokenPriceUSD(tokenAddress, chainId, { lane });
     if (Number.isFinite(precisePrice) && Number(precisePrice) > 0) {
         return { price: Number(precisePrice), provider: '0x-dex' };
     }
@@ -157,11 +175,11 @@ async function getEvmPriceUsd(tokenAddress: string, chainId: number): Promise<De
     }
 
     const [tokenMeta, usdcMeta] = await Promise.all([
-        getZeroExTokenMetadata(tokenAddress, chainId).catch(() => null),
-        getZeroExTokenMetadata(usdcAddress, chainId).catch(() => null)
+        getZeroExTokenMetadata(tokenAddress, chainId, { lane }).catch(() => null),
+        getZeroExTokenMetadata(usdcAddress, chainId, { lane }).catch(() => null)
     ]);
-    const tokenDecimals = Number(tokenMeta?.decimals ?? await fetchTokenDecimalsFromRPC(tokenAddress, chainId));
-    const usdcDecimals = Number(usdcMeta?.decimals ?? await fetchTokenDecimalsFromRPC(usdcAddress, chainId));
+    const tokenDecimals = Number(tokenMeta?.decimals ?? await fetchTokenDecimalsFromRPC(tokenAddress, chainId, { lane }));
+    const usdcDecimals = Number(usdcMeta?.decimals ?? await fetchTokenDecimalsFromRPC(usdcAddress, chainId, { lane }));
     if (!Number.isFinite(tokenDecimals) || tokenDecimals < 0 || tokenDecimals > 24) {
         return { price: 0, provider: 'unavailable' };
     }
@@ -174,7 +192,7 @@ async function getEvmPriceUsd(tokenAddress: string, chainId: number): Promise<De
     const quote = await getZeroExPrice(tokenAddress, usdcAddress, sellAmount, chainId);
 
     if (!quote || !quote.buyAmount) {
-        const kyberPrice = await getEvmPriceUsdFromKyber(tokenAddress, chainId, usdcAddress);
+        const kyberPrice = await getEvmPriceUsdFromKyber(tokenAddress, chainId, usdcAddress, lane);
         if (kyberPrice > 0) {
             return { price: kyberPrice, provider: 'kyber-dex' };
         }
@@ -201,7 +219,7 @@ async function getEvmPriceUsd(tokenAddress: string, chainId: number): Promise<De
         buyTokenDecimals: usdcDecimals,
     });
     if (!(Number.isFinite(price) && price > 0)) {
-        const kyberPrice = await getEvmPriceUsdFromKyber(tokenAddress, chainId, usdcAddress);
+        const kyberPrice = await getEvmPriceUsdFromKyber(tokenAddress, chainId, usdcAddress, lane);
         if (kyberPrice > 0) return { price: kyberPrice, provider: 'kyber-dex' };
         return { price: 0, provider: 'unavailable' };
     }
@@ -215,14 +233,14 @@ async function getEvmPriceUsd(tokenAddress: string, chainId: number): Promise<De
     return { price, provider: '0x-dex' };
 }
 
-async function getEvmPriceUsdFromKyber(tokenAddress: string, chainId: number, usdcAddress: string): Promise<number> {
+async function getEvmPriceUsdFromKyber(tokenAddress: string, chainId: number, usdcAddress: string, lane: RpcExecutionLane): Promise<number> {
     try {
         const [tokenMeta, usdcMeta] = await Promise.all([
-            getZeroExTokenMetadata(tokenAddress, chainId).catch(() => null),
-            getZeroExTokenMetadata(usdcAddress, chainId).catch(() => null)
+            getZeroExTokenMetadata(tokenAddress, chainId, { lane }).catch(() => null),
+            getZeroExTokenMetadata(usdcAddress, chainId, { lane }).catch(() => null)
         ]);
-        const tokenDecimals = Number(tokenMeta?.decimals ?? await fetchTokenDecimalsFromRPC(tokenAddress, chainId));
-        const usdcDecimals = Number(usdcMeta?.decimals ?? await fetchTokenDecimalsFromRPC(usdcAddress, chainId));
+        const tokenDecimals = Number(tokenMeta?.decimals ?? await fetchTokenDecimalsFromRPC(tokenAddress, chainId, { lane }));
+        const usdcDecimals = Number(usdcMeta?.decimals ?? await fetchTokenDecimalsFromRPC(usdcAddress, chainId, { lane }));
         if (!Number.isFinite(tokenDecimals) || tokenDecimals < 0 || tokenDecimals > 24) return 0;
         if (!Number.isFinite(usdcDecimals) || usdcDecimals < 0 || usdcDecimals > 24) return 0;
 
@@ -272,7 +290,7 @@ async function getEvmPriceUsdFromKyber(tokenAddress: string, chainId: number, us
  *   2. Raydium Mint Price API — 外部 API，兜底
  *   3. Solana 免费 RPC 节点  — 最后兜底：读链上 PumpFun bonding curve 储量推导价格
  */
-async function getSolanaPriceUsd(tokenMint: string): Promise<DexPriceResult> {
+async function getSolanaPriceUsd(tokenMint: string, lane: RpcExecutionLane): Promise<DexPriceResult> {
     if (tokenMint === SOLANA_USDC_MINT) return { price: 1.0, provider: 'stablecoin' };
 
     // Strategy 1: program-native quote / reserve math.
@@ -340,7 +358,7 @@ async function getSolanaPriceUsd(tokenMint: string): Promise<DexPriceResult> {
         const accountResult = await callRpc<any>(
             'solana', 'getAccountInfo',
             [bondingCurvePda.toString(), { encoding: 'base64' }],
-            { strategy: 'cheap' }
+            { strategy: lane === 'critical' ? 'fast' : 'cheap', lane }
         );
 
         const dataArr: string[] | undefined = accountResult?.value?.data;

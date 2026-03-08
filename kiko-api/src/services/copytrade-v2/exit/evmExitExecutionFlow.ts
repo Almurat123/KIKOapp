@@ -121,7 +121,7 @@ export async function executePlannedEvmExitFlow(params: {
       });
     } else {
       try {
-        const remainingBalance = await getErc20Balance(params.tokenAddress, params.walletAddress, params.chainId);
+        const remainingBalance = await getErc20Balance(params.tokenAddress, params.walletAddress, params.chainId, 'latest', { lane: 'critical' });
         const dustUsd = Number(ethers.formatUnits(remainingBalance, params.exitPlan.decimals)) * (params.tokenInfo?.price || 0);
         if (remainingBalance > 1000n && (dustUsd >= 0.05 || isPartialSell)) {
           const dustAmountHuman = ethers.formatUnits(remainingBalance, params.exitPlan.decimals);

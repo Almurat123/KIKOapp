@@ -10,6 +10,10 @@ export interface SharedTxObservation {
 }
 
 const TX_OBSERVATION_TTL_MS = Math.max(150, Number(process.env.RPC_TX_OBSERVATION_TTL_MS || '400'));
+const TX_OBSERVATION_ERROR_TTL_MS = Math.max(
+  TX_OBSERVATION_TTL_MS,
+  Number(process.env.RPC_TX_OBSERVATION_ERROR_TTL_MS || '1200')
+);
 const TX_CONFIRM_RESULT_TTL_MS = Math.max(500, Number(process.env.RPC_TX_CONFIRM_RESULT_TTL_MS || '2000'));
 
 function observationKey(chainId: number, txHash: string, scope: string): string {
@@ -32,7 +36,10 @@ export async function getSharedTxObservation(params: {
   if (cached) return cached;
   return await withScopedSingleFlight(key, async () => {
     const fresh = await params.producer();
-    return setScopedCacheValue(key, fresh, params.ttlMs ?? TX_OBSERVATION_TTL_MS);
+    const ttlMs = fresh.lastRpcError && !fresh.tx && !fresh.receipt
+      ? TX_OBSERVATION_ERROR_TTL_MS
+      : (params.ttlMs ?? TX_OBSERVATION_TTL_MS);
+    return setScopedCacheValue(key, fresh, ttlMs);
   });
 }
 
