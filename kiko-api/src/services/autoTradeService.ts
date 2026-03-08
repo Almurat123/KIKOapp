@@ -856,7 +856,7 @@ export async function handleSwapDetected(
         await handleTargetSell(targetWallet, swap, chainId);
     } else if (isBuy) {
         logger.info(LogCode.EXE_TX_BROADCAST, 'Target is buying - triggering copy trade', { targetWallet, token: swap.tokenOut });
-        await handleTargetBuy(targetWallet, swap, chainId, { detectedAt });
+        await handleTargetBuy(targetWallet, swap, chainId, context);
     } else if (isTokenToToken) {
         if (!COPYTRADE_ENABLE_TOKEN_TO_TOKEN_PARALLEL) {
             logger.warn(LogCode.WTC_TX_SKIPPED, 'Skipping token-to-token activity by policy', {
@@ -876,7 +876,7 @@ export async function handleSwapDetected(
                 txHash: swap.txHash,
                 chainId
             })),
-            handleTargetBuy(targetWallet, swap, chainId, { detectedAt }).catch(e => logger.error(LogCode.EXE_TX_REVERTED, 'Parallel buy error', {
+            handleTargetBuy(targetWallet, swap, chainId, context).catch(e => logger.error(LogCode.EXE_TX_REVERTED, 'Parallel buy error', {
                 error: compactCopyTradeError(e),
                 bugHint: inferCopyTradeBugHint(e),
                 txHash: swap.txHash,

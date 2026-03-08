@@ -21,6 +21,9 @@ export type CopytradeDomainEvent =
   | 'FOLLOWER_EXIT_RETRY_SCHEDULED'
   | 'FOLLOWER_EXIT_CLOSED'
   | 'signal_wallet_mismatch'
+  | 'evm_tx_from_binding_deferred'
+  | 'evm_tx_from_binding_resolved'
+  | 'evm_tx_from_binding_missing_final'
   | 'solana_target_resolution_observed'
   | 'forced_mirror_exit_applied'
   | 'exit_confirmation_unresolved_retry'
@@ -64,5 +67,20 @@ export function emitCopytradeDomainAudit(
   event: CopytradeDomainEvent,
   input: Parameters<typeof buildCopytradeDomainAuditFields>[0],
 ): void {
-  logger.info(LogCode.SYS_INFO, `[CopyTradeDomain] ${event}`, buildCopytradeDomainAuditFields(input));
+  const fields = buildCopytradeDomainAuditFields(input);
+  logger.info(LogCode.SYS_INFO, `[CopyTradeDomain] ${event}`, fields);
+  copytradeDomainAuditListenerForTest?.(event, fields);
 }
+
+let copytradeDomainAuditListenerForTest: ((event: CopytradeDomainEvent, fields: Record<string, unknown>) => void) | null = null;
+
+export const __copytradeDomainAuditTest = {
+  setListenerForTest(
+    listener: ((event: CopytradeDomainEvent, fields: Record<string, unknown>) => void) | null,
+  ): void {
+    copytradeDomainAuditListenerForTest = listener;
+  },
+  resetForTest(): void {
+    copytradeDomainAuditListenerForTest = null;
+  },
+};

@@ -471,6 +471,7 @@ async function processAlchemyWebhookPayload(payload: any): Promise<void> {
         let fullTxMs = 0;
         let parseSkeletonMs = 0;
         let parseFullMs = 0;
+        let deferredBindingOutcome: 'resolved' | 'missing' | null = null;
         let swapsDetected = 0;
         let usedPredecoded = 0;
 
@@ -521,6 +522,15 @@ async function processAlchemyWebhookPayload(payload: any): Promise<void> {
                 console.warn(`[Webhook] Delaying tx_from_only binding for tx ${txHash}: source tx.from unavailable at ingress`, {
                     chainId,
                     provisionalCandidateCount: candidates.length,
+                });
+                emitCopytradeDomainAudit('evm_tx_from_binding_deferred', {
+                    extra: {
+                        chainId,
+                        txHash,
+                        provisionalCandidateCount: candidates.length,
+                        provisionalCandidatesSample: candidates.slice(0, 5),
+                        reasonCode: 'tx_from_only_binding_deferred_ingress'
+                    }
                 });
             }
         }
@@ -752,6 +762,7 @@ async function processAlchemyWebhookPayload(payload: any): Promise<void> {
             }
 
             let fullTxPromise: Promise<any | null> | null = null;
+            const bindingWasDeferredAtIngress = !isSolanaItems && !sourceTxFrom;
             const fetchFullTxOnce = () => {
                 if (!fullTxPromise) {
                     const fullTxStart = Date.now();
@@ -761,6 +772,32 @@ async function processAlchemyWebhookPayload(payload: any): Promise<void> {
                         .finally(() => { fullTxMs = Date.now() - fullTxStart; });
                 }
                 return fullTxPromise;
+            };
+            const emitDeferredBindingResolved = (resolvedFrom: string, resolutionSource: string): void => {
+                if (!bindingWasDeferredAtIngress || deferredBindingOutcome) return;
+                deferredBindingOutcome = 'resolved';
+                emitCopytradeDomainAudit('evm_tx_from_binding_resolved', {
+                    extra: {
+                        chainId,
+                        txHash,
+                        sourceTxFrom: resolvedFrom,
+                        resolutionSource,
+                        provisionalCandidateCount: candidates.length,
+                        reasonCode: 'tx_from_only_binding_resolved'
+                    }
+                });
+            };
+            const emitDeferredBindingMissingFinal = (): void => {
+                if (!bindingWasDeferredAtIngress || deferredBindingOutcome) return;
+                deferredBindingOutcome = 'missing';
+                emitCopytradeDomainAudit('evm_tx_from_binding_missing_final', {
+                    extra: {
+                        chainId,
+                        txHash,
+                        provisionalCandidateCount: candidates.length,
+                        reasonCode: 'tx_from_only_binding_missing_final'
+                    }
+                });
             };
 
             await Promise.allSettled(trackedWallets.map(async (walletRecord) => {
@@ -880,19 +917,25 @@ async function processAlchemyWebhookPayload(payload: any): Promise<void> {
                     }
                 }
                 if (!isSolanaItems) {
-                    let effectiveSourceTxFrom = normalizeAddress(String(
-                        resolvedTxForContext.from
-                        || txSkeletonRaw.from
-                        || sourceTxFrom
-                        || ''
-                    )) || '';
+                    const contextFrom = normalizeAddress(String(resolvedTxForContext.from || '')) || '';
+                    const skeletonFrom = normalizeAddress(String(txSkeletonRaw.from || '')) || '';
+                    const cachedSourceFrom = normalizeAddress(String(sourceTxFrom || '')) || '';
+                    let effectiveSourceTxFrom = contextFrom || skeletonFrom || cachedSourceFrom;
+                    let resolutionSource = contextFrom
+                        ? 'resolved_tx_context'
+                        : (skeletonFrom
+                            ? 'tx_skeleton'
+                            : (cachedSourceFrom ? 'cached_resolve' : ''));
                     if (!effectiveSourceTxFrom) {
                         effectiveSourceTxFrom = await resolveEvmSourceTxFrom(chainId, txHash);
+                        resolutionSource = effectiveSourceTxFrom ? 'fetch_transaction' : '';
                     }
                     if (!effectiveSourceTxFrom) {
+                        emitDeferredBindingMissingFinal();
                         console.error(`[Webhook] Ignore tx ${txHash}: missing source tx.from after deferred tx_from_only binding`);
                         return;
                     }
+                    emitDeferredBindingResolved(effectiveSourceTxFrom, resolutionSource || 'unknown');
                     sourceTxFrom = effectiveSourceTxFrom;
                     if (normalizedTrackedTarget !== effectiveSourceTxFrom) {
                         emitCopytradeDomainAudit('signal_wallet_mismatch', {

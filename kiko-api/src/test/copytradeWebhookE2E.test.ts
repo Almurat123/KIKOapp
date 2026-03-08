@@ -6,7 +6,11 @@ import fastifyRawBody from 'fastify-raw-body';
 import prisma from '../db/prisma.js';
 import { env } from '../config/env.js';
 import webhookRoutes, { __webhookTest } from '../routes/webhook.js';
-import { refreshTrackedWalletSnapshot } from '../services/copytrade-v2/ingress/trackedWalletSnapshot.js';
+import {
+  __resetTrackedWalletSnapshotForTests,
+  __setTrackedWalletSnapshotForTests,
+  refreshTrackedWalletSnapshot,
+} from '../services/copytrade-v2/ingress/trackedWalletSnapshot.js';
 import { getCopyTradeIngressState } from '../services/copytrade-v2/ingress/copyTradeIngressState.js';
 import {
   getCopyTradeTxState,
@@ -19,9 +23,17 @@ import {
   waitForCopyTradeQueueIdle,
 } from '../services/copyTradeQueue.js';
 import type { DecodedSwap } from '../services/txDecoder.js';
+import {
+  __copytradeDomainAuditTest,
+  type CopytradeDomainEvent,
+} from '../services/copytrade-v2/audit/copytradeDomainAudit.js';
 
+const ETH_CHAIN_ID = 1;
 const BASE_CHAIN_ID = 8453;
+const BSC_CHAIN_ID = 56;
+const ETH_NETWORK = 'ETH_MAINNET';
 const BASE_NETWORK = 'BASE_MAINNET';
+const BSC_NETWORK = 'BNB_MAINNET';
 const TOKEN_IN = '0x4200000000000000000000000000000000000006';
 const TOKEN_OUT = '0xf30bf00edd0c22db54c9274b90d2a4c21fc09b07';
 const ROUTER = '0x1111111111111111111111111111111111111111';
@@ -32,6 +44,11 @@ type CapturedDispatch = {
   swap: DecodedSwap;
   chainId: number;
   detectedAt?: number;
+};
+
+type CapturedDomainAudit = {
+  event: CopytradeDomainEvent;
+  fields: Record<string, unknown>;
 };
 
 function makeHex(seed: string, length: number): string {
@@ -89,6 +106,12 @@ async function buildWebhookApp(): Promise<FastifyInstance> {
   await app.register(webhookRoutes);
   await app.ready();
   return app;
+}
+
+function setTrackedWalletSnapshotForChain(chainId: number, targetWallet: string): void {
+  __setTrackedWalletSnapshotForTests({
+    [chainId]: [targetWallet],
+  });
 }
 
 async function createTrackedFixture(targetWallet: string, seed: string): Promise<{
@@ -198,6 +221,7 @@ describe('copytrade webhook E2E', () => {
   let createdUserIds: string[] = [];
   let createdConfigIds: string[] = [];
   let sourceTxFromByHash = new Map<string, string>();
+  let domainAudits: CapturedDomainAudit[] = [];
 
   beforeEach(async () => {
     captured = [];
@@ -206,9 +230,14 @@ describe('copytrade webhook E2E', () => {
     createdUserIds = [];
     createdConfigIds = [];
     sourceTxFromByHash = new Map<string, string>();
+    domainAudits = [];
+    __resetTrackedWalletSnapshotForTests();
     __webhookTest.setResolveEvmSourceTxFromForTest((chainId, txHash) => {
       if (chainId === 900) return '';
       return sourceTxFromByHash.get(String(txHash || '').toLowerCase()) || '';
+    });
+    __copytradeDomainAuditTest.setListenerForTest((event, fields) => {
+      domainAudits.push({ event, fields });
     });
     resetCopyTradeQueueForTests();
     setCopyTradeQueueHandlerForTests(async (targetWallet, swap, chainId, context) => {
@@ -221,6 +250,8 @@ describe('copytrade webhook E2E', () => {
     await waitForCopyTradeQueueIdle(2_000).catch(() => undefined);
     if (app) await app.close().catch(() => undefined);
     __webhookTest.resetForTest();
+    __copytradeDomainAuditTest.resetForTest();
+    __resetTrackedWalletSnapshotForTests();
     setCopyTradeQueueHandlerForTests(null);
     resetCopyTradeQueueForTests();
     await cleanupArtifacts({
@@ -361,12 +392,13 @@ describe('copytrade webhook E2E', () => {
     const txState = await getCopyTradeTxState(BASE_CHAIN_ID, txHash);
     assert.equal(txState?.state, 'executed');
 
-    const inboxRows = await prisma.$queryRawUnsafe<Array<{ status: string }>>(
-      'SELECT status FROM alchemy_webhook_inbox WHERE tx_hash = $1',
-      txHash.toLowerCase(),
-    );
-    assert.equal(inboxRows.length, 1);
-    assert.equal(inboxRows[0].status, 'processed');
+    await waitForCondition('alchemy inbox processed', async () => {
+      const inboxRows = await prisma.$queryRawUnsafe<Array<{ status: string }>>(
+        'SELECT status FROM alchemy_webhook_inbox WHERE tx_hash = $1',
+        txHash.toLowerCase(),
+      );
+      return inboxRows.length === 1 && inboxRows[0].status === 'processed';
+    });
   });
 
   test('Alchemy webhook defers tx_from_only binding until skeleton/full-tx evidence is available', async () => {
@@ -407,6 +439,105 @@ describe('copytrade webhook E2E', () => {
     assert.equal(captured.length, 1);
     assert.equal(captured[0].targetWallet, targetWallet);
     assert.equal(captured[0].swap.tokenOut, TOKEN_OUT);
+    assert.equal(domainAudits.some((entry) => entry.event === 'evm_tx_from_binding_deferred'), true);
+    assert.equal(domainAudits.some((entry) => entry.event === 'evm_tx_from_binding_resolved'), true);
+  });
+
+  for (const chainCase of [
+    { chainId: ETH_CHAIN_ID, network: ETH_NETWORK, seed: 'eth-buy-recognition' },
+    { chainId: BSC_CHAIN_ID, network: BSC_NETWORK, seed: 'bsc-buy-recognition' },
+    { chainId: BASE_CHAIN_ID, network: BASE_NETWORK, seed: 'base-buy-recognition' },
+  ]) {
+    test(`Alchemy webhook recognizes normal BUY swaps on chain ${chainCase.chainId}`, async () => {
+      const targetWallet = makeAddress(`target:${chainCase.seed}`).toLowerCase();
+      const txHash = makeTxHash(`tx:${chainCase.seed}`);
+      const swap = createSwap(txHash.toLowerCase(), 'buy');
+      createdTxHashes.push(txHash.toLowerCase());
+      sourceTxFromByHash.set(txHash.toLowerCase(), targetWallet);
+      setTrackedWalletSnapshotForChain(chainCase.chainId, targetWallet);
+
+      await markPendingTxHint(chainCase.chainId, txHash.toLowerCase(), targetWallet, Date.now() - 300);
+      await markPendingPredecodedSwap(
+        chainCase.chainId,
+        txHash.toLowerCase(),
+        targetWallet,
+        swap,
+        Date.now() - 200,
+        'pending_prefetch',
+      );
+
+      const response = await app!.inject({
+        method: 'POST',
+        url: '/alchemy',
+        payload: {
+          type: 'ADDRESS_ACTIVITY',
+          event: {
+            network: chainCase.network,
+            activity: [{
+              hash: txHash,
+              fromAddress: targetWallet,
+              toAddress: ROUTER,
+              category: 'token',
+              asset: 'ETH',
+            }],
+          },
+        },
+      });
+
+      assert.equal(response.statusCode, 200);
+      await waitForCondition(`alchemy buy dispatch ${chainCase.chainId}`, () => captured.length === 1);
+      await waitForCopyTradeQueueIdle();
+
+      assert.equal(captured.length, 1);
+      assert.equal(captured[0].chainId, chainCase.chainId);
+      assert.equal(captured[0].targetWallet, targetWallet);
+      assert.equal(captured[0].swap.txHash, txHash.toLowerCase());
+    });
+  }
+
+  test('Alchemy webhook emits final-missing audit and drops BUY when tx.from cannot be recovered', async () => {
+    const targetWallet = makeAddress('alchemy-target-missing-final').toLowerCase();
+    const txHash = makeTxHash('alchemy-missing-final');
+    const swap = createSwap(txHash.toLowerCase(), 'buy');
+    createdTxHashes.push(txHash.toLowerCase());
+    setTrackedWalletSnapshotForChain(BASE_CHAIN_ID, targetWallet);
+
+    await markPendingTxHint(BASE_CHAIN_ID, txHash.toLowerCase(), targetWallet, Date.now() - 300);
+    await markPendingPredecodedSwap(
+      BASE_CHAIN_ID,
+      txHash.toLowerCase(),
+      targetWallet,
+      swap,
+      Date.now() - 200,
+      'pending_prefetch',
+    );
+
+    const response = await app!.inject({
+      method: 'POST',
+      url: '/alchemy',
+      payload: {
+        type: 'ADDRESS_ACTIVITY',
+        event: {
+          network: BASE_NETWORK,
+          activity: [{
+            hash: txHash,
+            toAddress: ROUTER,
+            category: 'token',
+            asset: 'ETH',
+          }],
+        },
+      },
+    });
+
+    assert.equal(response.statusCode, 200);
+    await waitForCondition(
+      'alchemy missing-final audit',
+      () => domainAudits.some((entry) => entry.event === 'evm_tx_from_binding_missing_final'),
+    );
+    await waitForCopyTradeQueueIdle();
+    assert.equal(captured.length, 0);
+    assert.equal(domainAudits.some((entry) => entry.event === 'evm_tx_from_binding_deferred'), true);
+    assert.equal(domainAudits.some((entry) => entry.event === 'evm_tx_from_binding_missing_final'), true);
   });
 
   test('Alchemy webhook fast-lane sends SELL swaps through the same webhook -> DB -> queue boundary once', async () => {
