@@ -7,7 +7,7 @@ type EntryDeviationSummaryParams = {
   targetWallet: string;
   chainId: number;
   executionMode: string;
-  currentPriceSource: 'market_oracle_price';
+  currentPriceSource: 'market_oracle_price' | 'local_quote_price' | 'reference_unavailable';
   targetExecutionPriceSource: 'target_implied_price';
   targetImpliedPriceSourceCategory?: string;
   targetImpliedValueSource?: string;

@@ -203,6 +203,10 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
             }),
         [messages]
     );
+    const hasAnyAssistantMessage = useMemo(
+        () => messages.some((message) => message.role === 'assistant'),
+        [messages]
+    );
     const displayMessages = useMemo(() => {
         if (conversationId || welcomePendingMessages.length === 0) return messages;
         const existingIds = new Set(messages.map(m => m.id));
@@ -1089,9 +1093,9 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
     useEffect(() => {
         if (!firstSendPending) return;
-        if (!hasVisibleAssistantResponse) return;
+        if (!hasAnyAssistantMessage) return;
         setFirstSendPending(false);
-    }, [firstSendPending, hasVisibleAssistantResponse]);
+    }, [firstSendPending, hasAnyAssistantMessage]);
 
     useEffect(() => {
         if (isBusy) {
@@ -2100,6 +2104,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                 thinkingStartTime={thinkingStartTime}
                 isBusy={isBusy}
                 firstSendPending={firstSendPending}
+                hasAnyAssistantMessage={hasAnyAssistantMessage}
                 hasVisibleAssistantResponse={hasVisibleAssistantResponse}
                 walletAddress={walletAddress}
                 chainId={chainId}

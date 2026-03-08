@@ -369,6 +369,46 @@ describe('copytrade webhook E2E', () => {
     assert.equal(inboxRows[0].status, 'processed');
   });
 
+  test('Alchemy webhook defers tx_from_only binding until skeleton/full-tx evidence is available', async () => {
+    const targetWallet = makeAddress('alchemy-target-deferred').toLowerCase();
+    const txHash = makeTxHash('alchemy-buy-deferred');
+    createdTxHashes.push(txHash.toLowerCase());
+    createdTargetWallets.push(targetWallet);
+    const fixture = await createTrackedFixture(targetWallet, 'alchemy-buy-deferred');
+    createdUserIds.push(fixture.userId);
+    createdConfigIds.push(fixture.configId);
+    const swap = createSwap(txHash.toLowerCase(), 'buy');
+
+    await markPendingTxHint(BASE_CHAIN_ID, txHash.toLowerCase(), targetWallet, Date.now() - 300);
+    await markPendingPredecodedSwap(BASE_CHAIN_ID, txHash.toLowerCase(), targetWallet, swap, Date.now() - 200, 'pending_prefetch');
+
+    const response = await app!.inject({
+      method: 'POST',
+      url: '/alchemy',
+      payload: {
+        type: 'ADDRESS_ACTIVITY',
+        event: {
+          network: BASE_NETWORK,
+          activity: [{
+            hash: txHash,
+            fromAddress: targetWallet,
+            toAddress: ROUTER,
+            category: 'token',
+            asset: 'ETH',
+          }],
+        },
+      },
+    });
+
+    assert.equal(response.statusCode, 200);
+    await waitForCondition('alchemy deferred binding dispatch', () => captured.length === 1);
+    await waitForCopyTradeQueueIdle();
+
+    assert.equal(captured.length, 1);
+    assert.equal(captured[0].targetWallet, targetWallet);
+    assert.equal(captured[0].swap.tokenOut, TOKEN_OUT);
+  });
+
   test('Alchemy webhook fast-lane sends SELL swaps through the same webhook -> DB -> queue boundary once', async () => {
     const targetWallet = makeAddress('alchemy-target-sell').toLowerCase();
     const txHash = makeTxHash('alchemy-sell-tx');

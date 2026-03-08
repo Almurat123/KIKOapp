@@ -81,6 +81,7 @@ import { runPostBuyAiFlow } from './copytrade-v2/buy/postBuyAiFlow.js';
 import { shouldSkipCopyTradeLocalReferenceQuote } from './copytrade-v2/buy/turboReferenceGate.js';
 import {
     resolveCopyTradePriceGuardOracleInput,
+    resolveCopyTradeEntryDeviationReference,
 } from './copytrade-v2/buy/directGuardPolicy.js';
 import {
     buildGuardedTokenInfoForConfigs,
@@ -2062,11 +2063,11 @@ async function processSingleUserBuy(
             // fallback when no local quote is available.
             // This protects against buying at the absolute top of a "scam wick" or high slippage event.
             let targetExecutionPrice = 0;
+            let localQuotePriceUsd = 0;
             if (targetSwapValueUsd > 0) { // G2: Solana 也参与价格偏离比例检测
                 try {
                     const estimatedOut = Number(ethers.formatUnits(swap.amountOut, tokenInfo.decimals || (chainId === 900 ? 9 : 18)));
                     if (estimatedOut > 0) {
-                        let localQuotePriceUsd = 0;
                         let localQuoteProvider: string | undefined;
                         let oraclePriceSource: 'market_oracle_price' | 'local_quote_price' = 'market_oracle_price';
                         if (!shouldSkipCopyTradeLocalReferenceQuote(chainId, executionMode)) {
@@ -2196,8 +2197,16 @@ async function processSingleUserBuy(
 
             if (targetExecutionPrice > 0) {
                 const dexChainId = chainId === 900 ? 'solana' : chainId;
-                const currentPrice = await getDexPriceWithTimeout(tokenToBuy, dexChainId);
-                if (currentPrice > 0) {
+                const marketPrice = executionMode === 'safe'
+                    ? await getDexPriceWithTimeout(tokenToBuy, dexChainId)
+                    : 0;
+                const entryDeviationReference = resolveCopyTradeEntryDeviationReference({
+                    executionMode,
+                    localQuotePriceUsd,
+                    marketPriceUsd: marketPrice,
+                });
+                const currentPrice = entryDeviationReference.currentPrice;
+                if (entryDeviationReference.enforce && currentPrice > 0) {
                     const deviationBps = Math.abs(targetExecutionPrice - currentPrice) / currentPrice * 10000;
                     guardAudit.priceDeviation = {
                         ...(guardAudit.priceDeviation && typeof guardAudit.priceDeviation === 'object' ? guardAudit.priceDeviation as Record<string, unknown> : {}),
@@ -2219,7 +2228,7 @@ async function processSingleUserBuy(
                         targetWallet,
                         chainId,
                         executionMode,
-                        currentPriceSource: 'market_oracle_price',
+                        currentPriceSource: entryDeviationReference.currentPriceSource,
                         targetExecutionPriceSource: 'target_implied_price',
                         targetImpliedPriceSourceCategory: String((guardAudit.priceDeviation as Record<string, unknown> | undefined)?.targetImpliedPriceSourceCategory || 'target_unknown'),
                         targetImpliedValueSource: String((guardAudit.priceDeviation as Record<string, unknown> | undefined)?.targetImpliedValueSource || 'target_swap_value_usd'),
@@ -2280,6 +2289,29 @@ async function processSingleUserBuy(
                             return;
                         }
                     }
+                } else {
+                    guardAudit.priceDeviation = {
+                        ...(guardAudit.priceDeviation && typeof guardAudit.priceDeviation === 'object' ? guardAudit.priceDeviation as Record<string, unknown> : {}),
+                        dexPrice: 0,
+                        deviationBps: null,
+                        currentPriceSource: entryDeviationReference.currentPriceSource,
+                        maxEntryDeviationBps: effectiveConfig.maxEntryDeviationBps,
+                        entryDeviationSource: effectiveConfig.maxEntryDeviationSource,
+                        entryDeviationReasonCode: effectiveConfig.maxEntryDeviationReasonCode,
+                        entryDeviationThresholdPolicy: effectiveConfig.maxEntryDeviationThresholdPolicy,
+                        entryDeviationModeFloorBps: effectiveConfig.maxEntryDeviationModeFloorBps,
+                        maxSlippageBps: effectiveConfig.maxSlippageBps,
+                        pass: true,
+                        reasonCode: 'ENTRY_DEVIATION_REFERENCE_UNAVAILABLE'
+                    };
+                    logger.info(LogCode.DEC_PRICE_IMPACT_HIGH, 'Entry deviation skipped strict enforcement due to unavailable executable reference', {
+                        userId: config.userId,
+                        token: tokenToBuy,
+                        chainId,
+                        executionMode,
+                        currentPriceSource: entryDeviationReference.currentPriceSource,
+                        reasonCode: 'ENTRY_DEVIATION_REFERENCE_UNAVAILABLE'
+                    });
                 }
             }
 

@@ -60,3 +60,42 @@ export function resolveCopyTradePriceGuardOracleInput(params: {
     oracleFallbackUsed: Boolean(params.tokenInfo.priceFallbackUsed),
   };
 }
+
+export function resolveCopyTradeEntryDeviationReference(params: {
+  executionMode: CopyTradeExecutionMode;
+  localQuotePriceUsd: number;
+  marketPriceUsd: number;
+}): {
+  currentPrice: number;
+  currentPriceSource: 'market_oracle_price' | 'local_quote_price' | 'reference_unavailable';
+  enforce: boolean;
+} {
+  if (isDirectCopyTradeExecutionMode(params.executionMode)) {
+    if (params.localQuotePriceUsd > 0) {
+      return {
+        currentPrice: params.localQuotePriceUsd,
+        currentPriceSource: 'local_quote_price',
+        enforce: true,
+      };
+    }
+    return {
+      currentPrice: 0,
+      currentPriceSource: 'reference_unavailable',
+      enforce: false,
+    };
+  }
+
+  if (params.marketPriceUsd > 0) {
+    return {
+      currentPrice: params.marketPriceUsd,
+      currentPriceSource: 'market_oracle_price',
+      enforce: true,
+    };
+  }
+
+  return {
+    currentPrice: 0,
+    currentPriceSource: 'reference_unavailable',
+    enforce: false,
+  };
+}

@@ -17,6 +17,7 @@ interface ChatMessageListProps {
     thinkingStartTime: number | null;
     isBusy: boolean;
     firstSendPending: boolean;
+    hasAnyAssistantMessage: boolean;
     hasVisibleAssistantResponse: boolean;
     walletAddress: string;
     chainId: number;
@@ -37,6 +38,7 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = ({
     thinkingStartTime,
     isBusy,
     firstSendPending,
+    hasAnyAssistantMessage,
     hasVisibleAssistantResponse,
     walletAddress,
     chainId,
@@ -95,7 +97,7 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = ({
                 );
             })}
 
-            {firstSendPending && !hasVisibleAssistantResponse && (
+            {firstSendPending && !hasAnyAssistantMessage && !hasVisibleAssistantResponse && (
                 <div className={styles.thinkingContainer}>
                     <div className={styles.thinkingContent}>
                         <div className={styles.thinkingSpinner} />

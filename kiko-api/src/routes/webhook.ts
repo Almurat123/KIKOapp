@@ -515,11 +515,14 @@ async function processAlchemyWebhookPayload(payload: any): Promise<void> {
         }
         if (!isSolanaItems) {
             sourceTxFrom = await resolveEvmSourceTxFrom(chainId, txHash);
-            if (!sourceTxFrom) {
-                console.error(`[Webhook] Ignore tx ${txHash}: missing source tx.from under tx_from_only binding`);
-                return;
+            if (sourceTxFrom) {
+                candidates = [sourceTxFrom];
+            } else {
+                console.warn(`[Webhook] Delaying tx_from_only binding for tx ${txHash}: source tx.from unavailable at ingress`, {
+                    chainId,
+                    provisionalCandidateCount: candidates.length,
+                });
             }
-            candidates = [sourceTxFrom];
         }
         // Fire-and-forget: don't await state marking on the critical path
         markCopyTradeTxState(chainId, txHash, 'confirmed_seen', { source: 'alchemy_webhook' }).catch(() => { });
@@ -762,6 +765,10 @@ async function processAlchemyWebhookPayload(payload: any): Promise<void> {
 
             await Promise.allSettled(trackedWallets.map(async (walletRecord) => {
                 const trackedTarget = walletRecord.address;
+                const normalizedTrackedTarget = normalizeAddress(trackedTarget) || trackedTarget.toLowerCase();
+                if (!isSolanaItems && sourceTxFrom && normalizedTrackedTarget !== sourceTxFrom) {
+                    return;
+                }
                 const cached = predecodedByWallet.get(trackedTarget.toLowerCase());
                 const cachedTrusted = isPendingPredecodeTrusted(cached);
                 const useCachedSwap = cachedTrusted && Boolean(cached?.swap);
@@ -870,6 +877,40 @@ async function processAlchemyWebhookPayload(payload: any): Promise<void> {
                                 cashReceivedUsd: cashHint.cashReceivedUsd
                             });
                         }
+                    }
+                }
+                if (!isSolanaItems) {
+                    let effectiveSourceTxFrom = normalizeAddress(String(
+                        resolvedTxForContext.from
+                        || txSkeletonRaw.from
+                        || sourceTxFrom
+                        || ''
+                    )) || '';
+                    if (!effectiveSourceTxFrom) {
+                        effectiveSourceTxFrom = await resolveEvmSourceTxFrom(chainId, txHash);
+                    }
+                    if (!effectiveSourceTxFrom) {
+                        console.error(`[Webhook] Ignore tx ${txHash}: missing source tx.from after deferred tx_from_only binding`);
+                        return;
+                    }
+                    sourceTxFrom = effectiveSourceTxFrom;
+                    if (normalizedTrackedTarget !== effectiveSourceTxFrom) {
+                        emitCopytradeDomainAudit('signal_wallet_mismatch', {
+                            extra: {
+                                chainId,
+                                txHash,
+                                sourceTxFrom: effectiveSourceTxFrom,
+                                pendingTargetWallet: normalizedTrackedTarget,
+                                reasonCode: 'webhook_candidate_source_wallet_mismatch'
+                            }
+                        });
+                        console.error('[Webhook] Candidate wallet mismatch detected after deferred tx_from_only binding; dropping wallet', {
+                            chainId,
+                            txHash,
+                            sourceTxFrom: effectiveSourceTxFrom,
+                            candidateWallet: normalizedTrackedTarget
+                        });
+                        return;
                     }
                 }
                 if (!swap) return;
