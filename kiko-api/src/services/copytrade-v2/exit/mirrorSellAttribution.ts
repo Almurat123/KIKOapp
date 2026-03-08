@@ -22,6 +22,7 @@ export interface MirrorSellAttributionResult<T extends AttributedPositionLike> {
     attributedAmountRaw: string;
     sellAmountRaw: string;
     hasExternalBalance: boolean;
+    pendingBridgeApplied: boolean;
   };
 }
 
@@ -95,6 +96,7 @@ export function resolveMirrorSellAttributedAmount<T extends AttributedPositionLi
         attributedAmountRaw: attributedAmountRaw.toString(),
         sellAmountRaw: '0',
         hasExternalBalance: false,
+        pendingBridgeApplied: fullBalanceFallbackApplied,
       },
     };
   }
@@ -115,6 +117,7 @@ export function resolveMirrorSellAttributedAmount<T extends AttributedPositionLi
         attributedAmountRaw: attributedAmountRaw.toString(),
         sellAmountRaw: '0',
         hasExternalBalance: false,
+        pendingBridgeApplied: fullBalanceFallbackApplied,
       },
     };
   }
@@ -150,6 +153,7 @@ export function resolveMirrorSellAttributedAmount<T extends AttributedPositionLi
       attributedAmountRaw: attributedAmountRaw.toString(),
       sellAmountRaw: sellAmountRaw.toString(),
       hasExternalBalance,
+      pendingBridgeApplied: fullBalanceFallbackApplied,
     },
   };
 }

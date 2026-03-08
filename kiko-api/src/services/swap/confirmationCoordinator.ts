@@ -8,6 +8,7 @@ import {
 } from '../../cache/cacheClient.js';
 import { callRpc, getTransactionByHash, getTransactionReceipt } from '../rpcManager.js';
 import { sendTransaction } from '../privyWallet.js';
+import { setOrderMetadata } from '../order-runtime/context.js';
 import { hydrateSharedAdjudicatedSnapshot } from '../order-runtime/adjudicator/service.js';
 import { resolveTxFinalState } from '../order-runtime/adjudicator/finalState.js';
 import { reportReceiptSeen, reportTxByHashSeen } from '../order-runtime/adjudicator/service.js';
@@ -40,6 +41,10 @@ const confirmationDeps = {
     hydrateSharedAdjudicatedSnapshot,
     resolveTxFinalState,
     sleep,
+    setTimeout: globalThis.setTimeout.bind(globalThis),
+    sendTransaction,
+    callRpc,
+    waitForReplacementVisibility,
 };
 
 function buildConfirmationInflightKey(chainId: number, txHash: string): string {
@@ -330,6 +335,10 @@ export const __confirmationCoordinatorTest = {
         confirmationDeps.getTransactionReceipt = getTransactionReceipt;
         confirmationDeps.resolveTxFinalState = resolveTxFinalState;
         confirmationDeps.sleep = sleep;
+        confirmationDeps.setTimeout = globalThis.setTimeout.bind(globalThis);
+        confirmationDeps.sendTransaction = sendTransaction;
+        confirmationDeps.callRpc = callRpc;
+        confirmationDeps.waitForReplacementVisibility = waitForReplacementVisibility;
         confirmationInflight.clear();
     }
 };
@@ -341,8 +350,11 @@ export function scheduleSpeedUp(params: {
     accessToken: string;
     speedUpAfterMs: number;
     speedUpBumpBps?: number;
+    replacementScheduleMs?: number[];
+    replacementBumpBps?: number[];
     mevProtection?: boolean;
     runtimeContext?: OrderRuntimeContext;
+    replacementAttempt?: number;
     tx: {
         to: string;
         data: string;
@@ -354,36 +366,31 @@ export function scheduleSpeedUp(params: {
         gasPrice?: string;
     };
 }): void {
-    const {
-        txHash,
-        chainId,
-        userId,
-        accessToken,
-        speedUpAfterMs,
-        speedUpBumpBps,
-        mevProtection,
-        runtimeContext,
-        tx
-    } = params;
+    const replacementAttempt = Math.max(0, Number(params.replacementAttempt ?? 0));
+    const scheduleMs = params.replacementScheduleMs?.[replacementAttempt] ?? params.speedUpAfterMs;
+    const bumpBpsForAttempt = params.replacementBumpBps?.[replacementAttempt] ?? params.speedUpBumpBps;
+    if (!scheduleMs || scheduleMs <= 0) {
+        return;
+    }
 
-    setTimeout(async () => {
+    confirmationDeps.setTimeout(async () => {
         try {
-            const finalState = resolveTxFinalState({ chainId, txHash });
+            const finalState = resolveTxFinalState({ chainId: params.chainId, txHash: params.txHash });
             if (finalState.terminal) return;
 
-            const receipt = await getTransactionReceipt(chainId, txHash).catch(() => null);
+            const receipt = await confirmationDeps.getTransactionReceipt(params.chainId, params.txHash).catch(() => null);
             if (receipt) return;
 
-            const pendingTx = await getTransactionByHash(chainId, txHash).catch(() => null);
+            const pendingTx = await confirmationDeps.getTransactionByHash(params.chainId, params.txHash).catch(() => null);
             const nonceHex = pendingTx?.nonce;
             if (!nonceHex) {
-                logger.warn(LogCode.SYS_INFO, 'SpeedUp skipped: pending tx nonce not found', { txHash, chainId });
+                logger.warn(LogCode.SYS_INFO, 'SpeedUp skipped: pending tx nonce not found', { txHash: params.txHash, chainId: params.chainId });
                 return;
             }
             const sender = String(pendingTx?.from || '').toLowerCase();
             if (sender) {
-                const latestNonceHex = await callRpc<string>(
-                    chainId,
+                const latestNonceHex = await confirmationDeps.callRpc<string>(
+                    params.chainId,
                     'eth_getTransactionCount',
                     [sender, 'latest'],
                     { strategy: 'fast', importance: 'critical' }
@@ -393,8 +400,8 @@ export function scheduleSpeedUp(params: {
                     const targetNonce = BigInt(nonceHex);
                     if (latestNonce > targetNonce) {
                         logger.info(LogCode.SYS_INFO, 'SpeedUp skipped: nonce already consumed on-chain', {
-                            txHash,
-                            chainId,
+                            txHash: params.txHash,
+                            chainId: params.chainId,
                             sender,
                             targetNonce: targetNonce.toString(),
                             latestNonce: latestNonce.toString()
@@ -404,18 +411,18 @@ export function scheduleSpeedUp(params: {
                 }
             }
 
-            const bumpBps = BigInt(speedUpBumpBps ?? 12000);
+            const bumpBps = BigInt(bumpBpsForAttempt ?? 12000);
             const bump = (value: bigint) => (value * bumpBps) / 10000n;
 
-            let maxFeePerGas = tx.maxFeePerGas ? BigInt(tx.maxFeePerGas) : undefined;
-            let maxPriorityFeePerGas = tx.maxPriorityFeePerGas ? BigInt(tx.maxPriorityFeePerGas) : undefined;
-            let gasPrice = tx.gasPrice ? BigInt(tx.gasPrice) : undefined;
+            let maxFeePerGas = params.tx.maxFeePerGas ? BigInt(params.tx.maxFeePerGas) : undefined;
+            let maxPriorityFeePerGas = params.tx.maxPriorityFeePerGas ? BigInt(params.tx.maxPriorityFeePerGas) : undefined;
+            let gasPrice = params.tx.gasPrice ? BigInt(params.tx.gasPrice) : undefined;
 
             if (!maxFeePerGas && !maxPriorityFeePerGas && !gasPrice) {
                 try {
-                    const block = await callRpc<any>(chainId, 'eth_getBlockByNumber', ['latest', false], { strategy: 'fast', importance: 'critical' });
+                    const block = await confirmationDeps.callRpc<any>(params.chainId, 'eth_getBlockByNumber', ['latest', false], { strategy: 'fast', importance: 'critical' });
                     const baseFeePerGas = block?.baseFeePerGas ? BigInt(block.baseFeePerGas) : null;
-                    const priorityHex = await callRpc<string>(chainId, 'eth_maxPriorityFeePerGas', [], { strategy: 'fast', importance: 'critical' });
+                    const priorityHex = await confirmationDeps.callRpc<string>(params.chainId, 'eth_maxPriorityFeePerGas', [], { strategy: 'fast', importance: 'critical' });
                     const priorityFee = priorityHex ? BigInt(priorityHex) : null;
                     if (priorityFee) maxPriorityFeePerGas = priorityFee;
                     if (baseFeePerGas && priorityFee) maxFeePerGas = baseFeePerGas * 2n + priorityFee;
@@ -428,24 +435,30 @@ export function scheduleSpeedUp(params: {
             if (maxPriorityFeePerGas) maxPriorityFeePerGas = bump(maxPriorityFeePerGas);
             if (gasPrice) gasPrice = bump(gasPrice);
 
-            const speedUpProfile = tx.chainId === 8453 ? 'base-sniper' : tx.chainId === 56 ? 'bsc-sniper' : undefined;
-            const replacementTxHash = await sendTransaction(userId, accessToken, {
-                to: tx.to,
-                data: tx.data,
-                value: tx.value,
-                chainId: tx.chainId,
-                gas: tx.gas,
+            if (params.runtimeContext) {
+                setOrderMetadata(params.runtimeContext, {
+                    replacementAttempt: replacementAttempt + 1,
+                });
+            }
+
+            const speedUpProfile = params.tx.chainId === 8453 ? 'base-sniper' : params.tx.chainId === 56 ? 'bsc-sniper' : undefined;
+            const replacementTxHash = await confirmationDeps.sendTransaction(params.userId, params.accessToken, {
+                to: params.tx.to,
+                data: params.tx.data,
+                value: params.tx.value,
+                chainId: params.tx.chainId,
+                gas: params.tx.gas,
                 gasPrice: gasPrice?.toString(),
                 maxFeePerGas: maxFeePerGas?.toString(),
                 maxPriorityFeePerGas: maxPriorityFeePerGas?.toString(),
                 nonce: BigInt(nonceHex).toString(),
                 txPurpose: 'speedup',
-                mevProtection: mevProtection === true,
-                runtimeContext,
+                mevProtection: params.mevProtection === true,
+                runtimeContext: params.runtimeContext,
                 ...(speedUpProfile ? { executionProfile: speedUpProfile } : {})
             });
-            const replacementVisibility = await waitForReplacementVisibility({
-                chainId,
+            const replacementVisibility = await confirmationDeps.waitForReplacementVisibility({
+                chainId: params.chainId,
                 replacementTxHash,
                 sender: sender || undefined,
                 targetNonce: BigInt(nonceHex),
@@ -453,16 +466,17 @@ export function scheduleSpeedUp(params: {
 
             if (replacementVisibility.visible) {
                 reportTxByHashSeen({
-                    chainId,
+                    chainId: params.chainId,
                     txHash: replacementTxHash,
                     from: sender || undefined,
                     source: 'rpc_tx'
                 });
                 logger.info(LogCode.EXE_TX_BROADCAST, 'SpeedUp replacement tx visible', {
-                    txHash,
-                    chainId,
+                    txHash: params.txHash,
+                    chainId: params.chainId,
                     replacementTxHash,
                     replacementNonce: BigInt(nonceHex).toString(),
+                    replacementAttempt: replacementAttempt + 1,
                     reasonCode: replacementVisibility.reasonCode,
                     ...replacementVisibility.metrics,
                 });
@@ -470,17 +484,30 @@ export function scheduleSpeedUp(params: {
             }
 
             logger.warn(LogCode.SYS_INFO, 'SpeedUp replacement attempted but not visible', {
-                txHash,
-                chainId,
+                txHash: params.txHash,
+                chainId: params.chainId,
                 replacementTxHash,
                 replacementNonce: BigInt(nonceHex).toString(),
+                replacementAttempt: replacementAttempt + 1,
                 reasonCode: replacementVisibility.reasonCode,
                 ...replacementVisibility.metrics,
             });
+            if (params.replacementScheduleMs?.[replacementAttempt + 1]) {
+                scheduleSpeedUp({
+                    ...params,
+                    txHash: replacementTxHash,
+                    replacementAttempt: replacementAttempt + 1,
+                });
+            }
         } catch (err: any) {
-            logger.warn(LogCode.SYS_ERROR, 'SpeedUp replacement failed', { txHash, chainId, error: err.message });
+            logger.warn(LogCode.SYS_ERROR, 'SpeedUp replacement failed', {
+                txHash: params.txHash,
+                chainId: params.chainId,
+                replacementAttempt: replacementAttempt + 1,
+                error: err.message
+            });
         }
-    }, speedUpAfterMs);
+    }, scheduleMs);
 }
 
 export async function monitorEvmTransaction(params: {

@@ -2,6 +2,7 @@ import { ethers } from 'ethers';
 import type { CopyTradeExecutionMode } from '../../copyTradeExecutionMode.js';
 import type { EvmExitPlan, ExitTokenInfo, PositionExitReason } from './types.js';
 import { createExitOrderRuntimeContext } from './runtime.js';
+import { setOrderMetadata } from '../../order-runtime/context.js';
 import type { AttributedPositionLike } from '../positions/positionAttribution.js';
 import { buildEvmExitAttributionSnapshot } from './exitAttributionSnapshotBuilder.js';
 import type { ExitAttributionSnapshot } from './exitSnapshotTypes.js';
@@ -356,6 +357,17 @@ export function buildEvmExitPlanFromSnapshot(input: {
   const safeBalance999Raw = (adjustedSellAmountRaw * 999n) / 1000n;
   const retryBalance = safeBalance999Raw > 0n ? safeBalance999Raw : adjustedSellAmountRaw;
   const retryAmountInHuman = ethers.formatUnits(retryBalance, decimals);
+  const runtimeContext = createExitOrderRuntimeContext({
+    userId,
+    walletAddress: snapshot.walletAddress,
+    chainId,
+    tokenAddress,
+    exitReason,
+    targetWallet: input.targetWallet
+  });
+  setOrderMetadata(runtimeContext, {
+    pendingBridgeApplied: Boolean((adjustedMetrics as { pendingBridgeApplied?: unknown }).pendingBridgeApplied),
+  });
   return {
     kind: 'swap',
     userId,
@@ -380,13 +392,6 @@ export function buildEvmExitPlanFromSnapshot(input: {
     attributedReasonCode: effectiveReasonCode,
     attributionMetrics: adjustedMetrics,
     hasExternalBalance: attribution.hasExternalBalance,
-    runtimeContext: createExitOrderRuntimeContext({
-      userId,
-      walletAddress: snapshot.walletAddress,
-      chainId,
-      tokenAddress,
-      exitReason,
-      targetWallet: input.targetWallet
-    })
+    runtimeContext
   };
 }

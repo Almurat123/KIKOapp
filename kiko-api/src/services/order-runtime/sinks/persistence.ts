@@ -57,6 +57,16 @@ export function buildOrderAuditFields(runtimeContext?: OrderRuntimeContext | nul
     route_ms: snapshot.metrics.routeMs,
     send_ms: snapshot.metrics.sendMs,
     visible_ms: snapshot.metrics.visibleMs,
-    total_ms: snapshot.metrics.totalMs
+    total_ms: snapshot.metrics.totalMs,
+    gasPolicyTier: snapshot.metadata.gasPolicyTier ?? null,
+    replacementPolicyTier: snapshot.metadata.replacementPolicyTier ?? null,
+    privateRelayEligible: snapshot.metadata.privateRelayEligible ?? null,
+    privateRelayUsed: snapshot.metadata.privateRelayUsed ?? null,
+    fallbackToPublic: snapshot.metadata.fallbackToPublic ?? null,
+    privateRelayRejected: snapshot.metadata.privateRelayRejected ?? null,
+    submissionPath: snapshot.metadata.submissionPath ?? null,
+    replacementAttempt: snapshot.metadata.replacementAttempt ?? null,
+    confirmationProbeStage: snapshot.metadata.confirmationProbeStage ?? null,
+    pendingBridgeApplied: snapshot.metadata.pendingBridgeApplied ?? null
   };
 }

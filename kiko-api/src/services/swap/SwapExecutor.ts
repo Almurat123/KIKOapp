@@ -46,6 +46,8 @@ function getCachedDecimals(chainId: number, address: string): number | undefined
 }
 import { recordProviderReliabilityOutcome } from '../copytrade-v2/learning/quoteReliability.js';
 import { resolveEthCopytradeFeePolicy } from '../copytrade-v2/eth/ethFeePolicy.js';
+import { resolveEthCopytradeRelayPolicy } from '../copytrade-v2/eth/ethRelayPolicy.js';
+import { setOrderMetadata } from '../order-runtime/context.js';
 
 // 0x AllowanceHolder address (Base). If a token already has sufficient allowance here,
 // we can skip Permit2 first-try and reduce sell failure risk for problematic tokens.
@@ -897,6 +899,17 @@ export class SwapExecutor {
         const isCopyTrade = params.feeContext === 'copyTrade';
         let maxFeePerGasCap = feeData?.maxFeePerGas;
         let maxPriorityFeeCap = feeData?.maxPriorityFeePerGas;
+        const ethFeePolicy = resolveEthCopytradeFeePolicy({
+            chainId,
+            mode: params.feeContext === 'copyTrade' ? 'copytrade' : 'fast-swap',
+            executionMode: params.executionMode,
+        });
+        const ethRelayPolicy = resolveEthCopytradeRelayPolicy({
+            chainId,
+            mode: params.feeContext === 'copyTrade' ? 'copytrade' : 'fast-swap',
+            executionMode: params.executionMode,
+            mevProtection: params.mevProtection === true,
+        });
 
         if (isCopyTrade) {
             // Smart aggressive gas: use eth_maxPriorityFeePerGas + baseFee, clamp to avoid excessive fees
@@ -922,11 +935,6 @@ export class SwapExecutor {
 
             const isBase = chainId === 8453;
             const isL2 = isBase || chainId === 10 || chainId === 42161;
-            const ethFeePolicy = resolveEthCopytradeFeePolicy({
-                chainId,
-                mode: 'copytrade',
-                executionMode: params.executionMode,
-            });
             const useEthAggressivePolicy = chainId === 1 && feeContext === 'copyTrade';
 
             const minPriority = isBase
@@ -959,11 +967,22 @@ export class SwapExecutor {
             maxPriorityFeeCap = priority;
 
             if (baseFeePerGas) {
-                maxFeePerGasCap = baseFeePerGas * 2n + maxPriorityFeeCap;
+                const maxFeeMultiplierBps = useEthAggressivePolicy
+                    ? BigInt(Number(ethFeePolicy.maxFeeMultiplierBps || 20000))
+                    : 20000n;
+                maxFeePerGasCap = baseFeePerGas * maxFeeMultiplierBps / 10000n + maxPriorityFeeCap;
             } else if (maxFeePerGasCap) {
                 maxFeePerGasCap = maxFeePerGasCap + maxPriorityFeeCap;
             } else {
                 maxFeePerGasCap = maxPriorityFeeCap * 2n;
+            }
+
+            if (params.runtimeContext) {
+                setOrderMetadata(params.runtimeContext, {
+                    gasPolicyTier: ethFeePolicy.gasPolicyTier,
+                    replacementPolicyTier: ethFeePolicy.replacementPolicyTier,
+                    privateRelayEligible: ethRelayPolicy.privateRelayEligible,
+                });
             }
 
             logger.info(LogCode.EXE_TX_BROADCAST, '🚀 CopyTrade Aggressive Gas', {
@@ -971,7 +990,9 @@ export class SwapExecutor {
                 baseFeeGwei: baseFeePerGas ? (Number(baseFeePerGas) / 1e9).toFixed(6) : 'unknown',
                 maxFeeGwei: (Number(maxFeePerGasCap) / 1e9).toFixed(6),
                 priorityGwei: (Number(maxPriorityFeeCap) / 1e9).toFixed(6),
-                mode: isBase ? 'Base(eth_maxPriorityFeePerGas)' : isL2 ? 'L2(eth_maxPriorityFeePerGas)' : 'L1(eth_maxPriorityFeePerGas)'
+                mode: isBase ? 'Base(eth_maxPriorityFeePerGas)' : isL2 ? 'L2(eth_maxPriorityFeePerGas)' : 'L1(eth_maxPriorityFeePerGas)',
+                policyTier: ethFeePolicy.gasPolicyTier,
+                replacementPolicyTier: ethFeePolicy.replacementPolicyTier,
             });
         }
 
@@ -991,7 +1012,10 @@ export class SwapExecutor {
                 maxFeePerGas: maxFeePerGasCap?.toString(),
                 maxPriorityFeePerGas: maxPriorityFeeCap?.toString(),
                 txPurpose: 'trade',
-                mevProtection: params.mevProtection === true,
+                mevProtection: ethRelayPolicy.mevProtection,
+                gasPolicyTier: ethFeePolicy.gasPolicyTier,
+                replacementPolicyTier: ethFeePolicy.replacementPolicyTier,
+                privateRelayEligible: ethRelayPolicy.privateRelayEligible,
                 runtimeContext: params.runtimeContext,
                 ...(executionProfile ? { executionProfile } : {}),
                 ...(preWarmedNonce !== undefined ? { nonce: preWarmedNonce } : {})
@@ -999,15 +1023,21 @@ export class SwapExecutor {
 
             logger.info(LogCode.EXE_TX_BROADCAST, 'Swap Broadcast', { txHash, method: best.dexName });
 
-            if (params.speedUpAfterMs && params.speedUpAfterMs > 0) {
+            const speedUpAfterMs = ethFeePolicy.speedUpAfterMs ?? params.speedUpAfterMs;
+            const speedUpBumpBps = ethFeePolicy.speedUpBumpBps ?? params.speedUpBumpBps;
+            const replacementScheduleMs = ethFeePolicy.replacementScheduleMs;
+            const replacementBumpBps = ethFeePolicy.replacementBumpBps;
+            if (speedUpAfterMs && speedUpAfterMs > 0) {
                 scheduleSpeedUp({
                     txHash,
                     chainId,
                     userId,
                     accessToken: params.accessToken || '',
-                    speedUpAfterMs: params.speedUpAfterMs,
-                    speedUpBumpBps: params.speedUpBumpBps,
-                    mevProtection: params.mevProtection === true,
+                    speedUpAfterMs,
+                    speedUpBumpBps,
+                    replacementScheduleMs,
+                    replacementBumpBps,
+                    mevProtection: ethRelayPolicy.mevProtection,
                     runtimeContext: params.runtimeContext,
                     tx: {
                         to: best.to,

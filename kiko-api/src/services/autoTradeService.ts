@@ -50,6 +50,7 @@ import {
     buildOrderAuditFields,
 } from './order-runtime/sinks/persistence.js';
 import type { OrderRuntimeContext } from './order-runtime/types.js';
+import { setOrderMetadata } from './order-runtime/context.js';
 import { buildEvmExitPlan } from './copytrade-v2/exit/planner.js';
 import { executePlannedEvmExitFlow } from './copytrade-v2/exit/evmExitExecutionFlow.js';
 import {
@@ -2799,6 +2800,11 @@ async function processSingleUserBuy(
             confirmation: ConfirmationOutcome,
             recoverySource: 'initial_wait' | 'late_recovery',
         ) => {
+            if (orderRuntimeContext) {
+                setOrderMetadata(orderRuntimeContext, {
+                    confirmationProbeStage: recoverySource === 'initial_wait' ? 'initial' : 'recovery',
+                });
+            }
             return await applyBuyConfirmationTransition({
                 confirmation,
                 chainId,

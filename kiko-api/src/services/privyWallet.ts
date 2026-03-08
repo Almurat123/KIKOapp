@@ -578,6 +578,9 @@ export interface TransactionRequest {
     txPurpose?: 'trade' | 'approval' | 'preheat' | 'speedup' | 'fee' | 'other';
     txPriority?: number;
     mevProtection?: boolean;
+    gasPolicyTier?: string;
+    replacementPolicyTier?: string;
+    privateRelayEligible?: boolean;
     runtimeContext?: OrderRuntimeContext;
 }
 
@@ -766,6 +769,14 @@ async function signAndBroadcastRawTransaction(
         );
 
         if (flashbotsResult.success && flashbotsResult.txHash) {
+            if (tx.runtimeContext) {
+                setOrderMetadata(tx.runtimeContext, {
+                    submissionPath: 'flashbots',
+                    privateRelayUsed: true,
+                    fallbackToPublic: false,
+                    privateRelayRejected: false
+                });
+            }
             const visibility = await verifyTxVisibility(
                 tx.chainId,
                 flashbotsResult.txHash,
@@ -795,10 +806,27 @@ async function signAndBroadcastRawTransaction(
             };
         }
 
+        if (tx.runtimeContext) {
+            setOrderMetadata(tx.runtimeContext, {
+                submissionPath: 'fallback_public',
+                privateRelayUsed: false,
+                fallbackToPublic: true,
+                privateRelayRejected: true
+            });
+        }
         logger.warn(LogCode.EXE_TX_BROADCAST, 'Flashbots broadcast unavailable, falling back to quorum raw broadcast', {
             chainId: tx.chainId,
             userId: context.userId.slice(0, 10),
             reason: flashbotsResult.error || 'unknown'
+        });
+    }
+
+    if (tx.runtimeContext && !shouldUseFlashbots) {
+        setOrderMetadata(tx.runtimeContext, {
+            submissionPath: 'public',
+            privateRelayUsed: false,
+            fallbackToPublic: false,
+            privateRelayRejected: false
         });
     }
 
@@ -906,7 +934,10 @@ export async function sendTransactionLifecycle(
                 setOrderMetadata(runtimeContext, {
                     txPurpose: tx.txPurpose || 'other',
                     executionProfile: tx.executionProfile || 'default',
-                    mevProtection: tx.mevProtection === true
+                    mevProtection: tx.mevProtection === true,
+                    gasPolicyTier: tx.gasPolicyTier || null,
+                    replacementPolicyTier: tx.replacementPolicyTier || null,
+                    privateRelayEligible: tx.privateRelayEligible === true
                 });
             }
             if (process.env.SIMULATION_MODE === 'true') {
