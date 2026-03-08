@@ -208,6 +208,14 @@ function clearTpslHit(positionId: string): void {
     tpslHitTracker.delete(positionId);
 }
 
+const LOCAL_POSITION_CLOSE_GUARD_MS = 2 * 60 * 1000;
+
+function markPositionLocallyClosed(positionId: string): void {
+    clearTpslHit(positionId);
+    positionsBeingExited.add(positionId);
+    setTimeout(() => positionsBeingExited.delete(positionId), LOCAL_POSITION_CLOSE_GUARD_MS);
+}
+
 function pruneTpslTracker(): void {
     if (tpslHitTracker.size === 0) return;
     const now = Date.now();
@@ -3377,6 +3385,9 @@ export async function executePositionExit(params: {
                     action: exitPlan.action,
                     closeReason: exitPlan.closeReason
                 });
+                for (const position of exitPlan.positions) {
+                    markPositionLocallyClosed(position.id);
+                }
                 return null;
             }
 
@@ -4089,6 +4100,7 @@ export async function checkPositionsForExits(): Promise<void> {
                             where: { id: position.id },
                             data: { status: 'closed', exitReason: 'manual', exitTxHash: 'MANUAL_ON_CHAIN', closedAt: new Date() }
                         });
+                        markPositionLocallyClosed(position.id);
 
                         // Notify user that position was auto-closed
                         if (position.user?.farcasterFid) {

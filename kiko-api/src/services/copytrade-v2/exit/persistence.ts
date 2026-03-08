@@ -15,6 +15,9 @@ export async function reconcileNoopExitPosition(params: {
     where: { id: { in: params.positions.map((position) => position.id) }, status: 'open' },
     data: {
       status: 'closed',
+      exitTxHash: `NOOP_CLOSE_${String(params.closeReason || 'UNKNOWN').toUpperCase()}`,
+      exitRetryCount: 0,
+      lastExitAttempt: null,
       exitReason: params.closeReason,
       closedAt: new Date()
     }
