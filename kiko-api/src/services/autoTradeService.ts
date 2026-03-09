@@ -118,6 +118,7 @@ import {
 import { emitCopyTradeTimingAudit } from './copytrade-v2/timing/copyTradeTimingAudit.js';
 import { executeSwapViaPort } from './swap/swapExecutionPort.js';
 import { getReferenceExpectedOutput } from './dex/directSwap/application/quoteEngines.js';
+import { resolveTokenToTokenExecutionPlan } from './copytrade-v2/ingress/tokenToTokenExecutionPlan.js';
 import type { ConfirmationOutcome } from './swap/confirmationCoordinator.js';
 
 export { getTokenInfo } from './tokenService.js';
@@ -859,30 +860,36 @@ export async function handleSwapDetected(
         logger.info(LogCode.EXE_TX_BROADCAST, 'Target is buying - triggering copy trade', { targetWallet, token: swap.tokenOut });
         await handleTargetBuy(targetWallet, swap, chainId, context);
     } else if (isTokenToToken) {
-        if (!COPYTRADE_ENABLE_TOKEN_TO_TOKEN_PARALLEL) {
-            logger.warn(LogCode.WTC_TX_SKIPPED, 'Skipping token-to-token activity by policy', {
-                targetWallet,
-                chainId,
-                txHash: swap.txHash,
-                tokenIn: swap.tokenIn,
-                tokenOut: swap.tokenOut
-            });
-            return;
-        }
-        logger.info(LogCode.EXE_TX_BROADCAST, 'Parallel lightning trigger: SELL and BUY starting simultaneously', { targetWallet });
+        const tokenToTokenPlan = resolveTokenToTokenExecutionPlan({
+            tokenToTokenEnabled: COPYTRADE_ENABLE_TOKEN_TO_TOKEN_PARALLEL
+        });
+        logger.info(LogCode.EXE_TX_BROADCAST, 'Token-to-token route detected - executing sell leg semantics', {
+            targetWallet,
+            chainId,
+            txHash: swap.txHash,
+            tokenIn: swap.tokenIn,
+            tokenOut: swap.tokenOut,
+            shouldSellLeg: tokenToTokenPlan.shouldSellLeg,
+            shouldBuyLeg: tokenToTokenPlan.shouldBuyLeg,
+            reasonCode: tokenToTokenPlan.reasonCode
+        });
         await Promise.all([
-            handleTargetSell(targetWallet, swap, chainId).catch(e => logger.error(LogCode.EXE_TX_REVERTED, 'Parallel sell error', {
-                error: compactCopyTradeError(e),
-                bugHint: inferCopyTradeBugHint(e),
-                txHash: swap.txHash,
-                chainId
-            })),
-            handleTargetBuy(targetWallet, swap, chainId, context).catch(e => logger.error(LogCode.EXE_TX_REVERTED, 'Parallel buy error', {
+            tokenToTokenPlan.shouldSellLeg
+                ? handleTargetSell(targetWallet, swap, chainId).catch(e => logger.error(LogCode.EXE_TX_REVERTED, 'Token-to-token sell leg error', {
                 error: compactCopyTradeError(e),
                 bugHint: inferCopyTradeBugHint(e),
                 txHash: swap.txHash,
                 chainId
             }))
+                : Promise.resolve(),
+            tokenToTokenPlan.shouldBuyLeg
+                ? handleTargetBuy(targetWallet, swap, chainId, context).catch(e => logger.error(LogCode.EXE_TX_REVERTED, 'Token-to-token buy leg error', {
+                error: compactCopyTradeError(e),
+                bugHint: inferCopyTradeBugHint(e),
+                txHash: swap.txHash,
+                chainId
+            }))
+                : Promise.resolve()
         ]);
     } else {
         // logger.throttled(LogCode.WTC_TX_SKIPPED, 'Cash-to-Cash or ignored swap type detected', { tokenIn: swap.tokenIn, tokenOut: swap.tokenOut });

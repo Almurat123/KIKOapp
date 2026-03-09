@@ -4,6 +4,7 @@ import './remotion-overrides.css'; // Remotion-specific CSS fixes
 import { MyVideo } from './MyVideo.tsx';
 import { AppleTypingDemo } from './AppleTypingDemo';
 import { CopyTradePhoneDemo } from './CopyTradePhoneDemo';
+import { CopyTradeToastTest } from './CopyTradeToastTest';
 
 export const RemotionRoot = () => {
     return (
@@ -28,6 +29,14 @@ export const RemotionRoot = () => {
                 id="CopyTradePhoneDemo"
                 component={CopyTradePhoneDemo}
                 durationInFrames={210}
+                fps={30}
+                width={1920}
+                height={1080}
+            />
+            <Composition
+                id="CopyTradeToastTest"
+                component={CopyTradeToastTest}
+                durationInFrames={180}
                 fps={30}
                 width={1920}
                 height={1080}

@@ -1602,6 +1602,25 @@ Never assume an asset is usable just because it is easy to download. Check:
 - style consistency
 - whether the source is likely to disappear
 
+### 51.3 No Fabricated Brand Or System Assets
+Do not invent or improvise:
+- app logos
+- brand marks
+- wallet icons
+- product symbols
+- system notification assets
+- system UI components when accuracy matters
+
+If an asset is specific to the user's product, brand, wallet, or app:
+- ask the user for the real asset when possible
+- use an official source if one exists
+- use a neutral placeholder only when the user explicitly accepts it or when the task is clearly a rough structural mock
+
+Production rule:
+- do not hard-code fantasy logos or guessed icons into polished video work
+- do not pretend an invented icon is the real product mark
+- if the real asset is missing, state that it is missing instead of silently fabricating it
+
 ---
 
 ## 52. Resource Types And Where To Look
