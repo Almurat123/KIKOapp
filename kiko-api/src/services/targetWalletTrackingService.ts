@@ -89,7 +89,20 @@ type TargetTradeTxRow = {
   blockTimestamp: Date;
 };
 
-function buildTargetBuySellRows(targetTradeTxs: TargetTradeTxRow[]) {
+function mapDirectionToTargetTxType(direction: ReturnType<typeof determineCopyTradeDirection>): 'TARGET_BUY' | 'TARGET_SELL' | 'TARGET_TOKEN_SWAP' {
+  if (direction.directionLeg === 'buy_leg') return 'TARGET_BUY';
+  if (direction.directionLeg === 'sell_leg') return 'TARGET_SELL';
+  return 'TARGET_TOKEN_SWAP';
+}
+
+function mapDirectionToParseReason(prefix: 'backfill_decode' | 'history_decode', direction: ReturnType<typeof determineCopyTradeDirection>): string {
+  if (direction.directionLeg === 'buy_leg') return `${prefix}_buy`;
+  if (direction.directionLeg === 'sell_leg') return `${prefix}_sell`;
+  if (direction.directionLeg === 'both') return `${prefix}_swap_both_legs`;
+  return `${prefix}_swap`;
+}
+
+export function buildTargetBuySellRows(targetTradeTxs: TargetTradeTxRow[]) {
   let tokenSwaps = 0;
   let semanticBuyCount = 0;
   let semanticSellCount = 0;
@@ -498,11 +511,7 @@ export async function backfillMissingTargetUsd(params: {
               tokenOut,
               cashLegHint: swap.cashLegHint
             });
-            const decodedTxType: 'TARGET_BUY' | 'TARGET_SELL' | 'TARGET_TOKEN_SWAP' = direction.isBuy
-              ? 'TARGET_BUY'
-              : direction.isSell
-                ? 'TARGET_SELL'
-                : 'TARGET_TOKEN_SWAP';
+            const decodedTxType = mapDirectionToTargetTxType(direction);
 
             const decodedValueInUsd = await fillUsdFromDecodedLeg({ chainId: cid, tokenAddress: swap.tokenIn, amountRaw: swap.amountIn });
             const decodedValueOutUsd = await fillUsdFromDecodedLeg({ chainId: cid, tokenAddress: swap.tokenOut, amountRaw: swap.amountOut });
@@ -528,11 +537,7 @@ export async function backfillMissingTargetUsd(params: {
                 valueInUsd: decodedValueInUsd || null,
                 valueOutUsd: decodedValueOutUsd || null,
                 valueUsd: legUsd || null,
-                parseReason: decodedTxType === 'TARGET_BUY'
-                  ? 'backfill_decode_buy'
-                  : decodedTxType === 'TARGET_SELL'
-                    ? 'backfill_decode_sell'
-                    : 'backfill_decode_swap',
+                parseReason: mapDirectionToParseReason('backfill_decode', direction),
                 source: 'backfill',
               },
             }), 4, 200);
@@ -674,10 +679,7 @@ export async function bootstrapTrackedWalletHistory(
                   tokenOut,
                   cashLegHint: swap.cashLegHint
                 });
-                const isBuy = direction.isBuy;
-                const isSell = direction.isSell;
-
-                txType = isBuy ? 'TARGET_BUY' : isSell ? 'TARGET_SELL' : 'TARGET_TOKEN_SWAP';
+                txType = mapDirectionToTargetTxType(direction);
                 tokenInAddress = tokenIn;
                 tokenOutAddress = tokenOut;
                 amountIn = swap.amountIn || null;
@@ -687,7 +689,7 @@ export async function bootstrapTrackedWalletHistory(
                 valueInUsd = await fillUsdFromDecodedLeg({ chainId, tokenAddress: tokenInAddress, amountRaw: amountIn });
                 valueOutUsd = await fillUsdFromDecodedLeg({ chainId, tokenAddress: tokenOutAddress, amountRaw: amountOut });
                 valueUsd = txType === 'TARGET_BUY' ? valueInUsd : txType === 'TARGET_SELL' ? valueOutUsd : null;
-                parseReason = isBuy ? 'history_decode_buy' : isSell ? 'history_decode_sell' : 'history_decode_swap';
+                parseReason = mapDirectionToParseReason('history_decode', direction);
               }
             }
           } catch {

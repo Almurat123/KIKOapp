@@ -1,6 +1,7 @@
 import { getChainConfig } from '../config/chainConfig.js';
 import { SOLANA_CONFIG } from '../config/solanaConfig.js';
 import { normalizeAddress } from '../utils/address.js';
+import { getCanonicalAssetIdentity, getWrappedNativeAddressForChain } from './evmCanonicalAsset.js';
 
 const NATIVE_TOKEN = '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
 
@@ -25,6 +26,7 @@ export interface CopyTradeDirectionResult {
   isTokenToToken: boolean;
   tokenInIsCash: boolean;
   tokenOutIsCash: boolean;
+  directionLeg: 'sell_leg' | 'buy_leg' | 'both' | 'none';
   source: 'token_pair' | 'cash_hint';
   inferredTxType?: InferredTxType;
   hintConflict?: boolean;
@@ -61,9 +63,12 @@ function buildCashTokenSet(chainId: number): Set<string> {
 export function determineCopyTradeDirection(input: CopyTradeDirectionInput): CopyTradeDirectionResult {
   const { chainId, tokenIn, tokenOut, cashLegHint } = input;
   const cashTokens = buildCashTokenSet(chainId);
+  const wrappedNativeAddress = getWrappedNativeAddressForChain(chainId) || undefined;
+  const normalizedTokenIn = getCanonicalAssetIdentity(chainId, tokenIn, wrappedNativeAddress).normalized;
+  const normalizedTokenOut = getCanonicalAssetIdentity(chainId, tokenOut, wrappedNativeAddress).normalized;
 
-  const tokenInIsCash = cashTokens.has(normalizeAddress(tokenIn));
-  const tokenOutIsCash = cashTokens.has(normalizeAddress(tokenOut));
+  const tokenInIsCash = cashTokens.has(normalizeAddress(normalizedTokenIn));
+  const tokenOutIsCash = cashTokens.has(normalizeAddress(normalizedTokenOut));
 
   let isBuy = tokenInIsCash && !tokenOutIsCash;
   let isSell = !tokenInIsCash && tokenOutIsCash;
@@ -71,6 +76,13 @@ export function determineCopyTradeDirection(input: CopyTradeDirectionInput): Cop
   let source: 'token_pair' | 'cash_hint' = 'token_pair';
   let hintConflict = false;
   let inferredTxType = cashLegHint?.inferredTxType;
+  let directionLeg: 'sell_leg' | 'buy_leg' | 'both' | 'none' = isBuy
+    ? 'buy_leg'
+    : isSell
+      ? 'sell_leg'
+      : isTokenToToken
+        ? 'both'
+        : 'none';
   if (!inferredTxType || inferredTxType === 'TARGET_TOKEN_SWAP') {
     inferredTxType = inferTxTypeFromCashFlow(cashLegHint) || inferredTxType;
   }
@@ -86,16 +98,19 @@ export function determineCopyTradeDirection(input: CopyTradeDirectionInput): Cop
         isBuy = true;
         isSell = false;
         isTokenToToken = false;
+        directionLeg = 'buy_leg';
         source = 'cash_hint';
       } else if (inferredTxType === 'TARGET_SELL') {
         isBuy = false;
         isSell = true;
         isTokenToToken = false;
+        directionLeg = 'sell_leg';
         source = 'cash_hint';
       } else if (inferredTxType === 'TARGET_TOKEN_SWAP') {
         isBuy = false;
         isSell = false;
         isTokenToToken = true;
+        directionLeg = 'both';
         source = 'cash_hint';
       }
     } else if (
@@ -113,6 +128,7 @@ export function determineCopyTradeDirection(input: CopyTradeDirectionInput): Cop
     isTokenToToken,
     tokenInIsCash,
     tokenOutIsCash,
+    directionLeg,
     source,
     inferredTxType,
     hintConflict

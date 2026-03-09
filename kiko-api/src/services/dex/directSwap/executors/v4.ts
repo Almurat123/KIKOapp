@@ -8,6 +8,8 @@ import type { TxLifecycleResult } from '../../../txLifecycle.js';
 import { isTxLifecycleSendAccepted } from '../../../txLifecycle.js';
 import type { OrderRuntimeContext } from '../../../order-runtime/types.js';
 import { markOrderPrepared, recordOrderRoute, setOrderMetadata } from '../../../order-runtime/context.js';
+import { getCanonicalAssetIdentity } from '../../../evmCanonicalAsset.js';
+import { probeV4HookCapability, resolveV4HookCapabilityProfile } from '../../v4HookCapabilities.js';
 
 interface ExecuteSwapParams {
   userId: string;
@@ -70,21 +72,8 @@ export async function executeV4Swap(
 ): Promise<DirectSwapResult> {
   const { userId, accessToken, tokenIn, tokenOut, chainId, slippageBps } = params;
   const trustedHint = options?.trustedHint === true;
-  const extraNativeAliases = chainId === 8453
-    ? new Set(['0x000000000d564d5be76f7f0d28fe52605afc7cf8'])
-    : new Set<string>();
   const normalizePairToken = (token: string): string => {
-    const value = String(token || '').toLowerCase();
-    if (
-      value === '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee'
-      || value === '0x0000000000000000000000000000000000000000'
-      || extraNativeAliases.has(value)
-    ) {
-      if (chainId === 8453) return '0x4200000000000000000000000000000000000006';
-      if (chainId === 1) return '0xc02aa39b223fe8d0a0e5c4f27ead9083c756cc2';
-      if (chainId === 56) return '0xbb4cdb9cbd36b01bd1cbaebf2de08d9173bc095c';
-    }
-    return value;
+    return getCanonicalAssetIdentity(chainId, token).normalized;
   };
   const plan = buildV4ExecutionPlan({
     tokenIn,
@@ -94,6 +83,29 @@ export async function executeV4Swap(
     pool
   });
   const { isNativeIn, isNativeOut, normalizedIn, normalizedOut, zeroForOne, hookDataCandidates, hookFamily, poolKey, poolId } = plan;
+  const initialHookCapability = await resolveV4HookCapabilityProfile({
+    chainId,
+    hookAddress: poolKey.hooks,
+    callRpc: deps.callRpc,
+    allowProbe: true,
+  });
+  logger.info(LogCode.SYS_INFO, '[DirectSwap] v4_hook_profile_resolved', {
+    chainId,
+    hookAddress: poolKey.hooks,
+    hookFamily: initialHookCapability.hookFamily,
+    codeHash: initialHookCapability.codeHash,
+    profileStatus: initialHookCapability.status,
+    reasonCode: initialHookCapability.reasonCode,
+    poolAddress: pool.poolAddress,
+    poolKind: 'v4',
+    tokenIn: params.tokenIn,
+    tokenOut: params.tokenOut,
+    normalizedTokenIn: normalizedIn,
+    normalizedTokenOut: normalizedOut,
+  });
+  if (initialHookCapability.status === 'unsupported') {
+    return { success: false, error: `unsupported_v4_hook:${initialHookCapability.reasonCode}`, provider: 'failed' };
+  }
   const poolToken0 = normalizePairToken(poolKey.currency0);
   const poolToken1 = normalizePairToken(poolKey.currency1);
   const inToken = normalizePairToken(normalizedIn);
@@ -217,6 +229,43 @@ export async function executeV4Swap(
     }
   );
   let tx = buildTx(selectedHookData);
+  if (initialHookCapability.status === 'probe_only') {
+    logger.info(LogCode.SYS_INFO, '[DirectSwap] v4_hook_probe_started', {
+      chainId,
+      hookAddress: poolKey.hooks,
+      poolAddress: pool.poolAddress,
+      poolKind: 'v4',
+      tokenIn: params.tokenIn,
+      tokenOut: params.tokenOut,
+      normalizedTokenIn: normalizedIn,
+      normalizedTokenOut: normalizedOut,
+    });
+    const probeResult = await probeV4HookCapability({
+      chainId,
+      hookAddress: poolKey.hooks,
+      callRpc: deps.callRpc,
+      tx: {
+        from: params.walletAddress,
+        to: tx.to,
+        data: tx.data,
+        value: isNativeIn ? ethers.toQuantity(amountInWei) : '0x0',
+      },
+    });
+    logger.info(LogCode.SYS_INFO, '[DirectSwap] v4_hook_probe_result', {
+      chainId,
+      hookAddress: poolKey.hooks,
+      hookFamily: probeResult.profile.hookFamily,
+      codeHash: probeResult.profile.codeHash,
+      profileStatus: probeResult.profile.status,
+      reasonCode: probeResult.profile.reasonCode,
+      probeReasonCode: probeResult.probeReasonCode,
+      poolAddress: pool.poolAddress,
+      poolKind: 'v4',
+    });
+    if (probeResult.profile.status !== 'supported_safe' && probeResult.profile.status !== 'supported_with_adapter') {
+      return { success: false, error: `unsupported_v4_hook:${probeResult.profile.reasonCode}`, provider: 'failed' };
+    }
+  }
 
   const turboTrustedFastPath = executionMode === 'turbo' && trustedHint;
   // Always run pre-simulation — even in fastMode. One eth_call (~50ms) prevents

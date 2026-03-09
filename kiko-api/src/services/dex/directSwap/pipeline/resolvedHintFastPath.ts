@@ -7,6 +7,7 @@ import { isSameHintPair, normalizePairTokenForHint } from '../domain/hintPair.js
 import type { DirectSwapResult } from '../types.js';
 import { matchV4PoolKeyById } from '../../uniswapV4.js';
 import type { SelectedV4Pool } from '../../v4ExecutionPlan.js';
+import { resolveV4HookCapabilityProfile } from '../../v4HookCapabilities.js';
 
 const poolTokenInterface = new ethers.Interface([
   'function token0() view returns (address)',
@@ -162,6 +163,37 @@ async function validateResolvedHintAgainstSwapPair(params: {
           swapTokenOut: params.tokenOut,
           poolAddress: hint.poolAddress || null
         }
+      };
+    }
+    const hookCapability = await resolveV4HookCapabilityProfile({
+      chainId: params.chainId,
+      hookAddress: poolKey.hooks,
+      callRpc: params.deps.callRpc,
+      allowProbe: true,
+    });
+    params.deps.logger.info(LogCode.SYS_INFO, '[DirectSwap] v4_hook_profile_resolved', {
+      chainId: params.chainId,
+      hookAddress: poolKey.hooks,
+      hookFamily: hookCapability.hookFamily,
+      codeHash: hookCapability.codeHash,
+      profileStatus: hookCapability.status,
+      reasonCode: hookCapability.reasonCode,
+      normalizedTokenIn: normalizePairTokenForHint(params.tokenIn, params.deps.wrappedNativeByChain[params.chainId]),
+      normalizedTokenOut: normalizePairTokenForHint(params.tokenOut, params.deps.wrappedNativeByChain[params.chainId]),
+      poolAddress: hint.poolAddress || null,
+      poolKind: hint.kind,
+    });
+    if (hookCapability.status === 'probe_only' || hookCapability.status === 'unsupported') {
+      return {
+        ok: false,
+        reason: `v4_hook_${hookCapability.status}`,
+        details: {
+          hookAddress: poolKey.hooks,
+          hookFamily: hookCapability.hookFamily,
+          profileStatus: hookCapability.status,
+          reasonCode: hookCapability.reasonCode,
+          poolAddress: hint.poolAddress || null,
+        },
       };
     }
     const pairOk = isSameHintPair(

@@ -1610,6 +1610,8 @@ Do not invent or improvise:
 - product symbols
 - system notification assets
 - system UI components when accuracy matters
+- notification copy when the user expects an exact real-world message
+- DM contents, wallet addresses, transaction summaries, or branded alert copy that was not provided
 
 If an asset is specific to the user's product, brand, wallet, or app:
 - ask the user for the real asset when possible
@@ -1620,6 +1622,167 @@ Production rule:
 - do not hard-code fantasy logos or guessed icons into polished video work
 - do not pretend an invented icon is the real product mark
 - if the real asset is missing, state that it is missing instead of silently fabricating it
+- if the exact content is missing and accuracy matters, stop and ask for the exact content instead of guessing a plausible one
+
+### 51.4 Screenshot Is Specification, Not Inspiration
+When the user provides a screenshot of a system component, treat it as a formatting specification unless the user explicitly says it is only mood or inspiration.
+
+This applies especially to:
+- iOS notifications
+- Android notifications
+- toasts
+- modals
+- sheets
+- alerts
+- status bars
+
+Production rule:
+- do not redesign a system component when the user has already shown the target component
+- do not "abstract the pattern" before reproducing the visible structure
+- lock visible facts first: container style, icon size, padding, line count, title/time layout, truncation behavior, and color logic
+
+### 51.5 System Component Style Must Stay Unified
+If multiple notifications belong to the same host OS surface, keep the host system style unified even when the source apps differ.
+
+Production rule:
+- different apps may change icon and text, but not the host iOS notification grammar
+- do not create a custom card for one app if the user is still showing iOS notifications
+- source app identity is not permission to invent a new system surface
+
+### 51.6 Content Discipline For Reference-Driven UI
+If the user provides exact visible text format, preserve that content structure unless the user explicitly asks for a rewrite.
+
+Production rule:
+- do not change a one-message notification into a multi-detail card
+- do not turn matching notifications into different content templates without instruction
+- do not replace a demonstrated text pattern with a guessed narrative progression
+- when a screenshot shows four visible lines, do not compress it to three because it feels cleaner
+
+### 51.7 Spec Lock Rule
+Before implementing a reference-driven UI shot, explicitly lock what is fixed.
+
+Minimum lock list:
+- host OS component type
+- container style
+- icon size and position
+- title / sender / time arrangement
+- visible line count
+- truncation pattern
+- color logic
+- material logic
+- which fields are real and already provided
+- which fields are missing
+
+Production rule:
+- after these are locked, do not change them unless the user asks
+- do not start inventing variants before the locked spec is reproduced
+
+### 51.8 Do Not Infer Zone
+In reference-driven UI work, some fields are forbidden to infer.
+
+Do not infer:
+- exact notification copy
+- DM contents
+- wallet labels
+- transaction summaries
+- app names
+- system component structure
+- visible line count
+- sender / title hierarchy
+
+Production rule:
+- if a field is in the Do Not Infer Zone and the user has not provided it, stop and ask
+
+### 51.9 Static Match Gate
+Before animating a screenshot-driven system component, first verify a static frame match.
+
+The static check must confirm:
+- same host-system style
+- same component anatomy
+- same visible line count
+- same title / time structure
+- same icon logic
+- same color logic
+
+Production rule:
+- if the static frame does not match, do not proceed to motion polish
+- animation cannot compensate for a format mismatch
+
+### 51.10 Stop And Ask Rule
+If the user expects fidelity and any of the following are missing, pause implementation and ask:
+- real logo or icon
+- exact notification copy
+- exact DM text
+- exact sender naming
+- exact screenshot-derived formatting that cannot be read confidently
+
+Production rule:
+- do not fill missing fidelity-critical fields with plausible guesses
+- lack of exact content is a blocker, not a creative prompt
+
+### 51.11 Mandatory UI Spec Preflight
+For screenshot-driven system UI work, the model must explicitly complete a preflight before editing code.
+
+Required preflight output:
+- host component type
+- whether the screenshot is a spec or only inspiration
+- fixed fields
+- missing fields
+- fields in the Do Not Infer Zone
+- go / no-go decision
+
+Hard rule:
+- if the preflight is not completed, do not implement
+- if the preflight result is `no-go`, do not implement
+- if the user has provided screenshots and the model has not explicitly locked the visible format, implementation is not allowed to proceed
+
+Default no-go conditions:
+- exact notification copy is missing but fidelity is expected
+- exact DM text is missing but fidelity is expected
+- sender / title / line-count structure is not confidently readable
+- the model wants to vary host-system style across app senders
+
+### 51.12 Reference Override Rule
+When reference evidence conflicts with model intuition, the reference wins.
+
+Hard rule:
+- screenshots override memory
+- user-stated formatting overrides stylistic preference
+- visible UI evidence overrides generalized design knowledge
+- "this feels cleaner" is not a valid reason to change a shown format
+
+### 51.13 System UI Mode
+When the task is about iOS, Android, macOS, Windows, or other system-surface UI, enter System UI Mode.
+
+System UI Mode means:
+- specification-first
+- host-system style is fixed
+- screenshot evidence outranks invention
+- missing fidelity-critical content blocks implementation
+
+Hard rule:
+- in System UI Mode, do not improvise formatting
+- in System UI Mode, do not vary host-system grammar across app senders
+- in System UI Mode, do not treat system UI as a place for creative redesign unless the user explicitly asks for a redesign
+
+### 51.14 Never Do These In System UI Work
+Never:
+- treat a screenshot spec as loose inspiration
+- redesign one iOS notification while leaving others native
+- change visible line count
+- change title / time / sender hierarchy without instruction
+- expand a simple system notification into a richer custom info card
+- shrink a multi-line screenshot into fewer lines because it looks cleaner
+- invent missing system text or branded content to keep momentum
+
+### 51.15 Acceptance Criteria For Screenshot-Driven Components
+A screenshot-driven system component is only acceptable if:
+- host-system style is consistent
+- component anatomy matches the screenshot
+- visible line count matches the screenshot
+- title / sender / time structure matches the screenshot
+- only allowed fields were changed
+- static frame match was achieved before motion polish
 
 ---
 

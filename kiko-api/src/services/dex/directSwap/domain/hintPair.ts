@@ -1,12 +1,7 @@
-const NATIVE_PSEUDO = '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
+import { normalizeCanonicalEvmAsset } from '../../../evmCanonicalAsset.js';
 
 export function normalizePairTokenForHint(token: string, wrappedNativeAddress?: string): string {
-  const normalized = String(token || '').toLowerCase();
-  if (!normalized) return normalized;
-  if (normalized === NATIVE_PSEUDO) {
-    return String(wrappedNativeAddress || NATIVE_PSEUDO).toLowerCase();
-  }
-  return normalized;
+  return normalizeCanonicalEvmAsset(0, token, wrappedNativeAddress);
 }
 
 export function isSameHintPair(

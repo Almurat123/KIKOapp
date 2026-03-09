@@ -1,17 +1,6 @@
 import { V4PoolKey } from './uniswapV4.js';
 import { buildV4HookDataCandidates, resolveV4HookProfile, V4HookFamily } from './v4Hooks.js';
-
-const ETH_ADDRESS = '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
-const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
-const EXTRA_NATIVE_ALIASES_BY_CHAIN: Record<number, string[]> = {
-    // Flaunch native alias seen in Base v4 paths.
-    8453: ['0x000000000d564d5be76f7f0d28fe52605afc7cf8']
-};
-const WETH_ADDRESSES: Record<number, string> = {
-    8453: '0x4200000000000000000000000000000000000006',
-    1: '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2',
-    56: '0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c',
-};
+import { getCanonicalAssetIdentity, getWrappedNativeAddressForChain, normalizeCanonicalEvmAsset } from '../evmCanonicalAsset.js';
 
 export interface SelectedV4Pool {
     poolId: string;
@@ -48,29 +37,20 @@ export function buildV4ExecutionPlan(params: {
     pool: SelectedV4Pool;
 }): V4ExecutionPlan {
     const { tokenIn, tokenOut, chainId, walletAddress, pool } = params;
-    const isNativeIn = tokenIn.toLowerCase() === ETH_ADDRESS;
-    const isNativeOut = tokenOut.toLowerCase() === ETH_ADDRESS;
+    const wrappedNativeAddress = getWrappedNativeAddressForChain(chainId);
+    const inIdentity = getCanonicalAssetIdentity(chainId, tokenIn, wrappedNativeAddress || undefined);
+    const outIdentity = getCanonicalAssetIdentity(chainId, tokenOut, wrappedNativeAddress || undefined);
+    const isNativeIn = inIdentity.isNativeLike;
+    const isNativeOut = outIdentity.isNativeLike;
 
-    const normalizedIn = String(isNativeIn ? (WETH_ADDRESSES[chainId] || tokenIn) : tokenIn).toLowerCase();
-    const normalizedOut = String(isNativeOut ? (WETH_ADDRESSES[chainId] || tokenOut) : tokenOut).toLowerCase();
-    const normalizeForDirection = (token: string): string => {
-        const value = String(token || '').toLowerCase();
-        if (value === ETH_ADDRESS || value === ZERO_ADDRESS || (EXTRA_NATIVE_ALIASES_BY_CHAIN[chainId] || []).includes(value)) {
-            return String(WETH_ADDRESSES[chainId] || value).toLowerCase();
-        }
-        return value;
-    };
-    const normalizedPoolCurrency = (token: string): string => {
-        const value = String(token || '').toLowerCase();
-        if (value === ETH_ADDRESS) return (WETH_ADDRESSES[chainId] || token).toLowerCase();
-        return value;
-    };
+    const normalizedIn = inIdentity.normalized;
+    const normalizedOut = outIdentity.normalized;
     const poolKey = {
         ...pool.poolKey,
-        currency0: normalizedPoolCurrency(pool.poolKey.currency0),
-        currency1: normalizedPoolCurrency(pool.poolKey.currency1)
+        currency0: normalizeCanonicalEvmAsset(chainId, pool.poolKey.currency0, wrappedNativeAddress || undefined),
+        currency1: normalizeCanonicalEvmAsset(chainId, pool.poolKey.currency1, wrappedNativeAddress || undefined)
     };
-    const zeroForOne = normalizeForDirection(poolKey.currency0) === normalizeForDirection(normalizedIn);
+    const zeroForOne = poolKey.currency0 === normalizedIn;
     const hookProfile = resolveV4HookProfile(chainId, poolKey.hooks);
     const hookDataCandidates = buildV4HookDataCandidates({
         chainId,
