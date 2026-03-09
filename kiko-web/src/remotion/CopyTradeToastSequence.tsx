@@ -17,13 +17,13 @@ const toasts: ToastData[] = [
         app: 'Target Wallet',
         time: '1m ago',
         kind: 'interface',
-        message: 'Swapped 0.15 ETH for 149,388 AIPOW ($300.29)',
+        message: 'Swapped 0.15 ETH for 149,388 MOLT ($300.29)',
     },
     {
         app: 'KIKO',
         time: '1m ago',
         kind: 'interface',
-        message: 'Swapped 0.15 ETH for 149,388 AIPOW ($300.29)',
+        message: 'Swapped 0.15 ETH for 149,388 MOLT ($300.29)',
     },
     {
         app: 'kikoapp',

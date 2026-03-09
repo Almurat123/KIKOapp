@@ -1,3 +1,5 @@
+import crypto from 'node:crypto';
+
 import { Prisma } from '@prisma/client';
 
 import { LogCode } from '../../../config/logRegistry.js';
@@ -31,6 +33,18 @@ export type DirectSwapFeeClaimResult =
 
 export interface DirectSwapFeeClaimParams {
   feeExecutionKey: string;
+  userId: string;
+  chainId: number;
+  sourceTxHash: string;
+  mode: string;
+  feeToken: string;
+  feeRecipient: string;
+  feeBps: number;
+}
+
+export interface DirectSwapFeeExecutionInsertRow {
+  id: string;
+  feeKey: string;
   userId: string;
   chainId: number;
   sourceTxHash: string;
@@ -80,6 +94,23 @@ export function buildDirectSwapFeeExecutionKey(params: {
   ].join(':');
 }
 
+export function buildDirectSwapFeeExecutionInsertRow(
+  params: DirectSwapFeeClaimParams & { feeExecutionKey?: string }
+): DirectSwapFeeExecutionInsertRow {
+  const feeExecutionKey = normalizeKey(params.feeExecutionKey || '');
+  return {
+    id: crypto.randomUUID(),
+    feeKey: feeExecutionKey,
+    userId: String(params.userId || ''),
+    chainId: Number(params.chainId || 0),
+    sourceTxHash: normalizeKey(params.sourceTxHash),
+    mode: String(params.mode || ''),
+    feeToken: normalizeKey(params.feeToken),
+    feeRecipient: normalizeKey(params.feeRecipient),
+    feeBps: Math.max(0, Math.floor(Number(params.feeBps) || 0))
+  };
+}
+
 export async function claimDirectSwapFeeExecution(params: DirectSwapFeeClaimParams): Promise<DirectSwapFeeClaimResult> {
   const feeExecutionKey = normalizeKey(params.feeExecutionKey);
   if (!feeExecutionKey) {
@@ -89,9 +120,15 @@ export async function claimDirectSwapFeeExecution(params: DirectSwapFeeClaimPara
     };
   }
 
+  const insertRow = buildDirectSwapFeeExecutionInsertRow({
+    ...params,
+    feeExecutionKey
+  });
+
   try {
     await prisma.$executeRaw`
       INSERT INTO direct_swap_fee_execution (
+        id,
         fee_key,
         user_id,
         chain_id,
@@ -106,14 +143,15 @@ export async function claimDirectSwapFeeExecution(params: DirectSwapFeeClaimPara
         updated_at
       )
       VALUES (
-        ${feeExecutionKey},
-        ${params.userId},
-        ${params.chainId},
-        ${normalizeKey(params.sourceTxHash)},
-        ${String(params.mode || '')},
-        ${normalizeKey(params.feeToken)},
-        ${normalizeKey(params.feeRecipient)},
-        ${Math.max(0, Math.floor(Number(params.feeBps) || 0))},
+        ${insertRow.id},
+        ${insertRow.feeKey},
+        ${insertRow.userId},
+        ${insertRow.chainId},
+        ${insertRow.sourceTxHash},
+        ${insertRow.mode},
+        ${insertRow.feeToken},
+        ${insertRow.feeRecipient},
+        ${insertRow.feeBps},
         'sending',
         1,
         NOW(),

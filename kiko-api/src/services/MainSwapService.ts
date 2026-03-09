@@ -34,6 +34,7 @@ import {
   collectDirectSwapFee as collectDirectSwapFeeWithAuth,
   type DirectSwapFeeSettlement
 } from './swap/fee/directSwapFeeCollector.js';
+import { resolveDirectSwapFeeSourceTxHash } from './swap/fee/directSwapFeeSourceTxHash.js';
 import { NATIVE_TOKEN_ADDRESS, SOLANA_NATIVE_MINT, isNativeToken } from '../config/tokenRegistry.js';
 import { toWei } from './zeroEx.js';
 import { ethers } from 'ethers';
@@ -302,7 +303,8 @@ export class MainSwapService {
     normalizedTokenOut: string,
     amountOutBase: string | undefined,
     feeContext: FeeContext,
-    trace: (msg: string) => string
+    trace: (msg: string) => string,
+    sourceTxHashOverride?: string
   ): Promise<void> {
     await collectDirectSwapFeeWithAuth({
       request: {
@@ -311,7 +313,8 @@ export class MainSwapService {
         amountIn: request.amountIn,
         chainId: request.chainId,
         feeBpsOverride: request.feeBpsOverride,
-        mode: request.mode
+        mode: request.mode,
+        sourceTxHash: resolveDirectSwapFeeSourceTxHash(request, sourceTxHashOverride)
       },
       normalizedTokenIn,
       normalizedTokenOut,
@@ -1548,7 +1551,8 @@ export class MainSwapService {
                         normalizedTokenOut,
                         adoptedResult.amountOut,
                         feeContext,
-                        trace
+                        trace,
+                        adoptedResult.txHash
                       );
                     } catch (feeErr: any) {
                       logger.warn(LogCode.SYS_ERROR, trace('Direct swap fee transfer failed (non-fatal)'), {
@@ -1598,7 +1602,8 @@ export class MainSwapService {
                   normalizedTokenOut,
                   acceptedResult.amountOut,
                   feeContext,
-                  trace
+                  trace,
+                  acceptedResult.txHash
                 );
               } catch (feeErr: any) {
                 logger.warn(LogCode.SYS_ERROR, trace('Direct swap fee transfer failed (non-fatal)'), {
