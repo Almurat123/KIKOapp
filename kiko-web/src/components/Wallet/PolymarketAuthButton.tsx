@@ -32,6 +32,33 @@ async function parseApiError(response: Response, fallback: string) {
     }
 }
 
+async function fetchTradingReadiness(token: string): Promise<ReadinessData | null> {
+    const response = await fetch(`${API_URL}/api/polymarket/trading/readiness`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+    });
+
+    if (!response.ok) {
+        throw new Error(await parseApiError(response, 'Failed to check trading readiness'));
+    }
+
+    const data = await response.json();
+    return data.success ? (data.data as ReadinessData) : null;
+}
+
+async function waitForTradingReadiness(token: string): Promise<ReadinessData | null> {
+    const maxAttempts = 12;
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+        const readiness = await fetchTradingReadiness(token);
+        if (readiness?.isReady) {
+            return readiness;
+        }
+        if (attempt < maxAttempts) {
+            await new Promise((resolve) => setTimeout(resolve, 2500));
+        }
+    }
+    return await fetchTradingReadiness(token);
+}
+
 /**
  * PolymarketAuthButton - Enable Polymarket trading
  * 
@@ -55,16 +82,9 @@ export const PolymarketAuthButton: React.FC<PolymarketAuthButtonProps> = ({
             try {
                 const token = await getAccessToken();
                 if (!token) return;
-
-                const response = await fetch(`${API_URL}/api/polymarket/trading/readiness`, {
-                    headers: { 'Authorization': `Bearer ${token}` }
-                });
-
-                if (response.ok) {
-                    const data = await response.json();
-                    if (data.success) {
-                        setReadiness(data.data);
-                    }
+                const nextReadiness = await fetchTradingReadiness(token);
+                if (nextReadiness) {
+                    setReadiness(nextReadiness);
                 }
             } catch (err) {
                 console.error('[PolymarketAuth] Failed to check readiness:', err);
@@ -137,6 +157,11 @@ export const PolymarketAuthButton: React.FC<PolymarketAuthButtonProps> = ({
 
                 const executeData = await executeResponse.json();
                 nextReadiness = executeData.data?.readiness || nextReadiness;
+                nextReadiness = (await waitForTradingReadiness(token)) || {
+                    ...nextReadiness,
+                    hasCredentials: true,
+                    missingSteps: ['Waiting for Polygon approval confirmations...']
+                };
             } else {
                 nextReadiness = {
                     ...nextReadiness,

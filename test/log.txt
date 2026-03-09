@@ -1,139 +1,103 @@
-[Warning] 2180 console messages are not shown.
-[Log] [DEBUG] – "Stop requested" – Object (logger.ts, line 61)
-Object
-[Log] [DEBUG] – "Sending message on chain: Base (8453)" (logger.ts, line 61)
-[Log] [DEBUG] – "Sending message with walletAddress:" – "0xA386bc9D8F26AB170A847D73226e3e0BCEb0fe8E" – "chainId:" – 8453 (logger.ts, line 61)
-[Log] [SuggestionEngine] Generated grouped suggestions: – 1 – "groups" (SuggestionEngine.tsx, line 140)
-[Log] [RootLayout] message_start: – "cmmgji1t401imvel0tql8ivmg" – "cmmgje6bu00q7vel0d9gaxnq4" (RootLayout.tsx, line 127)
-[Log] [RootLayout] Rendering Streaming Frame. Content Len: 0 (RootLayout.tsx, line 53)
-[Log] [RootLayout] Rendering Streaming Frame. Content Len: 0 (RootLayout.tsx, line 53)
-[Log] [RootLayout] message_start: – "cmmgji1t401imvel0tql8ivmg" – "cmmgje6bu00q7vel0d9gaxnq4" (RootLayout.tsx, line 127)
-[Log] [RootLayout] Rendering Streaming Frame. Content Len: 0 (RootLayout.tsx, line 53)
-[Log] [RootLayout] Rendering Streaming Frame. Content Len: 0 (RootLayout.tsx, line 53)
-[Log] [RootLayout] Rendering Streaming Frame. Content Len: 0 (RootLayout.tsx, line 53)
-[Log] [RootLayout] Rendering Streaming Frame. Content Len: 0 (RootLayout.tsx, line 53)
-[Log] [RootLayout] Rendering Streaming Frame. Content Len: 0 (RootLayout.tsx, line 53)
-[Log] [RootLayout] Rendering Streaming Frame. Content Len: 0 (RootLayout.tsx, line 53)
-[Log] [RootLayout] Rendering Streaming Frame. Content Len: 0 (RootLayout.tsx, line 53)
-[Log] [RootLayout] Rendering Streaming Frame. Content Len: 0 (RootLayout.tsx, line 53)
-[Log] [RootLayout] Rendering Streaming Frame. Content Len: 0 (RootLayout.tsx, line 53)
-[Log] [RootLayout] Rendering Streaming Frame. Content Len: 0 (RootLayout.tsx, line 53)
-[Log] [RootLayout] Rendering Streaming Frame. Content Len: 0 (RootLayout.tsx, line 53)
-[Log] [RootLayout] Rendering Streaming Frame. Content Len: 0 (RootLayout.tsx, line 53)
-[Log] [RootLayout] Rendering Streaming Frame. Content Len: 1 (RootLayout.tsx, line 53)
-[Log] [RootLayout] Rendering Streaming Frame. Content Len: 1 (RootLayout.tsx, line 53)
-[Log] [RootLayout] Rendering Streaming Frame. Content Len: 12 (RootLayout.tsx, line 53)
-[Log] [RootLayout] Rendering Streaming Frame. Content Len: 12 (RootLayout.tsx, line 53)
-[Log] [RootLayout] Rendering Streaming Frame. Content Len: 38 (RootLayout.tsx, line 53)
-[Log] [RootLayout] Rendering Streaming Frame. Content Len: 38 (RootLayout.tsx, line 53)
-[Log] [RootLayout] Rendering Streaming Frame. Content Len: 44 (RootLayout.tsx, line 53)
-[Log] [RootLayout] Rendering Streaming Frame. Content Len: 44 (RootLayout.tsx, line 53)
-[Log] [RootLayout] Rendering Streaming Frame. Content Len: 54 (RootLayout.tsx, line 53)
-[Log] [RootLayout] Rendering Streaming Frame. Content Len: 54 (RootLayout.tsx, line 53)
-[Log] [RootLayout] Rendering Streaming Frame. Content Len: 62 (RootLayout.tsx, line 53)
-[Log] [RootLayout] Rendering Streaming Frame. Content Len: 62 (RootLayout.tsx, line 53)
-[Log] [RootLayout] Rendering Streaming Frame. Content Len: 70 (RootLayout.tsx, line 53)
-[Log] [RootLayout] Rendering Streaming Frame. Content Len: 70 (RootLayout.tsx, line 53)
-[Log] [RootLayout] Rendering Streaming Frame. Content Len: 74 (RootLayout.tsx, line 53)
-[Log] [RootLayout] Rendering Streaming Frame. Content Len: 74 (RootLayout.tsx, line 53)
-[Log] [RootLayout] Rendering Streaming Frame. Content Len: 78 (RootLayout.tsx, line 53)
-[Log] [RootLayout] Rendering Streaming Frame. Content Len: 78 (RootLayout.tsx, line 53)
-[Log] [RootLayout] Rendering Streaming Frame. Content Len: 81 (RootLayout.tsx, line 53)
-[Log] [RootLayout] Rendering Streaming Frame. Content Len: 81 (RootLayout.tsx, line 53)
-[Log] [RootLayout] Rendering Streaming Frame. Content Len: 90 (RootLayout.tsx, line 53)
-[Log] [RootLayout] Rendering Streaming Frame. Content Len: 90 (RootLayout.tsx, line 53)
-[Log] [RootLayout] Rendering Streaming Frame. Content Len: 103 (RootLayout.tsx, line 53)
-[Log] [RootLayout] Rendering Streaming Frame. Content Len: 103 (RootLayout.tsx, line 53)
-[Log] [RootLayout] Rendering Streaming Frame. Content Len: 113 (RootLayout.tsx, line 53)
-[Log] [RootLayout] Rendering Streaming Frame. Content Len: 113 (RootLayout.tsx, line 53)
-[Log] [RootLayout] Rendering Streaming Frame. Content Len: 117 (RootLayout.tsx, line 53)
-[Log] [RootLayout] Rendering Streaming Frame. Content Len: 117 (RootLayout.tsx, line 53)
-[Log] [RootLayout] Rendering Streaming Frame. Content Len: 127 (RootLayout.tsx, line 53)
-[Log] [RootLayout] Rendering Streaming Frame. Content Len: 127 (RootLayout.tsx, line 53)
-[Log] [RootLayout] Rendering Streaming Frame. Content Len: 132 (RootLayout.tsx, line 53)
-[Log] [RootLayout] Rendering Streaming Frame. Content Len: 132 (RootLayout.tsx, line 53)
-[Log] [RootLayout] Rendering Streaming Frame. Content Len: 145 (RootLayout.tsx, line 53)
-[Log] [RootLayout] Rendering Streaming Frame. Content Len: 145 (RootLayout.tsx, line 53)
-[Log] [RootLayout] Rendering Streaming Frame. Content Len: 159 (RootLayout.tsx, line 53)
-[Log] [RootLayout] Rendering Streaming Frame. Content Len: 159 (RootLayout.tsx, line 53)
-[Log] [RootLayout] Rendering Streaming Frame. Content Len: 172 (RootLayout.tsx, line 53)
-[Log] [RootLayout] Rendering Streaming Frame. Content Len: 172 (RootLayout.tsx, line 53)
-[Log] [RootLayout] Rendering Streaming Frame. Content Len: 172 (RootLayout.tsx, line 53)
-[Log] [RootLayout] Rendering Streaming Frame. Content Len: 172 (RootLayout.tsx, line 53)
-[Log] [RootLayout] Rendering Streaming Frame. Content Len: 173 (RootLayout.tsx, line 53)
-[Log] [RootLayout] Rendering Streaming Frame. Content Len: 173 (RootLayout.tsx, line 53)
-[Log] [RootLayout] message_complete: – "cmmgji1t401imvel0tql8ivmg" – "Pending:" – 0 (RootLayout.tsx, line 231)
-[Log] [RootLayout] message_complete fallback: – Object (RootLayout.tsx, line 285)
-Object
-[Log] [RootLayout] Cleared activeTask (fallback path) (RootLayout.tsx, line 295)
-[Debug] [vite] – "hot updated: /src/components/Chat/ChatInterface.tsx" (client, line 220)
-[Debug] [vite] – "hot updated: /src/components/Chat/WelcomeScreen.tsx" (client, line 220)
-[Debug] [vite] – "hot updated: /src/components/Chat/ChatInterface.tsx" (client, line 220)
-[Log] [DEBUG] – "Subscribing to conversation cmmgje6bu00q7vel0d9gaxnq4" (logger.ts, line 61)
-[Log] [DEBUG] – "⚠️ CONVERSATION CHANGED:" – Object (logger.ts, line 61)
-Object
-[Log] [DEBUG] – "Resetting UI states (backend continues generating)..." (logger.ts, line 61)
-[Log] [DEBUG] – "Conversation switch complete. New ID:" – "cmmgje6bu00q7vel0d9gaxnq4" – "Marked" – 0 – "messages as processed" (logger.ts, line 61)
-[Log] [DEBUG] – "Skipping auto-send - just switched conversation" (logger.ts, line 61)
-[Log] [DEBUG] – "Subscribing to conversation cmmgje6bu00q7vel0d9gaxnq4" (logger.ts, line 61)
-[Log] [DEBUG] – "⚠️ CONVERSATION CHANGED:" – Object (logger.ts, line 61)
-Object
-[Log] [DEBUG] – "Resetting UI states (backend continues generating)..." (logger.ts, line 61)
-[Log] [DEBUG] – "Conversation switch complete. New ID:" – "cmmgje6bu00q7vel0d9gaxnq4" – "Marked" – 0 – "messages as processed" (logger.ts, line 61)
-[Log] [DEBUG] – "Skipping auto-send - just switched conversation" (logger.ts, line 61)
-[Log] [DEBUG] – "Subscribing to conversation cmmgje6bu00q7vel0d9gaxnq4" (logger.ts, line 61)
-[Log] THREE.WebGLRenderer: Context Lost. (chunk-JW4JQJWZ.js, line 729)
-[Warning] [ChatInterface] forcing loading overlay reset after timeout (logger.ts, line 54)
-[Debug] [vite] – "hot updated: /src/components/Chat/ChatInterface.tsx" (client, line 220)
-[Log] [DEBUG] – "Subscribing to conversation cmmgje6bu00q7vel0d9gaxnq4" (logger.ts, line 61)
-[Log] THREE.WebGLRenderer: Context Lost. (chunk-JW4JQJWZ.js, line 729)
-[Error] Failed to load resource: the server responded with a status of 401 (Unauthorized) (cmmgje6bu00q7vel0d9gaxnq4, line 0)
-[Error] Failed to load resource: the server responded with a status of 401 (Unauthorized) (all-balances, line 0)
-[Error] [WalletApi] Error fetching all-chain balances: – "认证已过期或权限不足，请重新登录后重试。"
-	getAllChainBalances (walletApi.ts:102)
-[Error] Error fetching balances – Error: 认证已过期或权限不足，请重新登录后重试。
-Error: 认证已过期或权限不足，请重新登录后重试。
-	（匿名函数） (useWalletPageData.ts:214)
-[Error] Failed to load resource: the server responded with a status of 401 (Unauthorized) (all-balances, line 0)
-[Error] Failed to load resource: the server responded with a status of 401 (Unauthorized) (transactions, line 0)
-[Error] [WalletApi] Error fetching all-chain balances: – "认证已过期或权限不足，请重新登录后重试。"
-	getAllChainBalances (walletApi.ts:102)
-[Error] Error fetching balances – Error: 认证已过期或权限不足，请重新登录后重试。
-Error: 认证已过期或权限不足，请重新登录后重试。
-	（匿名函数） (useWalletPageData.ts:214)
-[Error] [WalletApi] Transactions API error: – "{\"success\":false,\"error\":\"Invalid Privy token: request timed out\",\"code\":\"UNAUTHORIZED\",\"requestId\":\"req-3z\",\"timestamp\":\"2026-03-07T16:34:3…"
-"{\"success\":false,\"error\":\"Invalid Privy token: request timed out\",\"code\":\"UNAUTHORIZED\",\"requestId\":\"req-3z\",\"timestamp\":\"2026-03-07T16:34:39.716Z\",\"stack\":\"Error: Invalid Privy token: request timed out\\n    at verifyPrivyToken (/Users/almurat/KiKo/kiko-api/src/middleware/auth.ts:88:11)\\n    at async Object.requireAuth (/Users/almurat/KiKo/kiko-api/src/middleware/auth.ts:145:27)\",\"meta\":{\"requestId\":\"c3e77961-0cad-4947-a44e-71c84f6969c8\",\"timestamp\":\"2026-03-07T16:34:39.716Z\",\"version\":\"current\"}}"
-	getWalletTransactions (walletApi.ts:116)
-[Error] Failed to load resource: the server responded with a status of 401 (Unauthorized) (all-balances, line 0)
-[Error] Failed to load resource: the server responded with a status of 401 (Unauthorized) (all-balances, line 0)
-[Error] [WalletApi] Error fetching all-chain balances: – "认证已过期或权限不足，请重新登录后重试。"
-	getAllChainBalances (walletApi.ts:102)
-[Error] Error fetching balances – Error: 认证已过期或权限不足，请重新登录后重试。
-Error: 认证已过期或权限不足，请重新登录后重试。
-	（匿名函数） (useWalletPageData.ts:214)
-[Error] [WalletApi] Error fetching all-chain balances: – "认证已过期或权限不足，请重新登录后重试。"
-	getAllChainBalances (walletApi.ts:102)
-[Error] Error fetching balances – Error: 认证已过期或权限不足，请重新登录后重试。
-Error: 认证已过期或权限不足，请重新登录后重试。
-	（匿名函数） (useWalletPageData.ts:214)
-> 所选元素
-< <div class="_container_pfosx_2">…</div>
-[Error] Failed to load resource: the server responded with a status of 401 (Unauthorized) (positions, line 0)
-[Error] Failed to load resource: the server responded with a status of 401 (Unauthorized) (transactions, line 0)
-[Error] Failed to load resource: the server responded with a status of 401 (Unauthorized) (orders, line 0)
-[Error] Failed to load resource: the server responded with a status of 401 (Unauthorized) (history, line 0)
-[Error] Failed to load resource: the server responded with a status of 401 (Unauthorized) (cmmgje6bu00q7vel0d9gaxnq4, line 0)
-[Error] [WalletApi] Transactions API error: – "{\"success\":false,\"error\":\"Invalid Privy token: request timed out\",\"code\":\"UNAUTHORIZED\",\"requestId\":\"req-43\",\"timestamp\":\"2026-03-07T16:34:4…"
-"{\"success\":false,\"error\":\"Invalid Privy token: request timed out\",\"code\":\"UNAUTHORIZED\",\"requestId\":\"req-43\",\"timestamp\":\"2026-03-07T16:34:47.114Z\",\"stack\":\"Error: Invalid Privy token: request timed out\\n    at verifyPrivyToken (/Users/almurat/KiKo/kiko-api/src/middleware/auth.ts:88:11)\\n    at async Object.requireAuth (/Users/almurat/KiKo/kiko-api/src/middleware/auth.ts:145:27)\",\"meta\":{\"requestId\":\"2f60d35c-f92a-4729-ab6d-28228d893728\",\"timestamp\":\"2026-03-07T16:34:47.114Z\",\"version\":\"current\"}}"
-	getWalletTransactions (walletApi.ts:116)
-[Error] [chatApi] Error /api/chat/sessions/cmmgje6bu00q7vel0d9gaxnq4: – {message: "Invalid Privy token: request timed out", name: "Error", stack: "chatFetch@http://localhost:5173/src/services/api.ts:475:22"}
-	error (logger.ts:57)
-	chatFetch (api.ts:483)
-[Log] [useConversations] loadConversation response: – {success: true, messageCount: 8, messages: Array} (useConversations.ts, line 145)
-{success: true, messageCount: 8, messages: Array}Object
-[Log] [useConversations] Skipping duplicate user message (content match): – "1772901035078" (useConversations.ts, line 200)
-[Debug] [vite] – "hot updated: /src/components/Chat/TransactionStatusCard.tsx" (client, line 220, x2)
-[Warning] [WalletApi] All Balances request timed out (walletApi.ts, line 98)
-[Error] Error fetching balances – Error: 资产请求超时，请稍后重试。 — walletApi.ts:151
-Error: 资产请求超时，请稍后重试。 — walletApi.ts:151
-	（匿名函数） (useWalletPageData.ts:214)
+[api] [Prisma-Error] 
+[api] Invalid `prisma.polymarketAction.findMany()` invocation in
+[api] /Users/almurat/KiKo/kiko-api/src/services/polymarketDataService.ts:256:68
+[api] 
+[api]   253 const prisma = (await import('../db/prisma.js')).default as any;
+[api]   254 const user = await prisma.user.findFirst({ where: { walletAddress: wallet.toLowerCase() } });
+[api]   255 if (user) {
+[api] → 256     const localActions = await prisma.polymarketAction.findMany(
+[api] The column `PolymarketAction.marketSlug` does not exist in the current database. {
+[api]   target: 'polymarketAction.findMany',
+[api]   timestamp: 2026-03-09T04:47:30.045Z
+[api] }
+[api] [04:47:30] [wrn] [EVENT] [SYS-1006] Failed to merge local Polymarket actions | traceId=bfd601fa-66ad-443d-aa0b-6e123aa31625 wallet=0xa386bc9d8f26ab170a847d73226e3e0bceb0fe8e error=
+[api] Invalid `prisma.polymarketAction.findMany()` invocation in
+[api] /Users/almurat/KiKo/kiko-api/src/services/polymarketDataService.ts:256:68
+[api] 
+[api]   253 const prisma = (await import('../db/prisma.js')).default as any;
+[api]   254 const user = await prisma.user.findFirst({ where: { walletAddress: wallet.toLowerCase() } });
+[api]   255 if (user) {
+[api] → 256     const localActions = await prisma.polymarketAction.findMany(
+[api] The column `PolymarketAction.marketSlug` does not exist in the current database. role=EVENT
+[api] [04:47:30] [inf] [EVENT] [SYS-1007] [CopyTradeRecovery] startup recovery cycle finished | runNumber=2 scannedWallets=6 recoveredTxs=0 lookbackMs=600000 role=EVENT
+[api] [04:47:30] [err] [METRIC] [API-5002] Error fetching asset transfers from Alchemy | traceId=7045439f-b5a3-4afe-96cb-6320e84caefd error=HTTP 403: Unspecified origin not on whitelist. role=METRIC
+[api] [04:47:30] [inf] [METRIC] [API-5001] No transfers found on Alchemy, trying ScanAPI fallback | traceId=7045439f-b5a3-4afe-96cb-6320e84caefd chain=base role=METRIC
+[api] [Alchemy] getAssetTransfers failed, falling back to ScanAPI: Error: No transfers from Alchemy, trying fallback
+[api]     at getWalletTransactions (/Users/almurat/KiKo/kiko-api/src/services/alchemy.ts:1052:13)
+[api]     at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+[api]     at async Object.getWalletTransactions (/Users/almurat/KiKo/kiko-api/src/services/walletService.ts:221:16)
+[api]     at async Object.<anonymous> (/Users/almurat/KiKo/kiko-api/src/routes/wallets.ts:147:34)
+[api] [Prisma-Error] 
+[api] Invalid `prisma.polymarketAction.findMany()` invocation in
+[api] /Users/almurat/KiKo/kiko-api/src/services/polymarketDataService.ts:76:67
+[api] 
+[api]   73 const prisma = (await import('../db/prisma.js')).default as any;
+[api]   74 const user = await prisma.user.findFirst({ where: { walletAddress: wallet.toLowerCase() } });
+[api]   75 if (user) {
+[api] → 76     const recentSells = await prisma.polymarketAction.findMany(
+[api] The column `PolymarketAction.marketSlug` does not exist in the current database. {
+[api]   target: 'polymarketAction.findMany',
+[api]   timestamp: 2026-03-09T04:47:31.309Z
+[api] }
+[api] [04:47:31] [wrn] [EVENT] [SYS-1006] Failed to filter closed Polymarket positions | traceId=fd1742f8-1ad9-480d-b722-d2cd9f9d8f1f wallet=0xa386bc9d8f26ab170a847d73226e3e0bceb0fe8e error=
+[api] Invalid `prisma.polymarketAction.findMany()` invocation in
+[api] /Users/almurat/KiKo/kiko-api/src/services/polymarketDataService.ts:76:67
+[api] 
+[api]   73 const prisma = (await import('../db/prisma.js')).default as any;
+[api]   74 const user = await prisma.user.findFirst({ where: { walletAddress: wallet.toLowerCase() } });
+[api]   75 if (user) {
+[api] → 76     const recentSells = await prisma.polymarketAction.findMany(
+[api] The column `PolymarketAction.marketSlug` does not exist in the current database. role=EVENT
+[api] [04:47:31] [inf] [METRIC] [API-5003] LaunchpadDetector: Global timeout reached | address=2s93qBeapcPN26buMxdsSZejmNQAmfnZiNDm7UH8Fa6t role=METRIC
+[api] [04:47:31] [err] [METRIC] [API-5002] All RPC endpoints failed | traceId=587247c5-7d85-4608-8a44-56cf694d12b1 chain=Solana method=getAssetsByOwner rpc_pool=critical_tx rpc_failure_code=unknown totalEndpoints=1 attemptedEndpoints=1 selectedPremiumCount=1 selectedPublicCount=0 endpointBudget=1 exhaustiveFailover=false rate_limited_failures=0 failure_reason_top=[1] cooldownMs=250 lastError=This operation was aborted role=METRIC
+[api] [04:47:31] [err] [METRIC] [API-5002] Helius DAS token balances failed | traceId=587247c5-7d85-4608-8a44-56cf694d12b1 error=All RPC endpoints failed for Solana. Last error: This operation was aborted role=METRIC
+[api] [04:47:31] [inf] [METRIC] [API-5001] Solana balance fetched via Helius | traceId=587247c5-7d85-4608-8a44-56cf694d12b1 addr=BgNm4YDzxb tokenCount=0 role=METRIC
+[api] [04:47:31] [inf] [METRIC] [API-5001] Solana: using fetchSolanaTokenAccounts RPC fallback | traceId=587247c5-7d85-4608-8a44-56cf694d12b1 addr=BgNm4YDzxb role=METRIC
+[api] [WalletRoutes] Returning 0 transactions for 0xA386bc9D8F26AB170A847D73226e3e0BCEb0fe8E
+[api] [04:47:34] [inf] [METRIC] [API-5003] LaunchpadDetector: Global timeout reached | address=ABmMqCr6ybUhSPoG2iT1JKaf9ix5dqJU4eqmaBBCUipJ role=METRIC
+[api] [04:47:35] [err] [EVENT] [SYS-1006] Error checking delegated EVM wallet | traceId=dc5efe05-c842-4692-859e-939f4611f910 userId=did:privy:cmj0a3j3f005fl20c4xkl7195 error=Invalid app ID or app secret. role=EVENT
+[api] [04:47:35] [wrn] [METRIC] [API-5002] Solana token account fallback failed | traceId=587247c5-7d85-4608-8a44-56cf694d12b1 error=HTTP 403: Unspecified origin not on whitelist. address=BgNm4YDzxb role=METRIC
+[api] [04:47:36] [err] [METRIC] [API-5002] Error fetching asset transfers from Alchemy | traceId=c6634d90-28db-46a0-ad99-849d84e17842 error=HTTP 403: Unspecified origin not on whitelist. role=METRIC
+[api] [04:47:36] [inf] [METRIC] [API-5001] No transfers found on Alchemy, trying ScanAPI fallback | traceId=c6634d90-28db-46a0-ad99-849d84e17842 chain=base role=METRIC
+[api] [Alchemy] getAssetTransfers failed, falling back to ScanAPI: Error: No transfers from Alchemy, trying fallback
+[api]     at getWalletTransactions (/Users/almurat/KiKo/kiko-api/src/services/alchemy.ts:1052:13)
+[api]     at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+[api]     at async Object.getWalletTransactions (/Users/almurat/KiKo/kiko-api/src/services/walletService.ts:221:16)
+[api]     at async Object.<anonymous> (/Users/almurat/KiKo/kiko-api/src/routes/wallets.ts:147:34)
+[api] [04:47:37] [wrn] [METRIC] [API-5002] Launchpad enrichment for Solana timed out | timeoutMs=25000 role=METRIC
+[api] [04:47:38] [inf] [METRIC] [API-5003] LaunchpadDetector: Global timeout reached | address=4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R role=METRIC
+[api] [WalletRoutes] Returning 0 transactions for 0xA386bc9D8F26AB170A847D73226e3e0BCEb0fe8E
+[api] [04:47:39] [err] [EVENT] [SYS-1006] Error checking delegated EVM wallet | traceId=23b37b2c-22b9-492b-9c1e-78ab8281eb2c userId=did:privy:cmj0a3j3f005fl20c4xkl7195 error=Invalid app ID or app secret. role=EVENT
+[api] [04:47:40] [inf] [METRIC] [API-5003] LaunchpadDetector: Global timeout reached | address=9fWeqjzb7xG93T9FPaWggTecvyZZDTXc7VgzNWkisqm4 role=METRIC
+[api] [PolymarketCreds] Creating credentials for user: did:privy:cmj0a...
+[api] [04:47:41] [wrn] [EVENT] [SYS-1007] Privy wallet fetch failed, retrying in 500ms | traceId=3997fca6-2d03-4f54-b285-71875786a40f userId=did:privy:cmj0a3j3f005fl20c4xkl7195 attempt=1 maxRetries=3 error=Invalid app ID or app secret. role=EVENT
+[api] [04:47:41] [err] [METRIC] [API-5002] All RPC endpoints failed | chain=Solana method=getAccountInfo rpc_pool=best_effort_read rpc_failure_code=http_error totalEndpoints=6 attemptedEndpoints=5 selectedPremiumCount=1 selectedPublicCount=3 endpointBudget=5 exhaustiveFailover=false rate_limited_failures=0 failure_reason_top=[2] cooldownMs=250 lastError=HTTP 403: Forbidden role=METRIC
+[api] [04:47:41] [wrn] [EVENT] [SYS-1006] RPC health degraded | endpoints=[5] role=EVENT
+[api] [04:47:42] [inf] [EVENT] [SYS-1007] [CopyTradeSummary] RECONCILE_CYCLE_SUMMARY | engineMode=v2_primary ledgerMode=v2_primary action=noop scannedOpen=0 scannedPending=0 armedPending=0 scheduledOpen=0 fullExitMatches=0 legacyFallbackUsed=false role=EVENT
+[api] [04:47:42] [wrn] [EVENT] [SYS-1007] Privy wallet fetch failed, retrying in 1000ms | traceId=3997fca6-2d03-4f54-b285-71875786a40f userId=did:privy:cmj0a3j3f005fl20c4xkl7195 attempt=2 maxRetries=3 error=Invalid app ID or app secret. role=EVENT
+[api] [04:47:42] [inf] [METRIC] [API-5001] Fetching premium trending tokens | chain=base limit=100 role=METRIC
+[api] [04:47:43] [inf] [METRIC] [API-5001] Solana native balance recovered via RPC | traceId=587247c5-7d85-4608-8a44-56cf694d12b1 addr=BgNm4YDzxb lamports=890880 role=METRIC
+[api] [04:47:44] [err] [EVENT] [SYS-1006] Error getting user wallet from Privy after retries | traceId=3997fca6-2d03-4f54-b285-71875786a40f userId=did:privy:cmj0a3j3f005fl20c4xkl7195 attempts=3 error=Invalid app ID or app secret. role=EVENT
+[api] [PolymarketCreds] Error: AppError: Failed to get user wallet
+[api]     at fetchPrivyEmbeddedWalletInfo (/Users/almurat/KiKo/kiko-api/src/services/privyEmbeddedWalletResolver.ts:106:9)
+[api]     at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+[api]     at async createOrDeriveCredentials (/Users/almurat/KiKo/kiko-api/src/services/polymarketCredService.ts:162:28)
+[api]     at async Object.<anonymous> (/Users/almurat/KiKo/kiko-api/src/routes/polymarket.ts:158:28) {
+[api]   statusCode: 500,
+[api]   code: 'WALLET_ERROR',
+[api]   logCode: 'SYS-1001',
+[api]   isOperational: true
+[api] }
+[api] [04:47:45] [inf] [METRIC] [API-5001] Fallback stablecoin balances fetched via RPC | traceId=587247c5-7d85-4608-8a44-56cf694d12b1 chain=base address=0xA386bc9D8F26AB170A847D73226e3e0BCEb0fe8E tokenCount=2 role=METRIC
+[api] [04:47:45] [inf] [AUDIT] [WTC-2002] WS addresses discovered | wsCount=177 chain=base role=AUDIT
+[api] [04:47:46] [inf] [METRIC] [API-5001] Fallback stablecoin balances fetched via RPC | traceId=587247c5-7d85-4608-8a44-56cf694d12b1 chain=bsc address=0xA386bc9D8F26AB170A847D73226e3e0BCEb0fe8E tokenCount=3 role=METRIC
+[api] [04:47:46] [inf] [METRIC] [API-5001] Fallback stablecoin balances fetched via RPC | traceId=587247c5-7d85-4608-8a44-56cf694d12b1 chain=polygon address=0xA386bc9D8F26AB170A847D73226e3e0BCEb0fe8E tokenCount=4 role=METRIC
+[api] [04:47:50] [inf] [METRIC] [API-5001] Fallback stablecoin balances fetched via RPC | traceId=587247c5-7d85-4608-8a44-56cf694d12b1 chain=arbitrum address=0xA386bc9D8F26AB170A847D73226e3e0BCEb0fe8E tokenCount=3 role=METRIC
+[api] [04:47:53] [inf] [METRIC] [API-5001] Processed DexScreener trending candidates | candidates=46 limit=200 role=METRIC
+[api] [04:47:53] [inf] [METRIC] [API-5001] Premium trending tokens fetch complete | count=77 chain=base durationMs=10857 source=WebSocket wsOriginal=177 role=METRIC
+[api] [04:47:53] [inf] [METRIC] [API-5001] Got 77 trending tokens for Base | role=METRIC
+[api] [04:47:53] [inf] [METRIC] [API-5001] Filtered out 2 invalid tokens for Base | role=METRIC
+[api] [04:47:54] [err] [METRIC] [API-5002] All RPC endpoints failed | traceId=587247c5-7d85-4608-8a44-56cf694d12b1 chain=Optimism method=eth_call rpc_pool=best_effort_read rpc_failure_code=http_error totalEndpoints=4 attemptedEndpoints=2 selectedPremiumCount=2 selectedPublicCount=0 endpointBudget=2 exhaustiveFailover=false rate_limited_failures=0 failure_reason_top=[1] cooldownMs=250 lastError=HTTP 403: Forbidden role=METRIC
+[api] [04:47:56] [inf] [METRIC] [API-5001] Fallback stablecoin balances fetched via RPC | traceId=587247c5-7d85-4608-8a44-56cf694d12b1 chain=optimism address=0xA386bc9D8F26AB170A847D73226e3e0BCEb0fe8E tokenCount=3 role=METRIC
+[api] [04:47:56] [inf] [METRIC] [API-5001] Fallback stablecoin balances fetched via RPC | traceId=587247c5-7d85-4608-8a44-56cf694d12b1 chain=eth address=0xA386bc9D8F26AB170A847D73226e3e0BCEb0fe8E tokenCount=3 role=METRIC
+[api] [04:47:56] [inf] [METRIC] [API-5003] LaunchpadDetector: Global timeout reached | address=GinNabffZL4fUj9Vactxha74GDAW8kDPGaHqMtMzps2f role=METRIC

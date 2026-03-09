@@ -46,6 +46,7 @@ import { withWalletChainLock } from './nonce/walletNonceLane.js';
 import { resolveSolanaWalletRecord } from './solana/solanaWalletResolver.js';
 import { sendSolanaTransactionWithContextDeps } from './solana/solanaPrivySender.js';
 import { resolveSolanaSigningContext, type ResolvedSolanaSigningContext } from './solana/solanaSigningContext.js';
+import { fetchPrivyEmbeddedWalletInfo, type EmbeddedWalletChainType } from './privyEmbeddedWalletResolver.js';
 
 // Initialize Privy client
 const PRIVY_APP_ID = process.env.VITE_PRIVY_APP_ID || process.env.PRIVY_APP_ID || '';
@@ -230,8 +231,6 @@ function resolveTradeGasPolicy(tx: Pick<TransactionRequest, 'chainId' | 'txPurpo
         policy: 'trade-default'
     };
 }
-
-type EmbeddedWalletChainType = 'ethereum' | 'solana' | 'auto';
 
 async function verifyTxVisibility(
     chainId: number,
@@ -427,11 +426,6 @@ if (PRIVY_APP_ID && PRIVY_APP_SECRET) {
     try { getPrivyClient(); } catch { /* ignore */ }
 }
 
-// ⚡ In-memory wallet info cache – avoids a Privy API round-trip on every trade.
-// TTL is generous (10 min) because walletId/address rarely change.
-const _walletInfoCache = new Map<string, { info: { address: string; id: string } | null; ts: number }>();
-const WALLET_INFO_CACHE_TTL_MS = Number(process.env.PRIVY_WALLET_INFO_CACHE_TTL_MS || '600000'); // 10min
-
 /**
  * Get user's embedded wallet info (address AND internal ID)
  * @param userId - Privy user ID (from JWT sub claim)
@@ -441,86 +435,11 @@ export async function getEmbeddedWalletInfo(
     userId: string,
     options?: { chainType?: EmbeddedWalletChainType }
 ): Promise<{ address: string; id: string } | null> {
-    const chainType = options?.chainType || 'auto';
-    const cacheKey = `${userId}:${chainType}`;
-    const cached = _walletInfoCache.get(cacheKey);
-    if (cached && Date.now() - cached.ts < WALLET_INFO_CACHE_TTL_MS) {
-        return cached.info;
-    }
-
     const client = getPrivyClient();
-    const maxRetries = 3;
-    let lastError: any = null;
-
-    for (let attempt = 0; attempt < maxRetries; attempt++) {
-        try {
-            const user = await client.getUser(userId);
-
-            const linkedWallets = (user.linkedAccounts || []).filter(
-                (account: any) => account?.type === 'wallet' && account?.walletClientType === 'privy'
-            );
-            const evmWallet =
-                linkedWallets.find((account: any) =>
-                    String(account?.chainType || '').toLowerCase() === 'ethereum'
-                    && isLikelyEvmAddress(account?.address)
-                )
-                || linkedWallets.find((account: any) => isLikelyEvmAddress(account?.address))
-                || null;
-            const solanaWallet =
-                linkedWallets.find((account: any) =>
-                    String(account?.chainType || '').toLowerCase() === 'solana'
-                )
-                || null;
-
-            const embeddedWallet =
-                chainType === 'ethereum'
-                    ? evmWallet
-                    : chainType === 'solana'
-                        ? solanaWallet
-                        : (evmWallet || solanaWallet || linkedWallets[0] || null);
-
-            if (!embeddedWallet) {
-                logger.warn(LogCode.SYS_INFO, 'User has no embedded wallet for requested chain', {
-                    userId,
-                    chainType,
-                    linkedWalletCount: linkedWallets.length,
-                    linkedChains: linkedWallets.map((account: any) => String(account?.chainType || 'unknown'))
-                });
-                _walletInfoCache.set(cacheKey, { info: null, ts: Date.now() });
-                return null;
-            }
-
-            const walletData = embeddedWallet as any;
-            // Privy embedded wallets have an 'id' field that is the internal wallet ID
-            // and an 'address' field that is the Ethereum address
-            const result = {
-                address: walletData.address || '',
-                id: walletData.id || walletData.address // Fallback to address if id not present
-            };
-            _walletInfoCache.set(cacheKey, { info: result, ts: Date.now() });
-            return result;
-        } catch (error: any) {
-            lastError = error;
-
-            if (attempt < maxRetries - 1) {
-                const delayMs = 500 * Math.pow(2, attempt); // 500ms, 1s, 2s
-                logger.warn(LogCode.SYS_INFO, `Privy wallet fetch failed, retrying in ${delayMs}ms`, {
-                    userId,
-                    attempt: attempt + 1,
-                    maxRetries,
-                    error: error.message
-                });
-                await new Promise(resolve => setTimeout(resolve, delayMs));
-            }
-        }
-    }
-
-    logger.error(LogCode.SYS_ERROR, 'Error getting user wallet from Privy after retries', {
-        userId,
-        attempts: maxRetries,
-        error: lastError?.message
+    return fetchPrivyEmbeddedWalletInfo(userId, {
+        chainType: options?.chainType,
+        getUser: (targetUserId) => client.getUser(targetUserId)
     });
-    throw new AppError(500, 'Failed to get user wallet', 'WALLET_ERROR');
 }
 
 /**

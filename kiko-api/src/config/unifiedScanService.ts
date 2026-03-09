@@ -309,6 +309,74 @@ export async function getTransactionList(
 }
 
 /**
+ * Get ERC-20 token transfer list with automatic failover
+ */
+export async function getTokenTransferList(
+  chainId: number,
+  chain: string,
+  address: string,
+  options: {
+    startblock?: number;
+    endblock?: number;
+    page?: number;
+    offset?: number;
+    sort?: 'asc' | 'desc';
+    contractAddress?: string;
+  } = {}
+): Promise<any> {
+  const params: Record<string, any> = {
+    module: 'account',
+    action: 'tokentx',
+    address,
+    startblock: options.startblock || 0,
+    endblock: options.endblock || 99999999,
+    page: options.page || 1,
+    offset: options.offset || 100,
+    sort: options.sort || 'desc',
+  };
+
+  if (options.contractAddress) {
+    params.contractaddress = options.contractAddress;
+  }
+
+  const providers = [];
+
+  if (ETHERSCAN_CONFIG.apiKey && !isScanCircuitOpen('etherscan')) {
+    providers.push({
+      name: 'etherscan',
+      fn: () => callEtherscan(chainId, params),
+    });
+  }
+
+  if (ROUTESCAN_CONFIG.apiKey && !isScanCircuitOpen('routescan')) {
+    providers.push({
+      name: 'routescan',
+      fn: () => callRoutescan(chain, params),
+    });
+  }
+
+  if (BLOCKSCOUT_CONFIG.apiKey && !isScanCircuitOpen('blockscout')) {
+    providers.push({
+      name: 'blockscout',
+      fn: () => callBlockscout(chain, params),
+    });
+  }
+
+  let lastError: any = null;
+
+  for (const provider of providers) {
+    try {
+      return await provider.fn();
+    } catch (error: any) {
+      lastError = error;
+      continue;
+    }
+  }
+
+  throw new Error(`All token transfer scan providers failed. Last error: ${lastError?.message}`);
+}
+
+/**
  * Get Solana transactions
  */
 export async function getSolanaTransactions(

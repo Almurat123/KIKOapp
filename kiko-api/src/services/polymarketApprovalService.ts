@@ -308,8 +308,6 @@ export async function executeRequiredApprovals(params: {
 
     const approvals = await getRequiredApprovals(creds.walletAddress);
     const txHashes: string[] = [];
-    const provider = getPolygonProvider();
-
     for (const tx of approvals.transactions) {
         const gas = await estimateApprovalGas({
             walletAddress: creds.walletAddress,
@@ -328,7 +326,6 @@ export async function executeRequiredApprovals(params: {
             txPurpose: 'approval'
         });
         txHashes.push(txHash);
-        await provider.waitForTransaction(txHash as `0x${string}`, 1, 60_000);
     }
 
     const readiness = await checkTradingReadiness(params.userId);

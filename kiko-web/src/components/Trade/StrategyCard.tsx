@@ -16,6 +16,7 @@ interface StrategyCardProps {
   onDelete: (id: string) => void;
   onToggleStatus: (id: string) => void;
   variant?: 'card' | 'row';
+  showActions?: boolean;
 }
 
 export const StrategyCard: React.FC<StrategyCardProps> = ({
@@ -24,6 +25,7 @@ export const StrategyCard: React.FC<StrategyCardProps> = ({
   onDelete,
   onToggleStatus,
   variant = 'card',
+  showActions = true,
 }) => {
   const { resolvedTheme } = useThemeContext();
   const [isWalletCopied, setIsWalletCopied] = React.useState(false);
@@ -253,7 +255,7 @@ export const StrategyCard: React.FC<StrategyCardProps> = ({
         </div>
       </div>
 
-      {renderActions()}
+      {showActions && renderActions()}
     </div>
   );
 };

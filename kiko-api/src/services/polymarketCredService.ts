@@ -140,15 +140,6 @@ export async function createOrDeriveCredentials(userId: string): Promise<{
     console.log('[PolymarketCreds] Creating credentials for user:', userId.slice(0, 15) + '...');
 
     try {
-        // Get user's Privy wallet
-        const walletInfo = await getEmbeddedWalletInfo(userId);
-        if (!walletInfo) {
-            return { success: false, error: 'User has no embedded wallet' };
-        }
-
-        const walletAddress = walletInfo.address;
-        console.log('[PolymarketCreds] Using wallet:', walletAddress.slice(0, 15) + '...');
-
         // Check if user already has credentials
         const existing = await prisma.polymarketApiCreds.findUnique({
             where: { userId }
@@ -166,6 +157,15 @@ export async function createOrDeriveCredentials(userId: string): Promise<{
                 }
             };
         }
+
+        // No cached credentials yet - now resolve the user's embedded EVM wallet.
+        const walletInfo = await getEmbeddedWalletInfo(userId, { chainType: 'ethereum' });
+        if (!walletInfo) {
+            return { success: false, error: 'User has no EVM embedded wallet' };
+        }
+
+        const walletAddress = walletInfo.address;
+        console.log('[PolymarketCreds] Using wallet:', walletAddress.slice(0, 15) + '...');
 
         // Generate L1 auth headers
         const nonce = 0; // Use 0 for first-time creation

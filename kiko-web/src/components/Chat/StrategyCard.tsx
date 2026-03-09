@@ -23,6 +23,7 @@ export const StrategyCard: React.FC<StrategyCardProps> = ({
       onDelete={onDelete || noop}
       onToggleStatus={onToggleStatus || noop}
       variant="card"
+      showActions={false}
     />
   );
 };

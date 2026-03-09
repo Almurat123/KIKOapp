@@ -11,6 +11,11 @@ import { getCredentials } from './polymarketCredService.js';
 
 const POLYMARKET_DATA_API = 'https://data-api.polymarket.com';
 
+function isMissingPolymarketActionMarketSlugColumnError(error: unknown): boolean {
+    const message = String((error as any)?.message || '');
+    return message.includes('PolymarketAction.marketSlug') && message.includes('does not exist in the current database');
+}
+
 export interface PolymarketUserPosition {
     market: string;           // Market slug
     title: string;            // Question text
@@ -88,7 +93,11 @@ export async function getWalletPositions(wallet: string): Promise<PolymarketUser
                 }
             }
         } catch (e: any) {
-            logger.warn(LogCode.SYS_ERROR, 'Failed to filter closed Polymarket positions', { wallet, error: e.message });
+            if (isMissingPolymarketActionMarketSlugColumnError(e)) {
+                logger.warn(LogCode.SYS_INFO, 'Skipping local Polymarket close filter: marketSlug migration missing', { wallet });
+            } else {
+                logger.warn(LogCode.SYS_ERROR, 'Failed to filter closed Polymarket positions', { wallet, error: e.message });
+            }
         }
 
         return positions;
@@ -288,7 +297,11 @@ export async function getWalletTrades(wallet: string): Promise<PolymarketTrade[]
                 return combined.sort((a, b) => b.timestamp - a.timestamp);
             }
         } catch (e: any) {
-            logger.warn(LogCode.SYS_ERROR, 'Failed to merge local Polymarket actions', { wallet, error: e.message });
+            if (isMissingPolymarketActionMarketSlugColumnError(e)) {
+                logger.warn(LogCode.SYS_INFO, 'Skipping local Polymarket action merge: marketSlug migration missing', { wallet });
+            } else {
+                logger.warn(LogCode.SYS_ERROR, 'Failed to merge local Polymarket actions', { wallet, error: e.message });
+            }
         }
 
         return trades;

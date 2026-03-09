@@ -8,7 +8,7 @@ import { CHAINS } from '../config/chainConfig.js';
 import { WalletTransaction } from './alchemy.js';
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
-import { getTransactionList } from '../config/unifiedScanService.js';
+import { getTokenTransferList, getTransactionList } from '../config/unifiedScanService.js';
 
 /**
  * Get transaction history for an address on EVM chains
@@ -80,25 +80,29 @@ export async function getEvmTokenTransfers(
 ): Promise<WalletTransaction[]> {
     try {
         const chainConfig = Object.values(CHAINS).find(c =>
-            c.name.toLowerCase() === chain.toLowerCase()
+            c.name.toLowerCase() === chain.toLowerCase() ||
+            c.slugs.dexScreener.toLowerCase() === chain.toLowerCase()
         );
 
         if (!chainConfig) return [];
 
-        const data = await getTransactionList(
+        const data = await getTokenTransferList(
             chainConfig.id,
             chain,
-            address
+            address,
+            {
+                page,
+                offset,
+                sort: options.sort || 'desc',
+                startblock: options.startblock ? parseInt(options.startblock) : undefined,
+                endblock: options.endblock ? parseInt(options.endblock) : undefined,
+                contractAddress: options.contractAddress,
+            }
         );
 
         if (!data?.result || !Array.isArray(data.result)) return [];
 
-        const rawTxs = data.result.filter((tx: any) => {
-            if (options.contractAddress) {
-                return tx.contractAddress?.toLowerCase() === options.contractAddress.toLowerCase();
-            }
-            return true;
-        });
+        const rawTxs = data.result;
 
         return rawTxs
             .filter((tx: any) => {

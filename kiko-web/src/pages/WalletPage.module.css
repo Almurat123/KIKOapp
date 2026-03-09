@@ -100,7 +100,7 @@
 
 .authorizationButton {
   background: var(--accent-color);
-  color: #fff;
+  color: var(--bg-primary);
   border: none;
   padding: 8px 12px;
   border-radius: 10px;
