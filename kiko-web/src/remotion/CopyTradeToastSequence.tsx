@@ -39,7 +39,16 @@ const toasts: ToastData[] = [
 
 const APP_ICON = staticFile('remotion-assets/smart-wallet-icon.webp');
 const FARCASTER_ICON = staticFile('remotion-assets/farcaster-app-icon.webp');
-const TOAST_STARTS = [136, 162, 188];
+const CHAIN_ICONS = [
+    { label: 'ETH', src: staticFile('assets/tokens/eth.png') },
+    { label: 'Base', src: staticFile('assets/tokens/base.png') },
+    { label: 'BSC', src: staticFile('assets/tokens/bsc.png') },
+    { label: 'Sol', src: staticFile('assets/tokens/sol.png') },
+] as const;
+const CHAINS_START = 126;
+const TOAST_STARTS = [210, 236, 262];
+const TOAST_EXIT_START = 306;
+const TOAST_EXIT_END = 324;
 
 const AppGlyph: React.FC<{ kind: ToastData['kind'] }> = ({ kind }) => {
     const icon = kind === 'farcaster' ? FARCASTER_ICON : APP_ICON;
@@ -81,7 +90,7 @@ const ToastCard: React.FC<ToastData & { frame: number; index: number }> = ({ fra
             mass: 0.8,
         },
     });
-    const sceneExit = interpolate(frame, [232, 252], [0, 1], {
+    const sceneExit = interpolate(frame, [TOAST_EXIT_START, TOAST_EXIT_END], [0, 1], {
         extrapolateLeft: 'clamp',
         extrapolateRight: 'clamp',
         easing: Easing.inOut(Easing.ease),
@@ -89,7 +98,7 @@ const ToastCard: React.FC<ToastData & { frame: number; index: number }> = ({ fra
     const isFarcaster = kind === 'farcaster';
     const stackOffsetY = index * 18;
     const stackOffsetX = 0;
-    const opacity = interpolate(frame, [start, start + 6, 232, 252], [0, 1, 1, 0], {
+    const opacity = interpolate(frame, [start, start + 6, TOAST_EXIT_START, TOAST_EXIT_END], [0, 1, 1, 0], {
         extrapolateLeft: 'clamp',
         extrapolateRight: 'clamp',
         easing: Easing.out(Easing.cubic),
@@ -275,9 +284,70 @@ const WordCard: React.FC<{ frame: number; start: number; text: string; holdFrame
     );
 };
 
+const ChainBadge: React.FC<{ src: string; label: string; index: number; frame: number; start: number }> = ({
+    src,
+    label,
+    index,
+    frame,
+    start,
+}) => {
+    const localStart = start + index * 5;
+    const enter = interpolate(frame, [localStart, localStart + 12], [0, 1], {
+        extrapolateLeft: 'clamp',
+        extrapolateRight: 'clamp',
+        easing: Easing.out(Easing.cubic),
+    });
+
+    return (
+        <div
+            style={{
+                width: 178,
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                gap: 18,
+                opacity: enter,
+                transform: `translateY(${interpolate(enter, [0, 1], [18, 0])}px) scale(${interpolate(enter, [0, 1], [0.94, 1])})`,
+            }}
+        >
+            <div
+                style={{
+                    width: 116,
+                    height: 116,
+                    borderRadius: 999,
+                    background: 'rgba(255,255,255,0.94)',
+                    boxShadow: '0 18px 40px rgba(15, 23, 42, 0.08), 0 0 0 1px rgba(255,255,255,0.76) inset',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                }}
+            >
+                <Img
+                    src={src}
+                    style={{
+                        width: 72,
+                        height: 72,
+                        objectFit: 'contain',
+                    }}
+                />
+            </div>
+            <div
+                style={{
+                    fontFamily: IOS_FONT_STACK,
+                    fontSize: 34,
+                    fontWeight: 600,
+                    letterSpacing: '-0.05em',
+                    color: '#08111f',
+                }}
+            >
+                {label}
+            </div>
+        </div>
+    );
+};
+
 export const CopyTradeToastSequence: React.FC = () => {
     const frame = useCurrentFrame();
-
     const introEnter = interpolate(frame, [4, 18], [0, 1], {
         extrapolateLeft: 'clamp',
         extrapolateRight: 'clamp',
@@ -298,20 +368,30 @@ export const CopyTradeToastSequence: React.FC = () => {
         extrapolateRight: 'clamp',
         easing: Easing.out(Easing.cubic),
     });
-    const titleExit = interpolate(frame, [116, 132], [0, 1], {
+    const titleExit = interpolate(frame, [110, 126], [0, 1], {
         extrapolateLeft: 'clamp',
         extrapolateRight: 'clamp',
         easing: Easing.inOut(Easing.ease),
     });
 
-    const toastSceneOpacity = interpolate(frame, [132, 138, 232, 252], [0, 1, 1, 0], {
+    const chainsExit = interpolate(frame, [190, 206], [0, 1], {
+        extrapolateLeft: 'clamp',
+        extrapolateRight: 'clamp',
+        easing: Easing.inOut(Easing.ease),
+    });
+    const toastSceneOpacity = interpolate(frame, [206, 214, TOAST_EXIT_START, TOAST_EXIT_END], [0, 1, 1, 0], {
         extrapolateLeft: 'clamp',
         extrapolateRight: 'clamp',
         easing: Easing.out(Easing.cubic),
     });
-    const toastSceneScale = interpolate(frame, [132, 150], [0.985, 1], {
+    const toastSceneScale = interpolate(frame, [206, 224], [0.985, 1], {
         extrapolateLeft: 'clamp',
         extrapolateRight: 'clamp',
+    });
+    const chainsEnter = interpolate(frame, [CHAINS_START, CHAINS_START + 16], [0, 1], {
+        extrapolateLeft: 'clamp',
+        extrapolateRight: 'clamp',
+        easing: Easing.out(Easing.cubic),
     });
 
     return (
@@ -397,8 +477,48 @@ export const CopyTradeToastSequence: React.FC = () => {
                 </div>
             </div>
 
-            <WordCard frame={frame} start={252} text="Fast" holdFrames={14} exitFrames={7} />
-            <WordCard frame={frame} start={288} text="Safe" holdFrames={18} exitFrames={0} />
+            <WordCard frame={frame} start={326} text="Fast" holdFrames={14} exitFrames={7} />
+            <WordCard frame={frame} start={362} text="Safe" holdFrames={16} exitFrames={8} />
+
+            <div
+                style={{
+                    position: 'absolute',
+                    inset: 0,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 56,
+                    opacity: chainsEnter * (1 - chainsExit),
+                    transform: `translateY(${interpolate(chainsEnter, [0, 1], [20, 0]) + interpolate(chainsExit, [0, 1], [0, -18])}px)`,
+                    filter: `blur(${interpolate(chainsExit, [0, 1], [0, 6])}px)`,
+                }}
+            >
+                <div
+                    style={{
+                        fontFamily: IOS_FONT_STACK,
+                        fontSize: 74,
+                        fontWeight: 640,
+                        letterSpacing: '-0.07em',
+                        lineHeight: 0.95,
+                        color: '#08111f',
+                        whiteSpace: 'nowrap',
+                    }}
+                >
+                    Copy Trade supports 4 chains
+                </div>
+                <div
+                    style={{
+                        display: 'flex',
+                        alignItems: 'flex-start',
+                        gap: 26,
+                    }}
+                >
+                    {CHAIN_ICONS.map((chain, index) => (
+                        <ChainBadge key={chain.label} src={chain.src} label={chain.label} index={index} frame={frame} start={CHAINS_START + 4} />
+                    ))}
+                </div>
+            </div>
         </AbsoluteFill>
     );
 };

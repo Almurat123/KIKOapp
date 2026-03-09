@@ -8,6 +8,7 @@ import type { DirectSwapResult } from '../types.js';
 import { matchV4PoolKeyById } from '../../uniswapV4.js';
 import type { SelectedV4Pool } from '../../v4ExecutionPlan.js';
 import { resolveV4HookCapabilityProfile } from '../../v4HookCapabilities.js';
+import { resolvePoolHintFromSwapSupply } from '../supplyParser.js';
 
 const poolTokenInterface = new ethers.Interface([
   'function token0() view returns (address)',
@@ -149,8 +150,8 @@ async function validateResolvedHintAgainstSwapPair(params: {
       ? matchV4PoolKeyById(
         params.chainId,
         hint.poolAddress,
-        normalizePairTokenForHint(params.tokenIn, params.deps.wrappedNativeByChain[params.chainId]),
-        normalizePairTokenForHint(params.tokenOut, params.deps.wrappedNativeByChain[params.chainId])
+        normalizePairTokenForHint(params.tokenIn, params.deps.wrappedNativeByChain[params.chainId], params.chainId),
+        normalizePairTokenForHint(params.tokenOut, params.deps.wrappedNativeByChain[params.chainId], params.chainId)
       )
       : null;
     const poolKey = hint.v4PoolKey || recoveredKey;
@@ -178,8 +179,8 @@ async function validateResolvedHintAgainstSwapPair(params: {
       codeHash: hookCapability.codeHash,
       profileStatus: hookCapability.status,
       reasonCode: hookCapability.reasonCode,
-      normalizedTokenIn: normalizePairTokenForHint(params.tokenIn, params.deps.wrappedNativeByChain[params.chainId]),
-      normalizedTokenOut: normalizePairTokenForHint(params.tokenOut, params.deps.wrappedNativeByChain[params.chainId]),
+      normalizedTokenIn: normalizePairTokenForHint(params.tokenIn, params.deps.wrappedNativeByChain[params.chainId], params.chainId),
+      normalizedTokenOut: normalizePairTokenForHint(params.tokenOut, params.deps.wrappedNativeByChain[params.chainId], params.chainId),
       poolAddress: hint.poolAddress || null,
       poolKind: hint.kind,
     });
@@ -201,7 +202,8 @@ async function validateResolvedHintAgainstSwapPair(params: {
       params.tokenOut,
       poolKey.currency0,
       poolKey.currency1,
-      params.deps.wrappedNativeByChain[params.chainId]
+      params.deps.wrappedNativeByChain[params.chainId],
+      params.chainId
     );
     return pairOk ? { ok: true } : {
       ok: false,
@@ -230,7 +232,8 @@ async function validateResolvedHintAgainstSwapPair(params: {
       params.tokenOut,
       poolTokens.token0,
       poolTokens.token1,
-      params.deps.wrappedNativeByChain[params.chainId]
+      params.deps.wrappedNativeByChain[params.chainId],
+      params.chainId
     );
     return pairOk ? { ok: true } : {
       ok: false,
@@ -274,7 +277,39 @@ export async function tryResolvedPoolHintFastPath(
     hint: resolved,
     deps
   });
-  if (!validation.ok) {
+  let effectiveResolved = resolved;
+  if (!validation.ok && resolved.kind === 'v4' && hint && (hint.sourceTxHash || hint.routeHops?.length)) {
+    const recoveredResolved = await resolvePoolHintFromSwapSupply({
+      tokenIn: params.tokenIn,
+      tokenOut: params.tokenOut,
+      chainId: params.chainId,
+      hint
+    }).catch(() => null);
+    if (
+      recoveredResolved
+      && recoveredResolved.kind === 'v4'
+      && JSON.stringify(recoveredResolved) !== JSON.stringify(resolved)
+    ) {
+      const recoveredValidation = await validateResolvedHintAgainstSwapPair({
+        tokenIn: params.tokenIn,
+        tokenOut: params.tokenOut,
+        chainId: params.chainId,
+        hint: recoveredResolved,
+        deps
+      });
+      if (recoveredValidation.ok) {
+        effectiveResolved = recoveredResolved;
+        deps.logger.info(LogCode.SYS_INFO, '[DirectSwap] Resolved hint pair validation recovered from source supply', {
+          chainId: params.chainId,
+          originalPoolAddress: resolved.poolAddress || null,
+          recoveredPoolAddress: recoveredResolved.poolAddress || null,
+          tokenIn: params.tokenIn,
+          tokenOut: params.tokenOut
+        });
+      }
+    }
+  }
+  if (effectiveResolved === resolved && !validation.ok) {
     deps.logger.warn(LogCode.SYS_INFO, '[DirectSwap] Skip resolved pool hint: pair validation failed', {
       chainId: params.chainId,
       reason: validation.reason,
@@ -287,22 +322,22 @@ export async function tryResolvedPoolHintFastPath(
     };
   }
 
-  if (resolved.kind === 'v4') {
-    let poolKey = resolved.v4PoolKey
+  if (effectiveResolved.kind === 'v4') {
+    let poolKey = effectiveResolved.v4PoolKey
       ? {
-        currency0: resolved.v4PoolKey.currency0,
-        currency1: resolved.v4PoolKey.currency1,
-        hooks: resolved.v4PoolKey.hooks,
-        fee: resolved.v4PoolKey.fee,
-        tickSpacing: resolved.v4PoolKey.tickSpacing
+        currency0: effectiveResolved.v4PoolKey.currency0,
+        currency1: effectiveResolved.v4PoolKey.currency1,
+        hooks: effectiveResolved.v4PoolKey.hooks,
+        fee: effectiveResolved.v4PoolKey.fee,
+        tickSpacing: effectiveResolved.v4PoolKey.tickSpacing
       }
       : null;
-    if (!poolKey && resolved.poolAddress) {
+    if (!poolKey && effectiveResolved.poolAddress) {
       const recoveredKey = matchV4PoolKeyById(
         params.chainId,
-        resolved.poolAddress,
-        normalizePairTokenForHint(params.tokenIn, deps.wrappedNativeByChain[params.chainId]),
-        normalizePairTokenForHint(params.tokenOut, deps.wrappedNativeByChain[params.chainId])
+        effectiveResolved.poolAddress,
+        normalizePairTokenForHint(params.tokenIn, deps.wrappedNativeByChain[params.chainId], params.chainId),
+        normalizePairTokenForHint(params.tokenOut, deps.wrappedNativeByChain[params.chainId], params.chainId)
       );
       if (recoveredKey) {
         poolKey = {
@@ -314,13 +349,13 @@ export async function tryResolvedPoolHintFastPath(
         };
         deps.logger.info(LogCode.SYS_INFO, '[DirectSwap] Recovered V4 pool key from poolId-only hint', {
           chainId: params.chainId,
-          poolAddress: resolved.poolAddress,
+          poolAddress: effectiveResolved.poolAddress,
           tokenIn: params.tokenIn,
           tokenOut: params.tokenOut
         });
       }
     }
-    if (!poolKey || !resolved.poolAddress) {
+    if (!poolKey || !effectiveResolved.poolAddress) {
       return {
         success: false,
         error: 'hint_v4_pool_key_unresolved',
@@ -333,15 +368,16 @@ export async function tryResolvedPoolHintFastPath(
       params.tokenOut,
       poolKey.currency0,
       poolKey.currency1,
-      deps.wrappedNativeByChain[params.chainId]
+      deps.wrappedNativeByChain[params.chainId],
+      params.chainId
     );
     const isIncomplete = poolKey.hooks === '0x0000000000000000000000000000000000000000' && poolKey.tickSpacing <= 0;
-    if ((isIncomplete || !pairAligned) && resolved.poolAddress) {
+    if ((isIncomplete || !pairAligned) && effectiveResolved.poolAddress) {
       const resolvedKey = matchV4PoolKeyById(
         params.chainId,
-        resolved.poolAddress,
-        normalizePairTokenForHint(params.tokenIn, deps.wrappedNativeByChain[params.chainId]),
-        normalizePairTokenForHint(params.tokenOut, deps.wrappedNativeByChain[params.chainId]),
+        effectiveResolved.poolAddress,
+        normalizePairTokenForHint(params.tokenIn, deps.wrappedNativeByChain[params.chainId], params.chainId),
+        normalizePairTokenForHint(params.tokenOut, deps.wrappedNativeByChain[params.chainId], params.chainId),
         poolKey.hooks
       );
       if (resolvedKey) {
@@ -354,7 +390,7 @@ export async function tryResolvedPoolHintFastPath(
         };
         deps.logger.info(LogCode.SYS_INFO, '[DirectSwap] Recovered V4 pool key from poolId', {
           chainId: params.chainId,
-          poolAddress: resolved.poolAddress,
+          poolAddress: effectiveResolved.poolAddress,
           reason: isIncomplete ? 'incomplete_hint' : 'pair_realign',
           tokenIn: params.tokenIn,
           tokenOut: params.tokenOut
@@ -363,8 +399,8 @@ export async function tryResolvedPoolHintFastPath(
     }
 
     const selectedPool: SelectedV4Pool = {
-      poolId: resolved.poolAddress || '',
-      poolAddress: resolved.poolAddress || '',
+      poolId: effectiveResolved.poolAddress || '',
+      poolAddress: effectiveResolved.poolAddress || '',
       poolKey,
       sqrtPriceX96: '0',
       fee: poolKey.fee,
