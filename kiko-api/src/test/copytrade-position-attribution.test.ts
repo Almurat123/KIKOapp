@@ -41,6 +41,13 @@ describe('copytrade position attribution', () => {
       entryTxHash: 'RECOVERED_ONCHAIN_123',
       entryAmountDec: '10',
     }), false);
+
+    assert.equal(isConfirmedAttributedPosition({
+      id: 'submission_unresolved',
+      tokenAddress: '0xToken',
+      entryTxHash: 'SUBMISSION_UNRESOLVED_order-1',
+      entryAmountDec: '10',
+    }), true);
   });
 
   test('keeps auto exit disabled when attributed amount is missing', () => {

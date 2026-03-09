@@ -1,4 +1,5 @@
 import { ethers } from 'ethers';
+import { isRecoverablePendingEntryTxHash } from '../buy/pendingProtectionPolicy.js';
 
 export interface AttributedPositionLike {
   id: string;
@@ -111,6 +112,7 @@ function resolvePositionAmountRaw(position: AttributedPositionLike, decimals: nu
 export function isConfirmedAttributedPosition(position: AttributedPositionLike): boolean {
   const txHash = String(position.entryTxHash || '').trim();
   if (!txHash) return false;
+  if (isRecoverablePendingEntryTxHash(txHash)) return true;
   return !INVALID_ENTRY_TX_PREFIXES.some((prefix) => txHash.startsWith(prefix));
 }
 

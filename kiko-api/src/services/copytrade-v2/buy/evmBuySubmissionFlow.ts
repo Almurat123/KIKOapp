@@ -8,6 +8,7 @@ import { buildOrderAuditFields } from '../../order-runtime/sinks/persistence.js'
 import type { CopyTradeExecutionMode } from '../../copyTradeExecutionMode.js';
 import { buildCopytradeBuyPlannedArtifact } from './plannedExecutionArtifact.js';
 import { shouldAbortCopytradeBuyRetry } from './copytradeBuyRetryGuard.js';
+import { resolveTxFinalState } from '../../order-runtime/adjudicator/finalState.js';
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -33,6 +34,13 @@ export type EvmCopytradeBuySubmissionResult =
       status: 'submitted';
       txHash: string;
       attributedEntryAmountHuman?: string;
+      txLifecycleStatus?: string;
+      runtimeContext?: OrderRuntimeContext;
+      swapMetadata?: MainSwapResult['metadata'];
+    }
+  | {
+      status: 'submitted_unresolved';
+      reasonCode: string;
       txLifecycleStatus?: string;
       runtimeContext?: OrderRuntimeContext;
       swapMetadata?: MainSwapResult['metadata'];
@@ -134,6 +142,47 @@ export async function executeEvmCopytradeBuySubmissionFlow(params: {
     };
   };
 
+  const adoptUnresolvedResult = (
+    request: MainSwapRequest | undefined,
+    failedResult: MainSwapResult | null | undefined,
+    reasonCode: string,
+  ): EvmCopytradeBuySubmissionResult | null => {
+    const runtimeContext = failedResult?.runtimeContext || request?.runtimeContext;
+    if (!runtimeContext) return null;
+    const resolution = resolveTxFinalState({
+      runtimeContext,
+      lifecycle: failedResult?.txLifecycle || runtimeContext.lastLifecycle || null,
+      chainId: params.chainId,
+      txHash: runtimeContext.canonicalTxHash,
+      orderId: runtimeContext.orderId,
+    });
+    if (resolution.failed || resolution.success) return null;
+    const errorText = compactCopyTradeError(failedResult?.error || failedResult?.metadata?.txLifecycleStatus || reasonCode).toLowerCase();
+    const looksUnresolved =
+      errorText.includes('timeout')
+      || errorText.includes('rpc')
+      || errorText.includes('network')
+      || resolution.state === 'rpc_uncertain'
+      || resolution.state === 'send_accepted';
+    if (!looksUnresolved) return null;
+    logger.warn(LogCode.SYS_INFO, reasonCode, {
+      userId: params.userId,
+      token: params.tokenToBuy,
+      chainId: params.chainId,
+      runtimeState: runtimeContext.state,
+      canonicalTxHash: runtimeContext.canonicalTxHash || null,
+      resolutionState: resolution.state,
+      resolutionReasonCode: resolution.reasonCode,
+    });
+    return {
+      status: 'submitted_unresolved',
+      reasonCode: resolution.reasonCode || 'submission_unresolved',
+      txLifecycleStatus: failedResult?.txLifecycle?.status || failedResult?.metadata?.txLifecycleStatus || runtimeContext.lastLifecycle?.status || 'broadcasted_unseen',
+      runtimeContext,
+      swapMetadata: failedResult?.metadata,
+    };
+  };
+
   let attributedEntryAmountHuman: string | undefined;
   let txLifecycleStatus: string | undefined;
   let runtimeContext: OrderRuntimeContext | undefined;
@@ -153,7 +202,13 @@ export async function executeEvmCopytradeBuySubmissionFlow(params: {
       timingMs: Date.now() - timingDetectedAt,
     });
     const result1 = await swapExecutor(step1Request);
-    if (!result1.success || !result1.txHash) throw new Error(result1.error);
+    if (!result1.success || !result1.txHash) {
+      const adopted = adoptAcceptedResult(step1Request, 'Accepted buy tx already exists after Step 1 failure; aborting further buy retries');
+      if (adopted) return adopted;
+      const unresolved = adoptUnresolvedResult(step1Request, result1, 'Buy Step 1 entered unresolved submission state; preserving pending position');
+      if (unresolved) return unresolved;
+      throw new Error(result1.error);
+    }
     attributedEntryAmountHuman = result1.amountOut || attributedEntryAmountHuman;
     txLifecycleStatus = result1.txLifecycle?.status || result1.metadata?.txLifecycleStatus;
     runtimeContext = result1.runtimeContext;
@@ -182,8 +237,6 @@ export async function executeEvmCopytradeBuySubmissionFlow(params: {
       chainId: params.chainId,
       token: params.tokenToBuy,
     });
-    const adopted = adoptAcceptedResult(step1Request, 'Accepted buy tx already exists after Step 1 failure; aborting further buy retries');
-    if (adopted) return adopted;
     if (params.turboMode) {
       logger.warn(LogCode.EXE_TX_REVERTED, 'Turbo mode: skip slow multi-step retries after step1 failure', {
         userId: params.userId,

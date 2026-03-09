@@ -57,7 +57,7 @@ export async function resolveMirrorSellRatioContext(params: {
     where: {
       walletAddress: { equals: targetWallet, mode: 'insensitive' },
       chainId: params.chainId,
-      txType: 'TARGET_SELL',
+      txType: { in: ['TARGET_SELL', 'TARGET_TOKEN_SWAP'] },
       ...(normalizedSellHash ? { txHash: normalizedSellHash } : {}),
       OR: [
         { tokenAddress: { equals: tokenAddress, mode: 'insensitive' } },
@@ -118,4 +118,3 @@ export async function resolveMirrorSellRatioContext(params: {
     reasonCode: 'RATIO_RESOLVED',
   };
 }
-

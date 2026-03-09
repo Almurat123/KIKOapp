@@ -88,10 +88,14 @@ import {
     partitionConfigsByBuyGuardBucket,
 } from './copytrade-v2/buy/guardedTokenInfo.js';
 import { resolveCopytradeSharedPreparationPolicy } from './copytrade-v2/buy/sharedPreparationPolicy.js';
-import { shouldTerminalFailStalePendingPosition } from './copytrade-v2/buy/pendingProtectionPolicy.js';
+import {
+    buildRecoverablePendingEntryTxHash,
+    shouldTerminalFailStalePendingPosition
+} from './copytrade-v2/buy/pendingProtectionPolicy.js';
 import { applyBuyConfirmationTransition } from './copytrade-v2/buy/buyConfirmationTransition.js';
 import { scheduleCopytradeBuyConfirmationFlow } from './copytrade-v2/buy/buyConfirmationCoordinator.js';
 import { cleanupPendingCopytradePosition } from './copytrade-v2/buy/pendingLifecycle.js';
+import { scheduleLateBuySubmissionAdoption } from './copytrade-v2/buy/lateBuySubmissionAdoption.js';
 import { buildCopytradeBuyPlannedArtifact } from './copytrade-v2/buy/plannedExecutionArtifact.js';
 import { shouldAbortCopytradeBuyRetry } from './copytrade-v2/buy/copytradeBuyRetryGuard.js';
 import { evaluateBuyPriceDeviationGuard } from './copytrade-v2/buy/buyGuardPriceDeviation.js';
@@ -1820,11 +1824,13 @@ async function processSingleUserBuy(
         let pendingPositionId: string | null = null;
         let pendingPositionCreatedAt: Date | null = null;
         let pendingPositionSettled = false;
+        let persistedPositionId: string | null = null;
         let attributedEntryAmountHuman: string | null = null;
         let txHash = '';
         let txLifecycleStatus: string | undefined;
         let orderRuntimeContext: any = undefined;
         let swapMetadata: MainSwapResult['metadata'] | undefined;
+        let scheduleBuyConfirmation = () => {};
 
         try {
             const dispatchDetectedAt = getCopyTradeDispatchDetectedAt(timing, detectedAt);
@@ -2749,7 +2755,165 @@ async function processSingleUserBuy(
                         ? await getTokenInfoOnce(tokenInfoCache, tokenToBuy, chainId, { verbose: false, forceRefresh: true, rpcStrategy: 'fast' })
                         : await getTokenInfo(tokenToBuy, chainId, { verbose: false, forceRefresh: true, rpcStrategy: 'fast' })
                 });
+                const notifyBuySuccessConfirmed = async () => {
+                    sendNotificationAsync({
+                        userId: config.user.privyDid,
+                        farcasterFid: config.user.farcasterFid,
+                        type: 'TRADE_SUCCESS_BUY',
+                        data: {
+                            tokenSymbol: await resolveDisplayTokenSymbolAsync(tokenInfo.symbol || (swap as any)?.tokenSymbol, tokenToBuy, chainId),
+                            usdValue: usdAmount.toFixed(2),
+                            targetWallet: targetWallet,
+                            txHash: txHash,
+                            chainId: chainId
+                        }
+                    }, 'copytrade_buy_success_confirmed');
+                };
+
+                const executeMirrorSellAfterBuyConfirm = async (positionId: string) => {
+                    const mirrorSellPosition = await prisma.position.findUnique({
+                        where: { id: positionId }
+                    });
+                    if (mirrorSellPosition && mirrorSellPosition.status !== 'closed') {
+                        logger.warn(LogCode.SYS_INFO, '[CopyTradeRace] Target already sold while buy was pending; executing mirror sell on confirmation', {
+                            userId: config.userId,
+                            token: tokenToBuy,
+                            chainId,
+                            txHash,
+                            positionId,
+                            targetSellTxHash: null,
+                        });
+                        await executePositionExit({
+                            userId: config.userId,
+                            tokenAddress: tokenToBuy,
+                            chainId,
+                            exitReason: 'mirror_sell',
+                            tokenInfo,
+                            config: { ...effectiveConfig, user: effectiveConfig.user },
+                            positions: [mirrorSellPosition]
+                        });
+                    }
+                };
+
+                const runBuyConfirmationTransition = async (
+                    confirmation: ConfirmationOutcome,
+                    recoverySource: 'initial_wait' | 'late_recovery',
+                ) => {
+                    if (orderRuntimeContext) {
+                        setOrderMetadata(orderRuntimeContext, {
+                            confirmationProbeStage: recoverySource === 'initial_wait' ? 'initial' : 'recovery',
+                        });
+                    }
+                    return await applyBuyConfirmationTransition({
+                        confirmation,
+                        chainId,
+                        tokenToBuy,
+                        txHash,
+                        userId: effectiveConfig.user.privyDid,
+                        targetWallet,
+                        leaderBuyTxHash: leaderTxHash || undefined,
+                        persistedPositionId,
+                        pendingPositionCreatedAt,
+                        tokenInfo: {
+                            symbol: tokenInfo.symbol,
+                            price: tokenInfo.price,
+                            decimals: tokenInfo.decimals
+                        },
+                        walletAddress: effectiveConfig.user.walletAddress,
+                        positionStatusCompat,
+                        directFeeSettlement: swapMetadata?.directFeeSettlement || null,
+                        onMirrorSellAfterConfirm: executeMirrorSellAfterBuyConfirm,
+                        onNotifySuccess: notifyBuySuccessConfirmed,
+                        recoverySource,
+                    });
+                };
+
+                scheduleBuyConfirmation = () => {
+                    if (!txHash) return;
+                    scheduleCopytradeBuyConfirmationFlow({
+                        chainId,
+                        txHash,
+                        tokenAddress: tokenToBuy,
+                        delayMs: SELL_PREHEAT_DELAY_MS,
+                        timeoutMs: SELL_PREHEAT_CONFIRM_TIMEOUT_MS,
+                        pollMs: SELL_PREHEAT_CONFIRM_POLL_MS,
+                        onTransition: runBuyConfirmationTransition,
+                    });
+                };
+
                 if (submissionResult.status === 'aborted') {
+                    return;
+                }
+                if (submissionResult.status === 'submitted_unresolved') {
+                    orderRuntimeContext = submissionResult.runtimeContext;
+                    txLifecycleStatus = submissionResult.txLifecycleStatus || txLifecycleStatus;
+                    swapMetadata = submissionResult.swapMetadata;
+                    if (pendingPositionId) {
+                        const recoverableEntryTxHash = buildRecoverablePendingEntryTxHash(orderRuntimeContext?.orderId);
+                        await prisma.position.updateMany({
+                            where: { id: pendingPositionId, status: positionStatusCompat.pendingCreateStatus as any },
+                            data: { entryTxHash: recoverableEntryTxHash },
+                        }).catch(() => null);
+                    }
+                    logger.warn(LogCode.SYS_INFO, 'Buy submission unresolved; preserving pending position for late tx adoption', {
+                        userId: config.userId,
+                        token: tokenToBuy,
+                        chainId,
+                        reasonCode: submissionResult.reasonCode,
+                        pendingPositionId,
+                        ...buildOrderAuditFields(orderRuntimeContext)
+                    });
+                    scheduleLateBuySubmissionAdoption({
+                        chainId,
+                        runtimeContext: orderRuntimeContext,
+                        onAdopt: async (resolved) => {
+                            txHash = resolved.txHash;
+                            txLifecycleStatus = resolved.txLifecycleStatus || txLifecycleStatus;
+                            orderRuntimeContext = resolved.runtimeContext;
+                            const adoptionResult = await persistCopytradeBuySubmission({
+                                pendingPositionId,
+                                pendingPositionCreatedAt,
+                                userId: effectiveConfig.userId,
+                                configId: effectiveConfig.id,
+                                tokenAddress: tokenToBuy,
+                                tokenSymbol: resolveDisplayTokenSymbol(tokenInfo.symbol || (swap as any)?.tokenSymbol, tokenToBuy),
+                                chainId,
+                                tokenPrice: tokenInfo.price,
+                                entryAmount: (usdAmount / nativePrice).toString(),
+                                attributedEntryAmountHuman: attributedEntryAmountHuman || undefined,
+                                attributedEntryAmountExact: swapMetadata?.directFeeSettlement?.amountOutBase || undefined,
+                                entryTxHash: txHash,
+                                leaderBuyTxHash: leaderTxHash || undefined,
+                                entryUsdValue: usdAmount,
+                                txLifecycleStatus,
+                                runtimeContext: orderRuntimeContext,
+                            });
+                            persistedPositionId = adoptionResult.persistedPositionId;
+                            pendingPositionCreatedAt = adoptionResult.pendingPositionCreatedAt || pendingPositionCreatedAt;
+                            pendingPositionSettled = adoptionResult.pendingPositionSettled;
+                            logger.info(LogCode.SYS_INFO, 'Late buy submission adoption succeeded', {
+                                userId: config.userId,
+                                token: tokenToBuy,
+                                chainId,
+                                txHash,
+                                positionId: persistedPositionId,
+                                txLifecycleStatus: txLifecycleStatus || 'unknown',
+                                ...buildOrderAuditFields(orderRuntimeContext)
+                            });
+                            scheduleBuyConfirmation();
+                        },
+                        onExhausted: async (resolution) => {
+                            logger.warn(LogCode.SYS_INFO, 'Late buy submission adoption exhausted without txHash', {
+                                userId: config.userId,
+                                token: tokenToBuy,
+                                chainId,
+                                pendingPositionId,
+                                resolutionState: resolution.state,
+                                resolutionReasonCode: resolution.reasonCode,
+                                ...buildOrderAuditFields(orderRuntimeContext)
+                            });
+                        }
+                    });
                     return;
                 }
                 txHash = submissionResult.txHash;
@@ -2802,7 +2966,7 @@ async function processSingleUserBuy(
             runtimeContext: orderRuntimeContext,
         });
         const nextPositionStatus = persistenceResult.nextPositionStatus;
-        let persistedPositionId = persistenceResult.persistedPositionId;
+        persistedPositionId = persistenceResult.persistedPositionId;
         pendingPositionCreatedAt = persistenceResult.pendingPositionCreatedAt || pendingPositionCreatedAt;
         pendingPositionSettled = persistenceResult.pendingPositionSettled;
 
@@ -2817,90 +2981,9 @@ async function processSingleUserBuy(
             ...buildOrderAuditFields(orderRuntimeContext)
         });
 
-        const notifyBuySuccessConfirmed = async () => {
-            sendNotificationAsync({
-                userId: config.user.privyDid,
-                farcasterFid: config.user.farcasterFid,
-                type: 'TRADE_SUCCESS_BUY',
-                data: {
-                    tokenSymbol: await resolveDisplayTokenSymbolAsync(tokenInfo.symbol || (swap as any)?.tokenSymbol, tokenToBuy, chainId),
-                    usdValue: usdAmount.toFixed(2),
-                    targetWallet: targetWallet,
-                    txHash: txHash,
-                    chainId: chainId
-                }
-            }, 'copytrade_buy_success_confirmed');
-        };
-
-        const executeMirrorSellAfterBuyConfirm = async (positionId: string) => {
-            const mirrorSellPosition = await prisma.position.findUnique({
-                where: { id: positionId }
-            });
-            if (mirrorSellPosition && mirrorSellPosition.status !== 'closed') {
-                logger.warn(LogCode.SYS_INFO, '[CopyTradeRace] Target already sold while buy was pending; executing mirror sell on confirmation', {
-                    userId: config.userId,
-                    token: tokenToBuy,
-                    chainId,
-                    txHash,
-                    positionId,
-                    targetSellTxHash: null,
-                });
-                await executePositionExit({
-                    userId: config.userId,
-                    tokenAddress: tokenToBuy,
-                    chainId,
-                    exitReason: 'mirror_sell',
-                    tokenInfo,
-                    config: { ...effectiveConfig, user: effectiveConfig.user },
-                    positions: [mirrorSellPosition]
-                });
-            }
-        };
-
-        const runBuyConfirmationTransition = async (
-            confirmation: ConfirmationOutcome,
-            recoverySource: 'initial_wait' | 'late_recovery',
-        ) => {
-            if (orderRuntimeContext) {
-                setOrderMetadata(orderRuntimeContext, {
-                    confirmationProbeStage: recoverySource === 'initial_wait' ? 'initial' : 'recovery',
-                });
-            }
-            return await applyBuyConfirmationTransition({
-                confirmation,
-                chainId,
-                tokenToBuy,
-                txHash,
-                userId: effectiveConfig.user.privyDid,
-                targetWallet,
-                leaderBuyTxHash: leaderTxHash || undefined,
-                persistedPositionId,
-                pendingPositionCreatedAt,
-                tokenInfo: {
-                    symbol: tokenInfo.symbol,
-                    price: tokenInfo.price,
-                    decimals: tokenInfo.decimals
-                },
-                walletAddress: effectiveConfig.user.walletAddress,
-                positionStatusCompat,
-                directFeeSettlement: swapMetadata?.directFeeSettlement || null,
-                onMirrorSellAfterConfirm: executeMirrorSellAfterBuyConfirm,
-                onNotifySuccess: notifyBuySuccessConfirmed,
-                recoverySource,
-            });
-        };
-
         // Drive all post-buy actions from a single confirmation outcome so fee recovery,
         // position promotion, notification and preheat stay on the same state boundary.
-        scheduleCopytradeBuyConfirmationFlow({
-            chainId,
-            txHash,
-            tokenAddress: tokenToBuy,
-            delayMs: SELL_PREHEAT_DELAY_MS,
-            timeoutMs: SELL_PREHEAT_CONFIRM_TIMEOUT_MS,
-            pollMs: SELL_PREHEAT_CONFIRM_POLL_MS,
-            onTransition: runBuyConfirmationTransition,
-        });
+        scheduleBuyConfirmation();
 
         // Track User Activity (Copy Trade + Swap Volume)
         trackCopyTrade(config.userId);

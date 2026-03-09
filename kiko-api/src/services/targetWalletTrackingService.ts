@@ -91,12 +91,12 @@ type TargetTradeTxRow = {
 
 function buildTargetBuySellRows(targetTradeTxs: TargetTradeTxRow[]) {
   let tokenSwaps = 0;
-  let rawBuyCount = 0;
-  let rawSellCount = 0;
+  let semanticBuyCount = 0;
+  let semanticSellCount = 0;
   const buySellRows = targetTradeTxs.flatMap((row) => {
     if (row.txType === 'TARGET_BUY' || row.txType === 'TARGET_SELL' || row.txType === 'BUY' || row.txType === 'SELL') {
-      if (row.txType === 'TARGET_BUY' || row.txType === 'BUY') rawBuyCount += 1;
-      if (row.txType === 'TARGET_SELL' || row.txType === 'SELL') rawSellCount += 1;
+      if (row.txType === 'TARGET_BUY' || row.txType === 'BUY') semanticBuyCount += 1;
+      if (row.txType === 'TARGET_SELL' || row.txType === 'SELL') semanticSellCount += 1;
       return [{
         id: row.id,
         txType: row.txType as 'TARGET_BUY' | 'TARGET_SELL' | 'BUY' | 'SELL',
@@ -136,13 +136,15 @@ function buildTargetBuySellRows(targetTradeTxs: TargetTradeTxRow[]) {
           valueUsd: inferredBuyUsd,
           blockTimestamp: row.blockTimestamp,
         });
+        semanticSellCount += 1;
+        semanticBuyCount += 1;
       }
       return synthetic;
     }
     return [];
   });
 
-  return { buySellRows, rawBuyCount, rawSellCount, tokenSwaps };
+  return { buySellRows, semanticBuyCount, semanticSellCount, tokenSwaps };
 }
 
 export async function recomputeTargetMetricsForConfig(configId: string, attempt = 0): Promise<void> {
@@ -196,14 +198,14 @@ export async function recomputeTargetMetricsForConfig(configId: string, attempt 
       }), 4, 200),
     ]);
 
-    const { buySellRows, rawBuyCount, rawSellCount, tokenSwaps } = buildTargetBuySellRows(targetTradeTxs);
+    const { buySellRows, semanticBuyCount, semanticSellCount, tokenSwaps } = buildTargetBuySellRows(targetTradeTxs);
     const pnl = await calculateTargetPnlSummary(buySellRows, {
       minTxUsd: TARGET_STATUS_MIN_TX_USD,
       maxTxUsd: TARGET_STATUS_MAX_TX_USD,
       chain,
       chainId: cfg.chainId,
     });
-    const trackedTxCount = rawBuyCount + rawSellCount + tokenSwaps;
+    const trackedTxCount = targetTradeTxs.length;
     // Card-level Profit/Loss: sum per-closed-trade realized outcomes.
     const targetProfitUsd = safeNum(pnl.targetRealizedProfitUsd);
     const targetLossUsd = safeNum(pnl.targetRealizedLossUsd);
@@ -213,8 +215,8 @@ export async function recomputeTargetMetricsForConfig(configId: string, attempt 
       data: {
         targetTrackedTxCount: trackedTxCount,
         targetWalletTxCount: walletTxCount,
-        targetBuyCount: rawBuyCount,
-        targetSellCount: rawSellCount,
+        targetBuyCount: semanticBuyCount,
+        targetSellCount: semanticSellCount,
         targetTokenSwapCount: tokenSwaps,
         targetRealizedPnlUsd: safeNum(pnl.targetRealizedPnlUsd),
         targetRealizedProfitUsd: safeNum(pnl.targetRealizedProfitUsd),
@@ -411,7 +413,7 @@ export async function backfillMissingTargetUsd(params: {
 } = {}): Promise<{ scanned: number; updated: number }> {
   const limit = Math.max(1, Math.min(50, Number(params.limit || 12)));
   const where: any = {
-    txType: { in: ['TARGET_BUY', 'TARGET_SELL'] },
+    txType: { in: ['TARGET_BUY', 'TARGET_SELL', 'TARGET_TOKEN_SWAP'] },
     valueUsd: null,
     AND: [
       {
@@ -461,6 +463,7 @@ export async function backfillMissingTargetUsd(params: {
 
     if (row.txType === 'TARGET_BUY' && Number(row.valueInUsd || 0) > 0) valueUsd = Number(row.valueInUsd);
     if (row.txType === 'TARGET_SELL' && Number(row.valueOutUsd || 0) > 0) valueUsd = Number(row.valueOutUsd);
+    if (row.txType === 'TARGET_TOKEN_SWAP') valueUsd = Number(row.valueOutUsd || row.valueInUsd || 0) || null;
 
     const cid = Number(row.chainId || chainLabelToId(row.chain));
     if (!valueUsd) {
@@ -468,6 +471,10 @@ export async function backfillMissingTargetUsd(params: {
         valueUsd = await fillUsdFromDecodedLeg({ chainId: cid, tokenAddress: row.tokenInAddress, amountRaw: row.amountIn });
       } else if (row.txType === 'TARGET_SELL') {
         valueUsd = await fillUsdFromDecodedLeg({ chainId: cid, tokenAddress: row.tokenOutAddress, amountRaw: row.amountOut });
+      } else if (row.txType === 'TARGET_TOKEN_SWAP') {
+        valueUsd =
+          await fillUsdFromDecodedLeg({ chainId: cid, tokenAddress: row.tokenOutAddress, amountRaw: row.amountOut })
+          || await fillUsdFromDecodedLeg({ chainId: cid, tokenAddress: row.tokenInAddress, amountRaw: row.amountIn });
       }
     }
 

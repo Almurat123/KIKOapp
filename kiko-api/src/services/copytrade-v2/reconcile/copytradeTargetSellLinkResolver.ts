@@ -1,5 +1,6 @@
 import prisma from '../../../db/prisma.js';
 import { normalizeAddress } from '../../../utils/address.js';
+import { matchesSemanticTargetSell } from './targetSellSemantics.js';
 
 export type TargetSellLinkReasonCode =
   | 'TARGET_SELL_LINKED_FROM_LEADER_BUY'
@@ -52,12 +53,15 @@ async function findLatestTargetSell(params: {
     where: {
       walletAddress: { equals: normalizedWallet, mode: 'insensitive' },
       chainId: params.chainId,
-      txType: 'TARGET_SELL',
-      tokenAddress: { equals: normalizedToken, mode: 'insensitive' },
+      txType: { in: ['TARGET_SELL', 'TARGET_TOKEN_SWAP'] },
+      OR: [
+        { tokenAddress: { equals: normalizedToken, mode: 'insensitive' } },
+        { tokenInAddress: { equals: normalizedToken, mode: 'insensitive' } },
+      ],
       ...(params.blockTimestampGte ? { blockTimestamp: { gte: params.blockTimestampGte } } : {}),
     },
     orderBy: [{ blockTimestamp: 'desc' }, { createdAt: 'desc' }],
-    select: { txHash: true, blockTimestamp: true },
+    select: { txHash: true, blockTimestamp: true, txType: true, tokenAddress: true, tokenInAddress: true },
   });
 }
 
@@ -85,6 +89,18 @@ export async function resolveTargetSellLink(params: {
     blockTimestampGte: anchoredSince,
   });
   if (anchoredSell) {
+    if (!matchesSemanticTargetSell({
+      txType: (anchoredSell as any).txType,
+      tokenAddress: (anchoredSell as any).tokenAddress,
+      tokenInAddress: (anchoredSell as any).tokenInAddress,
+      targetTokenAddress: params.tokenAddress,
+    })) {
+      return {
+        txHash: null,
+        blockTimestamp: null,
+        reasonCode: 'TARGET_SELL_LINK_NOT_FOUND',
+      };
+    }
     return {
       txHash: anchoredSell.txHash,
       blockTimestamp: anchoredSell.blockTimestamp,
@@ -99,6 +115,18 @@ export async function resolveTargetSellLink(params: {
       tokenAddress: params.tokenAddress,
     });
     if (fallbackSell) {
+      if (!matchesSemanticTargetSell({
+        txType: (fallbackSell as any).txType,
+        tokenAddress: (fallbackSell as any).tokenAddress,
+        tokenInAddress: (fallbackSell as any).tokenInAddress,
+        targetTokenAddress: params.tokenAddress,
+      })) {
+        return {
+          txHash: null,
+          blockTimestamp: null,
+          reasonCode: 'TARGET_SELL_LINK_NOT_FOUND',
+        };
+      }
       return {
         txHash: fallbackSell.txHash,
         blockTimestamp: fallbackSell.blockTimestamp,
