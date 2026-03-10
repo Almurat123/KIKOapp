@@ -2,7 +2,7 @@ import { Tool } from '../../tooling/registry.js';
 import axios from 'axios';
 import { logger } from '../../utils/logger.js';
 import { LogCode } from '../../config/logRegistry.js';
-import { parseUnits, Interface } from 'ethers';
+import { parseUnits, formatUnits, Interface } from 'ethers';
 import { getErc20Allowance, getTransactionReceipt } from '../../services/rpcManager.js';
 import { chatWS } from '../../services/chatWebSocket.js';
 import { updateMessage } from '../../repositories/chatRepository.js';
@@ -223,6 +223,37 @@ interface CrossChainArgs {
     slippage?: number;
 }
 
+export function trimDisplayAmount(value: string, maxFractionDigits = 6): string {
+    const [whole, fraction = ''] = value.split('.');
+    if (!fraction) return whole;
+    const trimmedFraction = fraction.slice(0, maxFractionDigits).replace(/0+$/, '');
+    return trimmedFraction ? `${whole}.${trimmedFraction}` : whole;
+}
+
+export function formatAtomicAmount(rawAmount: string | undefined, decimals: number | undefined, maxFractionDigits = 6): string | undefined {
+    if (!rawAmount || decimals === undefined || decimals === null) return undefined;
+    try {
+        return trimDisplayAmount(formatUnits(BigInt(rawAmount), decimals), maxFractionDigits);
+    } catch {
+        return rawAmount;
+    }
+}
+
+export function buildDisplayAmounts(quote: LiFiQuote, fallbackAmountIn: string) {
+    const tokenInDecimals = Number(quote.action?.fromToken?.decimals ?? getDecimals(quote.action?.fromToken?.symbol || '', String(quote.action?.fromChainId || '')));
+    const tokenOutDecimals = Number(quote.action?.toToken?.decimals ?? getDecimals(quote.action?.toToken?.symbol || '', String(quote.action?.toChainId || '')));
+
+    return {
+        amountInRaw: quote.estimate?.fromAmount,
+        amountOutRaw: quote.estimate?.toAmount,
+        tokenInDecimals,
+        tokenOutDecimals,
+        amountInDisplay: formatAtomicAmount(quote.estimate?.fromAmount, tokenInDecimals) || fallbackAmountIn,
+        amountOutDisplay: formatAtomicAmount(quote.estimate?.toAmount, tokenOutDecimals),
+        minAmountOutDisplay: formatAtomicAmount(quote.estimate?.toAmountMin, tokenOutDecimals),
+    };
+}
+
 /**
  * get_cross_chain_quote
  * [Logic]: Acts as a SIMULATION step. Fetches quote to show user:
@@ -242,7 +273,7 @@ export const GetCrossChainQuoteTool: Tool<CrossChainArgs> = {
                 toChain: { type: 'string', description: 'Destination chain ID or name (e.g., "solana", "1151111081099710")' },
                 fromToken: { type: 'string', description: 'Source token symbol or address (e.g. "USDC", "ETH")' },
                 toToken: { type: 'string', description: 'Destination token symbol or address' },
-                fromAmount: { type: 'string', description: 'Amount in atomic units' },
+                fromAmount: { type: 'string', description: 'Amount to bridge. Prefer a human-readable numeric string like "10" or "0.5"; atomic/base-unit values are also accepted.' },
                 fromAddress: { type: 'string', description: 'User wallet address' },
                 toAddress: { type: 'string', description: 'Recipient address (optional)' },
                 slippage: { type: 'number', description: 'Max slippage (default 0.005)' }
@@ -317,8 +348,8 @@ export const GetCrossChainQuoteTool: Tool<CrossChainArgs> = {
                 slippage: args.slippage || 0.005
             };
 
-            const response = await axios.get('https://li.quest/v1/quote', { params });
-            const quote: LiFiQuote = response.data;
+            const quote: LiFiQuote = await fetchWithRetry('https://li.quest/v1/quote', params);
+            const display = buildDisplayAmounts(quote, args.fromAmount);
 
             // [Risk]: Check Price Impact or unusual fees here if needed
 
@@ -329,8 +360,14 @@ export const GetCrossChainQuoteTool: Tool<CrossChainArgs> = {
                 toChain: toChainId,
                 srcToken: quote.action.fromToken,
                 dstToken: quote.action.toToken,
-                expectedOutput: quote.estimate.toAmount,
-                minOutput: quote.estimate.toAmountMin,
+                requestedInput: display.amountInDisplay,
+                requestedInputRaw: display.amountInRaw,
+                expectedOutput: display.amountOutDisplay || quote.estimate.toAmount,
+                expectedOutputRaw: display.amountOutRaw,
+                minOutput: display.minAmountOutDisplay || quote.estimate.toAmountMin,
+                minOutputRaw: quote.estimate.toAmountMin,
+                tokenInDecimals: display.tokenInDecimals,
+                tokenOutDecimals: display.tokenOutDecimals,
                 estimatedTimeSeconds: quote.estimate.executionDuration,
                 totalGasCosts: quote.estimate.feeCosts,
                 warning: "This is a simulation. Call prepare_cross_chain_tx to execute."
@@ -473,6 +510,10 @@ async function monitorCrossChainLifecycle(params: {
     toToken: string;
     amountIn: string;
     amountOut?: string;
+    amountInRaw?: string;
+    amountOutRaw?: string;
+    tokenInDecimals?: number;
+    tokenOutDecimals?: number;
     bridgeTool?: string;
 }) {
     const {
@@ -486,6 +527,10 @@ async function monitorCrossChainLifecycle(params: {
         toToken,
         amountIn,
         amountOut,
+        amountInRaw,
+        amountOutRaw,
+        tokenInDecimals,
+        tokenOutDecimals,
         bridgeTool,
     } = params;
     if (!sessionId) {
@@ -511,6 +556,10 @@ async function monitorCrossChainLifecycle(params: {
         tokenOutSymbol: toToken,
         amountIn,
         amountOut,
+        amountInRaw,
+        amountOutRaw,
+        tokenInDecimals,
+        tokenOutDecimals,
         chainId: Number(fromChainId),
         txHash,
         bridgeTool,
@@ -676,7 +725,7 @@ export const PrepareCrossChainTxTool: Tool<CrossChainArgs> = {
                 toChain: { type: 'string' },
                 fromToken: { type: 'string' },
                 toToken: { type: 'string' },
-                fromAmount: { type: 'string' },
+                fromAmount: { type: 'string', description: 'Amount to bridge. Prefer a human-readable numeric string like "10" or "0.5"; atomic/base-unit values are also accepted.' },
                 fromAddress: { type: 'string' },
                 toAddress: { type: 'string' },
                 slippage: { type: 'number' }
@@ -752,11 +801,18 @@ export const PrepareCrossChainTxTool: Tool<CrossChainArgs> = {
                 return { error: 'No transaction data returned. Route unavailable.' };
             }
 
+            const display = buildDisplayAmounts(quote, args.fromAmount);
+
             const buildTxCardData = (status: string, extra: Record<string, any> = {}) => ({
                 status,
                 tokenInSymbol: args.fromToken,
                 tokenOutSymbol: args.toToken,
-                amountIn: args.fromAmount,
+                amountIn: display.amountInDisplay,
+                amountOut: display.amountOutDisplay,
+                amountInRaw: display.amountInRaw,
+                amountOutRaw: display.amountOutRaw,
+                tokenInDecimals: display.tokenInDecimals,
+                tokenOutDecimals: display.tokenOutDecimals,
                 chainId: Number(fromChainId),
                 ...extra,
             });
@@ -906,7 +962,6 @@ export const PrepareCrossChainTxTool: Tool<CrossChainArgs> = {
                             type: 'show_transaction_status_card',
                             data: buildTxCardData('pending', {
                                 txHash,
-                                amountOut: quote.estimate.toAmount,
                                 bridgeTool: quote.tool,
                                 estimatedDuration: quote.estimate.executionDuration,
                                 explorerLink: `https://scan.li.fi/tx/${txHash}`,
@@ -924,8 +979,12 @@ export const PrepareCrossChainTxTool: Tool<CrossChainArgs> = {
                         toChainId,
                         fromToken: args.fromToken,
                         toToken: args.toToken,
-                        amountIn: args.fromAmount,
-                        amountOut: quote.estimate.toAmount,
+                        amountIn: display.amountInDisplay,
+                        amountOut: display.amountOutDisplay,
+                        amountInRaw: display.amountInRaw,
+                        amountOutRaw: display.amountOutRaw,
+                        tokenInDecimals: display.tokenInDecimals,
+                        tokenOutDecimals: display.tokenOutDecimals,
                         bridgeTool: quote.tool,
                     }).catch((monitorErr) => {
                         logger.warn(LogCode.SYS_ERROR, `[CrossChain] monitor failed: ${monitorErr?.message || monitorErr}`);

@@ -6,6 +6,7 @@ import { getAuthToken, clearAuthTokenCache } from './authToken';
 import { getRuntimeConfigUrl, getEnvUrl } from './runtimeConfig';
 
 function resolveWsBaseUrl(): string {
+    const viteEnv = (import.meta as any)?.env || {};
     const explicit = getRuntimeConfigUrl('CHAT_WS_URL') || getEnvUrl('VITE_CHAT_WS_URL') || getEnvUrl('VITE_WS_URL');
     if (explicit) {
         try {
@@ -43,7 +44,7 @@ function resolveWsBaseUrl(): string {
         return 'wss://api.kikoapp.app';
     }
 
-    return import.meta.env.PROD ? 'wss://api.kikoapp.app' : 'ws://localhost:3001';
+    return viteEnv.PROD ? 'wss://api.kikoapp.app' : 'ws://localhost:3001';
 }
 
 const WS_BASE_URL = resolveWsBaseUrl();
@@ -239,6 +240,7 @@ export class ChatWebSocketClient {
             return withEnvelope({ type: 'client_action', sessionId, seq, data: { message_id: messageId, action: { type: 'tool_result', payload } } });
         }
         if (t === 'client_action') {
+            const actionPayload = payload.action || payload;
             return withEnvelope({
                 type: 'client_action',
                 sessionId,
@@ -246,7 +248,8 @@ export class ChatWebSocketClient {
                 data: {
                     message_id: payload.message_id || payload.messageId || messageId,
                     messageId: payload.message_id || payload.messageId || messageId,
-                    action: payload.action || payload,
+                    targetMessageId: payload.targetMessageId || payload.target_message_id,
+                    action: actionPayload,
                 }
             });
         }

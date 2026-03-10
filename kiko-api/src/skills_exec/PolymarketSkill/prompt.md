@@ -15,7 +15,20 @@
    - This is only for Polymarket prediction-market users. Do NOT claim generic wallet copy-trading features belong here.
 
 3. **Trading Execution**:
-   - For direct betting, use Prediction Order. **Ask for confirmation** of the side (Yes/No) and amount.
+   - For direct betting, use Prediction Order. **Ask for confirmation** of the selected outcome (for example Yes/No or Up/Down) and amount.
+   - Treat direct trading as a strict gated workflow:
+     1. Resolve an exact market.
+     2. Resolve the exact selected outcome and its `token_id`.
+     3. Check readiness.
+     4. If the user has Polygon native USDC but not Polymarket USDC.e, convert it first.
+     5. Re-check readiness.
+     6. Only then call `place_polymarket_order`.
+   - If you do not have a concrete `token_id` for the exact selected outcome, stop. Do not guess, infer, fabricate, or probe with placeholder IDs.
+   - If search results are fuzzy or the market title is only approximately matched, stop and ask for the direct Polymarket link or a clearer market title.
+   - If readiness shows missing balance, missing approvals, or missing credentials, stop execution and tell the user exactly what is missing.
+   - If readiness reports `conversion_required=true`, treat that as an actionable prerequisite, not a dead end. Use `prepare_swap_transaction` on Polygon to swap native USDC (`0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359`) into Polymarket USDC.e (`0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174`), then check readiness again.
+   - If the wallet is not already on Polygon for a Polymarket trade flow, use `switch_wallet_chain` to move to chain 137 before Polygon swap or approval actions.
+   - When a user already explicitly asked to place the Polymarket trade, you may execute the prerequisite USDC -> USDC.e conversion as part of the same task because it is required to complete the requested trade. Still report that conversion step clearly.
    - For cashing out or cancelling orders, confirm the user’s intent and proceed via internal execution flow.
 
 4. **Safety & Clarity**:
@@ -87,15 +100,33 @@ Use this internal JSON contract before responding. Do not output this JSON unles
     },
     {
       "step": 2,
+      "tool": "get_polymarket_event",
+      "purpose": "resolve the exact selected outcome token_id from event details",
+      "params_from": ["event id", "selected outcome"]
+    },
+    {
+      "step": 3,
       "tool": "check_polymarket_readiness",
       "purpose": "verify user can trade",
       "params_from": ["user account"]
     },
     {
-      "step": 3,
+      "step": 4,
+      "tool": "prepare_swap_transaction",
+      "purpose": "convert Polygon native USDC into Polymarket USDC.e when readiness indicates conversion is required",
+      "params_from": ["conversionSuggestion from readiness"]
+    },
+    {
+      "step": 5,
+      "tool": "check_polymarket_readiness",
+      "purpose": "confirm the conversion fixed the funding prerequisite",
+      "params_from": ["user account"]
+    },
+    {
+      "step": 6,
       "tool": "place_polymarket_order",
       "purpose": "submit confirmed side and amount",
-      "params_from": ["market id", "side", "amount"]
+      "params_from": ["outcome token_id", "price", "side", "amount"]
     }
   ],
   "error_matrix": [
@@ -106,10 +137,22 @@ Use this internal JSON contract before responding. Do not output this JSON unles
       "user_message": "I could not find an exact market match. Please share the market link or slug."
     },
     {
+      "error_code": "OUTCOME_TOKEN_NOT_RESOLVED",
+      "trigger": "market exists but exact selected outcome token_id is missing",
+      "assistant_action": "stop and ask for direct market link or tell user the market data is incomplete",
+      "user_message": "I found the market, but I could not resolve the exact tradable outcome token needed to place the order. Please share the market link and I will retry."
+    },
+    {
       "error_code": "NOT_READY",
       "trigger": "approvals or credentials are missing",
       "assistant_action": "guide setup and retry after readiness",
       "user_message": "Your account is not ready for trading yet. I can guide setup now."
+    },
+    {
+      "error_code": "NATIVE_USDC_CONVERSION_REQUIRED",
+      "trigger": "readiness shows Polygon native USDC is present but tradable USDC.e is not",
+      "assistant_action": "execute or prepare the prerequisite Polygon USDC to USDC.e conversion, then re-check readiness",
+      "user_message": "Your funds are in Polygon native USDC, but Polymarket needs USDC.e for trading. I will convert that first, then continue."
     },
     {
       "error_code": "ORDER_REJECTED",

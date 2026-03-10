@@ -10,6 +10,7 @@ import {
     XCircle
 } from 'lucide-react';
 import clsx from 'clsx';
+import { formatUnits } from 'viem';
 import styles from './TransactionStatusCard.module.css';
 
 export type TransactionStatus = 'building' | 'approving' | 'sending' | 'pending' | 'retrying' | 'success' | 'failed' | 'cancelled';
@@ -29,6 +30,14 @@ export interface TransactionStatusCardProps {
     amountIn?: string;
     /** 输出金额（预估） */
     amountOut?: string;
+    /** 输入金额原始最小单位 */
+    amountInRaw?: string;
+    /** 输出金额原始最小单位 */
+    amountOutRaw?: string;
+    /** 输入 token decimals */
+    tokenInDecimals?: number;
+    /** 输出 token decimals */
+    tokenOutDecimals?: number;
     /** 链ID用于构建浏览器链接 */
     chainId?: number;
     /** 错误信息 */
@@ -90,6 +99,24 @@ const formatTokenSymbol = (symbol?: string): string => {
     return cleaned.toUpperCase();
 };
 
+const trimDisplayAmount = (value: string, maxFractionDigits = 6): string => {
+    const [whole, fraction = ''] = value.split('.');
+    if (!fraction) return whole;
+    const trimmedFraction = fraction.slice(0, maxFractionDigits).replace(/0+$/, '');
+    return trimmedFraction ? `${whole}.${trimmedFraction}` : whole;
+};
+
+const formatTokenAmount = (displayAmount?: string, rawAmount?: string, decimals?: number): string => {
+    if (rawAmount && Number.isInteger(decimals) && (decimals as number) >= 0) {
+        try {
+            return trimDisplayAmount(formatUnits(BigInt(rawAmount), decimals as number));
+        } catch {
+            // Fall through to displayAmount/rawAmount
+        }
+    }
+    return displayAmount || rawAmount || '0.00';
+};
+
 const getTokenIconUrl = (symbol: string): string | null => {
     const iconMap: Record<string, string> = {
         ETH: '/assets/tokens/eth.png',
@@ -119,6 +146,10 @@ export const TransactionStatusCard: React.FC<TransactionStatusCardProps> = ({
     tokenOutLogoURI,
     amountIn,
     amountOut,
+    amountInRaw,
+    amountOutRaw,
+    tokenInDecimals,
+    tokenOutDecimals,
     chainId = 1,
     errorMessage,
     message, // Added missing prop
@@ -133,6 +164,8 @@ export const TransactionStatusCard: React.FC<TransactionStatusCardProps> = ({
     const tokenOut = formatTokenSymbol(tokenOutSymbol);
     const tokenInIcon = tokenInLogoURI || getTokenIconUrl(tokenIn);
     const tokenOutIcon = tokenOutLogoURI || getTokenIconUrl(tokenOut);
+    const formattedAmountIn = formatTokenAmount(amountIn, amountInRaw, tokenInDecimals);
+    const formattedAmountOut = formatTokenAmount(amountOut, amountOutRaw, tokenOutDecimals);
 
     return (
         <div className={styles.card}>
@@ -145,8 +178,8 @@ export const TransactionStatusCard: React.FC<TransactionStatusCardProps> = ({
                 <div className={styles.amountBlock}>
                     <p className={styles.amountLabel}>Swap Amount</p>
                     <div className={styles.amountRow}>
-                        <p className={styles.amountValue} title={amountIn || '0.00'}>
-                            <span className={styles.amountNumber}>{amountIn || '0.00'}</span>
+                        <p className={styles.amountValue} title={formattedAmountIn}>
+                            <span className={styles.amountNumber}>{formattedAmountIn}</span>
                         </p>
                         <span className={styles.tokenPill}>
                             {tokenInIcon ? (
@@ -167,8 +200,8 @@ export const TransactionStatusCard: React.FC<TransactionStatusCardProps> = ({
                         <div className={styles.skeletonRect} />
                     ) : (
                         <div className={styles.amountRow}>
-                            <p className={clsx(styles.amountValue, styles.amountValueEst)} title={amountOut || '0.00'}>
-                                <span className={styles.amountNumber}>{amountOut || '0.00'}</span>
+                            <p className={clsx(styles.amountValue, styles.amountValueEst)} title={formattedAmountOut}>
+                                <span className={styles.amountNumber}>{formattedAmountOut}</span>
                             </p>
                             <span className={styles.tokenPill}>
                                 {tokenOutIcon ? (

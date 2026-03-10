@@ -521,6 +521,46 @@ export async function monitorEvmTransaction(params: {
     const { txHash, chainId, dexName, userId, messageId } = params;
     logger.info(LogCode.SYS_INFO, `[Monitor] Started tracking ${txHash} on ${chainId} (${dexName})`);
 
+    const updateTransactionMessage = async (update: {
+        status: 'success' | 'failed';
+        txHash: string;
+        message?: string;
+        errorMessage?: string;
+        isLoading?: boolean;
+    }): Promise<string> => {
+        let sessionId = 'legacy_session_id';
+        if (!messageId) return sessionId;
+        try {
+            const { getMessage, updateMessage } = await import('../../repositories/chatRepository.js');
+            const msg = await getMessage(messageId);
+            if (!msg) return sessionId;
+            sessionId = msg.sessionId || sessionId;
+            const currentData = typeof msg.data === 'object' && msg.data ? msg.data : {};
+            await updateMessage(messageId, {
+                data: {
+                    ...currentData,
+                    status: update.status,
+                    txHash: update.txHash,
+                    message: update.message ?? currentData.message,
+                    errorMessage: update.errorMessage,
+                    error: update.errorMessage,
+                    isLoading: update.isLoading ?? false,
+                    completedAt: Date.now(),
+                },
+                transactionStatus: update.status,
+                transactionHash: update.txHash,
+                status: 'complete',
+            });
+        } catch (err) {
+            logger.warn(LogCode.SYS_ERROR, '[Monitor] Failed to persist transaction card terminal state', {
+                messageId,
+                txHash,
+                error: (err as Error)?.message || String(err),
+            });
+        }
+        return sessionId;
+    };
+
     const confirmed = await waitForTransactionConfirmation({
         txHash,
         chainId,
@@ -533,12 +573,12 @@ export async function monitorEvmTransaction(params: {
         logger.info(LogCode.EXE_TX_CONFIRMED, `[Monitor] Transaction confirmed: ${txHash}`, { dex: dexName });
         try {
             const { chatWS } = await import('../../services/chatWebSocket.js');
-            let sessionId = 'legacy_session_id';
-            if (messageId) {
-                const { getMessage } = await import('../../repositories/chatRepository.js');
-                const msg = await getMessage(messageId);
-                if (msg) sessionId = msg.sessionId;
-            }
+            const sessionId = await updateTransactionMessage({
+                status: 'success',
+                txHash,
+                message: '✅ Transaction confirmed!',
+                isLoading: false,
+            });
             chatWS.broadcastToUser(userId, {
                 type: 'transaction_complete',
                 sessionId,
@@ -562,12 +602,12 @@ export async function monitorEvmTransaction(params: {
         });
         try {
             const { chatWS } = await import('../../services/chatWebSocket.js');
-            let sessionId = 'legacy_session_id';
-            if (messageId) {
-                const { getMessage } = await import('../../repositories/chatRepository.js');
-                const msg = await getMessage(messageId);
-                if (msg) sessionId = msg.sessionId;
-            }
+            const sessionId = await updateTransactionMessage({
+                status: 'failed',
+                txHash,
+                errorMessage: confirmed.reason || 'transaction_reverted',
+                isLoading: false,
+            });
             chatWS.broadcastToUser(userId, {
                 type: 'transaction_complete',
                 sessionId,

@@ -56,7 +56,7 @@ export const GetPolymarketTrendingTool: Tool = {
 export const GetPolymarketTrendingMarketsTool: Tool = {
     definition: {
         name: 'get_polymarket_trending_markets',
-        description: 'Get specific trending prediction questions (e.g., "Will Bitcoin hit $100k?"). Sorted by 24h volume. Use this for precise betting odds on popular individual topics.',
+        description: 'Get specific trending prediction questions (e.g., "Will Bitcoin hit $100k?"). Sorted by 24h volume. Returns outcome names and outcome token IDs needed for trading.',
         parameters: {
             type: 'object',
             properties: {
@@ -77,12 +77,21 @@ export const GetPolymarketTrendingMarketsTool: Tool = {
             type: 'Trending Questions',
             count: result.markets.length,
             questions: result.markets.map(m => ({
+                id: m.id,
                 question: m.question,
                 yes: m.yesProbability,
                 no: m.noProbability,
                 vol24h: `$${Math.floor(m.volume24hr).toLocaleString()}`,
                 liquidity: `$${m.liquidity.toLocaleString()}`,
-                endDate: m.endDate.slice(0, 10)
+                endDate: m.endDate.slice(0, 10),
+                accepting_orders: m.acceptingOrders,
+                best_bid: m.bestBid,
+                best_ask: m.bestAsk,
+                outcomes: m.outcomes.map(o => ({
+                    name: o.name,
+                    probability: o.probability,
+                    token_id: o.tokenId
+                }))
             }))
         };
     },
@@ -95,7 +104,7 @@ export const GetPolymarketTrendingMarketsTool: Tool = {
 export const GetPolymarketEventTool: Tool = {
     definition: {
         name: 'get_polymarket_event',
-        description: 'Get all specific prediction questions and their current probabilities for a Polymarket event. Use this after finding an event ID.',
+        description: 'Get all specific prediction questions and their current probabilities for a Polymarket event. Returns outcome names and token IDs required for downstream trade execution.',
         parameters: {
             type: 'object',
             properties: {
@@ -122,7 +131,15 @@ export const GetPolymarketEventTool: Tool = {
                 question: m.question,
                 yes: m.yesProbability,
                 no: m.noProbability,
-                vol24h: `$${Math.floor(m.volume24hr).toLocaleString()}`
+                vol24h: `$${Math.floor(m.volume24hr).toLocaleString()}`,
+                accepting_orders: m.acceptingOrders,
+                best_bid: m.bestBid,
+                best_ask: m.bestAsk,
+                outcomes: m.outcomes.map(o => ({
+                    name: o.name,
+                    probability: o.probability,
+                    token_id: o.tokenId
+                }))
             }))
         };
     },
@@ -210,7 +227,7 @@ export const SearchPolymarketTool: Tool = {
 export const GetNewMarketsTool: Tool = {
     definition: {
         name: 'get_new_markets',
-        description: 'Get newly created prediction markets. Use this when user asks "what is new", "newest markets", or "recently added".',
+        description: 'Get newly created prediction markets. Use this when user asks "what is new", "newest markets", or "recently added". Returns market IDs plus outcome token IDs when available.',
         parameters: {
             type: 'object',
             properties: {
@@ -234,7 +251,19 @@ export const GetNewMarketsTool: Tool = {
                 id: e.id,
                 title: e.title,
                 createdAt: new Date(e.creationDate).toLocaleDateString(),
-                liquidity: `$${e.liquidity.toLocaleString()}`
+                liquidity: `$${e.liquidity.toLocaleString()}`,
+                markets: e.markets.map(m => ({
+                    id: m.id,
+                    question: m.question,
+                    accepting_orders: m.acceptingOrders,
+                    best_bid: m.bestBid,
+                    best_ask: m.bestAsk,
+                    outcomes: m.outcomes.map(o => ({
+                        name: o.name,
+                        probability: o.probability,
+                        token_id: o.tokenId
+                    }))
+                }))
             }))
         };
     },

@@ -505,7 +505,7 @@ class ChatWorker:
                     if not isinstance(call, dict):
                         continue
                     tool = str(call.get("tool") or "")
-                    if tool not in {"simulate_swap", "prepare_swap_transaction"}:
+                    if tool not in {"simulate_swap", "prepare_swap_transaction", "get_cross_chain_quote", "prepare_cross_chain_tx"}:
                         continue
                     if call.get("status") not in {"success", "cached"}:
                         continue
@@ -514,14 +514,25 @@ class ChatWorker:
                     token_out = args.get("token_out")
                     amount_in = args.get("amount_in")
                     chain_id = args.get("chain_id")
+                    is_cross_chain = False
+                    to_chain = args.get("to_chain") or args.get("toChain")
+
+                    if tool in {"get_cross_chain_quote", "prepare_cross_chain_tx"}:
+                        token_in = args.get("fromToken")
+                        token_out = args.get("toToken")
+                        amount_in = args.get("fromAmount")
+                        chain_id = args.get("fromChain")
+                        is_cross_chain = True
+                        to_chain = args.get("toChain") or args.get("to_chain")
+
                     if token_in and token_out and amount_in:
                         return {
                             "token_in": str(token_in),
                             "token_out": str(token_out),
                             "amount_in": str(amount_in),
                             "chain_id": int(chain_id) if str(chain_id).isdigit() else chain_id,
-                            "is_cross_chain": bool(args.get("to_chain") or args.get("toChain")),
-                            "to_chain": args.get("to_chain") or args.get("toChain"),
+                            "is_cross_chain": is_cross_chain or bool(to_chain),
+                            "to_chain": int(to_chain) if str(to_chain).isdigit() else to_chain,
                         }
             except Exception:
                 continue
@@ -1308,6 +1319,8 @@ class ChatWorker:
                     allowed_tool_names.discard("get_wallet_info")
                 if tool_context.get("__confirmed_swap"):
                     allowed_tool_names.discard("simulate_swap")
+                    if recent_swap and (recent_swap.get("is_cross_chain") or recent_swap.get("to_chain")):
+                        allowed_tool_names.discard("get_cross_chain_quote")
                 # IMPORTANT: if skills resolve to 0 tools, keep it 0 (no full-tool fallback).
                 tools = [t for t in tools if ((t.get("function") or {}).get("name") in allowed_tool_names)]
                 self.logger.info(

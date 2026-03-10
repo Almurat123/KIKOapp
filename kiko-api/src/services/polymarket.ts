@@ -22,12 +22,24 @@ interface PolymarketEvent {
 interface PolymarketMarket {
     id: string;
     question: string;
+    outcomes?: string; // JSON string: ["Yes", "No"] or ["Up", "Down"]
+    clobTokenIds?: string; // JSON string aligned to outcomes
     outcomePrices: string; // JSON string: ["0.65", "0.35"]
     volume: string;
     volume24hr: number | null;
     liquidity: string;
     endDate: string;
     closed: boolean;
+    acceptingOrders?: boolean;
+    bestBid?: number;
+    bestAsk?: number;
+}
+
+interface ParsedOutcome {
+    name: string;
+    price: number;
+    probability: string;
+    tokenId: string | null;
 }
 
 interface ParsedMarket {
@@ -41,20 +53,19 @@ interface ParsedMarket {
     liquidity: number;
     endDate: string;
     closed: boolean;
+    acceptingOrders: boolean;
+    bestBid: number | null;
+    bestAsk: number | null;
+    outcomes: ParsedOutcome[];
 }
 
-/**
- * Parse outcome prices from JSON string to probabilities
- */
-function parseOutcomePrices(pricesJson: string): { yes: number; no: number } {
+function parseStringArray(raw?: string): string[] {
+    if (!raw) return [];
     try {
-        const prices = JSON.parse(pricesJson);
-        return {
-            yes: parseFloat(prices[0]) || 0,
-            no: parseFloat(prices[1]) || 0
-        };
+        const parsed = JSON.parse(raw);
+        return Array.isArray(parsed) ? parsed.map((item) => String(item)) : [];
     } catch {
-        return { yes: 0, no: 0 };
+        return [];
     }
 }
 
@@ -64,6 +75,42 @@ function parseOutcomePrices(pricesJson: string): { yes: number; no: number } {
 function formatProbability(price: number): string {
     return `${(price * 100).toFixed(1)}%`;
 }
+
+function parseMarket(market: PolymarketMarket): ParsedMarket {
+    const prices = parseStringArray(market.outcomePrices).map((value) => parseFloat(value) || 0);
+    const outcomes = parseStringArray(market.outcomes);
+    const clobTokenIds = parseStringArray(market.clobTokenIds);
+    const yes = prices[0] || 0;
+    const no = prices[1] || 0;
+
+    const parsedOutcomes: ParsedOutcome[] = prices.map((price, index) => ({
+        name: outcomes[index] || `Outcome ${index + 1}`,
+        price,
+        probability: formatProbability(price),
+        tokenId: clobTokenIds[index] || null
+    }));
+
+    return {
+        id: market.id,
+        question: market.question,
+        yesPrice: yes,
+        noPrice: no,
+        yesProbability: formatProbability(yes),
+        noProbability: formatProbability(no),
+        volume24hr: market.volume24hr || 0,
+        liquidity: parseFloat(market.liquidity) || 0,
+        endDate: market.endDate,
+        closed: market.closed,
+        acceptingOrders: Boolean(market.acceptingOrders),
+        bestBid: typeof market.bestBid === 'number' ? market.bestBid : null,
+        bestAsk: typeof market.bestAsk === 'number' ? market.bestAsk : null,
+        outcomes: parsedOutcomes
+    };
+}
+
+export const __testables = {
+    parseMarket
+};
 
 /**
  * Get trending prediction events (sorted by 24h volume)
@@ -128,21 +175,7 @@ export async function getEventDetails(eventId: string): Promise<{
     // Filter and parse markets
     const markets: ParsedMarket[] = (event.markets || [])
         .filter(m => !m.closed) // Only show active markets in details
-        .map(market => {
-            const prices = parseOutcomePrices(market.outcomePrices);
-            return {
-                id: market.id,
-                question: market.question,
-                yesPrice: prices.yes,
-                noPrice: prices.no,
-                yesProbability: formatProbability(prices.yes),
-                noProbability: formatProbability(prices.no),
-                volume24hr: market.volume24hr || 0,
-                liquidity: parseFloat(market.liquidity) || 0,
-                endDate: market.endDate,
-                closed: market.closed
-            };
-        });
+        .map(parseMarket);
 
     return {
         id: event.id,
@@ -171,21 +204,7 @@ export async function getTrendingMarkets(limit: number = 10): Promise<{
         endpointName: 'polymarket-trending-markets'
     });
 
-    const markets: ParsedMarket[] = data.map(market => {
-        const prices = parseOutcomePrices(market.outcomePrices);
-        return {
-            id: market.id,
-            question: market.question,
-            yesPrice: prices.yes,
-            noPrice: prices.no,
-            yesProbability: formatProbability(prices.yes),
-            noProbability: formatProbability(prices.no),
-            volume24hr: market.volume24hr || 0,
-            liquidity: parseFloat(market.liquidity) || 0,
-            endDate: market.endDate,
-            closed: market.closed
-        };
-    });
+    const markets: ParsedMarket[] = data.map(parseMarket);
 
     return { markets };
 }
@@ -239,6 +258,7 @@ export async function getNewMarkets(limit: number = 10): Promise<{
         volume: number;
         liquidity: number;
         creationDate: string;
+        markets: ParsedMarket[];
     }>;
 }> {
     const url = `${GAMMA_API_BASE}/events?limit=${limit}&active=true&closed=false&order=createdAt&ascending=false`;
@@ -257,7 +277,10 @@ export async function getNewMarkets(limit: number = 10): Promise<{
             title: event.title,
             volume: Math.floor(event.volume || 0),
             liquidity: Math.floor(event.liquidity || 0),
-            creationDate: event.startDate // "startDate" or "creationDate" - Gamma returns startDate or createdAt. Using startDate as proxy for display or just add it to interface if missing.
+            creationDate: event.startDate, // Gamma may return startDate/creationDate/createdAt. Keep startDate as fallback display timestamp.
+            markets: (event.markets || [])
+                .filter((market) => !market.closed)
+                .map(parseMarket)
         }))
     };
 }

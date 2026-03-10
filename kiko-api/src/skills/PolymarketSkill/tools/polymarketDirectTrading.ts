@@ -41,12 +41,30 @@ export const CheckPolymarketReadinessTool: Tool = {
                 },
                 wallet_address: readiness.walletAddress,
                 usdc_balance: readiness.usdcBalance,
+                native_usdc_balance: readiness.nativeUsdcBalance,
+                conversion_required: readiness.conversionRequired,
+                conversion_suggestion: readiness.conversionSuggestion
+                    ? {
+                        tool: 'prepare_swap_transaction',
+                        params: {
+                            token_in: readiness.conversionSuggestion.fromToken,
+                            token_out: readiness.conversionSuggestion.toToken,
+                            amount_in: readiness.conversionSuggestion.amountIn,
+                            chain_id: readiness.conversionSuggestion.chainId,
+                            execute: true
+                        }
+                    }
+                    : null,
                 message: readiness.isReady
                     ? '✅ Ready to trade on Polymarket!'
+                    : readiness.conversionRequired
+                        ? '⚠️ You have Polygon native USDC, but Polymarket trading requires USDC.e. Convert first, then continue trading.'
                     : '⚠️ Setup needed before trading.',
                 missing_steps: readiness.missingSteps,
                 next_step: readiness.isReady
                     ? 'You can now place orders using place_polymarket_order.'
+                    : readiness.conversionRequired
+                        ? 'Convert Polygon native USDC to USDC.e using prepare_swap_transaction, then check readiness again.'
                     : readiness.missingSteps[0]
             };
         } catch (error: any) {
@@ -174,13 +192,13 @@ export const CheckPolymarketApprovalsTool: Tool = {
 export const PlacePolymarketOrderTool: Tool = {
     definition: {
         name: 'place_polymarket_order',
-        description: 'Place a BUY or SELL order on Polymarket. Requires market token ID, price, and amount. Minimum order size is $1 USD. Use get_polymarket_event or get_polymarket_trending_markets to find token IDs first.',
+        description: 'Place a BUY or SELL order on Polymarket. Requires the exact outcome token ID, price, and amount. Minimum order size is $1 USD. Do not call this tool unless an upstream market lookup returned a concrete token_id for the selected outcome.',
         parameters: {
             type: 'object',
             properties: {
                 token_id: {
                     type: 'string',
-                    description: 'Market token ID (outcome token) - get this from market details'
+                    description: 'Exact outcome token ID returned by get_polymarket_event, get_polymarket_trending_markets, or get_new_markets'
                 },
                 side: {
                     type: 'string',

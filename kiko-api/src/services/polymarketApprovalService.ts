@@ -49,6 +49,18 @@ const CTF_ABI = [
 
 import { getEthersProvider } from './rpcManager.js';
 
+interface TradingReadinessDerivedState {
+    isReady: boolean;
+    missingSteps: string[];
+    conversionRequired: boolean;
+    conversionSuggestion: {
+        chainId: number;
+        fromToken: string;
+        toToken: string;
+        amountIn: string;
+    } | null;
+}
+
 /**
  * Get a read-only provider for Polygon
  */
@@ -83,6 +95,16 @@ export async function checkUsdcApproval(walletAddress: string): Promise<{
         allowance: formattedAllowance,
         balance: formattedBalance
     };
+}
+
+export async function getNativeUsdcBalance(walletAddress: string): Promise<string> {
+    const provider = getPolygonProvider();
+    const nativeUsdc = new ethers.Contract(POLYGON_CONTRACTS.USDC_NATIVE, ERC20_ABI, provider);
+    const [balance, decimals] = await Promise.all([
+        nativeUsdc.balanceOf(walletAddress),
+        nativeUsdc.decimals()
+    ]);
+    return ethers.formatUnits(balance, decimals);
 }
 
 /**
@@ -231,6 +253,54 @@ export async function executeRequiredApprovals(params: {
     };
 }
 
+export function deriveTradingReadinessState(input: {
+    blockchainCallFailed: boolean;
+    hasDelegatedEvm: boolean;
+    usdcApproved: boolean;
+    ctfApproved: boolean;
+    usdcBalance: string;
+    nativeUsdcBalance: string;
+}): TradingReadinessDerivedState {
+    const missingSteps: string[] = [];
+    const bridgedUsdcBalance = parseFloat(input.usdcBalance || '0');
+    const polygonNativeUsdcBalance = parseFloat(input.nativeUsdcBalance || '0');
+    const conversionRequired = !input.blockchainCallFailed && bridgedUsdcBalance < 1 && polygonNativeUsdcBalance >= 1;
+    const conversionSuggestion = conversionRequired
+        ? {
+            chainId: 137,
+            fromToken: POLYGON_CONTRACTS.USDC_NATIVE,
+            toToken: POLYGON_CONTRACTS.USDC,
+            amountIn: input.nativeUsdcBalance
+        }
+        : null;
+
+    if (!input.hasDelegatedEvm) {
+        missingSteps.push('Enable EVM server-side signing delegation in Settings');
+    }
+
+    if (!input.blockchainCallFailed) {
+        if (conversionRequired) {
+            missingSteps.push('Convert Polygon native USDC to Polymarket USDC.e');
+        }
+        if (!input.usdcApproved) {
+            missingSteps.push('Approve USDC for Polymarket');
+        }
+        if (!input.ctfApproved) {
+            missingSteps.push('Approve CTF tokens for Polymarket');
+        }
+        if (!conversionRequired && bridgedUsdcBalance < 1) {
+            missingSteps.push('Deposit USDC to your wallet on Polygon');
+        }
+    }
+
+    return {
+        isReady: !input.blockchainCallFailed && missingSteps.length === 0,
+        missingSteps,
+        conversionRequired,
+        conversionSuggestion
+    };
+}
+
 /**
  * Check user's Polymarket trading readiness
  */
@@ -240,8 +310,16 @@ export async function checkTradingReadiness(userId: string): Promise<{
     hasUsdcApproval: boolean | null;
     hasCtfApproval: boolean | null;
     usdcBalance: string;
+    nativeUsdcBalance: string;
     walletAddress: string | null;
     isReady: boolean;
+    conversionRequired: boolean;
+    conversionSuggestion: {
+        chainId: number;
+        fromToken: string;
+        toToken: string;
+        amountIn: string;
+    } | null;
     missingSteps: string[];
 }> {
     // Get user's credentials
@@ -257,8 +335,11 @@ export async function checkTradingReadiness(userId: string): Promise<{
             hasUsdcApproval: false,
             hasCtfApproval: false,
             usdcBalance: '0',
+            nativeUsdcBalance: '0',
             walletAddress: null,
             isReady: false,
+            conversionRequired: false,
+            conversionSuggestion: null,
             missingSteps: ['Generate Polymarket API credentials']
         };
     }
@@ -269,13 +350,15 @@ export async function checkTradingReadiness(userId: string): Promise<{
     // readiness=null → hasCredentials=false → the "Revoke" button never appeared.
     let delegatedEvmWallet: any = null;
     let usdcStatus: { approved: boolean; balance: string } = { approved: false, balance: '0' };
+    let nativeUsdcBalance = '0';
     let ctfApproved = false;
     let blockchainCallFailed = false;
 
     try {
-        [delegatedEvmWallet, usdcStatus, ctfApproved] = await Promise.all([
+        [delegatedEvmWallet, usdcStatus, nativeUsdcBalance, ctfApproved] = await Promise.all([
             getDelegatedEvmWallet(userId),
             checkUsdcApproval(creds.walletAddress),
+            getNativeUsdcBalance(creds.walletAddress),
             checkCtfApproval(creds.walletAddress)
         ]);
     } catch (rpcErr: any) {
@@ -285,23 +368,14 @@ export async function checkTradingReadiness(userId: string): Promise<{
         try { delegatedEvmWallet = await getDelegatedEvmWallet(userId); } catch { /* ignore */ }
     }
 
-    const missingSteps: string[] = [];
-
-    if (!delegatedEvmWallet) {
-        missingSteps.push('Enable EVM server-side signing delegation in Settings');
-    }
-
-    if (!blockchainCallFailed) {
-        if (!usdcStatus.approved) {
-            missingSteps.push('Approve USDC for Polymarket');
-        }
-        if (!ctfApproved) {
-            missingSteps.push('Approve CTF tokens for Polymarket');
-        }
-        if (parseFloat(usdcStatus.balance) < 1) {
-            missingSteps.push('Deposit USDC to your wallet on Polygon');
-        }
-    }
+    const derived = deriveTradingReadinessState({
+        blockchainCallFailed,
+        hasDelegatedEvm: !!delegatedEvmWallet,
+        usdcApproved: usdcStatus.approved,
+        ctfApproved,
+        usdcBalance: usdcStatus.balance,
+        nativeUsdcBalance
+    });
 
     return {
         hasCredentials: true,
@@ -309,9 +383,12 @@ export async function checkTradingReadiness(userId: string): Promise<{
         hasUsdcApproval: blockchainCallFailed ? null : usdcStatus.approved,
         hasCtfApproval: blockchainCallFailed ? null : ctfApproved,
         usdcBalance: usdcStatus.balance,
+        nativeUsdcBalance,
         walletAddress: creds.walletAddress,
-        isReady: !blockchainCallFailed && missingSteps.length === 0,
-        missingSteps
+        isReady: derived.isReady,
+        conversionRequired: derived.conversionRequired,
+        conversionSuggestion: derived.conversionSuggestion,
+        missingSteps: derived.missingSteps
     };
 }
 
