@@ -124,8 +124,12 @@ export function evaluateCopyTradeDelay(
         defaultMaxDelayMs: limits.maxDelayMs,
         defaultHardMaxDelayMs: limits.hardMaxDelayMs,
     });
+    // Dispatch-delay gating must rely on per-event timing snapshots only.
+    // Falling back to a legacy detectedAt timestamp here causes false skips when
+    // a later recovery/dispatch path reuses an older detection time without a
+    // full timing context. Keep legacyDetectedAt only for the hard cap below.
     const dispatchAnchor = sanitizeTimestamp(
-        getCopyTradeDispatchDetectedAt(timing, legacyDetectedAt),
+        getCopyTradeDispatchDetectedAt(timing, undefined),
         nowMs
     );
     const firstSeenAt = sanitizeTimestamp(timing?.firstSeenAt ?? legacyDetectedAt, nowMs);

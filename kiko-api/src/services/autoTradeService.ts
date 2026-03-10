@@ -1366,12 +1366,14 @@ async function processBuyWithInfo(
             )
         );
 
-        const successCount = turboResults.filter((r) => r.status === 'fulfilled').length;
-        const failCount = turboResults.length - successCount;
+        const turboSummary = summarizeSingleUserBuyResults(turboResults);
         logger.info(LogCode.EXE_TX_CONFIRMED, '[CopyTrade] Turbo fast lane complete', {
             userCount: turboConfigs.length,
-            success: successCount,
-            failed: failCount,
+            success: turboSummary.executed,
+            executed: turboSummary.executed,
+            pending: turboSummary.pending,
+            skipped: turboSummary.skipped,
+            failed: turboSummary.failed,
             totalMs: Date.now() - tStart
         });
     }
@@ -1551,6 +1553,8 @@ async function processBuyWithInfo(
 
     // Track execution stats
     let successCount = 0;
+    let pendingCount = 0;
+    let executionSkippedCount = 0;
     let failCount = 0;
     let currentPriceMultiplier = 1.0; // Track price drift during execution
 
@@ -1601,10 +1605,11 @@ async function processBuyWithInfo(
         );
 
         // Count results
-        for (const result of results) {
-            if (result.status === 'fulfilled') successCount++;
-            else failCount++;
-        }
+        const batchSummary = summarizeSingleUserBuyResults(results);
+        successCount += batchSummary.executed;
+        pendingCount += batchSummary.pending;
+        executionSkippedCount += batchSummary.skipped;
+        failCount += batchSummary.failed;
 
         // 🔄 ADAPTIVE DELAY: Wait between batches, longer if we're impacting price
         if (i + dynamicBatchSize < sortedConfigs.length) {
@@ -1667,6 +1672,11 @@ async function processBuyWithInfo(
         token: tokenToBuy,
         totalUsers: workingConfigs.length + turboConfigs.length,
         success: successCount,
+        executed: successCount,
+        pending: pendingCount,
+        skipped: skippedUsers.length + executionSkippedCount,
+        prefilterSkipped: skippedUsers.length,
+        executionSkipped: executionSkippedCount,
         failed: failCount,
         scalingFactor: scalingFactor.toFixed(3),
         batchSize: dynamicBatchSize,
@@ -1681,6 +1691,32 @@ async function processBuyWithInfo(
             }
         } : {})
     });
+}
+
+type SingleUserBuyOutcome = 'executed' | 'pending' | 'skipped' | 'failed';
+
+type SingleUserBuyResult = {
+    outcome: SingleUserBuyOutcome;
+};
+
+function summarizeSingleUserBuyResults(results: PromiseSettledResult<SingleUserBuyResult>[]) {
+    let executed = 0;
+    let pending = 0;
+    let skipped = 0;
+    let failed = 0;
+
+    for (const result of results) {
+        if (result.status === 'rejected') {
+            failed++;
+            continue;
+        }
+        if (result.value.outcome === 'executed') executed++;
+        else if (result.value.outcome === 'pending') pending++;
+        else if (result.value.outcome === 'skipped') skipped++;
+        else failed++;
+    }
+
+    return { executed, pending, skipped, failed };
 }
 
 /**
@@ -1708,7 +1744,7 @@ async function processSingleUserBuy(
     tokenInfoCache?: Map<string, Promise<any>>,
     timing?: CopyTradeTimingSnapshot,
     detectedAt?: number
-): Promise<void> {
+): Promise<SingleUserBuyResult> {
     // Lock per userId:token so different tokens can execute concurrently for the same user.
     // Same-token deduplication is handled separately by isTokenLockedForUser + DB transaction lock.
     return withTradeLock(`${config.userId}:${tokenToBuy.toLowerCase()}`, async () => {
@@ -1792,7 +1828,7 @@ async function processSingleUserBuy(
                     turboMode,
                     hint: 'dispatch delay is from dispatchEligibleAt/swapReadyAt; hard cap still uses firstSeenAt'
                 });
-                return;
+                return { outcome: 'skipped' };
             }
 
             if (isTokenLockedForUser(config.userId, tokenToBuy, swap?.txHash)) {
@@ -1801,7 +1837,7 @@ async function processSingleUserBuy(
                     token: tokenToBuy,
                     sourceTxHash: swap?.txHash
                 });
-                return;
+                return { outcome: 'skipped' };
             }
         // Universal Global Slippage (userSettings already passed in)
         const universalSlippageBps = resolveCopytradeSlippageBps(config, userSettings);
@@ -1881,7 +1917,7 @@ async function processSingleUserBuy(
                 }
             }, 'copytrade_skip_min_target_guard_unavailable');
             emitGuardAudit('skip', 'min_target_guard_unavailable');
-            return;
+            return { outcome: 'skipped' };
         }
 
         if (shouldEnforceBuyGuard(guardPolicy, 'minTargetValue') && minTargetValueUsd > 0 && isBelowMinTargetValue(effectiveTargetSwapValueUsd, minTargetValueUsd)) {
@@ -1911,7 +1947,7 @@ async function processSingleUserBuy(
                 }
             }, 'copytrade_skip_min_target_value');
             emitGuardAudit('skip', 'min_target_value_below_threshold');
-            return;
+            return { outcome: 'skipped' };
         }
 
         // 🛡️ SAFETY CHECK: Token Info must be valid (unless in Fast Mode)
@@ -1920,7 +1956,7 @@ async function processSingleUserBuy(
         const isFastMode = config.fastExecutionEnabled !== false;
         if ((!tokenInfo || !tokenInfo.price) && !isFastMode) {
             logger.warn(LogCode.WTC_TX_SKIPPED, 'Skipping trade: Token info invalid and Fast Mode disabled', { userId: config.userId, token: tokenToBuy });
-            return;
+            return { outcome: 'skipped' };
         }
 
         // ⚡ OPTIMIZATION: Filter already checked in batch, skip here
@@ -1950,7 +1986,7 @@ async function processSingleUserBuy(
                 }
             });
 
-            return;
+            return { outcome: 'skipped' };
         }
 
         const usdAmount = rawUsdAmount * scalingFactor;
@@ -1992,7 +2028,7 @@ async function processSingleUserBuy(
                     }
                 });
 
-                return;
+                return { outcome: 'skipped' };
             }
         }
 
@@ -2115,7 +2151,7 @@ async function processSingleUserBuy(
                                 }
                             }, 'copytrade_skip_price_deviation');
                             emitGuardAudit('skip', 'price_deviation_ratio_exceeded');
-                            return; // SKIP TRADE
+                            return { outcome: 'skipped' };
                         }
                         if (!priceDeviationGuard.passed && ['PRICE_REFERENCE_UNAVAILABLE', 'PRICE_REFERENCE_ZERO'].includes(priceDeviationGuard.reasonCode)) {
                             logger.warn(LogCode.DEC_PRICE_IMPACT_HIGH, 'Price deviation guard skipped strict enforcement due to unavailable oracle reference', {
@@ -2216,7 +2252,7 @@ async function processSingleUserBuy(
                                 }
                             }, 'copytrade_skip_price_deviation_bps');
                             emitGuardAudit('skip', 'price_deviation_bps_exceeded');
-                            return;
+                            return { outcome: 'skipped' };
                         }
                     }
                 }
@@ -2275,7 +2311,7 @@ async function processSingleUserBuy(
                         }
                     });
                     emitGuardAudit('skip', 'insufficient_gas_buffer');
-                    return;
+                    return { outcome: 'skipped' };
                 }
             }
 
@@ -2326,10 +2362,11 @@ async function processSingleUserBuy(
             if (err.message.includes('DUPLICATE_TRADE') || isUniqueConflict) {
                 logger.info(LogCode.WTC_TX_SKIPPED, 'Skipping duplicate trade (DB Lock)', { userId: config.userId, token: tokenToBuy });
                 emitGuardAudit('skip', 'duplicate_trade_lock');
+                return { outcome: 'skipped' };
             } else {
                 logger.error(LogCode.SYS_ERROR, 'Failed to create pending position', { error: err.message });
+                return { outcome: 'failed' };
             }
-            return;
         }
 
         logger.debug(LogCode.EXE_QUOTE_FETCHED, 'Executing trade', {
@@ -2357,13 +2394,13 @@ async function processSingleUserBuy(
 
             if (!solAddress) {
                 logger.warn(LogCode.API_AUTH_FAILED, 'Skipping Solana trade: No Solana wallet found in Privy', { userId: config.userId });
-                return;
+                return { outcome: 'skipped' };
             }
 
             // Get SOL Price dynamically (already fetched at top of loop)
             if (nativePrice <= 0) {
                 logger.error(LogCode.API_FETCH_FAILED, 'Failed to fetch SOL price for trade calculation', { userId: config.userId });
-                return; // Better to skip than use a stale hardcoded price
+                return { outcome: 'failed' };
             }
 
             const amountInLamports = Math.floor((usdAmount / nativePrice) * 1e9).toString();
@@ -2444,7 +2481,7 @@ async function processSingleUserBuy(
                     amountUsd: usdAmount,
                     minUsd: MIN_TRADE_USD
                 });
-                return;
+                return { outcome: 'skipped' };
             }
 
             if (turboMode) {
@@ -2641,7 +2678,7 @@ async function processSingleUserBuy(
                         : await getTokenInfo(tokenToBuy, chainId, { verbose: false, forceRefresh: true, rpcStrategy: 'fast' })
                 });
                 if (submissionResult.status === 'aborted') {
-                    return;
+                    return { outcome: 'failed' };
                 }
                 if (submissionResult.status === 'submitted_unresolved') {
                     txLifecycleStatus = submissionResult.txLifecycleStatus || txLifecycleStatus;
@@ -2655,7 +2692,7 @@ async function processSingleUserBuy(
                         pendingPositionId,
                         ...buildOrderAuditFields(orderRuntimeContext)
                     });
-                    return;
+                    return { outcome: 'pending' };
                 }
                 txHash = submissionResult.txHash;
                 attributedEntryAmountHuman = submissionResult.attributedEntryAmountHuman || attributedEntryAmountHuman;
@@ -2670,7 +2707,7 @@ async function processSingleUserBuy(
             if (pendingPositionId) {
                 await prisma.position.deleteMany({ where: { id: pendingPositionId } }).catch(e => logger.error(LogCode.SYS_ERROR, 'Failed to cleanup pending pos', { error: e }));
             }
-            return;
+            return { outcome: 'failed' };
         }
 
         // CRITICAL: Ensure price is valid before creating position to avoid infinite PNL
@@ -2679,7 +2716,7 @@ async function processSingleUserBuy(
             if (pendingPositionId) {
                 await prisma.position.deleteMany({ where: { id: pendingPositionId } }).catch(e => logger.error(LogCode.SYS_ERROR, 'Failed to cleanup pending pos', { error: e }));
             }
-            return;
+            return { outcome: 'failed' };
         }
 
         // Update PENDING position to OPEN with real details
@@ -2837,6 +2874,8 @@ async function processSingleUserBuy(
             });
         }
 
+        return { outcome: nextPositionStatus === 'open' ? 'executed' : 'pending' };
+
     } catch (error: any) {
         logger.error(LogCode.SYS_ERROR, `Error processing trade configuration`, {
             configId: config.id,
@@ -2860,6 +2899,7 @@ async function processSingleUserBuy(
                 chainId: chainId
             }
         }, 'copytrade_buy_failure');
+        return { outcome: 'failed' };
     } finally {
         if (pendingPositionId && !pendingPositionSettled) {
             const cleaned = await cleanupPendingCopytradePosition({
