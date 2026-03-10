@@ -1,3 +1,5 @@
+import { CHAINS } from '../config/chainConfig.js';
+
 const NATIVE_PSEUDO = '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
 const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
 
@@ -34,6 +36,8 @@ function normalizeLower(value: string | null | undefined): string {
 export function getWrappedNativeAddressForChain(chainId: number, wrappedNativeAddress?: string): string | null {
   const explicit = normalizeLower(wrappedNativeAddress);
   if (explicit) return explicit;
+  const configured = normalizeLower(CHAINS[chainId]?.wrappedNativeAddress);
+  if (configured) return configured;
   return WRAPPED_NATIVE_BY_CHAIN[chainId] || null;
 }
 
