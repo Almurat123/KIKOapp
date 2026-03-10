@@ -7,8 +7,7 @@
 
 import { ethers } from 'ethers';
 import prisma from '../db/prisma.js';
-import { getDelegatedEvmWallet } from './privyWallet.js';
-import { sendTransaction } from './privyWallet.js';
+import { getDelegatedEvmWallet, sendTransaction } from './privyWallet.js';
 import { getCredentials } from './polymarketCredService.js';
 
 // Contract addresses on Polygon (chainId: 137)
@@ -26,7 +25,6 @@ const POLYGON_CONTRACTS = {
     NEG_RISK_CTF_EXCHANGE: '0xC5d563A36AE78145C45a50134d48A1215220f80a',
 
     // Neg Risk Adapter
-    // Source: Polymarket official contracts inventory.
     NEG_RISK_ADAPTER: '0xd91e80cf2e7be2e162c65161a82124c4e9d7fe77',
 
     // Conditional Tokens Framework (CTF) contract

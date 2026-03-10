@@ -54,6 +54,7 @@ import {
     markUserChainInflight,
     withUserTransactionLock,
 } from './privyWalletQueue.js';
+import { withChainSendLimiter } from './privyChainSendLimiter.js';
 export {
     __resetUserTransactionSchedulerForTests,
     __runUserTransactionTaskForTests,
@@ -525,8 +526,6 @@ export interface TransactionRequest {
 const pendingNonceInflight = new Map<string, Promise<string | undefined>>();
 const pendingNonceCache = new Map<string, { nonce: string; timestamp: number }>();
 const PENDING_NONCE_CACHE_TTL_MS = Math.max(250, Number(process.env.PENDING_NONCE_CACHE_TTL_MS || '1500'));
-const CHAIN_SEND_CONCURRENCY_LIMIT = Math.max(1, Number(process.env.PRIVY_CHAIN_SEND_CONCURRENCY || '8'));
-const chainSendLimiter = new Map<number, { inFlight: number; queue: Array<() => void> }>();
 
 function buildPendingNonceKey(chainId: number, walletAddress: string): string {
     return `${chainId}:${walletAddress.toLowerCase()}`;
@@ -584,30 +583,6 @@ export async function getPendingNonce(chainId: number, walletAddress: string): P
 
     pendingNonceInflight.set(key, task);
     return await task;
-}
-
-function getChainLimiter(chainId: number): { inFlight: number; queue: Array<() => void> } {
-    let state = chainSendLimiter.get(chainId);
-    if (!state) {
-        state = { inFlight: 0, queue: [] };
-        chainSendLimiter.set(chainId, state);
-    }
-    return state;
-}
-
-async function withChainSendLimiter<T>(chainId: number, fn: () => Promise<T>): Promise<T> {
-    const state = getChainLimiter(chainId);
-    if (state.inFlight >= CHAIN_SEND_CONCURRENCY_LIMIT) {
-        await new Promise<void>((resolve) => state.queue.push(resolve));
-    }
-    state.inFlight += 1;
-    try {
-        return await fn();
-    } finally {
-        state.inFlight = Math.max(0, state.inFlight - 1);
-        const next = state.queue.shift();
-        if (next) next();
-    }
 }
 
 async function signAndBroadcastRawTransaction(

@@ -65,7 +65,12 @@ import {
     recordCopytradeIngressTrace,
 } from '../services/copytrade-v2/ingress/ingressTraceStore.js';
 
-interface ProcessTxBody { wallet: string; txHash: string; network: string; }
+interface ProcessTxBody {
+    wallet: string;
+    txHash: string;
+    network: string;
+    sourceTxFrom?: string;
+}
 const NETWORK_TO_CHAIN_ID: Record<string, number> = {
     'ETH_MAINNET': 1,
     'BASE_MAINNET': 8453,
@@ -1079,7 +1084,7 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
             }
         }
 
-        const { wallet, txHash, network } = request.body;
+        const { wallet, txHash, network, sourceTxFrom: requestedSourceTxFrom } = request.body;
         if (!wallet || !txHash || !network) {
             return reply.status(400).send({ error: 'wallet, txHash, and network are required' });
         }
@@ -1097,7 +1102,17 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
             if (!normalizedWallet) {
                 return reply.status(400).send({ error: 'Invalid EVM wallet address' });
             }
-            const sourceTxFrom = await resolveEvmSourceTxFrom(chainId, txHashNormalized);
+            const requestedNormalizedSourceTxFrom = normalizeAddress(requestedSourceTxFrom);
+            let sourceTxFrom = await resolveEvmSourceTxFrom(chainId, txHashNormalized);
+            if (!sourceTxFrom && requestedNormalizedSourceTxFrom) {
+                sourceTxFrom = requestedNormalizedSourceTxFrom;
+                console.warn('[Webhook] /process-tx using provided sourceTxFrom override after tx.from lookup miss', {
+                    chainId,
+                    txHash: txHashNormalized,
+                    requestedSourceTxFrom: requestedNormalizedSourceTxFrom,
+                    wallet: normalizedWallet
+                });
+            }
             if (!sourceTxFrom) {
                 console.error(`[Webhook] Ignore /process-tx ${txHashNormalized}: missing source tx.from under tx_from_only binding`);
                 return reply.send({ success: true, skipped: true, reason: 'missing_source_tx_from' });

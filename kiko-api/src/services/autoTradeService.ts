@@ -97,18 +97,6 @@ import { runTargetSellReconciliationCycle } from './copytrade-v2/reconcile/targe
 import { runCopytradeAttributionRepairCycle } from './copytrade-v2/jobs/copytradeAttributionRepairJob.js';
 import { runCopytradeOrphanSweepCycle } from './copytrade-v2/jobs/copytradeOrphanSweepJob.js';
 import { repairCopytradePositionAttribution } from './copytrade-v2/jobs/copytradeAttributionRepairJob.js';
-import { runDeferredBuyFeeRecoveryBackfill } from './copytrade-v2/buy/deferredBuyFeeRecoveryBackfill.js';
-import { runDeferredSellApprovalPreheatBackfill } from './copytrade-v2/buy/deferredSellApprovalPreheatBackfill.js';
-import {
-    buildTargetSellEventPayload,
-    persistTargetSellEventAndSchedulePositions,
-    scheduleMirrorSellIntentsForEvent
-} from './copytrade-v2/exit/positionExitIntentScheduler.js';
-import {
-    cancelActiveMirrorSellIntentsForPosition,
-    enqueuePositionExitIntent,
-    releaseActiveMirrorSellIntent
-} from './copytrade-v2/exit/positionExitIntentStore.js';
 import { getCopytradeBuySharedWarmup } from './copytrade-v2/buy/buySharedWarmup.js';
 import { shouldDeferStrongRpcMonitoring } from './copytrade-v2/buy/preConfirmationRpcPolicy.js';
 import {
@@ -119,17 +107,14 @@ import {
 import { emitCopyTradeTimingAudit } from './copytrade-v2/timing/copyTradeTimingAudit.js';
 import { executeSwapViaPort } from './swap/swapExecutionPort.js';
 import { getReferenceExpectedOutput } from './dex/directSwap/application/quoteEngines.js';
-import { resolveTokenToTokenExecutionPlan } from './copytrade-v2/ingress/tokenToTokenExecutionPlan.js';
 import type { ConfirmationOutcome } from './swap/confirmationCoordinator.js';
-import type { MirrorSellAbortContext, MirrorSellAfterConfirmContext } from './copytrade-v2/buy/buyConfirmationTransition.js';
-import { resolveExitIntentLane } from './copytrade-v2/exit/intentTypes.js';
+import type { MirrorSellAfterConfirmContext } from './copytrade-v2/buy/buyConfirmationTransition.js';
 
 export { getTokenInfo } from './tokenService.js';
 
 // Track positions currently being processed for exit to prevent duplicate attempts
 const positionsBeingExited = new Set<string>();
 const EXIT_INFLIGHT_RETRY_GRACE_MS = getExitInflightRetryGraceMs();
-const BLOCKED_MIRROR_SELL_INTENT_GRACE_MS = 15 * 60 * 1000;
 const MIN_POSITION_AGE_FOR_TPSL_MS = Math.max(0, Number(process.env.MIN_POSITION_AGE_FOR_TPSL_MS || '90000'));
 const TPSL_CONSECUTIVE_HITS_REQUIRED = Math.max(1, Number(process.env.TPSL_CONSECUTIVE_HITS_REQUIRED || '2'));
 const TPSL_HIT_WINDOW_MS = Math.max(1000, Number(process.env.TPSL_HIT_WINDOW_MS || '90000'));
@@ -149,8 +134,6 @@ let zombieCleanupInterval: NodeJS.Timeout | null = null;
 let targetSellReconciliationInterval: NodeJS.Timeout | null = null;
 let attributionRepairInterval: NodeJS.Timeout | null = null;
 let orphanSweepInterval: NodeJS.Timeout | null = null;
-let deferredFeeBackfillInterval: NodeJS.Timeout | null = null;
-let deferredApprovalBackfillInterval: NodeJS.Timeout | null = null;
 
 async function getPositionStatusCompat(): Promise<PositionStatusCompat> {
     const cached = positionStatusCompatCache;
@@ -318,8 +301,6 @@ const MAX_COPYTRADE_SLIPPAGE_BPS = 5000;
 const TARGET_SELL_RECONCILIATION_INTERVAL_MS = Math.max(15_000, Number(process.env.COPYTRADE_TARGET_SELL_RECONCILIATION_INTERVAL_MS || '30000'));
 const ATTRIBUTION_REPAIR_INTERVAL_MS = 600_000;
 const ORPHAN_SWEEP_INTERVAL_MS = Math.max(60_000, Number(process.env.COPYTRADE_ORPHAN_SWEEP_INTERVAL_MS || '600000'));
-const DEFERRED_FEE_BACKFILL_INTERVAL_MS = Math.max(30_000, Number(process.env.COPYTRADE_DEFERRED_FEE_BACKFILL_INTERVAL_MS || '60000'));
-const DEFERRED_APPROVAL_BACKFILL_INTERVAL_MS = Math.max(30_000, Number(process.env.COPYTRADE_DEFERRED_APPROVAL_BACKFILL_INTERVAL_MS || '60000'));
 const CHAIN_LAUNCHPAD_PROVIDERS: Record<number, Set<string>> = {
     8453: new Set(['zora']),
     56: new Set(['fourmeme']),
@@ -784,9 +765,6 @@ export async function handleSwapDetected(
         isBuy,
         isSell,
         isTokenToToken,
-        isRoutable: direction.isRoutable,
-        isAmbiguous: direction.isAmbiguous,
-        isExplicitTokenSwap: direction.isExplicitTokenSwap,
         tokenInIsCash: direction.tokenInIsCash,
         tokenOutIsCash: direction.tokenOutIsCash,
         inferredTxType: direction.inferredTxType,
@@ -809,9 +787,6 @@ export async function handleSwapDetected(
         isBuy,
         isSell,
         isTokenToToken,
-        isRoutable: direction.isRoutable,
-        isAmbiguous: direction.isAmbiguous,
-        isExplicitTokenSwap: direction.isExplicitTokenSwap,
         tokenInIsCash: direction.tokenInIsCash,
         tokenOutIsCash: direction.tokenOutIsCash,
         source: direction.source,
@@ -859,19 +834,6 @@ export async function handleSwapDetected(
         }).catch(() => undefined);
     }
 
-    if (direction.isAmbiguous) {
-        logger.warn(LogCode.WTC_TX_SKIPPED, 'Skipping copytrade: ambiguous token-to-token activity is unroutable', {
-            targetWallet,
-            chainId,
-            txHash: swap.txHash,
-            tokenIn: swap.tokenIn,
-            tokenOut: swap.tokenOut,
-            inferredTxType: direction.inferredTxType,
-            source: direction.source
-        });
-        return;
-    }
-
     if (isSell) {
         logger.info(LogCode.EXE_TX_BROADCAST, 'Target is selling - triggering mirror sell', { targetWallet, token: swap.tokenIn });
         await handleTargetSell(targetWallet, swap, chainId);
@@ -879,39 +841,25 @@ export async function handleSwapDetected(
         logger.info(LogCode.EXE_TX_BROADCAST, 'Target is buying - triggering copy trade', { targetWallet, token: swap.tokenOut });
         await handleTargetBuy(targetWallet, swap, chainId, { detectedAt });
     } else if (isTokenToToken) {
-        const tokenToTokenPlan = resolveTokenToTokenExecutionPlan({
-            tokenToTokenEnabled: COPYTRADE_ENABLE_TOKEN_TO_TOKEN_PARALLEL,
-            explicitTokenSwap: direction.isExplicitTokenSwap
-        });
-        if (!tokenToTokenPlan.shouldSellLeg && !tokenToTokenPlan.shouldBuyLeg) {
+        if (!COPYTRADE_ENABLE_TOKEN_TO_TOKEN_PARALLEL) {
             logger.warn(LogCode.WTC_TX_SKIPPED, 'Skipping token-to-token activity by policy', {
                 targetWallet,
                 chainId,
                 txHash: swap.txHash,
                 tokenIn: swap.tokenIn,
-                tokenOut: swap.tokenOut,
-                reasonCode: tokenToTokenPlan.reasonCode,
-                inferredTxType: direction.inferredTxType,
-                source: direction.source
+                tokenOut: swap.tokenOut
             });
             return;
         }
-        logger.info(LogCode.EXE_TX_BROADCAST, 'Explicit token swap detected - running mirrored sell and buy legs', {
-            targetWallet,
-            chainId,
-            txHash: swap.txHash,
-            tokenIn: swap.tokenIn,
-            tokenOut: swap.tokenOut,
-            reasonCode: tokenToTokenPlan.reasonCode
-        });
+        logger.info(LogCode.EXE_TX_BROADCAST, 'Parallel lightning trigger: SELL and BUY starting simultaneously', { targetWallet });
         await Promise.all([
-            handleTargetSell(targetWallet, swap, chainId).catch(e => logger.error(LogCode.EXE_TX_REVERTED, 'Token-to-token sell leg error', {
+            handleTargetSell(targetWallet, swap, chainId).catch(e => logger.error(LogCode.EXE_TX_REVERTED, 'Parallel sell error', {
                 error: compactCopyTradeError(e),
                 bugHint: inferCopyTradeBugHint(e),
                 txHash: swap.txHash,
                 chainId
             })),
-            handleTargetBuy(targetWallet, swap, chainId, { detectedAt }).catch(e => logger.error(LogCode.EXE_TX_REVERTED, 'Token-to-token buy leg error', {
+            handleTargetBuy(targetWallet, swap, chainId, { detectedAt }).catch(e => logger.error(LogCode.EXE_TX_REVERTED, 'Parallel buy error', {
                 error: compactCopyTradeError(e),
                 bugHint: inferCopyTradeBugHint(e),
                 txHash: swap.txHash,
@@ -2786,118 +2734,26 @@ async function processSingleUserBuy(
 
         const executeMirrorSellAfterBuyConfirm = async (context: MirrorSellAfterConfirmContext) => {
             const mirrorSellPosition = await prisma.position.findUnique({
-                where: { id: context.positionId },
-                select: {
-                    id: true,
-                    userId: true,
-                    configId: true,
-                    chainId: true,
-                    tokenAddress: true,
-                    entryAmountExact: true,
-                    entryAmountDec: true,
-                    status: true,
-                }
+                where: { id: context.positionId }
             });
-            if (!mirrorSellPosition || mirrorSellPosition.status === 'closed') {
-                return;
-            }
-
-            if (!context.targetSellTxHash) {
-                logger.warn(LogCode.SYS_INFO, '[CopyTradeRace] Missing target sell hash; skipped immediate mirror sell scheduling after buy confirmation', {
+            if (mirrorSellPosition && mirrorSellPosition.status !== 'closed') {
+                logger.warn(LogCode.SYS_INFO, '[CopyTradeRace] Target already sold while buy was pending; executing mirror sell on confirmation', {
                     userId: config.userId,
                     token: tokenToBuy,
                     chainId,
                     txHash,
                     positionId: context.positionId,
+                    targetSellTxHash: context.targetSellTxHash || null,
                     reasonCode: context.reasonCode,
                 });
-                return;
-            }
-
-            const releasedIntentCount = await releaseActiveMirrorSellIntent({
-                positionId: context.positionId,
-                targetSellTxHash: context.targetSellTxHash,
-                reasonCode: 'buy_confirmation_released',
-            }).catch(() => 0);
-            if (releasedIntentCount > 0) {
-                logger.info(LogCode.SYS_INFO, '[CopyTradeRace] Released blocked mirror sell intent after buy confirmation', {
+                await executePositionExit({
                     userId: config.userId,
-                    token: tokenToBuy,
-                    chainId,
-                    txHash,
-                    positionId: context.positionId,
-                    targetSellTxHash: context.targetSellTxHash,
-                    reasonCode: context.reasonCode,
-                    releasedIntentCount,
-                });
-                return;
-            }
-
-            logger.warn(LogCode.SYS_INFO, '[CopyTradeRace] Target already sold while buy was pending; scheduling mirror sell on confirmation', {
-                userId: config.userId,
-                token: tokenToBuy,
-                chainId,
-                txHash,
-                positionId: context.positionId,
-                targetSellTxHash: context.targetSellTxHash,
-                reasonCode: context.reasonCode,
-            });
-
-            await persistTargetSellEventAndSchedulePositions({
-                event: buildTargetSellEventPayload({
-                    chainId,
-                    targetWallet,
                     tokenAddress: tokenToBuy,
-                    targetSellTxHash: context.targetSellTxHash,
-                    targetFullExitVerified: false,
-                    source: 'buy_confirmation',
-                    metadata: {
-                        reasonCode: context.reasonCode,
-                        buyTxHash: txHash,
-                        leaderBuyTxHash: leaderTxHash || null,
-                    },
-                }),
-                positions: [{
-                    id: mirrorSellPosition.id,
-                    userId: mirrorSellPosition.userId,
-                    configId: mirrorSellPosition.configId,
-                    chainId: mirrorSellPosition.chainId,
-                    tokenAddress: mirrorSellPosition.tokenAddress,
-                    entryAmountExact: mirrorSellPosition.entryAmountExact,
-                    entryAmountDec: mirrorSellPosition.entryAmountDec,
-                }],
-                priority: 260,
-                metadata: {
-                    recoverySource: 'buy_confirmation',
-                    pendingMirrorReasonCode: context.reasonCode,
-                }
-            }).catch((error) => {
-                logger.error(LogCode.SYS_ERROR, '[CopyTradeRace] Failed to schedule mirror sell after buy confirmation', {
-                    userId: config.userId,
-                    token: tokenToBuy,
                     chainId,
-                    txHash,
-                    positionId: context.positionId,
-                    targetSellTxHash: context.targetSellTxHash,
-                    reasonCode: context.reasonCode,
-                    error: error instanceof Error ? error.message : String(error),
-                });
-            });
-        };
-
-        const abortMirrorSellAfterBuyFailure = async (context: MirrorSellAbortContext) => {
-            const cancelledIntentCount = await cancelActiveMirrorSellIntentsForPosition({
-                positionId: context.positionId,
-                reasonCode: context.reasonCode,
-            }).catch(() => 0);
-            if (cancelledIntentCount > 0) {
-                logger.info(LogCode.SYS_INFO, '[CopyTradeRace] Cancelled blocked mirror sell intents after buy confirmation failure', {
-                    userId: config.userId,
-                    token: tokenToBuy,
-                    chainId,
-                    txHash,
-                    positionId: context.positionId,
-                    cancelledIntentCount,
+                    exitReason: 'mirror_sell',
+                    tokenInfo,
+                    config: { ...effectiveConfig, user: effectiveConfig.user },
+                    positions: [mirrorSellPosition]
                 });
             }
         };
@@ -2925,7 +2781,6 @@ async function processSingleUserBuy(
                 positionStatusCompat,
                 directFeeSettlement: swapMetadata?.directFeeSettlement || null,
                 onMirrorSellAfterConfirm: executeMirrorSellAfterBuyConfirm,
-                onMirrorSellAbort: abortMirrorSellAfterBuyFailure,
                 onNotifySuccess: notifyBuySuccessConfirmed,
                 recoverySource,
             });
@@ -3751,8 +3606,6 @@ async function handleTargetSell(
             return;
         }
         const matchedPositions = reconciledPositions.matchedPositions;
-        const openMatchedPositions = matchedPositions.filter((position) => String(position.status || '') === 'open');
-        const pendingMatchedPositions = matchedPositions.filter((position) => String(position.status || '') !== 'open');
         const pendingMatchedPositionIds = matchedPositions
             .filter((position) => String(position.status || '') !== 'open')
             .map((position) => position.id);
@@ -3784,67 +3637,6 @@ async function handleTargetSell(
             }).catch(() => [])
             : [];
 
-        let persistedTargetSellEvent: { event: any; scheduled: number; skipped: number } | null = null;
-        if ((pendingMatchedPositions.length > 0 || openMatchedPositions.length > 0) && swap.txHash) {
-            const persistedEvent = await persistTargetSellEventAndSchedulePositions({
-                event: buildTargetSellEventPayload({
-                    chainId,
-                    targetWallet: normalizedWallet,
-                    tokenAddress: tokenToSell,
-                    targetSellTxHash: swap.txHash,
-                    targetFullExitVerified: false,
-                    source: 'webhook',
-                    metadata: {
-                        sellPath: openMatchedPositions.length > 0 ? 'intent_first_dispatch' : 'pending_position_detected',
-                    },
-                }),
-                positions: [],
-                priority: 260,
-            }).catch(() => null);
-            persistedTargetSellEvent = persistedEvent;
-
-            if (persistedEvent?.event?.id) {
-                let blockedIntentScheduled = 0;
-                let blockedIntentSkipped = 0;
-                for (const pendingPosition of pendingMatchedPositions) {
-                    const result = await enqueuePositionExitIntent({
-                        positionId: pendingPosition.id,
-                        userId: config.userId,
-                        configId: config.id,
-                        chainId,
-                        tokenAddress: tokenToSell,
-                        exitReason: 'mirror_sell',
-                        sourceEventId: persistedEvent.event.id,
-                        targetSellTxHash: swap.txHash,
-                        priority: 260,
-                        lane: resolveExitIntentLane(chainId),
-                        notBefore: new Date(Date.now() + BLOCKED_MIRROR_SELL_INTENT_GRACE_MS),
-                        metadata: {
-                            targetWallet: normalizedWallet,
-                            targetFullExitVerified: false,
-                            blockedBy: 'buy_confirmation',
-                            pendingPositionId: pendingPosition.id,
-                        },
-                    }).catch(() => null);
-                    if (result?.created) {
-                        blockedIntentScheduled += 1;
-                    } else if (result) {
-                        blockedIntentSkipped += 1;
-                    }
-                }
-                logger.info(LogCode.SYS_INFO, '[CopyTradeRace] Scheduled blocked mirror sell intents for pending exposure', {
-                    userId: config.userId,
-                    token: tokenToSell,
-                    chainId,
-                    targetWallet: normalizedWallet,
-                    targetSellTxHash: swap.txHash,
-                    pendingPositionIds: pendingMatchedPositionIds,
-                    blockedIntentScheduled,
-                    blockedIntentSkipped,
-                });
-            }
-        }
-
         const mirrorSellExecutionPolicy = evaluateMirrorSellExecutionPolicy({
             matchedPositions,
             pendingAttributedLots
@@ -3872,50 +3664,10 @@ async function handleTargetSell(
         });
 
         // Leader stat tracking (only for mirror sell)
-        const balanceUsdForStats = openMatchedPositions.reduce((sum, p) => sum + (p.entryUsdValue || 0), 0);
+        const balanceUsdForStats = matchedPositions.reduce((sum, p) => sum + (p.entryUsdValue || 0), 0);
         recordNewTrade(targetWallet, chainId, 'sell', balanceUsdForStats);
 
-        if (openMatchedPositions.length === 0 && swap.txHash) {
-            logger.info(LogCode.SYS_INFO, '[CopyTradeRace] Deferred mirror sell execution until buy confirmation for pending-only exposure', {
-                userId: config.userId,
-                token: tokenToSell,
-                chainId,
-                targetWallet: normalizedWallet,
-                targetSellTxHash: swap.txHash || undefined,
-                reasonCode: mirrorSellExecutionPolicy.reasonCode,
-                pendingPositionIds: pendingMatchedPositionIds,
-            });
-            return;
-        }
-
-        if (persistedTargetSellEvent?.event && swap.txHash) {
-            const scheduledOpen = await scheduleMirrorSellIntentsForEvent({
-                event: persistedTargetSellEvent.event,
-                positions: openMatchedPositions.map((position) => ({
-                    id: position.id,
-                    userId: config.userId,
-                    configId: config.id,
-                    chainId: position.chainId,
-                    tokenAddress: position.tokenAddress,
-                    entryAmountExact: position.entryAmountExact,
-                    entryAmountDec: position.entryAmountDec,
-                })),
-                priority: 260,
-            }).catch(() => null);
-            logger.info(LogCode.SYS_INFO, '[CopyTradeIntent] Scheduled mirror sell intents for open exposure', {
-                userId: config.userId,
-                token: tokenToSell,
-                chainId,
-                targetWallet: normalizedWallet,
-                targetSellTxHash: swap.txHash,
-                openPositionIds: openMatchedPositions.map((position) => position.id),
-                scheduled: scheduledOpen?.scheduled || 0,
-                skipped: scheduledOpen?.skipped || 0,
-            });
-            return;
-        }
-
-        const positionIds = openMatchedPositions.map(p => p.id);
+        const positionIds = matchedPositions.map(p => p.id);
         if (positionIds.some(id => positionsBeingExited.has(id))) {
             logger.throttled(LogCode.WTC_TX_SKIPPED, 'Mirror sell skipped: position already being processed', { userId: config.userId, token: tokenToSell });
             return;
@@ -3930,7 +3682,8 @@ async function handleTargetSell(
                 exitReason: 'mirror_sell',
                 tokenInfo,
                 config: { ...config, user: (config as any).user },
-                positions: openMatchedPositions
+                positions: matchedPositions,
+                pendingAttributedLots
             });
         } finally {
             positionIds.forEach(id => positionsBeingExited.delete(id));
@@ -4020,26 +3773,8 @@ export function initAutoTradeService(): void {
             });
     }, ORPHAN_SWEEP_INTERVAL_MS);
 
-    deferredFeeBackfillInterval = setInterval(() => {
-        void runDeferredBuyFeeRecoveryBackfill().catch((err: any) => {
-            logger.warn(LogCode.SYS_ERROR, '[CopyTradeFeeBackfill] Cycle failed', {
-                error: err?.message || String(err)
-            });
-        });
-    }, DEFERRED_FEE_BACKFILL_INTERVAL_MS);
-
-    deferredApprovalBackfillInterval = setInterval(() => {
-        void runDeferredSellApprovalPreheatBackfill().catch((err: any) => {
-            logger.warn(LogCode.SYS_ERROR, '[CopyTradeApprovalBackfill] Cycle failed', {
-                error: err?.message || String(err)
-            });
-        });
-    }, DEFERRED_APPROVAL_BACKFILL_INTERVAL_MS);
-
     void runCopytradeAttributionRepairCycle().catch(() => { });
     void runCopytradeOrphanSweepCycle().catch(() => { });
-    void runDeferredBuyFeeRecoveryBackfill().catch(() => { });
-    void runDeferredSellApprovalPreheatBackfill().catch(() => { });
 }
 
 /**
@@ -4063,14 +3798,6 @@ export async function stopAutoTradeService(): Promise<void> {
     if (orphanSweepInterval) {
         clearInterval(orphanSweepInterval);
         orphanSweepInterval = null;
-    }
-    if (deferredFeeBackfillInterval) {
-        clearInterval(deferredFeeBackfillInterval);
-        deferredFeeBackfillInterval = null;
-    }
-    if (deferredApprovalBackfillInterval) {
-        clearInterval(deferredApprovalBackfillInterval);
-        deferredApprovalBackfillInterval = null;
     }
     stopCopyTradePendingWatcher();
     // Note: watchers are event-driven, setting flag stops processing
