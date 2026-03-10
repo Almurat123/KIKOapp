@@ -10,7 +10,7 @@ interface PolymarketStrategyEditFormProps {
     onCancel: () => void;
 }
 
-export const PolymarketStrategyEditForm: React.FC<PolymarketStrategyEditFormProps> = ({ config, onSave, onCancel: _onCancel }) => {
+export const PolymarketStrategyEditForm: React.FC<PolymarketStrategyEditFormProps> = ({ config, onSave, onCancel }) => {
     const [formData, setFormData] = useState<Partial<PolymarketCopyConfig>>({
         betSizeUsd: config.betSizeUsd,
         maxOpenBets: config.maxOpenBets,
@@ -18,7 +18,8 @@ export const PolymarketStrategyEditForm: React.FC<PolymarketStrategyEditFormProp
     });
     const [isReady, setIsReady] = useState(false);
     const formDataRef = useRef(formData);
-    const hasChangedRef = useRef(false);
+    const [isSaving, setIsSaving] = useState(false);
+    const [saveError, setSaveError] = useState<string | null>(null);
 
     useEffect(() => {
         formDataRef.current = formData;
@@ -29,17 +30,9 @@ export const PolymarketStrategyEditForm: React.FC<PolymarketStrategyEditFormProp
         return () => clearTimeout(timer);
     }, []);
 
-    useEffect(() => {
-        return () => {
-            if (hasChangedRef.current) {
-                onSave(formDataRef.current);
-            }
-        };
-    }, [onSave]);
-
     const updateFormData = (updates: Partial<PolymarketCopyConfig>) => {
         setFormData((prev) => ({ ...prev, ...updates }));
-        hasChangedRef.current = true;
+        setSaveError(null);
     };
 
     const handlePositiveNumber = (value: string, field: 'betSizeUsd' | 'maxOpenBets') => {
@@ -52,6 +45,19 @@ export const PolymarketStrategyEditForm: React.FC<PolymarketStrategyEditFormProp
             return;
         }
         updateFormData({ [field]: parsed } as Partial<PolymarketCopyConfig>);
+    };
+
+    const handleSaveClick = async () => {
+        setIsSaving(true);
+        setSaveError(null);
+        try {
+            await onSave(formDataRef.current);
+            onCancel();
+        } catch (error) {
+            setSaveError(error instanceof Error ? error.message : 'Failed to save strategy.');
+        } finally {
+            setIsSaving(false);
+        }
     };
 
     return (
@@ -104,6 +110,28 @@ export const PolymarketStrategyEditForm: React.FC<PolymarketStrategyEditFormProp
                     </label>
                 </div>
                 <p className={styles.headerDesc}>When enabled, copied positions are also closed when the target trader exits.</p>
+            </div>
+
+            <div className={styles.actions}>
+                {saveError && <p className={styles.actionError}>{saveError}</p>}
+                <div className={styles.actionRow}>
+                    <button
+                        type="button"
+                        className={styles.secondaryButton}
+                        onClick={onCancel}
+                        disabled={isSaving}
+                    >
+                        Cancel
+                    </button>
+                    <button
+                        type="button"
+                        className={styles.primaryButton}
+                        onClick={handleSaveClick}
+                        disabled={isSaving}
+                    >
+                        {isSaving ? 'Saving...' : 'Save Strategy'}
+                    </button>
+                </div>
             </div>
         </div>
     );

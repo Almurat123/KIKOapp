@@ -1,10 +1,11 @@
-import React, { useState, useEffect } from 'react';
-import { usePrivy, useSessionSigners } from '@privy-io/react-auth';
+import React, { useEffect, useState } from 'react';
+import { usePrivy, useSessionSigners, useUser } from '@privy-io/react-auth';
 import { AutoTradingConfirmModal } from './AutoTradingConfirmModal';
 import styles from './SessionSignerButton.module.css';
 import { agentAttrs } from '../../agent/attrs';
 import { usePrivyEmbeddedWallets } from '../../hooks/usePrivyEmbeddedWallets';
 import { getPrivyAuthorizationConfig } from '../../services/privyAuthConfig';
+import { isWalletDelegated, waitForWalletDelegation } from './sessionSignerSync';
 
 interface SessionSignerButtonProps {
     chainType: 'ethereum' | 'solana';
@@ -27,27 +28,27 @@ export const SessionSignerButton: React.FC<SessionSignerButtonProps> = ({
 }) => {
     const { ready, authenticated } = usePrivy();
     const { addSessionSigners, removeSessionSigners } = useSessionSigners();
+    const { refreshUser } = useUser();
     const [isLoading, setIsLoading] = useState(false);
-    const [isDelegated, setIsDelegated] = useState(false);
+    const [delegatedOverride, setDelegatedOverride] = useState<boolean | null>(null);
     const [authKeyId, setAuthKeyId] = useState<string | null>(null);
     const [policyId, setPolicyId] = useState<string | null>(null);
     const [showConfirmModal, setShowConfirmModal] = useState(false);
     const [configError, setConfigError] = useState<string | null>(null);
+    const [actionError, setActionError] = useState<string | null>(null);
     const { evmWallet, solanaWallet } = usePrivyEmbeddedWallets();
 
     const embeddedWallet = chainType === 'ethereum' ? evmWallet : solanaWallet;
     const requiresPolicy = chainType === 'solana';
+    const delegatedFromWallet = embeddedWallet?.delegated === true;
+    const isDelegated = delegatedOverride ?? delegatedFromWallet;
 
-    // 检查是否已授权
     useEffect(() => {
-        if (embeddedWallet && 'delegated' in embeddedWallet) {
-            setIsDelegated(embeddedWallet.delegated === true);
-        } else {
-            setIsDelegated(false);
+        if (delegatedOverride !== null && delegatedOverride === delegatedFromWallet) {
+            setDelegatedOverride(null);
         }
-    }, [embeddedWallet]);
+    }, [delegatedFromWallet, delegatedOverride]);
 
-    // 从后端获取 Authorization Key ID
     useEffect(() => {
         const fetchAuthKeyId = async () => {
             try {
@@ -66,36 +67,56 @@ export const SessionSignerButton: React.FC<SessionSignerButtonProps> = ({
     }, [chainType]);
 
     const handleAuthorizeClick = () => {
+        setActionError(null);
         setShowConfirmModal(true);
     };
 
     const handleConfirmAuthorize = async () => {
         if (!embeddedWallet?.address || !authKeyId) {
-            onError?.(new Error('Missing wallet or authorization configuration.'));
+            const error = new Error('Missing wallet or authorization configuration.');
+            setActionError(error.message);
+            onError?.(error);
             return;
         }
         if (requiresPolicy && !policyId) {
-            onError?.(new Error('Missing Solana auto-trading policy configuration.'));
+            const error = new Error('Missing Solana auto-trading policy configuration.');
+            setActionError(error.message);
+            onError?.(error);
             return;
         }
 
         setIsLoading(true);
+        setActionError(null);
         try {
             const signer = policyId
                 ? { signerId: authKeyId, policyIds: [policyId] }
                 : { signerId: authKeyId };
-            await addSessionSigners({
+            const result = await addSessionSigners({
                 address: embeddedWallet.address,
                 signers: [signer as any]
             });
+
+            const delegatedFromResult = isWalletDelegated(result.user, embeddedWallet.address);
+            if (delegatedFromResult !== true) {
+                await waitForWalletDelegation({
+                    address: embeddedWallet.address,
+                    expected: true,
+                    refreshUser
+                });
+            }
+
             setShowConfirmModal(false);
-            setIsDelegated(true);
+            setDelegatedOverride(true);
             onSuccess?.();
         } catch (error) {
             if (import.meta.env.DEV) {
                 console.error('Failed to authorize session signer:', error);
             }
-            onError?.(error as Error);
+            const nextError = error instanceof Error
+                ? error
+                : new Error('Authorization failed. Please try again.');
+            setActionError(nextError.message);
+            onError?.(nextError);
         } finally {
             setIsLoading(false);
         }
@@ -103,23 +124,35 @@ export const SessionSignerButton: React.FC<SessionSignerButtonProps> = ({
 
     const handleRevoke = async () => {
         if (!embeddedWallet?.address || !authKeyId) {
-            onError?.(new Error('Missing wallet or authorization key for revoke.'));
+            const error = new Error('Missing wallet or authorization key for revoke.');
+            setActionError(error.message);
+            onError?.(error);
             return;
         }
 
         setIsLoading(true);
+        setActionError(null);
         try {
             await (removeSessionSigners as any)({
                 address: embeddedWallet.address,
                 signerIds: [authKeyId]
             });
-            setIsDelegated(false);
+            await waitForWalletDelegation({
+                address: embeddedWallet.address,
+                expected: false,
+                refreshUser
+            });
+            setDelegatedOverride(false);
             onSuccess?.();
         } catch (error) {
             if (import.meta.env.DEV) {
                 console.error('Failed to revoke session signer:', error);
             }
-            onError?.(error as Error);
+            const nextError = error instanceof Error
+                ? error
+                : new Error('Failed to revoke authorization. Please try again.');
+            setActionError(nextError.message);
+            onError?.(nextError);
         } finally {
             setIsLoading(false);
         }
@@ -173,9 +206,9 @@ export const SessionSignerButton: React.FC<SessionSignerButtonProps> = ({
                 confirming={isLoading}
             />
 
-            {(configError || !authKeyId || (requiresPolicy && !policyId)) && (
+            {(actionError || configError || !authKeyId || (requiresPolicy && !policyId)) && (
                 <p className={styles.error}>
-                    {configError || ((requiresPolicy && !policyId)
+                    {actionError || configError || ((requiresPolicy && !policyId)
                         ? 'Missing Solana auto-trading policy configuration.'
                         : 'Authorization configuration unavailable. Please try again later.')}
                 </p>

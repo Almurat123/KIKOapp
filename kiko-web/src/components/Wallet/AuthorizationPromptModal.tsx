@@ -6,17 +6,19 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { usePrivy, useSessionSigners } from '@privy-io/react-auth';
+import { usePrivy, useSessionSigners, useUser } from '@privy-io/react-auth';
 import { ShieldCheck, AlertTriangle, Loader2, X } from 'lucide-react';
 import { AutoTradingConfirmModal } from './AutoTradingConfirmModal';
 import styles from './AuthorizationPromptModal.module.css';
 import { usePrivyEmbeddedWallets } from '../../hooks/usePrivyEmbeddedWallets';
 import { getPrivyAuthorizationConfig } from '../../services/privyAuthConfig';
+import { isWalletDelegated, waitForWalletDelegation } from './sessionSignerSync';
 const DISMISSED_KEY = 'kiko_auth_prompt_dismissed';
 
 export const AuthorizationPromptModal: React.FC = () => {
     const { ready, authenticated, user } = usePrivy();
     const { addSessionSigners } = useSessionSigners();
+    const { refreshUser } = useUser();
     const [showModal, setShowModal] = useState(false);
     const [showConfirmModal, setShowConfirmModal] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
@@ -105,13 +107,30 @@ export const AuthorizationPromptModal: React.FC = () => {
         setError(null);
 
         try {
+            const authorizeWallet = async (params: { address: string; signer: { signerId: string; policyIds?: string[] } }) => {
+                const result = await addSessionSigners({
+                    address: params.address,
+                    signers: [params.signer as any]
+                });
+
+                if (isWalletDelegated(result.user, params.address) === true) {
+                    return;
+                }
+
+                await waitForWalletDelegation({
+                    address: params.address,
+                    expected: true,
+                    refreshUser
+                });
+            };
+
             if (evmWallet && evmNeedsAuth) {
                 const evmSigner = evmPolicyId
                     ? { signerId: authKeyId, policyIds: [evmPolicyId] }
                     : { signerId: authKeyId };
-                await addSessionSigners({
+                await authorizeWallet({
                     address: evmWallet.address,
-                    signers: [evmSigner as any]
+                    signer: evmSigner
                 });
             }
             if (solanaWallet && solanaNeedsAuth) {
@@ -119,9 +138,9 @@ export const AuthorizationPromptModal: React.FC = () => {
                 const solSigner = solPolicyId
                     ? { signerId: authKeyId, policyIds: [solPolicyId] }
                     : { signerId: authKeyId };
-                await addSessionSigners({
+                await authorizeWallet({
                     address: solanaWallet.address,
-                    signers: [solSigner as any]
+                    signer: solSigner
                 });
             }
             setShowConfirmModal(false);

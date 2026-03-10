@@ -11,6 +11,17 @@ interface StrategyEditFormProps {
     onCancel: () => void;
 }
 
+type NumericField =
+    | 'minTargetValueUsd'
+    | 'buyAmountUsd'
+    | 'copyTradeTokenCooldownMinutes'
+    | 'minMarketCapUsd'
+    | 'minLiquidityUsd'
+    | 'maxEntryDeviationBps'
+    | 'takeProfitPct'
+    | 'stopLossPct'
+    | 'dynamicTPMinProfitPct';
+
 const AI_ANALYSIS_OPTIONS = [
     { value: 'disabled', label: 'Disabled (Fastest)' },
     { value: 'analyze_only', label: 'Analyze Only (Chat Notify)' },
@@ -41,7 +52,7 @@ const EXECUTION_MODE_OPTIONS: Array<{ value: ExecutionMode; label: string; desc:
     }
 ];
 
-export const StrategyEditForm: React.FC<StrategyEditFormProps> = ({ config, onSave }) => {
+export const StrategyEditForm: React.FC<StrategyEditFormProps> = ({ config, onSave, onCancel }) => {
     const initialExecutionMode: ExecutionMode =
         (config.executionMode as ExecutionMode | undefined) ?? (config.disableTokenInfo ? 'turbo' : 'normal');
     const getLiquidityFloor = (mode: ExecutionMode) => mode === 'turbo' ? TURBO_MIN_LIQUIDITY_USD : NORMAL_MIN_LIQUIDITY_USD;
@@ -65,25 +76,50 @@ export const StrategyEditForm: React.FC<StrategyEditFormProps> = ({ config, onSa
     });
 
     const formDataRef = useRef(formData);
-    const hasChangedRef = useRef(false);
+    const [rawNumericInputs, setRawNumericInputs] = useState<Partial<Record<NumericField, string>>>({});
+    const [isSaving, setIsSaving] = useState(false);
+    const [saveError, setSaveError] = useState<string | null>(null);
 
     // [Logic]: Sync ref with state for use in cleanup.
     useEffect(() => {
         formDataRef.current = formData;
     }, [formData]);
 
-    // [Logic]: Auto-save when the component is unmounted (modal closed).
-    useEffect(() => {
-        return () => {
-            if (hasChangedRef.current) {
-                onSave(formDataRef.current);
-            }
-        };
-    }, [onSave]);
-
     const updateFormData = (updates: Partial<CopyTradeConfig>) => {
         setFormData(prev => ({ ...prev, ...updates }));
-        hasChangedRef.current = true;
+        setSaveError(null);
+    };
+    const setRawNumericInput = (field: NumericField, value?: string) => {
+        setRawNumericInputs((prev) => {
+            if (value === undefined) {
+                if (!(field in prev)) return prev;
+                const next = { ...prev };
+                delete next[field];
+                return next;
+            }
+
+            return { ...prev, [field]: value };
+        });
+    };
+    const clearRawNumericInputs = (...fields: NumericField[]) => {
+        setRawNumericInputs((prev) => {
+            let changed = false;
+            const next = { ...prev };
+            for (const field of fields) {
+                if (field in next) {
+                    delete next[field];
+                    changed = true;
+                }
+            }
+            return changed ? next : prev;
+        });
+    };
+    const getNumericInputValue = (field: NumericField) => {
+        if (Object.prototype.hasOwnProperty.call(rawNumericInputs, field)) {
+            return rawNumericInputs[field] ?? '';
+        }
+
+        return formData[field] ?? '';
     };
     const currentExecutionMode: ExecutionMode =
         (formData.executionMode as ExecutionMode | undefined) ?? (formData.disableTokenInfo ? 'turbo' : 'normal');
@@ -91,6 +127,7 @@ export const StrategyEditForm: React.FC<StrategyEditFormProps> = ({ config, onSa
     const currentLiquidityFloor = getLiquidityFloor(currentExecutionMode);
     const currentEntryDeviationFloor = getEntryDeviationFloor(currentExecutionMode);
     const updateExecutionMode = (mode: ExecutionMode) => {
+        clearRawNumericInputs('minLiquidityUsd', 'maxEntryDeviationBps');
         updateFormData({
             executionMode: mode,
             disableTokenInfo: mode === 'turbo',
@@ -101,7 +138,7 @@ export const StrategyEditForm: React.FC<StrategyEditFormProps> = ({ config, onSa
 
     const handleNumberChange = (
         value: string,
-        field: keyof CopyTradeConfig,
+        field: NumericField,
         allowZero = true,
         isComposing = false
     ) => {
@@ -110,6 +147,8 @@ export const StrategyEditForm: React.FC<StrategyEditFormProps> = ({ config, onSa
             : value
                 .replace(/[^\d.]/g, '')
                 .replace(/(\..*)\./g, '$1');
+
+        setRawNumericInput(field, normalizedValue);
 
         // [Safety]: Allow empty string to clear the value (set to undefined)
         if (normalizedValue === '') {
@@ -154,7 +193,7 @@ export const StrategyEditForm: React.FC<StrategyEditFormProps> = ({ config, onSa
 
     const handleNumericInputChange = (
         e: React.ChangeEvent<HTMLInputElement>,
-        field: keyof CopyTradeConfig,
+        field: NumericField,
         allowZero = true
     ) => {
         handleNumberChange(
@@ -167,10 +206,26 @@ export const StrategyEditForm: React.FC<StrategyEditFormProps> = ({ config, onSa
 
     const handleNumericCompositionEnd = (
         e: React.CompositionEvent<HTMLInputElement>,
-        field: keyof CopyTradeConfig,
+        field: NumericField,
         allowZero = true
     ) => {
         handleNumberChange(e.currentTarget.value, field, allowZero, false);
+    };
+    const handleNumericBlur = (field: NumericField) => {
+        const rawValue = rawNumericInputs[field];
+        if (rawValue === undefined) return;
+
+        if (rawValue === '' || rawValue === '.') {
+            if (field === 'minLiquidityUsd') {
+                updateFormData({ [field]: currentLiquidityFloor });
+            } else if (field === 'maxEntryDeviationBps') {
+                updateFormData({ [field]: currentEntryDeviationFloor });
+            } else {
+                updateFormData({ [field]: undefined });
+            }
+        }
+
+        setRawNumericInput(field, undefined);
     };
 
     const [isReady, setIsReady] = useState(false);
@@ -180,6 +235,19 @@ export const StrategyEditForm: React.FC<StrategyEditFormProps> = ({ config, onSa
         const timer = setTimeout(() => setIsReady(true), 50);
         return () => clearTimeout(timer);
     }, []);
+
+    const handleSaveClick = async () => {
+        setIsSaving(true);
+        setSaveError(null);
+        try {
+            await onSave(formDataRef.current);
+            onCancel();
+        } catch (error) {
+            setSaveError(error instanceof Error ? error.message : 'Failed to save strategy.');
+        } finally {
+            setIsSaving(false);
+        }
+    };
 
     return (
         <div
@@ -229,9 +297,10 @@ export const StrategyEditForm: React.FC<StrategyEditFormProps> = ({ config, onSa
                             type="text"
                             inputMode="decimal"
                             {...agentAttrs({ id: 'trade.edit.min_follow_amount', role: 'input', action: 'select', page: 'trade', key: 'minTargetValueUsd' })}
-                            value={formData.minTargetValueUsd ?? ''}
+                            value={getNumericInputValue('minTargetValueUsd')}
                             onChange={e => handleNumericInputChange(e, 'minTargetValueUsd')}
                             onCompositionEnd={e => handleNumericCompositionEnd(e, 'minTargetValueUsd')}
+                            onBlur={() => handleNumericBlur('minTargetValueUsd')}
                             className={styles.input}
                             placeholder="0"
                         />
@@ -242,9 +311,10 @@ export const StrategyEditForm: React.FC<StrategyEditFormProps> = ({ config, onSa
                             type="text"
                             inputMode="decimal"
                             {...agentAttrs({ id: 'trade.edit.buy_amount', role: 'input', action: 'select', page: 'trade', key: 'buyAmountUsd' })}
-                            value={formData.buyAmountUsd}
+                            value={getNumericInputValue('buyAmountUsd')}
                             onChange={e => handleNumericInputChange(e, 'buyAmountUsd', false)}
                             onCompositionEnd={e => handleNumericCompositionEnd(e, 'buyAmountUsd', false)}
+                            onBlur={() => handleNumericBlur('buyAmountUsd')}
                             className={styles.input}
                             placeholder="100"
                         />
@@ -257,9 +327,10 @@ export const StrategyEditForm: React.FC<StrategyEditFormProps> = ({ config, onSa
                         inputMode="decimal"
                         {...agentAttrs({ id: 'trade.edit.cooldown', role: 'input', action: 'select', page: 'trade', key: 'copyTradeTokenCooldownMinutes' })}
                         min={0}
-                        value={formData.copyTradeTokenCooldownMinutes ?? ''}
+                        value={getNumericInputValue('copyTradeTokenCooldownMinutes')}
                         onChange={e => handleNumericInputChange(e, 'copyTradeTokenCooldownMinutes')}
                         onCompositionEnd={e => handleNumericCompositionEnd(e, 'copyTradeTokenCooldownMinutes')}
+                        onBlur={() => handleNumericBlur('copyTradeTokenCooldownMinutes')}
                         className={styles.input}
                         placeholder="60"
                     />
@@ -278,9 +349,10 @@ export const StrategyEditForm: React.FC<StrategyEditFormProps> = ({ config, onSa
                             inputMode="decimal"
                             {...agentAttrs({ id: 'trade.edit.min_market_cap', role: 'input', action: 'select', page: 'trade', key: 'minMarketCapUsd' })}
                             min={0}
-                            value={formData.minMarketCapUsd ?? ''}
+                            value={getNumericInputValue('minMarketCapUsd')}
                             onChange={e => handleNumericInputChange(e, 'minMarketCapUsd')}
                             onCompositionEnd={e => handleNumericCompositionEnd(e, 'minMarketCapUsd')}
+                            onBlur={() => handleNumericBlur('minMarketCapUsd')}
                             className={styles.input}
                             placeholder="Optional"
                             disabled={isTurboMode}
@@ -293,9 +365,10 @@ export const StrategyEditForm: React.FC<StrategyEditFormProps> = ({ config, onSa
                             inputMode="decimal"
                             {...agentAttrs({ id: 'trade.edit.min_liquidity', role: 'input', action: 'select', page: 'trade', key: 'minLiquidityUsd' })}
                             min={0}
-                            value={formData.minLiquidityUsd ?? ''}
+                            value={getNumericInputValue('minLiquidityUsd')}
                             onChange={e => handleNumericInputChange(e, 'minLiquidityUsd')}
                             onCompositionEnd={e => handleNumericCompositionEnd(e, 'minLiquidityUsd')}
+                            onBlur={() => handleNumericBlur('minLiquidityUsd')}
                             className={styles.input}
                             placeholder={String(currentLiquidityFloor)}
                             disabled={isTurboMode}
@@ -308,9 +381,10 @@ export const StrategyEditForm: React.FC<StrategyEditFormProps> = ({ config, onSa
                         type="text"
                         inputMode="decimal"
                         {...agentAttrs({ id: 'trade.edit.max_entry_deviation_bps', role: 'input', action: 'select', page: 'trade', key: 'maxEntryDeviationBps' })}
-                        value={formData.maxEntryDeviationBps ?? ''}
+                        value={getNumericInputValue('maxEntryDeviationBps')}
                         onChange={e => handleNumericInputChange(e, 'maxEntryDeviationBps')}
                         onCompositionEnd={e => handleNumericCompositionEnd(e, 'maxEntryDeviationBps')}
+                        onBlur={() => handleNumericBlur('maxEntryDeviationBps')}
                         className={styles.input}
                         placeholder={String(currentEntryDeviationFloor)}
                     />
@@ -382,9 +456,10 @@ export const StrategyEditForm: React.FC<StrategyEditFormProps> = ({ config, onSa
                             type="text"
                             inputMode="decimal"
                             {...agentAttrs({ id: 'trade.edit.take_profit_pct', role: 'input', action: 'select', page: 'trade', key: 'takeProfitPct' })}
-                            value={formData.takeProfitPct ?? ''}
+                            value={getNumericInputValue('takeProfitPct')}
                             onChange={e => handleNumericInputChange(e, 'takeProfitPct', false)}
                             onCompositionEnd={e => handleNumericCompositionEnd(e, 'takeProfitPct', false)}
+                            onBlur={() => handleNumericBlur('takeProfitPct')}
                             className={styles.input}
                             placeholder="100"
                         />
@@ -395,9 +470,10 @@ export const StrategyEditForm: React.FC<StrategyEditFormProps> = ({ config, onSa
                             type="text"
                             inputMode="decimal"
                             {...agentAttrs({ id: 'trade.edit.stop_loss_pct', role: 'input', action: 'select', page: 'trade', key: 'stopLossPct' })}
-                            value={formData.stopLossPct ?? ''}
+                            value={getNumericInputValue('stopLossPct')}
                             onChange={e => handleNumericInputChange(e, 'stopLossPct', false)}
                             onCompositionEnd={e => handleNumericCompositionEnd(e, 'stopLossPct', false)}
+                            onBlur={() => handleNumericBlur('stopLossPct')}
                             className={styles.input}
                             placeholder="20"
                         />
@@ -430,9 +506,10 @@ export const StrategyEditForm: React.FC<StrategyEditFormProps> = ({ config, onSa
                             type="text"
                             inputMode="decimal"
                             {...agentAttrs({ id: 'trade.edit.dynamic_tp_profit_threshold', role: 'input', action: 'select', page: 'trade', key: 'dynamicTPMinProfitPct' })}
-                            value={formData.dynamicTPMinProfitPct ?? ''}
+                            value={getNumericInputValue('dynamicTPMinProfitPct')}
                             onChange={e => handleNumericInputChange(e, 'dynamicTPMinProfitPct', false)}
                             onCompositionEnd={e => handleNumericCompositionEnd(e, 'dynamicTPMinProfitPct', false)}
+                            onBlur={() => handleNumericBlur('dynamicTPMinProfitPct')}
                             className={styles.input}
                             placeholder="100"
                         />
@@ -441,6 +518,28 @@ export const StrategyEditForm: React.FC<StrategyEditFormProps> = ({ config, onSa
                         </p>
                     </div>
                 )}
+            </div>
+
+            <div className={styles.actions}>
+                {saveError && <p className={styles.actionError}>{saveError}</p>}
+                <div className={styles.actionRow}>
+                    <button
+                        type="button"
+                        className={styles.secondaryButton}
+                        onClick={onCancel}
+                        disabled={isSaving}
+                    >
+                        Cancel
+                    </button>
+                    <button
+                        type="button"
+                        className={styles.primaryButton}
+                        onClick={handleSaveClick}
+                        disabled={isSaving}
+                    >
+                        {isSaving ? 'Saving...' : 'Save Strategy'}
+                    </button>
+                </div>
             </div>
         </div>
     );
