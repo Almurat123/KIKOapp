@@ -4,6 +4,42 @@ import assert from 'node:assert/strict';
 import { applyBuyConfirmationTransition } from '../services/copytrade-v2/buy/buyConfirmationTransition.js';
 
 describe('buy confirmation transition', () => {
+  test('cancels blocked mirror sell intents when buy confirmation fails', async () => {
+    let abortContext: any = null;
+
+    const result = await applyBuyConfirmationTransition({
+      confirmation: { success: false, kind: 'confirmed_failed', visible: true, reason: 'reverted' },
+      chainId: 56,
+      tokenToBuy: '0xpep',
+      txHash: '0xfail',
+      userId: 'user',
+      targetWallet: '0xtarget',
+      persistedPositionId: 'pos_fail',
+      pendingPositionCreatedAt: null,
+      tokenInfo: { symbol: 'PEPE', price: 1, decimals: 18 },
+      walletAddress: '0xwallet',
+      positionStatusCompat: { pendingCreateStatus: 'pending', failedFinalStatus: 'failed' },
+      recoverySource: 'initial_wait',
+      onMirrorSellAbort: async (context) => {
+        abortContext = context;
+      },
+      deps: {
+        prisma: {
+          position: {
+            updateMany: async () => ({ count: 1 }),
+          },
+        } as any,
+        cancelPendingAttributedPosition: async () => 1,
+      },
+    });
+
+    assert.equal(result, 'confirmed_failed');
+    assert.deepEqual(abortContext, {
+      positionId: 'pos_fail',
+      reasonCode: 'buy_confirmation_failed',
+    });
+  });
+
   test('treats timeout as deferred without side effects', async () => {
     let notified = false;
     const result = await applyBuyConfirmationTransition({
@@ -72,5 +108,128 @@ describe('buy confirmation transition', () => {
     assert.equal(result, 'confirmed_success');
     assert.equal(notified, true);
     assert.equal(preheated, true);
+  });
+
+  test('schedules mirror sell on confirmation without skipping downstream side effects', async () => {
+    let notified = false;
+    let preheated = false;
+    let mirrorSellContext: any = null;
+
+    const result = await applyBuyConfirmationTransition({
+      confirmation: { success: true, kind: 'confirmed_success', visible: true },
+      chainId: 56,
+      tokenToBuy: '0xpep',
+      txHash: '0xbuy',
+      userId: 'user',
+      targetWallet: '0xtarget',
+      persistedPositionId: 'pos_2',
+      pendingPositionCreatedAt: null,
+      tokenInfo: { symbol: 'PEPE', price: 1, decimals: 18 },
+      walletAddress: '0xwallet',
+      positionStatusCompat: { pendingCreateStatus: 'pending', failedFinalStatus: 'failed' },
+      recoverySource: 'initial_wait',
+      onMirrorSellAfterConfirm: async (context) => {
+        mirrorSellContext = context;
+      },
+      onNotifySuccess: async () => {
+        notified = true;
+      },
+      deps: {
+        prisma: {
+          position: {
+            updateMany: async () => ({ count: 1 }),
+          },
+        } as any,
+        resolvePendingMirrorSellIntent: async () => ({
+          shouldMirrorSell: true,
+          targetSellTxHash: '0xtargetsell',
+          reasonCode: 'TARGET_SELL_SEEN_IN_LEDGER',
+        }),
+        resolveBuyConfirmationPromotionAction: async () => ({ action: 'promote_open' }),
+        preheatSellApprovalForToken: async () => {
+          preheated = true;
+        },
+        emitCopytradeDomainAudit: () => {},
+      },
+    });
+
+    assert.equal(result, 'confirmed_success');
+    assert.deepEqual(mirrorSellContext, {
+      positionId: 'pos_2',
+      targetSellTxHash: '0xtargetsell',
+      reasonCode: 'TARGET_SELL_SEEN_IN_LEDGER',
+    });
+    assert.equal(notified, true);
+    assert.equal(preheated, true);
+  });
+
+  test('defers fee recovery out of the buy confirmation hot path', async () => {
+    let scheduledFeeRecovery: any = null;
+    let collectorCalled = false;
+
+    const result = await applyBuyConfirmationTransition({
+      confirmation: { success: true, kind: 'confirmed_success', visible: true },
+      chainId: 56,
+      tokenToBuy: '0xpep',
+      txHash: '0xbuy',
+      userId: 'user',
+      targetWallet: '0xtarget',
+      persistedPositionId: 'pos_3',
+      pendingPositionCreatedAt: null,
+      tokenInfo: { symbol: 'PEPE', price: 1, decimals: 18 },
+      walletAddress: '0xwallet',
+      positionStatusCompat: { pendingCreateStatus: 'pending', failedFinalStatus: 'failed' },
+      recoverySource: 'initial_wait',
+      directFeeSettlement: {
+        amountIn: '1',
+        chainId: 56,
+        mode: 'normal',
+        normalizedTokenIn: '0xeeee',
+        normalizedTokenOut: '0xpep',
+        feeContext: 'copyTrade',
+        deferred: true,
+        reasonCode: 'buy_submitted_before_confirm',
+        sourceTxHash: '0xbuy',
+      },
+      deps: {
+        prisma: {
+          position: {
+            updateMany: async () => ({ count: 1 }),
+          },
+        } as any,
+        resolvePendingMirrorSellIntent: async () => ({ shouldMirrorSell: false, reasonCode: 'NO_PENDING_MIRROR_SELL_INTENT' }),
+        resolveBuyConfirmationPromotionAction: async () => ({ action: 'promote_open' }),
+        scheduleDeferredBuyFeeRecovery: (params) => {
+          scheduledFeeRecovery = params;
+          return true;
+        },
+        collectDirectSwapFeeFromSettlement: async () => {
+          collectorCalled = true;
+        },
+        preheatSellApprovalForToken: async () => {},
+        emitCopytradeDomainAudit: () => {},
+      },
+    });
+
+    assert.equal(result, 'confirmed_success');
+    assert.equal(collectorCalled, false);
+    assert.deepEqual(scheduledFeeRecovery, {
+      userId: 'user',
+      chainId: 56,
+      tokenAddress: '0xpep',
+      txHash: '0xbuy',
+      recoverySource: 'initial_wait',
+      settlement: {
+        amountIn: '1',
+        chainId: 56,
+        mode: 'normal',
+        normalizedTokenIn: '0xeeee',
+        normalizedTokenOut: '0xpep',
+        feeContext: 'copyTrade',
+        deferred: true,
+        reasonCode: 'buy_submitted_before_confirm',
+        sourceTxHash: '0xbuy',
+      },
+    });
   });
 });

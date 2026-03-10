@@ -510,8 +510,23 @@ export interface TransactionRequest {
  * @param tx - Transaction to send
  * @returns Transaction hash
  */
-// Queue to manage concurrent transactions per user to prevent nonce collisions
-const userTransactionLocks: Map<string, Promise<any>> = new Map();
+type UserTransactionQueueTask<T = any> = {
+    priority: number;
+    sequence: number;
+    fn: () => Promise<T>;
+    resolve: (value: T | PromiseLike<T>) => void;
+    reject: (reason?: unknown) => void;
+};
+
+type UserTransactionQueueState = {
+    running: boolean;
+    sequence: number;
+    queue: Array<UserTransactionQueueTask>;
+};
+
+// Queue to manage concurrent transactions per user to prevent nonce collisions.
+// Priority order keeps critical mirror-sell/buy trades ahead of fee/preheat sidecars.
+const userTransactionQueues = new Map<string, UserTransactionQueueState>();
 const userChainInflightTx = new Map<string, number>();
 const pendingNonceInflight = new Map<string, Promise<string | undefined>>();
 const pendingNonceCache = new Map<string, { nonce: string; timestamp: number }>();
@@ -560,7 +575,8 @@ function seedNextPendingNonce(chainId: number, walletAddress: string, nonce?: st
 
 export function isTransactionQueueBusy(userId: string, chainId: number): boolean {
     const chainKey = buildUserChainKey(userId, chainId);
-    return (userChainInflightTx.get(chainKey) || 0) > 0 || userTransactionLocks.has(chainKey);
+    const queueState = userTransactionQueues.get(chainKey);
+    return (userChainInflightTx.get(chainKey) || 0) > 0 || Boolean(queueState?.running) || Boolean(queueState?.queue.length);
 }
 
 export async function getPendingNonce(chainId: number, walletAddress: string): Promise<string | undefined> {
@@ -596,22 +612,86 @@ export async function getPendingNonce(chainId: number, walletAddress: string): P
     return await task;
 }
 
+function resolveTransactionQueuePriority(tx?: Pick<TransactionRequest, 'txPurpose' | 'txPriority'>): number {
+    if (Number.isFinite(Number(tx?.txPriority))) {
+        return Number(tx?.txPriority);
+    }
+    switch (tx?.txPurpose || 'other') {
+        case 'trade':
+        case 'speedup':
+            return 400;
+        case 'approval':
+            return 300;
+        case 'fee':
+            return 100;
+        case 'preheat':
+            return 50;
+        default:
+            return 0;
+    }
+}
+
 /**
  * Execute a function sequentially for a scoped lock key.
  */
-async function withUserLock<T>(lockKey: string, fn: () => Promise<T>): Promise<T> {
-    const currentLock = userTransactionLocks.get(lockKey) || Promise.resolve();
+function getUserTransactionQueueState(lockKey: string): UserTransactionQueueState {
+    let state = userTransactionQueues.get(lockKey);
+    if (!state) {
+        state = {
+            running: false,
+            sequence: 0,
+            queue: [],
+        };
+        userTransactionQueues.set(lockKey, state);
+    }
+    return state;
+}
 
-    // Create a new promise that chains onto the current lock
-    // We catch errors in the previous lock to ensure the chain continues even if one fails
-    const nextLock = currentLock
-        .catch(() => { })
-        .then(() => fn());
+function drainUserTransactionQueue(lockKey: string): void {
+    const state = userTransactionQueues.get(lockKey);
+    if (!state || state.running) return;
+    const next = state.queue.shift();
+    if (!next) {
+        userTransactionQueues.delete(lockKey);
+        return;
+    }
+    state.running = true;
+    void Promise.resolve()
+        .then(() => next.fn())
+        .then((value) => {
+            next.resolve(value);
+        })
+        .catch((error) => {
+            next.reject(error);
+        })
+        .finally(() => {
+            const current = userTransactionQueues.get(lockKey);
+            if (!current) return;
+            current.running = false;
+            if (current.queue.length === 0) {
+                userTransactionQueues.delete(lockKey);
+                return;
+            }
+            drainUserTransactionQueue(lockKey);
+        });
+}
 
-    // Update the lock for this user
-    userTransactionLocks.set(lockKey, nextLock);
-
-    return nextLock;
+async function withUserLock<T>(lockKey: string, priority: number, fn: () => Promise<T>): Promise<T> {
+    const state = getUserTransactionQueueState(lockKey);
+    return await new Promise<T>((resolve, reject) => {
+        state.queue.push({
+            priority,
+            sequence: state.sequence++,
+            fn,
+            resolve,
+            reject,
+        });
+        state.queue.sort((left, right) => {
+            if (right.priority !== left.priority) return right.priority - left.priority;
+            return left.sequence - right.sequence;
+        });
+        drainUserTransactionQueue(lockKey);
+    });
 }
 
 function getChainLimiter(chainId: number): { inFlight: number; queue: Array<() => void> } {
@@ -841,7 +921,8 @@ export async function sendTransactionLifecycle(
     tx: TransactionRequest
 ): Promise<TxLifecycleResult> {
     const userChainKey = buildUserChainKey(userId, tx.chainId);
-    return withUserLock(userChainKey, async () => withChainSendLimiter(tx.chainId, async () => {
+    const txPriority = resolveTransactionQueuePriority(tx);
+    return withUserLock(userChainKey, txPriority, async () => withChainSendLimiter(tx.chainId, async () => {
         const chainKey = buildUserChainKey(userId, tx.chainId);
         bumpInflightUserChainTx(chainKey, 1);
         // === SIMULATION MODE ===
@@ -1693,6 +1774,28 @@ export async function sendTransactionLifecycle(
             bumpInflightUserChainTx(chainKey, -1);
         }
     }));
+}
+
+export function __resetUserTransactionSchedulerForTests(): void {
+    userTransactionQueues.clear();
+    userChainInflightTx.clear();
+}
+
+export async function __runUserTransactionTaskForTests<T>(params: {
+    userId: string;
+    chainId: number;
+    txPurpose?: TransactionRequest['txPurpose'];
+    txPriority?: number;
+    fn: () => Promise<T>;
+}): Promise<T> {
+    return await withUserLock(
+        buildUserChainKey(params.userId, params.chainId),
+        resolveTransactionQueuePriority({
+            txPurpose: params.txPurpose,
+            txPriority: params.txPriority,
+        }),
+        params.fn,
+    );
 }
 
 export async function sendTransaction(

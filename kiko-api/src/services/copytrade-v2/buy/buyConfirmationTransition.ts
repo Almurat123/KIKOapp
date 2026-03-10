@@ -5,7 +5,8 @@ import type { ConfirmationOutcome } from '../../swap/confirmationCoordinator.js'
 import { cancelPendingAttributedPosition } from '../positions/pendingAttributedPositionLedger.js';
 import {
   resolveBuyConfirmationPromotionAction,
-  resolvePendingMirrorSellIntent
+  resolvePendingMirrorSellIntent,
+  type ResolvedPendingMirrorSellIntent,
 } from '../positions/buySellRaceCoordinator.js';
 import {
   collectDirectSwapFeeFromSettlement,
@@ -13,8 +14,19 @@ import {
 } from '../../swap/fee/directSwapFeeCollector.js';
 import { preheatSellApprovalForToken } from '../../sellApprovalPreheater.js';
 import { emitCopytradeDomainAudit } from '../audit/copytradeDomainAudit.js';
+import { scheduleDeferredBuyFeeRecovery } from './deferredBuyFeeRecovery.js';
 
 export type BuyConfirmationTransitionResult = 'confirmed_success' | 'confirmed_failed' | 'deferred';
+export interface MirrorSellAfterConfirmContext {
+  positionId: string;
+  targetSellTxHash?: string;
+  reasonCode: ResolvedPendingMirrorSellIntent['reasonCode'];
+}
+
+export interface MirrorSellAbortContext {
+  positionId: string;
+  reasonCode: 'buy_confirmation_failed';
+}
 
 type PositionStatusCompatLike = {
   pendingCreateStatus: string;
@@ -39,7 +51,8 @@ export async function applyBuyConfirmationTransition(params: {
   walletAddress: string;
   positionStatusCompat: PositionStatusCompatLike;
   directFeeSettlement?: DirectSwapFeeSettlement | null;
-  onMirrorSellAfterConfirm?: (positionId: string) => Promise<void>;
+  onMirrorSellAfterConfirm?: (context: MirrorSellAfterConfirmContext) => Promise<void>;
+  onMirrorSellAbort?: (context: MirrorSellAbortContext) => Promise<void>;
   onNotifySuccess?: () => Promise<void>;
   recoverySource: 'initial_wait' | 'late_recovery';
   deps?: {
@@ -48,6 +61,7 @@ export async function applyBuyConfirmationTransition(params: {
     resolvePendingMirrorSellIntent?: typeof resolvePendingMirrorSellIntent;
     resolveBuyConfirmationPromotionAction?: typeof resolveBuyConfirmationPromotionAction;
     collectDirectSwapFeeFromSettlement?: typeof collectDirectSwapFeeFromSettlement;
+    scheduleDeferredBuyFeeRecovery?: typeof scheduleDeferredBuyFeeRecovery;
     preheatSellApprovalForToken?: typeof preheatSellApprovalForToken;
     emitCopytradeDomainAudit?: typeof emitCopytradeDomainAudit;
   };
@@ -67,6 +81,7 @@ export async function applyBuyConfirmationTransition(params: {
     positionStatusCompat,
     directFeeSettlement,
     onMirrorSellAfterConfirm,
+    onMirrorSellAbort,
     onNotifySuccess,
     recoverySource,
     deps,
@@ -75,7 +90,7 @@ export async function applyBuyConfirmationTransition(params: {
   const cancelPending = deps?.cancelPendingAttributedPosition || cancelPendingAttributedPosition;
   const resolveMirrorIntent = deps?.resolvePendingMirrorSellIntent || resolvePendingMirrorSellIntent;
   const resolvePromotionAction = deps?.resolveBuyConfirmationPromotionAction || resolveBuyConfirmationPromotionAction;
-  const recoverFee = deps?.collectDirectSwapFeeFromSettlement || collectDirectSwapFeeFromSettlement;
+  const deferFeeRecovery = deps?.scheduleDeferredBuyFeeRecovery || scheduleDeferredBuyFeeRecovery;
   const preheatSell = deps?.preheatSellApprovalForToken || preheatSellApprovalForToken;
   const emitDomainAudit = deps?.emitCopytradeDomainAudit || emitCopytradeDomainAudit;
 
@@ -93,6 +108,13 @@ export async function applyBuyConfirmationTransition(params: {
       positionId: persistedPositionId,
       reasonCode: 'buy_confirmation_failed'
     }).catch(() => 0);
+
+    if (persistedPositionId && onMirrorSellAbort) {
+      await onMirrorSellAbort({
+        positionId: persistedPositionId,
+        reasonCode: 'buy_confirmation_failed',
+      });
+    }
 
     logger.warn(LogCode.EXE_TX_REVERTED, '[CopyTradeBuyConfirm] Buy transaction failed after submission', {
       chainId,
@@ -186,30 +208,22 @@ export async function applyBuyConfirmationTransition(params: {
   }
 
   if (pendingMirrorIntent?.shouldMirrorSell && persistedPositionId && onMirrorSellAfterConfirm) {
-    await onMirrorSellAfterConfirm(persistedPositionId);
-    return 'confirmed_success';
+    await onMirrorSellAfterConfirm({
+      positionId: persistedPositionId,
+      targetSellTxHash: pendingMirrorIntent.targetSellTxHash,
+      reasonCode: pendingMirrorIntent.reasonCode,
+    });
   }
 
   if (directFeeSettlement?.deferred) {
-    try {
-      await recoverFee({
-        userId,
-        settlement: {
-          ...directFeeSettlement,
-          deferred: false,
-          reasonCode: 'confirmed_success_recovery'
-        },
-        trace: (msg: string) => `[CopyTradeBuyFeeRecovery] ${msg}`
-      });
-    } catch (feeErr: any) {
-      logger.warn(LogCode.SYS_ERROR, 'Deferred direct swap fee recovery failed', {
-        userId,
-        token: tokenToBuy,
-        txHash,
-        recoverySource,
-        error: feeErr?.message || String(feeErr)
-      });
-    }
+    deferFeeRecovery({
+      userId,
+      chainId,
+      tokenAddress: tokenToBuy,
+      txHash,
+      recoverySource,
+      settlement: directFeeSettlement,
+    });
   }
 
   if (onNotifySuccess) {

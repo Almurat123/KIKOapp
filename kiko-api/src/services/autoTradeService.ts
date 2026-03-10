@@ -97,6 +97,15 @@ import { runTargetSellReconciliationCycle } from './copytrade-v2/reconcile/targe
 import { runCopytradeAttributionRepairCycle } from './copytrade-v2/jobs/copytradeAttributionRepairJob.js';
 import { runCopytradeOrphanSweepCycle } from './copytrade-v2/jobs/copytradeOrphanSweepJob.js';
 import { repairCopytradePositionAttribution } from './copytrade-v2/jobs/copytradeAttributionRepairJob.js';
+import {
+    buildTargetSellEventPayload,
+    persistTargetSellEventAndSchedulePositions
+} from './copytrade-v2/exit/positionExitIntentScheduler.js';
+import {
+    cancelActiveMirrorSellIntentsForPosition,
+    enqueuePositionExitIntent,
+    releaseActiveMirrorSellIntent
+} from './copytrade-v2/exit/positionExitIntentStore.js';
 import { getCopytradeBuySharedWarmup } from './copytrade-v2/buy/buySharedWarmup.js';
 import { shouldDeferStrongRpcMonitoring } from './copytrade-v2/buy/preConfirmationRpcPolicy.js';
 import {
@@ -109,12 +118,15 @@ import { executeSwapViaPort } from './swap/swapExecutionPort.js';
 import { getReferenceExpectedOutput } from './dex/directSwap/application/quoteEngines.js';
 import { resolveTokenToTokenExecutionPlan } from './copytrade-v2/ingress/tokenToTokenExecutionPlan.js';
 import type { ConfirmationOutcome } from './swap/confirmationCoordinator.js';
+import type { MirrorSellAbortContext, MirrorSellAfterConfirmContext } from './copytrade-v2/buy/buyConfirmationTransition.js';
+import { resolveExitIntentLane } from './copytrade-v2/exit/intentTypes.js';
 
 export { getTokenInfo } from './tokenService.js';
 
 // Track positions currently being processed for exit to prevent duplicate attempts
 const positionsBeingExited = new Set<string>();
 const EXIT_INFLIGHT_RETRY_GRACE_MS = getExitInflightRetryGraceMs();
+const BLOCKED_MIRROR_SELL_INTENT_GRACE_MS = 15 * 60 * 1000;
 const MIN_POSITION_AGE_FOR_TPSL_MS = Math.max(0, Number(process.env.MIN_POSITION_AGE_FOR_TPSL_MS || '90000'));
 const TPSL_CONSECUTIVE_HITS_REQUIRED = Math.max(1, Number(process.env.TPSL_CONSECUTIVE_HITS_REQUIRED || '2'));
 const TPSL_HIT_WINDOW_MS = Math.max(1000, Number(process.env.TPSL_HIT_WINDOW_MS || '90000'));
@@ -2765,27 +2777,120 @@ async function processSingleUserBuy(
             }, 'copytrade_buy_success_confirmed');
         };
 
-        const executeMirrorSellAfterBuyConfirm = async (positionId: string) => {
+        const executeMirrorSellAfterBuyConfirm = async (context: MirrorSellAfterConfirmContext) => {
             const mirrorSellPosition = await prisma.position.findUnique({
-                where: { id: positionId }
+                where: { id: context.positionId },
+                select: {
+                    id: true,
+                    userId: true,
+                    configId: true,
+                    chainId: true,
+                    tokenAddress: true,
+                    entryAmountExact: true,
+                    entryAmountDec: true,
+                    status: true,
+                }
             });
-            if (mirrorSellPosition && mirrorSellPosition.status !== 'closed') {
-                logger.warn(LogCode.SYS_INFO, '[CopyTradeRace] Target already sold while buy was pending; executing mirror sell on confirmation', {
+            if (!mirrorSellPosition || mirrorSellPosition.status === 'closed') {
+                return;
+            }
+
+            if (!context.targetSellTxHash) {
+                logger.warn(LogCode.SYS_INFO, '[CopyTradeRace] Missing target sell hash; skipped immediate mirror sell scheduling after buy confirmation', {
                     userId: config.userId,
                     token: tokenToBuy,
                     chainId,
                     txHash,
-                    positionId,
-                    targetSellTxHash: null,
+                    positionId: context.positionId,
+                    reasonCode: context.reasonCode,
                 });
-                await executePositionExit({
+                return;
+            }
+
+            const releasedIntentCount = await releaseActiveMirrorSellIntent({
+                positionId: context.positionId,
+                targetSellTxHash: context.targetSellTxHash,
+                reasonCode: 'buy_confirmation_released',
+            }).catch(() => 0);
+            if (releasedIntentCount > 0) {
+                logger.info(LogCode.SYS_INFO, '[CopyTradeRace] Released blocked mirror sell intent after buy confirmation', {
                     userId: config.userId,
-                    tokenAddress: tokenToBuy,
+                    token: tokenToBuy,
                     chainId,
-                    exitReason: 'mirror_sell',
-                    tokenInfo,
-                    config: { ...effectiveConfig, user: effectiveConfig.user },
-                    positions: [mirrorSellPosition]
+                    txHash,
+                    positionId: context.positionId,
+                    targetSellTxHash: context.targetSellTxHash,
+                    reasonCode: context.reasonCode,
+                    releasedIntentCount,
+                });
+                return;
+            }
+
+            logger.warn(LogCode.SYS_INFO, '[CopyTradeRace] Target already sold while buy was pending; scheduling mirror sell on confirmation', {
+                userId: config.userId,
+                token: tokenToBuy,
+                chainId,
+                txHash,
+                positionId: context.positionId,
+                targetSellTxHash: context.targetSellTxHash,
+                reasonCode: context.reasonCode,
+            });
+
+            await persistTargetSellEventAndSchedulePositions({
+                event: buildTargetSellEventPayload({
+                    chainId,
+                    targetWallet,
+                    tokenAddress: tokenToBuy,
+                    targetSellTxHash: context.targetSellTxHash,
+                    targetFullExitVerified: false,
+                    source: 'buy_confirmation',
+                    metadata: {
+                        reasonCode: context.reasonCode,
+                        buyTxHash: txHash,
+                        leaderBuyTxHash: leaderTxHash || null,
+                    },
+                }),
+                positions: [{
+                    id: mirrorSellPosition.id,
+                    userId: mirrorSellPosition.userId,
+                    configId: mirrorSellPosition.configId,
+                    chainId: mirrorSellPosition.chainId,
+                    tokenAddress: mirrorSellPosition.tokenAddress,
+                    entryAmountExact: mirrorSellPosition.entryAmountExact,
+                    entryAmountDec: mirrorSellPosition.entryAmountDec,
+                }],
+                priority: 260,
+                metadata: {
+                    recoverySource: 'buy_confirmation',
+                    pendingMirrorReasonCode: context.reasonCode,
+                }
+            }).catch((error) => {
+                logger.error(LogCode.SYS_ERROR, '[CopyTradeRace] Failed to schedule mirror sell after buy confirmation', {
+                    userId: config.userId,
+                    token: tokenToBuy,
+                    chainId,
+                    txHash,
+                    positionId: context.positionId,
+                    targetSellTxHash: context.targetSellTxHash,
+                    reasonCode: context.reasonCode,
+                    error: error instanceof Error ? error.message : String(error),
+                });
+            });
+        };
+
+        const abortMirrorSellAfterBuyFailure = async (context: MirrorSellAbortContext) => {
+            const cancelledIntentCount = await cancelActiveMirrorSellIntentsForPosition({
+                positionId: context.positionId,
+                reasonCode: context.reasonCode,
+            }).catch(() => 0);
+            if (cancelledIntentCount > 0) {
+                logger.info(LogCode.SYS_INFO, '[CopyTradeRace] Cancelled blocked mirror sell intents after buy confirmation failure', {
+                    userId: config.userId,
+                    token: tokenToBuy,
+                    chainId,
+                    txHash,
+                    positionId: context.positionId,
+                    cancelledIntentCount,
                 });
             }
         };
@@ -2813,6 +2918,7 @@ async function processSingleUserBuy(
                 positionStatusCompat,
                 directFeeSettlement: swapMetadata?.directFeeSettlement || null,
                 onMirrorSellAfterConfirm: executeMirrorSellAfterBuyConfirm,
+                onMirrorSellAbort: abortMirrorSellAfterBuyFailure,
                 onNotifySuccess: notifyBuySuccessConfirmed,
                 recoverySource,
             });
@@ -3638,6 +3744,8 @@ async function handleTargetSell(
             return;
         }
         const matchedPositions = reconciledPositions.matchedPositions;
+        const openMatchedPositions = matchedPositions.filter((position) => String(position.status || '') === 'open');
+        const pendingMatchedPositions = matchedPositions.filter((position) => String(position.status || '') !== 'open');
         const pendingMatchedPositionIds = matchedPositions
             .filter((position) => String(position.status || '') !== 'open')
             .map((position) => position.id);
@@ -3669,6 +3777,65 @@ async function handleTargetSell(
             }).catch(() => [])
             : [];
 
+        if (pendingMatchedPositions.length > 0 && swap.txHash) {
+            const persistedEvent = await persistTargetSellEventAndSchedulePositions({
+                event: buildTargetSellEventPayload({
+                    chainId,
+                    targetWallet: normalizedWallet,
+                    tokenAddress: tokenToSell,
+                    targetSellTxHash: swap.txHash,
+                    targetFullExitVerified: false,
+                    source: 'webhook',
+                    metadata: {
+                        sellPath: 'pending_position_detected',
+                    },
+                }),
+                positions: [],
+                priority: 260,
+            }).catch(() => null);
+
+            if (persistedEvent?.event?.id) {
+                let blockedIntentScheduled = 0;
+                let blockedIntentSkipped = 0;
+                for (const pendingPosition of pendingMatchedPositions) {
+                    const result = await enqueuePositionExitIntent({
+                        positionId: pendingPosition.id,
+                        userId: config.userId,
+                        configId: config.id,
+                        chainId,
+                        tokenAddress: tokenToSell,
+                        exitReason: 'mirror_sell',
+                        sourceEventId: persistedEvent.event.id,
+                        targetSellTxHash: swap.txHash,
+                        priority: 260,
+                        lane: resolveExitIntentLane(chainId),
+                        notBefore: new Date(Date.now() + BLOCKED_MIRROR_SELL_INTENT_GRACE_MS),
+                        metadata: {
+                            targetWallet: normalizedWallet,
+                            targetFullExitVerified: false,
+                            blockedBy: 'buy_confirmation',
+                            pendingPositionId: pendingPosition.id,
+                        },
+                    }).catch(() => null);
+                    if (result?.created) {
+                        blockedIntentScheduled += 1;
+                    } else if (result) {
+                        blockedIntentSkipped += 1;
+                    }
+                }
+                logger.info(LogCode.SYS_INFO, '[CopyTradeRace] Scheduled blocked mirror sell intents for pending exposure', {
+                    userId: config.userId,
+                    token: tokenToSell,
+                    chainId,
+                    targetWallet: normalizedWallet,
+                    targetSellTxHash: swap.txHash,
+                    pendingPositionIds: pendingMatchedPositionIds,
+                    blockedIntentScheduled,
+                    blockedIntentSkipped,
+                });
+            }
+        }
+
         const mirrorSellExecutionPolicy = evaluateMirrorSellExecutionPolicy({
             matchedPositions,
             pendingAttributedLots
@@ -3696,10 +3863,23 @@ async function handleTargetSell(
         });
 
         // Leader stat tracking (only for mirror sell)
-        const balanceUsdForStats = matchedPositions.reduce((sum, p) => sum + (p.entryUsdValue || 0), 0);
+        const balanceUsdForStats = openMatchedPositions.reduce((sum, p) => sum + (p.entryUsdValue || 0), 0);
         recordNewTrade(targetWallet, chainId, 'sell', balanceUsdForStats);
 
-        const positionIds = matchedPositions.map(p => p.id);
+        if (openMatchedPositions.length === 0 && swap.txHash) {
+            logger.info(LogCode.SYS_INFO, '[CopyTradeRace] Deferred mirror sell execution until buy confirmation for pending-only exposure', {
+                userId: config.userId,
+                token: tokenToSell,
+                chainId,
+                targetWallet: normalizedWallet,
+                targetSellTxHash: swap.txHash || undefined,
+                reasonCode: mirrorSellExecutionPolicy.reasonCode,
+                pendingPositionIds: pendingMatchedPositionIds,
+            });
+            return;
+        }
+
+        const positionIds = openMatchedPositions.map(p => p.id);
         if (positionIds.some(id => positionsBeingExited.has(id))) {
             logger.throttled(LogCode.WTC_TX_SKIPPED, 'Mirror sell skipped: position already being processed', { userId: config.userId, token: tokenToSell });
             return;
@@ -3714,8 +3894,7 @@ async function handleTargetSell(
                 exitReason: 'mirror_sell',
                 tokenInfo,
                 config: { ...config, user: (config as any).user },
-                positions: matchedPositions,
-                pendingAttributedLots
+                positions: openMatchedPositions
             });
         } finally {
             positionIds.forEach(id => positionsBeingExited.delete(id));

@@ -5,14 +5,7 @@ import * as targetSellFullExitVerifier from '../reconcile/targetSellFullExitVeri
 import { evaluateDeferredMirrorSellIntent } from '../reconcile/mirrorSellReconcilePolicy.js';
 import { normalizeWallet } from '../runtime/chainIdentityNormalizer.js';
 
-export async function resolvePendingMirrorSellIntent(params: {
-  positionId?: string | null;
-  targetWallet?: string | null;
-  tokenAddress: string;
-  chainId: number;
-  leaderBuyTxHash?: string | null;
-  positionCreatedAt?: Date | null;
-}): Promise<{
+export type ResolvedPendingMirrorSellIntent = {
   shouldMirrorSell: boolean;
   targetSellTxHash?: string;
   reasonCode:
@@ -23,7 +16,16 @@ export async function resolvePendingMirrorSellIntent(params: {
     | 'TARGET_SELL_PARTIAL_BALANCE_REMAINING'
     | 'TARGET_SELL_BALANCE_UNVERIFIED'
     | 'NO_PENDING_MIRROR_SELL_INTENT';
-}> {
+};
+
+export async function resolvePendingMirrorSellIntent(params: {
+  positionId?: string | null;
+  targetWallet?: string | null;
+  tokenAddress: string;
+  chainId: number;
+  leaderBuyTxHash?: string | null;
+  positionCreatedAt?: Date | null;
+}): Promise<ResolvedPendingMirrorSellIntent> {
   const ledger = await resolveCopytradeLedger({
     chainId: params.chainId,
     tokenAddress: params.tokenAddress,

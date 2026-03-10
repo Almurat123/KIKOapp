@@ -262,3 +262,65 @@ export async function hasActiveExitIntent(positionId: string): Promise<boolean> 
   });
   return Boolean(row?.id);
 }
+
+export async function hasActiveMirrorSellIntentForUserChain(params: {
+  userId: string;
+  chainId: number;
+}): Promise<boolean> {
+  const row = await prisma.positionExitIntent.findFirst({
+    where: {
+      userId: params.userId,
+      chainId: params.chainId,
+      exitReason: 'mirror_sell',
+      lifecycleState: { in: ACTIVE_INTENT_STATES },
+    },
+    select: { id: true },
+  });
+  return Boolean(row?.id);
+}
+
+export async function releaseActiveMirrorSellIntent(params: {
+  positionId: string;
+  targetSellTxHash: string;
+  reasonCode?: string | null;
+}): Promise<number> {
+  const targetSellTxHash = String(params.targetSellTxHash || '').trim();
+  if (!params.positionId || !targetSellTxHash) return 0;
+  const result = await prisma.positionExitIntent.updateMany({
+    where: {
+      positionId: params.positionId,
+      exitReason: 'mirror_sell',
+      targetSellTxHash,
+      lifecycleState: { in: ACTIVE_INTENT_STATES },
+    },
+    data: {
+      notBefore: null,
+      lastReasonCode: params.reasonCode || 'buy_confirmation_released',
+      claimedAt: null,
+      claimedBy: null,
+    },
+  });
+  return result.count;
+}
+
+export async function cancelActiveMirrorSellIntentsForPosition(params: {
+  positionId?: string | null;
+  reasonCode: string;
+}): Promise<number> {
+  if (!params.positionId) return 0;
+  const result = await prisma.positionExitIntent.updateMany({
+    where: {
+      positionId: params.positionId,
+      exitReason: 'mirror_sell',
+      lifecycleState: { in: ACTIVE_INTENT_STATES },
+    },
+    data: {
+      lifecycleState: 'EXIT_FAILED_TERMINAL',
+      lastReasonCode: params.reasonCode,
+      claimedAt: null,
+      claimedBy: null,
+      closedAt: new Date(),
+    },
+  });
+  return result.count;
+}
