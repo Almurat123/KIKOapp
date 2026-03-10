@@ -21,6 +21,7 @@ import { AppError } from '../middleware/errorHandler.js';
 import { syncCopyTradeWebhookChain } from '../services/copyTradeWebhookSync.js';
 import { resolveMaxEntryDeviationBps } from '../services/copytrade-v2/config/entryDeviationPolicy.js';
 import { CopytradeV2QueryService } from '../services/copytrade-v2/data-flow/queryService.js';
+import { assertCopyTradeAutoTradingAuthorized } from '../services/copyTradeAuthorization.js';
 
 interface CreateConfigBody {
     signedPayload: Record<string, unknown> | string;
@@ -240,6 +241,8 @@ export default async function copyTradeRoutes(fastify: FastifyInstance) {
             if (!resolvedMode.valid) {
                 return reply.status(400).send({ error: 'executionMode must be one of: safe, normal, turbo' });
             }
+
+            await assertCopyTradeAutoTradingAuthorized(userId, chainId);
 
             // Create config
             const config = await prisma.copyTradeConfig.create({

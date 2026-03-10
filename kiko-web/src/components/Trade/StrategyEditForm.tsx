@@ -52,7 +52,7 @@ const EXECUTION_MODE_OPTIONS: Array<{ value: ExecutionMode; label: string; desc:
     }
 ];
 
-export const StrategyEditForm: React.FC<StrategyEditFormProps> = ({ config, onSave, onCancel }) => {
+export const StrategyEditForm: React.FC<StrategyEditFormProps> = ({ config, onSave, onCancel: _onCancel }) => {
     const initialExecutionMode: ExecutionMode =
         (config.executionMode as ExecutionMode | undefined) ?? (config.disableTokenInfo ? 'turbo' : 'normal');
     const getLiquidityFloor = (mode: ExecutionMode) => mode === 'turbo' ? TURBO_MIN_LIQUIDITY_USD : NORMAL_MIN_LIQUIDITY_USD;
@@ -76,18 +76,27 @@ export const StrategyEditForm: React.FC<StrategyEditFormProps> = ({ config, onSa
     });
 
     const formDataRef = useRef(formData);
+    const hasChangedRef = useRef(false);
     const [rawNumericInputs, setRawNumericInputs] = useState<Partial<Record<NumericField, string>>>({});
-    const [isSaving, setIsSaving] = useState(false);
-    const [saveError, setSaveError] = useState<string | null>(null);
 
     // [Logic]: Sync ref with state for use in cleanup.
     useEffect(() => {
         formDataRef.current = formData;
     }, [formData]);
 
+    useEffect(() => {
+        return () => {
+            if (hasChangedRef.current) {
+                void onSave(formDataRef.current).catch(() => {
+                    // Save errors are surfaced by the strategy hook; avoid unhandled rejections on unmount.
+                });
+            }
+        };
+    }, [onSave]);
+
     const updateFormData = (updates: Partial<CopyTradeConfig>) => {
         setFormData(prev => ({ ...prev, ...updates }));
-        setSaveError(null);
+        hasChangedRef.current = true;
     };
     const setRawNumericInput = (field: NumericField, value?: string) => {
         setRawNumericInputs((prev) => {
@@ -235,19 +244,6 @@ export const StrategyEditForm: React.FC<StrategyEditFormProps> = ({ config, onSa
         const timer = setTimeout(() => setIsReady(true), 50);
         return () => clearTimeout(timer);
     }, []);
-
-    const handleSaveClick = async () => {
-        setIsSaving(true);
-        setSaveError(null);
-        try {
-            await onSave(formDataRef.current);
-            onCancel();
-        } catch (error) {
-            setSaveError(error instanceof Error ? error.message : 'Failed to save strategy.');
-        } finally {
-            setIsSaving(false);
-        }
-    };
 
     return (
         <div
@@ -520,27 +516,6 @@ export const StrategyEditForm: React.FC<StrategyEditFormProps> = ({ config, onSa
                 )}
             </div>
 
-            <div className={styles.actions}>
-                {saveError && <p className={styles.actionError}>{saveError}</p>}
-                <div className={styles.actionRow}>
-                    <button
-                        type="button"
-                        className={styles.secondaryButton}
-                        onClick={onCancel}
-                        disabled={isSaving}
-                    >
-                        Cancel
-                    </button>
-                    <button
-                        type="button"
-                        className={styles.primaryButton}
-                        onClick={handleSaveClick}
-                        disabled={isSaving}
-                    >
-                        {isSaving ? 'Saving...' : 'Save Strategy'}
-                    </button>
-                </div>
-            </div>
         </div>
     );
 };

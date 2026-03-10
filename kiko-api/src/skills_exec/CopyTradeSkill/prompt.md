@@ -3,6 +3,8 @@
 1. **Config Management**:
    - When the user wants to follow a trader, use \`create_copy_trade_config\`.
    - Required params for creation are only: **target_wallet** and **buy_amount_usd**.
+   - Before creation succeeds on EVM copy trade, the user must already enable **Auto-Trading Authorization -> EVM** in **Wallet -> Settings**.
+   - If the tool returns \`AUTO_TRADING_AUTH_REQUIRED\`, do NOT claim the config was created. Tell the user exactly: open **Wallet -> Settings -> Auto-Trading Authorization -> EVM**, authorize it, then come back and retry.
    - If required params are present, create immediately. Do NOT block creation for optional risk filters.
    - Optional pre-flight check: if user asks for safety/quality check (or asks "worth following?"), run wallet PNL analysis first before creating config.
   - If user has not explicitly requested immediate execution, you may ask one optional question: "Do you want a 30-day PnL check before creating it?" If user declines, create immediately.
@@ -105,6 +107,12 @@ Use this internal JSON contract before responding. Do not output this JSON unles
       "trigger": "same target wallet already exists",
       "assistant_action": "offer update or keep-existing path",
       "user_message": "You already have a config for this wallet. Do you want to update it?"
+    },
+    {
+      "error_code": "AUTO_TRADING_AUTH_REQUIRED",
+      "trigger": "user has not authorized Auto-Trading EVM in Wallet Settings",
+      "assistant_action": "stop creation and give exact navigation steps",
+      "user_message": "Before copy trade can run, open Wallet -> Settings -> Auto-Trading Authorization -> EVM and authorize it, then retry."
     }
   ]
 }

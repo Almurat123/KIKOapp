@@ -7,9 +7,19 @@ import { CopyTradePhoneDemo } from './CopyTradePhoneDemo';
 import { CopyTradeToastTest } from './CopyTradeToastTest';
 import { CopyTradeToastSequence } from './CopyTradeToastSequence';
 
+import { FarcasterSupportVideo } from './FarcasterSupportVideo';
+
 export const RemotionRoot = () => {
     return (
         <>
+            <Composition
+                id="FarcasterSupportVideo"
+                component={FarcasterSupportVideo}
+                durationInFrames={150}
+                fps={30}
+                width={1080}
+                height={1080}
+            />
             <Composition
                 id="KikoHero"
                 component={MyVideo}

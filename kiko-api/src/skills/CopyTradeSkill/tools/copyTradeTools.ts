@@ -5,6 +5,10 @@ import { validateAddress } from '../../../utils/validation.js';
 import { resolveExecutionModeFromConfig } from '../../../services/copyTradeExecutionMode.js';
 import { syncCopyTradeWebhookChain } from '../../../services/copyTradeWebhookSync.js';
 import { DEFAULT_COPYTRADE_ENTRY_DEVIATION_BPS, resolveMaxEntryDeviationBps } from '../../../services/copytrade-v2/config/entryDeviationPolicy.js';
+import {
+    assertCopyTradeAutoTradingAuthorized,
+    buildCopyTradeAuthorizationStopResult,
+} from '../../../services/copyTradeAuthorization.js';
 
 export const CreateCopyTradeConfigTool: Tool = {
     definition: {
@@ -74,6 +78,15 @@ export const CreateCopyTradeConfigTool: Tool = {
         }
         if (!Number.isFinite(buyAmountUsd) || buyAmountUsd <= 0) {
             throw new Error('buy_amount_usd must be a positive number');
+        }
+
+        try {
+            await assertCopyTradeAutoTradingAuthorized(userId, chainId);
+        } catch (error: any) {
+            if (error?.code === 'AUTO_TRADING_AUTH_REQUIRED') {
+                return buildCopyTradeAuthorizationStopResult();
+            }
+            throw error;
         }
 
         const resolvedMode = resolveExecutionModeFromConfig({

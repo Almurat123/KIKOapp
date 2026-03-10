@@ -253,6 +253,9 @@ export const useStrategies = () => {
   }, []);
 
   const updateStrategy = useCallback(async (id: string, updates: Partial<TradingStrategy>) => {
+    const previousStrategy = strategies.find(s => s.id === id);
+    if (!previousStrategy) return;
+
     // Optimistic update
     setStrategies(prev =>
       prev.map(strat =>
@@ -263,7 +266,7 @@ export const useStrategies = () => {
     );
 
     // API Update for Copy Trade
-    const strategy = strategies.find(s => s.id === id);
+    const strategy = previousStrategy;
     if (strategy?.type === 'copy_trade' && updates.copyTradeConfig) {
       try {
         const signerWallet = wallets.find((w: any) => w.walletClientType === 'privy' && w.chainId?.includes?.('eip155'))
@@ -303,6 +306,9 @@ export const useStrategies = () => {
         )));
       } catch (error) {
         console.error('[useStrategies] Failed to update remote config:', error);
+        setStrategies(prev => prev.map(strat => (
+          strat.id === id ? previousStrategy : strat
+        )));
         if (error instanceof CopyTradeApiError) {
           if (error.code === 'SIGNATURE_REQUIRED') toast.error('Signature required. Please sign in your Privy wallet.');
           else if (error.code === 'SIGNATURE_INVALID') toast.error('Signature invalid. Please retry signing.');
@@ -312,7 +318,7 @@ export const useStrategies = () => {
         } else {
           toast.error(error instanceof Error ? error.message : 'Failed to update strategy');
         }
-        fetchAllStrategies();
+        throw error;
       }
     } else if (strategy?.type === 'polymarket_copy' && updates.polymarketCopyConfig) {
       try {
@@ -337,8 +343,11 @@ export const useStrategies = () => {
         )));
       } catch (error) {
         console.error('[useStrategies] Failed to update polymarket config:', error);
+        setStrategies(prev => prev.map(strat => (
+          strat.id === id ? previousStrategy : strat
+        )));
         toast.error(error instanceof Error ? error.message : 'Failed to update Polymarket strategy');
-        fetchAllStrategies();
+        throw error;
       }
     }
   }, [strategies, fetchAllStrategies, wallets, user]);
