@@ -45,7 +45,7 @@ export const RemotionRoot = () => {
             <Composition
                 id="CopyTradeToastSequence"
                 component={CopyTradeToastSequence}
-                durationInFrames={408}
+                durationInFrames={480}
                 fps={30}
                 width={1920}
                 height={1080}

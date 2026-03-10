@@ -50,7 +50,6 @@ import {
     buildOrderAuditFields,
 } from './order-runtime/sinks/persistence.js';
 import type { OrderRuntimeContext } from './order-runtime/types.js';
-import { setOrderMetadata } from './order-runtime/context.js';
 import { buildEvmExitPlan } from './copytrade-v2/exit/planner.js';
 import { executePlannedEvmExitFlow } from './copytrade-v2/exit/evmExitExecutionFlow.js';
 import {
@@ -69,6 +68,7 @@ import {
 } from './copytrade-v2/guards/targetValueGuard.js';
 import { emitCopyTradeBuyGuardAudit, roundGuardNumber } from './copytrade-v2/guards/guardAudit.js';
 import { emitCopytradeDomainAudit } from './copytrade-v2/audit/copytradeDomainAudit.js';
+import { resolveBuyLiquidityGuardSnapshot } from './copytrade-v2/guards/liquidityGuard.js';
 import { buildDuplicateTradeWhere, describeCooldownMode } from './copytrade-v2/guards/cooldownPolicy.js';
 import { evaluateStaticBuyGuards } from './copytrade-v2/guards/evaluator.js';
 import { emitBatchFilterAudit } from './copytrade-v2/guards/batchFilterAudit.js';
@@ -78,24 +78,9 @@ import { emitEntryDeviationSummary } from './copytrade-v2/audit/entryDeviationAu
 import { executeEvmCopytradeBuySubmissionFlow } from './copytrade-v2/buy/evmBuySubmissionFlow.js';
 import { persistCopytradeBuySubmission } from './copytrade-v2/buy/buyPersistenceFlow.js';
 import { runPostBuyAiFlow } from './copytrade-v2/buy/postBuyAiFlow.js';
-import { shouldSkipCopyTradeLocalReferenceQuote } from './copytrade-v2/buy/turboReferenceGate.js';
-import {
-    resolveCopyTradePriceGuardOracleInput,
-    resolveCopyTradeEntryDeviationReference,
-} from './copytrade-v2/buy/directGuardPolicy.js';
-import {
-    buildGuardedTokenInfoForConfigs,
-    partitionConfigsByBuyGuardBucket,
-} from './copytrade-v2/buy/guardedTokenInfo.js';
-import { resolveCopytradeSharedPreparationPolicy } from './copytrade-v2/buy/sharedPreparationPolicy.js';
-import {
-    buildRecoverablePendingEntryTxHash,
-    shouldTerminalFailStalePendingPosition
-} from './copytrade-v2/buy/pendingProtectionPolicy.js';
 import { applyBuyConfirmationTransition } from './copytrade-v2/buy/buyConfirmationTransition.js';
 import { scheduleCopytradeBuyConfirmationFlow } from './copytrade-v2/buy/buyConfirmationCoordinator.js';
 import { cleanupPendingCopytradePosition } from './copytrade-v2/buy/pendingLifecycle.js';
-import { scheduleLateBuySubmissionAdoption } from './copytrade-v2/buy/lateBuySubmissionAdoption.js';
 import { buildCopytradeBuyPlannedArtifact } from './copytrade-v2/buy/plannedExecutionArtifact.js';
 import { shouldAbortCopytradeBuyRetry } from './copytrade-v2/buy/copytradeBuyRetryGuard.js';
 import { evaluateBuyPriceDeviationGuard } from './copytrade-v2/buy/buyGuardPriceDeviation.js';
@@ -213,14 +198,6 @@ function recordTpslHit(positionId: string, side: 'tp' | 'sl', pnlPct: number): n
 
 function clearTpslHit(positionId: string): void {
     tpslHitTracker.delete(positionId);
-}
-
-const LOCAL_POSITION_CLOSE_GUARD_MS = 2 * 60 * 1000;
-
-function markPositionLocallyClosed(positionId: string): void {
-    clearTpslHit(positionId);
-    positionsBeingExited.add(positionId);
-    setTimeout(() => positionsBeingExited.delete(positionId), LOCAL_POSITION_CLOSE_GUARD_MS);
 }
 
 function pruneTpslTracker(): void {
@@ -788,6 +765,9 @@ export async function handleSwapDetected(
         isBuy,
         isSell,
         isTokenToToken,
+        isRoutable: direction.isRoutable,
+        isAmbiguous: direction.isAmbiguous,
+        isExplicitTokenSwap: direction.isExplicitTokenSwap,
         tokenInIsCash: direction.tokenInIsCash,
         tokenOutIsCash: direction.tokenOutIsCash,
         inferredTxType: direction.inferredTxType,
@@ -810,6 +790,9 @@ export async function handleSwapDetected(
         isBuy,
         isSell,
         isTokenToToken,
+        isRoutable: direction.isRoutable,
+        isAmbiguous: direction.isAmbiguous,
+        isExplicitTokenSwap: direction.isExplicitTokenSwap,
         tokenInIsCash: direction.tokenInIsCash,
         tokenOutIsCash: direction.tokenOutIsCash,
         source: direction.source,
@@ -857,43 +840,64 @@ export async function handleSwapDetected(
         }).catch(() => undefined);
     }
 
-    if (isSell) {
-        logger.info(LogCode.EXE_TX_BROADCAST, 'Target is selling - triggering mirror sell', { targetWallet, token: swap.tokenIn });
-        await handleTargetSell(targetWallet, swap, chainId);
-    } else if (isBuy) {
-        logger.info(LogCode.EXE_TX_BROADCAST, 'Target is buying - triggering copy trade', { targetWallet, token: swap.tokenOut });
-        await handleTargetBuy(targetWallet, swap, chainId, context);
-    } else if (isTokenToToken) {
-        const tokenToTokenPlan = resolveTokenToTokenExecutionPlan({
-            tokenToTokenEnabled: COPYTRADE_ENABLE_TOKEN_TO_TOKEN_PARALLEL
-        });
-        logger.info(LogCode.EXE_TX_BROADCAST, 'Token-to-token route detected - executing sell leg semantics', {
+    if (direction.isAmbiguous) {
+        logger.warn(LogCode.WTC_TX_SKIPPED, 'Skipping copytrade: ambiguous token-to-token activity is unroutable', {
             targetWallet,
             chainId,
             txHash: swap.txHash,
             tokenIn: swap.tokenIn,
             tokenOut: swap.tokenOut,
-            shouldSellLeg: tokenToTokenPlan.shouldSellLeg,
-            shouldBuyLeg: tokenToTokenPlan.shouldBuyLeg,
+            inferredTxType: direction.inferredTxType,
+            source: direction.source
+        });
+        return;
+    }
+
+    if (isSell) {
+        logger.info(LogCode.EXE_TX_BROADCAST, 'Target is selling - triggering mirror sell', { targetWallet, token: swap.tokenIn });
+        await handleTargetSell(targetWallet, swap, chainId);
+    } else if (isBuy) {
+        logger.info(LogCode.EXE_TX_BROADCAST, 'Target is buying - triggering copy trade', { targetWallet, token: swap.tokenOut });
+        await handleTargetBuy(targetWallet, swap, chainId, { detectedAt });
+    } else if (isTokenToToken) {
+        const tokenToTokenPlan = resolveTokenToTokenExecutionPlan({
+            tokenToTokenEnabled: COPYTRADE_ENABLE_TOKEN_TO_TOKEN_PARALLEL,
+            explicitTokenSwap: direction.isExplicitTokenSwap
+        });
+        if (!tokenToTokenPlan.shouldSellLeg && !tokenToTokenPlan.shouldBuyLeg) {
+            logger.warn(LogCode.WTC_TX_SKIPPED, 'Skipping token-to-token activity by policy', {
+                targetWallet,
+                chainId,
+                txHash: swap.txHash,
+                tokenIn: swap.tokenIn,
+                tokenOut: swap.tokenOut,
+                reasonCode: tokenToTokenPlan.reasonCode,
+                inferredTxType: direction.inferredTxType,
+                source: direction.source
+            });
+            return;
+        }
+        logger.info(LogCode.EXE_TX_BROADCAST, 'Explicit token swap detected - running mirrored sell and buy legs', {
+            targetWallet,
+            chainId,
+            txHash: swap.txHash,
+            tokenIn: swap.tokenIn,
+            tokenOut: swap.tokenOut,
             reasonCode: tokenToTokenPlan.reasonCode
         });
         await Promise.all([
-            tokenToTokenPlan.shouldSellLeg
-                ? handleTargetSell(targetWallet, swap, chainId).catch(e => logger.error(LogCode.EXE_TX_REVERTED, 'Token-to-token sell leg error', {
+            handleTargetSell(targetWallet, swap, chainId).catch(e => logger.error(LogCode.EXE_TX_REVERTED, 'Token-to-token sell leg error', {
+                error: compactCopyTradeError(e),
+                bugHint: inferCopyTradeBugHint(e),
+                txHash: swap.txHash,
+                chainId
+            })),
+            handleTargetBuy(targetWallet, swap, chainId, { detectedAt }).catch(e => logger.error(LogCode.EXE_TX_REVERTED, 'Token-to-token buy leg error', {
                 error: compactCopyTradeError(e),
                 bugHint: inferCopyTradeBugHint(e),
                 txHash: swap.txHash,
                 chainId
             }))
-                : Promise.resolve(),
-            tokenToTokenPlan.shouldBuyLeg
-                ? handleTargetBuy(targetWallet, swap, chainId, context).catch(e => logger.error(LogCode.EXE_TX_REVERTED, 'Token-to-token buy leg error', {
-                error: compactCopyTradeError(e),
-                bugHint: inferCopyTradeBugHint(e),
-                txHash: swap.txHash,
-                chainId
-            }))
-                : Promise.resolve()
         ]);
     } else {
         // logger.throttled(LogCode.WTC_TX_SKIPPED, 'Cash-to-Cash or ignored swap type detected', { tokenIn: swap.tokenIn, tokenOut: swap.tokenOut });
@@ -1178,18 +1182,10 @@ async function processBuyWithInfo(
     tokenInfoCache?: Map<string, Promise<any>>,
     sharedWarmup?: Awaited<ReturnType<typeof getCopytradeBuySharedWarmup>>,
     timing?: CopyTradeTimingSnapshot,
-    detectedAt?: number,
-    internalOptions?: {
-        skipLeaderTradeStats?: boolean;
-        guardBucket?: 'safe' | 'direct';
-    }
+    detectedAt?: number
 ) {
     const PROFILE = process.env.COPYTRADE_PROFILE ? process.env.COPYTRADE_PROFILE === 'true' : true;
     const tStart = Date.now();
-    const sharedPreparationPolicy = resolveCopytradeSharedPreparationPolicy(
-        configs,
-        resolveExecutionModeForConfig
-    );
     tokenInfo.tokenAddress = tokenToBuy;
     const targetValueSnapshot = await computeBuyTargetValueSnapshot(swap, chainId, tokenInfo);
     let targetSwapValueUsd = targetValueSnapshot.targetSwapValueUsd;
@@ -1197,60 +1193,21 @@ async function processBuyWithInfo(
     let strictTargetSwapValueReliable = targetValueSnapshot.strictTargetSwapValueReliable;
     let strictTargetSwapValueSource = targetValueSnapshot.strictTargetSwapValueSource;
     const strictMinGuardRequired = targetValueSnapshot.strictMinGuardRequired;
-    if (!internalOptions?.guardBucket) {
-        const guardBucketGroups = partitionConfigsByBuyGuardBucket(configs, resolveExecutionModeForConfig);
-        if (guardBucketGroups.size > 1) {
-            logger.info(LogCode.EXE_QUOTE_FETCHED, '[CopyTrade] Splitting mixed-mode buy fanout by guard bucket', {
-                token: tokenToBuy,
-                chainId,
-                safeCount: guardBucketGroups.get('safe')?.length || 0,
-                directCount: guardBucketGroups.get('direct')?.length || 0,
-            });
-            recordNewTrade(targetWallet, chainId, 'buy', targetSwapValueUsd);
-            for (const bucket of ['safe', 'direct'] as const) {
-                const bucketConfigs = guardBucketGroups.get(bucket);
-                if (!bucketConfigs || bucketConfigs.length === 0) continue;
-                await processBuyWithInfo(
-                    targetWallet,
-                    tokenToBuy,
-                    swap,
-                    chainId,
-                    bucketConfigs,
-                    { ...tokenInfo },
-                    isFallbackMode,
-                    launchpadPromise,
-                    tokenInfoCache,
-                    sharedWarmup,
-                    timing,
-                    detectedAt,
-                    {
-                        skipLeaderTradeStats: true,
-                        guardBucket: bucket,
-                    }
-                );
-            }
-            return;
-        }
-    }
-
-    const guardedTokenInfo = await buildGuardedTokenInfoForConfigs({
-        tokenToBuy,
-        chainId,
+    const stopAtLiquidityUsd = configs.reduce((max, config) => {
+        const next = Number(config?.minLiquidityUsd || 0);
+        return Number.isFinite(next) && next > max ? next : max;
+    }, 0);
+    const liquidityGuardSnapshot = await resolveBuyLiquidityGuardSnapshot(tokenToBuy, chainId, tokenInfo, {
         swap,
-        tokenInfo,
-        configs,
-        resolveExecutionMode: resolveExecutionModeForConfig,
+        stopAtLiquidityUsd,
     });
-    tokenInfo = guardedTokenInfo.tokenInfo;
-    const liquidityGuardSnapshot = guardedTokenInfo.liquidityGuardSnapshot;
-
-    if (sharedPreparationPolicy.allTurbo) {
-        logger.info(LogCode.EXE_QUOTE_FETCHED, '[CopyTrade] Turbo batch fast path skipping shared liquidity scan and market-cap derivation', {
-            token: tokenToBuy,
-            chainId,
-            configCount: configs.length,
-            bucket: guardedTokenInfo.bucket
-        });
+    tokenInfo.guardLiquidityUsd = liquidityGuardSnapshot.liquidityUsd;
+    tokenInfo.guardLiquiditySource = liquidityGuardSnapshot.source;
+    tokenInfo.guardLiquidityReliable = liquidityGuardSnapshot.reliable;
+    tokenInfo.guardLiquidityPoolCount = liquidityGuardSnapshot.poolCount;
+    tokenInfo.guardLiquidityMeta = liquidityGuardSnapshot.metadata || null;
+    if (liquidityGuardSnapshot.liquidityUsd > 0) {
+        tokenInfo.liquidity = liquidityGuardSnapshot.liquidityUsd;
     }
 
     logger.debug(LogCode.EXE_QUOTE_FETCHED, 'Processing configurations for buy', {
@@ -1313,7 +1270,7 @@ async function processBuyWithInfo(
                     valueUsd: targetSwapValueUsd
                 });
 
-                if (!sharedPreparationPolicy.skipMarketCapDerivation && chainId !== 900 && (!tokenInfo.marketCap || tokenInfo.marketCap <= 0)) {
+                if (chainId !== 900 && (!tokenInfo.marketCap || tokenInfo.marketCap <= 0)) {
                     try {
                         const totalSupply = await getTokenSupply(chainId, tokenToBuy, {
                             rpcStrategy: 'fast',
@@ -1337,7 +1294,7 @@ async function processBuyWithInfo(
                     }
                 }
 
-                if (!sharedPreparationPolicy.skipMarketCapDerivation && chainId === 900 && (!tokenInfo.marketCap || tokenInfo.marketCap <= 0)) {
+                if (chainId === 900 && (!tokenInfo.marketCap || tokenInfo.marketCap <= 0)) {
                     try {
                         const supplyResp = await callRpc<any>('solana', 'getTokenSupply', [tokenToBuy], {
                             rpcClass: 'best_effort_read',
@@ -1369,7 +1326,7 @@ async function processBuyWithInfo(
         }
     }
 
-    if (!sharedPreparationPolicy.skipMarketCapDerivation && chainId === 900 && tokenInfo.price > 0 && (!tokenInfo.marketCap || tokenInfo.marketCap <= 0)) {
+    if (chainId === 900 && tokenInfo.price > 0 && (!tokenInfo.marketCap || tokenInfo.marketCap <= 0)) {
         try {
             const supplyResp = await callRpc<any>('solana', 'getTokenSupply', [tokenToBuy], {
                 rpcClass: 'best_effort_read',
@@ -1398,9 +1355,7 @@ async function processBuyWithInfo(
 
     // Record Leader Trade Stats (Buy)
     // We record it once for the leader, regardless of how many users copy it
-    if (!internalOptions?.skipLeaderTradeStats) {
-        recordNewTrade(targetWallet, chainId, 'buy', targetSwapValueUsd);
-    }
+    recordNewTrade(targetWallet, chainId, 'buy', targetSwapValueUsd);
 
     // TURBO FAST LANE:
     // Skip batch analytics/caching/delays and execute immediately for all-turbo configs.
@@ -1824,13 +1779,11 @@ async function processSingleUserBuy(
         let pendingPositionId: string | null = null;
         let pendingPositionCreatedAt: Date | null = null;
         let pendingPositionSettled = false;
-        let persistedPositionId: string | null = null;
         let attributedEntryAmountHuman: string | null = null;
         let txHash = '';
         let txLifecycleStatus: string | undefined;
         let orderRuntimeContext: any = undefined;
         let swapMetadata: MainSwapResult['metadata'] | undefined;
-        let scheduleBuyConfirmation = () => {};
 
         try {
             const dispatchDetectedAt = getCopyTradeDispatchDetectedAt(timing, detectedAt);
@@ -2090,14 +2043,14 @@ async function processSingleUserBuy(
             // fallback when no local quote is available.
             // This protects against buying at the absolute top of a "scam wick" or high slippage event.
             let targetExecutionPrice = 0;
-            let localQuotePriceUsd = 0;
             if (targetSwapValueUsd > 0) { // G2: Solana 也参与价格偏离比例检测
                 try {
                     const estimatedOut = Number(ethers.formatUnits(swap.amountOut, tokenInfo.decimals || (chainId === 900 ? 9 : 18)));
                     if (estimatedOut > 0) {
+                        let localQuotePriceUsd = 0;
                         let localQuoteProvider: string | undefined;
                         let oraclePriceSource: 'market_oracle_price' | 'local_quote_price' = 'market_oracle_price';
-                        if (!shouldSkipCopyTradeLocalReferenceQuote(chainId, executionMode)) {
+                        if (chainId !== 900) {
                             try {
                                 const amountInWei = ethers.parseUnits((usdAmount / nativePrice).toFixed(18), 18);
                                 const quotedAmountOutWei = await getReferenceExpectedOutput(
@@ -2124,27 +2077,18 @@ async function processSingleUserBuy(
                             } catch {
                                 localQuotePriceUsd = 0;
                             }
-                        } else if (executionMode === 'turbo') {
-                            localQuoteProvider = 'turbo_reference_quote_skipped';
                         }
-
-                        const priceGuardOracleInput = resolveCopyTradePriceGuardOracleInput({
-                            executionMode,
-                            localQuotePriceUsd,
-                            localQuoteProvider,
-                            tokenInfo,
-                        });
 
                         const priceDeviationGuard = evaluateBuyPriceDeviationGuard({
                             chainId,
-                            oraclePrice: priceGuardOracleInput.oraclePrice,
-                            oraclePriceSource: priceGuardOracleInput.oraclePriceSource || oraclePriceSource,
-                            oracleProvider: priceGuardOracleInput.oracleProvider,
-                            oracleDexName: priceGuardOracleInput.oracleDexName,
-                            oracleValidationReason: priceGuardOracleInput.oracleValidationReason,
-                            referencePrice: priceGuardOracleInput.referencePrice,
-                            referenceProvider: priceGuardOracleInput.referenceProvider,
-                            oracleFallbackUsed: Boolean(priceGuardOracleInput.oracleFallbackUsed),
+                            oraclePrice: localQuotePriceUsd > 0 ? localQuotePriceUsd : Number(tokenInfo.price || 0),
+                            oraclePriceSource,
+                            oracleProvider: localQuotePriceUsd > 0 ? localQuoteProvider : tokenInfo.provider,
+                            oracleDexName: tokenInfo.rpcDexName,
+                            oracleValidationReason: tokenInfo.priceValidationReason,
+                            referencePrice: tokenInfo.referencePrice,
+                            referenceProvider: tokenInfo.referenceProvider,
+                            oracleFallbackUsed: Boolean(tokenInfo.priceFallbackUsed),
                             estimatedOut,
                             targetSwapValueUsd,
                             strictTargetSwapValueUsd,
@@ -2224,16 +2168,8 @@ async function processSingleUserBuy(
 
             if (targetExecutionPrice > 0) {
                 const dexChainId = chainId === 900 ? 'solana' : chainId;
-                const marketPrice = executionMode === 'safe'
-                    ? await getDexPriceWithTimeout(tokenToBuy, dexChainId)
-                    : 0;
-                const entryDeviationReference = resolveCopyTradeEntryDeviationReference({
-                    executionMode,
-                    localQuotePriceUsd,
-                    marketPriceUsd: marketPrice,
-                });
-                const currentPrice = entryDeviationReference.currentPrice;
-                if (entryDeviationReference.enforce && currentPrice > 0) {
+                const currentPrice = await getDexPriceWithTimeout(tokenToBuy, dexChainId);
+                if (currentPrice > 0) {
                     const deviationBps = Math.abs(targetExecutionPrice - currentPrice) / currentPrice * 10000;
                     guardAudit.priceDeviation = {
                         ...(guardAudit.priceDeviation && typeof guardAudit.priceDeviation === 'object' ? guardAudit.priceDeviation as Record<string, unknown> : {}),
@@ -2255,7 +2191,7 @@ async function processSingleUserBuy(
                         targetWallet,
                         chainId,
                         executionMode,
-                        currentPriceSource: entryDeviationReference.currentPriceSource,
+                        currentPriceSource: 'market_oracle_price',
                         targetExecutionPriceSource: 'target_implied_price',
                         targetImpliedPriceSourceCategory: String((guardAudit.priceDeviation as Record<string, unknown> | undefined)?.targetImpliedPriceSourceCategory || 'target_unknown'),
                         targetImpliedValueSource: String((guardAudit.priceDeviation as Record<string, unknown> | undefined)?.targetImpliedValueSource || 'target_swap_value_usd'),
@@ -2316,29 +2252,6 @@ async function processSingleUserBuy(
                             return;
                         }
                     }
-                } else {
-                    guardAudit.priceDeviation = {
-                        ...(guardAudit.priceDeviation && typeof guardAudit.priceDeviation === 'object' ? guardAudit.priceDeviation as Record<string, unknown> : {}),
-                        dexPrice: 0,
-                        deviationBps: null,
-                        currentPriceSource: entryDeviationReference.currentPriceSource,
-                        maxEntryDeviationBps: effectiveConfig.maxEntryDeviationBps,
-                        entryDeviationSource: effectiveConfig.maxEntryDeviationSource,
-                        entryDeviationReasonCode: effectiveConfig.maxEntryDeviationReasonCode,
-                        entryDeviationThresholdPolicy: effectiveConfig.maxEntryDeviationThresholdPolicy,
-                        entryDeviationModeFloorBps: effectiveConfig.maxEntryDeviationModeFloorBps,
-                        maxSlippageBps: effectiveConfig.maxSlippageBps,
-                        pass: true,
-                        reasonCode: 'ENTRY_DEVIATION_REFERENCE_UNAVAILABLE'
-                    };
-                    logger.info(LogCode.DEC_PRICE_IMPACT_HIGH, 'Entry deviation skipped strict enforcement due to unavailable executable reference', {
-                        userId: config.userId,
-                        token: tokenToBuy,
-                        chainId,
-                        executionMode,
-                        currentPriceSource: entryDeviationReference.currentPriceSource,
-                        reasonCode: 'ENTRY_DEVIATION_REFERENCE_UNAVAILABLE'
-                    });
                 }
             }
 
@@ -2755,164 +2668,20 @@ async function processSingleUserBuy(
                         ? await getTokenInfoOnce(tokenInfoCache, tokenToBuy, chainId, { verbose: false, forceRefresh: true, rpcStrategy: 'fast' })
                         : await getTokenInfo(tokenToBuy, chainId, { verbose: false, forceRefresh: true, rpcStrategy: 'fast' })
                 });
-                const notifyBuySuccessConfirmed = async () => {
-                    sendNotificationAsync({
-                        userId: config.user.privyDid,
-                        farcasterFid: config.user.farcasterFid,
-                        type: 'TRADE_SUCCESS_BUY',
-                        data: {
-                            tokenSymbol: await resolveDisplayTokenSymbolAsync(tokenInfo.symbol || (swap as any)?.tokenSymbol, tokenToBuy, chainId),
-                            usdValue: usdAmount.toFixed(2),
-                            targetWallet: targetWallet,
-                            txHash: txHash,
-                            chainId: chainId
-                        }
-                    }, 'copytrade_buy_success_confirmed');
-                };
-
-                const executeMirrorSellAfterBuyConfirm = async (positionId: string) => {
-                    const mirrorSellPosition = await prisma.position.findUnique({
-                        where: { id: positionId }
-                    });
-                    if (mirrorSellPosition && mirrorSellPosition.status !== 'closed') {
-                        logger.warn(LogCode.SYS_INFO, '[CopyTradeRace] Target already sold while buy was pending; executing mirror sell on confirmation', {
-                            userId: config.userId,
-                            token: tokenToBuy,
-                            chainId,
-                            txHash,
-                            positionId,
-                            targetSellTxHash: null,
-                        });
-                        await executePositionExit({
-                            userId: config.userId,
-                            tokenAddress: tokenToBuy,
-                            chainId,
-                            exitReason: 'mirror_sell',
-                            tokenInfo,
-                            config: { ...effectiveConfig, user: effectiveConfig.user },
-                            positions: [mirrorSellPosition]
-                        });
-                    }
-                };
-
-                const runBuyConfirmationTransition = async (
-                    confirmation: ConfirmationOutcome,
-                    recoverySource: 'initial_wait' | 'late_recovery',
-                ) => {
-                    if (orderRuntimeContext) {
-                        setOrderMetadata(orderRuntimeContext, {
-                            confirmationProbeStage: recoverySource === 'initial_wait' ? 'initial' : 'recovery',
-                        });
-                    }
-                    return await applyBuyConfirmationTransition({
-                        confirmation,
-                        chainId,
-                        tokenToBuy,
-                        txHash,
-                        userId: effectiveConfig.user.privyDid,
-                        targetWallet,
-                        leaderBuyTxHash: leaderTxHash || undefined,
-                        persistedPositionId,
-                        pendingPositionCreatedAt,
-                        tokenInfo: {
-                            symbol: tokenInfo.symbol,
-                            price: tokenInfo.price,
-                            decimals: tokenInfo.decimals
-                        },
-                        walletAddress: effectiveConfig.user.walletAddress,
-                        positionStatusCompat,
-                        directFeeSettlement: swapMetadata?.directFeeSettlement || null,
-                        onMirrorSellAfterConfirm: executeMirrorSellAfterBuyConfirm,
-                        onNotifySuccess: notifyBuySuccessConfirmed,
-                        recoverySource,
-                    });
-                };
-
-                scheduleBuyConfirmation = () => {
-                    if (!txHash) return;
-                    scheduleCopytradeBuyConfirmationFlow({
-                        chainId,
-                        txHash,
-                        tokenAddress: tokenToBuy,
-                        delayMs: SELL_PREHEAT_DELAY_MS,
-                        timeoutMs: SELL_PREHEAT_CONFIRM_TIMEOUT_MS,
-                        pollMs: SELL_PREHEAT_CONFIRM_POLL_MS,
-                        onTransition: runBuyConfirmationTransition,
-                    });
-                };
-
                 if (submissionResult.status === 'aborted') {
                     return;
                 }
                 if (submissionResult.status === 'submitted_unresolved') {
-                    orderRuntimeContext = submissionResult.runtimeContext;
                     txLifecycleStatus = submissionResult.txLifecycleStatus || txLifecycleStatus;
+                    orderRuntimeContext = submissionResult.runtimeContext;
                     swapMetadata = submissionResult.swapMetadata;
-                    if (pendingPositionId) {
-                        const recoverableEntryTxHash = buildRecoverablePendingEntryTxHash(orderRuntimeContext?.orderId);
-                        await prisma.position.updateMany({
-                            where: { id: pendingPositionId, status: positionStatusCompat.pendingCreateStatus as any },
-                            data: { entryTxHash: recoverableEntryTxHash },
-                        }).catch(() => null);
-                    }
-                    logger.warn(LogCode.SYS_INFO, 'Buy submission unresolved; preserving pending position for late tx adoption', {
+                    logger.warn(LogCode.EXE_TX_BROADCAST, 'Buy submission unresolved; preserving pending position for later confirmation', {
                         userId: config.userId,
                         token: tokenToBuy,
                         chainId,
                         reasonCode: submissionResult.reasonCode,
                         pendingPositionId,
                         ...buildOrderAuditFields(orderRuntimeContext)
-                    });
-                    scheduleLateBuySubmissionAdoption({
-                        chainId,
-                        runtimeContext: orderRuntimeContext,
-                        onAdopt: async (resolved) => {
-                            txHash = resolved.txHash;
-                            txLifecycleStatus = resolved.txLifecycleStatus || txLifecycleStatus;
-                            orderRuntimeContext = resolved.runtimeContext;
-                            const adoptionResult = await persistCopytradeBuySubmission({
-                                pendingPositionId,
-                                pendingPositionCreatedAt,
-                                userId: effectiveConfig.userId,
-                                configId: effectiveConfig.id,
-                                tokenAddress: tokenToBuy,
-                                tokenSymbol: resolveDisplayTokenSymbol(tokenInfo.symbol || (swap as any)?.tokenSymbol, tokenToBuy),
-                                chainId,
-                                tokenPrice: tokenInfo.price,
-                                entryAmount: (usdAmount / nativePrice).toString(),
-                                attributedEntryAmountHuman: attributedEntryAmountHuman || undefined,
-                                attributedEntryAmountExact: swapMetadata?.directFeeSettlement?.amountOutBase || undefined,
-                                entryTxHash: txHash,
-                                leaderBuyTxHash: leaderTxHash || undefined,
-                                entryUsdValue: usdAmount,
-                                txLifecycleStatus,
-                                runtimeContext: orderRuntimeContext,
-                            });
-                            persistedPositionId = adoptionResult.persistedPositionId;
-                            pendingPositionCreatedAt = adoptionResult.pendingPositionCreatedAt || pendingPositionCreatedAt;
-                            pendingPositionSettled = adoptionResult.pendingPositionSettled;
-                            logger.info(LogCode.SYS_INFO, 'Late buy submission adoption succeeded', {
-                                userId: config.userId,
-                                token: tokenToBuy,
-                                chainId,
-                                txHash,
-                                positionId: persistedPositionId,
-                                txLifecycleStatus: txLifecycleStatus || 'unknown',
-                                ...buildOrderAuditFields(orderRuntimeContext)
-                            });
-                            scheduleBuyConfirmation();
-                        },
-                        onExhausted: async (resolution) => {
-                            logger.warn(LogCode.SYS_INFO, 'Late buy submission adoption exhausted without txHash', {
-                                userId: config.userId,
-                                token: tokenToBuy,
-                                chainId,
-                                pendingPositionId,
-                                resolutionState: resolution.state,
-                                resolutionReasonCode: resolution.reasonCode,
-                                ...buildOrderAuditFields(orderRuntimeContext)
-                            });
-                        }
                     });
                     return;
                 }
@@ -2966,7 +2735,7 @@ async function processSingleUserBuy(
             runtimeContext: orderRuntimeContext,
         });
         const nextPositionStatus = persistenceResult.nextPositionStatus;
-        persistedPositionId = persistenceResult.persistedPositionId;
+        let persistedPositionId = persistenceResult.persistedPositionId;
         pendingPositionCreatedAt = persistenceResult.pendingPositionCreatedAt || pendingPositionCreatedAt;
         pendingPositionSettled = persistenceResult.pendingPositionSettled;
 
@@ -2981,9 +2750,85 @@ async function processSingleUserBuy(
             ...buildOrderAuditFields(orderRuntimeContext)
         });
 
+        const notifyBuySuccessConfirmed = async () => {
+            sendNotificationAsync({
+                userId: config.user.privyDid,
+                farcasterFid: config.user.farcasterFid,
+                type: 'TRADE_SUCCESS_BUY',
+                data: {
+                    tokenSymbol: await resolveDisplayTokenSymbolAsync(tokenInfo.symbol || (swap as any)?.tokenSymbol, tokenToBuy, chainId),
+                    usdValue: usdAmount.toFixed(2),
+                    targetWallet: targetWallet,
+                    txHash: txHash,
+                    chainId: chainId
+                }
+            }, 'copytrade_buy_success_confirmed');
+        };
+
+        const executeMirrorSellAfterBuyConfirm = async (positionId: string) => {
+            const mirrorSellPosition = await prisma.position.findUnique({
+                where: { id: positionId }
+            });
+            if (mirrorSellPosition && mirrorSellPosition.status !== 'closed') {
+                logger.warn(LogCode.SYS_INFO, '[CopyTradeRace] Target already sold while buy was pending; executing mirror sell on confirmation', {
+                    userId: config.userId,
+                    token: tokenToBuy,
+                    chainId,
+                    txHash,
+                    positionId,
+                    targetSellTxHash: null,
+                });
+                await executePositionExit({
+                    userId: config.userId,
+                    tokenAddress: tokenToBuy,
+                    chainId,
+                    exitReason: 'mirror_sell',
+                    tokenInfo,
+                    config: { ...effectiveConfig, user: effectiveConfig.user },
+                    positions: [mirrorSellPosition]
+                });
+            }
+        };
+
+        const runBuyConfirmationTransition = async (
+            confirmation: ConfirmationOutcome,
+            recoverySource: 'initial_wait' | 'late_recovery',
+        ) => {
+            return await applyBuyConfirmationTransition({
+                confirmation,
+                chainId,
+                tokenToBuy,
+                txHash,
+                userId: effectiveConfig.user.privyDid,
+                targetWallet,
+                leaderBuyTxHash: leaderTxHash || undefined,
+                persistedPositionId,
+                pendingPositionCreatedAt,
+                tokenInfo: {
+                    symbol: tokenInfo.symbol,
+                    price: tokenInfo.price,
+                    decimals: tokenInfo.decimals
+                },
+                walletAddress: effectiveConfig.user.walletAddress,
+                positionStatusCompat,
+                directFeeSettlement: swapMetadata?.directFeeSettlement || null,
+                onMirrorSellAfterConfirm: executeMirrorSellAfterBuyConfirm,
+                onNotifySuccess: notifyBuySuccessConfirmed,
+                recoverySource,
+            });
+        };
+
         // Drive all post-buy actions from a single confirmation outcome so fee recovery,
         // position promotion, notification and preheat stay on the same state boundary.
-        scheduleBuyConfirmation();
+        scheduleCopytradeBuyConfirmationFlow({
+            chainId,
+            txHash,
+            tokenAddress: tokenToBuy,
+            delayMs: SELL_PREHEAT_DELAY_MS,
+            timeoutMs: SELL_PREHEAT_CONFIRM_TIMEOUT_MS,
+            pollMs: SELL_PREHEAT_CONFIRM_POLL_MS,
+            onTransition: runBuyConfirmationTransition,
+        });
 
         // Track User Activity (Copy Trade + Swap Volume)
         trackCopyTrade(config.userId);
@@ -3509,22 +3354,18 @@ export async function executePositionExit(params: {
                     return null;
                 }
 
-                logger.throttled(LogCode.WTC_TX_SKIPPED, 'No-swap exit close applied', {
+                logger.throttled(LogCode.WTC_TX_SKIPPED, 'Negligible EVM balance, closing database records', {
                     userId,
                     tokenAddress,
                     balanceUsd: exitPlan.balanceUsd,
                     reason: exitReason,
-                    isMirrorSell: exitPlan.isMirrorSell,
-                    closeReason: exitPlan.closeReason
+                    isMirrorSell: exitPlan.isMirrorSell
                 });
                 await reconcileNoopExitPosition({
                     positions: exitPlan.positions as any,
                     action: exitPlan.action,
                     closeReason: exitPlan.closeReason
                 });
-                for (const position of exitPlan.positions) {
-                    markPositionLocallyClosed(position.id);
-                }
                 return null;
             }
 
@@ -3759,18 +3600,28 @@ async function handleTargetSell(
 
     logger.info(LogCode.EXE_TX_BROADCAST, `Mirror sell: Processing open positions for token`, { token: tokenToSell, configCount: uniqueExecutableConfigs.length, targetWallet });
 
+    // PERFECT EVM-LIKE SHARING: Fetch token info once instead of N times concurrently, preventing RPC explosion
+    const sharedTokenInfoPromise = getTokenInfo(tokenToSell, chainId, { priority: 'high', rpcStrategy: 'fast', fastMode: true }).catch(() => null);
+
     await Promise.all(uniqueExecutableConfigs.map(async (config) => {
         // Never infer copytrade ownership from wallet balance alone.
         // Manual holdings and external transfers must not be converted into copytrade positions.
-        const positions = await prisma.position.findMany({
-            // Include 'pending' positions: sell signal can arrive while buy tx is still confirming on-chain.
-            // Attribution logic will further check if entryTxHash is a real hash (not PENDING_ prefix).
-            // tokenAddress filter added as safety net — reconcileOpenPositionsForExit also normalizes,
-            // but an explicit DB filter prevents empty-array false negatives.
-            where: { userId: config.userId, chainId, tokenAddress: tokenToSell, status: { in: ['open', 'pending'] } },
-        });
+        const [positions, tokenInfo] = await Promise.all([
+            prisma.position.findMany({
+                // Include 'pending' positions: sell signal can arrive while buy tx is still confirming on-chain.
+                // Attribution logic will further check if entryTxHash is a real hash (not PENDING_ prefix).
+                // tokenAddress filter added as safety net — reconcileOpenPositionsForExit also normalizes,
+                // but an explicit DB filter prevents empty-array false negatives.
+                where: { userId: config.userId, chainId, tokenAddress: tokenToSell, status: { in: ['open', 'pending'] } },
+            }),
+            sharedTokenInfoPromise
+        ]);
 
-        const tokenInfo = { price: 0, symbol: 'UNKNOWN' };
+        if (!tokenInfo) {
+            // tokenInfo is used for price display only — NOT a prerequisite for executing the sell.
+            // Log a warning and continue; the sell will proceed with price = 0 (position closed, no USD shown).
+            logger.warn(LogCode.API_FETCH_FAILED, 'Mirror sell: Token info unavailable (RPC/API down), proceeding with price=0', { token: tokenToSell, userId: config.userId });
+        }
 
         const reconciledPositions = reconcileOpenPositionsForExit(positions, tokenToSell, chainId);
         if (reconciledPositions.matchedPositions.length === 0) {
@@ -3990,37 +3841,17 @@ export async function stopAutoTradeService(): Promise<void> {
 async function cleanupPendingPositions() {
     try {
         const positionStatusCompat = await getPositionStatusCompat();
-        const stalePendingPositions = await prisma.position.findMany({
+        const result = await prisma.position.updateMany({
             where: {
                 status: { in: positionStatusCompat.lockStatuses as any },
                 createdAt: { lt: new Date(Date.now() - 5 * 60 * 1000) } // Older than 5 mins
             },
-            select: {
-                id: true,
-                entryTxHash: true,
+            data: {
+                status: positionStatusCompat.failedFinalStatus as any,
+                exitReason: 'pending_timeout',
+                closedAt: new Date()
             }
         });
-        const terminalizableIds = stalePendingPositions
-            .filter((position) => shouldTerminalFailStalePendingPosition(position.entryTxHash))
-            .map((position) => position.id);
-        const protectedCount = stalePendingPositions.length - terminalizableIds.length;
-        const result = terminalizableIds.length > 0
-            ? await prisma.position.updateMany({
-                where: {
-                    id: { in: terminalizableIds }
-                },
-                data: {
-                    status: positionStatusCompat.failedFinalStatus as any,
-                    exitReason: 'pending_timeout',
-                    closedAt: new Date()
-                }
-            })
-            : { count: 0 };
-        if (protectedCount > 0) {
-            logger.warn(LogCode.SYS_INFO, 'Protected recoverable pending positions from stale terminal cleanup', {
-                protectedCount
-            });
-        }
         if (result.count > 0) {
             logger.info(LogCode.SYS_INFO, `Marked ${result.count} stale pending positions as terminal failed`);
         }
@@ -4152,10 +3983,7 @@ export async function checkPositionsForExits(): Promise<void> {
             try {
                 // Primary: DEX aggregator price (0x for EVM, Jupiter for Solana)
                 const dexChainId = chainId === 900 ? 'solana' : chainId;
-                const dexPriceResult = await getDexPriceDetailed(address, dexChainId, {
-                    lane: 'critical',
-                    allowExternalMonitorFallback: true
-                });
+                const dexPriceResult = await getDexPriceDetailed(address, dexChainId);
                 const dexPrice = dexPriceResult.price;
 
                 if (dexPrice > 0) {
@@ -4211,7 +4039,7 @@ export async function checkPositionsForExits(): Promise<void> {
                         }
                     } else {
                         // EVM Balance Check
-                        balance = await getErc20Balance(position.tokenAddress, position.user.walletAddress, position.chainId, 'latest', { lane: 'critical' });
+                        balance = await getErc20Balance(position.tokenAddress, position.user.walletAddress, position.chainId);
                         isBalanceCheckSuccess = true;
                     }
 
@@ -4240,7 +4068,6 @@ export async function checkPositionsForExits(): Promise<void> {
                             where: { id: position.id },
                             data: { status: 'closed', exitReason: 'manual', exitTxHash: 'MANUAL_ON_CHAIN', closedAt: new Date() }
                         });
-                        markPositionLocallyClosed(position.id);
 
                         // Notify user that position was auto-closed
                         if (position.user?.farcasterFid) {

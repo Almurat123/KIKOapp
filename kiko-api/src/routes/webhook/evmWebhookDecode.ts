@@ -172,7 +172,7 @@ export function shouldForceFullTxRepair(params: {
         tokenOut: params.swap.tokenOut,
         cashLegHint: params.cashHint
     });
-    return Boolean(direction.hintConflict);
+    return Boolean(direction.hintConflict || direction.isAmbiguous);
 }
 
 export function shouldPreferSwapSourceField(raw?: string): boolean {

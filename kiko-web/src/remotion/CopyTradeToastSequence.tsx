@@ -39,6 +39,7 @@ const toasts: ToastData[] = [
 
 const APP_ICON = staticFile('remotion-assets/smart-wallet-icon.webp');
 const FARCASTER_ICON = staticFile('remotion-assets/farcaster-app-icon.webp');
+const POLYMARKET_ICON = staticFile('remotion-assets/polymarket-icon.webp');
 const CHAIN_ICONS = [
     { label: 'ETH', src: staticFile('assets/tokens/eth.png') },
     { label: 'Base', src: staticFile('assets/tokens/base.png') },
@@ -46,9 +47,16 @@ const CHAIN_ICONS = [
     { label: 'Sol', src: staticFile('assets/tokens/sol.png') },
 ] as const;
 const CHAINS_START = 126;
+const CHAINS_EXIT_START = 190;
+const CHAINS_EXIT_END = 206;
 const TOAST_STARTS = [210, 236, 262];
 const TOAST_EXIT_START = 306;
 const TOAST_EXIT_END = 324;
+const POLYMARKET_START = 332;
+const POLYMARKET_EXIT_START = 374;
+const POLYMARKET_EXIT_END = 386;
+const FAST_START = 394;
+const SAFE_START = 430;
 
 const AppGlyph: React.FC<{ kind: ToastData['kind'] }> = ({ kind }) => {
     const icon = kind === 'farcaster' ? FARCASTER_ICON : APP_ICON;
@@ -374,7 +382,7 @@ export const CopyTradeToastSequence: React.FC = () => {
         easing: Easing.inOut(Easing.ease),
     });
 
-    const chainsExit = interpolate(frame, [190, 206], [0, 1], {
+    const chainsExit = interpolate(frame, [CHAINS_EXIT_START, CHAINS_EXIT_END], [0, 1], {
         extrapolateLeft: 'clamp',
         extrapolateRight: 'clamp',
         easing: Easing.inOut(Easing.ease),
@@ -392,6 +400,16 @@ export const CopyTradeToastSequence: React.FC = () => {
         extrapolateLeft: 'clamp',
         extrapolateRight: 'clamp',
         easing: Easing.out(Easing.cubic),
+    });
+    const polymarketEnter = interpolate(frame, [POLYMARKET_START, POLYMARKET_START + 16], [0, 1], {
+        extrapolateLeft: 'clamp',
+        extrapolateRight: 'clamp',
+        easing: Easing.out(Easing.cubic),
+    });
+    const polymarketExit = interpolate(frame, [POLYMARKET_EXIT_START, POLYMARKET_EXIT_END], [0, 1], {
+        extrapolateLeft: 'clamp',
+        extrapolateRight: 'clamp',
+        easing: Easing.inOut(Easing.ease),
     });
 
     return (
@@ -459,6 +477,53 @@ export const CopyTradeToastSequence: React.FC = () => {
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
+                    opacity: chainsEnter * (1 - chainsExit),
+                    transform: `translateY(${interpolate(chainsEnter, [0, 1], [20, 0]) + interpolate(chainsExit, [0, 1], [0, -18])}px)`,
+                    filter: `blur(${interpolate(chainsExit, [0, 1], [0, 6])}px)`,
+                }}
+            >
+                <div
+                    style={{
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        gap: 56,
+                    }}
+                >
+                    <div
+                        style={{
+                            fontFamily: IOS_FONT_STACK,
+                            fontSize: 74,
+                            fontWeight: 640,
+                            letterSpacing: '-0.07em',
+                            lineHeight: 0.95,
+                            color: '#08111f',
+                            whiteSpace: 'nowrap',
+                        }}
+                    >
+                        Copy Trade supports 4 chains
+                    </div>
+                    <div
+                        style={{
+                            display: 'flex',
+                            alignItems: 'flex-start',
+                            gap: 26,
+                        }}
+                    >
+                        {CHAIN_ICONS.map((chain, index) => (
+                            <ChainBadge key={chain.label} src={chain.src} label={chain.label} index={index} frame={frame} start={CHAINS_START + 4} />
+                        ))}
+                    </div>
+                </div>
+            </div>
+
+            <div
+                style={{
+                    position: 'absolute',
+                    inset: 0,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
                     opacity: toastSceneOpacity,
                     transform: `scale(${toastSceneScale})`,
                 }}
@@ -477,48 +542,66 @@ export const CopyTradeToastSequence: React.FC = () => {
                 </div>
             </div>
 
-            <WordCard frame={frame} start={326} text="Fast" holdFrames={14} exitFrames={7} />
-            <WordCard frame={frame} start={362} text="Safe" holdFrames={16} exitFrames={8} />
-
             <div
                 style={{
                     position: 'absolute',
                     inset: 0,
                     display: 'flex',
-                    flexDirection: 'column',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    gap: 56,
-                    opacity: chainsEnter * (1 - chainsExit),
-                    transform: `translateY(${interpolate(chainsEnter, [0, 1], [20, 0]) + interpolate(chainsExit, [0, 1], [0, -18])}px)`,
-                    filter: `blur(${interpolate(chainsExit, [0, 1], [0, 6])}px)`,
+                    opacity: polymarketEnter * (1 - polymarketExit),
+                    transform: `translateY(${interpolate(polymarketEnter, [0, 1], [22, 0]) + interpolate(polymarketExit, [0, 1], [0, -18])}px)`,
+                    filter: `blur(${interpolate(polymarketExit, [0, 1], [0, 6])}px)`,
                 }}
             >
                 <div
                     style={{
-                        fontFamily: IOS_FONT_STACK,
-                        fontSize: 74,
-                        fontWeight: 640,
-                        letterSpacing: '-0.07em',
-                        lineHeight: 0.95,
-                        color: '#08111f',
-                        whiteSpace: 'nowrap',
-                    }}
-                >
-                    Copy Trade supports 4 chains
-                </div>
-                <div
-                    style={{
                         display: 'flex',
-                        alignItems: 'flex-start',
-                        gap: 26,
+                        alignItems: 'center',
+                        gap: 22,
+                        padding: '20px 30px 20px 18px',
+                        borderRadius: 999,
+                        background: 'rgba(255,255,255,0.94)',
+                        boxShadow: '0 18px 38px rgba(15, 23, 42, 0.08), 0 0 0 1px rgba(255,255,255,0.8) inset',
                     }}
                 >
-                    {CHAIN_ICONS.map((chain, index) => (
-                        <ChainBadge key={chain.label} src={chain.src} label={chain.label} index={index} frame={frame} start={CHAINS_START + 4} />
-                    ))}
+                    <div
+                        style={{
+                            width: 62,
+                            height: 62,
+                            borderRadius: 999,
+                            overflow: 'hidden',
+                            background: '#ffffff',
+                            flexShrink: 0,
+                        }}
+                    >
+                        <Img
+                            src={POLYMARKET_ICON}
+                            style={{
+                                width: '100%',
+                                height: '100%',
+                                objectFit: 'cover',
+                            }}
+                        />
+                    </div>
+                    <div
+                        style={{
+                            fontFamily: IOS_FONT_STACK,
+                            fontSize: 52,
+                            fontWeight: 630,
+                            letterSpacing: '-0.06em',
+                            lineHeight: 0.96,
+                            color: '#08111f',
+                            whiteSpace: 'nowrap',
+                        }}
+                    >
+                        Copy Trade supports Polymarket
+                    </div>
                 </div>
             </div>
+
+            <WordCard frame={frame} start={FAST_START} text="Fast" holdFrames={14} exitFrames={7} />
+            <WordCard frame={frame} start={SAFE_START} text="Safe" holdFrames={16} exitFrames={8} />
         </AbsoluteFill>
     );
 };

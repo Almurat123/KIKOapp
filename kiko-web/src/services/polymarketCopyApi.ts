@@ -8,6 +8,13 @@ export interface PolymarketCopyConfig {
     maxOpenBets: number;
     status: 'active' | 'paused';
     mirrorSell: boolean;
+    executionStats?: {
+        executedTrades: number;
+        openPositions: number;
+        closedPositions: number;
+        failedPositions: number;
+        lastCopiedAt: string | null;
+    };
     createdAt: string;
     updatedAt: string;
 }
@@ -40,5 +47,47 @@ export const getPolymarketCopyConfigs = async (): Promise<PolymarketCopyConfig[]
         }
         console.error('[PolymarketCopyApi] Error fetching configs:', error);
         throw error;
+    }
+};
+
+const getHeaders = async () => {
+    const token = await getAuthToken();
+    if (!token) {
+        throw new Error('No authentication token available');
+    }
+    return {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+    };
+};
+
+export const updatePolymarketCopyConfig = async (
+    id: string,
+    updates: Partial<Pick<PolymarketCopyConfig, 'betSizeUsd' | 'maxOpenBets' | 'mirrorSell' | 'status'>>
+): Promise<PolymarketCopyConfig> => {
+    const headers = await getHeaders();
+    const response = await fetch(`${API_BASE_URL}/copy/configs/${id}`, {
+        method: 'PATCH',
+        headers,
+        body: JSON.stringify(updates)
+    });
+
+    if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
+
+    const data = await response.json();
+    return data.config;
+};
+
+export const deletePolymarketCopyConfig = async (id: string): Promise<void> => {
+    const headers = await getHeaders();
+    const response = await fetch(`${API_BASE_URL}/copy/configs/${id}`, {
+        method: 'DELETE',
+        headers
+    });
+
+    if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
     }
 };

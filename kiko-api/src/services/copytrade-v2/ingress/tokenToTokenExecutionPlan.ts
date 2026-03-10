@@ -1,18 +1,31 @@
 export interface TokenToTokenExecutionPlanInput {
   tokenToTokenEnabled: boolean;
+  explicitTokenSwap: boolean;
 }
 
 export interface TokenToTokenExecutionPlanResult {
   shouldSellLeg: boolean;
   shouldBuyLeg: boolean;
-  reasonCode: 'TOKEN_TO_TOKEN_SELL_ONLY' | 'TOKEN_TO_TOKEN_PARALLEL_BUY_SELL';
+  reasonCode:
+    | 'TOKEN_TO_TOKEN_SKIPPED_AMBIGUOUS'
+    | 'TOKEN_TO_TOKEN_SKIPPED_DISABLED'
+    | 'TOKEN_TO_TOKEN_PARALLEL_BUY_SELL';
 }
 
-// For aggregator multi-hop swaps, the sold token should still trigger mirror-sell
-// even when the final output asset is another token rather than a cash leg.
+// Production-grade fallback:
+// - ambiguous token-to-token routes should never partially execute
+// - explicit token swaps may run both legs only when the policy is enabled
 export function resolveTokenToTokenExecutionPlan(
   input: TokenToTokenExecutionPlanInput,
 ): TokenToTokenExecutionPlanResult {
+  if (!input.explicitTokenSwap) {
+    return {
+      shouldSellLeg: false,
+      shouldBuyLeg: false,
+      reasonCode: 'TOKEN_TO_TOKEN_SKIPPED_AMBIGUOUS',
+    };
+  }
+
   if (input.tokenToTokenEnabled) {
     return {
       shouldSellLeg: true,
@@ -22,8 +35,8 @@ export function resolveTokenToTokenExecutionPlan(
   }
 
   return {
-    shouldSellLeg: true,
+    shouldSellLeg: false,
     shouldBuyLeg: false,
-    reasonCode: 'TOKEN_TO_TOKEN_SELL_ONLY',
+    reasonCode: 'TOKEN_TO_TOKEN_SKIPPED_DISABLED',
   };
 }

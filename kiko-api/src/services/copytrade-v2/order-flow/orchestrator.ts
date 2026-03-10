@@ -178,6 +178,9 @@ export class CopytradeOrderFlowOrchestrator {
         ...(order.metadata || {}),
         directionSource: direction.source,
         inferredTxType: direction.inferredTxType || null,
+        directionIsRoutable: direction.isRoutable,
+        directionIsAmbiguous: direction.isAmbiguous,
+        directionIsExplicitTokenSwap: direction.isExplicitTokenSwap,
         sourceTxFrom: signal.sourceTxFrom || order.metadata?.sourceTxFrom || null,
       },
     });
@@ -191,6 +194,30 @@ export class CopytradeOrderFlowOrchestrator {
         mode: policy.mode,
         skipped: true,
         reasonCode: 'quarantine_direction_conflict',
+      };
+    }
+
+    if (direction.isExplicitTokenSwap) {
+      return this.executeBuy(signal, order, policy);
+    }
+
+    if (!direction.isRoutable) {
+      const event: CopytradeLifecycleEvent = policy.strictRiskChecks || direction.isAmbiguous
+        ? 'QUARANTINE'
+        : 'DEFER';
+      const reasonCode: CopytradeReasonCode = 'validation_unroutable';
+      order = await this.transition(order, event, reasonCode, {
+        direction: resolvedDirection,
+        inferredTxType: direction.inferredTxType || null,
+        directionSource: direction.source,
+        isAmbiguous: direction.isAmbiguous,
+        isExplicitTokenSwap: direction.isExplicitTokenSwap,
+      });
+      return {
+        order,
+        mode: policy.mode,
+        skipped: true,
+        reasonCode,
       };
     }
 

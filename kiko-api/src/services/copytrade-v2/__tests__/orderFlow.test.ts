@@ -239,6 +239,146 @@ test('order flow: deferred retryable outcome schedules short retry and keeps ret
   assert.equal(scheduler.scheduled.length, 1);
 });
 
+test('order flow: ambiguous token-to-token signal is skipped as unroutable before execution', async () => {
+  const repo = new InMemoryOrderRepo();
+  let executeCalled = 0;
+
+  const flow = new CopytradeOrderFlowOrchestrator({
+    orderRepo: repo,
+    eventStore: new InMemoryEventStore(),
+    executionPort: {
+      async execute() {
+        executeCalled += 1;
+        return {
+          status: 'confirmed',
+          reasonCode: 'ok_buy_confirmed_open',
+          retryable: false,
+        } as any;
+      },
+    },
+    executionRecorder: new InMemoryExecutionRecorder(),
+    modeResolver: new DefaultCopytradeModeResolver(),
+    retryScheduler: new InMemoryScheduler(),
+    observability: new NoopObservability(),
+  });
+
+  const result = await flow.processSignal({
+    targetWallet: '0xswap-only',
+    chainId: 8453,
+    mode: 'normal',
+    swap: {
+      txHash: '0xswap-1',
+      tokenIn: '0x1bc0c42215582d5a085795f4badbac3ff36d1bcb',
+      tokenOut: '0xa601877977340862ca67f816eb079958e5bd0ba3',
+      amountIn: '1000',
+      amountOut: '2000',
+      router: '0xRouter',
+      dexName: 'test-dex',
+    },
+  });
+
+  assert.equal(executeCalled, 0);
+  assert.equal(result.skipped, true);
+  assert.equal(result.reasonCode, 'validation_unroutable');
+  assert.equal(result.order.direction, 'token_swap');
+  assert.equal(result.order.lifecycleState, 'QUARANTINED');
+});
+
+test('order flow: explicit token swap executes through buy lifecycle instead of quarantine', async () => {
+  const repo = new InMemoryOrderRepo();
+  let executeCalled = 0;
+
+  const flow = new CopytradeOrderFlowOrchestrator({
+    orderRepo: repo,
+    eventStore: new InMemoryEventStore(),
+    executionPort: {
+      async execute() {
+        executeCalled += 1;
+        return {
+          status: 'confirmed',
+          reasonCode: 'ok_buy_confirmed_open',
+          retryable: false,
+        } as any;
+      },
+    },
+    executionRecorder: new InMemoryExecutionRecorder(),
+    modeResolver: new DefaultCopytradeModeResolver(),
+    retryScheduler: new InMemoryScheduler(),
+    observability: new NoopObservability(),
+  });
+
+  const result = await flow.processSignal({
+    targetWallet: '0xswap-explicit',
+    chainId: 8453,
+    mode: 'normal',
+    swap: {
+      txHash: '0xswap-explicit-1',
+      tokenIn: '0x1bc0c42215582d5a085795f4badbac3ff36d1bcb',
+      tokenOut: '0xa601877977340862ca67f816eb079958e5bd0ba3',
+      amountIn: '1000',
+      amountOut: '2000',
+      router: '0xRouter',
+      dexName: 'test-dex',
+      cashLegHint: {
+        inferredTxType: 'TARGET_TOKEN_SWAP',
+        cashSpentUsd: 100,
+        cashReceivedUsd: 101,
+      },
+    },
+  });
+
+  assert.equal(executeCalled, 1);
+  assert.equal(result.skipped, false);
+  assert.equal(result.order.direction, 'token_swap');
+  assert.equal(result.order.lifecycleState, 'EXIT_ARMED');
+  assert.equal(result.reasonCode, 'ok_exit_armed');
+});
+
+test('order flow: cash-to-cash signal is skipped as unroutable before execution', async () => {
+  const repo = new InMemoryOrderRepo();
+  let executeCalled = 0;
+
+  const flow = new CopytradeOrderFlowOrchestrator({
+    orderRepo: repo,
+    eventStore: new InMemoryEventStore(),
+    executionPort: {
+      async execute() {
+        executeCalled += 1;
+        return {
+          status: 'confirmed',
+          reasonCode: 'ok_buy_confirmed_open',
+          retryable: false,
+        } as any;
+      },
+    },
+    executionRecorder: new InMemoryExecutionRecorder(),
+    modeResolver: new DefaultCopytradeModeResolver(),
+    retryScheduler: new InMemoryScheduler(),
+    observability: new NoopObservability(),
+  });
+
+  const result = await flow.processSignal({
+    targetWallet: '0xcash-only',
+    chainId: 8453,
+    mode: 'normal',
+    swap: {
+      txHash: '0xcash-1',
+      tokenIn: '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee',
+      tokenOut: '0x000000000d564d5be76f7f0d28fe52605afc7cf8',
+      amountIn: '1000',
+      amountOut: '1000',
+      router: '0xRouter',
+      dexName: 'test-dex',
+    },
+  });
+
+  assert.equal(executeCalled, 0);
+  assert.equal(result.skipped, true);
+  assert.equal(result.reasonCode, 'validation_unroutable');
+  assert.equal(result.order.direction, 'unknown');
+  assert.equal(result.order.lifecycleState, 'QUARANTINED');
+});
+
 test('order flow: safety mode blocks low-confidence signal before execution', async () => {
   const repo = new InMemoryOrderRepo();
   const events = new InMemoryEventStore();

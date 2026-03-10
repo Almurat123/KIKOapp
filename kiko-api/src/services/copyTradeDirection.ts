@@ -24,6 +24,9 @@ export interface CopyTradeDirectionResult {
   isBuy: boolean;
   isSell: boolean;
   isTokenToToken: boolean;
+  isRoutable: boolean;
+  isAmbiguous: boolean;
+  isExplicitTokenSwap: boolean;
   tokenInIsCash: boolean;
   tokenOutIsCash: boolean;
   directionLeg: 'sell_leg' | 'buy_leg' | 'both' | 'none';
@@ -60,12 +63,22 @@ function buildCashTokenSet(chainId: number): Set<string> {
   return new Set(tokens);
 }
 
+function normalizeDirectionToken(chainId: number, token: string, wrappedNativeAddress?: string): string {
+  // Solana addresses are base58 and case-sensitive; lowercasing here breaks
+  // WSOL/SOL cash-leg detection and makes SOL buys look token-to-token.
+  if (chainId === SOLANA_CONFIG.CHAIN_ID) {
+    return normalizeAddress(token);
+  }
+
+  return getCanonicalAssetIdentity(chainId, token, wrappedNativeAddress).normalized;
+}
+
 export function determineCopyTradeDirection(input: CopyTradeDirectionInput): CopyTradeDirectionResult {
   const { chainId, tokenIn, tokenOut, cashLegHint } = input;
   const cashTokens = buildCashTokenSet(chainId);
   const wrappedNativeAddress = getWrappedNativeAddressForChain(chainId) || undefined;
-  const normalizedTokenIn = getCanonicalAssetIdentity(chainId, tokenIn, wrappedNativeAddress).normalized;
-  const normalizedTokenOut = getCanonicalAssetIdentity(chainId, tokenOut, wrappedNativeAddress).normalized;
+  const normalizedTokenIn = normalizeDirectionToken(chainId, tokenIn, wrappedNativeAddress);
+  const normalizedTokenOut = normalizeDirectionToken(chainId, tokenOut, wrappedNativeAddress);
 
   const tokenInIsCash = cashTokens.has(normalizeAddress(normalizedTokenIn));
   const tokenOutIsCash = cashTokens.has(normalizeAddress(normalizedTokenOut));
@@ -122,10 +135,19 @@ export function determineCopyTradeDirection(input: CopyTradeDirectionInput): Cop
     }
   }
 
+  const isExplicitTokenSwap = isTokenToToken
+    && inferredTxType === 'TARGET_TOKEN_SWAP'
+    && source === 'cash_hint';
+  const isAmbiguous = isTokenToToken && !isExplicitTokenSwap;
+  const isRoutable = isBuy || isSell;
+
   return {
     isBuy,
     isSell,
     isTokenToToken,
+    isRoutable,
+    isAmbiguous,
+    isExplicitTokenSwap,
     tokenInIsCash,
     tokenOutIsCash,
     directionLeg,

@@ -46,7 +46,9 @@ export const StrategyCard: React.FC<StrategyCardProps> = ({
   const status = (strategy.status || 'paused').toUpperCase();
   const isDeleted = status === 'DELETED';
   const executionCount = (strategy.executionHistory || []).length;
-  const displayedTradeCount = isCopyTrade ? targetTradeCount : executionCount;
+  const displayedTradeCount = isCopyTrade
+    ? targetTradeCount
+    : (polyConfig?.executionStats?.executedTrades ?? executionCount);
 
   const formatMoney = (val?: number) => val ? `$${val.toLocaleString()}` : '$0';
   const formatSignedUsdCompact = (val?: number) => {

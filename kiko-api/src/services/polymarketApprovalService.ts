@@ -9,6 +9,7 @@ import { ethers } from 'ethers';
 import prisma from '../db/prisma.js';
 import { getDelegatedEvmWallet } from './privyWallet.js';
 import { sendTransaction } from './privyWallet.js';
+import { getCredentials } from './polymarketCredService.js';
 
 // Contract addresses on Polygon (chainId: 137)
 const POLYGON_CONTRACTS = {
@@ -24,8 +25,9 @@ const POLYGON_CONTRACTS = {
     // Neg Risk CTF Exchange (for negatively correlated markets)
     NEG_RISK_CTF_EXCHANGE: '0xC5d563A36AE78145C45a50134d48A1215220f80a',
 
-    // Neg Risk Adapter from Polymarket clob-client contract config
-    NEG_RISK_ADAPTER: '0xd91E80cF2E7be2e162c6513ceD06f1dD0dA35296',
+    // Neg Risk Adapter
+    // Source: Polymarket official contracts inventory.
+    NEG_RISK_ADAPTER: '0xd91e80cf2e7be2e162c65161a82124c4e9d7fe77',
 
     // Conditional Tokens Framework (CTF) contract
     CTF: '0x4D97DCd97eC945f40cF65F87097ACe5EA0476045'
@@ -54,112 +56,31 @@ function getPolygonProvider(): ethers.JsonRpcProvider {
     return getEthersProvider(137);
 }
 
-export async function estimateApprovalGas(params: {
-    walletAddress: string;
-    to: string;
-    data: string;
-    type: 'usdc' | 'ctf';
-}): Promise<string> {
-    const provider = getPolygonProvider();
-    try {
-        const estimate = await provider.estimateGas({
-            from: params.walletAddress,
-            to: params.to,
-            data: params.data,
-            value: 0n
-        });
-        // Add a 25% safety buffer to raw-signed Polygon approvals.
-        return ((estimate * 125n) / 100n).toString();
-    } catch (error: any) {
-        const fallbackGas = params.type === 'usdc' ? '120000' : '180000';
-        console.warn('[PolymarketApproval] Gas estimation failed, using fallback gas limit', {
-            type: params.type,
-            to: params.to,
-            walletAddress: params.walletAddress,
-            fallbackGas,
-            error: error?.message || String(error)
-        });
-        return fallbackGas;
-    }
-}
-
-export async function estimateApprovalFees(): Promise<{
-    maxFeePerGas: string;
-    maxPriorityFeePerGas: string;
-}> {
-    const provider = getPolygonProvider();
-    try {
-        const [feeData, latestBlock] = await Promise.all([
-            provider.getFeeData(),
-            provider.getBlock('latest').catch(() => null)
-        ]);
-
-        // Polygon validators commonly reject low/zero tips on raw-signed txs.
-        const minPriorityFeePerGas = 30_000_000_000n; // 30 gwei safety floor
-        const suggestedPriority = feeData.maxPriorityFeePerGas || feeData.gasPrice || 0n;
-        const maxPriorityFeePerGas = suggestedPriority > minPriorityFeePerGas
-            ? suggestedPriority
-            : minPriorityFeePerGas;
-
-        const baseFeePerGas = latestBlock?.baseFeePerGas || feeData.gasPrice || 0n;
-        const suggestedMaxFee = feeData.maxFeePerGas || (baseFeePerGas * 2n + maxPriorityFeePerGas);
-        const floorMaxFee = baseFeePerGas + maxPriorityFeePerGas;
-        const maxFeePerGas = suggestedMaxFee > floorMaxFee
-            ? suggestedMaxFee
-            : floorMaxFee;
-
-        return {
-            maxFeePerGas: maxFeePerGas.toString(),
-            maxPriorityFeePerGas: maxPriorityFeePerGas.toString()
-        };
-    } catch (error: any) {
-        const maxPriorityFeePerGas = 30_000_000_000n;
-        const maxFeePerGas = 90_000_000_000n;
-        console.warn('[PolymarketApproval] Fee estimation failed, using fallback EIP-1559 fees', {
-            maxFeePerGas: maxFeePerGas.toString(),
-            maxPriorityFeePerGas: maxPriorityFeePerGas.toString(),
-            error: error?.message || String(error)
-        });
-        return {
-            maxFeePerGas: maxFeePerGas.toString(),
-            maxPriorityFeePerGas: maxPriorityFeePerGas.toString()
-        };
-    }
-}
-
 /**
  * Check if user has approved USDC for the CTF Exchange
  */
 export async function checkUsdcApproval(walletAddress: string): Promise<{
     approved: boolean;
-    allowances: Record<string, string>;
+    allowance: string;
     balance: string;
 }> {
     const provider = getPolygonProvider();
     const usdc = new ethers.Contract(POLYGON_CONTRACTS.USDC, ERC20_ABI, provider);
-    const spenders = [
-        POLYGON_CONTRACTS.CTF_EXCHANGE,
-        POLYGON_CONTRACTS.NEG_RISK_ADAPTER
-    ];
 
-    const [allowances, balance, decimals] = await Promise.all([
-        Promise.all(spenders.map((spender) => usdc.allowance(walletAddress, spender))),
+    const [allowance, balance, decimals] = await Promise.all([
+        usdc.allowance(walletAddress, POLYGON_CONTRACTS.CTF_EXCHANGE),
         usdc.balanceOf(walletAddress),
         usdc.decimals()
     ]);
 
-    const allowanceMap = Object.fromEntries(
-        allowances.map((allowance: bigint, index: number) => [
-            spenders[index],
-            ethers.formatUnits(allowance, decimals)
-        ])
-    );
+    const formattedAllowance = ethers.formatUnits(allowance, decimals);
     const formattedBalance = ethers.formatUnits(balance, decimals);
-    const isApproved = allowances.every((allowance: bigint) => allowance > 0n);
+
+    const isApproved = allowance > 0n;
 
     return {
         approved: isApproved,
-        allowances: allowanceMap,
+        allowance: formattedAllowance,
         balance: formattedBalance
     };
 }
@@ -167,31 +88,19 @@ export async function checkUsdcApproval(walletAddress: string): Promise<{
 /**
  * Check if user has approved CTF tokens for the Exchange
  */
-export async function checkCtfApproval(walletAddress: string): Promise<{
-    approved: boolean;
-    operators: Record<string, boolean>;
-}> {
+export async function checkCtfApproval(walletAddress: string): Promise<boolean> {
     const provider = getPolygonProvider();
     const ctf = new ethers.Contract(POLYGON_CONTRACTS.CTF, CTF_ABI, provider);
-    const operators = [
-        POLYGON_CONTRACTS.CTF_EXCHANGE,
-        POLYGON_CONTRACTS.NEG_RISK_CTF_EXCHANGE
-    ];
-    const approvals = await Promise.all(operators.map((operator) => ctf.isApprovedForAll(walletAddress, operator)));
-    const operatorMap = Object.fromEntries(
-        approvals.map((approved: boolean, index: number) => [operators[index], approved])
-    );
-    return {
-        approved: approvals.every(Boolean),
-        operators: operatorMap
-    };
+
+    const isApproved = await ctf.isApprovedForAll(walletAddress, POLYGON_CONTRACTS.CTF_EXCHANGE);
+    return isApproved;
 }
 
 /**
  * Get the approval transaction data for USDC
  * Returns the transaction data that needs to be signed and sent
  */
-export function getUsdcApprovalTx(spender: string): {
+export function getUsdcApprovalTx(spender = POLYGON_CONTRACTS.CTF_EXCHANGE): {
     to: string;
     data: string;
     chainId: number;
@@ -209,14 +118,14 @@ export function getUsdcApprovalTx(spender: string): {
         to: POLYGON_CONTRACTS.USDC,
         data,
         chainId: 137,
-        description: `Approve USDC for ${spender}`
+        description: 'Approve USDC for Polymarket CTF Exchange'
     };
 }
 
 /**
  * Get the approval transaction data for CTF tokens
  */
-export function getCtfApprovalTx(operator: string): {
+export function getCtfApprovalTx(operator = POLYGON_CONTRACTS.CTF_EXCHANGE): {
     to: string;
     data: string;
     chainId: number;
@@ -233,7 +142,7 @@ export function getCtfApprovalTx(operator: string): {
         to: POLYGON_CONTRACTS.CTF,
         data,
         chainId: 137,
-        description: `Approve CTF tokens for ${operator}`
+        description: 'Approve CTF tokens for Polymarket Exchange'
     };
 }
 
@@ -266,27 +175,18 @@ export async function getRequiredApprovals(walletAddress: string): Promise<{
     }> = [];
 
     if (!usdcStatus.approved) {
-        for (const spender of [POLYGON_CONTRACTS.CTF_EXCHANGE, POLYGON_CONTRACTS.NEG_RISK_ADAPTER]) {
-            const allowance = Number.parseFloat(usdcStatus.allowances[spender] || '0');
-            if (allowance <= 0) {
-                const tx = getUsdcApprovalTx(spender);
-                transactions.push({ type: 'usdc', ...tx });
-            }
-        }
+        const tx = getUsdcApprovalTx();
+        transactions.push({ type: 'usdc', ...tx });
     }
 
-    if (!ctfApproved.approved) {
-        for (const operator of [POLYGON_CONTRACTS.CTF_EXCHANGE, POLYGON_CONTRACTS.NEG_RISK_CTF_EXCHANGE]) {
-            if (!ctfApproved.operators[operator]) {
-                const tx = getCtfApprovalTx(operator);
-                transactions.push({ type: 'ctf', ...tx });
-            }
-        }
+    if (!ctfApproved) {
+        const tx = getCtfApprovalTx();
+        transactions.push({ type: 'ctf', ...tx });
     }
 
     return {
         needsUsdcApproval: !usdcStatus.approved,
-        needsCtfApproval: !ctfApproved.approved,
+        needsCtfApproval: !ctfApproved,
         usdcBalance: usdcStatus.balance,
         transactions
     };
@@ -294,42 +194,41 @@ export async function getRequiredApprovals(walletAddress: string): Promise<{
 
 export async function executeRequiredApprovals(params: {
     userId: string;
-    accessToken?: string;
+    accessToken: string;
 }): Promise<{
-    txHashes: string[];
+    walletAddress: string;
+    transactions: Array<{
+        type: 'usdc' | 'ctf';
+        txHash: string;
+    }>;
     readiness: Awaited<ReturnType<typeof checkTradingReadiness>>;
 }> {
-    const creds = await prisma.polymarketApiCreds.findUnique({
-        where: { userId: params.userId }
-    });
-    if (!creds) {
-        throw new Error('No credentials found. Generate Polymarket credentials first.');
+    const creds = await getCredentials(params.userId);
+    if (!creds?.walletAddress) {
+        throw new Error('No Polymarket credentials found');
     }
 
     const approvals = await getRequiredApprovals(creds.walletAddress);
-    const txHashes: string[] = [];
+    const sent: Array<{ type: 'usdc' | 'ctf'; txHash: string }> = [];
+
     for (const tx of approvals.transactions) {
-        const gas = await estimateApprovalGas({
-            walletAddress: creds.walletAddress,
+        const txHash = await sendTransaction(params.userId, params.accessToken, {
             to: tx.to,
             data: tx.data,
-            type: tx.type
-        });
-        const fees = await estimateApprovalFees();
-        const txHash = await sendTransaction(params.userId, params.accessToken || '', {
-            to: tx.to,
-            data: tx.data,
-            gas,
-            maxFeePerGas: fees.maxFeePerGas,
-            maxPriorityFeePerGas: fees.maxPriorityFeePerGas,
+            value: '0',
             chainId: tx.chainId,
-            txPurpose: 'approval'
         });
-        txHashes.push(txHash);
+        sent.push({
+            type: tx.type,
+            txHash,
+        });
     }
 
-    const readiness = await checkTradingReadiness(params.userId);
-    return { txHashes, readiness };
+    return {
+        walletAddress: creds.walletAddress,
+        transactions: sent,
+        readiness: await checkTradingReadiness(params.userId),
+    };
 }
 
 /**
@@ -370,7 +269,7 @@ export async function checkTradingReadiness(userId: string): Promise<{
     // readiness=null → hasCredentials=false → the "Revoke" button never appeared.
     let delegatedEvmWallet: any = null;
     let usdcStatus: { approved: boolean; balance: string } = { approved: false, balance: '0' };
-    let ctfApproved: { approved: boolean } | null = { approved: false };
+    let ctfApproved = false;
     let blockchainCallFailed = false;
 
     try {
@@ -396,7 +295,7 @@ export async function checkTradingReadiness(userId: string): Promise<{
         if (!usdcStatus.approved) {
             missingSteps.push('Approve USDC for Polymarket');
         }
-        if (!ctfApproved.approved) {
+        if (!ctfApproved) {
             missingSteps.push('Approve CTF tokens for Polymarket');
         }
         if (parseFloat(usdcStatus.balance) < 1) {
@@ -408,7 +307,7 @@ export async function checkTradingReadiness(userId: string): Promise<{
         hasCredentials: true,
         hasDelegatedEvm: !!delegatedEvmWallet,
         hasUsdcApproval: blockchainCallFailed ? null : usdcStatus.approved,
-        hasCtfApproval: blockchainCallFailed ? null : ctfApproved?.approved ?? false,
+        hasCtfApproval: blockchainCallFailed ? null : ctfApproved,
         usdcBalance: usdcStatus.balance,
         walletAddress: creds.walletAddress,
         isReady: !blockchainCallFailed && missingSteps.length === 0,

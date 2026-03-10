@@ -13,7 +13,10 @@ export function resolveCopyTradeLatencyLimits(params: {
   defaultMaxDelayMs: number;
   defaultHardMaxDelayMs: number;
 }): CopyTradeLatencyLimits {
-  if (params.chainId === 1) {
+  // Production-grade behavior: only the turbo path should hard-optimize for
+  // ultra-low ETH latency. Normal mode should prefer execution completeness
+  // and only respect the broader stale-signal limits provided by the caller.
+  if (params.chainId === 1 && params.turboMode) {
     return {
       maxDelayMs: ETH_COPYTRADE_MAX_DELAY_MS,
       hardMaxDelayMs: Math.max(ETH_COPYTRADE_HARD_MAX_DELAY_MS, ETH_COPYTRADE_MAX_DELAY_MS),

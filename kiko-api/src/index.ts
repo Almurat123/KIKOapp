@@ -54,6 +54,7 @@ import { chatWorker } from './jobs/chatWorker.js';
 import { registerUserRoutes } from './routes/users.js';
 import { initializePolicies, runCleanup, startDataRetentionScheduler, stopDataRetentionScheduler } from './services/dataRetentionService.js';
 import { zoraAlertService } from './services/zoraAlertService.js';
+import { startPolling as startPolymarketWatcher, stopPolling as stopPolymarketWatcher } from './services/polymarketWatcher.js';
 import fastifyRawBody from 'fastify-raw-body';
 import helmet from '@fastify/helmet';
 import { tracingHook } from './middleware/tracing.js';
@@ -477,6 +478,14 @@ async function start() {
             logger.error(LogCode.SYS_ERROR, 'Copytrade exit intent worker failed to start', { error: exitWorkerError.message });
         }
 
+        logger.debug(LogCode.SYS_STARTUP, 'Starting Polymarket copy watcher...');
+        try {
+            await startPolymarketWatcher();
+            logger.info(LogCode.SYS_STARTUP, 'Polymarket copy watcher started');
+        } catch (polymarketWatcherError: any) {
+            logger.error(LogCode.SYS_ERROR, 'Polymarket copy watcher failed to start', { error: polymarketWatcherError.message });
+        }
+
         // Start token alert service
         logger.debug(LogCode.SYS_STARTUP, 'Starting token alert service...');
         try {
@@ -515,6 +524,7 @@ process.on('SIGTERM', async () => {
     logger.info(LogCode.SYS_SHUTDOWN, 'SIGTERM received, shutting down gracefully...');
     stopDataRetentionScheduler();
     stopPositionExitIntentWorker();
+    stopPolymarketWatcher();
     await stopAutoTradeService();
     if (prisma) await (prisma as any).$disconnect();
     await fastify.close();
@@ -525,6 +535,7 @@ process.on('SIGINT', async () => {
     logger.info(LogCode.SYS_SHUTDOWN, 'SIGINT received, shutting down gracefully...');
     stopDataRetentionScheduler();
     stopPositionExitIntentWorker();
+    stopPolymarketWatcher();
     await stopAutoTradeService();
     if (prisma) await (prisma as any).$disconnect();
     await fastify.close();

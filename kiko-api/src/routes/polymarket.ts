@@ -105,13 +105,160 @@ export const polymarketRoutes: FastifyPluginAsync = async (fastify) => {
 
             const configs = await prisma.polymarketCopyConfig.findMany({
                 where: { userId: dbUser.privyDid },
+                include: {
+                    positions: {
+                        select: {
+                            status: true,
+                            createdAt: true,
+                            closedAt: true,
+                        }
+                    }
+                },
                 orderBy: { createdAt: 'desc' }
             });
 
-            return { success: true, configs };
+            return {
+                success: true,
+                configs: configs.map((config) => {
+                    const openPositions = config.positions.filter((position) => position.status === 'open').length;
+                    const closedPositions = config.positions.filter((position) => position.status === 'closed').length;
+                    const failedPositions = config.positions.filter((position) => position.status === 'failed').length;
+                    const latestPosition = config.positions
+                        .slice()
+                        .sort((a, b) => {
+                            const aTime = new Date(a.closedAt || a.createdAt).getTime();
+                            const bTime = new Date(b.closedAt || b.createdAt).getTime();
+                            return bTime - aTime;
+                        })[0];
+
+                    const { positions, ...rest } = config;
+                    return {
+                        ...rest,
+                        executionStats: {
+                            executedTrades: positions.length,
+                            openPositions,
+                            closedPositions,
+                            failedPositions,
+                            lastCopiedAt: latestPosition ? (latestPosition.closedAt || latestPosition.createdAt).toISOString() : null,
+                        }
+                    };
+                })
+            };
         } catch (error) {
             console.error('[Polymarket] Error fetching copy configs:', error);
             return reply.status(500).send({ success: false, error: 'Failed to fetch copy configs' });
+        }
+    });
+
+    fastify.patch('/copy/configs/:id', { preHandler: requireAuth }, async (request, reply) => {
+        try {
+            const user = (request as any).user;
+            const privyDid = user?.sub || user?.privyDid;
+            if (!privyDid) {
+                return reply.status(401).send({ success: false, error: 'Authentication required' });
+            }
+
+            const { id } = request.params as { id: string };
+            const body = request.body as {
+                betSizeUsd?: number;
+                maxOpenBets?: number;
+                mirrorSell?: boolean;
+                status?: 'active' | 'paused';
+            };
+
+            const existing = await prisma.polymarketCopyConfig.findFirst({
+                where: { id, userId: privyDid }
+            });
+
+            if (!existing) {
+                return reply.status(404).send({ success: false, error: 'Polymarket copy config not found' });
+            }
+
+            const updateData: Record<string, unknown> = {};
+
+            if (typeof body.betSizeUsd === 'number' && Number.isFinite(body.betSizeUsd) && body.betSizeUsd > 0) {
+                updateData.betSizeUsd = body.betSizeUsd;
+            }
+            if (typeof body.maxOpenBets === 'number' && Number.isFinite(body.maxOpenBets) && body.maxOpenBets > 0) {
+                updateData.maxOpenBets = Math.floor(body.maxOpenBets);
+            }
+            if (typeof body.mirrorSell === 'boolean') {
+                updateData.mirrorSell = body.mirrorSell;
+            }
+            if (body.status === 'active' || body.status === 'paused') {
+                updateData.status = body.status;
+            }
+
+            const updated = await prisma.polymarketCopyConfig.update({
+                where: { id },
+                data: updateData,
+                include: {
+                    positions: {
+                        select: {
+                            status: true,
+                            createdAt: true,
+                            closedAt: true,
+                        }
+                    }
+                }
+            });
+
+            const openPositions = updated.positions.filter((position) => position.status === 'open').length;
+            const closedPositions = updated.positions.filter((position) => position.status === 'closed').length;
+            const failedPositions = updated.positions.filter((position) => position.status === 'failed').length;
+            const latestPosition = updated.positions
+                .slice()
+                .sort((a, b) => {
+                    const aTime = new Date(a.closedAt || a.createdAt).getTime();
+                    const bTime = new Date(b.closedAt || b.createdAt).getTime();
+                    return bTime - aTime;
+                })[0];
+
+            const { positions, ...rest } = updated;
+            return {
+                success: true,
+                config: {
+                    ...rest,
+                    executionStats: {
+                        executedTrades: positions.length,
+                        openPositions,
+                        closedPositions,
+                        failedPositions,
+                        lastCopiedAt: latestPosition ? (latestPosition.closedAt || latestPosition.createdAt).toISOString() : null,
+                    }
+                }
+            };
+        } catch (error: any) {
+            console.error('[Polymarket] Error updating copy config:', error);
+            return reply.status(500).send({ success: false, error: error.message || 'Failed to update copy config' });
+        }
+    });
+
+    fastify.delete('/copy/configs/:id', { preHandler: requireAuth }, async (request, reply) => {
+        try {
+            const user = (request as any).user;
+            const privyDid = user?.sub || user?.privyDid;
+            if (!privyDid) {
+                return reply.status(401).send({ success: false, error: 'Authentication required' });
+            }
+
+            const { id } = request.params as { id: string };
+            const existing = await prisma.polymarketCopyConfig.findFirst({
+                where: { id, userId: privyDid }
+            });
+
+            if (!existing) {
+                return reply.status(404).send({ success: false, error: 'Polymarket copy config not found' });
+            }
+
+            await prisma.polymarketCopyConfig.delete({
+                where: { id }
+            });
+
+            return { success: true };
+        } catch (error: any) {
+            console.error('[Polymarket] Error deleting copy config:', error);
+            return reply.status(500).send({ success: false, error: error.message || 'Failed to delete copy config' });
         }
     });
 

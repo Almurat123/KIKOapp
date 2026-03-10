@@ -22,6 +22,10 @@ function isSellDirection(order: CopytradeOrderAggregate): boolean {
     || order.lifecycleState === 'EXIT_ACCEPTED';
 }
 
+function isExplicitTokenSwap(order: CopytradeOrderAggregate): boolean {
+  return order.direction === 'token_swap' && order.metadata?.directionIsExplicitTokenSwap === true;
+}
+
 function buildDirectSwapHint(signal: CopytradeIngressSignal): MainSwapRequest['directSwapHint'] {
   if (!signal.swap) return undefined;
   return {
@@ -75,8 +79,9 @@ export class EvmTradingFlowExecutor implements CopytradeExecutionPort {
     }
 
     const sellDirection = isSellDirection(order);
+    const tokenSwapDirection = isExplicitTokenSwap(order);
 
-    const sellResolution = sellDirection
+    const sellResolution = (sellDirection || tokenSwapDirection)
       ? await resolveSellAmountInHuman({
           walletAddress: context.walletAddress,
           tokenIn: signal.swap.tokenIn,
@@ -90,7 +95,7 @@ export class EvmTradingFlowExecutor implements CopytradeExecutionPort {
           },
         })
       : null;
-    const amountInHuman = sellDirection
+    const amountInHuman = (sellDirection || tokenSwapDirection)
       ? sellResolution?.amountInHuman || null
       : (await resolveBuyAmountInHuman({
           tokenIn: signal.swap.tokenIn,
@@ -138,7 +143,11 @@ export class EvmTradingFlowExecutor implements CopytradeExecutionPort {
         sourceTokenOut: signal.swap.tokenOut,
         sourceAmountIn: signal.swap.amountIn,
         sourceAmountOut: signal.swap.amountOut,
-        executionStep: sellDirection ? 'copytrade_exit_v2' : 'copytrade_buy_v2',
+        executionStep: sellDirection
+          ? 'copytrade_exit_v2'
+          : tokenSwapDirection
+            ? 'copytrade_token_swap_v2'
+            : 'copytrade_buy_v2',
       },
       preWarmedNonce: getPendingNonce(signal.chainId, context.walletAddress),
     };

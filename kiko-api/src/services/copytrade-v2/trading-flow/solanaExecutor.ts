@@ -17,6 +17,10 @@ function isSellDirection(order: CopytradeOrderAggregate): boolean {
     || order.lifecycleState === 'EXIT_ACCEPTED';
 }
 
+function isExplicitTokenSwap(order: CopytradeOrderAggregate): boolean {
+  return order.direction === 'token_swap' && order.metadata?.directionIsExplicitTokenSwap === true;
+}
+
 function resolveCtIssueHint(signal: CopytradeIngressSignal, order: CopytradeOrderAggregate): `CT-${string}` | undefined {
   const raw = String(signal.ctIssueHintId || order.metadata?.ctIssueHintId || '').trim().toUpperCase();
   if (!/^CT-\d{3}$/.test(raw)) return undefined;
@@ -87,8 +91,9 @@ export class SolanaTradingFlowExecutor implements CopytradeExecutionPort {
     }
 
     const sellDirection = isSellDirection(order);
+    const tokenSwapDirection = isExplicitTokenSwap(order);
 
-    const sellResolution = sellDirection
+    const sellResolution = (sellDirection || tokenSwapDirection)
       ? await resolveSellAmountInHuman({
           walletAddress,
           tokenIn: signal.swap.tokenIn,
@@ -102,7 +107,7 @@ export class SolanaTradingFlowExecutor implements CopytradeExecutionPort {
           },
         })
       : null;
-    const amountInHuman = sellDirection
+    const amountInHuman = (sellDirection || tokenSwapDirection)
       ? sellResolution?.amountInHuman || null
       : (await resolveBuyAmountInHuman({
           tokenIn: signal.swap.tokenIn,
@@ -121,11 +126,11 @@ export class SolanaTradingFlowExecutor implements CopytradeExecutionPort {
       logger.info(LogCode.WTC_TX_SKIPPED, '[CopyTradeV2][SolanaExecution] deferred before send: amount below min sell threshold', {
         orderId: order.id,
         chainId: signal.chainId,
-        txHash: signal.swap?.txHash || undefined,
-        sellDirection,
-        amountInHuman,
-        minSellAmount: SOLANA_MIN_SELL_AMOUNT_HUMAN,
-        sellAmountFallbackSource: sellResolution?.source || null,
+          txHash: signal.swap?.txHash || undefined,
+          sellDirection: sellDirection || tokenSwapDirection,
+          amountInHuman,
+          minSellAmount: SOLANA_MIN_SELL_AMOUNT_HUMAN,
+          sellAmountFallbackSource: sellResolution?.source || null,
       });
       return {
         status: 'deferred',
@@ -134,7 +139,7 @@ export class SolanaTradingFlowExecutor implements CopytradeExecutionPort {
         sourceTxHash: signal.swap?.txHash || null,
         metadata: {
           reason: 'amount_below_min_sell_threshold',
-          sellDirection,
+          sellDirection: sellDirection || tokenSwapDirection,
           tokenIn: signal.swap.tokenIn,
           amountInHuman,
           minSellAmount: SOLANA_MIN_SELL_AMOUNT_HUMAN,
@@ -150,7 +155,7 @@ export class SolanaTradingFlowExecutor implements CopytradeExecutionPort {
         orderId: order.id,
         chainId: signal.chainId,
         txHash: signal.swap?.txHash || undefined,
-        sellDirection,
+        sellDirection: sellDirection || tokenSwapDirection,
         tokenIn: signal.swap.tokenIn,
         tokenOut: signal.swap.tokenOut,
         sellAmountFallbackSource: sellResolution?.source || null,
@@ -163,7 +168,7 @@ export class SolanaTradingFlowExecutor implements CopytradeExecutionPort {
         sourceTxHash: signal.swap?.txHash || null,
         metadata: {
           reason: 'amount_resolution_failed',
-          sellDirection,
+          sellDirection: sellDirection || tokenSwapDirection,
           tokenIn: signal.swap.tokenIn,
           sellAmountFallbackSource: sellResolution?.source || null,
           sellAmountFallbackMetadata: sellResolution?.metadata || null,
@@ -194,7 +199,11 @@ export class SolanaTradingFlowExecutor implements CopytradeExecutionPort {
         sourceTokenOut: signal.swap.tokenOut,
         sourceAmountIn: signal.swap.amountIn,
         sourceAmountOut: signal.swap.amountOut,
-        executionStep: sellDirection ? 'copytrade_exit_v2' : 'copytrade_buy_v2',
+        executionStep: sellDirection
+          ? 'copytrade_exit_v2'
+          : tokenSwapDirection
+            ? 'copytrade_token_swap_v2'
+            : 'copytrade_buy_v2',
       },
     };
 

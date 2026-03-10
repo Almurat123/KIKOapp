@@ -385,7 +385,6 @@ export async function getAssetTransfers(
   // For EVM history, we prefer Scan API if we have a wallet address
   // But for contract-only searches (early buyers), we MUST use Alchemy
   let transfers: AssetTransfer[] = [];
-  let scanApiSucceeded = false;
   const wantsInternal = options.category?.includes('internal') === true;
   const wantsContractFilter = Array.isArray(options.contractAddresses) && options.contractAddresses.length > 0;
   const isSolana = chain.toLowerCase() === 'solana' || chain.toLowerCase() === 'sol';
@@ -394,16 +393,14 @@ export async function getAssetTransfers(
   if (canUseScanApi) {
     try {
       transfers = await tryScanApi();
-      scanApiSucceeded = true;
     } catch (e: any) {
       logger.warn(LogCode.API_FETCH_FAILED, 'Scan API failed, falling back to direct Alchemy', { error: e.message });
       transfers = [];
     }
   }
 
-  // If Scan API failed OR we don't have an address, use Alchemy.
-  // Do not hit Alchemy after a successful empty Scan result; empty is a valid answer.
-  if ((!scanApiSucceeded && (!transfers || transfers.length === 0)) || !canUseScanApi) {
+  // If Scan API didn't give results OR we don't have an address, use Alchemy
+  if (!transfers || transfers.length === 0) {
     const alchemyTransfers = await tryAlchemy();
     if (alchemyTransfers) transfers = alchemyTransfers;
   }

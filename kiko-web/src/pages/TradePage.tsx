@@ -9,6 +9,7 @@ import styles from './TradePage.module.css';
 import clsx from 'clsx';
 import { Dialog } from '../components/Dialog/Dialog';
 import { StrategyEditForm } from '../components/Trade/StrategyEditForm';
+import { PolymarketStrategyEditForm } from '../components/Trade/PolymarketStrategyEditForm';
 import { Activity, TrendingUp } from 'lucide-react';
 import { agentAttrs } from '../agent/attrs';
 
@@ -32,6 +33,15 @@ export const TradePage: React.FC = () => {
 
   const handleSaveStrategy = async (updates: any) => {
     if (editingStrategy) {
+      if (editingStrategy.type === 'polymarket_copy') {
+        const safePolyPatch = {
+          betSizeUsd: updates?.betSizeUsd,
+          maxOpenBets: updates?.maxOpenBets,
+          mirrorSell: updates?.mirrorSell,
+        };
+        await updateStrategy(editingStrategy.id, { polymarketCopyConfig: safePolyPatch as any });
+        return;
+      }
       const safePatch = {
         targetWallet: updates?.targetWallet,
         buyAmountUsd: updates?.buyAmountUsd,
@@ -157,6 +167,20 @@ export const TradePage: React.FC = () => {
           >
             <StrategyEditForm
               config={editingStrategy.copyTradeConfig}
+              onSave={handleSaveStrategy}
+              onCancel={() => setEditingStrategy(null)}
+            />
+          </Dialog>
+        )}
+
+        {editingStrategy && editingStrategy.polymarketCopyConfig && (
+          <Dialog
+            isOpen={!!editingStrategy}
+            onClose={() => setEditingStrategy(null)}
+            title="Edit Polymarket Strategy"
+          >
+            <PolymarketStrategyEditForm
+              config={editingStrategy.polymarketCopyConfig}
               onSave={handleSaveStrategy}
               onCancel={() => setEditingStrategy(null)}
             />
