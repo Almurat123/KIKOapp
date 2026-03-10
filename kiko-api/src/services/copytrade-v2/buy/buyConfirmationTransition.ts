@@ -15,6 +15,7 @@ import {
 import { preheatSellApprovalForToken } from '../../sellApprovalPreheater.js';
 import { emitCopytradeDomainAudit } from '../audit/copytradeDomainAudit.js';
 import { scheduleDeferredBuyFeeRecovery } from './deferredBuyFeeRecovery.js';
+import { scheduleDeferredSellApprovalPreheat } from './deferredSellApprovalPreheat.js';
 
 export type BuyConfirmationTransitionResult = 'confirmed_success' | 'confirmed_failed' | 'deferred';
 export interface MirrorSellAfterConfirmContext {
@@ -62,6 +63,7 @@ export async function applyBuyConfirmationTransition(params: {
     resolveBuyConfirmationPromotionAction?: typeof resolveBuyConfirmationPromotionAction;
     collectDirectSwapFeeFromSettlement?: typeof collectDirectSwapFeeFromSettlement;
     scheduleDeferredBuyFeeRecovery?: typeof scheduleDeferredBuyFeeRecovery;
+    scheduleDeferredSellApprovalPreheat?: typeof scheduleDeferredSellApprovalPreheat;
     preheatSellApprovalForToken?: typeof preheatSellApprovalForToken;
     emitCopytradeDomainAudit?: typeof emitCopytradeDomainAudit;
   };
@@ -91,6 +93,7 @@ export async function applyBuyConfirmationTransition(params: {
   const resolveMirrorIntent = deps?.resolvePendingMirrorSellIntent || resolvePendingMirrorSellIntent;
   const resolvePromotionAction = deps?.resolveBuyConfirmationPromotionAction || resolveBuyConfirmationPromotionAction;
   const deferFeeRecovery = deps?.scheduleDeferredBuyFeeRecovery || scheduleDeferredBuyFeeRecovery;
+  const deferApprovalPreheat = deps?.scheduleDeferredSellApprovalPreheat || scheduleDeferredSellApprovalPreheat;
   const preheatSell = deps?.preheatSellApprovalForToken || preheatSellApprovalForToken;
   const emitDomainAudit = deps?.emitCopytradeDomainAudit || emitCopytradeDomainAudit;
 
@@ -230,14 +233,29 @@ export async function applyBuyConfirmationTransition(params: {
     await onNotifySuccess();
   }
 
-  await preheatSell({
+  const preheatResult = await preheatSell({
     userId,
     walletAddress,
     chainId,
     tokenAddress: tokenToBuy,
     tokenPriceUsd: tokenInfo.price,
     tokenDecimals: tokenInfo.decimals
+  }, {
+    queueBehavior: pendingMirrorIntent?.shouldMirrorSell ? 'allow_queue' : 'skip_if_busy',
+    txPurpose: pendingMirrorIntent?.shouldMirrorSell ? 'approval' : 'preheat',
   });
+
+  if (preheatResult.status === 'deferred') {
+    deferApprovalPreheat({
+      userId,
+      walletAddress,
+      chainId,
+      tokenAddress: tokenToBuy,
+      tokenPriceUsd: tokenInfo.price,
+      tokenDecimals: tokenInfo.decimals,
+      trigger: pendingMirrorIntent?.shouldMirrorSell ? 'mirror_sell_release' : 'buy_confirmation',
+    });
+  }
 
   return 'confirmed_success';
 }

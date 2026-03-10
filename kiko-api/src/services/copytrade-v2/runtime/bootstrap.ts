@@ -6,6 +6,8 @@ import { startCopyTradePendingWatcher, stopCopyTradePendingWatcher } from '../..
 import { runTargetSellReconciliationCycle } from '../reconcile/targetSellReconciliationJob.js';
 import { runCopytradeAttributionRepairCycle } from '../jobs/copytradeAttributionRepairJob.js';
 import { runCopytradeOrphanSweepCycle } from '../jobs/copytradeOrphanSweepJob.js';
+import { runDeferredBuyFeeRecoveryBackfill } from '../buy/deferredBuyFeeRecoveryBackfill.js';
+import { runDeferredSellApprovalPreheatBackfill } from '../buy/deferredSellApprovalPreheatBackfill.js';
 import { logger } from '../../../utils/logger.js';
 import { LogCode } from '../../../config/logRegistry.js';
 import type { DecodedSwap } from '../../txDecoder.js';
@@ -18,6 +20,14 @@ const ATTRIBUTION_REPAIR_INTERVAL_MS = 600_000;
 const ORPHAN_SWEEP_INTERVAL_MS = Math.max(
   60_000,
   Number(process.env.COPYTRADE_ORPHAN_SWEEP_INTERVAL_MS || '600000'),
+);
+const DEFERRED_FEE_BACKFILL_INTERVAL_MS = Math.max(
+  30_000,
+  Number(process.env.COPYTRADE_DEFERRED_FEE_BACKFILL_INTERVAL_MS || '60000'),
+);
+const DEFERRED_APPROVAL_BACKFILL_INTERVAL_MS = Math.max(
+  30_000,
+  Number(process.env.COPYTRADE_DEFERRED_APPROVAL_BACKFILL_INTERVAL_MS || '60000'),
 );
 
 type PositionStatusCompat = {
@@ -35,6 +45,8 @@ let zombieCleanupInterval: NodeJS.Timeout | null = null;
 let targetSellReconciliationInterval: NodeJS.Timeout | null = null;
 let attributionRepairInterval: NodeJS.Timeout | null = null;
 let orphanSweepInterval: NodeJS.Timeout | null = null;
+let deferredFeeBackfillInterval: NodeJS.Timeout | null = null;
+let deferredApprovalBackfillInterval: NodeJS.Timeout | null = null;
 
 async function getPositionStatusCompat(): Promise<PositionStatusCompat> {
   const cached = positionStatusCompatCache;
@@ -177,8 +189,26 @@ export function initCopytradeV2Bootstrap(params: {
       });
   }, ORPHAN_SWEEP_INTERVAL_MS);
 
+  deferredFeeBackfillInterval = setInterval(() => {
+    void runDeferredBuyFeeRecoveryBackfill().catch((error: any) => {
+      logger.warn(LogCode.SYS_ERROR, '[CopyTradeV2] Deferred fee recovery backfill failed', {
+        error: error?.message || String(error),
+      });
+    });
+  }, DEFERRED_FEE_BACKFILL_INTERVAL_MS);
+
+  deferredApprovalBackfillInterval = setInterval(() => {
+    void runDeferredSellApprovalPreheatBackfill().catch((error: any) => {
+      logger.warn(LogCode.SYS_ERROR, '[CopyTradeV2] Deferred approval backfill failed', {
+        error: error?.message || String(error),
+      });
+    });
+  }, DEFERRED_APPROVAL_BACKFILL_INTERVAL_MS);
+
   void runCopytradeAttributionRepairCycle().catch(() => { });
   void runCopytradeOrphanSweepCycle().catch(() => { });
+  void runDeferredBuyFeeRecoveryBackfill().catch(() => { });
+  void runDeferredSellApprovalPreheatBackfill().catch(() => { });
 
   logger.info(LogCode.SYS_STARTUP, 'CopyTrade V2 bootstrap initialized', {
     mode: 'solana-watcher+evm-webhook+pending',
@@ -207,6 +237,14 @@ export async function stopCopytradeV2Bootstrap(): Promise<void> {
   if (orphanSweepInterval) {
     clearInterval(orphanSweepInterval);
     orphanSweepInterval = null;
+  }
+  if (deferredFeeBackfillInterval) {
+    clearInterval(deferredFeeBackfillInterval);
+    deferredFeeBackfillInterval = null;
+  }
+  if (deferredApprovalBackfillInterval) {
+    clearInterval(deferredApprovalBackfillInterval);
+    deferredApprovalBackfillInterval = null;
   }
 
   stopCopyTradePendingWatcher();

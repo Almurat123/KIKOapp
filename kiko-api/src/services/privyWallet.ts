@@ -47,6 +47,18 @@ import { resolveSolanaWalletRecord } from './solana/solanaWalletResolver.js';
 import { sendSolanaTransactionWithContextDeps } from './solana/solanaPrivySender.js';
 import { resolveSolanaSigningContext, type ResolvedSolanaSigningContext } from './solana/solanaSigningContext.js';
 import { fetchPrivyEmbeddedWalletInfo, type EmbeddedWalletChainType } from './privyEmbeddedWalletResolver.js';
+import {
+    __resetUserTransactionSchedulerForTests,
+    __runUserTransactionTaskForTests,
+    isTransactionQueueBusy,
+    markUserChainInflight,
+    withUserTransactionLock,
+} from './privyWalletQueue.js';
+export {
+    __resetUserTransactionSchedulerForTests,
+    __runUserTransactionTaskForTests,
+    isTransactionQueueBusy,
+} from './privyWalletQueue.js';
 
 // Initialize Privy client
 const PRIVY_APP_ID = process.env.VITE_PRIVY_APP_ID || process.env.PRIVY_APP_ID || '';
@@ -510,43 +522,11 @@ export interface TransactionRequest {
  * @param tx - Transaction to send
  * @returns Transaction hash
  */
-type UserTransactionQueueTask<T = any> = {
-    priority: number;
-    sequence: number;
-    fn: () => Promise<T>;
-    resolve: (value: T | PromiseLike<T>) => void;
-    reject: (reason?: unknown) => void;
-};
-
-type UserTransactionQueueState = {
-    running: boolean;
-    sequence: number;
-    queue: Array<UserTransactionQueueTask>;
-};
-
-// Queue to manage concurrent transactions per user to prevent nonce collisions.
-// Priority order keeps critical mirror-sell/buy trades ahead of fee/preheat sidecars.
-const userTransactionQueues = new Map<string, UserTransactionQueueState>();
-const userChainInflightTx = new Map<string, number>();
 const pendingNonceInflight = new Map<string, Promise<string | undefined>>();
 const pendingNonceCache = new Map<string, { nonce: string; timestamp: number }>();
 const PENDING_NONCE_CACHE_TTL_MS = Math.max(250, Number(process.env.PENDING_NONCE_CACHE_TTL_MS || '1500'));
 const CHAIN_SEND_CONCURRENCY_LIMIT = Math.max(1, Number(process.env.PRIVY_CHAIN_SEND_CONCURRENCY || '8'));
 const chainSendLimiter = new Map<number, { inFlight: number; queue: Array<() => void> }>();
-
-function buildUserChainKey(userId: string, chainId: number): string {
-    return `${userId}:${chainId}`;
-}
-
-function bumpInflightUserChainTx(key: string, delta: 1 | -1): void {
-    const current = userChainInflightTx.get(key) || 0;
-    const next = current + delta;
-    if (next <= 0) {
-        userChainInflightTx.delete(key);
-        return;
-    }
-    userChainInflightTx.set(key, next);
-}
 
 function buildPendingNonceKey(chainId: number, walletAddress: string): string {
     return `${chainId}:${walletAddress.toLowerCase()}`;
@@ -571,12 +551,6 @@ function seedNextPendingNonce(chainId: number, walletAddress: string, nonce?: st
     } catch {
         invalidatePendingNonce(chainId, walletAddress);
     }
-}
-
-export function isTransactionQueueBusy(userId: string, chainId: number): boolean {
-    const chainKey = buildUserChainKey(userId, chainId);
-    const queueState = userTransactionQueues.get(chainKey);
-    return (userChainInflightTx.get(chainKey) || 0) > 0 || Boolean(queueState?.running) || Boolean(queueState?.queue.length);
 }
 
 export async function getPendingNonce(chainId: number, walletAddress: string): Promise<string | undefined> {
@@ -610,88 +584,6 @@ export async function getPendingNonce(chainId: number, walletAddress: string): P
 
     pendingNonceInflight.set(key, task);
     return await task;
-}
-
-function resolveTransactionQueuePriority(tx?: Pick<TransactionRequest, 'txPurpose' | 'txPriority'>): number {
-    if (Number.isFinite(Number(tx?.txPriority))) {
-        return Number(tx?.txPriority);
-    }
-    switch (tx?.txPurpose || 'other') {
-        case 'trade':
-        case 'speedup':
-            return 400;
-        case 'approval':
-            return 300;
-        case 'fee':
-            return 100;
-        case 'preheat':
-            return 50;
-        default:
-            return 0;
-    }
-}
-
-/**
- * Execute a function sequentially for a scoped lock key.
- */
-function getUserTransactionQueueState(lockKey: string): UserTransactionQueueState {
-    let state = userTransactionQueues.get(lockKey);
-    if (!state) {
-        state = {
-            running: false,
-            sequence: 0,
-            queue: [],
-        };
-        userTransactionQueues.set(lockKey, state);
-    }
-    return state;
-}
-
-function drainUserTransactionQueue(lockKey: string): void {
-    const state = userTransactionQueues.get(lockKey);
-    if (!state || state.running) return;
-    const next = state.queue.shift();
-    if (!next) {
-        userTransactionQueues.delete(lockKey);
-        return;
-    }
-    state.running = true;
-    void Promise.resolve()
-        .then(() => next.fn())
-        .then((value) => {
-            next.resolve(value);
-        })
-        .catch((error) => {
-            next.reject(error);
-        })
-        .finally(() => {
-            const current = userTransactionQueues.get(lockKey);
-            if (!current) return;
-            current.running = false;
-            if (current.queue.length === 0) {
-                userTransactionQueues.delete(lockKey);
-                return;
-            }
-            drainUserTransactionQueue(lockKey);
-        });
-}
-
-async function withUserLock<T>(lockKey: string, priority: number, fn: () => Promise<T>): Promise<T> {
-    const state = getUserTransactionQueueState(lockKey);
-    return await new Promise<T>((resolve, reject) => {
-        state.queue.push({
-            priority,
-            sequence: state.sequence++,
-            fn,
-            resolve,
-            reject,
-        });
-        state.queue.sort((left, right) => {
-            if (right.priority !== left.priority) return right.priority - left.priority;
-            return left.sequence - right.sequence;
-        });
-        drainUserTransactionQueue(lockKey);
-    });
 }
 
 function getChainLimiter(chainId: number): { inFlight: number; queue: Array<() => void> } {
@@ -920,11 +812,12 @@ export async function sendTransactionLifecycle(
     accessToken: string,
     tx: TransactionRequest
 ): Promise<TxLifecycleResult> {
-    const userChainKey = buildUserChainKey(userId, tx.chainId);
-    const txPriority = resolveTransactionQueuePriority(tx);
-    return withUserLock(userChainKey, txPriority, async () => withChainSendLimiter(tx.chainId, async () => {
-        const chainKey = buildUserChainKey(userId, tx.chainId);
-        bumpInflightUserChainTx(chainKey, 1);
+    return withUserTransactionLock({
+        userId,
+        chainId: tx.chainId,
+        tx,
+        fn: async () => withChainSendLimiter(tx.chainId, async () => {
+        markUserChainInflight(userId, tx.chainId, 1);
         // === SIMULATION MODE ===
         try {
             const runtimeContext = tx.runtimeContext;
@@ -1771,31 +1664,9 @@ export async function sendTransactionLifecycle(
             return terminalLifecycle;
             });
         } finally {
-            bumpInflightUserChainTx(chainKey, -1);
+            markUserChainInflight(userId, tx.chainId, -1);
         }
-    }));
-}
-
-export function __resetUserTransactionSchedulerForTests(): void {
-    userTransactionQueues.clear();
-    userChainInflightTx.clear();
-}
-
-export async function __runUserTransactionTaskForTests<T>(params: {
-    userId: string;
-    chainId: number;
-    txPurpose?: TransactionRequest['txPurpose'];
-    txPriority?: number;
-    fn: () => Promise<T>;
-}): Promise<T> {
-    return await withUserLock(
-        buildUserChainKey(params.userId, params.chainId),
-        resolveTransactionQueuePriority({
-            txPurpose: params.txPurpose,
-            txPriority: params.txPriority,
-        }),
-        params.fn,
-    );
+    })});
 }
 
 export async function sendTransaction(

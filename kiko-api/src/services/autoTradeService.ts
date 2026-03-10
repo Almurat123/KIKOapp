@@ -97,9 +97,12 @@ import { runTargetSellReconciliationCycle } from './copytrade-v2/reconcile/targe
 import { runCopytradeAttributionRepairCycle } from './copytrade-v2/jobs/copytradeAttributionRepairJob.js';
 import { runCopytradeOrphanSweepCycle } from './copytrade-v2/jobs/copytradeOrphanSweepJob.js';
 import { repairCopytradePositionAttribution } from './copytrade-v2/jobs/copytradeAttributionRepairJob.js';
+import { runDeferredBuyFeeRecoveryBackfill } from './copytrade-v2/buy/deferredBuyFeeRecoveryBackfill.js';
+import { runDeferredSellApprovalPreheatBackfill } from './copytrade-v2/buy/deferredSellApprovalPreheatBackfill.js';
 import {
     buildTargetSellEventPayload,
-    persistTargetSellEventAndSchedulePositions
+    persistTargetSellEventAndSchedulePositions,
+    scheduleMirrorSellIntentsForEvent
 } from './copytrade-v2/exit/positionExitIntentScheduler.js';
 import {
     cancelActiveMirrorSellIntentsForPosition,
@@ -146,6 +149,8 @@ let zombieCleanupInterval: NodeJS.Timeout | null = null;
 let targetSellReconciliationInterval: NodeJS.Timeout | null = null;
 let attributionRepairInterval: NodeJS.Timeout | null = null;
 let orphanSweepInterval: NodeJS.Timeout | null = null;
+let deferredFeeBackfillInterval: NodeJS.Timeout | null = null;
+let deferredApprovalBackfillInterval: NodeJS.Timeout | null = null;
 
 async function getPositionStatusCompat(): Promise<PositionStatusCompat> {
     const cached = positionStatusCompatCache;
@@ -313,6 +318,8 @@ const MAX_COPYTRADE_SLIPPAGE_BPS = 5000;
 const TARGET_SELL_RECONCILIATION_INTERVAL_MS = Math.max(15_000, Number(process.env.COPYTRADE_TARGET_SELL_RECONCILIATION_INTERVAL_MS || '30000'));
 const ATTRIBUTION_REPAIR_INTERVAL_MS = 600_000;
 const ORPHAN_SWEEP_INTERVAL_MS = Math.max(60_000, Number(process.env.COPYTRADE_ORPHAN_SWEEP_INTERVAL_MS || '600000'));
+const DEFERRED_FEE_BACKFILL_INTERVAL_MS = Math.max(30_000, Number(process.env.COPYTRADE_DEFERRED_FEE_BACKFILL_INTERVAL_MS || '60000'));
+const DEFERRED_APPROVAL_BACKFILL_INTERVAL_MS = Math.max(30_000, Number(process.env.COPYTRADE_DEFERRED_APPROVAL_BACKFILL_INTERVAL_MS || '60000'));
 const CHAIN_LAUNCHPAD_PROVIDERS: Record<number, Set<string>> = {
     8453: new Set(['zora']),
     56: new Set(['fourmeme']),
@@ -3777,7 +3784,8 @@ async function handleTargetSell(
             }).catch(() => [])
             : [];
 
-        if (pendingMatchedPositions.length > 0 && swap.txHash) {
+        let persistedTargetSellEvent: { event: any; scheduled: number; skipped: number } | null = null;
+        if ((pendingMatchedPositions.length > 0 || openMatchedPositions.length > 0) && swap.txHash) {
             const persistedEvent = await persistTargetSellEventAndSchedulePositions({
                 event: buildTargetSellEventPayload({
                     chainId,
@@ -3787,12 +3795,13 @@ async function handleTargetSell(
                     targetFullExitVerified: false,
                     source: 'webhook',
                     metadata: {
-                        sellPath: 'pending_position_detected',
+                        sellPath: openMatchedPositions.length > 0 ? 'intent_first_dispatch' : 'pending_position_detected',
                     },
                 }),
                 positions: [],
                 priority: 260,
             }).catch(() => null);
+            persistedTargetSellEvent = persistedEvent;
 
             if (persistedEvent?.event?.id) {
                 let blockedIntentScheduled = 0;
@@ -3875,6 +3884,33 @@ async function handleTargetSell(
                 targetSellTxHash: swap.txHash || undefined,
                 reasonCode: mirrorSellExecutionPolicy.reasonCode,
                 pendingPositionIds: pendingMatchedPositionIds,
+            });
+            return;
+        }
+
+        if (persistedTargetSellEvent?.event && swap.txHash) {
+            const scheduledOpen = await scheduleMirrorSellIntentsForEvent({
+                event: persistedTargetSellEvent.event,
+                positions: openMatchedPositions.map((position) => ({
+                    id: position.id,
+                    userId: config.userId,
+                    configId: config.id,
+                    chainId: position.chainId,
+                    tokenAddress: position.tokenAddress,
+                    entryAmountExact: position.entryAmountExact,
+                    entryAmountDec: position.entryAmountDec,
+                })),
+                priority: 260,
+            }).catch(() => null);
+            logger.info(LogCode.SYS_INFO, '[CopyTradeIntent] Scheduled mirror sell intents for open exposure', {
+                userId: config.userId,
+                token: tokenToSell,
+                chainId,
+                targetWallet: normalizedWallet,
+                targetSellTxHash: swap.txHash,
+                openPositionIds: openMatchedPositions.map((position) => position.id),
+                scheduled: scheduledOpen?.scheduled || 0,
+                skipped: scheduledOpen?.skipped || 0,
             });
             return;
         }
@@ -3984,8 +4020,26 @@ export function initAutoTradeService(): void {
             });
     }, ORPHAN_SWEEP_INTERVAL_MS);
 
+    deferredFeeBackfillInterval = setInterval(() => {
+        void runDeferredBuyFeeRecoveryBackfill().catch((err: any) => {
+            logger.warn(LogCode.SYS_ERROR, '[CopyTradeFeeBackfill] Cycle failed', {
+                error: err?.message || String(err)
+            });
+        });
+    }, DEFERRED_FEE_BACKFILL_INTERVAL_MS);
+
+    deferredApprovalBackfillInterval = setInterval(() => {
+        void runDeferredSellApprovalPreheatBackfill().catch((err: any) => {
+            logger.warn(LogCode.SYS_ERROR, '[CopyTradeApprovalBackfill] Cycle failed', {
+                error: err?.message || String(err)
+            });
+        });
+    }, DEFERRED_APPROVAL_BACKFILL_INTERVAL_MS);
+
     void runCopytradeAttributionRepairCycle().catch(() => { });
     void runCopytradeOrphanSweepCycle().catch(() => { });
+    void runDeferredBuyFeeRecoveryBackfill().catch(() => { });
+    void runDeferredSellApprovalPreheatBackfill().catch(() => { });
 }
 
 /**
@@ -4009,6 +4063,14 @@ export async function stopAutoTradeService(): Promise<void> {
     if (orphanSweepInterval) {
         clearInterval(orphanSweepInterval);
         orphanSweepInterval = null;
+    }
+    if (deferredFeeBackfillInterval) {
+        clearInterval(deferredFeeBackfillInterval);
+        deferredFeeBackfillInterval = null;
+    }
+    if (deferredApprovalBackfillInterval) {
+        clearInterval(deferredApprovalBackfillInterval);
+        deferredApprovalBackfillInterval = null;
     }
     stopCopyTradePendingWatcher();
     // Note: watchers are event-driven, setting flag stops processing

@@ -33,6 +33,16 @@ export interface SellApprovalPreheatParams {
   tokenDecimals?: number;
 }
 
+export interface SellApprovalPreheatOptions {
+  queueBehavior?: 'skip_if_busy' | 'allow_queue';
+  txPurpose?: 'approval' | 'preheat';
+}
+
+export interface SellApprovalPreheatResult {
+  status: 'completed' | 'deferred' | 'noop';
+  reasonCode: string;
+}
+
 async function waitForReceipt(chainId: number, txHash: string, timeoutMs: number): Promise<boolean> {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
@@ -180,11 +190,13 @@ async function approveWithFallback(params: {
   chainId: number;
   tokenAddress: string;
   spender: string;
+  queueBehavior: 'skip_if_busy' | 'allow_queue';
+  txPurpose: 'approval' | 'preheat';
 }): Promise<{ success: boolean; txHashes: string[]; error?: string }> {
   const { userId, accessToken, chainId, tokenAddress, spender } = params;
   const txHashes: string[] = [];
   const sendApprove = async (amount: bigint): Promise<boolean> => {
-    if (isTransactionQueueBusy(userId, chainId)) {
+    if (params.queueBehavior === 'skip_if_busy' && isTransactionQueueBusy(userId, chainId)) {
       throw new Error('wallet_tx_queue_busy_skip_preheat');
     }
     const data = ERC20_APPROVE_IFACE.encodeFunctionData('approve', [spender, amount]);
@@ -193,7 +205,7 @@ async function approveWithFallback(params: {
       data,
       value: '0',
       chainId,
-      txPurpose: 'preheat'
+      txPurpose: params.txPurpose
     });
     txHashes.push(txHash);
     return await waitForReceipt(chainId, txHash, PREHEAT_TIMEOUT_MS);
@@ -226,20 +238,26 @@ async function approveWithFallback(params: {
   }
 }
 
-export async function preheatSellApprovalForToken(params: SellApprovalPreheatParams): Promise<void> {
-  if (!PREHEAT_ENABLED) return;
+export async function preheatSellApprovalForToken(
+  params: SellApprovalPreheatParams,
+  options: SellApprovalPreheatOptions = {},
+): Promise<SellApprovalPreheatResult> {
+  if (!PREHEAT_ENABLED) return { status: 'noop', reasonCode: 'preheat_disabled' };
 
   const tokenAddress = toAddress(params.tokenAddress);
   const walletAddress = toAddress(params.walletAddress);
-  if (!tokenAddress || !walletAddress) return;
-  if (isNativeToken(tokenAddress, params.chainId)) return;
+  if (!tokenAddress || !walletAddress) return { status: 'noop', reasonCode: 'invalid_address' };
+  if (isNativeToken(tokenAddress, params.chainId)) return { status: 'noop', reasonCode: 'native_token_no_approval' };
 
-  if (await hasPendingOutgoingTx(params.chainId, walletAddress)) {
+  const queueBehavior = options.queueBehavior || 'skip_if_busy';
+  const txPurpose = options.txPurpose || 'preheat';
+
+  if (queueBehavior === 'skip_if_busy' && await hasPendingOutgoingTx(params.chainId, walletAddress)) {
     logger.info(LogCode.SYS_INFO, '[SellApprovalPreheat] Skipped due to pending wallet tx', {
       chainId: params.chainId,
       token: tokenAddress
     });
-    return;
+    return { status: 'deferred', reasonCode: 'pending_wallet_tx' };
   }
 
   try {
@@ -248,7 +266,7 @@ export async function preheatSellApprovalForToken(params: SellApprovalPreheatPar
       : await getErc20Decimals(tokenAddress, params.chainId, 'latest', { lane: 'critical' }).catch(() => 18);
 
     const probeAmountBase = buildProbeAmountBase(decimals, params.tokenPriceUsd);
-    if (probeAmountBase <= 0n) return;
+    if (probeAmountBase <= 0n) return { status: 'noop', reasonCode: 'probe_amount_zero' };
 
     const cachedSpenders = getCachedSpenders(params.chainId, tokenAddress);
     if (cachedSpenders.length) {
@@ -267,7 +285,8 @@ export async function preheatSellApprovalForToken(params: SellApprovalPreheatPar
     }).catch(() => []);
 
     const spenders = cachedSpenders.length ? cachedSpenders : await freshSpendersPromise;
-    if (!spenders.length) return;
+    if (!spenders.length) return { status: 'noop', reasonCode: 'spender_missing' };
+    let warmedAny = false;
 
     for (const spender of spenders) {
       const allowance = await getErc20Allowance(tokenAddress, walletAddress, spender, params.chainId, 'latest', { lane: 'critical' }).catch(() => 0n);
@@ -287,10 +306,13 @@ export async function preheatSellApprovalForToken(params: SellApprovalPreheatPar
         accessToken: params.accessToken,
         chainId: params.chainId,
         tokenAddress,
-        spender
+        spender,
+        queueBehavior,
+        txPurpose,
       });
 
       if (approval.success) {
+        warmedAny = true;
         logger.info(LogCode.EXE_TX_CONFIRMED, '[SellApprovalPreheat] Approval warmed for future sell', {
           chainId: params.chainId,
           token: tokenAddress,
@@ -303,6 +325,7 @@ export async function preheatSellApprovalForToken(params: SellApprovalPreheatPar
           token: tokenAddress,
           spender
         });
+        return { status: 'deferred', reasonCode: 'wallet_tx_queue_busy' };
       } else {
         logger.warn(LogCode.SYS_ERROR, '[SellApprovalPreheat] Approval warmup failed (non-fatal)', {
           chainId: params.chainId,
@@ -325,12 +348,14 @@ export async function preheatSellApprovalForToken(params: SellApprovalPreheatPar
         });
       });
     }
+    return { status: warmedAny ? 'completed' : 'noop', reasonCode: warmedAny ? 'approval_warmed' : 'approval_already_sufficient' };
   } catch (error: any) {
     logger.warn(LogCode.SYS_ERROR, '[SellApprovalPreheat] Unexpected failure (non-fatal)', {
       chainId: params.chainId,
       token: params.tokenAddress,
       error: String(error?.message || error || 'unknown_error')
     });
+    return { status: 'deferred', reasonCode: String(error?.message || error || 'unknown_error') };
   }
 }
 

@@ -100,6 +100,7 @@ describe('buy confirmation transition', () => {
         resolveBuyConfirmationPromotionAction: async () => ({ action: 'promote_open' }),
         preheatSellApprovalForToken: async () => {
           preheated = true;
+          return { status: 'completed', reasonCode: 'approval_warmed' };
         },
         emitCopytradeDomainAudit: () => {},
       },
@@ -146,8 +147,13 @@ describe('buy confirmation transition', () => {
           reasonCode: 'TARGET_SELL_SEEN_IN_LEDGER',
         }),
         resolveBuyConfirmationPromotionAction: async () => ({ action: 'promote_open' }),
-        preheatSellApprovalForToken: async () => {
+        preheatSellApprovalForToken: async (_params, options) => {
           preheated = true;
+          assert.deepEqual(options, {
+            queueBehavior: 'allow_queue',
+            txPurpose: 'approval',
+          });
+          return { status: 'completed', reasonCode: 'approval_warmed' };
         },
         emitCopytradeDomainAudit: () => {},
       },
@@ -203,10 +209,11 @@ describe('buy confirmation transition', () => {
           scheduledFeeRecovery = params;
           return true;
         },
+        scheduleDeferredSellApprovalPreheat: () => false,
         collectDirectSwapFeeFromSettlement: async () => {
           collectorCalled = true;
         },
-        preheatSellApprovalForToken: async () => {},
+        preheatSellApprovalForToken: async () => ({ status: 'noop', reasonCode: 'approval_already_sufficient' }),
         emitCopytradeDomainAudit: () => {},
       },
     });
@@ -230,6 +237,51 @@ describe('buy confirmation transition', () => {
         reasonCode: 'buy_submitted_before_confirm',
         sourceTxHash: '0xbuy',
       },
+    });
+  });
+
+  test('schedules deferred approval preheat when queue pressure blocks immediate warmup', async () => {
+    let scheduledApproval: any = null;
+
+    const result = await applyBuyConfirmationTransition({
+      confirmation: { success: true, kind: 'confirmed_success', visible: true },
+      chainId: 56,
+      tokenToBuy: '0xpep',
+      txHash: '0xbusy',
+      userId: 'user',
+      targetWallet: '0xtarget',
+      persistedPositionId: 'pos_4',
+      pendingPositionCreatedAt: null,
+      tokenInfo: { symbol: 'PEPE', price: 1, decimals: 18 },
+      walletAddress: '0xwallet',
+      positionStatusCompat: { pendingCreateStatus: 'pending', failedFinalStatus: 'failed' },
+      recoverySource: 'initial_wait',
+      deps: {
+        prisma: {
+          position: {
+            updateMany: async () => ({ count: 1 }),
+          },
+        } as any,
+        resolvePendingMirrorSellIntent: async () => ({ shouldMirrorSell: false, reasonCode: 'NO_PENDING_MIRROR_SELL_INTENT' }),
+        resolveBuyConfirmationPromotionAction: async () => ({ action: 'promote_open' }),
+        preheatSellApprovalForToken: async () => ({ status: 'deferred', reasonCode: 'wallet_tx_queue_busy' }),
+        scheduleDeferredSellApprovalPreheat: (params) => {
+          scheduledApproval = params;
+          return true;
+        },
+        emitCopytradeDomainAudit: () => {},
+      },
+    });
+
+    assert.equal(result, 'confirmed_success');
+    assert.deepEqual(scheduledApproval, {
+      userId: 'user',
+      walletAddress: '0xwallet',
+      chainId: 56,
+      tokenAddress: '0xpep',
+      tokenPriceUsd: 1,
+      tokenDecimals: 18,
+      trigger: 'buy_confirmation',
     });
   });
 });

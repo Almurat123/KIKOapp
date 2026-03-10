@@ -279,6 +279,26 @@ export async function hasActiveMirrorSellIntentForUserChain(params: {
   return Boolean(row?.id);
 }
 
+export async function hasActiveMirrorSellIntentForUserChainAndToken(params: {
+  userId: string;
+  chainId: number;
+  tokenAddress: string;
+}): Promise<boolean> {
+  const tokenAddress = String(params.tokenAddress || '').trim().toLowerCase();
+  if (!tokenAddress) return false;
+  const row = await prisma.positionExitIntent.findFirst({
+    where: {
+      userId: params.userId,
+      chainId: params.chainId,
+      tokenAddress,
+      exitReason: 'mirror_sell',
+      lifecycleState: { in: ACTIVE_INTENT_STATES },
+    },
+    select: { id: true },
+  });
+  return Boolean(row?.id);
+}
+
 export async function releaseActiveMirrorSellIntent(params: {
   positionId: string;
   targetSellTxHash: string;
