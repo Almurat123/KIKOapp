@@ -29,10 +29,10 @@ const toasts: ToastData[] = [
         app: 'kikoapp',
         time: '1m ago',
         kind: 'farcaster',
-        message: '✅ Buy Confirmed: $MOLT @ $1.00',
+        message: '✅ Buy Confirmed: $MOLT @ $300.29',
         lines: [
             '🟢 BUY CONFIRMED (OPEN)',
-            '💰 Confirmed Value: $1.00...',
+            '💰 Confirmed Value: $300.29',
         ],
     },
 ];

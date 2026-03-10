@@ -2,9 +2,11 @@ import { logger } from '../../../utils/logger.js';
 import { LogCode } from '../../../config/logRegistry.js';
 import { getLiquidityFromCandidatePools, getTokenLiquidity } from '../../dex/directSwap/pipeline/poolLayer.js';
 import { getV2PoolInfo, getV3PoolInfo, type PoolInfo } from '../../dex/poolInfo.js';
+import { getV4PoolInfo, matchV4PoolKeyById, type V4PoolKey } from '../../dex/uniswapV4.js';
 import { resolveSolanaDirectLiquidity } from '../../solana/direct/liquidity.js';
 import type { SolDirectProvider } from '../../solana/direct/types.js';
 import type { DecodedSwap } from '../../txDecoder.js';
+import { getChainConfig } from '../../../config/chainConfig.js';
 
 // Guard-level total budget is ~1200ms, so keep direct Solana liquidity bounded.
 const COPYTRADE_SOL_LIQ_TIMEOUT_MS = Number(process.env.COPYTRADE_SOL_LIQ_TIMEOUT_MS || '650');
@@ -19,32 +21,118 @@ export type LiquidityGuardSnapshot = {
     metadata?: Record<string, unknown>;
 };
 
-async function loadTargetInteractedPools(
+type TargetPoolCandidate = {
+    poolAddress: string;
+    kind: string;
+    v4PoolKey?: V4PoolKey;
+};
+
+type TargetPoolDeps = {
+    getV2PoolInfo: typeof getV2PoolInfo;
+    getV3PoolInfo: typeof getV3PoolInfo;
+    getV4PoolInfo: typeof getV4PoolInfo;
+};
+
+type LiquidityGuardDeps = TargetPoolDeps & {
+    getLiquidityFromCandidatePools: typeof getLiquidityFromCandidatePools;
+    getTokenLiquidity: typeof getTokenLiquidity;
+};
+
+function normalizeHintToken(token: string | undefined, chainId: number): string {
+    const normalized = String(token || '').trim().toLowerCase();
+    if (!normalized) return normalized;
+    if (chainId !== 900 && normalized === '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee') {
+        return getChainConfig(chainId).wrappedNativeAddress.toLowerCase();
+    }
+    return normalized;
+}
+
+function resolveV4PoolKeyForCandidate(
+    candidate: Pick<TargetPoolCandidate, 'poolAddress' | 'kind'>,
     swap: DecodedSwap | undefined,
     chainId: number
+): V4PoolKey | undefined {
+    if (candidate.kind !== 'v4') return undefined;
+
+    const hinted = swap?.resolvedPoolHint;
+    if (hinted?.kind === 'v4' && hinted.poolAddress?.toLowerCase() === candidate.poolAddress.toLowerCase() && hinted.v4PoolKey) {
+        return {
+            currency0: hinted.v4PoolKey.currency0,
+            currency1: hinted.v4PoolKey.currency1,
+            hooks: hinted.v4PoolKey.hooks,
+            fee: hinted.v4PoolKey.fee,
+            tickSpacing: hinted.v4PoolKey.tickSpacing,
+        };
+    }
+
+    const tokenIn = normalizeHintToken(swap?.tokenIn, chainId);
+    const tokenOut = normalizeHintToken(swap?.tokenOut, chainId);
+    if (!tokenIn || !tokenOut) return undefined;
+
+    return matchV4PoolKeyById(chainId, candidate.poolAddress, tokenIn, tokenOut) || undefined;
+}
+
+async function loadTargetInteractedPools(
+    swap: DecodedSwap | undefined,
+    chainId: number,
+    deps: TargetPoolDeps = { getV2PoolInfo, getV3PoolInfo, getV4PoolInfo }
 ): Promise<PoolInfo[]> {
-    const candidates = new Map<string, { poolAddress: string; kind: string }>();
-    const pushCandidate = (poolAddress: unknown, kind: unknown) => {
+    const candidates = new Map<string, TargetPoolCandidate>();
+    const pushCandidate = (poolAddress: unknown, kind: unknown, v4PoolKey?: V4PoolKey) => {
         const address = String(poolAddress || '').trim();
         const version = String(kind || '').trim().toLowerCase();
         if (!address || !version) return;
-        candidates.set(`${version}:${address.toLowerCase()}`, { poolAddress: address, kind: version });
+        candidates.set(`${version}:${address.toLowerCase()}`, { poolAddress: address, kind: version, v4PoolKey });
     };
 
-    pushCandidate(swap?.resolvedPoolHint?.poolAddress, swap?.resolvedPoolHint?.kind);
+    const resolvedV4PoolKey = swap?.resolvedPoolHint?.kind === 'v4' && swap.resolvedPoolHint.v4PoolKey
+        ? {
+            currency0: swap.resolvedPoolHint.v4PoolKey.currency0,
+            currency1: swap.resolvedPoolHint.v4PoolKey.currency1,
+            hooks: swap.resolvedPoolHint.v4PoolKey.hooks,
+            fee: swap.resolvedPoolHint.v4PoolKey.fee,
+            tickSpacing: swap.resolvedPoolHint.v4PoolKey.tickSpacing,
+        }
+        : undefined;
+
+    pushCandidate(swap?.resolvedPoolHint?.poolAddress, swap?.resolvedPoolHint?.kind, resolvedV4PoolKey);
     for (const hop of swap?.routeHops || []) {
-        pushCandidate(hop?.poolAddress, hop?.kind);
+        pushCandidate(hop?.poolAddress, hop?.kind, resolveV4PoolKeyForCandidate({
+            poolAddress: String(hop?.poolAddress || ''),
+            kind: String(hop?.kind || ''),
+        }, swap, chainId));
     }
 
-    const pools = await Promise.all(Array.from(candidates.values()).map(async ({ poolAddress, kind }) => {
+    const pools = await Promise.all(Array.from(candidates.values()).map(async ({ poolAddress, kind, v4PoolKey }) => {
         try {
             if (kind === 'v2' || kind === 'aerodrome') {
-                const pool = await getV2PoolInfo(poolAddress, chainId);
+                const pool = await deps.getV2PoolInfo(poolAddress, chainId);
                 if (!pool) return null;
                 return kind === 'aerodrome' ? { ...pool, version: 'aerodrome' as const, dex: 'aerodrome' as const } : pool;
             }
             if (kind === 'v3') {
-                return await getV3PoolInfo(poolAddress, chainId);
+                return await deps.getV3PoolInfo(poolAddress, chainId);
+            }
+            if (kind === 'v4' && v4PoolKey) {
+                const pool = await deps.getV4PoolInfo(v4PoolKey, chainId, { strategy: 'fast' });
+                if (!pool) return null;
+                return {
+                    poolAddress: pool.poolId,
+                    token0: pool.poolKey.currency0,
+                    token1: pool.poolKey.currency1,
+                    liquidity: pool.liquidity,
+                    sqrtPriceX96: pool.sqrtPriceX96,
+                    fee: pool.lpFee,
+                    version: 'v4' as const,
+                    dex: 'uniswap' as const,
+                    v4PoolKey: {
+                        currency0: pool.poolKey.currency0,
+                        currency1: pool.poolKey.currency1,
+                        fee: pool.poolKey.fee,
+                        tickSpacing: pool.poolKey.tickSpacing,
+                        hooks: pool.poolKey.hooks,
+                    },
+                } satisfies PoolInfo;
             }
             return null;
         } catch {
@@ -89,6 +177,13 @@ export async function resolveBuyLiquidityGuardSnapshot(
         swap?: DecodedSwap;
         stopAtLiquidityUsd?: number;
         allowTokenInfoFallback?: boolean;
+    },
+    deps: LiquidityGuardDeps = {
+        getV2PoolInfo,
+        getV3PoolInfo,
+        getV4PoolInfo,
+        getLiquidityFromCandidatePools,
+        getTokenLiquidity,
     }
 ): Promise<LiquidityGuardSnapshot> {
     const fallbackLiquidityUsd = normalizeFinitePositive(tokenInfo?.liquidity);
@@ -177,9 +272,9 @@ export async function resolveBuyLiquidityGuardSnapshot(
     }
 
     try {
-        const targetPools = await loadTargetInteractedPools(options?.swap, chainId).catch(() => []);
+        const targetPools = await loadTargetInteractedPools(options?.swap, chainId, deps).catch(() => []);
         if (targetPools.length > 0) {
-            const targetPoolLiquidity = await getLiquidityFromCandidatePools(tokenAddress, chainId, targetPools, {
+            const targetPoolLiquidity = await deps.getLiquidityFromCandidatePools(tokenAddress, chainId, targetPools, {
                 budgetMs: 700,
             }).catch(() => null);
             const targetLiquidityUsd = normalizeFinitePositive(targetPoolLiquidity?.totalTvlUsd);
@@ -203,7 +298,7 @@ export async function resolveBuyLiquidityGuardSnapshot(
             }
         }
 
-        const directLiquidity = await getTokenLiquidity(tokenAddress, chainId);
+        const directLiquidity = await deps.getTokenLiquidity(tokenAddress, chainId);
         const directLiquidityUsd = normalizeFinitePositive(directLiquidity?.totalTvlUsd);
         const poolCount = Array.isArray(directLiquidity?.pools) ? directLiquidity.pools.length : 0;
 
