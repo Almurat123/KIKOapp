@@ -299,7 +299,7 @@ export async function getQualityUsersStats() {
 
     // We can use groupBy for the distribution, but since the ranges are custom, 
     // a small set of queries might be simpler or we use $queryRaw for efficiency if there are many.
-    // Given the specific ranges in social.ts, let's use a single queryRaw for performance.
+    // Given the ranges in social.ts, let's use a single queryRaw for performance.
     const distributionResult: any[] = await prisma.$queryRaw`
       SELECT 
         CASE 
