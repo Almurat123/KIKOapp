@@ -2226,7 +2226,10 @@ async function processSingleUserBuy(
             // Must run for all execution modes (including turbo), otherwise low-balance wallets still attempt tx.
             if (shouldEnforceBuyGuard(guardPolicy, 'gasBuffer') && chainId !== 900) {
                 const nativeBalance = await getNativeBalance(effectiveConfig.user.walletAddress, chainId);
-                const gasBufferWei = ethers.parseEther("0.005"); // ~$15 buffer
+                const chainConfig = getChainConfig(chainId);
+                const gasReserve = String(chainConfig.gasReserve || '0.003');
+                const gasBufferWei = ethers.parseUnits(gasReserve, 18);
+                const nativeSymbol = chainConfig.nativeCurrency?.symbol || 'ETH';
 
                 // Calculate trade cost in Native Token (ETH/BNB)
                 let tradeCostWei = 0n;
@@ -2245,14 +2248,16 @@ async function processSingleUserBuy(
                     });
                     emitGuardAudit('pass', 'gas_balance_rpc_failed');
                 } else if (nativeBalance < (tradeCostWei + gasBufferWei)) {
-                    const balanceEth = ethers.formatEther(nativeBalance);
-                    const requiredEth = ethers.formatEther(tradeCostWei + gasBufferWei);
+                    const balanceNative = ethers.formatEther(nativeBalance);
+                    const requiredNative = ethers.formatEther(tradeCostWei + gasBufferWei);
 
                     logger.throttled(LogCode.EXE_INSUFFICIENT_FUNDS, 'Skipping trade: Insufficient gas buffer', {
                         userId: config.userId,
-                        balance: balanceEth,
-                        required: requiredEth,
-                        buffer: "0.005"
+                        chainId,
+                        balance: balanceNative,
+                        required: requiredNative,
+                        buffer: gasReserve,
+                        nativeSymbol
                     });
 
                     // Send skip notification for insufficient gas
@@ -2265,7 +2270,7 @@ async function processSingleUserBuy(
                             tokenAddress: tokenToBuy,
                             targetWallet: targetWallet,
                             chainId: chainId,
-                            skipReason: `Insufficient gas. Balance: ${parseFloat(balanceEth).toFixed(4)} ETH, Required: ${parseFloat(requiredEth).toFixed(4)} ETH`,
+                            skipReason: `Insufficient gas. Balance: ${parseFloat(balanceNative).toFixed(4)} ${nativeSymbol}, Required: ${parseFloat(requiredNative).toFixed(4)} ${nativeSymbol}`,
                             ...buildCopyTradeNotificationEvidence(tokenInfo, { targetBuyValueUsd: targetSwapValueUsd }),
                         }
                     });
