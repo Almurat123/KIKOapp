@@ -43,6 +43,7 @@ import { inferOrderReasonCode } from './order-runtime/reasonCodes.js';
 import { bindOrderToTxHash, reportRpcUncertain, reportSendAccepted } from './order-runtime/adjudicator/service.js';
 import { shouldRetryAfterBroadcastUnseen } from './rpc/visibilityPolicy.js';
 import { withWalletChainLock } from './nonce/walletNonceLane.js';
+import { resolveNonceFloor } from './nonce/nonceFloorPolicy.js';
 import { resolveSolanaWalletRecord } from './solana/solanaWalletResolver.js';
 import { sendSolanaTransactionWithContextDeps } from './solana/solanaPrivySender.js';
 import { resolveSolanaSigningContext, type ResolvedSolanaSigningContext } from './solana/solanaSigningContext.js';
@@ -858,10 +859,11 @@ export async function sendTransactionLifecycle(
                     || !!txWithNonce.maxPriorityFeePerGas;
 
                 const needsNonce = !txWithNonce.nonce;
+                const shouldLoadNonceFloor = !!txWithNonce.nonce && txWithNonce.txPurpose !== 'speedup';
                 const needsGas = !hasExplicitFee;
-                if (needsNonce || needsGas) {
+                if (needsNonce || needsGas || shouldLoadNonceFloor) {
                     const [nonceResult, gasPriceResult] = await Promise.all([
-                        needsNonce
+                        (needsNonce || shouldLoadNonceFloor)
                             ? getPendingNonce(txWithNonce.chainId, walletInfo.address).catch(() => undefined)
                             : Promise.resolve(txWithNonce.nonce),
                         needsGas
@@ -870,6 +872,24 @@ export async function sendTransactionLifecycle(
                     ]);
                     if (needsNonce && nonceResult) {
                         txWithNonce.nonce = nonceResult;
+                    }
+                    if (!needsNonce && shouldLoadNonceFloor) {
+                        const resolvedNonce = resolveNonceFloor({
+                            requestedNonce: txWithNonce.nonce,
+                            cachedFloorNonce: nonceResult,
+                            txPurpose: txWithNonce.txPurpose,
+                            hasPriorAcceptedLifecycle: false
+                        });
+                        if (resolvedNonce.upgraded && resolvedNonce.nonce) {
+                            logger.warn(LogCode.EXE_TX_BROADCAST, 'Raised explicit nonce to cached wallet floor before send', {
+                                chainId: txWithNonce.chainId,
+                                txPurpose: txWithNonce.txPurpose || 'other',
+                                requestedNonce: txWithNonce.nonce,
+                                cachedFloorNonce: nonceResult,
+                                nextNonce: resolvedNonce.nonce
+                            });
+                            txWithNonce.nonce = resolvedNonce.nonce;
+                        }
                     }
                     if (needsGas && gasPriceResult) {
                         try {

@@ -48,6 +48,7 @@ import { recordProviderReliabilityOutcome } from '../copytrade-v2/learning/quote
 import { resolveEthCopytradeFeePolicy } from '../copytrade-v2/eth/ethFeePolicy.js';
 import { resolveEthCopytradeRelayPolicy } from '../copytrade-v2/eth/ethRelayPolicy.js';
 import { setOrderMetadata } from '../order-runtime/context.js';
+import { resolveTradeSendNonce } from './swapNoncePolicy.js';
 
 // 0x AllowanceHolder address (Base). If a token already has sufficient allowance here,
 // we can skip Permit2 first-try and reduce sell failure risk for problematic tokens.
@@ -524,6 +525,8 @@ export class SwapExecutor {
             }).catch(() => { });
         };
 
+        let approvalExecutedOnChain = false;
+
         // 3. Check & Approve
         // FIXED: Standard AllowanceHolder flow - needs proper approval
         if (best.allowanceTarget && best.allowanceTarget !== '0x0000000000000000000000000000000000000000') {
@@ -706,6 +709,7 @@ export class SwapExecutor {
                     if (!receipt || receipt.status === 0 || receipt.status === '0x0') {
                         throw new Error(`Approval transaction failed: ${approveTxHash}`);
                     }
+                    approvalExecutedOnChain = true;
 
                     logger.info(LogCode.EXE_TX_BROADCAST, 'Approval confirmed on-chain, proceeding with swap', {
                         txHash: approveTxHash,
@@ -997,7 +1001,10 @@ export class SwapExecutor {
         }
 
         try {
-            const preWarmedNonce = params.preWarmedNonce ? await params.preWarmedNonce : undefined;
+            const preWarmedNonce = resolveTradeSendNonce({
+                preWarmedNonce: params.preWarmedNonce ? await params.preWarmedNonce : undefined,
+                approvalExecutedOnChain,
+            });
             // ⚡ Derive executionProfile so that turbo copy-trades hitting the 0x fallback
             // path still benefit from the fast sign+broadcast routing in privyWallet.
             const executionProfile = params.executionMode === 'turbo'
