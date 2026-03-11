@@ -44,6 +44,7 @@ import { bindOrderToTxHash, reportRpcUncertain, reportSendAccepted } from './ord
 import { shouldRetryAfterBroadcastUnseen } from './rpc/visibilityPolicy.js';
 import { withWalletChainLock } from './nonce/walletNonceLane.js';
 import { resolveNonceFloor } from './nonce/nonceFloorPolicy.js';
+import { resolvePendingNonce } from './nonce/pendingNonceResolution.js';
 import { resolveSolanaWalletRecord } from './solana/solanaWalletResolver.js';
 import { sendSolanaTransactionWithContextDeps } from './solana/solanaPrivySender.js';
 import { resolveSolanaSigningContext, type ResolvedSolanaSigningContext } from './solana/solanaSigningContext.js';
@@ -527,6 +528,10 @@ export interface TransactionRequest {
 const pendingNonceInflight = new Map<string, Promise<string | undefined>>();
 const pendingNonceCache = new Map<string, { nonce: string; timestamp: number }>();
 const PENDING_NONCE_CACHE_TTL_MS = Math.max(250, Number(process.env.PENDING_NONCE_CACHE_TTL_MS || '1500'));
+const PENDING_NONCE_FLOOR_RETENTION_MS = Math.max(
+    PENDING_NONCE_CACHE_TTL_MS,
+    Number(process.env.PENDING_NONCE_FLOOR_RETENTION_MS || '30000')
+);
 
 function buildPendingNonceKey(chainId: number, walletAddress: string): string {
     return `${chainId}:${walletAddress.toLowerCase()}`;
@@ -557,7 +562,8 @@ export async function getPendingNonce(chainId: number, walletAddress: string): P
     if (!walletAddress || chainId <= 0) return undefined;
     const key = buildPendingNonceKey(chainId, walletAddress);
     const cached = pendingNonceCache.get(key);
-    if (cached && Date.now() - cached.timestamp <= PENDING_NONCE_CACHE_TTL_MS) {
+    const cachedAgeMs = cached ? Date.now() - cached.timestamp : null;
+    if (cached && cachedAgeMs !== null && cachedAgeMs <= PENDING_NONCE_CACHE_TTL_MS) {
         return cached.nonce;
     }
 
@@ -566,16 +572,23 @@ export async function getPendingNonce(chainId: number, walletAddress: string): P
 
     const task = (async () => {
         try {
-            const nonce = await rpcCall<string>(
+            const rpcNonce = await rpcCall<string>(
                 chainId,
                 'eth_getTransactionCount',
                 [walletAddress, 'pending'],
                 { strategy: 'fast', importance: 'critical' }
             );
-            if (!nonce || typeof nonce !== 'string') return undefined;
-            pendingNonceCache.set(key, { nonce, timestamp: Date.now() });
-            return nonce;
+            const resolved = resolvePendingNonce({
+                cachedNonce: cached?.nonce,
+                rpcNonce: typeof rpcNonce === 'string' ? rpcNonce : undefined
+            });
+            if (!resolved.nonce) return undefined;
+            pendingNonceCache.set(key, { nonce: resolved.nonce, timestamp: Date.now() });
+            return resolved.nonce;
         } catch {
+            if (cached && cachedAgeMs !== null && cachedAgeMs <= PENDING_NONCE_FLOOR_RETENTION_MS) {
+                return cached.nonce;
+            }
             return undefined;
         } finally {
             pendingNonceInflight.delete(key);

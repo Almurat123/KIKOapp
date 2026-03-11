@@ -696,7 +696,6 @@ export class SwapExecutor {
                         value: '0',
                         chainId,
                         txPurpose: 'approval',
-                        runtimeContext: params.runtimeContext
                     });
 
                     logger.info(LogCode.EXE_TX_BROADCAST, 'Approval transaction sent', { txHash: approveTxHash });
