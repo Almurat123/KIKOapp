@@ -33,6 +33,78 @@ const NATIVE_TOKENS = new Set([
     ...EVM_NATIVE_WRAPPED
 ]);
 
+type OnChainPriceFetcher = typeof import('./onChainPriceService.js').getOnChainPrice;
+type DexPriceFetcher = typeof getDexPriceDetailed;
+
+async function fetchAdaptiveEvmOnChainPrice(params: {
+    tokenAddress: string;
+    chainId: number;
+    rpcStrategy: 'fast' | 'cheap';
+    fastMode: boolean;
+    getOnChainPriceImpl?: OnChainPriceFetcher;
+}): Promise<any> {
+    const getOnChainPriceImpl = params.getOnChainPriceImpl || (await import('./onChainPriceService.js')).getOnChainPrice;
+    const first = await getOnChainPriceImpl(params.tokenAddress, params.chainId, {
+        rpcStrategy: params.rpcStrategy,
+        lightweight: params.fastMode,
+    });
+    if (first?.price && Number(first.price) > 0) return first;
+
+    if (params.fastMode) {
+        return first || null;
+    }
+
+    const alternateStrategy: 'fast' | 'cheap' = params.rpcStrategy === 'fast' ? 'cheap' : 'fast';
+    const second = await getOnChainPriceImpl(params.tokenAddress, params.chainId, {
+        rpcStrategy: alternateStrategy,
+        lightweight: params.fastMode,
+    });
+    if (second?.price && Number(second.price) > 0) return second;
+
+    return first || second || null;
+}
+
+async function resolveExternalDexPriceFallback(params: {
+    tokenAddress: string;
+    chainId: number | 'solana';
+    isSolana: boolean;
+    fastMode: boolean;
+    getDexPriceDetailedImpl?: DexPriceFetcher;
+}): Promise<{ price: number; provider: string | null }> {
+    const getDexPriceDetailedImpl = params.getDexPriceDetailedImpl || getDexPriceDetailed;
+    const tryDex = async () => {
+        const dex = await getDexPriceDetailedImpl(params.tokenAddress, params.chainId, { allowExternalMonitorFallback: true });
+        return dex.price > 0 ? dex : null;
+    };
+
+    if (params.fastMode) {
+        const fastFallbackTimeoutMs = params.isSolana ? 1600 : 800;
+        const timeout = new Promise<null>((resolve) => setTimeout(() => resolve(null), fastFallbackTimeoutMs));
+        const winner = await Promise.race([tryDex(), timeout]);
+        if (winner && typeof winner.price === 'number' && winner.price > 0) {
+            return {
+                price: winner.price,
+                provider: winner.provider || (params.isSolana ? 'jupiter-dex' : '0x-dex'),
+            };
+        }
+        return { price: 0, provider: null };
+    }
+
+    const dex = await getDexPriceDetailedImpl(params.tokenAddress, params.chainId, { allowExternalMonitorFallback: true });
+    if (dex.price > 0) {
+        return {
+            price: dex.price,
+            provider: dex.provider || (params.isSolana ? 'jupiter-dex' : '0x-dex'),
+        };
+    }
+    return { price: 0, provider: null };
+}
+
+export const __tokenServiceTest = {
+    fetchAdaptiveEvmOnChainPrice,
+    resolveExternalDexPriceFallback,
+};
+
 export async function getTokenInfo(
     tokenAddress: string,
     chainId: number,
@@ -146,27 +218,12 @@ async function fetchTokenInfoFromAPIs(
                 return getSolanaTokenInfo(tokenAddress);
             })()
             : (async () => {
-                const { getOnChainPrice } = await import('./onChainPriceService.js');
-                // Retry with alternate RPC lane when the first pass returns null.
-                // This improves resilience when one lane is temporarily degraded.
-                const first = await getOnChainPrice(tokenAddress, chainId, {
+                return fetchAdaptiveEvmOnChainPrice({
+                    tokenAddress,
+                    chainId,
                     rpcStrategy,
-                    lightweight: fastMode,
+                    fastMode,
                 });
-                if (first?.price && Number(first.price) > 0) return first;
-
-                if (fastMode) {
-                    return first || null;
-                }
-
-                const alternateStrategy: 'fast' | 'cheap' = rpcStrategy === 'fast' ? 'cheap' : 'fast';
-                const second = await getOnChainPrice(tokenAddress, chainId, {
-                    rpcStrategy: alternateStrategy,
-                    lightweight: fastMode,
-                });
-                if (second?.price && Number(second.price) > 0) return second;
-
-                return first || second || null;
             })())
         : Promise.resolve(null);
 
@@ -343,42 +400,27 @@ async function fetchTokenInfoFromAPIs(
         });
 
         const dexChainId = isSolana ? 'solana' : chainId;
-
-        const tryDex = async () => {
-            const dex = await getDexPriceDetailed(tokenAddress, dexChainId, { allowExternalMonitorFallback: true });
-            return dex.price > 0 ? dex : null;
-        };
-
-        // Fast-mode: race against timeout so TP/SL loop doesn't stall.
-        // Solana launchpad routes can be slower to become quoteable; allow a
-        // slightly wider window to reduce false nulls on fresh pools.
-        if (fastMode) {
-            const fastFallbackTimeoutMs = isSolana ? 1600 : 800;
-            const timeout = new Promise<null>((resolve) => setTimeout(() => resolve(null), fastFallbackTimeoutMs));
-            const winner = await Promise.race([tryDex(), timeout]);
-            if (winner && typeof winner.price === 'number') {
-                price = winner.price;
-                provider = winner.provider || (isSolana ? 'jupiter-dex' : '0x-dex');
-            }
-        } else {
-            // Non-fast: give it a full attempt (no timeout race)
-            try {
-                const dex = await getDexPriceDetailed(tokenAddress, dexChainId, { allowExternalMonitorFallback: true });
-                if (dex.price > 0) {
-                    price = dex.price;
-                    provider = dex.provider || (isSolana ? 'jupiter-dex' : '0x-dex');
-                    logger.info(LogCode.API_FETCH_SUCCESS, 'Fallback: Got price from external DEX API', {
-                        token: tokenAddress.slice(0, 10),
-                        price,
-                        provider
-                    });
-                }
-            } catch (dexErr: any) {
-                logger.error(LogCode.API_FETCH_FAILED, 'External DEX API fallback also failed', {
-                    token: tokenAddress,
-                    error: dexErr.message
+        try {
+            const fallback = await resolveExternalDexPriceFallback({
+                tokenAddress,
+                chainId: dexChainId,
+                isSolana,
+                fastMode,
+            });
+            if (fallback.price > 0) {
+                price = fallback.price;
+                provider = fallback.provider || provider;
+                logger.info(LogCode.API_FETCH_SUCCESS, 'Fallback: Got price from external DEX API', {
+                    token: tokenAddress.slice(0, 10),
+                    price,
+                    provider
                 });
             }
+        } catch (dexErr: any) {
+            logger.error(LogCode.API_FETCH_FAILED, 'External DEX API fallback also failed', {
+                token: tokenAddress,
+                error: dexErr.message
+            });
         }
     }
 

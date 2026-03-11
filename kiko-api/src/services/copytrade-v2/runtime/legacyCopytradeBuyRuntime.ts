@@ -1278,6 +1278,7 @@ export async function handleTargetSell(params: {
         prisma,
         filterExecutableCopyTradeConfigs,
         dedupeConfigsByUser,
+        upsertTargetSellEvent,
         getTokenInfo,
         reconcileOpenPositionsForExit,
         armPendingAttributedPositionsForMirrorSell,
@@ -1365,6 +1366,29 @@ export async function handleTargetSell(params: {
     }
 
     logger.info(LogCode.EXE_TX_BROADCAST, 'Mirror sell: Processing open positions for token', { token: tokenToSell, configCount: uniqueExecutableConfigs.length, targetWallet });
+
+    if (swap.txHash) {
+        await upsertTargetSellEvent({
+            chainId,
+            targetWallet: normalizedWallet,
+            tokenAddress: tokenToSell,
+            targetSellTxHash: swap.txHash,
+            source: 'webhook',
+            detectedAt: new Date(),
+            metadata: {
+                persistedBy: 'legacy_mirror_sell_runtime',
+                configCount: uniqueExecutableConfigs.length
+            }
+        }).catch((error: any) => {
+            logger.warn(LogCode.SYS_ERROR, 'Mirror sell: failed to persist durable target sell event', {
+                chainId,
+                targetWallet: normalizedWallet,
+                token: tokenToSell,
+                txHash: swap.txHash,
+                error: error?.message || String(error)
+            });
+        });
+    }
 
     const sharedTokenInfoPromise = getTokenInfo(tokenToSell, chainId, { priority: 'high', rpcStrategy: 'fast', fastMode: true }).catch(() => null);
 

@@ -97,6 +97,7 @@ import { runTargetSellReconciliationCycle } from './copytrade-v2/reconcile/targe
 import { runCopytradeAttributionRepairCycle } from './copytrade-v2/jobs/copytradeAttributionRepairJob.js';
 import { runCopytradeOrphanSweepCycle } from './copytrade-v2/jobs/copytradeOrphanSweepJob.js';
 import { repairCopytradePositionAttribution } from './copytrade-v2/jobs/copytradeAttributionRepairJob.js';
+import { upsertTargetSellEvent } from './copytrade-v2/exit/targetSellEventStore.js';
 import { getCopytradeBuySharedWarmup } from './copytrade-v2/buy/buySharedWarmup.js';
 import { shouldDeferStrongRpcMonitoring } from './copytrade-v2/buy/preConfirmationRpcPolicy.js';
 import {
@@ -1968,6 +1969,7 @@ function getLegacyCopytradeBuyRuntimeDeps() {
         withRetry,
         filterExecutableCopyTradeConfigs,
         dedupeConfigsByUser,
+        upsertTargetSellEvent,
         reconcileOpenPositionsForExit,
         armPendingAttributedPositionsForMirrorSell,
         listPendingAttributedPositions,

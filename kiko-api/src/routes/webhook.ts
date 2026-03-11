@@ -104,6 +104,7 @@ const EVM_ADDRESS_REGEX = /0x[a-fA-F0-9]{40}/g;
 
 const webhookBatchByTxHash = new Map<string, WebhookBatchContext>();
 let resolveEvmSourceTxFromForTest: ((chainId: number, txHash: string) => Promise<string> | string) | null = null;
+let scheduleReceiptRecoveryForTest: ((chainId: number, txHash: string, trackedWallets: string[], detectedAt?: number) => void) | null = null;
 
 function normalizeTxHash(chainId: number, txHash: string): string {
     return normalizeTxIdentity(chainId, txHash) || '';
@@ -176,8 +177,20 @@ export const __webhookTest = {
     setResolveEvmSourceTxFromForTest(fn: ((chainId: number, txHash: string) => Promise<string> | string) | null): void {
         resolveEvmSourceTxFromForTest = fn;
     },
+    setScheduleReceiptRecoveryForTest(fn: ((chainId: number, txHash: string, trackedWallets: string[], detectedAt?: number) => void) | null): void {
+        scheduleReceiptRecoveryForTest = fn;
+    },
+    handleEvmDecodedWithoutSwaps(params: {
+        chainId: number;
+        txHash: string;
+        trackedWallets: string[];
+        detectedAt?: number;
+    }): void {
+        handleEvmDecodedWithoutSwaps(params);
+    },
     resetForTest(): void {
         resolveEvmSourceTxFromForTest = null;
+        scheduleReceiptRecoveryForTest = null;
     }
 };
 
@@ -275,6 +288,10 @@ function scheduleReceiptRecovery(
     trackedWallets: string[],
     detectedAt?: number
 ): void {
+    if (scheduleReceiptRecoveryForTest) {
+        scheduleReceiptRecoveryForTest(chainId, txHash, trackedWallets, detectedAt);
+        return;
+    }
     if (!trackedWallets.length) return;
     const key = buildTxIdentityKey(chainId, txHash) || `${chainId}:`;
     if (receiptRecoveryInflight.has(key)) return;
@@ -300,6 +317,16 @@ function scheduleReceiptRecovery(
             receiptRecoveryInflight.delete(key);
         }
     })();
+}
+
+function handleEvmDecodedWithoutSwaps(params: {
+    chainId: number;
+    txHash: string;
+    trackedWallets: string[];
+    detectedAt?: number;
+}): void {
+    scheduleReceiptRecovery(params.chainId, params.txHash, params.trackedWallets, params.detectedAt);
+    console.log(`[Webhook] Tx decoded with no swaps; leaving unprocessed for potential follow-up payload: ${params.txHash}`);
 }
 
 
@@ -630,6 +657,9 @@ async function processAlchemyWebhookPayload(payload: any): Promise<void> {
                 : (pendingHint?.targetWallet
                     ? [{ address: pendingHint.targetWallet }]
                     : []);
+            const trackedWalletAddresses = trackedWallets
+                .map((entry) => normalizeAddress(String(entry?.address || '')))
+                .filter(Boolean);
 
             if (trackedWallets.length === 0) {
                 await recordCopytradeIngressTrace({
@@ -1056,7 +1086,12 @@ async function processAlchemyWebhookPayload(payload: any): Promise<void> {
             if (swapsDetected > 0) {
                 await markTxAsProcessedDistributed(txHash, chainId);
             } else {
-                console.log(`[Webhook] Tx decoded with no swaps; leaving unprocessed for potential follow-up payload: ${txHash}`);
+                handleEvmDecodedWithoutSwaps({
+                    chainId,
+                    txHash,
+                    trackedWallets: trackedWalletAddresses,
+                    detectedAt: Date.now(),
+                });
             }
             logWebhookTiming('alchemy', txHash, {
                 wallets: trackedWallets.length,

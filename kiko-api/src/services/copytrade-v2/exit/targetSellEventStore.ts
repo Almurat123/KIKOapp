@@ -30,6 +30,14 @@ function cacheKey(params: {
   return `copytrade:target_sell_event:${params.chainId}:${params.targetWallet}:${params.tokenAddress}:${params.targetSellTxHash.toLowerCase()}`;
 }
 
+function latestCacheKey(params: {
+  chainId: number;
+  targetWallet: string;
+  tokenAddress: string;
+}): string {
+  return `copytrade:target_sell_event_latest:${params.chainId}:${params.targetWallet}:${params.tokenAddress}`;
+}
+
 function normalizePayload(input: TargetSellEventPayload) {
   return {
     chainId: input.chainId,
@@ -103,6 +111,7 @@ export async function upsertTargetSellEvent(input: TargetSellEventPayload): Prom
   });
   const record = toRecord(row);
   await cacheSetJson(cacheKey(record), record, TARGET_SELL_EVENT_TTL_SEC).catch(() => undefined);
+  await cacheSetJson(latestCacheKey(record), record, TARGET_SELL_EVENT_TTL_SEC).catch(() => undefined);
   return record;
 }
 
@@ -129,5 +138,34 @@ export async function getTargetSellEvent(input: {
   if (!row) return null;
   const record = toRecord(row);
   await cacheSetJson(key, record, TARGET_SELL_EVENT_TTL_SEC).catch(() => undefined);
+  return record;
+}
+
+export async function findLatestTargetSellEvent(input: {
+  chainId: number;
+  targetWallet: string;
+  tokenAddress: string;
+}): Promise<TargetSellEventRecord | null> {
+  const normalized = {
+    chainId: input.chainId,
+    targetWallet: normalizeWallet(input.chainId, input.targetWallet),
+    tokenAddress: normalizeToken(input.chainId, input.tokenAddress),
+  };
+  const key = latestCacheKey(normalized);
+  const cached = await cacheGetJson<TargetSellEventRecord>(key).catch(() => null);
+  if (cached) return cached;
+
+  const row = await prisma.targetSellEvent.findFirst({
+    where: {
+      chainId: normalized.chainId,
+      targetWallet: normalized.targetWallet,
+      tokenAddress: normalized.tokenAddress,
+    },
+    orderBy: [{ updatedAt: 'desc' }, { detectedAt: 'desc' }],
+  });
+  if (!row) return null;
+  const record = toRecord(row);
+  await cacheSetJson(key, record, TARGET_SELL_EVENT_TTL_SEC).catch(() => undefined);
+  await cacheSetJson(cacheKey(record), record, TARGET_SELL_EVENT_TTL_SEC).catch(() => undefined);
   return record;
 }

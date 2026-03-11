@@ -2,12 +2,14 @@ import prisma from '../../../db/prisma.js';
 import type { PendingAttributedPositionLotLike } from './pendingAttributedPositionLedger.js';
 import { listPendingAttributedPositions } from './pendingAttributedPositionLedger.js';
 import { resolveTargetSellLink } from '../reconcile/copytradeTargetSellLinkResolver.js';
+import { findLatestTargetSellEvent } from '../exit/targetSellEventStore.js';
 import {
   derivePositionLedgerLifecyclePhase,
   type PositionLedgerPosition,
   type PositionLedgerSnapshot,
 } from './positionLedgerSnapshot.js';
 import { normalizeToken, normalizeWallet } from '../runtime/chainIdentityNormalizer.js';
+import type { TargetSellEventRecord } from '../exit/targetSellEventStore.js';
 
 function normalizeTokenAddress(chainId: number, value: string): string {
   return normalizeToken(chainId, value);
@@ -24,6 +26,38 @@ function mergePendingLots(params: {
     merged.set(lot.id, lot);
   }
   return [...merged.values()];
+}
+
+export function resolveLatestTargetSellSignal(params: {
+  linkedSell: {
+    txHash: string | null;
+    blockTimestamp: Date | null;
+  };
+  persistedSellEvent?: TargetSellEventRecord | null;
+}): {
+  txHash: string | null;
+  at: Date | null;
+  source: 'linked_history' | 'persisted_event' | 'none';
+} {
+  if (params.linkedSell.txHash) {
+    return {
+      txHash: params.linkedSell.txHash,
+      at: params.linkedSell.blockTimestamp || null,
+      source: 'linked_history',
+    };
+  }
+  if (params.persistedSellEvent?.targetSellTxHash) {
+    return {
+      txHash: params.persistedSellEvent.targetSellTxHash,
+      at: params.persistedSellEvent.detectedAt || null,
+      source: 'persisted_event',
+    };
+  }
+  return {
+    txHash: null,
+    at: null,
+    source: 'none',
+  };
 }
 
 export async function resolvePositionLedgerSnapshot(params: {
@@ -91,8 +125,19 @@ export async function resolvePositionLedgerSnapshot(params: {
       positionCreatedAt: params.positionCreatedAt || positions[0]?.createdAt || null,
       pendingCreatedAt: pendingLots[0]?.createdAt || null,
     });
-    latestTargetSellTxHash = linkedSell.txHash || null;
-    latestTargetSellAt = linkedSell.blockTimestamp || null;
+    const persistedSellEvent = linkedSell.txHash
+      ? null
+      : await findLatestTargetSellEvent({
+          targetWallet: normalizedWallet,
+          chainId: params.chainId,
+          tokenAddress,
+        }).catch(() => null);
+    const resolvedSignal = resolveLatestTargetSellSignal({
+      linkedSell,
+      persistedSellEvent,
+    });
+    latestTargetSellTxHash = resolvedSignal.txHash;
+    latestTargetSellAt = resolvedSignal.at;
   }
 
   return {
