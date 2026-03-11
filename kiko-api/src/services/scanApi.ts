@@ -10,6 +10,30 @@ import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
 import { getTokenTransferList, getTransactionList } from '../config/unifiedScanService.js';
 
+const SCAN_CHAIN_ALIASES: Record<string, string> = {
+    eth: 'ethereum',
+    ethereum: 'ethereum',
+    bnb: 'bsc',
+    bsc: 'bsc',
+    base: 'base',
+    sol: 'solana',
+    solana: 'solana',
+    arb: 'arbitrum',
+    arbitrum: 'arbitrum',
+    op: 'optimism',
+    optimism: 'optimism',
+    matic: 'polygon',
+    polygon: 'polygon',
+};
+
+export function resolveScanChainConfig(chain: string) {
+    const normalized = SCAN_CHAIN_ALIASES[String(chain || '').toLowerCase()] || String(chain || '').toLowerCase();
+    return Object.values(CHAINS).find(c =>
+        c.name.toLowerCase() === normalized ||
+        c.slugs.dexScreener.toLowerCase() === normalized
+    ) || null;
+}
+
 /**
  * Get transaction history for an address on EVM chains
  */
@@ -21,10 +45,7 @@ export async function getEvmTransactions(
     options: { sort?: 'asc' | 'desc'; startblock?: string; endblock?: string } = {}
 ): Promise<WalletTransaction[]> {
     try {
-        const chainConfig = Object.values(CHAINS).find(c =>
-            c.name.toLowerCase() === chain.toLowerCase() ||
-            c.slugs.dexScreener.toLowerCase() === chain.toLowerCase()
-        );
+        const chainConfig = resolveScanChainConfig(chain);
 
         if (!chainConfig) {
             logger.warn(LogCode.API_FETCH_FAILED, 'Chain not found', { chain });
@@ -44,19 +65,20 @@ export async function getEvmTransactions(
         }
 
         const rawTxs = Array.isArray(data.result) ? data.result : [];
+        const nativeDecimals = chainConfig.nativeCurrency.decimals;
 
         return rawTxs.map((tx: any) => ({
-            hash: tx.hash,
-            from: tx.from?.toLowerCase(),
-            to: tx.to?.toLowerCase(),
-            value: tx.value || '0',
-            gas: tx.gas,
-            gasPrice: tx.gasPrice,
-            input: tx.input,
-            blockNumber: tx.blockNumber,
-            timestamp: parseInt(tx.timeStamp) * 1000,
-            status: tx.isError === '0' ? 'success' : 'failed',
-            chainId: chainConfig.id,
+            txHash: tx.hash,
+            txType: tx.from?.toLowerCase() === address.toLowerCase() ? 'TRANSFER_OUT' : 'TRANSFER_IN',
+            fromAddress: tx.from?.toLowerCase(),
+            toAddress: tx.to?.toLowerCase(),
+            tokenSymbol: chainConfig.nativeCurrency.symbol,
+            tokenAddress: null,
+            amount: (Number(tx.value || '0') / Math.pow(10, nativeDecimals)).toString(),
+            valueUsd: null,
+            blockNumber: parseInt(tx.blockNumber, 10),
+            blockTimestamp: new Date(parseInt(tx.timeStamp, 10) * 1000),
+            chain: chainConfig.slugs.dexScreener,
         }));
     } catch (error: any) {
         logger.error(LogCode.API_FETCH_FAILED, 'Failed to get EVM transactions', {
@@ -79,10 +101,7 @@ export async function getEvmTokenTransfers(
     options: { sort?: 'asc' | 'desc'; startblock?: string; endblock?: string; contractAddress?: string } = {}
 ): Promise<WalletTransaction[]> {
     try {
-        const chainConfig = Object.values(CHAINS).find(c =>
-            c.name.toLowerCase() === chain.toLowerCase() ||
-            c.slugs.dexScreener.toLowerCase() === chain.toLowerCase()
-        );
+        const chainConfig = resolveScanChainConfig(chain);
 
         if (!chainConfig) return [];
 

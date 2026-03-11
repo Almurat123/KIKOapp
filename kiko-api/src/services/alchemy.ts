@@ -385,6 +385,7 @@ export async function getAssetTransfers(
   // For EVM history, we prefer Scan API if we have a wallet address
   // But for contract-only searches (early buyers), we MUST use Alchemy
   let transfers: AssetTransfer[] = [];
+  let alchemyUnavailable = false;
   const wantsInternal = options.category?.includes('internal') === true;
   const wantsContractFilter = Array.isArray(options.contractAddresses) && options.contractAddresses.length > 0;
   const isSolana = chain.toLowerCase() === 'solana' || chain.toLowerCase() === 'sol';
@@ -402,10 +403,15 @@ export async function getAssetTransfers(
   // If Scan API didn't give results OR we don't have an address, use Alchemy
   if (!transfers || transfers.length === 0) {
     const alchemyTransfers = await tryAlchemy();
-    if (alchemyTransfers) transfers = alchemyTransfers;
+    if (alchemyTransfers) {
+      transfers = alchemyTransfers;
+    } else {
+      alchemyUnavailable = true;
+    }
   }
 
   if (!transfers) return [];
+  if (alchemyUnavailable && transfers.length === 0) return null as any;
 
   const { maxCount = 100, order = 'desc' } = options;
 
@@ -1047,7 +1053,12 @@ export async function getWalletTransactions(
       source
     });
 
-    if (!transfers || transfers.length === 0) {
+    if (transfers === null) {
+      logger.warn(LogCode.API_FETCH_FAILED, 'Alchemy asset transfers unavailable, trying ScanAPI fallback', { chain });
+      throw new Error('Alchemy asset transfers unavailable, trying fallback');
+    }
+
+    if (transfers.length === 0) {
       logger.info(LogCode.API_FETCH_SUCCESS, 'No transfers found on Alchemy, trying ScanAPI fallback', { chain });
       throw new Error('No transfers from Alchemy, trying fallback');
     }

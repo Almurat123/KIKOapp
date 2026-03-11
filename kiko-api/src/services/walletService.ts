@@ -8,6 +8,7 @@ import {
     readNativeBalanceFast,
     readSolanaTokenBalanceFast,
 } from './rpc/balanceRpcReader.js';
+import { getWalletTransactionsForWalletPage } from './walletTransactionHistoryService.js';
 
 const ALL_BALANCES_CACHE_TTL_MS = 60_000;
 // [Perf]: In-memory mirror of Redis cache for zero-latency repeat reads within same process.
@@ -218,7 +219,11 @@ export const walletService = {
      * Get real-time transactions for an address
      */
     async getWalletTransactions(address: string, options: { chain?: string; limit?: number } = {}): Promise<any[]> {
-        return await fetchAlchemyTransactions(address, options.chain || 'eth', options.limit);
+        const chain = options.chain || 'eth';
+        if (chain === 'solana' || chain === 'sol') {
+            return await fetchAlchemyTransactions(address, chain, options.limit);
+        }
+        return await getWalletTransactionsForWalletPage(address, options);
     },
 
     /**
