@@ -85,10 +85,10 @@ const PRIVY_FAST_TRADE_SYNC_VISIBILITY_RETRIES = 1;
 const PRIVY_FAST_TRADE_SYNC_VISIBILITY_DELAY_MS = 0;
 const PRIVY_FAST_TRADE_SKIP_SYNC_VISIBILITY = (process.env.PRIVY_FAST_TRADE_SKIP_SYNC_VISIBILITY || 'true').toLowerCase() === 'true';
 const PRIVY_FAST_TRADE_FORCE_RAW_PATH = (process.env.PRIVY_FAST_TRADE_FORCE_RAW_PATH || 'false').toLowerCase() === 'true';
-const PRIVY_FAST_TRADE_UNRESOLVED_VISIBILITY_RETRIES = Math.max(1, Number(process.env.PRIVY_FAST_TRADE_UNRESOLVED_VISIBILITY_RETRIES || '3'));
-const PRIVY_FAST_TRADE_UNRESOLVED_VISIBILITY_DELAY_MS = Math.max(0, Number(process.env.PRIVY_FAST_TRADE_UNRESOLVED_VISIBILITY_DELAY_MS || '140'));
+const PRIVY_FAST_TRADE_UNRESOLVED_VISIBILITY_RETRIES = Math.max(1, Number(process.env.PRIVY_FAST_TRADE_UNRESOLVED_VISIBILITY_RETRIES || '4'));
+const PRIVY_FAST_TRADE_UNRESOLVED_VISIBILITY_DELAY_MS = Math.max(0, Number(process.env.PRIVY_FAST_TRADE_UNRESOLVED_VISIBILITY_DELAY_MS || '180'));
 const PRIVY_FAST_TRADE_UNRESOLVED_VISIBILITY_CHAIN_IDS = new Set(
-    String(process.env.PRIVY_FAST_TRADE_UNRESOLVED_VISIBILITY_CHAIN_IDS || '8453')
+    String(process.env.PRIVY_FAST_TRADE_UNRESOLVED_VISIBILITY_CHAIN_IDS || '8453,56')
         .split(',')
         .map((value) => Number(value.trim()))
         .filter((value) => Number.isInteger(value) && value > 0)
@@ -356,7 +356,7 @@ async function tryResolveFastTradeUnresolvedVisibility(params: {
             };
         }
 
-        logger.warn(LogCode.SYS_INFO, 'Fast trade visibility remained unresolved after short sync probe', {
+        logger.warn(LogCode.SYS_INFO, 'Fast trade visibility still pending after short sync probe', {
             chainId,
             txHash,
             path,
@@ -1303,7 +1303,7 @@ export async function sendTransactionLifecycle(
                         if (upgradedLifecycle.status !== 'broadcasted_unseen') {
                             return upgradedLifecycle;
                         }
-                        logger.warn(LogCode.SYS_INFO, 'Privy fast trade send unresolved visibility; returning uncertain lifecycle', {
+                        logger.warn(LogCode.SYS_INFO, 'Privy fast trade send pending visibility after short sync probe', {
                             chainId: txWithNonce.chainId,
                             txHash: response.hash,
                             attempts: attempt

@@ -34,7 +34,7 @@ export function nextOrderStateForLifecycle(
   if (status === 'visible_pending') return canTransitionOrderState(current, 'mempool_visible') ? 'mempool_visible' : current;
   if (status === 'broadcasted_unseen') return canTransitionOrderState(current, 'rpc_uncertain') ? 'rpc_uncertain' : current;
   if (status === 'dropped_timeout') {
-    if (reasonCode === 'rpc_uncertain') return canTransitionOrderState(current, 'rpc_uncertain') ? 'rpc_uncertain' : current;
+    if (reasonCode === 'rpc_uncertain' || reasonCode === 'pending_visibility') return canTransitionOrderState(current, 'rpc_uncertain') ? 'rpc_uncertain' : current;
     return canTransitionOrderState(current, 'failed') ? 'failed' : current;
   }
   return current;

@@ -180,4 +180,34 @@ describe('directSwapFeeCollector idempotency', () => {
 
     assert.equal(seenSourceTxHash, '0xsettlementhash');
   });
+
+  test('uses fallback idempotency when source tx hash is missing', async () => {
+    let sentCount = 0;
+    const deps = createBaseDeps({
+      onSend: () => {
+        sentCount += 1;
+        return `0xfee_fallback_${sentCount}`;
+      }
+    });
+
+    const payload = {
+      request: {
+        userId: 'user_4',
+        chainId: 8453,
+        amountIn: '1',
+        mode: 'copytrade',
+      },
+      normalizedTokenIn: '0x8888888888888888888888888888888888888888',
+      normalizedTokenOut: '0x9999999999999999999999999999999999999999',
+      amountOutBase: '2000000000000000000',
+      feeContext: 'copyTrade' as const,
+      trace: (msg: string) => msg,
+      deps
+    };
+
+    await collectDirectSwapFee(payload);
+    await collectDirectSwapFee(payload);
+
+    assert.equal(sentCount, 1);
+  });
 });

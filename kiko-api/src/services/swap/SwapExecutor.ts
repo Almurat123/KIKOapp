@@ -49,6 +49,7 @@ import { resolveEthCopytradeFeePolicy } from '../copytrade-v2/eth/ethFeePolicy.j
 import { resolveEthCopytradeRelayPolicy } from '../copytrade-v2/eth/ethRelayPolicy.js';
 import { setOrderMetadata } from '../order-runtime/context.js';
 import { resolveTradeSendNonce } from './swapNoncePolicy.js';
+import { getApprovalQuoteRefreshDelayMs, shouldRetryApprovalQuoteRefresh } from './approvalQuoteRefreshPolicy.js';
 
 // 0x AllowanceHolder address (Base). If a token already has sufficient allowance here,
 // we can skip Permit2 first-try and reduce sell failure risk for problematic tokens.
@@ -751,69 +752,91 @@ export class SwapExecutor {
                         console.warn('[SwapExecutor] Failed to update approval confirmed card:', wsError);
                     }
 
-                    // Wait for state propagation across RPC nodes (2 seconds)
-                    // This ensures 0x API backend sees the approval before we fetch a fresh quote
-                    logger.info(LogCode.EXE_TX_BROADCAST, 'Waiting for state propagation across network...');
-                    await new Promise(resolve => setTimeout(resolve, 2000));
-
-                    // Re-fetch quote after approval to ensure fresh pricing
-                    logger.info(LogCode.EXE_TX_BROADCAST, 'Re-fetching quote after approval confirmation', {
-                        originalDex: best.dexName
-                    });
-
                     const originalDex = best.dex;
                     const originalAllowanceTarget = best.allowanceTarget;
-                    const { best: freshQuote } = await getBestQuote({
-                        tokenIn: actualTokenInFixed,
-                        tokenOut: actualTokenOutFixed,
-                        actualTokenIn: actualTokenInFixed,
-                        actualTokenOut: actualTokenOutFixed,
-                        amountInBase,
-                        amountInHuman: parseFloat(amountInHuman),
-                        tokenInDecimals: decimalsIn,
-                        tokenOutDecimals: decimalsOut,
-                        chainId,
-                        slippageBps,
-                        userAddress: walletAddress,
-                        affiliateFee,
-                        refPrice,
-                        feeContext,
-                        isSell: isSellForFee,
-                        executionMode: params.executionMode
-                    });
+                    let freshQuoteApplied = false;
+                    let freshQuoteFailure = 'fresh_quote_missing_after_approval';
+                    for (let refreshAttempt = 1; refreshAttempt <= 2; refreshAttempt++) {
+                        const propagationDelayMs = getApprovalQuoteRefreshDelayMs(refreshAttempt);
+                        if (propagationDelayMs > 0) {
+                            logger.info(LogCode.EXE_TX_BROADCAST, 'Waiting for approval state propagation across network...', {
+                                delayMs: propagationDelayMs,
+                                attempt: refreshAttempt
+                            });
+                            await new Promise(resolve => setTimeout(resolve, propagationDelayMs));
+                        }
 
-                    if (freshQuote && freshQuote.to && freshQuote.data) {
-                        const allowanceChanged =
-                            !!freshQuote.allowanceTarget &&
-                            !!originalAllowanceTarget &&
-                            freshQuote.allowanceTarget.toLowerCase() !== originalAllowanceTarget.toLowerCase();
+                        logger.info(LogCode.EXE_TX_BROADCAST, 'Re-fetching quote after approval confirmation', {
+                            originalDex: best.dexName,
+                            attempt: refreshAttempt
+                        });
 
-                        if (allowanceChanged) {
-                            // Avoid swapping DEX/allowance target after approval to prevent revert
-                            logger.warn(LogCode.EXE_TX_BROADCAST, 'Fresh quote uses different allowance target; keeping approved quote', {
+                        const { best: freshQuote } = await getBestQuote({
+                            tokenIn: actualTokenInFixed,
+                            tokenOut: actualTokenOutFixed,
+                            actualTokenIn: actualTokenInFixed,
+                            actualTokenOut: actualTokenOutFixed,
+                            amountInBase,
+                            amountInHuman: parseFloat(amountInHuman),
+                            tokenInDecimals: decimalsIn,
+                            tokenOutDecimals: decimalsOut,
+                            chainId,
+                            slippageBps,
+                            userAddress: walletAddress,
+                            affiliateFee,
+                            refPrice,
+                            feeContext,
+                            isSell: isSellForFee,
+                            executionMode: params.executionMode
+                        });
+
+                        const quoteFound = !!(freshQuote && freshQuote.to && freshQuote.data);
+                        const allowanceChanged = !!(
+                            quoteFound
+                            && freshQuote.allowanceTarget
+                            && originalAllowanceTarget
+                            && freshQuote.allowanceTarget.toLowerCase() !== originalAllowanceTarget.toLowerCase()
+                        );
+
+                        if (!quoteFound) {
+                            freshQuoteFailure = 'fresh_quote_missing_after_approval';
+                        } else if (allowanceChanged) {
+                            freshQuoteFailure = 'fresh_quote_allowance_changed_after_approval';
+                            logger.warn(LogCode.EXE_TX_BROADCAST, 'Fresh quote uses different allowance target after approval', {
                                 oldDex: best.dexName,
                                 newDex: freshQuote.dexName,
                                 oldAllowanceTarget: originalAllowanceTarget,
-                                newAllowanceTarget: freshQuote.allowanceTarget
+                                newAllowanceTarget: freshQuote.allowanceTarget,
+                                attempt: refreshAttempt
                             });
                         } else {
                             logger.info(LogCode.EXE_TX_BROADCAST, 'Using fresh quote after approval', {
                                 oldDex: best.dexName,
                                 newDex: freshQuote.dexName,
                                 oldAmountOut: best.amountOut,
-                                newAmountOut: freshQuote.amountOut
+                                newAmountOut: freshQuote.amountOut,
+                                attempt: refreshAttempt
                             });
-                            // Replace stale quote with fresh one
                             Object.assign(best, freshQuote);
+                            freshQuoteApplied = true;
+                            break;
                         }
-                    } else {
-                        // CRITICAL: Don't use stale quote - it will likely revert
-                        // Instead, throw error and let retry logic handle it with higher slippage
-                        logger.error(LogCode.SYS_ERROR, 'Failed to fetch fresh quote after approval - cannot proceed with stale data', {
+
+                        if (!shouldRetryApprovalQuoteRefresh({
+                            attempt: refreshAttempt,
+                            quoteFound,
+                            allowanceChanged
+                        })) {
+                            break;
+                        }
+                    }
+
+                    if (!freshQuoteApplied) {
+                        logger.error(LogCode.SYS_ERROR, 'Failed to fetch approval-compatible fresh quote', {
                             dex: best.dexName,
-                            timeSinceOriginalQuote: 'unknown'
+                            reasonCode: freshQuoteFailure
                         });
-                        throw new Error('Failed to fetch fresh quote after approval. Price may have moved significantly. Please try again.');
+                        throw new Error(`Failed to fetch approval-compatible fresh quote: ${freshQuoteFailure}`);
                     }
                 } catch (approvalError: any) {
                     logger.error(LogCode.EXE_TX_REVERTED, 'Approval failed', { error: approvalError.message });

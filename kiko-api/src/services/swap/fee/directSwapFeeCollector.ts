@@ -13,6 +13,13 @@ import {
   markDirectSwapFeeExecutionSent,
   type DirectSwapFeeClaimResult
 } from './directSwapFeeExecutionGuard.js';
+import {
+  buildDirectSwapFeeFallbackExecutionKey,
+  claimDirectSwapFeeFallbackExecution,
+  type FallbackFeeClaimResult,
+  markDirectSwapFeeFallbackExecutionFailed,
+  markDirectSwapFeeFallbackExecutionSent,
+} from './directSwapFeeFallbackGuard.js';
 
 export interface DirectSwapFeeRequest {
   userId: string;
@@ -214,25 +221,25 @@ export async function collectDirectSwapFee(params: {
       feeRecipient: fee.evmRecipient!,
       feeBps: fee.bps
     })
-    : '';
+    : buildDirectSwapFeeFallbackExecutionKey({
+      userId: request.userId,
+      chainId: request.chainId,
+      mode: request.mode,
+      normalizedTokenIn,
+      normalizedTokenOut,
+      amountIn: request.amountIn,
+      amountOutBase: feeBaseAmount,
+      feeToken,
+      feeRecipient: fee.evmRecipient!,
+      feeBps: fee.bps
+    });
 
   let shouldSend = true;
   let dedupClaimed = false;
   if (feeExecutionKey) {
     try {
-      let claimResult = await claimFeeExecution({
-        feeExecutionKey,
-        userId: request.userId,
-        chainId: request.chainId,
-        sourceTxHash,
-        mode: request.mode,
-        feeToken,
-        feeRecipient: fee.evmRecipient!,
-        feeBps: fee.bps
-      });
-
-      if (claimResult.status === 'inflight') {
-        await sleep(inflightWaitMs);
+      let claimResult: DirectSwapFeeClaimResult | FallbackFeeClaimResult;
+      if (sourceTxHash) {
         claimResult = await claimFeeExecution({
           feeExecutionKey,
           userId: request.userId,
@@ -243,6 +250,24 @@ export async function collectDirectSwapFee(params: {
           feeRecipient: fee.evmRecipient!,
           feeBps: fee.bps
         });
+      } else {
+        claimResult = claimDirectSwapFeeFallbackExecution(feeExecutionKey);
+      }
+
+      if (claimResult.status === 'inflight') {
+        await sleep(inflightWaitMs);
+        claimResult = sourceTxHash
+          ? await claimFeeExecution({
+            feeExecutionKey,
+            userId: request.userId,
+            chainId: request.chainId,
+            sourceTxHash,
+            mode: request.mode,
+            feeToken,
+            feeRecipient: fee.evmRecipient!,
+            feeBps: fee.bps
+          })
+          : claimDirectSwapFeeFallbackExecution(feeExecutionKey);
       }
 
       if (claimResult.status !== 'claimed') {
@@ -265,8 +290,8 @@ export async function collectDirectSwapFee(params: {
       });
     }
   } else {
-    logger.warn(LogCode.SYS_INFO, trace('Direct swap fee idempotency disabled: source tx hash missing'), {
-      reasonCode: 'fee_dedup_source_missing'
+    logger.info(LogCode.SYS_INFO, trace('Direct swap fee using in-process fallback idempotency key'), {
+      reasonCode: 'fee_dedup_fallback_key'
     });
   }
 
@@ -275,20 +300,27 @@ export async function collectDirectSwapFee(params: {
   try {
     const { feeTxHash, feeKind } = await sendFeeTransaction();
     if (feeExecutionKey && dedupClaimed) {
-      await markFeeExecutionSent({
-        feeExecutionKey,
-        feeTxHash,
-        feeAmount: feeAmount.toString(),
-        feeToken,
-        feeRecipient: fee.evmRecipient!
-      }).catch((markErr: any) => {
-        logger.warn(LogCode.SYS_ERROR, trace('Direct swap fee mark-sent failed; execution already broadcast'), {
-          reasonCode: 'fee_mark_sent_failed',
-          sourceTxHash: sourceTxHash || undefined,
+      if (sourceTxHash) {
+        await markFeeExecutionSent({
+          feeExecutionKey,
           feeTxHash,
-          error: markErr?.message || String(markErr)
+          feeAmount: feeAmount.toString(),
+          feeToken,
+          feeRecipient: fee.evmRecipient!
+        }).catch((markErr: any) => {
+          logger.warn(LogCode.SYS_ERROR, trace('Direct swap fee mark-sent failed; execution already broadcast'), {
+            reasonCode: 'fee_mark_sent_failed',
+            sourceTxHash: sourceTxHash || undefined,
+            feeTxHash,
+            error: markErr?.message || String(markErr)
+          });
         });
-      });
+      } else {
+        markDirectSwapFeeFallbackExecutionSent({
+          feeExecutionKey,
+          feeTxHash
+        });
+      }
     }
     logger.info(LogCode.EXE_TX_CONFIRMED, trace(`Direct swap ${feeKind} fee sent`), {
       feeTxHash,
@@ -301,10 +333,17 @@ export async function collectDirectSwapFee(params: {
     });
   } catch (sendErr: any) {
     if (feeExecutionKey && dedupClaimed) {
-      await markFeeExecutionFailed({
-        feeExecutionKey,
-        error: sendErr?.message || String(sendErr)
-      }).catch(() => undefined);
+      if (sourceTxHash) {
+        await markFeeExecutionFailed({
+          feeExecutionKey,
+          error: sendErr?.message || String(sendErr)
+        }).catch(() => undefined);
+      } else {
+        markDirectSwapFeeFallbackExecutionFailed({
+          feeExecutionKey,
+          error: sendErr?.message || String(sendErr)
+        });
+      }
     }
     throw sendErr;
   }

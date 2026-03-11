@@ -28,15 +28,17 @@ export class NotificationService {
 
         if (!farcasterFid) {
             if (MUST_NOTIFY_TYPES.has(type)) {
-                logger.warn(LogCode.API_NOTIFY_FAILED, 'No Farcaster FID provided, critical notification not sent', {
+                logger.info(LogCode.API_NOTIFY_FAILED, 'Notification skipped: no Farcaster FID configured', {
                     userId: params.userId,
                     type,
-                    skipReason: data.skipReason
+                    skipReason: data.skipReason,
+                    reasonCode: 'notification_skipped_no_channel'
                 });
             } else {
-                logger.debug(LogCode.API_NOTIFY_FAILED, 'No Farcaster FID provided, skipping notification', {
+                logger.debug(LogCode.API_NOTIFY_FAILED, 'Notification skipped: no Farcaster FID configured', {
                     userId: params.userId,
-                    type
+                    type,
+                    reasonCode: 'notification_skipped_no_channel'
                 });
             }
             return false;

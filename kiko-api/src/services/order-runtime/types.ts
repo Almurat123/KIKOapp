@@ -23,6 +23,7 @@ export type OrderState =
 export type OrderReasonCode =
   | 'none'
   | 'rpc_uncertain'
+  | 'pending_visibility'
   | 'underpriced'
   | 'nonce_conflict'
   | 'send_rejected'
