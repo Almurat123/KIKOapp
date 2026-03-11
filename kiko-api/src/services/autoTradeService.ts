@@ -73,11 +73,6 @@ import { buildDuplicateTradeWhere, describeCooldownMode } from './copytrade-v2/g
 import { evaluateStaticBuyGuards } from './copytrade-v2/guards/evaluator.js';
 import { emitBatchFilterAudit } from './copytrade-v2/guards/batchFilterAudit.js';
 import { resolveBuyGuardPolicy, shouldEnforceBuyGuard } from './copytrade-v2/guards/policy.js';
-import {
-    ensureCopytradeOrphanBuyGuardTable,
-    listActiveCopytradeOrphanBuyGuardsForConfigs,
-    partitionConfigsByActiveOrphanBuyGuards,
-} from './copytrade-v2/guards/orphanBuyGuardStore.js';
 import { resolveEntryDeviationModePolicy } from './copytrade-v2/config/entryDeviationModePolicy.js';
 import { emitEntryDeviationSummary } from './copytrade-v2/audit/entryDeviationAudit.js';
 import { executeEvmCopytradeBuySubmissionFlow } from './copytrade-v2/buy/evmBuySubmissionFlow.js';
@@ -935,41 +930,12 @@ async function handleTargetBuy(
         });
     }
 
-    let runnableConfigs = uniqueExecutableConfigs;
-    if (chainId !== 900 && runnableConfigs.length > 0) {
-        const activeGuards = await listActiveCopytradeOrphanBuyGuardsForConfigs({
-            configIds: runnableConfigs.map((config: any) => String(config.id)),
-            chainId,
-            tokenAddress: tokenToBuy,
-        }).catch(() => []);
-        if (activeGuards.length > 0) {
-            const partition = partitionConfigsByActiveOrphanBuyGuards(runnableConfigs, activeGuards);
-            runnableConfigs = partition.allowed;
-            logger.warn(LogCode.WTC_TX_SKIPPED, 'Blocked copytrade buy due to active orphan position guard', {
-                chainId,
-                targetWallet: normalizedWallet,
-                token: tokenToBuy,
-                blockedConfigIds: partition.blocked.map((config: any) => config.id),
-                blockedPositionIds: activeGuards.map((guard) => guard.positionId),
-                reasonCodes: [...new Set(activeGuards.map((guard) => guard.reasonCode || 'orphan_buy_guard'))],
-            });
-        }
-    }
-    if (runnableConfigs.length === 0) {
-        logger.warn(LogCode.WTC_TX_SKIPPED, 'No executable buy configs remain after orphan guard filtering', {
-            chainId,
-            targetWallet: normalizedWallet,
-            token: tokenToBuy,
-        });
-        return;
-    }
-
     logger.info(LogCode.EXE_QUOTE_FETCHED, '[CopyTrade] Executable buy configs ready', {
         chainId,
         targetWallet: normalizedWallet,
         token: tokenToBuy,
-        configCount: runnableConfigs.length,
-        configIds: runnableConfigs.slice(0, 8).map((c: any) => c.id)
+        configCount: uniqueExecutableConfigs.length,
+        configIds: uniqueExecutableConfigs.slice(0, 8).map((c: any) => c.id)
     });
 
     const tokenInfoCache = new Map<string, Promise<any>>();
@@ -979,7 +945,7 @@ async function handleTargetBuy(
         : Promise.resolve(null);
 
     // Turbo Mode: only if ALL configs explicitly choose turbo.
-    const skipTokenInfo = runnableConfigs.every(c => c.executionMode === 'turbo');
+    const skipTokenInfo = uniqueExecutableConfigs.every(c => c.executionMode === 'turbo');
     if (skipTokenInfo) {
         try {
             // ⚡ Reuse the metadata that was prefetched in parallel with the user DB query.
@@ -1004,7 +970,7 @@ async function handleTargetBuy(
                 chainId
             });
 
-            await processBuyWithInfo(targetWallet, tokenToBuy, swap, chainId, runnableConfigs, fallbackInfo, true, launchpadPromise, tokenInfoCache, sharedWarmup, context?.timing, detectedAt);
+            await processBuyWithInfo(targetWallet, tokenToBuy, swap, chainId, uniqueExecutableConfigs, fallbackInfo, true, launchpadPromise, tokenInfoCache, sharedWarmup, context?.timing, detectedAt);
             return;
         } catch (err: any) {
             logger.warn(LogCode.API_FETCH_FAILED, '[CopyTrade] Token info disabled but metadata fallback failed', {
@@ -1056,7 +1022,7 @@ async function handleTargetBuy(
             // NOTE: We must be careful about price calculations later.
             // If price is 0, we can only do "Buy X ETH worth", not "Buy Y Tokens".
             // Our logic below handles "Target Swap Value" based on Input ETH, so we are safe.
-            await processBuyWithInfo(targetWallet, tokenToBuy, swap, chainId, runnableConfigs, fallbackInfo, true, launchpadPromise, tokenInfoCache, sharedWarmup, context?.timing, detectedAt);
+            await processBuyWithInfo(targetWallet, tokenToBuy, swap, chainId, uniqueExecutableConfigs, fallbackInfo, true, launchpadPromise, tokenInfoCache, sharedWarmup, context?.timing, detectedAt);
             return;
         }
 
@@ -1086,7 +1052,7 @@ async function handleTargetBuy(
                     chainId
                 });
 
-                await processBuyWithInfo(targetWallet, tokenToBuy, swap, chainId, runnableConfigs, fallbackInfo, true, launchpadPromise, tokenInfoCache, sharedWarmup, context?.timing, detectedAt);
+                await processBuyWithInfo(targetWallet, tokenToBuy, swap, chainId, uniqueExecutableConfigs, fallbackInfo, true, launchpadPromise, tokenInfoCache, sharedWarmup, context?.timing, detectedAt);
                 return;
             } catch (metaErr: any) {
                 logger.warn(LogCode.API_FETCH_FAILED, 'Metadata fallback failed', { token: tokenToBuy, error: metaErr.message });
@@ -1097,7 +1063,7 @@ async function handleTargetBuy(
         return;
     }
 
-    await processBuyWithInfo(targetWallet, tokenToBuy, swap, chainId, runnableConfigs, tokenInfo, false, launchpadPromise, tokenInfoCache, sharedWarmup, context?.timing, detectedAt);
+    await processBuyWithInfo(targetWallet, tokenToBuy, swap, chainId, uniqueExecutableConfigs, tokenInfo, false, launchpadPromise, tokenInfoCache, sharedWarmup, context?.timing, detectedAt);
 }
 
 /**
@@ -1778,11 +1744,6 @@ async function handleTargetSell(
  */
 export function initAutoTradeService(): void {
     logger.info(LogCode.SYS_STARTUP, 'Initializing auto trade service...');
-    void ensureCopytradeOrphanBuyGuardTable().catch((err: any) => {
-        logger.warn(LogCode.SYS_ERROR, '[CopyTradeOrphanGuard] Failed to ensure guard table', {
-            error: err?.message || String(err)
-        });
-    });
 
     // Register swap callbacks
     onSwapDetected(async (targetWallet, swap, chainId) => {

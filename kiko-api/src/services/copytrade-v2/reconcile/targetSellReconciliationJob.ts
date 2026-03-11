@@ -1,3 +1,5 @@
+import { Prisma } from '@prisma/client';
+import { ethers } from 'ethers';
 import prisma from '../../../db/prisma.js';
 import { LogCode } from '../../../config/logRegistry.js';
 import { logger } from '../../../utils/logger.js';
@@ -15,8 +17,456 @@ import {
   buildTargetSellEventPayload,
   persistTargetSellEventAndSchedulePositions,
 } from '../exit/positionExitIntentScheduler.js';
+import { normalizeToken, normalizeWallet } from '../runtime/chainIdentityNormalizer.js';
+import {
+  readEvmTokenBalanceFast,
+  readEvmTokenDecimalsFast,
+  readSolanaTokenBalanceFast,
+} from '../../rpc/balanceRpcReader.js';
 
 const TARGET_SELL_RECONCILE_WINDOW_MS = Math.max(60_000, Number(process.env.COPYTRADE_TARGET_SELL_RECONCILE_WINDOW_MS || '21600000'));
+const ORPHAN_RECOVERY_ENTRY_TX_PREFIX = 'RECOVERED_ONCHAIN_';
+const ORPHAN_RECOVERY_LEADER_TX_PREFIX = 'ORPHAN_RECOVERY_';
+
+type RecentTargetSellSignal = {
+  chainId: number;
+  targetWallet: string;
+  tokenAddress: string;
+  targetSellTxHash: string;
+  tokenSymbol: string | null;
+  blockTimestamp: Date;
+};
+
+type WalletTransactionSellRow = {
+  walletAddress: string;
+  chainId: number | null;
+  txHash: string;
+  txType: string;
+  tokenAddress: string | null;
+  tokenInAddress: string | null;
+  tokenSymbol: string | null;
+  tokenInSymbol: string | null;
+  blockTimestamp: Date;
+};
+
+function computeDustThresholdRaw(decimals: number): bigint {
+  const normalized = Math.max(0, Number.isFinite(decimals) ? Math.floor(decimals) : 0);
+  const exponent = normalized > 6 ? normalized - 6 : 0;
+  return 10n ** BigInt(exponent);
+}
+
+function resolveSellSignalTokenAddress(row: WalletTransactionSellRow): string | null {
+  if (String(row.txType || '').toUpperCase() === 'TARGET_TOKEN_SWAP') {
+    return row.tokenInAddress || null;
+  }
+  return row.tokenInAddress || row.tokenAddress || null;
+}
+
+function resolveSellSignalTokenSymbol(row: WalletTransactionSellRow): string | null {
+  if (String(row.txType || '').toUpperCase() === 'TARGET_TOKEN_SWAP') {
+    return row.tokenInSymbol || row.tokenSymbol || null;
+  }
+  return row.tokenInSymbol || row.tokenSymbol || null;
+}
+
+export function resolveRecentTargetSellSignals(rows: WalletTransactionSellRow[]): RecentTargetSellSignal[] {
+  const deduped = new Map<string, RecentTargetSellSignal>();
+  for (const row of rows) {
+    const chainId = Number(row.chainId || 0);
+    if (!chainId) continue;
+    const targetWallet = normalizeWallet(chainId, row.walletAddress);
+    const tokenAddress = normalizeToken(chainId, resolveSellSignalTokenAddress(row));
+    const targetSellTxHash = String(row.txHash || '').trim();
+    if (!targetWallet || !tokenAddress || !targetSellTxHash) continue;
+    const signal: RecentTargetSellSignal = {
+      chainId,
+      targetWallet,
+      tokenAddress,
+      targetSellTxHash,
+      tokenSymbol: resolveSellSignalTokenSymbol(row),
+      blockTimestamp: row.blockTimestamp,
+    };
+    const key = `${chainId}:${targetWallet}:${tokenAddress}:${targetSellTxHash.toLowerCase()}`;
+    const existing = deduped.get(key);
+    if (!existing || existing.blockTimestamp.getTime() < signal.blockTimestamp.getTime()) {
+      deduped.set(key, signal);
+    }
+  }
+  return [...deduped.values()].sort((left, right) => right.blockTimestamp.getTime() - left.blockTimestamp.getTime());
+}
+
+export function buildOrphanRecoveryMarkers(targetSellTxHash: string): {
+  entryTxHash: string;
+  leaderTxHash: string;
+} {
+  const normalized = String(targetSellTxHash || '').trim().toLowerCase();
+  return {
+    entryTxHash: `${ORPHAN_RECOVERY_ENTRY_TX_PREFIX}${normalized}`,
+    leaderTxHash: `${ORPHAN_RECOVERY_LEADER_TX_PREFIX}${normalized}`,
+  };
+}
+
+async function loadFollowerTokenBalance(params: {
+  chainId: number;
+  walletAddress: string;
+  tokenAddress: string;
+}): Promise<{ balanceRaw: bigint; decimals: number }> {
+  if (params.chainId === 900) {
+    return readSolanaTokenBalanceFast({
+      walletAddress: params.walletAddress,
+      tokenAddress: params.tokenAddress,
+      path: 'copytrade_orphan_recovery_balance',
+    });
+  }
+  const [balanceRaw, decimals] = await Promise.all([
+    readEvmTokenBalanceFast({
+      tokenAddress: params.tokenAddress,
+      walletAddress: params.walletAddress,
+      chainId: params.chainId,
+      path: 'copytrade_orphan_recovery_balance',
+      lane: 'critical',
+    }),
+    readEvmTokenDecimalsFast({
+      tokenAddress: params.tokenAddress,
+      chainId: params.chainId,
+      path: 'copytrade_orphan_recovery_decimals',
+      lane: 'critical',
+    }).catch(() => 18),
+  ]);
+  return { balanceRaw, decimals };
+}
+
+async function hasActivePositionContext(params: {
+  userId: string;
+  configId: string;
+  chainId: number;
+  tokenAddress: string;
+}): Promise<boolean> {
+  const position = await prisma.position.findFirst({
+    where: {
+      userId: params.userId,
+      configId: params.configId,
+      chainId: params.chainId,
+      tokenAddress: {
+        equals: params.tokenAddress,
+        mode: 'insensitive',
+      },
+      status: { in: ['open', 'pending'] },
+    },
+    select: { id: true },
+  });
+  return Boolean(position?.id);
+}
+
+async function createOrReuseRecoveredPosition(params: {
+  userId: string;
+  configId: string;
+  chainId: number;
+  tokenAddress: string;
+  tokenSymbol: string | null;
+  targetSellTxHash: string;
+  balanceRaw: bigint;
+  decimals: number;
+}): Promise<{
+  id: string;
+  userId: string;
+  configId: string;
+  chainId: number;
+  tokenAddress: string;
+  entryAmountExact: string | null;
+  entryAmountDec: string | null;
+  status: string;
+  created: boolean;
+}> {
+  const markers = buildOrphanRecoveryMarkers(params.targetSellTxHash);
+  const humanAmount = ethers.formatUnits(params.balanceRaw, params.decimals);
+  const existing = await prisma.position.findFirst({
+    where: {
+      userId: params.userId,
+      configId: params.configId,
+      chainId: params.chainId,
+      tokenAddress: {
+        equals: params.tokenAddress,
+        mode: 'insensitive',
+      },
+      leaderTxHash: markers.leaderTxHash,
+    },
+    select: {
+      id: true,
+      userId: true,
+      configId: true,
+      chainId: true,
+      tokenAddress: true,
+      entryAmountExact: true,
+      entryAmountDec: true,
+      status: true,
+    },
+  });
+  if (existing) {
+    return {
+      ...existing,
+      entryAmountDec: existing.entryAmountDec ? String(existing.entryAmountDec) : null,
+      created: false,
+    };
+  }
+
+  try {
+    const created = await prisma.position.create({
+      data: {
+        userId: params.userId,
+        configId: params.configId,
+        chainId: params.chainId,
+        tokenAddress: params.tokenAddress,
+        tokenSymbol: params.tokenSymbol || 'UNKNOWN',
+        entryPrice: 0,
+        entryAmount: humanAmount,
+        entryAmountDec: humanAmount,
+        entryAmountExact: params.balanceRaw.toString(),
+        entryTxHash: markers.entryTxHash,
+        leaderTxHash: markers.leaderTxHash,
+        entryUsdValue: 0,
+        status: 'open',
+        exitReason: 'mirror_sell',
+        exitRetryCount: 1,
+        lastExitAttempt: null,
+      },
+      select: {
+        id: true,
+        userId: true,
+        configId: true,
+        chainId: true,
+        tokenAddress: true,
+        entryAmountExact: true,
+        entryAmountDec: true,
+        status: true,
+      },
+    });
+    return {
+      ...created,
+      entryAmountDec: created.entryAmountDec ? String(created.entryAmountDec) : null,
+      created: true,
+    };
+  } catch (error) {
+    if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2002') {
+      throw error;
+    }
+    const raced = await prisma.position.findFirst({
+      where: {
+        userId: params.userId,
+        configId: params.configId,
+        chainId: params.chainId,
+        tokenAddress: {
+          equals: params.tokenAddress,
+          mode: 'insensitive',
+        },
+        leaderTxHash: markers.leaderTxHash,
+      },
+      select: {
+        id: true,
+        userId: true,
+        configId: true,
+        chainId: true,
+        tokenAddress: true,
+        entryAmountExact: true,
+        entryAmountDec: true,
+        status: true,
+      },
+    });
+    if (!raced) throw error;
+    return {
+      ...raced,
+      entryAmountDec: raced.entryAmountDec ? String(raced.entryAmountDec) : null,
+      created: false,
+    };
+  }
+}
+
+async function recoverMissingOrphanMirrorSellPositions(params: {
+  createdAfter: Date;
+  hasInFlightMirrorSellOrder: typeof hasInFlightMirrorSellOrder;
+}): Promise<{ recoveredOrphans: number; scheduledRecoveredOrphans: number }> {
+  const activeConfigs = await prisma.copyTradeConfig.findMany({
+    where: {
+      status: 'active',
+      mirrorSell: true,
+    },
+    include: {
+      user: {
+        select: {
+          walletAddress: true,
+          solanaWalletAddress: true,
+        },
+      },
+    },
+  });
+  if (activeConfigs.length === 0) {
+    return { recoveredOrphans: 0, scheduledRecoveredOrphans: 0 };
+  }
+
+  const configMap = new Map<string, typeof activeConfigs>();
+  for (const config of activeConfigs) {
+    const key = `${config.chainId}:${normalizeWallet(config.chainId, config.targetWallet)}`;
+    const existing = configMap.get(key) || [];
+    existing.push(config);
+    configMap.set(key, existing);
+  }
+
+  const chainIds = [...new Set(activeConfigs.map((config) => config.chainId).filter((value) => Number.isFinite(value)))];
+  const targetWallets = [...new Set(activeConfigs.map((config) => normalizeWallet(config.chainId, config.targetWallet)).filter(Boolean))];
+  if (chainIds.length === 0 || targetWallets.length === 0) {
+    return { recoveredOrphans: 0, scheduledRecoveredOrphans: 0 };
+  }
+
+  const sellRows = await prisma.walletTransaction.findMany({
+    where: {
+      chainId: { in: chainIds },
+      walletAddress: { in: targetWallets, mode: 'insensitive' },
+      txType: { in: ['TARGET_SELL', 'TARGET_TOKEN_SWAP'] },
+      blockTimestamp: { gte: params.createdAfter },
+    },
+    orderBy: [{ blockTimestamp: 'desc' }, { createdAt: 'desc' }],
+    take: 200,
+    select: {
+      walletAddress: true,
+      chainId: true,
+      txHash: true,
+      txType: true,
+      tokenAddress: true,
+      tokenInAddress: true,
+      tokenSymbol: true,
+      tokenInSymbol: true,
+      blockTimestamp: true,
+    },
+  });
+
+  const signals = resolveRecentTargetSellSignals(sellRows as WalletTransactionSellRow[]);
+  let recoveredOrphans = 0;
+  let scheduledRecoveredOrphans = 0;
+
+  for (const signal of signals) {
+    const configs = configMap.get(`${signal.chainId}:${signal.targetWallet}`) || [];
+    if (configs.length === 0) continue;
+
+    const fullExit = await verifyTargetFullExit({
+      targetWallet: signal.targetWallet,
+      chainId: signal.chainId,
+      tokenAddress: signal.tokenAddress,
+    });
+    if (!fullExit.isFullExit) continue;
+
+    for (const config of configs) {
+      const hasInFlight = await params.hasInFlightMirrorSellOrder({
+        userId: config.userId,
+        configId: config.id,
+        chainId: signal.chainId,
+        tokenAddress: signal.tokenAddress,
+      });
+      if (hasInFlight) continue;
+
+      const hasContext = await hasActivePositionContext({
+        userId: config.userId,
+        configId: config.id,
+        chainId: signal.chainId,
+        tokenAddress: signal.tokenAddress,
+      });
+      if (hasContext) continue;
+
+      const followerWallet = signal.chainId === 900
+        ? String(config.user?.solanaWalletAddress || '').trim()
+        : normalizeWallet(signal.chainId, config.user?.walletAddress || '');
+      if (!followerWallet) continue;
+
+      const followerBalance = await loadFollowerTokenBalance({
+        chainId: signal.chainId,
+        walletAddress: followerWallet,
+        tokenAddress: signal.tokenAddress,
+      }).catch(() => null);
+      if (!followerBalance) continue;
+
+      const dustThresholdRaw = computeDustThresholdRaw(followerBalance.decimals);
+      if (followerBalance.balanceRaw <= dustThresholdRaw) continue;
+
+      const recoveredPosition = await createOrReuseRecoveredPosition({
+        userId: config.userId,
+        configId: config.id,
+        chainId: signal.chainId,
+        tokenAddress: signal.tokenAddress,
+        tokenSymbol: signal.tokenSymbol,
+        targetSellTxHash: signal.targetSellTxHash,
+        balanceRaw: followerBalance.balanceRaw,
+        decimals: followerBalance.decimals,
+      });
+      if (String(recoveredPosition.status || '').toLowerCase() === 'closed') continue;
+
+      recoveredOrphans += recoveredPosition.created ? 1 : 0;
+      emitCopytradeDomainAudit('FOLLOWER_ORPHAN_POSITION_ADOPTED', {
+        extra: {
+          userId: config.userId,
+          configId: config.id,
+          positionId: recoveredPosition.id,
+          tokenAddress: signal.tokenAddress,
+          chainId: signal.chainId,
+          targetWallet: signal.targetWallet,
+          targetSellTxHash: signal.targetSellTxHash,
+          followerWallet,
+          balanceRaw: followerBalance.balanceRaw.toString(),
+          dustThresholdRaw: dustThresholdRaw.toString(),
+          recoveryCreated: recoveredPosition.created,
+          reasonCode: 'verified_target_full_exit_orphan_balance_detected',
+        },
+      });
+
+      const scheduled = await persistTargetSellEventAndSchedulePositions({
+        event: buildTargetSellEventPayload({
+          chainId: signal.chainId,
+          targetWallet: signal.targetWallet,
+          tokenAddress: signal.tokenAddress,
+          targetSellTxHash: signal.targetSellTxHash,
+          targetFullExitVerified: true,
+          targetRemainingBalanceRaw: fullExit.remainingBalanceRaw || null,
+          source: 'reconcile',
+          metadata: {
+            orphanRecovery: true,
+            targetFullExitReasonCode: fullExit.reasonCode,
+            orphanRecoveryBlockTimestamp: signal.blockTimestamp.toISOString(),
+          },
+        }),
+        positions: [{
+          id: recoveredPosition.id,
+          userId: recoveredPosition.userId,
+          configId: recoveredPosition.configId,
+          chainId: recoveredPosition.chainId,
+          tokenAddress: recoveredPosition.tokenAddress,
+          entryAmountExact: recoveredPosition.entryAmountExact,
+          entryAmountDec: recoveredPosition.entryAmountDec,
+        }],
+        priority: 245,
+        metadata: {
+          reconcileScheduled: true,
+          orphanRecovery: true,
+        },
+      }).catch(() => null);
+
+      if (scheduled && scheduled.scheduled > 0) {
+        scheduledRecoveredOrphans += scheduled.scheduled;
+        emitCopytradeDomainAudit('FOLLOWER_ORPHAN_EXIT_SCHEDULED', {
+          extra: {
+            userId: config.userId,
+            configId: config.id,
+            positionId: recoveredPosition.id,
+            tokenAddress: signal.tokenAddress,
+            chainId: signal.chainId,
+            targetWallet: signal.targetWallet,
+            targetSellTxHash: signal.targetSellTxHash,
+            reasonCode: 'orphan_recovery_exit_scheduled',
+          },
+        });
+      }
+    }
+  }
+
+  return { recoveredOrphans, scheduledRecoveredOrphans };
+}
 
 async function hasInFlightMirrorSellOrder(params: {
   userId: string;
@@ -48,6 +498,8 @@ export async function runTargetSellReconciliationCycle(): Promise<{
   armedPending: number;
   scheduledOpen: number;
   fullExitMatches: number;
+  recoveredOrphans: number;
+  scheduledRecoveredOrphans: number;
 }> {
   const createdAfter = new Date(Date.now() - TARGET_SELL_RECONCILE_WINDOW_MS);
   let scannedOpen = 0;
@@ -313,20 +765,33 @@ export async function runTargetSellReconciliationCycle(): Promise<{
     }
   }
 
+  const orphanRecovery = await recoverMissingOrphanMirrorSellPositions({
+    createdAfter,
+    hasInFlightMirrorSellOrder,
+  });
+
   const result = {
     scannedOpen,
     scannedPending,
     armedPending,
     scheduledOpen,
     fullExitMatches,
+    recoveredOrphans: orphanRecovery.recoveredOrphans,
+    scheduledRecoveredOrphans: orphanRecovery.scheduledRecoveredOrphans,
   };
   emitCopytradeSummaryAudit('RECONCILE_CYCLE_SUMMARY', {
-    action: fullExitMatches > 0 ? 'processed_full_exit_matches' : 'noop',
+    action: fullExitMatches > 0
+      ? 'processed_full_exit_matches'
+      : orphanRecovery.scheduledRecoveredOrphans > 0
+        ? 'orphan_exit_scheduled'
+        : 'noop',
     scannedOpen,
     scannedPending,
     armedPending,
     scheduledOpen,
     fullExitMatches,
+    recoveredOrphans: orphanRecovery.recoveredOrphans,
+    scheduledRecoveredOrphans: orphanRecovery.scheduledRecoveredOrphans,
     legacyFallbackUsed: false,
   });
   return result;
