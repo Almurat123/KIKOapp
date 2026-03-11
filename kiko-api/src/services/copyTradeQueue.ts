@@ -20,6 +20,7 @@ type QueueTask = {
     detectedAt?: number;
     timing?: CopyTradeTimingSnapshot;
     sourceTxFrom?: string;
+    sourceBlockTimestampMs?: number;
     source?: string;
     priority: number;
     sequence: number;
@@ -34,7 +35,7 @@ type QueueHandler = (
     targetWallet: string,
     swap: DecodedSwap,
     chainId: number,
-    context?: { detectedAt?: number; timing?: CopyTradeTimingSnapshot; sourceTxFrom?: string }
+    context?: { detectedAt?: number; timing?: CopyTradeTimingSnapshot; sourceTxFrom?: string; sourceBlockTimestampMs?: number }
 ) => Promise<void>;
 let queueHandlerOverride: QueueHandler | null = null;
 
@@ -131,7 +132,8 @@ function processQueue(): void {
                     await handleSwapDetected(task.targetWallet, task.swap, task.chainId, {
                         detectedAt,
                         timing,
-                        sourceTxFrom: task.sourceTxFrom
+                        sourceTxFrom: task.sourceTxFrom,
+                        sourceBlockTimestampMs: task.sourceBlockTimestampMs
                     });
                     // Post-execution bookkeeping: fire-and-forget
                     markLocallyDone(taskKey);
@@ -169,7 +171,7 @@ export function enqueueCopyTradeTask(
     targetWallet: string,
     swap: DecodedSwap,
     chainId: number,
-    context?: { detectedAt?: number; timing?: CopyTradeTimingSnapshot; source?: string; sourceTxFrom?: string }
+    context?: { detectedAt?: number; timing?: CopyTradeTimingSnapshot; source?: string; sourceTxFrom?: string; sourceBlockTimestampMs?: number }
 ): void {
     markCopyTradeTxState(chainId, swap?.txHash || 'nohash', 'task_enqueued', {
         wallet: targetWallet
@@ -181,6 +183,7 @@ export function enqueueCopyTradeTask(
         detectedAt: context?.detectedAt,
         source: context?.source,
         sourceTxFrom: context?.sourceTxFrom,
+        sourceBlockTimestampMs: context?.sourceBlockTimestampMs,
         priority: resolveCopyTradeQueuePriority({ chainId, source: context?.source }),
         sequence: ++localSequence,
         timing: markCopyTradeTaskEnqueued(

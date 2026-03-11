@@ -109,6 +109,7 @@ import { executeSwapViaPort } from './swap/swapExecutionPort.js';
 import { getReferenceExpectedOutput } from './dex/directSwap/application/quoteEngines.js';
 import type { ConfirmationOutcome } from './swap/confirmationCoordinator.js';
 import type { MirrorSellAfterConfirmContext } from './copytrade-v2/buy/buyConfirmationTransition.js';
+import { evaluateStaleBuySignal } from './copytrade-v2/buy/staleBuyPolicy.js';
 import {
     executePositionExit as executePositionExitRuntime,
     checkPositionsForExits as checkPositionsForExitsRuntime,
@@ -621,7 +622,7 @@ export async function handleSwapDetected(
     targetWallet: string,
     swap: DecodedSwap,
     chainId: number,
-    context?: { detectedAt?: number; timing?: CopyTradeTimingSnapshot }
+    context?: { detectedAt?: number; timing?: CopyTradeTimingSnapshot; sourceBlockTimestampMs?: number }
 ): Promise<void> {
     const detectedAt = getCopyTradeDispatchDetectedAt(context?.timing, context?.detectedAt) || Date.now();
     // 🛑 SHUTDOWN CHECK (Risk #2 Mitigation)
@@ -744,6 +745,25 @@ export async function handleSwapDetected(
                 : swap.cashLegHint?.cashReceivedUsd,
             source: 'webhook',
         }).catch(() => undefined);
+    }
+
+    const staleBuyDecision = evaluateStaleBuySignal({
+        isBuy,
+        sourceBlockTimestampMs: context?.sourceBlockTimestampMs
+    });
+    if (isBuy && staleBuyDecision.skip) {
+        logger.warn(LogCode.WTC_TX_SKIPPED, 'Skipping copytrade: stale target buy signal', {
+            targetWallet,
+            chainId,
+            txHash: swap.txHash,
+            tokenIn: swap.tokenIn,
+            tokenOut: swap.tokenOut,
+            sourceBlockTimestampMs: staleBuyDecision.sourceBlockTimestampMs || null,
+            signalAgeMs: staleBuyDecision.signalAgeMs,
+            maxAgeMs: staleBuyDecision.maxAgeMs,
+            reasonCode: staleBuyDecision.reasonCode
+        });
+        return;
     }
 
     if (isSell) {

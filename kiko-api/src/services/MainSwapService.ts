@@ -1749,9 +1749,12 @@ export class MainSwapService {
         return {
           success: false,
           error: lastDirectError?.message || 'Turbo direct timeout',
+          txLifecycle: lastDirectResult?.txLifecycle || request.runtimeContext?.lastLifecycle,
+          runtimeContext: request.runtimeContext,
           metadata: {
             provider: lastDirectResult?.provider || 'failed',
-            mode: request.mode
+            mode: request.mode,
+            txLifecycleStatus: lastDirectResult?.txLifecycle?.status || request.runtimeContext?.lastLifecycle?.status
           }
         };
       }

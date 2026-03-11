@@ -294,6 +294,7 @@ async function recoverTargetTxFromHistory(params: {
     targetWallet,
     swap,
     sourceTxFrom: normalizeAddress(String(tx.from || '')) || undefined,
+    sourceBlockTimestampMs: params.blockTimestamp.getTime(),
     detectedAt: nowMs,
     timing,
     source: 'target_history_recovery',

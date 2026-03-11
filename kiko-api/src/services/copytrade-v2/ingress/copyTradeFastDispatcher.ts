@@ -12,6 +12,7 @@ type DispatchParams = {
     targetWallet: string;
     swap: DecodedSwap;
     sourceTxFrom?: string;
+    sourceBlockTimestampMs?: number;
     detectedAt?: number;
     timing?: CopyTradeTimingSnapshot;
     source: string;
@@ -54,6 +55,7 @@ export async function dispatchCopyTradeIfReady(params: DispatchParams): Promise<
         detectedAt: timing.dispatchEligibleAt || timing.swapReadyAt || params.detectedAt,
         timing,
         sourceTxFrom: params.sourceTxFrom,
+        sourceBlockTimestampMs: params.sourceBlockTimestampMs,
         source: params.source
     });
     return true;

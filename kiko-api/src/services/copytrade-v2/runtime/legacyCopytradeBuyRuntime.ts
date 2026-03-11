@@ -1,3 +1,6 @@
+import { buildRecoverablePendingEntryTxHash } from '../buy/pendingProtectionPolicy.js';
+import { resolveEntryDeviationCurrentPrice } from '../buy/entryDeviationPriceSelection.js';
+
 type SingleUserBuyResult = {
     outcome: 'executed' | 'pending' | 'skipped' | 'failed';
 };
@@ -146,6 +149,7 @@ export async function processSingleUserBuy(params: {
         let pendingPositionId: string | null = null;
         let pendingPositionCreatedAt: Date | null = null;
         let pendingPositionSettled = false;
+        let preservePendingPosition = false;
         let attributedEntryAmountHuman: string | null = null;
         let txHash = '';
         let txLifecycleStatus: string | undefined;
@@ -392,6 +396,8 @@ export async function processSingleUserBuy(params: {
             };
 
             let targetExecutionPrice = 0;
+            let entryDeviationReferencePrice = 0;
+            let entryDeviationReferenceSource: 'market_oracle_price' | 'local_quote_price' | 'reference_unavailable' = 'reference_unavailable';
             if (targetSwapValueUsd > 0) {
                 try {
                     const estimatedOut = Number(ethers.formatUnits(swap.amountOut, tokenInfo.decimals || (chainId === 900 ? 9 : 18)));
@@ -444,9 +450,11 @@ export async function processSingleUserBuy(params: {
                             strictTargetSwapValueReliable,
                             strictTargetSwapValueSource,
                             policy: guardPolicy,
-                            maxRatio: 3,
+                                maxRatio: 3,
                         });
                         targetExecutionPrice = priceDeviationGuard.targetExecutionPrice;
+                        entryDeviationReferencePrice = Number(priceDeviationGuard.metrics.oraclePrice || 0);
+                        entryDeviationReferenceSource = priceDeviationGuard.metrics.oraclePriceSource || 'reference_unavailable';
                         guardAudit.priceDeviation = {
                             oraclePriceSource: priceDeviationGuard.metrics.oraclePriceSource,
                             targetExecutionPriceSource: priceDeviationGuard.metrics.targetExecutionPriceSource,
@@ -517,12 +525,20 @@ export async function processSingleUserBuy(params: {
 
             if (targetExecutionPrice > 0) {
                 const dexChainId = chainId === 900 ? 'solana' : chainId;
-                const currentPrice = await getDexPriceWithTimeout(tokenToBuy, dexChainId);
+                const fallbackDexPrice = entryDeviationReferencePrice > 0
+                    ? 0
+                    : await getDexPriceWithTimeout(tokenToBuy, dexChainId);
+                const resolvedEntryDeviationPrice = resolveEntryDeviationCurrentPrice({
+                    referencePrice: entryDeviationReferencePrice,
+                    referencePriceSource: entryDeviationReferenceSource,
+                    fallbackDexPrice,
+                });
+                const currentPrice = resolvedEntryDeviationPrice.currentPrice;
                 if (currentPrice > 0) {
                     const deviationBps = Math.abs(targetExecutionPrice - currentPrice) / currentPrice * 10000;
                     guardAudit.priceDeviation = {
                         ...(guardAudit.priceDeviation && typeof guardAudit.priceDeviation === 'object' ? guardAudit.priceDeviation as Record<string, unknown> : {}),
-                        dexPrice: roundGuardNumber(currentPrice, 8),
+                        ...(fallbackDexPrice > 0 ? { dexPrice: roundGuardNumber(fallbackDexPrice, 8) } : {}),
                         deviationBps: roundGuardNumber(deviationBps, 2),
                         maxEntryDeviationBps: effectiveConfig.maxEntryDeviationBps,
                         entryDeviationSource: effectiveConfig.maxEntryDeviationSource,
@@ -540,7 +556,7 @@ export async function processSingleUserBuy(params: {
                         targetWallet,
                         chainId,
                         executionMode,
-                        currentPriceSource: 'market_oracle_price',
+                        currentPriceSource: resolvedEntryDeviationPrice.currentPriceSource,
                         targetExecutionPriceSource: 'target_implied_price',
                         targetImpliedPriceSourceCategory: String((guardAudit.priceDeviation as Record<string, unknown> | undefined)?.targetImpliedPriceSourceCategory || 'target_unknown'),
                         targetImpliedValueSource: String((guardAudit.priceDeviation as Record<string, unknown> | undefined)?.targetImpliedValueSource || 'target_swap_value_usd'),
@@ -1000,6 +1016,26 @@ export async function processSingleUserBuy(params: {
                         txLifecycleStatus = submissionResult.txLifecycleStatus || txLifecycleStatus;
                         orderRuntimeContext = submissionResult.runtimeContext;
                         swapMetadata = submissionResult.swapMetadata;
+                        preservePendingPosition = true;
+                        if (pendingPositionId) {
+                            const unresolvedMarker = buildRecoverablePendingEntryTxHash(
+                                submissionResult.runtimeContext?.canonicalTxHash
+                                || submissionResult.runtimeContext?.orderId
+                                || pendingPositionId
+                            );
+                            await prisma.position.updateMany({
+                                where: { id: pendingPositionId, status: positionStatusCompat.pendingCreateStatus as any },
+                                data: { entryTxHash: unresolvedMarker }
+                            }).catch((error: any) => {
+                                logger.warn(LogCode.SYS_ERROR, 'Failed to mark pending buy position as unresolved-recoverable', {
+                                    userId: config.userId,
+                                    token: tokenToBuy,
+                                    chainId,
+                                    pendingPositionId,
+                                    error: error?.message || String(error)
+                                });
+                            });
+                        }
                         logger.warn(LogCode.EXE_TX_BROADCAST, 'Buy submission unresolved; preserving pending position for later confirmation', {
                             userId: config.userId,
                             token: tokenToBuy,
@@ -1201,7 +1237,7 @@ export async function processSingleUserBuy(params: {
             }, 'copytrade_buy_failure');
             return { outcome: 'failed' };
         } finally {
-            if (pendingPositionId && !pendingPositionSettled) {
+            if (pendingPositionId && !pendingPositionSettled && !preservePendingPosition) {
                 const cleaned = await cleanupPendingCopytradePosition({
                     pendingPositionId,
                     reasonCode: txHash ? 'buy_unsettled_cleanup' : 'buy_failed_cleanup'

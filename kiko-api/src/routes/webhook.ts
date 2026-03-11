@@ -58,7 +58,7 @@ import {
     shouldForceFullTxRepair,
     type ActivityCashHint
 } from './webhook/evmWebhookDecode.js';
-import { logWebhookTiming, resolveDetectedAt, safeSecretEquals, waitMs, withTimeout } from './webhookHelpers.js';
+import { logWebhookTiming, resolveDetectedAt, resolveReceiptBlockTimestampMs, safeSecretEquals, waitMs, withTimeout } from './webhookHelpers.js';
 import { queueWebhookBatch, type WebhookBatchContext } from './webhookBatching.js';
 import { emitCopytradeDomainAudit } from '../services/copytrade-v2/audit/copytradeDomainAudit.js';
 import {
@@ -198,6 +198,7 @@ async function attemptReceiptRecovery(
 
     const fullTx = await fetchTransaction(txHash, chainId);
     if (!fullTx) return { recovered: false, swaps: 0, reason: 'tx_missing' };
+    const sourceBlockTimestampMs = await resolveReceiptBlockTimestampMs(chainId, receipt).catch(() => undefined);
 
     let swaps = 0;
     for (const trackedTarget of trackedWallets) {
@@ -250,6 +251,7 @@ async function attemptReceiptRecovery(
             targetWallet: trackedTarget,
             swap,
             sourceTxFrom: normalizeAddress(String(fullTx.from || '')) || undefined,
+            sourceBlockTimestampMs,
             detectedAt: Date.now(),
             timing: markCopyTradeTaskEnqueued(
                 markCopyTradeSwapReady(
@@ -738,6 +740,9 @@ async function processAlchemyWebhookPayload(payload: any): Promise<void> {
                     });
                 }
             }
+            const sourceBlockTimestampMs = receipt
+                ? await resolveReceiptBlockTimestampMs(chainId, receipt).catch(() => undefined)
+                : undefined;
 
             let fullTxPromise: Promise<any | null> | null = null;
             const bindingWasDeferredAtIngress = !isSolanaItems && !sourceTxFrom;
@@ -1032,6 +1037,7 @@ async function processAlchemyWebhookPayload(payload: any): Promise<void> {
                     targetWallet: trackedTarget,
                     swap,
                     sourceTxFrom: sourceTxFrom || undefined,
+                    sourceBlockTimestampMs,
                     detectedAt,
                     timing,
                     source: swapSource
@@ -1285,6 +1291,9 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
                 WEBHOOK_FETCH_PARSE_BUDGET_MS,
                 'receipt_fetch'
             );
+            const sourceBlockTimestampMs = receipt
+                ? await resolveReceiptBlockTimestampMs(chainId, receipt).catch(() => undefined)
+                : undefined;
             tReceipt = Date.now() - receiptStart;
             if (!receipt) {
                 if (predecoded?.swap && !predecodedTrusted) {
@@ -1460,6 +1469,7 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
                 targetWallet: wallet,
                 swap,
                 sourceTxFrom: ingressSourceTxFrom,
+                sourceBlockTimestampMs,
                 detectedAt: timing.dispatchEligibleAt || timing.swapReadyAt || resolveDetectedAt(COPYTRADE_DETECTED_AT_STALE_MS, pendingHint?.detectedAt),
                 timing,
                 source: 'internal_process_tx'
