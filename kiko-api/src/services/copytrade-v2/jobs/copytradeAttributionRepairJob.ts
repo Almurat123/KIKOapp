@@ -5,6 +5,10 @@ import { emitCopytradeSummaryAudit } from '../audit/copytradeSummaryAudit.js';
 import { findLedgerFirstRepairCandidates } from '../ledger/copytradeLedgerSelectors.js';
 import { resolveCopytradeLedger } from '../ledger/copytradeLedgerService.js';
 import { syncCopytradeLedgerFromLegacy } from '../ledger/copytradeLedgerRepository.js';
+import {
+  activateCopytradeOrphanBuyGuard,
+  clearCopytradeOrphanBuyGuardForPosition,
+} from '../guards/orphanBuyGuardStore.js';
 import { resolveLegacyAttributionRepair } from '../positions/legacyAttributionRepairPolicy.js';
 import { hasPositiveAttributionAmount } from '../positions/positionAttributionAmount.js';
 import { evaluatePositionAttributionIntegrity } from '../positions/positionAttributionIntegrityGate.js';
@@ -27,6 +31,8 @@ export async function repairCopytradePositionAttribution(params: {
     where: { id: params.positionId },
     select: {
       id: true,
+      userId: true,
+      configId: true,
       entryAmount: true,
       entryAmountDec: true,
       entryAmountExact: true,
@@ -48,7 +54,17 @@ export async function repairCopytradePositionAttribution(params: {
     entryAmountDec: position.entryAmountDec,
     ledger,
   });
-  if (!integrity.repairRequired) return 'not_needed';
+  if (!integrity.repairRequired) {
+    await clearCopytradeOrphanBuyGuardForPosition({
+      positionId: params.positionId,
+      source: 'attribution_repair_not_needed',
+      metadata: {
+        chainId: params.chainId,
+        tokenAddress: params.tokenAddress,
+      },
+    }).catch(() => false);
+    return 'not_needed';
+  }
 
   const decimals = await getErc20Decimals(params.tokenAddress, params.chainId).catch(() => 18);
   const repair = resolveLegacyAttributionRepair({
@@ -61,6 +77,20 @@ export async function repairCopytradePositionAttribution(params: {
   });
 
   if (!repair.shouldRepair || !repair.repairedExactAmount) {
+    await activateCopytradeOrphanBuyGuard({
+      positionId: params.positionId,
+      userId: position.userId,
+      configId: position.configId,
+      chainId: params.chainId,
+      tokenAddress: params.tokenAddress,
+      targetWallet: params.targetWallet,
+      reasonCode: repair.reasonCode,
+      source: 'attribution_repair_required',
+      metadata: {
+        repairSource: repair.source || null,
+        targetFullExitVerified: ledger?.targetFullExitVerified || false,
+      },
+    }).catch(() => undefined);
     await syncCopytradeLedgerFromLegacy({
       positionId: params.positionId,
       targetWallet: params.targetWallet,
@@ -121,6 +151,15 @@ export async function repairCopytradePositionAttribution(params: {
       targetFullExitVerified: ledger?.targetFullExitVerified || false,
     },
   });
+  await clearCopytradeOrphanBuyGuardForPosition({
+    positionId: params.positionId,
+    source: 'attribution_repair_completed',
+    metadata: {
+      chainId: params.chainId,
+      tokenAddress: params.tokenAddress,
+      repairSource: repair.source || null,
+    },
+  }).catch(() => false);
   return 'repaired';
 }
 

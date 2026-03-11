@@ -6,6 +6,7 @@ import { startCopyTradePendingWatcher, stopCopyTradePendingWatcher } from '../..
 import { runTargetSellReconciliationCycle } from '../reconcile/targetSellReconciliationJob.js';
 import { runCopytradeAttributionRepairCycle } from '../jobs/copytradeAttributionRepairJob.js';
 import { runCopytradeOrphanSweepCycle } from '../jobs/copytradeOrphanSweepJob.js';
+import { ensureCopytradeOrphanBuyGuardTable } from '../guards/orphanBuyGuardStore.js';
 import { runDeferredBuyFeeRecoveryBackfill } from '../buy/deferredBuyFeeRecoveryBackfill.js';
 import { runDeferredSellApprovalPreheatBackfill } from '../buy/deferredSellApprovalPreheatBackfill.js';
 import { logger } from '../../../utils/logger.js';
@@ -129,6 +130,11 @@ export function initCopytradeV2Bootstrap(params: {
   initialized = true;
 
   logger.info(LogCode.SYS_STARTUP, 'Initializing CopyTrade V2 bootstrap...');
+  void ensureCopytradeOrphanBuyGuardTable().catch((error: any) => {
+    logger.warn(LogCode.SYS_ERROR, '[CopyTradeV2] Failed to ensure orphan buy guard table', {
+      error: error?.message || String(error),
+    });
+  });
 
   onSwapDetected(async (targetWallet, swap, chainId) => {
     enqueueCopyTradeTask(targetWallet, swap, chainId);

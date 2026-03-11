@@ -9,6 +9,10 @@ import {
   buildTargetSellEventPayload,
   persistTargetSellEventAndSchedulePositions,
 } from '../exit/positionExitIntentScheduler.js';
+import {
+  activateCopytradeOrphanBuyGuard,
+  pruneResolvedCopytradeOrphanBuyGuards,
+} from '../guards/orphanBuyGuardStore.js';
 
 const PENDING_REPAIR_QUARANTINE_REASON = 'pending_expected_amount_missing_quarantine';
 const HYGIENE_REASON_CODE = 'hygiene_position_closed';
@@ -526,6 +530,8 @@ export async function runCopytradeOrphanSweepCycle(params?: {
 }): Promise<{
   candidateCount: number;
   scheduledRetryCount: number;
+  activatedGuardCount: number;
+  clearedResolvedGuardCount: number;
   pendingExpectedAmountRepaired: number;
   quarantinedPendingLots: number;
   closedPendingConsumed: number;
@@ -536,12 +542,29 @@ export async function runCopytradeOrphanSweepCycle(params?: {
 }> {
   const staleBefore = params?.staleBefore || new Date(Date.now() - 10 * 60 * 1000);
   const hygiene = await runCopytradeStateHygieneCycle();
+  const clearedResolvedGuardCount = await pruneResolvedCopytradeOrphanBuyGuards().catch(() => 0);
   const candidates = await findLedgerFirstOrphanSweepCandidates({ staleBefore });
   let scheduledRetryCount = 0;
+  let activatedGuardCount = 0;
   let pendingExpectedAmountRepaired = 0;
   let quarantinedPendingLots = 0;
 
   for (const position of candidates) {
+    await activateCopytradeOrphanBuyGuard({
+      positionId: position.id,
+      userId: position.userId,
+      configId: position.configId,
+      chainId: position.chainId,
+      tokenAddress: position.tokenAddress,
+      targetWallet: String(position.ledgerTargetWallet || position.config.targetWallet || ''),
+      reasonCode: position.lastExecutionReasonCode || 'orphan_sweep_pending',
+      source: 'orphan_sweep',
+      metadata: {
+        latestTargetSellTxHash: position.latestTargetSellTxHash || null,
+        targetFullExitVerified: true,
+      },
+    }).catch(() => undefined);
+    activatedGuardCount += 1;
     const pendingRepair = await repairMissingPendingExpectedAmount({
       positionId: position.id,
       chainId: position.chainId,
@@ -601,6 +624,8 @@ export async function runCopytradeOrphanSweepCycle(params?: {
         : 'noop',
     candidateCount: candidates.length,
     scheduledRetryCount,
+    activatedGuardCount,
+    clearedResolvedGuardCount,
     pendingExpectedAmountRepaired,
     quarantinedPendingLots,
     closedPendingConsumed: hygiene.closedPendingConsumed,
@@ -614,6 +639,8 @@ export async function runCopytradeOrphanSweepCycle(params?: {
   return {
     candidateCount: candidates.length,
     scheduledRetryCount,
+    activatedGuardCount,
+    clearedResolvedGuardCount,
     pendingExpectedAmountRepaired,
     quarantinedPendingLots,
     closedPendingConsumed: hygiene.closedPendingConsumed,
