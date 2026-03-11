@@ -10,8 +10,9 @@ import {
   getTransactionReceipt
 } from './rpcManager.js';
 import { isTransactionQueueBusy, sendTransaction } from './privyWallet.js';
+import { recordFollowerTransactionFactForLatestPosition } from './copytrade-v2/data-flow/followerTransactionFactLedger.js';
 
-const PREHEAT_ENABLED = (process.env.COPYTRADE_SELL_APPROVAL_PREHEAT_ENABLED || 'true') === 'true';
+const PREHEAT_ENABLED = (process.env.COPYTRADE_SELL_APPROVAL_PREHEAT_ENABLED || 'false') === 'true';
 const PREHEAT_MIN_USD = Number(process.env.COPYTRADE_SELL_APPROVAL_PREHEAT_MIN_USD || '0.5');
 const PREHEAT_MAX_SPENDERS = Math.max(1, Number(process.env.COPYTRADE_SELL_APPROVAL_PREHEAT_MAX_SPENDERS || '2'));
 const PREHEAT_TIMEOUT_MS = Math.max(8_000, Number(process.env.COPYTRADE_SELL_APPROVAL_PREHEAT_TIMEOUT_MS || '60_000'));
@@ -313,6 +314,22 @@ export async function preheatSellApprovalForToken(
 
       if (approval.success) {
         warmedAny = true;
+        for (const txHash of approval.txHashes) {
+          void recordFollowerTransactionFactForLatestPosition({
+            userId: params.userId,
+            chainId: params.chainId,
+            tokenAddress,
+            kind: 'approval',
+            phase: 'confirmed',
+            txHash,
+            walletAddress,
+            reasonCode: 'ok_sell_approval_warmed',
+            metadata: {
+              spender,
+              txPurpose,
+            },
+          });
+        }
         logger.info(LogCode.EXE_TX_CONFIRMED, '[SellApprovalPreheat] Approval warmed for future sell', {
           chainId: params.chainId,
           token: tokenAddress,
@@ -327,6 +344,22 @@ export async function preheatSellApprovalForToken(
         });
         return { status: 'deferred', reasonCode: 'wallet_tx_queue_busy' };
       } else {
+        for (const txHash of approval.txHashes) {
+          void recordFollowerTransactionFactForLatestPosition({
+            userId: params.userId,
+            chainId: params.chainId,
+            tokenAddress,
+            kind: 'approval',
+            phase: 'failed',
+            txHash,
+            walletAddress,
+            reasonCode: approval.error || 'approval_warmup_failed',
+            metadata: {
+              spender,
+              txPurpose,
+            },
+          });
+        }
         logger.warn(LogCode.SYS_ERROR, '[SellApprovalPreheat] Approval warmup failed (non-fatal)', {
           chainId: params.chainId,
           token: tokenAddress,

@@ -13,9 +13,12 @@ import {
   type DirectSwapFeeSettlement
 } from '../../swap/fee/directSwapFeeCollector.js';
 import { preheatSellApprovalForToken } from '../../sellApprovalPreheater.js';
+import { resolveConfirmedReceiptTokenAmount } from './confirmedReceiptTokenAmount.js';
+import { persistConfirmedBuyAmount } from './confirmedBuyAmountPersistence.js';
 import { emitCopytradeDomainAudit } from '../audit/copytradeDomainAudit.js';
 import { scheduleDeferredBuyFeeRecovery } from './deferredBuyFeeRecovery.js';
 import { scheduleDeferredSellApprovalPreheat } from './deferredSellApprovalPreheat.js';
+import { recordFollowerTransactionFactByPosition } from '../data-flow/followerTransactionFactLedger.js';
 
 export type BuyConfirmationTransitionResult = 'confirmed_success' | 'confirmed_failed' | 'deferred';
 export interface MirrorSellAfterConfirmContext {
@@ -66,6 +69,9 @@ export async function applyBuyConfirmationTransition(params: {
     scheduleDeferredSellApprovalPreheat?: typeof scheduleDeferredSellApprovalPreheat;
     preheatSellApprovalForToken?: typeof preheatSellApprovalForToken;
     emitCopytradeDomainAudit?: typeof emitCopytradeDomainAudit;
+    resolveConfirmedReceiptTokenAmount?: typeof resolveConfirmedReceiptTokenAmount;
+    persistConfirmedBuyAmount?: typeof persistConfirmedBuyAmount;
+    recordFollowerTransactionFactByPosition?: typeof recordFollowerTransactionFactByPosition;
   };
 }): Promise<BuyConfirmationTransitionResult> {
   const {
@@ -96,6 +102,9 @@ export async function applyBuyConfirmationTransition(params: {
   const deferApprovalPreheat = deps?.scheduleDeferredSellApprovalPreheat || scheduleDeferredSellApprovalPreheat;
   const preheatSell = deps?.preheatSellApprovalForToken || preheatSellApprovalForToken;
   const emitDomainAudit = deps?.emitCopytradeDomainAudit || emitCopytradeDomainAudit;
+  const resolveReceiptAmount = deps?.resolveConfirmedReceiptTokenAmount || resolveConfirmedReceiptTokenAmount;
+  const persistReceiptAmount = deps?.persistConfirmedBuyAmount || persistConfirmedBuyAmount;
+  const recordFollowerFact = deps?.recordFollowerTransactionFactByPosition || recordFollowerTransactionFactByPosition;
 
   if (confirmation.kind === 'confirmed_failed') {
     if (persistedPositionId) {
@@ -137,6 +146,45 @@ export async function applyBuyConfirmationTransition(params: {
       recoverySource
     });
     return 'deferred';
+  }
+
+  let confirmedAmountRaw: string | null = null;
+  if (persistedPositionId) {
+    confirmedAmountRaw = await resolveReceiptAmount({
+      chainId,
+      txHash,
+      tokenAddress: tokenToBuy,
+      walletAddress,
+      receipt: confirmation.receipt,
+    }).catch(() => null);
+
+    if (confirmedAmountRaw) {
+      await persistReceiptAmount({
+        positionId: persistedPositionId,
+        chainId,
+        tokenAddress: tokenToBuy,
+        walletAddress,
+        targetWallet,
+        txHash,
+        amountRaw: confirmedAmountRaw,
+        decimals: tokenInfo.decimals,
+      }).catch(() => null);
+    }
+
+    await recordFollowerFact({
+      positionId: persistedPositionId,
+      kind: 'buy',
+      phase: 'confirmed',
+      txHash,
+      walletAddress,
+      amountRaw: confirmedAmountRaw,
+      reasonCode: confirmedAmountRaw ? 'ok_follower_buy_confirmed' : 'ok_follower_buy_confirmed_without_receipt_amount',
+      metadata: {
+        chainId,
+        tokenAddress: tokenToBuy,
+        recoverySource,
+      },
+    }).catch(() => null);
   }
 
   const pendingMirrorIntent = await resolveMirrorIntent({
@@ -233,28 +281,33 @@ export async function applyBuyConfirmationTransition(params: {
     await onNotifySuccess();
   }
 
-  const preheatResult = await preheatSell({
-    userId,
-    walletAddress,
-    chainId,
-    tokenAddress: tokenToBuy,
-    tokenPriceUsd: tokenInfo.price,
-    tokenDecimals: tokenInfo.decimals
-  }, {
-    queueBehavior: pendingMirrorIntent?.shouldMirrorSell ? 'allow_queue' : 'skip_if_busy',
-    txPurpose: pendingMirrorIntent?.shouldMirrorSell ? 'approval' : 'preheat',
-  });
-
-  if (preheatResult.status === 'deferred') {
-    deferApprovalPreheat({
+  // Production-grade behavior: avoid speculative approval traffic on the critical buy path.
+  // Approval preheat is only useful for future sells and should never compete with a just-confirmed buy
+  // or an already-armed mirror sell.
+  if (!pendingMirrorIntent?.shouldMirrorSell) {
+    const preheatResult = await preheatSell({
       userId,
       walletAddress,
       chainId,
       tokenAddress: tokenToBuy,
       tokenPriceUsd: tokenInfo.price,
-      tokenDecimals: tokenInfo.decimals,
-      trigger: pendingMirrorIntent?.shouldMirrorSell ? 'mirror_sell_release' : 'buy_confirmation',
+      tokenDecimals: tokenInfo.decimals
+    }, {
+      queueBehavior: 'skip_if_busy',
+      txPurpose: 'preheat',
     });
+
+    if (preheatResult.status === 'deferred') {
+      deferApprovalPreheat({
+        userId,
+        walletAddress,
+        chainId,
+        tokenAddress: tokenToBuy,
+        tokenPriceUsd: tokenInfo.price,
+        tokenDecimals: tokenInfo.decimals,
+        trigger: 'buy_confirmation',
+      });
+    }
   }
 
   return 'confirmed_success';

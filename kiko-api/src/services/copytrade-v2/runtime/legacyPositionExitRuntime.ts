@@ -1,4 +1,3 @@
-import { ethers } from 'ethers';
 import { PublicKey } from '@solana/web3.js';
 import prisma from '../../../db/prisma.js';
 import { logger } from '../../../utils/logger.js';
@@ -9,180 +8,50 @@ import { getSolanaConnection, SOLANA_CONFIG } from '../../../config/solanaConfig
 import { executeSolanaSwap } from '../../solanaExecutor.js';
 import { getSolanaEmbeddedWalletAddress } from '../../privyWallet.js';
 import { getTokenInfo } from '../../tokenService.js';
-import { getTokenMetadata } from '../../rpcService.js';
 import { getErc20Balance } from '../../rpcManager.js';
 import { trackCopyTrade, trackSwap } from '../../userActivityService.js';
-import { publishCopytradeRawNotification } from '../notifications/copytradeNotificationPublisher.js';
-import {
-  resolveExecutionModeFromConfig,
-  type CopyTradeExecutionMode,
-} from '../../copyTradeExecutionMode.js';
+import { notificationService } from '../../notificationService.js';
 import { buildEvmExitPlan } from '../exit/planner.js';
 import { executePlannedEvmExitFlow } from '../exit/evmExitExecutionFlow.js';
 import {
-  persistFailedExitState,
-  persistDeferredExitRetryState,
-    persistPendingExitFinalityState,
-  persistSuccessfulExit,
-  reconcileNoopExitPosition,
+    persistFailedExitState,
+    persistDeferredExitRetryState,
+    persistSuccessfulExit,
+    reconcileNoopExitPosition
 } from '../exit/persistence.js';
 import { getExitInflightRetryGraceMs, hasRecentInflightExitRetryGuard } from '../exit/retryGuard.js';
-import { resolveSolanaDbBalanceFallback } from '../exit/solanaDbBalanceFallback.js';
 import { resolveAttributedPositionExitAmount } from '../positions/positionAttribution.js';
 import { shouldDeferStrongRpcMonitoring } from '../buy/preConfirmationRpcPolicy.js';
 import { buildOrderAuditFields } from '../../order-runtime/sinks/persistence.js';
 import type { OrderRuntimeContext } from '../../order-runtime/types.js';
-import { emitCopytradeDomainAudit } from '../audit/copytradeDomainAudit.js';
-import { recordFollowerTransactionFactByPosition } from '../data-flow/followerTransactionFactLedger.js';
+import { repairCopytradePositionAttribution } from '../jobs/copytradeAttributionRepairJob.js';
 
-const NO_OPEN_POSITIONS_LOG_WINDOW_MS = Number(process.env.NO_OPEN_POSITIONS_LOG_WINDOW_MS || '180000');
-const COPYTRADE_DISABLE_MIRROR_SELL_DUST_SWEEP = (process.env.COPYTRADE_DISABLE_MIRROR_SELL_DUST_SWEEP || 'true') === 'true';
+const EXIT_INFLIGHT_RETRY_GRACE_MS = getExitInflightRetryGraceMs();
 const MIN_POSITION_AGE_FOR_TPSL_MS = Math.max(0, Number(process.env.MIN_POSITION_AGE_FOR_TPSL_MS || '90000'));
 const TPSL_CONSECUTIVE_HITS_REQUIRED = Math.max(1, Number(process.env.TPSL_CONSECUTIVE_HITS_REQUIRED || '2'));
-const TPSL_HIT_WINDOW_MS = Math.max(1000, Number(process.env.TPSL_HIT_WINDOW_MS || '90000'));
-const TPSL_TRACKER_PRUNE_MS = 10 * 60 * 1000;
-const EXIT_INFLIGHT_RETRY_GRACE_MS = getExitInflightRetryGraceMs();
-
-const positionsBeingExited = new Set<string>();
-const tpslHitTracker = new Map<string, { side: 'tp' | 'sl'; hits: number; firstHitAt: number; lastHitAt: number; lastPnlPct: number }>();
+const NO_OPEN_POSITIONS_LOG_WINDOW_MS = Number(process.env.NO_OPEN_POSITIONS_LOG_WINDOW_MS || '180000');
+const COPYTRADE_DISABLE_MIRROR_SELL_DUST_SWEEP = (process.env.COPYTRADE_DISABLE_MIRROR_SELL_DUST_SWEEP || 'true') === 'true';
 
 type PositionStatusCompat = {
-  lockStatuses: string[];
-  activeOrLockedStatuses: string[];
-  pendingCreateStatus: string;
-  failedFinalStatus: string;
+    lockStatuses: string[];
+    activeOrLockedStatuses: string[];
+    pendingCreateStatus: string;
+    failedFinalStatus: string;
 };
 
-let positionStatusCompatCache: { value: PositionStatusCompat; ts: number } | null = null;
-const POSITION_STATUS_COMPAT_TTL_MS = 30_000;
+export type LegacyPositionExitRuntimeDeps = {
+    positionsBeingExited: Set<string>;
+    getPositionStatusCompat: () => Promise<PositionStatusCompat>;
+    recordTpslHit: (positionId: string, side: 'tp' | 'sl', pnlPct: number) => number;
+    clearTpslHit: (positionId: string) => void;
+    pruneTpslTracker: () => void;
+    resolveCopytradeSlippageBps: (config: any, userSettings: any) => number;
+    resolveExecutionModeForConfig: (config: any) => any;
+    resolveDisplayTokenSymbolAsync: (symbol: unknown, tokenAddress: string, chainId: number) => Promise<string>;
+    formatTokenAmount: (amount: bigint, decimals: number) => number;
+};
 
-async function getPositionStatusCompat(): Promise<PositionStatusCompat> {
-  const cached = positionStatusCompatCache;
-  if (cached && Date.now() - cached.ts < POSITION_STATUS_COMPAT_TTL_MS) {
-    return cached.value;
-  }
-
-  try {
-    const rows = await prisma.$queryRaw<Array<{ enumlabel: string }>>`
-      SELECT e.enumlabel
-      FROM pg_type t
-      JOIN pg_enum e ON t.oid = e.enumtypid
-      WHERE t.typname = 'PositionStatus'
-    `;
-    const labels = new Set(rows.map((row) => String(row.enumlabel)));
-    const hasFailedFinal = labels.has('failed_final');
-
-    const compat: PositionStatusCompat = {
-      lockStatuses: ['pending'],
-      activeOrLockedStatuses: ['open', 'pending'],
-      pendingCreateStatus: 'pending',
-      failedFinalStatus: hasFailedFinal ? 'failed_final' : 'failed',
-    };
-    positionStatusCompatCache = { value: compat, ts: Date.now() };
-    return compat;
-  } catch {
-    const fallback: PositionStatusCompat = {
-      lockStatuses: ['pending'],
-      activeOrLockedStatuses: ['open', 'pending'],
-      pendingCreateStatus: 'pending',
-      failedFinalStatus: 'failed',
-    };
-    positionStatusCompatCache = { value: fallback, ts: Date.now() };
-    return fallback;
-  }
-}
-
-function resolveExecutionModeForConfig(config: any): CopyTradeExecutionMode {
-  return resolveExecutionModeFromConfig({
-    requested: config?.executionMode,
-    legacyDisableTokenInfo: config?.disableTokenInfo,
-    fallback: 'normal',
-  }).mode;
-}
-
-function getSlippageBps(userSettings: any): number {
-  if (!userSettings || userSettings.customSlippage === null || userSettings.customSlippage === undefined) {
-    return 1500;
-  }
-  return Math.floor(userSettings.customSlippage * 100);
-}
-
-function formatTokenAmount(amount: bigint, decimals: number): number {
-  const formatted = ethers.formatUnits(amount, decimals);
-  const value = Number(formatted);
-  if (!Number.isFinite(value)) {
-    logger.warn(LogCode.SYS_ERROR, 'Token amount overflow during formatting', { amount: amount.toString(), decimals });
-    return 0;
-  }
-  return value;
-}
-
-function resolveDisplayTokenSymbol(symbol: unknown, tokenAddress: string): string {
-  const raw = String(symbol || '').trim();
-  if (raw && !/^unknown$/i.test(raw)) return raw;
-  const addr = String(tokenAddress || '').trim();
-  if (!addr) return 'TOKEN';
-  return addr.slice(0, 6);
-}
-
-async function resolveDisplayTokenSymbolAsync(symbol: unknown, tokenAddress: string, chainId: number): Promise<string> {
-  const current = resolveDisplayTokenSymbol(symbol, tokenAddress);
-  const fallbackPrefix = String(tokenAddress || '').slice(0, 6);
-  if (current !== fallbackPrefix) return current;
-  try {
-    const meta = await getTokenMetadata(chainId, tokenAddress, { rpcStrategy: 'fast' });
-    return resolveDisplayTokenSymbol(meta?.symbol, tokenAddress);
-  } catch {
-    return current;
-  }
-}
-
-function recordTpslHit(positionId: string, side: 'tp' | 'sl', pnlPct: number): number {
-  const now = Date.now();
-  const current = tpslHitTracker.get(positionId);
-  if (!current || current.side !== side || (now - current.lastHitAt) > TPSL_HIT_WINDOW_MS) {
-    tpslHitTracker.set(positionId, {
-      side,
-      hits: 1,
-      firstHitAt: now,
-      lastHitAt: now,
-      lastPnlPct: pnlPct,
-    });
-    return 1;
-  }
-  const nextHits = current.hits + 1;
-  tpslHitTracker.set(positionId, {
-    ...current,
-    hits: nextHits,
-    lastHitAt: now,
-    lastPnlPct: pnlPct,
-  });
-  return nextHits;
-}
-
-function clearTpslHit(positionId: string): void {
-  tpslHitTracker.delete(positionId);
-}
-
-const LOCAL_POSITION_CLOSE_GUARD_MS = 2 * 60 * 1000;
-
-function markPositionLocallyClosed(positionId: string): void {
-  clearTpslHit(positionId);
-  positionsBeingExited.add(positionId);
-  setTimeout(() => positionsBeingExited.delete(positionId), LOCAL_POSITION_CLOSE_GUARD_MS);
-}
-
-function pruneTpslTracker(): void {
-  if (tpslHitTracker.size === 0) return;
-  const now = Date.now();
-  for (const [positionId, state] of tpslHitTracker.entries()) {
-    if (now - state.lastHitAt > TPSL_TRACKER_PRUNE_MS) {
-      tpslHitTracker.delete(positionId);
-    }
-  }
-}
-
-export async function executePositionExit(params: {
+export type ExecutePositionExitParams = {
     userId: string;
     tokenAddress: string;
     chainId: number;
@@ -193,8 +62,19 @@ export async function executePositionExit(params: {
     positions?: Array<any>;
     pendingAttributedLots?: Array<any>;
     desiredSellRawOverride?: bigint;
-    intentContext?: Record<string, unknown>;
-}): Promise<string | null> {
+    intentContext?: {
+        intentId?: string;
+        sourceEventId?: string;
+        targetSellTxHash?: string;
+        targetFullExitVerified?: boolean;
+        targetSellRatioBps?: number | null;
+    };
+};
+
+export async function executePositionExit(
+    params: ExecutePositionExitParams,
+    deps: LegacyPositionExitRuntimeDeps
+): Promise<string | null> {
     const { userId, tokenAddress, chainId, exitReason, config } = params;
     const tokenInfo = params.tokenInfo ?? { price: 0, symbol: 'UNKNOWN' };
     const hasValidPrice = Number.isFinite(tokenInfo?.price) && tokenInfo.price > 0;
@@ -215,15 +95,13 @@ export async function executePositionExit(params: {
     let persistedExitPositions: any[] = [];
     let persistedExitBalance = balance;
 
-    // Fetch universal global slippage from UserSettings
     const settings = params.userSettings || await prisma.userSettings.findUnique({ where: { userId } });
-    const universalSlippageBps = getSlippageBps(settings);
+    const universalSlippageBps = deps.resolveCopytradeSlippageBps(config, settings);
 
     try {
         exitPositions = params.positions && params.positions.length > 0
             ? params.positions
             : await prisma.position.findMany({
-                // Include 'pending': sell can fire while buy is still confirming on-chain
                 where: { userId, tokenAddress, chainId, status: { in: ['open', 'pending'] } }
             });
 
@@ -240,7 +118,6 @@ export async function executePositionExit(params: {
         persistedExitBalance = balance;
 
         if (chainId === 900) {
-            // SOLANA Logic
             let solAddress: string | null = null;
             try {
                 solAddress = await getSolanaEmbeddedWalletAddress(user.privyDid);
@@ -253,12 +130,6 @@ export async function executePositionExit(params: {
                 return null;
             }
 
-            // 1. Robust Balance Fetching with Retries
-            // EVM-like strategy rotation: each retry hits a DIFFERENT endpoint pool
-            // because getSolanaConnection caches per URL (60s TTL):
-            //   attempt 0 → fast+critical  (premium dedicated node)
-            //   attempt 1 → cheap+critical (backup pool, different URL)
-            //   attempt 2 → fast+normal    (last resort, ignores circuit state)
             const BALANCE_FETCH_STRATEGIES: Array<['fast'|'cheap', 'critical'|'normal']> = [
                 ['fast', 'critical'],
                 ['cheap', 'critical'],
@@ -275,8 +146,7 @@ export async function executePositionExit(params: {
                         { mint: new PublicKey(tokenAddress) }
                     );
                     fetchSuccess = true;
-                    if (accounts.value.length > 0) break; // Found accounts, stop retrying
-                    // Empty result (no token accounts yet) - brief wait and try next strategy
+                    if (accounts.value.length > 0) break;
                     if (i < BALANCE_FETCH_STRATEGIES.length - 1) {
                         await new Promise(resolve => setTimeout(resolve, 300));
                     }
@@ -293,44 +163,34 @@ export async function executePositionExit(params: {
 
             let usedDbBalanceFallback = false;
             if (!fetchSuccess) {
-                // RPC is fully degraded — we cannot get the on-chain token balance.
-                // For mirror_sell: fall back to the DB-stored entryAmountExact (raw bigint
-                // token units stored at buy time). Using DB amount and failing on-chain is
-                // far better than silently skipping the sell and leaving an open position.
                 if (exitReason === 'mirror_sell' && exitPositions.length > 0) {
-                    const fallback = resolveSolanaDbBalanceFallback({
-                        positions: exitPositions,
-                        tokenDecimals: tokenInfo?.decimals ?? null,
-                        fallbackDecimals: 6,
-                    });
-                    balance = fallback.balanceRaw;
-                    decimals = fallback.decimals;
+                    for (const pos of exitPositions) {
+                        const rawExact = pos.entryAmountExact != null ? String(pos.entryAmountExact).trim() : '';
+                        if (rawExact && rawExact !== '0') {
+                            try { balance += BigInt(rawExact); } catch {}
+                        }
+                        if (balance === 0n) {
+                            const dec = tokenInfo?.decimals ?? null;
+                            const rawDecStr = pos.entryAmountDec != null ? String(pos.entryAmountDec).trim() : '';
+                            if (dec != null && rawDecStr && rawDecStr !== '0') {
+                                try { balance += BigInt(Math.trunc(Number(rawDecStr) * Math.pow(10, dec))); } catch {}
+                            }
+                        }
+                        decimals = tokenInfo?.decimals ?? 6;
+                    }
                     if (balance > 0n) {
                         usedDbBalanceFallback = true;
                         logger.warn(LogCode.API_FETCH_FAILED, 'Solana RPC exhausted during mirror sell — using DB position amount as balance fallback', {
                             userId, token: tokenAddress, balanceFallback: balance.toString(), decimals,
-                            positionCount: exitPositions.length,
-                            fallbackSource: fallback.usedSource,
+                            positionCount: exitPositions.length
                         });
                     } else {
-                        await persistDeferredExitRetryState({
-                            positions: exitPositions as any,
-                            targetWallet: config.targetWallet,
-                            exitReason,
-                            reasonCode: 'solana_balance_rpc_exhausted_no_amount_fallback',
-                        }).catch(() => undefined);
                         logger.warn(LogCode.API_FETCH_FAILED, 'Skipping Solana sell: RPC exhausted and no usable amount in DB positions', { userId, token: tokenAddress });
                         return null;
                     }
                 } else {
-                    await persistDeferredExitRetryState({
-                        positions: exitPositions as any,
-                        targetWallet: config.targetWallet,
-                        exitReason,
-                        reasonCode: 'solana_balance_rpc_exhausted_keep_open',
-                    }).catch(() => undefined);
                     logger.warn(LogCode.API_FETCH_FAILED, 'Skipping Solana sell: All RPC strategies exhausted, keeping position open', { userId, token: tokenAddress });
-                    return null; // Safely skip — keep position open, do NOT treat RPC failure as zero balance
+                    return null;
                 }
             }
 
@@ -346,19 +206,13 @@ export async function executePositionExit(params: {
                 positions: exitPositions,
                 decimals,
                 onChainBalanceRaw: balance,
-                // Mirror sell: if attribution can't resolve (e.g. position still pending confirmation),
-                // sell the full on-chain balance rather than skipping.
                 allowFullBalanceFallback: exitReason === 'mirror_sell',
             });
 
-            const balanceUsd = formatTokenAmount(balance, decimals) * (hasValidPrice ? tokenInfo.price : 0);
+            const balanceUsd = deps.formatTokenAmount(balance, decimals) * (hasValidPrice ? tokenInfo.price : 0);
 
-            // 2. Rent Reclamation / Dust Handling
-            // If balance is effectively zero (or just dust < 1000 raw units), we consider it empty.
             if (balance < 1000n) {
                 const treatAsEmptyOrDust = balance <= 0n || balance < 1000n || (hasValidPrice && balanceUsd < 0.1);
-                // CHECK: If we have an open position record but no balance, close it.
-                // This handles the case where an external sell happened or previous sell leftover dust.
                 if (treatAsEmptyOrDust) {
                     logger.throttled(LogCode.WTC_TX_SKIPPED, 'Closing database record for empty or negligible balance', {
                         userId,
@@ -371,12 +225,6 @@ export async function executePositionExit(params: {
                         action: 'close_position',
                         closeReason: balance <= 0n ? 'balance_empty' : 'balance_dust'
                     });
-                    for (const position of exitPositions) {
-                        markPositionLocallyClosed(position.id);
-                    }
-
-                    // OPTIONAL: We could add CloseAccount instruction here if account exists but has dust, 
-                    // but usually we do it *during* the swap transaction to save a separate TX.
                     return null;
                 }
             }
@@ -409,13 +257,11 @@ export async function executePositionExit(params: {
                     tokenInMint: tokenAddress,
                     tokenOutMint: SOLANA_CONFIG.TOKENS.SOL,
                     amountIn: attribution.sellAmountRaw.toString(),
-                    // Use universal global slippage
                     slippageBps: universalSlippageBps
                 });
             } catch (e: any) {
                 logger.warn(LogCode.EXE_TX_REVERTED, 'Solana 100% sell failed, retrying with AGGRESSIVE slippage', { userId, error: e.message });
                 try {
-                    // Retry with 1.25x slippage (Aggressive)
                     const aggressiveSlippage = Math.min(Math.floor(universalSlippageBps * 1.25), 2000);
                     txHash = await executeSolanaSwap({
                         userId: user.privyDid,
@@ -427,7 +273,6 @@ export async function executePositionExit(params: {
                 } catch (e2: any) {
                     try {
                         const safeBalance999 = (attribution.sellAmountRaw * 999n) / 1000n;
-                        // Retry with 1.5x slippage (Survival Mode)
                         const survivalSlippage = Math.min(Math.floor(universalSlippageBps * 1.5), 2500);
                         txHash = await executeSolanaSwap({
                             userId: user.privyDid,
@@ -439,13 +284,11 @@ export async function executePositionExit(params: {
                         isPartialSell = true;
                     } catch (e3: any) {
                         logger.error(LogCode.EXE_TX_REVERTED, 'All Solana sell attempts failed', { userId, token: tokenAddress, error: e3.message });
-                        throw e3; // Re-throw to trigger exit_failed
+                        throw e3;
                     }
                 }
             }
 
-            // Dust sweep is intentionally disabled for attributed exits.
-            // Any remaining token balance may belong to manual or external holdings.
             if (txHash && attribution.metrics.hasExternalBalance) {
                 logger.info(LogCode.SYS_INFO, 'Skipping Solana dust sweep due to external holdings detected', {
                     userId,
@@ -458,16 +301,17 @@ export async function executePositionExit(params: {
                     const connection = getSolanaConnection();
                     const postSellAccounts = await connection.getParsedTokenAccountsByOwner(new PublicKey(solAddress), { mint: new PublicKey(tokenAddress) });
                     let remainingBalance = 0n;
-                    for (const acc of postSellAccounts.value) { remainingBalance += BigInt(acc.account.data.parsed.info.tokenAmount.amount); }
+                    for (const acc of postSellAccounts.value) {
+                        remainingBalance += BigInt(acc.account.data.parsed.info.tokenAmount.amount);
+                    }
                     if (remainingBalance > 0n && !attribution.metrics.hasExternalBalance) {
-                        const dustUsd = formatTokenAmount(remainingBalance, decimals) * (tokenInfo?.price || 0);
+                        const dustUsd = deps.formatTokenAmount(remainingBalance, decimals) * (tokenInfo?.price || 0);
                         if (dustUsd >= 0.05 || isPartialSell) {
                             await executeSolanaSwap({
                                 userId: user.privyDid,
                                 tokenInMint: tokenAddress,
                                 tokenOutMint: SOLANA_CONFIG.TOKENS.SOL,
                                 amountIn: remainingBalance.toString(),
-                                // Higher slippage for dust sweep (20%)
                                 slippageBps: 2000
                             });
                         }
@@ -476,10 +320,8 @@ export async function executePositionExit(params: {
                     logger.debug(LogCode.EXE_TX_REVERTED, 'Solana dust sweep failed', { error: sweepErr.message });
                 }
             }
-
         } else {
-            // EVM Logic
-            const executionMode = resolveExecutionModeForConfig(config);
+            const executionMode = deps.resolveExecutionModeForConfig(config);
             const exitPlan = await buildEvmExitPlan({
                 userId: user.privyDid,
                 walletAddress: user.walletAddress,
@@ -508,19 +350,78 @@ export async function executePositionExit(params: {
                         reasonCode: exitPlan.attributedReasonCode || 'UNKNOWN',
                         attributionMetrics: exitPlan.attributionMetrics || null
                     });
-                    for (const position of exitPlan.positions || []) {
-                        void recordFollowerTransactionFactByPosition({
-                            positionId: position.id,
-                            kind: 'exit',
-                            phase: 'skipped',
-                            walletAddress: user.walletAddress,
-                            reasonCode: exitPlan.attributedReasonCode || 'PENDING_EXPECTED_AMOUNT_UNAVAILABLE',
-                            metadata: {
-                                exitReason,
+                    const repairReasonCodes = new Set([
+                        'ATTRIBUTED_AMOUNT_UNAVAILABLE',
+                        'NO_CONFIRMED_POSITIONS',
+                        'PENDING_EXPECTED_AMOUNT_UNAVAILABLE',
+                    ]);
+                    const exitKeepOpenReasonCode = String(exitPlan.attributedReasonCode || '');
+                    if (repairReasonCodes.has(exitKeepOpenReasonCode)) {
+                        const repairedPositionIds: string[] = [];
+                        for (const position of exitPlan.positions) {
+                            const positionId = String((position as any)?.id || '').trim();
+                            if (!positionId) continue;
+                            const repairOutcome = await repairCopytradePositionAttribution({
+                                positionId,
                                 chainId,
-                                attributionMetrics: exitPlan.attributionMetrics || null,
-                            },
-                        });
+                                tokenAddress,
+                                targetWallet: config?.targetWallet || null,
+                            }).catch(() => 'repair_required' as const);
+                            if (repairOutcome === 'repaired') {
+                                repairedPositionIds.push(positionId);
+                            }
+                        }
+                        if (repairedPositionIds.length > 0) {
+                            await prisma.position.updateMany({
+                                where: {
+                                    id: { in: repairedPositionIds },
+                                    status: 'open',
+                                },
+                                data: {
+                                    lastExitAttempt: null,
+                                    exitRetryCount: 1,
+                                },
+                            }).catch(() => null);
+                            logger.info(LogCode.SYS_INFO, 'Inline attribution repair applied; scheduled immediate exit retry', {
+                                userId,
+                                tokenAddress,
+                                chainId,
+                                exitReason,
+                                repairedPositionCount: repairedPositionIds.length,
+                                repairedPositionIds,
+                            });
+                        }
+                    }
+                    const retryableKeepOpenReasonCodes = new Set([
+                        'ATTRIBUTED_AMOUNT_UNAVAILABLE',
+                        'NO_CONFIRMED_POSITIONS',
+                        'PENDING_EXPECTED_AMOUNT_UNAVAILABLE',
+                        'PENDING_BALANCE_NOT_VISIBLE_YET',
+                    ]);
+                    if (exitReason === 'mirror_sell' && retryableKeepOpenReasonCodes.has(exitKeepOpenReasonCode)) {
+                        const retryPositionIds = exitPlan.positions
+                            .map((position: any) => String(position?.id || '').trim())
+                            .filter(Boolean);
+                        if (retryPositionIds.length > 0) {
+                            await prisma.position.updateMany({
+                                where: {
+                                    id: { in: retryPositionIds },
+                                    status: { in: ['open', 'pending'] },
+                                },
+                                data: {
+                                    exitReason: 'mirror_sell',
+                                    exitRetryCount: 1,
+                                    lastExitAttempt: null,
+                                },
+                            }).catch(() => null);
+                            logger.info(LogCode.SYS_INFO, 'Mirror sell keep_open scheduled for retry', {
+                                userId,
+                                tokenAddress,
+                                chainId,
+                                reasonCode: exitKeepOpenReasonCode,
+                                retryPositionIds,
+                            });
+                        }
                     }
                     return null;
                 }
@@ -544,20 +445,6 @@ export async function executePositionExit(params: {
                         mirrorSellDustCloseDeferred: retryMetrics?.mirrorSellDustCloseDeferred || null,
                         attributionMetrics: retryMetrics
                     });
-                    for (const position of exitPlan.positions || []) {
-                        void recordFollowerTransactionFactByPosition({
-                            positionId: position.id,
-                            kind: 'exit',
-                            phase: 'deferred',
-                            walletAddress: user.walletAddress,
-                            reasonCode: exitPlan.attributedReasonCode || 'EXIT_BALANCE_RPC_UNCERTAIN',
-                            metadata: {
-                                exitReason,
-                                chainId,
-                                attributionMetrics: retryMetrics,
-                            },
-                        });
-                    }
                     await persistDeferredExitRetryState({
                         positions: exitPlan.positions as any,
                         targetWallet: config.targetWallet,
@@ -567,22 +454,18 @@ export async function executePositionExit(params: {
                     return null;
                 }
 
-                logger.throttled(LogCode.WTC_TX_SKIPPED, 'No-swap exit close applied', {
+                logger.throttled(LogCode.WTC_TX_SKIPPED, 'Negligible EVM balance, closing database records', {
                     userId,
                     tokenAddress,
                     balanceUsd: exitPlan.balanceUsd,
                     reason: exitReason,
-                    isMirrorSell: exitPlan.isMirrorSell,
-                    closeReason: exitPlan.closeReason
+                    isMirrorSell: exitPlan.isMirrorSell
                 });
                 await reconcileNoopExitPosition({
                     positions: exitPlan.positions as any,
                     action: exitPlan.action,
                     closeReason: exitPlan.closeReason
                 });
-                for (const position of exitPlan.positions) {
-                    markPositionLocallyClosed(position.id);
-                }
                 return null;
             }
 
@@ -605,7 +488,6 @@ export async function executePositionExit(params: {
             txHash = evmExitResult.txHash || '';
         }
 
-        // Update DB with PNL calculation
         if (txHash) {
             const exitPrice = hasValidPrice ? tokenInfo.price : 0;
             if (!hasValidPrice) {
@@ -631,30 +513,10 @@ export async function executePositionExit(params: {
                 txHash,
                 ...buildOrderAuditFields(exitRuntimeContext)
             });
-            for (const position of persistedExitPositions || []) {
-                void recordFollowerTransactionFactByPosition({
-                    positionId: position.id,
-                    kind: 'exit',
-                    phase: 'confirmed',
-                    txHash,
-                    walletAddress: user.walletAddress,
-                    amountRaw: position.entryAmountExact ? String(position.entryAmountExact) : null,
-                    reasonCode: 'ok_follower_exit_confirmed',
-                    metadata: {
-                        exitReason,
-                        chainId,
-                    },
-                });
-            }
 
-            // Tracking
             trackCopyTrade(userId);
             trackSwap(userId, sellVolUsd);
 
-
-            // =================================================================
-            // 🟣 Send Farcaster Direct Cast (Sell Success)
-            // =================================================================
             const reasonMap: Record<string, string> = {
                 'mirror_sell': 'Mirror Sell',
                 'take_profit': 'Take Profit',
@@ -663,8 +525,6 @@ export async function executePositionExit(params: {
                 'dynamic_take_profit': '🎯 Dynamic Take Profit'
             };
 
-            // When exit price was unavailable (RPC down), sellVolUsd = 0.
-            // Fall back to sum of entry USD values so DM shows a meaningful number.
             const totalEntryUsd = persistedExitPositions.reduce(
                 (sum: number, p: any) => sum + (Number(p.entryUsdValue) || 0),
                 0
@@ -675,13 +535,12 @@ export async function executePositionExit(params: {
                     ? `~${totalEntryUsd.toFixed(2)}`
                     : '—';
 
-            await publishCopytradeRawNotification({
-                dedupeKey: `position-exit-success:${user.privyDid}:${chainId}:${tokenAddress}:${txHash}`,
+            await notificationService.sendNotification({
                 userId: user.privyDid,
                 farcasterFid: user.farcasterFid,
                 type: 'TRADE_SUCCESS_SELL',
                 data: {
-                    tokenSymbol: await resolveDisplayTokenSymbolAsync(tokenInfo.symbol, tokenAddress, chainId),
+                    tokenSymbol: await deps.resolveDisplayTokenSymbolAsync(tokenInfo.symbol, tokenAddress, chainId),
                     usdValue: displaySellValue,
                     targetWallet: config.targetWallet,
                     txHash: txHash,
@@ -701,19 +560,6 @@ export async function executePositionExit(params: {
             stack: error.stack,
             ...buildOrderAuditFields(exitRuntimeContext)
         });
-        for (const position of exitPositions || []) {
-            void recordFollowerTransactionFactByPosition({
-                positionId: position.id,
-                kind: 'exit',
-                phase: 'failed',
-                walletAddress: user.walletAddress,
-                reasonCode: String(error?.message || 'exit_failed').slice(0, 120),
-                metadata: {
-                    exitReason,
-                    chainId,
-                },
-            });
-        }
 
         const MAX_EXIT_RETRIES = 3;
 
@@ -742,8 +588,7 @@ export async function executePositionExit(params: {
                 });
 
                 if (user.farcasterFid) {
-                    await publishCopytradeRawNotification({
-                        dedupeKey: `position-exit-failure:${user.privyDid}:${chainId}:${tokenAddress}:${exitReason}`,
+                    await notificationService.sendNotification({
                         userId: user.privyDid,
                         farcasterFid: user.farcasterFid,
                         type: 'TRADE_FAILURE',
@@ -764,20 +609,20 @@ export async function executePositionExit(params: {
     }
 }
 
+export async function checkPositionsForExits(
+    deps: LegacyPositionExitRuntimeDeps
+): Promise<void> {
+    deps.pruneTpslTracker();
+    const positionStatusCompat = await deps.getPositionStatusCompat();
+    void positionStatusCompat;
 
-export async function checkPositionsForExits(): Promise<void> {
-    pruneTpslTracker();
-    const positionStatusCompat = await getPositionStatusCompat();
-
-    // 🔄 STEP 0: Retry failed exit attempts (Mirror Sell, Take Profit, Stop Loss)
-    // Check for positions with exitRetry Count > 0 and retry them if cooldown has passed
-    const RETRY_COOLDOWN_MS = 60 * 1000; // 1 minute (Reduced from 5min for faster emergency exit)
+    const RETRY_COOLDOWN_MS = 60 * 1000;
     const positionsNeedingRetry = await prisma.position.findMany({
         where: {
             status: 'open',
             exitRetryCount: { gt: 0 },
             OR: [
-                { lastExitAttempt: null }, // Never attempted (shouldn't happen, but handle it)
+                { lastExitAttempt: null },
                 { lastExitAttempt: { lt: new Date(Date.now() - RETRY_COOLDOWN_MS) } }
             ],
             NOT: {
@@ -793,7 +638,7 @@ export async function checkPositionsForExits(): Promise<void> {
     });
 
     const retryablePositions = positionsNeedingRetry.filter((position) => !hasRecentInflightExitRetryGuard({
-        exitTxHash: (position as any).exitTxHash,
+        exitTxHash: position.exitTxHash,
         lastExitAttempt: position.lastExitAttempt,
         graceMs: EXIT_INFLIGHT_RETRY_GRACE_MS,
     }));
@@ -824,16 +669,15 @@ export async function checkPositionsForExits(): Promise<void> {
                     retryCount: position.exitRetryCount
                 });
 
-                // Retry the exit
                 await executePositionExit({
                     userId: position.userId,
                     tokenAddress: position.tokenAddress,
                     chainId: position.chainId,
-                    exitReason: (position.exitReason as any) || 'mirror_sell', // Use original reason or default
+                    exitReason: (position.exitReason as any) || 'mirror_sell',
                     tokenInfo,
                     config: { ...config, user: position.user },
                     positions: [position]
-                });
+                }, deps);
             } catch (err: any) {
                 logger.error(LogCode.SYS_ERROR, 'Error during position exit retry', {
                     positionId: position.id,
@@ -843,7 +687,6 @@ export async function checkPositionsForExits(): Promise<void> {
         }
     }
 
-    // STEP 1: Fetch all open positions for take profit/stop loss monitoring
     const positions = await prisma.position.findMany({
         where: { status: 'open' },
         include: { user: { include: { settings: true } } },
@@ -854,16 +697,14 @@ export async function checkPositionsForExits(): Promise<void> {
         return;
     }
 
-    logger.debug(LogCode.SYS_STARTUP, `Monitoring open positions`, { count: positions.length });
+    logger.debug(LogCode.SYS_STARTUP, 'Monitoring open positions', { count: positions.length });
 
-    // 1. Batch fetch configs for efficiency
     const configIds = [...new Set(positions.map(p => p.configId))];
     const configs = await prisma.copyTradeConfig.findMany({
         where: { id: { in: configIds } }
     });
     const configMap = new Map(configs.map(c => [c.id, c]));
 
-    // 2. Batch fetch token prices (GROUP BY tokenAddress + chainId)
     const uniqueTokens = new Map<string, { address: string, chainId: number }>();
     positions.forEach(p => {
         const key = `${p.tokenAddress.toLowerCase()}_${p.chainId}`;
@@ -872,9 +713,7 @@ export async function checkPositionsForExits(): Promise<void> {
         }
     });
 
-    const tokenPriceMap = new Map<string, any>(); // Store complete tokenInfo objects
-
-    // Process unique tokens in parallel chunks (limit concurrency)
+    const tokenPriceMap = new Map<string, any>();
     const tokenList = Array.from(uniqueTokens.values());
     const TOKEN_BATCH_SIZE = 10;
 
@@ -882,12 +721,8 @@ export async function checkPositionsForExits(): Promise<void> {
         const batch = tokenList.slice(i, i + TOKEN_BATCH_SIZE);
         await Promise.all(batch.map(async ({ address, chainId }) => {
             try {
-                // Primary: DEX aggregator price (0x for EVM, Jupiter for Solana)
                 const dexChainId = chainId === 900 ? 'solana' : chainId;
-                const dexPriceResult = await getDexPriceDetailed(address, dexChainId, {
-                    lane: 'critical',
-                    allowExternalMonitorFallback: true
-                });
+                const dexPriceResult = await getDexPriceDetailed(address, dexChainId);
                 const dexPrice = dexPriceResult.price;
 
                 if (dexPrice > 0) {
@@ -900,7 +735,6 @@ export async function checkPositionsForExits(): Promise<void> {
                     return;
                 }
 
-                // Fallback: full token info (RPC + GeckoTerminal)
                 const info = await getTokenInfo(address, chainId);
                 if (info && info.price) {
                     tokenPriceMap.set(`${address.toLowerCase()}_${chainId}`, info);
@@ -911,23 +745,19 @@ export async function checkPositionsForExits(): Promise<void> {
         }));
     }
 
-    // 3. Process positions in PARALLEL (with batching)
-    const POSITION_BATCH_SIZE = 20; // Process 20 positions at a time
+    const POSITION_BATCH_SIZE = 20;
     for (let i = 0; i < positions.length; i += POSITION_BATCH_SIZE) {
         const batch = positions.slice(i, i + POSITION_BATCH_SIZE);
 
         await Promise.all(batch.map(async (position) => {
-            // Skip if this position is already being processed
-            if (positionsBeingExited.has(position.id)) return;
+            if (deps.positionsBeingExited.has(position.id)) return;
 
             try {
-                // STEP A: Check on-chain balance first (detect manual sells or dust)
                 let balance = 0n;
                 let isBalanceCheckSuccess = false;
 
                 try {
                     if (position.chainId === 900) {
-                        // SOLANA Balance Check
                         const solAddress = await getSolanaEmbeddedWalletAddress(position.user.privyDid);
                         if (solAddress) {
                             const connection = getSolanaConnection();
@@ -935,36 +765,28 @@ export async function checkPositionsForExits(): Promise<void> {
                                 new PublicKey(solAddress),
                                 { mint: new PublicKey(position.tokenAddress) }
                             );
-                            // Sum up all accounts for this mint
                             for (const acc of value) {
                                 balance += BigInt(acc.account.data.parsed.info.tokenAmount.amount);
                             }
                             isBalanceCheckSuccess = true;
                         }
                     } else {
-                        // EVM Balance Check
-                        balance = await getErc20Balance(position.tokenAddress, position.user.walletAddress, position.chainId, 'latest', { lane: 'critical' });
+                        balance = await getErc20Balance(position.tokenAddress, position.user.walletAddress, position.chainId);
                         isBalanceCheckSuccess = true;
                     }
 
-                    // Auto-Close if balance is empty (0)
-                    // Note: We user stricter check here than 'dust', effectively 0 balance
-                    // CRITICAL FIX: Don't auto-close positions created within last 2 minutes
-                    // This prevents false "sold" notifications for reverted buy transactions
                     if (isBalanceCheckSuccess && balance === 0n) {
                         const positionAgeMs = Date.now() - new Date(position.createdAt).getTime();
-                        const MIN_AGE_FOR_AUTO_CLOSE_MS = 2 * 60 * 1000; // 2 minutes
+                        const MIN_AGE_FOR_AUTO_CLOSE_MS = 2 * 60 * 1000;
 
                         if (positionAgeMs < MIN_AGE_FOR_AUTO_CLOSE_MS) {
-                            // Position is too new - likely a failed/reverted buy transaction
-                            // Delete the position silently instead of notifying about a "sell"
                             logger.warn(LogCode.EXE_TX_REVERTED, 'Deleting new position with 0 balance (likely reverted buy)', {
                                 positionId: position.id,
                                 ageSeconds: Math.round(positionAgeMs / 1000),
                                 chainId: position.chainId
                             });
                             await prisma.position.delete({ where: { id: position.id } });
-                            return; // Stop processing - no notification needed
+                            return;
                         }
 
                         logger.info(LogCode.EXE_TX_CONFIRMED, 'Auto-closing position: 0 balance found on-chain (likely manual sell)', { positionId: position.id, chainId: position.chainId });
@@ -972,15 +794,12 @@ export async function checkPositionsForExits(): Promise<void> {
                             where: { id: position.id },
                             data: { status: 'closed', exitReason: 'manual', exitTxHash: 'MANUAL_ON_CHAIN', closedAt: new Date() }
                         });
-                        markPositionLocallyClosed(position.id);
 
-                        // Notify user that position was auto-closed
                         if (position.user?.farcasterFid) {
-                            await publishCopytradeRawNotification({
-                                dedupeKey: `position-auto-close:${position.userId}:${position.chainId}:${position.id}`,
+                            await notificationService.sendNotification({
                                 userId: position.userId,
                                 farcasterFid: position.user.farcasterFid,
-                                type: 'TRADE_SUCCESS_SELL', // Reusing sell success notification type
+                                type: 'TRADE_SUCCESS_SELL',
                                 data: {
                                     alertTitle: 'Position Auto-Closed',
                                     tokenSymbol: position.tokenSymbol || 'Unknown',
@@ -991,40 +810,16 @@ export async function checkPositionsForExits(): Promise<void> {
                                 }
                             });
                         }
-                        return; // Stop processing this position
+                        return;
                     }
                 } catch (balanceErr: any) {
                     logger.warn(LogCode.SYS_ERROR, 'Error checking on-chain balance', { positionId: position.id, error: balanceErr.message });
-                    // Continue to price check even if balance check fails (e.g. RPC error), unless it's critical
                 }
 
-                // STEP B: Check for TP/SL
                 const tokenKey = `${position.tokenAddress.toLowerCase()}_${position.chainId}`;
-                let tokenInfo = tokenPriceMap.get(tokenKey); // Now this is the COMPLETE object
-                if (!tokenInfo && position.chainId === 900) {
-                    // Solana-specific live retry to reduce false TP/SL skips when batch pricing is transiently unavailable.
-                    try {
-                        const live = await getDexPriceDetailed(position.tokenAddress, 'solana', { lane: 'critical' });
-                        if (live.price > 0) {
-                            tokenInfo = {
-                                price: live.price,
-                                provider: live.provider || 'jupiter-dex'
-                            };
-                            tokenPriceMap.set(tokenKey, tokenInfo);
-                            logger.info(LogCode.API_FETCH_SUCCESS, 'TP/SL price recovered via per-position Solana retry', {
-                                positionId: position.id,
-                                token: position.tokenSymbol || position.tokenAddress,
-                                chainId: position.chainId,
-                                provider: tokenInfo.provider
-                            });
-                        }
-                    } catch {
-                        // no-op; keep skip behavior when retry also fails
-                    }
-                }
+                const tokenInfo = tokenPriceMap.get(tokenKey);
 
                 if (!tokenInfo) {
-                    // Price not available in batch (and Solana retry failed) - LOG THIS for debugging TP failures
                     logger.warn(LogCode.API_FETCH_FAILED, 'TP/SL check skipped: Price not available', {
                         positionId: position.id,
                         token: position.tokenSymbol || position.tokenAddress,
@@ -1038,8 +833,6 @@ export async function checkPositionsForExits(): Promise<void> {
                 const profitLossPct = ((currentPrice - position.entryPrice) / position.entryPrice) * 100;
                 const positionAgeMs = Date.now() - new Date(position.createdAt).getTime();
 
-                // Persist live price + PnL% so the frontend card always shows up-to-date values.
-                // Fire-and-forget to avoid blocking the TP/SL check loop.
                 if (Number.isFinite(currentPrice) && currentPrice > 0 && Number.isFinite(profitLossPct)) {
                     void prisma.position.update({
                         where: { id: position.id },
@@ -1047,15 +840,13 @@ export async function checkPositionsForExits(): Promise<void> {
                     }).catch(() => undefined);
                 }
 
-                // Get config
                 const config = configMap.get(position.configId);
                 if (!config) {
                     logger.warn(LogCode.WTC_TX_SKIPPED, 'Orphaned position: Config not found', { positionId: position.id, configId: position.configId });
-                    clearTpslHit(position.id);
+                    deps.clearTpslHit(position.id);
                     return;
                 }
 
-                // Log position status periodically (every ~5 min based on position createdAt)
                 const positionAgeMinutes = Math.floor((Date.now() - new Date(position.createdAt).getTime()) / 60000);
                 if (positionAgeMinutes % 5 === 0 && positionAgeMinutes > 0) {
                     logger.info(LogCode.EXE_TX_BROADCAST, '📊 Position P/L check', {
@@ -1069,7 +860,7 @@ export async function checkPositionsForExits(): Promise<void> {
                 }
 
                 if (positionAgeMs < MIN_POSITION_AGE_FOR_TPSL_MS) {
-                    clearTpslHit(position.id);
+                    deps.clearTpslHit(position.id);
                     logger.debug(LogCode.SYS_INFO, 'TP/SL guard: position too new', {
                         positionId: position.id,
                         token: position.tokenSymbol || 'Unknown',
@@ -1081,7 +872,7 @@ export async function checkPositionsForExits(): Promise<void> {
                 }
 
                 if (shouldDeferStrongRpcMonitoring(position.createdAt)) {
-                    clearTpslHit(position.id);
+                    deps.clearTpslHit(position.id);
                     logger.debug(LogCode.SYS_INFO, 'TP/SL guard: deferred until confirmation settles', {
                         positionId: position.id,
                         token: position.tokenSymbol || 'Unknown',
@@ -1091,9 +882,8 @@ export async function checkPositionsForExits(): Promise<void> {
                     return;
                 }
 
-                // Check take profit
                 if (config.takeProfitPct && profitLossPct >= config.takeProfitPct) {
-                    const hitCount = recordTpslHit(position.id, 'tp', profitLossPct);
+                    const hitCount = deps.recordTpslHit(position.id, 'tp', profitLossPct);
                     if (hitCount < TPSL_CONSECUTIVE_HITS_REQUIRED) {
                         logger.info(LogCode.EXE_TX_BROADCAST, 'Take Profit armed (awaiting confirmation tick)', {
                             positionId: position.id,
@@ -1110,7 +900,7 @@ export async function checkPositionsForExits(): Promise<void> {
                         profitLossPct: profitLossPct.toFixed(2)
                     });
 
-                    positionsBeingExited.add(position.id);
+                    deps.positionsBeingExited.add(position.id);
                     try {
                         await executePositionExit({
                             userId: position.userId,
@@ -1120,15 +910,13 @@ export async function checkPositionsForExits(): Promise<void> {
                             tokenInfo: tokenInfo,
                             config: { ...config, user: position.user },
                             positions: [position]
-                        });
+                        }, deps);
                     } finally {
-                        clearTpslHit(position.id);
-                        positionsBeingExited.delete(position.id);
+                        deps.clearTpslHit(position.id);
+                        deps.positionsBeingExited.delete(position.id);
                     }
-                }
-                // Check stop loss
-                else if (config.stopLossPct && profitLossPct <= -config.stopLossPct) {
-                    const hitCount = recordTpslHit(position.id, 'sl', profitLossPct);
+                } else if (config.stopLossPct && profitLossPct <= -config.stopLossPct) {
+                    const hitCount = deps.recordTpslHit(position.id, 'sl', profitLossPct);
                     if (hitCount < TPSL_CONSECUTIVE_HITS_REQUIRED) {
                         logger.info(LogCode.EXE_TX_BROADCAST, 'Stop Loss armed (awaiting confirmation tick)', {
                             positionId: position.id,
@@ -1145,7 +933,7 @@ export async function checkPositionsForExits(): Promise<void> {
                         profitLossPct: profitLossPct.toFixed(2)
                     });
 
-                    positionsBeingExited.add(position.id);
+                    deps.positionsBeingExited.add(position.id);
                     try {
                         await executePositionExit({
                             userId: position.userId,
@@ -1155,26 +943,22 @@ export async function checkPositionsForExits(): Promise<void> {
                             tokenInfo: tokenInfo,
                             config: { ...config, user: position.user },
                             positions: [position]
-                        });
+                        }, deps);
                     } finally {
-                        clearTpslHit(position.id);
-                        positionsBeingExited.delete(position.id);
+                        deps.clearTpslHit(position.id);
+                        deps.positionsBeingExited.delete(position.id);
                     }
                 } else {
-                    clearTpslHit(position.id);
-                    // === Dynamic Take Profit Check ===
-                    // Cast config to correct type (Prisma types might need reload)
+                    deps.clearTpslHit(position.id);
                     const fullConfig = config as any;
                     if (fullConfig.enableDynamicTP) {
-                        // We need the config attached to the position object for the service
-                        // Construct a temporary object that satisfies the interface
                         const positionWithConfig = {
                             ...position,
                             config: fullConfig
                         };
 
                         const dtpResult = await DynamicTakeProfitService.checkDynamicTP(
-                            positionWithConfig as any, // Type cast to satisfy strict checks
+                            positionWithConfig as any,
                             currentPrice
                         );
 
@@ -1187,8 +971,9 @@ export async function checkPositionsForExits(): Promise<void> {
                                 profitLossPct: profitLossPct.toFixed(2)
                             });
 
-                            // Use higher slippage for emergency exits (rug pull detection)
-                            const dynamicSlippage = dtpResult.urgency === 'emergency' ? 5000 : getSlippageBps(position.user.settings);
+                            const dynamicSlippage = dtpResult.urgency === 'emergency'
+                                ? 5000
+                                : deps.resolveCopytradeSlippageBps(config, position.user.settings);
 
                             if (dtpResult.urgency === 'emergency') {
                                 logger.warn(LogCode.EXE_TX_BROADCAST, `⚠️  [DynamicTP] Applying EMERGENCY slippage: ${dynamicSlippage} bps`, {
@@ -1197,7 +982,7 @@ export async function checkPositionsForExits(): Promise<void> {
                                 });
                             }
 
-                            positionsBeingExited.add(position.id);
+                            deps.positionsBeingExited.add(position.id);
                             try {
                                 await executePositionExit({
                                     userId: position.userId,
@@ -1207,11 +992,9 @@ export async function checkPositionsForExits(): Promise<void> {
                                     tokenInfo: tokenInfo,
                                     config: { ...config, user: position.user },
                                     positions: [position],
-                                    // Pass overriding slippage if needed (requires support in executePositionExit, 
-                                    // otherwise it uses default. For now assume default is okay or logic inside handles it)
-                                });
+                                }, deps);
                             } finally {
-                                positionsBeingExited.delete(position.id);
+                                deps.positionsBeingExited.delete(position.id);
                             }
                         }
                     }
@@ -1222,7 +1005,6 @@ export async function checkPositionsForExits(): Promise<void> {
                     positionId: position.id,
                     token: position.tokenAddress,
                     error: error.message
-                    // No stack trace in prod logs usually, but good for debug
                 });
             }
         }));

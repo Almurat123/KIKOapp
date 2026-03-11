@@ -9,7 +9,7 @@ import { emitCopytradeDomainAudit } from '../audit/copytradeDomainAudit.js';
 import { claimExitIntentExecution, settleExitIntentExecution } from './exitIntentIdempotency.js';
 import type { ExitIntentLane } from './intentTypes.js';
 import { claimPendingExitIntents, updatePositionExitIntentState } from './positionExitIntentStore.js';
-import { executePositionExit } from '../../autoTradeService.js';
+import { executePositionExit } from '../runtime/positionMonitor.js';
 
 const EVM_EXIT_CONCURRENCY = Math.max(2, Number(process.env.COPYTRADE_EVM_EXIT_CONCURRENCY || '6'));
 const SOLANA_EXIT_CONCURRENCY = Math.max(1, Number(process.env.COPYTRADE_SOLANA_EXIT_CONCURRENCY || '2'));

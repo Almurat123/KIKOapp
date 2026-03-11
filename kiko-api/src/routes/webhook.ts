@@ -53,6 +53,7 @@ import {
 import {
     buildActivityCashHint,
     buildTxSkeletonFromAlchemyActivity,
+    decodeSwapFromActivities,
     pickBestActivity,
     shouldForceFullTxRepair,
     type ActivityCashHint
@@ -893,6 +894,20 @@ async function processAlchemyWebhookPayload(payload: any): Promise<void> {
                         }
                     }
                 }
+                if (!swap) {
+                    const activitySwap = await decodeSwapFromActivities(evmActivities, trackedTarget, chainId).catch(() => null);
+                    if (activitySwap && activitySwap.tokenIn !== activitySwap.tokenOut) {
+                        activitySwap.txHash = txHash;
+                        activitySwap.router = resolvedTxForContext.to || '';
+                        swap = activitySwap;
+                        swapSource = 'webhook_decode';
+                        console.log(`[Webhook] Activity fallback decoded swap for ${trackedTarget}: ${txHash.slice(0, 16)}`, {
+                            tokenIn: activitySwap.tokenIn?.slice(0, 10),
+                            tokenOut: activitySwap.tokenOut?.slice(0, 10),
+                            dex: activitySwap.dexName
+                        });
+                    }
+                }
                 if (!isSolanaItems) {
                     const contextFrom = normalizeAddress(String(resolvedTxForContext.from || '')) || '';
                     const skeletonFrom = normalizeAddress(String(txSkeletonRaw.from || '')) || '';
@@ -922,22 +937,32 @@ async function processAlchemyWebhookPayload(payload: any): Promise<void> {
                     emitDeferredBindingResolved(effectiveSourceTxFrom, resolutionSource || 'unknown');
                     sourceTxFrom = effectiveSourceTxFrom;
                     if (normalizedTrackedTarget !== effectiveSourceTxFrom) {
-                        emitCopytradeDomainAudit('signal_wallet_mismatch', {
-                            extra: {
+                        if (!swap) {
+                            emitCopytradeDomainAudit('signal_wallet_mismatch', {
+                                extra: {
+                                    chainId,
+                                    txHash,
+                                    sourceTxFrom: effectiveSourceTxFrom,
+                                    pendingTargetWallet: normalizedTrackedTarget,
+                                    reasonCode: 'webhook_candidate_source_wallet_mismatch'
+                                }
+                            });
+                            console.error('[Webhook] Candidate wallet mismatch detected after deferred tx_from_only binding; dropping wallet', {
                                 chainId,
                                 txHash,
                                 sourceTxFrom: effectiveSourceTxFrom,
-                                pendingTargetWallet: normalizedTrackedTarget,
-                                reasonCode: 'webhook_candidate_source_wallet_mismatch'
-                            }
-                        });
-                        console.error('[Webhook] Candidate wallet mismatch detected after deferred tx_from_only binding; dropping wallet', {
+                                candidateWallet: normalizedTrackedTarget
+                            });
+                            return;
+                        }
+                        console.warn('[Webhook] Candidate wallet mismatch tolerated because swap decoded for tracked wallet', {
                             chainId,
                             txHash,
                             sourceTxFrom: effectiveSourceTxFrom,
-                            candidateWallet: normalizedTrackedTarget
+                            candidateWallet: normalizedTrackedTarget,
+                            tokenIn: swap.tokenIn,
+                            tokenOut: swap.tokenOut
                         });
-                        return;
                     }
                 }
                 if (!swap) return;
@@ -1103,6 +1128,7 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
                 return reply.status(400).send({ error: 'Invalid EVM wallet address' });
             }
             const requestedNormalizedSourceTxFrom = normalizeAddress(requestedSourceTxFrom);
+            let walletBindingMismatch = false;
             let sourceTxFrom = await resolveEvmSourceTxFrom(chainId, txHashNormalized);
             if (!sourceTxFrom && requestedNormalizedSourceTxFrom) {
                 sourceTxFrom = requestedNormalizedSourceTxFrom;
@@ -1118,24 +1144,10 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
                 return reply.send({ success: true, skipped: true, reason: 'missing_source_tx_from' });
             }
             if (sourceTxFrom !== normalizedWallet) {
-                emitCopytradeDomainAudit('signal_wallet_mismatch', {
-                    extra: {
-                        chainId,
-                        txHash: txHashNormalized,
-                        sourceTxFrom,
-                        pendingTargetWallet: normalizedWallet,
-                        reasonCode: 'process_tx_wallet_source_mismatch'
-                    }
-                });
-                console.error('[Webhook] /process-tx wallet mismatch detected; dropping tx', {
-                    chainId,
-                    txHash: txHashNormalized,
-                    sourceTxFrom,
-                    wallet: normalizedWallet
-                });
-                return reply.send({ success: true, skipped: true, reason: 'signal_wallet_mismatch' });
+                walletBindingMismatch = true;
             }
             ingressSourceTxFrom = sourceTxFrom;
+            (request as any).__walletBindingMismatch = walletBindingMismatch;
         }
 
         if (!tryClaimLocalInflight(chainId, txHashNormalized)) {
@@ -1341,9 +1353,47 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
             }
 
             if (!swap) {
+                const activitySwap = await decodeSwapFromActivities(Array.isArray((request.body as any)?.activities) ? (request.body as any).activities : [], wallet, chainId).catch(() => null);
+                if (activitySwap && activitySwap.tokenIn !== activitySwap.tokenOut) {
+                    swap = activitySwap;
+                }
+            }
+
+            const walletBindingMismatch = Boolean((request as any).__walletBindingMismatch);
+            if (walletBindingMismatch && !swap) {
+                emitCopytradeDomainAudit('signal_wallet_mismatch', {
+                    extra: {
+                        chainId,
+                        txHash: txHashNormalized,
+                        sourceTxFrom: ingressSourceTxFrom,
+                        pendingTargetWallet: normalizeAddress(wallet),
+                        reasonCode: 'process_tx_wallet_source_mismatch'
+                    }
+                });
+                console.error('[Webhook] /process-tx wallet mismatch detected; dropping tx', {
+                    chainId,
+                    txHash: txHashNormalized,
+                    sourceTxFrom: ingressSourceTxFrom,
+                    wallet: normalizeAddress(wallet)
+                });
+                return reply.send({ success: true, skipped: true, reason: 'signal_wallet_mismatch' });
+            }
+
+            if (!swap) {
                 console.log(`[Webhook] Not a swap tx: ${txHashNormalized.slice(0, 16)}`);
                 await markTxAsProcessedDistributed(txHashNormalized, chainId);
                 return reply.send({ success: true, skipped: true, reason: 'not_a_swap' });
+            }
+
+            if (walletBindingMismatch) {
+                console.warn('[Webhook] /process-tx wallet mismatch tolerated because swap decoded for wallet', {
+                    chainId,
+                    txHash: txHashNormalized,
+                    sourceTxFrom: ingressSourceTxFrom,
+                    wallet: normalizeAddress(wallet),
+                    tokenIn: swap.tokenIn,
+                    tokenOut: swap.tokenOut
+                });
             }
 
             console.log(`[Webhook] ✅ Swap detected:`, {

@@ -2,6 +2,7 @@ import { ethers } from 'ethers';
 import { getChainConfig } from '../../config/chainConfig.js';
 import { determineCopyTradeDirection } from '../../services/copyTradeDirection.js';
 import { getCachedNativeTokenPriceUsd } from '../../services/onChainPriceService.js';
+import type { DecodedSwap } from '../../services/txDecoder.js';
 import { normalizeAddress } from '../../utils/address.js';
 
 const NATIVE_TOKEN_PLACEHOLDER = normalizeAddress('0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee');
@@ -96,6 +97,44 @@ function getActivityRawAmount(item: any, decimals: number): bigint | null {
     }
 }
 
+function resolveActivityTokenAddress(item: any, chainId: number): string {
+    const direct = normalizeAddress(
+        item?.rawContract?.address
+        || item?.contractAddress
+        || item?.tokenAddress
+        || item?.address
+        || ''
+    );
+    if (direct) return direct;
+
+    const nativeSymbol = String(getChainConfig(chainId).nativeCurrency?.symbol || '').trim().toUpperCase();
+    const asset = String(item?.asset || '').trim().toUpperCase();
+    const category = String(item?.category || '').trim().toLowerCase();
+    if (category === 'external' || category === 'internal' || (asset && nativeSymbol && asset === nativeSymbol)) {
+        return NATIVE_TOKEN_PLACEHOLDER;
+    }
+    return '';
+}
+
+type ActivityLeg = {
+    token: string;
+    amountRaw: bigint;
+    usdValue: number;
+};
+
+function pickLargerRaw(current: ActivityLeg | null, candidate: ActivityLeg): ActivityLeg {
+    if (!current) return candidate;
+    return candidate.amountRaw >= current.amountRaw ? candidate : current;
+}
+
+function pickLargerUsd(current: ActivityLeg | null, candidate: ActivityLeg): ActivityLeg {
+    if (!current) return candidate;
+    if (candidate.usdValue !== current.usdValue) {
+        return candidate.usdValue >= current.usdValue ? candidate : current;
+    }
+    return candidate.amountRaw >= current.amountRaw ? candidate : current;
+}
+
 export async function buildActivityCashHint(
     activities: any[],
     walletAddressRaw: string,
@@ -157,6 +196,95 @@ export async function buildActivityCashHint(
         cashReceivedUsd: cashReceivedUsd > 0 ? cashReceivedUsd : undefined,
         inferredTxType: inferBuy ? 'TARGET_BUY' : inferSell ? 'TARGET_SELL' : 'TARGET_TOKEN_SWAP'
     };
+}
+
+export async function decodeSwapFromActivities(
+    activities: any[],
+    walletAddressRaw: string,
+    chainId: number
+): Promise<DecodedSwap | null> {
+    if (!activities.length) return null;
+    const walletAddress = normalizeAddress(walletAddressRaw);
+    if (!walletAddress) return null;
+
+    const chainConfig = getChainConfig(chainId);
+    const wrappedNative = normalizeAddress(chainConfig.wrappedNativeAddress);
+    const stableSet = new Set(chainConfig.stablecoins.map((s) => normalizeAddress(s)));
+    const cashSet = new Set<string>([NATIVE_TOKEN_PLACEHOLDER, wrappedNative, ...stableSet]);
+    const nativePrice = Number(await getCachedNativeTokenPriceUsd(chainId).catch(() => 0));
+    const cashHint = await buildActivityCashHint(activities, walletAddress, chainId).catch(() => null);
+
+    let cashSpent: ActivityLeg | null = null;
+    let cashReceived: ActivityLeg | null = null;
+    let tokenSpent: ActivityLeg | null = null;
+    let tokenReceived: ActivityLeg | null = null;
+
+    for (const item of activities) {
+        const from = normalizeAddress(item?.fromAddress || item?.from || '');
+        const to = normalizeAddress(item?.toAddress || item?.to || '');
+        const token = resolveActivityTokenAddress(item, chainId);
+        if (!token) continue;
+
+        const isNativeLike = token === NATIVE_TOKEN_PLACEHOLDER || token === wrappedNative;
+        const decimals = parseFlexibleInt(item?.rawContract?.decimal, isNativeLike ? 18 : 6);
+        const amountRaw = getActivityRawAmount(item, decimals);
+        if (!amountRaw || amountRaw <= 0n) continue;
+
+        let usdValue = 0;
+        if (stableSet.has(token)) {
+            usdValue = Number(ethers.formatUnits(amountRaw, decimals));
+        } else if (isNativeLike && nativePrice > 0) {
+            usdValue = Number(ethers.formatUnits(amountRaw, 18)) * nativePrice;
+        }
+        const leg: ActivityLeg = { token, amountRaw, usdValue };
+
+        if (cashSet.has(token)) {
+            if (from === walletAddress) cashSpent = pickLargerUsd(cashSpent, leg);
+            if (to === walletAddress) cashReceived = pickLargerUsd(cashReceived, leg);
+            continue;
+        }
+
+        if (from === walletAddress) tokenSpent = pickLargerRaw(tokenSpent, leg);
+        if (to === walletAddress) tokenReceived = pickLargerRaw(tokenReceived, leg);
+    }
+
+    if (cashSpent && tokenReceived) {
+        return {
+            tokenIn: cashSpent.token,
+            tokenOut: tokenReceived.token,
+            amountIn: cashSpent.amountRaw.toString(),
+            amountOut: tokenReceived.amountRaw.toString(),
+            router: '',
+            dexName: 'Activity Fallback',
+            cashLegHint: cashHint || undefined
+        };
+    }
+
+    if (tokenSpent && cashReceived) {
+        return {
+            tokenIn: tokenSpent.token,
+            tokenOut: cashReceived.token,
+            amountIn: tokenSpent.amountRaw.toString(),
+            amountOut: cashReceived.amountRaw.toString(),
+            router: '',
+            dexName: 'Activity Fallback',
+            cashLegHint: cashHint || undefined
+        };
+    }
+
+    if (tokenSpent && tokenReceived && tokenSpent.token !== tokenReceived.token) {
+        return {
+            tokenIn: tokenSpent.token,
+            tokenOut: tokenReceived.token,
+            amountIn: tokenSpent.amountRaw.toString(),
+            amountOut: tokenReceived.amountRaw.toString(),
+            router: '',
+            dexName: 'Activity Fallback',
+            cashLegHint: cashHint || undefined
+        };
+    }
+
+    return null;
 }
 
 export function shouldForceFullTxRepair(params: {
