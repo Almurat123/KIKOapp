@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { usePrivy } from '@privy-io/react-auth';
 import { Layout } from '../components/Layout/Layout';
@@ -55,64 +55,118 @@ export const RootLayout: React.FC = () => {
     const lastProcessedCompletionRef = useRef<string | null>(null);
     const pendingFlushTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
     const rafScheduledByConversationRef = useRef<Map<string, number>>(new Map());
+    const resumeSyncInFlightRef = useRef<Promise<void> | null>(null);
+    const lastResumeSyncAtRef = useRef(0);
 
     // --- WebSocket & Sync Logic (Identical to App.tsx) ---
 
-    // 1. Visibility & Background Sync
-    useEffect(() => {
-        let lastHiddenTime = 0;
-        const RELOAD_STALE_MS = 4 * 60 * 60 * 1000; // 4 hours
-        const MIN_BACKGROUND_MS = 2000;
+    const getRouteConversationId = useCallback(() => {
+        return location.pathname.startsWith('/chat/')
+            ? location.pathname.slice('/chat/'.length).split(/[/?#]/)[0] || null
+            : null;
+    }, [location.pathname]);
 
-        const handleVisibilityChange = async () => {
-            if (document.hidden) {
-                lastHiddenTime = Date.now();
-            } else if (lastHiddenTime > 0) {
-                const inactiveDuration = Date.now() - lastHiddenTime;
+    const syncForegroundConversationState = useCallback(async (reason: string, force = false) => {
+        if (!authenticated || !ready) return;
 
-                if (inactiveDuration >= RELOAD_STALE_MS) {
-                    try {
-                        const token = await getAccessToken();
-                        if (token) {
-                            chatWSClient.connect(token);
-                        }
-                    } catch (error) {
-                        console.error('[RootLayout] Reconnect after long background failed:', error);
-                    }
-                    lastHiddenTime = 0;
+        const routeConversationId = getRouteConversationId();
+        const now = Date.now();
+        if (!force && now - lastResumeSyncAtRef.current < 1200) {
+            return;
+        }
+        lastResumeSyncAtRef.current = now;
+
+        if (resumeSyncInFlightRef.current) {
+            return resumeSyncInFlightRef.current;
+        }
+
+        const syncPromise = (async () => {
+            try {
+                const token = await getAccessToken();
+                if (!token) return;
+
+                chatWSClient.connect(token);
+
+                // Only sync the current route conversation.
+                // Do NOT revive a backgrounded conversation when the user is on "/".
+                if (!routeConversationId) return;
+
+                await loadConversation(routeConversationId);
+
+                const latestConversation = conversationsRef.current.find(c => c.id === routeConversationId);
+                if (!latestConversation) return;
+
+                const activeStatus = String(latestConversation.activeTask?.status || '').toLowerCase();
+                const hasServerActiveTask = ['queued', 'pending', 'running', 'streaming'].includes(activeStatus);
+                const staleStreamingMessages = latestConversation.messages.filter(
+                    m => m.role === 'assistant' && m.status === 'streaming'
+                );
+
+                if (!hasServerActiveTask && staleStreamingMessages.length > 0) {
+                    const repairedMessages = latestConversation.messages.map((message) =>
+                        message.role === 'assistant' && message.status === 'streaming'
+                            ? { ...message, status: 'complete' as const }
+                            : message
+                    );
+                    updateConversation(routeConversationId, {
+                        messages: repairedMessages,
+                        activeTask: null,
+                    });
+                    console.log('[RootLayout] Cleared stale streaming UI after foreground sync', {
+                        reason,
+                        routeConversationId,
+                        repairedCount: staleStreamingMessages.length,
+                    });
                     return;
                 }
 
-                if (inactiveDuration >= MIN_BACKGROUND_MS) {
-                    try {
-                        const token = await getAccessToken();
-                        if (!token) {
-                            lastHiddenTime = 0;
-                            return;
-                        }
-                        chatWSClient.connect(token);
-
-                        // Only sync the current conversation context.
-                        // Do NOT fall back to conversations[0], otherwise iOS Safari background/foreground
-                        // can unexpectedly open a chat when user was on home or another page.
-                        const routeConversationId = location.pathname.startsWith('/chat/')
-                            ? location.pathname.slice('/chat/'.length).split(/[/?#]/)[0] || null
-                            : null;
-                        // Only sync if user is currently on /chat/:id.
-                        // On "/" do not revive stale activeConversationId from a backgrounded tab.
-                        if (routeConversationId) {
-                            await loadConversation(routeConversationId);
-                        }
-                    } catch (error) {
-                        console.error('[RootLayout] Sync failed:', error);
-                    }
+                if (!hasServerActiveTask && latestConversation.activeTask) {
+                    clearActiveTask(routeConversationId, updateConversation, `foreground_sync_${reason}`);
                 }
-                lastHiddenTime = 0;
+            } catch (error) {
+                console.error('[RootLayout] Foreground sync failed:', error);
+            } finally {
+                resumeSyncInFlightRef.current = null;
+            }
+        })();
+
+        resumeSyncInFlightRef.current = syncPromise;
+        return syncPromise;
+    }, [authenticated, ready, getAccessToken, getRouteConversationId, loadConversation, conversationsRef, updateConversation]);
+
+    // 1. Visibility & Background Sync
+    useEffect(() => {
+        const handleVisibilityChange = () => {
+            if (!document.hidden) {
+                void syncForegroundConversationState('visibilitychange');
             }
         };
+        const handleFocus = () => {
+            if (!document.hidden) {
+                void syncForegroundConversationState('focus');
+            }
+        };
+        const handlePageShow = () => {
+            void syncForegroundConversationState('pageshow', true);
+        };
+        const handleOnline = () => {
+            if (!document.hidden) {
+                void syncForegroundConversationState('online');
+            }
+        };
+
         document.addEventListener('visibilitychange', handleVisibilityChange);
-        return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
-    }, [getAccessToken, loadConversation, location.pathname]);
+        window.addEventListener('focus', handleFocus);
+        window.addEventListener('pageshow', handlePageShow);
+        window.addEventListener('online', handleOnline);
+
+        return () => {
+            document.removeEventListener('visibilitychange', handleVisibilityChange);
+            window.removeEventListener('focus', handleFocus);
+            window.removeEventListener('pageshow', handlePageShow);
+            window.removeEventListener('online', handleOnline);
+        };
+    }, [syncForegroundConversationState]);
 
     // 2. Global WebSocket Listener
     // Use a ref to track if we've already initiated connection for the current auth state

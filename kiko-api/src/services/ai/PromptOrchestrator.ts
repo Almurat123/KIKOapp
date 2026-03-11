@@ -172,7 +172,8 @@ USER_QUERY_END
             }
 
             if (config.fastSwapMode) {
-                parts.push(`- Fast Swap Mode: Enabled. For non-whitelisted tokens, require the exact contract address before proceeding. Do NOT resolve natural-language token names via cache, search, or inference in fast mode.`);
+                parts.push(`- Fast Swap Mode: Enabled. Never block or ignore the user's message just because a non-whitelisted token lacks an explicit contract address.`);
+                parts.push(`- Fast Swap Mode: First resolve token targets using wallet context, cached token metadata, prior tool results, and explicit addresses already present in the conversation. Only ask the user for a contract address when the token is still not safely resolvable.`);
                 parts.push(`- Fast Swap Mode: Do NOT call simulate_swap first. Move directly toward a swap card / executable swap flow once the token target is explicit and valid.`);
             }
 

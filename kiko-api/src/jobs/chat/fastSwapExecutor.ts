@@ -81,8 +81,7 @@ export function getFastSwapDecision(input: FastSwapDecisionInput): FastSwapDecis
         isAddressLike(contractAddress) ||
         isAddressLike(tokenOut) ||
         isWhitelistedFastSwapToken(tokenOut, chainId);
-    const requiresAddressForFastSwap =
-        fastSwapMode && isSwapIntent && hasSwapTarget && hasExplicitSwapVerb && !hasResolvableAddressTarget;
+    const requiresAddressForFastSwap = false;
     const shouldAttempt =
         fastSwapMode && isSwapIntent && hasSwapTarget && hasExplicitSwapVerb && hasResolvableAddressTarget;
 

@@ -52,20 +52,21 @@ export const CheckPolymarketReadinessTool: Tool = {
                             amount_in: readiness.conversionSuggestion.amountIn,
                             chain_id: readiness.conversionSuggestion.chainId,
                             execute: true
-                        }
+                        },
+                        note: 'Use these exact token addresses for the conversion. On Polygon Polymarket, collateral is USDC.e at 0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174, not native Polygon USDC.'
                     }
                     : null,
                 message: readiness.isReady
                     ? '✅ Ready to trade on Polymarket!'
                     : readiness.conversionRequired
-                        ? '⚠️ You have Polygon native USDC, but Polymarket trading requires USDC.e. Convert first, then continue trading.'
+                        ? '⚠️ You have Polygon native USDC, but Polymarket trading requires USDC.e. Convert 0x3c499c542cef5e3811e1192ce70d8cc03d5c3359 to 0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174 first. Do not substitute ETH or another asset.'
                     : '⚠️ Setup needed before trading.',
                 missing_steps: readiness.missingSteps,
                 next_step: readiness.isReady
                     ? 'You can now place orders using place_polymarket_order.'
                     : readiness.conversionRequired
-                        ? 'Convert Polygon native USDC to USDC.e using prepare_swap_transaction, then check readiness again.'
-                    : readiness.missingSteps[0]
+                        ? 'Convert Polygon native USDC (0x3c499c542cef5e3811e1192ce70d8cc03d5c3359) to Polymarket USDC.e (0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174) using prepare_swap_transaction, then check readiness again.'
+                        : readiness.missingSteps[0]
             };
         } catch (error: any) {
             return {

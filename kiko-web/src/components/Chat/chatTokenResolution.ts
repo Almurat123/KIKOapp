@@ -246,16 +246,10 @@ function extractLikelySwapTokenMentions(text: string): string[] {
 }
 
 export function requiresContractAddressInFastMode(text: string, chainId: number): boolean {
+  void chainId;
+  // Client-side chat input should never hard-block a swap request.
+  // Resolution belongs to the server/AI flow, which can use cached token data
+  // and ask a follow-up only when the token still cannot be resolved safely.
   if (!FAST_MODE_SWAP_INTENT_PATTERN.test(text)) return false;
-  if (text.match(/0x[a-fA-F0-9]{40}|[1-9A-HJ-NP-Za-km-z]{32,44}/)) return false;
-
-  const mentions = extractLikelySwapTokenMentions(text);
-  if (mentions.length === 0) return true;
-
-  const whitelist = new Set([
-    ...getCommonTokens(chainId).map(token => normalizeTokenText(token.symbol)),
-    ...(NATIVE_TOKEN_ALIASES[chainId] || []),
-  ]);
-
-  return mentions.some(token => !whitelist.has(token));
+  return false;
 }

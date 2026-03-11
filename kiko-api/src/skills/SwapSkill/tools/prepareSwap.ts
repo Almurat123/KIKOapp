@@ -106,6 +106,12 @@ IMPORTANT: If user says 'all', 'max', or 'full balance':
 2. Then use the EXACT balance amount (e.g. '0.622398') as amount_in - NOT 'all'
 3. This ensures the swap uses the correct amount
 
+POLYMARKET-SPECIFIC RULE:
+- When an upstream Polymarket readiness/tool result says the user must convert Polygon native USDC to Polymarket collateral, use the EXACT addresses from that tool result.
+- On Polygon, Polymarket collateral is USDC.e at 0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174.
+- Polygon native USDC is 0x3c499c542cef5e3811e1192ce70d8cc03d5c3359.
+- Do NOT silently replace that conversion with ETH -> USDC or any other asset pair.
+
 The amount_in parameter MUST be a numeric string like '0.1' or '100'. Never pass 'all' or 'max' as amount_in.`,
         parameters: {
             type: 'object',
