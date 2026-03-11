@@ -10,7 +10,8 @@ import type { ExitTokenInfo, PendingAttributedExitContext, PositionExitReason } 
 import { readExitBalanceOracle } from '../oracle/exitBalanceOracle.js';
 import { emitCopytradeOracleAudit } from '../audit/copytradeOracleAudit.js';
 import { resolveMirrorSellRatioContext } from './mirrorSellRatioContext.js';
-import { writeExitBalanceHint } from './exitBalanceHintStore.js';
+import { readExitBalanceHint, writeExitBalanceHint } from './exitBalanceHintStore.js';
+import { createRpcFactSuccess, type RpcFactResult } from '../../oracle/rpcFactResult.js';
 
 function formatTokenAmount(amount: bigint, decimals: number): number {
   const value = Number(ethers.formatUnits(amount, decimals));
@@ -50,7 +51,36 @@ function resolveSnapshotDecimalsCandidate(input: {
 export const __exitAttributionSnapshotBuilderTest = {
   normalizeDecimalsCandidate,
   resolveSnapshotDecimalsCandidate,
+  coerceMirrorSellBalanceReadWithHint,
 };
+
+function coerceMirrorSellBalanceReadWithHint(input: {
+  balanceRead: RpcFactResult<bigint>;
+  hintedBalanceRaw: bigint | null;
+  isMirrorSell: boolean;
+  positionCount: number;
+  pendingLotCount: number;
+}): RpcFactResult<bigint> {
+  if (input.balanceRead.status === 'success') {
+    return input.balanceRead;
+  }
+  if (!input.isMirrorSell) {
+    return input.balanceRead;
+  }
+  if ((input.positionCount + input.pendingLotCount) <= 0) {
+    return input.balanceRead;
+  }
+  const hintedBalanceRaw = input.hintedBalanceRaw ?? 0n;
+  if (hintedBalanceRaw <= 0n) {
+    return input.balanceRead;
+  }
+  return createRpcFactSuccess(
+    hintedBalanceRaw,
+    'EXIT_BALANCE_CONFIRMED_POSITIVE',
+    input.balanceRead.attemptCount,
+    'copytrade:balance_hint',
+  );
+}
 
 export function buildEvmExitAttributionSnapshotFromResolvedInputs(input: {
   tokenAddress: string;
@@ -140,15 +170,27 @@ export async function buildEvmExitAttributionSnapshot(input: {
     isMirrorSell,
     rpcPath: 'copytrade_exit_balance_follower',
   });
+  const hintedBalanceRaw = await readExitBalanceHint({
+    chainId: input.chainId,
+    walletAddress: input.walletAddress,
+    tokenAddress: input.tokenAddress,
+  }).catch(() => null);
+  const effectiveBalanceRead = coerceMirrorSellBalanceReadWithHint({
+    balanceRead,
+    hintedBalanceRaw,
+    isMirrorSell,
+    positionCount: input.positions.length,
+    pendingLotCount: input.pendingLots?.length || 0,
+  });
   emitCopytradeOracleAudit('EXIT_BALANCE_ORACLE', {
     tokenAddress: input.tokenAddress,
     chainId: input.chainId,
     walletAddress: input.walletAddress,
     exitReason: input.exitReason,
-    result: balanceRead,
+    result: effectiveBalanceRead,
   });
-  const balance = balanceRead.value ?? 0n;
-  if (balanceRead.status === 'success' && balance >= 0n) {
+  const balance = effectiveBalanceRead.value ?? 0n;
+  if (effectiveBalanceRead.status === 'success' && balance >= 0n) {
     void writeExitBalanceHint({
       chainId: input.chainId,
       walletAddress: input.walletAddress,
@@ -233,7 +275,7 @@ export async function buildEvmExitAttributionSnapshot(input: {
     tokenInfo: input.tokenInfo,
     decimals: Number(dec),
     onChainBalanceRaw: balance,
-    balanceRead,
+    balanceRead: effectiveBalanceRead,
     positions: ledger.positions,
     pendingLots: ledger.pendingLots,
     latestTargetSellTxHash,

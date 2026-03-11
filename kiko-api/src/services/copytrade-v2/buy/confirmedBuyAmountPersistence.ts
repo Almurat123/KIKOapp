@@ -3,6 +3,7 @@ import { ethers } from 'ethers';
 import prisma from '../../../db/prisma.js';
 import { encodePositionTokenAmount } from '../positions/positionDecimalCodec.js';
 import { syncCopytradeLedgerFromLegacy } from '../ledger/copytradeLedgerRepository.js';
+import { writeExitBalanceHint } from '../exit/exitBalanceHintStore.js';
 
 export async function persistConfirmedBuyAmount(params: {
   positionId?: string | null;
@@ -52,6 +53,16 @@ export async function persistConfirmedBuyAmount(params: {
     lastExecutionState: 'confirmed_success',
     lastExecutionReasonCode: 'confirmed_receipt_amount',
   }).catch(() => null);
+
+  const hintAmountRaw = BigInt(normalizedRaw);
+  if (hintAmountRaw > 0n) {
+    await writeExitBalanceHint({
+      chainId: params.chainId,
+      walletAddress: params.walletAddress,
+      tokenAddress: params.tokenAddress,
+      balanceRaw: hintAmountRaw,
+    }).catch(() => undefined);
+  }
 
   return { amountHuman };
 }

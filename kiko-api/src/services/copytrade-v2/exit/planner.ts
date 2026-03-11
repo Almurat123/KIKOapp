@@ -112,7 +112,6 @@ export function buildEvmExitPlanFromSnapshot(input: {
   const isMirrorSell = snapshot.isMirrorSell;
   const attribution = snapshot.attribution;
   const verifiedFallback = evaluateVerifiedMirrorExitFallback(snapshot);
-  const orphanRecovery = evaluateOrphanRecovery(snapshot);
   const balanceAdaptation = resolveExitBalanceAdaptation(snapshot.balanceRead);
   const attributedAmountRaw = parsePositiveBigIntMetric(attribution.metrics, 'attributedAmountRaw');
   const mirrorSoldRatioBps = (isMirrorSell && attributedAmountRaw > 0n && snapshot.balanceRaw <= attributedAmountRaw)
@@ -229,51 +228,6 @@ export function buildEvmExitPlanFromSnapshot(input: {
     };
   }
 
-  if (orphanRecovery.action === 'force_exit') {
-    emitCopytradeDomainAudit('forced_mirror_exit_applied', {
-      extra: {
-        userId,
-        chainId,
-        tokenAddress,
-        targetWallet: input.targetWallet || null,
-        reasonCode: orphanRecovery.reasonCode,
-        targetFullExitVerified: snapshot.targetFullExitVerified || false,
-        latestTargetSellTxHash: snapshot.latestTargetSellTxHash || null,
-        balanceRaw: snapshot.balanceRaw.toString(),
-      }
-    });
-    return buildForcedExitSwapPlan({
-      userId,
-      tokenAddress,
-      chainId,
-      exitReason,
-      tokenInfo,
-      universalSlippageBps: input.universalSlippageBps,
-      executionMode: input.executionMode,
-      targetWallet: input.targetWallet,
-      snapshot,
-      reasonCode: orphanRecovery.reasonCode,
-    });
-  }
-
-  if (orphanRecovery.action === 'quarantine') {
-    return {
-      kind: 'noop',
-      action: 'quarantine',
-      balance,
-      decimals,
-      balanceUsd,
-      isMirrorSell,
-      attributedReasonCode: 'TARGET_EXIT_QUARANTINED',
-      attributionMetrics: {
-        ...attribution.metrics,
-        orphanRecoveryReasonCode: orphanRecovery.reasonCode,
-        targetFullExitReasonCode: snapshot.targetFullExitReasonCode || null,
-      },
-      positions: snapshot.positions,
-    };
-  }
-
   const effectiveSellAmountRaw = verifiedFallback.shouldFallback
     ? verifiedFallback.sellAmountRaw
     : attribution.sellAmountRaw;
@@ -310,6 +264,51 @@ export function buildEvmExitPlanFromSnapshot(input: {
   }
 
   if (adjustedSellAmountRaw <= 0n) {
+    const orphanRecovery = evaluateOrphanRecovery(snapshot);
+    if (orphanRecovery.action === 'force_exit') {
+      emitCopytradeDomainAudit('forced_mirror_exit_applied', {
+        extra: {
+          userId,
+          chainId,
+          tokenAddress,
+          targetWallet: input.targetWallet || null,
+          reasonCode: orphanRecovery.reasonCode,
+          targetFullExitVerified: snapshot.targetFullExitVerified || false,
+          latestTargetSellTxHash: snapshot.latestTargetSellTxHash || null,
+          balanceRaw: snapshot.balanceRaw.toString(),
+          effectiveReasonCode,
+        }
+      });
+      return buildForcedExitSwapPlan({
+        userId,
+        tokenAddress,
+        chainId,
+        exitReason,
+        tokenInfo,
+        universalSlippageBps: input.universalSlippageBps,
+        executionMode: input.executionMode,
+        targetWallet: input.targetWallet,
+        snapshot,
+        reasonCode: orphanRecovery.reasonCode,
+      });
+    }
+    if (orphanRecovery.action === 'quarantine') {
+      return {
+        kind: 'noop',
+        action: 'quarantine',
+        balance,
+        decimals,
+        balanceUsd,
+        isMirrorSell,
+        attributedReasonCode: 'TARGET_EXIT_QUARANTINED',
+        attributionMetrics: {
+          ...adjustedMetrics,
+          orphanRecoveryReasonCode: orphanRecovery.reasonCode,
+          targetFullExitReasonCode: snapshot.targetFullExitReasonCode || null,
+        },
+        positions: snapshot.positions,
+      };
+    }
     return {
       kind: 'noop',
       action: 'keep_open',

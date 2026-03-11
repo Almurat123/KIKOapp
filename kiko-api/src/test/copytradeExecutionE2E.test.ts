@@ -290,7 +290,7 @@ describe('copytrade execution ledger E2E', () => {
     }
   });
 
-  test('planner forces exit for orphan mirror sell when target full exit is verified', () => {
+  test('planner forces exit for orphan mirror sell when verified target exit has multiple unresolved open positions', () => {
     const plan = buildEvmExitPlanFromSnapshot({
       userId: 'user-1',
       tokenAddress: TOKEN,
@@ -323,6 +323,11 @@ describe('copytrade execution ledger E2E', () => {
           tokenAddress: TOKEN,
           status: 'open',
           entryTxHash: 'MANUAL_BROKEN',
+        }, {
+          id: 'pos-2',
+          tokenAddress: TOKEN,
+          status: 'open',
+          entryTxHash: 'MANUAL_BROKEN_2',
         }],
         pendingLots: [],
         latestTargetSellTxHash: makeTxHash('target-sell'),
@@ -340,5 +345,70 @@ describe('copytrade execution ledger E2E', () => {
 
     assert.equal(plan.kind, 'swap');
     assert.equal(plan.attributedReasonCode, 'FORCED_FULL_EXIT_FROM_LEDGER');
+  });
+
+  test('planner keeps primary mirror sell attribution when verified target exit already has a sellable amount', () => {
+    const plan = buildEvmExitPlanFromSnapshot({
+      userId: 'user-1',
+      tokenAddress: TOKEN,
+      chainId: BASE_CHAIN_ID,
+      exitReason: 'mirror_sell',
+      tokenInfo: { price: 1 },
+      universalSlippageBps: 500,
+      executionMode: 'normal',
+      targetWallet: makeAddress('target'),
+      snapshot: {
+        tokenAddress: TOKEN,
+        chainId: BASE_CHAIN_ID,
+        walletAddress: makeAddress('wallet'),
+        isMirrorSell: true,
+        hasValidPrice: true,
+        decimals: 18,
+        balanceRaw: 1000n,
+        balanceUsd: 1,
+        treatAsEmptyOrDust: false,
+        balanceRead: {
+          status: 'success',
+          value: 1000n,
+          reasonCode: 'EXIT_BALANCE_CONFIRMED_POSITIVE',
+          attemptCount: 1,
+          lastError: null,
+          providerSource: 'test',
+        },
+        positions: [{
+          id: 'pos-1',
+          tokenAddress: TOKEN,
+          status: 'open',
+          entryTxHash: makeTxHash('buy'),
+          entryAmountExact: '1000',
+        }],
+        pendingLots: [],
+        latestTargetSellTxHash: makeTxHash('target-sell'),
+        targetFullExitVerified: true,
+        targetFullExitReasonCode: 'TARGET_FULL_EXIT_CONFIRMED',
+        attribution: {
+          eligiblePositions: [{
+            id: 'pos-1',
+            tokenAddress: TOKEN,
+            status: 'open',
+            entryTxHash: makeTxHash('buy'),
+            entryAmountExact: '1000',
+          }],
+          sellAmountRaw: 1000n,
+          reasonCode: 'ATTRIBUTED_AMOUNT_RESOLVED',
+          metrics: {
+            attributedAmountRaw: '1000',
+            sellAmountRaw: '1000',
+          },
+          hasExternalBalance: false,
+        },
+      },
+    });
+
+    assert.equal(plan.kind, 'swap');
+    if (plan.kind === 'swap') {
+      assert.equal(plan.attributedBalance, 1000n);
+      assert.equal(plan.attributedReasonCode, 'ATTRIBUTED_AMOUNT_RESOLVED');
+    }
   });
 });

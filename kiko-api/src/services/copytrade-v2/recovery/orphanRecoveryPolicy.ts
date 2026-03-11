@@ -14,6 +14,9 @@ export function evaluateOrphanRecovery(snapshot: ExitAttributionSnapshot): Orpha
   if (!snapshot.targetFullExitVerified) {
     return { action: 'noop', reasonCode: 'orphan_recovery_target_exit_unverified' };
   }
+  if (snapshot.attribution.sellAmountRaw > 0n) {
+    return { action: 'noop', reasonCode: 'orphan_recovery_primary_attribution_available' };
+  }
 
   const openPositions = snapshot.positions.filter((position) => String(position.status || '').toLowerCase() === 'open');
   // Mirror-sell must never auto-close DB position on a single zero-balance read.

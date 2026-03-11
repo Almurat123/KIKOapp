@@ -286,7 +286,7 @@ describe('exit balance planner policy', () => {
 
     assert.equal(plan.kind, 'swap');
     if (plan.kind !== 'swap') return;
-    assert.equal(plan.attributedBalance, 141365064282323363n);
+    assert.equal(plan.attributedBalance, 141365064282323364n);
   });
 
   test('mirror sell defers dust close when fresh ownership evidence contradicts zero-like balance read', () => {

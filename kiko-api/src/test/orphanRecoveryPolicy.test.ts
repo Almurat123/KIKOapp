@@ -40,6 +40,43 @@ describe('orphan recovery policy', () => {
     assert.equal(decision.action, 'force_exit');
   });
 
+  test('does not force exit when primary attribution already resolved a sellable amount', () => {
+    const decision = evaluateOrphanRecovery({
+      tokenAddress: '0xtoken',
+      chainId: 8453,
+      walletAddress: '0xwallet',
+      isMirrorSell: true,
+      hasValidPrice: true,
+      decimals: 18,
+      balanceRaw: 100n,
+      balanceUsd: 1,
+      treatAsEmptyOrDust: false,
+      balanceRead: {
+        status: 'success',
+        value: 100n,
+        reasonCode: 'EXIT_BALANCE_CONFIRMED_POSITIVE',
+        attemptCount: 1,
+        lastError: null,
+        providerSource: 'test',
+      },
+      positions: [{ id: 'pos-1', status: 'open', tokenAddress: '0xtoken', entryTxHash: '0xtx' }],
+      pendingLots: [],
+      latestTargetSellTxHash: '0xtargetsell',
+      targetFullExitVerified: true,
+      targetFullExitReasonCode: 'TARGET_FULL_EXIT_CONFIRMED',
+      attribution: {
+        eligiblePositions: [{ id: 'pos-1', status: 'open', tokenAddress: '0xtoken', entryTxHash: '0xtx' }],
+        sellAmountRaw: 100n,
+        reasonCode: 'ATTRIBUTED_AMOUNT_RESOLVED',
+        metrics: {},
+        hasExternalBalance: false,
+      },
+    });
+
+    assert.equal(decision.action, 'noop');
+    assert.equal(decision.reasonCode, 'orphan_recovery_primary_attribution_available');
+  });
+
   test('forces exit when target full exit is verified even with external balance contamination', () => {
     const decision = evaluateOrphanRecovery({
       tokenAddress: '0xtoken',
