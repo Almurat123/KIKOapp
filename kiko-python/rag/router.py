@@ -8,7 +8,7 @@ from rag.crawler import Web3DocCrawler
 from rag.vectorstore import KnowledgeBase
 from dotenv import load_dotenv
 from langchain_community.document_loaders import DirectoryLoader
-from chat_v2.auth import require_internal_service
+from service_auth import require_internal_service
 
 # Load environment variables
 dotenv_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'kiko-api', '.env')

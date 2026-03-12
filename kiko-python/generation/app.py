@@ -7,7 +7,7 @@ from typing import Any
 from fastapi import Depends, FastAPI
 from fastapi.responses import StreamingResponse
 
-from chat_v2.auth import require_internal_service
+from service_auth import require_internal_service
 from orchestration.llm_client import stream_llm_with_options
 
 from .schemas import GenerationRequest

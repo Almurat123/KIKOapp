@@ -6,7 +6,7 @@ import logging
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
 
-from chat_v2.auth import require_internal_service
+from service_auth import require_internal_service
 
 from .schemas import StartRunRequest, ToolResultModel
 from .service import service

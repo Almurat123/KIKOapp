@@ -4,7 +4,7 @@ from fastapi.responses import StreamingResponse, JSONResponse
 
 from .schemas import GenerateRequest
 from .adapters.openai_like import stream_generate
-from chat_v2.auth import require_auth
+from service_auth import require_internal_service
 
 
 app = FastAPI(title="kiko-llm-gateway", version="2.0.0")
@@ -15,7 +15,7 @@ async def health():
     return {"status": "ok", "service": "llm-gateway"}
 
 
-@app.post("/internal/v1/generate", dependencies=[Depends(require_auth)])
+@app.post("/internal/v1/generate", dependencies=[Depends(require_internal_service)])
 async def generate(req: GenerateRequest):
     if not req.stream:
         # Keep API shape simple; this path can be extended later

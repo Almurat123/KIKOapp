@@ -5,14 +5,14 @@ from typing import Any, AsyncGenerator
 
 import httpx
 
-from chat_v2.settings import settings
+from service_config import INTERNAL_SERVICE_KEY, LLM_GATEWAY_URL
 
 
 def _headers() -> dict[str, str]:
     headers = {"Content-Type": "application/json"}
-    if settings.INTERNAL_SERVICE_KEY:
-        headers["X-Service-Key"] = settings.INTERNAL_SERVICE_KEY
-        headers["X-Internal-Service-Key"] = settings.INTERNAL_SERVICE_KEY
+    if INTERNAL_SERVICE_KEY:
+        headers["X-Service-Key"] = INTERNAL_SERVICE_KEY
+        headers["X-Internal-Service-Key"] = INTERNAL_SERVICE_KEY
     return headers
 
 
@@ -27,7 +27,7 @@ async def stream_llm(messages: list[dict[str, Any]], model: str, tools: list[dic
     if len(messages) > 0 and isinstance(messages[0], dict):
         request_options = {}
     async with httpx.AsyncClient(timeout=httpx.Timeout(60.0)) as client:
-        async with client.stream("POST", f"{settings.LLM_GATEWAY_URL.rstrip('/')}/internal/v1/generate", headers=_headers(), json=body) as resp:
+        async with client.stream("POST", f"{LLM_GATEWAY_URL.rstrip('/')}/internal/v1/generate", headers=_headers(), json=body) as resp:
             resp.raise_for_status()
             async for line in resp.aiter_lines():
                 if not line or not line.startswith("data: "):
@@ -72,7 +72,7 @@ async def stream_llm_with_options(
     if enable_search is not None:
         body["enable_search"] = enable_search
     async with httpx.AsyncClient(timeout=httpx.Timeout(60.0)) as client:
-        async with client.stream("POST", f"{settings.LLM_GATEWAY_URL.rstrip('/')}/internal/v1/generate", headers=_headers(), json=body) as resp:
+        async with client.stream("POST", f"{LLM_GATEWAY_URL.rstrip('/')}/internal/v1/generate", headers=_headers(), json=body) as resp:
             resp.raise_for_status()
             async for line in resp.aiter_lines():
                 if not line or not line.startswith("data: "):

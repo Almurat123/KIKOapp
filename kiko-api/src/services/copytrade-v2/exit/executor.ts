@@ -27,7 +27,7 @@ function createRetryRuntimeContext(plan: EvmExitSwapPlan) {
   });
 }
 
-function buildExitAttempts(plan: EvmExitSwapPlan) {
+export function buildExitAttempts(plan: EvmExitSwapPlan) {
   // Exit retries intentionally keep the same sell amount. We only escalate slippage
   // and route policy between attempts so failures do not strand avoidable leftovers.
   const attempts = [
@@ -50,11 +50,18 @@ function buildExitAttempts(plan: EvmExitSwapPlan) {
   ];
 
   let currentSlippageBps = plan.retrySlippageBps;
-  const aggressiveSteps: Array<{ executionStep: string; sellRoutePolicy: SellRoutePolicy }> = [
-    { executionStep: 'sell_direct_fallback', sellRoutePolicy: 'direct_primary' },
-    { executionStep: 'sell_external_retry_aggressive', sellRoutePolicy: plan.sellRoutePolicy },
-    { executionStep: 'sell_direct_retry_aggressive', sellRoutePolicy: 'direct_primary' },
-  ];
+  const aggressiveSteps: Array<{ executionStep: string; sellRoutePolicy: SellRoutePolicy }> =
+    plan.sellRoutePolicy === 'direct_primary'
+      ? [
+          { executionStep: 'sell_direct_fallback', sellRoutePolicy: 'direct_primary' },
+          { executionStep: 'sell_external_retry_aggressive', sellRoutePolicy: plan.sellRoutePolicy },
+          { executionStep: 'sell_direct_retry_aggressive', sellRoutePolicy: 'direct_primary' },
+        ]
+      : [
+          { executionStep: 'sell_external_retry_aggressive', sellRoutePolicy: plan.sellRoutePolicy },
+          { executionStep: 'sell_external_retry_final', sellRoutePolicy: plan.sellRoutePolicy },
+          { executionStep: 'sell_external_retry_last', sellRoutePolicy: plan.sellRoutePolicy },
+        ];
 
   for (const step of aggressiveSteps) {
     currentSlippageBps = Math.min(

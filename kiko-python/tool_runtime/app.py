@@ -7,7 +7,7 @@ import httpx
 from fastapi import FastAPI, Depends, HTTPException
 from pydantic import BaseModel
 
-from chat_v2.auth import require_auth
+from service_auth import require_internal_service
 
 
 app = FastAPI(title="kiko-tool-runtime", version="2.0.0")
@@ -296,7 +296,7 @@ async def _native_execute(tool_name: str, arguments: dict[str, Any], context: di
     return {"ok": False, "tool_name": tool_name, "result": None, "error": f"Native tool not implemented: {tool_name}"}
 
 
-@app.get("/internal/v1/tool/definitions", dependencies=[Depends(require_auth)])
+@app.get("/internal/v1/tool/definitions", dependencies=[Depends(require_internal_service)])
 async def tool_definitions():
     bridged = await _bridge_definitions()
     if not NATIVE_ENABLED or not NATIVE_TOOLS:
@@ -314,7 +314,7 @@ async def tool_definitions():
     return {"ok": True, "tools": list(by_name.values())}
 
 
-@app.post("/internal/v1/tool/execute", dependencies=[Depends(require_auth)])
+@app.post("/internal/v1/tool/execute", dependencies=[Depends(require_internal_service)])
 async def execute_tool(req: ToolExecRequest):
     logger.info(
         "tool execute request task_id=%s tool=%s native_enabled=%s native_tools=%s wallet=%s chain=%s args=%s",
@@ -356,6 +356,6 @@ async def execute_tool(req: ToolExecRequest):
     return await _bridge_execute(req.tool_name, req.arguments, req.context)
 
 
-@app.post("/internal/v1/tool/jobs/{job_id}/result", dependencies=[Depends(require_auth)])
+@app.post("/internal/v1/tool/jobs/{job_id}/result", dependencies=[Depends(require_internal_service)])
 async def tool_job_callback(job_id: str, payload: dict[str, Any]):
     return {"ok": True, "job_id": job_id, "accepted": True, "payload": payload}

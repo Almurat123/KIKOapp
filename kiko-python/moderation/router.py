@@ -3,7 +3,7 @@ from pydantic import BaseModel
 import uvicorn
 import logging
 from moderation.models import moderation_models
-from chat_v2.auth import require_internal_service
+from service_auth import require_internal_service
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
