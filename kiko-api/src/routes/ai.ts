@@ -704,10 +704,15 @@ export async function aiRoutes(fastify: FastifyInstance) {
                                 allowedToolNames.add(name);
                             }
                         }
-                        allowedToolNames.add('external_web_search');
+                        if (!normalizedModel.startsWith('grok-')) {
+                            allowedToolNames.add('external_web_search');
+                        }
 
                         const definitions = toolRegistry.getAllDefinitions();
-                        const filtered = definitions.filter(def => allowedToolNames.has(def.name));
+                        const blockedForGrok = normalizedModel.startsWith('grok-')
+                            ? new Set(['external_web_search', 'get_trending_casts', 'get_farcaster_user', 'search_farcaster_casts'])
+                            : null;
+                        const filtered = definitions.filter(def => allowedToolNames.has(def.name) && !(blockedForGrok?.has(def.name)));
                         requestBody.tools = filtered.map(def => ({ type: 'function', function: def }));
 
                         if (requestBody.tools.length > 0) {

@@ -55,7 +55,7 @@ export function buildProviderOptions(snapshot: ChatContextSnapshot, providerInfo
             ['early buyers', 'earliest buyers', 'first buyers', 'holders', 'first trades', 'first swaps', 'creator', 'deployer'].some((word) => lower.includes(word))
             || ['早期买家', '首批买家', '持有人', '创建者', '部署者', '前几位买家'].some((word) => String(query || '').includes(word))
         );
-    const nativeSearchRequired = requiresRealtimeSocialSearch && !requestsOnchainEvidence;
+    const nativeSearchRequired = requiresRealtimeSocialSearch;
 
     const xSeedHandles = extractXHandles([
         snapshot.runtime.farcaster,
@@ -81,7 +81,7 @@ export function buildProviderOptions(snapshot: ChatContextSnapshot, providerInfo
                 include_options: ['inline_citations', ...(requiresRealtimeSocialSearch ? ['web_search_call_output', 'x_search_call_output'] : [])],
                 allow_extra_sdk_tools: true,
                 reason: requestsOnchainEvidence
-                    ? 'native_search_should_support_local_chain_tools'
+                    ? 'native_search_required_with_local_chain_tools'
                     : requiresRealtimeSocialSearch
                         ? 'required_realtime_social_search'
                         : 'native_search_available',

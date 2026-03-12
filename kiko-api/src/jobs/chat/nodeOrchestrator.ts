@@ -33,6 +33,7 @@ export async function runNodeOrchestration(params: {
     const tools = buildGenerationTools(
         params.snapshot.toolDefinitions,
         skillResolution.allowedTools,
+        skillResolution.blockedTools,
         skillResolution.preferredTools,
         skillResolution.allowAllTools,
         providerInfo.provider,
@@ -225,13 +226,16 @@ export async function runNodeOrchestration(params: {
 function buildGenerationTools(
     toolDefinitions: Array<{ name: string; description: string; parameters: any }>,
     allowedTools: string[],
+    blockedTools: string[] = [],
     preferredTools: string[] = [],
     allowAllTools = true,
     provider: 'openai' | 'deepseek' | 'grok' = 'deepseek',
 ) {
     const allowedSet = new Set(allowedTools);
+    const blockedSet = new Set(blockedTools);
     const preferredOrder = new Map(preferredTools.map((name, index) => [name, index]));
     return (toolDefinitions || [])
+        .filter((definition) => !blockedSet.has(definition.name))
         .filter((definition) => !(provider === 'grok' && definition.name === 'external_web_search'))
         .filter((definition) => allowAllTools || allowedSet.has(definition.name))
         .sort((a, b) => {

@@ -6,6 +6,7 @@ export interface SkillResolution {
     selectedSkills: string[];
     skillPrompts: string[];
     allowedTools: string[];
+    blockedTools: string[];
     preferredTools: string[];
     strategyNotes: string[];
     allowAllTools: boolean;
@@ -18,6 +19,7 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
     const contextBlocks = snapshot.runtime.contextBlocks || {};
     const prefetched = snapshot.runtime.prefetchedToolResults || {};
     const selected: string[] = [];
+    const blockedTools: string[] = [];
     const preferredTools: string[] = [];
     const strategyNotes: string[] = [];
     let allowAllTools = true;
@@ -111,7 +113,19 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
     }
 
     if (isGrok) {
+        pushPreferred(blockedTools, 'external_web_search');
         allowedTools = allowedTools.filter((tool) => tool !== 'external_web_search');
+        if (asksRealtimeSocial) {
+            const blockedLocalSocialTools = new Set([
+                'get_trending_casts',
+                'get_farcaster_user',
+                'search_farcaster_casts',
+            ]);
+            for (const tool of blockedLocalSocialTools) {
+                pushPreferred(blockedTools, tool);
+            }
+            allowedTools = allowedTools.filter((tool) => !blockedLocalSocialTools.has(tool));
+        }
     }
 
     if (hasRequestedToken) {
@@ -128,7 +142,7 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
     }
     if (asksRealtimeSocial) {
         if (isGrok) {
-            strategyNotes.push('Use Grok native search tools for X/web/social discovery. Do not rely on the local external_web_search tool for this request.');
+            strategyNotes.push('Use Grok native search tools for X/web/social discovery. Do not use local Farcaster/web search tools for this request.');
         } else {
             pushPreferred(preferredTools, 'external_web_search');
         }
@@ -145,6 +159,7 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
         selectedSkills: deduped,
         skillPrompts,
         allowedTools,
+        blockedTools,
         preferredTools,
         strategyNotes,
         allowAllTools,

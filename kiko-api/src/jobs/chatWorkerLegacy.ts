@@ -2536,8 +2536,7 @@ Do NOT estimate or guess USD values.`;
                         allowedToolNames.add(name);
                     }
                 }
-                // Always keep `external_web_search` as a safe fallback.
-                allowedToolNames.add('external_web_search');
+                // Keep explicit tool gating only; do not add broad web fallback here.
 
                 if (matchedSkills.length > 0 && allowedToolNames.size > 0) {
                     const gated = baseToolDefs.filter(def => allowedToolNames.has(def.name));
@@ -5074,13 +5073,11 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
                 allowedToolNames.add(name);
             }
         }
-        // Keep fallback search tools available in Grok branch.
-        // xAI provider-managed search is unstable/deprecated in chat/completions and may fail by region/account.
-        allowedToolNames.add('external_web_search');
-        allowedToolNames.add('x_search');
+        // Grok should use provider-native search for web/X discovery. Do not add local search fallbacks here.
 
         if (matchedSkills.length > 0 && allowedToolNames.size > 0) {
-            const gated = baseToolDefs.filter(def => allowedToolNames.has(def.name));
+            const blockedForGrok = new Set(['external_web_search', 'get_trending_casts', 'get_farcaster_user', 'search_farcaster_casts', 'x_search']);
+            const gated = baseToolDefs.filter(def => allowedToolNames.has(def.name) && !blockedForGrok.has(def.name));
             if (gated.length > 0) {
                 toolDefinitions = gated.map(def => ({ type: 'function', function: def }));
                 logger.throttled(LogCode.AI_TOOL_FILTERED, 'Grok: tool list gated by skills', {
