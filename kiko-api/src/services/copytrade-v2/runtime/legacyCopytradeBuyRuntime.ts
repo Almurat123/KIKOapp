@@ -1279,14 +1279,10 @@ export async function handleTargetSell(params: {
         filterExecutableCopyTradeConfigs,
         dedupeConfigsByUser,
         upsertTargetSellEvent,
-        getTokenInfo,
-        reconcileOpenPositionsForExit,
+        buildTargetSellEventPayload,
+        persistTargetSellEventAndSchedulePositions,
         armPendingAttributedPositionsForMirrorSell,
-        listPendingAttributedPositions,
-        evaluateMirrorSellExecutionPolicy,
-        recordNewTrade,
-        positionsBeingExited,
-        executePositionExit
+        recordNewTrade
     } = deps;
     const { targetWallet, swap, chainId } = params;
     const tokenToSell = swap.tokenIn;
@@ -1367,8 +1363,8 @@ export async function handleTargetSell(params: {
 
     logger.info(LogCode.EXE_TX_BROADCAST, 'Mirror sell: Processing open positions for token', { token: tokenToSell, configCount: uniqueExecutableConfigs.length, targetWallet });
 
-    if (swap.txHash) {
-        await upsertTargetSellEvent({
+    const persistedEvent = swap.txHash
+        ? await upsertTargetSellEvent({
             chainId,
             targetWallet: normalizedWallet,
             tokenAddress: tokenToSell,
@@ -1387,38 +1383,76 @@ export async function handleTargetSell(params: {
                 txHash: swap.txHash,
                 error: error?.message || String(error)
             });
-        });
-    }
-
-    const sharedTokenInfoPromise = getTokenInfo(tokenToSell, chainId, { priority: 'high', rpcStrategy: 'fast', fastMode: true }).catch(() => null);
+            return null;
+        })
+        : null;
 
     await Promise.all(uniqueExecutableConfigs.map(async (config: any) => {
-        const [positions, tokenInfo] = await Promise.all([
-            prisma.position.findMany({
-                where: { userId: config.userId, configId: config.id, chainId, tokenAddress: tokenToSell, status: { in: ['open', 'pending'] } },
-            }),
-            sharedTokenInfoPromise
-        ]);
+        const ledgerRows = await prisma.copytradePositionLedger.findMany({
+            where: {
+                userId: config.userId,
+                configId: config.id,
+                chainId,
+                tokenAddress: tokenToSell,
+                targetWallet: normalizedWallet,
+                closedAt: null,
+                positionIdLegacy: { not: null },
+                lifecycleState: {
+                    in: [
+                        'FOLLOWER_OPEN',
+                        'FOLLOWER_OPEN_REPAIR_REQUIRED',
+                        'FOLLOWER_EXIT_FAILED_RETRYABLE',
+                        'FOLLOWER_EXIT_ARMED',
+                        'FOLLOWER_BUY_AWAITING_CONFIRMATION',
+                    ],
+                },
+            },
+            select: {
+                positionIdLegacy: true,
+            },
+        });
+        const positionIds = ledgerRows
+            .map((row: { positionIdLegacy: string | null }) => String(row.positionIdLegacy || '').trim())
+            .filter(Boolean);
 
-        if (!tokenInfo) {
-            logger.warn(LogCode.API_FETCH_FAILED, 'Mirror sell: Token info unavailable (RPC/API down), proceeding with price=0', { token: tokenToSell, userId: config.userId });
-        }
-
-        const reconciledPositions = reconcileOpenPositionsForExit(positions, tokenToSell, chainId);
-        if (reconciledPositions.matchedPositions.length === 0) {
+        if (positionIds.length === 0) {
             logger.info(
                 LogCode.WTC_TX_SKIPPED,
-                `Mirror sell skipped: no open positions after reconciliation (token=${tokenToSell}, before=${reconciledPositions.metrics.positionCountBefore}, after=${reconciledPositions.metrics.positionCountAfter}, normalized=${reconciledPositions.metrics.normalizedTokenAddress}, reasonCode=${reconciledPositions.reasonCode})`,
+                'Mirror sell skipped: no ledger-backed follower exposure for target sell',
                 {
                     userId: config.userId,
                     token: tokenToSell,
-                    reasonCode: reconciledPositions.reasonCode,
-                    ...reconciledPositions.metrics
+                    chainId,
+                    targetWallet: normalizedWallet,
+                    configId: config.id,
+                    ledgerCandidateCount: 0,
+                    reasonCode: 'MIRROR_SELL_NO_LEDGER_CANDIDATES',
                 }
             );
             return;
         }
-        const matchedPositions = reconciledPositions.matchedPositions;
+        const matchedPositions = await prisma.position.findMany({
+            where: {
+                id: { in: positionIds },
+                userId: config.userId,
+                configId: config.id,
+                chainId,
+                tokenAddress: tokenToSell,
+                status: { in: ['open', 'pending'] },
+            },
+        });
+        if (matchedPositions.length === 0) {
+            logger.info(LogCode.WTC_TX_SKIPPED, 'Mirror sell skipped: ledger candidates had no active positions', {
+                userId: config.userId,
+                token: tokenToSell,
+                chainId,
+                targetWallet: normalizedWallet,
+                configId: config.id,
+                ledgerCandidateCount: positionIds.length,
+                reasonCode: 'MIRROR_SELL_LEDGER_ACTIVE_POSITION_MISSING',
+            });
+            return;
+        }
         const pendingMatchedPositionIds = matchedPositions
             .filter((position: any) => String(position.status || '') !== 'open')
             .map((position: any) => position.id);
@@ -1440,90 +1474,70 @@ export async function handleTargetSell(params: {
                 targetSellTxHash: swap.txHash || undefined
             });
         }
-        const pendingAttributedLots = pendingMatchedPositionIds.length > 0
-            ? await listPendingAttributedPositions({
-                userId: config.userId,
-                chainId,
-                tokenAddress: tokenToSell,
-                positionIds: pendingMatchedPositionIds,
-                statuses: ['armed', 'sell_armed']
-            }).catch(() => [])
-            : [];
-        const verifiedLedgerPositionIds = matchedPositions.length > 0
-            ? await prisma.copytradePositionLedger.findMany({
-                where: {
-                    positionIdLegacy: { in: matchedPositions.map((position: any) => position.id) },
-                    userId: config.userId,
-                    configId: config.id,
-                    chainId,
-                    tokenAddress: tokenToSell,
-                    targetWallet: normalizedWallet,
-                    closedAt: null,
-                    targetFullExitVerified: false,
-                },
-                select: {
-                    positionIdLegacy: true,
-                },
-            }).then((rows: Array<{ positionIdLegacy: string | null }>) =>
-                rows
-                    .map((row) => String(row.positionIdLegacy || '').trim())
-                    .filter(Boolean)
-            ).catch(() => [])
-            : [];
-
-        const mirrorSellExecutionPolicy = evaluateMirrorSellExecutionPolicy({
-            matchedPositions,
-            pendingAttributedLots,
-            expectedConfigId: config.id,
-            verifiedLedgerPositionIds,
-        });
-        if (!mirrorSellExecutionPolicy.allowed) {
-            logger.info(LogCode.WTC_TX_SKIPPED, 'Mirror sell skipped: follower-side execution policy blocked immediate sell', {
-                userId: config.userId,
-                token: tokenToSell,
-                chainId,
-                targetWallet: normalizedWallet,
-                targetSellTxHash: swap.txHash,
-                reasonCode: mirrorSellExecutionPolicy.reasonCode,
-                ...mirrorSellExecutionPolicy.metrics
-            });
-            return;
-        }
-        logger.info(LogCode.SYS_INFO, 'Mirror sell immediate gate passed', {
+        logger.info(LogCode.SYS_INFO, 'Mirror sell ledger gate passed', {
             userId: config.userId,
             token: tokenToSell,
             chainId,
             targetWallet: normalizedWallet,
             targetSellTxHash: swap.txHash,
-            reasonCode: mirrorSellExecutionPolicy.reasonCode,
-            ...mirrorSellExecutionPolicy.metrics
+            configId: config.id,
+            ledgerCandidateCount: positionIds.length,
+            matchedPositionCount: matchedPositions.length,
+            pendingPositionCount: pendingMatchedPositionIds.length,
+            openPositionCount: matchedPositions.length - pendingMatchedPositionIds.length,
+            reasonCode: 'MIRROR_SELL_LEDGER_MATCHED',
         });
-
-        const eligiblePositions = mirrorSellExecutionPolicy.eligiblePositions;
-        const eligiblePendingAttributedLots = mirrorSellExecutionPolicy.eligiblePendingAttributedLots;
-        const balanceUsdForStats = eligiblePositions.reduce((sum: number, p: any) => sum + (p.entryUsdValue || 0), 0);
+        const balanceUsdForStats = matchedPositions.reduce((sum: number, p: any) => sum + (p.entryUsdValue || 0), 0);
         recordNewTrade(targetWallet, chainId, 'sell', balanceUsdForStats);
-
-        const positionIds = eligiblePositions.map((p: any) => p.id);
-        if (positionIds.some((id: string) => positionsBeingExited.has(id))) {
-            logger.throttled(LogCode.WTC_TX_SKIPPED, 'Mirror sell skipped: position already being processed', { userId: config.userId, token: tokenToSell });
-            return;
-        }
-
-        positionIds.forEach((id: string) => positionsBeingExited.add(id));
-        try {
-            await executePositionExit({
-                userId: config.userId,
-                tokenAddress: tokenToSell,
+        const scheduled = await persistTargetSellEventAndSchedulePositions({
+            event: persistedEvent || buildTargetSellEventPayload({
                 chainId,
-                exitReason: 'mirror_sell',
-                tokenInfo,
-                config: { ...config, user: config.user },
-                positions: eligiblePositions,
-                pendingAttributedLots: eligiblePendingAttributedLots
+                targetWallet: normalizedWallet,
+                tokenAddress: tokenToSell,
+                targetSellTxHash: swap.txHash,
+                source: 'webhook',
+                metadata: {
+                    persistedBy: 'legacy_mirror_sell_runtime',
+                    configId: config.id,
+                }
+            }),
+            positions: matchedPositions.map((position: any) => ({
+                id: position.id,
+                userId: position.userId,
+                configId: position.configId,
+                chainId: position.chainId,
+                tokenAddress: position.tokenAddress,
+                entryAmountExact: position.entryAmountExact,
+                entryAmountDec: position.entryAmountDec,
+            })),
+            priority: 220,
+            metadata: {
+                sourceRuntime: 'legacy_mirror_sell_runtime',
+                pendingPositionCount: pendingMatchedPositionIds.length,
+                executionPolicyReasonCode: 'MIRROR_SELL_LEDGER_MATCHED',
+            }
+        }).catch((error: any) => {
+            logger.warn(LogCode.SYS_ERROR, 'Mirror sell: failed to schedule canonical exit intents', {
+                userId: config.userId,
+                token: tokenToSell,
+                chainId,
+                targetWallet: normalizedWallet,
+                txHash: swap.txHash,
+                error: error?.message || String(error),
             });
-        } finally {
-            positionIds.forEach((id: string) => positionsBeingExited.delete(id));
+            return null;
+        });
+        if (scheduled) {
+            logger.info(LogCode.SYS_INFO, 'Mirror sell scheduled canonical exit intents', {
+                userId: config.userId,
+                token: tokenToSell,
+                chainId,
+                targetWallet: normalizedWallet,
+                targetSellTxHash: swap.txHash,
+                scheduled: scheduled.scheduled,
+                skipped: scheduled.skipped,
+                reasonCode: 'MIRROR_SELL_LEDGER_MATCHED',
+            });
         }
     }));
 }

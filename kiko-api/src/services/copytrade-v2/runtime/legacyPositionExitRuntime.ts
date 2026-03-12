@@ -3,7 +3,6 @@ import prisma from '../../../db/prisma.js';
 import { logger } from '../../../utils/logger.js';
 import { LogCode } from '../../../config/logRegistry.js';
 import { DynamicTakeProfitService } from '../../dynamicTakeProfitService.js';
-import { getDexPriceDetailed } from '../../dexPriceService.js';
 import { getSolanaConnection, SOLANA_CONFIG } from '../../../config/solanaConfig.js';
 import { executeSolanaSwap } from '../../solanaExecutor.js';
 import { getSolanaEmbeddedWalletAddress } from '../../privyWallet.js';
@@ -637,11 +636,17 @@ export async function checkPositionsForExits(
         }
     });
 
-    const retryablePositions = positionsNeedingRetry.filter((position) => !hasRecentInflightExitRetryGuard({
-        exitTxHash: position.exitTxHash,
-        lastExitAttempt: position.lastExitAttempt,
-        graceMs: EXIT_INFLIGHT_RETRY_GRACE_MS,
-    }));
+    const retryablePositions = positionsNeedingRetry.filter((position) => {
+        const exitReason = String((position as any).exitReason || '').toLowerCase();
+        if (exitReason === 'take_profit' || exitReason === 'stop_loss' || exitReason === 'dynamic_take_profit') {
+            return false;
+        }
+        return !hasRecentInflightExitRetryGuard({
+            exitTxHash: position.exitTxHash,
+            lastExitAttempt: position.lastExitAttempt,
+            graceMs: EXIT_INFLIGHT_RETRY_GRACE_MS,
+        });
+    });
 
     if (retryablePositions.length > 0) {
         logger.info(LogCode.SYS_STARTUP, `Found ${retryablePositions.length} positions needing exit retry`);
@@ -657,7 +662,11 @@ export async function checkPositionsForExits(
                     continue;
                 }
 
-                const tokenInfo = await getTokenInfo(position.tokenAddress, position.chainId);
+                const tokenInfo = await getTokenInfo(position.tokenAddress, position.chainId, {
+                    forceRefresh: true,
+                    priority: 'high',
+                    rpcStrategy: 'fast',
+                });
                 if (!tokenInfo) {
                     logger.warn(LogCode.API_FETCH_FAILED, 'Token info not available for retry', { token: position.tokenAddress });
                     continue;
@@ -721,21 +730,11 @@ export async function checkPositionsForExits(
         const batch = tokenList.slice(i, i + TOKEN_BATCH_SIZE);
         await Promise.all(batch.map(async ({ address, chainId }) => {
             try {
-                const dexChainId = chainId === 900 ? 'solana' : chainId;
-                const dexPriceResult = await getDexPriceDetailed(address, dexChainId);
-                const dexPrice = dexPriceResult.price;
-
-                if (dexPrice > 0) {
-                    const info = await getTokenInfo(address, chainId).catch(() => null);
-                    tokenPriceMap.set(`${address.toLowerCase()}_${chainId}`, {
-                        ...(info || {}),
-                        price: dexPrice,
-                        provider: dexPriceResult.provider || (chainId === 900 ? 'jupiter-dex' : '0x-dex')
-                    });
-                    return;
-                }
-
-                const info = await getTokenInfo(address, chainId);
+                const info = await getTokenInfo(address, chainId, {
+                    forceRefresh: true,
+                    priority: 'high',
+                    rpcStrategy: 'fast',
+                });
                 if (info && info.price) {
                     tokenPriceMap.set(`${address.toLowerCase()}_${chainId}`, info);
                 }
@@ -882,11 +881,7 @@ export async function checkPositionsForExits(
                     return;
                 }
 
-                const autoExitPriceGuard = evaluateAutoExitPriceGuard({
-                    entryPrice: position.entryPrice,
-                    currentPrice,
-                    profitLossPct,
-                });
+                const autoExitPriceGuard = evaluateAutoExitPriceGuard({ tokenInfo });
                 if (!autoExitPriceGuard.allowed) {
                     deps.clearTpslHit(position.id);
                     logger.warn(LogCode.WTC_TX_SKIPPED, 'TP/SL guard: anomalous price feed blocked auto-exit', {

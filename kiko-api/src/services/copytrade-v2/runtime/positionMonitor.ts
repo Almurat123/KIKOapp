@@ -4,7 +4,6 @@ import prisma from '../../../db/prisma.js';
 import { logger } from '../../../utils/logger.js';
 import { LogCode } from '../../../config/logRegistry.js';
 import { DynamicTakeProfitService } from '../../dynamicTakeProfitService.js';
-import { getDexPriceDetailed } from '../../dexPriceService.js';
 import { getSolanaConnection, SOLANA_CONFIG } from '../../../config/solanaConfig.js';
 import { executeSolanaSwap } from '../../solanaExecutor.js';
 import { getSolanaEmbeddedWalletAddress } from '../../privyWallet.js';
@@ -862,11 +861,17 @@ export async function checkPositionsForExits(): Promise<void> {
         }
     });
 
-    const retryablePositions = positionsNeedingRetry.filter((position) => !hasRecentInflightExitRetryGuard({
-        exitTxHash: (position as any).exitTxHash,
-        lastExitAttempt: position.lastExitAttempt,
-        graceMs: EXIT_INFLIGHT_RETRY_GRACE_MS,
-    }));
+    const retryablePositions = positionsNeedingRetry.filter((position) => {
+        const exitReason = String((position as any).exitReason || '').toLowerCase();
+        if (exitReason === 'take_profit' || exitReason === 'stop_loss' || exitReason === 'dynamic_take_profit') {
+            return false;
+        }
+        return !hasRecentInflightExitRetryGuard({
+            exitTxHash: (position as any).exitTxHash,
+            lastExitAttempt: position.lastExitAttempt,
+            graceMs: EXIT_INFLIGHT_RETRY_GRACE_MS,
+        });
+    });
 
     if (retryablePositions.length > 0) {
         logger.info(LogCode.SYS_STARTUP, `Found ${retryablePositions.length} positions needing exit retry`);
@@ -882,7 +887,11 @@ export async function checkPositionsForExits(): Promise<void> {
                     continue;
                 }
 
-                const tokenInfo = await getTokenInfo(position.tokenAddress, position.chainId);
+                const tokenInfo = await getTokenInfo(position.tokenAddress, position.chainId, {
+                    forceRefresh: true,
+                    priority: 'high',
+                    rpcStrategy: 'fast',
+                });
                 if (!tokenInfo) {
                     logger.warn(LogCode.API_FETCH_FAILED, 'Token info not available for retry', { token: position.tokenAddress });
                     continue;
@@ -952,26 +961,11 @@ export async function checkPositionsForExits(): Promise<void> {
         const batch = tokenList.slice(i, i + TOKEN_BATCH_SIZE);
         await Promise.all(batch.map(async ({ address, chainId }) => {
             try {
-                // Primary: DEX aggregator price (0x for EVM, Jupiter for Solana)
-                const dexChainId = chainId === 900 ? 'solana' : chainId;
-                const dexPriceResult = await getDexPriceDetailed(address, dexChainId, {
-                    lane: 'critical',
-                    allowExternalMonitorFallback: true
+                const info = await getTokenInfo(address, chainId, {
+                    forceRefresh: true,
+                    priority: 'high',
+                    rpcStrategy: 'fast',
                 });
-                const dexPrice = dexPriceResult.price;
-
-                if (dexPrice > 0) {
-                    const info = await getTokenInfo(address, chainId).catch(() => null);
-                    tokenPriceMap.set(`${address.toLowerCase()}_${chainId}`, {
-                        ...(info || {}),
-                        price: dexPrice,
-                        provider: dexPriceResult.provider || (chainId === 900 ? 'jupiter-dex' : '0x-dex')
-                    });
-                    return;
-                }
-
-                // Fallback: full token info (RPC + GeckoTerminal)
-                const info = await getTokenInfo(address, chainId);
                 if (info && info.price) {
                     tokenPriceMap.set(`${address.toLowerCase()}_${chainId}`, info);
                 }
@@ -1072,14 +1066,15 @@ export async function checkPositionsForExits(): Promise<void> {
                 const tokenKey = `${position.tokenAddress.toLowerCase()}_${position.chainId}`;
                 let tokenInfo = tokenPriceMap.get(tokenKey); // Now this is the COMPLETE object
                 if (!tokenInfo && position.chainId === 900) {
-                    // Solana-specific live retry to reduce false TP/SL skips when batch pricing is transiently unavailable.
+                    // Solana-specific live retry using the validated token oracle path.
                     try {
-                        const live = await getDexPriceDetailed(position.tokenAddress, 'solana', { lane: 'critical' });
-                        if (live.price > 0) {
-                            tokenInfo = {
-                                price: live.price,
-                                provider: live.provider || 'jupiter-dex'
-                            };
+                        const live = await getTokenInfo(position.tokenAddress, position.chainId, {
+                            forceRefresh: true,
+                            priority: 'high',
+                            rpcStrategy: 'fast',
+                        });
+                        if (live?.price > 0) {
+                            tokenInfo = live;
                             tokenPriceMap.set(tokenKey, tokenInfo);
                             logger.info(LogCode.API_FETCH_SUCCESS, 'TP/SL price recovered via per-position Solana retry', {
                                 positionId: position.id,
@@ -1161,11 +1156,7 @@ export async function checkPositionsForExits(): Promise<void> {
                     return;
                 }
 
-                const autoExitPriceGuard = evaluateAutoExitPriceGuard({
-                    entryPrice: position.entryPrice,
-                    currentPrice,
-                    profitLossPct,
-                });
+                const autoExitPriceGuard = evaluateAutoExitPriceGuard({ tokenInfo });
                 if (!autoExitPriceGuard.allowed) {
                     clearTpslHit(position.id);
                     logger.warn(LogCode.WTC_TX_SKIPPED, 'TP/SL guard: anomalous price feed blocked auto-exit', {

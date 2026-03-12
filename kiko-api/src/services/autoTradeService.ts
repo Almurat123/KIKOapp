@@ -84,8 +84,6 @@ import { cleanupPendingCopytradePosition } from './copytrade-v2/buy/pendingLifec
 import { buildCopytradeBuyPlannedArtifact } from './copytrade-v2/buy/plannedExecutionArtifact.js';
 import { shouldAbortCopytradeBuyRetry } from './copytrade-v2/buy/copytradeBuyRetryGuard.js';
 import { evaluateBuyPriceDeviationGuard } from './copytrade-v2/buy/buyGuardPriceDeviation.js';
-import { reconcileOpenPositionsForExit } from './copytrade-v2/exit/openPositionReconciliation.js';
-import { evaluateMirrorSellExecutionPolicy } from './copytrade-v2/exit/mirrorSellExecutionPolicy.js';
 import { resolveAttributedPositionExitAmount } from './copytrade-v2/positions/positionAttribution.js';
 import { finalizeCopytradeBuyPosition } from './copytrade-v2/positions/positionPersistence.js';
 import {
@@ -98,6 +96,10 @@ import { runCopytradeAttributionRepairCycle } from './copytrade-v2/jobs/copytrad
 import { runCopytradeOrphanSweepCycle } from './copytrade-v2/jobs/copytradeOrphanSweepJob.js';
 import { repairCopytradePositionAttribution } from './copytrade-v2/jobs/copytradeAttributionRepairJob.js';
 import { upsertTargetSellEvent } from './copytrade-v2/exit/targetSellEventStore.js';
+import {
+    buildTargetSellEventPayload,
+    persistTargetSellEventAndSchedulePositions
+} from './copytrade-v2/exit/positionExitIntentScheduler.js';
 import { getCopytradeBuySharedWarmup } from './copytrade-v2/buy/buySharedWarmup.js';
 import { shouldDeferStrongRpcMonitoring } from './copytrade-v2/buy/preConfirmationRpcPolicy.js';
 import {
@@ -1970,12 +1972,10 @@ function getLegacyCopytradeBuyRuntimeDeps() {
         filterExecutableCopyTradeConfigs,
         dedupeConfigsByUser,
         upsertTargetSellEvent,
-        reconcileOpenPositionsForExit,
+        buildTargetSellEventPayload,
+        persistTargetSellEventAndSchedulePositions,
         armPendingAttributedPositionsForMirrorSell,
-        listPendingAttributedPositions,
-        evaluateMirrorSellExecutionPolicy,
         recordNewTrade,
-        positionsBeingExited,
     };
 }
 
