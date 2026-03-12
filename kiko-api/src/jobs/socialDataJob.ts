@@ -25,6 +25,7 @@ import { baseAppService } from '../services/baseAppService.js';
 import { zoraService } from '../services/zoraService.js';
 import qualityUsersRepo from '../repositories/qualityUsersRepository.js';
 import { ogpService } from '../services/ogpService.js';
+import { shouldRunNonCriticalJob } from '../services/runtimeActivityService.js';
 
 
 const __filename = fileURLToPath(import.meta.url);
@@ -724,18 +725,27 @@ export async function runScoreRecalculationJob(): Promise<void> {
  */
 export function startSocialDataJobs(): void {
   // 1. Discovery Job: Every 30 minutes (Find NEW content)
-  cron.schedule('*/30 * * * *', () => runDiscoveryJob(), {
+  cron.schedule('*/30 * * * *', () => {
+    if (!shouldRunNonCriticalJob('social_discovery')) return;
+    void runDiscoveryJob();
+  }, {
     timezone: 'UTC',
   });
 
   // 2. Engagement Refresh: Every 4 hours (Update OLD content)
   // Runs at 0, 4, 8, 12, 16, 20 hours UTC
-  cron.schedule('0 */4 * * *', () => runEngagementRefreshJob(), {
+  cron.schedule('0 */4 * * *', () => {
+    if (!shouldRunNonCriticalJob('social_engagement_refresh')) return;
+    void runEngagementRefreshJob();
+  }, {
     timezone: 'UTC',
   });
 
   // 3. Score Recalc: Every 5 minutes (Keep ranking fresh)
-  cron.schedule('*/5 * * * *', () => runScoreRecalculationJob(), {
+  cron.schedule('*/5 * * * *', () => {
+    if (!shouldRunNonCriticalJob('social_score_recalc')) return;
+    void runScoreRecalculationJob();
+  }, {
     timezone: 'UTC',
   });
 
@@ -743,6 +753,7 @@ export function startSocialDataJobs(): void {
 
   // Run initial setup on startup
   setTimeout(async () => {
+    if (!shouldRunNonCriticalJob('social_startup_refresh')) return;
     // Ensure database has quality users (use hardcoded FIDs if empty, do NOT auto-call Dune)
     try {
       const existingFids = await qualityUsersRepo.getQualityFids();
@@ -755,6 +766,6 @@ export function startSocialDataJobs(): void {
     }
 
     // Run initial discovery
-    runDiscoveryJob();
+    void runDiscoveryJob();
   }, 5000); // Wait 5 seconds for services to be ready
 }

@@ -3,6 +3,7 @@ import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
 import { isContextLearningEnabled } from '../services/copytrade-v2/context/featureFlags.js';
 import { learnTemplateCandidateDrafts } from '../services/copytrade-v2/learning/contextLearner.js';
+import { shouldRunNonCriticalJob } from '../services/runtimeActivityService.js';
 
 let started = false;
 let running = false;
@@ -10,6 +11,7 @@ let running = false;
 export async function runContextLearningJob(): Promise<void> {
   if (!isContextLearningEnabled()) return;
   if (running) return;
+  if (!shouldRunNonCriticalJob('context_learning')) return;
   running = true;
   try {
     const result = await learnTemplateCandidateDrafts();
@@ -47,4 +49,3 @@ export function startContextLearningJob(): void {
 
   void runContextLearningJob();
 }
-

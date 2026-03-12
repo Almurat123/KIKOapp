@@ -38,7 +38,7 @@ function calculateAltcoinSeasonIndex(bitcoinDominance: number): number {
 }
 
 const REFRESH_24H_MS = 23.5 * 60 * 60 * 1000; // 23.5 hours to allow for slight timing drift
-const REFRESH_5M_MS = 4.5 * 60 * 1000; // 4.5 minutes 
+const REFRESH_8H_MS = 7.5 * 60 * 60 * 1000; // 7.5 hours
 
 /**
  * Refresh market overview data
@@ -199,7 +199,7 @@ export async function refreshTrendingTokens(force = false): Promise<void> {
     // Check if data is already fresh in SQL
     if (!force) {
       const lastUpdate = await getMarketUpdateTime('trending');
-      if (lastUpdate && (Date.now() - lastUpdate.getTime()) < REFRESH_5M_MS) {
+      if (lastUpdate && (Date.now() - lastUpdate.getTime()) < REFRESH_8H_MS) {
         logger.aggregate(LogCode.SYS_INFO, 'Trending tokens are fresh, skipping API call');
         return;
       }
@@ -247,12 +247,12 @@ export function startMarketDataJobs(): void {
     timezone: 'UTC',
   });
 
-  // Trending tokens: Every 5 minutes
-  cron.schedule('*/5 * * * *', () => refreshTrendingTokens(), {
+  // Trending tokens: Every 8 hours
+  cron.schedule('0 */8 * * *', () => refreshTrendingTokens(), {
     timezone: 'UTC',
   });
 
-  console.log('[MarketJob] Scheduled: Overview(2:00 UTC), Chains(3:00 UTC), Protocols(4:00 UTC), Trending(Every 5m)');
+  console.log('[MarketJob] Scheduled: Overview(2:00 UTC), Chains(3:00 UTC), Protocols(4:00 UTC), Trending(Every 8h)');
 
   // Run initial refresh on startup only if data is stale in SQL
   setTimeout(async () => {
@@ -267,4 +267,3 @@ export function startMarketDataJobs(): void {
     }
   }, 5000); // Wait 5 seconds for services to be ready
 }
-

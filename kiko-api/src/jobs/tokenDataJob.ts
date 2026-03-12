@@ -27,6 +27,7 @@ import { acquireLock, releaseLock, set as setRedisCache, get as getRedisCache, i
 import { getNativeTokenPriceUsd } from '../services/onChainPriceService.js';
 import { computeLaunchpadMultiple } from '../services/launchpadMultipleService.js';
 import prisma from '../db/prisma.js';
+import { shouldRunNonCriticalJob } from '../services/runtimeActivityService.js';
 
 /**
  * Supported chains configuration
@@ -1665,12 +1666,18 @@ export function getSupportedChains(): string[] {
  */
 export function startTokenDataJobs(): void {
   // Primary chains: Every 5 minutes
-  cron.schedule(`*/${PRIMARY_REFRESH_INTERVAL_MINUTES} * * * *`, () => refreshPrimaryChains(), {
+  cron.schedule(`*/${PRIMARY_REFRESH_INTERVAL_MINUTES} * * * *`, () => {
+    if (!shouldRunNonCriticalJob('token_primary_refresh')) return;
+    void refreshPrimaryChains();
+  }, {
     timezone: 'UTC',
   });
 
   // Secondary chains: Every 4 hours
-  cron.schedule(`0 */${SECONDARY_REFRESH_INTERVAL_HOURS} * * *`, () => refreshSecondaryChains(), {
+  cron.schedule(`0 */${SECONDARY_REFRESH_INTERVAL_HOURS} * * *`, () => {
+    if (!shouldRunNonCriticalJob('token_secondary_refresh')) return;
+    void refreshSecondaryChains();
+  }, {
     timezone: 'UTC',
   });
 
@@ -1679,8 +1686,9 @@ export function startTokenDataJobs(): void {
 
   // Run initial refresh on startup (with delay for services to be ready)
   setTimeout(() => {
+    if (!shouldRunNonCriticalJob('token_startup_refresh')) return;
     logger.info(LogCode.SYS_INFO, 'Starting initial token refresh...');
-    refreshPrimaryChains();  // Start with primary chains
+    void refreshPrimaryChains();  // Start with primary chains
     // Secondary chains will wait for their scheduled time
   }, 30000); // Wait 30 seconds for services to be ready
 }

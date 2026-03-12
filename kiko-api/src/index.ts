@@ -58,9 +58,10 @@ import { startPolling as startPolymarketWatcher, stopPolling as stopPolymarketWa
 import fastifyRawBody from 'fastify-raw-body';
 import helmet from '@fastify/helmet';
 import { tracingHook } from './middleware/tracing.js';
-import { startRpcHealthMonitor, startRpcBenchmarkSampling } from './services/rpcManager.js';
+import { startRpcBenchmarkSampling } from './services/rpcManager.js';
 import { startNativePriceRefresh } from './services/onChainPriceService.js';
 import { requireAuth } from './middleware/auth.js';
+import { markEndUserActivity } from './services/runtimeActivityService.js';
 
 const fastify = Fastify({
     logger: {
@@ -169,6 +170,19 @@ logger.info(LogCode.SYS_STARTUP, 'Build SHA', { buildSha });
 
 // Register tracing middleware (must be first)
 fastify.addHook('onRequest', tracingHook);
+
+// Track recent end-user traffic so non-critical background jobs can sleep while idle.
+fastify.addHook('onRequest', async (request) => {
+    const url = request.url || '';
+    if (
+        url === '/health' ||
+        url.startsWith('/health?') ||
+        url.startsWith('/api/webhook')
+    ) {
+        return;
+    }
+    markEndUserActivity();
+});
 
 // Add unified response metadata for API-style envelopes.
 fastify.addHook('preSerialization', async (request, _reply, payload) => {
@@ -415,14 +429,6 @@ async function start() {
             url: `http://localhost:${env.port}`,
             health: `http://localhost:${env.port}/health`
         });
-
-        // Start RPC health monitor (logs only when unhealthy)
-        try {
-            startRpcHealthMonitor();
-            logger.info(LogCode.SYS_STARTUP, 'RPC health monitor started');
-        } catch (rpcHealthError: any) {
-            logger.error(LogCode.SYS_ERROR, 'RPC health monitor failed to start', { error: rpcHealthError.message });
-        }
 
         // Start RPC benchmark sampling (Base) to update health stats
         try {
