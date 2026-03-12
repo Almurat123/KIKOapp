@@ -386,7 +386,9 @@ export function sanitizeProviderHistory(history: GenerationMessage[], model: str
             return {
                 ...msg,
                 reasoning_content: typeof msg.reasoning_content === 'string' ? msg.reasoning_content : '',
-                content: msg.tool_calls && !msg.content ? null : msg.content,
+                content: msg.tool_calls && (msg.content === null || msg.content === undefined)
+                    ? ''
+                    : (msg.content ?? ''),
             };
         });
     }
