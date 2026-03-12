@@ -96,6 +96,7 @@ import { runCopytradeAttributionRepairCycle } from './copytrade-v2/jobs/copytrad
 import { runCopytradeOrphanSweepCycle } from './copytrade-v2/jobs/copytradeOrphanSweepJob.js';
 import { repairCopytradePositionAttribution } from './copytrade-v2/jobs/copytradeAttributionRepairJob.js';
 import { upsertTargetSellEvent } from './copytrade-v2/exit/targetSellEventStore.js';
+import { syncCopytradeLedgerFromLegacy } from './copytrade-v2/ledger/copytradeLedgerRepository.js';
 import {
     buildTargetSellEventPayload,
     persistTargetSellEventAndSchedulePositions
@@ -1974,6 +1975,7 @@ function getLegacyCopytradeBuyRuntimeDeps() {
         upsertTargetSellEvent,
         buildTargetSellEventPayload,
         persistTargetSellEventAndSchedulePositions,
+        syncCopytradeLedgerFromLegacy,
         armPendingAttributedPositionsForMirrorSell,
         recordNewTrade,
     };

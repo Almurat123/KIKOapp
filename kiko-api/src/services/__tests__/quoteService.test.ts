@@ -42,3 +42,27 @@ test('quote cache key keeps quote-only requests separate from wallet-bound swaps
 
   assert.notEqual(quoteOnly, execution);
 });
+
+test('turbo sell bounded deadline waits for the full deadline when no quick quote arrived', () => {
+  const strategy = __testOnly.resolveTurboSellWaitStrategy({
+    hasQuickQuote: false,
+    elapsedMs: 240,
+    totalWaitMs: 1600,
+    sellQuotePolicy: 'bounded_deadline',
+  });
+
+  assert.equal(strategy.mode, 'bounded_deadline');
+  assert.equal(strategy.waitMs, 1360);
+});
+
+test('turbo sell fast window keeps the short retry window when a quick quote already exists', () => {
+  const strategy = __testOnly.resolveTurboSellWaitStrategy({
+    hasQuickQuote: true,
+    elapsedMs: 180,
+    totalWaitMs: 1600,
+    sellQuotePolicy: 'fast_window',
+  });
+
+  assert.equal(strategy.mode, 'secondary_window');
+  assert.equal(strategy.waitMs, 220);
+});

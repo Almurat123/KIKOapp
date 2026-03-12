@@ -195,6 +195,118 @@ test('mirror sell schedules canonical exit intents instead of executing immediat
   assert.equal(executed, 0);
 });
 
+test('mirror sell repairs missing ledger candidates from canonical positions before scheduling', async () => {
+  const scheduled: any[] = [];
+  const synced: any[] = [];
+
+  await handleTargetSell(
+    {
+      targetWallet: '0xABCDEFabcdefABCDEFabcdefABCDEFabcdefABCD',
+      chainId: 56,
+      swap: {
+        txHash: '0xselltx',
+        tokenIn: '0x9999999999999999999999999999999999999999',
+      },
+    },
+    {
+      normalizeAddress(value: string) {
+        return String(value || '').toLowerCase();
+      },
+      logger: {
+        info() {},
+        warn() {},
+      },
+      LogCode: {
+        EXE_QUOTE_FETCHED: 'EXE_QUOTE_FETCHED',
+        EXE_TX_BROADCAST: 'EXE_TX_BROADCAST',
+        WTC_TX_SKIPPED: 'WTC_TX_SKIPPED',
+        API_FETCH_FAILED: 'API_FETCH_FAILED',
+        SYS_ERROR: 'SYS_ERROR',
+        SYS_INFO: 'SYS_INFO',
+      },
+      withRetry<T>(fn: () => Promise<T>) {
+        return fn();
+      },
+      prisma: {
+        copyTradeConfig: {
+          async findMany() {
+            return [{
+              id: 'config-1',
+              userId: 'user-1',
+              targetWallet: '0xabcdefabcdefabcdefabcdefabcdefabcdefabcd',
+              chainId: 56,
+              status: 'active',
+              mirrorSell: true,
+            }];
+          },
+        },
+        user: {
+          async findMany() {
+            return [{
+              privyDid: 'user-1',
+              walletAddress: '0x1111111111111111111111111111111111111111',
+            }];
+          },
+        },
+        position: {
+          async findMany(args: any) {
+            if (args?.where?.leaderTxHash?.not === null) {
+              return [{
+                id: 'pos-1',
+                userId: 'user-1',
+                configId: 'config-1',
+                chainId: 56,
+                tokenAddress: '0x9999999999999999999999999999999999999999',
+                entryAmountExact: '100',
+                entryAmountDec: '0.0000000000000001',
+                status: 'open',
+                leaderTxHash: '0xbuytx',
+                entryUsdValue: 12,
+              }];
+            }
+            return [];
+          },
+        },
+        copytradePositionLedger: {
+          async findMany() {
+            return [];
+          },
+        },
+      },
+      filterExecutableCopyTradeConfigs(configs: any[]) {
+        return configs;
+      },
+      dedupeConfigsByUser(configs: any[]) {
+        return configs;
+      },
+      upsertTargetSellEvent(event: any) {
+        return Promise.resolve({ id: 'evt-1', ...event });
+      },
+      buildTargetSellEventPayload(event: any) {
+        return event;
+      },
+      persistTargetSellEventAndSchedulePositions(payload: any) {
+        scheduled.push(payload);
+        return Promise.resolve({ event: payload.event, scheduled: payload.positions.length, skipped: 0 });
+      },
+      syncCopytradeLedgerFromLegacy(payload: any) {
+        synced.push(payload);
+        return Promise.resolve(null);
+      },
+      async armPendingAttributedPositionsForMirrorSell() {
+        return 0;
+      },
+      recordNewTrade() {},
+    },
+  );
+
+  assert.equal(synced.length, 1);
+  assert.equal(synced[0]?.positionId, 'pos-1');
+  assert.equal(scheduled.length, 1);
+  assert.equal(scheduled[0]?.metadata?.executionPolicyReasonCode, 'MIRROR_SELL_LEDGER_REPAIRED_FROM_POSITION');
+  assert.equal(scheduled[0]?.positions?.[0]?.id, 'pos-1');
+});
+
 test('latest target sell signal falls back to persisted event when wallet history linkage is absent', () => {
   const resolved = resolveLatestTargetSellSignal({
     linkedSell: {

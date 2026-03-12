@@ -379,6 +379,9 @@ export class SwapExecutor {
             waitForConfirmation: params.waitForConfirmation,
             runtimeContext: params.runtimeContext
         });
+        const sellQuotePolicy = feeContext === 'copyTrade' && isSellForFee
+            ? 'bounded_deadline'
+            : 'fast_window';
 
         let preferPermit2 = params.preferPermit2 !== false && sellReliability.preferPermit2;
         if (preferPermit2 && isSellTx && !isNativeIn) {
@@ -428,7 +431,8 @@ export class SwapExecutor {
             feeContext,
             isSell: isSellForFee,
             executionMode: params.executionMode,
-            preferPermit2
+            preferPermit2,
+            sellQuotePolicy,
         });
 
         if (!best) {

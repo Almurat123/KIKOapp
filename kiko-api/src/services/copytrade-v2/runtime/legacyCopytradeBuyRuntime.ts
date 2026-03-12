@@ -1281,6 +1281,7 @@ export async function handleTargetSell(params: {
         upsertTargetSellEvent,
         buildTargetSellEventPayload,
         persistTargetSellEventAndSchedulePositions,
+        syncCopytradeLedgerFromLegacy,
         armPendingAttributedPositionsForMirrorSell,
         recordNewTrade
     } = deps;
@@ -1414,33 +1415,76 @@ export async function handleTargetSell(params: {
         const positionIds = ledgerRows
             .map((row: { positionIdLegacy: string | null }) => String(row.positionIdLegacy || '').trim())
             .filter(Boolean);
+        let matchedPositions = positionIds.length > 0
+            ? await prisma.position.findMany({
+                where: {
+                    id: { in: positionIds },
+                    userId: config.userId,
+                    configId: config.id,
+                    chainId,
+                    tokenAddress: tokenToSell,
+                    status: { in: ['open', 'pending'] },
+                },
+            })
+            : [];
+        let executionPolicyReasonCode = 'MIRROR_SELL_LEDGER_MATCHED';
 
         if (positionIds.length === 0) {
-            logger.info(
-                LogCode.WTC_TX_SKIPPED,
-                'Mirror sell skipped: no ledger-backed follower exposure for target sell',
-                {
+            const repairCandidates = await prisma.position.findMany({
+                where: {
                     userId: config.userId,
-                    token: tokenToSell,
-                    chainId,
-                    targetWallet: normalizedWallet,
                     configId: config.id,
-                    ledgerCandidateCount: 0,
-                    reasonCode: 'MIRROR_SELL_NO_LEDGER_CANDIDATES',
-                }
-            );
-            return;
-        }
-        const matchedPositions = await prisma.position.findMany({
-            where: {
-                id: { in: positionIds },
+                    chainId,
+                    tokenAddress: {
+                        equals: tokenToSell,
+                        mode: 'insensitive',
+                    },
+                    status: { in: ['open', 'pending'] },
+                    leaderTxHash: { not: null },
+                },
+            });
+
+            if (repairCandidates.length === 0) {
+                logger.info(
+                    LogCode.WTC_TX_SKIPPED,
+                    'Mirror sell skipped: no ledger-backed follower exposure for target sell',
+                    {
+                        userId: config.userId,
+                        token: tokenToSell,
+                        chainId,
+                        targetWallet: normalizedWallet,
+                        configId: config.id,
+                        ledgerCandidateCount: 0,
+                        repairCandidateCount: 0,
+                        reasonCode: 'MIRROR_SELL_NO_LEDGER_CANDIDATES',
+                    }
+                );
+                return;
+            }
+
+            await Promise.all(repairCandidates.map((position: any) =>
+                syncCopytradeLedgerFromLegacy({
+                    positionId: position.id,
+                    targetWallet: normalizedWallet,
+                    targetSellTxHash: swap.txHash || undefined,
+                    targetFullExitVerified: false,
+                    lastExecutionState: 'mirror_sell_webhook_repair',
+                    lastExecutionReasonCode: 'ledger_repair_candidate',
+                }).catch(() => null)
+            ));
+
+            matchedPositions = repairCandidates;
+            executionPolicyReasonCode = 'MIRROR_SELL_LEDGER_REPAIRED_FROM_POSITION';
+            logger.warn(LogCode.SYS_INFO, 'Mirror sell repaired missing ledger candidates from canonical positions', {
                 userId: config.userId,
-                configId: config.id,
+                token: tokenToSell,
                 chainId,
-                tokenAddress: tokenToSell,
-                status: { in: ['open', 'pending'] },
-            },
-        });
+                targetWallet: normalizedWallet,
+                configId: config.id,
+                repairCandidateCount: repairCandidates.length,
+                reasonCode: executionPolicyReasonCode,
+            });
+        }
         if (matchedPositions.length === 0) {
             logger.info(LogCode.WTC_TX_SKIPPED, 'Mirror sell skipped: ledger candidates had no active positions', {
                 userId: config.userId,
@@ -1449,6 +1493,7 @@ export async function handleTargetSell(params: {
                 targetWallet: normalizedWallet,
                 configId: config.id,
                 ledgerCandidateCount: positionIds.length,
+                executionPolicyReasonCode,
                 reasonCode: 'MIRROR_SELL_LEDGER_ACTIVE_POSITION_MISSING',
             });
             return;
@@ -1485,7 +1530,7 @@ export async function handleTargetSell(params: {
             matchedPositionCount: matchedPositions.length,
             pendingPositionCount: pendingMatchedPositionIds.length,
             openPositionCount: matchedPositions.length - pendingMatchedPositionIds.length,
-            reasonCode: 'MIRROR_SELL_LEDGER_MATCHED',
+            reasonCode: executionPolicyReasonCode,
         });
         const balanceUsdForStats = matchedPositions.reduce((sum: number, p: any) => sum + (p.entryUsdValue || 0), 0);
         recordNewTrade(targetWallet, chainId, 'sell', balanceUsdForStats);
@@ -1514,7 +1559,7 @@ export async function handleTargetSell(params: {
             metadata: {
                 sourceRuntime: 'legacy_mirror_sell_runtime',
                 pendingPositionCount: pendingMatchedPositionIds.length,
-                executionPolicyReasonCode: 'MIRROR_SELL_LEDGER_MATCHED',
+                executionPolicyReasonCode,
             }
         }).catch((error: any) => {
             logger.warn(LogCode.SYS_ERROR, 'Mirror sell: failed to schedule canonical exit intents', {
@@ -1536,7 +1581,7 @@ export async function handleTargetSell(params: {
                 targetSellTxHash: swap.txHash,
                 scheduled: scheduled.scheduled,
                 skipped: scheduled.skipped,
-                reasonCode: 'MIRROR_SELL_LEDGER_MATCHED',
+                reasonCode: executionPolicyReasonCode,
             });
         }
     }));

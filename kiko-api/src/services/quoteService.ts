@@ -54,6 +54,7 @@ export interface BestQuoteParams {
     executionMode?: 'safe' | 'normal' | 'turbo';
     preferPermit2?: boolean;
     skipCache?: boolean;
+    sellQuotePolicy?: 'fast_window' | 'bounded_deadline';
 }
 
 const quoteBundleCache = new Map<string, { value: { best: QuoteResult; quotes: QuoteResult[] }; ts: number }>();
@@ -74,6 +75,7 @@ function buildQuoteCacheKey(params: BestQuoteParams): string {
         params.slippageBps,
         String(params.userAddress || '').toLowerCase() || 'quote_only',
         params.executionMode || 'normal',
+        params.sellQuotePolicy || 'fast_window',
         params.preferPermit2 === false ? 'permit2_off' : 'permit2_on',
         params.excludeDex || 'none',
         params.isSell ? 'sell' : 'buy',
@@ -143,7 +145,39 @@ export async function getBestQuote(params: BestQuoteParams): Promise<{ best: Quo
 
 export const __testOnly = {
     buildQuoteCacheKey,
+    resolveTurboSellWaitStrategy,
 };
+
+function resolveTurboSellWaitStrategy(params: {
+    hasQuickQuote: boolean;
+    elapsedMs: number;
+    totalWaitMs: number;
+    sellQuotePolicy?: 'fast_window' | 'bounded_deadline';
+}): { mode: 'secondary_window' | 'bounded_deadline' | 'deadline_full' | 'none'; waitMs: number } {
+    const totalWaitMs = Math.max(0, Number(params.totalWaitMs || 0));
+    const elapsedMs = Math.max(0, Number(params.elapsedMs || 0));
+    const remainingMs = Math.max(0, totalWaitMs - elapsedMs);
+    if ((params.sellQuotePolicy || 'fast_window') === 'bounded_deadline') {
+        if (params.hasQuickQuote) {
+            const waitMs = Math.max(0, Math.min(QUOTE_TURBO_SELL_SECONDARY_WAIT_MS, remainingMs));
+            return waitMs > 0
+                ? { mode: 'secondary_window', waitMs }
+                : { mode: 'none', waitMs: 0 };
+        }
+        return remainingMs > 0
+            ? { mode: 'bounded_deadline', waitMs: remainingMs }
+            : { mode: 'none', waitMs: 0 };
+    }
+    if (!params.hasQuickQuote) {
+        return totalWaitMs > 0
+            ? { mode: 'deadline_full', waitMs: totalWaitMs }
+            : { mode: 'none', waitMs: 0 };
+    }
+    const waitMs = Math.max(0, Math.min(QUOTE_TURBO_SELL_SECONDARY_WAIT_MS, remainingMs));
+    return waitMs > 0
+        ? { mode: 'secondary_window', waitMs }
+        : { mode: 'none', waitMs: 0 };
+}
 
 async function getBestQuoteInternal(params: BestQuoteParams): Promise<{ best: QuoteResult, quotes: QuoteResult[] }> {
     const {
@@ -345,30 +379,20 @@ async function getBestQuoteInternal(params: BestQuoteParams): Promise<{ best: Qu
         }
 
         if (params.isSell) {
-            // For sell: return fast on the first arrived quote to avoid long hold,
-            // then wait briefly for the alternate provider as a hedge.
-            const elapsedMs = Date.now() - startMs;
-            const secondaryWaitMs = Math.max(
-                0,
-                Math.min(
-                    QUOTE_TURBO_SELL_SECONDARY_WAIT_MS,
-                    Math.max(0, TURBO_TOTAL_WAIT_MS - elapsedMs)
-                )
-            );
-            if (secondaryWaitMs > 0) {
+            // For sell: copytrade exits should prefer execution completeness over an ultra-short race window.
+            const waitStrategy = resolveTurboSellWaitStrategy({
+                hasQuickQuote: quotes.length > 0,
+                elapsedMs: Date.now() - startMs,
+                totalWaitMs: TURBO_TOTAL_WAIT_MS,
+                sellQuotePolicy: params.sellQuotePolicy,
+            });
+            if (waitStrategy.waitMs > 0) {
                 const [zeroExSell, kyberSell] = await Promise.all([
-                    withTimeout(safeZeroEx, secondaryWaitMs),
-                    withTimeout(safeKyber, secondaryWaitMs),
+                    withTimeout(safeZeroEx, waitStrategy.waitMs),
+                    withTimeout(safeKyber, waitStrategy.waitMs),
                 ]);
                 if (zeroExSell && !quotes.some((q) => q.dex === '0x')) quotes.push(zeroExSell);
                 if (kyberSell && !quotes.some((q) => q.dex === 'kyber')) quotes.push(kyberSell);
-            } else if (quickResult == null) {
-                const [zeroExSell, kyberSell] = await Promise.all([
-                    withTimeout(safeZeroEx, TURBO_TOTAL_WAIT_MS),
-                    withTimeout(safeKyber, TURBO_TOTAL_WAIT_MS),
-                ]);
-                if (zeroExSell) quotes.push(zeroExSell);
-                if (kyberSell) quotes.push(kyberSell);
             }
             const gotZeroEx = quotes.some((quote) => quote.dex === '0x');
             const gotKyber = quotes.some((quote) => quote.dex === 'kyber');
@@ -377,6 +401,8 @@ async function getBestQuoteInternal(params: BestQuoteParams): Promise<{ best: Qu
                 chainId: params.chainId,
                 got0x: gotZeroEx,
                 gotKyber: gotKyber,
+                sellQuotePolicy: params.sellQuotePolicy || 'fast_window',
+                waitStrategy: waitStrategy.mode,
             });
         } else {
             // Turbo buy: still parallel, but no first-arrival bias.
