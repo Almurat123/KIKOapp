@@ -215,6 +215,8 @@ async function executeEvmInstantWithDeps(
         mevProtection: persistedUserSettings?.mevProtection !== false,
     };
 
+    const executionMode = params.transactionMessageId ? 'allowance' : 'swap-card';
+
     const swapResult = await deps.executeSwap({
         userId: params.userId,
         walletAddress: params.walletAddress,
@@ -224,7 +226,7 @@ async function executeEvmInstantWithDeps(
         amountIn: resolvedAmountIn,
         chainId: params.chainId,
         slippageBps: params.slippageBps,
-        mode: 'swap-card',
+        mode: executionMode,
         messageId: params.transactionMessageId,
         userSettings: effectiveUserSettings,
     });
