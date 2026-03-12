@@ -34,7 +34,7 @@ function makePlan(sellRoutePolicy: EvmExitSwapPlan['sellRoutePolicy']): EvmExitS
     positions: [],
     pendingAttributedLotIds: [],
     latestTargetSellTxHash: null,
-    attributedReasonCode: 'mirror_sell_signal',
+    attributedReasonCode: 'ATTRIBUTED_AMOUNT_RESOLVED',
     attributionMetrics: {},
     hasExternalBalance: false,
   };
