@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import type { ReactNode } from 'react';
-import { usePrivy } from '@privy-io/react-auth';
+import { usePrivy, useWallets } from '@privy-io/react-auth';
 import { mainnet, base, arbitrum, bsc, optimism, polygon } from 'viem/chains';
 
 export interface ChainInfo {
@@ -85,6 +85,7 @@ interface ChainProviderProps {
 
 export const ChainProvider: React.FC<ChainProviderProps> = ({ children }) => {
   const { login, authenticated } = usePrivy();
+  const { wallets } = useWallets();
 
   // Load initial chain from localStorage or default to first supported chain
   const [currentChain, setCurrentChain] = useState<ChainInfo>(() => {
@@ -137,12 +138,26 @@ export const ChainProvider: React.FC<ChainProviderProps> = ({ children }) => {
           return;
         }
 
-        // ALWAYS update UI immediately - this is a "view" switch
-        console.log('[ChainContext] Switching UI to', targetChain.name);
+        const evmWallet = wallets.find((wallet: any) => wallet?.walletClientType !== 'solana');
+        if (!evmWallet || typeof (evmWallet as any).switchChain !== 'function') {
+          throw new Error('No EVM wallet with chain switching support is currently connected');
+        }
+
+        const currentWalletChainId = typeof evmWallet.chainId === 'string' && evmWallet.chainId.startsWith('eip155:')
+          ? Number(evmWallet.chainId.replace('eip155:', ''))
+          : undefined;
+
+        if (currentWalletChainId !== targetChainId) {
+          console.log('[ChainContext] Switching wallet network to', targetChain.name);
+          await evmWallet.switchChain(targetChainId);
+        }
+
+        console.log('[ChainContext] Syncing UI to', targetChain.name);
         setCurrentChain(targetChain);
       }
     } catch (error) {
       console.error('Failed to switch chain:', error);
+      throw error;
     }
   };
 

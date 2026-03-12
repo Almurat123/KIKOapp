@@ -60,6 +60,8 @@ const inflightQuoteBundle = new Map<string, Promise<{ best: QuoteResult; quotes:
 const QUOTE_CACHE_TTL_MS = Math.max(120, Number(process.env.QUOTE_CACHE_TTL_MS || '1200'));
 const QUOTE_CACHE_TTL_TURBO_MS = Math.max(80, Number(process.env.QUOTE_CACHE_TTL_TURBO_MS || '600'));
 const QUOTE_CACHE_MAX = Math.max(256, Number(process.env.QUOTE_CACHE_MAX || '3000'));
+const QUOTE_TURBO_SELL_FAST_WAIT_MS = Math.max(80, Number(process.env.QUOTE_TURBO_SELL_FAST_WAIT_MS || '240'));
+const QUOTE_TURBO_SELL_SECONDARY_WAIT_MS = Math.max(80, Number(process.env.QUOTE_TURBO_SELL_SECONDARY_WAIT_MS || '220'));
 
 function buildQuoteCacheKey(params: BestQuoteParams): string {
     const amountInBase = String(params.amountInBase || '0').toLowerCase();
@@ -315,18 +317,56 @@ async function getBestQuoteInternal(params: BestQuoteParams): Promise<{ best: Qu
         const zeroExPromise = fetchZeroEx();
         const kyberPromise = fetchKyber();
         const startMs = Date.now();
+        const safeZeroEx = zeroExPromise.then((q) => q || null);
+        const safeKyber = kyberPromise.then((q) => q || null);
 
-        // Sell path must wait for both providers to resolve before selecting winner.
-        // This keeps execution decision based on complete 0x+Kyber comparison, not fast-return.
+        const toSourceResult = (source: '0x' | 'kyber', q: Promise<QuoteResult | null>) =>
+            q.then((quote) => quote ? { source, quote } : null).catch(() => null);
+
+        const quickResult = await Promise.race([
+            toSourceResult('0x', safeZeroEx),
+            toSourceResult('kyber', safeKyber),
+            new Promise<null>((resolve) => setTimeout(() => resolve(null), QUOTE_TURBO_SELL_FAST_WAIT_MS))
+        ]);
+        if (quickResult?.quote) {
+            if (!quotes.some((q) => q.dex === quickResult.source)) {
+                quotes.push(quickResult.quote);
+            }
+        }
+
         if (params.isSell) {
-            const [zeroExSell, kyberSell] = await Promise.all([zeroExPromise, kyberPromise]);
-            if (zeroExSell) quotes.push(zeroExSell);
-            if (kyberSell) quotes.push(kyberSell);
+            // For sell: return fast on the first arrived quote to avoid long hold,
+            // then wait briefly for the alternate provider as a hedge.
+            const elapsedMs = Date.now() - startMs;
+            const secondaryWaitMs = Math.max(
+                0,
+                Math.min(
+                    QUOTE_TURBO_SELL_SECONDARY_WAIT_MS,
+                    Math.max(0, TURBO_TOTAL_WAIT_MS - elapsedMs)
+                )
+            );
+            if (secondaryWaitMs > 0) {
+                const [zeroExSell, kyberSell] = await Promise.all([
+                    withTimeout(safeZeroEx, secondaryWaitMs),
+                    withTimeout(safeKyber, secondaryWaitMs),
+                ]);
+                if (zeroExSell && !quotes.some((q) => q.dex === '0x')) quotes.push(zeroExSell);
+                if (kyberSell && !quotes.some((q) => q.dex === 'kyber')) quotes.push(kyberSell);
+            } else if (quickResult == null) {
+                const [zeroExSell, kyberSell] = await Promise.all([
+                    withTimeout(safeZeroEx, TURBO_TOTAL_WAIT_MS),
+                    withTimeout(safeKyber, TURBO_TOTAL_WAIT_MS),
+                ]);
+                if (zeroExSell) quotes.push(zeroExSell);
+                if (kyberSell) quotes.push(kyberSell);
+            }
+            const gotZeroEx = quotes.some((quote) => quote.dex === '0x');
+            const gotKyber = quotes.some((quote) => quote.dex === 'kyber');
             console.log('[QuoteService] Turbo sell dual-quote resolved', {
                 elapsedMs: Date.now() - startMs,
                 chainId: params.chainId,
-                got0x: Boolean(zeroExSell),
-                gotKyber: Boolean(kyberSell)
+                got0x: gotZeroEx,
+                gotKyber: gotKyber,
             });
         } else {
             // Turbo buy: still parallel, but no first-arrival bias.

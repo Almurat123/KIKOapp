@@ -1,0 +1,355 @@
+import type { ToolDefinition } from '../../tooling/registry.js';
+import { contextBudgetManager } from '../../services/ai/contextBudgetManager.js';
+import type { ChatContextSnapshot } from './contracts.js';
+import { buildBalanceContextBlock } from './balanceContextBuilder.js';
+import { buildLaunchpadContextBlock, buildTokenContextBlock } from './contextBlockBuilder.js';
+import {
+    extractRecentToolTrace,
+    extractRequestedTokenAddresses,
+    extractRequestedTokenSymbols,
+    resolveTradeConfirmationState,
+    sanitizeHistory,
+} from './conversationStateResolver.js';
+import { resolveRuntimeDirectives } from './runtimeDirectiveResolver.js';
+
+const CHAT_CONTEXT_RECENT_WINDOW = Math.max(4, parseInt(process.env.CHAT_CONTEXT_RECENT_WINDOW || '12', 10) || 12);
+const CHAT_CONTEXT_MAX_INPUT_TOKENS = Math.max(2048, parseInt(process.env.CHAT_CONTEXT_MAX_INPUT_TOKENS || '16000', 10) || 16000);
+const CHAT_CONTEXT_RESERVED_OUTPUT_TOKENS = Math.max(512, parseInt(process.env.CHAT_CONTEXT_RESERVED_OUTPUT_TOKENS || '3500', 10) || 3500);
+
+const CHAIN_NAMES: Record<number, string> = {
+    1: 'Ethereum',
+    10: 'Optimism',
+    56: 'BNB Chain',
+    137: 'Polygon',
+    42161: 'Arbitrum',
+    8453: 'Base',
+    900: 'Solana',
+};
+
+export function assembleChatContext(params: {
+    task: any;
+    session: any;
+    messages: any[];
+    toolDefinitions: ToolDefinition[];
+    userId?: string | null;
+}): ChatContextSnapshot {
+    const { task, session, messages, toolDefinitions, userId } = params;
+    const sanitizedHistory = sanitizeHistory(messages);
+    const budget = contextBudgetManager.applyBudget(
+        sanitizedHistory.map((msg) => ({
+            role: msg.role,
+            content: msg.content,
+            reasoning_content: msg.reasoningContent,
+            tool_calls: msg.toolCalls,
+            tool_call_id: msg.toolCallId,
+        })),
+        {
+            recentWindow: CHAT_CONTEXT_RECENT_WINDOW,
+            maxInputTokens: CHAT_CONTEXT_MAX_INPUT_TOKENS,
+            reservedOutputTokens: CHAT_CONTEXT_RESERVED_OUTPUT_TOKENS,
+        }
+    );
+    const history = sanitizeHistory(
+        ensureCriticalContextPinned(
+            budget.messages.map((msg) => ({
+                role: msg.role,
+                content: msg.content || '',
+                reasoning_content: msg.reasoning_content || '',
+                tool_calls: msg.tool_calls,
+                tool_call_id: msg.tool_call_id,
+            })),
+            messages,
+        ),
+    );
+    const lastUser = [...history].reverse().find((msg) => msg.role === 'user');
+    const lastUserMessage = lastUser?.content || '';
+    const toolContext = task.toolContext || {};
+    const chainId = Number(toolContext.chainId || 0) || undefined;
+    const chainName = chainId ? CHAIN_NAMES[chainId] || String(chainId) : undefined;
+    const toolResultsCache = new Map<string, any>();
+    if ((toolContext.walletAddress || toolContext.userAddress) && chainId) {
+        toolResultsCache.set(stableStringify({
+            name: 'wallet_info_seed',
+            walletAddress: toolContext.walletAddress || toolContext.userAddress,
+            chainId,
+        }), true);
+        toolResultsCache.set(`get_wallet_info:${stableStringify({
+            address: toolContext.walletAddress || toolContext.userAddress,
+            chainId,
+        })}`, {
+            address: toolContext.walletAddress || toolContext.userAddress,
+            chain: chainName || chainId,
+            ethBalance: toolContext.nativeBalance,
+            tokens: normalizeBalanceEntries(toolContext.balance),
+        });
+    }
+    const requestedAddressSet = new Set(extractRequestedTokenAddresses(lastUserMessage));
+    const requestedTokenSymbols = extractRequestedTokenSymbols(lastUserMessage);
+    const prefetchedToolResults = buildPrefetchedToolResults({
+        toolContext,
+        chainId,
+        chainName,
+        lastUserMessage,
+        requestedTokenSymbols,
+        requestedTokenAddress: requestedAddressSet.values().next().value,
+    });
+    const tokenBlock = buildTokenContextBlock({
+        mode: 'deepseek',
+        tokenInfo: toolContext.tokenSnapshot || toolContext.tokenContext || toolContext.tokenInfo || null,
+        contractAddress: requestedAddressSet.values().next().value,
+        cacheStatusLabel: 'FROM NODE CONTEXT',
+    });
+    const launchpadBlock = buildLaunchpadContextBlock({
+        launchpadInfo: toolContext.launchpad || toolContext.launchpadInfo || null,
+        tokenInfo: toolContext.tokenSnapshot || toolContext.tokenContext || toolContext.tokenInfo || null,
+        fallbackAddress: requestedAddressSet.values().next().value,
+        fallbackChainId: chainId,
+    });
+    const balanceContext = buildBalanceContextBlock({
+        toolContext,
+        toolResultsCache,
+        nativeSymbol: resolveNativeSymbol(chainId),
+        requestedAddressSet,
+        requestedTokens: requestedTokenSymbols,
+        includePortfolioBlock: true,
+        includeRequestedTokenBlock: true,
+        includeExecutionRule: true,
+        chainLabel: chainName || String(chainId || 'unknown'),
+        isExecutionIntent: true,
+        stableStringify,
+        filterBalanceEntriesForAi,
+        isStableSymbolForChain,
+        isNativeSymbol,
+        limitLines,
+    });
+    const clientContext = buildClientContext(toolContext, chainId, chainName);
+
+    const confirmationState = resolveTradeConfirmationState(messages, lastUserMessage);
+    const systemDirectives = resolveRuntimeDirectives({
+        task,
+        lastUserMessage,
+        confirmationState,
+    });
+
+    return {
+        sessionId: task.sessionId,
+        taskId: task.id,
+        userMessageId: task.userMessageId,
+        assistantMessageId: task.assistantMessageId,
+        model: task.model || session?.model || 'deepseek-chat',
+        history,
+        lastUserMessage,
+        recentToolTrace: extractRecentToolTrace(messages),
+        confirmationState,
+        runtime: {
+            userId,
+            walletAddress: toolContext.walletAddress,
+            userAddress: toolContext.userAddress,
+            chainId,
+            chainName,
+            nativeBalance: toolContext.nativeBalance ? String(toolContext.nativeBalance) : undefined,
+            balance: toolContext.balance || null,
+            currentPage: toolContext.currentPage,
+            pageContext: toolContext.pageContext,
+            farcaster: toolContext.farcaster || null,
+            userSettings: toolContext.toolConfig || null,
+            toolContext,
+            tokenSnapshot: toolContext.tokenSnapshot || toolContext.tokenContext || toolContext.tokenInfo || null,
+            launchpad: toolContext.launchpad || toolContext.launchpadInfo || null,
+            balanceSnapshotAt: toolContext.balanceSnapshotAt || toolContext.balanceFetchedAt || toolContext.balanceUpdatedAt || null,
+            systemDirectives,
+            prefetchedToolResults,
+            contextBlocks: {
+                clientContext,
+                walletState: balanceContext.tokenContextBlock,
+                tokenContext: tokenBlock.tokenContextBlock,
+                launchpadContext: launchpadBlock.launchpadContextBlock,
+            },
+        },
+        requestedTokenAddresses: Array.from(requestedAddressSet),
+        requestedTokenSymbols,
+        compactedHistory: budget.compactedSummary || null,
+        previousResponseId: session?.lastResponseId ? String(session.lastResponseId) : null,
+        historyBudget: {
+            inputTokensEstimated: budget.inputTokensEstimated,
+            historyKept: budget.historyKept,
+            historyCompacted: budget.historyCompacted,
+            compactionHits: budget.compactedSummary ? 1 : 0,
+        },
+        toolDefinitions,
+    };
+}
+
+function ensureCriticalContextPinned(compactedMessages: any[], sourceMessages: any[]): any[] {
+    const criticalPatterns = ['[USER_BALANCE_CONTEXT]', '[REQUESTED_TOKEN_BALANCE]', '[NATIVE_PRICE_CONTEXT]', '[PRICE_GUARDRAIL]'];
+    const hasPattern = (msgs: any[], pattern: string) =>
+        msgs.some((msg) => typeof msg?.content === 'string' && msg.content.includes(pattern));
+
+    const next = [...compactedMessages];
+    for (const pattern of criticalPatterns) {
+        if (hasPattern(next, pattern)) continue;
+        const source = [...sourceMessages].reverse().find((msg) => typeof msg?.content === 'string' && msg.content.includes(pattern));
+        if (source) next.push(source);
+    }
+    return next;
+}
+
+function stableStringify(value: any): string {
+    const seen = new WeakSet<object>();
+    const normalize = (input: any): any => {
+        if (input === null || input === undefined) return input;
+        if (typeof input !== 'object') return input;
+        if (seen.has(input)) return '[Circular]';
+        seen.add(input);
+        if (Array.isArray(input)) return input.map(normalize);
+        const out: Record<string, any> = {};
+        for (const key of Object.keys(input).sort()) out[key] = normalize(input[key]);
+        return out;
+    };
+    return JSON.stringify(normalize(value));
+}
+
+function normalizeBalanceEntries(balance: any): Array<{ symbol: string; balance: string; decimals?: number; contractAddress?: string }> {
+    if (!balance || typeof balance !== 'object') return [];
+    if (Array.isArray(balance)) {
+        return balance.map((item) => ({
+            symbol: String(item?.symbol || item?.tokenSymbol || item?.contractAddress || ''),
+            balance: String(item?.balance || item?.amount || item?.formatted || '0'),
+            decimals: Number.isFinite(item?.decimals) ? Number(item.decimals) : undefined,
+            contractAddress: item?.contractAddress || item?.contract,
+        })).filter((item) => item.symbol);
+    }
+    return Object.entries(balance).map(([symbol, raw]) => {
+        if (raw && typeof raw === 'object') {
+            return {
+                symbol,
+                balance: String((raw as any).balance || (raw as any).amount || (raw as any).formatted || '0'),
+                decimals: Number.isFinite((raw as any).decimals) ? Number((raw as any).decimals) : undefined,
+                contractAddress: (raw as any).contractAddress || (raw as any).contract,
+            };
+        }
+        return { symbol, balance: String(raw) };
+    });
+}
+
+function resolveNativeSymbol(chainId?: number): string {
+    if (chainId === 56) return 'BNB';
+    if (chainId === 137) return 'POL';
+    if (chainId === 900) return 'SOL';
+    return 'ETH';
+}
+
+function isNativeSymbol(symbol: string): boolean {
+    return new Set(['ETH', 'MATIC', 'POL', 'BNB', 'AVAX', 'SOL', 'ARB', 'OP']).has(String(symbol || '').toUpperCase());
+}
+
+function isStableSymbolForChain(_chainId: number | undefined, symbol: string): boolean {
+    return new Set(['USDC', 'USDT', 'DAI', 'FDUSD', 'BUSD', 'USD1']).has(String(symbol || '').toUpperCase());
+}
+
+function filterBalanceEntriesForAi(
+    entries: Array<{ symbol: string; balance: string; decimals?: number; contractAddress?: string }> | undefined,
+    _chainId?: number,
+    allowContracts: Set<string> = new Set(),
+) {
+    if (!entries) return [];
+    return entries.filter((token) => {
+        const symbol = String(token.symbol || '').toUpperCase();
+        const addr = String(token.contractAddress || '').toLowerCase();
+        if (!symbol) return false;
+        if (isNativeSymbol(symbol) || isStableSymbolForChain(undefined, symbol)) return true;
+        if (!token.contractAddress) return true;
+        if (allowContracts.size > 0 && !allowContracts.has(addr)) return false;
+        return true;
+    });
+}
+
+function limitLines(lines: string[], limit: number) {
+    if (lines.length <= limit) return { lines, hiddenCount: 0 };
+    return { lines: lines.slice(0, limit), hiddenCount: lines.length - limit };
+}
+
+function buildClientContext(toolContext: any, chainId?: number, chainName?: string): string {
+    const payload = {
+        walletAddress: toolContext.walletAddress || toolContext.userAddress,
+        chainId,
+        chainName,
+        currentPage: toolContext.currentPage,
+        pageContext: toolContext.pageContext,
+        nativeBalance: toolContext.nativeBalance,
+        balance: toolContext.balance,
+        farcaster: toolContext.farcaster,
+        toolConfig: toolContext.toolConfig,
+        tokenSnapshot: toolContext.tokenSnapshot || toolContext.tokenContext || toolContext.tokenInfo,
+        launchpad: toolContext.launchpad || toolContext.launchpadInfo,
+    };
+    return `[CLIENT_CONTEXT]\n${JSON.stringify(payload, null, 2)}`;
+}
+
+function buildPrefetchedToolResults(params: {
+    toolContext: any;
+    chainId?: number;
+    chainName?: string;
+    lastUserMessage?: string;
+    requestedTokenSymbols?: string[];
+    requestedTokenAddress?: string;
+}): Record<string, any> | null {
+    const walletAddress = params.toolContext.walletAddress || params.toolContext.userAddress;
+    const prefetched: Record<string, any> = {};
+    const lower = String(params.lastUserMessage || '').toLowerCase();
+    const isTradeLike = /\b(swap|buy|sell|trade|convert|ape|bridge|cross[\s-]?chain)\b/i.test(lower) || /买|卖|换|兑换|跨链/.test(lower);
+    const wantsWallet = /\b(balance|portfolio|wallet|holdings|pnl)\b/i.test(lower) || /余额|钱包|持有/.test(lower);
+    const wantsLaunchpad = /\b(launchpad|pump|four\.meme|moonshot|letsbonk|bonk|portal|zora)\b/i.test(lower) || /发射台|打新/.test(lower);
+
+    if (walletAddress && params.chainId && (isTradeLike || wantsWallet || params.toolContext.balance || params.toolContext.nativeBalance)) {
+        const tokens = normalizeBalanceEntries(params.toolContext.balance);
+        if (tokens.length > 0 || params.toolContext.nativeBalance != null) {
+            prefetched.get_wallet_info = {
+                address: walletAddress,
+                chain: params.chainName || String(params.chainId),
+                ethBalance: params.toolContext.nativeBalance ? String(params.toolContext.nativeBalance) : undefined,
+                tokens,
+            };
+        }
+    }
+
+    const tokenSnapshot = params.toolContext.tokenSnapshot || params.toolContext.tokenContext || params.toolContext.tokenInfo;
+    if (tokenSnapshot && typeof tokenSnapshot === 'object') {
+        prefetched.get_token_info = {
+            ...tokenSnapshot,
+            chainId: tokenSnapshot.chainId || params.chainId,
+            chainName: tokenSnapshot.chainName || params.chainName,
+            address: tokenSnapshot.address || tokenSnapshot.contractAddress || params.requestedTokenAddress,
+        };
+    } else if (params.requestedTokenAddress || (params.requestedTokenSymbols || []).length > 0) {
+        const symbol = (params.requestedTokenSymbols || []).find((item) => !['BUY', 'SELL', 'SWAP', 'TRADE', 'GET', 'ALL'].includes(String(item || '').toUpperCase()));
+        prefetched.token_request = {
+            address: params.requestedTokenAddress,
+            symbol,
+            chainId: params.chainId,
+            chainName: params.chainName,
+        };
+    }
+
+    const launchpad = params.toolContext.launchpad || params.toolContext.launchpadInfo;
+    const launchpadPayload = launchpad && typeof launchpad === 'object'
+        ? {
+            ...launchpad,
+            chainId: launchpad.chainId || params.chainId,
+            address: launchpad.address || params.requestedTokenAddress || tokenSnapshot?.address,
+        }
+        : null;
+    if (launchpadPayload) {
+        prefetched.get_launchpad_info = launchpadPayload;
+        prefetched.get_launchpad_stats = launchpadPayload;
+    } else if (wantsLaunchpad && (params.requestedTokenAddress || tokenSnapshot?.address)) {
+        prefetched.search_launchpad = {
+            address: params.requestedTokenAddress || tokenSnapshot?.address,
+            symbol: tokenSnapshot?.symbol || (params.requestedTokenSymbols || []).find((item) => !['BUY', 'SELL', 'SWAP', 'TRADE', 'GET', 'ALL'].includes(String(item || '').toUpperCase())),
+            chainId: params.chainId,
+            chainName: params.chainName,
+        };
+    }
+
+    return Object.keys(prefetched).length > 0 ? prefetched : null;
+}

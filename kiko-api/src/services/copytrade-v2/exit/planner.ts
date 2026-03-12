@@ -355,9 +355,9 @@ export function buildEvmExitPlanFromSnapshot(input: {
     };
   }
 
-  const safeBalance999Raw = (adjustedSellAmountRaw * 999n) / 1000n;
-  const retryBalance = safeBalance999Raw > 0n ? safeBalance999Raw : adjustedSellAmountRaw;
-  const retryAmountInHuman = ethers.formatUnits(retryBalance, decimals);
+  // Retry amount matches the primary amount. Mirror-sell recovery should not trim
+  // user inventory to make retries easier; only slippage/route may change later.
+  const retryAmountInHuman = amountInHuman;
   const runtimeContext = createExitOrderRuntimeContext({
     userId,
     walletAddress: snapshot.walletAddress,
@@ -384,7 +384,7 @@ export function buildEvmExitPlanFromSnapshot(input: {
     amountInHuman,
     retryAmountInHuman,
     initialSlippageBps: input.universalSlippageBps,
-    retrySlippageBps: Math.min(Math.floor(input.universalSlippageBps * 1.5), 2500),
+    retrySlippageBps: Math.min(Math.max(Math.floor(input.universalSlippageBps * 2), input.universalSlippageBps + 400), 3000),
     executionMode: input.executionMode,
     sellRoutePolicy: 'external_primary',
     positions: effectivePositions,

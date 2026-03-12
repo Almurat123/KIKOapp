@@ -9,7 +9,7 @@
    - Provider strategy: use Zerion first for fast wallet-level PNL; if unavailable or chain unsupported, fall back to Dune (EVM), then final internal/manual fallback.
    - Strict fallback rule: never run Zerion and Dune simultaneously for the same PNL request. If Zerion succeeds, return immediately and do not call Dune.
    - For multiple-wallet screening (e.g., early buyer lists), use batch PNL analysis and rank by realized PNL / total gain.
-   - Treat Wallet PNL as an evaluation layer for upstream candidate sources such as GMGN smart wallets, early buyers, or user-provided wallet lists.
+   - Treat Wallet PNL as an evaluation layer for upstream candidate sources such as early buyers or user-provided wallet lists.
    - Always include source transparency in your answer: which provider was used, whether fallback happened, and whether the requested `days` window is exact or provider-bucketed.
    - Explain the result clearly: "In the last 30 days, your realized PNL is [Amount], with a ROI of [Percentage]."
    - Distinguish between trading performance and capital movements if the tool provides that granularity.
@@ -31,7 +31,7 @@
    - If a short time window has no rows, transparently fall back to all-time and state that fallback.
    - If chain is unsupported by the data provider, clearly state unsupported chain and ask user to switch to a supported chain.
    - For actionable screening, prefer this funnel:
-     - candidate source (GMGN / early buyers / user list)
+     - candidate source (early buyers / user list)
      - batch wallet PNL ranking
      - shortlist with recommendation tiers
 

@@ -147,7 +147,11 @@ function normalizeDays(days?: number): number | undefined {
     if (days === null || days === undefined) return undefined;
     const value = Math.trunc(Number(days));
     if (!Number.isFinite(value) || value <= 0) return undefined;
-    return Math.min(3650, value);
+    if (value <= 7) return 7;
+    if (value <= 30) return 30;
+    if (value <= 60) return 60;
+    if (value <= 90) return 90;
+    return undefined;
 }
 
 function resolveMoralisChain(chainOrId: string | number): { chain: string; chainId: number } | null {

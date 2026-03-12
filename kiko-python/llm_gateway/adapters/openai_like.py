@@ -118,10 +118,19 @@ async def _stream_xai(req: GenerateRequest, provider: str):
         "model": req.model,
         "messages": [m.model_dump(exclude_none=True) for m in req.messages],
         "stream": True,
-        "enable_search": True,
+        "stream_options": {"include_usage": True},
+        "enable_search": True if req.enable_search is None else bool(req.enable_search),
     }
     if req.tools:
         body["tools"] = req.tools
+    if req.tool_context:
+        body["tool_context"] = req.tool_context
+    if req.tool_policy:
+        body["tool_policy"] = req.tool_policy
+    if req.tool_config:
+        body["tool_config"] = req.tool_config
+    if req.previous_response_id:
+        body["previous_response_id"] = req.previous_response_id
     async for ev in _stream_sse(provider=provider, url=url, headers=headers, body=body):
         yield ev
 

@@ -28,11 +28,23 @@ from xai_sdk.tools import (
 )
 from xai_sdk.aio import chat as aio_chat
 from jose import jwt
+from grok.tool_bridge import normalize_tool_request
+from grok.tool_events import build_tool_status_chunk, summarize_tool_names
+from grok.tool_policy import resolve_requested_tool_policy
+from grok.tool_scheduler import PlannedToolCall, execute_planned_custom_tools
 
 # Load environment variables
 load_dotenv()
 
 kb = None
+
+
+def rag_enabled() -> bool:
+    return os.getenv("ENABLE_RAG_SERVICE", "false").strip().lower() in {"1", "true", "yes", "on"}
+
+
+ALLOW_LEGACY_TOOL_FALLBACK = os.getenv("GROK_ALLOW_LEGACY_TOOL_FALLBACK", "false").strip().lower() in {"1", "true", "yes", "on"}
+ALLOW_PYTHON_CUSTOM_TOOLS_FALLBACK = os.getenv("GROK_ALLOW_PYTHON_CUSTOM_TOOLS_FALLBACK", "false").strip().lower() in {"1", "true", "yes", "on"}
 
 # Logging disabled to avoid stream blocking from excessive stdout.
 def log_citations(message: str) -> None:
@@ -45,10 +57,12 @@ def log_tools(message: str) -> None:
 
 def get_kb():
     """
-    Lazy-load the RAG KnowledgeBase.
+    Lazy-load the RAG KnowledgeBase when RAG is explicitly enabled.
     IMPORTANT: We must not import `rag.vectorstore` at module import time, otherwise the whole Grok service
     fails to mount when optional RAG dependencies (e.g. `langchain_chroma`) are not installed.
     """
+    if not rag_enabled():
+        return None
     global kb
     if kb is not None:
         return kb
@@ -657,6 +671,7 @@ async def execute_custom_tool(tool_name: str, arguments: dict, auth_token: str =
         arguments: Tool arguments as a dictionary
         auth_token: Optional Privy JWT token for authenticated endpoints
     """
+    tool_name, arguments = normalize_tool_request(tool_name, arguments, tool_context)
     print(f"[Tool Execution] Executing tool: {tool_name} with args: {arguments}")
     
     # Prepare headers with optional auth token
@@ -678,34 +693,51 @@ async def execute_custom_tool(tool_name: str, arguments: dict, auth_token: str =
         # IMPORTANT: Many KiKo backend endpoints require user auth (Privy JWT).
         # If we don't forward Authorization, tool calls will silently fail (401) and look "broken" to the LLM.
         async with httpx.AsyncClient(timeout=30.0, headers=headers) as http_client:
-            # Prefer the unified tool executor (Node tool registry)
+            # Grok should use a single KiKo business-tool surface: Node's internal tool executor.
+            # Python remains an xAI SDK adapter, not a second business-logic implementation.
             try:
                 unified_payload = {
-                    "name": tool_name,
+                    "tool_name": tool_name,
                     "arguments": arguments,
-                    "tool_context": tool_context or {}
+                    "context": tool_context or {}
                 }
-                # Debug: Log the URL being called
-                target_url = f"{KIKO_API_BASE}/api/ai/tools/execute"
+                target_url = f"{KIKO_API_BASE}/internal/tools/execute"
                 print(f"[Tool Execution] 🔍 KIKO_API_BASE = {KIKO_API_BASE}")
                 print(f"[Tool Execution] 🔍 Calling unified executor at: {target_url}")
-                
-                unified_response = await http_client.post(
-                    target_url,
-                    json=unified_payload
-                )
+
+                unified_response = await http_client.post(target_url, json=unified_payload)
                 if unified_response.status_code == 200:
                     unified_data = unified_response.json()
-                    if isinstance(unified_data, dict) and "result" in unified_data:
+                    if isinstance(unified_data, dict) and unified_data.get("success") and "result" in unified_data:
                         unified_result = unified_data["result"]
                         if isinstance(unified_result, str):
                             return unified_result
                         return json.dumps(unified_result, indent=2)
-                else:
-                    print(f"[Tool Execution] Unified tool executor failed ({unified_response.status_code}), falling back")
+                    return json.dumps({
+                        "error": "Unified tool executor returned an invalid payload",
+                        "tool": tool_name,
+                        "details": str(unified_data)[:500],
+                        "source": "internal_tools_execute"
+                    }, indent=2)
+
+                error_text = unified_response.text
+                print(f"[Tool Execution] Unified tool executor failed ({unified_response.status_code})")
+                return json.dumps({
+                    "error": "Unified tool executor failed",
+                    "tool": tool_name,
+                    "status_code": unified_response.status_code,
+                    "details": error_text[:500],
+                    "source": "internal_tools_execute"
+                }, indent=2)
             except Exception as unified_error:
                 print(f"[Tool Execution] ❌ Unified tool executor error: {type(unified_error).__name__}: {unified_error}")
-                print(f"[Tool Execution] ❌ Target URL was: {KIKO_API_BASE}/api/ai/tools/execute")
+                print(f"[Tool Execution] ❌ Target URL was: {KIKO_API_BASE}/internal/tools/execute")
+                return json.dumps({
+                    "error": "Unified tool executor exception",
+                    "tool": tool_name,
+                    "details": str(unified_error),
+                    "source": "internal_tools_execute"
+                }, indent=2)
 
             if tool_name == "check_token_risk":
                 address = arguments.get("address", "")
@@ -1284,22 +1316,21 @@ async def execute_custom_tool(tool_name: str, arguments: dict, auth_token: str =
                 print(f"[Tool Execution] Unknown tool '{tool_name}', delegating to Node.js API...")
                 
                 payload = {
-                    "name": tool_name,
+                    "tool_name": tool_name,
                     "arguments": arguments,
-                    "tool_context": tool_context
+                    "context": tool_context
                 }
                 
-                # Use the same headers (with auth token) as other requests
+                # Use the internal tool route so delegation stays on the same execution surface.
                 response = await http_client.post(
-                    f"{KIKO_API_BASE}/api/ai/tools/execute",
+                    f"{KIKO_API_BASE}/internal/tools/execute",
                     json=payload,
                     headers=headers
                 )
                 
                 if response.status_code == 200:
                     data = response.json()
-                    # Node return format: { result: ... }
-                    result = data.get("result")
+                    result = data.get("result") if isinstance(data, dict) and data.get("success") else None
                     print(f"[Tool Execution] Delegated tool '{tool_name}' success")
                     return json.dumps(result, indent=2) if not isinstance(result, str) else result
                 else:
@@ -1403,6 +1434,7 @@ class ChatRequest(BaseModel):
     enable_search: Optional[bool] = True  # Enable search tools by default
     previous_response_id: Optional[str] = None
     tool_config: Optional[ToolConfig] = None  # Dynamic tool configuration
+    tool_policy: Optional[dict] = None  # Node-authored tool control-plane policy
     tools: Optional[List[dict]] = None  # OpenAI-style tool schemas from Node
     tool_context: Optional[dict] = None  # Tool execution context from Node
     user_settings: Optional[UserSettings] = None  # User trading preferences
@@ -1433,6 +1465,8 @@ async def fetch_rag_context(query: str) -> str:
     """
     Fetch context from the local rag-service using internal retrieval logic.
     """
+    if not rag_enabled():
+        return ""
     informational_regex = r"(how|what|why|explain|tell me|介绍|是什么|怎么|如何|原理)"
     
     import re
@@ -1495,7 +1529,7 @@ async def chat_completions(
         # Normalize model name to xai-sdk compatible format
         normalized_model = normalize_model_name(request.model)
         
-        # RAG INTEGRATION: Fetch and inject context for informational queries
+        # Optional RAG integration: disabled unless ENABLE_RAG_SERVICE is turned on.
         # Extract raw user query from the USER_QUERY block when available to avoid context pollution.
         last_user_msg = next((m.content for m in reversed(request.messages) if m.role == "user"), "")
         raw_user_query = last_user_msg
@@ -1556,13 +1590,32 @@ async def chat_completions(
             except Exception as e:
                 print(f"[Tools] Failed to attach native tool: {e}")
 
-        expose_all_sdk_tools = _is_truthy(os.getenv("GROK_EXPOSE_ALL_XAI_SDK_TOOLS"), default=True)
+        default_allow_extra_sdk_tools = _is_truthy(os.getenv("GROK_EXPOSE_ALL_XAI_SDK_TOOLS"), default=True)
+        tool_policy = resolve_requested_tool_policy(
+            request.tool_policy,
+            enable_search_default=bool(request.enable_search),
+            allow_extra_sdk_tools_default=default_allow_extra_sdk_tools,
+            is_non_reasoning_model="non-reasoning" in normalized_model.lower(),
+        )
+        native_tool_policy = tool_policy["native_tools"]
+        execution_policy = tool_policy["execution"]
+        print(
+            "[Tool Policy] "
+            f"enable_search={native_tool_policy['enable_search']} "
+            f"enabled_tools={native_tool_policy['enabled_tools']} "
+            f"required={native_tool_policy['required']} "
+            f"preferred={native_tool_policy['preferred_required_tool']} "
+            f"reason={native_tool_policy['reason'] or 'n/a'} "
+            f"per_tool_timeout_ms={execution_policy['per_tool_timeout_ms']} "
+            f"total_tool_budget_ms={execution_policy['total_tool_budget_ms']}"
+        )
 
-        if request.enable_search:
+        if "web_search" in native_tool_policy["enabled_tools"]:
             add_native_tool(web_search(**web_search_config) if web_search_config else web_search())
+        if "x_search" in native_tool_policy["enabled_tools"]:
             add_native_tool(x_search(**x_search_config) if x_search_config else x_search())
 
-        if expose_all_sdk_tools and request.enable_search:
+        if native_tool_policy["allow_extra_sdk_tools"] and native_tool_policy["enable_search"]:
             # 1) code_execution: always available when enabled.
             try:
                 add_native_tool(code_execution())
@@ -1609,10 +1662,13 @@ async def chat_completions(
                 ))
                 available_tools.add(tool_name)
             log_tools(f"[Tools] Dynamic tool set from Node + SDK natives: {len(tools)} tool(s) ({len(available_tools)} custom)")
-        elif request.enable_search:
-            tools = tools + CUSTOM_TOOLS
-            log_tools(f"[Tools] SDK native tools + {len(CUSTOM_TOOLS)} custom tools enabled")
-            available_tools = {t.function.name for t in CUSTOM_TOOLS if hasattr(t, "function")}
+        elif native_tool_policy["enable_search"]:
+            if ALLOW_PYTHON_CUSTOM_TOOLS_FALLBACK:
+                tools = tools + CUSTOM_TOOLS
+                log_tools(f"[Tools] SDK native tools + {len(CUSTOM_TOOLS)} Python fallback custom tools enabled")
+                available_tools = {t.function.name for t in CUSTOM_TOOLS if hasattr(t, "function")}
+            else:
+                log_tools("[Tools] SDK native tools only; waiting for Node-provided custom tool schemas")
         else:
             log_tools(f"[Tools] Search tools disabled by request")
 
@@ -1623,18 +1679,29 @@ async def chat_completions(
                 tool_names.add(name)
 
         has_search_tools = "web_search" in tool_names or "x_search" in tool_names
-        force_search = (
+        force_search = bool(native_tool_policy["required"]) if request.tool_policy else (
             has_search_tools
             and contains_contract_address(last_user_msg)
             and (has_analysis_intent(last_user_msg) or not has_trade_intent(last_user_msg))
         )
-        if not force_search and has_search_tools:
+        if not force_search and has_search_tools and not request.tool_policy:
             if has_freshness_intent(last_user_msg) and not has_trade_intent(last_user_msg):
                 force_search = True
 
         tool_choice = None
         if force_search:
-            if "x_search" in tool_names:
+            preferred_required_tool = native_tool_policy["preferred_required_tool"] if request.tool_policy else None
+            if preferred_required_tool == "x_search" and "x_search" in tool_names:
+                tool_choice = aio_chat.chat_pb2.ToolChoice(
+                    mode=aio_chat.chat_pb2.ToolMode.TOOL_MODE_REQUIRED,
+                    function_name="x_search",
+                )
+            elif preferred_required_tool == "web_search" and "web_search" in tool_names:
+                tool_choice = aio_chat.chat_pb2.ToolChoice(
+                    mode=aio_chat.chat_pb2.ToolMode.TOOL_MODE_REQUIRED,
+                    function_name="web_search",
+                )
+            elif "x_search" in tool_names:
                 tool_choice = aio_chat.chat_pb2.ToolChoice(
                     mode=aio_chat.chat_pb2.ToolMode.TOOL_MODE_REQUIRED,
                     function_name="x_search",
@@ -1645,8 +1712,8 @@ async def chat_completions(
         if has_search_tools:
             # Request inline citations so we can surface sources during/after streaming.
             # NOTE: xai-sdk IncludeOption list does not include a "citations" flag; citations may still appear on the response object.
-            include_options = ["inline_citations"]
-            if force_search:
+            include_options = list(native_tool_policy["include_options"]) if request.tool_policy else ["inline_citations"]
+            if force_search and not request.tool_policy:
                 include_options.extend(["web_search_call_output", "x_search_call_output"])
                 def tool_priority(t):
                     name = get_attached_tool_name(t)
@@ -1761,9 +1828,12 @@ async def chat_completions(
                 collected_citations = []
                 emitted_citation_urls = set()
                 collected_tool_calls = []  # Track tool calls to know if fallback message needed
+                tool_result_history = []
                 chunk_count = 0
                 text_chunks_sent = 0
                 instant_swap_action_emitted = False
+                non_text_signal_emitted = False
+                request_hash = hash(str(request.messages))
                 log_tools(f"[Generate] Starting generator")
                 
                 def is_client_side_tool(tool_call_obj, tool_name_str: str) -> bool:
@@ -1815,6 +1885,93 @@ async def chat_completions(
                         return {"value": parsed}, True
                     except Exception:
                         return {}, False
+
+                async def collect_finalization_chunks() -> tuple[object, list[dict]]:
+                    if not tool_result_history:
+                        return None, []
+
+                    summary_parts = []
+                    for idx, payload in enumerate(tool_result_history[-4:], start=1):
+                        text = str(payload or "").strip()
+                        if not text:
+                            continue
+                        if len(text) > 2500:
+                            text = text[:2500]
+                        summary_parts.append(f"[Tool Result {idx}]\n{text}")
+
+                    if not summary_parts:
+                        return None, []
+
+                    finalizer_chat = client.chat.create(
+                        model=normalized_model,
+                        include=["inline_citations"],
+                        store_messages=False,
+                    )
+
+                    for msg in messages_to_add:
+                        content = (msg.content or "").strip() if hasattr(msg, "content") else ""
+                        if not content:
+                            continue
+                        if msg.role == "system":
+                            finalizer_chat.append(system(content))
+                        elif msg.role == "user":
+                            finalizer_chat.append(user(content))
+
+                    finalizer_chat.append(system(
+                        "FINALIZATION MODE: You have already completed all tool usage. "
+                        "Do not call any tools or searches again. "
+                        "Use only the provided tool outputs and prior conversation to produce a direct final answer. "
+                        "Do not invent chain names, timestamps, buyer identities, launch timing, or risk facts that are not explicitly supported by the tool outputs. "
+                        "If a tool failed, returned no data, or the chain/source is uncertain, say that plainly instead of guessing."
+                    ))
+                    finalizer_chat.append(user(
+                        "Tool execution has finished. Produce the final answer now in plain text.\n\n"
+                        + "\n\n".join(summary_parts)
+                    ))
+
+                    finalizer_response = None
+                    finalizer_chunks: list[dict] = []
+                    slice_chars = max(1, int(os.getenv("GROK_STREAM_SLICE_CHARS", "48")))
+
+                    async for response, chunk in finalizer_chat.stream():
+                        if response:
+                            finalizer_response = response
+                        content = getattr(chunk, "content", None)
+                        if not content:
+                            continue
+                        content_str = str(content).strip()
+                        if not content_str:
+                            continue
+                        for i in range(0, len(content_str), slice_chars):
+                            piece = content_str[i:i + slice_chars]
+                            if not piece:
+                                continue
+                            finalizer_chunks.append({
+                                "id": f"chatcmpl-{hash(str(request.messages))}",
+                                "object": "chat.completion.chunk",
+                                "created": int(__import__('time').time()),
+                                "model": request.model,
+                                "choices": [{
+                                    "index": 0,
+                                    "delta": {
+                                        "content": piece
+                                    },
+                                    "finish_reason": None
+                                }]
+                            })
+
+                    return finalizer_response, finalizer_chunks
+
+                def normalize_tool_payload_for_history(tool_payload) -> str:
+                    if tool_payload is None:
+                        safe_payload = "tool_result_empty"
+                    else:
+                        safe_payload = str(tool_payload).strip()
+                        if not safe_payload:
+                            safe_payload = "tool_result_empty"
+                    if len(safe_payload) > 12000:
+                        safe_payload = safe_payload[:12000]
+                    return safe_payload
                 
                 try:
                     # According to xai-sdk official docs, citations are available in the final response
@@ -1826,6 +1983,21 @@ async def chat_completions(
                         import time
                         stream_start_time = time.time()
                         last_chunk_time = stream_start_time
+                        tool_budget_started_at = time.perf_counter()
+                        tool_budget_ms = execution_policy["total_tool_budget_ms"]
+                        if tool_budget_ms is None:
+                            tool_budget_ms = max(0, int(os.getenv("GROK_TOOL_TOTAL_BUDGET_MS", "45000")))
+                        configured_tool_timeout_ms = execution_policy["per_tool_timeout_ms"]
+                        if configured_tool_timeout_ms is None:
+                            configured_tool_timeout_ms = max(0, int(os.getenv("GROK_TOOL_EXEC_TIMEOUT_MS", "20000")))
+
+                        def tool_budget_elapsed_ms() -> int:
+                            return int((time.perf_counter() - tool_budget_started_at) * 1000)
+
+                        def tool_budget_remaining_ms() -> Optional[int]:
+                            if tool_budget_ms <= 0:
+                                return None
+                            return max(0, tool_budget_ms - tool_budget_elapsed_ms())
                         
                         # MULTI-TURN TOOL HANDLING: Loop to handle tool calls and follow-up responses
                         # When Grok calls a tool, we execute it, add result to chat, and stream again
@@ -1844,6 +2016,8 @@ async def chat_completions(
                             content_sent_this_turn = False
                             custom_tool_executed = False
                             pending_tool_results = []
+                            planned_custom_tools = []
+                            budget_forced_finalization = False
                             processed_tool_call_ids = set()  # Track processed tool calls to prevent duplicates
                             
                             async for response, chunk in chat.stream():
@@ -1893,6 +2067,7 @@ async def chat_completions(
 
                                     # Stream citations immediately so frontend can render without waiting for final chunk
                                     if new_citations:
+                                        non_text_signal_emitted = True
                                         cite_chunk = {
                                             "id": f"chatcmpl-{hash(str(request.messages))}",
                                             "object": "chat.completion.chunk",
@@ -2040,77 +2215,27 @@ async def chat_completions(
                                             }
                                             try:
                                                 log_tools(f"[Tool Call Event] Sending tool call event for {tool_name} (ID: {tool_call_id})")
+                                                non_text_signal_emitted = True
                                                 # Send both formats for maximum compatibility
                                                 yield f"data: {json.dumps(tool_call_event)}\n\n"
                                                 yield f"data: {json.dumps(tool_call_simple_event)}\n\n"
                                                 
-                                                # CUSTOM TOOL EXECUTION: Execute our custom tools
-                                                # Built-in tools (web_search, x_search) are handled by xai-sdk
                                                 if is_client_tool and tool_name in available_tools:
-                                                    print(f"[Custom Tool] Executing {tool_name}...")
-                                                    try:
-                                                        # Parse arguments safely; skip partial streaming payloads.
-                                                        args, args_ready = parse_tool_args_safe(tool_args)
-                                                        if not args_ready:
-                                                            log_tools(f"[Tool Call] Deferred {tool_name}: incomplete streamed arguments")
-                                                            continue
-                                                        tool_result_data = await execute_custom_tool(tool_name, args, user_auth_token, request.tool_context)
-                                                        tool_payload, client_action = normalize_tool_result(tool_result_data)
-                                                        print(f"[Custom Tool] {tool_name} returned: {len(tool_payload)} chars")
-                                                        
-                                                        # Send tool status update to frontend
-                                                        status_chunk = {
-                                                            "id": f"chatcmpl-{hash(str(request.messages))}",
-                                                            "object": "chat.completion.chunk",
-                                                            "created": int(__import__('time').time()),
-                                                            "model": request.model,
-                                                            "choices": [{
-                                                                "index": 0,
-                                                                "delta": {
-                                                                    "tool_status": f"Completed {tool_name}"
-                                                                },
-                                                                "finish_reason": None
-                                                            }]
-                                                        }
-                                                        yield f"data: {json.dumps(status_chunk)}\n\n"
-                                                        
-                                                        # Send client action event if tool requested UI action
-                                                        if client_action and tool_name != "prepare_swap_transaction":
-                                                            action_chunk = {
-                                                                "id": f"chatcmpl-{hash(str(request.messages))}",
-                                                                "object": "chat.completion.chunk",
-                                                                "created": int(__import__('time').time()),
-                                                                "model": request.model,
-                                                                "choices": [{
-                                                                    "index": 0,
-                                                                    "delta": {
-                                                                        "client_actions": [client_action]
-                                                                    },
-                                                                    "finish_reason": None
-                                                                }]
-                                                            }
-                                                            yield f"data: {json.dumps(action_chunk)}\n\n"
-
-                                                        # Defer appending tool results until we create a new chat
-                                                        print(f"[Custom Tool] Buffering tool result: {str(tool_payload)[:100]}...")
-                                                        pending_tool_results.append(tool_payload)
-                                                        
-                                                        collected_tool_calls.append(tool_name)  # Track for fallback message
-                                                        has_tool_calls_this_turn = True  # Mark that we need another turn
-                                                        print(f"[Custom Tool] Added tool result to chat, will call Grok again")
-                                                        
-                                                    except Exception as tool_err:
-                                                        print(f"[Custom Tool] Error executing {tool_name}: {tool_err}")
-                                                        # Send error as result so Grok knows it failed
-                                                        pending_tool_results.append(f"Error executing {tool_name}: {str(tool_err)}")
-                                                        has_tool_calls_this_turn = True
-                                                        custom_tool_executed = True
+                                                    # Parse arguments safely; skip partial streaming payloads.
+                                                    args, args_ready = parse_tool_args_safe(tool_args)
+                                                    if not args_ready:
+                                                        log_tools(f"[Tool Call] Deferred {tool_name}: incomplete streamed arguments")
+                                                        continue
+                                                    planned_custom_tools.append(PlannedToolCall(name=tool_name, args=args))
+                                                    collected_tool_calls.append(tool_name)
+                                                    has_tool_calls_this_turn = True
+                                                    custom_tool_executed = True
+                                                    print(f"[Custom Tool] Planned {tool_name} for parallel execution")
                                                 else:
                                                     log_tools(f"[Tool Call] {tool_name} is a built-in tool, handled by xai-sdk")
                                                     
                                             except (BrokenPipeError, ConnectionResetError, OSError):
                                                 return
-                                
                                 
                                 # NOTE: reasoning_content streaming removed - thinking feature abandoned
                                 
@@ -2151,10 +2276,137 @@ async def chat_completions(
                                         # else:
 
                             # END OF STREAM LOOP - Check if we need another turn
+                            if planned_custom_tools:
+                                planned_tool_names = [planned_tool.name for planned_tool in planned_custom_tools]
+                                remaining_budget_ms = tool_budget_remaining_ms()
+                                if remaining_budget_ms == 0:
+                                    print(f"[Tool Budget] Exhausted before executing planned tools at {tool_budget_elapsed_ms()}ms")
+                                    budget_chunk = build_tool_status_chunk(
+                                        request_hash=request_hash,
+                                        model=request.model,
+                                        status=f"Tool budget exhausted before running {len(planned_custom_tools)} planned tool(s)",
+                                        phase="budget_exhausted",
+                                        count=len(planned_custom_tools),
+                                        tools=planned_tool_names,
+                                        reason="pre_execution",
+                                    )
+                                    non_text_signal_emitted = True
+                                    yield f"data: {json.dumps(budget_chunk)}\n\n"
+                                    pending_tool_results.append(
+                                        "Tool budget exhausted before executing all planned tools. "
+                                        "Respond with the evidence already gathered and clearly state any missing data."
+                                    )
+                                    budget_forced_finalization = True
+                                else:
+                                    effective_tool_timeout_ms = configured_tool_timeout_ms
+                                    if remaining_budget_ms is not None and remaining_budget_ms > 0:
+                                        if effective_tool_timeout_ms <= 0:
+                                            effective_tool_timeout_ms = remaining_budget_ms
+                                        else:
+                                            effective_tool_timeout_ms = min(effective_tool_timeout_ms, remaining_budget_ms)
+                                    planned_chunk = build_tool_status_chunk(
+                                        request_hash=request_hash,
+                                        model=request.model,
+                                        status=f"Planned {len(planned_custom_tools)} tool(s): {summarize_tool_names(planned_tool_names)}",
+                                        phase="planned",
+                                        count=len(planned_custom_tools),
+                                        tools=planned_tool_names,
+                                    )
+                                    started_chunk = build_tool_status_chunk(
+                                        request_hash=request_hash,
+                                        model=request.model,
+                                        status=f"Running {len(planned_custom_tools)} tool(s) in parallel",
+                                        phase="started",
+                                        count=len(planned_custom_tools),
+                                        tools=planned_tool_names,
+                                    )
+                                    non_text_signal_emitted = True
+                                    yield f"data: {json.dumps(planned_chunk)}\n\n"
+                                    yield f"data: {json.dumps(started_chunk)}\n\n"
+                                    print(f"[Custom Tool] Executing {len(planned_custom_tools)} planned tool(s) in parallel")
+                                    executed_tool_calls = await execute_planned_custom_tools(
+                                        planned_custom_tools,
+                                        execute_tool=execute_custom_tool,
+                                        normalize_result=normalize_tool_result,
+                                        auth_token=user_auth_token,
+                                        tool_context=request.tool_context,
+                                        log=log_tools,
+                                        per_tool_timeout_ms=effective_tool_timeout_ms,
+                                    )
+                                    finished_chunk = build_tool_status_chunk(
+                                        request_hash=request_hash,
+                                        model=request.model,
+                                        status=f"Finished {len(executed_tool_calls)} tool(s): {summarize_tool_names([tool.name for tool in executed_tool_calls])}",
+                                        phase="finished",
+                                        count=len(executed_tool_calls),
+                                        tools=[tool.name for tool in executed_tool_calls],
+                                    )
+                                    non_text_signal_emitted = True
+                                    yield f"data: {json.dumps(finished_chunk)}\n\n"
+                                    for executed_tool in executed_tool_calls:
+                                        print(f"[Custom Tool] {executed_tool.name} returned in {executed_tool.duration_ms}ms")
+                                        tool_status_label = (
+                                            f"Failed {executed_tool.name}"
+                                            if executed_tool.error
+                                            else f"Completed {executed_tool.name}"
+                                        )
+                                        status_chunk = {
+                                            "id": f"chatcmpl-{hash(str(request.messages))}",
+                                            "object": "chat.completion.chunk",
+                                            "created": int(__import__('time').time()),
+                                            "model": request.model,
+                                            "choices": [{
+                                                "index": 0,
+                                                "delta": {
+                                                    "tool_status": tool_status_label
+                                                },
+                                                "finish_reason": None
+                                            }]
+                                        }
+                                        non_text_signal_emitted = True
+                                        yield f"data: {json.dumps(status_chunk)}\n\n"
+                                        if executed_tool.client_action and executed_tool.name != "prepare_swap_transaction":
+                                            non_text_signal_emitted = True
+                                            action_chunk = {
+                                                "id": f"chatcmpl-{hash(str(request.messages))}",
+                                                "object": "chat.completion.chunk",
+                                                "created": int(__import__('time').time()),
+                                                "model": request.model,
+                                                "choices": [{
+                                                    "index": 0,
+                                                    "delta": {
+                                                        "client_actions": [executed_tool.client_action]
+                                                    },
+                                                    "finish_reason": None
+                                                }]
+                                            }
+                                            yield f"data: {json.dumps(action_chunk)}\n\n"
+                                        print(f"[Custom Tool] Buffering tool result: {str(executed_tool.payload)[:100]}...")
+                                        pending_tool_results.append(executed_tool.payload)
+                                    if tool_budget_remaining_ms() == 0:
+                                        print(f"[Tool Budget] Exhausted after executing planned tools at {tool_budget_elapsed_ms()}ms")
+                                        budget_chunk = build_tool_status_chunk(
+                                            request_hash=request_hash,
+                                            model=request.model,
+                                            status="Tool budget exhausted after collecting partial evidence",
+                                            phase="budget_exhausted",
+                                            count=len(executed_tool_calls),
+                                            tools=[tool.name for tool in executed_tool_calls],
+                                            reason="post_execution",
+                                        )
+                                        non_text_signal_emitted = True
+                                        yield f"data: {json.dumps(budget_chunk)}\n\n"
+                                        pending_tool_results.append(
+                                            "Tool budget exhausted after collecting partial evidence. "
+                                            "Produce the final answer now using only the gathered tool outputs."
+                                        )
+                                        budget_forced_finalization = True
+
                             final_tool_call_check = custom_tool_executed
                             
                             # Also check response.tool_calls one more time as final fallback
                             if not final_tool_call_check and hasattr(final_response, 'tool_calls') and final_response.tool_calls:
+                                fallback_planned_custom_tools = []
                                 # Process tool calls from final_response if not already processed
                                 for tool_call in final_response.tool_calls:
                                     if hasattr(tool_call, 'function'):
@@ -2186,28 +2438,117 @@ async def chat_completions(
                                                     has_tool_calls_this_turn = True
                                                     custom_tool_executed = True
                                                     continue
-                                                tool_result_data = await execute_custom_tool(tool_name, args, user_auth_token, request.tool_context)
-                                                tool_payload, client_action = normalize_tool_result(tool_result_data)
-                                                if client_action and tool_name != "prepare_swap_transaction":
-                                                    action_chunk = {
-                                                        "id": f"chatcmpl-{hash(str(request.messages))}",
-                                                        "object": "chat.completion.chunk",
-                                                        "created": int(__import__('time').time()),
-                                                        "model": request.model,
-                                                        "choices": [{
-                                                            "index": 0,
-                                                            "delta": {
-                                                                "client_actions": [client_action]
-                                                            },
-                                                            "finish_reason": None
-                                                        }]
-                                                    }
-                                                    yield f"data: {json.dumps(action_chunk)}\n\n"
-                                                pending_tool_results.append(tool_payload)
+                                                fallback_planned_custom_tools.append(PlannedToolCall(name=tool_name, args=args))
                                                 has_tool_calls_this_turn = True
                                                 custom_tool_executed = True
                                             except Exception as e:
                                                 print(f"[Client Action] Error executing tool {tool_name}: {e}")
+                                if fallback_planned_custom_tools:
+                                    fallback_tool_names = [planned_tool.name for planned_tool in fallback_planned_custom_tools]
+                                    remaining_budget_ms = tool_budget_remaining_ms()
+                                    if remaining_budget_ms == 0:
+                                        print(f"[Tool Budget] Exhausted before fallback planned tools at {tool_budget_elapsed_ms()}ms")
+                                        budget_chunk = build_tool_status_chunk(
+                                            request_hash=request_hash,
+                                            model=request.model,
+                                            status=f"Tool budget exhausted before fallback batch of {len(fallback_planned_custom_tools)} tool(s)",
+                                            phase="budget_exhausted",
+                                            count=len(fallback_planned_custom_tools),
+                                            tools=fallback_tool_names,
+                                            reason="fallback_pre_execution",
+                                        )
+                                        non_text_signal_emitted = True
+                                        yield f"data: {json.dumps(budget_chunk)}\n\n"
+                                        pending_tool_results.append(
+                                            "Tool budget exhausted before fallback tool execution. "
+                                            "Produce the final answer from the evidence already available."
+                                        )
+                                        budget_forced_finalization = True
+                                    else:
+                                        effective_tool_timeout_ms = configured_tool_timeout_ms
+                                        if remaining_budget_ms is not None and remaining_budget_ms > 0:
+                                            if effective_tool_timeout_ms <= 0:
+                                                effective_tool_timeout_ms = remaining_budget_ms
+                                            else:
+                                                effective_tool_timeout_ms = min(effective_tool_timeout_ms, remaining_budget_ms)
+                                        planned_chunk = build_tool_status_chunk(
+                                            request_hash=request_hash,
+                                            model=request.model,
+                                            status=f"Planned fallback batch of {len(fallback_planned_custom_tools)} tool(s): {summarize_tool_names(fallback_tool_names)}",
+                                            phase="planned",
+                                            count=len(fallback_planned_custom_tools),
+                                            tools=fallback_tool_names,
+                                            reason="fallback",
+                                        )
+                                        started_chunk = build_tool_status_chunk(
+                                            request_hash=request_hash,
+                                            model=request.model,
+                                            status=f"Running fallback batch of {len(fallback_planned_custom_tools)} tool(s) in parallel",
+                                            phase="started",
+                                            count=len(fallback_planned_custom_tools),
+                                            tools=fallback_tool_names,
+                                            reason="fallback",
+                                        )
+                                        non_text_signal_emitted = True
+                                        yield f"data: {json.dumps(planned_chunk)}\n\n"
+                                        yield f"data: {json.dumps(started_chunk)}\n\n"
+                                        print(f"[Custom Tool] Executing {len(fallback_planned_custom_tools)} fallback planned tool(s) in parallel")
+                                        executed_tool_calls = await execute_planned_custom_tools(
+                                            fallback_planned_custom_tools,
+                                            execute_tool=execute_custom_tool,
+                                            normalize_result=normalize_tool_result,
+                                            auth_token=user_auth_token,
+                                            tool_context=request.tool_context,
+                                            log=log_tools,
+                                            per_tool_timeout_ms=effective_tool_timeout_ms,
+                                        )
+                                        finished_chunk = build_tool_status_chunk(
+                                            request_hash=request_hash,
+                                            model=request.model,
+                                            status=f"Finished fallback batch of {len(executed_tool_calls)} tool(s): {summarize_tool_names([tool.name for tool in executed_tool_calls])}",
+                                            phase="finished",
+                                            count=len(executed_tool_calls),
+                                            tools=[tool.name for tool in executed_tool_calls],
+                                            reason="fallback",
+                                        )
+                                        non_text_signal_emitted = True
+                                        yield f"data: {json.dumps(finished_chunk)}\n\n"
+                                        for executed_tool in executed_tool_calls:
+                                            if executed_tool.client_action and executed_tool.name != "prepare_swap_transaction":
+                                                non_text_signal_emitted = True
+                                                action_chunk = {
+                                                    "id": f"chatcmpl-{hash(str(request.messages))}",
+                                                    "object": "chat.completion.chunk",
+                                                    "created": int(__import__('time').time()),
+                                                    "model": request.model,
+                                                    "choices": [{
+                                                        "index": 0,
+                                                        "delta": {
+                                                            "client_actions": [executed_tool.client_action]
+                                                        },
+                                                        "finish_reason": None
+                                                    }]
+                                                }
+                                                yield f"data: {json.dumps(action_chunk)}\n\n"
+                                            pending_tool_results.append(executed_tool.payload)
+                                        if tool_budget_remaining_ms() == 0:
+                                            print(f"[Tool Budget] Exhausted after fallback planned tools at {tool_budget_elapsed_ms()}ms")
+                                            budget_chunk = build_tool_status_chunk(
+                                                request_hash=request_hash,
+                                                model=request.model,
+                                                status="Tool budget exhausted after fallback evidence collection",
+                                                phase="budget_exhausted",
+                                                count=len(executed_tool_calls),
+                                                tools=[tool.name for tool in executed_tool_calls],
+                                                reason="fallback_post_execution",
+                                            )
+                                            non_text_signal_emitted = True
+                                            yield f"data: {json.dumps(budget_chunk)}\n\n"
+                                            pending_tool_results.append(
+                                                "Tool budget exhausted after fallback evidence collection. "
+                                                "Produce the final answer now using only the gathered tool outputs."
+                                            )
+                                            budget_forced_finalization = True
                             # Recompute after fallback processing in case custom_tool_executed changed above.
                             final_tool_call_check = custom_tool_executed
                             
@@ -2215,6 +2556,12 @@ async def chat_completions(
                                 final_tool_call_check = False
                             if instant_swap_action_emitted:
                                 # Once instant execution is dispatched to client, end tool chaining.
+                                final_tool_call_check = False
+                            if budget_forced_finalization:
+                                print(f"[Tool Budget] Finalizing early after {tool_budget_elapsed_ms()}ms with current tool evidence")
+                                for tool_payload in pending_tool_results:
+                                    safe_payload = normalize_tool_payload_for_history(tool_payload)
+                                    tool_result_history.append(safe_payload)
                                 final_tool_call_check = False
 
                             if final_tool_call_check:
@@ -2238,14 +2585,8 @@ async def chat_completions(
                                     ]
 
                                 for tool_payload in pending_tool_results:
-                                    if tool_payload is None:
-                                        safe_payload = "tool_result_empty"
-                                    else:
-                                        safe_payload = str(tool_payload).strip()
-                                        if not safe_payload:
-                                            safe_payload = "tool_result_empty"
-                                    if len(safe_payload) > 12000:
-                                        safe_payload = safe_payload[:12000]
+                                    safe_payload = normalize_tool_payload_for_history(tool_payload)
+                                    tool_result_history.append(safe_payload)
                                     chat.append(tool_result(result=safe_payload))
 
                                 continue  # Go to next turn to get Grok's response
@@ -2566,22 +2907,49 @@ async def chat_completions(
                     # Send final chunk with citations
                     # Ensure all data is JSON-serializable (no protobuf types)
                     try:
+                        if text_chunks_sent == 0 and non_text_signal_emitted:
+                            try:
+                                print("[Finalization] No visible text after tool turns; attempting no-tool finalization pass")
+                                finalizer_response, finalizer_chunks = await collect_finalization_chunks()
+                                if finalizer_response:
+                                    final_response = finalizer_response
+                                for chunk_data in finalizer_chunks:
+                                    yield f"data: {json.dumps(chunk_data)}\n\n"
+                                    text_chunks_sent += 1
+                            except Exception as finalization_error:
+                                print(f"[Finalization] Failed: {type(finalization_error).__name__}: {finalization_error}")
+
                         if text_chunks_sent == 0:
-                            empty_fallback_chunk = {
-                                "id": f"chatcmpl-{hash(str(request.messages))}",
-                                "object": "chat.completion.chunk",
-                                "created": int(__import__('time').time()),
-                                "model": request.model,
-                                "choices": [{
-                                    "index": 0,
-                                    "delta": {
-                                        "content": "I couldn't produce a stable final answer in this round. Please retry."
-                                    },
-                                    "finish_reason": None
-                                }]
-                            }
-                            yield f"data: {json.dumps(empty_fallback_chunk)}\n\n"
-                            text_chunks_sent += 1
+                            fallback_text = None
+                            if final_response and hasattr(final_response, 'text') and final_response.text:
+                                candidate_text = str(final_response.text).strip()
+                                if candidate_text:
+                                    fallback_text = candidate_text
+
+                            if fallback_text is None:
+                                fallback_text = (
+                                    "I completed the tool steps for this request, "
+                                    "but the model did not return a final answer. Please retry."
+                                    if non_text_signal_emitted
+                                    else "I couldn't produce a stable final answer in this round. Please retry."
+                                )
+
+                            if fallback_text:
+                                empty_fallback_chunk = {
+                                    "id": f"chatcmpl-{hash(str(request.messages))}",
+                                    "object": "chat.completion.chunk",
+                                    "created": int(__import__('time').time()),
+                                    "model": request.model,
+                                    "choices": [{
+                                        "index": 0,
+                                        "delta": {
+                                            "content": fallback_text
+                                        },
+                                        "finish_reason": None
+                                    }]
+                                }
+                                yield f"data: {json.dumps(empty_fallback_chunk)}\n\n"
+                                text_chunks_sent += 1
 
                         # Citations are now objects with url and optional avatar_url
                         citations_list = collected_citations if collected_citations else []
@@ -2707,6 +3075,7 @@ async def chat_completions(
                 tool_calls = getattr(response, 'tool_calls', [])
                 if tool_calls:
                     log_tools(f"[Chat] [Turn {turn+1}] Tool calls detected: {len(tool_calls)}")
+                    planned_custom_tools = []
                     
                     for tc in tool_calls:
                         name = getattr(tc.function, 'name', 'unknown')
@@ -2718,16 +3087,14 @@ async def chat_completions(
                             is_client_tool = name in available_tools
 
                         if is_client_tool and name in available_tools:
-                            log_tools(f"[Chat] [Turn {turn+1}] Executing custom tool: {name}")
+                            log_tools(f"[Chat] [Turn {turn+1}] Planning custom tool: {name}")
                             try:
                                 args = json.loads(args_str) if args_str else {}
-                                result = await execute_custom_tool(name, args, user_auth_token, request.tool_context)
-                                tool_payload, _client_action = normalize_tool_result(result)
-                                pending_tool_results.append(tool_payload)
+                                planned_custom_tools.append(PlannedToolCall(name=name, args=args))
                                 custom_tool_executed = True
                             except Exception as e:
-                                log_tools(f"[Chat] [Turn {turn+1}] Custom tool error: {e}")
-                                pending_tool_results.append(f"Error: {str(e)}")
+                                log_tools(f"[Chat] [Turn {turn+1}] Custom tool args parse error: {e}")
+                                pending_tool_results.append(f"Error parsing {name} arguments: {str(e)}")
                                 custom_tool_executed = True
                         else:
                             # Built-in tools like web_search, x_search
@@ -2737,6 +3104,18 @@ async def chat_completions(
                             log_tools(f"[Chat] [Turn {turn+1}] Built-in tool detected: {name}")
                             # For built-in tools, the SDK might have already added them or we just need to let it be.
                             # However, if we don't loop, we don't get the follow-up content.
+
+                    if planned_custom_tools:
+                        print(f"[Chat] [Turn {turn+1}] Executing {len(planned_custom_tools)} planned tool(s) in parallel")
+                        executed_tool_calls = await execute_planned_custom_tools(
+                            planned_custom_tools,
+                            execute_tool=execute_custom_tool,
+                            normalize_result=normalize_tool_result,
+                            auth_token=user_auth_token,
+                            tool_context=request.tool_context,
+                            log=log_tools,
+                        )
+                        pending_tool_results.extend(executed_tool.payload for executed_tool in executed_tool_calls)
                     
                     # Keep using the same chat instance across tool turns.
                     # Re-creating with previous_response_id can produce empty-message
@@ -3037,6 +3416,7 @@ Only use tools when the provided data is insufficient for quality analysis.
                 has_tool_calls_this_turn = False
                 final_response = None
                 pending_tool_results = []
+                planned_tool_calls = []
                 
                 async for response, chunk in chat.stream():
                     if response:
@@ -3071,19 +3451,28 @@ Only use tools when the provided data is insufficient for quality analysis.
                                 if is_client_tool and tool_name in custom_tool_names:
                                     has_tool_calls_this_turn = True
                                     print(f"[NewsWriter] Tool call: {tool_name}")
-                                    
                                     try:
                                         args = json.loads(str(tool_args_raw)) if tool_args_raw else {}
-                                        tool_result_data = await execute_custom_tool(tool_name, args, None, None)
-                                        tool_payload, _client_action = normalize_tool_result(tool_result_data)
-                                        pending_tool_results.append(tool_payload)
-                                        print(f"[NewsWriter] Tool {tool_name} executed successfully")
+                                        planned_tool_calls.append(PlannedToolCall(name=tool_name, args=args))
                                     except Exception as e:
-                                        print(f"[NewsWriter] Tool {tool_name} failed: {e}")
-                                        pending_tool_results.append(json.dumps({"error": str(e)}))
+                                        print(f"[NewsWriter] Tool {tool_name} args parse failed: {e}")
+                                        pending_tool_results.append(json.dumps({"error": f"Failed to parse {tool_name} args: {str(e)}"}))
                 
                 # If tool calls were made, continue to next turn
                 if has_tool_calls_this_turn:
+                    if planned_tool_calls:
+                        print(f"[NewsWriter] Executing {len(planned_tool_calls)} planned tool(s) in parallel")
+                        executed_tool_calls = await execute_planned_custom_tools(
+                            planned_tool_calls,
+                            execute_tool=execute_custom_tool,
+                            normalize_result=normalize_tool_result,
+                            auth_token=None,
+                            tool_context=None,
+                            log=print,
+                        )
+                        for executed_tool in executed_tool_calls:
+                            pending_tool_results.append(executed_tool.payload)
+                            print(f"[NewsWriter] Tool {executed_tool.name} completed in {executed_tool.duration_ms}ms")
                     # Keep tool-chain state in one chat object to avoid invalid empty turns.
                     if not pending_tool_results:
                         pending_tool_results = ["tool_result_empty"]

@@ -22,6 +22,10 @@ import * as tokenAnalysis from '../services/tokenAnalysis.js';
 import { getHolderCount } from '../services/goPlus.js';
 import { getTokenSecurity } from '../services/tokenSecurity.js';
 import { validateTrendingTokenForListing } from '../services/trendingValidation.js';
+import { isErc20ContractAddress } from '../utils/evmTokenCheck.js';
+import { getSolanaConnection } from '../config/solanaConfig.js';
+import { TOKEN_PROGRAM_ID } from '../utils/solanaToken.js';
+import { PublicKey, SystemProgram } from '@solana/web3.js';
 
 const GECKO_TERMINAL_BASE_URL = 'https://api.geckoterminal.com/api/v2';
 
@@ -159,6 +163,58 @@ export async function tokenRoutes(fastify: FastifyInstance) {
       .then((ok) => ok)
       .catch(() => false);
     return Promise.race([task, timeout]);
+  }
+
+  async function assertTokenAddressTarget(network: string, address: string): Promise<void> {
+    const normalizedNetwork = String(network || '').toLowerCase();
+    const normalizedAddress = String(address || '').trim();
+
+    if (normalizedNetwork === 'sol' || normalizedNetwork === 'solana') {
+      try {
+        const connection = getSolanaConnection();
+        const pubkey = new PublicKey(normalizedAddress);
+        const info = await connection.getAccountInfo(pubkey, 'confirmed');
+        if (!info) {
+          throw new AppError(404, `Token ${normalizedAddress} not found on ${normalizedNetwork}`, 'NOT_FOUND');
+        }
+        if (info.owner.equals(SystemProgram.programId)) {
+          throw new AppError(400, 'Wallet address provided where token mint was expected.', 'INVALID_TOKEN_ADDRESS');
+        }
+        if (!info.owner.equals(TOKEN_PROGRAM_ID)) {
+          throw new AppError(400, 'Program or non-token account provided where token mint was expected.', 'INVALID_TOKEN_ADDRESS');
+        }
+        // SPL mint accounts are 82 bytes; token accounts are much larger (typically 165).
+        if (info.data.length !== 82) {
+          throw new AppError(400, 'Token account provided where token mint was expected.', 'INVALID_TOKEN_ADDRESS');
+        }
+        return;
+      } catch (error) {
+        if (error instanceof AppError) throw error;
+        throw new AppError(400, 'Invalid Solana token mint address', 'INVALID_TOKEN_ADDRESS');
+      }
+    }
+
+    const chainIdByNetwork: Record<string, number> = {
+      eth: 1,
+      ethereum: 1,
+      base: 8453,
+      bsc: 56,
+      'binance-smart-chain': 56,
+      arbitrum: 42161,
+      optimism: 10,
+      polygon: 137,
+      avax: 43114,
+      avalanche: 43114,
+      fantom: 250,
+    };
+
+    const chainId = chainIdByNetwork[normalizedNetwork];
+    if (!chainId) return;
+
+    const isContract = await isErc20ContractAddress(chainId, normalizedAddress);
+    if (!isContract) {
+      throw new AppError(400, 'Wallet/EOA address provided where token contract was expected.', 'INVALID_TOKEN_ADDRESS');
+    }
   }
 
   // GET /api/tokens/chains - Get list of supported chains
@@ -450,6 +506,16 @@ export async function tokenRoutes(fastify: FastifyInstance) {
   fastify.get('/:network/:address', async (request, reply) => {
     try {
       const { network, address } = request.params as { network: string; address: string };
+      fastify.log.info({
+        route: 'token_details',
+        network,
+        address,
+        requestId: request.id,
+        origin: request.headers.origin,
+        referer: request.headers.referer,
+        userAgent: request.headers['user-agent'],
+      }, 'Token details lookup requested');
+      await assertTokenAddressTarget(network, address);
 
       // Check cache
       const cacheKey = `token:details:${network}:${address}`;
@@ -550,6 +616,21 @@ export async function tokenRoutes(fastify: FastifyInstance) {
         cached: false,
       });
     } catch (error) {
+      if (error instanceof AppError) {
+        const { network, address } = request.params as { network: string; address: string };
+        fastify.log.warn({
+          route: 'token_details',
+          network,
+          address,
+          requestId: request.id,
+          origin: request.headers.origin,
+          referer: request.headers.referer,
+          userAgent: request.headers['user-agent'],
+          code: error.code,
+          statusCode: error.statusCode,
+          message: error.message,
+        }, 'Token details lookup rejected');
+      }
       throw handleExternalApiError(error as Error, 'Token Details');
     }
   });

@@ -209,16 +209,6 @@ class PromptOrchestrator:
         if ctx.get("pageContext"):
             page_context = str(ctx["pageContext"])
             parts.append(f"- Page Details:\n{page_context[:800]}")
-        hints = ctx.get("intentHints") or {}
-        if isinstance(hints, dict) and hints:
-            parts.append("\n[INTENT_HINTS]")
-            labels = hints.get("labels") or []
-            if labels:
-                parts.append("- Candidate intents: " + ", ".join([str(x) for x in labels]))
-            if hints.get("conflict"):
-                parts.append(f"- Conflict: {hints.get('conflict')}")
-            if hints.get("question"):
-                parts.append(f"- Ask user: {hints.get('question')}")
         return "\n".join(parts)
 
 

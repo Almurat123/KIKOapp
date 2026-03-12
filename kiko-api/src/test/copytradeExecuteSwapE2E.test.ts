@@ -162,7 +162,7 @@ describe('copytrade executeSwap boundary E2E', () => {
       balanceUsd: 100,
       attributedBalance: 2500000000000000000000n,
       amountInHuman: '2500',
-      retryAmountInHuman: '2475',
+      retryAmountInHuman: '2500',
       initialSlippageBps: 500,
       retrySlippageBps: 900,
       executionMode: 'turbo' as const,
@@ -190,7 +190,7 @@ describe('copytrade executeSwap boundary E2E', () => {
     assert.equal(captured.length, 2);
     assert.equal(captured[0]?.request.executionContext?.executionStep, 'sell_external_primary');
     assert.equal(captured[1]?.request.executionContext?.executionStep, 'sell_external_retry');
-    assert.equal(captured[1]?.request.amountIn, '2475');
+    assert.equal(captured[1]?.request.amountIn, '2500');
     assert.equal(captured[1]?.request.requireConfirmedTx, true);
     assert.equal(captured[1]?.request.tokenIn, TOKEN);
     assert.equal(captured[1]?.request.tokenOut, 'ETH');
@@ -236,7 +236,7 @@ describe('copytrade executeSwap boundary E2E', () => {
       balanceUsd: 100,
       attributedBalance: 2500000000000000000000n,
       amountInHuman: '2500',
-      retryAmountInHuman: '2475',
+      retryAmountInHuman: '2500',
       initialSlippageBps: 500,
       retrySlippageBps: 900,
       executionMode: 'turbo' as const,
@@ -264,6 +264,94 @@ describe('copytrade executeSwap boundary E2E', () => {
     const captured = getCapturedSwapExecutions();
     assert.equal(captured.length, 1);
     assert.equal(captured[0]?.request.executionContext?.executionStep, 'sell_external_primary');
+  });
+
+  test('EVM exit executor escalates sell retries with wider slippage and route switching', async () => {
+    installCopytradeExecutionPortHarness();
+
+    queueSwapExecutionResult(new Error('0x liquidityAvailable=false'));
+    queueSwapExecutionResult(new Error('kyber no route matched'));
+    queueSwapExecutionResult(new Error('direct swap slippage exceeded'));
+    queueSwapExecutionResult(new Error('external route stale quote'));
+    queueSwapExecutionResult(
+      buildSwapResult({
+        userId: 'did:exec-port:aggressive',
+        walletAddress: makeAddress('aggressive-wallet'),
+        chainId: BASE_CHAIN_ID,
+        side: 'sell',
+        txHash: makeTxHash('aggressive-success'),
+        tokenIn: TOKEN,
+        tokenOut: WETH,
+      }),
+    );
+
+    const plan = {
+      kind: 'swap' as const,
+      userId: 'did:exec-port:aggressive',
+      walletAddress: makeAddress('aggressive-wallet'),
+      tokenAddress: TOKEN,
+      chainId: BASE_CHAIN_ID,
+      exitReason: 'mirror_sell' as const,
+      tokenInfo: { price: 1, symbol: 'FELIX' },
+      balance: 2500000000000000000000n,
+      decimals: 18,
+      balanceUsd: 100,
+      attributedBalance: 2500000000000000000000n,
+      amountInHuman: '2500',
+      retryAmountInHuman: '2500',
+      initialSlippageBps: 500,
+      retrySlippageBps: 900,
+      executionMode: 'turbo' as const,
+      sellRoutePolicy: 'external_primary' as const,
+      runtimeContext: createExitOrderRuntimeContext({
+        userId: 'did:exec-port:aggressive',
+        walletAddress: makeAddress('aggressive-wallet'),
+        chainId: BASE_CHAIN_ID,
+        tokenAddress: TOKEN,
+        exitReason: 'mirror_sell',
+        targetWallet: makeAddress('aggressive-target'),
+      }),
+      positions: [],
+      pendingAttributedLotIds: [],
+      attributedReasonCode: 'ATTRIBUTED_AMOUNT_RESOLVED' as const,
+      attributionMetrics: { source: 'test' },
+      hasExternalBalance: false,
+    };
+
+    const result = await executeEvmExitPlan(plan);
+    assert.equal(result.success, true);
+    assert.equal(result.txHash, makeTxHash('aggressive-success'));
+
+    const captured = getCapturedSwapExecutions();
+    assert.equal(captured.length, 5);
+    assert.deepEqual(
+      captured.map((entry) => entry.request.executionContext?.executionStep),
+      [
+        'sell_external_primary',
+        'sell_external_retry',
+        'sell_direct_fallback',
+        'sell_external_retry_aggressive',
+        'sell_direct_retry_aggressive',
+      ]
+    );
+    assert.deepEqual(
+      captured.map((entry) => entry.request.slippageBps),
+      [500, 900, 1400, 1900, 2400]
+    );
+    assert.deepEqual(
+      captured.map((entry) => entry.request.executionContext?.sellRoutePolicy),
+      [
+        'external_primary',
+        'external_primary',
+        'direct_primary',
+        'external_primary',
+        'direct_primary',
+      ]
+    );
+    assert.deepEqual(
+      captured.map((entry) => entry.request.amountIn),
+      ['2500', '2500', '2500', '2500', '2500']
+    );
   });
 
   test('buy result from shared execution port flows into pending lot, exit plan, and closed-before-open persistence', async () => {

@@ -11,6 +11,10 @@ export interface ResolvedChatToken {
   source: 'native' | 'cache' | 'address' | 'search' | 'fallback';
 }
 
+type ResolveTokenOptions = {
+  disallowedAddresses?: string[];
+};
+
 const EVM_ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
 const SOL_NATIVE_ADDRESS = 'So11111111111111111111111111111111111111112';
 
@@ -26,11 +30,6 @@ const NATIVE_TOKEN_ALIASES: Record<number, string[]> = {
 };
 
 const FAST_MODE_SWAP_INTENT_PATTERN = /\b(swap|buy|sell|trade|exchange)\b|买|卖|换|兑换/i;
-const TOKEN_MENTION_STOP_WORDS = new Set([
-  'SWAP', 'BUY', 'SELL', 'TRADE', 'EXCHANGE', 'TO', 'FOR', 'WITH', 'ON', 'MY',
-  'THE', 'A', 'AN', 'AND', 'OR', 'OF', 'INTO', 'IN', 'OUT', 'TOKEN', 'TOKENS',
-  'PRICE', 'QUOTE', 'SHOW', 'CHECK', 'PLEASE', 'USING',
-]);
 
 function getNetworkSlug(chainId: number): string {
   const map: Record<number, string> = {
@@ -121,16 +120,25 @@ function pickBestSearchResult(results: TokenSearchResult[], rawQuery: string): T
 
 export async function resolveTokenForChat(
   rawToken: string | { address?: string; symbol?: string; name?: string; logoURI?: string; imageUrl?: string } | null | undefined,
-  chainId: number
+  chainId: number,
+  options: ResolveTokenOptions = {}
 ): Promise<ResolvedChatToken | null> {
   if (!rawToken) return null;
 
   const directAddress = typeof rawToken === 'object' ? rawToken.address : undefined;
   const directSymbol = typeof rawToken === 'object' ? (rawToken.symbol || rawToken.name) : rawToken;
+  const disallowedAddresses = new Set(
+    (options.disallowedAddresses || [])
+      .filter(Boolean)
+      .map((value) => String(value).trim().toLowerCase())
+  );
   const explicitNative = resolveNativeToken(chainId, directSymbol);
   if (explicitNative) return explicitNative;
 
   if (directAddress && (isEvmAddress(directAddress) || isSolanaAddress(directAddress))) {
+    if (disallowedAddresses.has(directAddress.trim().toLowerCase())) {
+      return null;
+    }
     const local = await getTokenData(directAddress, chainId);
     if (local.symbol !== 'UNK') {
       return {
@@ -183,16 +191,25 @@ export async function resolveTokenForChat(
 
 export async function resolveTokenForFastSwap(
   rawToken: string | { address?: string; symbol?: string; name?: string; logoURI?: string; imageUrl?: string } | null | undefined,
-  chainId: number
+  chainId: number,
+  options: ResolveTokenOptions = {}
 ): Promise<ResolvedChatToken | null> {
   if (!rawToken) return null;
 
   const directAddress = typeof rawToken === 'object' ? rawToken.address : undefined;
   const directSymbol = typeof rawToken === 'object' ? (rawToken.symbol || rawToken.name) : rawToken;
+  const disallowedAddresses = new Set(
+    (options.disallowedAddresses || [])
+      .filter(Boolean)
+      .map((value) => String(value).trim().toLowerCase())
+  );
   const explicitNative = resolveNativeToken(chainId, directSymbol);
   if (explicitNative) return explicitNative;
 
   if (directAddress && (isEvmAddress(directAddress) || isSolanaAddress(directAddress))) {
+    if (disallowedAddresses.has(directAddress.trim().toLowerCase())) {
+      return null;
+    }
     const local = await getTokenData(directAddress, chainId);
     if (local.symbol !== 'UNK') {
       return {
@@ -222,27 +239,6 @@ export async function resolveTokenForFastSwap(
   }
 
   return null;
-}
-
-function extractLikelySwapTokenMentions(text: string): string[] {
-  const mentions = new Set<string>();
-  const patterns = [
-    /\b(?:swap|buy|sell|trade|exchange)\s+(?:\d+(?:\.\d+)?\s+)?([A-Za-z][A-Za-z0-9_-]{1,15})/gi,
-    /\b(?:to|for|with|into)\s+([A-Za-z][A-Za-z0-9_-]{1,15})/gi,
-    /(?:买|卖|换|兑换)\s*([A-Za-z][A-Za-z0-9_-]{1,15})/g,
-  ];
-
-  patterns.forEach(pattern => {
-    let match: RegExpExecArray | null;
-    while ((match = pattern.exec(text)) !== null) {
-      const token = normalizeTokenText(match[1]);
-      if (!TOKEN_MENTION_STOP_WORDS.has(token)) {
-        mentions.add(token);
-      }
-    }
-  });
-
-  return Array.from(mentions);
 }
 
 export function requiresContractAddressInFastMode(text: string, chainId: number): boolean {

@@ -4,6 +4,7 @@
  */
 import { getAuthToken, clearAuthTokenCache } from './authToken';
 import { getRuntimeConfigUrl, getEnvUrl } from './runtimeConfig';
+import { adaptLoopbackUrlForBrowser, isLocalLikeHost } from './runtimeHosts';
 
 function resolveWsBaseUrl(): string {
     const viteEnv = (import.meta as any)?.env || {};
@@ -12,7 +13,7 @@ function resolveWsBaseUrl(): string {
         try {
             const parsed = new URL(explicit);
             if (parsed.protocol === 'ws:' || parsed.protocol === 'wss:') {
-                return explicit.replace(/\/+$/, '');
+                return adaptLoopbackUrlForBrowser(explicit);
             }
             console.warn('[ChatWS] Invalid ws protocol in CHAT_WS_URL, falling back:', explicit);
         } catch {
@@ -24,7 +25,7 @@ function resolveWsBaseUrl(): string {
     const apiBase = getRuntimeConfigUrl('CHAT_API_URL') || getEnvUrl('VITE_CHAT_API_URL') || getRuntimeConfigUrl('API_URL') || getEnvUrl('VITE_API_URL');
     if (apiBase) {
         try {
-            const parsed = new URL(apiBase);
+            const parsed = new URL(adaptLoopbackUrlForBrowser(apiBase));
             const wsProto = parsed.protocol === 'https:' ? 'wss:' : parsed.protocol === 'http:' ? 'ws:' : '';
             if (wsProto) {
                 return `${wsProto}//${parsed.host}`.replace(/\/+$/, '');
@@ -36,8 +37,7 @@ function resolveWsBaseUrl(): string {
 
     if (typeof window !== 'undefined' && window.location?.origin) {
         const host = window.location.hostname.toLowerCase();
-        const isLocal = host === 'localhost' || host === '127.0.0.1';
-        if (isLocal) {
+        if (isLocalLikeHost(host)) {
             const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
             return `${proto}//${window.location.host}`;
         }
@@ -48,6 +48,7 @@ function resolveWsBaseUrl(): string {
 }
 
 const WS_BASE_URL = resolveWsBaseUrl();
+const WS_OPEN_TIMEOUT_MS = 3000;
 
 export type ChatEventType = 'chunk' | 'content_block' | 'task_status' | 'message_complete' | 'message_start' | 'error' | 'pong' | 'usage' | 'citations' | 'client_action' | 'sync_complete' | 'transaction_update' | 'transaction_confirmed' | 'transaction_complete' | 'latency_metrics';
 
@@ -64,10 +65,14 @@ export interface ChatEvent {
 export class ChatWebSocketClient {
     private socket: WebSocket | null = null;
     private token: string | null = null;
+    private authenticated = false;
+    private socketUrl = '';
+    private connectStartedAt = 0;
     private listeners: Set<(event: ChatEvent) => void> = new Set();
     private reconnectTimeout: NodeJS.Timeout | null = null;
     private pingInterval: NodeJS.Timeout | null = null;
     private authTimeout: NodeJS.Timeout | null = null;
+    private openTimeout: NodeJS.Timeout | null = null;
     private connectionPromise: Promise<void> | null = null;
     private connectionResolver: (() => void) | null = null;
 
@@ -79,12 +84,26 @@ export class ChatWebSocketClient {
     public connect(token: string) {
         if (this.socket && this.token === token &&
             (this.socket.readyState === WebSocket.OPEN || this.socket.readyState === WebSocket.CONNECTING)) {
-            // Already connected, silent return to prevent console span
-            return;
+            const isHealthyOpen = this.socket.readyState === WebSocket.OPEN && this.authenticated;
+            const isFreshConnecting =
+                this.socket.readyState === WebSocket.CONNECTING &&
+                this.connectStartedAt > 0 &&
+                (Date.now() - this.connectStartedAt) < WS_OPEN_TIMEOUT_MS;
+            if (isHealthyOpen || isFreshConnecting) {
+                return;
+            }
+
+            console.warn('[ChatWS] Restarting stale socket before reconnect', {
+                readyState: this.socket.readyState,
+                authenticated: this.authenticated,
+                connectAgeMs: this.connectStartedAt ? (Date.now() - this.connectStartedAt) : null,
+                url: this.socketUrl || `${WS_BASE_URL}/api/chat/ws`,
+            });
         }
 
         this.close();
         this.token = token;
+        this.authenticated = false;
 
         // Create connection promise
         this.connectionPromise = new Promise<void>((resolve) => {
@@ -92,11 +111,26 @@ export class ChatWebSocketClient {
         });
 
         const url = `${WS_BASE_URL}/api/chat/ws`;
-        console.log(`[ChatWS] Connecting to user WebSocket...`);
+        this.socketUrl = url;
+        this.connectStartedAt = Date.now();
+        console.log(`[ChatWS] Connecting to user WebSocket: ${url}`);
 
         this.socket = new WebSocket(url);
+        this.openTimeout = setTimeout(() => {
+            if (this.socket && this.socket.readyState === WebSocket.CONNECTING) {
+                console.warn('[ChatWS] Socket open timeout, closing stale connection', {
+                    url: this.socketUrl,
+                    waitedMs: Date.now() - this.connectStartedAt,
+                });
+                this.socket.close();
+            }
+        }, WS_OPEN_TIMEOUT_MS);
 
         this.socket.onopen = () => {
+            if (this.openTimeout) {
+                clearTimeout(this.openTimeout);
+                this.openTimeout = null;
+            }
             console.log(`[ChatWS] Socket opened, sending auth`);
             this.socket?.send(JSON.stringify({
                 type: 'auth',
@@ -112,6 +146,7 @@ export class ChatWebSocketClient {
             try {
                 const raw = JSON.parse(event.data);
                 if (raw?.type === 'auth_ok') {
+                    this.authenticated = true;
                     if (this.authTimeout) {
                         clearTimeout(this.authTimeout);
                         this.authTimeout = null;
@@ -148,6 +183,11 @@ export class ChatWebSocketClient {
         };
 
         this.socket.onclose = (event) => {
+            this.authenticated = false;
+            if (this.openTimeout) {
+                clearTimeout(this.openTimeout);
+                this.openTimeout = null;
+            }
             console.log(`[ChatWS] Disconnected (code: ${event.code}, reason: ${event.reason})`);
             this.stopHeartbeat();
             if (this.authTimeout) {
@@ -168,7 +208,12 @@ export class ChatWebSocketClient {
         };
 
         this.socket.onerror = (error) => {
-            console.error('[ChatWS] WebSocket error:', error);
+            console.error('[ChatWS] WebSocket error:', {
+                error,
+                url: this.socketUrl,
+                readyState: this.socket?.readyState ?? null,
+                authenticated: this.authenticated,
+            });
         };
     }
 
@@ -273,7 +318,7 @@ export class ChatWebSocketClient {
 
     // Wait for connection to be established
     public async waitForConnection(timeout = 5000): Promise<boolean> {
-        if (this.socket?.readyState === WebSocket.OPEN) {
+        if (this.socket?.readyState === WebSocket.OPEN && this.authenticated) {
             return true;
         }
 
@@ -290,7 +335,12 @@ export class ChatWebSocketClient {
             ]);
             return true;
         } catch {
-            console.warn('[ChatWS] Connection wait timed out');
+            console.warn('[ChatWS] Connection wait timed out', {
+                url: this.socketUrl,
+                readyState: this.socket?.readyState ?? null,
+                authenticated: this.authenticated,
+                waitedMs: timeout,
+            });
             return false;
         }
     }
@@ -309,9 +359,16 @@ export class ChatWebSocketClient {
 
     public close() {
         this.token = null;
+        this.authenticated = false;
+        this.socketUrl = '';
+        this.connectStartedAt = 0;
         if (this.reconnectTimeout) {
             clearTimeout(this.reconnectTimeout);
             this.reconnectTimeout = null;
+        }
+        if (this.openTimeout) {
+            clearTimeout(this.openTimeout);
+            this.openTimeout = null;
         }
         if (this.authTimeout) {
             clearTimeout(this.authTimeout);

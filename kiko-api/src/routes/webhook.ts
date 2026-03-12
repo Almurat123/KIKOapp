@@ -180,6 +180,17 @@ export const __webhookTest = {
     setScheduleReceiptRecoveryForTest(fn: ((chainId: number, txHash: string, trackedWallets: string[], detectedAt?: number) => void) | null): void {
         scheduleReceiptRecoveryForTest = fn;
     },
+    isRecoverableProcessTxFetchTimeout(error: unknown): boolean {
+        return isRecoverableProcessTxFetchTimeout(error);
+    },
+    handleProcessTxFetchTimeout(params: {
+        chainId: number;
+        txHash: string;
+        wallet: string;
+        detectedAt?: number;
+    }): { success: true; skipped: true; reason: 'receipt_recovery_scheduled' } {
+        return handleProcessTxFetchTimeout(params);
+    },
     handleEvmDecodedWithoutSwaps(params: {
         chainId: number;
         txHash: string;
@@ -327,6 +338,21 @@ function handleEvmDecodedWithoutSwaps(params: {
 }): void {
     scheduleReceiptRecovery(params.chainId, params.txHash, params.trackedWallets, params.detectedAt);
     console.log(`[Webhook] Tx decoded with no swaps; leaving unprocessed for potential follow-up payload: ${params.txHash}`);
+}
+
+function isRecoverableProcessTxFetchTimeout(error: unknown): boolean {
+    const message = String((error as any)?.message || error || '');
+    return message.startsWith('timeout_receipt_fetch_') || message.startsWith('timeout_tx_fetch_');
+}
+
+function handleProcessTxFetchTimeout(params: {
+    chainId: number;
+    txHash: string;
+    wallet: string;
+    detectedAt?: number;
+}): { success: true; skipped: true; reason: 'receipt_recovery_scheduled' } {
+    scheduleReceiptRecovery(params.chainId, params.txHash, [params.wallet], params.detectedAt);
+    return { success: true, skipped: true, reason: 'receipt_recovery_scheduled' };
 }
 
 
@@ -1526,6 +1552,24 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
 
             return reply.send({ success: true, swap: { tokenIn: swap.tokenIn, tokenOut: swap.tokenOut } });
         } catch (error: any) {
+            if (isRecoverableProcessTxFetchTimeout(error)) {
+                console.warn('[Webhook] /process-tx timed out on critical fetch; scheduling receipt recovery', {
+                    chainId,
+                    txHash: txHashNormalized,
+                    wallet,
+                    error: String(error?.message || error || ''),
+                });
+                await markCopyTradeTxState(chainId, txHashNormalized, 'pending_seen', {
+                    wallet,
+                    source: 'process_tx_timeout_recovery',
+                    reasonCode: 'process_tx_fetch_timeout_recovery',
+                }).catch(() => { });
+                return reply.send(handleProcessTxFetchTimeout({
+                    chainId,
+                    txHash: txHashNormalized,
+                    wallet,
+                }));
+            }
             console.error(`[Webhook] Error processing tx:`, error);
             return reply.status(500).send({ error: 'Failed to process transaction' });
         } finally {

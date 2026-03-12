@@ -7,9 +7,71 @@ import type { EvmExitExecutionResult, EvmExitSwapPlan, SellRoutePolicy } from '.
 import { createExitOrderRuntimeContext, mergeSwapResultIntoExitRuntime } from './runtime.js';
 import { submitCopytradeExit } from '../execution/copytradeExecutionFacade.js';
 
+const COPYTRADE_EXIT_IMMEDIATE_MAX_ATTEMPTS = Math.max(3, Math.min(5, Number(process.env.COPYTRADE_EXIT_IMMEDIATE_MAX_ATTEMPTS || '5')));
+const COPYTRADE_EXIT_IMMEDIATE_SLIPPAGE_STEP_BPS = Math.max(100, Number(process.env.COPYTRADE_EXIT_IMMEDIATE_SLIPPAGE_STEP_BPS || '500'));
+const COPYTRADE_EXIT_IMMEDIATE_MAX_SLIPPAGE_BPS = Math.max(1500, Number(process.env.COPYTRADE_EXIT_IMMEDIATE_MAX_SLIPPAGE_BPS || '5000'));
+
 function compactError(error: unknown): string {
   const message = String((error as any)?.message || error || 'unknown_error').trim();
   return message.length > 240 ? `${message.slice(0, 237)}...` : message;
+}
+
+function createRetryRuntimeContext(plan: EvmExitSwapPlan) {
+  return createExitOrderRuntimeContext({
+    userId: plan.userId,
+    walletAddress: plan.walletAddress,
+    chainId: plan.chainId,
+    tokenAddress: plan.tokenAddress,
+    exitReason: plan.exitReason,
+    targetWallet: String(plan.runtimeContext.metadata.targetWallet || '') || undefined
+  });
+}
+
+function buildExitAttempts(plan: EvmExitSwapPlan) {
+  // Exit retries intentionally keep the same sell amount. We only escalate slippage
+  // and route policy between attempts so failures do not strand avoidable leftovers.
+  const attempts = [
+    {
+      amountInHuman: plan.amountInHuman,
+      slippageBps: plan.initialSlippageBps,
+      executionStep: 'sell_external_primary',
+      partial: false,
+      sellRoutePolicy: plan.sellRoutePolicy,
+      runtimeContext: plan.runtimeContext
+    },
+    {
+      amountInHuman: plan.retryAmountInHuman,
+      slippageBps: plan.retrySlippageBps,
+      executionStep: 'sell_external_retry',
+      partial: true,
+      sellRoutePolicy: plan.sellRoutePolicy,
+      runtimeContext: createRetryRuntimeContext(plan)
+    }
+  ];
+
+  let currentSlippageBps = plan.retrySlippageBps;
+  const aggressiveSteps: Array<{ executionStep: string; sellRoutePolicy: SellRoutePolicy }> = [
+    { executionStep: 'sell_direct_fallback', sellRoutePolicy: 'direct_primary' },
+    { executionStep: 'sell_external_retry_aggressive', sellRoutePolicy: plan.sellRoutePolicy },
+    { executionStep: 'sell_direct_retry_aggressive', sellRoutePolicy: 'direct_primary' },
+  ];
+
+  for (const step of aggressiveSteps) {
+    currentSlippageBps = Math.min(
+      COPYTRADE_EXIT_IMMEDIATE_MAX_SLIPPAGE_BPS,
+      Math.max(currentSlippageBps + COPYTRADE_EXIT_IMMEDIATE_SLIPPAGE_STEP_BPS, plan.retrySlippageBps)
+    );
+    attempts.push({
+      amountInHuman: plan.retryAmountInHuman,
+      slippageBps: currentSlippageBps,
+      executionStep: step.executionStep,
+      partial: true,
+      sellRoutePolicy: step.sellRoutePolicy,
+      runtimeContext: createRetryRuntimeContext(plan)
+    });
+  }
+
+  return attempts.slice(0, COPYTRADE_EXIT_IMMEDIATE_MAX_ATTEMPTS);
 }
 
 async function runExitSwapAttempt(
@@ -109,46 +171,7 @@ function resolveAttemptFinality(params: {
 }
 
 export async function executeEvmExitPlan(plan: EvmExitSwapPlan): Promise<EvmExitExecutionResult> {
-  const attempts = [
-    {
-      amountInHuman: plan.amountInHuman,
-      slippageBps: plan.initialSlippageBps,
-      executionStep: 'sell_external_primary',
-      partial: false,
-      sellRoutePolicy: plan.sellRoutePolicy,
-      runtimeContext: plan.runtimeContext
-    },
-    {
-      amountInHuman: plan.retryAmountInHuman,
-      slippageBps: plan.retrySlippageBps,
-      executionStep: 'sell_external_retry',
-      partial: true,
-      sellRoutePolicy: plan.sellRoutePolicy,
-      runtimeContext: createExitOrderRuntimeContext({
-        userId: plan.userId,
-        walletAddress: plan.walletAddress,
-        chainId: plan.chainId,
-        tokenAddress: plan.tokenAddress,
-        exitReason: plan.exitReason,
-        targetWallet: String(plan.runtimeContext.metadata.targetWallet || '') || undefined
-      })
-    },
-    {
-      amountInHuman: plan.retryAmountInHuman,
-      slippageBps: plan.retrySlippageBps,
-      executionStep: 'sell_direct_fallback',
-      partial: true,
-      sellRoutePolicy: 'direct_primary' as const,
-      runtimeContext: createExitOrderRuntimeContext({
-        userId: plan.userId,
-        walletAddress: plan.walletAddress,
-        chainId: plan.chainId,
-        tokenAddress: plan.tokenAddress,
-        exitReason: plan.exitReason,
-        targetWallet: String(plan.runtimeContext.metadata.targetWallet || '') || undefined
-      })
-    }
-  ];
+  const attempts = buildExitAttempts(plan);
 
   let lastError = 'unknown_exit_error';
   let lastRuntime = plan.runtimeContext;

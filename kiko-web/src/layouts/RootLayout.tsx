@@ -9,6 +9,7 @@ import { clearActiveTask } from '../utils/taskLifecycle';
 import { chatApi } from '../services/api';
 import { ToastContainer, useToast } from '../components/Toast';
 import { AgentRuntime } from '../agent/AgentRuntime';
+import { logger } from '../utils/logger';
 
 // Global Toast Component
 function GlobalToast() {
@@ -57,6 +58,7 @@ export const RootLayout: React.FC = () => {
     const rafScheduledByConversationRef = useRef<Map<string, number>>(new Map());
     const resumeSyncInFlightRef = useRef<Promise<void> | null>(null);
     const lastResumeSyncAtRef = useRef(0);
+    const firstChunkLoggedRef = useRef<Set<string>>(new Set());
 
     // --- WebSocket & Sync Logic (Identical to App.tsx) ---
 
@@ -207,16 +209,23 @@ export const RootLayout: React.FC = () => {
                 const messageId = event.data.messageId || event.data.message_id;
                 console.log('[RootLayout] message_start:', messageId, targetSessionId);
                 if (!messageId) return;
+                logger.debug('[ChatStream] message_start received', {
+                    sessionId: targetSessionId,
+                    messageId,
+                    taskId: event.data.taskId || event.data.task_id || null,
+                    activeConversationId,
+                });
 
-                // Create pending placeholder
+                // Preserve any out-of-order chunks/usage/citations that arrived before message_start.
+                const existingPending = sessionPending.get(messageId);
                 sessionPending.set(messageId, {
                     id: messageId,
                     role: 'assistant',
-                    content: '',
-                    reasoning_content: '',
+                    content: existingPending?.content || '',
+                    reasoning_content: existingPending?.reasoning_content || '',
                     status: 'streaming',
-                    citations: [], // Initialize citations
-                    usage: undefined
+                    citations: existingPending?.citations || [],
+                    usage: existingPending?.usage
                 });
 
                 // Update Conversation State
@@ -247,23 +256,7 @@ export const RootLayout: React.FC = () => {
                 const messageId = event.data.messageId || event.data.message_id;
                 if (!messageId) return;
 
-                const targetConvForChunk = conversationsRef.current.find(c => c.id === targetSessionId);
-                if (!targetConvForChunk) return;
-
-                const localActiveTaskId = targetConvForChunk?.activeTask?.id;
-                const expectedTaskId = `task-${messageId}`;
-                const hasMatchingActiveTask = targetConvForChunk.activeTask && (localActiveTaskId === expectedTaskId || localActiveTaskId?.includes(messageId));
-
-                // Allow late chunks: if message_complete arrived before the last chunk(s), we still apply content for the target message
-                const lastAssistantMsg = [...targetConvForChunk.messages].reverse().find(m => m.role === 'assistant');
-                const isLateChunkForCurrentMessage = lastAssistantMsg?.id === messageId;
-
-                if (!hasMatchingActiveTask && !isLateChunkForCurrentMessage) {
-                    console.warn('[RootLayout] Zombie chunk detected, discarding:', messageId);
-                    return;
-                }
-
-                const msg = sessionPending.get(messageId) || {
+                const pendingMessage = sessionPending.get(messageId) || {
                     id: messageId,
                     role: 'assistant',
                     content: '',
@@ -274,14 +267,47 @@ export const RootLayout: React.FC = () => {
                 };
 
                 if (event.data.type === 'reasoning') {
-                    // Accumulate reasoning delta for this pending batch
-                    msg.reasoning_content = (msg.reasoning_content || '') + (event.data.reasoning_content || '');
+                    pendingMessage.reasoning_content = (pendingMessage.reasoning_content || '') + (event.data.reasoning_content || '');
                 } else {
-                    // Accumulate content delta for this pending batch
-                    msg.content = (msg.content || '') + (event.data.content || event.data.delta || '');
+                    pendingMessage.content = (pendingMessage.content || '') + (event.data.content || event.data.delta || '');
+                    if (!firstChunkLoggedRef.current.has(`${targetSessionId}:${messageId}`) && (event.data.content || event.data.delta || '')) {
+                        firstChunkLoggedRef.current.add(`${targetSessionId}:${messageId}`);
+                        logger.debug('[ChatStream] first content chunk received', {
+                            sessionId: targetSessionId,
+                            messageId,
+                            chunkLength: String(event.data.content || event.data.delta || '').length,
+                            activeConversationId,
+                        });
+                    }
+                }
+                sessionPending.set(messageId, pendingMessage);
+
+                const targetConvForChunk = conversationsRef.current.find(c => c.id === targetSessionId);
+                if (!targetConvForChunk) {
+                    console.debug('[RootLayout] Buffered chunk before conversation was loaded', {
+                        targetSessionId,
+                        messageId,
+                    });
+                    return;
                 }
 
-                sessionPending.set(messageId, msg);
+                const localActiveTaskId = targetConvForChunk?.activeTask?.id;
+                const expectedTaskId = `task-${messageId}`;
+                const hasMatchingActiveTask = targetConvForChunk.activeTask && (localActiveTaskId === expectedTaskId || localActiveTaskId?.includes(messageId));
+                const hasKnownTargetMessage = targetConvForChunk.messages.some(m => m.id === messageId);
+
+                // Allow late chunks: if message_complete arrived before the last chunk(s), we still apply content for the target message
+                const lastAssistantMsg = [...targetConvForChunk.messages].reverse().find(m => m.role === 'assistant');
+                const isLateChunkForCurrentMessage = lastAssistantMsg?.id === messageId;
+
+                if (!hasMatchingActiveTask && !isLateChunkForCurrentMessage && !hasKnownTargetMessage) {
+                    console.debug('[RootLayout] Buffered out-of-order chunk until placeholder/task state catches up', {
+                        targetSessionId,
+                        messageId,
+                        activeTaskId: localActiveTaskId,
+                    });
+                    return;
+                }
 
                 const existingRaf = rafScheduledByConversationRef.current.get(targetSessionId);
                 if (existingRaf) {
@@ -339,6 +365,7 @@ export const RootLayout: React.FC = () => {
             else if (event.type === 'message_complete') {
                 const completionId = event.data.messageId || event.data.message_id;
                 if (!completionId) return;
+                firstChunkLoggedRef.current.delete(`${targetSessionId}:${completionId}`);
                 const dedupKey = `${targetSessionId}:${completionId}`;
                 console.log('[RootLayout] message_complete:', completionId, 'Pending:', sessionPending.size);
 

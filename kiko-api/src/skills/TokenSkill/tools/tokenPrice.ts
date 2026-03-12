@@ -1,6 +1,7 @@
 import { Tool } from '../../../tooling/registry.js';
 import * as coinbase from '../../../services/coinbase.js';
 import { fetchJson } from '../../../config/unifiedApiService.js';
+import { resolveChainInput } from '../../../utils/chainParam.js';
 
 export const GetTokenPriceTool: Tool = {
     definition: {
@@ -12,12 +13,25 @@ export const GetTokenPriceTool: Tool = {
                 symbol: {
                     type: 'string',
                     description: 'Token symbol (e.g., BTC, ETH) or contract address (0x..., Solana mint). Case insensitive.',
-                }
+                },
+                symbol_or_address: {
+                    type: 'string',
+                    description: 'Alias of symbol for Python/Grok callers. Can be a token symbol or contract address.',
+                },
+                chain: {
+                    type: 'string',
+                    description: 'Optional blockchain network for address lookups (eth, base, bsc, solana, arbitrum, polygon, optimism, avalanche).',
+                    enum: ['eth', 'solana', 'base', 'bsc', 'arbitrum', 'polygon', 'optimism', 'avalanche']
+                },
+                chain_id: {
+                    type: 'number',
+                    description: 'Optional numeric chain ID for address lookups, e.g. 1, 8453, 56, 900.',
+                },
             },
-            required: ['symbol']
+            required: []
         }
     },
-    handler: async (args) => {
+    handler: async (args, context) => {
         try {
             // Support both 'symbol' (Node.js native) and 'symbol_or_address' (Python/Grok)
             const symbol = args.symbol || args.symbol_or_address;
@@ -30,8 +44,18 @@ export const GetTokenPriceTool: Tool = {
             console.log(`[GetTokenPrice] Fetching price for ${symbol} (isAddress: ${isAddress})...`);
 
             if (isAddress) {
-                const { findTokenOnAnyChain } = await import('../../../services/ai/tokenDetector.js');
-                const tokenInfo = await findTokenOnAnyChain(symbol);
+                const { findTokenOnAnyChain, getTokenInfo } = await import('../../../services/ai/tokenDetector.js');
+                const resolved = resolveChainInput(args, {
+                    contextChainId: context?.chainId,
+                    defaultChain: 'eth',
+                });
+                if (resolved.invalidChainId) {
+                    return { error: `Unsupported chain_id: ${String(args.chain_id)}` };
+                }
+
+                const tokenInfo = resolved.chainId
+                    ? await getTokenInfo(symbol, resolved.chainId)
+                    : await findTokenOnAnyChain(symbol);
                 if (tokenInfo && tokenInfo.price) {
                     return {
                         symbol: tokenInfo.symbol,

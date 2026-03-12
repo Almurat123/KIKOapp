@@ -42,6 +42,8 @@ const TPSL_CONSECUTIVE_HITS_REQUIRED = Math.max(1, Number(process.env.TPSL_CONSE
 const TPSL_HIT_WINDOW_MS = Math.max(1000, Number(process.env.TPSL_HIT_WINDOW_MS || '90000'));
 const TPSL_TRACKER_PRUNE_MS = 10 * 60 * 1000;
 const EXIT_INFLIGHT_RETRY_GRACE_MS = getExitInflightRetryGraceMs();
+const MAX_EXIT_RETRIES = Math.max(1, Number(process.env.COPYTRADE_MAX_EXIT_RETRIES || '3'));
+const EXIT_RETRY_COOLDOWN_MS = Math.max(5_000, Number(process.env.COPYTRADE_EXIT_RETRY_COOLDOWN_MS || '12000'));
 
 const positionsBeingExited = new Set<string>();
 const tpslHitTracker = new Map<string, { side: 'tp' | 'sl'; hits: number; firstHitAt: number; lastHitAt: number; lastPnlPct: number }>();
@@ -426,17 +428,17 @@ export async function executePositionExit(params: {
                     });
                 } catch (e2: any) {
                     try {
-                        const safeBalance999 = (attribution.sellAmountRaw * 999n) / 1000n;
+                        // Survival retries keep the same amount and only widen slippage.
+                        // Reducing sell size here causes deterministic wallet leftovers.
                         // Retry with 1.5x slippage (Survival Mode)
                         const survivalSlippage = Math.min(Math.floor(universalSlippageBps * 1.5), 2500);
                         txHash = await executeSolanaSwap({
                             userId: user.privyDid,
                             tokenInMint: tokenAddress,
                             tokenOutMint: SOLANA_CONFIG.TOKENS.SOL,
-                            amountIn: safeBalance999.toString(),
+                            amountIn: attribution.sellAmountRaw.toString(),
                             slippageBps: survivalSlippage
                         });
-                        isPartialSell = true;
                     } catch (e3: any) {
                         logger.error(LogCode.EXE_TX_REVERTED, 'All Solana sell attempts failed', { userId, token: tokenAddress, error: e3.message });
                         throw e3; // Re-throw to trigger exit_failed
@@ -715,8 +717,6 @@ export async function executePositionExit(params: {
             });
         }
 
-        const MAX_EXIT_RETRIES = 3;
-
         try {
             const { retryCount, terminal } = await persistFailedExitState({
                 positions: exitPositions as any,
@@ -729,7 +729,7 @@ export async function executePositionExit(params: {
                     userId,
                     token: tokenAddress,
                     retryCount,
-                    nextRetryIn: '5 minutes',
+                    nextRetryIn: `${Math.max(1, EXIT_RETRY_COOLDOWN_MS / 1000)}s`,
                     reason: exitReason,
                     ...buildOrderAuditFields(exitRuntimeContext)
                 });
@@ -770,15 +770,14 @@ export async function checkPositionsForExits(): Promise<void> {
     const positionStatusCompat = await getPositionStatusCompat();
 
     // 🔄 STEP 0: Retry failed exit attempts (Mirror Sell, Take Profit, Stop Loss)
-    // Check for positions with exitRetry Count > 0 and retry them if cooldown has passed
-    const RETRY_COOLDOWN_MS = 60 * 1000; // 1 minute (Reduced from 5min for faster emergency exit)
+    // Check for positions with exitRetryCount > 0 and retry them if cooldown has passed.
     const positionsNeedingRetry = await prisma.position.findMany({
         where: {
             status: 'open',
-            exitRetryCount: { gt: 0 },
+            exitRetryCount: { gt: 0, lte: MAX_EXIT_RETRIES },
             OR: [
                 { lastExitAttempt: null }, // Never attempted (shouldn't happen, but handle it)
-                { lastExitAttempt: { lt: new Date(Date.now() - RETRY_COOLDOWN_MS) } }
+                { lastExitAttempt: { lt: new Date(Date.now() - EXIT_RETRY_COOLDOWN_MS) } }
             ],
             NOT: {
                 AND: [

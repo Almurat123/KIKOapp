@@ -4,7 +4,7 @@ type ExitFinalityState = 'confirmed_success' | 'pending_visibility' | 'retryable
 
 const inflightKeys = new Set<string>();
 const retryCooldownUntil = new Map<string, number>();
-const DEFAULT_MIN_RETRY_INTERVAL_MS = 60_000;
+const DEFAULT_MIN_RETRY_INTERVAL_MS = Math.max(1_000, Number(process.env.COPYTRADE_MIRROR_SELL_MIN_RETRY_INTERVAL_MS || '12000'));
 const REDIS_INFLIGHT_TTL_SEC = Math.max(60, Number(process.env.COPYTRADE_MIRROR_SELL_INFLIGHT_TTL_SEC || '180'));
 
 export interface MirrorSellIdempotencyClaim {
@@ -155,4 +155,3 @@ export function resetMirrorSellIdempotencyStateForTests(): void {
   inflightKeys.clear();
   retryCooldownUntil.clear();
 }
-

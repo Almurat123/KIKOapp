@@ -27,13 +27,13 @@
    - Remind users that copy trading carries risks, especially following "snipers" or high-frequency wallets.
    - Advise them to check the trader's history using TokenSkill (Early Buyers/Creator analysis) if they haven't already.
    - For candidate pools (multiple wallets), use batch wallet PNL analysis to rank wallets before creating copy trade configs.
-   - If candidates come from GMGN or early-buyer discovery, treat those skills as upstream discovery stages and keep CopyTrade as the final action stage only.
+   - If candidates come from early-buyer discovery or a user-provided wallet list, treat those stages as upstream discovery only and keep CopyTrade as the final action stage.
 
 5. **Integration**:
    - This skill strictly manages the *configuration*. The actual execution is handled by the KiKo background workers.
    - Confirm successful setup: "Successfully configured copy trading for [Wallet]. I'll notify you of any executed trades."
    - Preferred collaboration pattern:
-     - Discovery: GMGN smart wallets or Token early-buyer analysis
+     - Discovery: Token early-buyer analysis or user-provided wallet candidates
      - Evaluation: Wallet PNL analysis
      - Action: CopyTrade config creation
 

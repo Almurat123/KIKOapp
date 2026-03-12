@@ -3,7 +3,6 @@ import { GetCrossChainQuoteTool, PrepareCrossChainTxTool } from '../skills/Cross
 import { GetTokenInfoTool } from '../skills/TokenSkill/index.js';
 import { GetTrendingTokensTool } from '../skills/TokenSkill/index.js';
 import { ExternalWebSearchTool } from '../skills/MarketSkill/index.js';
-import { XSearchTool } from '../skills/MarketSkill/index.js';
 import { PrepareSwapTransactionTool, SimulateSwapTool } from '../skills/SwapSkill/index.js';
 
 import { GetWalletInfoTool, SwitchChainTool } from '../skills/WalletSkill/index.js';
@@ -40,13 +39,11 @@ import { AnalyzeWalletPnlTool } from '../skills/WalletSkill/index.js';
 import { AnalyzeWalletPnlBatchTool } from '../skills/WalletSkill/index.js';
 import { GetTokenTopGainersTool } from '../skills/WalletSkill/index.js';
 import { SetTokenAlertTool, ListTokenAlertsTool, RemoveTokenAlertTool } from '../skills/TokenAlertSkill/index.js';
-import { GetGmgnSmartWalletsTool, FilterGmgnWalletCandidatesTool } from '../skills/GMGNSkill/index.js';
 
 // Register all tools here
 toolRegistry.register(GetTokenInfoTool);
 toolRegistry.register(GetTrendingTokensTool);
 toolRegistry.register(ExternalWebSearchTool);
-toolRegistry.register(XSearchTool);
 toolRegistry.register(PrepareSwapTransactionTool);
 toolRegistry.register(SimulateSwapTool);
 toolRegistry.register(GetMarketOverviewTool);
@@ -114,11 +111,6 @@ toolRegistry.register(RemoveTokenAlertTool);
 toolRegistry.register(GetCrossChainQuoteTool);
 toolRegistry.register(PrepareCrossChainTxTool);
 
-// GMGN Smart Wallet Tools
-toolRegistry.register(GetGmgnSmartWalletsTool);
-toolRegistry.register(FilterGmgnWalletCandidatesTool);
-
-
 // Tool Exports
 export * from './registry.js';
 export * from '../skills/TokenSkill/index.js';
@@ -131,4 +123,3 @@ export * from '../skills/ZoraSkill/index.js';
 export * from '../skills/CopyTradeSkill/index.js';
 export * from '../skills/PolymarketSkill/index.js';
 export * from '../skills/CrossChainSkill/index.js';
-export * from '../skills/GMGNSkill/index.js';

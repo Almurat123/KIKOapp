@@ -29,9 +29,6 @@ export const GetTokenInfoTool: Tool = {
     },
     handler: async (args, context) => {
         try {
-            // Map common chain names if necessary, but GeckoTerminal uses standard slugs mostly
-            // 1. Try GeckoTerminal first
-            // 3. Check if it is a launchpad token
             const { detectLaunchpadToken } = await import('../../../services/ai/launchpadDetector.js');
             const { chain, chainId, invalidChainId } = resolveChainInput(args, {
                 contextChainId: context?.chainId,
@@ -41,19 +38,17 @@ export const GetTokenInfoTool: Tool = {
                 return { error: `Unsupported chain_id: ${String(args.chain_id)}` };
             }
             const resolvedChainId = chainId ?? 1;
-            const launchpad = await detectLaunchpadToken(args.address, resolvedChainId);
-
-            // 1. Try GeckoTerminal first
-            let tokenData: any = null;
-            try {
-                tokenData = await geckoTerminal.getTokenDetails(chain, args.address);
-            } catch (gtError) {
-                console.warn('[GetTokenInfo] GeckoTerminal failed, trying fallback...', gtError);
-            }
-
-            // 2. Fallback to DexScreener
-            console.log('[GetTokenInfo] Attempting DexScreener fallback...');
-            const dexData = await dexscreener.getTokenDetails(chain, args.address);
+            const [launchpad, tokenData, dexData] = await Promise.all([
+                detectLaunchpadToken(args.address, resolvedChainId).catch(() => null),
+                geckoTerminal.getTokenDetails(chain, args.address).catch((gtError) => {
+                    console.warn('[GetTokenInfo] GeckoTerminal failed', gtError);
+                    return null;
+                }),
+                dexscreener.getTokenDetails(chain, args.address).catch((dexError) => {
+                    console.warn('[GetTokenInfo] DexScreener failed', dexError);
+                    return null;
+                }),
+            ]);
 
             if (dexData) {
                 const launchpadProvider = (launchpad as any)?.provider;

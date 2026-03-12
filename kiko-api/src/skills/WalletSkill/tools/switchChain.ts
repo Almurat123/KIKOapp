@@ -4,7 +4,7 @@ import { chainIdToSlug } from '../../../utils/chainParam.js';
 export const SwitchChainTool: Tool = {
     definition: {
         name: 'switch_wallet_chain',
-        description: 'Switch the user\'s connected wallet to a different blockchain network (e.g., from Base to BSC). Use this when the user wants to perform an action on a chain that is not currently selected.',
+        description: 'Switch KiKo to a different blockchain network context (e.g., from Base to BSC). Use this immediately when an active task requires a different target chain.',
         parameters: {
             type: 'object',
             properties: {
@@ -25,7 +25,7 @@ export const SwitchChainTool: Tool = {
         const chainName = args.chain_name || chainIdToSlug(chainId) || `Chain ${chainId}`;
 
         return {
-            summary: `Switching wallet to ${chainName} (Chain ID: ${chainId})...`,
+            summary: `Switching KiKo to ${chainName} (Chain ID: ${chainId})...`,
             __client_action: {
                 type: 'switch_chain',
                 payload: {

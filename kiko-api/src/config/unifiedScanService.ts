@@ -27,6 +27,7 @@ interface ScanProviderHealth {
 }
 
 const scanHealthMap = new Map<string, ScanProviderHealth>();
+const CONTRACT_ONLY_TOKENTX_PROVIDERS = new Set(['blockscout']);
 
 function getOrCreateScanHealth(provider: string): ScanProviderHealth {
   if (!scanHealthMap.has(provider)) {
@@ -324,10 +325,10 @@ export async function getTokenTransferList(
     contractAddress?: string;
   } = {}
 ): Promise<any> {
+  const contractOnlyQuery = !address && !!options.contractAddress;
   const params: Record<string, any> = {
     module: 'account',
     action: 'tokentx',
-    address,
     startblock: options.startblock || 0,
     endblock: options.endblock || 99999999,
     page: options.page || 1,
@@ -335,30 +336,46 @@ export async function getTokenTransferList(
     sort: options.sort || 'desc',
   };
 
+  if (address) {
+    params.address = address;
+  }
+
   if (options.contractAddress) {
     params.contractaddress = options.contractAddress;
   }
 
   const providers = [];
 
-  if (ETHERSCAN_CONFIG.apiKey && !isScanCircuitOpen('etherscan')) {
+  if (!contractOnlyQuery && ETHERSCAN_CONFIG.apiKey && !isScanCircuitOpen('etherscan')) {
     providers.push({
       name: 'etherscan',
       fn: () => callEtherscan(chainId, params),
     });
   }
 
-  if (ROUTESCAN_CONFIG.apiKey && !isScanCircuitOpen('routescan')) {
+  if (!contractOnlyQuery && ROUTESCAN_CONFIG.apiKey && !isScanCircuitOpen('routescan')) {
     providers.push({
       name: 'routescan',
       fn: () => callRoutescan(chain, params),
     });
   }
 
-  if (BLOCKSCOUT_CONFIG.apiKey && !isScanCircuitOpen('blockscout')) {
+  if (
+    BLOCKSCOUT_CONFIG.apiKey
+    && !isScanCircuitOpen('blockscout')
+    && (!contractOnlyQuery || CONTRACT_ONLY_TOKENTX_PROVIDERS.has('blockscout'))
+  ) {
     providers.push({
       name: 'blockscout',
       fn: () => callBlockscout(chain, params),
+    });
+  }
+
+  if (contractOnlyQuery) {
+    logger.info(LogCode.API_FETCH_SUCCESS, 'Token transfer scan: contract-only capability filter applied', {
+      chain,
+      contractAddress: options.contractAddress,
+      providers: providers.map((provider) => provider.name),
     });
   }
 

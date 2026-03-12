@@ -27,3 +27,33 @@ test('EVM no-swap decode schedules receipt recovery instead of only logging', ()
     detectedAt: 12345,
   });
 });
+
+test('process-tx receipt timeout schedules recovery instead of surfacing a hard failure', () => {
+  let captured: any = null;
+  __webhookTest.setScheduleReceiptRecoveryForTest((chainId, txHash, trackedWallets, detectedAt) => {
+    captured = { chainId, txHash, trackedWallets, detectedAt };
+  });
+
+  assert.equal(__webhookTest.isRecoverableProcessTxFetchTimeout(new Error('timeout_receipt_fetch_900ms')), true);
+  assert.equal(__webhookTest.isRecoverableProcessTxFetchTimeout(new Error('timeout_tx_fetch_900ms')), true);
+  assert.equal(__webhookTest.isRecoverableProcessTxFetchTimeout(new Error('rpc_failure')), false);
+
+  const result = __webhookTest.handleProcessTxFetchTimeout({
+    chainId: 8453,
+    txHash: '0xtimeout',
+    wallet: '0xwallet1',
+    detectedAt: 67890,
+  });
+
+  assert.deepEqual(captured, {
+    chainId: 8453,
+    txHash: '0xtimeout',
+    trackedWallets: ['0xwallet1'],
+    detectedAt: 67890,
+  });
+  assert.deepEqual(result, {
+    success: true,
+    skipped: true,
+    reason: 'receipt_recovery_scheduled',
+  });
+});

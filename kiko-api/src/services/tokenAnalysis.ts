@@ -3,7 +3,6 @@
  * Handles complex token-level analytics like early buyers and top traders
  */
 
-import * as scanApi from './scanApi.js';
 import * as helius from './helius.js';
 import * as alchemy from './alchemy.js';
 import * as rpcManager from './rpcManager.js';
@@ -18,6 +17,7 @@ const KNOWN_CONTRACTS = new Set([
     '0x0000000000000000000000000000000000000000',
     '0x000000000000000000000000000000000000dead',
 ]);
+
 
 /**
  * Check if an address is a contract (has code) or EOA (person wallet)
@@ -205,6 +205,35 @@ export async function getEarlyBuyers(
         return true;
     };
 
+    const blockTimestampCache = new Map<number, Date | null>();
+    const resolveTimestampFromAssetTransfer = async (transfer: { metadata?: { blockTimestamp?: string }; blockNum?: string }): Promise<Date | null> => {
+        if (transfer.metadata?.blockTimestamp) {
+            const parsed = new Date(transfer.metadata.blockTimestamp);
+            if (!Number.isNaN(parsed.getTime())) return parsed;
+        }
+        const rawBlockNum = String(transfer.blockNum || '');
+        if (!rawBlockNum) return null;
+        const blockNumber = rawBlockNum.startsWith('0x') ? parseInt(rawBlockNum, 16) : parseInt(rawBlockNum, 10);
+        if (!Number.isFinite(blockNumber) || blockNumber <= 0) return null;
+        if (blockTimestampCache.has(blockNumber)) {
+            return blockTimestampCache.get(blockNumber) || null;
+        }
+        try {
+            const blockHex = `0x${blockNumber.toString(16)}`;
+            const block = await rpcManager.callRpc<any>(chainLower, 'eth_getBlockByNumber', [blockHex, false], {
+                strategy: 'cheap',
+            });
+            const tsHex = String(block?.timestamp || '0x0');
+            const timestampMs = Number(BigInt(tsHex)) * 1000;
+            const resolved = Number.isFinite(timestampMs) && timestampMs > 0 ? new Date(timestampMs) : null;
+            blockTimestampCache.set(blockNumber, resolved);
+            return resolved;
+        } catch {
+            blockTimestampCache.set(blockNumber, null);
+            return null;
+        }
+    };
+
     if (isSolana) {
         console.log(`[TokenAnalysis] Fetching early buyers for Solana mint: ${tokenAddress}`);
         try {
@@ -271,12 +300,6 @@ export async function getEarlyBuyers(
     else {
         console.log(`[TokenAnalysis] Fetching early buyers for EVM token: ${tokenAddress} on ${chainLower}`);
         try {
-            const analysisLimit = Math.max(
-                200,
-                Math.min(3000, Number(options?.scanLimit || Math.max(limit * 25, 500)))
-            );
-            const allTransfers = await scanApi.getEvmTokenTransfers(tokenAddress, chainLower, 1, analysisLimit, { sort: 'asc' });
-
             // Fetch current token price for rough wallet quality filtering.
             let currentPriceUsd: number | null = null;
             try {
@@ -286,64 +309,31 @@ export async function getEarlyBuyers(
                 }
             } catch (e) { console.warn('[TokenAnalysis] DexScreener failed:', e); }
 
-            // Fallback to Alchemy if ScanAPI returns empty
-            if (allTransfers.length === 0) {
-                console.log(`[TokenAnalysis] ScanAPI empty, trying Alchemy fallback...`);
-                const alchemyTransfers = await alchemy.getAssetTransfers(null, chainLower, {
-                    contractAddresses: [tokenAddress],
-                    category: ['erc20'],
-                    order: 'asc',
-                    maxCount: limit * 20
-                });
-
-                if (alchemyTransfers && alchemyTransfers.length > 0) {
-                    const aggregates = new Map<string, BuyerAggregate>();
-
-                    for (const tx of alchemyTransfers) {
-                        const buyerAddr = String(tx.to || '').trim();
-                        if (!buyerAddr) continue;
-
-                        const ts = tx.metadata?.blockTimestamp ? new Date(tx.metadata.blockTimestamp) : new Date();
-                        if (!isWithinRange(ts)) continue;
-
-                        const amount = Number(tx.value || 0);
-                        if (!Number.isFinite(amount) || amount <= 0) continue;
-
-                        const key = buyerAddr.toLowerCase();
-                        const existing = aggregates.get(key);
-                        if (!existing) {
-                            aggregates.set(key, {
-                                address: buyerAddr,
-                                timestamp: ts,
-                                txHash: tx.hash,
-                                totalAmount: amount,
-                                transferCount: 1,
-                            });
-                        } else {
-                            existing.totalAmount += amount;
-                            existing.transferCount += 1;
-                            if (ts.getTime() < existing.timestamp.getTime()) {
-                                existing.timestamp = ts;
-                                existing.txHash = tx.hash;
-                            }
-                        }
-                    }
-                    return await normalizeCandidates(Array.from(aggregates.values()), currentPriceUsd);
-                }
+            const analysisLimit = Math.max(
+                50,
+                Math.min(500, Number(options?.scanLimit || Math.max(limit * 8, 80)))
+            );
+            const alchemyTransfers = await alchemy.getAssetTransfers(null, chainLower, {
+                contractAddresses: [tokenAddress],
+                category: ['erc20'],
+                order: 'asc',
+                maxCount: analysisLimit,
+                source: 'early_buyers'
+            });
+            if (!alchemyTransfers || alchemyTransfers.length === 0) {
                 return [];
             }
 
-            // Process ScanAPI transfers
             const contractCache = new Map<string, boolean>();
             const aggregates = new Map<string, BuyerAggregate>();
-            const sortedTransfers = [...allTransfers].sort((a: any, b: any) => {
-                const aTs = new Date((a as any).blockTimestamp).getTime();
-                const bTs = new Date((b as any).blockTimestamp).getTime();
+            const sortedTransfers = [...alchemyTransfers].sort((a, b) => {
+                const aTs = a.metadata?.blockTimestamp ? new Date(a.metadata.blockTimestamp).getTime() : 0;
+                const bTs = b.metadata?.blockTimestamp ? new Date(b.metadata.blockTimestamp).getTime() : 0;
                 return aTs - bTs;
             });
 
             for (const tx of sortedTransfers) {
-                const buyerAddr = tx.toAddress;
+                const buyerAddr = String(tx.to || '').trim();
                 // Basic filters
                 if (!buyerAddr) continue;
                 if (buyerAddr.toLowerCase() === tokenAddress.toLowerCase()) continue;
@@ -358,19 +348,12 @@ export async function getEarlyBuyers(
                 if (isContractAddr) continue;
 
                 // Safe timestamp conversion
-                let timestamp = new Date(); // Default to now if invalid
-                try {
-                    // scanApi returns ISO string or similar. Date constructor handles most.
-                    // But verify it is valid.
-                    const parsed = new Date(tx.blockTimestamp);
-                    if (!isNaN(parsed.getTime())) {
-                        timestamp = parsed;
-                    }
-                } catch (e) { }
+                const timestamp = await resolveTimestampFromAssetTransfer(tx);
+                if (!timestamp) continue;
 
                 if (!isWithinRange(timestamp)) continue;
 
-                const amount = Number(tx.amount || 0);
+                const amount = Number(tx.value || 0);
                 if (!Number.isFinite(amount) || amount <= 0) continue;
 
                 const existing = aggregates.get(buyerKey);
@@ -378,7 +361,7 @@ export async function getEarlyBuyers(
                     aggregates.set(buyerKey, {
                         address: buyerAddr,
                         timestamp,
-                        txHash: tx.txHash,
+                        txHash: String(tx.hash || ''),
                         totalAmount: amount,
                         transferCount: 1,
                     });
@@ -387,7 +370,7 @@ export async function getEarlyBuyers(
                     existing.transferCount += 1;
                     if (timestamp.getTime() < existing.timestamp.getTime()) {
                         existing.timestamp = timestamp;
-                        existing.txHash = tx.txHash;
+                        existing.txHash = String(tx.hash || '');
                     }
                 }
             }

@@ -41,7 +41,7 @@ export const GetEarlyBuyersTool: Tool = {
                 },
                 quality_mode: {
                     type: 'boolean',
-                    description: 'When true (default), apply quality filtering to suppress tiny "ant" wallets.'
+                    description: 'When true, apply quality filtering to suppress tiny "ant" wallets. Default is false for fast raw early-buyer output.'
                 },
                 min_buy_usd: {
                     type: 'number',
@@ -64,7 +64,7 @@ export const GetEarlyBuyersTool: Tool = {
             required: ['address']
         }
     },
-    handler: async ({ address, chain, chain_id, limit = 10, start_time, end_time, quality_mode = true, min_buy_usd, min_token_amount, min_wallet_tx_count, sort_by }, context) => {
+    handler: async ({ address, chain, chain_id, limit = 10, start_time, end_time, quality_mode = false, min_buy_usd, min_token_amount, min_wallet_tx_count, sort_by }, context) => {
         try {
             const resolved = resolveChainInput({ chain, chain_id }, {
                 contextChainId: context?.chainId,
@@ -90,13 +90,13 @@ export const GetEarlyBuyersTool: Tool = {
             const qualityModeEnabled = quality_mode !== false;
             const effectiveMinBuyUsd = (typeof min_buy_usd === 'number' && Number.isFinite(min_buy_usd))
                 ? Number(min_buy_usd)
-                : (qualityModeEnabled ? 100 : 0);
+                : 0;
             const effectiveMinTokenAmount = (typeof min_token_amount === 'number' && Number.isFinite(min_token_amount))
                 ? Number(min_token_amount)
                 : 0;
             const effectiveMinWalletTxCount = (typeof min_wallet_tx_count === 'number' && Number.isFinite(min_wallet_tx_count))
                 ? Math.max(0, Math.floor(Number(min_wallet_tx_count)))
-                : (qualityModeEnabled && resolved.chain !== 'solana' ? 5 : 0);
+                : 0;
             const effectiveSort = (sort_by as 'first_seen' | 'buy_usd_desc' | 'quality_desc' | undefined)
                 || (qualityModeEnabled ? 'quality_desc' : 'first_seen');
 

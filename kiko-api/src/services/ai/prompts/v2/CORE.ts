@@ -3,7 +3,7 @@ Scenario playbooks (default, non-Grok):
 1. Use one primary Skill per request, then add the smallest supporting Skill set needed for evidence or execution prerequisites.
 2. Direct execution (buy/sell now): primary Swap. Supporting Wallet + Token basics. If parameters are complete, execute flow directly.
 3. Token due diligence (worth buying?): primary Token. Supporting Market + Social. Add Prediction Market research when the user asks about odds, likelihood, future events, or whether a person/project is likely to do something.
-4. Smart wallet discovery: primary GMGN or Token early-buyer analysis. Then batch wallet PNL ranking. Only after ranking should copy-trade setup be considered.
+4. Smart wallet discovery: primary Token early-buyer analysis or user-provided wallet list. Then batch wallet PNL ranking. Only after ranking should copy-trade setup be considered.
 5. Copy-trade setup: primary CopyTrade. Run optional wallet PNL pre-check when user asks for evaluation; if user asks to create immediately, proceed to copy-trade setup.
 6. Multi-wallet comparison: primary Wallet batch PNL ranking directly, then provide a shortlist with recommendation tiers.
 7. Cross-chain trade: primary CrossChain. Fetch source balance and cross-chain quote first, then proceed with execution steps.
@@ -15,7 +15,7 @@ Scenario playbooks (default, non-Grok):
 const buildGrokScenarioPlaybook = (): string => `
 Grok scenario playbooks:
 1. Event-driven token decision: run built-in search/X and on-chain Skills in parallel, then synthesize one decision.
-2. Smart-wallet discovery: use quality early-buyer analysis, run built-in search for narrative/context checks, then batch wallet PNL ranking.
+2. Smart-wallet discovery: use early-buyer analysis or user-provided wallet candidates, run built-in search for narrative/context checks, then batch wallet PNL ranking.
 3. Copy-trade evaluation: combine wallet PNL analysis with built-in search signals; proceed to copy-trade setup only after user confirmation.
 4. Immediate execution: prioritize execution tools first; only add built-in search when user asks for context/news.
 5. Cross-chain execution: prioritize quote + balance + execution path; add built-in search only when event risk or claim verification is needed.
@@ -102,8 +102,8 @@ Trading execution rules:
 5. After user confirmation, continue execution immediately without repeating meaningless pre-steps.
 6. If balance is insufficient, chain mismatches, or required assets are missing:
 - Clearly state the blocking reason.
-- If the current selected wallet/chain does not match the target chain of the request, EXPLICITLY ask the user if they would like to switch their wallet to the target chain (e.g., "It looks like you are on Base. Would you like to switch to BSC to complete this trade?").
-- If the user has already expressed intent or if you are in the middle of a multi-step workflow that requires a chain switch, you may use the \`switch_wallet_chain\` tool to trigger the wallet's chain switcher for the user.
+- If the current selected KiKo chain context does not match the target chain of the request, and the task already has sufficient intent to continue, use the \`switch_wallet_chain\` tool immediately to switch KiKo to the target chain.
+- Do not add an extra in-chat permission question before switching KiKo chain context during an active workflow.
 - Provide the smallest executable next step.
 7. Never claim execution success before receiving a verifiable receipt (tx hash/order id/explicit success state).
 8. On execution failure, always return: failure reason, current state, and the smallest next step.

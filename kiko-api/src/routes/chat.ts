@@ -15,6 +15,8 @@ import { evaluateUsageAccess } from '../services/usageAccess.js';
 import { getWalletBalance } from '../services/alchemy.js';
 import { ethers } from 'ethers';
 import cacheClient from '../cache/cacheClient.js';
+import { logger } from '../utils/logger.js';
+import { LogCode } from '../config/logRegistry.js';
 
 // Request body types
 interface CreateSessionBody {
@@ -222,6 +224,7 @@ export async function chatRoutes(fastify: FastifyInstance) {
         { preHandler: requireAuth },
         async (request: FastifyRequest<{ Params: { sessionId: string }; Body: SendMessageBody }>, reply: FastifyReply) => {
             try {
+                const requestStartedAt = Date.now();
                 const userId = (request as any).user?.sub;
                 const { sessionId } = request.params;
                 const {
@@ -237,6 +240,13 @@ export async function chatRoutes(fastify: FastifyInstance) {
                     pageContext,
                     context,
                 } = request.body;
+                logger.info(LogCode.AI_API_CALL, 'Chat route: sendMessage received', {
+                    userId,
+                    sessionId,
+                    model: model || null,
+                    chainId: chainId ?? undefined,
+                    contentLength: content?.trim()?.length || 0,
+                });
 
                 if (!content?.trim()) {
                     return reply.code(400).send({ error: 'Message content is required' });
@@ -255,6 +265,13 @@ export async function chatRoutes(fastify: FastifyInstance) {
 
                 // Create user message first to ensure it's persisted even if checks fail
                 const userMessage = await chatRepo.createMessage(sessionId, 'user', content.trim());
+                logger.info(LogCode.AI_API_CALL, 'Chat route: user message persisted', {
+                    userId,
+                    sessionId,
+                    model: taskModel,
+                    userMessageId: userMessage.id,
+                    routeStageMs: Date.now() - requestStartedAt,
+                });
 
                 // Track user activity (using privyDid as required by UserActivity schema)
                 const userRecord = await prisma.user.findUnique({ where: { privyDid: userId } });
@@ -401,6 +418,7 @@ export async function chatRoutes(fastify: FastifyInstance) {
                     chainId !== 900 &&
                     needsTokenBalances &&
                     needsNativeBalance;
+                const walletHydrationStartedAt = shouldHydrateWalletSnapshot ? Date.now() : null;
 
                 if (shouldHydrateWalletSnapshot && resolvedWalletAddress) {
                     try {
@@ -437,6 +455,7 @@ export async function chatRoutes(fastify: FastifyInstance) {
                         fastify.log.warn({ err: e }, 'Failed to hydrate wallet balance for chat task');
                     }
                 }
+                const walletHydrationMs = walletHydrationStartedAt ? Date.now() - walletHydrationStartedAt : 0;
 
                 const mergedFarcasterContext = userRecord?.farcasterFid || farcaster
                     ? {
@@ -471,6 +490,17 @@ export async function chatRoutes(fastify: FastifyInstance) {
                         billing: billingContext,
                     }
                 );
+                logger.info(LogCode.AI_API_CALL, 'Chat route: task created', {
+                    userId,
+                    sessionId,
+                    taskId: task.id,
+                    assistantMessageId: assistantMessage.id,
+                    userMessageId: userMessage.id,
+                    model: taskModel,
+                    routeStageMs: Date.now() - requestStartedAt,
+                    walletHydrationMs,
+                    walletHydrationAttempted: shouldHydrateWalletSnapshot,
+                });
 
                 // Immediately notify frontend to show Thinking and create assistant placeholder
                 chatWS.broadcastToUser(userId, {
@@ -498,10 +528,18 @@ export async function chatRoutes(fastify: FastifyInstance) {
                 chatWorker.wake().catch((err: any) => {
                     fastify.log.warn({ err }, 'Chat worker wake failed');
                 });
+                logger.info(LogCode.AI_API_CALL, 'Chat route: task queued and wake triggered', {
+                    userId,
+                    sessionId,
+                    taskId: task.id,
+                    assistantMessageId: assistantMessage.id,
+                    model: taskModel,
+                    routeTotalMs: Date.now() - requestStartedAt,
+                });
 
                 // Update session model if different
-                if (model && model !== session.model) {
-                    await chatRepo.updateSession(sessionId, { model });
+                if (taskModel !== session.model) {
+                    await chatRepo.updateSession(sessionId, { model: taskModel });
                 }
 
                 // Update session title if this is the first message

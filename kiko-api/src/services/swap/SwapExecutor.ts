@@ -322,6 +322,8 @@ export class SwapExecutor {
             }
         } else {
             // For ERC20 sells, ensure amountInBase does not exceed on-chain balance.
+            // Sell retries must keep the same user-visible amount; do not shrink the amount
+            // here to manufacture a higher success rate or leave deterministic leftovers.
             try {
                 const balanceBigInt = await getErc20Balance(actualTokenInFixed, walletAddress, chainId, 'latest', { lane: 'critical' });
                 const amountInBigInt = BigInt(amountInBase);
@@ -332,19 +334,6 @@ export class SwapExecutor {
                         token: actualTokenInFixed,
                         amountIn: amountInHuman
                     });
-                }
-                // Always reduce by 1 base unit on ERC20 sells to avoid edge-case transfer failures.
-                if (isSellTx) {
-                    const adjusted = BigInt(amountInBase);
-                    if (adjusted > 1n) {
-                        const reduced = adjusted - 1n;
-                        amountInBase = reduced.toString();
-                        amountInHuman = ethers.formatUnits(reduced, decimalsIn);
-                        logger.info(LogCode.SYS_INFO, 'Applied last-digit reduction for sell', {
-                            token: actualTokenInFixed,
-                            amountIn: amountInHuman
-                        });
-                    }
                 }
             } catch (err: any) {
                 logger.warn(LogCode.SYS_ERROR, 'ERC20 balance check failed', { error: err.message });

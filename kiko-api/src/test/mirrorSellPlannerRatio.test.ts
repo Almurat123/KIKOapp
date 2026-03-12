@@ -72,7 +72,7 @@ describe('mirror sell planner ratio', () => {
     assert.equal(plan.attributionMetrics?.mirrorTargetSellRatioBps, 2500);
   });
 
-  test('forced full exit keeps 1 raw unit dust for precision-safe liquidation', () => {
+  test('forced full exit uses full on-chain balance without intentional dust', () => {
     const forced = buildForcedExitSwapPlan({
       userId: 'user-1',
       tokenAddress: '0xtoken',
@@ -89,9 +89,8 @@ describe('mirror sell planner ratio', () => {
       reasonCode: 'target_full_exit_verified',
     });
 
-    assert.equal(forced.attributedBalance, 999n);
-    assert.equal(forced.amountInHuman, '999');
-    assert.equal(forced.attributionMetrics?.precisionSafeSellRaw, '999');
+    assert.equal(forced.attributedBalance, 1000n);
+    assert.equal(forced.amountInHuman, '1000');
+    assert.equal(forced.attributionMetrics?.forcedExitSellRaw, '1000');
   });
 });
-

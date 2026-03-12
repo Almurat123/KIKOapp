@@ -7,6 +7,7 @@
 
 import { getAuthToken } from '../utils/authToken';
 import { type AIStreamChunk, type AIClientAction } from './aiTypes';
+import { resolveCoreApiBase } from '../utils/coreApiBase';
 
 export interface XaiMessage {
   role: 'system' | 'user' | 'assistant';
@@ -145,7 +146,7 @@ export interface XaiStreamResponse {
 
 // X.ai API endpoint - Now routed through Node.js API to kiko-python
 // This secures the Python service URL and provides unified authentication
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+const API_BASE_URL = resolveCoreApiBase();
 const XAI_API_URL = `${API_BASE_URL}/api/ai/chat`;
 const DEFAULT_MODEL = 'grok-4-1-fast-reasoning'; // Use reasoning model for tool support
 const MAX_RETRIES = 3;
@@ -155,8 +156,11 @@ const RETRY_DELAY = 1000; // 1 second
  * Map frontend model ID to X.ai API model name
  * 
  * Available Models (Grok 4.1):
- * - grok-4-1-fast-reasoning: Grok 4.1 Fast (Reasoning mode) - supports tools
- * - grok-4-1-fast-non-reasoning: Grok 4.1 Fast (Non-reasoning mode) - faster, no tools
+ * - grok-4-1-fast-reasoning: Grok 4.1 Fast (Reasoning mode)
+ * - grok-4-1-fast-non-reasoning: Grok 4.1 Fast (Lower-latency mode)
+ *
+ * Tool behavior is ultimately controlled by the backend orchestration path.
+ * Do not assume the frontend comment alone defines tool availability.
  * 
  * @param modelId - Frontend model identifier (e.g., 'grok-4-1-fast-reasoning')
  * @param mode - Model mode ('thinking' or 'fast')

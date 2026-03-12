@@ -233,6 +233,14 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
     };
 
     const [selectedModel, setSelectedModel] = useState(getInitialModel);
+    const setSelectedModelAndPersist = useCallback((nextModel: typeof MODEL_OPTIONS[number]) => {
+        setSelectedModel(nextModel);
+        try {
+            localStorage.setItem('kiko-selected-model', JSON.stringify(nextModel));
+        } catch (e) {
+            logger.warn('Failed to persist model selection to localStorage:', e);
+        }
+    }, []);
 
     // Suggestions State (Managed by Hook)
     const {
@@ -388,11 +396,12 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                             const rawTokenIn = actionData.tokenIn || actionData.token_in;
                             const rawTokenOut = actionData.tokenOut || actionData.token_out;
                             const resolveToken = customSettings?.fastSwapMode ? resolveTokenForFastSwap : resolveTokenForChat;
+                            const disallowedAddresses = walletAddress ? [walletAddress] : [];
                             const [resolvedIn, resolvedOut] = await Promise.all([
                                 resolveNativeToken(targetChainId, typeof rawTokenIn === 'string' ? rawTokenIn : rawTokenIn?.symbol) ||
-                                await resolveToken(rawTokenIn, targetChainId),
+                                await resolveToken(rawTokenIn, targetChainId, { disallowedAddresses }),
                                 resolveNativeToken(targetChainId, typeof rawTokenOut === 'string' ? rawTokenOut : rawTokenOut?.symbol) ||
-                                await resolveToken(rawTokenOut, targetChainId),
+                                await resolveToken(rawTokenOut, targetChainId, { disallowedAddresses }),
                             ]);
 
                             const tokenInAddress = resolvedIn?.address || '';
@@ -724,6 +733,17 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
             window.removeEventListener('storage', syncModelFromStorage);
         };
     }, []);
+
+    useEffect(() => {
+        if (!conversationId || !currentConv?.model) return;
+        const found = MODEL_OPTIONS.find(model => model.id === currentConv.model);
+        if (!found) return;
+        setSelectedModel(current => {
+            if (current.id === found.id) return current;
+            logger.debug('Syncing model from current conversation:', found.id);
+            return found;
+        });
+    }, [conversationId, currentConv?.model]);
 
     useEffect(() => {
         return () => {
@@ -1659,23 +1679,8 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                 return;
             }
 
-            // Get the latest model selection
-            let modelToUse = selectedModel;
-            try {
-                const saved = localStorage.getItem('kiko-selected-model');
-                if (saved) {
-                    const parsed = JSON.parse(saved);
-                    const found = MODEL_OPTIONS.find(m => m.id === parsed.id);
-                    if (found) {
-                        modelToUse = found;
-                        if (found.id !== selectedModel.id) {
-                            setSelectedModel(found);
-                        }
-                    }
-                }
-            } catch (e) {
-                logger.warn('Failed to read model from localStorage:', e);
-            }
+            // Use the live UI selection as the send source of truth.
+            const modelToUse = selectedModel;
 
             // Create conversation in background (after UI is already updated)
             if (!currentConvId) {
@@ -2144,7 +2149,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                 onCompositionEnd={handleCompositionEnd}
                 onToggleModelDropdown={() => setIsModelDropdownOpen(!isModelDropdownOpen)}
                 onSelectModel={(model) => {
-                    setSelectedModel(model);
+                    setSelectedModelAndPersist(model);
                     setIsModelDropdownOpen(false);
                     logger.debug('Model changed to:', model.id);
                 }}

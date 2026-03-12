@@ -164,3 +164,82 @@ export async function getEvmTokenTransfers(
         return [];
     }
 }
+
+/**
+ * Get token transfer history for a token contract itself.
+ * Explorer APIs support contractaddress-only token transfer queries, which is
+ * the correct shape for "who transferred/bought this token first" analysis.
+ */
+export async function getEvmTokenTransfersByContract(
+    contractAddress: string,
+    chain: string = 'eth',
+    page: number = 1,
+    offset: number = 20,
+    options: { sort?: 'asc' | 'desc'; startblock?: string; endblock?: string } = {}
+): Promise<WalletTransaction[]> {
+    try {
+        const chainConfig = resolveScanChainConfig(chain);
+        if (!chainConfig) return [];
+
+        const data = await getTokenTransferList(
+            chainConfig.id,
+            chain,
+            '',
+            {
+                page,
+                offset,
+                sort: options.sort || 'desc',
+                startblock: options.startblock ? parseInt(options.startblock) : undefined,
+                endblock: options.endblock ? parseInt(options.endblock) : undefined,
+                contractAddress,
+            }
+        );
+
+        if (!data?.result || !Array.isArray(data.result)) return [];
+
+        return data.result
+            .filter((tx: any) => String(tx.contractAddress || '').toLowerCase() === contractAddress.toLowerCase())
+            .filter((tx: any) => {
+                const symbol = tx.tokenSymbol || '';
+                const name = tx.tokenName || '';
+                if (!symbol || symbol === 'UNKNOWN' || symbol.length > 20) return false;
+                const suspiciousPatterns = ['visit', 'claim', 'reward', 'airdrop', 'bonus', 'http', 'www', '.com', 'free', 'winner'];
+                return !suspiciousPatterns.some(p => name.toLowerCase().includes(p) || symbol.toLowerCase().includes(p));
+            })
+            .map((tx: any) => {
+                const decimals = parseInt(tx.tokenDecimal || '18', 10);
+                const value = tx.value || '0';
+                let amount = '0';
+                try {
+                    const valueBigInt = BigInt(value);
+                    const divisor = BigInt(10 ** decimals);
+                    const amountBigInt = valueBigInt / divisor;
+                    const remainder = valueBigInt % divisor;
+                    amount = remainder === BigInt(0) ? amountBigInt.toString() : (Number(amountBigInt) + Number(remainder) / Number(divisor)).toFixed(6);
+                } catch {
+                    amount = (Number(value) / Math.pow(10, decimals)).toString();
+                }
+
+                return {
+                    txHash: tx.hash,
+                    txType: 'TRANSFER_IN',
+                    fromAddress: tx.from,
+                    toAddress: tx.to,
+                    tokenSymbol: tx.tokenSymbol || 'UNKNOWN',
+                    tokenAddress: tx.contractAddress,
+                    amount,
+                    valueUsd: null,
+                    blockNumber: parseInt(tx.blockNumber, 10),
+                    blockTimestamp: new Date(parseInt(tx.timeStamp, 10) * 1000),
+                    chain: chain.toLowerCase()
+                } satisfies WalletTransaction;
+            });
+    } catch (error: any) {
+        logger.error(LogCode.API_FETCH_FAILED, 'Failed to get token transfers by contract', {
+            chain,
+            contractAddress,
+            error: error.message,
+        });
+        return [];
+    }
+}

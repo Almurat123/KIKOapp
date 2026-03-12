@@ -34,6 +34,9 @@ export interface UserContext {
     currentPage?: string;
     pendingSwapToken?: { address: string; symbol: string; chainId: number };
     toolConfig?: any;
+    /**
+     * @deprecated Legacy-only field. Intent hints are no longer injected into prompts.
+     */
     intentHints?: {
         conflict?: string;
         question?: string;

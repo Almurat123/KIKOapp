@@ -64,10 +64,12 @@ class Settings:
 
     if os.getenv("CHAT_API_PORT"):
         _port = os.getenv("CHAT_API_PORT")
+    elif os.getenv("PORT"):
+        _port = os.getenv("PORT")
     elif os.getenv("RAILWAY_ENVIRONMENT"):
         _port = os.getenv("PORT", "8100")
     else:
-        _port = "8001"
+        _port = "8000"
     LLM_GATEWAY_URL = os.getenv("LLM_GATEWAY_URL", f"http://127.0.0.1:{_port}/llm-gateway")
     TOOL_RUNTIME_URL = os.getenv("TOOL_RUNTIME_URL", f"http://127.0.0.1:{_port}/tool-runtime")
 

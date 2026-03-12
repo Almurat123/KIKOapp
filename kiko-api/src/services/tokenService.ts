@@ -10,6 +10,7 @@ import { cacheHub } from '../cache/DataCacheHub.js'; // 🔗 连接缓存中心
 import { getDexPriceDetailed } from './dexPriceService.js'; // 🔗 DEX 价格 fallback
 import { decideLaunchpadOraclePrice, decideValidatedMarketPrice, isLaunchpadOracleSource } from './pricing/launchpadOraclePolicy.js';
 import { getTokenSupply } from './rpcService.js';
+import { isErc20ContractAddress } from '../utils/evmTokenCheck.js';
 
 /**
  * Token Service
@@ -194,12 +195,27 @@ async function fetchTokenInfoFromAPIs(
     rpcStrategy: 'fast' | 'cheap' = 'cheap',
     fastMode: boolean = false
 ): Promise<any> {
+    const isSolana = chainId === 900;
+    const normalizedTokenAddress = String(tokenAddress || '').trim().toLowerCase();
+    const isEvmLikeAddress = /^0x[a-f0-9]{40}$/.test(normalizedTokenAddress);
+    const isNativePlaceholder =
+        normalizedTokenAddress === '0x0000000000000000000000000000000000000000' ||
+        normalizedTokenAddress === '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
+    if (!isSolana && isEvmLikeAddress && !isNativePlaceholder) {
+        const isContract = await isErc20ContractAddress(chainId, tokenAddress).catch(() => false);
+        if (!isContract) {
+            logger.warn(LogCode.API_FETCH_FAILED, 'Refusing token info lookup for non-contract EVM address', {
+                token: tokenAddress,
+                chainId,
+            });
+            return null;
+        }
+    }
     const chainSlug = getChainSlug(chainId);
     // GeckoTerminal disabled for speed/limits; keep DexScreener + RPC only.
 
     // 🚀 HYBRID STRATEGY: RPC/Jupiter (price) + API (liquidity)
     // ⚠️ Solana (chainId 900): Uses Jupiter API instead of RPC
-    const isSolana = chainId === 900;
 
     const shouldUseOnChainRpc = isSolana || fastMode || priority === 'high' || rpcStrategy === 'fast';
     if (verbose) {

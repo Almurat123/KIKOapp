@@ -1,4 +1,5 @@
 export const CHAIN_IDS = [1, 8453, 10, 42161, 137, 56, 900];
+import { maybeRetryChainAwareToolExecution, prepareChainAwareToolExecution } from './chainAwareExecution.js';
 
 /**
  * Tool Definition Interfaces
@@ -49,6 +50,15 @@ export interface Tool<TArgs = any, TResult = any> {
 export class ToolRegistry {
     private tools: Map<string, Tool> = new Map();
     private locks: Map<string, Promise<any>> = new Map();
+    private static readonly NON_ISOLATED_TOOLS = new Set([
+        'external_web_search',
+        'get_token_info',
+        'get_token_price',
+        'get_historical_price',
+        'get_trending_tokens',
+        'get_early_buyers',
+        'analyze_creator',
+    ]);
 
     register(tool: Tool) {
         this.tools.set(tool.definition.name, tool);
@@ -77,8 +87,33 @@ export class ToolRegistry {
         if (!tool) {
             throw new Error(`Tool ${name} not found`);
         }
+        if (ToolRegistry.NON_ISOLATED_TOOLS.has(name)) {
+            const prepared = await prepareChainAwareToolExecution(name, args || {}, context);
+            const executeOnce = (nextArgs: any) => tool.handler(nextArgs, context);
+            const firstResult = await executeOnce(prepared.args);
+            return maybeRetryChainAwareToolExecution(
+                name,
+                prepared.args,
+                context,
+                firstResult,
+                prepared.meta,
+                executeOnce,
+            );
+        }
         const key = this.buildIsolationKey(name, context);
-        return this.runWithIsolation(key, () => tool.handler(args, context));
+        return this.runWithIsolation(key, async () => {
+            const prepared = await prepareChainAwareToolExecution(name, args || {}, context);
+            const executeOnce = (nextArgs: any) => tool.handler(nextArgs, context);
+            const firstResult = await executeOnce(prepared.args);
+            return maybeRetryChainAwareToolExecution(
+                name,
+                prepared.args,
+                context,
+                firstResult,
+                prepared.meta,
+                executeOnce,
+            );
+        });
     }
 
     private buildIsolationKey(name: string, context?: ToolContext): string {

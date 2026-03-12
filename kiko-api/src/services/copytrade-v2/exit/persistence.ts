@@ -242,5 +242,5 @@ export async function persistFailedExitState(params: {
       lastExecutionReasonCode: 'exit_max_retries_keep_open',
     }).catch(() => null);
   }));
-  return { retryCount, terminal: false };
+  return { retryCount, terminal: true };
 }

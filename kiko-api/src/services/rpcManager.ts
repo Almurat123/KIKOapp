@@ -754,8 +754,10 @@ function expandCriticalSelectionWithPublicFallback(params: {
         return params.selectedEndpoints;
     }
 
+    const alwaysIncludePublicFallback = params.method === 'eth_getTransactionByHash'
+        || params.method === 'eth_getTransactionReceipt';
     const allPremiumCircuited = premiumSelected.every((endpoint) => isCircuitOpen(endpoint.url));
-    if (!allPremiumCircuited) {
+    if (!alwaysIncludePublicFallback && !allPremiumCircuited) {
         return params.selectedEndpoints;
     }
 

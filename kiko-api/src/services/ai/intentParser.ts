@@ -1,15 +1,6 @@
-/**
- * Intent Parser Service (Backend)
- * Converts natural language to structured Intent for WebSocket architecture
- * Supports both high-level (5 types) and detailed (31 types) intent classification
- */
-
 import type { UserContext } from './types.js';
 import { v4 as uuidv4 } from 'uuid';
-import { logger } from '../../utils/logger.js';
-import { LogCode } from '../../config/logRegistry.js';
 
-// High-level intent types (for system prompt selection)
 export type HighLevelIntentType =
     | 'TRADING'
     | 'COPY_TRADING'
@@ -19,135 +10,50 @@ export type HighLevelIntentType =
     | 'RISK_SCAN'
     | 'GENERAL_CHAT';
 
-// Detailed intent types (for precise API routing and tool selection)
 export type DetailedIntentType =
-    // Token intents
-    | 'token_info'
-    | 'token_search'
-    | 'token_detail'
-    | 'token_chart'
-    | 'token_trending'
-    // Swap/Trading intents
     | 'swap'
-    | 'auto_buy'
-    | 'auto_sell'
-    | 'strategy_create'
-    | 'strategy_list'
-    | 'strategy_delete'
-    // Wallet intents
-    | 'wallet_info'
-    | 'wallet_balance'
-    | 'wallet_transactions'
-    // Market intents
-    | 'market_data'
-    | 'market_overview'
-    | 'market_chains'
-    | 'market_protocols'
-    // Social intents
-    | 'social_trending'
-    | 'social_user_info'
-    // Security intents
-    | 'token_security'
-    // Wallet PNL
-    | 'wallet_pnl'
-    // General
+    | 'copy_trade'
+    | 'cross_chain_trade'
     | 'general_query';
 
-// High-level intent result (for system prompt)
 export interface HighLevelIntent {
     type: HighLevelIntentType;
     confidence: number;
-}
-
-export interface IntentLabelScore {
-    label: HighLevelIntentType;
-    confidence: number;
-    evidence: string[];
-    source: 'rule' | 'classifier' | 'llm';
-}
-
-export interface IntentConflict {
-    type: 'risk_trade' | 'multi';
-    labels: HighLevelIntentType[];
-    question: string;
 }
 
 export interface IntentDecision {
     primary: HighLevelIntentType;
     confidence: number;
     labels: Array<{ label: HighLevelIntentType; confidence: number }>;
-    evidence: IntentLabelScore[];
     routing: {
-        stage: 'rule' | 'classifier' | 'llm' | 'hybrid';
+        stage: 'rule';
         reason: string;
     };
     hardRule?: {
         label: HighLevelIntentType;
         reason: string;
     };
-    signals?: {
-        hasContractAddress: boolean;
-        hasAction: boolean;
-        hasQuestion: boolean;
-        hasRisk: boolean;
-        hasSocial: boolean;
-        hasWallet: boolean;
-        hasCopyTrade: boolean;
-        hasPrediction: boolean;
-        hasAmount: boolean;
-        hasAsset: boolean;
-    };
-    slots?: {
-        action: boolean;
-        amount: boolean;
-        asset: boolean;
-        target: boolean;
-        complete: boolean;
-    };
-    conflict?: IntentConflict;
 }
 
-// Detailed intent result (for API routing and tool selection)
 export interface DetailedIntent {
     version: string;
     intent_id: string;
-    correlation_id?: string;
-    origin: 'chat' | 'market' | 'news' | 'defi';
+    origin: 'chat';
     action: DetailedIntentType;
-    // Token info
     token_address?: string;
     token_symbol?: string;
     chain_id?: number;
-    // Swap
     token_in?: string;
     token_out?: string;
     amount?: string;
-    amount_asset?: string;
-    slippage_bps?: number;
-    deadline_s?: number;
-    max_gas?: string | 'auto';
-    // List/Wallet
+    amount_semantic?: 'input' | 'output';
     wallet_address?: string;
-    // Strategy
-    trigger?: {
-        type: 'price_drop_pct' | 'price_rise_pct' | 'price_target' | 'time' | 'wallet_action';
-        value?: number;
-        window_s?: number;
-        min_duration_s?: number;
-        target_price?: string;
-        wallet_address?: string;
-    };
-    allowance_mode?: 'one_shot' | 'unlimited';
-    validation?: string[];
-    // General
     query?: string;
     parameters?: Record<string, any>;
-    // Optional metadata (for traceability)
     confidence?: number;
     evidence?: string[];
 }
 
-// Combined result
 export interface ParsedIntent {
     highLevel: HighLevelIntent;
     detailed: DetailedIntent;
@@ -161,975 +67,198 @@ export interface ParsedIntent {
     decision?: IntentDecision;
 }
 
-// Mapping from detailed intent to high-level intent
-const DETAILED_TO_HIGH_LEVEL: Record<DetailedIntentType, HighLevelIntentType> = {
-    // TRADING
-    'swap': 'TRADING',
-    'auto_buy': 'TRADING',
-    'auto_sell': 'TRADING',
-    'strategy_create': 'TRADING',
-    'strategy_list': 'TRADING',
-    'strategy_delete': 'TRADING',
-    // MARKET_ANALYSIS
-    'token_info': 'MARKET_ANALYSIS',
-    'token_search': 'MARKET_ANALYSIS',
-    'token_detail': 'MARKET_ANALYSIS',
-    'token_chart': 'MARKET_ANALYSIS',
-    'token_trending': 'MARKET_ANALYSIS',
-    'market_data': 'MARKET_ANALYSIS',
-    'market_overview': 'MARKET_ANALYSIS',
-    'market_chains': 'MARKET_ANALYSIS',
-    'market_protocols': 'MARKET_ANALYSIS',
-    'wallet_info': 'MARKET_ANALYSIS',
-    'wallet_balance': 'MARKET_ANALYSIS',
-    'wallet_transactions': 'MARKET_ANALYSIS',
-    // SOCIAL_SENSING
-    'social_trending': 'SOCIAL_SENSING',
-    'social_user_info': 'SOCIAL_SENSING',
-    // RISK_SCAN
-    'token_security': 'RISK_SCAN',
-    // Wallet PNL
-    'wallet_pnl': 'MARKET_ANALYSIS',
-    // GENERAL_CHAT
-    'general_query': 'GENERAL_CHAT',
+const STABLE_SYMBOLS = new Set(['USDC', 'USDT', 'DAI', 'FDUSD', 'BUSD', 'USD1']);
+const NATIVE_SYMBOLS = new Set(['ETH', 'WETH', 'BNB', 'WBNB', 'SOL', 'WSOL', 'POL', 'MATIC', 'WMATIC']);
+const CHAIN_DEFAULT_NATIVE: Record<number, string> = {
+    1: 'ETH',
+    10: 'ETH',
+    56: 'BNB',
+    137: 'POL',
+    42161: 'ETH',
+    8453: 'ETH',
+    900: 'SOL',
 };
 
-/**
- * Detect contract address pattern
- */
 export function detectContractAddress(text: string): string | null {
-    // EVM address: 0x + 40 hex
     const evmPattern = /0x[a-fA-F0-9]{40}/i;
     const evmMatch = text.match(evmPattern);
     if (evmMatch) return evmMatch[0];
 
-    // Solana address: base58, 32-44 chars
     const solanaPattern = /\b[1-9A-HJ-NP-Za-km-z]{32,44}\b/g;
     const words = text.split(/\s+/);
-
     for (const word of words) {
         if (solanaPattern.test(word) && word.length >= 32 && word.length <= 44) {
-            const hasMultipleVowels = (word.match(/[aeiou]/gi) || []).length > 3;
-            if (!hasMultipleVowels || word.length > 40) {
-                return word;
-            }
+            return word;
         }
     }
-
     return null;
 }
 
-/**
- * Detect copy trade keywords
- * This prevents copy trade commands from being misclassified as swap intents
- */
+function detectChainId(contractAddress: string | null, userContext?: UserContext): number | undefined {
+    if (userContext?.chainId) return userContext.chainId;
+    if (!contractAddress) return undefined;
+    return contractAddress.startsWith('0x') ? 8453 : 900;
+}
+
 function hasCopyTradeKeywords(text: string): boolean {
-    const copyTradeKeywords = [
-        'copy trade', 'copy trading', 'copytrade', 'copytrading', 'copy-trade', 'copy-trading',
-        'mirror trade', 'mirror trading',
-        'follow trade', 'follow trading',
-        'copy trader', 'copy this trader', 'follow this trader',
-        'copy strategy', 'create a copy strategy',
-        '跟单', '复制交易', '镜像交易'
-    ];
-    const lowerText = text.toLowerCase();
-    return copyTradeKeywords.some(keyword => lowerText.includes(keyword));
+    return /\b(copy ?trade|copytrading|copy-trade|follow this trader|mirror trade)\b/i.test(text)
+        || /\b(跟单|复制交易|镜像交易)\b/i.test(text);
 }
 
-/**
- * Detect swap keywords
- */
-function hasSwapKeywords(text: string): boolean {
-    const swapKeywords = [
-        'swap', 'trade', 'exchange', 'convert',
-        'buy', 'sell', 'swap to', 'trade for',
-        'exchange for', 'convert to'
-    ];
-    const lowerText = text.toLowerCase();
-
-    // CRITICAL: Exclude copy trade commands from swap detection
-    // "copy trade" contains "trade" but should NOT trigger swap intent
-    if (hasCopyTradeKeywords(text)) {
-        logger.debug(LogCode.SYS_INFO, 'IntentParser: Copy trade detected, skipping swap keywords check');
-        return false;
-    }
-
-    return swapKeywords.some(keyword => lowerText.includes(keyword));
+function hasCrossChainKeywords(text: string): boolean {
+    return /\b(cross.chain|cross chain|bridge|bridging)\b/i.test(text);
 }
 
-function hasRiskKeywords(text: string): boolean {
-    return /\b(risk|safe|honeypot|security|scan|check.*safe|is.*safe|scam|rug)\b/i.test(text) ||
-        /\b(风险|安全|蜜罐|诈骗|拉盘|跑路)\b/i.test(text);
+function hasTradeKeywords(text: string): boolean {
+    if (hasCopyTradeKeywords(text)) return false;
+    return /\b(swap|trade|exchange|convert|buy|sell|purchase|ape)\b/i.test(text)
+        || /\b(兑换|交易|买|购买|卖|卖出)\b/i.test(text);
 }
 
-function hasTradeVerbs(text: string): boolean {
-    if (hasCopyTradeKeywords(text)) {
-        return false;
-    }
-    return /\b(swap|trade|exchange|convert|buy|sell|purchase|ape)\b/i.test(text) ||
-        /\b(兑换|交易|买|购买|卖|卖出)\b/i.test(text);
-}
-
-/**
- * Detect confirmation keywords
- * Maps "proceed", "confirm" etc. to TRADING intent to ensure execution tools are loaded
- */
 function hasConfirmationKeywords(text: string): boolean {
     const cleanText = text.trim().toLowerCase();
-    // Exact matches for short commands (English + Chinese)
-    if (/^(proceed|confirm|yes|continue|go ahead|execute|do it|approve|submit|ok|okay|sure|确认|确定|执行|好的|ok|继续)$/i.test(cleanText)) {
+    if (/^(proceed|confirm|yes|go ahead|execute|do it|approve|submit|ok|okay|sure|确认|确定|执行|好的|继续)$/i.test(cleanText)) {
         return true;
     }
-    // Phrase matches
-    return /\b(confirm transaction|execute swap|proceed with trade|proceed with swap|continue with trade|confirm trade|确认交易|执行交易)\b/i.test(text);
+    return /\b(confirm transaction|execute swap|proceed with trade|proceed with swap|continue with trade|confirm trade)\b/i.test(text);
 }
 
-/**
- * Extract token symbols from message
- */
-function extractTokenSymbols(text: string): { tokenIn?: string; tokenOut?: string } {
-    const commonTokens = ['ETH', 'USDC', 'USDT', 'DAI', 'WBTC', 'BTC', 'BNB', 'MATIC', 'POL', 'AVAX', 'SOL'];
-    const tokenAlternatives = [...commonTokens].sort((a, b) => b.length - a.length);
-    const tokenPattern = new RegExp(`\\b(${tokenAlternatives.join('|')})\\b`, 'gi');
-
-    // Preserve appearance order in the user's text (do not use the static commonTokens order).
-    const foundOrdered: string[] = [];
-    const seen = new Set<string>();
-    for (const match of text.matchAll(tokenPattern)) {
-        const token = String(match[1] || '').toUpperCase();
-        if (!token || seen.has(token)) continue;
-        seen.add(token);
-        foundOrdered.push(token);
-        if (foundOrdered.length >= 2) break;
-    }
-
-    // Pattern: "ETH to USDC" or "swap ETH for USDC"
-    // IMPORTANT: Only match if both sides are actual token symbols, not numbers
-    // "buy 0xabc for 0.01 BNB" should NOT match "0.01" as tokenIn
-    const toPattern = /\b([A-Z]{2,10})\s+(?:to|for|->)\s+([A-Z]{2,10})\b/i;
-    const toMatch = text.match(toPattern);
-    if (toMatch) {
-        const maybeTokenIn = toMatch[1].toUpperCase();
-        const maybeTokenOut = toMatch[2].toUpperCase();
-        // Only use if they look like token symbols (not numbers)
-        if (commonTokens.includes(maybeTokenIn) || commonTokens.includes(maybeTokenOut)) {
-            return {
-                tokenIn: maybeTokenIn,
-                tokenOut: maybeTokenOut,
-            };
+function extractOrderedSymbols(text: string): string[] {
+    const found: string[] = [];
+    for (const match of text.matchAll(/\b[A-Z]{2,10}\b/g)) {
+        const symbol = String(match[0] || '').toUpperCase();
+        if (!found.includes(symbol)) {
+            found.push(symbol);
         }
     }
-
-    // Pattern: "buy X for Y BNB" - the native token is what we're spending
-    // In this case, BNB is tokenIn, and X (contract address) is tokenOut
-    const buyForPattern = /\bfor\s+([\d.]+)\s+(ETH|BNB|SOL|MATIC|POL|AVAX)\b/i;
-    const buyForMatch = text.match(buyForPattern);
-    if (buyForMatch) {
-        const nativeToken = buyForMatch[2].toUpperCase();
-        return {
-            tokenIn: nativeToken,
-            tokenOut: undefined, // Will be set from contract address
-        };
-    }
-
-    if (foundOrdered.length >= 2) {
-        return {
-            tokenIn: foundOrdered[0],
-            tokenOut: foundOrdered[1],
-        };
-    }
-
-    // If only one token found and it's a native token, it's likely tokenIn for a buy
-    if (foundOrdered.length === 1 && ['ETH', 'BNB', 'SOL', 'MATIC', 'POL', 'AVAX'].includes(foundOrdered[0])) {
-        return {
-            tokenIn: foundOrdered[0],
-            tokenOut: undefined,
-        };
-    }
-
-    // If only one token found and it's NOT a native token, treat it as tokenOut (buy target)
-    if (foundOrdered.length === 1) {
-        return {
-            tokenIn: undefined,
-            tokenOut: foundOrdered[0],
-        };
-    }
-
-    return {};
+    return found;
 }
 
-// -----------------------------
-// Lightweight intent classifier
-// -----------------------------
-const STOPWORDS = new Set([
-    'a', 'an', 'the', 'to', 'of', 'in', 'on', 'for', 'and', 'or', 'is', 'are', 'with', 'at', 'by', 'from',
-    'this', 'that', 'it', 'as', 'be', 'do', 'does', 'did', 'will', 'should', 'can', 'could',
-]);
-
-const INTENT_PROTOTYPES: Record<HighLevelIntentType, string[]> = {
-    TRADING: [
-        'swap eth to usdc',
-        'buy this token',
-        'sell all my tokens',
-        'convert sol to usdc',
-        'swap 100 usdc for eth on base',
-    ],
-    RISK_SCAN: [
-        'is this token safe',
-        'honeypot check',
-        'is it a scam',
-        'security scan token',
-        '风险 安全 蜜罐',
-    ],
-    COPY_TRADING: [
-        'copy trade this wallet',
-        'mirror trades from this address',
-        'follow this wallet',
-        '跟单 复制交易',
-    ],
-    PREDICTION_MARKETS: [
-        'polymarket odds',
-        'betting market question',
-        'prediction market yes no',
-        '赔率 预测市场',
-    ],
-    SOCIAL_SENSING: [
-        'what are people saying on twitter',
-        'farcaster trending',
-        'social sentiment',
-        '社区 热度',
-    ],
-    MARKET_ANALYSIS: [
-        'price chart analysis',
-        'token market cap volume',
-        'market overview',
-        'why is this token pumping',
-    ],
-    GENERAL_CHAT: [
-        'hello',
-        'what is kiko',
-        'help me',
-        'how does this work',
-    ],
-};
-
-function tokenize(text: string): string[] {
-    return text
-        .toLowerCase()
-        .replace(/[^a-z0-9\u4e00-\u9fff]+/g, ' ')
-        .split(/\s+/)
-        .filter(Boolean)
-        .filter((t) => !STOPWORDS.has(t));
-}
-
-function hashEmbedding(text: string, dims = 128): number[] {
-    const vec = new Array(dims).fill(0);
-    const tokens = tokenize(text);
-    for (const token of tokens) {
-        let hash = 0;
-        for (let i = 0; i < token.length; i += 1) {
-            hash = (hash * 31 + token.charCodeAt(i)) | 0;
-        }
-        const idx = Math.abs(hash) % dims;
-        vec[idx] += 1;
-    }
-    return vec;
-}
-
-function cosineSimilarity(a: number[], b: number[]): number {
-    let dot = 0;
-    let aNorm = 0;
-    let bNorm = 0;
-    for (let i = 0; i < a.length; i += 1) {
-        dot += a[i] * b[i];
-        aNorm += a[i] * a[i];
-        bNorm += b[i] * b[i];
-    }
-    if (aNorm === 0 || bNorm === 0) return 0;
-    return dot / (Math.sqrt(aNorm) * Math.sqrt(bNorm));
-}
-
-interface IntentSignals {
-    hasContractAddress: boolean;
-    hasAction: boolean;
-    hasQuestion: boolean;
-    hasRisk: boolean;
-    hasSocial: boolean;
-    hasWallet: boolean;
-    hasCopyTrade: boolean;
-    hasPrediction: boolean;
-    hasAmount: boolean;
-    hasAsset: boolean;
-}
-
-interface IntentSlots {
-    action: boolean;
-    amount: boolean;
-    asset: boolean;
-    target: boolean;
-    complete: boolean;
-}
-
-function detectQuestionIntent(text: string): boolean {
-    return /\b(what\s+is|what's|whats|analy[sz]e|worth|why|should\s+i|opinion|thoughts|narrative|community|sentiment|catalyst|is\s+this|is\s+\w+\s+legit)\b/i.test(text)
-        || /\?/.test(text)
-        || /(是什么|这是啥|分析|值不值得|能买吗|为什么|叙事|社区|情绪|催化)/.test(text);
-}
-
-function detectSellVerb(text: string): boolean {
-    return /\b(sell|exit|cash\s*out|dump)\b/i.test(text) || /\b(卖|卖出)\b/.test(text);
-}
-
-function detectTargetSymbol(text: string): boolean {
-    const symbolPattern = /(?:buy|sell|swap|ape|market\s+buy|market\s+sell)\s+[\d.]*\s*([A-Za-z0-9]{2,10})\b/i;
-    const intoPattern = /\b(?:into|to)\s+([A-Za-z0-9]{2,10})\b/i;
-    // CRITICAL FIX: Recognize chain names as targets for cross-chain swaps
-    // "sell USDC to Base" should have target=true for slots.complete
-    const chainNames = /\b(?:to|on)\s+(base|arbitrum|optimism|polygon|avalanche|bnb|ethereum|eth|mainnet)\b/i;
-    return symbolPattern.test(text) || intoPattern.test(text) || chainNames.test(text);
-}
-function detectAmountPresence(text: string): boolean {
-    if (/\b(\d{1,3})%/.test(text)) return true;
-    if (/\b(all|half|quarter)\b/i.test(text)) return true;
-    if (/\b(\d+\.?\d*)\s*(?:USDC|ETH|SOL|USDT|BNB|BTC|MATIC|POL)\b/i.test(text)) return true;
-    return /\b(buy|sell|swap)\s+(\d+\.?\d*)\b/i.test(text);
-}
-
-function detectAssetPresence(text: string, tokenSymbols: { tokenIn?: string; tokenOut?: string }): boolean {
-    if (tokenSymbols.tokenIn || tokenSymbols.tokenOut) return true;
-    return /\b(ETH|USDC|USDT|SOL|BNB|BTC|MATIC|POL|ARB|OP|BASE)\b/i.test(text);
-}
-
-function getIntentSignals(userMessage: string, userContext?: UserContext): { signals: IntentSignals; slots: IntentSlots } {
-    const contractAddress = detectContractAddress(userMessage);
-    const tokenSymbols = extractTokenSymbols(userMessage);
-    const hasSwap = hasSwapKeywords(userMessage);
-    const hasTradeVerb = hasTradeVerbs(userMessage);
-    const hasRisk = hasRiskKeywords(userMessage);
-    const hasCopyTrade = hasCopyTradeKeywords(userMessage);
-    const hasPrediction = /\b(polymarket|prediction\s*market|prediction|betting|bet\s+on|odds|implied\s+probability|market\s+probability|market\s+price)\b/i.test(userMessage);
-    const hasSocial = /\b(trending|social|farcaster|twitter|x|sentiment|buzz|mentions?|influencer|kol|community\s+posts?|what.*people|what.*saying|on\s+x|on\s+twitter|on\s+farcaster)\b/i.test(userMessage);
-    const hasWallet = /\b(wallet|balance|transaction|tx\s*history|portfolio|holdings|pnl|profit|loss)\b/i.test(userMessage);
-    const hasQuestion = detectQuestionIntent(userMessage);
-    const hasAmount = detectAmountPresence(userMessage);
-    const hasAsset = detectAssetPresence(userMessage, tokenSymbols);
-    const isSell = detectSellVerb(userMessage);
-    const hasAction = hasSwap || hasTradeVerb;
-    const target = !!contractAddress || !!tokenSymbols.tokenOut || !!tokenSymbols.tokenIn || detectTargetSymbol(userMessage);
-    const slots: IntentSlots = {
-        action: hasAction,
-        amount: hasAmount,
-        asset: hasAsset,
-        target,
-        complete: hasAction && hasAmount && target && (hasAsset || isSell),
-    };
-
-    return {
-        signals: {
-            hasContractAddress: !!contractAddress,
-            hasAction,
-            hasQuestion,
-            hasRisk,
-            hasSocial,
-            hasWallet,
-            hasCopyTrade,
-            hasPrediction,
-            hasAmount,
-            hasAsset,
-        },
-        slots,
-    };
-}
-
-function classifyIntentLight(text: string): { scores: Record<HighLevelIntentType, number>; top: HighLevelIntentType; confidence: number } {
-    const scores: Record<HighLevelIntentType, number> = {
-        TRADING: 0,
-        RISK_SCAN: 0,
-        COPY_TRADING: 0,
-        PREDICTION_MARKETS: 0,
-        SOCIAL_SENSING: 0,
-        MARKET_ANALYSIS: 0,
-        GENERAL_CHAT: 0,
-    };
-
-    const inputVec = hashEmbedding(text);
-    for (const label of Object.keys(INTENT_PROTOTYPES) as HighLevelIntentType[]) {
-        const protoList = INTENT_PROTOTYPES[label];
-        let best = 0;
-        for (const proto of protoList) {
-            const sim = cosineSimilarity(inputVec, hashEmbedding(proto));
-            if (sim > best) best = sim;
-        }
-        // Normalize to 0..1
-        scores[label] = Math.max(0, Math.min(1, best));
-    }
-
-    const sorted = Object.entries(scores).sort((a, b) => b[1] - a[1]) as [HighLevelIntentType, number][];
-    const [top, confidence] = sorted[0];
-    return { scores, top, confidence };
-}
-
-function evaluateRuleLayer(userMessage: string, userContext?: UserContext): {
-    scores: IntentLabelScore[];
-    signals: IntentSignals;
-    slots: IntentSlots;
-    hardRule?: { label: HighLevelIntentType; reason: string };
-} {
-    const { signals, slots } = getIntentSignals(userMessage, userContext);
-    const tokenSymbols = extractTokenSymbols(userMessage);
-    const looksLikeAnalysisQuestion = detectQuestionIntent(userMessage);
-    const hasMarketAnalysisKeywords = /\b(price|chart|volume|liquidity|market.*cap|token.*info|token.*data|analysis)\b/i.test(userMessage);
-
-    const scores: Partial<Record<HighLevelIntentType, IntentLabelScore>> = {};
-    const add = (label: HighLevelIntentType, confidence: number, evidence: string[]) => {
-        const existing = scores[label];
-        if (!existing || confidence > existing.confidence) {
-            scores[label] = { label, confidence, evidence, source: 'rule' };
-        } else {
-            existing.evidence.push(...evidence);
-        }
-    };
-
-    if (signals.hasCopyTrade) {
-        add('COPY_TRADING', 0.95, ['keyword: copy trade']);
-    }
-    if (signals.hasPrediction) {
-        add('PREDICTION_MARKETS', 0.9, ['keyword: prediction/betting']);
-    }
-    if (signals.hasRisk) {
-        add('RISK_SCAN', signals.hasAction ? 0.6 : 0.9, ['keyword: risk/safety']);
-    }
-    if (signals.hasAction && slots.complete && !signals.hasQuestion) {
-        add('TRADING', 0.9, ['action + slots complete']);
-    }
-    if (signals.hasAction && !slots.complete) {
-        add('MARKET_ANALYSIS', 0.7, ['trade intent incomplete']);
-    }
-    if (signals.hasContractAddress && !signals.hasAction) {
-        add('MARKET_ANALYSIS', looksLikeAnalysisQuestion ? 0.9 : 0.8, ['contract address (no trade verb)']);
-    }
-    if (signals.hasQuestion) {
-        add('MARKET_ANALYSIS', 0.9, ['question intent']);
-    }
-    if (signals.hasSocial) {
-        add('SOCIAL_SENSING', 0.8, ['keyword: social/trending']);
-    }
-    if (hasConfirmationKeywords(userMessage)) {
-        add('TRADING', 0.85, ['confirmation keyword']);
-    }
-    if (signals.hasWallet) {
-        add('MARKET_ANALYSIS', 0.8, ['keyword: wallet/portfolio']);
-    }
-    if (hasMarketAnalysisKeywords || (tokenSymbols.tokenIn && tokenSymbols.tokenOut)) {
-        add('MARKET_ANALYSIS', 0.75, ['keyword: market analysis']);
-    }
-
-    if (Object.keys(scores).length === 0) {
-        add('GENERAL_CHAT', 0.5, ['fallback: no rule match']);
-    }
-
-    const hardRule = (() => {
-        if (signals.hasCopyTrade) return { label: 'COPY_TRADING' as HighLevelIntentType, reason: 'copy trade keyword' };
-        if (signals.hasPrediction) return { label: 'PREDICTION_MARKETS' as HighLevelIntentType, reason: 'prediction market keyword' };
-        if (signals.hasRisk && (signals.hasQuestion || !signals.hasAction)) {
-            return { label: 'RISK_SCAN' as HighLevelIntentType, reason: 'risk question without trade action' };
-        }
-        if (hasConfirmationKeywords(userMessage)) return { label: 'TRADING' as HighLevelIntentType, reason: 'confirmation keyword' };
-        if (signals.hasSocial) return { label: 'SOCIAL_SENSING' as HighLevelIntentType, reason: 'social intent' };
-        // CRITICAL FIX: Prioritize TRADING over question intent when slots are complete
-        // "Can you sell my 3 USDC to Base?" should be TRADING, not MARKET_ANALYSIS
-        if (signals.hasAction && slots.complete) return { label: 'TRADING' as HighLevelIntentType, reason: 'action + slots complete' };
-        if (signals.hasQuestion) return { label: 'MARKET_ANALYSIS' as HighLevelIntentType, reason: 'question intent' };
-        if (signals.hasWallet) return { label: 'MARKET_ANALYSIS' as HighLevelIntentType, reason: 'wallet intent' };
-        if (signals.hasContractAddress && !signals.hasAction) {
-            return { label: 'MARKET_ANALYSIS' as HighLevelIntentType, reason: 'contract address without action' };
-        }
-        return undefined;
-    })();
-
-    return {
-        scores: Object.values(scores).filter(Boolean) as IntentLabelScore[],
-        signals,
-        slots,
-        hardRule,
-    };
-}
-
-function detectIntentConflict(labels: Array<{ label: HighLevelIntentType; confidence: number }>): IntentConflict | undefined {
-    const byLabel = new Map(labels.map((l) => [l.label, l.confidence]));
-    if ((byLabel.get('TRADING') || 0) >= 0.65 && (byLabel.get('RISK_SCAN') || 0) >= 0.65) {
-        return {
-            type: 'risk_trade',
-            labels: ['TRADING', 'RISK_SCAN'],
-            question: 'Do you want to trade now, or only do a safety check first?',
-        };
-    }
-    if (labels.length >= 2 && labels[0].confidence - labels[1].confidence < 0.12) {
-        return {
-            type: 'multi',
-            labels: labels.slice(0, 2).map((l) => l.label),
-            question: 'Do you want market analysis, or do you want to execute a trade?',
-        };
-    }
-    return undefined;
-}
-
-function buildDecision(
-    ruleResult: ReturnType<typeof evaluateRuleLayer>,
-    classifierScores: ReturnType<typeof classifyIntentLight>,
-    llmLabel?: HighLevelIntentType
-): IntentDecision {
-    const ruleScores = ruleResult.scores;
-    const combinedScores: Record<HighLevelIntentType, number> = {
-        TRADING: 0,
-        RISK_SCAN: 0,
-        COPY_TRADING: 0,
-        PREDICTION_MARKETS: 0,
-        SOCIAL_SENSING: 0,
-        MARKET_ANALYSIS: 0,
-        GENERAL_CHAT: 0,
-    };
-
-    for (const label of Object.keys(combinedScores) as HighLevelIntentType[]) {
-        const rule = ruleScores.find((r) => r.label === label);
-        const ruleScore = rule ? rule.confidence : 0;
-        const clfScore = classifierScores.scores[label] || 0;
-        combinedScores[label] = Math.min(1, ruleScore * 0.6 + clfScore * 0.4);
-    }
-
-    if (llmLabel) {
-        combinedScores[llmLabel] = Math.max(combinedScores[llmLabel], 0.75);
-    }
-
-    if (ruleResult.hardRule) {
-        combinedScores[ruleResult.hardRule.label] = Math.max(combinedScores[ruleResult.hardRule.label], 0.95);
-    }
-
-    const labels = Object.entries(combinedScores)
-        .sort((a, b) => b[1] - a[1])
-        .map(([label, confidence]) => ({ label: label as HighLevelIntentType, confidence }));
-
-    const conflict = detectIntentConflict(labels);
-    const primary = ruleResult.hardRule ? ruleResult.hardRule.label : labels[0].label;
-    const confidence = ruleResult.hardRule ? Math.max(labels[0].confidence, 0.9) : labels[0].confidence;
-
-    return {
-        primary,
-        confidence,
-        labels,
-        evidence: [
-            ...ruleScores,
-            ...(Object.keys(classifierScores.scores) as HighLevelIntentType[]).map((label) => ({
-                label,
-                confidence: classifierScores.scores[label],
-                evidence: ['embedding similarity'],
-                source: 'classifier' as const,
-            })),
-            ...(llmLabel
-                ? [{
-                    label: llmLabel,
-                    confidence: 0.75,
-                    evidence: ['llm classification'],
-                    source: 'llm' as const,
-                }]
-                : []),
-        ],
-        routing: {
-            stage: ruleResult.hardRule ? 'rule' : (llmLabel ? 'llm' : (ruleScores.length > 0 ? 'hybrid' : 'classifier')),
-            reason: ruleResult.hardRule
-                ? `Hard rule: ${ruleResult.hardRule.reason}`
-                : (llmLabel ? 'LLM fallback for ambiguous intent' : 'Rule + classifier fusion'),
-        },
-        hardRule: ruleResult.hardRule,
-        signals: ruleResult.signals,
-        slots: ruleResult.slots,
-        conflict,
-    };
-}
-
-/**
- * Parse high-level intent using simple heuristics (fast, no API call)
- */
-function parseHighLevelIntentHeuristic(
-    userMessage: string,
-    userContext?: UserContext
-): HighLevelIntent {
-    const { signals, slots } = getIntentSignals(userMessage, userContext);
-    const tokenSymbols = extractTokenSymbols(userMessage);
-    const hasRisk = hasRiskKeywords(userMessage);
-
-    // COPY TRADING intent (must run before TRADING)
-    if (signals.hasCopyTrade) {
-        return {
-            type: 'COPY_TRADING',
-            confidence: 0.95,
-        };
-    }
-
-    // PREDICTION MARKETS intent (Polymarket)
-    if (signals.hasPrediction) {
-        return {
-            type: 'PREDICTION_MARKETS',
-            confidence: 0.9,
-        };
-    }
-
-    // RISK_SCAN intent (risk-only questions)
-    // If user asks "is it safe/honeypot/rug" and does NOT ask to trade, prioritize risk scanning
-    // even if they provided a contract address.
-    if (hasRisk && !signals.hasAction) {
-        return {
-            type: 'RISK_SCAN',
-            confidence: 0.9,
-        };
-    }
-
-    // TRADING intent
-    if (signals.hasAction && slots.complete && !signals.hasQuestion) {
-        return {
-            type: 'TRADING',
-            confidence: 0.9,
-        };
-    }
-
-    // SOCIAL_SENSING intent
-    if (signals.hasSocial) {
-        return {
-            type: 'SOCIAL_SENSING',
-            confidence: 0.8,
-        };
-    }
-
-    // Contract address or question without trade verb is usually analysis.
-    if (signals.hasQuestion || signals.hasContractAddress) {
-        return {
-            type: 'MARKET_ANALYSIS',
-            confidence: 0.85,
-        };
-    }
-
-    // RISK_SCAN intent
-    if (hasRisk) {
-        return {
-            type: 'RISK_SCAN',
-            confidence: 0.85,
-        };
-    }
-
-    // MARKET_ANALYSIS intent
-    if (/\b(price|chart|trending|volume|liquidity|market.*cap|token.*info|token.*data|analysis)\b/i.test(userMessage)
-        || (tokenSymbols.tokenIn && tokenSymbols.tokenOut)) {
-        return {
-            type: 'MARKET_ANALYSIS',
-            confidence: 0.75,
-        };
-    }
-
-    // Default to GENERAL_CHAT
-    return {
-        type: 'GENERAL_CHAT',
-        confidence: 0.5,
-    };
-}
-
-/**
- * Parse detailed intent using heuristics (fallback)
- */
-function parseDetailedIntentHeuristic(
-    userMessage: string,
-    userContext?: UserContext
-): DetailedIntent {
-    const contractAddress = detectContractAddress(userMessage);
-    const tokenSymbols = extractTokenSymbols(userMessage);
-    const isSolana = contractAddress && !contractAddress.startsWith('0x') && contractAddress.length >= 32;
-    const riskKeywords = hasRiskKeywords(userMessage);
-    const { signals, slots } = getIntentSignals(userMessage, userContext);
-
-    // Default intent
-    let action: DetailedIntentType = 'general_query';
-    let tokenIn: string | undefined;
-    let tokenOut: string | undefined;
-    let amount: string | undefined;
-    let isSellOperation = false;
-
-    // Detect swap
-    // CRITICAL: Copy trade commands should NOT be classified as swap intents
-    // even if they contain a contract address (which is the TARGET WALLET, not a token)
-    const isStrategyCondition = /\b(when|if|once|whenever)\b/i.test(userMessage);
-    const isCopyTradeCommand = hasCopyTradeKeywords(userMessage);
-    const riskOnly = signals.hasRisk && !signals.hasAction;
-    const shouldTrade = signals.hasAction
-        && slots.complete
-        && !signals.hasQuestion
-        && !riskOnly
-        && !isStrategyCondition
-        && !isCopyTradeCommand;
-
-    // If user asks "is 0x... safe/honeypot?" (risk-only), do NOT treat it as a swap intent.
-    if (shouldTrade) {
-        action = 'swap';
-
-        // Detect if this is a SELL operation (selling the contract address token)
-        isSellOperation = /\b(sell|卖)\b/i.test(userMessage) && !!contractAddress;
-
-        // Detect native token based on chain
-        const isBsc = /\bBNB\b/i.test(userMessage) || userContext?.chainId === 56;
-        const isPolygon = userContext?.chainId === 137;
-        const nativeToken = isSolana ? 'SOL' : (isBsc ? 'BNB' : (isPolygon ? 'POL' : 'ETH'));
-
-        if (isSellOperation) {
-            // Selling: contract address is tokenIn, native token is tokenOut
-            tokenIn = contractAddress || undefined;
-            tokenOut = tokenSymbols.tokenOut || nativeToken;
-        } else {
-            // Buying: native token is tokenIn, contract address is tokenOut
-            tokenIn = tokenSymbols.tokenIn || nativeToken;
-            tokenOut = contractAddress || tokenSymbols.tokenOut;
-        }
-
-        // If user says "buy X TOKEN" and token_out is missing but token_in is set, treat token_in as target
-        if (!tokenOut && tokenIn) {
-            const hasBuyVerb = /\b(buy|purchase|ape|买|购买)\b/i.test(userMessage);
-            const isNativeIn = ['ETH', 'BNB', 'SOL', 'MATIC', 'POL', 'AVAX', 'BASE'].includes(tokenIn.toUpperCase());
-            if (hasBuyVerb && !isNativeIn) {
-                tokenOut = tokenIn;
-                tokenIn = undefined;
-            }
-        }
-
-        // If token_out exists but token_in missing, default to native token based on chain/context
-        if (tokenOut && !tokenIn) {
-            const isBsc = /\bBNB\b/i.test(userMessage) || userContext?.chainId === 56;
-            const isPolygon = userContext?.chainId === 137;
-            tokenIn = isSolana ? 'SOL' : (isBsc ? 'BNB' : (isPolygon ? 'POL' : 'ETH'));
-        }
-
-        // Normalize "BASE" to native token when on Base chain
-        if ((userContext?.chainId || 0) === 8453) {
-            if (tokenIn?.toUpperCase() === 'BASE') tokenIn = 'ETH';
-            if (tokenOut?.toUpperCase() === 'BASE') tokenOut = 'ETH';
-        }
-
-        // CRITICAL FIX: Ensure tokenIn and tokenOut are different
-        // Use case-insensitive comparison for addresses
-        const tokenInLower = tokenIn?.toLowerCase();
-        const tokenOutLower = tokenOut?.toLowerCase();
-        if (tokenInLower && tokenOutLower && tokenInLower === tokenOutLower) {
-            logger.info(LogCode.SYS_INFO, 'IntentParser: tokenIn and tokenOut are the same, fixing...');
-            // If we have a contract address, it should be tokenOut (buying)
-            if (contractAddress) {
-                tokenOut = contractAddress;
-                // Detect native token based on context - check for BNB mention
-                const isBsc = /\bBNB\b/i.test(userMessage) || userContext?.chainId === 56;
-                tokenIn = isSolana ? 'SOL' : (isBsc ? 'BNB' : 'ETH');
-            }
-        }
-
-        // Parse amount - support percentage and quantity keywords
-        // Priority: explicit percentage > quantity keywords > numeric values
-
-        // Check for percentage keywords (all, half, quarter, etc.)
-        const percentageKeywords: { [key: string]: string } = {
-            // English keywords
-            'all': 'all',
-            '100%': 'all',
-            'half': '50%',
-            '50%': '50%',
-            'quarter': '25%',
-            '25%': '25%',
-            '75%': '75%',
-            '10%': '10%',
-            '20%': '20%',
-            '30%': '30%',
-            '40%': '40%',
-            '60%': '60%',
-            '70%': '70%',
-            '80%': '80%',
-            '90%': '90%',
-            // Chinese keywords
-            '全部': 'all',
-            '一半': '50%',
-            '四分之一': '25%',
-            '四分之三': '75%',
-        };
-
-        // First check for percentage patterns
-        const percentMatch = userMessage.match(/\b(\d{1,3})%/);
-        if (percentMatch) {
-            const percent = parseInt(percentMatch[1]);
-            if (percent > 0 && percent <= 100) {
-                amount = percent === 100 ? 'all' : `${percent}%`;
-            }
-        }
-
-        // Check for keyword-based percentages
-        if (!amount) {
-            for (const [keyword, value] of Object.entries(percentageKeywords)) {
-                // Use word boundary for English, direct match for Chinese
-                const isChineseKeyword = /[\u4e00-\u9fff]/.test(keyword);
-                const pattern = isChineseKeyword
-                    ? new RegExp(keyword, 'i')
-                    : new RegExp(`\\b${keyword}\\b`, 'i');
-
-                if (pattern.test(userMessage)) {
-                    amount = value;
-                    break;
-                }
-            }
-        }
-
-        // Fall back to numeric amount parsing
-        if (!amount) {
-            // Prefer patterns with explicit asset units (prevents matching "0x..." as amount).
-            amount = userMessage.match(/(?:^|\s)(\d+\.?\d*)\s*(?:USDC|ETH|SOL|USDT|BNB)\b/i)?.[1] ||
-                userMessage.match(/for\s+(\d+\.?\d*)\s*(?:USDC|ETH|SOL|USDT|BNB)\b/i)?.[1] ||
-                userMessage.match(/\bswap\s+(\d+\.?\d*)(?:\s|$)/i)?.[1] ||
-                userMessage.match(/\b(?:buy|sell)\s+(\d+\.?\d*)(?:\s|$)/i)?.[1] ||
-                userMessage.match(/(\d+\.?\d*)\s+(?:worth|of)\b/i)?.[1];
-        }
-
-        logger.debug(LogCode.SYS_INFO, 'IntentParser: Amount parsing result', {
-            rawMessage: userMessage.slice(0, 50),
-            parsedAmount: amount,
-            isSellOperation: isSellOperation
-        });
-    }
-    // Detect token security
-    else if (riskKeywords) {
-        action = 'token_security';
-    }
-    // Default analysis when user asks a question or provides a CA without trade intent
-    else if (action === 'general_query' &&
-        (signals.hasQuestion || signals.hasContractAddress) &&
-        !signals.hasWallet &&
-        !signals.hasSocial &&
-        !signals.hasPrediction &&
-        !signals.hasCopyTrade) {
-        action = 'token_info';
-    }
-    // Detect token info
-    else if (/\b(price|chart|info|data|detail).*(?:token|coin|eth|btc|usdc)\b/i.test(userMessage)) {
-        action = 'token_info';
-    }
-    // Detect PNL
-    else if (/\b(pnl|profit|loss|win\s*rate|performance|收益|利润|胜率)\b/i.test(userMessage)) {
-        action = 'wallet_pnl';
-    }
-    // Detect trending
-    else if (/\b(trending|hot|popular|top)\b/i.test(userMessage)) {
-        if (/\b(social|farcaster|twitter)\b/i.test(userMessage)) {
-            action = 'social_trending';
-        } else {
-            action = 'token_trending';
+function resolveTokenOut(text: string, symbols: string[], userContext?: UserContext, contractAddress?: string | null): string | undefined {
+    const lower = text.toLowerCase();
+    if (contractAddress) return contractAddress;
+    for (const symbol of symbols) {
+        if (['BUY', 'SELL', 'SWAP', 'TRADE', 'GET', 'ALL'].includes(symbol)) continue;
+        if (new RegExp(`\\b(buy|get|receive)\\s+[\\d.%]*\\s*${symbol.toLowerCase()}\\b`, 'i').test(lower)) {
+            return symbol;
         }
     }
-    // Detect wallet
-    else if (/\b(wallet|balance|transaction)\b/i.test(userMessage)) {
-        if (/\b(balance)\b/i.test(userMessage)) {
-            action = 'wallet_balance';
-        } else if (/\b(transaction|tx|history)\b/i.test(userMessage)) {
-            action = 'wallet_transactions';
-        } else {
-            action = 'wallet_info';
-        }
+    for (const symbol of symbols) {
+        if (['BUY', 'SELL', 'SWAP', 'TRADE', 'GET', 'ALL'].includes(symbol)) continue;
+        if (!NATIVE_SYMBOLS.has(symbol)) return symbol;
     }
-    // Detect market
-    else if (/\b(market|overview|chains|protocols)\b/i.test(userMessage)) {
-        if (/\b(overview|summary)\b/i.test(userMessage)) {
-            action = 'market_overview';
-        } else if (/\b(chains|blockchain)\b/i.test(userMessage)) {
-            action = 'market_chains';
-        } else if (/\b(protocols|defi)\b/i.test(userMessage)) {
-            action = 'market_protocols';
-        } else {
-            action = 'market_data';
-        }
-    }
-
-    return {
-        version: '1.0',
-        intent_id: uuidv4(),
-        origin: 'chat',
-        action,
-        token_address: contractAddress || undefined,
-        token_symbol: tokenSymbols.tokenOut,
-        chain_id: isSolana ? 900 : (userContext?.chainId || 1),
-        token_in: tokenIn,
-        token_out: tokenOut,
-        amount,
-        amount_asset: action === 'swap' && amount ? (tokenIn || undefined) : undefined,
-    };
+    const pending = userContext?.pendingSwapToken;
+    if (pending?.symbol) return pending.symbol;
+    return symbols[0];
 }
 
-/**
- * Main intent parser (hybrid: heuristic + AI fallback)
- */
+function resolveTokenIn(text: string, symbols: string[], tokenOut: string | undefined, userContext?: UserContext): string | undefined {
+    const lower = text.toLowerCase();
+    const chainId = Number(userContext?.chainId || 8453);
+    if (/\b(sell|dump|swap out of|convert)\b/i.test(lower) || text.includes('卖')) {
+        for (const symbol of symbols) {
+            if (symbol !== tokenOut && !STABLE_SYMBOLS.has(symbol)) return symbol;
+        }
+        return tokenOut;
+    }
+    for (const symbol of symbols) {
+        if (symbol !== tokenOut && NATIVE_SYMBOLS.has(symbol)) return symbol;
+    }
+    return CHAIN_DEFAULT_NATIVE[chainId] || 'ETH';
+}
+
+function parseAmount(text: string): string | undefined {
+    const match = text.match(/\b(all|\d+(?:\.\d+)?%?)\b/i);
+    return match ? match[1] : undefined;
+}
+
+function inferAmountSemantic(text: string): 'input' | 'output' {
+    if (/\b(buy|get|receive)\b/i.test(text) || text.includes('买')) {
+        return 'output';
+    }
+    return 'input';
+}
+
 export async function parseIntent(
     userMessage: string,
     userContext?: UserContext
 ): Promise<ParsedIntent> {
-    const timerLabel = `intent_parsing_${uuidv4().slice(0, 8)}`;
-    logger.startTimer(timerLabel);
-
-    // Step 1: Rule layer + lightweight classifier
-    const ruleResult = evaluateRuleLayer(userMessage, userContext);
-    const classifier = classifyIntentLight(userMessage);
-    let decision = buildDecision(ruleResult, classifier);
+    const message = String(userMessage || '').trim();
+    const contractAddress = detectContractAddress(message);
+    const chainId = detectChainId(contractAddress, userContext);
+    const symbols = extractOrderedSymbols(message);
 
     let highLevel: HighLevelIntent = {
-        type: decision.primary,
-        confidence: decision.confidence,
+        type: 'GENERAL_CHAT',
+        confidence: 0.55,
+    };
+    let action: DetailedIntentType = 'general_query';
+    const decision: IntentDecision = {
+        primary: 'GENERAL_CHAT',
+        confidence: 0.55,
+        labels: [{ label: 'GENERAL_CHAT', confidence: 0.55 }],
+        routing: {
+            stage: 'rule',
+            reason: 'non_trade_request',
+        },
     };
 
-    // Step 2: Parse detailed intent
-    // Intent parsing is intentionally heuristic-only.
-    // Calling another model here adds latency, failure modes, and unrelated context pollution.
-    let detailed: DetailedIntent;
-    detailed = parseDetailedIntentHeuristic(userMessage, userContext);
-
-    // Step 3: Map detailed intent to high-level (if mismatch, trust detailed)
-    const mappedHighLevel = DETAILED_TO_HIGH_LEVEL[detailed.action] || highLevel.type;
-    const allowOverride = !decision.hardRule && !decision.signals?.hasQuestion;
-    if (allowOverride && mappedHighLevel !== highLevel.type && detailed.action !== 'general_query') {
-        logger.debug(LogCode.SYS_INFO, 'IntentParser: High-level intent corrected', { from: highLevel.type, to: mappedHighLevel });
-        highLevel.type = mappedHighLevel;
-        highLevel.confidence = Math.max(highLevel.confidence, 0.75);
-        decision = buildDecision(ruleResult, classifier, mappedHighLevel);
+    if (hasCopyTradeKeywords(message)) {
+        highLevel = { type: 'COPY_TRADING', confidence: 0.95 };
+        action = 'copy_trade';
+        decision.primary = 'COPY_TRADING';
+        decision.confidence = 0.95;
+        decision.labels = [{ label: 'COPY_TRADING', confidence: 0.95 }];
+        decision.routing.reason = 'copy_trade_keyword';
+        decision.hardRule = { label: 'COPY_TRADING', reason: 'copy_trade_keyword' };
+    } else if (hasConfirmationKeywords(message) || hasTradeKeywords(message) || hasCrossChainKeywords(message)) {
+        highLevel = { type: 'TRADING', confidence: hasConfirmationKeywords(message) ? 0.98 : 0.9 };
+        action = hasCrossChainKeywords(message) ? 'cross_chain_trade' : 'swap';
+        decision.primary = 'TRADING';
+        decision.confidence = highLevel.confidence;
+        decision.labels = [{ label: 'TRADING', confidence: highLevel.confidence }];
+        decision.routing.reason = hasConfirmationKeywords(message)
+            ? 'trade_confirmation_keyword'
+            : (hasCrossChainKeywords(message) ? 'cross_chain_keyword' : 'trade_keyword');
+        decision.hardRule = { label: 'TRADING', reason: decision.routing.reason };
     }
 
-    // Step 4: Extract additional metadata
-    // CRITICAL: Force regex result over AI hallucination
-    // The AI sometimes invents addresses (e.g., 0x123...) when none are provided
-    // We ONLY trust what the regex explicitly finds in the user's message
-    const contractAddress = detectContractAddress(userMessage);
-    const tokenSymbols = extractTokenSymbols(userMessage);
+    const tokenOut = action === 'general_query' ? undefined : resolveTokenOut(message, symbols, userContext, contractAddress);
+    const tokenIn = action === 'general_query' ? undefined : resolveTokenIn(message, symbols, tokenOut, userContext);
+    const amount = action === 'general_query' ? undefined : parseAmount(message);
+    const amountSemantic = action === 'general_query' ? undefined : inferAmountSemantic(message);
 
-    logger.endTimer(timerLabel, LogCode.AI_INTENT_PARSED, {
-        userAddress: userContext?.userAddress,
-        intent: detailed.action,
-        highLevelIntent: highLevel.type,
-        hasAI: false,
+    const detailed: DetailedIntent = {
+        version: 'trade_only_v2',
+        intent_id: uuidv4(),
+        origin: 'chat',
+        action,
+        token_address: contractAddress || undefined,
+        chain_id: chainId,
+        token_in: tokenIn,
+        token_out: tokenOut,
+        amount,
+        amount_semantic: amountSemantic,
+        wallet_address: userContext?.userAddress,
+        query: message,
         confidence: highLevel.confidence,
-        routingStage: decision.routing.stage,
-        conflict: decision.conflict?.type,
-        hardRule: decision.hardRule?.label,
-        slotsComplete: decision.slots?.complete,
-        labels: decision.labels?.slice(0, 3),
-    });
+        evidence: [decision.routing.reason],
+    };
 
     return {
         highLevel,
         detailed,
-        contractAddress: contractAddress || undefined, // IGNORE detailed.token_address
-        chainId: detailed.chain_id,
-        swapIntent: detailed.action === 'swap' ? {
-            tokenIn: detailed.token_in,
-            tokenOut: detailed.token_out,
-            amount: detailed.amount,
-        } : undefined,
+        contractAddress: contractAddress || undefined,
+        chainId,
+        swapIntent: action === 'swap' || action === 'cross_chain_trade'
+            ? {
+                tokenIn: tokenIn,
+                tokenOut: tokenOut,
+                amount,
+            }
+            : undefined,
         decision,
     };
 }
 
-// Export types for backward compatibility
 export type IntentType = HighLevelIntentType;

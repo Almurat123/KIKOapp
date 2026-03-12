@@ -207,19 +207,6 @@ USER_QUERY_END
             }
         }
 
-        if (ctx.intentHints) {
-            parts.push(`\n[INTENT_HINTS]`);
-            if (ctx.intentHints.labels && ctx.intentHints.labels.length > 0) {
-                parts.push(`- Candidate intents: ${ctx.intentHints.labels.join(', ')}`);
-            }
-            if (ctx.intentHints.conflict) {
-                parts.push(`- Conflict: ${ctx.intentHints.conflict}`);
-            }
-            if (ctx.intentHints.question) {
-                parts.push(`- Ask user: ${ctx.intentHints.question}`);
-            }
-        }
-
         return parts.join('\n');
     }
 }

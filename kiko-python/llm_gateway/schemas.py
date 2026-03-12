@@ -17,6 +17,10 @@ class GenerateRequest(BaseModel):
     metadata: dict[str, str] = Field(default_factory=dict)
     tools: list[dict[str, Any]] | None = None
     tool_context: dict[str, Any] | None = None
+    enable_search: bool | None = None
+    previous_response_id: str | None = None
+    tool_policy: dict[str, Any] | None = None
+    tool_config: dict[str, Any] | None = None
 
 
 class GatewayEvent(BaseModel):

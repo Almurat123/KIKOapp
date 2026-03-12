@@ -1,7 +1,7 @@
 """
 KiKo Python Services - Unified FastAPI Application
-Combines: grok-service, moderation-service, rag-service
-Uses sub-app mounting for safer integration.
+Combines: grok-service and moderation-service.
+Optional sub-services are mounted only when explicitly enabled.
 """
 import os
 import logging
@@ -37,9 +37,13 @@ def _cors_origins() -> list[str]:
 # Create main FastAPI app
 app = FastAPI(
     title="KiKo Python Services",
-    description="Unified API for Grok AI, Content Moderation, and RAG Knowledge Base",
+    description="Unified API for Grok AI and Content Moderation",
     version="1.0.0"
 )
+
+
+def _rag_enabled() -> bool:
+    return os.getenv("ENABLE_RAG_SERVICE", "false").strip().lower() in {"1", "true", "yes", "on"}
 
 # CORS middleware
 app.add_middleware(
@@ -86,6 +90,22 @@ try:
 except Exception as e:
     logger.error(f"❌ Failed to mount Tool Runtime: {e}")
 
+# Generation Service (internal)
+try:
+    from generation.app import app as generation_app
+    app.mount("/generation", generation_app)
+    logger.info("✅ Generation service mounted at /generation")
+except Exception as e:
+    logger.error(f"❌ Failed to mount Generation service: {e}")
+
+# Orchestration Service (internal)
+try:
+    from orchestration.app import app as orchestration_app
+    app.mount("/orchestration", orchestration_app)
+    logger.info("✅ Orchestration service mounted at /orchestration")
+except Exception as e:
+    logger.error(f"❌ Failed to mount Orchestration service: {e}")
+
 # Grok Service
 try:
     from grok.router import app as grok_app
@@ -105,13 +125,16 @@ try:
 except Exception as e:
     logger.error(f"❌ Failed to mount Moderation service: {e}")
 
-# RAG Service
-try:
-    from rag.router import app as rag_app
-    app.mount("/rag", rag_app)
-    logger.info("✅ RAG service mounted at /rag")
-except Exception as e:
-    logger.error(f"❌ Failed to mount RAG service: {e}")
+# RAG Service (disabled by default)
+if _rag_enabled():
+    try:
+        from rag.router import app as rag_app
+        app.mount("/rag", rag_app)
+        logger.info("✅ RAG service mounted at /rag")
+    except Exception as e:
+        logger.error(f"❌ Failed to mount RAG service: {e}")
+else:
+    logger.info("ℹ️ RAG service disabled")
 
 # Root compatibility path, so /v2/chat/* also works on single-port deploy.
 if chat_v2_ensure_started and chat_v2_ensure_stopped:

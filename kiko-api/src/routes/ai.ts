@@ -351,6 +351,12 @@ export async function aiRoutes(fastify: FastifyInstance) {
 
                 const normalizedModel = normalizeModel(model);
                 const userId = (request as any).user?.sub;
+                logger.info(LogCode.AI_API_CALL, '[AI Routes] Legacy /api/ai/chat invoked', {
+                    model: normalizedModel,
+                    userId: userId || undefined,
+                    stream,
+                    messageCount: Array.isArray(messages) ? messages.length : 0,
+                });
 
                 if (!userId) {
                     return reply.code(401).send({ error: 'Unauthorized' });
@@ -705,7 +711,6 @@ export async function aiRoutes(fastify: FastifyInstance) {
                             }
                         }
                         allowedToolNames.add('external_web_search');
-                        allowedToolNames.add('x_search');
 
                         const definitions = toolRegistry.getAllDefinitions();
                         const filtered = definitions.filter(def => allowedToolNames.has(def.name));

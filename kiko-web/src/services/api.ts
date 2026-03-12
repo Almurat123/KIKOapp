@@ -224,12 +224,35 @@ interface ApiResponse<T> {
  */
 import { apiCache } from '../utils/apiCache';
 import { getAuthToken, clearAuthTokenCache } from '../utils/authToken';
+import { chatWSClient } from '../utils/chatWebSocket';
 import { getRuntimeConfigUrl, getEnvUrl } from '../utils/runtimeConfig';
+import { adaptLoopbackUrlForBrowser, isLocalLikeHost } from '../utils/runtimeHosts';
 
 /**
  * Request deduplication map
  */
 const pendingRequests = new Map<string, Promise<unknown>>();
+
+async function ensureChatStreamReady(timeoutMs = 1800): Promise<boolean> {
+    const token = await getAuthToken();
+    if (!token) {
+        logger.warn('[chatApi] Unable to prime chat stream: missing auth token');
+        return false;
+    }
+
+    chatWSClient.connect(token);
+    let ready = await chatWSClient.waitForConnection(timeoutMs);
+    if (!ready) {
+        logger.warn('[chatApi] Chat stream not ready on first attempt; forcing reconnect');
+        chatWSClient.close();
+        chatWSClient.connect(token);
+        ready = await chatWSClient.waitForConnection(timeoutMs + 1200);
+    }
+    if (!ready) {
+        logger.warn('[chatApi] Chat stream not ready before send; continuing with HTTP request');
+    }
+    return ready;
+}
 
 /**
  * Get cache TTL based on endpoint
@@ -829,7 +852,7 @@ function resolveChatApiBase(): string {
     if (explicit) {
         try {
             new URL(explicit);
-            return explicit.replace(/\/+$/, '');
+            return adaptLoopbackUrlForBrowser(explicit);
         } catch {
             console.warn('[chatApi] Invalid CHAT_API_URL, falling back:', explicit);
         }
@@ -840,7 +863,7 @@ function resolveChatApiBase(): string {
     if (core) {
         try {
             new URL(core);
-            return core.replace(/\/+$/, '');
+            return adaptLoopbackUrlForBrowser(core);
         } catch {
             console.warn('[chatApi] Invalid API_URL fallback:', core);
         }
@@ -848,8 +871,7 @@ function resolveChatApiBase(): string {
 
     if (typeof window !== 'undefined' && window.location?.origin) {
         const host = window.location.hostname.toLowerCase();
-        const isLocal = host === 'localhost' || host === '127.0.0.1';
-        if (isLocal) {
+        if (isLocalLikeHost(host)) {
             return window.location.origin.replace(/\/+$/, '');
         }
         return 'https://api.kikoapp.app';
@@ -978,11 +1000,28 @@ export const chatApi = {
         options: Record<string, unknown> & { signal?: AbortSignal } = {}
     ): Promise<{ success: boolean; userMessage: ChatMessage; assistantMessage: ChatMessage; task: ChatTask }> {
         const { signal, ...payload } = options;
-        return chatFetch<{ success: boolean; userMessage: ChatMessage; assistantMessage: ChatMessage; task: ChatTask }>(`/api/chat/sessions/${sessionId}/messages`, {
+        const startedAt = performance.now();
+        const requestedModel = String((payload as Record<string, unknown>)?.model || '');
+        logger.debug('[chatApi] sendMessage start', {
+            sessionId,
+            model: requestedModel || null,
+            contentLength: content.trim().length,
+        });
+        const streamReady = await ensureChatStreamReady();
+        const response = await chatFetch<{ success: boolean; userMessage: ChatMessage; assistantMessage: ChatMessage; task: ChatTask }>(`/api/chat/sessions/${sessionId}/messages`, {
             method: 'POST',
             signal,
             body: JSON.stringify({ content, ...payload }),
         });
+        logger.debug('[chatApi] sendMessage response', {
+            sessionId,
+            model: requestedModel || null,
+            taskId: response?.task?.id,
+            assistantMessageId: response?.assistantMessage?.id,
+            streamReady,
+            durationMs: Math.round(performance.now() - startedAt),
+        });
+        return response;
     },
 
     /**

@@ -731,6 +731,10 @@ export const CheckTokenRiskTool: Tool = {
                     type: 'number',
                     description: 'Numeric chain ID (preferred when available), e.g. 1, 8453, 56, 900.',
                 },
+                deep_analysis: {
+                    type: 'boolean',
+                    description: 'When true, run slower sniper/network/holder analyses. Default is false for faster risk checks.',
+                },
             },
             required: ['address'],
         },
@@ -747,6 +751,7 @@ export const CheckTokenRiskTool: Tool = {
             }
             const chain = resolved.chain;
             const chainId = CHAIN_IDS[chain.toLowerCase()] || 1;
+            const deepAnalysisEnabled = args.deep_analysis === true;
 
             console.log(`[CheckTokenRisk] Scanning ${address} on ${chain} (chainId: ${chainId})`);
 
@@ -765,18 +770,18 @@ export const CheckTokenRiskTool: Tool = {
                     return null;
                 }),
                 performLocalScan(address, chain),
-                analyzeSnipers(address, chain).catch(err => {
+                deepAnalysisEnabled ? analyzeSnipers(address, chain).catch(err => {
                     console.error('[CheckTokenRisk] Sniper analysis failed:', err);
                     return null;
-                }),
-                analyzeTransferNetwork(address, chain).catch(err => {
+                }) : Promise.resolve(null),
+                deepAnalysisEnabled ? analyzeTransferNetwork(address, chain).catch(err => {
                     console.error('[CheckTokenRisk] Network analysis failed:', err);
                     return null;
-                }),
-                analyzeHolderDistribution(address, chain).catch(err => {
+                }) : Promise.resolve(null),
+                deepAnalysisEnabled ? analyzeHolderDistribution(address, chain).catch(err => {
                     console.error('[CheckTokenRisk] Holder analysis failed:', err);
                     return null;
-                }),
+                }) : Promise.resolve(null),
             ]);
 
             const hasGoPlus = !!goplusData;
@@ -876,6 +881,7 @@ export const CheckTokenRiskTool: Tool = {
                     isBlacklisted: hasGoPlus ? goplusData.is_blacklisted === '1' : false,
                 },
                 source: hasGoPlus ? 'GoPlus + KiKo Hybrid Scanner' : 'KiKo Hybrid Scanner (GoPlus degraded)',
+                analysisMode: deepAnalysisEnabled ? 'deep' : 'fast',
                 offlineSignals: offline.offline,
                 localScan: localScanResult ? {
                     performed: true,

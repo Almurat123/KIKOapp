@@ -16,12 +16,13 @@ export function buildForcedExitSwapPlan(input: {
   snapshot: ExitAttributionSnapshot;
   reasonCode: string;
 }): EvmExitSwapPlan {
-  const precisionSafeSellRaw = input.snapshot.balanceRaw > 1n
-    ? input.snapshot.balanceRaw - 1n
-    : input.snapshot.balanceRaw;
-  const amountInHuman = ethers.formatUnits(precisionSafeSellRaw, input.snapshot.decimals);
-  const retryBalanceRaw = (precisionSafeSellRaw * 999n) / 1000n;
-  const retryAmountInHuman = ethers.formatUnits(retryBalanceRaw > 0n ? retryBalanceRaw : precisionSafeSellRaw, input.snapshot.decimals);
+  // Forced exits should liquidate the full visible balance. Do not preserve dust on
+  // purpose; retry policy is handled by execution settings, not by shrinking amount.
+  const forcedSellRaw = input.snapshot.balanceRaw > 0n
+    ? input.snapshot.balanceRaw
+    : 0n;
+  const amountInHuman = ethers.formatUnits(forcedSellRaw, input.snapshot.decimals);
+  const retryAmountInHuman = amountInHuman;
 
   return {
     kind: 'swap',
@@ -34,11 +35,11 @@ export function buildForcedExitSwapPlan(input: {
     balance: input.snapshot.balanceRaw,
     decimals: input.snapshot.decimals,
     balanceUsd: input.snapshot.balanceUsd,
-    attributedBalance: precisionSafeSellRaw,
+    attributedBalance: forcedSellRaw,
     amountInHuman,
     retryAmountInHuman,
     initialSlippageBps: input.universalSlippageBps,
-    retrySlippageBps: Math.min(Math.floor(input.universalSlippageBps * 1.5), 2500),
+    retrySlippageBps: Math.min(Math.max(Math.floor(input.universalSlippageBps * 2), input.universalSlippageBps + 400), 3000),
     executionMode: input.executionMode,
     sellRoutePolicy: 'external_primary',
     positions: input.snapshot.positions.filter((position) => String(position.status || '').toLowerCase() === 'open'),
@@ -49,7 +50,7 @@ export function buildForcedExitSwapPlan(input: {
       ...input.snapshot.attribution.metrics,
       orphanRecoveryReasonCode: input.reasonCode,
       forcedExit: true,
-      precisionSafeSellRaw: precisionSafeSellRaw.toString(),
+      forcedExitSellRaw: forcedSellRaw.toString(),
     },
     hasExternalBalance: false,
     runtimeContext: createExitOrderRuntimeContext({

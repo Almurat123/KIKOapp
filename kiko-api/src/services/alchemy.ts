@@ -73,18 +73,23 @@ function getSplTokenSymbol(mint: string): string {
 }
 
 
-// Get Alchemy API key
+// Get Alchemy API key for general RPC-style Alchemy endpoints
 const getAlchemyApiKey = () => {
   const key = env.apiKeys.alchemy || process.env.ALCHEMY_API_KEY || '';
   // Security: API key logging removed to prevent exposure
   return key;
 };
 
+// Asset transfer queries use a separate server key in this environment.
+const getAlchemyWalletTxApiKey = () => {
+  return process.env.ALCHEMY_WALLET_TX_API_KEY || env.apiKeys.alchemy || process.env.ALCHEMY_API_KEY || '';
+};
+
 // Build RPC URL for a specific network
-const getAlchemyUrl = (chain: string = 'eth') => {
+const getAlchemyUrl = (chain: string = 'eth', opts?: { walletTx?: boolean }) => {
   const chainLower = chain.toLowerCase();
   const network = ALCHEMY_NETWORKS[chainLower] || ALCHEMY_NETWORKS.eth;
-  const apiKey = getAlchemyApiKey();
+  const apiKey = opts?.walletTx ? getAlchemyWalletTxApiKey() : getAlchemyApiKey();
   return `https://${network}.g.alchemy.com/v2/${apiKey}`;
 };
 
@@ -190,8 +195,8 @@ export async function getAssetTransfers(
   const source = options.source || 'unknown';
   const tryAlchemy = async () => {
     try {
-      const url = getAlchemyUrl(chain);
-      const apiKey = getAlchemyApiKey();
+      const url = getAlchemyUrl(chain, { walletTx: true });
+      const apiKey = getAlchemyWalletTxApiKey();
 
       if (!apiKey) {
         logger.error(LogCode.SYS_ERROR, 'Alchemy API key not configured');
@@ -1699,6 +1704,7 @@ async function _getPortfolioInternal(
   solanaAddress?: string
 ): Promise<Record<string, WalletBalance>> {
   try {
+    const normalizedOwnerAddress = String(address || '').toLowerCase();
     const apiKey = getAlchemyApiKey();
     if (!apiKey) {
       throw new Error('Alchemy API key missing');
@@ -1865,6 +1871,16 @@ async function _getPortfolioInternal(
               } else {
                 const tokenAddress = t.tokenAddress as string;
                 const addrLower = tokenAddress.toLowerCase();
+                if (addrLower === normalizedOwnerAddress) {
+                  logger.warn(LogCode.API_FETCH_FAILED, 'Skipping malformed portfolio token that matches wallet address', {
+                    chain: chainKey,
+                    walletAddress: address,
+                    tokenAddress,
+                    symbol: t.symbol,
+                    name: t.name,
+                  });
+                  return;
+                }
                 // Skip if we've already processed this address (Alchemy dupe guard)
                 if (seenTokenAddresses.has(addrLower)) {
                   logger.debug(LogCode.API_FETCH_SUCCESS, 'Skipping duplicate token from Alchemy response', { chain: chainKey, address: addrLower });
@@ -1987,6 +2003,15 @@ async function _getPortfolioInternal(
                 ethBalanceFormatted = heliusBalances.nativeBalance / 1e9;
               }
               heliusBalances.tokens.forEach(token => {
+                if (String(token.mint || '').toLowerCase() === String(solAddr || '').toLowerCase()) {
+                  logger.warn(LogCode.API_FETCH_FAILED, 'Skipping malformed Solana portfolio token that matches wallet address', {
+                    walletAddress: solAddr,
+                    mint: token.mint,
+                    symbol: token.symbol,
+                    name: token.name,
+                  });
+                  return;
+                }
                 const formattedBalance = formatTokenBalance(BigInt(token.balance), token.decimals);
                 tokens.push({
                   contractAddress: token.mint,

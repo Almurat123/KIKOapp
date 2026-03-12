@@ -32,6 +32,13 @@ try:
 except Exception as e:
     logger.error("Failed to mount tool-runtime: %s", e)
 
+try:
+    from orchestration.app import app as orchestration_app
+    app.mount("/orchestration", orchestration_app)
+    logger.info("Mounted orchestration at /orchestration")
+except Exception as e:
+    logger.error("Failed to mount orchestration: %s", e)
+
 
 if __name__ == "__main__":
     # Local default: 8001. Railway: respect PORT.
