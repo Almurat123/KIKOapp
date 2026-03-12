@@ -32,6 +32,7 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
     const asksRealtimeSocial = containsAny(query, [
         'latest', 'today', 'current', 'timing', 'post', 'tweet', 'twitter', 'x.com', 'social', 'cz',
     ]) || containsAny(snapshot.lastUserMessage, ['最新', '今天', '现在', '发文', '推文', '社交', 'CZ']);
+    const explicitRiskRequest = isExplicitRiskRequest(query, snapshot.lastUserMessage);
 
     if (tradingIntent) {
         if (tradingIntent.type === 'copy_trade') {
@@ -40,8 +41,7 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
             selected.push('cross_chain_swap', 'wallet_portfolio');
         } else {
             selected.push('swap', 'wallet_portfolio');
-            const settings = snapshot.runtime.userSettings || {};
-            if ((settings as any).checkTokenBeforeSwap) {
+            if (explicitRiskRequest) {
                 selected.push('risk_security');
             }
         }
@@ -52,7 +52,7 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
         } else if (['wallet', 'balance', 'portfolio', 'pnl', '余额'].some((word) => query.includes(word))) {
             selected.push('wallet_portfolio');
         }
-        if (!isMetaAssistantQuery && ['risk', 'safe', 'honeypot', 'rug', '风险', '安全吗'].some((word) => query.includes(word))) {
+        if (!isMetaAssistantQuery && explicitRiskRequest) {
             selected.push('risk_security');
         }
         if (!isMetaAssistantQuery && ['polymarket', 'prediction', 'odds'].some((word) => query.includes(word))) {
@@ -106,8 +106,7 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
         allowedTools = allowedTools.filter((tool) => tool !== 'get_wallet_info');
     }
 
-    const explicitRiskRequest = ['risk', 'safe', 'honeypot', 'rug', '风险', '安全吗'].some((word) => query.includes(word));
-    if (contextBlocks.launchpadContext && !explicitRiskRequest) {
+    if (!explicitRiskRequest) {
         allowedTools = allowedTools.filter((tool) => tool !== 'check_token_risk');
     }
 
@@ -138,6 +137,9 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
         strategyNotes.push('This is a composite task. Split it into sub-steps: first establish the social/timing context, then gather on-chain token evidence for the same window.');
         strategyNotes.push('When using Grok, combine native search for timing/post context with local chain tools for early buyers, holders, first trades, or wallet evidence.');
     }
+    if (!explicitRiskRequest) {
+        strategyNotes.push('Do not run token-risk scanning unless the user explicitly asks for a safety or risk check.');
+    }
 
     return {
         selectedSkills: deduped,
@@ -147,6 +149,41 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
         strategyNotes,
         allowAllTools,
     };
+}
+
+function isExplicitRiskRequest(query: string, rawQuery: string): boolean {
+    const enPhrases = [
+        'check token risk',
+        'check risk',
+        'risk check',
+        'security check',
+        'is this safe',
+        'safe or not',
+        'is this token safe',
+        'honeypot',
+        'rug',
+        'rug pull',
+        'scam',
+        'is this a scam',
+    ];
+    const zhPhrases = [
+        '检查风险',
+        '风险检查',
+        '安全检查',
+        '这个安全吗',
+        '这个代币安全吗',
+        '是不是土狗',
+        '是不是骗局',
+        '是不是貔貅',
+        '貔貅',
+        '蜜罐',
+        '土狗',
+        '拉地毯',
+        'rug',
+        'honeypot',
+    ];
+
+    return containsAny(query, enPhrases) || containsAny(rawQuery, zhPhrases);
 }
 
 function containsAny(text: string, needles: string[]): boolean {

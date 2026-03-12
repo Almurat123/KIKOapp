@@ -714,7 +714,7 @@ function generateRecommendation(riskScore: number, isHoneypot: boolean, warnings
 export const CheckTokenRiskTool: Tool = {
     definition: {
         name: 'check_token_risk',
-        description: 'Comprehensive token security scanner with multi-layer detection. Checks: (1) GoPlus API data (honeypot, tax rates, ownership), (2) Local source code analysis (regex + AST scanning), (3) Sniper Analysis (early buyer detection within first 10 blocks), (4) Transfer Network Analysis (wash trading & circular transfer detection), (5) Holder Distribution Analysis (concentration metrics), (6) Offline runtime signals, (7) Bytecode fingerprinting. Returns risk score (0-100), warnings, sniper/network/holder analysis, and safety status. Use before any swap to verify token safety.',
+        description: 'Comprehensive token security scanner with multi-layer detection. Checks: (1) GoPlus API data (honeypot, tax rates, ownership), (2) Local source code analysis (regex + AST scanning), (3) Sniper Analysis (early buyer detection within first 10 blocks), (4) Transfer Network Analysis (wash trading & circular transfer detection), (5) Holder Distribution Analysis (concentration metrics), (6) Offline runtime signals, (7) Bytecode fingerprinting. Returns risk score (0-100), warnings, sniper/network/holder analysis, and safety status. Use ONLY when the user explicitly asks for a token safety or risk check.',
         parameters: {
             type: 'object',
             properties: {

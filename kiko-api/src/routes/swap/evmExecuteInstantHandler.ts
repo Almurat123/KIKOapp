@@ -38,6 +38,12 @@ type SwapHistoryRecord = {
     tokenInUsd?: number | null;
 };
 
+type RuntimeUserSettings = {
+    swapMethod?: 'allowance_trade' | 'wallet_sign' | null;
+    fastSwapMode?: boolean | null;
+    mevProtection?: boolean | null;
+};
+
 type EvmExecuteInstantDeps = {
     getTokenPriceUSD: typeof getTokenPriceUSD;
     getZeroExTokenMetadata: typeof getZeroExTokenMetadata;
@@ -48,6 +54,7 @@ type EvmExecuteInstantDeps = {
     getKnownTokenDecimals: typeof getKnownTokenDecimals;
     callRpc: typeof callRpc;
     executeSwap: (params: Parameters<typeof MainSwapService.executeSwap>[0]) => Promise<MainSwapResult>;
+    getUserSettings: (userId: string) => Promise<RuntimeUserSettings | null>;
     createSwapHistory: (args: {
         userId: string;
         tokenIn: string;
@@ -84,6 +91,22 @@ const defaultDeps: EvmExecuteInstantDeps = {
     getKnownTokenDecimals,
     callRpc,
     executeSwap: (params) => MainSwapService.executeSwap(params),
+    getUserSettings: async (userId) => {
+        const settings = await prisma.userSettings.findUnique({
+            where: { userId },
+            select: {
+                swapMethod: true,
+                fastSwapMode: true,
+                mevProtection: true,
+            }
+        });
+        if (!settings) return null;
+        return {
+            swapMethod: settings.swapMethod === 'wallet_sign' ? 'wallet_sign' : 'allowance_trade',
+            fastSwapMode: settings.fastSwapMode === true,
+            mevProtection: settings.mevProtection !== false,
+        };
+    },
     createSwapHistory: async ({
         userId,
         tokenIn,
@@ -185,6 +208,13 @@ async function executeEvmInstantWithDeps(
         deps.getTokenPriceUSD(actualTokenOut, params.chainId),
     ]);
 
+    const persistedUserSettings = await deps.getUserSettings(params.userId);
+    const effectiveUserSettings = {
+        swapMethod: persistedUserSettings?.swapMethod || 'allowance_trade',
+        fastSwapMode: persistedUserSettings?.fastSwapMode === true,
+        mevProtection: persistedUserSettings?.mevProtection !== false,
+    };
+
     const swapResult = await deps.executeSwap({
         userId: params.userId,
         walletAddress: params.walletAddress,
@@ -196,10 +226,7 @@ async function executeEvmInstantWithDeps(
         slippageBps: params.slippageBps,
         mode: 'swap-card',
         messageId: params.transactionMessageId,
-        userSettings: {
-            swapMethod: 'wallet_sign',
-            mevProtection: false,
-        }
+        userSettings: effectiveUserSettings,
     });
 
     if (!swapResult.success) {

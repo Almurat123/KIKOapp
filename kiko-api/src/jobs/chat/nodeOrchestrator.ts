@@ -193,6 +193,7 @@ export async function runNodeOrchestration(params: {
                 ? ''
                 : roundResult.text,
             ...(String(params.snapshot.model || '').trim().toLowerCase() === 'deepseek-reasoner'
+                && roundResult.toolCalls.length === 0
                 ? { reasoning_content: roundResult.reasoning || '' }
                 : {}),
             ...(roundResult.toolCalls.length > 0 ? { tool_calls: roundResult.toolCalls.map(toAssistantToolCall) } : {}),
