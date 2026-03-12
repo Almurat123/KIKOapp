@@ -121,7 +121,7 @@ Use this internal JSON contract before responding. Do not output this JSON unles
 ```json
 {
   "case_id": "welcome_new_user",
-  "intent": "GENERAL_CHAT",
+  "intent": "TRADING",
   "user_query": "I am new here, how do I start?",
   "required_context_usage": [
     "[CONTEXT].isWalletConnected, chainName, currentPage",

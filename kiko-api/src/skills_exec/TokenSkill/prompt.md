@@ -62,7 +62,7 @@ Use this internal JSON contract before responding. Do not output this JSON unles
 ```json
 {
   "case_id": "token_dd_basic",
-  "intent": "MARKET_ANALYSIS",
+  "intent": "TRADING",
   "user_query": "Analyze this token: 0xabc...",
   "required_context_usage": [
     "[TOKEN_CONTEXT] for chain and identity",

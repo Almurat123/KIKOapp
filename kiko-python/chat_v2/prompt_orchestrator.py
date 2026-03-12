@@ -50,7 +50,7 @@ Trading policy:
 INTENT_POLICY_FALLBACK = """
 Intent policy:
 - Detect intent before tool usage.
-- Priority: PREDICTION_MARKETS > COPY_TRADING > TRADING > RISK_SCAN > MARKET_ANALYSIS > SOCIAL_SENSING > GENERAL_CHAT
+- Priority: PREDICTION_MARKETS > COPY_TRADING > TRADING > RISK_SCAN
 - If risk+trade conflict appears, ask one question: Trade now or safety check first?
 """.strip()
 

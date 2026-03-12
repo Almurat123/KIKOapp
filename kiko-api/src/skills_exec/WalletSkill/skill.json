@@ -3,8 +3,7 @@
     "name": "Wallet & Portfolio",
     "description": "User wallet information, token balances, transaction history, favorites, and PNL analysis (Zerion primary, Dune fallback).",
     "intents": [
-        "TRADING",
-        "GENERAL_CHAT"
+        "TRADING"
     ],
     "tools": [
         "get_wallet_info",

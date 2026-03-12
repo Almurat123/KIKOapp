@@ -53,7 +53,7 @@ Use this internal JSON contract before responding. Do not output this JSON unles
 ```json
 {
   "case_id": "zora_trending_mints",
-  "intent": "MARKET_ANALYSIS",
+  "intent": "TRADING",
   "user_query": "What is trending on Zora now?",
   "required_context_usage": [
     "[CONTEXT] for user chain focus",

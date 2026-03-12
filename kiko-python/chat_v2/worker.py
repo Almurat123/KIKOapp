@@ -817,7 +817,7 @@ class ChatWorker:
         model = "deepseek-chat"
         provider = None
         provider_request_id = None
-        selected_intent = "GENERAL_CHAT"
+        selected_intent = "TRADING"
         selected_routing_mode = "thinking"
         task_type = "text"
 
@@ -911,10 +911,7 @@ class ChatWorker:
             parsed_intent = parse_intent(str(last_user.get("content") or ""), tool_context)
             current_user_text = str(last_user.get("content") or "")
             recent_swap = self._find_recent_swap_from_messages(msgs) if self._is_confirmation_message(current_user_text) else None
-            if (
-                parsed_intent.high_level.get("type") == "GENERAL_CHAT"
-                and self._is_confirmation_message(current_user_text)
-            ):
+            if self._is_confirmation_message(current_user_text):
                 # Confirmation follow-up should inherit the most recent trading intent.
                 for prev in reversed(llm_messages[:-1]):
                     if prev.get("role") != "user":
@@ -930,27 +927,26 @@ class ChatWorker:
                             self._short(prev_intent.detailed, 500),
                         )
                         break
-                if parsed_intent.high_level.get("type") == "GENERAL_CHAT":
-                    for prev in reversed(llm_messages[:-1]):
-                        if prev.get("role") != "assistant":
-                            continue
-                        prev_text = str(prev.get("content") or "").lower()
-                        if "reply \"confirm\"" in prev_text or "reply \"execute\"" in prev_text:
-                            for prior_user in reversed(llm_messages[:-1]):
-                                if prior_user.get("role") != "user":
-                                    continue
-                                prior_text = str(prior_user.get("content") or "")
-                                prior_intent = parse_intent(prior_text, tool_context)
-                                if prior_intent.high_level.get("type") == "TRADING":
-                                    parsed_intent = prior_intent
-                                    self.logger.info(
-                                        "confirmation inherited by assistant cue task_id=%s text=%s inherited=%s",
-                                        task_id,
-                                        current_user_text,
-                                        self._short(prior_intent.detailed, 500),
-                                    )
-                                    break
-                            break
+                for prev in reversed(llm_messages[:-1]):
+                    if prev.get("role") != "assistant":
+                        continue
+                    prev_text = str(prev.get("content") or "").lower()
+                    if "reply \"confirm\"" in prev_text or "reply \"execute\"" in prev_text:
+                        for prior_user in reversed(llm_messages[:-1]):
+                            if prior_user.get("role") != "user":
+                                continue
+                            prior_text = str(prior_user.get("content") or "")
+                            prior_intent = parse_intent(prior_text, tool_context)
+                            if prior_intent.high_level.get("type") == "TRADING":
+                                parsed_intent = prior_intent
+                                self.logger.info(
+                                    "confirmation inherited by assistant cue task_id=%s text=%s inherited=%s",
+                                    task_id,
+                                    current_user_text,
+                                    self._short(prior_intent.detailed, 500),
+                                )
+                                break
+                        break
             if recent_swap:
                 parsed_intent.high_level["type"] = "TRADING"
                 parsed_intent.high_level["confidence"] = 1
@@ -971,7 +967,7 @@ class ChatWorker:
                     task_id,
                     self._short(recent_swap, 500),
                 )
-            intent = str(parsed_intent.high_level.get("type") or "GENERAL_CHAT")
+            intent = str(parsed_intent.high_level.get("type") or "TRADING")
             routing_mode = self._resolve_routing_mode(intent)
             self.logger.info(
                 "intent parsed task_id=%s intent=%s routing=%s confidence=%s detail=%s",
@@ -1312,7 +1308,7 @@ class ChatWorker:
                         "prepare_cross_chain_tx",
                     }
                 # Only allow web search for analysis/research intents.
-                if selected_intent in {"MARKET_ANALYSIS", "SOCIAL_SENSING", "PREDICTION_MARKETS", "RISK_SCAN"}:
+                if selected_intent in {"PREDICTION_MARKETS", "RISK_SCAN"}:
                     allowed_tool_names.add("external_web_search")
                 # If wallet snapshot already exists in context, don't waste a round on wallet tool.
                 if isinstance(tool_context.get("__wallet_info_cache"), dict):

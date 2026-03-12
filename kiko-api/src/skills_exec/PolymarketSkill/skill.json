@@ -3,8 +3,7 @@
     "name": "Polymarket Prediction",
     "description": "Polymarket prediction markets discovery, trading, and user copying.",
     "intents": [
-        "PREDICTION_MARKETS",
-        "MARKET_ANALYSIS"
+        "PREDICTION_MARKETS"
     ],
     "tools": [
         "get_polymarket_trending",

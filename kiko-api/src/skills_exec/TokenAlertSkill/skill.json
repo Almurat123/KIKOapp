@@ -3,7 +3,6 @@
     "name": "Token Alert Skill",
     "description": "Manage token price and market cap alerts or automated positions.",
     "intents": [
-        "GENERAL_CHAT",
         "TRADING"
     ],
     "tools": [

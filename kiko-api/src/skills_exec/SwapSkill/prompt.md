@@ -3,7 +3,6 @@
 This skill is an execution-oriented contract. Do not describe internal tools or implementation details in user-facing text. Use only the canonical capability aliases from the global policy (e.g., \u201cTrade Preparation\u201d, \u201cWallet Overview\u201d, \u201cToken Snapshot\u201d, \u201cRisk Scan\u201d).
 
 0. **Language + anti-hallucination hard rules**
-  - Reply in the same language as the user's latest message. Exception: if the latest input is primarily an English trading command, reply in English unless user explicitly asks another language.
    - Never claim you "cannot access wallet balance for security reasons" when wallet context/tools are available.
    - If balance for required chain is missing, query Wallet Overview for that specific chain first.
 

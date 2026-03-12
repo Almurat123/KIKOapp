@@ -25,6 +25,8 @@ export interface EvmExecuteInstantParams {
     chainId: number;
     slippageBps: number;
     transactionMessageId?: string;
+    executionSource?: 'chat' | 'wallet_page' | 'copytrade' | 'system';
+    routePolicy?: 'external_only' | 'legacy_allowed';
 }
 
 type TokenMetadata = {
@@ -216,6 +218,8 @@ async function executeEvmInstantWithDeps(
     };
 
     const executionMode = params.transactionMessageId ? 'allowance' : 'swap-card';
+    const executionSource = params.executionSource || (params.transactionMessageId ? 'chat' : 'wallet_page');
+    const routePolicy = params.routePolicy || (params.transactionMessageId ? 'external_only' : 'legacy_allowed');
 
     const swapResult = await deps.executeSwap({
         userId: params.userId,
@@ -227,6 +231,8 @@ async function executeEvmInstantWithDeps(
         chainId: params.chainId,
         slippageBps: params.slippageBps,
         mode: executionMode,
+        executionSource,
+        routePolicy,
         messageId: params.transactionMessageId,
         userSettings: effectiveUserSettings,
     });
@@ -241,7 +247,11 @@ async function executeEvmInstantWithDeps(
                 'INSUFFICIENT_NATIVE_BALANCE'
             );
         }
-        throw new AppError(500, rawError, 'SWAP_FAILED');
+        throw new AppError(
+            500,
+            swapResult.userMessage || rawError,
+            swapResult.reasonCode || 'SWAP_FAILED'
+        );
     }
 
     const txHash = swapResult.txHash!;

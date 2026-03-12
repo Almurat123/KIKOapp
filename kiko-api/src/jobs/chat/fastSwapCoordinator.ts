@@ -179,6 +179,8 @@ export async function maybeExecuteFastSwap(params: {
             chainId: prepared.chainId,
             slippageBps: 300,
             mode: 'fast-swap',
+            executionSource: 'chat',
+            routePolicy: 'external_only',
             messageId: txCardMessage.id,
             userSettings: {
                 swapMethod: 'allowance_trade',

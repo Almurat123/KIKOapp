@@ -2798,6 +2798,8 @@ Do NOT estimate or guess USD values.`;
                             chainId,
                             slippageBps: 300, // 3% for chat fast swaps
                             mode: 'fast-swap', // Indicates AI-driven instant swap with bypass logic
+                            executionSource: 'chat',
+                            routePolicy: 'external_only',
                             messageId: transactionMessage.id, // Pass messageId for retry updates
                             userSettings: {
                                 swapMethod: 'allowance_trade', // CRITICAL: Fast swap = allowance trade mode
@@ -3974,7 +3976,6 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
         if (!type) return 'Thinking';
 
         const intentMessages: Record<string, string> = {
-            'MARKET_ANALYSIS': 'Analyzing market',
             'TOKEN_ANALYSIS': 'Analyzing token',
             'TRADING': 'Checking status',
             'SWAP': 'Checking price',
@@ -4946,15 +4947,15 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
             const chainId = Number(task.toolContext?.chainId);
             const chainName = this.resolveChainNameForContext(chainId) || 'Unknown Chain';
             const wallet = task.toolContext?.walletAddress || task.toolContext?.userAddress || '';
-            parsedIntent.highLevel.type = 'GENERAL_CHAT';
+            parsedIntent.highLevel.type = 'TRADING';
             parsedIntent.highLevel.confidence = 1;
             parsedIntent.decision = {
-                primary: 'GENERAL_CHAT',
+                primary: 'TRADING',
                 confidence: 1,
-                labels: [{ label: 'GENERAL_CHAT', confidence: 1 }],
+                labels: [{ label: 'TRADING', confidence: 1 }],
                 evidence: [],
                 routing: { stage: 'rule', reason: 'chain_context_query' },
-                hardRule: { label: 'GENERAL_CHAT', reason: 'user_asks_current_chain' },
+                hardRule: { label: 'TRADING', reason: 'user_asks_current_chain' },
                 signals: { hasAction: false, hasAmount: false, hasAsset: false } as any,
                 slots: { action: false, amount: false, asset: false, target: false, complete: true } as any,
             };
@@ -5418,7 +5419,7 @@ Chain: ${chainName}${chainId ? ` (${chainId})` : ''}
         const isLikelyCaAnalysis = (() => {
             const lastUser = lastUserMessage?.content || '';
             return /0x[a-fA-F0-9]{40}|[1-9A-HJ-NP-Za-km-z]{32,44}/.test(lastUser)
-                && parsedIntent?.highLevel?.type === 'MARKET_ANALYSIS';
+                && parsedIntent?.highLevel?.type === 'RISK_SCAN';
         })();
         const requiresRealtimeSocialSearch = (() => {
             const lastUser = String(lastUserMessage?.content || '');

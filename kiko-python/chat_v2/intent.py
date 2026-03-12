@@ -110,10 +110,10 @@ def parse_intent(message: str, context: dict[str, Any] | None = None) -> IntentR
     has_trade = bool(re.search(r"\b(swap|trade|buy|sell|convert|exchange|下单|买|卖|兑换)\b", lower))
     has_confirmation = bool(re.fullmatch(r"(proceed|confirm|yes|go ahead|execute|do it|approve|submit|ok|okay|sure|确认|确定|执行|好的|继续)", lower))
 
-    primary = "GENERAL_CHAT"
+    primary = "TRADING"
     confidence = 0.55
     action = "general_query"
-    reason = "non_trade_request"
+    reason = "trade_only_fallback"
 
     if has_copy:
         primary = "COPY_TRADING"

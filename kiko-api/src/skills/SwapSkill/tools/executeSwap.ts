@@ -86,6 +86,16 @@ The result will be either:
             const API_BASE = process.env.API_BASE_URL ||
                 (process.env.PORT ? `http://127.0.0.1:${process.env.PORT}` : 'http://localhost:3001');
             const appKey = process.env.KIKO_WEB_APP_KEY || process.env.KIKO_MOBILE_APP_KEY || '';
+            const requestBody = {
+                tokenIn: args.token_in,
+                tokenOut: args.token_out,
+                amountIn: args.amount_in,
+                chainId: args.chain_id,
+                slippageBps: Math.round((args.slippage || 10) * 100),
+                executionSource: 'chat',
+                routePolicy: 'external_only',
+                transactionMessageId: context?.messageId || context?.toolContext?.messageId || undefined,
+            };
 
             console.log('[ExecuteSwap] Calling unified swap API...');
             SwapStateManager.updateState(taskId, 'QUOTE_PENDING');
@@ -99,21 +109,9 @@ The result will be either:
                     'Content-Type': 'application/json',
                     'Authorization': `Bearer ${context?.accessToken}`,
                     ...(appKey ? { 'X-App-Key': appKey } : {}),
-                    ...buildSignedHeaders('POST', '/api/swap/execute-instant', JSON.stringify({
-                        tokenIn: args.token_in,
-                        tokenOut: args.token_out,
-                        amountIn: args.amount_in,
-                        chainId: args.chain_id,
-                        slippageBps: Math.round((args.slippage || 10) * 100)
-                    }))
+                    ...buildSignedHeaders('POST', '/api/swap/execute-instant', JSON.stringify(requestBody))
                 },
-                body: JSON.stringify({
-                    tokenIn: args.token_in,
-                    tokenOut: args.token_out,
-                    amountIn: args.amount_in,
-                    chainId: args.chain_id,
-                    slippageBps: Math.round((args.slippage || 10) * 100)
-                })
+                body: JSON.stringify(requestBody)
             });
 
             if (!result.success) {

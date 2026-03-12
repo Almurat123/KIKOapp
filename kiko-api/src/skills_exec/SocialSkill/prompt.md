@@ -56,7 +56,7 @@ Use this internal JSON contract before responding. Do not output this JSON unles
 ```json
 {
   "case_id": "social_token_sentiment",
-  "intent": "SOCIAL_SENSING",
+  "intent": "TRADING",
   "user_query": "What is Farcaster saying about DEGEN?",
   "required_context_usage": [
     "[USER_QUERY] for token symbol and aliases",

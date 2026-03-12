@@ -3,7 +3,7 @@
     "name": "Token Analysis",
     "description": "Deep analysis of tokens including price, trends (from KiKo cached token DB, 24h aggregates), early buyers, and creators.",
     "intents": [
-        "MARKET_ANALYSIS"
+        "TRADING"
     ],
     "tools": [
         "get_token_info",

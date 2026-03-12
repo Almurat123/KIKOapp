@@ -27,7 +27,7 @@
 
 5. **Token Winner Discovery (Top Gainers / Smart Wallets)**:
    - If the user asks for a token's "top beneficiaries", "top gainers", or "smart wallets by profit", use token-level profitability capability first.
-   - Prefer returning ranked wallets by realized profit with `limit=50` unless user asked for another size.
+   - Prefer returning ranked wallets by realized profit with `limit=20` unless user asked for another size.
    - If a short time window has no rows, transparently fall back to all-time and state that fallback.
    - If chain is unsupported by the data provider, clearly state unsupported chain and ask user to switch to a supported chain.
    - For actionable screening, prefer this funnel:
@@ -73,7 +73,7 @@ Use this internal JSON contract before responding. Do not output this JSON unles
 ```json
 {
   "case_id": "wallet_portfolio_summary",
-  "intent": "GENERAL_CHAT",
+  "intent": "TRADING",
   "user_query": "Show my portfolio and last 30d PnL",
   "required_context_usage": [
     "[WALLET_STATE] for current balances by chain",

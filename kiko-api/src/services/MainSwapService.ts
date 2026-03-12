@@ -24,7 +24,7 @@ import { SwapExecutor, SwapParams, SwapResult } from './swap/SwapExecutor.js';
 import { detectLaunchpadToken } from './ai/launchpadDetector.js';
 
 import { zoraSniperService, ZoraSniperService } from './zoraSniperService.js';
-import { buyTokenAMAP } from './fourMemeService.js';
+import { buyTokenAMAP, sellToken as sellFourMemeToken } from './fourMemeService.js';
 import { SolanaLaunchpadSwapService } from './solanaLaunchpadSwapService.js';
 import { buildSolanaDirectRequest, executeSolanaDirectLaunchpad } from './solana/direct/router.js';
 import { getTokenInfo } from './tokenService.js';
@@ -77,6 +77,8 @@ import { buildDirectSwapHintFromContext } from './copytrade-v2/context/contextSt
  * Swap execution mode to determine behavior and fee structure
  */
 export type SwapMode = 'fast-swap' | 'swap-card' | 'allowance' | 'copytrade' | 'launchpad';
+export type ExecutionSource = 'chat' | 'wallet_page' | 'copytrade' | 'system';
+export type RoutePolicy = 'external_only' | 'legacy_allowed';
 
 export interface DirectSwapRouteHop {
   kind: 'v4' | 'v3' | 'v2' | 'aerodrome' | 'infinity';
@@ -137,6 +139,8 @@ export interface MainSwapRequest {
 
   // Execution Mode (determines fee structure and behavior)
   mode: SwapMode; // 'fast-swap' | 'swap-card' | 'allowance' | 'copytrade' | 'launchpad'
+  executionSource?: ExecutionSource;
+  routePolicy?: RoutePolicy;
 
   // Optional fee override (bps). Used for per-order copytrade fee tiering.
   feeBpsOverride?: number;
@@ -193,6 +197,9 @@ export interface MainSwapResult {
   txHash?: string;
   amountOut?: string;
   error?: string;
+  reasonCode?: string;
+  userMessage?: string;
+  routePolicy?: RoutePolicy;
   txLifecycle?: TxLifecycleResult;
   runtimeContext?: OrderRuntimeContext;
   metadata: {
@@ -204,6 +211,40 @@ export interface MainSwapResult {
     txLifecycleStatus?: TxLifecycleResult['status'];
     directFeeSettlement?: DirectSwapFeeSettlement;
   };
+}
+
+function inferSwapReasonCode(message?: string): string {
+  const normalized = String(message || '').toLowerCase();
+  if (!normalized) return 'swap_failed';
+  if (normalized.includes('route policy')) return 'fallback_blocked';
+  if (normalized.includes('no route') || normalized.includes('no liquidity') || normalized.includes('liquidity')) return 'quote_unavailable';
+  if (normalized.includes('unsupported')) return 'unsupported_token_or_chain';
+  if (normalized.includes('invalid evm token') || normalized.includes('invalid address')) return 'invalid_token';
+  if (normalized.includes('insufficient')) return 'insufficient_balance';
+  if (normalized.includes('slippage')) return 'slippage_exceeded';
+  return 'execution_rejected';
+}
+
+function buildUserFacingSwapError(message?: string, routePolicy?: RoutePolicy): string {
+  const reasonCode = inferSwapReasonCode(message);
+  switch (reasonCode) {
+    case 'fallback_blocked':
+      return 'The external aggregator could not execute this trade, and internal fallback is disabled for chat trades.';
+    case 'quote_unavailable':
+      return routePolicy === 'external_only'
+        ? 'No executable route is available from the external aggregator for this trade.'
+        : 'No executable route is available for this trade.';
+    case 'unsupported_token_or_chain':
+      return 'This token or chain is not supported for this trade path.';
+    case 'invalid_token':
+      return 'The token input could not be resolved into a valid tradable address.';
+    case 'insufficient_balance':
+      return 'Insufficient balance to complete this trade.';
+    case 'slippage_exceeded':
+      return 'The trade failed because price movement exceeded the allowed slippage.';
+    default:
+      return 'The trade could not be executed.';
+  }
 }
 
 /**
@@ -328,6 +369,8 @@ export class MainSwapService {
   static async executeSwap(request: MainSwapRequest, tradeContext?: TradeContext): Promise<MainSwapResult> {
     const traceId = `${Date.now()}_${Math.random().toString(36).substring(7)}`;
     const trace = (msg: string) => `${this.TRACE_PREFIX}[${traceId}] ${msg}`;
+    const routePolicy: RoutePolicy = request.routePolicy || 'legacy_allowed';
+    request.routePolicy = routePolicy;
 
     // ⚡ Get or create TradeContext for cached data access
     const ctx = tradeContext || TradeContext.create({
@@ -338,6 +381,8 @@ export class MainSwapService {
 
     logger.info(LogCode.EXE_TX_BROADCAST, trace('Starting unified swap execution'), {
       mode: request.mode,
+      executionSource: request.executionSource || 'system',
+      routePolicy,
       tokenIn: request.tokenIn.slice(0, 12),
       tokenOut: request.tokenOut.slice(0, 12),
       amount: request.amountIn,
@@ -394,7 +439,7 @@ export class MainSwapService {
 
       // 4. LAUNCHPAD DETECTION (EVM only)
       // DISABLED: ClankerService not ready - use standard DEX (0x/Kyber) for all tokens
-      if (isEvm && !request.launchpadProvider && !isCopytrade) {
+      if (isEvm && !request.launchpadProvider && !isCopytrade && routePolicy !== 'external_only') {
         try {
           // Check both tokenOut (for BUY) and tokenIn (for SELL)
           const launchpadDetection = await this.detectLaunchpad(request.tokenOut, request.chainId)
@@ -408,12 +453,29 @@ export class MainSwapService {
             launchpadDetection.provider !== 'flaunch' &&
             launchpadDetection.provider !== 'creatorbid'
           ) {
-            // Use launchpad routing for non-Clanker tokens only
-            logger.info(LogCode.SYS_INFO, trace(`Launchpad detected: ${launchpadDetection.provider}`), {
-              provider: launchpadDetection.provider,
-              chainId: launchpadDetection.chainId
-            });
-            request.launchpadProvider = launchpadDetection.provider as any;
+            const sellingFourMemeToken =
+              launchpadDetection.provider === 'fourmeme'
+              && !isCashLikeToken(request.tokenIn, request.chainId);
+
+            if (sellingFourMemeToken) {
+              logger.info(
+                LogCode.SYS_INFO,
+                trace(`FourMeme token detected on sell path - routing to standard DEX instead of launchpad executor`),
+                {
+                  provider: launchpadDetection.provider,
+                  chainId: launchpadDetection.chainId,
+                  tokenIn: request.tokenIn,
+                  tokenOut: request.tokenOut
+                }
+              );
+            } else {
+              // Use launchpad routing for eligible buy-side launchpad flows only.
+              logger.info(LogCode.SYS_INFO, trace(`Launchpad detected: ${launchpadDetection.provider}`), {
+                provider: launchpadDetection.provider,
+                chainId: launchpadDetection.chainId
+              });
+              request.launchpadProvider = launchpadDetection.provider as any;
+            }
           } else if (
             launchpadDetection?.provider === 'clanker' ||
             launchpadDetection?.provider === 'flap' ||
@@ -432,6 +494,14 @@ export class MainSwapService {
         }
       } else if (isEvm && isCopytrade) {
         logger.debug(LogCode.SYS_INFO, trace('Copytrade: skip launchpad detection on critical path'), {
+          chainId: request.chainId,
+          tokenIn: request.tokenIn,
+          tokenOut: request.tokenOut
+        });
+      } else if (isEvm && routePolicy === 'external_only') {
+        logger.info(LogCode.SYS_INFO, trace('Skipping launchpad detection due to external-only route policy'), {
+          executionSource: request.executionSource || 'system',
+          routePolicy,
           chainId: request.chainId,
           tokenIn: request.tokenIn,
           tokenOut: request.tokenOut
@@ -463,6 +533,9 @@ export class MainSwapService {
       return {
         success: false,
         error: error.message || 'Unknown error during swap execution',
+        reasonCode: inferSwapReasonCode(error.message),
+        userMessage: buildUserFacingSwapError(error.message, routePolicy),
+        routePolicy,
         runtimeContext: request.runtimeContext,
         metadata: {
           provider: 'unknown',
@@ -938,19 +1011,31 @@ export class MainSwapService {
 
         case 'fourmeme': {
           // BSC - Four.meme using TokenManager2
-          // ⚡ Use TradeContext-aware data fetching (auto-caches)
-          const tokenInfo = await getTokenData(request.tokenIn, request.chainId, ctx);
-          const decimals = tokenInfo?.decimals || 18;
-          const amountInWei = toWei(request.amountIn, decimals);
+          const isBuy = isNativeToken(request.tokenIn, request.chainId);
 
-          txHash = await buyTokenAMAP({
-            userId: request.userId,
-            walletAddress: request.walletAddress,
-            tokenAddress: request.tokenOut,
-            bnbAmount: request.amountIn,
-            slippageBps: request.slippageBps || 300,
-            feeContext
-          });
+          if (isBuy) {
+            txHash = await buyTokenAMAP({
+              userId: request.userId,
+              walletAddress: request.walletAddress,
+              tokenAddress: request.tokenOut,
+              bnbAmount: request.amountIn,
+              slippageBps: request.slippageBps || 300,
+              feeContext
+            });
+          } else {
+            // Four.meme sell path expects token amount in base units and outputs native BNB.
+            const tokenInfo = await getTokenData(request.tokenIn, request.chainId, ctx);
+            const decimals = tokenInfo?.decimals || 18;
+            const amountInWei = toWei(request.amountIn, decimals);
+
+            txHash = await sellFourMemeToken({
+              userId: request.userId,
+              walletAddress: request.walletAddress,
+              tokenAddress: request.tokenIn,
+              amount: amountInWei,
+              feeContext
+            });
+          }
           providerName = 'fourmeme';
           break;
         }
@@ -1072,6 +1157,7 @@ export class MainSwapService {
     trace: (msg: string) => string,
     ctx: TradeContext
   ): Promise<MainSwapResult> {
+    const routePolicy: RoutePolicy = request.routePolicy || 'legacy_allowed';
     const shouldEnableMevProtection = request.mode === 'copytrade'
       ? request.userSettings?.copyTradeExecutionMode !== 'turbo'
       : request.mode === 'fast-swap';
@@ -1308,11 +1394,13 @@ export class MainSwapService {
     const enforcedSlippageBps = request.mode === 'copytrade'
       ? (request.slippageBps ?? 1500)
       : (request.slippageBps ?? 1000);
-    const fastSwapEnabled = !copytradeSellUsesExternalPath
+    const fastSwapEnabled = routePolicy !== 'external_only'
+      && !copytradeSellUsesExternalPath
       && (request.userSettings?.fastSwapMode === true || turboBuyForceDirect);
     if (!fastSwapEnabled || !isDirectSwapSupported(request.chainId) || (!isBuyDirection && !allowDirectSell)) {
       const reasons: string[] = [];
-      if (!fastSwapEnabled) reasons.push('fastSwapMode=false');
+      if (routePolicy === 'external_only') reasons.push('route_policy_external_only');
+      if (!fastSwapEnabled && routePolicy !== 'external_only') reasons.push('fastSwapMode=false');
       if (!isDirectSwapSupported(request.chainId)) reasons.push('chain_not_supported');
       if (!isBuyDirection && !allowDirectSell) reasons.push('unsupported_direction');
       logger.debug(LogCode.SYS_INFO, trace('Direct swap not attempted'), {

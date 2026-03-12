@@ -4,11 +4,8 @@ import { v4 as uuidv4 } from 'uuid';
 export type HighLevelIntentType =
     | 'TRADING'
     | 'COPY_TRADING'
-    | 'MARKET_ANALYSIS'
     | 'PREDICTION_MARKETS'
-    | 'SOCIAL_SENSING'
-    | 'RISK_SCAN'
-    | 'GENERAL_CHAT';
+    | 'RISK_SCAN';
 
 export type DetailedIntentType =
     | 'swap'
@@ -189,17 +186,17 @@ export async function parseIntent(
     const symbols = extractOrderedSymbols(message);
 
     let highLevel: HighLevelIntent = {
-        type: 'GENERAL_CHAT',
+        type: 'TRADING',
         confidence: 0.55,
     };
     let action: DetailedIntentType = 'general_query';
     const decision: IntentDecision = {
-        primary: 'GENERAL_CHAT',
+        primary: 'TRADING',
         confidence: 0.55,
-        labels: [{ label: 'GENERAL_CHAT', confidence: 0.55 }],
+        labels: [{ label: 'TRADING', confidence: 0.55 }],
         routing: {
             stage: 'rule',
-            reason: 'non_trade_request',
+            reason: 'trade_only_fallback',
         },
     };
 

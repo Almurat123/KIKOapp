@@ -414,10 +414,7 @@ export async function aiRoutes(fastify: FastifyInstance) {
                         });
                         const systemPrompt = promptOrchestrator.getSystemPrompt('grok', intentType, { routingMode });
 
-                        let dailyMarketContext: string | null = null;
-                        if (intentType === 'MARKET_ANALYSIS') {
-                            dailyMarketContext = await buildDailyMarketContext({ chainName: request.body.chain_context?.chainName });
-                        }
+                        const dailyMarketContext: string | null = null;
 
                         const bodyAny = request.body as any;
                         const toolContext = bodyAny?.tool_context || {};
@@ -641,10 +638,7 @@ export async function aiRoutes(fastify: FastifyInstance) {
                 });
                 const systemPrompt = promptOrchestrator.getSystemPrompt('deepseek', intentType, { routingMode });
 
-                let dailyMarketContext: string | null = null;
-                if (intentType === 'MARKET_ANALYSIS') {
-                    dailyMarketContext = await buildDailyMarketContext({ chainName: request.body.chain_context?.chainName });
-                }
+                const dailyMarketContext: string | null = null;
 
                 const contextLines: string[] = [];
                 if (request.body.walletAddress) contextLines.push(`- Wallet: ${request.body.walletAddress}`);

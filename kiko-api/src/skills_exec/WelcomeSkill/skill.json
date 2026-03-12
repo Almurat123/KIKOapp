@@ -3,7 +3,7 @@
     "name": "Welcome & Onboarding",
     "description": "Welcome and onboarding responses with local setup awareness and doc links.",
     "intents": [
-        "GENERAL_CHAT"
+        "TRADING"
     ],
     "tools": [],
     "examples": {

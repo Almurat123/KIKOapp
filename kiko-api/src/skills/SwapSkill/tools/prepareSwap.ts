@@ -89,6 +89,11 @@ export const PrepareSwapTransactionTool: Tool<SwapArgs> = {
         name: 'prepare_swap_transaction',
         description: `Prepare and optionally execute a token swap transaction. Use this when the user explicitly wants to swap, trade, or buy/sell tokens. Set execute=true for instant trading.
 
+EXECUTION ROUTE POLICY:
+- Chat-triggered EVM swaps execute through the external aggregator path only.
+- If the external aggregator cannot quote or execute the trade, stop and explain the failure.
+- Do NOT assume the system will silently fall back to internal direct-swap or launchpad executors.
+
 CRITICAL ERROR HANDLING:
 - If this tool returns an "error" field, YOU MUST STOP IMMEDIATELY and respond to the user with the error message.
 - DO NOT retry or call other tools after receiving an error.

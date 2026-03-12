@@ -59,7 +59,7 @@ Use this internal JSON contract before responding. Do not output this JSON unles
 ```json
 {
   "case_id": "market_daily_overview",
-  "intent": "MARKET_ANALYSIS",
+  "intent": "TRADING",
   "user_query": "How is the crypto market today?",
   "required_context_usage": [
     "[CONTEXT] for current time and locale",

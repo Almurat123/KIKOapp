@@ -3,7 +3,7 @@
     "name": "Social (Farcaster)",
     "description": "Farcaster social data, trending casts, user profiles, and cast search.",
     "intents": [
-        "SOCIAL_SENSING"
+        "TRADING"
     ],
     "tools": [
         "get_trending_casts",

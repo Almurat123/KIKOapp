@@ -3,7 +3,7 @@
     "name": "Zora NFTs",
     "description": "Zora network NFT discovery, trending mints, and user profiles.",
     "intents": [
-        "MARKET_ANALYSIS"
+        "TRADING"
     ],
     "tools": [
         "get_zora_trending",
