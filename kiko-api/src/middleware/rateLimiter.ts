@@ -33,6 +33,10 @@ export async function rateLimiterMiddleware(
     if (
         request.url === '/health' ||
         request.url === '/api/health' ||
+        request.url === '/api/chat/ws' ||
+        request.url.startsWith('/api/chat/ws?') ||
+        request.url === '/v2/chat/ws' ||
+        request.url.startsWith('/v2/chat/ws?') ||
         request.url.startsWith('/api/webhook/') ||
         request.url.startsWith('/webhook/') ||
         request.url.startsWith('/assets/') ||
