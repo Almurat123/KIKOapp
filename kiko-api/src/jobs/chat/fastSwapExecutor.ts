@@ -145,6 +145,9 @@ function resolveActualChainName(tokenIn: string, tokenOut: string, chainId: numb
     const isEvmToken = tokenIn.startsWith('0x');
     const isSolanaToken = !isEvmToken && tokenIn.length >= 32 && tokenIn.length <= 44;
     if (isSolanaToken) return 'solana';
+    if (tokenOut === 'BNB') return 'bsc';
+    if (tokenOut === 'POL' || tokenOut === 'MATIC') return 'polygon';
+    if (tokenOut === 'SOL') return 'solana';
     if (!isEvmToken) return chainIdMap[chainId] || 'base';
 
     const userChainName = chainIdMap[chainId] || 'base';

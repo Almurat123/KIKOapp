@@ -486,10 +486,23 @@ export const RootLayout: React.FC = () => {
                     const status = event.data.status;
                     const taskId = event.data.taskId || event.data.task_id;
                     const currentTask = targetConv.activeTask;
+                    const hasStreamingAssistant = targetConv.messages.some(
+                        (message) => message.role === 'assistant' && message.status === 'streaming'
+                    );
+                    const latestAssistant = [...targetConv.messages].reverse().find((message) => message.role === 'assistant');
 
                     if (status === 'done' || status === 'completed') {
                         clearActiveTask(targetSessionId, updateConversation, 'task_status_done');
                     } else if (status === 'running' || status === 'pending') {
+                        if (!currentTask && !hasStreamingAssistant && latestAssistant?.status === 'complete') {
+                            console.log('[RootLayout] Ignoring stale running task_status after completion', {
+                                targetSessionId,
+                                taskId,
+                                status,
+                                latestAssistantId: latestAssistant.id,
+                            });
+                            return;
+                        }
                         updateConversation(targetSessionId, {
                             activeTask: {
                                 ...(currentTask || {}),

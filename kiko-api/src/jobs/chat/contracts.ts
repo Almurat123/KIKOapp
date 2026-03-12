@@ -41,7 +41,7 @@ export interface TradeConfirmationState {
 }
 
 export interface RuntimeDirective {
-    kind: 'chain_context' | 'swap_confirmation' | 'copy_trade_confirmation' | 'amount_semantics' | 'fast_swap_address_required' | 'fast_swap_safe_mode' | 'balance_auto_resolution_guard';
+    kind: 'chain_context' | 'swap_confirmation' | 'copy_trade_confirmation' | 'amount_semantics' | 'fast_swap_address_required' | 'fast_swap_safe_mode' | 'balance_auto_resolution_guard' | 'chain_switch_required';
     message: string;
     metadata?: Record<string, any>;
 }

@@ -43,7 +43,32 @@ export async function maybeExecuteFastSwap(params: {
     const toolConfig = params.task.toolContext?.toolConfig || {};
     if (toolConfig.fastSwapMode !== true) return { handled: false };
 
-    const parsedIntent = buildFastSwapIntent(params.snapshot);
+    const parsedIntent = await buildFastSwapIntent(params.snapshot);
+    const requestedChainId = Number(parsedIntent?.chainId || 0);
+    const currentChainId = Number(params.snapshot.runtime.chainId || 0);
+    if (requestedChainId && currentChainId && requestedChainId !== currentChainId && params.userId) {
+        chatWS.broadcastToUser(params.userId, {
+            type: 'client_action',
+            sessionId: params.task.sessionId,
+            data: {
+                message_id: params.task.assistantMessageId,
+                action: {
+                    type: 'switch_chain',
+                    payload: {
+                        chainId: requestedChainId,
+                        chainName: CHAIN_ID_MAP[requestedChainId] || `chain-${requestedChainId}`,
+                    },
+                },
+            },
+        });
+        logger.info(LogCode.AI_ORCHESTRATOR, 'Fast swap auto-switching chain before execution', {
+            taskId: params.task.id,
+            currentChainId,
+            requestedChainId,
+            tokenIn: parsedIntent?.swapIntent?.tokenIn,
+            tokenOut: parsedIntent?.swapIntent?.tokenOut,
+        });
+    }
     const fastSwapDecision = getFastSwapDecision({
         parsedIntent,
         lastUserMessage: params.snapshot.lastUserMessage,
@@ -103,7 +128,7 @@ export async function maybeExecuteFastSwap(params: {
             type: 'transaction-status-card',
             data: {
                 status: 'pending',
-                swapType: 'buy',
+                swapType: inferFastSwapType(prepared.tokenIn, prepared.tokenOut, prepared.chainId),
                 tokenIn: prepared.tokenIn,
                 tokenOut: prepared.tokenOut,
                 tokenInSymbol: await resolveTokenSymbol(prepared.tokenIn, prepared.chainId),
@@ -205,31 +230,38 @@ export async function maybeExecuteFastSwap(params: {
     return { handled: true };
 }
 
-function buildFastSwapIntent(snapshot: ChatContextSnapshot): any {
+async function buildFastSwapIntent(snapshot: ChatContextSnapshot): Promise<any> {
     const chainId = snapshot.runtime.chainId || 8453;
     const query = snapshot.lastUserMessage;
     const lower = query.toLowerCase();
-    const explicitSell = /\b(sell|dump)\b/i.test(query) || /卖/.test(query);
+    const destinationAsset = extractDestinationAsset(query, chainId);
     const explicitBuy = /\b(buy|get|swap|trade|ape)\b/i.test(query) || /买|换/.test(query);
     const amountMatch = query.match(/\b(all|\d+(?:\.\d+)?%?)\b/i);
     const symbolCandidates = snapshot.requestedTokenSymbols.filter((symbol) =>
         !['BUY', 'SELL', 'SWAP', 'TRADE', 'GET', 'ALL'].includes(symbol)
     );
     const contractAddress = snapshot.requestedTokenAddresses[0];
+    const detectedToken = contractAddress ? await findTokenOnAnyChain(contractAddress).catch(() => null) : null;
+    const destinationChainId = destinationAsset ? inferChainIdFromAsset(destinationAsset) : undefined;
+    const inferredChainId = detectedToken?.chainId || destinationChainId || chainId;
+    const nativeSymbol = nativeSymbolForChain(inferredChainId);
+    const explicitSell =
+        /\b(sell|dump)\b/i.test(query)
+        || /卖/.test(query)
+        || (!!contractAddress && !!destinationAsset && destinationAsset.toUpperCase() !== String(contractAddress).toUpperCase());
     const target = contractAddress || symbolCandidates.find((symbol) => !STABLE_SYMBOLS.has(symbol) && symbol !== nativeSymbolForChain(chainId))
         || symbolCandidates[0];
-    const nativeSymbol = nativeSymbolForChain(chainId);
     let tokenIn = nativeSymbol;
-    let tokenOut = target || '';
+    let tokenOut = destinationAsset || target || '';
     if (explicitSell && target) {
         tokenIn = target;
-        tokenOut = nativeSymbol;
+        tokenOut = destinationAsset || nativeSymbol;
     }
     if (!explicitSell && target && STABLE_SYMBOLS.has(String(target).toUpperCase())) {
         tokenOut = target;
         tokenIn = nativeSymbol;
     }
-    const explicitSource = extractSourceSymbol(query, symbolCandidates, tokenOut, chainId);
+    const explicitSource = extractSourceSymbol(query, symbolCandidates, tokenOut, inferredChainId);
     if (explicitSource) tokenIn = explicitSource;
     const parsedAmount = normalizeRequestedAmount(amountMatch?.[1], lower, explicitSell, tokenIn);
 
@@ -241,12 +273,31 @@ function buildFastSwapIntent(snapshot: ChatContextSnapshot): any {
             amount: parsedAmount,
         },
         contractAddress,
-        chainId,
+        chainId: inferredChainId,
     };
 }
 
 function nativeSymbolForChain(chainId: number): string {
     return NATIVE_SYMBOLS_BY_CHAIN[chainId] || 'ETH';
+}
+
+function inferChainIdFromAsset(asset: string): number | undefined {
+    const upper = String(asset || '').toUpperCase();
+    if (upper === 'BNB') return 56;
+    if (upper === 'POL' || upper === 'MATIC') return 137;
+    if (upper === 'SOL') return 900;
+    if (upper === 'ETH' || upper === 'WETH') return 8453;
+    return undefined;
+}
+
+function inferFastSwapType(tokenIn: string, tokenOut: string, chainId: number): 'buy' | 'sell' {
+    const native = nativeSymbolForChain(chainId).toUpperCase();
+    const tokenInUpper = String(tokenIn || '').toUpperCase();
+    const tokenOutUpper = String(tokenOut || '').toUpperCase();
+    const tokenInIsNative = tokenInUpper === native;
+    const tokenOutIsNative = tokenOutUpper === native;
+    if (!tokenInIsNative && tokenOutIsNative) return 'sell';
+    return 'buy';
 }
 
 function findSnapshotBalanceForToken(snapshot: ChatContextSnapshot, tokenIn: string, chainName: string, isNative: boolean): number | null {
@@ -406,6 +457,18 @@ function extractSourceSymbol(query: string, candidates: string[], tokenOut: stri
     }
     if (/\bwith\s+all\b/.test(lower) || /\buse\s+my\b/.test(lower)) return native;
     return null;
+}
+
+function extractDestinationAsset(query: string, chainId: number): string | null {
+    const native = nativeSymbolForChain(chainId);
+    const match = query.match(/\bto\s+([A-Za-z0-9._-]+)\b/i) || query.match(/(?:换成|兑成|到)\s*([A-Za-z0-9._-]+)/i);
+    if (!match?.[1]) return null;
+    const asset = String(match[1]).trim();
+    if (!asset) return null;
+    const upper = asset.toUpperCase();
+    if (upper === 'NATIVE') return native;
+    if (upper === 'MATIC') return 'POL';
+    return upper;
 }
 
 function normalizeRequestedAmount(

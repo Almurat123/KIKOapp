@@ -90,6 +90,7 @@ async def stream_generation(body: GenerationRequest):
             elif event_type == "done":
                 if provider_request_id:
                     yield encode_event("provider_state", {"previous_response_id": provider_request_id})
+                salvage_tool_call_arguments(tool_deltas)
                 for tool_call in tool_deltas.values():
                     tool_name = str(((tool_call.get("function") or {}).get("name")) or "").strip()
                     if not tool_name:
@@ -137,6 +138,37 @@ def merge_tool_call_deltas(acc: dict[str, dict[str, Any]], deltas: list[dict[str
                 current["function"]["arguments"] = args
             elif not existing.endswith(args):
                 current["function"]["arguments"] += args
+
+
+def salvage_tool_call_arguments(acc: dict[str, dict[str, Any]]):
+    named_calls: list[dict[str, Any]] = []
+    arg_only_calls: list[dict[str, Any]] = []
+
+    for call in acc.values():
+        function = call.get("function") or {}
+        name = str(function.get("name") or "").strip()
+        arguments = str(function.get("arguments") or "").strip()
+        if name:
+            named_calls.append(call)
+        elif arguments:
+            arg_only_calls.append(call)
+
+    if not named_calls or not arg_only_calls:
+        return
+
+    for named in named_calls:
+        fn = named.setdefault("function", {})
+        current_arguments = str(fn.get("arguments") or "").strip()
+        if current_arguments and current_arguments not in ("{}", "null"):
+            continue
+
+        for arg_only in list(arg_only_calls):
+            candidate = str((arg_only.get("function") or {}).get("arguments") or "").strip()
+            if not candidate or candidate in ("{}", "null"):
+                continue
+            fn["arguments"] = candidate
+            arg_only_calls.remove(arg_only)
+            break
 
 
 def encode_event(event_type: str, payload: dict[str, Any]) -> str:
