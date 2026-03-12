@@ -1,4 +1,5 @@
 [phases.setup]
+# Keep browser/runtime packages pinned here so Railway/Nixpacks does not fall back to deprecated defaults.
 aptPkgs = [
   "ca-certificates",
   "fonts-liberation",
