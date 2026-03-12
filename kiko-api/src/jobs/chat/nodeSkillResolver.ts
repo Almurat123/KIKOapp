@@ -34,6 +34,9 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
     const asksRealtimeSocial = containsAny(query, [
         'latest', 'today', 'current', 'timing', 'post', 'tweet', 'twitter', 'x.com', 'social', 'cz',
     ]) || containsAny(snapshot.lastUserMessage, ['最新', '今天', '现在', '发文', '推文', '社交', 'CZ']);
+    const asksWalletPnl = containsAny(query, [
+        'pnl', 'profit', 'profits', 'profitability', 'realized pnl', 'wallet pnl', 'wallet performance',
+    ]) || containsAny(snapshot.lastUserMessage, ['盈亏', '收益', '利润', '钱包收益', '钱包盈亏', '表现']);
     const explicitRiskRequest = isExplicitRiskRequest(query, snapshot.lastUserMessage);
 
     if (tradingIntent) {
@@ -111,6 +114,9 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
     if (!explicitRiskRequest) {
         allowedTools = allowedTools.filter((tool) => tool !== 'check_token_risk');
     }
+    if (!asksWalletPnl) {
+        allowedTools = allowedTools.filter((tool) => tool !== 'analyze_wallet_pnl_batch' && tool !== 'analyze_wallet_pnl');
+    }
 
     if (isGrok) {
         pushPreferred(blockedTools, 'external_web_search');
@@ -139,6 +145,9 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
     if (asksCreator && hasRequestedToken) {
         pushPreferred(preferredTools, 'analyze_creator');
         pushPreferred(preferredTools, 'get_token_info');
+    }
+    if (asksWalletPnl) {
+        pushPreferred(preferredTools, 'analyze_wallet_pnl_batch');
     }
     if (asksRealtimeSocial) {
         if (isGrok) {

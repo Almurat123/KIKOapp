@@ -25,6 +25,7 @@ import { shouldDeferStrongRpcMonitoring } from '../buy/preConfirmationRpcPolicy.
 import { buildOrderAuditFields } from '../../order-runtime/sinks/persistence.js';
 import type { OrderRuntimeContext } from '../../order-runtime/types.js';
 import { repairCopytradePositionAttribution } from '../jobs/copytradeAttributionRepairJob.js';
+import { evaluateAutoExitPriceGuard } from './autoExitPriceGuard.js';
 
 const EXIT_INFLIGHT_RETRY_GRACE_MS = getExitInflightRetryGraceMs();
 const MIN_POSITION_AGE_FOR_TPSL_MS = Math.max(0, Number(process.env.MIN_POSITION_AGE_FOR_TPSL_MS || '90000'));
@@ -877,6 +878,23 @@ export async function checkPositionsForExits(
                         token: position.tokenSymbol || 'Unknown',
                         ageMs: positionAgeMs,
                         pnlPct: Number.isFinite(profitLossPct) ? profitLossPct.toFixed(2) : 'NaN'
+                    });
+                    return;
+                }
+
+                const autoExitPriceGuard = evaluateAutoExitPriceGuard({
+                    entryPrice: position.entryPrice,
+                    currentPrice,
+                    profitLossPct,
+                });
+                if (!autoExitPriceGuard.allowed) {
+                    deps.clearTpslHit(position.id);
+                    logger.warn(LogCode.WTC_TX_SKIPPED, 'TP/SL guard: anomalous price feed blocked auto-exit', {
+                        positionId: position.id,
+                        token: position.tokenSymbol || 'Unknown',
+                        chainId: position.chainId,
+                        reasonCode: autoExitPriceGuard.reasonCode,
+                        ...autoExitPriceGuard.metrics,
                     });
                     return;
                 }

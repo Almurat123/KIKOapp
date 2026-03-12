@@ -1395,7 +1395,7 @@ export async function handleTargetSell(params: {
     await Promise.all(uniqueExecutableConfigs.map(async (config: any) => {
         const [positions, tokenInfo] = await Promise.all([
             prisma.position.findMany({
-                where: { userId: config.userId, chainId, tokenAddress: tokenToSell, status: { in: ['open', 'pending'] } },
+                where: { userId: config.userId, configId: config.id, chainId, tokenAddress: tokenToSell, status: { in: ['open', 'pending'] } },
             }),
             sharedTokenInfoPromise
         ]);
@@ -1449,10 +1449,33 @@ export async function handleTargetSell(params: {
                 statuses: ['armed', 'sell_armed']
             }).catch(() => [])
             : [];
+        const verifiedLedgerPositionIds = matchedPositions.length > 0
+            ? await prisma.copytradePositionLedger.findMany({
+                where: {
+                    positionIdLegacy: { in: matchedPositions.map((position: any) => position.id) },
+                    userId: config.userId,
+                    configId: config.id,
+                    chainId,
+                    tokenAddress: tokenToSell,
+                    targetWallet: normalizedWallet,
+                    closedAt: null,
+                    targetFullExitVerified: false,
+                },
+                select: {
+                    positionIdLegacy: true,
+                },
+            }).then((rows: Array<{ positionIdLegacy: string | null }>) =>
+                rows
+                    .map((row) => String(row.positionIdLegacy || '').trim())
+                    .filter(Boolean)
+            ).catch(() => [])
+            : [];
 
         const mirrorSellExecutionPolicy = evaluateMirrorSellExecutionPolicy({
             matchedPositions,
-            pendingAttributedLots
+            pendingAttributedLots,
+            expectedConfigId: config.id,
+            verifiedLedgerPositionIds,
         });
         if (!mirrorSellExecutionPolicy.allowed) {
             logger.info(LogCode.WTC_TX_SKIPPED, 'Mirror sell skipped: follower-side execution policy blocked immediate sell', {
@@ -1476,10 +1499,12 @@ export async function handleTargetSell(params: {
             ...mirrorSellExecutionPolicy.metrics
         });
 
-        const balanceUsdForStats = matchedPositions.reduce((sum: number, p: any) => sum + (p.entryUsdValue || 0), 0);
+        const eligiblePositions = mirrorSellExecutionPolicy.eligiblePositions;
+        const eligiblePendingAttributedLots = mirrorSellExecutionPolicy.eligiblePendingAttributedLots;
+        const balanceUsdForStats = eligiblePositions.reduce((sum: number, p: any) => sum + (p.entryUsdValue || 0), 0);
         recordNewTrade(targetWallet, chainId, 'sell', balanceUsdForStats);
 
-        const positionIds = matchedPositions.map((p: any) => p.id);
+        const positionIds = eligiblePositions.map((p: any) => p.id);
         if (positionIds.some((id: string) => positionsBeingExited.has(id))) {
             logger.throttled(LogCode.WTC_TX_SKIPPED, 'Mirror sell skipped: position already being processed', { userId: config.userId, token: tokenToSell });
             return;
@@ -1494,8 +1519,8 @@ export async function handleTargetSell(params: {
                 exitReason: 'mirror_sell',
                 tokenInfo,
                 config: { ...config, user: config.user },
-                positions: matchedPositions,
-                pendingAttributedLots
+                positions: eligiblePositions,
+                pendingAttributedLots: eligiblePendingAttributedLots
             });
         } finally {
             positionIds.forEach((id: string) => positionsBeingExited.delete(id));

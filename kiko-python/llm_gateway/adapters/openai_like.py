@@ -15,6 +15,7 @@ OPENAI_API_URL = os.getenv("OPENAI_API_URL", "https://api.openai.com/v1/chat/com
 DEEPSEEK_API_URL = os.getenv("DEEPSEEK_API_URL", "https://api.deepseek.com/v1/chat/completions")
 GROK_SERVICE_URL = os.getenv("GROK_SERVICE_URL", "http://localhost:8000/grok")
 XAI_API_URL = os.getenv("XAI_API_URL", "https://api.x.ai/v1/chat/completions")
+GROK_PREFER_SDK_GATEWAY = os.getenv("GROK_PREFER_SDK_GATEWAY", "true").lower() not in {"0", "false", "no"}
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
@@ -105,7 +106,12 @@ async def _stream_deepseek(req: GenerateRequest, provider: str):
 
 
 async def _stream_xai(req: GenerateRequest, provider: str):
-    if XAI_API_KEY:
+    if GROK_PREFER_SDK_GATEWAY:
+        url = GROK_SERVICE_URL.rstrip("/") + "/v1/chat/completions"
+        headers = {"Content-Type": "application/json"}
+        if INTERNAL_SERVICE_KEY:
+            headers["x-service-key"] = INTERNAL_SERVICE_KEY
+    elif XAI_API_KEY:
         url = XAI_API_URL
         headers = {"Authorization": f"Bearer {XAI_API_KEY}", "Content-Type": "application/json"}
     else:

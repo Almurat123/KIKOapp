@@ -47,8 +47,8 @@ export function buildProviderOptions(snapshot: ChatContextSnapshot, providerInfo
 
     const lower = String(query || '').toLowerCase();
     const requiresRealtimeSocialSearch =
-        ['trending', 'trend', 'latest', 'today', 'current', 'farcaster', 'twitter', 'x.com', 'social', 'sentiment', 'hot'].some((word) => lower.includes(word))
-        || ['趋势', '今天', '现在', '社交', '情绪'].some((word) => String(query || '').includes(word));
+        ['trending', 'trend', 'latest', 'today', 'current', 'farcaster', 'twitter', 'tweet', 'post', 'timeline', 'x.com', 'social', 'sentiment', 'hot'].some((word) => lower.includes(word))
+        || ['趋势', '今天', '现在', '最新', '发文', '推文', '帖子', '时间线', '时间点', '热门', '社交', '情绪'].some((word) => String(query || '').includes(word));
     const requestsOnchainEvidence =
         ((snapshot.requestedTokenAddresses || []).length > 0) &&
         (

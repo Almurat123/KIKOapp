@@ -546,10 +546,34 @@ export const RootLayout: React.FC = () => {
             // --- Citations ---
             else if (event.type === 'citations') {
                 const targetConv = conversationsRef.current.find(c => c.id === targetSessionId);
+                const mergeCitations = (existing: any[] = [], incoming: any[] = []) => {
+                    const merged = [...existing];
+                    const seen = new Set(
+                        merged.map((item) => {
+                            try {
+                                return typeof item?.url === 'string' ? item.url : JSON.stringify(item);
+                            } catch {
+                                return String(item);
+                            }
+                        }),
+                    );
+                    for (const item of incoming || []) {
+                        let key: string;
+                        try {
+                            key = typeof item?.url === 'string' ? item.url : JSON.stringify(item);
+                        } catch {
+                            key = String(item);
+                        }
+                        if (seen.has(key)) continue;
+                        seen.add(key);
+                        merged.push(item);
+                    }
+                    return merged;
+                };
                 if (targetConv) {
                     const msgId = event.data.message_id || event.data.messageId;
                     const updatedMessages = targetConv.messages.map(m =>
-                        m.id === msgId ? { ...m, citations: event.data.citations } : m
+                        m.id === msgId ? { ...m, citations: mergeCitations(m.citations || [], event.data.citations || []) } : m
                     );
                     updateConversation(targetSessionId, { messages: updatedMessages });
                 } else {
@@ -558,7 +582,7 @@ export const RootLayout: React.FC = () => {
                     const pMsg: Message = sessionPending.get(msgId) || {
                         id: msgId, role: 'assistant', content: '', reasoning_content: '', status: 'streaming', citations: [], usage: undefined
                     };
-                    pMsg.citations = event.data.citations;
+                    pMsg.citations = mergeCitations(pMsg.citations || [], event.data.citations || []);
                     sessionPending.set(msgId, pMsg);
                 }
             }

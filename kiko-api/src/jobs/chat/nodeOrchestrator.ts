@@ -41,6 +41,9 @@ export async function runNodeOrchestration(params: {
     const providerOptions = buildProviderOptions(params.snapshot, providerInfo, params.snapshot.lastUserMessage);
     const planning = buildTaskPlanningContext(params.snapshot, skillResolution);
     let plan = planning.plan;
+    const executedToolResults = new Map<string, { result: any; ok: boolean; error?: string; metadata?: Record<string, any> }>();
+    let duplicateOnlyRounds = 0;
+    const toolUsageCount = new Map<string, number>();
 
     await params.broker.bootstrapRuntime(plan);
 
@@ -181,7 +184,8 @@ export async function runNodeOrchestration(params: {
                     : 'Decided to answer directly'
         );
         await params.broker.ensurePlanStep(buildSummaryPlanStep(params.snapshot.lastUserMessage));
-        for (const call of roundResult.toolCalls) {
+        const normalizedToolCalls = roundResult.toolCalls.map((call) => normalizeToolCallForProvider(call, providerInfo.provider));
+        for (const call of normalizedToolCalls) {
             const plannedStep = resolvePlanStepForTool(call.name, planning, skillResolution, params.snapshot.lastUserMessage)
                 || (planning.asksOnChainEvidence && planning.requestedToken
                     ? buildChainEvidencePlanStep(skillResolution, params.snapshot.lastUserMessage)
@@ -197,12 +201,57 @@ export async function runNodeOrchestration(params: {
                 && roundResult.toolCalls.length === 0
                 ? { reasoning_content: roundResult.reasoning || '' }
                 : {}),
-            ...(roundResult.toolCalls.length > 0 ? { tool_calls: roundResult.toolCalls.map(toAssistantToolCall) } : {}),
+            ...(normalizedToolCalls.length > 0 ? { tool_calls: normalizedToolCalls.map(toAssistantToolCall) } : {}),
         });
 
-        for (const call of roundResult.toolCalls) {
+        let executedFreshTool = false;
+        for (const call of normalizedToolCalls) {
             if (params.shouldCancel && await params.shouldCancel()) {
                 throw new Error('Task cancelled');
+            }
+            if (isProviderManagedNativeTool(call.name, providerInfo.provider)) {
+                logger.info(LogCode.AI_ORCHESTRATOR, 'NodeOrchestrator: skipping provider-managed native tool call', {
+                    sessionId: params.snapshot.sessionId,
+                    taskId: params.snapshot.taskId,
+                    round,
+                    tool: call.name,
+                });
+                continue;
+            }
+            const usageCount = (toolUsageCount.get(call.name) || 0) + 1;
+            toolUsageCount.set(call.name, usageCount);
+            const toolBudget = resolveToolBudget(call.name);
+            if (usageCount > toolBudget) {
+                logger.warn(LogCode.AI_ORCHESTRATOR, 'NodeOrchestrator: tool budget exceeded', {
+                    sessionId: params.snapshot.sessionId,
+                    taskId: params.snapshot.taskId,
+                    round,
+                    tool: call.name,
+                    usageCount,
+                    toolBudget,
+                });
+                const budgetResult = {
+                    id: call.id,
+                    name: call.name,
+                    arguments: call.arguments || {},
+                    ok: false,
+                    error: buildToolBudgetMessage(call.name, planning.locale),
+                    result: {
+                        error: buildToolBudgetMessage(call.name, planning.locale),
+                        reasonCode: 'TOOL_BUDGET_EXCEEDED',
+                        tool: call.name,
+                        usageCount,
+                        toolBudget,
+                    },
+                    metadata: { source: 'tool_budget_guard' },
+                };
+                await params.broker.recordToolResult(budgetResult);
+                messages.push({
+                    role: 'tool',
+                    tool_call_id: call.id,
+                    content: JSON.stringify({ error: budgetResult.error, reasonCode: 'TOOL_BUDGET_EXCEEDED' }),
+                });
+                continue;
             }
             await params.onToolStatus?.(call.name);
             const plannedStep = resolvePlanStepForTool(call.name, planning, skillResolution, params.snapshot.lastUserMessage)
@@ -210,7 +259,39 @@ export async function runNodeOrchestration(params: {
                     ? buildChainEvidencePlanStep(skillResolution, params.snapshot.lastUserMessage)
                     : null);
             await params.broker.markPlanStepStarted(call, plannedStep || undefined);
-            const result = await params.toolExecutionEngine.execute(call, params.toolContext);
+            const toolKey = buildToolCallKey(call.name, call.arguments || {});
+            let result;
+            const cached = executedToolResults.get(toolKey);
+            if (cached) {
+                logger.warn(LogCode.AI_ORCHESTRATOR, 'NodeOrchestrator: duplicate tool call reused from cache', {
+                    sessionId: params.snapshot.sessionId,
+                    taskId: params.snapshot.taskId,
+                    round,
+                    tool: call.name,
+                    toolKey,
+                });
+                result = {
+                    id: call.id,
+                    name: call.name,
+                    arguments: call.arguments || {},
+                    ok: cached.ok,
+                    result: cached.result,
+                    error: cached.error,
+                    metadata: {
+                        ...(cached.metadata || {}),
+                        source: 'repeat_cache',
+                    },
+                };
+            } else {
+                executedFreshTool = true;
+                result = await params.toolExecutionEngine.execute(call, params.toolContext);
+                executedToolResults.set(toolKey, {
+                    ok: result.ok,
+                    result: result.result,
+                    error: result.error,
+                    metadata: result.metadata,
+                });
+            }
             await params.broker.recordToolResult(result);
             messages.push({
                 role: 'tool',
@@ -218,9 +299,112 @@ export async function runNodeOrchestration(params: {
                 content: JSON.stringify(result.ok ? (result.result ?? null) : { error: result.error || 'tool execution failed' }),
             });
         }
+        if (!executedFreshTool) {
+            duplicateOnlyRounds += 1;
+            logger.warn(LogCode.AI_ORCHESTRATOR, 'NodeOrchestrator: duplicate-only tool round detected', {
+                sessionId: params.snapshot.sessionId,
+                taskId: params.snapshot.taskId,
+                round,
+                duplicateOnlyRounds,
+                tools: normalizedToolCalls.map((call) => call.name),
+            });
+            if (duplicateOnlyRounds >= 2) {
+                throw new Error('Duplicate tool loop blocked');
+            }
+        } else {
+            duplicateOnlyRounds = 0;
+        }
     }
 
     throw new Error('Max orchestration rounds exceeded');
+}
+
+function buildToolCallKey(name: string, args: Record<string, any>): string {
+    return `${name}:${stableStringify(args || {})}`;
+}
+
+function normalizeToolCallForProvider(
+    call: { id: string; name: string; arguments: Record<string, any> },
+    provider: 'openai' | 'deepseek' | 'grok',
+) {
+    if (provider !== 'grok') return call;
+
+    if (call.name === 'x_keyword_search') {
+        return {
+            ...call,
+            name: 'x_search',
+            arguments: {
+                query: String(call.arguments?.query || '').trim(),
+                ...(call.arguments?.mode ? { mode: call.arguments.mode } : {}),
+            },
+        };
+    }
+
+    if (call.name === 'x_semantic_search') {
+        return {
+            ...call,
+            name: 'x_search',
+            arguments: {
+                query: String(call.arguments?.query || '').trim(),
+                ...(call.arguments?.mode ? { mode: call.arguments.mode } : {}),
+                ...(call.arguments?.limit ? { limit: call.arguments.limit } : {}),
+            },
+        };
+    }
+
+    if (call.name === 'x_thread_fetch') {
+        const postId = String(call.arguments?.post_id || call.arguments?.tweet_id || call.arguments?.id || '').trim();
+        return {
+            ...call,
+            name: 'x_search',
+            arguments: {
+                query: postId ? `https://x.com/i/status/${postId}` : '',
+            },
+        };
+    }
+
+    if (call.name === 'web_search_with_snippets') {
+        return {
+            ...call,
+            name: 'web_search',
+            arguments: {
+                query: String(call.arguments?.query || '').trim(),
+                ...(call.arguments?.num_results ? { num_results: call.arguments.num_results } : {}),
+                ...(call.arguments?.max_results ? { num_results: call.arguments.max_results } : {}),
+            },
+        };
+    }
+
+    return call;
+}
+
+function isProviderManagedNativeTool(toolName: string, provider: 'openai' | 'deepseek' | 'grok') {
+    if (provider !== 'grok') return false;
+    return ['web_search', 'web_search_with_snippets', 'x_search', 'x_keyword_search', 'x_semantic_search', 'x_thread_fetch', 'code_execution', 'collections_search', 'mcp'].includes(toolName);
+}
+
+function resolveToolBudget(toolName: string): number {
+    if (toolName === 'external_web_search') return 3;
+    if (toolName === 'search_farcaster_casts' || toolName === 'get_trending_casts') return 2;
+    if (toolName === 'get_token_info' || toolName === 'get_wallet_info') return 2;
+    return 4;
+}
+
+function buildToolBudgetMessage(toolName: string, locale: 'en' | 'zh'): string {
+    if (locale === 'zh') {
+        return `工具 ${toolName} 已达到本轮调用上限。请基于现有证据直接给出结论，不要继续重复搜索。`;
+    }
+    return `Tool budget reached for ${toolName}. Answer from the current evidence and do not continue repeating searches.`;
+}
+
+function stableStringify(value: any): string {
+    if (Array.isArray(value)) {
+        return `[${value.map((item) => stableStringify(item)).join(',')}]`;
+    }
+    if (value && typeof value === 'object') {
+        return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stableStringify(value[key])}`).join(',')}}`;
+    }
+    return JSON.stringify(value);
 }
 
 function buildGenerationTools(

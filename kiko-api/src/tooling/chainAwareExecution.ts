@@ -162,19 +162,36 @@ export async function prepareChainAwareToolExecution(
         }
     }
 
-    if (ADDRESS_TOKEN_TOOLS.has(toolName) && requestTokenAddress && !explicitChainInput) {
+    if (ADDRESS_TOKEN_TOOLS.has(toolName) && requestTokenAddress) {
         const detected = await findTokenOnAnyChain(requestTokenAddress).catch(() => null);
         if (detected?.chainId) {
             const detectedChain = canonicalizeChain(detected.chainName) || chainIdToSlug(detected.chainId);
             if (detectedChain) {
+                const attemptedChain = canonicalizeChain(nextArgs.chain) || chainIdToSlug(parseChainId(nextArgs.chain_id));
+                const attemptedChainId = parseChainId(nextArgs.chain_id) ?? (attemptedChain ? chainSlugToId(attemptedChain) : undefined);
+                const shouldOverride =
+                    !attemptedChain
+                    || attemptedChain !== detectedChain
+                    || attemptedChainId !== detected.chainId;
+                if (!shouldOverride) {
+                    return {
+                        args: nextArgs,
+                        meta: {
+                            explicitChainInput,
+                            requestTokenAddress,
+                            attemptedChain,
+                            attemptedChainId,
+                        },
+                    };
+                }
                 const detectedArgs = applyChain(nextArgs, detectedChain, detected.chainId);
                 return {
                     args: detectedArgs,
                     meta: {
                         explicitChainInput,
                         requestTokenAddress,
-                        attemptedChain: detectedChain,
-                        attemptedChainId: detected.chainId,
+                        attemptedChain,
+                        attemptedChainId,
                     },
                 };
             }
