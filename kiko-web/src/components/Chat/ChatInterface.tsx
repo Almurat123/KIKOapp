@@ -617,7 +617,6 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                             // (e.g., two client_actions in the same microtask) both read stale messagesRef
                             // and push duplicate cards.
                             messagesRef.current = updated;
-                            // card_displayed: activeTask cleared with messages
                             updateConversation(conversationId, {
                                 messages: updated,
                                 activeTask: null

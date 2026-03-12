@@ -46,6 +46,80 @@ export interface RuntimeDirective {
     metadata?: Record<string, any>;
 }
 
+export type PlanStepStatus = 'pending' | 'in_progress' | 'completed' | 'failed';
+
+export interface PlanStepExecution {
+    id: string;
+    toolName?: string;
+    status: PlanStepStatus;
+    summary: string;
+    detail?: any;
+    startedAt?: string;
+    completedAt?: string;
+}
+
+export interface PlanStep {
+    id: string;
+    title: string;
+    description?: string;
+    status: PlanStepStatus;
+    preferredTools?: string[];
+    startedAt?: string;
+    completedAt?: string;
+    feedback?: string;
+    executions?: PlanStepExecution[];
+}
+
+export type AgentRuntimeEventType =
+    | 'bootstrap'
+    | 'plan_created'
+    | 'step_added'
+    | 'analysis_started'
+    | 'analysis_completed'
+    | 'tool_selected'
+    | 'tool_started'
+    | 'tool_completed'
+    | 'tool_failed'
+    | 'answer_started'
+    | 'answer_completed'
+    | 'runtime_note'
+    | 'runtime_error';
+
+export interface AgentRuntimeEvent {
+    id: string;
+    type: AgentRuntimeEventType;
+    summary: string;
+    detail?: any;
+    stepId?: string;
+    toolName?: string;
+    status?: PlanStepStatus;
+    createdAt: string;
+}
+
+export interface AgentRuntimeSnapshot {
+    plan: PlanCard;
+}
+
+export interface AgentRuntimeEnvelope {
+    kind: 'agent_runtime';
+    scope: 'chat_task';
+    messageId: string;
+    planId: string;
+    snapshot: AgentRuntimeSnapshot;
+    event: AgentRuntimeEvent | null;
+}
+
+export interface PlanCard {
+    planId: string;
+    title: string;
+    summary: string;
+    locale?: 'en' | 'zh';
+    status: 'pending' | 'in_progress' | 'completed' | 'failed';
+    currentStepId?: string;
+    steps: PlanStep[];
+    activity?: AgentRuntimeEvent[];
+}
+
 export interface ChatContextSnapshot {
     sessionId: string;
     taskId: string;

@@ -9,6 +9,7 @@ class GenerationMessage(BaseModel):
     content: str | None = None
     tool_calls: list[dict[str, Any]] | None = None
     tool_call_id: str | None = None
+    reasoning_content: str | None = None
 
 
 class GenerationRequest(BaseModel):

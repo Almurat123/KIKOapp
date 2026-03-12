@@ -150,9 +150,16 @@ async def _stream_sse(provider: str, url: str, headers: dict[str, str], body: di
                 async with client.stream("POST", url, headers=headers, json=body) as resp:
                     if resp.status_code >= 400:
                         txt = await resp.aread()
+                        raw_text = txt.decode("utf-8", errors="ignore")[:2000]
+                        request_tail = body.get("messages", [])[-3:]
                         yield GatewayEvent(
                             event_type="error",
-                            provider=provider, payload={"message": f"HTTP {resp.status_code}", "raw": txt.decode("utf-8", errors="ignore")[:1000]},
+                            provider=provider,
+                            payload={
+                                "message": f"HTTP {resp.status_code}",
+                                "raw": raw_text,
+                                "request_tail": request_tail,
+                            },
                         )
                         return
 

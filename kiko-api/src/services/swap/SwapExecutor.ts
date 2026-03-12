@@ -776,7 +776,10 @@ export class SwapExecutor {
                             refPrice,
                             feeContext,
                             isSell: isSellForFee,
-                            executionMode: params.executionMode
+                            // Approval refresh must bypass turbo timing and stale quote reuse.
+                            executionMode: 'normal',
+                            preferPermit2: false,
+                            skipCache: true,
                         });
 
                         const quoteFound = !!(freshQuote && freshQuote.to && freshQuote.data);

@@ -69,15 +69,23 @@ async def stream_generation(body: GenerationRequest):
             elif event_type == "tool_call":
                 merge_tool_call_deltas(tool_deltas, payload.get("tool_calls") or [])
             elif event_type == "error":
+                raw_detail = payload.get("raw")
+                request_tail = payload.get("request_tail")
                 logger.error(
-                    "generation.gateway_error session_id=%s task_id=%s model=%s provider_request_id=%s message=%s",
+                    "generation.gateway_error session_id=%s task_id=%s model=%s provider_request_id=%s message=%s raw=%s request_tail=%s",
                     body.metadata.get("session_id"),
                     body.metadata.get("task_id"),
                     body.model,
                     provider_request_id,
                     payload.get("message", "LLM gateway error"),
+                    raw_detail,
+                    request_tail,
                 )
-                yield encode_event("error", {"message": payload.get("message", "LLM gateway error")})
+                yield encode_event("error", {
+                    "message": payload.get("message", "LLM gateway error"),
+                    "raw": raw_detail,
+                    "request_tail": request_tail,
+                })
                 return
             elif event_type == "done":
                 if provider_request_id:

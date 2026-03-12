@@ -14,6 +14,9 @@ import { maybeExecuteFastSwap } from './chat/fastSwapCoordinator.js';
 import cacheClient from '../cache/cacheClient.js';
 import { PythonGenerationClient } from './chat/pythonGenerationClient.js';
 import { runNodeOrchestration } from './chat/nodeOrchestrator.js';
+import { parseTradingIntent } from './chat/tradingIntentResolver.js';
+import { resolveNodeSkills } from './chat/nodeSkillResolver.js';
+import { buildTaskPlanningContext } from './chat/taskPlanner.js';
 
 type AITask = Awaited<ReturnType<typeof chatRepo.getTask>>;
 
@@ -128,6 +131,9 @@ export class ChatWorker {
                 requestedSymbols: snapshot.requestedTokenSymbols,
                 requestedAddresses: snapshot.requestedTokenAddresses.length,
             });
+            const tradingIntent = parseTradingIntent(snapshot.lastUserMessage, snapshot);
+            const skillResolution = resolveNodeSkills(snapshot, tradingIntent);
+            await broker.bootstrapRuntime(buildTaskPlanningContext(snapshot, skillResolution).plan);
 
             const directFollowup = await executeDirectTradeFollowup({
                 snapshot,

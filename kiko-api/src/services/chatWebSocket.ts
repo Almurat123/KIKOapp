@@ -7,7 +7,7 @@ import { LogCode } from '../config/logRegistry.js';
 import * as chatRepo from '../repositories/chatRepository.js';
 
 export interface ChatEvent {
-    type: 'chunk' | 'task_status' | 'message_complete' | 'message_start' | 'error' | 'usage' | 'citations' | 'content_block' | 'client_action' | 'transaction_update' | 'transaction_confirmed' | 'transaction_complete' | 'latency_metrics';
+    type: 'chunk' | 'task_status' | 'message_complete' | 'message_start' | 'error' | 'usage' | 'citations' | 'content_block' | 'client_action' | 'transaction_update' | 'transaction_confirmed' | 'transaction_complete' | 'latency_metrics' | 'agent_runtime';
     sessionId?: string; // Optional because some events are user-level
     requestId?: string;
     ts?: string;

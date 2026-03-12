@@ -34,6 +34,7 @@ import { buildOrderAuditFields } from '../../order-runtime/sinks/persistence.js'
 import type { OrderRuntimeContext } from '../../order-runtime/types.js';
 import { emitCopytradeDomainAudit } from '../audit/copytradeDomainAudit.js';
 import { recordFollowerTransactionFactByPosition } from '../data-flow/followerTransactionFactLedger.js';
+import { acquireDistributedTokenExitLock, releaseDistributedTokenExitLock, type DistributedTokenExitLock } from './tokenExitLock.js';
 
 const NO_OPEN_POSITIONS_LOG_WINDOW_MS = Number(process.env.NO_OPEN_POSITIONS_LOG_WINDOW_MS || '180000');
 const COPYTRADE_DISABLE_MIRROR_SELL_DUST_SWEEP = (process.env.COPYTRADE_DISABLE_MIRROR_SELL_DUST_SWEEP || 'true') === 'true';
@@ -44,8 +45,10 @@ const TPSL_TRACKER_PRUNE_MS = 10 * 60 * 1000;
 const EXIT_INFLIGHT_RETRY_GRACE_MS = getExitInflightRetryGraceMs();
 const MAX_EXIT_RETRIES = Math.max(1, Number(process.env.COPYTRADE_MAX_EXIT_RETRIES || '3'));
 const EXIT_RETRY_COOLDOWN_MS = Math.max(5_000, Number(process.env.COPYTRADE_EXIT_RETRY_COOLDOWN_MS || '12000'));
+const TOKEN_EXIT_LOCK_MAX_MS = Math.max(10_000, Number(process.env.COPYTRADE_TOKEN_EXIT_LOCK_MAX_MS || '45000'));
 
 const positionsBeingExited = new Set<string>();
+const tokenExitsBeingProcessed = new Map<string, { owner: string; startedAt: number }>();
 const tpslHitTracker = new Map<string, { side: 'tp' | 'sl'; hits: number; firstHitAt: number; lastHitAt: number; lastPnlPct: number }>();
 
 type PositionStatusCompat = {
@@ -174,6 +177,25 @@ function markPositionLocallyClosed(positionId: string): void {
   setTimeout(() => positionsBeingExited.delete(positionId), LOCAL_POSITION_CLOSE_GUARD_MS);
 }
 
+function buildTokenExitLockKey(chainId: number, tokenAddress: string): string {
+  return `${chainId}:${String(tokenAddress || '').toLowerCase()}`;
+}
+
+function tryAcquireTokenExitLock(lockKey: string, owner: string): boolean {
+  const existing = tokenExitsBeingProcessed.get(lockKey);
+  if (existing && Date.now() - existing.startedAt < TOKEN_EXIT_LOCK_MAX_MS) {
+    return false;
+  }
+  tokenExitsBeingProcessed.set(lockKey, { owner, startedAt: Date.now() });
+  return true;
+}
+
+function releaseTokenExitLock(lockKey: string, owner: string): void {
+  const existing = tokenExitsBeingProcessed.get(lockKey);
+  if (!existing || existing.owner !== owner) return;
+  tokenExitsBeingProcessed.delete(lockKey);
+}
+
 function pruneTpslTracker(): void {
   if (tpslHitTracker.size === 0) return;
   const now = Date.now();
@@ -220,6 +242,10 @@ export async function executePositionExit(params: {
     // Fetch universal global slippage from UserSettings
     const settings = params.userSettings || await prisma.userSettings.findUnique({ where: { userId } });
     const universalSlippageBps = getSlippageBps(settings);
+    const tokenExitLockKey = buildTokenExitLockKey(chainId, tokenAddress);
+    const tokenExitLockOwner = `${userId}:${exitReason}:${Date.now()}`;
+    let tokenExitLockAcquired = false;
+    let distributedTokenExitLock: DistributedTokenExitLock | null = null;
 
     try {
         exitPositions = params.positions && params.positions.length > 0
@@ -236,6 +262,45 @@ export async function executePositionExit(params: {
                 chainId,
                 reason: exitReason
             });
+            return null;
+        }
+
+        tokenExitLockAcquired = tryAcquireTokenExitLock(tokenExitLockKey, tokenExitLockOwner);
+        if (!tokenExitLockAcquired) {
+            logger.warn(LogCode.EXE_TX_BROADCAST, 'Deferring position exit due to active same-token exit lock', {
+                userId,
+                token: tokenAddress,
+                chainId,
+                reason: exitReason,
+                lockKey: tokenExitLockKey,
+            });
+            await persistDeferredExitRetryState({
+                positions: exitPositions as any,
+                targetWallet: config.targetWallet,
+                exitReason,
+                reasonCode: 'token_exit_lock_contended',
+            }).catch(() => undefined);
+            return null;
+        }
+        distributedTokenExitLock = await acquireDistributedTokenExitLock({
+            chainId,
+            tokenAddress,
+            owner: tokenExitLockOwner,
+        });
+        if (!distributedTokenExitLock) {
+            logger.warn(LogCode.EXE_TX_BROADCAST, 'Deferring position exit due to distributed same-token exit lock', {
+                userId,
+                token: tokenAddress,
+                chainId,
+                reason: exitReason,
+                lockKey: tokenExitLockKey,
+            });
+            await persistDeferredExitRetryState({
+                positions: exitPositions as any,
+                targetWallet: config.targetWallet,
+                exitReason,
+                reasonCode: 'token_exit_lock_contended_distributed',
+            }).catch(() => undefined);
             return null;
         }
         persistedExitPositions = exitPositions;
@@ -761,6 +826,11 @@ export async function executePositionExit(params: {
         }
 
         return null;
+    } finally {
+        await releaseDistributedTokenExitLock(distributedTokenExitLock);
+        if (tokenExitLockAcquired) {
+            releaseTokenExitLock(tokenExitLockKey, tokenExitLockOwner);
+        }
     }
 }
 

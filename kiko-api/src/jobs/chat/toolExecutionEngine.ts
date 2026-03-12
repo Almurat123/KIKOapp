@@ -16,6 +16,18 @@ export class ToolExecutionEngine {
         }
         try {
             const result = await toolRegistry.execute(call.name, call.arguments || {}, toolContext || {});
+            const normalizedFailure = this.extractFailure(result);
+            if (normalizedFailure) {
+                return {
+                    id: call.id,
+                    name: call.name,
+                    arguments: call.arguments || {},
+                    ok: false,
+                    error: normalizedFailure,
+                    result,
+                    metadata: { source: 'tool_runtime' },
+                };
+            }
             return {
                 id: call.id,
                 name: call.name,
@@ -33,6 +45,14 @@ export class ToolExecutionEngine {
                 error: error?.message || String(error),
             };
         }
+    }
+
+    private extractFailure(result: any): string | null {
+        if (!result || typeof result !== 'object' || Array.isArray(result)) {
+            return null;
+        }
+        const message = typeof result.error === 'string' ? result.error.trim() : '';
+        return message || null;
     }
 
     private tryResolveFromContext(call: OrchestratorToolCall, toolContext: Record<string, any>): any | undefined {

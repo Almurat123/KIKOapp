@@ -225,7 +225,8 @@ export const RootLayout: React.FC = () => {
                     reasoning_content: existingPending?.reasoning_content || '',
                     status: 'streaming',
                     citations: existingPending?.citations || [],
-                    usage: existingPending?.usage
+                    usage: existingPending?.usage,
+                    data: existingPending?.data,
                 });
 
                 // Update Conversation State
@@ -241,7 +242,8 @@ export const RootLayout: React.FC = () => {
                         status: 'streaming',
                         timestamp: new Date().toISOString(),
                         type: 'text',
-                        citations: []
+                        citations: [],
+                        data: existingPending?.data,
                     };
                     updateConversation(targetSessionId, {
                         messages: [...targetConv.messages, newMsg],
@@ -333,6 +335,7 @@ export const RootLayout: React.FC = () => {
                                 reasoning_content: (updatedMessages[idx].reasoning_content || '') + (pMsg.reasoning_content || ''),
                                 usage: pMsg.usage ?? updatedMessages[idx].usage,
                                 citations: pMsg.citations ?? updatedMessages[idx].citations,
+                                data: pMsg.data ?? updatedMessages[idx].data,
                                 status: 'streaming'
                             };
                         } else {
@@ -397,7 +400,8 @@ export const RootLayout: React.FC = () => {
                                 reasoning_content: (updatedMessages[idx].reasoning_content || '') + (pMsg.reasoning_content || ''),
                                 status: 'complete',
                                 usage: pMsg.usage ?? event.data.usage ?? updatedMessages[idx].usage,
-                                citations: pMsg.citations ?? updatedMessages[idx].citations
+                                citations: pMsg.citations ?? updatedMessages[idx].citations,
+                                data: pMsg.data ?? updatedMessages[idx].data,
                             };
                         } else {
                             updatedMessages.push({ ...pMsg, status: 'complete' });
@@ -544,6 +548,56 @@ export const RootLayout: React.FC = () => {
                     pMsg.citations = event.data.citations;
                     sessionPending.set(msgId, pMsg);
                 }
+            }
+            // --- Agent runtime ---
+            else if (event.type === 'agent_runtime') {
+                const targetConv = conversationsRef.current.find(c => c.id === targetSessionId);
+                const msgId = event.data.messageId || event.data.message_id;
+                const runtimeSnapshot = event.data.snapshot;
+                if (!msgId || !runtimeSnapshot?.plan) return;
+
+                if (!targetConv) {
+                    const pMsg: Message = sessionPending.get(msgId) || {
+                        id: msgId,
+                        role: 'assistant',
+                        content: '',
+                        reasoning_content: '',
+                        status: 'streaming',
+                        citations: [],
+                        usage: undefined,
+                    };
+                    pMsg.data = {
+                        ...(pMsg.data || {}),
+                        agentRuntime: runtimeSnapshot,
+                    };
+                    sessionPending.set(msgId, pMsg);
+                    return;
+                }
+
+                const existingIdx = targetConv.messages.findIndex((m) => m.id === msgId);
+                const nextMessage: Message = {
+                    id: msgId,
+                    role: 'assistant',
+                    content: '',
+                    reasoning_content: '',
+                    status: 'streaming',
+                    timestamp: new Date().toISOString(),
+                    type: 'text',
+                    data: { agentRuntime: runtimeSnapshot },
+                    citations: [],
+                };
+                const updatedMessages = existingIdx >= 0
+                    ? targetConv.messages.map((m, index) => index === existingIdx ? {
+                        ...m,
+                        type: m.type === 'plan-card' ? 'text' as const : m.type,
+                        data: {
+                            ...(m.data || {}),
+                            agentRuntime: runtimeSnapshot,
+                        },
+                    } : m)
+                    : [...targetConv.messages, nextMessage];
+
+                updateConversation(targetSessionId, { messages: updatedMessages });
             }
         };
 

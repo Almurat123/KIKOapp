@@ -9,7 +9,14 @@ export interface Message {
   timestamp?: string;
   clientCreatedAt?: string;
   date?: string;
-  type?: 'text' | 'swap-card' | 'token-card' | 'strategy-card' | 'chart-card' | 'transaction-status-card';
+  type?:
+    | 'text'
+    | 'swap-card'
+    | 'token-card'
+    | 'strategy-card'
+    | 'chart-card'
+    | 'transaction-status-card'
+    | 'plan-card';
   data?: any;
   citations?: Array<string | { url: string; avatar_url?: string }>;
   reasoning_content?: string;

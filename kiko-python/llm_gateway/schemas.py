@@ -8,6 +8,7 @@ class LLMMessage(BaseModel):
     name: str | None = None
     tool_call_id: str | None = None
     tool_calls: list[dict[str, Any]] | None = None
+    reasoning_content: str | None = None
 
 
 class GenerateRequest(BaseModel):

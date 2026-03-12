@@ -22,11 +22,16 @@ export const ExternalWebSearchTool: Tool = {
         }
     },
     handler: async (args) => {
+        const query = String(args?.query || '').trim();
+        if (!query) {
+            throw new Error('Search query cannot be empty');
+        }
+
         try {
-        const { results, citations } = await searchWeb(
-            args.query,
-            args.max_results || 5
-        );
+            const { results, citations } = await searchWeb(
+                query,
+                args.max_results || 5
+            );
 
             const formattedResults = formatSearchResults(results);
 

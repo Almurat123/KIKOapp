@@ -145,22 +145,30 @@ export async function searchWeb(
     query: string,
     maxResults: number = 5
 ): Promise<{ results: SearchResult[]; citations: string[] }> {
+    const normalizedQuery = String(query || '').trim();
+    if (!normalizedQuery) {
+        throw new Error('Search query cannot be empty');
+    }
+
     try {
         // Try Tavily first if API key is configured
         const tavilyKey = getTavilyApiKey();
         if (tavilyKey) {
             logger.debug(LogCode.SYS_INFO, 'Using Tavily API');
             try {
-                return await searchWithTavily(query, maxResults);
+                return await searchWithTavily(normalizedQuery, maxResults);
             } catch (tavilyError: any) {
-                logger.warn(LogCode.SYS_INFO, 'Tavily failed, falling back to DuckDuckGo', { error: tavilyError.message });
+                logger.warn(LogCode.SYS_INFO, 'Tavily failed, falling back to DuckDuckGo', {
+                    error: tavilyError.message,
+                    query: normalizedQuery,
+                });
                 // Fall through to DuckDuckGo
             }
         }
 
         // Use DuckDuckGo as fallback (or primary if no Tavily key)
         logger.debug(LogCode.SYS_INFO, 'Using DuckDuckGo fallback');
-        return await searchWithDuckDuckGo(query, maxResults);
+        return await searchWithDuckDuckGo(normalizedQuery, maxResults);
 
     } catch (error: any) {
         console.error('[searchService] All search engines failed:', error);

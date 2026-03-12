@@ -1,12 +1,13 @@
 import { CORE_UNIFIED, GROK_SEARCH_DELTA } from '../../services/ai/prompts/v2/CORE.js';
-import type { ChatContextSnapshot } from './contracts.js';
+import type { ChatContextSnapshot, PlanCard } from './contracts.js';
 import type { ProviderInfo } from './providerPolicyBuilder.js';
 
 export interface GenerationMessage {
     role: 'system' | 'user' | 'assistant' | 'tool';
-    content: string;
+    content: string | null;
     tool_calls?: any[];
     tool_call_id?: string;
+    reasoning_content?: string;
 }
 
 const SYSTEM_PROMPT_BASE = [
@@ -20,6 +21,12 @@ export function assembleGenerationMessages(
     snapshot: ChatContextSnapshot,
     skillPrompts: string[],
     providerInfo: ProviderInfo,
+    guidance?: {
+        preferredTools?: string[];
+        strategyNotes?: string[];
+        allowAllTools?: boolean;
+        executionPlan?: PlanCard | null;
+    },
 ): GenerationMessage[] {
     const runtime = snapshot.runtime || {};
     const contextBlocks = runtime.contextBlocks || {};
@@ -38,6 +45,9 @@ export function assembleGenerationMessages(
     if (providerInfo.provider === 'grok' && needsRealtimeSocialSearch(snapshot.lastUserMessage)) {
         systemParts.push('REALTIME SOCIAL SEARCH REQUIRED: Search first. If evidence is thin, say so plainly.');
     }
+    if (providerInfo.provider === 'grok') {
+        systemParts.push('When a request mixes social timing with token or on-chain analysis, use native search for the timing/news context and local chain tools for wallet, holder, buyer, transfer, and token evidence.');
+    }
 
     const contextTextParts = [
         toJsonBlock('USER_CONTEXT', userContext),
@@ -51,6 +61,8 @@ export function assembleGenerationMessages(
     const userContent = [
         toJsonBlock('USER_SETTINGS', userSettings),
         ...contextTextParts,
+        buildExecutionPlanBlock(guidance?.executionPlan),
+        buildToolGuidanceBlock(guidance),
         `[SKILLS]\n${skillPrompts.length > 0 ? skillPrompts.join('\n\n') : 'No extra skill prompts selected.'}`,
         `[USER_QUERY]\n${snapshot.lastUserMessage || ''}`,
     ].join('\n\n');
@@ -59,6 +71,56 @@ export function assembleGenerationMessages(
     messages.push(...buildHistoryMessages(snapshot));
     messages.push({ role: 'user', content: userContent });
     return messages;
+}
+
+function buildToolGuidanceBlock(guidance?: {
+    preferredTools?: string[];
+    strategyNotes?: string[];
+    allowAllTools?: boolean;
+    executionPlan?: PlanCard | null;
+}): string {
+    const lines: string[] = [];
+    const preferredTools = guidance?.preferredTools || [];
+    const strategyNotes = guidance?.strategyNotes || [];
+
+    if (strategyNotes.length > 0) {
+        lines.push('[TASK_STRATEGY]');
+        for (const note of strategyNotes) {
+            lines.push(`- ${note}`);
+        }
+    }
+
+    if (preferredTools.length > 0) {
+        if (lines.length > 0) lines.push('');
+        lines.push('[TOOL_PREFERENCES]');
+        lines.push(`- Preferred tools for this query: ${preferredTools.join(', ')}`);
+        lines.push('- These preferences are hints, not a hard lock. Use other available tools when they are more appropriate.');
+    }
+
+    if (guidance?.allowAllTools) {
+        if (lines.length > 0) lines.push('');
+        lines.push('[TOOL_POLICY]');
+        lines.push('- Registered tools are available by default for this turn.');
+        lines.push('- If the user asks for on-chain evidence such as early buyers, holders, first trades, or creator wallets, do not answer from summaries alone when a relevant local tool is available.');
+    }
+
+    return lines.join('\n');
+}
+
+function buildExecutionPlanBlock(plan: PlanCard | null | undefined): string {
+    if (!plan || !Array.isArray(plan.steps) || plan.steps.length === 0) return '';
+    const body = {
+        title: plan.title,
+        summary: plan.summary,
+        steps: plan.steps.map((step) => ({
+            id: step.id,
+            title: step.title,
+            description: step.description,
+            preferred_tools: step.preferredTools || [],
+            status: step.status,
+        })),
+    };
+    return toJsonBlock('EXECUTION_PLAN', body);
 }
 
 function toJsonBlock(label: string, value: unknown): string {
@@ -248,6 +310,15 @@ function buildHistoryMessages(snapshot: ChatContextSnapshot): GenerationMessage[
         if (item.role === 'assistant' && Array.isArray(item.toolCalls) && item.toolCalls.length > 0) {
             next.tool_calls = item.toolCalls;
         }
+        if (item.role === 'assistant') {
+            const reasoning = typeof item.reasoningContent === 'string' ? item.reasoningContent : '';
+            if (isDeepSeekReasonerModel(snapshot.model)) {
+                next.reasoning_content = reasoning;
+                if (next.tool_calls && !next.content) {
+                    next.content = null;
+                }
+            }
+        }
         if (item.role === 'tool' && item.toolCallId) {
             next.tool_call_id = item.toolCallId;
         }
@@ -287,24 +358,46 @@ function sanitizeOrphanedToolCalls(history: GenerationMessage[]): GenerationMess
     return sanitized;
 }
 
-function sanitizeProviderHistory(history: GenerationMessage[], model: string): GenerationMessage[] {
-    if (!String(model || '').toLowerCase().includes('grok')) return history;
-    return history.flatMap((msg) => {
-        let content = String(msg.content || '');
-        if (!content.trim()) {
-            if (msg.role === 'assistant' && msg.tool_calls) {
-                content = '(assistant tool call)';
-            } else if (msg.role === 'tool') {
-                content = '(tool result)';
-            } else if (msg.role === 'user') {
-                return [];
-            } else {
-                content = '(empty message)';
+export function sanitizeProviderHistory(history: GenerationMessage[], model: string): GenerationMessage[] {
+    if (String(model || '').toLowerCase().includes('grok')) {
+        return history.flatMap((msg) => {
+            let content = String(msg.content || '');
+            if (!content.trim()) {
+                if (msg.role === 'assistant' && msg.tool_calls) {
+                    content = '(assistant tool call)';
+                } else if (msg.role === 'tool') {
+                    content = '(tool result)';
+                } else if (msg.role === 'user') {
+                    return [];
+                } else {
+                    content = '(empty message)';
+                }
             }
-        }
-        return [{
-            ...msg,
-            content,
-        }];
+            return [{
+                ...msg,
+                content,
+            }];
+        });
+    }
+
+    if (isDeepSeekReasonerModel(model)) {
+        return history.map((msg) => {
+            if (msg.role !== 'assistant') return msg;
+            return {
+                ...msg,
+                reasoning_content: typeof msg.reasoning_content === 'string' ? msg.reasoning_content : '',
+                content: msg.tool_calls && !msg.content ? null : msg.content,
+            };
+        });
+    }
+
+    return history.map((msg) => {
+        if (msg.role !== 'assistant') return msg;
+        const { reasoning_content, ...rest } = msg;
+        return rest;
     });
+}
+
+function isDeepSeekReasonerModel(model: string): boolean {
+    return String(model || '').trim().toLowerCase() === 'deepseek-reasoner';
 }

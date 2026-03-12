@@ -1,8 +1,20 @@
+import { randomUUID } from 'node:crypto';
 import * as chatRepo from '../../repositories/chatRepository.js';
 import { chatWS } from '../../services/chatWebSocket.js';
 import { LogCode } from '../../config/logRegistry.js';
 import { logger } from '../../utils/logger.js';
-import type { OrchestratorToolResult, OrchestratorUsage } from './contracts.js';
+import type {
+    AgentRuntimeEnvelope,
+    AgentRuntimeEvent,
+    AgentRuntimeEventType,
+    OrchestratorToolCall,
+    OrchestratorToolResult,
+    OrchestratorUsage,
+    PlanCard,
+    PlanStep,
+    PlanStepExecution,
+    PlanStepStatus,
+} from './contracts.js';
 
 export class ChatStreamBroker {
     private content = '';
@@ -12,6 +24,8 @@ export class ChatStreamBroker {
     private usage: OrchestratorUsage | null = null;
     private toolResults: OrchestratorToolResult[] = [];
     private lastPersistMs = 0;
+    private planCard: PlanCard | null = null;
+    private assistantData: Record<string, any> = {};
 
     constructor(
         private readonly params: {
@@ -51,6 +65,17 @@ export class ChatStreamBroker {
     async pushReasoning(text: string) {
         if (!text) return;
         this.reasoning += text;
+        if (this.params.userId) {
+            chatWS.broadcastToUser(this.params.userId, {
+                type: 'chunk',
+                sessionId: this.params.sessionId,
+                data: {
+                    messageId: this.params.assistantMessageId,
+                    type: 'reasoning',
+                    reasoning_content: text,
+                },
+            });
+        }
         await this.persistStreaming();
     }
 
@@ -76,9 +101,184 @@ export class ChatStreamBroker {
         this.citations.push(citation);
     }
 
+    async bootstrapRuntime(plan: PlanCard) {
+        if (this.planCard) return;
+        this.planCard = this.clonePlan(plan);
+        this.planCard.activity = [
+            this.makeRuntimeEvent('bootstrap', this.localeText('Plan created', '已创建任务流程'), {
+                detail: {
+                    title: plan.title,
+                    stepCount: plan.steps.length,
+                },
+            }),
+        ];
+        await this.persistRuntimeState('streaming');
+    }
+
+    async applyModelPlan(plan: PlanCard): Promise<PlanCard> {
+        if (this.planCard?.activity?.some((event) => [
+            'tool_started',
+            'tool_completed',
+            'tool_failed',
+            'answer_started',
+            'answer_completed',
+            'runtime_error',
+        ].includes(event.type))) {
+            return this.clonePlan(this.planCard);
+        }
+        if (!this.planCard) {
+            this.planCard = this.clonePlan(plan);
+        } else {
+            this.planCard = this.mergePlanCard(this.planCard, plan);
+        }
+        this.planCard.activity = this.appendRuntimeEvent(
+            this.planCard.activity,
+            this.makeRuntimeEvent('plan_created', this.localeText('Plan updated from model', '已用模型计划更新任务卡'))
+        );
+        await this.persistRuntimeState('streaming');
+        return this.clonePlan(this.planCard);
+    }
+
+    async markPlanPhase(message: string) {
+        if (!this.planCard) return;
+        const next = this.clonePlan(this.planCard);
+        const step = next.steps.find((item) => item.status === 'in_progress')
+            || next.steps.find((item) => item.status === 'pending')
+            || next.steps[next.steps.length - 1];
+        if (!step) return;
+        next.currentStepId = step.id;
+        next.status = next.steps.some((item) => item.status === 'in_progress') ? 'in_progress' : next.status;
+        next.activity = this.appendRuntimeEvent(
+            next.activity,
+            this.makeRuntimeEvent(
+                this.isCompletionLike(message) ? 'analysis_completed' : 'analysis_started',
+                message,
+                { stepId: step.id },
+            ),
+        );
+        await this.persistPlanCard(next);
+    }
+
+    async ensurePlanStep(step: PlanStep) {
+        if (!this.planCard) return;
+        const next = this.clonePlan(this.planCard);
+        if (next.steps.some((item) => item.id === step.id)) return;
+        next.steps = [...next.steps, { ...step, executions: step.executions || [] }];
+        next.activity = this.appendRuntimeEvent(
+            next.activity,
+            this.makeRuntimeEvent('step_added', this.localeText(`Added step: ${step.title}`, `已添加步骤：${step.title}`), {
+                stepId: step.id,
+                status: step.status,
+            }),
+        );
+        await this.persistPlanCard(next);
+    }
+
+    async focusPlanStep(stepId: string, feedback?: string) {
+        if (!this.planCard) return;
+        const next = this.clonePlan(this.planCard);
+        const step = next.steps.find((item) => item.id === stepId);
+        if (!step) return;
+        if (step.status === 'pending') {
+            step.status = 'in_progress';
+            step.startedAt ||= new Date().toISOString();
+        }
+        void feedback;
+        next.currentStepId = step.id;
+        next.status = 'in_progress';
+        await this.persistPlanCard(next);
+    }
+
+    async noteToolSelected(call: OrchestratorToolCall, step?: PlanStep) {
+        if (step) {
+            await this.ensurePlanStep(step);
+        }
+        if (!this.planCard) return;
+        const next = this.clonePlan(this.planCard);
+        const targetStep = step
+            ? next.steps.find((item) => item.id === step.id)
+            : this.resolveStepForTool(next, call.name);
+        next.activity = this.appendRuntimeEvent(
+            next.activity,
+            this.makeRuntimeEvent('tool_selected', this.localeText(
+                `Selected action: ${describeToolAction(call.name, this.getLocale())}`,
+                `已选择动作：${describeToolAction(call.name, this.getLocale())}`
+            ), {
+                stepId: targetStep?.id,
+                toolName: call.name,
+                detail: { arguments: call.arguments },
+            }),
+        );
+        await this.persistPlanCard(next);
+    }
+
+    async markPlanStepStarted(call: OrchestratorToolCall, step?: PlanStep) {
+        if (!this.planCard) return;
+        const next = this.clonePlan(this.planCard);
+        const targetStep = step
+            ? next.steps.find((item) => item.id === step.id)
+            : this.resolveStepForTool(next, call.name);
+        if (!targetStep && step) {
+            next.steps = [...next.steps, { ...step, executions: step.executions || [] }];
+        }
+        const resolvedStep = targetStep
+            || (step ? next.steps.find((item) => item.id === step.id) : undefined)
+            || this.resolveStepForTool(next, call.name);
+        if (!resolvedStep) return;
+        const now = new Date().toISOString();
+        const execution: PlanStepExecution = {
+            id: call.id || randomUUID(),
+            toolName: call.name,
+            status: 'in_progress',
+            summary: this.localeText(
+                `Running: ${describeToolAction(call.name, this.getLocale())}`,
+                `正在执行：${describeToolAction(call.name, this.getLocale())}`
+            ),
+            startedAt: now,
+        };
+        resolvedStep.status = 'in_progress';
+        resolvedStep.startedAt ||= now;
+        resolvedStep.executions = [...(resolvedStep.executions || []), execution];
+        next.status = 'in_progress';
+        next.currentStepId = resolvedStep.id;
+        next.activity = this.appendRuntimeEvent(next.activity, this.makeRuntimeEvent('tool_started', execution.summary, {
+            stepId: resolvedStep.id,
+            toolName: call.name,
+            detail: {
+                arguments: call.arguments,
+            },
+            status: 'in_progress',
+        }));
+        await this.persistPlanCard(next);
+    }
+
+    async markAnswerStarted(step?: PlanStep) {
+        if (step) {
+            await this.ensurePlanStep(step);
+        }
+        if (!this.planCard) return;
+        const next = this.clonePlan(this.planCard);
+        const targetStep = step
+            ? next.steps.find((item) => item.id === step.id)
+            : next.steps.find((item) => item.id === 'step-summary');
+        if (targetStep) {
+            targetStep.status = 'in_progress';
+            targetStep.startedAt ||= new Date().toISOString();
+            next.currentStepId = targetStep.id;
+        }
+        next.status = 'in_progress';
+        next.activity = this.appendRuntimeEvent(next.activity, this.makeRuntimeEvent('answer_started', this.localeText('Writing the answer', '正在生成回答'), {
+            stepId: targetStep?.id,
+            status: 'in_progress',
+        }));
+        await this.persistPlanCard(next);
+    }
+
     async recordToolResult(result: OrchestratorToolResult) {
         this.toolResults.push(result);
         try {
+            await this.markPlanStepFinished(result);
+
             const toolCitations = this.extractToolCitations(result.result);
             if (toolCitations.length > 0) {
                 this.pushCitation(toolCitations);
@@ -93,8 +293,8 @@ export class ChatStreamBroker {
                     });
                 }
             }
-            const message = await chatRepo.getMessage(this.params.assistantMessageId);
-            const existingTrace = message?.data?.toolTrace || {};
+
+            const existingTrace = this.assistantData.toolTrace || {};
             const existingCalls = Array.isArray(existingTrace.toolCalls) ? existingTrace.toolCalls : [];
             const normalizedResult = result.ok ? (result.result ?? null) : { error: result.error || 'tool execution failed' };
             const toolTrace = {
@@ -114,10 +314,11 @@ export class ChatStreamBroker {
                 ],
             };
             const data = {
-                ...(message?.data || {}),
+                ...this.assistantData,
                 toolTrace,
-                orchestrationToolResults: [...((message?.data?.orchestrationToolResults) || []), result],
+                orchestrationToolResults: [...(this.assistantData.orchestrationToolResults || []), result],
             };
+            this.assistantData = data;
             await chatRepo.updateMessage(this.params.assistantMessageId, { data, status: 'streaming' });
             await this.persistToolSideEffects(result);
         } catch (error: any) {
@@ -144,6 +345,7 @@ export class ChatStreamBroker {
         if (typeof overrides?.content === 'string') {
             this.content = overrides.content;
         }
+        await this.completePlanCard();
         await chatRepo.updateMessage(this.params.assistantMessageId, {
             content: this.content,
             reasoning_content: this.reasoning,
@@ -161,6 +363,7 @@ export class ChatStreamBroker {
     }
 
     async fail(message: string) {
+        await this.markPlanFailed(message);
         try {
             await chatRepo.updateMessage(this.params.assistantMessageId, {
                 content: this.content || message,
@@ -196,6 +399,7 @@ export class ChatStreamBroker {
         await chatRepo.updateMessage(this.params.assistantMessageId, {
             content: this.content,
             reasoning_content: this.reasoning,
+            data: this.assistantData,
             status: 'streaming',
         });
     }
@@ -230,9 +434,13 @@ export class ChatStreamBroker {
             && rawResult?.messageId
             && rawResult.messageId !== this.params.assistantMessageId;
         if (!hasDedicatedTxMessage) {
+            this.assistantData = {
+                ...this.assistantData,
+                ...(actionData || {}),
+            };
             await chatRepo.updateMessage(this.params.assistantMessageId, {
                 type: dbMessageType,
-                data: actionData,
+                data: this.assistantData,
                 transactionStatus: dbMessageType === 'transaction-status-card' ? actionData?.status : undefined,
                 transactionHash: dbMessageType === 'transaction-status-card' ? actionData?.txHash : undefined,
             });
@@ -281,6 +489,192 @@ export class ChatStreamBroker {
         return null;
     }
 
+    private async markPlanStepFinished(result: OrchestratorToolResult) {
+        if (!this.planCard) return;
+        const next = this.clonePlan(this.planCard);
+        const step = this.resolveStepForResult(next, result);
+        if (!step) return;
+
+        const now = new Date().toISOString();
+        const executions = [...(step.executions || [])];
+        const matchingIndex = executions.findIndex((item) => item.id === result.id);
+        const inProgressIndex = matchingIndex >= 0
+            ? matchingIndex
+            : findLastIndex(executions, (item) => item.toolName === result.name && item.status === 'in_progress');
+
+        const execution: PlanStepExecution = inProgressIndex >= 0
+            ? {
+                ...executions[inProgressIndex],
+                status: result.ok ? 'completed' : 'failed',
+                summary: result.ok
+                    ? this.localeText(
+                        `Completed: ${describeToolAction(result.name, this.getLocale())}`,
+                        `已完成：${describeToolAction(result.name, this.getLocale())}`
+                    )
+                    : this.localeText(
+                        `Failed: ${describeToolAction(result.name, this.getLocale())}`,
+                        `执行失败：${describeToolAction(result.name, this.getLocale())}`
+                    ),
+                detail: buildExecutionDetail(result),
+                completedAt: now,
+            }
+            : {
+                id: result.id || randomUUID(),
+                toolName: result.name,
+                status: result.ok ? 'completed' : 'failed',
+                summary: result.ok
+                    ? this.localeText(
+                        `Completed: ${describeToolAction(result.name, this.getLocale())}`,
+                        `已完成：${describeToolAction(result.name, this.getLocale())}`
+                    )
+                    : this.localeText(
+                        `Failed: ${describeToolAction(result.name, this.getLocale())}`,
+                        `执行失败：${describeToolAction(result.name, this.getLocale())}`
+                    ),
+                detail: buildExecutionDetail(result),
+                startedAt: now,
+                completedAt: now,
+            };
+
+        if (inProgressIndex >= 0) {
+            executions[inProgressIndex] = execution;
+        } else {
+            executions.push(execution);
+        }
+
+        step.executions = executions;
+        step.status = result.ok ? 'completed' : 'failed';
+        step.completedAt = now;
+        step.feedback = execution.summary;
+
+        next.currentStepId = next.steps.find((item) => item.status === 'pending')?.id;
+        next.status = next.steps.every((item) => item.status === 'completed')
+            ? 'completed'
+            : next.steps.some((item) => item.status === 'failed')
+                ? 'failed'
+                : 'in_progress';
+        next.activity = this.appendRuntimeEvent(next.activity, this.makeRuntimeEvent(
+            result.ok ? 'tool_completed' : 'tool_failed',
+            execution.summary,
+            {
+                stepId: step.id,
+                toolName: result.name,
+                detail: execution.detail,
+                status: execution.status,
+            },
+        ));
+
+        await this.persistPlanCard(next);
+    }
+
+    private async completePlanCard() {
+        if (!this.planCard) return;
+        const next = this.clonePlan(this.planCard);
+        next.steps = next.steps.map((step) => {
+            if (step.status !== 'failed') {
+                return {
+                    ...step,
+                    status: 'completed' as const,
+                    feedback: this.isCompletionLike(step.feedback)
+                        ? step.feedback
+                        : (step.feedback || this.localeText('Completed', '已完成')),
+                    completedAt: step.completedAt || new Date().toISOString(),
+                };
+            }
+            return step;
+        });
+        next.currentStepId = undefined;
+        next.status = next.steps.some((step) => step.status === 'failed') ? 'failed' : 'completed';
+        next.activity = this.appendRuntimeEvent(next.activity, this.makeRuntimeEvent(
+            'answer_completed',
+            this.localeText('Completed the final answer', '已完成最终回答')
+        ));
+        await this.persistPlanCard(next);
+    }
+
+    private async markPlanFailed(message: string) {
+        if (!this.planCard) return;
+        const next = this.clonePlan(this.planCard);
+        const active = next.steps.find((step) => step.status === 'in_progress')
+            || next.steps.find((step) => step.status === 'pending');
+        if (active) {
+            const now = new Date().toISOString();
+            active.status = 'failed';
+            active.completedAt = now;
+            active.feedback = message;
+            active.executions = [
+                ...(active.executions || []),
+                {
+                    id: randomUUID(),
+                    status: 'failed',
+                    summary: message,
+                    detail: { error: message },
+                    startedAt: now,
+                    completedAt: now,
+                },
+            ];
+        }
+        next.status = 'failed';
+        next.currentStepId = undefined;
+        next.activity = this.appendRuntimeEvent(next.activity, this.makeRuntimeEvent('runtime_error', message, {
+            detail: { error: message },
+            status: 'failed',
+        }));
+        await this.persistPlanCard(next);
+    }
+
+    private resolveStepForTool(plan: PlanCard, toolName: string): PlanStep | undefined {
+        return plan.steps.find((step) => step.status === 'in_progress' && (step.preferredTools || []).includes(toolName))
+            || plan.steps.find((step) => step.status === 'pending' && (step.preferredTools || []).includes(toolName))
+            || plan.steps.find((step) => step.status === 'in_progress')
+            || plan.steps.find((step) => step.status === 'pending')
+            || plan.steps.find((step) => (step.preferredTools || []).includes(toolName));
+    }
+
+    private resolveStepForResult(plan: PlanCard, result: OrchestratorToolResult): PlanStep | undefined {
+        return plan.steps.find((step) => (step.executions || []).some((item) => item.id === result.id))
+            || this.resolveStepForTool(plan, result.name);
+    }
+
+    private async persistPlanCard(plan: PlanCard) {
+        this.planCard = this.clonePlan(plan);
+        await this.persistRuntimeState();
+    }
+
+    private async persistRuntimeState(status: 'streaming' | 'complete' | 'error' = 'streaming') {
+        this.assistantData = {
+            ...this.assistantData,
+            agentRuntime: {
+                plan: this.planCard,
+            },
+        };
+        await chatRepo.updateMessage(this.params.assistantMessageId, {
+            data: this.assistantData,
+            status,
+        });
+        this.broadcastAgentRuntime();
+    }
+
+    private broadcastAgentRuntime() {
+        if (!this.params.userId || !this.planCard) return;
+        const latestEvent = this.planCard.activity?.[this.planCard.activity.length - 1] || null;
+        const envelope: AgentRuntimeEnvelope = {
+            kind: 'agent_runtime',
+            scope: 'chat_task',
+            messageId: this.params.assistantMessageId,
+            planId: this.planCard.planId,
+            snapshot: {
+                plan: this.planCard,
+            },
+            event: latestEvent,
+        };
+        chatWS.broadcastToUser(this.params.userId, {
+            type: 'agent_runtime',
+            sessionId: this.params.sessionId,
+            data: envelope,
+        });
+    }
+
     private extractToolCitations(result: any): any[] {
         if (!result || typeof result !== 'object') return [];
         const collected: any[] = [];
@@ -303,4 +697,132 @@ export class ChatStreamBroker {
         }
         return null;
     }
+
+    private clonePlan(plan: PlanCard): PlanCard {
+        return JSON.parse(JSON.stringify(plan)) as PlanCard;
+    }
+
+    private mergePlanCard(current: PlanCard, incoming: PlanCard): PlanCard {
+        const currentStepMap = new Map(current.steps.map((step) => [step.id, step]));
+        const incomingSteps = incoming.steps.map((step) => {
+            const existing = currentStepMap.get(step.id);
+            return existing
+                ? {
+                    ...existing,
+                    title: step.title,
+                    description: step.description,
+                    preferredTools: step.preferredTools || existing.preferredTools,
+                }
+                : step;
+        });
+        const preservedSteps = current.steps.filter((step) => !incoming.steps.some((incomingStep) => incomingStep.id === step.id));
+        const mergedSteps = [...incomingSteps, ...preservedSteps];
+        return {
+            ...current,
+            title: incoming.title || current.title,
+            summary: incoming.summary || current.summary,
+            locale: incoming.locale || current.locale,
+            steps: mergedSteps,
+        };
+    }
+
+    private makeRuntimeEvent(
+        type: AgentRuntimeEventType,
+        summary: string,
+        extras?: {
+            stepId?: string;
+            toolName?: string;
+            detail?: any;
+            status?: PlanStepStatus;
+        },
+    ): AgentRuntimeEvent {
+        return {
+            id: randomUUID(),
+            type,
+            summary,
+            stepId: extras?.stepId,
+            toolName: extras?.toolName,
+            detail: extras?.detail,
+            status: extras?.status,
+            createdAt: new Date().toISOString(),
+        };
+    }
+
+    private appendRuntimeEvent(activity: AgentRuntimeEvent[] | undefined, event: AgentRuntimeEvent): AgentRuntimeEvent[] {
+        const next = [...(activity || []), event];
+        return next.slice(-24);
+    }
+
+    private getLocale(): 'en' | 'zh' {
+        return this.planCard?.locale === 'zh' ? 'zh' : 'en';
+    }
+
+    private localeText(en: string, zh: string): string {
+        return this.getLocale() === 'zh' ? zh : en;
+    }
+
+    private isCompletionLike(text: string | undefined): boolean {
+        const value = String(text || '').toLowerCase();
+        return value.includes('completed') || value.includes('done') || value.includes('已完成');
+    }
+}
+
+function describeToolAction(toolName: string, locale: 'en' | 'zh' = 'en'): string {
+    const labels: Record<string, { en: string; zh: string }> = {
+        external_web_search: { en: 'check web and social context', zh: '获取网页与社交上下文' },
+        get_token_info: { en: 'inspect token info', zh: '查询代币信息' },
+        get_early_buyers: { en: 'find early buyers', zh: '查询早期买家' },
+        analyze_creator: { en: 'inspect creator evidence', zh: '分析创建者地址' },
+        get_wallet_info: { en: 'inspect wallet info', zh: '查询钱包信息' },
+        get_market_overview: { en: 'fetch market overview', zh: '获取市场概览' },
+        get_economic_calendar: { en: 'fetch economic calendar', zh: '获取经济日历' },
+    };
+    return labels[toolName]?.[locale] || toolName.replace(/_/g, ' ');
+}
+
+function buildExecutionDetail(result: OrchestratorToolResult) {
+    return result.ok
+        ? {
+            tool: result.name,
+            arguments: result.arguments,
+            result: compactDetail(result.result),
+            metadata: result.metadata,
+        }
+        : {
+            tool: result.name,
+            arguments: result.arguments,
+            error: result.error || 'tool execution failed',
+            metadata: result.metadata,
+        };
+}
+
+function findLastIndex<T>(items: T[], predicate: (value: T) => boolean): number {
+    for (let index = items.length - 1; index >= 0; index -= 1) {
+        if (predicate(items[index])) return index;
+    }
+    return -1;
+}
+
+function compactDetail(value: any, depth = 0): any {
+    if (value === null || value === undefined) return value;
+    if (typeof value === 'string') {
+        return value.length > 3000 ? `${value.slice(0, 3000)}...` : value;
+    }
+    if (typeof value !== 'object') return value;
+    if (Array.isArray(value)) {
+        const limited = value.slice(0, 8).map((item) => compactDetail(item, depth + 1));
+        return value.length > 8 ? [...limited, `... ${value.length - 8} more item(s)`] : limited;
+    }
+    if (depth >= 2) {
+        const summary = Object.fromEntries(Object.entries(value).slice(0, 10));
+        return Object.keys(value).length > 10
+            ? { ...summary, _truncated: `${Object.keys(value).length - 10} more field(s)` }
+            : summary;
+    }
+    const entries = Object.entries(value).slice(0, 12).map(([key, item]) => [key, compactDetail(item, depth + 1)]);
+    const next = Object.fromEntries(entries);
+    if (Object.keys(value).length > 12) {
+        next._truncated = `${Object.keys(value).length - 12} more field(s)`;
+    }
+    return next;
 }

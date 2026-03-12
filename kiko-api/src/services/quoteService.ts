@@ -53,6 +53,7 @@ export interface BestQuoteParams {
     isSell?: boolean;
     executionMode?: 'safe' | 'normal' | 'turbo';
     preferPermit2?: boolean;
+    skipCache?: boolean;
 }
 
 const quoteBundleCache = new Map<string, { value: { best: QuoteResult; quotes: QuoteResult[] }; ts: number }>();
@@ -71,6 +72,7 @@ function buildQuoteCacheKey(params: BestQuoteParams): string {
         String(params.actualTokenOut || '').toLowerCase(),
         amountInBase,
         params.slippageBps,
+        String(params.userAddress || '').toLowerCase() || 'quote_only',
         params.executionMode || 'normal',
         params.preferPermit2 === false ? 'permit2_off' : 'permit2_on',
         params.excludeDex || 'none',
@@ -113,11 +115,13 @@ function setCachedQuoteBundle(key: string, value: { best: QuoteResult; quotes: Q
 export async function getBestQuote(params: BestQuoteParams): Promise<{ best: QuoteResult, quotes: QuoteResult[] }> {
     const key = buildQuoteCacheKey(params);
     const ttlMs = getQuoteCacheTtlMs(params);
-    const cached = getCachedQuoteBundle(key, ttlMs);
-    if (cached) return cached;
+    if (!params.skipCache) {
+        const cached = getCachedQuoteBundle(key, ttlMs);
+        if (cached) return cached;
 
-    const inflight = inflightQuoteBundle.get(key);
-    if (inflight) return await inflight;
+        const inflight = inflightQuoteBundle.get(key);
+        if (inflight) return await inflight;
+    }
 
     const task = getBestQuoteInternal(params)
         .then((result) => {
@@ -131,9 +135,15 @@ export async function getBestQuote(params: BestQuoteParams): Promise<{ best: Quo
             if (current === task) inflightQuoteBundle.delete(key);
         });
 
-    inflightQuoteBundle.set(key, task);
+    if (!params.skipCache) {
+        inflightQuoteBundle.set(key, task);
+    }
     return await task;
 }
+
+export const __testOnly = {
+    buildQuoteCacheKey,
+};
 
 async function getBestQuoteInternal(params: BestQuoteParams): Promise<{ best: QuoteResult, quotes: QuoteResult[] }> {
     const {

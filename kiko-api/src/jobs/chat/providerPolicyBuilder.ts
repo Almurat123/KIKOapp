@@ -49,6 +49,13 @@ export function buildProviderOptions(snapshot: ChatContextSnapshot, providerInfo
     const requiresRealtimeSocialSearch =
         ['trending', 'trend', 'latest', 'today', 'current', 'farcaster', 'twitter', 'x.com', 'social', 'sentiment', 'hot'].some((word) => lower.includes(word))
         || ['趋势', '今天', '现在', '社交', '情绪'].some((word) => String(query || '').includes(word));
+    const requestsOnchainEvidence =
+        ((snapshot.requestedTokenAddresses || []).length > 0) &&
+        (
+            ['early buyers', 'earliest buyers', 'first buyers', 'holders', 'first trades', 'first swaps', 'creator', 'deployer'].some((word) => lower.includes(word))
+            || ['早期买家', '首批买家', '持有人', '创建者', '部署者', '前几位买家'].some((word) => String(query || '').includes(word))
+        );
+    const nativeSearchRequired = requiresRealtimeSocialSearch && !requestsOnchainEvidence;
 
     const xSeedHandles = extractXHandles([
         snapshot.runtime.farcaster,
@@ -69,11 +76,15 @@ export function buildProviderOptions(snapshot: ChatContextSnapshot, providerInfo
             native_tools: {
                 enable_search: true,
                 enabled_tools: ['web_search', 'x_search'],
-                required: requiresRealtimeSocialSearch,
-                preferred_required_tool: requiresRealtimeSocialSearch ? 'x_search' : null,
+                required: nativeSearchRequired,
+                preferred_required_tool: nativeSearchRequired ? 'x_search' : null,
                 include_options: ['inline_citations', ...(requiresRealtimeSocialSearch ? ['web_search_call_output', 'x_search_call_output'] : [])],
                 allow_extra_sdk_tools: true,
-                reason: requiresRealtimeSocialSearch ? 'required_realtime_social_search' : 'native_search_available',
+                reason: requestsOnchainEvidence
+                    ? 'native_search_should_support_local_chain_tools'
+                    : requiresRealtimeSocialSearch
+                        ? 'required_realtime_social_search'
+                        : 'native_search_available',
             },
             execution: {
                 per_tool_timeout_ms: 20000,

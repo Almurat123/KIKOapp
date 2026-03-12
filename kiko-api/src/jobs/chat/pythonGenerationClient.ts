@@ -156,7 +156,16 @@ export class PythonGenerationClient {
                         arguments: event.payload?.arguments || {},
                     });
                 } else if (event.type === 'error') {
-                    throw new Error(String(event.payload?.message || 'Python generation failed'));
+                    const message = String(event.payload?.message || 'Python generation failed');
+                    const raw = typeof event.payload?.raw === 'string' ? event.payload.raw.trim() : '';
+                    const requestTail = event.payload?.request_tail;
+                    throw new Error(
+                        [
+                            message,
+                            raw || undefined,
+                            requestTail ? `request_tail=${JSON.stringify(requestTail)}` : undefined,
+                        ].filter(Boolean).join(' | ')
+                    );
                 } else if (event.type === 'message_complete') {
                     logger.info(LogCode.AI_ORCHESTRATOR, 'PythonGenerationClient: message_complete received', {
                         sessionId: params.sessionId,

@@ -50,7 +50,7 @@ function resolveWsBaseUrl(): string {
 const WS_BASE_URL = resolveWsBaseUrl();
 const WS_OPEN_TIMEOUT_MS = 3000;
 
-export type ChatEventType = 'chunk' | 'content_block' | 'task_status' | 'message_complete' | 'message_start' | 'error' | 'pong' | 'usage' | 'citations' | 'client_action' | 'sync_complete' | 'transaction_update' | 'transaction_confirmed' | 'transaction_complete' | 'latency_metrics';
+export type ChatEventType = 'chunk' | 'content_block' | 'task_status' | 'message_complete' | 'message_start' | 'error' | 'pong' | 'usage' | 'citations' | 'client_action' | 'sync_complete' | 'transaction_update' | 'transaction_confirmed' | 'transaction_complete' | 'latency_metrics' | 'agent_runtime';
 
 export interface ChatEvent {
     type: ChatEventType;

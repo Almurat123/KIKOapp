@@ -24,6 +24,7 @@ import { preprocessMarkdown } from '../../utils/markdownUtils';
 import { StrategyCard } from './StrategyCard';
 import { UnifiedChartCard } from '../Chart/UnifiedChartCard';
 import { TransactionStatusCard } from './TransactionStatusCard';
+import { PlanCard } from './PlanCard';
 import { ThinkingTimer } from './ThinkingTimer';
 import { TokenCapsule } from './TokenCapsule';
 import { CitationRenderer } from './CitationRenderer';
@@ -186,7 +187,11 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({
   onFeedback,
 }: MessageBubbleProps) => {
   const isUser = message.role === 'user';
-  const hasInlineCard = !!(message.type && message.type !== 'text' && message.data);
+  const runtimePlan = !isUser
+    ? message.data?.agentRuntime?.plan || (message.type === 'plan-card' ? message.data : null)
+    : null;
+  const hasRuntimeCard = !!runtimePlan;
+  const hasInlineCard = !!(message.type && message.type !== 'text' && message.type !== 'plan-card' && message.data);
   const [copied, setCopied] = useState(false);
   const [showCitations, setShowCitations] = useState(false);
   const [showReasoning, setShowReasoning] = useState(true); // 默认展开状态
@@ -292,10 +297,26 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({
             </div>
           </div>
         );
-
       default:
         return null;
     }
+  };
+
+  const renderRuntimeCard = () => {
+    if (!runtimePlan) return null;
+    return (
+      <div className={clsx(styles.inlineCard, styles.fullWidthInlineCard)}>
+        <div className={clsx(styles.animFluid, styles.fullWidthAnimFluid)}>
+          <div className={clsx(styles.cardContent, styles.fullWidthCardContent)}>
+            <PlanCard
+              plan={runtimePlan}
+              reasoningText={message.reasoning_content}
+              isStreaming={message.status !== 'complete' && message.status !== 'error'}
+            />
+          </div>
+        </div>
+      </div>
+    );
   };
 
   const hasThinkingPlaceholder =
@@ -307,7 +328,8 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({
   const hasVisibleContent =
     (message.content && message.content.trim().length > 0) ||
     (message.reasoning_content && message.reasoning_content.trim().length > 0) ||
-    hasInlineCard;
+    hasInlineCard ||
+    hasRuntimeCard;
 
   return (
     <div
@@ -329,7 +351,7 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({
               </>
             )}
             {/* Thinking标签显示 */}
-            {message.reasoning_content && !hasInlineCard && (
+            {message.reasoning_content && !hasInlineCard && !hasRuntimeCard && (
               <>
                 {(!message.content || message.content.trim().length === 0) &&
                 message.status !== 'complete' ? (
@@ -370,11 +392,13 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({
               message.content
             ) : (
               <>
+                {renderRuntimeCard()}
                 {/* Waiting for first content - show thinkingText animation */}
                 {thinkingText &&
                   !message.content &&
                   !message.reasoning_content &&
-                  !hasInlineCard && (
+                  !hasInlineCard &&
+                  !hasRuntimeCard && (
                     <div className={styles.thinkingBubble}>
                       <span className={styles.thinkingText}>
                         <ThinkingTimer
@@ -389,7 +413,8 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({
                 {/* Thinking进行中（无content）：在bubble内显示思考内容 */}
                 {message.reasoning_content &&
                   (!message.content || message.content.trim().length === 0) &&
-                  !hasInlineCard && (
+                  !hasInlineCard &&
+                  !hasRuntimeCard && (
                     <div className={styles.markdownContent}>
                       <ReactMarkdown
                         remarkPlugins={[remarkGfm, remarkBreaks]}
@@ -404,6 +429,7 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({
                 {message.reasoning_content &&
                   message.content &&
                   message.content.trim().length > 0 &&
+                  !hasRuntimeCard &&
                   showReasoning && (
                     <div className={styles.reasoningContent}>
                       <div className={`${styles.reasoningText} ${styles.markdownContent}`}>
