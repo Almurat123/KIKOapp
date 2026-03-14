@@ -35,6 +35,11 @@ import { emitCopytradeDomainAudit } from '../audit/copytradeDomainAudit.js';
 import { recordFollowerTransactionFactByPosition } from '../data-flow/followerTransactionFactLedger.js';
 import { acquireDistributedTokenExitLock, releaseDistributedTokenExitLock, type DistributedTokenExitLock } from './tokenExitLock.js';
 import { evaluateAutoExitPriceGuard } from './autoExitPriceGuard.js';
+import {
+  ExitHotPathDeferredError,
+  hasIntentContext,
+  resolveExitIntentRetryDelayMs,
+} from '../exit/exitHotPathPolicy.js';
 
 const NO_OPEN_POSITIONS_LOG_WINDOW_MS = Number(process.env.NO_OPEN_POSITIONS_LOG_WINDOW_MS || '180000');
 const COPYTRADE_DISABLE_MIRROR_SELL_DUST_SWEEP = (process.env.COPYTRADE_DISABLE_MIRROR_SELL_DUST_SWEEP || 'true') === 'true';
@@ -120,6 +125,28 @@ function formatTokenAmount(amount: bigint, decimals: number): number {
     return 0;
   }
   return value;
+}
+
+async function deferExitRetryOrThrow(params: {
+  intentDriven: boolean;
+  reasonCode: string;
+  positions: Array<any>;
+  targetWallet?: string | null;
+  exitReason: string;
+}): Promise<null> {
+  if (params.intentDriven) {
+    throw new ExitHotPathDeferredError(
+      params.reasonCode,
+      resolveExitIntentRetryDelayMs({ reasonCode: params.reasonCode })
+    );
+  }
+  await persistDeferredExitRetryState({
+    positions: params.positions as any,
+    targetWallet: params.targetWallet,
+    exitReason: params.exitReason,
+    reasonCode: params.reasonCode,
+  }).catch(() => undefined);
+  return null;
 }
 
 function resolveDisplayTokenSymbol(symbol: unknown, tokenAddress: string): string {
@@ -222,6 +249,7 @@ export async function executePositionExit(params: {
     const { userId, tokenAddress, chainId, exitReason, config } = params;
     const tokenInfo = params.tokenInfo ?? { price: 0, symbol: 'UNKNOWN' };
     const hasValidPrice = Number.isFinite(tokenInfo?.price) && tokenInfo.price > 0;
+    const intentDrivenExit = hasIntentContext(params.intentContext as Record<string, unknown> | undefined);
 
     logger.info(LogCode.EXE_TX_BROADCAST, 'Executing position exit', {
         userId,
@@ -274,13 +302,13 @@ export async function executePositionExit(params: {
                 reason: exitReason,
                 lockKey: tokenExitLockKey,
             });
-            await persistDeferredExitRetryState({
-                positions: exitPositions as any,
+            return deferExitRetryOrThrow({
+                intentDriven: intentDrivenExit,
+                positions: exitPositions,
                 targetWallet: config.targetWallet,
                 exitReason,
                 reasonCode: 'token_exit_lock_contended',
-            }).catch(() => undefined);
-            return null;
+            });
         }
         distributedTokenExitLock = await acquireDistributedTokenExitLock({
             chainId,
@@ -295,13 +323,13 @@ export async function executePositionExit(params: {
                 reason: exitReason,
                 lockKey: tokenExitLockKey,
             });
-            await persistDeferredExitRetryState({
-                positions: exitPositions as any,
+            return deferExitRetryOrThrow({
+                intentDriven: intentDrivenExit,
+                positions: exitPositions,
                 targetWallet: config.targetWallet,
                 exitReason,
                 reasonCode: 'token_exit_lock_contended_distributed',
-            }).catch(() => undefined);
-            return null;
+            });
         }
         persistedExitPositions = exitPositions;
         persistedExitBalance = balance;
@@ -380,22 +408,24 @@ export async function executePositionExit(params: {
                             fallbackSource: fallback.usedSource,
                         });
                     } else {
-                        await persistDeferredExitRetryState({
-                            positions: exitPositions as any,
+                        await deferExitRetryOrThrow({
+                            intentDriven: intentDrivenExit,
+                            positions: exitPositions,
                             targetWallet: config.targetWallet,
                             exitReason,
                             reasonCode: 'solana_balance_rpc_exhausted_no_amount_fallback',
-                        }).catch(() => undefined);
+                        });
                         logger.warn(LogCode.API_FETCH_FAILED, 'Skipping Solana sell: RPC exhausted and no usable amount in DB positions', { userId, token: tokenAddress });
                         return null;
                     }
                 } else {
-                    await persistDeferredExitRetryState({
-                        positions: exitPositions as any,
+                    await deferExitRetryOrThrow({
+                        intentDriven: intentDrivenExit,
+                        positions: exitPositions,
                         targetWallet: config.targetWallet,
                         exitReason,
                         reasonCode: 'solana_balance_rpc_exhausted_keep_open',
-                    }).catch(() => undefined);
+                    });
                     logger.warn(LogCode.API_FETCH_FAILED, 'Skipping Solana sell: All RPC strategies exhausted, keeping position open', { userId, token: tokenAddress });
                     return null; // Safely skip — keep position open, do NOT treat RPC failure as zero balance
                 }
@@ -625,11 +655,12 @@ export async function executePositionExit(params: {
                             },
                         });
                     }
-                    await persistDeferredExitRetryState({
-                        positions: exitPlan.positions as any,
+                    await deferExitRetryOrThrow({
+                        intentDriven: intentDrivenExit,
+                        positions: exitPlan.positions,
                         targetWallet: config.targetWallet,
                         exitReason,
-                        reasonCode: exitPlan.attributedReasonCode || 'EXIT_BALANCE_RPC_UNCERTAIN'
+                        reasonCode: exitPlan.attributedReasonCode || 'EXIT_BALANCE_RPC_UNCERTAIN',
                     });
                     return null;
                 }
@@ -714,9 +745,19 @@ export async function executePositionExit(params: {
                 });
             }
 
-            // Tracking
-            trackCopyTrade(userId);
-            trackSwap(userId, sellVolUsd);
+            // Keep sell submission hot; tracking is non-critical.
+            queueMicrotask(() => {
+                try {
+                    trackCopyTrade(userId);
+                    trackSwap(userId, sellVolUsd);
+                } catch (trackingError: any) {
+                    logger.debug(LogCode.SYS_ERROR, 'Copytrade exit tracking failed', {
+                        userId,
+                        token: tokenAddress,
+                        error: trackingError?.message || String(trackingError),
+                    });
+                }
+            });
 
 
             // =================================================================
@@ -742,20 +783,31 @@ export async function executePositionExit(params: {
                     ? `~${totalEntryUsd.toFixed(2)}`
                     : '—';
 
-            await publishCopytradeRawNotification({
-                dedupeKey: `position-exit-success:${user.privyDid}:${chainId}:${tokenAddress}:${txHash}`,
-                userId: user.privyDid,
-                farcasterFid: user.farcasterFid,
-                type: 'TRADE_SUCCESS_SELL',
-                data: {
-                    tokenSymbol: await resolveDisplayTokenSymbolAsync(tokenInfo.symbol, tokenAddress, chainId),
-                    usdValue: displaySellValue,
-                    targetWallet: config.targetWallet,
-                    txHash: txHash,
-                    chainId: chainId,
-                    alertTitle: reasonMap[exitReason] || exitReason
+            void (async () => {
+                try {
+                    await publishCopytradeRawNotification({
+                        dedupeKey: `position-exit-success:${user.privyDid}:${chainId}:${tokenAddress}:${txHash}`,
+                        userId: user.privyDid,
+                        farcasterFid: user.farcasterFid,
+                        type: 'TRADE_SUCCESS_SELL',
+                        data: {
+                            tokenSymbol: await resolveDisplayTokenSymbolAsync(tokenInfo.symbol, tokenAddress, chainId),
+                            usdValue: displaySellValue,
+                            targetWallet: config.targetWallet,
+                            txHash: txHash,
+                            chainId: chainId,
+                            alertTitle: reasonMap[exitReason] || exitReason
+                        }
+                    });
+                } catch (notificationError: any) {
+                    logger.debug(LogCode.SYS_ERROR, 'Copytrade exit success notification failed', {
+                        userId,
+                        token: tokenAddress,
+                        txHash,
+                        error: notificationError?.message || String(notificationError),
+                    });
                 }
-            });
+            })();
         }
 
         return txHash;
@@ -780,6 +832,10 @@ export async function executePositionExit(params: {
                     chainId,
                 },
             });
+        }
+
+        if (intentDrivenExit) {
+            throw error;
         }
 
         try {
@@ -807,7 +863,7 @@ export async function executePositionExit(params: {
                 });
 
                 if (user.farcasterFid) {
-                    await publishCopytradeRawNotification({
+                    void publishCopytradeRawNotification({
                         dedupeKey: `position-exit-failure:${user.privyDid}:${chainId}:${tokenAddress}:${exitReason}`,
                         userId: user.privyDid,
                         farcasterFid: user.farcasterFid,
@@ -818,6 +874,12 @@ export async function executePositionExit(params: {
                             targetWallet: config.targetWallet,
                             chainId: chainId
                         }
+                    }).catch((notificationError: any) => {
+                        logger.debug(LogCode.SYS_ERROR, 'Copytrade exit failure notification failed', {
+                            userId,
+                            token: tokenAddress,
+                            error: notificationError?.message || String(notificationError),
+                        });
                     });
                 }
             }

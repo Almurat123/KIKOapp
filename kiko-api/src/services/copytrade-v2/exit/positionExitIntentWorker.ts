@@ -10,13 +10,21 @@ import { claimExitIntentExecution, settleExitIntentExecution } from './exitInten
 import type { ExitIntentLane } from './intentTypes.js';
 import { claimPendingExitIntents, updatePositionExitIntentState } from './positionExitIntentStore.js';
 import { executePositionExit } from '../runtime/positionMonitor.js';
+import {
+  ExitHotPathDeferredError,
+  resolveExitIntentRetryDelayMs,
+  STANDARD_EXIT_INTENT_RETRY_MS,
+} from './exitHotPathPolicy.js';
 
 const EVM_EXIT_CONCURRENCY = Math.max(2, Number(process.env.COPYTRADE_EVM_EXIT_CONCURRENCY || '6'));
 const SOLANA_EXIT_CONCURRENCY = Math.max(1, Number(process.env.COPYTRADE_SOLANA_EXIT_CONCURRENCY || '2'));
 const CONFIRMATION_RECONCILE_CONCURRENCY = Math.max(1, Number(process.env.COPYTRADE_CONFIRM_RECONCILE_CONCURRENCY || '3'));
 const POLL_INTERVAL_MS = Math.max(300, Number(process.env.COPYTRADE_EXIT_INTENT_POLL_INTERVAL_MS || '800'));
 const CONFIRMATION_RECHECK_MS = Math.max(15_000, Number(process.env.COPYTRADE_EXIT_CONFIRMATION_RECHECK_MS || '30000'));
-const RETRY_COOLDOWN_MS = Math.max(30_000, Number(process.env.COPYTRADE_EXIT_INTENT_RETRY_COOLDOWN_MS || '60000'));
+const RETRY_COOLDOWN_MS = Math.max(
+  1_000,
+  Number(process.env.COPYTRADE_EXIT_INTENT_RETRY_COOLDOWN_MS || String(STANDARD_EXIT_INTENT_RETRY_MS))
+);
 
 const laneLimits: Record<ExitIntentLane, number> = {
   'evm-exit': EVM_EXIT_CONCURRENCY,
@@ -26,6 +34,7 @@ const laneLimits: Record<ExitIntentLane, number> = {
 
 const laneInflight = new Map<ExitIntentLane, number>();
 const timers = new Map<ExitIntentLane, NodeJS.Timeout>();
+const laneWakeScheduled = new Set<ExitIntentLane>();
 const workerId = `ct-exit-worker-${process.pid}-${crypto.randomUUID().slice(0, 8)}`;
 let started = false;
 
@@ -115,11 +124,15 @@ async function processExitIntent(intent: any): Promise<void> {
     minRetryIntervalMs: RETRY_COOLDOWN_MS,
   });
   if (!claim.allowed) {
+    const retryDelayMs = resolveExitIntentRetryDelayMs({
+      reasonCode: claim.blockedReason === 'cooldown' ? 'intent_cooldown_active' : 'intent_inflight_active',
+      retryAfterMs: claim.retryAfterMs || RETRY_COOLDOWN_MS,
+    });
     await updatePositionExitIntentState({
       id: intent.id,
       lifecycleState: 'EXIT_RETRYABLE_UNRESOLVED',
       lastReasonCode: claim.blockedReason === 'cooldown' ? 'intent_cooldown_active' : 'intent_inflight_active',
-      notBefore: new Date(Date.now() + Math.max(5_000, claim.retryAfterMs || RETRY_COOLDOWN_MS)),
+      notBefore: new Date(Date.now() + retryDelayMs),
       clearClaim: true,
     });
     return;
@@ -275,11 +288,18 @@ async function processExitIntent(intent: any): Promise<void> {
       tokenAddress: intent.tokenAddress,
       error: error?.message || String(error),
     });
+    const reasonCode = error instanceof ExitHotPathDeferredError
+      ? error.reasonCode
+      : (error?.message || 'intent_execution_failed');
+    const retryDelayMs = resolveExitIntentRetryDelayMs({
+      reasonCode,
+      retryAfterMs: error instanceof ExitHotPathDeferredError ? error.retryAfterMs : RETRY_COOLDOWN_MS,
+    });
     await updatePositionExitIntentState({
       id: intent.id,
       lifecycleState: 'EXIT_RETRYABLE_UNRESOLVED',
-      lastReasonCode: error?.message || 'intent_execution_failed',
-      notBefore: new Date(Date.now() + RETRY_COOLDOWN_MS),
+      lastReasonCode: reasonCode,
+      notBefore: new Date(Date.now() + retryDelayMs),
       clearClaim: true,
     }).catch(() => undefined);
     finalityState = 'retryable_unresolved';
@@ -313,8 +333,25 @@ async function drainLane(lane: ExitIntentLane): Promise<void> {
       })
       .finally(() => {
         bumpLaneInflight(lane, -1);
+        requestLaneDrain(lane);
       });
   }
+}
+
+function requestLaneDrain(lane: ExitIntentLane): void {
+  if (!started || laneWakeScheduled.has(lane)) return;
+  laneWakeScheduled.add(lane);
+  setImmediate(async () => {
+    laneWakeScheduled.delete(lane);
+    try {
+      await drainLane(lane);
+    } catch (error: any) {
+      logger.warn(LogCode.SYS_ERROR, '[CopyTradeExitIntent] immediate lane drain failed', {
+        lane,
+        error: error?.message || String(error),
+      });
+    }
+  });
 }
 
 function scheduleLane(lane: ExitIntentLane): void {
@@ -346,6 +383,16 @@ export function startPositionExitIntentWorker(): void {
     solanaConcurrency: SOLANA_EXIT_CONCURRENCY,
     confirmationConcurrency: CONFIRMATION_RECONCILE_CONCURRENCY,
   });
+}
+
+export function nudgePositionExitIntentWorker(lane?: ExitIntentLane): void {
+  if (lane) {
+    requestLaneDrain(lane);
+    return;
+  }
+  requestLaneDrain('evm-exit');
+  requestLaneDrain('solana-exit');
+  requestLaneDrain('confirmation-reconcile');
 }
 
 export function stopPositionExitIntentWorker(): void {

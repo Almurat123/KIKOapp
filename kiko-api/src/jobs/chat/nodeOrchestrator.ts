@@ -339,6 +339,23 @@ export async function runNodeOrchestration(params: {
             if (params.shouldCancel && await params.shouldCancel()) {
                 throw new Error('Task cancelled');
             }
+            const polymarketOrderGuard = resolvePolymarketOrderGuardResult(
+                call,
+                executedToolResults,
+                params.snapshot,
+            );
+            if (polymarketOrderGuard) {
+                await params.broker.recordToolResult(polymarketOrderGuard);
+                messages.push({
+                    role: 'tool',
+                    tool_call_id: call.id,
+                    content: JSON.stringify({
+                        error: polymarketOrderGuard.error,
+                        reasonCode: polymarketOrderGuard.reasonCode,
+                    }),
+                });
+                continue;
+            }
             const usageCount = (toolUsageCount.get(call.name) || 0) + 1;
             toolUsageCount.set(call.name, usageCount);
             const toolBudget = resolvePolicyToolBudget(params.snapshot.policySnapshot || null, call.name);
@@ -515,6 +532,107 @@ function createOrchestrationError(code: string, message: string): Error {
     const error = new Error(`[${code}] ${message}`);
     (error as any).code = code;
     return error;
+}
+
+const POLYMARKET_TOKEN_SOURCE_TOOLS = new Set([
+    'get_polymarket_event',
+    'get_polymarket_trending_markets',
+    'get_new_markets',
+]);
+
+export function resolvePolymarketOrderGuardResult(
+    call: { id: string; name: string; arguments: Record<string, any> },
+    executedToolResults: Map<string, { name?: string; arguments?: Record<string, any>; ok?: boolean; result?: any; metadata?: Record<string, any> }>,
+    snapshot: ChatContextSnapshot,
+) {
+    if (String(call.name || '') !== 'place_polymarket_order') {
+        return null;
+    }
+
+    const tokenId = String(call.arguments?.token_id || '').trim();
+    const verifiedTokenIds = collectVerifiedPolymarketTokenIds(executedToolResults, snapshot);
+    if (tokenId && verifiedTokenIds.has(tokenId)) {
+        return null;
+    }
+
+    const error = tokenId
+        ? 'Polymarket order blocked: token_id was not verified by get_polymarket_event, get_polymarket_trending_markets, or get_new_markets in the current evidence chain.'
+        : 'Polymarket order blocked: missing concrete token_id. Resolve the exact selected outcome with get_polymarket_event, get_polymarket_trending_markets, or get_new_markets first.';
+
+    return {
+        id: call.id,
+        name: call.name,
+        arguments: call.arguments || {},
+        ok: false,
+        error,
+        reasonCode: 'PRECHECK_REQUIRED' as const,
+        result: {
+            error,
+            reasonCode: 'PRECHECK_REQUIRED',
+            required_tools: Array.from(POLYMARKET_TOKEN_SOURCE_TOOLS),
+            token_id: tokenId || null,
+        },
+        metadata: { source: 'polymarket_token_guard' },
+    };
+}
+
+export function collectVerifiedPolymarketTokenIds(
+    executedToolResults: Map<string, { name?: string; arguments?: Record<string, any>; ok?: boolean; result?: any; metadata?: Record<string, any> }>,
+    snapshot: ChatContextSnapshot,
+): Set<string> {
+    const tokenIds = new Set<string>();
+
+    for (const item of executedToolResults.values()) {
+        if (!item?.ok) continue;
+        const toolName = String(item?.name || '').trim();
+        if (!POLYMARKET_TOKEN_SOURCE_TOOLS.has(toolName)) continue;
+        for (const tokenId of extractPolymarketTokenIds(item.result)) {
+            tokenIds.add(tokenId);
+        }
+    }
+
+    const recentCalls = snapshot.recentToolTrace?.toolCalls || [];
+    for (const toolCall of recentCalls) {
+        const toolName = String(toolCall?.tool || '').trim();
+        const status = String(toolCall?.status || '').trim().toLowerCase();
+        if (!POLYMARKET_TOKEN_SOURCE_TOOLS.has(toolName)) continue;
+        if (!['success', 'cached'].includes(status)) continue;
+        for (const tokenId of extractPolymarketTokenIds(toolCall?.result)) {
+            tokenIds.add(tokenId);
+        }
+    }
+
+    return tokenIds;
+}
+
+function extractPolymarketTokenIds(result: any): string[] {
+    const found = new Set<string>();
+
+    const visit = (value: any) => {
+        if (value == null) return;
+        if (Array.isArray(value)) {
+            for (const item of value) visit(item);
+            return;
+        }
+        if (typeof value !== 'object') return;
+
+        const tokenId = value.token_id ?? value.tokenId;
+        if (tokenId != null) {
+            const normalized = String(tokenId).trim();
+            if (normalized) {
+                found.add(normalized);
+            }
+        }
+
+        for (const child of Object.values(value)) {
+            if (child && typeof child === 'object') {
+                visit(child);
+            }
+        }
+    };
+
+    visit(result);
+    return Array.from(found);
 }
 
 function stableStringify(value: any): string {

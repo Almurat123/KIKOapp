@@ -13,6 +13,7 @@ import {
 import { enqueuePositionExitIntent } from './positionExitIntentStore.js';
 import { upsertTargetSellEvent, type TargetSellEventRecord } from './targetSellEventStore.js';
 import type { PositionExitReason } from './types.js';
+import { nudgePositionExitIntentWorker } from './positionExitIntentWorker.js';
 
 function parsePositiveBigInt(value: unknown): bigint {
   const raw = String(value || '').trim();
@@ -143,6 +144,7 @@ export async function scheduleMirrorSellIntentsForEvent(params: {
     const result = await enqueuePositionExitIntent(payload);
     if (result.created) {
       scheduled += 1;
+      nudgePositionExitIntentWorker(payload.lane);
       continue;
     }
     skipped += 1;
@@ -185,6 +187,9 @@ export async function schedulePositionExitIntent(params: {
     lane: resolveExitIntentLane(params.position.chainId),
     metadata: params.metadata,
   });
+  if (result.created) {
+    nudgePositionExitIntentWorker(resolveExitIntentLane(params.position.chainId));
+  }
   return result.created;
 }
 
