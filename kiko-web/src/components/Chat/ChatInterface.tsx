@@ -1496,7 +1496,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
         if (textareaRef.current) {
             textareaRef.current.style.height = 'auto';
         }
-        stopGeneration(true);
+        await stopGeneration(true);
         setFirstSendPending(false);
 
         let targetConversationId = conversationId;
@@ -1543,7 +1543,6 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
             return;
         }
         if (!authenticated) {
-            toast.info('Login to KIKO to start chatting.');
             try {
                 login();
             } catch (e) {
@@ -1609,7 +1608,9 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
         setInput('');
 
         // CRITICAL: Stop any previous generation BEFORE showing new thinking
-        stopGeneration(true);
+        if (isThinking || isStreaming || !!currentConv?.activeTask || !!sendAbortControllerRef.current) {
+            await stopGeneration(true);
+        }
 
         // Context handles thinking state based on activeTask
         setThinkingText('Thinking');
@@ -1771,7 +1772,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                 walletAddress: walletAddress,
                 chainId: chainId,
                 toolConfig: customSettings,
-                allowanceMode: 'instant',
+                allowanceMode: customSettings?.fastSwapMode ? 'instant' : 'confirm',
                 nativeBalance,
                 currentPage: window.location.pathname,
                 pageContext: `${document.title || 'KiKo'} | ${window.location.pathname}`,

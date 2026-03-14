@@ -40,6 +40,10 @@ export async function maybeExecuteFastSwap(params: {
     userId: string | null;
     broker: ChatStreamBroker;
 }): Promise<{ handled: boolean }> {
+    if (params.snapshot.policySnapshot?.enforcementLevel === 'hard' && params.snapshot.policySnapshot?.mutationAllowed) {
+        // Hard policy mode forbids bypassing preflight->confirm->execute through fast-swap direct execution.
+        return { handled: false };
+    }
     const toolConfig = params.task.toolContext?.toolConfig || {};
     if (toolConfig.fastSwapMode !== true) return { handled: false };
 

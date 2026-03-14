@@ -340,17 +340,11 @@
   margin-top: 12px;
   margin-bottom: 4px;
   /* Room for hover effects and general breathing space */
-  opacity: 0;
-  transition: opacity 0.15s ease;
+  opacity: 1;
   user-select: none;
   -webkit-user-select: none;
   height: 32px;
   /* Fixed height for strict alignment */
-}
-
-/* Force show actions when message is hovered */
-.messageRow:hover .actions {
-  opacity: 1;
 }
 
 .actionBtn {
@@ -400,6 +394,20 @@
   color: #e4e4e7;
 }
 
+.actions .actionBtn,
+.actions .tokenUsage {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.messageRow:hover .actions .actionBtn,
+.messageRow:hover .actions .tokenUsage,
+.messageRow:focus-within .actions .actionBtn,
+.messageRow:focus-within .actions .tokenUsage {
+  opacity: 1;
+  pointer-events: auto;
+}
+
 .tokenIcon {
   color: #f97316;
 }
@@ -423,10 +431,6 @@
 
 .sourcesButton:hover {
   background: transparent;
-}
-
-.messageRow:hover .actions {
-  opacity: 1;
 }
 
 .aiActions {

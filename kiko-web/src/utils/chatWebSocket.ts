@@ -235,6 +235,16 @@ export class ChatWebSocketClient {
         const messageId = raw.message_id as string | undefined;
         const payload = raw.payload || {};
         const seq = raw.seq as number | undefined;
+        const normalizeCitations = (value: any): any[] => {
+            if (!value) return [];
+            const list = Array.isArray(value) ? value : [value];
+            return list.filter((item) => {
+                if (item === null || item === undefined) return false;
+                if (typeof item === 'string') return item.trim().length > 0;
+                if (typeof item === 'object') return true;
+                return false;
+            });
+        };
 
         if (t === 'message_start') {
             return withEnvelope({
@@ -302,13 +312,59 @@ export class ChatWebSocketClient {
             return withEnvelope({ type: 'usage', sessionId, seq, data: { message_id: messageId, messageId, usage: payload.usage || payload } });
         }
         if (t === 'citation') {
-            return withEnvelope({ type: 'citations', sessionId, seq, data: { message_id: messageId, messageId, citations: payload.citations || [] } });
+            return withEnvelope({
+                type: 'citations',
+                sessionId,
+                seq,
+                data: {
+                    message_id: messageId,
+                    messageId,
+                    citations: normalizeCitations(payload.citations ?? payload.citation),
+                }
+            });
+        }
+        if (t === 'citations') {
+            return withEnvelope({
+                type: 'citations',
+                sessionId,
+                seq,
+                data: {
+                    message_id: payload.message_id || messageId,
+                    messageId: payload.message_id || messageId,
+                    citations: normalizeCitations(payload.citations ?? payload.citation),
+                }
+            });
         }
         if (t === 'message_complete') {
-            return withEnvelope({ type: 'message_complete', sessionId, seq, data: { message_id: payload.message_id || messageId, messageId: payload.message_id || messageId } });
+            return withEnvelope({
+                type: 'message_complete',
+                sessionId,
+                seq,
+                data: {
+                    message_id: payload.message_id || messageId,
+                    messageId: payload.message_id || messageId,
+                    usage: payload.usage,
+                    citations: normalizeCitations(payload.citations ?? payload.citation),
+                }
+            });
         }
         if (t === 'error') {
-            return withEnvelope({ type: 'error', sessionId, seq, data: { error: payload.message || 'Unknown error' } });
+            return withEnvelope({
+                type: 'error',
+                sessionId,
+                seq,
+                data: {
+                    message_id: payload.message_id || messageId,
+                    messageId: payload.message_id || messageId,
+                    task_id: payload.task_id,
+                    taskId: payload.taskId || payload.task_id,
+                    error: payload.message || payload.error || 'Unknown error',
+                    usage: payload.usage,
+                    citations: normalizeCitations(payload.citations ?? payload.citation),
+                    raw: payload.raw,
+                    request_tail: payload.request_tail,
+                }
+            });
         }
         if (t === 'latency_metrics') {
             return withEnvelope({ type: 'latency_metrics', sessionId, seq, data: payload });

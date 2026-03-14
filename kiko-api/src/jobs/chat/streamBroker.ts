@@ -81,13 +81,6 @@ export class ChatStreamBroker {
 
     pushUsage(usage: OrchestratorUsage) {
         this.usage = usage;
-        if (this.params.userId) {
-            chatWS.broadcastToUser(this.params.userId, {
-                type: 'usage',
-                sessionId: this.params.sessionId,
-                data: { messageId: this.params.assistantMessageId, usage },
-            });
-        }
     }
 
     pushCitation(citation: any) {
@@ -282,21 +275,22 @@ export class ChatStreamBroker {
             const toolCitations = this.extractToolCitations(result.result);
             if (toolCitations.length > 0) {
                 this.pushCitation(toolCitations);
-                if (this.params.userId) {
-                    chatWS.broadcastToUser(this.params.userId, {
-                        type: 'citations',
-                        sessionId: this.params.sessionId,
-                        data: {
-                            message_id: this.params.assistantMessageId,
-                            citations: toolCitations,
-                        },
-                    });
-                }
             }
 
             const existingTrace = this.assistantData.toolTrace || {};
             const existingCalls = Array.isArray(existingTrace.toolCalls) ? existingTrace.toolCalls : [];
-            const normalizedResult = result.ok ? (result.result ?? null) : { error: result.error || 'tool execution failed' };
+            const normalizedResult = (() => {
+                if (result.result !== undefined) {
+                    if (!result.ok && result.error && typeof result.result === 'object' && result.result !== null && !Array.isArray(result.result)) {
+                        return {
+                            ...(result.result as Record<string, any>),
+                            error: (result.result as Record<string, any>).error || result.error,
+                        };
+                    }
+                    return result.result;
+                }
+                return result.ok ? null : { error: result.error || 'tool execution failed' };
+            })();
             const toolTrace = {
                 mode: 'execution',
                 skillVersion: 'exec',
@@ -357,7 +351,11 @@ export class ChatStreamBroker {
             chatWS.broadcastToUser(this.params.userId, {
                 type: 'message_complete',
                 sessionId: this.params.sessionId,
-                data: { messageId: this.params.assistantMessageId },
+                data: {
+                    messageId: this.params.assistantMessageId,
+                    usage: this.usage || undefined,
+                    citations: this.citations,
+                },
             });
         }
     }
@@ -382,12 +380,21 @@ export class ChatStreamBroker {
             chatWS.broadcastToUser(this.params.userId, {
                 type: 'error',
                 sessionId: this.params.sessionId,
-                data: { messageId: this.params.assistantMessageId, error: message },
+                data: {
+                    messageId: this.params.assistantMessageId,
+                    error: message,
+                    citations: this.citations,
+                    usage: this.usage || undefined,
+                },
             });
             chatWS.broadcastToUser(this.params.userId, {
                 type: 'message_complete',
                 sessionId: this.params.sessionId,
-                data: { messageId: this.params.assistantMessageId },
+                data: {
+                    messageId: this.params.assistantMessageId,
+                    usage: this.usage || undefined,
+                    citations: this.citations,
+                },
             });
         }
     }
@@ -501,6 +508,18 @@ export class ChatStreamBroker {
         const inProgressIndex = matchingIndex >= 0
             ? matchingIndex
             : findLastIndex(executions, (item) => item.toolName === result.name && item.status === 'in_progress');
+        const collapsedIndex = shouldCollapseRuntimeResult(result, executions);
+
+        if (collapsedIndex >= 0) {
+            const existingExecution = executions[collapsedIndex];
+            executions[collapsedIndex] = {
+                ...existingExecution,
+                detail: mergeCollapsedExecutionDetail(existingExecution.detail, result),
+            };
+            step.executions = executions;
+            await this.persistPlanCard(next);
+            return;
+        }
 
         const execution: PlanStepExecution = inProgressIndex >= 0
             ? {
@@ -570,6 +589,7 @@ export class ChatStreamBroker {
     private async completePlanCard() {
         if (!this.planCard) return;
         const next = this.clonePlan(this.planCard);
+        const hadFailedSteps = next.steps.some((step) => step.status === 'failed');
         next.steps = next.steps.map((step) => {
             if (step.status !== 'failed') {
                 return {
@@ -584,10 +604,14 @@ export class ChatStreamBroker {
             return step;
         });
         next.currentStepId = undefined;
-        next.status = next.steps.some((step) => step.status === 'failed') ? 'failed' : 'completed';
+        // `complete()` means the task reached a controlled terminal answer.
+        // Keep failed step details for debugging, but do not brand the whole plan as failed.
+        next.status = 'completed';
         next.activity = this.appendRuntimeEvent(next.activity, this.makeRuntimeEvent(
             'answer_completed',
-            this.localeText('Completed the final answer', '已完成最终回答')
+            hadFailedSteps
+                ? this.localeText('Completed with handled issues', '已完成，并处理了执行问题')
+                : this.localeText('Completed the final answer', '已完成最终回答')
         ));
         await this.persistPlanCard(next);
     }
@@ -794,6 +818,38 @@ function buildExecutionDetail(result: OrchestratorToolResult) {
             error: result.error || 'tool execution failed',
             metadata: result.metadata,
         };
+}
+
+export function shouldCollapseRuntimeResult(result: OrchestratorToolResult, executions: PlanStepExecution[]): number {
+    const source = String(result.metadata?.source || '').trim();
+    if (!['repeat_cache', 'tool_budget_guard'].includes(source)) {
+        return -1;
+    }
+    return findLastIndex(
+        executions,
+        (item) => item.toolName === result.name && item.status !== 'in_progress',
+    );
+}
+
+export function mergeCollapsedExecutionDetail(existingDetail: any, result: OrchestratorToolResult) {
+    const source = String(result.metadata?.source || '').trim();
+    const current = existingDetail && typeof existingDetail === 'object' ? { ...existingDetail } : {};
+    const collapsed = current.collapsed && typeof current.collapsed === 'object' ? { ...current.collapsed } : {};
+    const countKey = source === 'tool_budget_guard' ? 'budgetGuardCount' : 'repeatCacheCount';
+    const noteKey = source === 'tool_budget_guard' ? 'lastBudgetGuard' : 'lastRepeatCache';
+
+    collapsed[countKey] = Number(collapsed[countKey] || 0) + 1;
+    collapsed[noteKey] = compactDetail({
+        tool: result.name,
+        arguments: result.arguments,
+        error: result.error,
+        metadata: result.metadata,
+    });
+
+    return {
+        ...current,
+        collapsed,
+    };
 }
 
 function findLastIndex<T>(items: T[], predicate: (value: T) => boolean): number {

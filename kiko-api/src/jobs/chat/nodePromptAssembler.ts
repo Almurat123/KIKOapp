@@ -1,6 +1,7 @@
 import { CORE_UNIFIED, GROK_SEARCH_DELTA } from '../../services/ai/prompts/v2/CORE.js';
 import type { ChatContextSnapshot, PlanCard } from './contracts.js';
 import type { ProviderInfo } from './providerPolicyBuilder.js';
+import type { SearchMode, SkillMatch } from './skillIntentMatcher.js';
 
 export interface GenerationMessage {
     role: 'system' | 'user' | 'assistant' | 'tool';
@@ -26,6 +27,9 @@ export function assembleGenerationMessages(
         strategyNotes?: string[];
         allowAllTools?: boolean;
         executionPlan?: PlanCard | null;
+        rankedMatches?: SkillMatch[];
+        searchMode?: SearchMode;
+        searchReason?: string;
     },
 ): GenerationMessage[] {
     const runtime = snapshot.runtime || {};
@@ -36,16 +40,16 @@ export function assembleGenerationMessages(
     const userContext = buildUserContext(snapshot);
 
     const systemParts = [SYSTEM_PROMPT_BASE];
-    if (providerInfo.provider === 'grok') {
+    if (providerInfo.provider === 'grok' && guidance?.searchMode !== 'forbidden') {
         systemParts.push(GROK_SEARCH_DELTA);
     }
-    if (providerInfo.supportsNativeSearch) {
+    if (providerInfo.supportsNativeSearch && guidance?.searchMode !== 'forbidden') {
         systemParts.push('For real-time requests, retrieve evidence before concluding.');
     }
-    if (providerInfo.provider === 'grok' && needsRealtimeSocialSearch(snapshot.lastUserMessage)) {
+    if (providerInfo.provider === 'grok' && guidance?.searchMode === 'required') {
         systemParts.push('REALTIME SOCIAL SEARCH REQUIRED: Search first. If evidence is thin, say so plainly.');
     }
-    if (providerInfo.provider === 'grok') {
+    if (providerInfo.provider === 'grok' && guidance?.searchMode !== 'forbidden') {
         systemParts.push('When a request mixes social timing with token or on-chain analysis, use native search for the timing/news context and local chain tools for wallet, holder, buyer, transfer, and token evidence.');
     }
 
@@ -78,10 +82,14 @@ function buildToolGuidanceBlock(guidance?: {
     strategyNotes?: string[];
     allowAllTools?: boolean;
     executionPlan?: PlanCard | null;
+    rankedMatches?: SkillMatch[];
+    searchMode?: SearchMode;
+    searchReason?: string;
 }): string {
     const lines: string[] = [];
     const preferredTools = guidance?.preferredTools || [];
     const strategyNotes = guidance?.strategyNotes || [];
+    const rankedMatches = guidance?.rankedMatches || [];
 
     if (strategyNotes.length > 0) {
         lines.push('[TASK_STRATEGY]');
@@ -90,17 +98,34 @@ function buildToolGuidanceBlock(guidance?: {
         }
     }
 
+    if (rankedMatches.length > 0) {
+        if (lines.length > 0) lines.push('');
+        lines.push('[SKILL_MATCHES]');
+        for (const match of rankedMatches) {
+            lines.push(`- ${match.skillId} (${match.skillName}) score=${match.score}; reasons: ${match.reasons.join(', ')}`);
+        }
+    }
+
     if (preferredTools.length > 0) {
         if (lines.length > 0) lines.push('');
         lines.push('[TOOL_PREFERENCES]');
         lines.push(`- Preferred tools for this query: ${preferredTools.join(', ')}`);
-        lines.push('- These preferences are hints, not a hard lock. Use other available tools when they are more appropriate.');
     }
 
-    if (guidance?.allowAllTools) {
+    if (lines.length > 0 || guidance?.allowAllTools || guidance?.searchMode) {
         if (lines.length > 0) lines.push('');
         lines.push('[TOOL_POLICY]');
-        lines.push('- Registered tools are available by default for this turn.');
+        lines.push('- Matched local skills are primary for this turn. Use their tools before generic search whenever they can answer the request.');
+        if (guidance?.searchMode === 'required') {
+            lines.push(`- Generic search mode: required (${guidance.searchReason || 'external_evidence_required'}). Search before concluding.`);
+        } else if (guidance?.searchMode === 'fallback') {
+            lines.push(`- Generic search mode: fallback (${guidance.searchReason || 'local_skill_first'}). Search only if the user explicitly asks for external evidence or local tools are insufficient.`);
+        } else {
+            lines.push(`- Generic search mode: forbidden (${guidance?.searchReason || 'no_external_search_needed'}). Do not search unless the user explicitly asks for web/X evidence.`);
+        }
+        if (guidance?.allowAllTools) {
+            lines.push('- Registered tools remain available when explicitly permitted by the policy layer.');
+        }
         lines.push('- If the user asks for on-chain evidence such as early buyers, holders, first trades, or creator wallets, do not answer from summaries alone when a relevant local tool is available.');
     }
 
@@ -139,7 +164,6 @@ function buildUserSettings(settings: Record<string, any>): Record<string, any> {
     const compact = {
         quick_swap: asBoolean(settings.quickSwapMode),
         fast_swap: asBoolean(settings.fastSwapMode),
-        risk_check_before_swap: asBoolean(settings.checkTokenBeforeSwap),
         quote_before_swap: asBoolean(settings.showQuoteBeforeSwap),
         mev_protection: asBoolean(settings.mevProtection),
         price_deviation_check: asBoolean(settings.priceDeviationCheck),
@@ -278,12 +302,6 @@ function truncateText(value: any, maxLen: number): string | undefined {
 function limitArray(values: string[] | undefined, maxLen: number): string[] | undefined {
     if (!Array.isArray(values) || values.length === 0) return undefined;
     return values.slice(0, maxLen).map((item) => String(item || '').trim()).filter(Boolean);
-}
-
-function needsRealtimeSocialSearch(query: string): boolean {
-    const lower = String(query || '').toLowerCase();
-    return ['trending', 'trend', 'current', 'latest', 'today', 'farcaster', 'twitter', 'x.com', 'social', 'sentiment', 'hot'].some((word) => lower.includes(word))
-        || ['趋势', '现在', '今天', '社交', '情绪'].some((word) => String(query || '').includes(word));
 }
 
 function buildHistoryMessages(snapshot: ChatContextSnapshot): GenerationMessage[] {

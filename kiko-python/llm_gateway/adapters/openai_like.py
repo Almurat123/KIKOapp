@@ -157,14 +157,13 @@ async def _stream_sse(provider: str, url: str, headers: dict[str, str], body: di
                     if resp.status_code >= 400:
                         txt = await resp.aread()
                         raw_text = txt.decode("utf-8", errors="ignore")[:2000]
-                        request_tail = body.get("messages", [])[-3:]
                         yield GatewayEvent(
                             event_type="error",
                             provider=provider,
                             payload={
                                 "message": f"HTTP {resp.status_code}",
+                                "code": f"HTTP_{resp.status_code}",
                                 "raw": raw_text,
-                                "request_tail": request_tail,
                             },
                         )
                         return
@@ -188,11 +187,39 @@ async def _stream_sse(provider: str, url: str, headers: dict[str, str], body: di
                         if data.get("response_id") and provider_request_id is None:
                             provider_request_id = str(data.get("response_id"))
 
+                        top_level_error = data.get("error")
+                        if isinstance(top_level_error, dict) and top_level_error:
+                            yield GatewayEvent(
+                                event_type="error",
+                                provider=provider,
+                                provider_request_id=provider_request_id,
+                                payload={
+                                    "message": str(top_level_error.get("message") or "Provider stream error"),
+                                    "code": str(top_level_error.get("code") or "") or None,
+                                    "raw": json.dumps(top_level_error, ensure_ascii=False)[:2000],
+                                },
+                            )
+                            return
+
                         if not started_sent:
                             started_sent = True
                             yield GatewayEvent(event_type="message_start", provider=provider, provider_request_id=provider_request_id, payload={})
 
                         choice = (data.get("choices") or [{}])[0]
+                        choice_error = choice.get("error")
+                        if isinstance(choice_error, dict) and choice_error:
+                            yield GatewayEvent(
+                                event_type="error",
+                                provider=provider,
+                                provider_request_id=provider_request_id,
+                                payload={
+                                    "message": str(choice_error.get("message") or "Provider stream error"),
+                                    "code": str(choice_error.get("code") or "") or None,
+                                    "raw": json.dumps(choice_error, ensure_ascii=False)[:2000],
+                                },
+                            )
+                            return
+
                         delta = choice.get("delta") or {}
 
                         txt = delta.get("content")

@@ -22,6 +22,31 @@ export interface GenerationToolCall {
     arguments: Record<string, any>;
 }
 
+type GenerationTerminalState = 'open' | 'completed' | 'errored';
+
+function createGenerationStreamError(args: {
+    message: string;
+    code?: string;
+    raw?: string;
+    requestTail?: unknown;
+}) {
+    const fragments = [
+        args.code ? `[${args.code}]` : undefined,
+        args.message,
+    ].filter(Boolean) as string[];
+    const error = new Error(fragments.join(' | '));
+    if (args.code) {
+        (error as any).code = args.code;
+    }
+    if (args.raw) {
+        (error as any).raw = args.raw;
+    }
+    if (args.requestTail) {
+        (error as any).requestTail = args.requestTail;
+    }
+    return error;
+}
+
 export class PythonGenerationClient {
     async generate(params: {
         sessionId: string;
@@ -75,9 +100,22 @@ export class PythonGenerationClient {
         let firstEventWarned = false;
         let eventCount = 0;
         const toolCalls: GenerationToolCall[] = [];
-        let text = '';
-        let reasoning = '';
+        let textBuffer = '';
+        let reasoningBuffer = '';
+        let latestUsage: Record<string, any> | null = null;
+        const bufferedCitations: any[] = [];
         let providerState: { previousResponseId?: string } | undefined;
+        let terminalState: GenerationTerminalState = 'open';
+        let toolCallSignalReceived = false;
+
+        const flushFinalCallbacks = async () => {
+            if (latestUsage) {
+                params.onUsage(latestUsage);
+            }
+            for (const citation of bufferedCitations) {
+                params.onCitation(citation);
+            }
+        };
 
         while (true) {
             if (params.shouldCancel && await params.shouldCancel()) {
@@ -113,6 +151,15 @@ export class PythonGenerationClient {
                 const raw = line.slice(6).trim();
                 if (!raw || raw === '[DONE]') continue;
                 const event = JSON.parse(raw) as { type: string; payload?: any };
+                if (terminalState !== 'open') {
+                    logger.warn(LogCode.AI_ORCHESTRATOR, 'PythonGenerationClient: ignoring post-terminal generation event', {
+                        sessionId: params.sessionId,
+                        taskId: params.taskId,
+                        eventType: event.type,
+                        terminalState,
+                    });
+                    continue;
+                }
                 eventCount += 1;
                 if (!firstEventLogged) {
                     firstEventLogged = true;
@@ -125,16 +172,22 @@ export class PythonGenerationClient {
                 }
                 if (event.type === 'assistant_delta') {
                     const delta = String(event.payload?.text || '');
-                    text += delta;
-                    await params.onTextDelta(delta);
+                    textBuffer += delta;
+                    if (delta && !toolCallSignalReceived) {
+                        await params.onTextDelta(delta);
+                    }
                 } else if (event.type === 'reasoning_delta') {
                     const delta = String(event.payload?.text || '');
-                    reasoning += delta;
-                    await params.onReasoningDelta(delta);
+                    reasoningBuffer += delta;
+                    if (delta && !toolCallSignalReceived) {
+                        await params.onReasoningDelta(delta);
+                    }
                 } else if (event.type === 'usage') {
-                    params.onUsage(event.payload?.usage || {});
+                    latestUsage = event.payload?.usage || {};
                 } else if (event.type === 'citation') {
-                    params.onCitation(event.payload?.citation ?? event.payload?.citations);
+                    bufferedCitations.push(event.payload?.citation ?? event.payload?.citations);
+                } else if (event.type === 'tool_call_signal') {
+                    toolCallSignalReceived = true;
                 } else if (event.type === 'provider_state') {
                     providerState = {
                         previousResponseId: event.payload?.previous_response_id ? String(event.payload.previous_response_id) : undefined,
@@ -156,25 +209,34 @@ export class PythonGenerationClient {
                         arguments: event.payload?.arguments || {},
                     });
                 } else if (event.type === 'error') {
-                    const message = String(event.payload?.message || 'Python generation failed');
-                    const raw = typeof event.payload?.raw === 'string' ? event.payload.raw.trim() : '';
+                    terminalState = 'errored';
+                    const message = String(event.payload?.message || 'Generation stream failed');
+                    const code = String(event.payload?.code || '').trim() || undefined;
+                    const errorRaw = typeof event.payload?.raw === 'string' ? event.payload.raw.trim() : '';
                     const requestTail = event.payload?.request_tail;
-                    throw new Error(
-                        [
-                            message,
-                            raw || undefined,
-                            requestTail ? `request_tail=${JSON.stringify(requestTail)}` : undefined,
-                        ].filter(Boolean).join(' | ')
-                    );
+                    throw createGenerationStreamError({
+                        message,
+                        code,
+                        raw: errorRaw || undefined,
+                        requestTail,
+                    });
                 } else if (event.type === 'message_complete') {
+                    terminalState = 'completed';
+                    const hasToolCalls = toolCalls.length > 0;
+                    const finalText = textBuffer;
+                    const finalReasoning = reasoningBuffer;
+                    await flushFinalCallbacks();
                     logger.info(LogCode.AI_ORCHESTRATOR, 'PythonGenerationClient: message_complete received', {
                         sessionId: params.sessionId,
                         taskId: params.taskId,
                         elapsedMs: Date.now() - startedAt,
                         eventCount,
+                        hasToolCalls,
+                        toolCallSignalReceived,
+                        finalTextLength: finalText.length,
                         toolCalls: toolCalls.map((item) => item.name),
                     });
-                    return { toolCalls, text, reasoning, providerState };
+                    return { toolCalls, text: finalText, reasoning: finalReasoning, providerState };
                 }
             }
         }

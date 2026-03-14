@@ -1590,6 +1590,24 @@ async def chat_completions(
             except Exception as e:
                 print(f"[Tools] Failed to attach native tool: {e}")
 
+        requested_control_plane = (
+            str((request.tool_policy or {}).get("control_plane") or "").strip().lower()
+            if isinstance(request.tool_policy, dict)
+            else ""
+        )
+        requested_action_class = (
+            str((request.tool_policy or {}).get("action_class") or "READ_ONLY").strip().upper()
+            if isinstance(request.tool_policy, dict)
+            else "READ_ONLY"
+        )
+        requested_mutation_allowed = bool((request.tool_policy or {}).get("mutation_allowed")) if isinstance(request.tool_policy, dict) else False
+        requested_enforcement_level = (
+            str((request.tool_policy or {}).get("enforcement_level") or "hard").strip().lower()
+            if isinstance(request.tool_policy, dict)
+            else "hard"
+        )
+        python_tool_execution_enabled = requested_control_plane != "node"
+
         default_allow_extra_sdk_tools = _is_truthy(os.getenv("GROK_EXPOSE_ALL_XAI_SDK_TOOLS"), default=True)
         tool_policy = resolve_requested_tool_policy(
             request.tool_policy,
@@ -1599,8 +1617,28 @@ async def chat_completions(
         )
         native_tool_policy = tool_policy["native_tools"]
         execution_policy = tool_policy["execution"]
+        if requested_enforcement_level == "hard" and requested_action_class in {"TRADE_MUTATION", "ORDER_MUTATION"}:
+            if requested_control_plane and requested_control_plane != "node":
+                raise HTTPException(
+                    status_code=400,
+                    detail="Invalid tool policy: mutation action class requires control_plane=node",
+                )
+            python_tool_execution_enabled = False
+        if requested_control_plane == "node" and native_tool_policy.get("allow_extra_sdk_tools"):
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid tool policy: control_plane=node requires native_tools.allow_extra_sdk_tools=false",
+            )
+        if requested_enforcement_level == "hard" and requested_action_class in {"TRADE_MUTATION", "ORDER_MUTATION"} and native_tool_policy.get("allow_extra_sdk_tools"):
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid tool policy: mutation action class requires native_tools.allow_extra_sdk_tools=false",
+            )
         print(
             "[Tool Policy] "
+            f"action_class={requested_action_class} "
+            f"mutation_allowed={requested_mutation_allowed} "
+            f"enforcement={requested_enforcement_level} "
             f"enable_search={native_tool_policy['enable_search']} "
             f"enabled_tools={native_tool_policy['enabled_tools']} "
             f"required={native_tool_policy['required']} "
@@ -1660,10 +1698,14 @@ async def chat_completions(
                     description=tool_def.get("description", ""),
                     parameters=tool_def.get("parameters", {"type": "object", "properties": {}})
                 ))
-                available_tools.add(tool_name)
-            log_tools(f"[Tools] Dynamic tool set from Node + SDK natives: {len(tools)} tool(s) ({len(available_tools)} custom)")
+                if python_tool_execution_enabled:
+                    available_tools.add(tool_name)
+            if python_tool_execution_enabled:
+                log_tools(f"[Tools] Dynamic tool set from Node + SDK natives: {len(tools)} tool(s) ({len(available_tools)} custom)")
+            else:
+                log_tools(f"[Tools] Dynamic tool set from Node + SDK natives: {len(tools)} tool(s); Python custom execution disabled (control_plane=node)")
         elif native_tool_policy["enable_search"]:
-            if ALLOW_PYTHON_CUSTOM_TOOLS_FALLBACK:
+            if ALLOW_PYTHON_CUSTOM_TOOLS_FALLBACK and python_tool_execution_enabled:
                 tools = tools + CUSTOM_TOOLS
                 log_tools(f"[Tools] SDK native tools + {len(CUSTOM_TOOLS)} Python fallback custom tools enabled")
                 available_tools = {t.function.name for t in CUSTOM_TOOLS if hasattr(t, "function")}
@@ -1759,14 +1801,6 @@ async def chat_completions(
         # Filter out tool role messages - they're handled by chat.append(tool_result) in previous turns
         filtered_messages = [msg for msg in request.messages if msg.role != "tool"]
 
-        # If using previous_response_id, rely on server-side state and only add latest user message.
-        if request.previous_response_id:
-            last_user_only = next((m for m in reversed(filtered_messages) if m.role == "user"), None)
-            if last_user_only and isinstance(last_user_only.content, str) and last_user_only.content.strip():
-                filtered_messages = [last_user_only]
-            else:
-                filtered_messages = []
-        
         # Limit message history to prevent context overflow.
         # IMPORTANT: Always preserve the latest system message (Node.js provides the v2 prompt + skills injection).
         max_messages = 15
@@ -1807,15 +1841,8 @@ async def chat_completions(
                 log_tools(f"[Messages] [{i+1}] Assistant: (skipped)")
 
         # Guardrail: xAI rejects requests when no message content is provided.
-        # If previous_response_id flow has no new non-empty user message,
-        # send a minimal continuation prompt instead of an empty payload.
         if added_user_messages == 0:
-            if request.previous_response_id:
-                fallback_user = "Continue."
-                chat.append(user(fallback_user))
-                print("[Messages] No valid user message found with previous_response_id; appended fallback continuation.")
-            else:
-                raise HTTPException(status_code=400, detail="No valid non-empty user message provided.")
+            raise HTTPException(status_code=400, detail="No valid non-empty user message provided.")
         
         log_tools(f"[Chat] Starting {'streaming' if request.stream else 'non-streaming'} response generation")
         
@@ -1833,10 +1860,13 @@ async def chat_completions(
                 text_chunks_sent = 0
                 instant_swap_action_emitted = False
                 non_text_signal_emitted = False
+                tool_call_signal_emitted = False
                 request_hash = hash(str(request.messages))
                 log_tools(f"[Generate] Starting generator")
                 
                 def is_client_side_tool(tool_call_obj, tool_name_str: str) -> bool:
+                    if not python_tool_execution_enabled:
+                        return False
                     try:
                         return get_tool_call_type(tool_call_obj) == "client_side_tool"
                     except Exception:
@@ -2216,6 +2246,7 @@ async def chat_completions(
                                             try:
                                                 log_tools(f"[Tool Call Event] Sending tool call event for {tool_name} (ID: {tool_call_id})")
                                                 non_text_signal_emitted = True
+                                                tool_call_signal_emitted = True
                                                 # Send both formats for maximum compatibility
                                                 yield f"data: {json.dumps(tool_call_event)}\n\n"
                                                 yield f"data: {json.dumps(tool_call_simple_event)}\n\n"
@@ -2907,7 +2938,16 @@ async def chat_completions(
                     # Send final chunk with citations
                     # Ensure all data is JSON-serializable (no protobuf types)
                     try:
-                        if text_chunks_sent == 0 and non_text_signal_emitted:
+                        allow_node_tool_handoff_without_text = (
+                            not python_tool_execution_enabled
+                            and tool_call_signal_emitted
+                        )
+
+                        if (
+                            text_chunks_sent == 0
+                            and non_text_signal_emitted
+                            and not allow_node_tool_handoff_without_text
+                        ):
                             try:
                                 print("[Finalization] No visible text after tool turns; attempting no-tool finalization pass")
                                 finalizer_response, finalizer_chunks = await collect_finalization_chunks()
@@ -2920,36 +2960,59 @@ async def chat_completions(
                                 print(f"[Finalization] Failed: {type(finalization_error).__name__}: {finalization_error}")
 
                         if text_chunks_sent == 0:
-                            fallback_text = None
-                            if final_response and hasattr(final_response, 'text') and final_response.text:
-                                candidate_text = str(final_response.text).strip()
+                            if allow_node_tool_handoff_without_text:
+                                print("[Finalization] No visible text, but tool calls were emitted for Node control plane; skipping no-final error.")
+                            else:
+                                candidate_text = None
+                                if final_response and hasattr(final_response, 'text') and final_response.text:
+                                    value = str(final_response.text).strip()
+                                    if value:
+                                        candidate_text = value
+
                                 if candidate_text:
-                                    fallback_text = candidate_text
-
-                            if fallback_text is None:
-                                fallback_text = (
-                                    "I completed the tool steps for this request, "
-                                    "but the model did not return a final answer. Please retry."
-                                    if non_text_signal_emitted
-                                    else "I couldn't produce a stable final answer in this round. Please retry."
-                                )
-
-                            if fallback_text:
-                                empty_fallback_chunk = {
-                                    "id": f"chatcmpl-{hash(str(request.messages))}",
-                                    "object": "chat.completion.chunk",
-                                    "created": int(__import__('time').time()),
-                                    "model": request.model,
-                                    "choices": [{
-                                        "index": 0,
-                                        "delta": {
-                                            "content": fallback_text
-                                        },
-                                        "finish_reason": None
-                                    }]
-                                }
-                                yield f"data: {json.dumps(empty_fallback_chunk)}\n\n"
-                                text_chunks_sent += 1
+                                    fallback_chunk = {
+                                        "id": f"chatcmpl-{hash(str(request.messages))}",
+                                        "object": "chat.completion.chunk",
+                                        "created": int(__import__('time').time()),
+                                        "model": request.model,
+                                        "choices": [{
+                                            "index": 0,
+                                            "delta": {
+                                                "content": candidate_text
+                                            },
+                                            "finish_reason": None
+                                        }]
+                                    }
+                                    yield f"data: {json.dumps(fallback_chunk)}\n\n"
+                                    text_chunks_sent += 1
+                                else:
+                                    error_code = "NO_FINAL_TEXT_AFTER_TOOL_CHAIN" if non_text_signal_emitted else "NO_STABLE_FINAL_TEXT"
+                                    error_message = (
+                                        "Tool chain completed, but the model did not return a stable final answer."
+                                        if non_text_signal_emitted
+                                        else "The model did not return a stable final answer."
+                                    )
+                                    error_payload = {
+                                        "message": error_message,
+                                        "type": "finalization_error",
+                                        "code": error_code,
+                                    }
+                                    error_chunk = {
+                                        "id": f"chatcmpl-{hash(str(request.messages))}",
+                                        "object": "chat.completion.chunk",
+                                        "created": int(__import__('time').time()),
+                                        "model": request.model,
+                                        "choices": [{
+                                            "index": 0,
+                                            "delta": {},
+                                            "finish_reason": "stop",
+                                            "error": error_payload,
+                                        }],
+                                        "error": error_payload,
+                                    }
+                                    yield f"data: {json.dumps(error_chunk)}\n\n"
+                                    yield "data: [DONE]\n\n"
+                                    return
 
                         # Citations are now objects with url and optional avatar_url
                         citations_list = collected_citations if collected_citations else []
@@ -3082,9 +3145,9 @@ async def chat_completions(
                         args_str = getattr(tc.function, 'arguments', '{}')
                         
                         try:
-                            is_client_tool = get_tool_call_type(tc) == "client_side_tool"
+                            is_client_tool = python_tool_execution_enabled and get_tool_call_type(tc) == "client_side_tool"
                         except Exception:
-                            is_client_tool = name in available_tools
+                            is_client_tool = python_tool_execution_enabled and name in available_tools
 
                         if is_client_tool and name in available_tools:
                             log_tools(f"[Chat] [Turn {turn+1}] Planning custom tool: {name}")
@@ -3116,6 +3179,9 @@ async def chat_completions(
                             log=log_tools,
                         )
                         pending_tool_results.extend(executed_tool.payload for executed_tool in executed_tool_calls)
+                    elif not python_tool_execution_enabled:
+                        # Node control-plane handles custom tool execution; avoid local fallback loops.
+                        break
                     
                     # Keep using the same chat instance across tool turns.
                     # Re-creating with previous_response_id can produce empty-message

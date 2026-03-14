@@ -17,6 +17,7 @@ import { runNodeOrchestration } from './chat/nodeOrchestrator.js';
 import { parseTradingIntent } from './chat/tradingIntentResolver.js';
 import { resolveNodeSkills } from './chat/nodeSkillResolver.js';
 import { buildTaskPlanningContext } from './chat/taskPlanner.js';
+import { buildControlPolicySnapshot } from './chat/controlPolicy.js';
 
 type AITask = Awaited<ReturnType<typeof chatRepo.getTask>>;
 
@@ -78,6 +79,7 @@ export class ChatWorker {
 
     private async runTask(task: NonNullable<AITask>) {
         let userId: string | null = null;
+        let broker: ChatStreamBroker | null = null;
         try {
             logger.info(LogCode.AI_ORCHESTRATOR, 'ChatWorker: starting task', {
                 taskId: task.id,
@@ -94,7 +96,7 @@ export class ChatWorker {
                 throw new Error('Missing session user');
             }
 
-            const broker = new ChatStreamBroker({
+            broker = new ChatStreamBroker({
                 userId,
                 sessionId: task.sessionId,
                 assistantMessageId: task.assistantMessageId!,
@@ -133,6 +135,11 @@ export class ChatWorker {
             });
             const tradingIntent = parseTradingIntent(snapshot.lastUserMessage, snapshot);
             const skillResolution = resolveNodeSkills(snapshot, tradingIntent);
+            snapshot.policySnapshot = buildControlPolicySnapshot({
+                snapshot,
+                tradingIntent,
+                skillResolution,
+            });
             await broker.bootstrapRuntime(buildTaskPlanningContext(snapshot, skillResolution).plan);
 
             const directFollowup = await executeDirectTradeFollowup({
@@ -140,6 +147,7 @@ export class ChatWorker {
                 task,
                 userId,
                 broker,
+                toolExecutionEngine: this.toolExecutionEngine,
             });
             if (directFollowup.handled) {
                 await persistBillingUsage({
@@ -175,31 +183,66 @@ export class ChatWorker {
                 return;
             }
 
-            await runNodeOrchestration({
-                snapshot,
-                generationClient: this.generationClient,
-                toolExecutionEngine: this.toolExecutionEngine,
-                broker,
-                toolContext: {
-                    ...(task.toolContext || {}),
-                    prefetchedToolResults: snapshot.runtime.prefetchedToolResults || {},
-                },
-                shouldCancel: async () => this.checkTaskCancelled(task.id),
-                onProviderState: async (state) => {
-                    if (state.previousResponseId) {
-                        await this.repo.updateSessionConversationState(task.sessionId, {
-                            lastResponseId: state.previousResponseId,
-                        });
-                    }
-                },
-                onToolStatus: async (toolName) => {
-                    this.broadcastTaskStatus(userId, task, {
-                        taskId: task.id,
-                        status: 'running',
-                        message: getToolStatusMessage(toolName),
+            let orchestrationRetried = false;
+            while (true) {
+                try {
+                    await runNodeOrchestration({
+                        snapshot,
+                        generationClient: this.generationClient,
+                        toolExecutionEngine: this.toolExecutionEngine,
+                        broker,
+                        toolContext: {
+                            ...(task.toolContext || {}),
+                            prefetchedToolResults: snapshot.runtime.prefetchedToolResults || {},
+                            recentToolTrace: snapshot.recentToolTrace,
+                            __controlPolicy: snapshot.policySnapshot,
+                            __snapshot: snapshot,
+                        },
+                        shouldCancel: async () => this.checkTaskCancelled(task.id),
+                        onProviderState: async (state) => {
+                            if (state.previousResponseId) {
+                                if (this.isSuspiciousProviderResponseId(state.previousResponseId)) {
+                                    logger.warn(LogCode.AI_ORCHESTRATOR, 'ChatWorker: skip suspicious provider response id', {
+                                        taskId: task.id,
+                                        sessionId: task.sessionId,
+                                        previousResponseId: state.previousResponseId,
+                                    });
+                                    return;
+                                }
+                                await this.repo.updateSessionConversationState(task.sessionId, {
+                                    lastResponseId: state.previousResponseId,
+                                });
+                            }
+                        },
+                        onToolStatus: async (toolName) => {
+                            this.broadcastTaskStatus(userId, task, {
+                                taskId: task.id,
+                                status: 'running',
+                                message: getToolStatusMessage(toolName),
+                            });
+                        },
                     });
-                },
-            });
+                    break;
+                } catch (orchestrationError: any) {
+                    if (
+                        !orchestrationRetried
+                        && broker.getContent().trim().length === 0
+                        && broker.getToolResults().length === 0
+                        && this.shouldRecoverFromStalePreviousResponse(orchestrationError, snapshot.model, snapshot.previousResponseId)
+                    ) {
+                        orchestrationRetried = true;
+                        logger.warn(LogCode.AI_ORCHESTRATOR, 'ChatWorker: stale previous_response_id detected, retrying without it', {
+                            taskId: task.id,
+                            sessionId: task.sessionId,
+                            previousResponseId: snapshot.previousResponseId,
+                        });
+                        snapshot.previousResponseId = null;
+                        await this.repo.updateSessionConversationState(task.sessionId, { lastResponseId: null });
+                        continue;
+                    }
+                    throw orchestrationError;
+                }
+            }
             logger.info(LogCode.AI_ORCHESTRATOR, 'ChatWorker: generation loop finished', {
                 taskId: task.id,
                 sessionId: task.sessionId,
@@ -224,6 +267,7 @@ export class ChatWorker {
             this.broadcastTaskStatus(userId, task, { taskId: task.id, status: 'done' });
         } catch (error: any) {
             const message = error?.message || String(error);
+            const userFacingError = sanitizeUserFacingError(message);
             const isCancelled = message === 'Task cancelled' || message === 'Task cancelled by user';
             logger.error(LogCode.SYS_ERROR, 'ChatWorker task failed', {
                 taskId: task.id,
@@ -240,20 +284,20 @@ export class ChatWorker {
                     await this.repo.updateMessage(task.assistantMessageId, { status: 'complete' });
                 }
                 await this.repo.updateTaskStatus(task.id, 'cancelled');
-                this.broadcastTaskStatus(userId, task, { taskId: task.id, status: 'cancelled', error: message });
+                this.broadcastTaskStatus(userId, task, { taskId: task.id, status: 'cancelled', error: userFacingError });
                 return;
             }
             if (task.assistantMessageId) {
-                const broker = new ChatStreamBroker({
+                const failureBroker = broker || new ChatStreamBroker({
                     userId,
                     sessionId: task.sessionId,
                     assistantMessageId: task.assistantMessageId,
                     model: task.model,
                 });
-                await broker.fail(message);
+                await failureBroker.fail(userFacingError);
             }
-            await this.repo.updateTaskStatus(task.id, 'error', message);
-            this.broadcastTaskStatus(userId, task, { taskId: task.id, status: 'error', error: message });
+            await this.repo.updateTaskStatus(task.id, 'error', userFacingError);
+            this.broadcastTaskStatus(userId, task, { taskId: task.id, status: 'error', error: userFacingError });
         }
     }
 
@@ -276,6 +320,43 @@ export class ChatWorker {
             return false;
         }
     }
+
+    private shouldRecoverFromStalePreviousResponse(
+        error: unknown,
+        model: string,
+        previousResponseId: string | null | undefined
+    ): boolean {
+        if (!previousResponseId) return false;
+        if (!String(model || '').toLowerCase().includes('grok')) return false;
+        const message = String((error as any)?.message || error || '').toLowerCase();
+        return (
+            (message.includes('response with id') && message.includes('not found'))
+            || (message.includes('previous_response_id') && message.includes('not found'))
+            || (message.includes('grpc error') && message.includes('not found'))
+        );
+    }
+
+    private isSuspiciousProviderResponseId(value: string): boolean {
+        const normalized = String(value || '').trim();
+        if (!normalized) return true;
+        // Grok error chunks in router can emit synthetic ids derived from hash(messages),
+        // e.g. chatcmpl--8058831201540333229. These are not valid continuation anchors.
+        return /^chatcmpl-?-?\d+$/.test(normalized);
+    }
+}
+
+function sanitizeUserFacingError(input: string): string {
+    const raw = String(input || '');
+    if (!raw) return 'Task failed';
+
+    // Strip debug fields that may include prompt/context payloads.
+    const stripped = raw
+        .replace(/\s*\|\s*request_tail=.*$/s, '')
+        .replace(/\s*\|\s*raw=.*$/s, '')
+        .trim();
+
+    // Keep concise reason while preserving explicit code prefix if present.
+    return stripped || 'Task failed';
 }
 
 export const chatWorker = new ChatWorker();

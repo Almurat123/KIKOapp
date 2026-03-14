@@ -27,6 +27,10 @@ import {
 const TARGET_SELL_RECONCILE_WINDOW_MS = Math.max(60_000, Number(process.env.COPYTRADE_TARGET_SELL_RECONCILE_WINDOW_MS || '21600000'));
 const ORPHAN_RECOVERY_ENTRY_TX_PREFIX = 'RECOVERED_ONCHAIN_';
 const ORPHAN_RECOVERY_LEADER_TX_PREFIX = 'ORPHAN_RECOVERY_';
+const ORPHAN_RECOVERY_RESIDUAL_RATIO_SKIP_BPS = Math.max(
+  0,
+  Number(process.env.COPYTRADE_ORPHAN_RECOVERY_RESIDUAL_RATIO_SKIP_BPS || '500')
+);
 
 type RecentTargetSellSignal = {
   chainId: number;
@@ -34,6 +38,7 @@ type RecentTargetSellSignal = {
   tokenAddress: string;
   targetSellTxHash: string;
   tokenSymbol: string | null;
+  amountIn: string | null;
   blockTimestamp: Date;
 };
 
@@ -46,6 +51,7 @@ type WalletTransactionSellRow = {
   tokenInAddress: string | null;
   tokenSymbol: string | null;
   tokenInSymbol: string | null;
+  amountIn: string | null;
   blockTimestamp: Date;
 };
 
@@ -53,6 +59,33 @@ function computeDustThresholdRaw(decimals: number): bigint {
   const normalized = Math.max(0, Number.isFinite(decimals) ? Math.floor(decimals) : 0);
   const exponent = normalized > 6 ? normalized - 6 : 0;
   return 10n ** BigInt(exponent);
+}
+
+function parsePositiveBigInt(value: unknown): bigint {
+  const raw = String(value || '').trim();
+  if (!raw || !/^\d+$/.test(raw)) return 0n;
+  try {
+    const parsed = BigInt(raw);
+    return parsed > 0n ? parsed : 0n;
+  } catch {
+    return 0n;
+  }
+}
+
+export function shouldSkipOrphanRecoveryResidual(params: {
+  followerBalanceRaw: bigint;
+  targetSellAmountRaw?: bigint;
+  skipRatioBps?: number;
+}): boolean {
+  const followerBalanceRaw = params.followerBalanceRaw > 0n ? params.followerBalanceRaw : 0n;
+  const targetSellAmountRaw = params.targetSellAmountRaw && params.targetSellAmountRaw > 0n
+    ? params.targetSellAmountRaw
+    : 0n;
+  const skipRatioBps = Number.isFinite(params.skipRatioBps)
+    ? Math.max(0, Math.floor(Number(params.skipRatioBps)))
+    : ORPHAN_RECOVERY_RESIDUAL_RATIO_SKIP_BPS;
+  if (skipRatioBps <= 0 || followerBalanceRaw <= 0n || targetSellAmountRaw <= 0n) return false;
+  return (followerBalanceRaw * 10_000n) <= (targetSellAmountRaw * BigInt(skipRatioBps));
 }
 
 function resolveSellSignalTokenAddress(row: WalletTransactionSellRow): string | null {
@@ -84,6 +117,7 @@ export function resolveRecentTargetSellSignals(rows: WalletTransactionSellRow[])
       tokenAddress,
       targetSellTxHash,
       tokenSymbol: resolveSellSignalTokenSymbol(row),
+      amountIn: row.amountIn || null,
       blockTimestamp: row.blockTimestamp,
     };
     const key = `${chainId}:${targetWallet}:${tokenAddress}:${targetSellTxHash.toLowerCase()}`;
@@ -335,6 +369,7 @@ async function recoverMissingOrphanMirrorSellPositions(params: {
       tokenInAddress: true,
       tokenSymbol: true,
       tokenInSymbol: true,
+      amountIn: true,
       blockTimestamp: true,
     },
   });
@@ -385,6 +420,27 @@ async function recoverMissingOrphanMirrorSellPositions(params: {
 
       const dustThresholdRaw = computeDustThresholdRaw(followerBalance.decimals);
       if (followerBalance.balanceRaw <= dustThresholdRaw) continue;
+      const targetSellAmountRaw = parsePositiveBigInt(signal.amountIn);
+      if (shouldSkipOrphanRecoveryResidual({
+        followerBalanceRaw: followerBalance.balanceRaw,
+        targetSellAmountRaw,
+      })) {
+        logger.info(LogCode.WTC_TX_SKIPPED, '[TargetSellReconcile] Skip orphan recovery for residual tail balance', {
+          userId: config.userId,
+          configId: config.id,
+          chainId: signal.chainId,
+          tokenAddress: signal.tokenAddress,
+          targetWallet: signal.targetWallet,
+          targetSellTxHash: signal.targetSellTxHash,
+          followerWallet,
+          followerBalanceRaw: followerBalance.balanceRaw.toString(),
+          targetSellAmountRaw: targetSellAmountRaw.toString(),
+          residualRatioBps: Number((followerBalance.balanceRaw * 10_000n) / targetSellAmountRaw),
+          residualSkipBps: ORPHAN_RECOVERY_RESIDUAL_RATIO_SKIP_BPS,
+          reasonCode: 'orphan_recovery_residual_tail_skip',
+        });
+        continue;
+      }
 
       const recoveredPosition = await createOrReuseRecoveredPosition({
         userId: config.userId,

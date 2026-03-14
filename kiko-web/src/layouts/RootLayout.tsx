@@ -203,6 +203,52 @@ export const RootLayout: React.FC = () => {
                 pendingByConversationRef.current.set(targetSessionId, new Map());
             }
             const sessionPending = pendingByConversationRef.current.get(targetSessionId)!;
+            const normalizeCitations = (value: any): any[] => {
+                if (!value) return [];
+                const list = Array.isArray(value) ? value : [value];
+                return list.filter((item) => {
+                    if (item === null || item === undefined) return false;
+                    if (typeof item === 'string') return item.trim().length > 0;
+                    if (typeof item === 'object') return true;
+                    return false;
+                });
+            };
+            const mergeCitations = (existing: any[] = [], incomingRaw: any = []): any[] => {
+                const incoming = normalizeCitations(incomingRaw);
+                if (incoming.length === 0) return existing;
+                const merged = [...existing];
+                const seen = new Set(
+                    merged.map((item) => {
+                        try {
+                            return typeof item?.url === 'string' ? item.url : JSON.stringify(item);
+                        } catch {
+                            return String(item);
+                        }
+                    }),
+                );
+                for (const item of incoming) {
+                    let key: string;
+                    try {
+                        key = typeof item?.url === 'string' ? item.url : JSON.stringify(item);
+                    } catch {
+                        key = String(item);
+                    }
+                    if (seen.has(key)) continue;
+                    seen.add(key);
+                    merged.push(item);
+                }
+                return merged;
+            };
+            const matchesTaskContext = (activeTaskIdRaw: unknown, messageIdRaw?: unknown, taskIdRaw?: unknown): boolean => {
+                const activeTaskId = String(activeTaskIdRaw || '');
+                if (!activeTaskId) return false;
+                const taskId = String(taskIdRaw || '');
+                if (taskId && activeTaskId === taskId) return true;
+                const messageId = String(messageIdRaw || '');
+                if (!messageId) return false;
+                if (activeTaskId === `task-${messageId}`) return true;
+                return activeTaskId.includes(messageId);
+            };
 
             // --- Message Start ---
             if (event.type === 'message_start') {
@@ -294,13 +340,24 @@ export const RootLayout: React.FC = () => {
                 }
 
                 const localActiveTaskId = targetConvForChunk?.activeTask?.id;
-                const expectedTaskId = `task-${messageId}`;
-                const hasMatchingActiveTask = targetConvForChunk.activeTask && (localActiveTaskId === expectedTaskId || localActiveTaskId?.includes(messageId));
+                const hasMatchingActiveTask = !!targetConvForChunk.activeTask && matchesTaskContext(localActiveTaskId, messageId);
                 const hasKnownTargetMessage = targetConvForChunk.messages.some(m => m.id === messageId);
+                const targetMessageIndex = targetConvForChunk.messages.findIndex((m) => m.id === messageId);
+                const hasNewerUserMessageAfterTarget = targetMessageIndex >= 0 &&
+                    targetConvForChunk.messages.slice(targetMessageIndex + 1).some((m) => m.role === 'user');
 
                 // Allow late chunks: if message_complete arrived before the last chunk(s), we still apply content for the target message
                 const lastAssistantMsg = [...targetConvForChunk.messages].reverse().find(m => m.role === 'assistant');
                 const isLateChunkForCurrentMessage = lastAssistantMsg?.id === messageId;
+
+                if (hasNewerUserMessageAfterTarget && !hasMatchingActiveTask) {
+                    console.debug('[RootLayout] Ignoring stale chunk for previous turn after newer user message', {
+                        targetSessionId,
+                        messageId,
+                        activeTaskId: localActiveTaskId,
+                    });
+                    return;
+                }
 
                 if (!hasMatchingActiveTask && !isLateChunkForCurrentMessage && !hasKnownTargetMessage) {
                     console.debug('[RootLayout] Buffered out-of-order chunk until placeholder/task state catches up', {
@@ -334,7 +391,7 @@ export const RootLayout: React.FC = () => {
                                 content: updatedMessages[idx].content + (pMsg.content || ''),
                                 reasoning_content: (updatedMessages[idx].reasoning_content || '') + (pMsg.reasoning_content || ''),
                                 usage: pMsg.usage ?? updatedMessages[idx].usage,
-                                citations: pMsg.citations ?? updatedMessages[idx].citations,
+                                citations: mergeCitations(updatedMessages[idx].citations || [], pMsg.citations || []),
                                 data: pMsg.data ?? updatedMessages[idx].data,
                                 status: 'streaming'
                             };
@@ -353,14 +410,24 @@ export const RootLayout: React.FC = () => {
             // --- Task done (only clear task indicator; message completion is handled by message_complete) ---
             else if (event.type === 'task_status' && (event.data.status === 'done' || event.data.status === 'completed')) {
                 const c = conversationsRef.current.find(c => c.id === targetSessionId);
+                const taskId = event.data.taskId || event.data.task_id;
+                const messageId = event.data.messageId || event.data.message_id;
                 const hasStreamingAssistant = !!c?.messages?.some(
                     m => m.role === 'assistant' && (m.status as string) === 'streaming'
                 );
                 const hasPendingChunks = sessionPending.size > 0;
+                const shouldClearForTaskContext = !c?.activeTask || matchesTaskContext(c.activeTask.id, messageId, taskId);
                 // Defer task clear if response is still visibly streaming.
                 // This prevents transient UI "end -> resume" flicker on out-of-order events.
-                if (c?.activeTask && !hasStreamingAssistant && !hasPendingChunks) {
+                if (c?.activeTask && shouldClearForTaskContext && !hasStreamingAssistant && !hasPendingChunks) {
                     clearActiveTask(targetSessionId, updateConversation, 'task_status_done');
+                } else if (c?.activeTask && !shouldClearForTaskContext) {
+                    console.log('[RootLayout] Ignoring stale task_status done for non-active task', {
+                        targetSessionId,
+                        taskId,
+                        messageId,
+                        activeTaskId: c.activeTask.id,
+                    });
                 }
                 return;
             }
@@ -368,6 +435,8 @@ export const RootLayout: React.FC = () => {
             else if (event.type === 'message_complete') {
                 const completionId = event.data.messageId || event.data.message_id;
                 if (!completionId) return;
+                const completionTaskId = event.data.taskId || event.data.task_id;
+                const completionCitations = normalizeCitations(event.data.citations ?? event.data.citation);
                 firstChunkLoggedRef.current.delete(`${targetSessionId}:${completionId}`);
                 const dedupKey = `${targetSessionId}:${completionId}`;
                 console.log('[RootLayout] message_complete:', completionId, 'Pending:', sessionPending.size);
@@ -381,26 +450,37 @@ export const RootLayout: React.FC = () => {
                 if (lastProcessedCompletionRef.current === dedupKey && sessionPending.size === 0) {
                     console.log('[RootLayout] Skipping duplicate complete with empty pending');
                     const c = conversationsRef.current.find(c => c.id === targetSessionId);
-                    if (c?.activeTask) clearActiveTask(targetSessionId, updateConversation, 'message_complete_dedup');
+                    const shouldClearActiveTaskForCompletion = !!c?.activeTask &&
+                        matchesTaskContext(c.activeTask.id, completionId, completionTaskId);
+                    if (shouldClearActiveTaskForCompletion) {
+                        clearActiveTask(targetSessionId, updateConversation, 'message_complete_dedup');
+                    }
                     return;
                 }
                 lastProcessedCompletionRef.current = dedupKey;
 
                 const tConv = conversationsRef.current.find(c => c.id === targetSessionId);
                 if (tConv && sessionPending.size > 0) {
+                    const shouldClearActiveTaskForCompletion = !tConv.activeTask ||
+                        matchesTaskContext(tConv.activeTask.id, completionId, completionTaskId);
                     const updatedMessages = [...tConv.messages];
                     const msgMap = new Map(updatedMessages.map((m, i) => [m.id, i]));
 
                     sessionPending.forEach((pMsg) => {
                         const idx = msgMap.get(pMsg.id);
                         if (idx !== undefined) {
+                            const baseCitations = mergeCitations(updatedMessages[idx].citations || [], pMsg.citations || []);
                             updatedMessages[idx] = {
                                 ...updatedMessages[idx],
                                 content: updatedMessages[idx].content + (pMsg.content || ''),
                                 reasoning_content: (updatedMessages[idx].reasoning_content || '') + (pMsg.reasoning_content || ''),
                                 status: 'complete',
-                                usage: pMsg.usage ?? event.data.usage ?? updatedMessages[idx].usage,
-                                citations: pMsg.citations ?? updatedMessages[idx].citations,
+                                usage: pMsg.id === completionId
+                                    ? (pMsg.usage ?? event.data.usage ?? updatedMessages[idx].usage)
+                                    : (pMsg.usage ?? updatedMessages[idx].usage),
+                                citations: pMsg.id === completionId
+                                    ? mergeCitations(baseCitations, completionCitations)
+                                    : baseCitations,
                                 data: pMsg.data ?? updatedMessages[idx].data,
                             };
                         } else {
@@ -408,7 +488,10 @@ export const RootLayout: React.FC = () => {
                         }
                     });
                     // Atomic: clear activeTask with messages (task_lifecycle: message_complete_pending_flush)
-                    updateConversation(targetSessionId, { messages: updatedMessages, activeTask: null });
+                    updateConversation(targetSessionId, {
+                        messages: updatedMessages,
+                        activeTask: shouldClearActiveTaskForCompletion ? null : tConv.activeTask,
+                    });
                     sessionPending.clear();
 
                     // Also refetch content when the completed message is empty after pending flush.
@@ -445,15 +528,35 @@ export const RootLayout: React.FC = () => {
                         txCardCount,
                         messageIds: tConv.messages.map(m => ({ id: m.id, type: m.type })),
                     });
+                    const shouldClearActiveTaskForCompletion = !tConv.activeTask ||
+                        matchesTaskContext(tConv.activeTask.id, completionId, completionTaskId);
 
                     const updatedMessages = tConv.messages.map(m =>
-                        (m.id === completionId || (m.role === 'assistant' && m.status === 'streaming'))
-                            ? { ...m, status: 'complete' as const, usage: event.data.usage ?? m.usage }
+                        (m.id === completionId || (shouldClearActiveTaskForCompletion && m.role === 'assistant' && m.status === 'streaming'))
+                            ? {
+                                ...m,
+                                status: 'complete' as const,
+                                usage: m.id === completionId ? (event.data.usage ?? m.usage) : m.usage,
+                                citations: m.id === completionId
+                                    ? mergeCitations(m.citations || [], completionCitations)
+                                    : m.citations,
+                            }
                             : m
                     );
                     // Atomic: clear activeTask with messages (task_lifecycle: message_complete_fallback)
-                    updateConversation(targetSessionId, { messages: updatedMessages, activeTask: null });
-                    console.log('[RootLayout] Cleared activeTask (fallback path)');
+                    updateConversation(targetSessionId, {
+                        messages: updatedMessages,
+                        activeTask: shouldClearActiveTaskForCompletion ? null : tConv.activeTask,
+                    });
+                    if (shouldClearActiveTaskForCompletion) {
+                        console.log('[RootLayout] Cleared activeTask (fallback path)');
+                    } else {
+                        console.log('[RootLayout] Preserved activeTask for stale message_complete', {
+                            completionId,
+                            completionTaskId,
+                            activeTaskId: tConv.activeTask?.id,
+                        });
+                    }
 
                     // Fallback: if the completed message still has no content (e.g. late chunks were lost), refetch from server
                     // Do NOT refetch/overwrite transaction-status-card — that would replace the card with DB text and make it disappear
@@ -479,20 +582,155 @@ export const RootLayout: React.FC = () => {
                     }
                 }
             }
+            // --- Error ---
+            else if (event.type === 'error') {
+                const errorText = String(event.data?.error || event.data?.message || 'Generation failed');
+                const errorMessageId = event.data?.messageId || event.data?.message_id;
+                const errorUsage = event.data?.usage;
+                const errorCitations = normalizeCitations(event.data?.citations ?? event.data?.citation);
+                if (errorMessageId) {
+                    firstChunkLoggedRef.current.delete(`${targetSessionId}:${errorMessageId}`);
+                }
+
+                const tConv = conversationsRef.current.find(c => c.id === targetSessionId);
+                if (!tConv) {
+                    if (errorMessageId) {
+                        const pMsg: Message = sessionPending.get(errorMessageId) || {
+                            id: errorMessageId,
+                            role: 'assistant',
+                            content: '',
+                            reasoning_content: '',
+                            status: 'streaming',
+                            citations: [],
+                            usage: undefined,
+                        };
+                        pMsg.status = 'error';
+                        pMsg.usage = pMsg.usage ?? errorUsage;
+                        pMsg.citations = mergeCitations(pMsg.citations || [], errorCitations);
+                        if (!(pMsg.content || '').trim()) {
+                            pMsg.content = errorText;
+                        }
+                        sessionPending.set(errorMessageId, pMsg);
+                    }
+                    return;
+                }
+
+                const updatedMessages = [...tConv.messages];
+                const msgMap = new Map(updatedMessages.map((m, i) => [m.id, i]));
+
+                // Flush all pending deltas/citations first so source data is not lost on failure.
+                if (sessionPending.size > 0) {
+                    sessionPending.forEach((pMsg) => {
+                        const idx = msgMap.get(pMsg.id);
+                        if (idx !== undefined) {
+                            updatedMessages[idx] = {
+                                ...updatedMessages[idx],
+                                content: updatedMessages[idx].content + (pMsg.content || ''),
+                                reasoning_content: (updatedMessages[idx].reasoning_content || '') + (pMsg.reasoning_content || ''),
+                                usage: pMsg.usage ?? updatedMessages[idx].usage,
+                                citations: mergeCitations(updatedMessages[idx].citations || [], pMsg.citations || []),
+                                data: pMsg.data ?? updatedMessages[idx].data,
+                            };
+                        } else {
+                            updatedMessages.push({ ...pMsg });
+                            msgMap.set(pMsg.id, updatedMessages.length - 1);
+                        }
+                    });
+                    sessionPending.clear();
+                }
+
+                let targetIdx = -1;
+                if (errorMessageId) {
+                    targetIdx = updatedMessages.findIndex((m) => m.id === errorMessageId);
+                }
+                if (targetIdx === -1) {
+                    for (let i = updatedMessages.length - 1; i >= 0; i -= 1) {
+                        const message = updatedMessages[i];
+                        if (message.role === 'assistant' && message.status === 'streaming') {
+                            targetIdx = i;
+                            break;
+                        }
+                    }
+                }
+
+                if (targetIdx >= 0) {
+                    const target = updatedMessages[targetIdx];
+                    updatedMessages[targetIdx] = {
+                        ...target,
+                        status: 'error',
+                        content: (target.content || '').trim() ? target.content : errorText,
+                        usage: target.usage ?? errorUsage,
+                        citations: mergeCitations(target.citations || [], errorCitations),
+                    };
+                } else if (errorMessageId) {
+                    updatedMessages.push({
+                        id: errorMessageId,
+                        role: 'assistant',
+                        content: errorText,
+                        reasoning_content: '',
+                        status: 'error',
+                        timestamp: new Date().toISOString(),
+                        type: 'text',
+                        citations: errorCitations,
+                        usage: errorUsage,
+                    } as Message);
+                }
+
+                // Hard stop residual "streaming" markers so plan/loading exits immediately.
+                const finalizedMessages = updatedMessages.map((message) =>
+                    message.role === 'assistant' && message.status === 'streaming'
+                        ? { ...message, status: 'error' as const }
+                        : message
+                );
+
+                updateConversation(targetSessionId, { messages: finalizedMessages, activeTask: null });
+                return;
+            }
             // --- Task Status ---
             else if (event.type === 'task_status') {
                 const targetConv = conversationsRef.current.find(c => c.id === targetSessionId);
                 if (targetConv) {
                     const status = event.data.status;
                     const taskId = event.data.taskId || event.data.task_id;
+                    const messageId = event.data.messageId || event.data.message_id;
                     const currentTask = targetConv.activeTask;
+                    const taskMatchesCurrent = !!currentTask && matchesTaskContext(currentTask.id, messageId, taskId);
                     const hasStreamingAssistant = targetConv.messages.some(
                         (message) => message.role === 'assistant' && message.status === 'streaming'
                     );
                     const latestAssistant = [...targetConv.messages].reverse().find((message) => message.role === 'assistant');
 
                     if (status === 'done' || status === 'completed') {
-                        clearActiveTask(targetSessionId, updateConversation, 'task_status_done');
+                        if (!currentTask || taskMatchesCurrent) {
+                            clearActiveTask(targetSessionId, updateConversation, 'task_status_done');
+                        } else {
+                            console.log('[RootLayout] Ignoring stale task_status done in secondary handler', {
+                                targetSessionId,
+                                taskId,
+                                messageId,
+                                activeTaskId: currentTask.id,
+                            });
+                        }
+                    } else if (status === 'failed' || status === 'error' || status === 'cancelled' || status === 'stopped') {
+                        if (currentTask && !taskMatchesCurrent) {
+                            console.log('[RootLayout] Ignoring stale task_status failure for non-active task', {
+                                targetSessionId,
+                                taskId,
+                                messageId,
+                                activeTaskId: currentTask.id,
+                                status,
+                            });
+                            return;
+                        }
+                        const finalizedMessages = targetConv.messages.map((message) =>
+                            message.role === 'assistant' && message.status === 'streaming'
+                                ? { ...message, status: (status === 'cancelled' ? 'complete' : 'error') as Message['status'] }
+                                : message
+                        );
+                        updateConversation(targetSessionId, {
+                            messages: finalizedMessages,
+                            activeTask: null,
+                        });
                     } else if (status === 'running' || status === 'pending') {
                         if (!currentTask && !hasStreamingAssistant && latestAssistant?.status === 'complete') {
                             console.log('[RootLayout] Ignoring stale running task_status after completion', {
@@ -546,43 +784,30 @@ export const RootLayout: React.FC = () => {
             // --- Citations ---
             else if (event.type === 'citations') {
                 const targetConv = conversationsRef.current.find(c => c.id === targetSessionId);
-                const mergeCitations = (existing: any[] = [], incoming: any[] = []) => {
-                    const merged = [...existing];
-                    const seen = new Set(
-                        merged.map((item) => {
-                            try {
-                                return typeof item?.url === 'string' ? item.url : JSON.stringify(item);
-                            } catch {
-                                return String(item);
-                            }
-                        }),
-                    );
-                    for (const item of incoming || []) {
-                        let key: string;
-                        try {
-                            key = typeof item?.url === 'string' ? item.url : JSON.stringify(item);
-                        } catch {
-                            key = String(item);
-                        }
-                        if (seen.has(key)) continue;
-                        seen.add(key);
-                        merged.push(item);
-                    }
-                    return merged;
-                };
+                const msgId = event.data.message_id || event.data.messageId;
+                if (!msgId) return;
+                const incomingCitations = normalizeCitations(event.data.citations ?? event.data.citation);
                 if (targetConv) {
-                    const msgId = event.data.message_id || event.data.messageId;
-                    const updatedMessages = targetConv.messages.map(m =>
-                        m.id === msgId ? { ...m, citations: mergeCitations(m.citations || [], event.data.citations || []) } : m
-                    );
-                    updateConversation(targetSessionId, { messages: updatedMessages });
+                    const hasTarget = targetConv.messages.some(m => m.id === msgId);
+                    if (hasTarget) {
+                        const updatedMessages = targetConv.messages.map(m =>
+                            m.id === msgId ? { ...m, citations: mergeCitations(m.citations || [], incomingCitations) } : m
+                        );
+                        updateConversation(targetSessionId, { messages: updatedMessages });
+                    } else {
+                        // Buffer citations if message not yet created (out-of-order WS events).
+                        const pMsg: Message = sessionPending.get(msgId) || {
+                            id: msgId, role: 'assistant', content: '', reasoning_content: '', status: 'streaming', citations: [], usage: undefined
+                        };
+                        pMsg.citations = mergeCitations(pMsg.citations || [], incomingCitations);
+                        sessionPending.set(msgId, pMsg);
+                    }
                 } else {
                     // Buffer citations if message not yet created
-                    const msgId = event.data.message_id || event.data.messageId;
                     const pMsg: Message = sessionPending.get(msgId) || {
                         id: msgId, role: 'assistant', content: '', reasoning_content: '', status: 'streaming', citations: [], usage: undefined
                     };
-                    pMsg.citations = mergeCitations(pMsg.citations || [], event.data.citations || []);
+                    pMsg.citations = mergeCitations(pMsg.citations || [], incomingCitations);
                     sessionPending.set(msgId, pMsg);
                 }
             }

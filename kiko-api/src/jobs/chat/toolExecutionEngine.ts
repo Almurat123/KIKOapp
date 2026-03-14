@@ -1,8 +1,64 @@
 import { toolRegistry } from '../../tooling/registry.js';
 import type { OrchestratorToolCall, OrchestratorToolResult } from './contracts.js';
+import { checkToolAgainstPolicy, createPolicyError, type ControlPolicySnapshot } from './controlPolicy.js';
+import { checkMutationExecutionGate } from './executionGate.js';
 
 export class ToolExecutionEngine {
     async execute(call: OrchestratorToolCall, toolContext: Record<string, any>): Promise<OrchestratorToolResult> {
+        const controlPolicy = (toolContext?.__controlPolicy || null) as ControlPolicySnapshot | null;
+        const policyCheck = checkToolAgainstPolicy({
+            call,
+            policy: controlPolicy,
+            knownToolNames: new Set(toolRegistry.getAllDefinitions().map((item) => item.name)),
+        });
+        if (policyCheck) {
+            return {
+                id: call.id,
+                name: call.name,
+                arguments: call.arguments || {},
+                ok: false,
+                error: policyCheck.message,
+                reasonCode: policyCheck.code,
+                policyDecisionId: policyCheck.policyDecisionId,
+                result: {
+                    error: policyCheck.message,
+                    reason_code: policyCheck.code,
+                    policy_decision_id: policyCheck.policyDecisionId,
+                },
+                metadata: { source: 'policy_guard' },
+            };
+        }
+
+        const mutationGate = checkMutationExecutionGate({
+            toolName: call.name,
+            args: call.arguments || {},
+            policy: controlPolicy,
+            gate: toolContext?.__executionGate || null,
+            snapshot: toolContext?.__snapshot || null,
+        });
+        if (!mutationGate.allow) {
+            const blockedError = mutationGate.error || createPolicyError(
+                'CONFIRMATION_REQUIRED',
+                `Execution gate denied ${call.name}`,
+                controlPolicy,
+            );
+            return {
+                id: call.id,
+                name: call.name,
+                arguments: call.arguments || {},
+                ok: false,
+                error: blockedError.message,
+                reasonCode: blockedError.code,
+                policyDecisionId: blockedError.policyDecisionId,
+                result: mutationGate.responsePayload || {
+                    error: blockedError.message,
+                    reason_code: blockedError.code,
+                    policy_decision_id: blockedError.policyDecisionId,
+                },
+                metadata: { source: 'execution_gate' },
+            };
+        }
+
         const shortCircuitResult = this.tryResolveFromContext(call, toolContext || {});
         if (shortCircuitResult !== undefined) {
             return {

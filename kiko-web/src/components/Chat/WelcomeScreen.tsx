@@ -32,29 +32,34 @@ interface WelcomeScreenProps {
 
 export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onSuggestionClick }) => {
   const [isFocused, setIsFocused] = useState(false);
-  const [inputValue, setInputValue] = useState('');
+  const [inputValue, setInputValue] = useState(() => {
+    const stored = sessionStorage.getItem('kiko-prefill-prompt');
+    if (stored) {
+      sessionStorage.removeItem('kiko-prefill-prompt');
+    }
+    return stored || '';
+  });
   const [isComposing, setIsComposing] = useState(false);
   const lastCompositionEndRef = useRef<number>(0);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const hasInitialPrefillRef = useRef(inputValue.length > 0);
 
   const autoResizeTextarea = (textarea: HTMLTextAreaElement) => {
     textarea.style.height = 'auto';
     textarea.style.height = `${Math.min(textarea.scrollHeight, 200)}px`;
   };
 
-  // On mount: read prefill from sessionStorage (set by TokenDetailPage buy/sell/analyze)
+  // Focus the prefilled prompt on mount when navigation seeds the welcome input.
   useEffect(() => {
-    const stored = sessionStorage.getItem('kiko-prefill-prompt');
-    if (stored) {
-      sessionStorage.removeItem('kiko-prefill-prompt');
-      setInputValue(stored);
-      requestAnimationFrame(() => {
-        if (textareaRef.current) {
-          autoResizeTextarea(textareaRef.current);
-          textareaRef.current.focus();
-        }
-      });
-    }
+    if (!hasInitialPrefillRef.current) return;
+
+    hasInitialPrefillRef.current = false;
+    requestAnimationFrame(() => {
+      if (textareaRef.current) {
+        autoResizeTextarea(textareaRef.current);
+        textareaRef.current.focus();
+      }
+    });
   }, []);
 
   // Also listen for the event (fires when WelcomeScreen is already mounted)
@@ -134,8 +139,10 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onSuggestionClick 
     setShowSuggestions: setShowSmartSuggestions
   } = useSmartSuggestions(
     (text) => {
-      onSuggestionClick(text);
-      setInputValue('');
+      if (text.trim()) {
+        onSuggestionClick(text.trim());
+        setInputValue('');
+      }
     }, // onSend
     (text) => {
       // Fill the input box instead of sending immediately
@@ -168,7 +175,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onSuggestionClick 
 
   const handleSend = () => {
     if (inputValue.trim()) {
-      onSuggestionClick(inputValue);
+      onSuggestionClick(inputValue.trim());
       setInputValue('');
     }
   };

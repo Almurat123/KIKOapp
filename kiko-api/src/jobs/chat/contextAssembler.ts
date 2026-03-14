@@ -177,6 +177,7 @@ export function assembleChatContext(params: {
             compactionHits: budget.compactedSummary ? 1 : 0,
         },
         toolDefinitions,
+        policySnapshot: null,
     };
 }
 

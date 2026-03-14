@@ -352,8 +352,8 @@ export async function chatRoutes(fastify: FastifyInstance) {
                 let allowanceMode = request.body.allowanceMode;
 
                 if (!allowanceMode) {
-                    // FORCED: All users use allowance_trade mode (instant execution)
-                    allowanceMode = 'instant'; // Always instant now
+                    const fastSwapEnabled = Boolean((toolConfig as any)?.fastSwapMode);
+                    allowanceMode = fastSwapEnabled ? 'instant' : 'confirm';
                 }
 
                 // Extract access token for backend swap execution

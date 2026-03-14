@@ -57,3 +57,25 @@ test('parseMarket tolerates missing token ids without fabricating them', () => {
   assert.equal(market.yesProbability, '20.0%');
   assert.equal(market.noProbability, '80.0%');
 });
+
+test('parseMarket tolerates missing endDate from Gamma payloads', () => {
+  const market = __testables.parseMarket({
+    id: 'missing-date',
+    question: 'Will X happen?',
+    outcomes: '["Yes","No"]',
+    outcomePrices: '["0.2","0.8"]',
+    volume: '0',
+    volume24hr: 0,
+    liquidity: '0',
+    closed: false
+  });
+
+  assert.equal(market.endDate, null);
+});
+
+test('normalizeDate returns null for blank or missing timestamps', () => {
+  assert.equal(__testables.normalizeDate(undefined), null);
+  assert.equal(__testables.normalizeDate(''), null);
+  assert.equal(__testables.normalizeDate('   '), null);
+  assert.equal(__testables.normalizeDate('2026-03-15T00:00:00Z'), '2026-03-15T00:00:00Z');
+});

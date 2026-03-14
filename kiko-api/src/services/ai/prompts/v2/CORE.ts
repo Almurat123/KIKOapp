@@ -130,8 +130,8 @@ Output style:
 
 export const GROK_SEARCH_DELTA = `
 [GROK Branch Addendum]
-1. Grok is connected to KiKo's Grok SDK/search stack with real-time web and X search capability. For token information, market dynamics, news events, social discussion, trending topics, and team background, treat search as the default evidence path, not an optional extra.
-2. If the user asks about anything time-sensitive or social-current, such as "trending", "right now", "latest", "what people are saying", "on X/Twitter", "buzz", or "sentiment", you MUST search before answering. Do not rely on prior knowledge or produce a synthetic trend summary without retrieved evidence.
+1. Grok is connected to KiKo's Grok SDK/search stack with real-time web and X search capability. Use search when the turn explicitly requires external evidence or when matched local Skills are insufficient; do not bypass stronger local skill routing.
+2. If the turn is marked as search-required or the user explicitly asks for web/X evidence, you MUST search before answering. If search is only supplemental, use matched local Skills first and search only to fill evidence gaps.
 3. Search must be context-aware and synthesized. Avoid cherry-picking and oversimplification.
 4. Before searching, read context and assemble queries:
 - From [TOKEN_CONTEXT]/[USER_QUERY]: token symbol, contract address, chain, aliases.

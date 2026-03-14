@@ -11,7 +11,7 @@ export interface TaskPlanningContext {
     locale: 'en' | 'zh';
 }
 
-const SOCIAL_KEYWORDS = ['latest', 'today', 'current', 'timing', 'post', 'tweet', 'twitter', 'x.com', 'social', 'cz'];
+const SOCIAL_KEYWORDS = ['latest', 'today', 'current', 'timing', 'post', 'tweet', 'twitter', 'x.com', 'social', 'cz', 'trending', 'trend'];
 const SOCIAL_CN_KEYWORDS = ['最新', '今天', '现在', '时点', '发文', '推文', '社交', 'CZ'];
 const CHAIN_EVIDENCE_KEYWORDS = [
     'early buyers', 'earliest buyers', 'first buyers', 'first buyer', 'early buyer',
@@ -26,7 +26,13 @@ export function buildTaskPlanningContext(
 ): TaskPlanningContext {
     const query = String(snapshot.lastUserMessage || '');
     const lower = query.toLowerCase();
-    const asksRealtimeSocial = containsAny(lower, SOCIAL_KEYWORDS) || containsAny(query, SOCIAL_CN_KEYWORDS);
+    const asksRealtimeSocial = containsAny(lower, SOCIAL_KEYWORDS)
+        || containsAny(query, SOCIAL_CN_KEYWORDS)
+        || /\bon\s+x\b/i.test(lower)
+        || /\bweb\s+search\b/i.test(lower)
+        || /\bsearch\s+(the\s+)?web\b/i.test(lower)
+        || /\bsearch\s+x\b/i.test(lower)
+        || /\bx\s+search\b/i.test(lower);
     const asksOnChainEvidence = containsAny(lower, CHAIN_EVIDENCE_KEYWORDS) || containsAny(query, CHAIN_EVIDENCE_CN_KEYWORDS);
     const asksCreatorEvidence = containsAny(lower, ['creator', 'deployer', 'deployed by']) || containsAny(query, ['创建者', '部署者', '谁部署']);
     const requestedToken = (snapshot.requestedTokenAddresses || []).length > 0 || (snapshot.requestedTokenSymbols || []).length > 0;
@@ -112,10 +118,33 @@ export function buildSummaryPlanStep(query: string): PlanStep {
 
 export function resolvePlanStepForTool(
     toolName: string,
-    planning: TaskPlanningContext,
-    skillResolution: SkillResolution,
-    query: string,
+    planningOrSkills: TaskPlanningContext | SkillResolution,
+    skillsOrQuery: SkillResolution | string,
+    maybeQuery?: string,
 ): PlanStep | null {
+    const legacyMode = typeof maybeQuery !== 'string';
+    const planning: TaskPlanningContext = legacyMode
+        ? {
+            plan: {
+                planId: randomUUID(),
+                title: 'legacy',
+                summary: 'legacy',
+                locale: detectLocale(String(skillsOrQuery || '')),
+                status: 'in_progress',
+                steps: [],
+            },
+            asksRealtimeSocial: false,
+            asksOnChainEvidence: false,
+            asksCreatorEvidence: false,
+            requestedToken: false,
+            locale: detectLocale(String(skillsOrQuery || '')),
+        }
+        : planningOrSkills as TaskPlanningContext;
+    const skillResolution = legacyMode
+        ? planningOrSkills as SkillResolution
+        : skillsOrQuery as SkillResolution;
+    const query = legacyMode ? String(skillsOrQuery || '') : String(maybeQuery || '');
+
     if (toolName === 'external_web_search') {
         return buildSocialPlanStep(skillResolution, query);
     }

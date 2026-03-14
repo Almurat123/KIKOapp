@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import clsx from 'clsx';
 import { CheckCircle2, ChevronDown, ChevronRight, Circle, LoaderCircle, XCircle } from 'lucide-react';
 import planStyles from './PlanCard.module.css';
@@ -58,9 +58,22 @@ export const PlanCard: React.FC<PlanCardProps> = ({ plan, reasoningText, isStrea
   const isActive = visualStatus === 'in_progress';
   const defaultOpen = useMemo(() => {
     const firstExpandable = steps.find((step) => (step.executions || []).length > 0);
-    return firstExpandable?.id || null;
+    return firstExpandable?.id ? [firstExpandable.id] : [];
   }, [steps]);
-  const [openStepId, setOpenStepId] = useState<string | null>(defaultOpen);
+  const [openStepIds, setOpenStepIds] = useState<string[]>(defaultOpen);
+
+  useEffect(() => {
+    setOpenStepIds((current) => {
+      const allowedStepIds = new Set(
+        steps
+          .filter((step) => !!step.description || (step.executions || []).length > 0)
+          .map((step) => step.id),
+      );
+      const filtered = current.filter((id) => allowedStepIds.has(id));
+      if (filtered.length > 0) return filtered;
+      return defaultOpen;
+    });
+  }, [steps, defaultOpen]);
 
   if (steps.length === 0) return null;
 
@@ -92,7 +105,7 @@ export const PlanCard: React.FC<PlanCardProps> = ({ plan, reasoningText, isStrea
           const visualStepStatus: PlanStepStatus = isStreaming && step.status === 'pending' && plan.currentStepId === step.id
             ? 'in_progress'
             : step.status;
-          const isExpanded = openStepId === step.id;
+          const isExpanded = openStepIds.includes(step.id);
           const hasDetail = !!step.description || (step.executions || []).length > 0;
           return (
             <div key={step.id} className={planStyles.step}>
@@ -109,7 +122,11 @@ export const PlanCard: React.FC<PlanCardProps> = ({ plan, reasoningText, isStrea
                   className={clsx(planStyles.stepHeader, !hasDetail && planStyles.stepHeaderStatic)}
                   onClick={() => {
                     if (!hasDetail) return;
-                    setOpenStepId((current) => (current === step.id ? null : step.id));
+                    setOpenStepIds((current) => (
+                      current.includes(step.id)
+                        ? current.filter((id) => id !== step.id)
+                        : [...current, step.id]
+                    ));
                   }}
                 >
                   <div className={planStyles.stepMain}>

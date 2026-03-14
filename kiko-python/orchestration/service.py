@@ -110,7 +110,7 @@ def _build_provider_options(snapshot: dict[str, Any], provider_info: dict[str, A
             "required": requires_realtime_social_search,
             "preferred_required_tool": "x_search" if requires_realtime_social_search else None,
             "include_options": ["inline_citations"] + (["web_search_call_output", "x_search_call_output"] if requires_realtime_social_search else []),
-            "allow_extra_sdk_tools": True,
+            "allow_extra_sdk_tools": False,
             "reason": "required_realtime_social_search" if requires_realtime_social_search else "native_search_available",
         },
         "execution": {

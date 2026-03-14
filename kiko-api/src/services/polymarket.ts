@@ -14,8 +14,8 @@ interface PolymarketEvent {
     description?: string;
     volume: number;
     liquidity: number;
-    startDate: string;
-    endDate: string;
+    startDate?: string;
+    endDate?: string;
     markets?: PolymarketMarket[];
 }
 
@@ -28,7 +28,7 @@ interface PolymarketMarket {
     volume: string;
     volume24hr: number | null;
     liquidity: string;
-    endDate: string;
+    endDate?: string;
     closed: boolean;
     acceptingOrders?: boolean;
     bestBid?: number;
@@ -51,7 +51,7 @@ interface ParsedMarket {
     noProbability: string;  // "35%"
     volume24hr: number;
     liquidity: number;
-    endDate: string;
+    endDate: string | null;
     closed: boolean;
     acceptingOrders: boolean;
     bestBid: number | null;
@@ -67,6 +67,12 @@ function parseStringArray(raw?: string): string[] {
     } catch {
         return [];
     }
+}
+
+function normalizeDate(value: unknown): string | null {
+    if (typeof value !== 'string') return null;
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : null;
 }
 
 /**
@@ -99,7 +105,7 @@ function parseMarket(market: PolymarketMarket): ParsedMarket {
         noProbability: formatProbability(no),
         volume24hr: market.volume24hr || 0,
         liquidity: parseFloat(market.liquidity) || 0,
-        endDate: market.endDate,
+        endDate: normalizeDate(market.endDate),
         closed: market.closed,
         acceptingOrders: Boolean(market.acceptingOrders),
         bestBid: typeof market.bestBid === 'number' ? market.bestBid : null,
@@ -109,6 +115,7 @@ function parseMarket(market: PolymarketMarket): ParsedMarket {
 }
 
 export const __testables = {
+    normalizeDate,
     parseMarket
 };
 
@@ -121,7 +128,7 @@ export async function getTrendingEvents(limit: number = 10): Promise<{
         title: string;
         volume: number;
         liquidity: number;
-        endDate: string;
+        endDate: string | null;
     }>;
 }> {
     const url = `${GAMMA_API_BASE}/events?limit=${limit}&active=true&closed=false&order=volume24hr&ascending=false`;
@@ -145,7 +152,7 @@ export async function getTrendingEvents(limit: number = 10): Promise<{
             title: event.title,
             volume: Math.floor(event.volume || 0),
             liquidity: Math.floor(event.liquidity || 0),
-            endDate: event.endDate
+            endDate: normalizeDate(event.endDate)
         }))
     };
 }
@@ -159,7 +166,7 @@ export async function getEventDetails(eventId: string): Promise<{
     description: string;
     volume: number;
     liquidity: number;
-    endDate: string;
+    endDate: string | null;
     markets: ParsedMarket[];
 }> {
     const url = `${GAMMA_API_BASE}/events/${eventId}`;
@@ -183,7 +190,7 @@ export async function getEventDetails(eventId: string): Promise<{
         description: event.description || '',
         volume: Math.floor(event.volume || 0),
         liquidity: Math.floor(event.liquidity || 0),
-        endDate: event.endDate,
+        endDate: normalizeDate(event.endDate),
         markets: markets.slice(0, 10)
     };
 }
@@ -218,7 +225,7 @@ export async function searchEvents(query: string, limit: number = 10): Promise<{
         title: string;
         volume: number;
         liquidity: number;
-        endDate: string;
+        endDate: string | null;
     }>;
 }> {
     // Use the optimized public-search endpoint
@@ -243,7 +250,7 @@ export async function searchEvents(query: string, limit: number = 10): Promise<{
             title: event.title,
             volume: Math.floor(event.volume || 0),
             liquidity: Math.floor(event.liquidity || 0),
-            endDate: event.endDate
+            endDate: normalizeDate(event.endDate)
         }))
     };
 }
@@ -277,7 +284,7 @@ export async function getNewMarkets(limit: number = 10): Promise<{
             title: event.title,
             volume: Math.floor(event.volume || 0),
             liquidity: Math.floor(event.liquidity || 0),
-            creationDate: event.startDate, // Gamma may return startDate/creationDate/createdAt. Keep startDate as fallback display timestamp.
+            creationDate: normalizeDate(event.startDate) || '', // Gamma may omit some timestamps; keep an empty string instead of leaking undefined.
             markets: (event.markets || [])
                 .filter((market) => !market.closed)
                 .map(parseMarket)

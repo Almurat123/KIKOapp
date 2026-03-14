@@ -1,163 +1,202 @@
-[python] INFO:moderation.router:Moderating input: 你能否根据CZ发的关于帖子内有“富个鸟”帖子的时间点，去检查在当时发行的代币0x6d785b0855...
-[api] [17:24:01] [inf] [METRIC] [API-5001] No transfers found on Alchemy, trying ScanAPI fallback | chain=base role=METRIC
-[api] [Alchemy] getAssetTransfers failed, falling back to ScanAPI: Error: No transfers from Alchemy, trying fallback
-[api]     at getWalletTransactions (/Users/almurat/KiKo/kiko-api/src/services/alchemy.ts:1068:13)
-[api]     at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
-[api]     at async bootstrapTrackedWalletHistory (/Users/almurat/KiKo/kiko-api/src/services/targetWalletTrackingService.ts:613:15)
-[api]     at async runEvmMissedTradeRecoveryCycle (/Users/almurat/KiKo/kiko-api/src/services/copytrade-v2/ingress/evmMissedTradeRecovery.ts:105:5)
+[api] [verifyAccess] Checking access: {
+[api]   userId: 'did:privy:cmj0a3j3f005fl20c4xkl7195',
+[api]   userIdLength: 35,
+[api]   userIdPrefix: 'did:privy:cmj0a3j3f0',
+[api]   requestedAddress: '0xA386bc9D8F26AB170A847D73226e3e0BCEb0fe8E'
+[api] }
+[api] [verifyAccess] ✅ Access granted
+[api] [17:40:13] [wrn] [METRIC] [API-5002] Alchemy Portfolio EVM fetch failed | traceId=db68897a-e50f-48a7-b0fe-340a805b4321 error=HTTP 403: Unspecified origin not on whitelist. page=0 role=METRIC
+[api] [17:40:14] [inf] [TRACE] [AI-6007] Chat route: sendMessage received | traceId=9485df19-9386-4582-93f5-77d066d4f389 userId=did:privy:cmj0a3j3f005fl20c4xkl7195 sessionId=cmmqm2l4h00k9jspakk4xlpio model=grok-4-1-fast-non-reasoning chainId=8453 contentLength=20 role=TRACE
+[api] [17:40:14] [inf] [TRACE] [AI-6007] Chat route: user message persisted | traceId=9485df19-9386-4582-93f5-77d066d4f389 userId=did:privy:cmj0a3j3f005fl20c4xkl7195 sessionId=cmmqm2l4h00k9jspakk4xlpio model=grok-4-1-fast-non-reasoning userMessageId=cmmqm2l5400kbjspaswve4wow routeStageMs=10 role=TRACE
+[api] [17:40:14] [inf] [TRACE] [AI-6007] Chat route: task created | traceId=9485df19-9386-4582-93f5-77d066d4f389 userId=did:privy:cmj0a3j3f005fl20c4xkl7195 sessionId=cmmqm2l4h00k9jspakk4xlpio taskId=cmmqm2l5f00khjspan9outr3t assistantMessageId=cmmqm2l5c00kfjspalcbufoq9 userMessageId=cmmqm2l5400kbjspaswve4wow model=grok-4-1-fast-non-reasoning routeStageMs=20 walletHydrationMs=0 walletHydrationAttempted=false role=TRACE
+[api] [17:40:14] [inf] [TRACE] [AI-6007] Chat route: task queued and wake triggered | traceId=9485df19-9386-4582-93f5-77d066d4f389 userId=did:privy:cmj0a3j3f005fl20c4xkl7195 sessionId=cmmqm2l4h00k9jspakk4xlpio taskId=cmmqm2l5f00khjspan9outr3t assistantMessageId=cmmqm2l5c00kfjspalcbufoq9 model=grok-4-1-fast-non-reasoning routeTotalMs=20 role=TRACE
+[api] [17:40:14] [inf] [TRACE] [AI-6011] ChatWorker: starting task | traceId=9485df19-9386-4582-93f5-77d066d4f389 taskId=cmmqm2l5f00khjspan9outr3t sessionId=cmmqm2l4h00k9jspakk4xlpio model=grok-4-1-fast-non-reasoning role=TRACE
+[api] [17:40:14] [inf] [TRACE] [AI-6011] ChatWorker: task context loaded | traceId=9485df19-9386-4582-93f5-77d066d4f389 taskId=cmmqm2l5f00khjspan9outr3t sessionId=cmmqm2l4h00k9jspakk4xlpio messageCount=2 assistantMessageId=cmmqm2l5c00kfjspalcbufoq9 role=TRACE
+[python] INFO:moderation.router:Moderating input: what's trending bet?...
+[api] [17:40:14] [inf] [METRIC] [API-5001] Processed DexScreener trending candidates | candidates=32 limit=200 role=METRIC
+[api] [17:40:14] [inf] [METRIC] [API-5001] Premium trending tokens fetch complete | count=73 chain=bsc durationMs=5225 source=WebSocket wsOriginal=196 role=METRIC
+[api] [17:40:14] [inf] [METRIC] [API-5001] Got 73 trending tokens for BSC | role=METRIC
+[api] Saved 73/73 trending tokens for bsc to database and memory cache
+[api] [17:40:14] [inf] [EVENT] [SYS-1007] Saved 73 tokens for BSC to DB + cache | role=EVENT
+[api] [17:40:14] [inf] [EVENT] [SYS-1007] Refreshed 4 primary chains in 102.0s | role=EVENT
+[api] [17:40:14] [inf] [METRIC] [API-5001] Launchpad verify budget applied | chain=bsc unresolved=49 verifying=48 role=METRIC
+[api] Saved 73/73 trending tokens for bsc to database and memory cache
 [python] INFO:httpx:HTTP Request: POST https://api.openai.com/v1/moderations "HTTP/1.1 200 OK"
-[python] INFO:     127.0.0.1:62383 - "POST /moderation/input HTTP/1.1" 200 OK
-[api] [17:24:02] [inf] [EVENT] [SYS-1007] Moderation Input check result | traceId=9abcba9c-35f4-4d9d-8d4b-337dad74c199 safe=true action=allow userId=did:privy:cmj0a3j3f005fl20c4xkl7195 role=EVENT
-[api] [17:24:02] [inf] [TRACE] [AI-6011] ChatWorker: snapshot assembled | traceId=9abcba9c-35f4-4d9d-8d4b-337dad74c199 taskId=cmmnqm0ju003ds1cbysmmmrb3 sessionId=cmmnqm0f00034s1cb3npmtvlg historyCount=2 directiveCount=0 prefetchedKeys=[2] requestedSymbols=[1] requestedAddresses=1 role=TRACE
-[api] [17:24:02] [inf] [TRACE] [AI-6011] PythonGenerationClient: opening generation stream | traceId=9abcba9c-35f4-4d9d-8d4b-337dad74c199 sessionId=cmmnqm0f00034s1cb3npmtvlg taskId=cmmnqm0ju003ds1cbysmmmrb3:plan model=grok-4-1-fast-reasoning messageCount=2 toolCount=0 role=TRACE
-[api] [17:24:02] [inf] [TRACE] [AI-6011] NodeOrchestrator: starting generation loop | traceId=9abcba9c-35f4-4d9d-8d4b-337dad74c199 sessionId=cmmnqm0f00034s1cb3npmtvlg taskId=cmmnqm0ju003ds1cbysmmmrb3 provider=grok skills=[1] allowedTools=[6] toolCount=45 planSteps=1 role=TRACE
-[api] [17:24:02] [inf] [TRACE] [AI-6011] NodeOrchestrator: generation round start | traceId=9abcba9c-35f4-4d9d-8d4b-337dad74c199 sessionId=cmmnqm0f00034s1cb3npmtvlg taskId=cmmnqm0ju003ds1cbysmmmrb3 round=1 role=TRACE
-[python] INFO:generation.app:generation.stream_start session_id=cmmnqm0f00034s1cb3npmtvlg task_id=cmmnqm0ju003ds1cbysmmmrb3:plan model=grok-4-1-fast-reasoning message_count=2 tool_count=0
-[api] [17:24:02] [inf] [TRACE] [AI-6011] PythonGenerationClient: opening generation stream | traceId=9abcba9c-35f4-4d9d-8d4b-337dad74c199 sessionId=cmmnqm0f00034s1cb3npmtvlg taskId=cmmnqm0ju003ds1cbysmmmrb3 model=grok-4-1-fast-reasoning messageCount=3 toolCount=45 role=TRACE
-[python] INFO:     127.0.0.1:62390 - "POST /generation/internal/v1/stream HTTP/1.1" 200 OK
-[python] INFO:generation.app:generation.stream_start session_id=cmmnqm0f00034s1cb3npmtvlg task_id=cmmnqm0ju003ds1cbysmmmrb3 model=grok-4-1-fast-reasoning message_count=3 tool_count=45
-[python] INFO:     127.0.0.1:62391 - "POST /generation/internal/v1/stream HTTP/1.1" 200 OK
-[python] INFO:     127.0.0.1:62392 - "POST /llm-gateway/internal/v1/generate HTTP/1.1" 200 OK
+[python] INFO:     127.0.0.1:60160 - "POST /moderation/input HTTP/1.1" 200 OK
+[api] [17:40:15] [inf] [EVENT] [SYS-1007] Moderation Input check result | traceId=9485df19-9386-4582-93f5-77d066d4f389 safe=true action=allow userId=did:privy:cmj0a3j3f005fl20c4xkl7195 role=EVENT
+[api] [17:40:15] [inf] [TRACE] [AI-6011] ChatWorker: snapshot assembled | traceId=9485df19-9386-4582-93f5-77d066d4f389 taskId=cmmqm2l5f00khjspan9outr3t sessionId=cmmqm2l4h00k9jspakk4xlpio historyCount=2 directiveCount=0 prefetchedKeys=[1] requestedSymbols=[0] requestedAddresses=0 role=TRACE
+[api] [17:40:15] [inf] [TRACE] [AI-6010] Node skill resolution completed | traceId=9485df19-9386-4582-93f5-77d066d4f389 sessionId=cmmqm2l4h00k9jspakk4xlpio taskId=cmmqm2l5f00khjspan9outr3t selectedSkills=[1] rankedMatches=[1] rejectedSkills=[5] searchMode=fallback searchReason=local_skill_first_with_realtime_fallback allowedTools=[19] blockedTools=[1] role=TRACE
+[api] [17:40:15] [inf] [TRACE] [AI-6010] Node skill resolution completed | traceId=9485df19-9386-4582-93f5-77d066d4f389 sessionId=cmmqm2l4h00k9jspakk4xlpio taskId=cmmqm2l5f00khjspan9outr3t selectedSkills=[1] rankedMatches=[1] rejectedSkills=[5] searchMode=fallback searchReason=local_skill_first_with_realtime_fallback allowedTools=[19] blockedTools=[1] role=TRACE
+[api] [17:40:15] [inf] [TRACE] [AI-6011] PythonGenerationClient: opening generation stream | traceId=9485df19-9386-4582-93f5-77d066d4f389 sessionId=cmmqm2l4h00k9jspakk4xlpio taskId=cmmqm2l5f00khjspan9outr3t:plan model=grok-4-1-fast-non-reasoning messageCount=2 toolCount=0 role=TRACE
+[api] [17:40:15] [inf] [TRACE] [AI-6011] NodeOrchestrator: starting generation loop | traceId=9485df19-9386-4582-93f5-77d066d4f389 sessionId=cmmqm2l4h00k9jspakk4xlpio taskId=cmmqm2l5f00khjspan9outr3t provider=grok skills=[1] rankedMatches=[1] searchMode=fallback allowedTools=[19] toolCount=19 planSteps=1 role=TRACE
+[python] INFO:generation.app:generation.stream_start session_id=cmmqm2l4h00k9jspakk4xlpio task_id=cmmqm2l5f00khjspan9outr3t:plan model=grok-4-1-fast-non-reasoning message_count=2 tool_count=0
+[python] INFO:     127.0.0.1:60170 - "POST /generation/internal/v1/stream HTTP/1.1" 200 OK
+[api] [17:40:15] [inf] [TRACE] [AI-6011] NodeOrchestrator: generation round start | traceId=9485df19-9386-4582-93f5-77d066d4f389 sessionId=cmmqm2l4h00k9jspakk4xlpio taskId=cmmqm2l5f00khjspan9outr3t round=1 role=TRACE
+[api] [17:40:15] [inf] [TRACE] [AI-6011] PythonGenerationClient: opening generation stream | traceId=9485df19-9386-4582-93f5-77d066d4f389 sessionId=cmmqm2l4h00k9jspakk4xlpio taskId=cmmqm2l5f00khjspan9outr3t model=grok-4-1-fast-non-reasoning messageCount=3 toolCount=19 role=TRACE
+[python] INFO:generation.app:generation.stream_start session_id=cmmqm2l4h00k9jspakk4xlpio task_id=cmmqm2l5f00khjspan9outr3t model=grok-4-1-fast-non-reasoning message_count=3 tool_count=19
+[python] INFO:     127.0.0.1:60171 - "POST /generation/internal/v1/stream HTTP/1.1" 200 OK
+[python] INFO:     127.0.0.1:60172 - "POST /llm-gateway/internal/v1/generate HTTP/1.1" 200 OK
 [python] INFO:httpx:HTTP Request: POST http://127.0.0.1:8000/llm-gateway/internal/v1/generate "HTTP/1.1 200 OK"
-[python] INFO:     127.0.0.1:62393 - "POST /llm-gateway/internal/v1/generate HTTP/1.1" 200 OK
+[python] INFO:     127.0.0.1:60173 - "POST /llm-gateway/internal/v1/generate HTTP/1.1" 200 OK
 [python] INFO:httpx:HTTP Request: POST http://127.0.0.1:8000/llm-gateway/internal/v1/generate "HTTP/1.1 200 OK"
-[python] [Model] Original: grok-4-1-fast-reasoning -> Normalized: grok-4-1-fast-reasoning
-[python] [Tool Policy] enable_search=False enabled_tools=[] required=False preferred=None reason=n/a per_tool_timeout_ms=None total_tool_budget_ms=None
-[python] INFO:     127.0.0.1:62395 - "POST /grok/v1/chat/completions HTTP/1.1" 200 OK
+[api] [17:40:15] [inf] [METRIC] [API-5001] Fallback stablecoin balances fetched via RPC | traceId=db68897a-e50f-48a7-b0fe-340a805b4321 chain=base address=0xA386bc9D8F26AB170A847D73226e3e0BCEb0fe8E tokenCount=2 role=METRIC
+[python] [Model] Original: grok-4-1-fast-non-reasoning -> Normalized: grok-4-1-fast-non-reasoning
+[python] [Tool Policy] action_class=READ_ONLY mutation_allowed=False enforcement=hard enable_search=False enabled_tools=[] required=False preferred=None reason=n/a per_tool_timeout_ms=None total_tool_budget_ms=None
+[python] INFO:     127.0.0.1:60175 - "POST /grok/v1/chat/completions HTTP/1.1" 200 OK
 [python] INFO:httpx:HTTP Request: POST http://localhost:8000/grok/v1/chat/completions "HTTP/1.1 200 OK"
-[python] [Model] Original: grok-4-1-fast-reasoning -> Normalized: grok-4-1-fast-reasoning
-[python] [Tool Policy] enable_search=True enabled_tools=['web_search', 'x_search'] required=True preferred=x_search reason=required_realtime_social_search per_tool_timeout_ms=20000 total_tool_budget_ms=45000
-[python] INFO:     127.0.0.1:62397 - "POST /grok/v1/chat/completions HTTP/1.1" 200 OK
+[python] [Model] Original: grok-4-1-fast-non-reasoning -> Normalized: grok-4-1-fast-non-reasoning
+[python] [Tool Policy] action_class=READ_ONLY mutation_allowed=False enforcement=hard enable_search=True enabled_tools=['web_search'] required=False preferred=None reason=local_skill_first_with_realtime_fallback per_tool_timeout_ms=20000 total_tool_budget_ms=45000
+[python] INFO:     127.0.0.1:60177 - "POST /grok/v1/chat/completions HTTP/1.1" 200 OK
 [python] INFO:httpx:HTTP Request: POST http://localhost:8000/grok/v1/chat/completions "HTTP/1.1 200 OK"
-[api] [17:24:03] [inf] [METRIC] [API-5001] No transfers found on Alchemy, trying ScanAPI fallback | chain=base role=METRIC
-[api] [Alchemy] getAssetTransfers failed, falling back to ScanAPI: Error: No transfers from Alchemy, trying fallback
-[api]     at getWalletTransactions (/Users/almurat/KiKo/kiko-api/src/services/alchemy.ts:1068:13)
-[api]     at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
-[api]     at async bootstrapTrackedWalletHistory (/Users/almurat/KiKo/kiko-api/src/services/targetWalletTrackingService.ts:613:15)
-[api]     at async runEvmMissedTradeRecoveryCycle (/Users/almurat/KiKo/kiko-api/src/services/copytrade-v2/ingress/evmMissedTradeRecovery.ts:105:5)
-[api] [17:24:03] [inf] [EVENT] [SYS-1007] [CopyTradeRecovery] startup recovery cycle finished | runNumber=1 scannedWallets=5 recoveredTxs=0 lookbackMs=600000 role=EVENT
-[api] [17:24:03] [inf] [EVENT] [SYS-1007] Starting initial token refresh... | role=EVENT
-[api] [17:24:03] [inf] [EVENT] [SYS-1007] [CopyTradeSummary] RECONCILE_CYCLE_SUMMARY | engineMode=v2_primary ledgerMode=v2_primary action=noop scannedOpen=0 scannedPending=0 armedPending=0 scheduledOpen=0 fullExitMatches=0 recoveredOrphans=0 scheduledRecoveredOrphans=0 legacyFallbackUsed=false role=EVENT
-[api] [17:24:07] [wrn] [TRACE] [AI-6011] PythonGenerationClient: no generation event yet | traceId=9abcba9c-35f4-4d9d-8d4b-337dad74c199 sessionId=cmmnqm0f00034s1cb3npmtvlg taskId=cmmnqm0ju003ds1cbysmmmrb3:plan waitedMs=5117 model=grok-4-1-fast-reasoning role=TRACE
-[api] [17:24:07] [wrn] [TRACE] [AI-6011] PythonGenerationClient: no generation event yet | traceId=9abcba9c-35f4-4d9d-8d4b-337dad74c199 sessionId=cmmnqm0f00034s1cb3npmtvlg taskId=cmmnqm0ju003ds1cbysmmmrb3 waitedMs=5106 model=grok-4-1-fast-reasoning role=TRACE
-[api] [17:24:09] [inf] [TRACE] [AI-6011] PythonGenerationClient: first generation event received | traceId=9abcba9c-35f4-4d9d-8d4b-337dad74c199 sessionId=cmmnqm0f00034s1cb3npmtvlg taskId=cmmnqm0ju003ds1cbysmmmrb3:plan eventType=assistant_delta elapsedMs=7215 role=TRACE
-[python] INFO:generation.app:generation.usage session_id=cmmnqm0f00034s1cb3npmtvlg task_id=cmmnqm0ju003ds1cbysmmmrb3:plan model=grok-4-1-fast-reasoning usage={'prompt_tokens': 377, 'completion_tokens': 107, 'total_tokens': 1107}
-[api] [17:24:10] [inf] [TRACE] [AI-6011] PythonGenerationClient: message_complete received | traceId=9abcba9c-35f4-4d9d-8d4b-337dad74c199 sessionId=cmmnqm0f00034s1cb3npmtvlg taskId=cmmnqm0ju003ds1cbysmmmrb3:plan elapsedMs=8170 eventCount=108 toolCalls=[0] role=TRACE
-[python] [Custom Tool] Planned get_token_info for parallel execution
-[python] [Custom Tool] Executing 1 planned tool(s) in parallel
-[python] [Tool Execution] Executing tool: get_token_info with args: {'address': '0x6d785b0855f371954d8d244dcaf534f1f57e4444', 'chain': 'base', 'chain_id': 8453}
-[python] [Tool Execution] 🔍 KIKO_API_BASE = http://localhost:3001
-[python] [Tool Execution] 🔍 Calling unified executor at: http://localhost:3001/internal/tools/execute
-[api] [17:24:17] [inf] [EVENT] [SYS-1007] TokenDetector: Found launchpad token | traceId=04ced98b-0d92-4446-a6ab-7bb2ecec21b1 symbol=富个鸟 provider=fourmeme role=EVENT
-[python] INFO:httpx:HTTP Request: POST http://localhost:3001/internal/tools/execute "HTTP/1.1 200 OK"
-[python] [Custom Tool] get_token_info returned in 2460ms
-[python] [Custom Tool] Buffering tool result: {
-[python]   "source": "DexScreener",
-[python]   "address": "0x6d785b0855f371954d8d244dcaf534f1f57e4444",
-[python]   "name": "\...
-[python] [Tool Turn] Tool call detected, continuing to turn 2
-[python] [Custom Tool] Planned get_early_buyers for parallel execution
-[python] [Custom Tool] Planned get_token_info for parallel execution
-[python] [Custom Tool] Executing 2 planned tool(s) in parallel
-[python] [Tool Execution] Executing tool: get_early_buyers with args: {'address': '0x6d785b0855f371954d8d244dcaf534f1f57e4444', 'chain': 'bsc', 'chain_id': 56, 'limit': 20, 'quality_mode': True, 'sort_by': 'first_seen'}
-[python] [Tool Execution] 🔍 KIKO_API_BASE = http://localhost:3001
-[python] [Tool Execution] 🔍 Calling unified executor at: http://localhost:3001/internal/tools/execute
-[python] [Tool Execution] Executing tool: get_token_info with args: {'address': '0x6d785b0855f371954d8d244dcaf534f1f57e4444', 'chain': 'bsc', 'chain_id': 56}
-[python] [Tool Execution] 🔍 KIKO_API_BASE = http://localhost:3001
-[python] [Tool Execution] 🔍 Calling unified executor at: http://localhost:3001/internal/tools/execute
-[api] [17:24:31] [inf] [EVENT] [SYS-1007] TokenDetector: Found launchpad token | traceId=d5987702-5fdc-41f3-983e-760b1f7958dd symbol=富个鸟 provider=fourmeme role=EVENT
-[api] [17:24:31] [inf] [EVENT] [SYS-1007] TokenDetector: Found launchpad token | traceId=bc786829-b70d-48b1-a12b-9359ac281b79 symbol=富个鸟 provider=fourmeme role=EVENT
-[api] [TokenAnalysis] Fetching early buyers for EVM token: 0x6d785b0855f371954d8d244dcaf534f1f57e4444 on bsc
-[python] INFO:httpx:HTTP Request: POST http://localhost:3001/internal/tools/execute "HTTP/1.1 200 OK"
-[api] [17:24:33] [inf] [METRIC] [API-5001] Alchemy transfers received | traceId=bc786829-b70d-48b1-a12b-9359ac281b79 count=160 role=METRIC
-[api] [17:24:33] [inf] [EVENT] [SYS-1007] [CopyTradeSummary] RECONCILE_CYCLE_SUMMARY | engineMode=v2_primary ledgerMode=v2_primary action=noop scannedOpen=0 scannedPending=0 armedPending=0 scheduledOpen=0 fullExitMatches=0 recoveredOrphans=0 scheduledRecoveredOrphans=0 legacyFallbackUsed=false role=EVENT
-[api] [17:24:35] [wrn] [METRIC] [API-5002] Refusing token info lookup for non-contract EVM address | traceId=25842b1a-39ad-4286-8da6-2ffab0b59cd7 token=0xa386bc9d8f26ab170a847d73226e3e0bceb0fe8e chainId=8453 role=METRIC
-[python] [Custom Tool] get_early_buyers returned in 16615ms
-[python] [Custom Tool] Buffering tool result: Tool get_early_buyers timed out after 16615ms...
-[python] [Custom Tool] get_token_info returned in 1259ms
-[python] [Custom Tool] Buffering tool result: {
-[python]   "source": "DexScreener",
-[python]   "address": "0x6d785b0855f371954d8d244dcaf534f1f57e4444",
-[python]   "name": "\...
-[python] [Tool Budget] Exhausted after executing planned tools at 45003ms
-[python] [Tool Budget] Finalizing early after 45003ms with current tool evidence
-[python] [Finalization] No visible text after tool turns; attempting no-tool finalization pass
-[api] [17:24:57] [inf] [TRACE] [AI-6011] PythonGenerationClient: first generation event received | traceId=9abcba9c-35f4-4d9d-8d4b-337dad74c199 sessionId=cmmnqm0f00034s1cb3npmtvlg taskId=cmmnqm0ju003ds1cbysmmmrb3 eventType=assistant_delta elapsedMs=54838 role=TRACE
-[python] INFO:generation.app:generation.usage session_id=cmmnqm0f00034s1cb3npmtvlg task_id=cmmnqm0ju003ds1cbysmmmrb3 model=grok-4-1-fast-reasoning usage={'prompt_tokens': 7031, 'completion_tokens': 365, 'total_tokens': 8211}
-[api] [17:24:57] [inf] [TRACE] [AI-6011] PythonGenerationClient: message_complete received | traceId=9abcba9c-35f4-4d9d-8d4b-337dad74c199 sessionId=cmmnqm0f00034s1cb3npmtvlg taskId=cmmnqm0ju003ds1cbysmmmrb3 elapsedMs=54876 eventCount=361 toolCalls=[6] role=TRACE
-[api] [17:24:57] [inf] [TRACE] [AI-6011] NodeOrchestrator: skipping provider-managed native tool call | traceId=9abcba9c-35f4-4d9d-8d4b-337dad74c199 sessionId=cmmnqm0f00034s1cb3npmtvlg taskId=cmmnqm0ju003ds1cbysmmmrb3 round=1 tool=x_search role=TRACE
-[api] [17:24:57] [inf] [METRIC] [API-5001] [AlchemyUsage] rolling usage snapshot | intervalMs=60000 groups=[2] role=METRIC
-[api] [17:24:57] [inf] [METRIC] [API-5001] No transfers found on Alchemy, trying ScanAPI fallback | chain=base role=METRIC
-[api] [Alchemy] getAssetTransfers failed, falling back to ScanAPI: Error: No transfers from Alchemy, trying fallback
-[api]     at getWalletTransactions (/Users/almurat/KiKo/kiko-api/src/services/alchemy.ts:1068:13)
-[api]     at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
-[api]     at async bootstrapTrackedWalletHistory (/Users/almurat/KiKo/kiko-api/src/services/targetWalletTrackingService.ts:613:15)
-[api]     at async runEvmMissedTradeRecoveryCycle (/Users/almurat/KiKo/kiko-api/src/services/copytrade-v2/ingress/evmMissedTradeRecovery.ts:105:5)
-[api] [17:24:58] [inf] [EVENT] [SYS-1007] TokenDetector: Found launchpad token | traceId=9abcba9c-35f4-4d9d-8d4b-337dad74c199 symbol=富个鸟 provider=fourmeme role=EVENT
-[api] [17:24:58] [inf] [TRACE] [AI-6011] NodeOrchestrator: skipping provider-managed native tool call | traceId=9abcba9c-35f4-4d9d-8d4b-337dad74c199 sessionId=cmmnqm0f00034s1cb3npmtvlg taskId=cmmnqm0ju003ds1cbysmmmrb3 round=1 tool=x_search role=TRACE
-[api] [17:24:58] [inf] [EVENT] [SYS-1007] TokenDetector: Found launchpad token | traceId=9abcba9c-35f4-4d9d-8d4b-337dad74c199 symbol=富个鸟 provider=fourmeme role=EVENT
-[api] [TokenAnalysis] Fetching early buyers for EVM token: 0x6d785b0855f371954d8d244dcaf534f1f57e4444 on bsc
-[api] [17:24:59] [inf] [METRIC] [API-5001] No transfers found on Alchemy, trying ScanAPI fallback | chain=base role=METRIC
-[api] [Alchemy] getAssetTransfers failed, falling back to ScanAPI: Error: No transfers from Alchemy, trying fallback
-[api]     at getWalletTransactions (/Users/almurat/KiKo/kiko-api/src/services/alchemy.ts:1068:13)
-[api]     at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
-[api]     at async bootstrapTrackedWalletHistory (/Users/almurat/KiKo/kiko-api/src/services/targetWalletTrackingService.ts:613:15)
-[api]     at async runEvmMissedTradeRecoveryCycle (/Users/almurat/KiKo/kiko-api/src/services/copytrade-v2/ingress/evmMissedTradeRecovery.ts:105:5)
-[api] [17:25:00] [inf] [METRIC] [API-5001] No transfers found on Alchemy, trying ScanAPI fallback | chain=base role=METRIC
-[api] [Alchemy] getAssetTransfers failed, falling back to ScanAPI: Error: No transfers from Alchemy, trying fallback
-[api]     at getWalletTransactions (/Users/almurat/KiKo/kiko-api/src/services/alchemy.ts:1068:13)
-[api]     at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
-[api]     at async bootstrapTrackedWalletHistory (/Users/almurat/KiKo/kiko-api/src/services/targetWalletTrackingService.ts:613:15)
-[api]     at async runEvmMissedTradeRecoveryCycle (/Users/almurat/KiKo/kiko-api/src/services/copytrade-v2/ingress/evmMissedTradeRecovery.ts:105:5)
-[api] [17:25:00] [inf] [METRIC] [API-5001] Alchemy transfers received | traceId=9abcba9c-35f4-4d9d-8d4b-337dad74c199 count=160 role=METRIC
-[api] [17:25:00] [wrn] [EVENT] [SYS-1007] Skipping primary chain refresh - previous run still in progress | force=false runningForSec=57 role=EVENT
-[api] [17:25:00] [inf] [EVENT] [SYS-1007] SocialRepo: Recalculated heat scores for 1489 casts | role=EVENT
-[api] [17:25:01] [inf] [METRIC] [API-5001] No transfers found on Alchemy, trying ScanAPI fallback | chain=base role=METRIC
-[api] [Alchemy] getAssetTransfers failed, falling back to ScanAPI: Error: No transfers from Alchemy, trying fallback
-[api]     at getWalletTransactions (/Users/almurat/KiKo/kiko-api/src/services/alchemy.ts:1068:13)
-[api]     at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
-[api]     at async bootstrapTrackedWalletHistory (/Users/almurat/KiKo/kiko-api/src/services/targetWalletTrackingService.ts:613:15)
-[api]     at async runEvmMissedTradeRecoveryCycle (/Users/almurat/KiKo/kiko-api/src/services/copytrade-v2/ingress/evmMissedTradeRecovery.ts:105:5)
-[api] [17:25:03] [inf] [METRIC] [API-5001] No transfers found on Alchemy, trying ScanAPI fallback | chain=base role=METRIC
-[api] [Alchemy] getAssetTransfers failed, falling back to ScanAPI: Error: No transfers from Alchemy, trying fallback
-[api]     at getWalletTransactions (/Users/almurat/KiKo/kiko-api/src/services/alchemy.ts:1068:13)
-[api]     at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
-[api]     at async bootstrapTrackedWalletHistory (/Users/almurat/KiKo/kiko-api/src/services/targetWalletTrackingService.ts:613:15)
-[api]     at async runEvmMissedTradeRecoveryCycle (/Users/almurat/KiKo/kiko-api/src/services/copytrade-v2/ingress/evmMissedTradeRecovery.ts:105:5)
-[api] [17:25:03] [inf] [EVENT] [SYS-1007] [CopyTradeRecovery] startup recovery cycle finished | runNumber=2 scannedWallets=5 recoveredTxs=0 lookbackMs=600000 role=EVENT
-[api] [17:25:03] [inf] [EVENT] [SYS-1007] [CopyTradeSummary] RECONCILE_CYCLE_SUMMARY | engineMode=v2_primary ledgerMode=v2_primary action=noop scannedOpen=0 scannedPending=0 armedPending=0 scheduledOpen=0 fullExitMatches=0 recoveredOrphans=0 scheduledRecoveredOrphans=0 legacyFallbackUsed=false role=EVENT
-[api] [17:25:33] [inf] [EVENT] [SYS-1007] [CopyTradeSummary] RECONCILE_CYCLE_SUMMARY | engineMode=v2_primary ledgerMode=v2_primary action=noop scannedOpen=0 scannedPending=0 armedPending=0 scheduledOpen=0 fullExitMatches=0 recoveredOrphans=0 scheduledRecoveredOrphans=0 legacyFallbackUsed=false role=EVENT
-[api] [17:25:33] [inf] [METRIC] [API-5001] Fetching premium trending tokens | chain=bsc limit=100 role=METRIC
-[api] [17:25:35] [inf] [AUDIT] [WTC-2002] WS addresses discovered | wsCount=193 chain=bsc role=AUDIT
-[api] [17:25:36] [wrn] [METRIC] [API-5002] Refusing token info lookup for non-contract EVM address | traceId=25842b1a-39ad-4286-8da6-2ffab0b59cd7 token=0xa386bc9d8f26ab170a847d73226e3e0bceb0fe8e chainId=8453 role=METRIC
-[api] [17:25:38] [inf] [EVENT] [SYS-1007] TokenDetector: Found launchpad token | traceId=9abcba9c-35f4-4d9d-8d4b-337dad74c199 symbol=富个鸟 provider=fourmeme role=EVENT
-[api] [17:25:39] [inf] [METRIC] [API-5001] Processed DexScreener trending candidates | candidates=34 limit=200 role=METRIC
-[api] [17:25:39] [inf] [METRIC] [API-5001] Premium trending tokens fetch complete | count=78 chain=bsc durationMs=5606 source=WebSocket wsOriginal=193 role=METRIC
-[api] [17:25:39] [inf] [METRIC] [API-5001] Got 78 trending tokens for BSC | role=METRIC
-[api] [17:25:39] [inf] [METRIC] [API-5001] Filtered out 1 invalid tokens for BSC | role=METRIC
-[api] Saved 77/77 trending tokens for bsc to database and memory cache
-[api] [17:25:39] [inf] [EVENT] [SYS-1007] Saved 77 tokens for BSC to DB + cache | role=EVENT
-[api] [17:25:39] [inf] [EVENT] [SYS-1007] Refreshed 4 primary chains in 95.8s | role=EVENT
-[api] [17:25:39] [inf] [METRIC] [API-5001] Launchpad verify budget applied | chain=bsc unresolved=58 verifying=48 role=METRIC
-[api] Saved 77/77 trending tokens for bsc to database and memory cache
-[api] [17:25:40] [inf] [TRACE] [AI-6011] NodeOrchestrator: generation round start | traceId=9abcba9c-35f4-4d9d-8d4b-337dad74c199 sessionId=cmmnqm0f00034s1cb3npmtvlg taskId=cmmnqm0ju003ds1cbysmmmrb3 round=2 role=TRACE
-[api] [17:25:40] [inf] [TRACE] [AI-6011] PythonGenerationClient: opening generation stream | traceId=9abcba9c-35f4-4d9d-8d4b-337dad74c199 sessionId=cmmnqm0f00034s1cb3npmtvlg taskId=cmmnqm0ju003ds1cbysmmmrb3 model=grok-4-1-fast-reasoning messageCount=8 toolCount=45 role=TRACE
-[python] INFO:generation.app:generation.stream_start session_id=cmmnqm0f00034s1cb3npmtvlg task_id=cmmnqm0ju003ds1cbysmmmrb3 model=grok-4-1-fast-reasoning message_count=8 tool_count=45
-[python] INFO:     127.0.0.1:62844 - "POST /generation/internal/v1/stream HTTP/1.1" 200 OK
-[python] INFO:     127.0.0.1:62845 - "POST /llm-gateway/internal/v1/generate HTTP/1.1" 200 OK
+[api] [17:40:17] [inf] [TRACE] [AI-6011] PythonGenerationClient: first generation event received | traceId=9485df19-9386-4582-93f5-77d066d4f389 sessionId=cmmqm2l4h00k9jspakk4xlpio taskId=cmmqm2l5f00khjspan9outr3t:plan eventType=assistant_delta elapsedMs=1618 role=TRACE
+[python] INFO:generation.app:generation.usage session_id=cmmqm2l4h00k9jspakk4xlpio task_id=cmmqm2l5f00khjspan9outr3t:plan model=grok-4-1-fast-non-reasoning usage={'prompt_tokens': 368, 'completion_tokens': 69, 'total_tokens': 437}
+[api] [17:40:17] [inf] [TRACE] [AI-6011] PythonGenerationClient: message_complete received | traceId=9485df19-9386-4582-93f5-77d066d4f389 sessionId=cmmqm2l4h00k9jspakk4xlpio taskId=cmmqm2l5f00khjspan9outr3t:plan elapsedMs=1854 eventCount=72 hasToolCalls=false toolCallSignalReceived=false finalTextLength=326 toolCalls=[0] role=TRACE
+[api] [17:40:18] [inf] [TRACE] [AI-6011] PythonGenerationClient: first generation event received | traceId=9485df19-9386-4582-93f5-77d066d4f389 sessionId=cmmqm2l4h00k9jspakk4xlpio taskId=cmmqm2l5f00khjspan9outr3t eventType=tool_call_signal elapsedMs=3358 role=TRACE
+[python] [Finalization] No visible text, but tool calls were emitted for Node control plane; skipping no-final error.
+[python] INFO:generation.app:generation.usage session_id=cmmqm2l4h00k9jspakk4xlpio task_id=cmmqm2l5f00khjspan9outr3t model=grok-4-1-fast-non-reasoning usage={'prompt_tokens': 9391, 'completion_tokens': 60, 'total_tokens': 9451}
+[api] [17:40:19] [wrn] [TRACE] [AI-6011] NodeOrchestrator: ignoring suspicious provider response id | traceId=9485df19-9386-4582-93f5-77d066d4f389 sessionId=cmmqm2l4h00k9jspakk4xlpio taskId=cmmqm2l5f00khjspan9outr3t previousResponseId=chatcmpl--5040882778586626573 role=TRACE
+[api] [17:40:19] [inf] [TRACE] [AI-6011] PythonGenerationClient: message_complete received | traceId=9485df19-9386-4582-93f5-77d066d4f389 sessionId=cmmqm2l4h00k9jspakk4xlpio taskId=cmmqm2l5f00khjspan9outr3t elapsedMs=4025 eventCount=6 hasToolCalls=true toolCallSignalReceived=true finalTextLength=0 toolCalls=[2] role=TRACE
+[api] [17:40:21] [inf] [TRACE] [AI-6011] NodeOrchestrator: generation round start | traceId=9485df19-9386-4582-93f5-77d066d4f389 sessionId=cmmqm2l4h00k9jspakk4xlpio taskId=cmmqm2l5f00khjspan9outr3t round=2 role=TRACE
+[api] [17:40:21] [inf] [TRACE] [AI-6011] PythonGenerationClient: opening generation stream | traceId=9485df19-9386-4582-93f5-77d066d4f389 sessionId=cmmqm2l4h00k9jspakk4xlpio taskId=cmmqm2l5f00khjspan9outr3t model=grok-4-1-fast-non-reasoning messageCount=6 toolCount=19 role=TRACE
+[python] INFO:generation.app:generation.stream_start session_id=cmmqm2l4h00k9jspakk4xlpio task_id=cmmqm2l5f00khjspan9outr3t model=grok-4-1-fast-non-reasoning message_count=6 tool_count=19
+[python] INFO:     127.0.0.1:60213 - "POST /generation/internal/v1/stream HTTP/1.1" 200 OK
+[python] INFO:     127.0.0.1:60214 - "POST /llm-gateway/internal/v1/generate HTTP/1.1" 200 OK
 [python] INFO:httpx:HTTP Request: POST http://127.0.0.1:8000/llm-gateway/internal/v1/generate "HTTP/1.1 200 OK"
-[python] [Model] Original: grok-4-1-fast-reasoning -> Normalized: grok-4-1-fast-reasoning
-[python] [Tool Policy] enable_search=True enabled_tools=['web_search', 'x_search'] required=True preferred=x_search reason=required_realtime_social_search per_tool_timeout_ms=20000 total_tool_budget_ms=45000
-[python] INFO:     127.0.0.1:62847 - "POST /grok/v1/chat/completions HTTP/1.1" 200 OK
+[python] [Model] Original: grok-4-1-fast-non-reasoning -> Normalized: grok-4-1-fast-non-reasoning
+[python] [Tool Policy] action_class=READ_ONLY mutation_allowed=False enforcement=hard enable_search=True enabled_tools=['web_search'] required=False preferred=None reason=local_skill_first_with_realtime_fallback per_tool_timeout_ms=20000 total_tool_budget_ms=45000
+[python] INFO:     127.0.0.1:60216 - "POST /grok/v1/chat/completions HTTP/1.1" 200 OK
 [python] INFO:httpx:HTTP Request: POST http://localhost:8000/grok/v1/chat/completions "HTTP/1.1 200 OK"
-[python] [gRPC Error] Status: StatusCode.NOT_FOUND, Details: Response with id=chatcmpl-5264153063475678318 not found
-[python] [gRPC Error] Unhandled status code: StatusCode.NOT_FOUND
-[api] [17:25:41] [inf] [TRACE] [AI-6011] PythonGenerationClient: first generation event received | traceId=9abcba9c-35f4-4d9d-8d4b-337dad74c199 sessionId=cmmnqm0f00034s1cb3npmtvlg taskId=cmmnqm0ju003ds1cbysmmmrb3 eventType=provider_state elapsedMs=1767 role=TRACE
-[api] [17:25:41] [inf] [TRACE] [AI-6011] PythonGenerationClient: message_complete received | traceId=9abcba9c-35f4-4d9d-8d4b-337dad74c199 sessionId=cmmnqm0f00034s1cb3npmtvlg taskId=cmmnqm0ju003ds1cbysmmmrb3 elapsedMs=1772 eventCount=2 toolCalls=[0] role=TRACE
-[api] [17:25:41] [inf] [TRACE] [AI-6011] NodeOrchestrator: generation loop complete | traceId=9abcba9c-35f4-4d9d-8d4b-337dad74c199 sessionId=cmmnqm0f00034s1cb3npmtvlg taskId=cmmnqm0ju003ds1cbysmmmrb3 round=2 contentLength=0 role=TRACE
-[api] [17:25:41] [inf] [TRACE] [AI-6011] ChatWorker: generation loop finished | traceId=9abcba9c-35f4-4d9d-8d4b-337dad74c199 taskId=cmmnqm0ju003ds1cbysmmmrb3 sessionId=cmmnqm0f00034s1cb3npmtvlg contentLength=629 toolCalls=[4] role=TRACE
-[python] INFO:moderation.router:Moderating output: ###结论无法获取指定代币“富个鸟”（0x6d785b0855f371954d8d244dcaf53...
+[api] [17:40:24] [inf] [TRACE] [AI-6011] PythonGenerationClient: first generation event received | traceId=9485df19-9386-4582-93f5-77d066d4f389 sessionId=cmmqm2l4h00k9jspakk4xlpio taskId=cmmqm2l5f00khjspan9outr3t eventType=tool_call_signal elapsedMs=3369 role=TRACE
+[python] [Finalization] No visible text, but tool calls were emitted for Node control plane; skipping no-final error.
+[python] INFO:generation.app:generation.usage session_id=cmmqm2l4h00k9jspakk4xlpio task_id=cmmqm2l5f00khjspan9outr3t model=grok-4-1-fast-non-reasoning usage={'prompt_tokens': 9391, 'completion_tokens': 60, 'total_tokens': 9451}
+[api] [17:40:24] [wrn] [TRACE] [AI-6011] NodeOrchestrator: ignoring suspicious provider response id | traceId=9485df19-9386-4582-93f5-77d066d4f389 sessionId=cmmqm2l4h00k9jspakk4xlpio taskId=cmmqm2l5f00khjspan9outr3t previousResponseId=chatcmpl--7845482934170215026 role=TRACE
+[api] [17:40:24] [inf] [TRACE] [AI-6011] PythonGenerationClient: message_complete received | traceId=9485df19-9386-4582-93f5-77d066d4f389 sessionId=cmmqm2l4h00k9jspakk4xlpio taskId=cmmqm2l5f00khjspan9outr3t elapsedMs=3505 eventCount=6 hasToolCalls=true toolCallSignalReceived=true finalTextLength=0 toolCalls=[2] role=TRACE
+[api] [17:40:24] [wrn] [TRACE] [AI-6011] NodeOrchestrator: duplicate tool call reused from cache | traceId=9485df19-9386-4582-93f5-77d066d4f389 sessionId=cmmqm2l4h00k9jspakk4xlpio taskId=cmmqm2l5f00khjspan9outr3t round=2 tool=get_polymarket_trending toolKey=get_polymarket_trending:{"limit":10} role=TRACE
+[api] [17:40:24] [wrn] [TRACE] [AI-6011] NodeOrchestrator: duplicate tool call reused from cache | traceId=9485df19-9386-4582-93f5-77d066d4f389 sessionId=cmmqm2l4h00k9jspakk4xlpio taskId=cmmqm2l5f00khjspan9outr3t round=2 tool=get_polymarket_trending_markets toolKey=get_polymarket_trending_markets:{"limit":10} role=TRACE
+[api] [17:40:24] [wrn] [TRACE] [AI-6011] NodeOrchestrator: duplicate-only tool round detected | traceId=9485df19-9386-4582-93f5-77d066d4f389 sessionId=cmmqm2l4h00k9jspakk4xlpio taskId=cmmqm2l5f00khjspan9outr3t round=2 duplicateOnlyRounds=1 tools=[2] role=TRACE
+[api] [17:40:24] [inf] [TRACE] [AI-6011] NodeOrchestrator: generation round start | traceId=9485df19-9386-4582-93f5-77d066d4f389 sessionId=cmmqm2l4h00k9jspakk4xlpio taskId=cmmqm2l5f00khjspan9outr3t round=3 role=TRACE
+[api] [17:40:24] [inf] [TRACE] [AI-6011] PythonGenerationClient: opening generation stream | traceId=9485df19-9386-4582-93f5-77d066d4f389 sessionId=cmmqm2l4h00k9jspakk4xlpio taskId=cmmqm2l5f00khjspan9outr3t model=grok-4-1-fast-non-reasoning messageCount=9 toolCount=19 role=TRACE
+[python] INFO:generation.app:generation.stream_start session_id=cmmqm2l4h00k9jspakk4xlpio task_id=cmmqm2l5f00khjspan9outr3t model=grok-4-1-fast-non-reasoning message_count=9 tool_count=19
+[python] INFO:     127.0.0.1:60213 - "POST /generation/internal/v1/stream HTTP/1.1" 200 OK
+[python] INFO:     127.0.0.1:60227 - "POST /llm-gateway/internal/v1/generate HTTP/1.1" 200 OK
+[python] INFO:httpx:HTTP Request: POST http://127.0.0.1:8000/llm-gateway/internal/v1/generate "HTTP/1.1 200 OK"
+[python] [Model] Original: grok-4-1-fast-non-reasoning -> Normalized: grok-4-1-fast-non-reasoning
+[python] [Tool Policy] action_class=READ_ONLY mutation_allowed=False enforcement=hard enable_search=True enabled_tools=['web_search'] required=False preferred=None reason=local_skill_first_with_realtime_fallback per_tool_timeout_ms=20000 total_tool_budget_ms=45000
+[python] INFO:     127.0.0.1:60229 - "POST /grok/v1/chat/completions HTTP/1.1" 200 OK
+[python] INFO:httpx:HTTP Request: POST http://localhost:8000/grok/v1/chat/completions "HTTP/1.1 200 OK"
+[api] [17:40:26] [inf] [METRIC] [API-5001] No transfers found on Alchemy, trying ScanAPI fallback | chain=base role=METRIC
+[api] [Alchemy] getAssetTransfers failed, falling back to ScanAPI: Error: No transfers from Alchemy, trying fallback
+[api]     at getWalletTransactions (/Users/almurat/KiKo/kiko-api/src/services/alchemy.ts:1068:13)
+[api]     at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+[api]     at async bootstrapTrackedWalletHistory (/Users/almurat/KiKo/kiko-api/src/services/targetWalletTrackingService.ts:613:15)
+[api]     at async runEvmMissedTradeRecoveryCycle (/Users/almurat/KiKo/kiko-api/src/services/copytrade-v2/ingress/evmMissedTradeRecovery.ts:105:5)
+[api] [17:40:27] [inf] [METRIC] [API-5001] [AlchemyUsage] rolling usage snapshot | intervalMs=60000 groups=[1] role=METRIC
+[api] [17:40:27] [inf] [METRIC] [API-5001] No transfers found on Alchemy, trying ScanAPI fallback | chain=base role=METRIC
+[api] [Alchemy] getAssetTransfers failed, falling back to ScanAPI: Error: No transfers from Alchemy, trying fallback
+[api]     at getWalletTransactions (/Users/almurat/KiKo/kiko-api/src/services/alchemy.ts:1068:13)
+[api]     at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+[api]     at async bootstrapTrackedWalletHistory (/Users/almurat/KiKo/kiko-api/src/services/targetWalletTrackingService.ts:613:15)
+[api]     at async runEvmMissedTradeRecoveryCycle (/Users/almurat/KiKo/kiko-api/src/services/copytrade-v2/ingress/evmMissedTradeRecovery.ts:105:5)
+[api] [17:40:28] [inf] [TRACE] [AI-6011] PythonGenerationClient: first generation event received | traceId=9485df19-9386-4582-93f5-77d066d4f389 sessionId=cmmqm2l4h00k9jspakk4xlpio taskId=cmmqm2l5f00khjspan9outr3t eventType=tool_call_signal elapsedMs=3152 role=TRACE
+[python] [Finalization] No visible text, but tool calls were emitted for Node control plane; skipping no-final error.
+[python] INFO:generation.app:generation.usage session_id=cmmqm2l4h00k9jspakk4xlpio task_id=cmmqm2l5f00khjspan9outr3t model=grok-4-1-fast-non-reasoning usage={'prompt_tokens': 9391, 'completion_tokens': 60, 'total_tokens': 9451}
+[api] [17:40:28] [wrn] [TRACE] [AI-6011] NodeOrchestrator: ignoring suspicious provider response id | traceId=9485df19-9386-4582-93f5-77d066d4f389 sessionId=cmmqm2l4h00k9jspakk4xlpio taskId=cmmqm2l5f00khjspan9outr3t previousResponseId=chatcmpl--869636292143848979 role=TRACE
+[api] [17:40:28] [inf] [TRACE] [AI-6011] PythonGenerationClient: message_complete received | traceId=9485df19-9386-4582-93f5-77d066d4f389 sessionId=cmmqm2l4h00k9jspakk4xlpio taskId=cmmqm2l5f00khjspan9outr3t elapsedMs=3270 eventCount=6 hasToolCalls=true toolCallSignalReceived=true finalTextLength=0 toolCalls=[2] role=TRACE
+[api] [17:40:28] [wrn] [TRACE] [AI-6011] NodeOrchestrator: duplicate tool call reused from cache | traceId=9485df19-9386-4582-93f5-77d066d4f389 sessionId=cmmqm2l4h00k9jspakk4xlpio taskId=cmmqm2l5f00khjspan9outr3t round=3 tool=get_polymarket_trending toolKey=get_polymarket_trending:{"limit":10} role=TRACE
+[api] [17:40:28] [wrn] [TRACE] [AI-6011] NodeOrchestrator: duplicate tool call reused from cache | traceId=9485df19-9386-4582-93f5-77d066d4f389 sessionId=cmmqm2l4h00k9jspakk4xlpio taskId=cmmqm2l5f00khjspan9outr3t round=3 tool=get_polymarket_trending_markets toolKey=get_polymarket_trending_markets:{"limit":10} role=TRACE
+[api] [17:40:28] [wrn] [TRACE] [AI-6011] NodeOrchestrator: duplicate-only tool round detected | traceId=9485df19-9386-4582-93f5-77d066d4f389 sessionId=cmmqm2l4h00k9jspakk4xlpio taskId=cmmqm2l5f00khjspan9outr3t round=3 duplicateOnlyRounds=2 tools=[2] role=TRACE
+[api] [17:40:28] [inf] [TRACE] [AI-6011] NodeOrchestrator: generation round start | traceId=9485df19-9386-4582-93f5-77d066d4f389 sessionId=cmmqm2l4h00k9jspakk4xlpio taskId=cmmqm2l5f00khjspan9outr3t round=4 role=TRACE
+[api] [17:40:28] [inf] [TRACE] [AI-6011] PythonGenerationClient: opening generation stream | traceId=9485df19-9386-4582-93f5-77d066d4f389 sessionId=cmmqm2l4h00k9jspakk4xlpio taskId=cmmqm2l5f00khjspan9outr3t model=grok-4-1-fast-non-reasoning messageCount=13 toolCount=0 role=TRACE
+[python] INFO:generation.app:generation.stream_start session_id=cmmqm2l4h00k9jspakk4xlpio task_id=cmmqm2l5f00khjspan9outr3t model=grok-4-1-fast-non-reasoning message_count=13 tool_count=0
+[python] INFO:     127.0.0.1:60213 - "POST /generation/internal/v1/stream HTTP/1.1" 200 OK
+[python] INFO:     127.0.0.1:60240 - "POST /llm-gateway/internal/v1/generate HTTP/1.1" 200 OK
+[python] INFO:httpx:HTTP Request: POST http://127.0.0.1:8000/llm-gateway/internal/v1/generate "HTTP/1.1 200 OK"
+[python] [Model] Original: grok-4-1-fast-non-reasoning -> Normalized: grok-4-1-fast-non-reasoning
+[python] [Tool Policy] action_class=READ_ONLY mutation_allowed=False enforcement=hard enable_search=True enabled_tools=['web_search'] required=False preferred=None reason=local_skill_first_with_realtime_fallback per_tool_timeout_ms=20000 total_tool_budget_ms=45000
+[python] INFO:     127.0.0.1:60242 - "POST /grok/v1/chat/completions HTTP/1.1" 200 OK
+[python] INFO:httpx:HTTP Request: POST http://localhost:8000/grok/v1/chat/completions "HTTP/1.1 200 OK"
+[api] [17:40:28] [inf] [METRIC] [API-5001] No transfers found on Alchemy, trying ScanAPI fallback | chain=base role=METRIC
+[api] [Alchemy] getAssetTransfers failed, falling back to ScanAPI: Error: No transfers from Alchemy, trying fallback
+[api]     at getWalletTransactions (/Users/almurat/KiKo/kiko-api/src/services/alchemy.ts:1068:13)
+[api]     at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+[api]     at async bootstrapTrackedWalletHistory (/Users/almurat/KiKo/kiko-api/src/services/targetWalletTrackingService.ts:613:15)
+[api]     at async runEvmMissedTradeRecoveryCycle (/Users/almurat/KiKo/kiko-api/src/services/copytrade-v2/ingress/evmMissedTradeRecovery.ts:105:5)
+[api] [17:40:30] [inf] [METRIC] [API-5001] No transfers found on Alchemy, trying ScanAPI fallback | chain=base role=METRIC
+[api] [Alchemy] getAssetTransfers failed, falling back to ScanAPI: Error: No transfers from Alchemy, trying fallback
+[api]     at getWalletTransactions (/Users/almurat/KiKo/kiko-api/src/services/alchemy.ts:1068:13)
+[api]     at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+[api]     at async bootstrapTrackedWalletHistory (/Users/almurat/KiKo/kiko-api/src/services/targetWalletTrackingService.ts:613:15)
+[api]     at async runEvmMissedTradeRecoveryCycle (/Users/almurat/KiKo/kiko-api/src/services/copytrade-v2/ingress/evmMissedTradeRecovery.ts:105:5)
+[api] [17:40:30] [inf] [TRACE] [AI-6011] PythonGenerationClient: first generation event received | traceId=9485df19-9386-4582-93f5-77d066d4f389 sessionId=cmmqm2l4h00k9jspakk4xlpio taskId=cmmqm2l5f00khjspan9outr3t eventType=tool_call_signal elapsedMs=2359 role=TRACE
+[api] [17:40:31] [inf] [METRIC] [API-5001] No transfers found on Alchemy, trying ScanAPI fallback | chain=base role=METRIC
+[api] [Alchemy] getAssetTransfers failed, falling back to ScanAPI: Error: No transfers from Alchemy, trying fallback
+[api]     at getWalletTransactions (/Users/almurat/KiKo/kiko-api/src/services/alchemy.ts:1068:13)
+[api]     at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+[api]     at async bootstrapTrackedWalletHistory (/Users/almurat/KiKo/kiko-api/src/services/targetWalletTrackingService.ts:613:15)
+[api]     at async runEvmMissedTradeRecoveryCycle (/Users/almurat/KiKo/kiko-api/src/services/copytrade-v2/ingress/evmMissedTradeRecovery.ts:105:5)
+[api] [17:40:31] [inf] [EVENT] [SYS-1007] [CopyTradeRecovery] startup recovery cycle finished | runNumber=3 scannedWallets=5 recoveredTxs=0 lookbackMs=600000 role=EVENT
+[api] [17:40:32] [inf] [EVENT] [SYS-1007] [CopyTradeSummary] RECONCILE_CYCLE_SUMMARY | engineMode=v2_primary ledgerMode=v2_primary action=noop scannedOpen=0 scannedPending=0 armedPending=0 scheduledOpen=0 fullExitMatches=0 recoveredOrphans=0 scheduledRecoveredOrphans=0 legacyFallbackUsed=false role=EVENT
+[api] [17:40:39] [wrn] [METRIC] [API-5002] Launchpad enrichment for BSC timed out | timeoutMs=25000 role=METRIC
+[python]   [1] ✓ Valid dict, URL: https://polymarket.com/@theere..., Avatar: None...
+[python]   [2] ✓ Valid dict, URL: https://metamask.io/prediction-markets..., Avatar: None...
+[python]   [3] ✓ Valid dict, URL: https://www.reddit.com/r/defi/comments/1rov4sw/we_analyzed_t..., Avatar: None...
+[python]   [4] ✓ Valid dict, URL: https://decrypt.co/241539/top-five-political-bets-on-polymar..., Avatar: None...
+[python]   [5] ✓ Valid dict, URL: https://polymarket.com/usa..., Avatar: None...
+[python]   [6] ✓ Valid dict, URL: https://polymarket.com/@ERTWS..., Avatar: None...
+[python]   [7] ✓ Valid dict, URL: https://polymarket.com/@Davrown..., Avatar: None...
+[python]   [8] ✓ Valid dict, URL: https://finance.yahoo.com/quote/POLA.PVT..., Avatar: None...
+[python]   [9] ✓ Valid dict, URL: https://polymarket.com/profile/0x72a2148620aee63a58dd7b76168..., Avatar: None...
+[python]   [10] ✓ Valid dict, URL: https://polymarket.com/..., Avatar: None...
+[python]   [11] ✓ Valid dict, URL: https://polymarket.com/@thepredictoooor..., Avatar: None...
+[python]   [12] ✓ Valid dict, URL: https://medium.com/thecapital/the-complete-polymarket-playbo..., Avatar: None...
+[python]   [13] ✓ Valid dict, URL: https://polymarket.com/es/predictions/trending-markets..., Avatar: None...
+[python]   [14] ✓ Valid dict, URL: https://www.forbes.com/sites/jasonwingard/2025/11/19/the-pol..., Avatar: None...
+[python]   [15] ✓ Valid dict, URL: https://polymarket.com/@0x7C88F9D69F64E76fB1eF036E38e520B92E..., Avatar: None...
+[python]   [16] ✓ Valid dict, URL: https://polymarket.com/@dixonmary..., Avatar: None...
+[python]   [17] ✓ Valid dict, URL: https://unchainedcrypto.com/top-5-crypto-bets-by-volume-on-p..., Avatar: None...
+[python]   [18] ✓ Valid dict, URL: https://polymarket.com/predictions/stock-market..., Avatar: None...
+[python]   [19] ✓ Valid dict, URL: https://polymarketanalytics.com/..., Avatar: None...
+[python]   [20] ✓ Valid dict, URL: https://polymarket.com/predictions/market-trends..., Avatar: None...
+[python]   [21] ✓ Valid dict, URL: https://polymarket.com/predictions/trending-markets..., Avatar: None...
+[python]   [22] ✓ Valid dict, URL: https://polymarket.com/@edentrading..., Avatar: None...
+[python]   [23] ✓ Valid dict, URL: https://polymarket.com/predictions/trends..., Avatar: None...
+[python]   [24] ✓ Valid dict, URL: https://polymarket.com/event/google-trends-parlay..., Avatar: None...
+[python]   [25] ✓ Valid dict, URL: https://www.reddit.com/r/CryptoCurrency/comments/1payslv/14_..., Avatar: None...
+[python]   [26] ✓ Valid dict, URL: https://polymarket.com/search..., Avatar: None...
+[python]   [27] ✓ Valid dict, URL: https://www.ft.com/content/2883d3d4-aea2-4984-b994-4640593ee..., Avatar: None...
+[python]   [28] ✓ Valid dict, URL: https://polymarket.com/predictions/all..., Avatar: None...
+[python]   [29] ✓ Valid dict, URL: https://finance.yahoo.com/news/prediction-markets-polymarket..., Avatar: None...
+[python]   [30] ✓ Valid dict, URL: https://polymarket.com/@Polymarket21..., Avatar: None...
+[python]   [31] ✓ Valid dict, URL: https://www.binance.com/en/square/post/34800964309217..., Avatar: None...
+[python]   [32] ✓ Valid dict, URL: https://www.polymarketanalytics.com/..., Avatar: None...
+[python]   [33] ✓ Valid dict, URL: https://pam.polymarket.com/predictions/maestro?_status=resol..., Avatar: None...
+[python] INFO:generation.app:generation.usage session_id=cmmqm2l4h00k9jspakk4xlpio task_id=cmmqm2l5f00khjspan9outr3t model=grok-4-1-fast-non-reasoning usage={'prompt_tokens': 33863, 'completion_tokens': 1537, 'total_tokens': 35400}
+[api] [17:40:48] [wrn] [TRACE] [AI-6011] NodeOrchestrator: ignoring suspicious provider response id | traceId=9485df19-9386-4582-93f5-77d066d4f389 sessionId=cmmqm2l4h00k9jspakk4xlpio taskId=cmmqm2l5f00khjspan9outr3t previousResponseId=chatcmpl--1860577640801189337 role=TRACE
+[api] [17:40:48] [inf] [TRACE] [AI-6011] PythonGenerationClient: message_complete received | traceId=9485df19-9386-4582-93f5-77d066d4f389 sessionId=cmmqm2l4h00k9jspakk4xlpio taskId=cmmqm2l5f00khjspan9outr3t elapsedMs=19930 eventCount=504 hasToolCalls=true toolCallSignalReceived=true finalTextLength=2338 toolCalls=[8] role=TRACE
+[api] [17:40:48] [inf] [TRACE] [AI-6011] NodeOrchestrator: provider-managed tool round already produced answer text | traceId=9485df19-9386-4582-93f5-77d066d4f389 sessionId=cmmqm2l4h00k9jspakk4xlpio taskId=cmmqm2l5f00khjspan9outr3t round=4 contentLength=2338 role=TRACE
+[api] [17:40:48] [inf] [TRACE] [AI-6011] ChatWorker: generation loop finished | traceId=9485df19-9386-4582-93f5-77d066d4f389 taskId=cmmqm2l5f00khjspan9outr3t sessionId=cmmqm2l4h00k9jspakk4xlpio contentLength=2338 toolCalls=[6] role=TRACE
+[python] INFO:moderation.router:Moderating output: **Some of the top trending bets on Polymarket righ...
+[api] [17:40:48] [err] [METRIC] [API-5002] LaunchpadDetector: Four.meme fetch failed | address=0x66969ecD173451F00a4652a53acc6246569D4444 error=fetch failed cause={Obj} role=METRIC
 [python] INFO:httpx:HTTP Request: POST https://api.openai.com/v1/moderations "HTTP/1.1 200 OK"
-[python] INFO:     127.0.0.1:62868 - "POST /moderation/output HTTP/1.1" 200 OK
-[api] [17:25:43] [inf] [EVENT] [SYS-1007] Moderation Output check result | traceId=9abcba9c-35f4-4d9d-8d4b-337dad74c199 safe=true userId=did:privy:cmj0a3j3f005fl20c4xkl7195 role=EVENT
-
+[python] INFO:     127.0.0.1:60323 - "POST /moderation/output HTTP/1.1" 200 OK
+[api] [17:40:49] [inf] [EVENT] [SYS-1007] Moderation Output check result | traceId=9485df19-9386-4582-93f5-77d066d4f389 safe=true userId=did:privy:cmj0a3j3f005fl20c4xkl7195 role=EVENT
+[api] [17:41:02] [inf] [EVENT] [SYS-1007] [CopyTradeSummary] RECONCILE_CYCLE_SUMMARY | engineMode=v2_primary ledgerMode=v2_primary action=noop scannedOpen=0 scannedPending=0 armedPending=0 scheduledOpen=0 fullExitMatches=0 recoveredOrphans=0 scheduledRecoveredOrphans=0 legacyFallbackUsed=false role=EVENT
+[api] [17:41:02] [inf] [EVENT] [SYS-1007] Suppressed repeated logs | repeated=18 original=SYS-1007:[CopyTradeTrackedWallets] Snapshot refreshed windowMs=180000 role=EVENT
+[api] [17:41:02] [inf] [EVENT] [SYS-1007] [CopyTradeTrackedWallets] Snapshot refreshed | chains=[0] totalWallets=0 role=EVENT
+[api] [17:41:06] [wrn] [METRIC] [API-5002] Refusing token info lookup for non-contract EVM address | traceId=1ea5cce8-be5b-4147-b832-96d376bf7d63 token=0xa386bc9d8f26ab170a847d73226e3e0bceb0fe8e chainId=8453 role=METRIC
+[api] [17:41:07] [inf] [EVENT] [SYS-1007] Alpha Detector: Checking new coin | traceId=1ea5cce8-be5b-4147-b832-96d376bf7d63 symbol=carebear08 creator=0xec8b417472e9f8fb5792acbb580937502ae477ec role=EVENT
+[api] [17:41:07] [inf] [EVENT] [SYS-1007] Suppressed repeated logs | repeated=6 original=SYS-1001:No open positions to monitor windowMs=180000 role=EVENT
+[api] [17:41:07] [inf] [EVENT] [SYS-1001] No open positions to monitor | role=EVENT
+[api] [17:41:26] [inf] [METRIC] [API-5001] No transfers found on Alchemy, trying ScanAPI fallback | chain=base role=METRIC
+[api] [Alchemy] getAssetTransfers failed, falling back to ScanAPI: Error: No transfers from Alchemy, trying fallback
+[api]     at getWalletTransactions (/Users/almurat/KiKo/kiko-api/src/services/alchemy.ts:1068:13)
+[api]     at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+[api]     at async bootstrapTrackedWalletHistory (/Users/almurat/KiKo/kiko-api/src/services/targetWalletTrackingService.ts:613:15)
+[api]     at async runEvmMissedTradeRecoveryCycle (/Users/almurat/KiKo/kiko-api/src/services/copytrade-v2/ingress/evmMissedTradeRecovery.ts:105:5)
+[api] [17:41:27] [inf] [METRIC] [API-5001] No transfers found on Alchemy, trying ScanAPI fallback | chain=base role=METRIC
+[api] [Alchemy] getAssetTransfers failed, falling back to ScanAPI: Error: No transfers from Alchemy, trying fallback
+[api]     at getWalletTransactions (/Users/almurat/KiKo/kiko-api/src/services/alchemy.ts:1068:13)
+[api]     at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+[api]     at async bootstrapTrackedWalletHistory (/Users/almurat/KiKo/kiko-api/src/services/targetWalletTrackingService.ts:613:15)
+[api]     at async runEvmMissedTradeRecoveryCycle (/Users/almurat/KiKo/kiko-api/src/services/copytrade-v2/ingress/evmMissedTradeRecovery.ts:105:5)
+[

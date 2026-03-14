@@ -1,4 +1,5 @@
 import type { ChatHistoryMessage, RecentToolTrace, TradeConfirmationState } from './contracts.js';
+import type { ActionClass } from './controlPolicy.js';
 
 const EVM_ADDR_RE = /\b0x[a-fA-F0-9]{40}\b/g;
 const SOL_ADDR_RE = /\b[1-9A-HJ-NP-Za-km-z]{32,44}\b/g;
@@ -182,5 +183,45 @@ export function resolveTradeConfirmationState(messages: any[], latestUserMessage
         };
     }
 
+    const orderConfirmation = resolveOrderConfirmationFromToolTrace(toolTrace);
+    if (orderConfirmation) {
+        return {
+            kind: 'order_confirmation',
+            order: orderConfirmation,
+        };
+    }
+
+    return null;
+}
+
+function resolveOrderConfirmationFromToolTrace(trace: RecentToolTrace | null): {
+    toolName: string;
+    args: Record<string, any>;
+    confirmationToken: string;
+    actionClass: ActionClass;
+} | null {
+    const calls = trace?.toolCalls || [];
+    for (let idx = calls.length - 1; idx >= 0; idx -= 1) {
+        const call = calls[idx];
+        const result = (call?.result && typeof call.result === 'object') ? call.result : {};
+        const payload = (result?.confirmation_payload && typeof result.confirmation_payload === 'object')
+            ? result.confirmation_payload
+            : null;
+        if (!payload || result?.requires_confirmation !== true) continue;
+        const toolName = String(payload.tool_name || call.tool || '').trim();
+        const args = (payload.args && typeof payload.args === 'object') ? payload.args : (call.args || {});
+        const confirmationToken = String(payload.confirmation_token || '').trim();
+        if (!toolName || !confirmationToken) continue;
+        const actionClassRaw = String(payload.action_class || '').trim();
+        const actionClass: ActionClass = actionClassRaw === 'TRADE_MUTATION' || actionClassRaw === 'ORDER_MUTATION'
+            ? actionClassRaw
+            : 'ORDER_MUTATION';
+        return {
+            toolName,
+            args,
+            confirmationToken,
+            actionClass,
+        };
+    }
     return null;
 }

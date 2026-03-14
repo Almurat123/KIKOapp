@@ -11,6 +11,12 @@ import {
     searchEvents
 } from '../../../services/polymarket.js';
 
+function formatDateLabel(value?: string | null): string | null {
+    if (typeof value !== 'string') return null;
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed.slice(0, 10) : null;
+}
+
 /**
  * Get Polymarket Trending Events Tool (Ranked by 24h volume)
  */
@@ -42,7 +48,7 @@ export const GetPolymarketTrendingTool: Tool = {
                 title: e.title,
                 vol24h: `$${e.volume.toLocaleString()}`,
                 liquidity: `$${e.liquidity.toLocaleString()}`,
-                endDate: e.endDate.slice(0, 10)
+                endDate: formatDateLabel(e.endDate)
             })),
             note: 'Use get_polymarket_event with an event ID to see specific market odds.'
         };
@@ -83,7 +89,7 @@ export const GetPolymarketTrendingMarketsTool: Tool = {
                 no: m.noProbability,
                 vol24h: `$${Math.floor(m.volume24hr).toLocaleString()}`,
                 liquidity: `$${m.liquidity.toLocaleString()}`,
-                endDate: m.endDate.slice(0, 10),
+                endDate: formatDateLabel(m.endDate),
                 accepting_orders: m.acceptingOrders,
                 best_bid: m.bestBid,
                 best_ask: m.bestAsk,
@@ -125,7 +131,7 @@ export const GetPolymarketEventTool: Tool = {
             description: event.description.slice(0, 500),
             totalVolume: `$${event.volume.toLocaleString()}`,
             liquidity: `$${event.liquidity.toLocaleString()}`,
-            endDate: event.endDate.slice(0, 10),
+            endDate: formatDateLabel(event.endDate),
             markets: event.markets.map(m => ({
                 id: m.id,
                 question: m.question,
@@ -182,7 +188,7 @@ export const SearchPolymarketTool: Tool = {
             id: e.id,
             title: e.title,
             vol24h: `$${e.volume.toLocaleString()}`,
-            endDate: e.endDate.slice(0, 10)
+            endDate: formatDateLabel(e.endDate)
         }));
 
         const related = queryTerms.length === 0
@@ -219,6 +225,10 @@ export const SearchPolymarketTool: Tool = {
         };
     },
     permissions: 'public'
+};
+
+export const __testables = {
+    formatDateLabel
 };
 
 /**

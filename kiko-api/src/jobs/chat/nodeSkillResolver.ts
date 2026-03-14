@@ -1,5 +1,14 @@
+import { LogCode } from '../../config/logRegistry.js';
 import { skillRegistryExec } from '../../skills/registry.js';
+import { logger } from '../../utils/logger.js';
 import type { ChatContextSnapshot } from './contracts.js';
+import {
+    detectQuerySignals,
+    matchSkillsForQuery,
+    type QuerySignals,
+    type SearchMode,
+    type SkillMatch,
+} from './skillIntentMatcher.js';
 import type { TradingIntent } from './tradingIntentResolver.js';
 
 export interface SkillResolution {
@@ -10,75 +19,90 @@ export interface SkillResolution {
     preferredTools: string[];
     strategyNotes: string[];
     allowAllTools: boolean;
+    rankedMatches: SkillMatch[];
+    searchMode: SearchMode;
+    searchReason: string;
+    querySignals: QuerySignals;
 }
 
 export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: TradingIntent | null): SkillResolution {
     const isGrok = String(snapshot.model || '').toLowerCase().includes('grok');
-    const query = String(snapshot.lastUserMessage || '').toLowerCase();
     const rawQuery = String(snapshot.lastUserMessage || '');
     const contextBlocks = snapshot.runtime.contextBlocks || {};
     const prefetched = snapshot.runtime.prefetchedToolResults || {};
-    const selected: string[] = [];
     const blockedTools: string[] = [];
     const preferredTools: string[] = [];
     const strategyNotes: string[] = [];
-    let allowAllTools = true;
-    const hasRequestedToken = (snapshot.requestedTokenAddresses || []).length > 0;
-    const isMetaAssistantQuery = isAssistantMetaQuery(query, rawQuery);
-    const asksEarlyBuyers = containsAny(query, [
+    let allowAllTools = Boolean(tradingIntent);
+
+    const matchResult = matchSkillsForQuery({ snapshot, tradingIntent });
+    const querySignals = matchResult.querySignals;
+    const explicitRiskRequest = querySignals.risk;
+    const asksWalletPnl = querySignals.pnl;
+    const hasRequestedToken = querySignals.hasRequestedToken;
+    const explicitlyMentionsFarcaster = containsAny(rawQuery, ['farcaster', 'warpcast', 'cast', 'casts', 'fc']);
+    const preferXNativeSearch = querySignals.xSearch && !explicitlyMentionsFarcaster;
+    const asksEarlyBuyers = containsAny(snapshot.lastUserMessage, [
         'early buyers', 'earliest buyers', 'first buyers', 'first buyer', 'early buyer',
         'holders', 'holder', 'first trades', 'first swaps', 'snipers', 'wallets',
-        'early purchasers',
-    ]) || containsAny(snapshot.lastUserMessage, ['早期买家', '首批买家', '早期购买者', '持有人', '前几位买家', '早期购买']);
-    const asksCreator = containsAny(query, ['creator', 'deployer', 'deployed by']) || containsAny(snapshot.lastUserMessage, ['创建者', '部署者', '谁部署']);
-    const asksRealtimeSocial = containsAny(query, [
-        'latest', 'today', 'current', 'timing', 'post', 'tweet', 'twitter', 'x.com', 'social', 'cz',
-    ]) || containsAny(snapshot.lastUserMessage, ['最新', '今天', '现在', '发文', '推文', '社交', 'CZ']);
-    const asksWalletPnl = containsAny(query, [
-        'pnl', 'profit', 'profits', 'profitability', 'realized pnl', 'wallet pnl', 'wallet performance',
-    ]) || containsAny(snapshot.lastUserMessage, ['盈亏', '收益', '利润', '钱包收益', '钱包盈亏', '表现']);
-    const explicitRiskRequest = isExplicitRiskRequest(query, snapshot.lastUserMessage);
+        'early purchasers', '早期买家', '首批买家', '早期购买者', '持有人', '前几位买家', '早期购买',
+    ]);
+    const asksCreator = containsAny(snapshot.lastUserMessage, [
+        'creator', 'deployer', 'deployed by', '创建者', '部署者', '谁部署',
+    ]);
+
+    let selected = matchResult.rankedMatches.map((item) => item.skillId);
+    if (querySignals.welcome) {
+        allowAllTools = false;
+        strategyNotes.push('This is a greeting, self-introduction, or capabilities question. Answer directly without tools unless the user explicitly asks for live data or on-chain evidence.');
+        selected = selected.filter((skillId) => skillId === 'welcome_onboarding');
+    }
 
     if (tradingIntent) {
         if (tradingIntent.type === 'copy_trade') {
-            selected.push('copy_trade', 'wallet_portfolio');
+            ensurePrimarySkill(selected, 'copy_trade');
+            ensureSupportingSkill(selected, 'wallet_portfolio');
         } else if (tradingIntent.type === 'cross_chain_trade') {
-            selected.push('cross_chain_swap', 'wallet_portfolio');
+            ensurePrimarySkill(selected, 'cross_chain_swap');
+            ensureSupportingSkill(selected, 'wallet_portfolio');
         } else {
-            selected.push('swap', 'wallet_portfolio');
+            ensurePrimarySkill(selected, 'swap');
+            ensureSupportingSkill(selected, 'wallet_portfolio');
             if (explicitRiskRequest) {
-                selected.push('risk_security');
+                ensureSupportingSkill(selected, 'risk_security');
             }
         }
     } else {
-        if (isMetaAssistantQuery) {
-            allowAllTools = false;
-            strategyNotes.push('This is a greeting, self-introduction, or capabilities question. Answer directly without tools unless the user explicitly asks for live data or on-chain evidence.');
-        } else if (['wallet', 'balance', 'portfolio', 'pnl', '余额'].some((word) => query.includes(word))) {
-            selected.push('wallet_portfolio');
+        if (querySignals.wallet || asksWalletPnl) {
+            ensurePrimarySkill(selected, 'wallet_portfolio');
         }
-        if (!isMetaAssistantQuery && explicitRiskRequest) {
-            selected.push('risk_security');
+        if (explicitRiskRequest) {
+            ensureSupportingSkill(selected, 'risk_security');
         }
-        if (!isMetaAssistantQuery && ['polymarket', 'prediction', 'odds'].some((word) => query.includes(word))) {
-            selected.push('polymarket_prediction');
-        }
-        if (!isMetaAssistantQuery && ['farcaster', 'twitter', 'x.com', 'sentiment', 'social'].some((word) => query.includes(word))) {
-            selected.push('social_farcaster');
-        }
-        if (!isMetaAssistantQuery && hasRequestedToken) {
-            selected.push('token_analysis');
-        }
-        if (!isMetaAssistantQuery && selected.length === 0) {
-            selected.push('market_macro');
+        if (hasRequestedToken) {
+            ensureSupportingSkill(selected, 'token_analysis');
         }
     }
 
-    const deduped = selected.filter((skillId, index) => selected.indexOf(skillId) === index && !!skillRegistryExec.getSkill(skillId));
+    if (selected.length === 0 && !querySignals.welcome) {
+        selected = ['market_macro'];
+    }
+
+    if (preferXNativeSearch) {
+        selected = selected.filter((skillId) => skillId !== 'social_farcaster');
+        if (selected.length === 0 && !querySignals.welcome) {
+            selected = ['market_macro'];
+        }
+    }
+
+    selected = selected
+        .filter((skillId, index) => selected.indexOf(skillId) === index && !!skillRegistryExec.getSkill(skillId))
+        .slice(0, querySignals.welcome ? 1 : 3);
+
     const skillPrompts: string[] = [];
     let allowedTools: string[] = [];
 
-    for (const skillId of deduped) {
+    for (const skillId of selected) {
         const skill = skillRegistryExec.getSkill(skillId);
         if (!skill) continue;
         if (skill.prompt) {
@@ -110,7 +134,6 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
     if (contextBlocks.walletState || prefetched.get_wallet_info) {
         allowedTools = allowedTools.filter((tool) => tool !== 'get_wallet_info');
     }
-
     if (!explicitRiskRequest) {
         allowedTools = allowedTools.filter((tool) => tool !== 'check_token_risk');
     }
@@ -121,17 +144,13 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
     if (isGrok) {
         pushPreferred(blockedTools, 'external_web_search');
         allowedTools = allowedTools.filter((tool) => tool !== 'external_web_search');
-        if (asksRealtimeSocial) {
-            const blockedLocalSocialTools = new Set([
-                'get_trending_casts',
-                'get_farcaster_user',
-                'search_farcaster_casts',
-            ]);
-            for (const tool of blockedLocalSocialTools) {
-                pushPreferred(blockedTools, tool);
-            }
-            allowedTools = allowedTools.filter((tool) => !blockedLocalSocialTools.has(tool));
+    }
+    if (preferXNativeSearch) {
+        for (const toolName of ['get_trending_casts', 'search_farcaster_casts', 'get_farcaster_user']) {
+            pushPreferred(blockedTools, toolName);
         }
+        allowedTools = allowedTools.filter((tool) => !['get_trending_casts', 'search_farcaster_casts', 'get_farcaster_user'].includes(tool));
+        strategyNotes.push('This query is explicitly about X/Twitter. Do not substitute Farcaster trending tools unless the user explicitly asks for Farcaster.');
     }
 
     if (hasRequestedToken) {
@@ -149,69 +168,71 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
     if (asksWalletPnl) {
         pushPreferred(preferredTools, 'analyze_wallet_pnl_batch');
     }
-    if (asksRealtimeSocial) {
-        if (isGrok) {
-            strategyNotes.push('Use Grok native search tools for X/web/social discovery. Do not use local Farcaster/web search tools for this request.');
-        } else {
-            pushPreferred(preferredTools, 'external_web_search');
-        }
+
+    for (const skillId of selected) {
+        pushPreferredToolsForSkill(skillId, preferredTools);
     }
-    if (hasRequestedToken && asksEarlyBuyers && asksRealtimeSocial) {
-        strategyNotes.push('This is a composite task. Split it into sub-steps: first establish the social/timing context, then gather on-chain token evidence for the same window.');
-        strategyNotes.push('When using Grok, combine native search for timing/post context with local chain tools for early buyers, holders, first trades, or wallet evidence.');
+
+    if (matchResult.searchMode === 'required') {
+        strategyNotes.push('External search evidence is required for this query. Retrieve it before concluding.');
+    } else if (matchResult.searchMode === 'fallback') {
+        strategyNotes.push('Matched local skills are primary for this query. Use search only if the user explicitly requests external evidence or the local tools are insufficient.');
+    } else {
+        strategyNotes.push('Do not use generic search unless the user explicitly asks for external web/X evidence.');
+    }
+
+    if (hasRequestedToken && asksEarlyBuyers && querySignals.realtime) {
+        strategyNotes.push('This is a composite task. First establish the social/timing context, then gather local on-chain token evidence for the same window.');
     }
     if (!explicitRiskRequest) {
         strategyNotes.push('Do not run token-risk scanning unless the user explicitly asks for a safety or risk check.');
     }
 
+    logger.info(LogCode.AI_SKILLS_ATTACHED, 'Node skill resolution completed', {
+        sessionId: snapshot.sessionId,
+        taskId: snapshot.taskId,
+        selectedSkills: selected,
+        rankedMatches: matchResult.rankedMatches.map((match) => ({
+            skillId: match.skillId,
+            score: match.score,
+            reasons: match.reasons,
+        })),
+        rejectedSkills: matchResult.rejectedMatches.slice(0, 5).map((match) => ({
+            skillId: match.skillId,
+            score: match.score,
+        })),
+        searchMode: matchResult.searchMode,
+        searchReason: matchResult.searchReason,
+        allowedTools,
+        blockedTools,
+    });
+
     return {
-        selectedSkills: deduped,
+        selectedSkills: selected,
         skillPrompts,
         allowedTools,
         blockedTools,
         preferredTools,
         strategyNotes,
         allowAllTools,
+        rankedMatches: matchResult.rankedMatches,
+        searchMode: matchResult.searchMode,
+        searchReason: matchResult.searchReason,
+        querySignals,
     };
 }
 
-function isExplicitRiskRequest(query: string, rawQuery: string): boolean {
-    const enPhrases = [
-        'check token risk',
-        'check risk',
-        'risk check',
-        'security check',
-        'is this safe',
-        'safe or not',
-        'is this token safe',
-        'honeypot',
-        'rug',
-        'rug pull',
-        'scam',
-        'is this a scam',
-    ];
-    const zhPhrases = [
-        '检查风险',
-        '风险检查',
-        '安全检查',
-        '这个安全吗',
-        '这个代币安全吗',
-        '是不是土狗',
-        '是不是骗局',
-        '是不是貔貅',
-        '貔貅',
-        '蜜罐',
-        '土狗',
-        '拉地毯',
-        'rug',
-        'honeypot',
-    ];
-
-    return containsAny(query, enPhrases) || containsAny(rawQuery, zhPhrases);
+function ensurePrimarySkill(selected: string[], skillId: string) {
+    if (selected[0] === skillId) return;
+    const filtered = selected.filter((item) => item !== skillId);
+    filtered.unshift(skillId);
+    selected.splice(0, selected.length, ...filtered);
 }
 
-function containsAny(text: string, needles: string[]): boolean {
-    return needles.some((needle) => text.includes(needle));
+function ensureSupportingSkill(selected: string[], skillId: string) {
+    if (!selected.includes(skillId)) {
+        selected.push(skillId);
+    }
 }
 
 function pushPreferred(target: string[], toolName: string) {
@@ -220,27 +241,15 @@ function pushPreferred(target: string[], toolName: string) {
     }
 }
 
-function isAssistantMetaQuery(query: string, rawQuery: string): boolean {
-    const normalized = query.trim();
-    const raw = rawQuery.trim();
-    const directGreetings = ['hi', 'hello', 'hey', 'yo', 'sup'];
-    if (directGreetings.includes(normalized)) return true;
-    if (['你好', '嗨', '哈喽', '您好'].includes(raw)) return true;
+function containsAny(text: string, needles: string[]): boolean {
+    const haystack = String(text || '').toLowerCase();
+    return needles.some((needle) => haystack.includes(String(needle).toLowerCase()));
+}
 
-    return containsAny(normalized, [
-        'who are you',
-        'what can you do',
-        'what do you do',
-        'introduce yourself',
-        'how can you help',
-        'help me understand your capabilities',
-        'tell me about yourself',
-    ]) || containsAny(raw, [
-        '你是谁',
-        '你能做什么',
-        '你会什么',
-        '介绍一下你自己',
-        '你可以帮我做什么',
-        '你都能做什么',
-    ]);
+function pushPreferredToolsForSkill(skillId: string, preferredTools: string[]) {
+    const skill = skillRegistryExec.getSkill(skillId);
+    if (!skill) return;
+    for (const toolName of skill.metadata.tools || []) {
+        pushPreferred(preferredTools, toolName);
+    }
 }

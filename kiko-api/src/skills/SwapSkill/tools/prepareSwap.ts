@@ -16,8 +16,123 @@ interface SwapArgs {
 
 const NATIVE_PLACEHOLDER = '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
 
+const SAFE_TOKEN_SYMBOLS = new Set([
+    'ETH', 'WETH', 'USDC', 'USDT', 'DAI', 'SOL', 'BTC', 'WBTC', 'BNB', 'WBNB', 'POL', 'MATIC',
+]);
+
+const SAFE_TOKEN_ADDRESSES_BY_CHAIN: Record<number, Set<string>> = {
+    1: new Set([
+        '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2', // WETH
+        '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48', // USDC
+        '0xdac17f958d2ee523a2206206994597c13d831ec7', // USDT
+        '0x6b175474e89094c44da98b954eedeac495271d0f', // DAI
+        '0x2260fac5e5542a773aa44fbcfedf7c193bc2c599', // WBTC
+    ]),
+    8453: new Set([
+        '0x4200000000000000000000000000000000000006', // WETH
+        '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913', // USDC (Base)
+    ]),
+    56: new Set([
+        '0xbb4cdb9cbd36b01bd1cbaebf2de08d9173bc095c', // WBNB
+        '0x8ac76a51cc950d9822d68b83fe1ad97b32cd580d', // USDC
+        '0x55d398326f99059ff775485246999027b3197955', // USDT
+    ]),
+    137: new Set([
+        '0x3c499c542cef5e3811e1192ce70d8cc03d5c3359', // USDC (native)
+        '0x2791bca1f2de4661ed88a30c99a7a9449aa84174', // USDC.e
+        '0x7ceb23fd6bc0add59e62ac25578270cff1b9f619', // WETH
+        '0x0d500b1d8e8ef31e21c99d1db9a6444d3adf1270', // WMATIC
+    ]),
+    42161: new Set([
+        '0x82af49447d8a07e3bd95bd0d56f35241523fbab1', // WETH
+        '0xaf88d065e77c8cc2239327c5edb3a432268e5831', // USDC
+        '0xff970a61a04b1ca14834a43f5de4533ebddb5cc8', // USDC.e
+    ]),
+    10: new Set([
+        '0x4200000000000000000000000000000000000006', // WETH
+        '0x0b2c639c533813f4aa9d7837caf62653d097ff85', // USDC
+        '0x94b008aa00579c1307b0ef2c499ad98a8ce58e58', // USDT
+    ]),
+};
+
+const TOKEN_MATCH_ALIASES_BY_CHAIN: Record<number, Record<string, string>> = {
+    1: {
+        usdc: 'usdc:1',
+        usdt: 'usdt:1',
+        dai: 'dai:1',
+        wbtc: 'wbtc:1',
+        '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48': 'usdc:1',
+        '0xdac17f958d2ee523a2206206994597c13d831ec7': 'usdt:1',
+        '0x6b175474e89094c44da98b954eedeac495271d0f': 'dai:1',
+        '0x2260fac5e5542a773aa44fbcfedf7c193bc2c599': 'wbtc:1',
+    },
+    10: {
+        usdc: 'usdc:10',
+        usdt: 'usdt:10',
+        '0x0b2c639c533813f4aa9d7837caf62653d097ff85': 'usdc:10',
+        '0x94b008aa00579c1307b0ef2c499ad98a8ce58e58': 'usdt:10',
+    },
+    56: {
+        usdc: 'usdc:56',
+        usdt: 'usdt:56',
+        '0x8ac76a51cc950d9822d68b83fe1ad97b32cd580d': 'usdc:56',
+        '0x55d398326f99059ff775485246999027b3197955': 'usdt:56',
+    },
+    137: {
+        usdc: 'usdc:137',
+        'usdc.e': 'usdce:137',
+        dai: 'dai:137',
+        '0x3c499c542cef5e3811e1192ce70d8cc03d5c3359': 'usdc:137',
+        '0x2791bca1f2de4661ed88a30c99a7a9449aa84174': 'usdce:137',
+        '0x8f3cf7ad23cd3cadbd9735aff958023239c6a063': 'dai:137',
+    },
+    42161: {
+        usdc: 'usdc:42161',
+        'usdc.e': 'usdce:42161',
+        '0xaf88d065e77c8cc2239327c5edb3a432268e5831': 'usdc:42161',
+        '0xff970a61a04b1ca14834a43f5de4533ebddb5cc8': 'usdce:42161',
+    },
+    8453: {
+        usdc: 'usdc:8453',
+        '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913': 'usdc:8453',
+    },
+};
+
 function isAddressLike(token: string): boolean {
     return /^0x[0-9a-fA-F]{40}$/.test(token);
+}
+
+function isSafeTokenForChain(token: string, chainId: number): boolean {
+    const raw = String(token || '').trim();
+    if (!raw) return false;
+    if (!isAddressLike(raw)) {
+        return SAFE_TOKEN_SYMBOLS.has(raw.toUpperCase());
+    }
+    const addr = raw.toLowerCase();
+    return Boolean(SAFE_TOKEN_ADDRESSES_BY_CHAIN[Number(chainId)]?.has(addr));
+}
+
+function hasExecutableQuoteEvidence(quotePayload: any): boolean {
+    const quote = quotePayload?.data || quotePayload?.quote || null;
+    if (!quote || typeof quote !== 'object') return false;
+    const numericCandidates = [
+        quote.amountOutHuman,
+        quote.amountOut,
+        quote.buyAmount,
+        quote.toAmount,
+    ];
+    const hasPositiveAmount = numericCandidates.some((value) => {
+        const n = Number(value);
+        return Number.isFinite(n) && n > 0;
+    });
+    const hasRouteHint = Boolean(
+        quote.dexName
+        || quote.path
+        || quote.routeSummary
+        || quote.swapData
+        || quote.calldata
+    );
+    return hasPositiveAmount || hasRouteHint;
 }
 
 function normalizeTokenForMatch(token: string, chainId: number): string {
@@ -25,6 +140,8 @@ function normalizeTokenForMatch(token: string, chainId: number): string {
     if (!raw) return '';
     const nativeSymbol = getChainConfig(chainId).nativeCurrency.symbol.toLowerCase();
     if (raw === NATIVE_PLACEHOLDER || raw === nativeSymbol || raw === 'eth') return `native:${chainId}`;
+    const aliases = TOKEN_MATCH_ALIASES_BY_CHAIN[Number(chainId)] || {};
+    if (aliases[raw]) return aliases[raw];
     return raw;
 }
 
@@ -44,6 +161,23 @@ function parseSimulateSwapArgs(argsKey: string): SwapArgs | null {
     }
 }
 
+function parseSimulateSwapTraceArgs(rawArgs: any): SwapArgs | null {
+    if (!rawArgs || typeof rawArgs !== 'object' || Array.isArray(rawArgs)) return null;
+    const chainId = Number(rawArgs.chain_id);
+    const tokenIn = rawArgs.token_in;
+    const tokenOut = rawArgs.token_out;
+    const amountIn = rawArgs.amount_in;
+    if (!tokenIn || !tokenOut || !amountIn || !Number.isFinite(chainId) || chainId <= 0) {
+        return null;
+    }
+    return {
+        token_in: String(tokenIn),
+        token_out: String(tokenOut),
+        amount_in: String(amountIn),
+        chain_id: chainId,
+    };
+}
+
 function findRecentSimulatedSwap(messages: any[], windowMs: number): SwapArgs | null {
     const now = Date.now();
     const sorted = [...messages].sort((a, b) => (a.messageIndex || 0) - (b.messageIndex || 0));
@@ -57,12 +191,21 @@ function findRecentSimulatedSwap(messages: any[], windowMs: number): SwapArgs | 
         for (let j = toolCalls.length - 1; j >= 0; j -= 1) {
             const call = toolCalls[j];
             if (call?.tool !== 'simulate_swap' || call?.status !== 'success') continue;
-            const parsed = parseSimulateSwapArgs(call?.argsKey || '');
+            const parsed = parseSimulateSwapArgs(call?.argsKey || '') || parseSimulateSwapTraceArgs(call?.args);
             if (!parsed?.token_in || !parsed?.token_out || !parsed?.amount_in || !parsed?.chain_id) continue;
             return parsed;
         }
     }
     return null;
+}
+
+function matchesSimulatedSwap(simulated: SwapArgs | null, args: SwapArgs): boolean {
+    if (!simulated) return false;
+    const sameChain = Number(simulated.chain_id) === Number(args.chain_id);
+    if (!sameChain) return false;
+    const sameTokenIn = normalizeTokenForMatch(simulated.token_in, args.chain_id) === normalizeTokenForMatch(args.token_in, args.chain_id);
+    const sameTokenOut = normalizeTokenForMatch(simulated.token_out, args.chain_id) === normalizeTokenForMatch(args.token_out, args.chain_id);
+    return sameTokenIn && sameTokenOut;
 }
 
 async function resolveDisplaySymbol(token: string, chainId: number): Promise<string> {
@@ -148,7 +291,10 @@ The amount_in parameter MUST be a numeric string like '0.1' or '100'. Never pass
 - Set to FALSE (default): Returns simulation/quote info, waits for user text confirmation.
 - Set to TRUE: Executes the swap automatically and shows transaction-status-card.
 
-For ALLOWANCE TRADE MODE (default for all users): Always set execute=true`,
+When show-quote-before-swap is enabled (default), execution must follow:
+1) simulate_swap
+2) user confirmation
+3) execute=true on the confirmed swap`,
                     default: false
                 }
             },
@@ -158,18 +304,17 @@ For ALLOWANCE TRADE MODE (default for all users): Always set execute=true`,
     handler: async (args, context) => {
         try {
             console.log('[PrepareSwapTransaction] Preparing swap:', args);
+            let recentSimulatedSwap: SwapArgs | null = null;
 
-            // Guard confirmation flow: pin execute amount to latest simulate_swap result for same pair/chain.
-            if (args.execute === true && context?.sessionId) {
+            // Guard confirmation flow: load latest successful simulate_swap for the same pair/chain.
+            if (context?.sessionId && (args.execute === true || context?.allowanceMode === 'instant')) {
                 try {
                     const { getSessionMessages } = await import('../../../repositories/chatRepository.js');
                     const sessionMessages = await getSessionMessages(context.sessionId);
                     const simulated = findRecentSimulatedSwap(sessionMessages, 2 * 60 * 1000);
-                    if (simulated) {
-                        const sameChain = Number(simulated.chain_id) === Number(args.chain_id);
-                        const sameTokenIn = normalizeTokenForMatch(simulated.token_in, args.chain_id) === normalizeTokenForMatch(args.token_in, args.chain_id);
-                        const sameTokenOut = normalizeTokenForMatch(simulated.token_out, args.chain_id) === normalizeTokenForMatch(args.token_out, args.chain_id);
-                        if (sameChain && sameTokenIn && sameTokenOut && simulated.amount_in !== args.amount_in) {
+                    recentSimulatedSwap = simulated;
+                    if (simulated && args.execute === true) {
+                        if (matchesSimulatedSwap(simulated, args) && simulated.amount_in !== args.amount_in) {
                             console.log('[PrepareSwapTransaction] Using pinned amount from latest simulation', {
                                 requestedAmount: args.amount_in,
                                 pinnedAmount: simulated.amount_in,
@@ -264,15 +409,7 @@ For ALLOWANCE TRADE MODE (default for all users): Always set execute=true`,
 
             // 2. CODE-LEVEL SAFETY GATE (MANDATORY - Cannot be bypassed by LLM)
             // Check if token_out is a known safe token (whitelist)
-            const SAFE_TOKENS = [
-                'eth', 'weth', 'usdc', 'usdt', 'dai', 'sol', 'btc', 'wbtc', 'matic', 'pol',
-                '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2', // WETH
-                '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48', // USDC
-                '0xdac17f958d2ee523a2206206994597c13d831ec7', // USDT
-            ];
-
-            const tokenOutLower = args.token_out.toLowerCase();
-            const isSafeToken = SAFE_TOKENS.some(safe => tokenOutLower.includes(safe.toLowerCase()));
+            const isSafeToken = isSafeTokenForChain(args.token_out, args.chain_id);
 
             if (!isSafeToken) {
                 console.log('[PrepareSwapTransaction] Non-safe token detected, running MANDATORY Market Structure check...');
@@ -282,23 +419,32 @@ For ALLOWANCE TRADE MODE (default for all users): Always set execute=true`,
                     // ⚡ Use TradeContext-aware data fetching (auto-caches)
                     const tokenData = await getTokenData(args.token_out, args.chain_id, tradeCtx);
 
+                    // Prefer concrete quote evidence when liquidity feed is unreliable (e.g., temporary 0-liquidity fallback).
+                    const preWarmedQuote = await preWarmQuotePromise;
+                    const hasQuoteEvidence = hasExecutableQuoteEvidence(preWarmedQuote);
+
                     if (tokenData) {
                         const liquidity = tokenData.liquidity || 0;
                         const fdv = tokenData.marketCap || 0;
 
                         // Rule: Block if Liquidity is extremely low compared to trade size or absolute minimum
                         if (liquidity < 1000) {
-                            return {
-                                error: `🚨 SECURITY BLOCK: Extremely low liquidity ($${liquidity.toFixed(0)}). Buying this token would likely result in 100% loss.`,
-                                riskDetails: { liquidity, fdv, status: 'Extremely Illiquid' }
-                            };
+                            if (liquidity <= 0 && hasQuoteEvidence) {
+                                console.warn('[PrepareSwapTransaction] Liquidity feed returned 0, but executable quote exists. Skipping hard liquidity block.', {
+                                    tokenOut: args.token_out,
+                                    chainId: args.chain_id,
+                                });
+                            } else {
+                                return {
+                                    error: `🚨 SECURITY BLOCK: Extremely low liquidity ($${liquidity.toFixed(0)}). Buying this token would likely result in 100% loss.`,
+                                    riskDetails: { liquidity, fdv, status: 'Extremely Illiquid' }
+                                };
+                            }
                         }
                     }
 
                     // 2. SIMULATION CHECK (Price Impact)
                     // OPTIMIZATION: Use pre-warmed quote if available
-                    const preWarmedQuote = await preWarmQuotePromise;
-
                     if (preWarmedQuote && preWarmedQuote.data) {
                         console.log('[PrepareSwapTransaction] ✅ Using pre-warmed quote for safety check');
                         const impact = parseFloat(preWarmedQuote.data.priceImpact || '0');
@@ -360,6 +506,7 @@ For ALLOWANCE TRADE MODE (default for all users): Always set execute=true`,
             const config = context?.toolConfig as any;
             const swapMethod = 'allowance_trade'; // FORCED: Always use allowance_trade
             const fastSwapMode = config?.fastSwapMode === true;
+            const requireSimulationBeforeExecute = !fastSwapMode && config?.showQuoteBeforeSwap !== false;
 
             // Execute instantly ONLY if:
             // 1. args.execute is explicitly true (AI decision), OR
@@ -374,8 +521,21 @@ For ALLOWANCE TRADE MODE (default for all users): Always set execute=true`,
                 argsExecute: args.execute,
                 swapMethod,
                 fastSwapMode,
+                requireSimulationBeforeExecute,
                 finalDecision: shouldExecute
             });
+
+            if (shouldExecute && requireSimulationBeforeExecute && !matchesSimulatedSwap(recentSimulatedSwap, args)) {
+                return {
+                    error: 'SIMULATION_REQUIRED_BEFORE_EXECUTION',
+                    code: 'SIMULATION_REQUIRED_BEFORE_EXECUTION',
+                    mode: 'error',
+                    requires_simulation: true,
+                    requires_user_confirmation: true,
+                    _final: true,
+                    _user_message: `This trade needs a fresh simulation before execution.\n\nPlease run a quote/simulation for ${args.amount_in} ${args.token_in} -> ${args.token_out} on chain ${args.chain_id}, then confirm again.`
+                };
+            }
 
 
             if (shouldExecute) {

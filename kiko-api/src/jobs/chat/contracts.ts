@@ -1,4 +1,5 @@
 import type { ToolDefinition } from '../../tooling/registry.js';
+import type { ActionClass, ControlPolicySnapshot } from './controlPolicy.js';
 
 export interface ChatHistoryMessage {
     role: 'system' | 'user' | 'assistant' | 'tool';
@@ -21,7 +22,7 @@ export interface RecentToolTrace {
 }
 
 export interface TradeConfirmationState {
-    kind?: 'swap_confirmation' | 'copy_trade_confirmation';
+    kind?: 'swap_confirmation' | 'copy_trade_confirmation' | 'order_confirmation';
     swap?: {
         tokenIn: string;
         tokenOut: string;
@@ -37,6 +38,12 @@ export interface TradeConfirmationState {
         mirrorSell?: boolean;
         takeProfitPct?: number;
         stopLossPct?: number;
+    };
+    order?: {
+        toolName: string;
+        args: Record<string, any>;
+        confirmationToken: string;
+        actionClass: ActionClass;
     };
 }
 
@@ -166,6 +173,7 @@ export interface ChatContextSnapshot {
     } | null;
     previousResponseId?: string | null;
     toolDefinitions: ToolDefinition[];
+    policySnapshot?: ControlPolicySnapshot | null;
 }
 
 export interface OrchestratorToolCall {
@@ -182,6 +190,8 @@ export interface OrchestratorToolResult {
     result?: any;
     error?: string;
     metadata?: Record<string, any>;
+    reasonCode?: string;
+    policyDecisionId?: string;
 }
 
 export interface OrchestratorUsage {

@@ -1,10 +1,45 @@
 import type { ChatContextSnapshot } from './contracts.js';
+import type { ActionClass } from './controlPolicy.js';
+import type { SkillResolution } from './nodeSkillResolver.js';
 
 export interface ProviderInfo {
     provider: 'openai' | 'deepseek' | 'grok';
     model: string;
     supportsNativeSearch: boolean;
     supportsPreviousResponse: boolean;
+}
+
+export interface ProviderOptions {
+    metadata: {
+        session_id: string;
+        task_id: string;
+    };
+    tool_context: Record<string, any>;
+    enable_search: boolean;
+    tool_policy?: {
+        control_plane: string;
+        action_class?: ActionClass;
+        mutation_allowed?: boolean;
+        enforcement_level?: 'hard' | 'soft';
+        native_tools: {
+            enable_search: boolean;
+            enabled_tools: string[];
+            required: boolean;
+            preferred_required_tool: string | null;
+            include_options: string[];
+            allow_extra_sdk_tools: boolean;
+            reason: string;
+        };
+        execution: {
+            per_tool_timeout_ms: number;
+            total_tool_budget_ms: number;
+        };
+    };
+    tool_config?: {
+        web_search?: Record<string, any>;
+        x_search?: Record<string, any>;
+    };
+    previous_response_id?: string;
 }
 
 export function resolveProviderInfo(model: string): ProviderInfo {
@@ -33,7 +68,12 @@ export function resolveProviderInfo(model: string): ProviderInfo {
     };
 }
 
-export function buildProviderOptions(snapshot: ChatContextSnapshot, providerInfo: ProviderInfo, query: string) {
+export function buildProviderOptions(
+    snapshot: ChatContextSnapshot,
+    providerInfo: ProviderInfo,
+    query: string,
+    skillResolution?: Pick<SkillResolution, 'searchMode' | 'searchReason'>,
+): ProviderOptions {
     if (providerInfo.provider !== 'grok') {
         return {
             metadata: {
@@ -46,16 +86,15 @@ export function buildProviderOptions(snapshot: ChatContextSnapshot, providerInfo
     }
 
     const lower = String(query || '').toLowerCase();
-    const requiresRealtimeSocialSearch =
-        ['trending', 'trend', 'latest', 'today', 'current', 'farcaster', 'twitter', 'tweet', 'post', 'timeline', 'x.com', 'social', 'sentiment', 'hot'].some((word) => lower.includes(word))
-        || ['趋势', '今天', '现在', '最新', '发文', '推文', '帖子', '时间线', '时间点', '热门', '社交', '情绪'].some((word) => String(query || '').includes(word));
+    const searchMode = skillResolution?.searchMode || 'forbidden';
+    const requiresRealtimeSocialSearch = searchMode !== 'forbidden';
     const requestsOnchainEvidence =
         ((snapshot.requestedTokenAddresses || []).length > 0) &&
         (
             ['early buyers', 'earliest buyers', 'first buyers', 'holders', 'first trades', 'first swaps', 'creator', 'deployer'].some((word) => lower.includes(word))
             || ['早期买家', '首批买家', '持有人', '创建者', '部署者', '前几位买家'].some((word) => String(query || '').includes(word))
         );
-    const nativeSearchRequired = requiresRealtimeSocialSearch;
+    const nativeSearchRequired = searchMode === 'required';
 
     const xSeedHandles = extractXHandles([
         snapshot.runtime.farcaster,
@@ -64,8 +103,12 @@ export function buildProviderOptions(snapshot: ChatContextSnapshot, providerInfo
         snapshot.runtime.pageContext,
     ]);
     const fromDate = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const previousResponseId = sanitizePreviousResponseId(snapshot.previousResponseId);
+    const actionClass = snapshot.policySnapshot?.actionClass || 'READ_ONLY';
+    const hardMutationPolicy = snapshot.policySnapshot?.enforcementLevel === 'hard' && actionClass !== 'READ_ONLY';
+    const nativeSearchEnabled = !hardMutationPolicy && searchMode !== 'forbidden';
 
-    return {
+    const options = {
         metadata: {
             session_id: String(snapshot.sessionId || ''),
             task_id: String(snapshot.taskId || ''),
@@ -73,18 +116,28 @@ export function buildProviderOptions(snapshot: ChatContextSnapshot, providerInfo
         tool_context: snapshot.runtime.toolContext || {},
         tool_policy: {
             control_plane: 'node',
+            action_class: actionClass,
+            mutation_allowed: Boolean(snapshot.policySnapshot?.mutationAllowed),
+            enforcement_level: snapshot.policySnapshot?.enforcementLevel || 'hard',
             native_tools: {
-                enable_search: true,
-                enabled_tools: ['web_search', 'x_search'],
-                required: nativeSearchRequired,
-                preferred_required_tool: nativeSearchRequired ? 'x_search' : null,
-                include_options: ['inline_citations', ...(requiresRealtimeSocialSearch ? ['web_search_call_output', 'x_search_call_output'] : [])],
-                allow_extra_sdk_tools: true,
-                reason: requestsOnchainEvidence
+                enable_search: nativeSearchEnabled,
+                enabled_tools: nativeSearchEnabled ? ['web_search', 'x_search'] : [],
+                required: nativeSearchEnabled ? nativeSearchRequired : false,
+                preferred_required_tool: nativeSearchEnabled && nativeSearchRequired ? 'x_search' : null,
+                include_options: nativeSearchEnabled
+                    ? ['inline_citations', ...(requiresRealtimeSocialSearch ? ['web_search_call_output', 'x_search_call_output'] : [])]
+                    : [],
+                allow_extra_sdk_tools: false,
+                reason: hardMutationPolicy
+                    ? 'mutation_node_control_only'
+                    : requestsOnchainEvidence
                     ? 'native_search_required_with_local_chain_tools'
-                    : requiresRealtimeSocialSearch
-                        ? 'required_realtime_social_search'
-                        : 'native_search_available',
+                    : skillResolution?.searchReason
+                        || (nativeSearchRequired
+                            ? 'required_realtime_social_search'
+                            : requiresRealtimeSocialSearch
+                                ? 'native_search_fallback'
+                                : 'native_search_disabled'),
             },
             execution: {
                 per_tool_timeout_ms: 20000,
@@ -98,9 +151,47 @@ export function buildProviderOptions(snapshot: ChatContextSnapshot, providerInfo
                 ...(xSeedHandles.length > 0 ? { allowed_x_handles: xSeedHandles } : {}),
             },
         },
-        previous_response_id: snapshot.previousResponseId || undefined,
-        enable_search: true,
+        previous_response_id: previousResponseId || undefined,
+        enable_search: nativeSearchEnabled,
     };
+    assertNodeControlledGrokPolicy(options);
+    return options;
+}
+
+function assertNodeControlledGrokPolicy(options: Record<string, any>) {
+    const toolPolicy = (options?.tool_policy && typeof options.tool_policy === 'object')
+        ? options.tool_policy as Record<string, any>
+        : {};
+    const controlPlane = String(toolPolicy.control_plane || '').trim().toLowerCase();
+    const actionClass = String(toolPolicy.action_class || 'READ_ONLY').trim().toUpperCase();
+    const mutationAllowed = Boolean(toolPolicy.mutation_allowed);
+    const enforcementLevel = String(toolPolicy.enforcement_level || 'hard').trim().toLowerCase();
+    const nativeTools = (toolPolicy.native_tools && typeof toolPolicy.native_tools === 'object')
+        ? toolPolicy.native_tools as Record<string, any>
+        : {};
+    const allowExtraSdkTools = Boolean(nativeTools.allow_extra_sdk_tools);
+    if (controlPlane === 'node' && allowExtraSdkTools) {
+        throw new Error('Invalid Grok tool policy: control_plane=node requires native_tools.allow_extra_sdk_tools=false');
+    }
+    if (enforcementLevel === 'hard' && mutationAllowed && actionClass !== 'TRADE_MUTATION' && actionClass !== 'ORDER_MUTATION' && actionClass !== 'READ_ONLY') {
+        throw new Error(`Invalid Grok tool policy: unsupported action_class=${actionClass}`);
+    }
+    if (enforcementLevel === 'hard' && (actionClass === 'TRADE_MUTATION' || actionClass === 'ORDER_MUTATION')) {
+        if (controlPlane !== 'node') {
+            throw new Error('Invalid Grok tool policy: mutation action class requires control_plane=node');
+        }
+        if (allowExtraSdkTools) {
+            throw new Error('Invalid Grok tool policy: mutation action class requires native_tools.allow_extra_sdk_tools=false');
+        }
+    }
+}
+
+function sanitizePreviousResponseId(value: string | null | undefined): string | null {
+    const normalized = String(value || '').trim();
+    if (!normalized) return null;
+    // Guard against synthetic ids generated from hash(message) in error chunks.
+    if (/^chatcmpl-?-?\d+$/.test(normalized)) return null;
+    return normalized;
 }
 
 function extractXHandles(value: unknown): string[] {
