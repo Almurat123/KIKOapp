@@ -386,7 +386,8 @@ export async function getZeroExQuote(
   takerAddress?: string, // User's wallet address - CRITICAL for actual swaps
   affiliateFee?: ZeroExAffiliateFee,
   quoteOnly: boolean = false, // Set true for price quotes that won't execute
-  preferPermit2: boolean = true
+  preferPermit2: boolean = true,
+  requestTimeoutMs: number = 15000
 ): Promise<ZeroExQuote | null> {
   try {
     // CRITICAL: takerAddress is REQUIRED for allowance-holder endpoint (both price and quote)
@@ -559,7 +560,7 @@ export async function getZeroExQuote(
         url,
         method: 'GET',
         headers,
-        timeout: 15000
+        timeout: requestTimeoutMs
       });
       responseWasOk = true;
       httpStatus = 200; // fetchJson only succeeds for 2xx responses
@@ -607,7 +608,7 @@ export async function getZeroExQuote(
           url: allowanceUrl,
           method: 'GET',
           headers,
-          timeout: 15000
+          timeout: requestTimeoutMs
         });
         responseWasOk = true;
         httpStatus = 200;
@@ -696,7 +697,8 @@ export async function getZeroExQuote(
         const fallbackData = await fetchJson<any>({
           url: fallbackUrl,
           method: 'GET',
-          headers: fallbackHeaders
+          headers: fallbackHeaders,
+          timeout: requestTimeoutMs
         });
 
         logger.info(LogCode.API_FETCH_SUCCESS, '0x API Fallback to v1 endpoint succeeded');

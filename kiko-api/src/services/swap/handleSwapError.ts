@@ -11,6 +11,13 @@ export function handleSwapError(error: any): string {
     const msgLower = msg.toLowerCase();
     let errorData: any = error.response?.data || error.data || {};
 
+    if (
+        msgLower.startsWith('copytrade_fallback_guard_reject:')
+        || msgLower.startsWith('quote_anchor_guard_reject:')
+    ) {
+        return msg;
+    }
+
     // Extract JSON payload from fetchJson errors (format: "HTTP 400: {...}")
     if (!errorData || Object.keys(errorData).length === 0) {
         const httpJsonMatch = msg.match(/HTTP\s+\d+:\s*(\{.*\})/);

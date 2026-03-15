@@ -119,6 +119,22 @@ export interface DirectSwapHint {
   bypassReferencePrice?: boolean;
 }
 
+export type QuoteDex = '0x' | 'kyber';
+
+export interface CopytradeFallbackPricingGuardContext {
+  stage: '0x_fallback';
+  targetExecutionPrice?: number;
+  referencePrice?: number;
+  referencePriceSource?: 'market_oracle_price' | 'local_quote_price' | 'reference_unavailable';
+  maxEntryDeviationBps?: number;
+  thresholdSource?: string;
+  thresholdReasonCode?: string;
+  thresholdPolicy?: string;
+  modeFloorBps?: number | null;
+  inputValueUsd?: number;
+  allowUnreliablePriceBypass?: boolean;
+}
+
 /**
  * Unified swap request accepted by MainSwapService
  */
@@ -162,6 +178,9 @@ export interface MainSwapRequest {
 
   // Copytrade execution hint from target wallet decoded tx
   directSwapHint?: DirectSwapHint;
+  allowedDexes?: QuoteDex[];
+  zeroExQuoteTimeoutMs?: number;
+  preferredDexes?: QuoteDex[];
   executionContext?: {
     sourceTxHash?: string;
     sourceRouter?: string;
@@ -177,6 +196,7 @@ export interface MainSwapRequest {
     contextSnapshot?: SwapExecutionContextV1;
     contextHitSource?: 'redis' | 'db' | 'inline' | 'miss';
     strictReplica?: boolean;
+    copytradeFallbackPricingGuard?: CopytradeFallbackPricingGuardContext;
   };
   executionPlan?: ExecutionPlanV1;
   runtimeContext?: OrderRuntimeContext;
@@ -246,6 +266,94 @@ function buildUserFacingSwapError(message?: string, routePolicy?: RoutePolicy): 
       return 'The trade could not be executed.';
   }
 }
+
+type TurboDirectFailureReason = 'budget_timeout' | 'visibility_timeout' | 'send_failure' | 'route_failure' | null;
+
+function isTurboCopytradeNonRecoverableValidationFailure(message?: string | null): boolean {
+  const normalized = String(message || '').toLowerCase();
+  if (!normalized) return false;
+  return [
+    'clanker_gate:',
+    'clanker_force_v4_failed',
+    'unsupported_v4_hook',
+    'hint_pool_pair_mismatch',
+    'invalid evm token',
+    'invalid address',
+    'amountin must be > 0',
+    'route policy',
+    'chain_not_supported',
+    'unsupported_direction',
+    'missing wallet',
+    'missing auth',
+    'missing context',
+    'insufficient balance',
+    'insufficient funds',
+    'approval',
+    'allowance',
+  ].some((pattern) => normalized.includes(pattern));
+}
+
+function resolveTurboCopytrade0xFallbackPlan(params: {
+  isTurboCopytrade: boolean;
+  isBuyDirection: boolean;
+  directFailureReason: TurboDirectFailureReason;
+  directFailureMessage?: string | null;
+  acceptedDirectEvidence: boolean;
+  hasGuardContext: boolean;
+  skipExternalFallback: boolean;
+  skipNoLiquidity: boolean;
+}): {
+  shouldFallback: boolean;
+  reasonCode: string;
+  fallbackBudgetMs?: number;
+  quoteTimeoutMs?: number;
+  providerTag?: 'aggregator_fallback_0x_turbo';
+} {
+  if (!params.isTurboCopytrade || !params.isBuyDirection) {
+    return { shouldFallback: false, reasonCode: 'not_turbo_copytrade_buy' };
+  }
+  if (params.acceptedDirectEvidence) {
+    return { shouldFallback: false, reasonCode: 'accepted_direct_tx' };
+  }
+  if (params.skipExternalFallback) {
+    return { shouldFallback: false, reasonCode: 'external_fallback_disabled' };
+  }
+  if (params.skipNoLiquidity) {
+    return { shouldFallback: false, reasonCode: 'liquidity_guard_reject_all' };
+  }
+  if (!params.hasGuardContext) {
+    return { shouldFallback: false, reasonCode: 'missing_copytrade_guard_context' };
+  }
+  if (isTurboCopytradeNonRecoverableValidationFailure(params.directFailureMessage)) {
+    return { shouldFallback: false, reasonCode: 'non_recoverable_validation' };
+  }
+
+  const recoverableReasons = new Set<TurboDirectFailureReason>([
+    'budget_timeout',
+    'visibility_timeout',
+    'send_failure',
+    'route_failure',
+  ]);
+  if (!recoverableReasons.has(params.directFailureReason)) {
+    return { shouldFallback: false, reasonCode: 'direct_failure_not_recoverable' };
+  }
+
+  const fallbackBudgetMs = Math.max(250, Number(process.env.COPYTRADE_TURBO_0X_FALLBACK_BUDGET_MS || 2500));
+  const configuredQuoteTimeoutMs = Math.max(150, Number(process.env.COPYTRADE_TURBO_0X_FALLBACK_QUOTE_TIMEOUT_MS || 1800));
+  const quoteTimeoutMs = Math.max(150, Math.min(configuredQuoteTimeoutMs, fallbackBudgetMs));
+
+  return {
+    shouldFallback: true,
+    reasonCode: params.directFailureReason || 'recoverable_direct_failure',
+    fallbackBudgetMs,
+    quoteTimeoutMs,
+    providerTag: 'aggregator_fallback_0x_turbo',
+  };
+}
+
+export const __testOnly = {
+  resolveTurboCopytrade0xFallbackPlan,
+};
 
 /**
  * Launchpad token detection result
@@ -1452,7 +1560,7 @@ export class MainSwapService {
       let lastDirectResult: Awaited<ReturnType<typeof executeDirectSwap>> | null = null;
       let lastDirectError: any = null;
       let inflightDirectPromise: Promise<Awaited<ReturnType<typeof executeDirectSwap>>> | null = null;
-      let directTimeoutReason: 'budget_timeout' | 'visibility_timeout' | 'send_failure' | 'route_failure' | null = null;
+      let directTimeoutReason: TurboDirectFailureReason = null;
       const directTraceState: {
         direct_start_at: number;
         first_send_at?: number;
@@ -1822,7 +1930,7 @@ export class MainSwapService {
             }
           };
         }
-        logger.warn(LogCode.SYS_INFO, trace('Turbo timeout without txHash; skip fallback and return direct timeout'), {
+        logger.warn(LogCode.SYS_INFO, trace('Turbo timeout without adopted direct tx; evaluating fallback eligibility'), {
           error: lastDirectError?.message,
           order_runtime_state: request.runtimeContext?.state || null,
           direct_timeout_reason: directTimeoutReason || 'send_failure',
@@ -1834,17 +1942,6 @@ export class MainSwapService {
             updatedAt: item.state?.updatedAt || null
           }))
         });
-        return {
-          success: false,
-          error: lastDirectError?.message || 'Turbo direct timeout',
-          txLifecycle: lastDirectResult?.txLifecycle || request.runtimeContext?.lastLifecycle,
-          runtimeContext: request.runtimeContext,
-          metadata: {
-            provider: lastDirectResult?.provider || 'failed',
-            mode: request.mode,
-            txLifecycleStatus: lastDirectResult?.txLifecycle?.status || request.runtimeContext?.lastLifecycle?.status
-          }
-        };
       }
 
       if (!isTurboCopytrade && inflightDirectPromise) {
@@ -1901,8 +1998,46 @@ export class MainSwapService {
         ? directTraceState.fanout_done_at - directTraceState.first_send_at
         : null;
       const directFailureMessage = String(lastDirectResult?.error || lastDirectError?.message || '');
+      const turboSkip0xBuyNoLiq = isTurboCopytrade
+        && isBuyDirection
+        && directFailureMessage.includes('liquidity_guard_reject_all');
+      const turboCopytradeFallbackPlan = resolveTurboCopytrade0xFallbackPlan({
+        isTurboCopytrade,
+        isBuyDirection,
+        directFailureReason: directTimeoutReason,
+        directFailureMessage,
+        acceptedDirectEvidence: Boolean(acceptedBeforeFallback.adoptAcceptedTx && runtimeAcceptedDirectTxHash()),
+        hasGuardContext: Boolean(request.executionContext?.copytradeFallbackPricingGuard),
+        skipExternalFallback: turboSkip0xFallback,
+        skipNoLiquidity: turboSkip0xBuyNoLiq,
+      });
       const turboHardFailure = /revert|execution reverted|rpc_failed|all rpc endpoints failed|eth_sendrawtransaction|nonce|insufficient|replacement transaction|network failure|temporarily unavailable|service unavailable|http 50[234]/i.test(directFailureMessage);
-      if (isTurboCopytrade && !turboHardFailure) {
+
+      if (isTurboCopytrade && isBuyDirection) {
+        if (!turboCopytradeFallbackPlan.shouldFallback) {
+          logger.warn(LogCode.SYS_INFO, trace('Turbo copytrade buy direct failure; 0x fallback suppressed'), {
+            error: directFailureMessage || null,
+            fallback_used: false,
+            reasonCode: turboCopytradeFallbackPlan.reasonCode,
+            route_ms: routeMs,
+            send_ms: sendMs,
+            direct_timeout_reason: directTimeoutReason || undefined
+          });
+          return {
+            success: false,
+            error: directFailureMessage || turboCopytradeFallbackPlan.reasonCode || 'direct_swap_failed',
+            txLifecycle: lastDirectResult?.txLifecycle || request.runtimeContext?.lastLifecycle,
+            runtimeContext: request.runtimeContext,
+            metadata: {
+              provider: lastDirectResult?.provider || 'failed',
+              mode: request.mode,
+              txLifecycleStatus: lastDirectResult?.txLifecycle?.status || request.runtimeContext?.lastLifecycle?.status
+            }
+          };
+        }
+        request.allowedDexes = ['0x'];
+        request.zeroExQuoteTimeoutMs = turboCopytradeFallbackPlan.quoteTimeoutMs;
+      } else if (isTurboCopytrade && !turboHardFailure) {
         logger.warn(LogCode.SYS_INFO, trace('Turbo direct failed without hard-failure signal; skip fallback'), {
           error: directFailureMessage || null,
           fallback_used: false,
@@ -1933,7 +2068,7 @@ export class MainSwapService {
       if (lastDirectResult) {
         directTraceState.fallback_start_at = Date.now();
         const failureCode = extractFailureCode(lastDirectResult.error);
-        logger.warn(LogCode.SYS_INFO, trace(`Direct swap failed, falling back to 0x/Kyber: ${lastDirectResult.error || 'unknown'}`), {
+        logger.warn(LogCode.SYS_INFO, trace(`${isTurboCopytrade && isBuyDirection ? 'Turbo copytrade buy recoverable direct failure; entering 0x-only fallback' : `Direct swap failed, falling back to 0x/Kyber: ${lastDirectResult.error || 'unknown'}`}`), {
           error: lastDirectResult.error,
           failureCode,
           directProvider: lastDirectResult.provider,
@@ -1944,11 +2079,14 @@ export class MainSwapService {
           tokenOut: normalizedTokenOut,
           attempts: DIRECT_SWAP_MAX_ATTEMPTS,
           direct_timeout_reason: directTimeoutReason || undefined,
+          fallbackProvider: turboCopytradeFallbackPlan.providerTag || 'aggregator_fallback',
+          fallbackBudgetMs: turboCopytradeFallbackPlan.fallbackBudgetMs,
+          quoteTimeoutMs: turboCopytradeFallbackPlan.quoteTimeoutMs,
           ...directTraceState
         });
       } else if (lastDirectError) {
         directTraceState.fallback_start_at = Date.now();
-        logger.warn(LogCode.SYS_ERROR, trace('Direct swap error, falling back to 0x/Kyber'), {
+        logger.warn(LogCode.SYS_ERROR, trace(isTurboCopytrade && isBuyDirection ? 'Turbo copytrade buy direct error; entering 0x-only fallback' : 'Direct swap error, falling back to 0x/Kyber'), {
           error: lastDirectError.message,
           chainId: request.chainId,
           mode: request.mode,
@@ -1956,17 +2094,12 @@ export class MainSwapService {
           tokenOut: normalizedTokenOut,
           attempts: DIRECT_SWAP_MAX_ATTEMPTS,
           direct_timeout_reason: directTimeoutReason || undefined,
+          fallbackProvider: turboCopytradeFallbackPlan.providerTag || 'aggregator_fallback',
+          fallbackBudgetMs: turboCopytradeFallbackPlan.fallbackBudgetMs,
+          quoteTimeoutMs: turboCopytradeFallbackPlan.quoteTimeoutMs,
           ...directTraceState
         });
       }
-
-      // For turbo BUY: also skip 0x when rescue already called getZeroExPrice and got
-      // liquidityAvailable=false for every candidate pool (= liquidity_guard_reject_all).
-      // In that case 0x quote will also return no-liquidity — don't waste 3-15s on it.
-      const directErrorCode = lastDirectResult?.error || lastDirectError?.message || '';
-      const turboSkip0xBuyNoLiq = isTurboCopytrade
-        && isBuyDirection
-        && directErrorCode.includes('liquidity_guard_reject_all');
 
       if (turboSkip0xFallback || turboSkip0xBuyNoLiq) {
         const error = lastDirectResult?.error || lastDirectError?.message;
@@ -2034,6 +2167,13 @@ export class MainSwapService {
     const confirmationTimeoutMs = requireConfirmedTx
       ? 15000
       : (request.mode === 'allowance' || request.mode === 'copytrade' ? (isTurboCopytrade ? 3000 : 12000) : 60000);
+    const useTurboCopytrade0xFallback =
+      isTurboCopytrade
+      && isBuyDirection
+      && Array.isArray(request.allowedDexes)
+      && request.allowedDexes.length === 1
+      && request.allowedDexes[0] === '0x'
+      && request.executionContext?.copytradeFallbackPricingGuard?.stage === '0x_fallback';
 
     const swapParams: SwapParams = {
       userId: request.userId,
@@ -2061,6 +2201,9 @@ export class MainSwapService {
       executionMode: request.userSettings?.copyTradeExecutionMode,
       mevProtection: shouldEnableMevProtection,
       preWarmedNonce: request.preWarmedNonce,
+      allowedDexes: request.allowedDexes,
+      zeroExQuoteTimeoutMs: request.zeroExQuoteTimeoutMs,
+      preferredDexes: request.preferredDexes,
       sourceAnchor: {
         sourceTxHash: request.executionContext?.sourceTxHash || contextSnapshot?.sourceTxHash,
         sourceTokenIn,
@@ -2071,10 +2214,33 @@ export class MainSwapService {
       runtimeContext: request.runtimeContext
     };
 
+    if (useTurboCopytrade0xFallback) {
+      swapParams.allowedDexes = ['0x'];
+      swapParams.zeroExQuoteTimeoutMs = request.zeroExQuoteTimeoutMs;
+      swapParams.copytradeFallbackPricingGuard = request.executionContext?.copytradeFallbackPricingGuard;
+    }
+
     if (checkNativeBalancePromise) await checkNativeBalancePromise;
     const executionResult = await SwapExecutor.execute(swapParams);
 
     if (!executionResult.success) {
+      if (useTurboCopytrade0xFallback) {
+        const errorText = String(executionResult.error || '');
+        const fallbackReasonCode = errorText.includes('quote_anchor_guard_reject')
+          ? 'source_anchor_guard_reject'
+          : errorText.includes('copytrade_fallback_guard_reject')
+            ? 'entry_deviation_guard_reject'
+            : errorText.toLowerCase().includes('timeout')
+              ? 'quote_timeout'
+              : 'send_failure';
+        logger.warn(LogCode.SYS_INFO, trace('Turbo copytrade 0x fallback failed'), {
+          error: executionResult.error || null,
+          reasonCode: fallbackReasonCode,
+          provider: executionResult.method || '0x',
+          fallbackProvider: request.allowedDexes?.join(',') || '0x',
+          quoteTimeoutMs: swapParams.zeroExQuoteTimeoutMs || null
+        });
+      }
       if (request.runtimeContext) {
         markOrderFallbackResult(request.runtimeContext, false, 'send_rejected');
       }
@@ -2085,12 +2251,13 @@ export class MainSwapService {
       markOrderFallbackResult(request.runtimeContext, true);
     }
 
-    logger.info(LogCode.EXE_TX_CONFIRMED, trace('Fallback swap execution succeeded'), {
+    logger.info(LogCode.EXE_TX_CONFIRMED, trace(useTurboCopytrade0xFallback ? 'Turbo copytrade 0x fallback send succeeded' : 'Fallback swap execution succeeded'), {
       method: executionResult.method,
       txHash: executionResult.txHash,
       amountOut: executionResult.amountOut,
       chainId: request.chainId,
-      mode: request.mode
+      mode: request.mode,
+      fallbackProvider: useTurboCopytrade0xFallback ? 'aggregator_fallback_0x_turbo' : 'aggregator_fallback'
     });
 
     const result = {
@@ -2098,7 +2265,7 @@ export class MainSwapService {
       txHash: executionResult.txHash,
       amountOut: executionResult.amountOut,
       metadata: {
-        provider: executionResult.method,
+        provider: useTurboCopytrade0xFallback ? 'aggregator_fallback_0x_turbo' : executionResult.method,
         mode: request.mode,
         gasUsed: undefined,
         launchpad: undefined
@@ -2110,7 +2277,7 @@ export class MainSwapService {
       router: executionResult.metadata?.allowanceTarget,
       selector: sourceSelector,
       commandMetaJson: JSON.stringify({
-        source: 'aggregator_fallback',
+        source: useTurboCopytrade0xFallback ? 'aggregator_fallback_0x_turbo' : 'aggregator_fallback',
         provider: executionResult.method,
         allowanceTarget: executionResult.metadata?.allowanceTarget || null
       })

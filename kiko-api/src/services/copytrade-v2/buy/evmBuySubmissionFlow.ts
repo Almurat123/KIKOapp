@@ -69,6 +69,15 @@ export async function executeEvmCopytradeBuySubmissionFlow(params: {
   directSwapHint?: DirectSwapHint;
   preWarmedNonce?: Promise<string | undefined>;
   refreshTokenInfoForRetry?: () => Promise<{ price?: number } | null>;
+  targetExecutionPrice?: number;
+  entryDeviationReferencePrice?: number;
+  entryDeviationReferenceSource?: 'market_oracle_price' | 'local_quote_price' | 'reference_unavailable';
+  maxEntryDeviationBps?: number;
+  maxEntryDeviationSource?: string;
+  maxEntryDeviationReasonCode?: string;
+  maxEntryDeviationThresholdPolicy?: string;
+  maxEntryDeviationModeFloorBps?: number | null;
+  allowFallbackEntryDeviationBypass?: boolean;
 }, deps?: {
   buildCopytradeBuyPlannedArtifact?: typeof buildCopytradeBuyPlannedArtifact;
   executeSwapViaPort?: typeof executeSwapViaPort;
@@ -112,6 +121,19 @@ export async function executeEvmCopytradeBuySubmissionFlow(params: {
       executionContext: {
         ...plannedArtifact.executionContextBase,
         executionStep: args.executionStep,
+        copytradeFallbackPricingGuard: params.turboMode ? {
+          stage: '0x_fallback',
+          targetExecutionPrice: params.targetExecutionPrice,
+          referencePrice: params.entryDeviationReferencePrice,
+          referencePriceSource: params.entryDeviationReferenceSource,
+          maxEntryDeviationBps: params.maxEntryDeviationBps,
+          thresholdSource: params.maxEntryDeviationSource,
+          thresholdReasonCode: params.maxEntryDeviationReasonCode,
+          thresholdPolicy: params.maxEntryDeviationThresholdPolicy,
+          modeFloorBps: params.maxEntryDeviationModeFloorBps,
+          inputValueUsd: params.usdAmount,
+          allowUnreliablePriceBypass: params.allowFallbackEntryDeviationBypass,
+        } : undefined,
       },
       executionPlan,
       userSettings: {

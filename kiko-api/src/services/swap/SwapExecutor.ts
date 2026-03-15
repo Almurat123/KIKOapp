@@ -24,6 +24,7 @@ import { extendFailoverSendContext, type FailoverSendContext } from './failover/
 import { scoreEvmSellReliability } from './reliability/evmSellReliabilityScorer.js';
 import { emitCopytradeDomainAudit } from '../copytrade-v2/audit/copytradeDomainAudit.js';
 import { resolveAdaptiveMinAnchorRatioBps } from '../dex/directSwap/domain/guards.js';
+import type { CopytradeFallbackPricingGuardContext, QuoteDex } from '../MainSwapService.js';
 
 // ⚡ In-process decimals cache: avoids repeated RPC calls for the same token
 // Keyed by "chainId:tokenAddress" (lowercase). Decimals are immutable once deployed.
@@ -52,6 +53,7 @@ import { resolveTradeSendNonce } from './swapNoncePolicy.js';
 import { getApprovalQuoteRefreshDelayMs, shouldRetryApprovalQuoteRefresh } from './approvalQuoteRefreshPolicy.js';
 import { waitForApprovalReady, type ApprovalReadinessResult } from './approvalReadiness.js';
 import { clearApprovalPreheatState, getApprovalPreheatState, upsertApprovalPreheatState } from './approvalPreheatState.js';
+import { getSellQuotePreheatState } from './sellQuotePreheatState.js';
 
 // 0x AllowanceHolder address (Base). If a token already has sufficient allowance here,
 // we can skip Permit2 first-try and reduce sell failure risk for problematic tokens.
@@ -83,6 +85,9 @@ export interface SwapParams {
     permit2ExecutionFallbackTried?: boolean; // Internal: avoid permit2 fallback loops
     executionMode?: 'safe' | 'normal' | 'turbo';
     mevProtection?: boolean;
+    allowedDexes?: QuoteDex[];
+    zeroExQuoteTimeoutMs?: number;
+    preferredDexes?: QuoteDex[];
     /** Pre-warmed nonce promise (copy-trade path); when set, used for the swap tx to save one RPC round-trip. */
     preWarmedNonce?: Promise<string | undefined>;
     launchpadProvider?: 'pumpfun' | 'pumpswap' | 'bonkfun' | 'meteora' | 'zora' | 'fourmeme' | 'flap' | 'clanker' | 'virtuals' | 'doppler' | 'flaunch' | 'creatorbid';
@@ -94,6 +99,7 @@ export interface SwapParams {
         sourceAmountIn?: string | null;
         sourceAmountOut?: string | null;
     };
+    copytradeFallbackPricingGuard?: CopytradeFallbackPricingGuardContext;
     runtimeContext?: OrderRuntimeContext;
     failoverSendContext?: FailoverSendContext;
 }
@@ -116,6 +122,80 @@ export interface SwapResult {
         allowanceTarget?: string;
         amountOutBase?: string;
         amountOutDecimals?: number;
+    };
+}
+
+function evaluateCopytradeFallbackEntryDeviation(params: {
+    guard: CopytradeFallbackPricingGuardContext;
+    quote: QuoteResult;
+    tokenOutDecimals: number;
+}): {
+    evaluated: boolean;
+    fallbackExecutionPrice?: number;
+    deviationBps?: number;
+    rejected: boolean;
+    rejectReason?: string;
+} {
+    const guard = params.guard;
+    const referencePrice = Number(guard.referencePrice || 0);
+    const inputValueUsd = Number(guard.inputValueUsd || 0);
+    const maxEntryDeviationBps = Number(guard.maxEntryDeviationBps || 0);
+
+    if (!(referencePrice > 0) || !(inputValueUsd > 0) || !(maxEntryDeviationBps > 0)) {
+        return { evaluated: false, rejected: false };
+    }
+
+    const amountOutBase = BigInt(params.quote.amountOutBase || '0');
+    if (amountOutBase <= 0n) {
+        return {
+            evaluated: true,
+            rejected: true,
+            rejectReason: 'quote_amount_out_unavailable',
+        };
+    }
+
+    const amountOutHuman = Number(ethers.formatUnits(amountOutBase, params.tokenOutDecimals));
+    if (!Number.isFinite(amountOutHuman) || amountOutHuman <= 0) {
+        return {
+            evaluated: true,
+            rejected: true,
+            rejectReason: 'quote_amount_out_invalid',
+        };
+    }
+
+    const fallbackExecutionPrice = inputValueUsd / amountOutHuman;
+    if (!Number.isFinite(fallbackExecutionPrice) || fallbackExecutionPrice <= 0) {
+        return {
+            evaluated: true,
+            rejected: true,
+            rejectReason: 'fallback_execution_price_invalid',
+        };
+    }
+
+    const deviationBps = Math.abs(fallbackExecutionPrice - referencePrice) / referencePrice * 10000;
+    if (!Number.isFinite(deviationBps)) {
+        return {
+            evaluated: true,
+            rejected: true,
+            rejectReason: 'fallback_deviation_invalid',
+        };
+    }
+
+    if (deviationBps > maxEntryDeviationBps && !guard.allowUnreliablePriceBypass) {
+        return {
+            evaluated: true,
+            fallbackExecutionPrice,
+            deviationBps,
+            rejected: true,
+            rejectReason: 'entry_deviation_exceeded',
+        };
+    }
+
+    return {
+        evaluated: true,
+        fallbackExecutionPrice,
+        deviationBps,
+        rejected: false,
     };
 }
 
@@ -381,9 +461,22 @@ export class SwapExecutor {
             waitForConfirmation: params.waitForConfirmation,
             runtimeContext: params.runtimeContext
         });
+        const sellQuotePreheatState = feeContext === 'copyTrade' && isSellForFee
+            ? await getSellQuotePreheatState({
+                chainId,
+                walletAddress,
+                tokenAddress: actualTokenInFixed,
+            }).catch(() => null)
+            : null;
+        const preheatedProviderOrder = sellQuotePreheatState?.preferredDexes?.length
+            ? sellQuotePreheatState.preferredDexes
+            : params.preferredDexes;
         const sellQuotePolicy = feeContext === 'copyTrade' && isSellForFee
-            ? 'bounded_deadline'
+            ? 'first_executable'
             : 'fast_window';
+        const zeroExQuoteTimeoutMs = feeContext === 'copyTrade' && isSellForFee
+            ? Math.min(Number(params.zeroExQuoteTimeoutMs || 1200), 1200)
+            : params.zeroExQuoteTimeoutMs;
 
         let preferPermit2 = params.preferPermit2 !== false && sellReliability.preferPermit2;
         if (preferPermit2 && isSellTx && !isNativeIn) {
@@ -435,6 +528,9 @@ export class SwapExecutor {
             executionMode: params.executionMode,
             preferPermit2,
             sellQuotePolicy,
+            allowedDexes: params.allowedDexes,
+            zeroExQuoteTimeoutMs,
+            preferredDexes: preheatedProviderOrder,
         });
 
         if (!best) {
@@ -520,6 +616,51 @@ export class SwapExecutor {
                 accepted: true
             }).catch(() => { });
         };
+
+        const fallbackPricingGuard = params.copytradeFallbackPricingGuard;
+        if (feeContext === 'copyTrade' && fallbackPricingGuard?.stage === '0x_fallback' && best.dex === '0x') {
+            const fallbackEntryCheck = evaluateCopytradeFallbackEntryDeviation({
+                guard: fallbackPricingGuard,
+                quote: best,
+                tokenOutDecimals: decimalsOut,
+            });
+            if (fallbackEntryCheck.evaluated) {
+                logger.info(LogCode.SYS_INFO, '[SwapExecutor] Copytrade 0x fallback price guard', {
+                    sourceTxHash: sourceAnchor?.sourceTxHash || null,
+                    provider: best.dex,
+                    targetExecutionPrice: fallbackPricingGuard.targetExecutionPrice || null,
+                    referencePrice: fallbackPricingGuard.referencePrice || null,
+                    referencePriceSource: fallbackPricingGuard.referencePriceSource || 'reference_unavailable',
+                    fallbackExecutionPrice: fallbackEntryCheck.fallbackExecutionPrice || null,
+                    deviationBps: fallbackEntryCheck.deviationBps || null,
+                    maxEntryDeviationBps: fallbackPricingGuard.maxEntryDeviationBps || null,
+                    thresholdSource: fallbackPricingGuard.thresholdSource || null,
+                    thresholdReasonCode: fallbackPricingGuard.thresholdReasonCode || null,
+                    thresholdPolicy: fallbackPricingGuard.thresholdPolicy || null,
+                    modeFloorBps: fallbackPricingGuard.modeFloorBps ?? null,
+                    allowUnreliablePriceBypass: Boolean(fallbackPricingGuard.allowUnreliablePriceBypass),
+                    rejected: fallbackEntryCheck.rejected,
+                    rejectReason: fallbackEntryCheck.rejectReason || null,
+                });
+            } else {
+                logger.info(LogCode.SYS_INFO, '[SwapExecutor] Copytrade 0x fallback price guard skipped', {
+                    sourceTxHash: sourceAnchor?.sourceTxHash || null,
+                    provider: best.dex,
+                    targetExecutionPrice: fallbackPricingGuard.targetExecutionPrice || null,
+                    referencePrice: fallbackPricingGuard.referencePrice || null,
+                    referencePriceSource: fallbackPricingGuard.referencePriceSource || 'reference_unavailable',
+                    maxEntryDeviationBps: fallbackPricingGuard.maxEntryDeviationBps || null,
+                });
+            }
+
+            if (fallbackEntryCheck.rejected) {
+                throw new AppError(
+                    400,
+                    `copytrade_fallback_guard_reject:entry_deviation:${best.dex}:${fallbackEntryCheck.rejectReason || 'unknown'}`,
+                    'COPYTRADE_FALLBACK_ENTRY_DEVIATION_GUARD_REJECT'
+                );
+            }
+        }
 
         let approvalExecutedOnChain = false;
 

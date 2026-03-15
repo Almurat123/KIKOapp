@@ -30,6 +30,17 @@ export function classifyTradingError(error: unknown): CopytradeExecutionFailureD
     };
   }
 
+  if (
+    message.includes('copytrade_fallback_guard_reject')
+    || message.includes('quote_anchor_guard_reject')
+  ) {
+    return {
+      retryable: false,
+      reasonCode: 'failed_terminal',
+      hint: 'guard_reject',
+    };
+  }
+
   if (message.includes('insufficient') || message.includes('allowance') || message.includes('approval')) {
     return {
       retryable: false,

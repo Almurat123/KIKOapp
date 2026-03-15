@@ -4,6 +4,7 @@ import { getKyberQuote } from './kyberAggregator.js';
 import { AppError } from '../middleware/errorHandler.js';
 import type { ZeroExAffiliateFee } from './zeroEx.js';
 import { getProviderReliability } from './copytrade-v2/learning/quoteReliability.js';
+import type { QuoteDex } from './MainSwapService.js';
 
 export interface QuoteResult {
     dex: string;
@@ -54,7 +55,10 @@ export interface BestQuoteParams {
     executionMode?: 'safe' | 'normal' | 'turbo';
     preferPermit2?: boolean;
     skipCache?: boolean;
-    sellQuotePolicy?: 'fast_window' | 'bounded_deadline';
+    sellQuotePolicy?: 'fast_window' | 'bounded_deadline' | 'first_executable';
+    allowedDexes?: QuoteDex[];
+    zeroExQuoteTimeoutMs?: number;
+    preferredDexes?: QuoteDex[];
 }
 
 const quoteBundleCache = new Map<string, { value: { best: QuoteResult; quotes: QuoteResult[] }; ts: number }>();
@@ -64,6 +68,11 @@ const QUOTE_CACHE_TTL_TURBO_MS = Math.max(80, Number(process.env.QUOTE_CACHE_TTL
 const QUOTE_CACHE_MAX = Math.max(256, Number(process.env.QUOTE_CACHE_MAX || '3000'));
 const QUOTE_TURBO_SELL_FAST_WAIT_MS = Math.max(80, Number(process.env.QUOTE_TURBO_SELL_FAST_WAIT_MS || '240'));
 const QUOTE_TURBO_SELL_SECONDARY_WAIT_MS = Math.max(80, Number(process.env.QUOTE_TURBO_SELL_SECONDARY_WAIT_MS || '220'));
+const QUOTE_TURBO_SELL_FIRST_EXECUTABLE_WAIT_MS = Math.max(200, Number(process.env.QUOTE_TURBO_SELL_FIRST_EXECUTABLE_WAIT_MS || '900'));
+const QUOTE_PREFERRED_SELL_PROVIDER_MAX_BPS_DRIFT = Math.max(
+    0,
+    Number(process.env.QUOTE_PREFERRED_SELL_PROVIDER_MAX_BPS_DRIFT || '125')
+);
 
 function buildQuoteCacheKey(params: BestQuoteParams): string {
     const amountInBase = String(params.amountInBase || '0').toLowerCase();
@@ -79,7 +88,9 @@ function buildQuoteCacheKey(params: BestQuoteParams): string {
         params.preferPermit2 === false ? 'permit2_off' : 'permit2_on',
         params.excludeDex || 'none',
         params.isSell ? 'sell' : 'buy',
-        params.feeContext || 'swap'
+        params.feeContext || 'swap',
+        params.allowedDexes?.slice().sort().join(',') || 'all',
+        params.zeroExQuoteTimeoutMs || 'default'
     ].join(':');
 }
 
@@ -146,17 +157,30 @@ export async function getBestQuote(params: BestQuoteParams): Promise<{ best: Quo
 export const __testOnly = {
     buildQuoteCacheKey,
     resolveTurboSellWaitStrategy,
+    selectPreferredSellQuote,
 };
 
 function resolveTurboSellWaitStrategy(params: {
     hasQuickQuote: boolean;
     elapsedMs: number;
     totalWaitMs: number;
-    sellQuotePolicy?: 'fast_window' | 'bounded_deadline';
-}): { mode: 'secondary_window' | 'bounded_deadline' | 'deadline_full' | 'none'; waitMs: number } {
+    sellQuotePolicy?: 'fast_window' | 'bounded_deadline' | 'first_executable';
+}): { mode: 'secondary_window' | 'bounded_deadline' | 'deadline_full' | 'first_executable' | 'none'; waitMs: number } {
     const totalWaitMs = Math.max(0, Number(params.totalWaitMs || 0));
     const elapsedMs = Math.max(0, Number(params.elapsedMs || 0));
     const remainingMs = Math.max(0, totalWaitMs - elapsedMs);
+    if ((params.sellQuotePolicy || 'fast_window') === 'first_executable') {
+        if (params.hasQuickQuote) {
+            const waitMs = Math.max(0, Math.min(QUOTE_TURBO_SELL_SECONDARY_WAIT_MS, remainingMs));
+            return waitMs > 0
+                ? { mode: 'secondary_window', waitMs }
+                : { mode: 'none', waitMs: 0 };
+        }
+        const waitMs = Math.max(0, Math.min(QUOTE_TURBO_SELL_FIRST_EXECUTABLE_WAIT_MS, remainingMs || QUOTE_TURBO_SELL_FIRST_EXECUTABLE_WAIT_MS));
+        return waitMs > 0
+            ? { mode: 'first_executable', waitMs }
+            : { mode: 'none', waitMs: 0 };
+    }
     if ((params.sellQuotePolicy || 'fast_window') === 'bounded_deadline') {
         if (params.hasQuickQuote) {
             const waitMs = Math.max(0, Math.min(QUOTE_TURBO_SELL_SECONDARY_WAIT_MS, remainingMs));
@@ -179,6 +203,32 @@ function resolveTurboSellWaitStrategy(params: {
         : { mode: 'none', waitMs: 0 };
 }
 
+function selectPreferredSellQuote(params: {
+    scoredQuotes: Array<{
+        quote: QuoteResult;
+        rawOut: bigint;
+        adjustedOut: bigint;
+        reliabilityScoreBps: number;
+        reliabilitySampleCount: number;
+    }>;
+    preferredDexes?: QuoteDex[];
+}) {
+    if (!params.scoredQuotes.length) return null;
+    const selected = params.scoredQuotes[0];
+    const preferredDexes = (params.preferredDexes || []).filter(Boolean);
+    if (!preferredDexes.length) return selected;
+
+    for (const dex of preferredDexes) {
+        const preferred = params.scoredQuotes.find((entry) => entry.quote.dex === dex);
+        if (!preferred) continue;
+        const allowedDrift = (selected.rawOut * BigInt(QUOTE_PREFERRED_SELL_PROVIDER_MAX_BPS_DRIFT)) / 10_000n;
+        if (preferred.rawOut + allowedDrift >= selected.rawOut) {
+            return preferred;
+        }
+    }
+    return selected;
+}
+
 async function getBestQuoteInternal(params: BestQuoteParams): Promise<{ best: QuoteResult, quotes: QuoteResult[] }> {
     const {
         tokenIn, tokenOut, actualTokenIn, actualTokenOut,
@@ -193,6 +243,9 @@ async function getBestQuoteInternal(params: BestQuoteParams): Promise<{ best: Qu
     const isCopytradeFeeContext = feeContext === 'copytrade' || feeContext === 'copy_trade';
     const isCopytradeBuy = isCopytradeFeeContext && !params.isSell;
     const TURBO_TOTAL_WAIT_MS = Math.max(100, Number(process.env.QUOTE_TURBO_TOTAL_WAIT_MS || 1600));
+    const allowedDexSet = params.allowedDexes?.length
+        ? new Set(params.allowedDexes)
+        : null;
 
     // Helper to calc price impact vs market
     const calcImpactVsMkt = (amountOutHuman: number): number | null => {
@@ -231,6 +284,7 @@ async function getBestQuoteInternal(params: BestQuoteParams): Promise<{ best: Qu
 
     // 1. 0x Aggregator
     const fetchZeroEx = async (): Promise<QuoteResult | null> => {
+        if (allowedDexSet && !allowedDexSet.has('0x')) return null;
         try {
             // For quote-only requests (no userAddress), we can still get prices
             // For actual swap execution, userAddress is REQUIRED
@@ -244,7 +298,8 @@ async function getBestQuoteInternal(params: BestQuoteParams): Promise<{ best: Qu
                 userAddress,
                 affiliateFee,
                 isQuoteOnly, // Price quote only if no user address
-                params.preferPermit2 !== false
+                params.preferPermit2 !== false,
+                params.zeroExQuoteTimeoutMs
             );
 
             if (q) {
@@ -296,6 +351,7 @@ async function getBestQuoteInternal(params: BestQuoteParams): Promise<{ best: Qu
 
     // 2. KyberSwap
     const fetchKyber = async (): Promise<QuoteResult | null> => {
+        if (allowedDexSet && !allowedDexSet.has('kyber')) return null;
         try {
             // Kyber requires recipient address - skip if not provided
             if (!userAddress) return null;
@@ -364,14 +420,18 @@ async function getBestQuoteInternal(params: BestQuoteParams): Promise<{ best: Qu
         const safeZeroEx = zeroExPromise.then((q) => q || null);
         const safeKyber = kyberPromise.then((q) => q || null);
 
+        const enabledSources: Array<'0x' | 'kyber'> = [];
+        if (!allowedDexSet || allowedDexSet.has('0x')) enabledSources.push('0x');
+        if (!allowedDexSet || allowedDexSet.has('kyber')) enabledSources.push('kyber');
         const toSourceResult = (source: '0x' | 'kyber', q: Promise<QuoteResult | null>) =>
             q.then((quote) => quote ? { source, quote } : null).catch(() => null);
 
-        const quickResult = await Promise.race([
-            toSourceResult('0x', safeZeroEx),
-            toSourceResult('kyber', safeKyber),
+        const quickRace: Array<Promise<{ source: '0x' | 'kyber'; quote: QuoteResult } | null>> = [
             new Promise<null>((resolve) => setTimeout(() => resolve(null), QUOTE_TURBO_SELL_FAST_WAIT_MS))
-        ]);
+        ];
+        if (enabledSources.includes('0x')) quickRace.push(toSourceResult('0x', safeZeroEx));
+        if (enabledSources.includes('kyber')) quickRace.push(toSourceResult('kyber', safeKyber));
+        const quickResult = await Promise.race(quickRace);
         if (quickResult?.quote) {
             if (!quotes.some((q) => q.dex === quickResult.source)) {
                 quotes.push(quickResult.quote);
@@ -388,8 +448,8 @@ async function getBestQuoteInternal(params: BestQuoteParams): Promise<{ best: Qu
             });
             if (waitStrategy.waitMs > 0) {
                 const [zeroExSell, kyberSell] = await Promise.all([
-                    withTimeout(safeZeroEx, waitStrategy.waitMs),
-                    withTimeout(safeKyber, waitStrategy.waitMs),
+                    enabledSources.includes('0x') ? withTimeout(safeZeroEx, waitStrategy.waitMs) : Promise.resolve(null),
+                    enabledSources.includes('kyber') ? withTimeout(safeKyber, waitStrategy.waitMs) : Promise.resolve(null),
                 ]);
                 if (zeroExSell && !quotes.some((q) => q.dex === '0x')) quotes.push(zeroExSell);
                 if (kyberSell && !quotes.some((q) => q.dex === 'kyber')) quotes.push(kyberSell);
@@ -408,8 +468,8 @@ async function getBestQuoteInternal(params: BestQuoteParams): Promise<{ best: Qu
             // Turbo buy: still parallel, but no first-arrival bias.
             // Wait within a bounded window and compare all returned quotes.
             const [zeroExBuy, kyberBuy] = await Promise.all([
-                withTimeout(zeroExPromise, TURBO_TOTAL_WAIT_MS),
-                withTimeout(kyberPromise, TURBO_TOTAL_WAIT_MS)
+                enabledSources.includes('0x') ? withTimeout(zeroExPromise, TURBO_TOTAL_WAIT_MS) : Promise.resolve(null),
+                enabledSources.includes('kyber') ? withTimeout(kyberPromise, TURBO_TOTAL_WAIT_MS) : Promise.resolve(null)
             ]);
             if (zeroExBuy) quotes.push(zeroExBuy);
             if (kyberBuy) quotes.push(kyberBuy);
@@ -424,7 +484,10 @@ async function getBestQuoteInternal(params: BestQuoteParams): Promise<{ best: Qu
         }
     } else {
         // Standard mode keeps full quote race semantics.
-        const [zeroExQuote, kyberQuote] = await Promise.all([fetchZeroEx(), fetchKyber()]);
+        const [zeroExQuote, kyberQuote] = await Promise.all([
+            (!allowedDexSet || allowedDexSet.has('0x')) ? fetchZeroEx() : Promise.resolve(null),
+            (!allowedDexSet || allowedDexSet.has('kyber')) ? fetchKyber() : Promise.resolve(null)
+        ]);
         if (zeroExQuote) quotes.push(zeroExQuote);
         if (kyberQuote) quotes.push(kyberQuote);
     }
@@ -509,7 +572,12 @@ async function getBestQuoteInternal(params: BestQuoteParams): Promise<{ best: Qu
         }
         return a.adjustedOut > b.adjustedOut ? -1 : 1;
     });
-    const selected = scored[0];
+    const selected = params.isSell
+        ? selectPreferredSellQuote({
+            scoredQuotes: scored,
+            preferredDexes: params.preferredDexes,
+        })
+        : scored[0];
     if (selected) {
         console.log('[QuoteService] Reliability-adjusted winner', {
             dex: selected.quote.dex,
@@ -518,6 +586,7 @@ async function getBestQuoteInternal(params: BestQuoteParams): Promise<{ best: Qu
             reliabilityScoreBps: selected.reliabilityScoreBps,
             reliabilitySampleCount: selected.reliabilitySampleCount
         });
+        return { best: selected.quote, quotes };
     }
-    return { best: selected.quote, quotes };
+    return { best: null as any, quotes };
 }

@@ -10,6 +10,8 @@ import { claimExitIntentExecution, settleExitIntentExecution } from './exitInten
 import type { ExitIntentLane } from './intentTypes.js';
 import { claimPendingExitIntents, updatePositionExitIntentState } from './positionExitIntentStore.js';
 import { executePositionExit } from '../runtime/positionMonitor.js';
+import { preheatSellApprovalForToken } from '../../sellApprovalPreheater.js';
+import { prewarmSellQuoteForToken } from '../../sellQuotePreheater.js';
 import {
   resolveExitIntentRetryDelayMs,
   STANDARD_EXIT_INTENT_RETRY_MS,
@@ -221,6 +223,41 @@ async function processExitIntent(intent: any): Promise<void> {
           }).catch(() => [])
         : Promise.resolve([]),
     ]);
+
+    if (intent.exitReason === 'mirror_sell' && intent.chainId !== 900 && config.user.walletAddress) {
+      const amountInBase = String(intent.desiredSellRaw || '').trim();
+      const approvalPreheatPromise = preheatSellApprovalForToken({
+        userId: intent.userId,
+        walletAddress: config.user.walletAddress,
+        chainId: intent.chainId,
+        tokenAddress: intent.tokenAddress,
+        tokenPriceUsd: Number(tokenInfo?.price || 0),
+      }, {
+        queueBehavior: 'allow_queue',
+        txPurpose: 'approval',
+      }).catch(() => ({ status: 'deferred', reasonCode: 'approval_prewarm_failed' }));
+      const quotePrewarmPromise = amountInBase
+        ? prewarmSellQuoteForToken({
+            chainId: intent.chainId,
+            walletAddress: config.user.walletAddress,
+            tokenAddress: intent.tokenAddress,
+            amountInBase,
+            tokenDecimals: Number(tokenInfo?.decimals || 0) || undefined,
+          }).catch(() => ({ status: 'deferred', reasonCode: 'quote_prewarm_failed', preferredDexes: [] }))
+        : Promise.resolve({ status: 'noop', reasonCode: 'desired_sell_raw_missing', preferredDexes: [] as any[] });
+      void Promise.allSettled([approvalPreheatPromise, quotePrewarmPromise]).then((results) => {
+        void recordExitIntentProgress({
+          intentId: intent.id,
+          workerId,
+          stage: 'routing',
+          metadata: {
+            approvalPreheatStatus: (results[0].status === 'fulfilled' ? results[0].value.status : 'deferred'),
+            quotePreheatStatus: (results[1].status === 'fulfilled' ? results[1].value.status : 'deferred'),
+            preferredDexes: results[1].status === 'fulfilled' ? results[1].value.preferredDexes : [],
+          },
+        });
+      });
+    }
 
     const maxSameJobRetryAttempts = getMaxSameJobRetryAttempts();
     let txHash: string | null = null;

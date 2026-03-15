@@ -43,6 +43,16 @@ test('quote cache key keeps quote-only requests separate from wallet-bound swaps
   assert.notEqual(quoteOnly, execution);
 });
 
+test('quote cache key isolates dex-pinned fallback quotes', () => {
+  const defaultKey = __testOnly.buildQuoteCacheKey(makeParams());
+  const zeroExOnlyKey = __testOnly.buildQuoteCacheKey(makeParams({
+    allowedDexes: ['0x'],
+    zeroExQuoteTimeoutMs: 1800,
+  }));
+
+  assert.notEqual(defaultKey, zeroExOnlyKey);
+});
+
 test('turbo sell bounded deadline waits for the full deadline when no quick quote arrived', () => {
   const strategy = __testOnly.resolveTurboSellWaitStrategy({
     hasQuickQuote: false,
@@ -65,4 +75,72 @@ test('turbo sell fast window keeps the short retry window when a quick quote alr
 
   assert.equal(strategy.mode, 'secondary_window');
   assert.equal(strategy.waitMs, 220);
+});
+
+test('turbo sell first executable uses a bounded first-provider window before fallback', () => {
+  const strategy = __testOnly.resolveTurboSellWaitStrategy({
+    hasQuickQuote: false,
+    elapsedMs: 120,
+    totalWaitMs: 1600,
+    sellQuotePolicy: 'first_executable',
+  });
+
+  assert.equal(strategy.mode, 'first_executable');
+  assert.ok(strategy.waitMs <= 900);
+});
+
+test('preferred sell provider wins when output drift stays within threshold', () => {
+  const selected = __testOnly.selectPreferredSellQuote({
+    preferredDexes: ['kyber'],
+    scoredQuotes: [
+      {
+        quote: {
+          dex: '0x',
+          dexName: '0x Aggregator',
+          amountOut: '100',
+          amountOutBase: '100000',
+          gasEstimate: 1,
+          priceImpact: 0,
+          path: [],
+          router: '',
+          data: '0x',
+          to: '0x1',
+          value: '0',
+          allowanceTarget: '0x1',
+          deadline: 1,
+          tokenInDecimals: 18,
+          tokenOutDecimals: 18,
+        },
+        rawOut: 100000n,
+        adjustedOut: 100000n,
+        reliabilityScoreBps: 10000,
+        reliabilitySampleCount: 1,
+      },
+      {
+        quote: {
+          dex: 'kyber',
+          dexName: 'KyberSwap',
+          amountOut: '99.2',
+          amountOutBase: '99200',
+          gasEstimate: 1,
+          priceImpact: 0,
+          path: [],
+          router: '',
+          data: '0x',
+          to: '0x1',
+          value: '0',
+          allowanceTarget: '0x1',
+          deadline: 1,
+          tokenInDecimals: 18,
+          tokenOutDecimals: 18,
+        },
+        rawOut: 99200n,
+        adjustedOut: 99200n,
+        reliabilityScoreBps: 10000,
+        reliabilitySampleCount: 1,
+      },
+    ],
+  });
+
+  assert.equal(selected?.quote.dex, 'kyber');
 });

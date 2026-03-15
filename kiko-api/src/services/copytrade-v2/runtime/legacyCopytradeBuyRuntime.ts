@@ -1005,6 +1005,15 @@ export async function processSingleUserBuy(params: {
                         feeBpsOverride: copyTradeFeeBpsOverride,
                         directSwapHint: deps.buildDirectSwapHintFromSwap(swap),
                         preWarmedNonce: getPendingNonce(chainId, effectiveConfig.user.walletAddress),
+                        targetExecutionPrice,
+                        entryDeviationReferencePrice,
+                        entryDeviationReferenceSource,
+                        maxEntryDeviationBps: effectiveConfig.maxEntryDeviationBps,
+                        maxEntryDeviationSource: effectiveConfig.maxEntryDeviationSource,
+                        maxEntryDeviationReasonCode: effectiveConfig.maxEntryDeviationReasonCode,
+                        maxEntryDeviationThresholdPolicy: effectiveConfig.maxEntryDeviationThresholdPolicy,
+                        maxEntryDeviationModeFloorBps: effectiveConfig.maxEntryDeviationModeFloorBps,
+                        allowFallbackEntryDeviationBypass: isEntryDeviationPriceUnreliable(chainId, tokenInfo),
                         refreshTokenInfoForRetry: async () => tokenInfoCache
                             ? await getTokenInfoOnce(tokenInfoCache, tokenToBuy, chainId, { verbose: false, forceRefresh: true, rpcStrategy: 'fast' })
                             : await getTokenInfo(tokenToBuy, chainId, { verbose: false, forceRefresh: true, rpcStrategy: 'fast' })
