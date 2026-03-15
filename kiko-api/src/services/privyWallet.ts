@@ -102,6 +102,10 @@ const LOCAL_SIGNER_ENABLED = (process.env.LOCAL_SIGNER_ENABLED || 'false').toLow
 
 let privyClient: PrivyClient | null = null;
 
+function shouldReturnAcceptedLifecycleImmediately(tx: TransactionRequest): boolean {
+    return tx.txPurpose === 'approval';
+}
+
 function getLocalSignerPrivateKey(chainId: number): string {
     const perChainKey = process.env[`LOCAL_SIGNER_PRIVATE_KEY_${chainId}` as keyof NodeJS.ProcessEnv];
     const genericKey = process.env.LOCAL_SIGNER_PRIVATE_KEY;
@@ -1215,6 +1219,25 @@ export async function sendTransactionLifecycle(
                             txHash: response.hash
                         });
                     }
+                    if (shouldReturnAcceptedLifecycleImmediately(txWithNonce)) {
+                        logger.info(LogCode.SYS_INFO, 'Privy lifecycle early return for approval send', {
+                            chainId: txWithNonce.chainId,
+                            txHash: response.hash,
+                            txPurpose: txWithNonce.txPurpose,
+                        });
+                        if (runtimeContext) {
+                            recordLifecycleOnOrder(runtimeContext, lifecycleBase, {
+                                reasonCode: inferOrderReasonCode(lifecycleBase.lastRpcError || lifecycleBase.status)
+                            });
+                        }
+                        if (attemptState) {
+                            updateOrderAttempt(runtimeContext!, attemptState.id, {
+                                state: 'accepted',
+                                reasonCode: inferOrderReasonCode(lifecycleBase.status),
+                            });
+                        }
+                        return lifecycleBase;
+                    }
                     if (!fastTradePath) {
                         const visibility = await verifyTxVisibility(
                             txWithNonce.chainId,
@@ -1692,6 +1715,10 @@ export async function sendTransaction(
         'TRANSACTION_FAILED'
     );
 }
+
+export const __privyWalletTest = {
+    shouldReturnAcceptedLifecycleImmediately,
+};
 
 /**
  * Send a Solana transaction using user's embedded wallet
