@@ -54,6 +54,7 @@ import { getApprovalQuoteRefreshDelayMs, shouldRetryApprovalQuoteRefresh } from 
 import { waitForApprovalReady, type ApprovalReadinessResult } from './approvalReadiness.js';
 import { clearApprovalPreheatState, getApprovalPreheatState, upsertApprovalPreheatState } from './approvalPreheatState.js';
 import { getSellQuotePreheatState } from './sellQuotePreheatState.js';
+import { getExecutionFeeSnapshot } from './executionFeeSnapshot.js';
 
 // 0x AllowanceHolder address (Base). If a token already has sufficient allowance here,
 // we can skip Permit2 first-try and reduce sell failure risk for problematic tokens.
@@ -1122,20 +1123,18 @@ export class SwapExecutor {
 
         // Add Gas Buffer (50% for safety on Base/complex routes to prevent Out Of Gas)
         // Explicitly fetch current network fee data to prevent underpriced transaction submissions
-        let feeData;
-        try {
-            const block = await callRpc<any>(chainId, 'eth_getBlockByNumber', ['latest', false]);
-            const baseFeePerGas = block?.baseFeePerGas ? BigInt(block.baseFeePerGas) : null;
-            const priorityHex = await callRpc<string>(chainId, 'eth_maxPriorityFeePerGas', []);
-            const priorityFee = priorityHex ? BigInt(priorityHex) : null;
-            feeData = {
-                maxPriorityFeePerGas: priorityFee ?? undefined,
-                maxFeePerGas: baseFeePerGas && priorityFee ? (baseFeePerGas * 2n + priorityFee) : undefined
-            };
-        } catch (feeErr) {
+        const feeSnapshot = await getExecutionFeeSnapshot(chainId).catch((feeErr) => {
             console.warn('[SwapExecutor] Failed to fetch fee data, using defaults', feeErr);
-            feeData = {};
-        }
+            return {
+                baseFeePerGas: null,
+                maxPriorityFeePerGas: null,
+                maxFeePerGas: null
+            };
+        });
+        const feeData = {
+            maxPriorityFeePerGas: feeSnapshot.maxPriorityFeePerGas ?? undefined,
+            maxFeePerGas: feeSnapshot.maxFeePerGas ?? undefined
+        };
 
         const gasLimit = best.gasEstimate
             ? Math.floor(Number(best.gasEstimate) * 1.5).toString()
@@ -1169,25 +1168,8 @@ export class SwapExecutor {
 
         if (isCopyTrade) {
             // Smart aggressive gas: use eth_maxPriorityFeePerGas + baseFee, clamp to avoid excessive fees
-            let baseFeePerGas: bigint | null = null;
-            try {
-                const block = await callRpc<any>(chainId, 'eth_getBlockByNumber', ['latest', false]);
-                if (block?.baseFeePerGas) {
-                    baseFeePerGas = BigInt(block.baseFeePerGas);
-                }
-            } catch {
-                // ignore base fee fetch errors
-            }
-
-            let suggestedPriority: bigint | null = null;
-            try {
-                const priorityHex = await callRpc<string>(chainId, 'eth_maxPriorityFeePerGas', []);
-                if (priorityHex) {
-                    suggestedPriority = BigInt(priorityHex);
-                }
-            } catch {
-                // ignore priority fetch errors
-            }
+            const baseFeePerGas = feeSnapshot.baseFeePerGas;
+            const suggestedPriority = feeSnapshot.maxPriorityFeePerGas;
 
             const isBase = chainId === 8453;
             const isL2 = isBase || chainId === 10 || chainId === 42161;
