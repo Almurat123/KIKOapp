@@ -53,7 +53,7 @@ import { resolveTradeSendNonce } from './swapNoncePolicy.js';
 import { getApprovalQuoteRefreshDelayMs, shouldRetryApprovalQuoteRefresh } from './approvalQuoteRefreshPolicy.js';
 import { waitForApprovalReady, type ApprovalReadinessResult } from './approvalReadiness.js';
 import { clearApprovalPreheatState, getApprovalPreheatState, upsertApprovalPreheatState } from './approvalPreheatState.js';
-import { getSellQuotePreheatState } from './sellQuotePreheatState.js';
+import { getSellQuotePreheatState, getUsableWarmSellQuote } from './sellQuotePreheatState.js';
 import { getExecutionFeeSnapshot } from './executionFeeSnapshot.js';
 
 // 0x AllowanceHolder address (Base). If a token already has sufficient allowance here,
@@ -248,6 +248,7 @@ export class SwapExecutor {
      */
     private static async executeEvm(params: SwapParams): Promise<SwapResult> {
         const { userId, walletAddress, tokenIn, tokenOut, amountIn, chainId, slippageBps: requestedSlippage, feeContext } = params;
+        const isCopytradeSellHotPath = feeContext === 'copyTrade' && (params.isSell === true || !tokenOut);
 
         // 1. Resolve Token Addresses & Metadata
         const resolveToken = async (token: string) => {
@@ -256,12 +257,18 @@ export class SwapExecutor {
             if (isNative) {
                 return chainId === SOLANA_CONFIG.CHAIN_ID ? SOLANA_NATIVE_MINT : NATIVE_TOKEN_ADDRESS;
             }
+            if (isCopytradeSellHotPath && ethers.isAddress(token)) {
+                return ethers.getAddress(token);
+            }
             const info = await getTokenInfo(token, chainId);
             return info?.address || token;
         };
-
-        const actualTokenIn = await resolveToken(tokenIn);
-        let actualTokenOut = await resolveToken(tokenOut);
+        const [resolvedTokenIn, resolvedTokenOut] = await Promise.all([
+            resolveToken(tokenIn),
+            resolveToken(tokenOut)
+        ]);
+        const actualTokenIn = resolvedTokenIn;
+        let actualTokenOut = resolvedTokenOut;
 
         if (params.isSell && !tokenOut) {
             actualTokenOut = chainId === SOLANA_CONFIG.CHAIN_ID ? SOLANA_NATIVE_MINT : NATIVE_TOKEN_ADDRESS;
@@ -277,8 +284,14 @@ export class SwapExecutor {
         const slippageBps = requestedSlippage ?? (isSellTx ? 1500 : 1000);
         const isSellForFee = isSellTx;
 
-        const tokenInInfo = await getTokenInfo(actualTokenInFixed, chainId);
-        const tokenOutInfo = await getTokenInfo(actualTokenOutFixed, chainId);
+        const [tokenInInfo, tokenOutInfo] = await Promise.all([
+            isCopytradeSellHotPath
+                ? Promise.resolve(null)
+                : getTokenInfo(actualTokenInFixed, chainId, { verbose: false }),
+            isNativeOut || isCopytradeSellHotPath
+                ? Promise.resolve(isNativeOut ? { decimals: 18 } : null)
+                : getTokenInfo(actualTokenOutFixed, chainId, { verbose: false }),
+        ]);
 
         // SAFETY: Detect incorrect cached decimals for USDC/USDT (often cached as 18 but are 6)
         // This forces the logic below to fetch true decimals from chain
@@ -469,6 +482,12 @@ export class SwapExecutor {
                 tokenAddress: actualTokenInFixed,
             }).catch(() => null)
             : null;
+        const warmedQuote = feeContext === 'copyTrade' && isSellForFee
+            ? getUsableWarmSellQuote({
+                state: sellQuotePreheatState,
+                amountInBase,
+            })
+            : null;
         const preheatedProviderOrder = sellQuotePreheatState?.preferredDexes?.length
             ? sellQuotePreheatState.preferredDexes
             : params.preferredDexes;
@@ -509,7 +528,7 @@ export class SwapExecutor {
             });
         }
 
-        const { best } = await getBestQuote({
+        const quoteParams = {
             tokenIn: actualTokenInFixed,
             tokenOut: actualTokenOutFixed,
             actualTokenIn: actualTokenInFixed,
@@ -523,7 +542,7 @@ export class SwapExecutor {
             userAddress: walletAddress,
             affiliateFee,
             refPrice,
-            excludeDex: params.excludeDex, // Pass through excludeDex for retry logic
+            excludeDex: params.excludeDex,
             feeContext,
             isSell: isSellForFee,
             executionMode: params.executionMode,
@@ -532,10 +551,24 @@ export class SwapExecutor {
             allowedDexes: params.allowedDexes,
             zeroExQuoteTimeoutMs,
             preferredDexes: preheatedProviderOrder,
-        });
+        } satisfies Parameters<typeof getBestQuote>[0];
+
+        let best = warmedQuote
+            ? { ...warmedQuote }
+            : (await getBestQuote(quoteParams)).best;
+        const initialQuoteWasPrewarmed = !!warmedQuote;
 
         if (!best) {
             throw new Error('No valid quotes found');
+        }
+
+        if (initialQuoteWasPrewarmed) {
+            logger.info(LogCode.SYS_INFO, '[SwapExecutor] Reusing exact-match prewarmed sell quote', {
+                chainId,
+                token: actualTokenInFixed,
+                dex: best.dexName,
+                amountInBase
+            });
         }
         const canonicalAnchorToken = (token: string | null | undefined): string => {
             const value = String(token || '').toLowerCase();
@@ -1079,6 +1112,21 @@ export class SwapExecutor {
             }
         } else {
             logger.info(LogCode.EXE_TX_BROADCAST, 'No allowance target, skipping approval check (likely native token swap)', { token: actualTokenIn });
+        }
+
+        if (initialQuoteWasPrewarmed && !approvalExecutedOnChain) {
+            const refreshedQuoteBundle = await getBestQuote({
+                ...quoteParams,
+                skipCache: true,
+            });
+            if (!refreshedQuoteBundle?.best) {
+                throw new Error('No valid quotes found');
+            }
+            logger.info(LogCode.EXE_TX_BROADCAST, 'Refreshed prewarmed quote before direct swap execution', {
+                oldDex: best.dexName,
+                newDex: refreshedQuoteBundle.best.dexName,
+            });
+            best = refreshedQuoteBundle.best;
         }
 
         // 4. Execute Transaction

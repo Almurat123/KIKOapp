@@ -40,6 +40,33 @@ function normalizeDexes(quotes: QuoteResult[]): QuoteDex[] {
   return ordered;
 }
 
+function toWarmQuote(quote: QuoteResult | null | undefined): QuoteResult | null {
+  if (!quote?.to || !quote?.data || !quote?.allowanceTarget) return null;
+  return {
+    dex: quote.dex,
+    dexName: quote.dexName,
+    amountOut: quote.amountOut,
+    amountOutBase: quote.amountOutBase,
+    gasEstimate: quote.gasEstimate,
+    priceImpact: quote.priceImpact,
+    path: quote.path,
+    router: quote.router,
+    data: quote.data,
+    to: quote.to,
+    value: quote.value,
+    allowanceTarget: quote.allowanceTarget,
+    deadline: quote.deadline,
+    tokenInDecimals: quote.tokenInDecimals,
+    tokenOutDecimals: quote.tokenOutDecimals,
+    priceImpactVsMkt: quote.priceImpactVsMkt,
+    approvalKind: quote.approvalKind,
+    requiresTypedSignature: quote.requiresTypedSignature,
+    permit2Payload: quote.permit2Payload,
+    permit2Spender: quote.permit2Spender,
+    permit2Expiry: quote.permit2Expiry,
+  };
+}
+
 export async function prewarmSellQuoteForToken(params: SellQuotePreheatParams): Promise<SellQuotePreheatResult> {
   if (!SELL_QUOTE_PREHEAT_ENABLED) {
     return { status: 'noop', reasonCode: 'sell_quote_prewarm_disabled', preferredDexes: [] };
@@ -93,6 +120,7 @@ export async function prewarmSellQuoteForToken(params: SellQuotePreheatParams): 
       tokenAddress: params.tokenAddress,
       amountInBase,
       preferredDexes,
+      warmQuote: toWarmQuote(quoteBundle.best),
     }).catch(() => undefined);
 
     return {
