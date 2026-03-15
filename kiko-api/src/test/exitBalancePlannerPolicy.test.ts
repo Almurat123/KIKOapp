@@ -117,7 +117,7 @@ describe('exit balance planner policy', () => {
     assert.equal(plan.attributedReasonCode, 'EXIT_BALANCE_RPC_UNCERTAIN');
   });
 
-  test('mirror sell keeps position open on confirmed zero balance', () => {
+  test('mirror sell closes on confirmed zero balance', () => {
     const plan = buildEvmExitPlanFromSnapshot({
       userId: 'user-1',
       tokenAddress: '0xtoken',
@@ -166,7 +166,80 @@ describe('exit balance planner policy', () => {
     });
 
     assert.equal(plan.kind, 'noop');
-    assert.equal(plan.action, 'keep_open');
+    assert.equal(plan.action, 'close_position');
+    assert.equal(plan.closeReason, 'balance_empty');
+  });
+
+  test('mirror sell confirmed zero balance closes even with recent ownership evidence', () => {
+    const plan = buildEvmExitPlanFromSnapshot({
+      userId: 'user-1',
+      tokenAddress: '0xtoken',
+      chainId: 56,
+      exitReason: 'mirror_sell',
+      tokenInfo: { price: 1, symbol: 'TEST' },
+      universalSlippageBps: 500,
+      executionMode: 'turbo',
+      targetWallet: '0xtarget',
+      snapshot: {
+        tokenAddress: '0xtoken',
+        chainId: 56,
+        walletAddress: '0xwallet',
+        isMirrorSell: true,
+        hasValidPrice: true,
+        decimals: 18,
+        balanceRaw: 0n,
+        balanceUsd: 0,
+        treatAsEmptyOrDust: true,
+        balanceRead: {
+          status: 'success',
+          value: 0n,
+          reasonCode: 'EXIT_BALANCE_CONFIRMED_ZERO',
+          attemptCount: 6,
+          lastError: null,
+          providerSource: 'test',
+        },
+        positions: [{
+          id: 'pos-1',
+          tokenAddress: '0xtoken',
+          status: 'open',
+          entryTxHash: '0xbuy',
+          createdAt: new Date(),
+        }],
+        pendingLots: [{
+          id: 'lot-1',
+          positionId: 'pos-1',
+          userId: 'user-1',
+          chainId: 56,
+          tokenAddress: '0xtoken',
+          entryTxHash: '0xbuy',
+          expectedAmountRaw: '1000',
+          status: 'armed',
+          createdAt: new Date(),
+        }],
+        latestTargetSellTxHash: '0xsell',
+        targetFullExitVerified: true,
+        targetFullExitReasonCode: 'TARGET_FULL_EXIT_CONFIRMED',
+        attribution: {
+          eligiblePositions: [{
+            id: 'pos-1',
+            tokenAddress: '0xtoken',
+            status: 'open',
+            entryTxHash: '0xbuy',
+            createdAt: new Date(),
+          }],
+          sellAmountRaw: 0n,
+          reasonCode: 'ONCHAIN_BALANCE_EMPTY',
+          metrics: {
+            attributedAmountRaw: '1000',
+          },
+          hasExternalBalance: false,
+        },
+      },
+    });
+
+    assert.equal(plan.kind, 'noop');
+    assert.equal(plan.action, 'close_position');
+    assert.equal(plan.closeReason, 'balance_empty');
   });
 
   test('mirror sell closes when target exit verified and follower sold >=95%', () => {

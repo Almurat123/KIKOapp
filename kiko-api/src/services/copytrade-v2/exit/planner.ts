@@ -158,6 +158,29 @@ export function buildEvmExitPlanFromSnapshot(input: {
   }
 
   if (snapshot.treatAsEmptyOrDust) {
+    if (isMirrorSell && balance <= 0n && snapshot.balanceRead.status === 'success') {
+      return {
+        kind: 'noop',
+        action: 'close_position',
+        closeReason: 'balance_empty',
+        balance,
+        decimals,
+        balanceUsd,
+        isMirrorSell,
+        attributedReasonCode: attribution.reasonCode,
+        attributionMetrics: {
+          ...attribution.metrics,
+          oracleStatus: snapshot.balanceRead.status,
+          oracleReasonCode: snapshot.balanceRead.reasonCode,
+          oracleAttemptCount: snapshot.balanceRead.attemptCount,
+          oracleLastError: snapshot.balanceRead.lastError || null,
+          latestTargetSellTxHash: snapshot.latestTargetSellTxHash || null,
+          targetFullExitVerified: Boolean(snapshot.targetFullExitVerified),
+          ...mirrorSellOwnershipMetrics,
+        },
+        positions: attribution.eligiblePositions,
+      };
+    }
     if (shouldDeferContradictoryDustClose) {
       return {
         kind: 'noop',
