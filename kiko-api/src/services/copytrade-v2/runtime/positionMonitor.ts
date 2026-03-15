@@ -45,6 +45,7 @@ import {
   hasIntentContext,
   resolveExitIntentRetryDelayMs,
 } from '../exit/exitHotPathPolicy.js';
+import { listActiveExitIntentPositionIds } from '../exit/positionExitIntentStore.js';
 
 const NO_OPEN_POSITIONS_LOG_WINDOW_MS = Number(process.env.NO_OPEN_POSITIONS_LOG_WINDOW_MS || '180000');
 const COPYTRADE_DISABLE_MIRROR_SELL_DUST_SWEEP = (process.env.COPYTRADE_DISABLE_MIRROR_SELL_DUST_SWEEP || 'true') === 'true';
@@ -933,7 +934,11 @@ export async function checkPositionsForExits(): Promise<void> {
         }
     });
 
+    const activeIntentPositionIds = await listActiveExitIntentPositionIds(positionsNeedingRetry.map((position) => position.id));
     const retryablePositions = positionsNeedingRetry.filter((position) => {
+        if (activeIntentPositionIds.has(position.id)) {
+            return false;
+        }
         const exitReason = String((position as any).exitReason || '').toLowerCase();
         if (exitReason === 'take_profit' || exitReason === 'stop_loss' || exitReason === 'dynamic_take_profit') {
             return false;

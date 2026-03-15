@@ -23,6 +23,8 @@ const ACTIVE_INTENT_STATES: ExitExecutionState[] = [
   'EXIT_RETRYABLE_UNRESOLVED',
 ];
 
+const LIVE_EXIT_LANES = ['evm-exit', 'solana-exit'] as const;
+
 const TERMINAL_INTENT_STATES: ExitExecutionState[] = [
   'EXIT_CONFIRMED',
   'EXIT_FAILED_TERMINAL',
@@ -347,6 +349,30 @@ export async function updatePositionExitIntentState(params: {
   }
 }
 
+export async function patchPositionExitIntentMetadata(params: {
+  id: string;
+  lastReasonCode?: string | null;
+  executionTxHash?: string | null;
+  metadataPatch?: Record<string, unknown> | null;
+}): Promise<void> {
+  const existing = await prisma.positionExitIntent.findUnique({
+    where: { id: params.id },
+    select: { metadataJson: true },
+  }).catch(() => null);
+  const metadata = {
+    ...((existing?.metadataJson as Record<string, unknown> | null) || {}),
+    ...(params.metadataPatch || {}),
+  };
+  await prisma.positionExitIntent.update({
+    where: { id: params.id },
+    data: {
+      lastReasonCode: params.lastReasonCode ?? undefined,
+      executionTxHash: params.executionTxHash ?? undefined,
+      metadataJson: Object.keys(metadata).length > 0 ? metadata as Prisma.InputJsonValue : undefined,
+    },
+  });
+}
+
 export async function getPositionExitIntentById(id: string): Promise<PositionExitIntentRecord | null> {
   const row = await prisma.positionExitIntent.findUnique({ where: { id } });
   return row ? toRecord(row) : null;
@@ -370,6 +396,21 @@ export async function hasActiveExitIntent(positionId: string): Promise<boolean> 
     select: { id: true },
   });
   return Boolean(row?.id);
+}
+
+export async function listActiveExitIntentPositionIds(positionIds: string[]): Promise<Set<string>> {
+  if (!positionIds.length) return new Set();
+  const rows = await prisma.positionExitIntent.findMany({
+    where: {
+      positionId: { in: positionIds },
+      lifecycleState: { in: ACTIVE_INTENT_STATES },
+      lane: { in: [...LIVE_EXIT_LANES] },
+    },
+    select: {
+      positionId: true,
+    },
+  });
+  return new Set(rows.map((row) => row.positionId));
 }
 
 export async function hasActiveMirrorSellIntentForUserChain(params: {

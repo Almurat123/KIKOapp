@@ -45,6 +45,11 @@ export function resolveExitIntentRetryDelayMs(params: {
     reasonCode.includes('token_exit_lock_contended')
     || reasonCode.includes('intent_inflight_active')
     || reasonCode.includes('intent_cooldown_active')
+    || reasonCode.includes('transient_network_retry')
+    || reasonCode.includes('network')
+    || reasonCode.includes('timeout')
+    || reasonCode.includes('too many requests')
+    || reasonCode.includes('rate limit')
   ) {
     return FAST_EXIT_INTENT_RETRY_MS;
   }

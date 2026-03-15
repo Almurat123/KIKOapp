@@ -21,6 +21,10 @@ import { computeUsdCost, getBillingCategory, getUtcDateString } from '../service
 import { recordUsage } from '../services/usageCounter.js';
 import { randomUUID } from 'crypto';
 import { buildDailyMarketContext } from '../services/ai/dailyMarketContext.js';
+import {
+    createLeadingInternalScaffoldSuppressor,
+    stripLeadingInternalScaffold,
+} from '../services/ai/promptLeakSanitizer.js';
 
 interface ChatMessage {
     role: 'system' | 'user' | 'assistant' | 'tool';
@@ -191,6 +195,8 @@ async function processStreamResponse(
     let toolCalls: any[] = [];
     let hasToolCalls = false;
     let usage: any = undefined;
+    const contentSuppressor = createLeadingInternalScaffoldSuppressor();
+    let streamModel = '';
 
     try {
         while (true) {
@@ -210,13 +216,27 @@ async function processStreamResponse(
                     continue;
                 }
 
+                let lineToForward = line;
+                let skipForward = false;
                 if (line.startsWith('data: ')) {
                     try {
                         const data = JSON.parse(line.slice(6));
                         const choice = data.choices?.[0];
+                        if (typeof data.model === 'string' && data.model) {
+                            streamModel = data.model;
+                        }
 
                         if (choice?.delta?.content) {
-                            assistantContent += choice.delta.content;
+                            const visibleContent = contentSuppressor.push(choice.delta.content);
+                            assistantContent += visibleContent;
+                            if (visibleContent) {
+                                choice.delta.content = visibleContent;
+                            } else if (!choice.delta.reasoning_content && !choice.delta.tool_calls && !data.usage) {
+                                skipForward = true;
+                            } else {
+                                delete choice.delta.content;
+                            }
+                            lineToForward = `data: ${JSON.stringify(data)}`;
                         }
                         if (choice?.delta?.reasoning_content) {
                             reasoningContent += choice.delta.reasoning_content;
@@ -254,7 +274,10 @@ async function processStreamResponse(
                 if (shouldForward && reply) {
                     try {
                         if (line.trim() !== 'data: [DONE]') {
-                            reply.raw.write(line + '\n');
+                            if (skipForward) {
+                                continue;
+                            }
+                            reply.raw.write(lineToForward + '\n');
                         }
                     } catch (writeError: any) {
                         // If write fails (client disconnected), stop forwarding
@@ -277,6 +300,27 @@ async function processStreamResponse(
             // Reader already released
         }
     }
+
+    const trailingVisibleContent = contentSuppressor.flush();
+    if (trailingVisibleContent) {
+        assistantContent += trailingVisibleContent;
+        if (shouldForward && reply) {
+            const trailingChunk = {
+                id: 'sanitized-tail',
+                object: 'chat.completion.chunk',
+                created: Math.floor(Date.now() / 1000),
+                model: streamModel || 'deepseek-chat',
+                choices: [{
+                    index: 0,
+                    delta: { content: trailingVisibleContent },
+                    finish_reason: null,
+                }],
+            };
+            reply.raw.write(`data: ${JSON.stringify(trailingChunk)}\n\n`);
+        }
+    }
+
+    assistantContent = stripLeadingInternalScaffold(assistantContent);
 
     return { hasToolCalls, toolCalls, assistantContent, reasoningContent, usage };
 }

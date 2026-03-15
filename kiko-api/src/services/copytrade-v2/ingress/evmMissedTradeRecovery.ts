@@ -10,6 +10,7 @@ import { markCopyTradeIngressConfirmed, markCopyTradeIngressFirstSeen, markCopyT
 import { dispatchCopyTradeIfReady } from './copyTradeFastDispatcher.js';
 import { persistSwapExecutionContext } from '../context/swapContextPersistence.js';
 import { ensureCopytradeIngressTraceTable, hasCopytradeIngressTraceEvent, recordCopytradeIngressTrace } from './ingressTraceStore.js';
+import { runBackgroundCycleWhenIdle } from '../exit/exitHotPathPressure.js';
 
 const EVM_RECOVERY_CHAIN_IDS = [1, 8453, 56, 42161, 10, 137];
 const STARTUP_RECOVERY_DELAY_MS = Math.max(5_000, Number(process.env.COPYTRADE_STARTUP_RECOVERY_DELAY_MS || 20_000));
@@ -36,8 +37,11 @@ export function startEvmMissedTradeRecovery(): void {
   const schedule = () => {
     if (remainingRuns <= 0) return;
     const runNumber = STARTUP_RECOVERY_CYCLES - remainingRuns + 1;
-    remainingRuns -= 1;
-    void runEvmMissedTradeRecoveryCycle(runNumber).catch((error: any) => {
+    void runEvmMissedTradeRecoveryCycle(runNumber).then((executed) => {
+      if (executed) {
+        remainingRuns -= 1;
+      }
+    }).catch((error: any) => {
       logger.error(LogCode.SYS_ERROR, '[CopyTradeRecovery] startup recovery cycle failed', {
         error: error?.message || String(error),
         runNumber,
@@ -70,7 +74,15 @@ export function selectRecoverableRecentTargetTxs(
     .sort((a, b) => b.blockTimestamp.getTime() - a.blockTimestamp.getTime());
 }
 
-async function runEvmMissedTradeRecoveryCycle(runNumber: number): Promise<void> {
+async function runEvmMissedTradeRecoveryCycle(runNumber: number): Promise<boolean> {
+  const gated = await runBackgroundCycleWhenIdle({
+    cycle: 'startup_recovery',
+    fn: async () => true,
+  }).catch(() => ({ skipped: false, result: true }));
+  if (gated.skipped) {
+    return false;
+  }
+
   await ensureCopytradeIngressTraceTable();
   const wallets = await prisma.copyTradeConfig.findMany({
     where: {
@@ -89,6 +101,19 @@ async function runEvmMissedTradeRecoveryCycle(runNumber: number): Promise<void> 
   const nowMs = Date.now();
 
   for (const wallet of wallets) {
+    const pressure = await runBackgroundCycleWhenIdle({
+      cycle: 'startup_recovery_mid_cycle_guard',
+      fn: async () => false,
+    }).catch(() => ({ skipped: false, result: false }));
+    if (pressure.skipped) {
+      logger.info(LogCode.SYS_INFO, '[CopyTradeRecovery] startup recovery paused by live exit pressure', {
+        runNumber,
+        scannedWallets,
+        recoveredTxs,
+      });
+      break;
+    }
+
     const targetWallet = normalizeAddress(wallet.targetWallet);
     if (!targetWallet) continue;
     scannedWallets += 1;
@@ -150,6 +175,7 @@ async function runEvmMissedTradeRecoveryCycle(runNumber: number): Promise<void> 
     recoveredTxs,
     lookbackMs: STARTUP_RECOVERY_LOOKBACK_MS,
   });
+  return true;
 }
 
 async function recoverTargetTxFromHistory(params: {

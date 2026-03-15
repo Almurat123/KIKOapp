@@ -11,10 +11,15 @@ import type { ExitIntentLane } from './intentTypes.js';
 import { claimPendingExitIntents, updatePositionExitIntentState } from './positionExitIntentStore.js';
 import { executePositionExit } from '../runtime/positionMonitor.js';
 import {
-  ExitHotPathDeferredError,
   resolveExitIntentRetryDelayMs,
   STANDARD_EXIT_INTENT_RETRY_MS,
 } from './exitHotPathPolicy.js';
+import {
+  classifyExitIntentExecutionError,
+  getMaxSameJobRetryAttempts,
+  resolveSameJobRetryDelayMs,
+} from './exitIntentExecutionPolicy.js';
+import { recordExitIntentProgress } from './exitIntentProgress.js';
 
 const EVM_EXIT_CONCURRENCY = Math.max(2, Number(process.env.COPYTRADE_EVM_EXIT_CONCURRENCY || '6'));
 const SOLANA_EXIT_CONCURRENCY = Math.max(1, Number(process.env.COPYTRADE_SOLANA_EXIT_CONCURRENCY || '2'));
@@ -37,6 +42,10 @@ const timers = new Map<ExitIntentLane, NodeJS.Timeout>();
 const laneWakeScheduled = new Set<ExitIntentLane>();
 const workerId = `ct-exit-worker-${process.pid}-${crypto.randomUUID().slice(0, 8)}`;
 let started = false;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 function getLaneInflight(lane: ExitIntentLane): number {
   return laneInflight.get(lane) || 0;
@@ -139,14 +148,29 @@ async function processExitIntent(intent: any): Promise<void> {
   }
 
   let finalityState: 'confirmed_success' | 'pending_visibility' | 'retryable_unresolved' | 'confirmed_failed' = 'retryable_unresolved';
+  let settleRetryIntervalMs = RETRY_COOLDOWN_MS;
   try {
     await updatePositionExitIntentState({
       id: intent.id,
       lifecycleState: 'EXIT_SUBMITTING',
       clearClaim: false,
+      metadataPatch: {
+        hotPathStage: 'routing',
+        hotPathStageAt: new Date().toISOString(),
+        hotPathWorkerId: workerId,
+      },
     });
 
-    const position = await loadIntentPosition(intent.positionId);
+    const [position, config] = await Promise.all([
+      loadIntentPosition(intent.positionId),
+      prisma.copyTradeConfig.findUnique({
+        where: { id: intent.configId },
+        include: {
+          user: true,
+        },
+      }),
+    ]);
+
     if (!position) {
       await updatePositionExitIntentState({
         id: intent.id,
@@ -171,12 +195,6 @@ async function processExitIntent(intent: any): Promise<void> {
       return;
     }
 
-    const config = await prisma.copyTradeConfig.findUnique({
-      where: { id: intent.configId },
-      include: {
-        user: true,
-      },
-    });
     if (!config?.user) {
       await updatePositionExitIntentState({
         id: intent.id,
@@ -189,39 +207,83 @@ async function processExitIntent(intent: any): Promise<void> {
       return;
     }
 
-    const tokenInfo = intent.exitReason === 'mirror_sell'
-      ? { price: 0, symbol: 'UNKNOWN' }
-      : await getTokenInfo(intent.tokenAddress, intent.chainId).catch(() => ({ price: 0, symbol: 'UNKNOWN' }));
-    const pendingAttributedLots = intent.exitReason === 'mirror_sell'
-      ? await listPendingAttributedPositions({
-          userId: intent.userId,
-          chainId: intent.chainId,
-          tokenAddress: intent.tokenAddress,
-          positionIds: [intent.positionId],
-          statuses: ['armed', 'sell_armed'],
-        }).catch(() => [])
-      : [];
+    const [tokenInfo, pendingAttributedLots] = await Promise.all([
+      intent.exitReason === 'mirror_sell'
+        ? Promise.resolve({ price: 0, symbol: 'UNKNOWN' })
+        : getTokenInfo(intent.tokenAddress, intent.chainId).catch(() => ({ price: 0, symbol: 'UNKNOWN' })),
+      intent.exitReason === 'mirror_sell'
+        ? listPendingAttributedPositions({
+            userId: intent.userId,
+            chainId: intent.chainId,
+            tokenAddress: intent.tokenAddress,
+            positionIds: [intent.positionId],
+            statuses: ['armed', 'sell_armed'],
+          }).catch(() => [])
+        : Promise.resolve([]),
+    ]);
 
-    const txHash = await executePositionExit({
-      userId: intent.userId,
-      tokenAddress: intent.tokenAddress,
-      chainId: intent.chainId,
-      exitReason: intent.exitReason,
-      tokenInfo,
-      config,
-      positions: [position],
-      pendingAttributedLots,
-      desiredSellRawOverride: intent.desiredSellRaw ? BigInt(intent.desiredSellRaw) : undefined,
-      intentContext: {
-        intentId: intent.id,
-        sourceEventId: intent.sourceEventId || undefined,
-        targetSellTxHash: intent.targetSellTxHash || undefined,
-        targetFullExitVerified: Boolean(intent.metadata?.targetFullExitVerified),
-        targetSellRatioBps: Number.isFinite(Number(intent.metadata?.targetSellRatioBps))
-          ? Number(intent.metadata?.targetSellRatioBps)
-          : null,
-      },
-    });
+    const maxSameJobRetryAttempts = getMaxSameJobRetryAttempts();
+    let txHash: string | null = null;
+    let lastExecutionError: unknown = null;
+    for (let sameJobAttempt = 1; sameJobAttempt <= maxSameJobRetryAttempts + 1; sameJobAttempt += 1) {
+      try {
+        await recordExitIntentProgress({
+          intentId: intent.id,
+          workerId,
+          stage: 'routing',
+          metadata: {
+            sameJobAttempt,
+            sameJobAttemptStartedAt: new Date().toISOString(),
+          },
+        });
+        txHash = await executePositionExit({
+          userId: intent.userId,
+          tokenAddress: intent.tokenAddress,
+          chainId: intent.chainId,
+          exitReason: intent.exitReason,
+          tokenInfo,
+          config,
+          positions: [position],
+          pendingAttributedLots,
+          desiredSellRawOverride: intent.desiredSellRaw ? BigInt(intent.desiredSellRaw) : undefined,
+          intentContext: {
+            intentId: intent.id,
+            sourceEventId: intent.sourceEventId || undefined,
+            targetSellTxHash: intent.targetSellTxHash || undefined,
+            targetFullExitVerified: Boolean(intent.metadata?.targetFullExitVerified),
+            targetSellRatioBps: Number.isFinite(Number(intent.metadata?.targetSellRatioBps))
+              ? Number(intent.metadata?.targetSellRatioBps)
+              : null,
+          },
+        });
+        lastExecutionError = null;
+        break;
+      } catch (error: any) {
+        lastExecutionError = error;
+        const disposition = classifyExitIntentExecutionError(error);
+        if (!disposition.sameJobRetry || sameJobAttempt > maxSameJobRetryAttempts) {
+          throw error;
+        }
+        const retryDelayMs = resolveSameJobRetryDelayMs(sameJobAttempt);
+        settleRetryIntervalMs = retryDelayMs;
+        await recordExitIntentProgress({
+          intentId: intent.id,
+          workerId,
+          stage: 'retry_wait',
+          reasonCode: disposition.reasonCode,
+          metadata: {
+            sameJobAttempt,
+            retryAfterMs: retryDelayMs,
+            lastErrorMessage: error?.message || String(error),
+          },
+        });
+        await sleep(retryDelayMs);
+      }
+    }
+
+    if (lastExecutionError) {
+      throw lastExecutionError;
+    }
 
     const refreshed = await prisma.position.findUnique({
       where: { id: intent.positionId },
@@ -233,6 +295,13 @@ async function processExitIntent(intent: any): Promise<void> {
     });
 
     if (txHash) {
+      await recordExitIntentProgress({
+        intentId: intent.id,
+        workerId,
+        stage: 'confirmed',
+        reasonCode: 'exit_confirmed',
+        executionTxHash: txHash,
+      });
       await updatePositionExitIntentState({
         id: intent.id,
         lifecycleState: 'EXIT_CONFIRMED',
@@ -246,6 +315,13 @@ async function processExitIntent(intent: any): Promise<void> {
     }
 
     if (['balance_dust', 'balance_empty'].includes(String(refreshed?.exitReason || '').toLowerCase())) {
+      await recordExitIntentProgress({
+        intentId: intent.id,
+        workerId,
+        stage: 'confirmed',
+        reasonCode: String(refreshed?.exitReason || 'balance_dust'),
+        executionTxHash: refreshed?.exitTxHash || null,
+      });
       await updatePositionExitIntentState({
         id: intent.id,
         lifecycleState: 'EXIT_CLOSED_DUST',
@@ -259,6 +335,13 @@ async function processExitIntent(intent: any): Promise<void> {
     }
 
     if (refreshed?.exitTxHash) {
+      await recordExitIntentProgress({
+        intentId: intent.id,
+        workerId,
+        stage: 'swap_visible',
+        reasonCode: 'exit_pending_finality',
+        executionTxHash: refreshed.exitTxHash,
+      });
       await updatePositionExitIntentState({
         id: intent.id,
         lifecycleState: 'EXIT_PENDING_FINALITY',
@@ -269,9 +352,11 @@ async function processExitIntent(intent: any): Promise<void> {
         clearClaim: true,
       });
       finalityState = 'pending_visibility';
+      settleRetryIntervalMs = CONFIRMATION_RECHECK_MS;
       return;
     }
 
+    settleRetryIntervalMs = RETRY_COOLDOWN_MS;
     await updatePositionExitIntentState({
       id: intent.id,
       lifecycleState: 'EXIT_RETRYABLE_UNRESOLVED',
@@ -288,13 +373,23 @@ async function processExitIntent(intent: any): Promise<void> {
       tokenAddress: intent.tokenAddress,
       error: error?.message || String(error),
     });
-    const reasonCode = error instanceof ExitHotPathDeferredError
-      ? error.reasonCode
-      : (error?.message || 'intent_execution_failed');
+    const disposition = classifyExitIntentExecutionError(error);
+    const reasonCode = disposition.reasonCode;
     const retryDelayMs = resolveExitIntentRetryDelayMs({
       reasonCode,
-      retryAfterMs: error instanceof ExitHotPathDeferredError ? error.retryAfterMs : RETRY_COOLDOWN_MS,
+      retryAfterMs: (error as any)?.retryAfterMs,
     });
+    settleRetryIntervalMs = retryDelayMs;
+    await recordExitIntentProgress({
+      intentId: intent.id,
+      workerId,
+      stage: 'retry_wait',
+      reasonCode,
+      metadata: {
+        retryAfterMs: retryDelayMs,
+        lastErrorMessage: error?.message || String(error),
+      },
+    }).catch(() => undefined);
     await updatePositionExitIntentState({
       id: intent.id,
       lifecycleState: 'EXIT_RETRYABLE_UNRESOLVED',
@@ -307,7 +402,7 @@ async function processExitIntent(intent: any): Promise<void> {
     await settleExitIntentExecution({
       identityKey: intent.identityKey,
       finalityState,
-      minRetryIntervalMs: RETRY_COOLDOWN_MS,
+      minRetryIntervalMs: settleRetryIntervalMs,
     }).catch(() => undefined);
   }
 }

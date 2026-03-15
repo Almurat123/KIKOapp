@@ -4,6 +4,7 @@ import { fileURLToPath } from 'url';
 import type { Skill, SkillMetadata, SkillRegistry } from './types.js';
 import { toolRegistry } from '../tooling/registry.js';
 import { ensureToolRegistryInitialized } from '../tooling/bootstrap.js';
+import { sanitizeSkillPrompt } from '../services/ai/promptLeakSanitizer.js';
 
 // Get current directory
 const __filename = fileURLToPath(import.meta.url);
@@ -97,6 +98,7 @@ class Registry implements SkillRegistry {
                 frontmatter = this.parseSkillFrontmatter(skillMd);
                 prompt = (frontmatter?.body || skillMd).trim();
             }
+            prompt = sanitizeSkillPrompt(prompt);
 
             // Metadata: prefer legacy `skill.json` (richer structure), but allow SKILL.md-only skills.
             let metadata: SkillMetadata | null = null;

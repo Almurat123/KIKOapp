@@ -51,7 +51,7 @@ import { setOrderMetadata } from '../order-runtime/context.js';
 import { resolveTradeSendNonce } from './swapNoncePolicy.js';
 import { getApprovalQuoteRefreshDelayMs, shouldRetryApprovalQuoteRefresh } from './approvalQuoteRefreshPolicy.js';
 import { waitForApprovalReady, type ApprovalReadinessResult } from './approvalReadiness.js';
-import { clearApprovalPreheatState, getApprovalPreheatState } from './approvalPreheatState.js';
+import { clearApprovalPreheatState, getApprovalPreheatState, upsertApprovalPreheatState } from './approvalPreheatState.js';
 
 // 0x AllowanceHolder address (Base). If a token already has sufficient allowance here,
 // we can skip Permit2 first-try and reduce sell failure risk for problematic tokens.
@@ -697,6 +697,16 @@ export class SwapExecutor {
                             elapsedMs: approvalReady.elapsedMs
                         });
 
+                        await upsertApprovalPreheatState({
+                            userId,
+                            chainId,
+                            walletAddress,
+                            tokenAddress: actualTokenIn,
+                            spenderAddress: best.allowanceTarget,
+                            txHash: approvalTxHash,
+                            status: 'confirmed'
+                        }).catch(() => undefined);
+
                         // Update transaction card: approval confirmed
                         try {
                             const messageId = (params as any).messageId;
@@ -883,6 +893,15 @@ export class SwapExecutor {
                         });
 
                         logger.info(LogCode.EXE_TX_BROADCAST, 'Approval transaction sent', { txHash: approveTxHash });
+                        await upsertApprovalPreheatState({
+                            userId,
+                            chainId,
+                            walletAddress,
+                            tokenAddress: actualTokenIn,
+                            spenderAddress: best.allowanceTarget,
+                            txHash: approveTxHash,
+                            status: 'submitted'
+                        }).catch(() => undefined);
 
                         // CRITICAL: Must wait for approval to be CONFIRMED on-chain
                         // Allowance-holder checks on-chain state, mempool is not enough
@@ -900,6 +919,15 @@ export class SwapExecutor {
                         await finalizeApprovalReady(approveTxHash, approvalReady);
                     }
                 } catch (approvalError: any) {
+                    await upsertApprovalPreheatState({
+                        userId,
+                        chainId,
+                        walletAddress,
+                        tokenAddress: actualTokenIn,
+                        spenderAddress: best.allowanceTarget,
+                        txHash: '',
+                        status: 'failed'
+                    }).catch(() => undefined);
                     logger.error(LogCode.EXE_TX_REVERTED, 'Approval failed', { error: approvalError.message });
                     throw new Error(`Token approval failed: ${approvalError.message}`);
                 }

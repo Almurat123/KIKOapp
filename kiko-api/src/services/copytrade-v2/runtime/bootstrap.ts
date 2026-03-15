@@ -8,6 +8,7 @@ import { runCopytradeAttributionRepairCycle } from '../jobs/copytradeAttribution
 import { runCopytradeOrphanSweepCycle } from '../jobs/copytradeOrphanSweepJob.js';
 import { runDeferredBuyFeeRecoveryBackfill } from '../buy/deferredBuyFeeRecoveryBackfill.js';
 import { runDeferredSellApprovalPreheatBackfill } from '../buy/deferredSellApprovalPreheatBackfill.js';
+import { runBackgroundCycleWhenIdle } from '../exit/exitHotPathPressure.js';
 import { logger } from '../../../utils/logger.js';
 import { LogCode } from '../../../config/logRegistry.js';
 import type { DecodedSwap } from '../../txDecoder.js';
@@ -47,6 +48,15 @@ let attributionRepairInterval: NodeJS.Timeout | null = null;
 let orphanSweepInterval: NodeJS.Timeout | null = null;
 let deferredFeeBackfillInterval: NodeJS.Timeout | null = null;
 let deferredApprovalBackfillInterval: NodeJS.Timeout | null = null;
+
+async function runCopytradeBackgroundTaskWhenIdle<T>(cycle: string, fn: () => Promise<T>): Promise<T | null> {
+  const result = await runBackgroundCycleWhenIdle({
+    cycle,
+    fn,
+  }).catch(() => ({ skipped: false, result: null as T | null }));
+  if (result.skipped) return null;
+  return result.result ?? null;
+}
 
 async function getPositionStatusCompat(): Promise<PositionStatusCompat> {
   const cached = positionStatusCompatCache;
@@ -148,8 +158,9 @@ export function initCopytradeV2Bootstrap(params: {
   }, 5 * 60 * 1000);
 
   targetSellReconciliationInterval = setInterval(() => {
-    void runTargetSellReconciliationCycle()
+    void runCopytradeBackgroundTaskWhenIdle('target_sell_reconciliation', () => runTargetSellReconciliationCycle())
       .then((result) => {
+        if (!result) return;
         if (result.scheduledOpen > 0 || result.armedPending > 0 || result.fullExitMatches > 0) {
           logger.info(LogCode.SYS_INFO, '[CopyTradeV2] Target sell reconcile cycle completed', result);
         }
@@ -162,8 +173,9 @@ export function initCopytradeV2Bootstrap(params: {
   }, TARGET_SELL_RECONCILIATION_INTERVAL_MS);
 
   attributionRepairInterval = setInterval(() => {
-    void runCopytradeAttributionRepairCycle()
+    void runCopytradeBackgroundTaskWhenIdle('attribution_repair', () => runCopytradeAttributionRepairCycle())
       .then((result) => {
+        if (!result) return;
         if (result.repairedCount > 0 || result.repairRequiredCount > 0) {
           logger.info(LogCode.SYS_INFO, '[CopyTradeV2] Attribution repair cycle completed', result);
         }
@@ -176,8 +188,9 @@ export function initCopytradeV2Bootstrap(params: {
   }, ATTRIBUTION_REPAIR_INTERVAL_MS);
 
   orphanSweepInterval = setInterval(() => {
-    void runCopytradeOrphanSweepCycle()
+    void runCopytradeBackgroundTaskWhenIdle('orphan_sweep', () => runCopytradeOrphanSweepCycle())
       .then((result) => {
+        if (!result) return;
         if (result.scheduledRetryCount > 0 || result.quarantinedPendingLots > 0) {
           logger.info(LogCode.SYS_INFO, '[CopyTradeV2] Orphan sweep cycle completed', result);
         }
@@ -190,7 +203,7 @@ export function initCopytradeV2Bootstrap(params: {
   }, ORPHAN_SWEEP_INTERVAL_MS);
 
   deferredFeeBackfillInterval = setInterval(() => {
-    void runDeferredBuyFeeRecoveryBackfill().catch((error: any) => {
+    void runCopytradeBackgroundTaskWhenIdle('deferred_buy_fee_backfill', () => runDeferredBuyFeeRecoveryBackfill()).catch((error: any) => {
       logger.warn(LogCode.SYS_ERROR, '[CopyTradeV2] Deferred fee recovery backfill failed', {
         error: error?.message || String(error),
       });
@@ -198,17 +211,17 @@ export function initCopytradeV2Bootstrap(params: {
   }, DEFERRED_FEE_BACKFILL_INTERVAL_MS);
 
   deferredApprovalBackfillInterval = setInterval(() => {
-    void runDeferredSellApprovalPreheatBackfill().catch((error: any) => {
+    void runCopytradeBackgroundTaskWhenIdle('deferred_sell_approval_preheat_backfill', () => runDeferredSellApprovalPreheatBackfill()).catch((error: any) => {
       logger.warn(LogCode.SYS_ERROR, '[CopyTradeV2] Deferred approval backfill failed', {
         error: error?.message || String(error),
       });
     });
   }, DEFERRED_APPROVAL_BACKFILL_INTERVAL_MS);
 
-  void runCopytradeAttributionRepairCycle().catch(() => { });
-  void runCopytradeOrphanSweepCycle().catch(() => { });
-  void runDeferredBuyFeeRecoveryBackfill().catch(() => { });
-  void runDeferredSellApprovalPreheatBackfill().catch(() => { });
+  void runCopytradeBackgroundTaskWhenIdle('attribution_repair_bootstrap', () => runCopytradeAttributionRepairCycle()).catch(() => { });
+  void runCopytradeBackgroundTaskWhenIdle('orphan_sweep_bootstrap', () => runCopytradeOrphanSweepCycle()).catch(() => { });
+  void runCopytradeBackgroundTaskWhenIdle('deferred_buy_fee_backfill_bootstrap', () => runDeferredBuyFeeRecoveryBackfill()).catch(() => { });
+  void runCopytradeBackgroundTaskWhenIdle('deferred_sell_approval_preheat_backfill_bootstrap', () => runDeferredSellApprovalPreheatBackfill()).catch(() => { });
 
   logger.info(LogCode.SYS_STARTUP, 'CopyTrade V2 bootstrap initialized', {
     mode: 'solana-watcher+evm-webhook+pending',
