@@ -322,7 +322,12 @@ export function detectQuerySignals(query: string, snapshot: ChatContextSnapshot,
     const raw = String(query || '');
     const hasRequestedToken = (snapshot.requestedTokenAddresses || []).length > 0 || (snapshot.requestedTokenSymbols || []).length > 0;
     const explicitSearch = isExplicitSearchIntent(lower, raw);
-    const xSearch = /\btwitter\b/i.test(lower) || lower.includes('x.com') || /\bon\s+x\b/i.test(lower) || ['推特', '推文', 'X上', 'x上'].some((word) => raw.includes(word));
+    const xSearch = /\btwitter\b/i.test(lower)
+        || lower.includes('x.com')
+        || /\bon\s+x\b/i.test(lower)
+        || /\bsearch\s+x\b/i.test(lower)
+        || /\bx\s+search\b/i.test(lower)
+        || ['推特', '推文', 'X上', 'x上'].some((word) => raw.includes(word));
     const webSearch = /\bweb\s+search\b/i.test(lower) || /\bsearch\s+(the\s+)?web\b/i.test(lower) || /\bon\s+the\s+web\b/i.test(lower) || ['网页', '网站', '网上'].some((word) => raw.includes(word));
 
     return {

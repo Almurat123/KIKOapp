@@ -1,9 +1,9 @@
 import { logger } from '../../utils/logger.js';
 import { LogCode } from '../../config/logRegistry.js';
-import type { ChatContextSnapshot } from './contracts.js';
+import type { ChatContextSnapshot, ProviderNativeEvidenceSnapshot } from './contracts.js';
 import { buildProviderOptions, resolveProviderInfo } from './providerPolicyBuilder.js';
 import { resolveNodeSkills } from './nodeSkillResolver.js';
-import { assembleGenerationMessages, sanitizeProviderHistory, type GenerationMessage } from './nodePromptAssembler.js';
+import { assembleGenerationMessages, buildRoundToolPolicySystemMessage, sanitizeProviderHistory, type GenerationMessage } from './nodePromptAssembler.js';
 import { parseTradingIntent } from './tradingIntentResolver.js';
 import { checkToolAgainstPolicy, resolvePolicyToolBudget } from './controlPolicy.js';
 import type { ToolExecutionEngine } from './toolExecutionEngine.js';
@@ -35,15 +35,6 @@ export async function runNodeOrchestration(params: {
     const effectiveAllowedTools = strictPolicy && params.snapshot.policySnapshot
         ? params.snapshot.policySnapshot.allowedTools
         : skillResolution.allowedTools;
-    const tools = buildGenerationTools(
-        params.snapshot.toolDefinitions,
-        effectiveAllowedTools,
-        skillResolution.blockedTools,
-        skillResolution.preferredTools,
-        strictPolicy ? false : skillResolution.allowAllTools,
-        providerInfo.provider,
-    );
-    const providerOptions = buildProviderOptions(params.snapshot, providerInfo, params.snapshot.lastUserMessage, skillResolution);
     const planning = buildTaskPlanningContext(params.snapshot, skillResolution);
     let plan = planning.plan;
     const executedToolResults = new Map<string, {
@@ -58,6 +49,12 @@ export async function runNodeOrchestration(params: {
     let forceAnswerWithoutTools = false;
     const toolUsageCount = new Map<string, number>();
     const knownToolNames = new Set(params.snapshot.toolDefinitions.map((item) => item.name));
+    const providerNativeEvidence: ProviderNativeEvidenceSnapshot[] = [];
+    let providerCitationCursor = 0;
+    let currentPhase = skillResolution.currentPhase;
+    let nativeSearchRounds = 0;
+    let previousResponseId: string | null | undefined = params.snapshot.previousResponseId;
+    let lastRoundPolicyMessage = '';
 
     await params.broker.bootstrapRuntime(plan);
 
@@ -90,6 +87,9 @@ export async function runNodeOrchestration(params: {
             rankedMatches: skillResolution.rankedMatches,
             searchMode: skillResolution.searchMode,
             searchReason: skillResolution.searchReason,
+            toolPhase: currentPhase,
+            intentEnvelope: skillResolution.intentEnvelope,
+            providerNativeEvidence,
         },
     );
 
@@ -103,8 +103,8 @@ export async function runNodeOrchestration(params: {
             score: item.score,
         })),
         searchMode: skillResolution.searchMode,
+        toolPhase: currentPhase,
         allowedTools: effectiveAllowedTools,
-        toolCount: tools.length,
         planSteps: plan?.steps.length || 0,
     });
 
@@ -130,6 +130,7 @@ export async function runNodeOrchestration(params: {
             sessionId: params.snapshot.sessionId,
             taskId: params.snapshot.taskId,
             round,
+            toolPhase: currentPhase,
         });
         await params.broker.markPlanPhase(
             round === 1
@@ -150,9 +151,51 @@ export async function runNodeOrchestration(params: {
             );
         }
 
+        const roundPolicyMessage = buildRoundToolPolicySystemMessage({
+            preferredTools: skillResolution.preferredTools,
+            strategyNotes: skillResolution.strategyNotes,
+            allowAllTools: skillResolution.allowAllTools,
+            executionPlan: plan,
+            rankedMatches: skillResolution.rankedMatches,
+            searchMode: skillResolution.searchMode,
+            searchReason: skillResolution.searchReason,
+            toolPhase: currentPhase,
+            intentEnvelope: skillResolution.intentEnvelope,
+            providerNativeEvidence,
+        });
+        if (roundPolicyMessage?.content && roundPolicyMessage.content !== lastRoundPolicyMessage) {
+            messages.push(roundPolicyMessage);
+            lastRoundPolicyMessage = roundPolicyMessage.content;
+        }
+
         const providerReadyMessages = sanitizeProviderHistory(messages, params.snapshot.model);
-        const roundTools = forceAnswerWithoutTools ? [] : tools;
-        const roundProviderOptions = providerOptions;
+        const roundTools = forceAnswerWithoutTools
+            ? []
+            : buildGenerationTools(
+                params.snapshot.toolDefinitions,
+                effectiveAllowedTools,
+                skillResolution.blockedTools,
+                skillResolution.preferredTools,
+                strictPolicy ? false : skillResolution.allowAllTools,
+                providerInfo.provider,
+                currentPhase,
+            );
+        const roundProviderOptions = buildProviderOptions(
+            params.snapshot,
+            providerInfo,
+            params.snapshot.lastUserMessage,
+            {
+                searchMode: skillResolution.searchMode,
+                searchReason: skillResolution.searchReason,
+                intentEnvelope: skillResolution.intentEnvelope,
+                currentPhase,
+            },
+            {
+                currentPhase,
+                searchAttempt: nativeSearchRounds + 1,
+                previousResponseId,
+            },
+        );
         let roundResult;
         let streamedRoundText = '';
         let streamedRoundReasoning = '';
@@ -185,7 +228,7 @@ export async function runNodeOrchestration(params: {
                             const candidate = String(state.previousResponseId || '').trim();
                             const suspicious = providerInfo.provider === 'grok' && isSuspiciousProviderResponseId(candidate);
                             if (!suspicious && candidate) {
-                                providerOptions.previous_response_id = candidate;
+                                previousResponseId = candidate;
                                 forwardedState = { ...state, previousResponseId: candidate };
                             } else if (suspicious) {
                                 logger.warn(LogCode.AI_ORCHESTRATOR, 'NodeOrchestrator: ignoring suspicious provider response id', {
@@ -205,8 +248,8 @@ export async function runNodeOrchestration(params: {
                 const canRetryWithoutPreviousResponse =
                     !retriedWithoutPreviousResponse
                     && providerInfo.provider === 'grok'
-                    && typeof providerOptions.previous_response_id === 'string'
-                    && providerOptions.previous_response_id.trim().length > 0
+                    && typeof roundProviderOptions.previous_response_id === 'string'
+                    && roundProviderOptions.previous_response_id.trim().length > 0
                     && isStalePreviousResponseError(errorMessage);
 
                 logger.error(LogCode.AI_API_ERROR, 'NodeOrchestrator: generation round failed', {
@@ -230,11 +273,33 @@ export async function runNodeOrchestration(params: {
 
                 if (canRetryWithoutPreviousResponse) {
                     retriedWithoutPreviousResponse = true;
-                    providerOptions.previous_response_id = undefined;
+                    previousResponseId = undefined;
                     continue;
                 }
                 throw error;
             }
+        }
+
+        if (currentPhase === 'native_search_only' && !forceAnswerWithoutTools && roundResult.toolCalls.length === 0) {
+            nativeSearchRounds += 1;
+            if (nativeSearchRounds < skillResolution.toolPhasePolicy.searchRetryLimit) {
+                messages.push({
+                    role: 'system',
+                    content: planning.locale === 'zh'
+                        ? '你还没有调用原生搜索工具。下一轮必须先进行 X/Web 搜索，不要直接作答。'
+                        : 'You have not called a provider-native search tool yet. On the next round, search first and do not answer from memory.',
+                });
+                continue;
+            }
+            forceAnswerWithoutTools = true;
+            currentPhase = skillResolution.toolPhasePolicy.nextPhaseAfterNativeSearch || 'local_analysis';
+            messages.push({
+                role: 'system',
+                content: planning.locale === 'zh'
+                    ? '未检索到足够的实时证据。不要继续调用工具，请直接说明证据不足。'
+                    : 'You could not retrieve enough real-time evidence. Do not call more tools; explain plainly that the realtime evidence was insufficient.',
+            });
+            continue;
         }
 
         if (roundResult.toolCalls.length === 0) {
@@ -271,6 +336,64 @@ export async function runNodeOrchestration(params: {
         const providerManagedOnlyRound = normalizedToolCalls.length > 0 && actionableToolCalls.length === 0;
 
         if (providerManagedOnlyRound) {
+            const evidenceSnapshot = buildProviderNativeEvidenceSnapshot({
+                round,
+                query: params.snapshot.lastUserMessage,
+                toolCalls: normalizedToolCalls,
+                citations: params.broker.getCitations().slice(providerCitationCursor),
+                finalText: roundResult.text || '',
+            });
+            providerCitationCursor = params.broker.getCitations().length;
+            if (evidenceSnapshot) {
+                providerNativeEvidence.push(evidenceSnapshot);
+                await params.broker.recordProviderNativeEvidence?.(evidenceSnapshot);
+            }
+
+            if (currentPhase === 'native_search_only' && !forceAnswerWithoutTools) {
+                nativeSearchRounds += 1;
+                if (evidenceSnapshot && skillResolution.toolPhasePolicy.nextPhaseAfterNativeSearch) {
+                    currentPhase = skillResolution.toolPhasePolicy.nextPhaseAfterNativeSearch;
+                    forceAnswerWithoutTools = false;
+                    continue;
+                }
+                if (evidenceSnapshot && (roundResult.text || '').trim().length > 0) {
+                    const summaryStep = buildSummaryPlanStep(params.snapshot.lastUserMessage);
+                    await params.broker.markAnswerStarted(summaryStep);
+                    await params.broker.markPlanPhase(
+                        planning.locale === 'zh'
+                            ? '已完成证据整理，正在生成回答'
+                            : 'Evidence gathered, generating the answer'
+                    );
+                    await emitMissingTail(roundResult.reasoning || '', streamedRoundReasoning, (text) => params.broker.pushReasoning(text));
+                    await emitMissingTail(roundResult.text || '', streamedRoundText, (text) => params.broker.pushText(text));
+                    logger.info(LogCode.AI_ORCHESTRATOR, 'NodeOrchestrator: native search phase completed with final answer', {
+                        sessionId: params.snapshot.sessionId,
+                        taskId: params.snapshot.taskId,
+                        round,
+                        contentLength: roundResult.text.length,
+                    });
+                    return;
+                }
+                if (nativeSearchRounds < skillResolution.toolPhasePolicy.searchRetryLimit) {
+                    messages.push({
+                        role: 'system',
+                        content: planning.locale === 'zh'
+                            ? '刚才的原生搜索证据仍然不足。再搜索一次；如果 X 搜索不够，就改用网页搜索补充。'
+                            : 'The native search evidence is still insufficient. Search again; if X search is not enough, fall back to web search.',
+                    });
+                    continue;
+                }
+                forceAnswerWithoutTools = true;
+                currentPhase = skillResolution.toolPhasePolicy.nextPhaseAfterNativeSearch || 'local_analysis';
+                messages.push({
+                    role: 'system',
+                    content: planning.locale === 'zh'
+                        ? '即使经过原生搜索，证据仍不足。不要继续调用工具，请直接说明无法获得足够实时证据。'
+                        : 'Even after native search, the evidence is still insufficient. Do not call more tools; explain that enough realtime evidence could not be retrieved.',
+                });
+                continue;
+            }
+
             if ((roundResult.text || '').trim().length > 0 || (roundResult.reasoning || '').trim().length > 0) {
                 const summaryStep = buildSummaryPlanStep(params.snapshot.lastUserMessage);
                 await params.broker.markAnswerStarted(summaryStep);
@@ -458,8 +581,7 @@ export async function runNodeOrchestration(params: {
             if (duplicateOnlyRounds >= 2) {
                 const evidenceSnapshot = buildFinalizationEvidenceSnapshot(
                     executedToolResults,
-                    [],
-                    [],
+                    providerNativeEvidence,
                 );
                 const finalizationDirective = planning.locale === 'zh'
                     ? '你已经拿到了工具结果。不要再调用任何工具，请直接基于已有结果给出最终回答。'
@@ -647,8 +769,7 @@ function stableStringify(value: any): string {
 
 export function buildFinalizationEvidenceSnapshot(
     executedToolResults: Map<string, { name?: string; arguments?: Record<string, any>; ok?: boolean; result?: any; metadata?: Record<string, any> }>,
-    providerNativeToolSelections: Array<{ name?: string; arguments?: Record<string, any> }>,
-    providerNativeResults: Array<{ results?: any[] }>,
+    providerNativeEvidence: ProviderNativeEvidenceSnapshot[],
 ): string | null {
     const payload: Record<string, any> = {};
 
@@ -663,12 +784,13 @@ export function buildFinalizationEvidenceSnapshot(
         };
     }
 
-    const normalizedProviderResults = (providerNativeResults || [])
+    const normalizedProviderResults = (providerNativeEvidence || [])
         .flatMap((entry) => Array.isArray(entry?.results) ? entry.results : [])
         .map((entry) => ({
             title: entry?.title || undefined,
             url: entry?.url || undefined,
             snippet: entry?.snippet || undefined,
+            sourceType: entry?.sourceType || undefined,
         }))
         .filter((entry) => entry.title || entry.url || entry.snippet);
     if (normalizedProviderResults.length > 0) {
@@ -676,18 +798,21 @@ export function buildFinalizationEvidenceSnapshot(
     }
 
     if (Object.keys(payload).length === 0) return null;
-    void providerNativeToolSelections;
     return JSON.stringify(payload);
 }
 
-function buildGenerationTools(
+export function buildGenerationTools(
     toolDefinitions: Array<{ name: string; description: string; parameters: any }>,
     allowedTools: string[],
     blockedTools: string[] = [],
     preferredTools: string[] = [],
     allowAllTools = true,
     provider: 'openai' | 'deepseek' | 'grok' = 'deepseek',
+    phase: 'native_search_only' | 'local_analysis' | 'execution' = 'local_analysis',
 ) {
+    if (phase === 'native_search_only') {
+        return [];
+    }
     const allowedSet = new Set(allowedTools);
     const blockedSet = new Set(blockedTools);
     const preferredOrder = new Map(preferredTools.map((name, index) => [name, index]));
@@ -695,6 +820,7 @@ function buildGenerationTools(
         .filter((definition) => !blockedSet.has(definition.name))
         .filter((definition) => !(provider === 'grok' && definition.name === 'external_web_search'))
         .filter((definition) => allowAllTools || allowedSet.has(definition.name))
+        .filter((definition) => phase !== 'execution' || isLikelyExecutionTool(definition.name))
         .sort((a, b) => {
             const aRank = preferredOrder.has(a.name) ? preferredOrder.get(a.name)! : Number.MAX_SAFE_INTEGER;
             const bRank = preferredOrder.has(b.name) ? preferredOrder.get(b.name)! : Number.MAX_SAFE_INTEGER;
@@ -720,4 +846,107 @@ function toAssistantToolCall(call: { id: string; name: string; arguments: Record
             arguments: JSON.stringify(call.arguments || {}),
         },
     };
+}
+
+function buildProviderNativeEvidenceSnapshot(params: {
+    round: number;
+    query: string;
+    toolCalls: Array<{ name?: string; arguments?: Record<string, any> }>;
+    citations: any[];
+    finalText: string;
+}): ProviderNativeEvidenceSnapshot | null {
+    const sourceTypes = Array.from(new Set(
+        params.toolCalls
+            .map((call) => normalizeProviderNativeSourceType(call.name))
+            .filter((item): item is 'x_search' | 'web_search' => Boolean(item)),
+    ));
+    const retrievedAt = new Date().toISOString();
+    const querySummary = extractProviderNativeQuerySummary(params.toolCalls, params.query);
+    const results = (params.citations || [])
+        .flatMap((item) => Array.isArray(item) ? item : [item])
+        .map((item) => normalizeProviderNativeCitation(item, sourceTypes[0] || 'web_search', params.round, retrievedAt))
+        .filter(Boolean) as ProviderNativeEvidenceSnapshot['results'];
+
+    if (results.length === 0 && sourceTypes.length > 0 && String(params.finalText || '').trim()) {
+        results.push({
+            sourceType: sourceTypes[0],
+            title: 'Provider-native search summary',
+            snippet: String(params.finalText || '').trim().slice(0, 800),
+            query: querySummary,
+            retrievedAt,
+            round: params.round,
+        });
+    }
+
+    if (sourceTypes.length === 0 || results.length === 0) {
+        return null;
+    }
+
+    return {
+        sourceTypes,
+        querySummary,
+        results,
+        retrievedAt,
+        round: params.round,
+    };
+}
+
+function normalizeProviderNativeCitation(
+    citation: any,
+    sourceType: 'x_search' | 'web_search',
+    round: number,
+    retrievedAt: string,
+) {
+    if (!citation) return null;
+    if (typeof citation === 'string') {
+        return {
+            sourceType,
+            url: citation,
+            retrievedAt,
+            round,
+        };
+    }
+    if (typeof citation !== 'object') return null;
+    const title = typeof citation.title === 'string' ? citation.title.trim() : '';
+    const url = typeof citation.url === 'string' ? citation.url.trim() : '';
+    const snippet = typeof citation.snippet === 'string'
+        ? citation.snippet.trim()
+        : typeof citation.text === 'string'
+            ? citation.text.trim()
+            : '';
+    if (!title && !url && !snippet) return null;
+    return {
+        sourceType,
+        title: title || undefined,
+        url: url || undefined,
+        snippet: snippet || undefined,
+        retrievedAt,
+        round,
+    };
+}
+
+function extractProviderNativeQuerySummary(
+    toolCalls: Array<{ name?: string; arguments?: Record<string, any> }>,
+    fallbackQuery: string,
+): string {
+    for (const call of toolCalls) {
+        const args = call.arguments || {};
+        for (const key of ['query', 'q', 'search_query', 'keyword']) {
+            const value = String(args[key] || '').trim();
+            if (value) return value;
+        }
+    }
+    return String(fallbackQuery || '').trim();
+}
+
+function normalizeProviderNativeSourceType(name: string | undefined): 'x_search' | 'web_search' | null {
+    const normalized = String(name || '').trim();
+    if (!normalized) return null;
+    if (normalized.startsWith('x_') || normalized === 'x_search') return 'x_search';
+    if (normalized.startsWith('web_') || normalized === 'browse_page' || normalized === 'open_page') return 'web_search';
+    return null;
+}
+
+function isLikelyExecutionTool(toolName: string): boolean {
+    return ['prepare_', 'create_', 'execute_', 'place_', 'submit_', 'confirm_'].some((prefix) => toolName.startsWith(prefix));
 }

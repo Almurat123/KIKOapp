@@ -28,6 +28,7 @@ def resolve_requested_tool_policy(
     allow_extra_sdk_tools_default: bool,
     is_non_reasoning_model: bool,
 ) -> dict[str, Any]:
+    _ = is_non_reasoning_model
     policy = raw_policy if isinstance(raw_policy, dict) else {}
     native_tools = policy.get("native_tools") if isinstance(policy.get("native_tools"), dict) else {}
     execution = policy.get("execution") if isinstance(policy.get("execution"), dict) else {}
@@ -40,14 +41,10 @@ def resolve_requested_tool_policy(
         normalized = str(tool_name).strip()
         if not normalized or normalized not in ALLOWED_NATIVE_TOOL_NAMES:
             continue
-        if normalized == "x_search" and is_non_reasoning_model:
-            continue
         normalized_enabled_tools.append(normalized)
 
     if enable_search and not normalized_enabled_tools:
-        normalized_enabled_tools = ["web_search"]
-        if not is_non_reasoning_model:
-            normalized_enabled_tools.append("x_search")
+        normalized_enabled_tools = ["web_search", "x_search"]
 
     if not enable_search:
         normalized_enabled_tools = []

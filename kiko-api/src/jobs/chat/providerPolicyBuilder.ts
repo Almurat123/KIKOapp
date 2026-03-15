@@ -1,6 +1,6 @@
 import type { ChatContextSnapshot } from './contracts.js';
 import type { ActionClass } from './controlPolicy.js';
-import type { SkillResolution } from './nodeSkillResolver.js';
+import type { IntentEnvelope, SkillResolution, ToolPhase } from './nodeSkillResolver.js';
 
 export interface ProviderInfo {
     provider: 'openai' | 'deepseek' | 'grok';
@@ -72,7 +72,12 @@ export function buildProviderOptions(
     snapshot: ChatContextSnapshot,
     providerInfo: ProviderInfo,
     query: string,
-    skillResolution?: Pick<SkillResolution, 'searchMode' | 'searchReason'>,
+    skillResolution?: Pick<SkillResolution, 'searchMode' | 'searchReason' | 'intentEnvelope' | 'currentPhase'>,
+    phaseContext?: {
+        currentPhase?: ToolPhase;
+        searchAttempt?: number;
+        previousResponseId?: string | null;
+    },
 ): ProviderOptions {
     if (providerInfo.provider !== 'grok') {
         return {
@@ -87,6 +92,8 @@ export function buildProviderOptions(
 
     const lower = String(query || '').toLowerCase();
     const searchMode = skillResolution?.searchMode || 'forbidden';
+    const intentEnvelope = skillResolution?.intentEnvelope;
+    const currentPhase = phaseContext?.currentPhase || skillResolution?.currentPhase || 'local_analysis';
     const requiresRealtimeSocialSearch = searchMode !== 'forbidden';
     const requestsOnchainEvidence =
         ((snapshot.requestedTokenAddresses || []).length > 0) &&
@@ -94,7 +101,8 @@ export function buildProviderOptions(
             ['early buyers', 'earliest buyers', 'first buyers', 'holders', 'first trades', 'first swaps', 'creator', 'deployer'].some((word) => lower.includes(word))
             || ['早期买家', '首批买家', '持有人', '创建者', '部署者', '前几位买家'].some((word) => String(query || '').includes(word))
         );
-    const nativeSearchRequired = searchMode === 'required';
+    const searchAttempt = Math.max(1, phaseContext?.searchAttempt || 1);
+    const nativeSearchRequired = currentPhase === 'native_search_only';
 
     const xSeedHandles = extractXHandles([
         snapshot.runtime.farcaster,
@@ -103,10 +111,16 @@ export function buildProviderOptions(
         snapshot.runtime.pageContext,
     ]);
     const fromDate = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-    const previousResponseId = sanitizePreviousResponseId(snapshot.previousResponseId);
+    const previousResponseId = sanitizePreviousResponseId(phaseContext?.previousResponseId ?? snapshot.previousResponseId);
     const actionClass = snapshot.policySnapshot?.actionClass || 'READ_ONLY';
     const hardMutationPolicy = snapshot.policySnapshot?.enforcementLevel === 'hard' && actionClass !== 'READ_ONLY';
-    const nativeSearchEnabled = !hardMutationPolicy && searchMode !== 'forbidden';
+    const nativeSearchEnabled = !hardMutationPolicy && currentPhase === 'native_search_only';
+    const enabledNativeTools = nativeSearchEnabled
+        ? resolveEnabledNativeTools(intentEnvelope)
+        : [];
+    const preferredRequiredTool = nativeSearchEnabled
+        ? resolvePreferredRequiredTool(enabledNativeTools, intentEnvelope, searchAttempt)
+        : null;
 
     const options = {
         metadata: {
@@ -121,15 +135,17 @@ export function buildProviderOptions(
             enforcement_level: snapshot.policySnapshot?.enforcementLevel || 'hard',
             native_tools: {
                 enable_search: nativeSearchEnabled,
-                enabled_tools: nativeSearchEnabled ? ['web_search', 'x_search'] : [],
+                enabled_tools: enabledNativeTools,
                 required: nativeSearchEnabled ? nativeSearchRequired : false,
-                preferred_required_tool: nativeSearchEnabled && nativeSearchRequired ? 'x_search' : null,
+                preferred_required_tool: preferredRequiredTool,
                 include_options: nativeSearchEnabled
                     ? ['inline_citations', ...(requiresRealtimeSocialSearch ? ['web_search_call_output', 'x_search_call_output'] : [])]
                     : [],
                 allow_extra_sdk_tools: false,
                 reason: hardMutationPolicy
                     ? 'mutation_node_control_only'
+                    : currentPhase === 'native_search_only'
+                    ? 'phase_native_search_only'
                     : requestsOnchainEvidence
                     ? 'native_search_required_with_local_chain_tools'
                     : skillResolution?.searchReason
@@ -145,17 +161,47 @@ export function buildProviderOptions(
             },
         },
         tool_config: {
-            web_search: {},
-            x_search: {
-                from_date: fromDate,
-                ...(xSeedHandles.length > 0 ? { allowed_x_handles: xSeedHandles } : {}),
-            },
+            ...(enabledNativeTools.includes('web_search') ? { web_search: {} } : {}),
+            ...(enabledNativeTools.includes('x_search')
+                ? {
+                    x_search: {
+                        from_date: fromDate,
+                        ...(xSeedHandles.length > 0 ? { allowed_x_handles: xSeedHandles } : {}),
+                    },
+                }
+                : {}),
         },
         previous_response_id: previousResponseId || undefined,
         enable_search: nativeSearchEnabled,
     };
     assertNodeControlledGrokPolicy(options);
     return options;
+}
+
+function resolveEnabledNativeTools(intentEnvelope?: IntentEnvelope): string[] {
+    const target = intentEnvelope?.search_target || 'web';
+    if (target === 'x') return ['x_search', 'web_search'];
+    if (target === 'x_and_web') return ['x_search', 'web_search'];
+    if (target === 'web') return ['web_search'];
+    return ['web_search', 'x_search'];
+}
+
+function resolvePreferredRequiredTool(
+    enabledTools: string[],
+    intentEnvelope: IntentEnvelope | undefined,
+    searchAttempt: number,
+): string | null {
+    if (enabledTools.length === 0) return null;
+    if (intentEnvelope?.search_target === 'x' || intentEnvelope?.search_target === 'x_and_web') {
+        if (searchAttempt > 1 && enabledTools.includes('web_search')) {
+            return 'web_search';
+        }
+        if (enabledTools.includes('x_search')) {
+            return 'x_search';
+        }
+    }
+    if (enabledTools.includes('web_search')) return 'web_search';
+    return enabledTools[0] || null;
 }
 
 function assertNodeControlledGrokPolicy(options: Record<string, any>) {

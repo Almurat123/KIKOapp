@@ -11,6 +11,40 @@ import {
 } from './skillIntentMatcher.js';
 import type { TradingIntent } from './tradingIntentResolver.js';
 
+export type IntentPrimaryIntent =
+    | 'search_discovery'
+    | 'social_discovery'
+    | 'token_analysis'
+    | 'token_risk'
+    | 'wallet_analysis'
+    | 'polymarket_discovery'
+    | 'polymarket_order'
+    | 'swap_execution'
+    | 'copytrade_execution'
+    | 'general_answer';
+
+export type IntentTaskMode = 'discover' | 'analyze' | 'execute' | 'confirm';
+export type IntentSearchTarget = 'x' | 'web' | 'x_and_web' | 'none';
+export type IntentDomain = 'x' | 'farcaster' | 'token' | 'wallet' | 'polymarket' | 'general';
+export type IntentExecutionRisk = 'read_only' | 'mutation';
+export type ToolPhase = 'native_search_only' | 'local_analysis' | 'execution';
+
+export interface IntentEnvelope {
+    primary_intent: IntentPrimaryIntent;
+    task_mode: IntentTaskMode;
+    search_mode: SearchMode;
+    search_target: IntentSearchTarget;
+    domain: IntentDomain;
+    execution_risk: IntentExecutionRisk;
+    required_evidence: string[];
+}
+
+export interface ToolPhasePolicy {
+    initialPhase: ToolPhase;
+    nextPhaseAfterNativeSearch: ToolPhase | null;
+    searchRetryLimit: number;
+}
+
 export interface SkillResolution {
     selectedSkills: string[];
     skillPrompts: string[];
@@ -23,11 +57,15 @@ export interface SkillResolution {
     searchMode: SearchMode;
     searchReason: string;
     querySignals: QuerySignals;
+    intentEnvelope: IntentEnvelope;
+    toolPhasePolicy: ToolPhasePolicy;
+    currentPhase: ToolPhase;
 }
 
 export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: TradingIntent | null): SkillResolution {
     const isGrok = String(snapshot.model || '').toLowerCase().includes('grok');
     const rawQuery = String(snapshot.lastUserMessage || '');
+    const availableToolNames = new Set((snapshot.toolDefinitions || []).map((definition) => String(definition.name || '').trim()).filter(Boolean));
     const contextBlocks = snapshot.runtime.contextBlocks || {};
     const prefetched = snapshot.runtime.prefetchedToolResults || {};
     const blockedTools: string[] = [];
@@ -109,8 +147,10 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
             skillPrompts.push(skill.prompt);
         }
         for (const toolName of skill.metadata.tools || []) {
-            if (!allowedTools.includes(toolName)) {
-                allowedTools.push(String(toolName));
+            if (availableToolNames.has(String(toolName))) {
+                if (!allowedTools.includes(toolName)) {
+                    allowedTools.push(String(toolName));
+                }
             }
         }
     }
@@ -173,6 +213,37 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
         pushPreferredToolsForSkill(skillId, preferredTools);
     }
 
+    if (selected.length > 0) {
+        const missingToolsBySkill = selected
+            .map((skillId) => {
+                const skill = skillRegistryExec.getSkill(skillId);
+                if (!skill) return null;
+                const missing = (skill.metadata.tools || []).filter((toolName) => !availableToolNames.has(String(toolName)));
+                return missing.length > 0 ? { skillId, missing } : null;
+            })
+            .filter(Boolean) as Array<{ skillId: string; missing: string[] }>;
+        if (missingToolsBySkill.length > 0) {
+            logger.warn(LogCode.AI_SKILLS_ATTACHED, 'Node skill resolution dropped tools missing from runtime registry snapshot', {
+                sessionId: snapshot.sessionId,
+                taskId: snapshot.taskId,
+                missingToolsBySkill,
+            });
+        }
+    }
+
+    const droppedPreferredTools = preferredTools.filter((toolName) => !availableToolNames.has(String(toolName)));
+    if (droppedPreferredTools.length > 0) {
+        strategyNotes.push(`Some preferred tools are not available in the current registry snapshot and were removed: ${droppedPreferredTools.join(', ')}.`);
+    }
+
+    allowedTools = allowedTools.filter((toolName) => availableToolNames.has(String(toolName)));
+    preferredTools.splice(0, preferredTools.length, ...preferredTools.filter((toolName) => availableToolNames.has(String(toolName))));
+    blockedTools.splice(0, blockedTools.length, ...blockedTools.filter((toolName) => availableToolNames.has(String(toolName)) || isSyntheticBlockedTool(toolName)));
+
+    if (allowedTools.length === 0 && selected.length > 0) {
+        strategyNotes.push('Matched skills did not have any registry-backed tools available in this runtime snapshot, so the model must rely on provider-native search or direct answering.');
+    }
+
     if (matchResult.searchMode === 'required') {
         strategyNotes.push('External search evidence is required for this query. Retrieve it before concluding.');
     } else if (matchResult.searchMode === 'fallback') {
@@ -187,6 +258,20 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
     if (!explicitRiskRequest) {
         strategyNotes.push('Do not run token-risk scanning unless the user explicitly asks for a safety or risk check.');
     }
+
+    const intentEnvelope = buildIntentEnvelope({
+        snapshot,
+        tradingIntent,
+        querySignals,
+        searchMode: matchResult.searchMode,
+        preferXNativeSearch,
+        explicitlyMentionsFarcaster,
+        explicitRiskRequest,
+        asksWalletPnl,
+        hasRequestedToken,
+    });
+    const toolPhasePolicy = buildToolPhasePolicy(snapshot, tradingIntent, intentEnvelope);
+    strategyNotes.push(describePhasePolicy(intentEnvelope, toolPhasePolicy));
 
     logger.info(LogCode.AI_SKILLS_ATTACHED, 'Node skill resolution completed', {
         sessionId: snapshot.sessionId,
@@ -219,7 +304,176 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
         searchMode: matchResult.searchMode,
         searchReason: matchResult.searchReason,
         querySignals,
+        intentEnvelope,
+        toolPhasePolicy,
+        currentPhase: toolPhasePolicy.initialPhase,
     };
+}
+
+function buildIntentEnvelope(params: {
+    snapshot: ChatContextSnapshot;
+    tradingIntent: TradingIntent | null;
+    querySignals: QuerySignals;
+    searchMode: SearchMode;
+    preferXNativeSearch: boolean;
+    explicitlyMentionsFarcaster: boolean;
+    explicitRiskRequest: boolean;
+    asksWalletPnl: boolean;
+    hasRequestedToken: boolean;
+}): IntentEnvelope {
+    const {
+        snapshot,
+        tradingIntent,
+        querySignals,
+        searchMode,
+        preferXNativeSearch,
+        explicitlyMentionsFarcaster,
+        explicitRiskRequest,
+        asksWalletPnl,
+        hasRequestedToken,
+    } = params;
+
+    const rawQuery = String(snapshot.lastUserMessage || '');
+    const lower = rawQuery.toLowerCase();
+    const mentionsExecution = containsAny(lower, [
+        'place order', 'buy yes', 'buy no', 'sell yes', 'sell no', 'place a', '下注', '下单', '买 yes', '买 no', '卖 yes', '卖 no',
+    ]);
+
+    const domain: IntentDomain = explicitlyMentionsFarcaster
+        ? 'farcaster'
+        : preferXNativeSearch
+            ? 'x'
+            : querySignals.prediction
+                ? 'polymarket'
+                : querySignals.wallet || asksWalletPnl
+                    ? 'wallet'
+                    : hasRequestedToken || querySignals.tokenAnalysis || explicitRiskRequest
+                        ? 'token'
+                        : 'general';
+
+    let primaryIntent: IntentPrimaryIntent = 'general_answer';
+    let taskMode: IntentTaskMode = 'discover';
+    if (tradingIntent?.type === 'copy_trade') {
+        primaryIntent = 'copytrade_execution';
+        taskMode = tradingIntent.kind === 'trade_confirmation' ? 'confirm' : 'execute';
+    } else if (tradingIntent?.type === 'swap' || tradingIntent?.type === 'cross_chain_trade') {
+        primaryIntent = 'swap_execution';
+        taskMode = tradingIntent.kind === 'trade_confirmation' ? 'confirm' : 'execute';
+    } else if (domain === 'polymarket' && mentionsExecution) {
+        primaryIntent = 'polymarket_order';
+        taskMode = 'execute';
+    } else if (domain === 'polymarket') {
+        primaryIntent = 'polymarket_discovery';
+        taskMode = 'discover';
+    } else if (explicitRiskRequest) {
+        primaryIntent = 'token_risk';
+        taskMode = 'analyze';
+    } else if (domain === 'wallet') {
+        primaryIntent = 'wallet_analysis';
+        taskMode = 'analyze';
+    } else if (hasRequestedToken || querySignals.tokenAnalysis) {
+        primaryIntent = 'token_analysis';
+        taskMode = 'analyze';
+    } else if (domain === 'x' || domain === 'farcaster') {
+        primaryIntent = querySignals.social ? 'social_discovery' : 'search_discovery';
+        taskMode = 'discover';
+    }
+
+    let effectiveSearchMode: SearchMode = searchMode;
+    if (preferXNativeSearch) {
+        effectiveSearchMode = 'required';
+    }
+
+    const searchTarget: IntentSearchTarget = preferXNativeSearch
+        ? (querySignals.webSearch ? 'x_and_web' : 'x')
+        : querySignals.webSearch || effectiveSearchMode === 'required'
+            ? 'web'
+            : 'none';
+
+    const requiredEvidence: string[] = [];
+    if (effectiveSearchMode === 'required') {
+        requiredEvidence.push('native_search_results');
+    }
+    if ((hasRequestedToken || querySignals.tokenAnalysis) && querySignals.realtime) {
+        requiredEvidence.push('onchain_token_evidence');
+    }
+    if (primaryIntent === 'polymarket_order') {
+        requiredEvidence.push('verified_polymarket_token_id');
+    }
+
+    return {
+        primary_intent: primaryIntent,
+        task_mode: taskMode,
+        search_mode: effectiveSearchMode,
+        search_target: searchTarget,
+        domain,
+        execution_risk: taskMode === 'execute' || taskMode === 'confirm' ? 'mutation' : 'read_only',
+        required_evidence: requiredEvidence,
+    };
+}
+
+function buildToolPhasePolicy(
+    snapshot: ChatContextSnapshot,
+    tradingIntent: TradingIntent | null,
+    intentEnvelope: IntentEnvelope,
+): ToolPhasePolicy {
+    const confirmationKind = String(snapshot.confirmationState?.kind || '');
+    const executionReady = intentEnvelope.execution_risk === 'mutation'
+        && intentEnvelope.required_evidence.length === 0
+        && (
+            tradingIntent?.kind === 'trade_confirmation'
+            || confirmationKind === 'swap_confirmation'
+            || confirmationKind === 'copy_trade_confirmation'
+            || confirmationKind === 'order_confirmation'
+        );
+
+    if (executionReady) {
+        return {
+            initialPhase: 'execution',
+            nextPhaseAfterNativeSearch: null,
+            searchRetryLimit: 2,
+        };
+    }
+
+    if (
+        intentEnvelope.search_mode === 'required'
+        || intentEnvelope.domain === 'x'
+        || intentEnvelope.search_target === 'x'
+        || intentEnvelope.search_target === 'x_and_web'
+    ) {
+        return {
+            initialPhase: 'native_search_only',
+            nextPhaseAfterNativeSearch: requiresPostSearchLocalAnalysis(intentEnvelope) ? 'local_analysis' : null,
+            searchRetryLimit: 2,
+        };
+    }
+
+    return {
+        initialPhase: 'local_analysis',
+        nextPhaseAfterNativeSearch: null,
+        searchRetryLimit: 2,
+    };
+}
+
+function requiresPostSearchLocalAnalysis(intentEnvelope: IntentEnvelope): boolean {
+    if (intentEnvelope.domain === 'x' && intentEnvelope.execution_risk === 'read_only' && intentEnvelope.primary_intent === 'search_discovery') {
+        return false;
+    }
+    if (intentEnvelope.domain === 'x' && intentEnvelope.primary_intent === 'social_discovery' && intentEnvelope.required_evidence.length <= 1) {
+        return false;
+    }
+    return intentEnvelope.required_evidence.some((item) => item !== 'native_search_results')
+        || ['token_analysis', 'token_risk', 'wallet_analysis', 'polymarket_discovery', 'polymarket_order'].includes(intentEnvelope.primary_intent);
+}
+
+function describePhasePolicy(intentEnvelope: IntentEnvelope, toolPhasePolicy: ToolPhasePolicy): string {
+    if (toolPhasePolicy.initialPhase === 'native_search_only') {
+        return `Structured intent: ${intentEnvelope.primary_intent} in domain=${intentEnvelope.domain}. Start with provider-native search only, then move to ${toolPhasePolicy.nextPhaseAfterNativeSearch || 'final answer'} once evidence is gathered.`;
+    }
+    if (toolPhasePolicy.initialPhase === 'execution') {
+        return `Structured intent: ${intentEnvelope.primary_intent}. Execution phase is allowed only for the approved mutation tools in this turn.`;
+    }
+    return `Structured intent: ${intentEnvelope.primary_intent} in domain=${intentEnvelope.domain}. Start with local analysis tools; search stays gated by the phase policy.`;
 }
 
 function ensurePrimarySkill(selected: string[], skillId: string) {
@@ -239,6 +493,10 @@ function pushPreferred(target: string[], toolName: string) {
     if (!target.includes(toolName)) {
         target.push(toolName);
     }
+}
+
+function isSyntheticBlockedTool(toolName: string): boolean {
+    return ['external_web_search'].includes(String(toolName || '').trim());
 }
 
 function containsAny(text: string, needles: string[]): boolean {

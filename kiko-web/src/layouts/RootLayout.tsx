@@ -239,6 +239,43 @@ export const RootLayout: React.FC = () => {
                 }
                 return merged;
             };
+            const schedulePendingFlush = () => {
+                const existingRaf = rafScheduledByConversationRef.current.get(targetSessionId);
+                if (existingRaf) {
+                    return;
+                }
+
+                const rafId = requestAnimationFrame(() => {
+                    rafScheduledByConversationRef.current.delete(targetSessionId);
+                    const tConv = conversationsRef.current.find(c => c.id === targetSessionId);
+                    if (!tConv || sessionPending.size === 0) return;
+
+                    const updatedMessages = [...tConv.messages];
+                    const msgMap = new Map(updatedMessages.map((m, i) => [m.id, i]));
+
+                    sessionPending.forEach((pMsg) => {
+                        const idx = msgMap.get(pMsg.id);
+                        if (idx !== undefined) {
+                            updatedMessages[idx] = {
+                                ...updatedMessages[idx],
+                                content: updatedMessages[idx].content + (pMsg.content || ''),
+                                reasoning_content: (updatedMessages[idx].reasoning_content || '') + (pMsg.reasoning_content || ''),
+                                usage: pMsg.usage ?? updatedMessages[idx].usage,
+                                citations: mergeCitations(updatedMessages[idx].citations || [], pMsg.citations || []),
+                                data: pMsg.data ?? updatedMessages[idx].data,
+                                status: 'streaming'
+                            };
+                        } else {
+                            updatedMessages.push({ ...pMsg, status: 'streaming' });
+                            msgMap.set(pMsg.id, updatedMessages.length - 1);
+                        }
+                    });
+
+                    sessionPending.clear();
+                    updateConversation(targetSessionId, { messages: updatedMessages });
+                });
+                rafScheduledByConversationRef.current.set(targetSessionId, rafId);
+            };
             const matchesTaskContext = (activeTaskIdRaw: unknown, messageIdRaw?: unknown, taskIdRaw?: unknown): boolean => {
                 const activeTaskId = String(activeTaskIdRaw || '');
                 if (!activeTaskId) return false;
@@ -368,44 +405,7 @@ export const RootLayout: React.FC = () => {
                     return;
                 }
 
-                const existingRaf = rafScheduledByConversationRef.current.get(targetSessionId);
-                if (existingRaf) {
-                    return;
-                }
-
-                const rafId = requestAnimationFrame(() => {
-                    rafScheduledByConversationRef.current.delete(targetSessionId);
-                    const tConv = conversationsRef.current.find(c => c.id === targetSessionId);
-                    if (!tConv || sessionPending.size === 0) return;
-
-                    const updatedMessages = [...tConv.messages];
-                    const msgMap = new Map(updatedMessages.map((m, i) => [m.id, i]));
-
-                    sessionPending.forEach((pMsg) => {
-                        const idx = msgMap.get(pMsg.id);
-                        if (idx !== undefined) {
-                            // APPEND new content from pending batch to existing message
-                            // sessionPending holds deltas since last flush, so we must append
-                            updatedMessages[idx] = {
-                                ...updatedMessages[idx],
-                                content: updatedMessages[idx].content + (pMsg.content || ''),
-                                reasoning_content: (updatedMessages[idx].reasoning_content || '') + (pMsg.reasoning_content || ''),
-                                usage: pMsg.usage ?? updatedMessages[idx].usage,
-                                citations: mergeCitations(updatedMessages[idx].citations || [], pMsg.citations || []),
-                                data: pMsg.data ?? updatedMessages[idx].data,
-                                status: 'streaming'
-                            };
-                        } else {
-                            // New message: just push it
-                            updatedMessages.push({ ...pMsg, status: 'streaming' });
-                            msgMap.set(pMsg.id, updatedMessages.length - 1);
-                        }
-                    });
-
-                    sessionPending.clear();
-                    updateConversation(targetSessionId, { messages: updatedMessages });
-                });
-                rafScheduledByConversationRef.current.set(targetSessionId, rafId);
+                schedulePendingFlush();
             }
             // --- Task done (only clear task indicator; message completion is handled by message_complete) ---
             else if (event.type === 'task_status' && (event.data.status === 'done' || event.data.status === 'completed')) {
@@ -581,6 +581,44 @@ export const RootLayout: React.FC = () => {
                         }).catch(() => { });
                     }
                 }
+            }
+            else if (event.type === 'content_block') {
+                const messageId = event.data.messageId || event.data.message_id;
+                if (!messageId) return;
+                const replacement = String(event.data.content || '');
+                const shouldReplace = Boolean(event.data.replace);
+                const shouldClearReasoning = Boolean(event.data.clearReasoning);
+
+                const pendingMessage = sessionPending.get(messageId) || {
+                    id: messageId,
+                    role: 'assistant',
+                    content: '',
+                    reasoning_content: '',
+                    status: 'streaming',
+                    citations: [],
+                    usage: undefined,
+                };
+                pendingMessage.content = shouldReplace ? replacement : `${pendingMessage.content || ''}${replacement}`;
+                if (shouldClearReasoning) {
+                    pendingMessage.reasoning_content = '';
+                }
+                sessionPending.set(messageId, pendingMessage);
+
+                const targetConv = conversationsRef.current.find(c => c.id === targetSessionId);
+                if (!targetConv) {
+                    return;
+                }
+
+                const updatedMessages = targetConv.messages.map((message) => {
+                    if (message.id !== messageId) return message;
+                    return {
+                        ...message,
+                        content: shouldReplace ? replacement : `${message.content || ''}${replacement}`,
+                        reasoning_content: shouldClearReasoning ? '' : message.reasoning_content,
+                    };
+                });
+
+                updateConversation(targetSessionId, { messages: updatedMessages });
             }
             // --- Error ---
             else if (event.type === 'error') {
@@ -787,29 +825,17 @@ export const RootLayout: React.FC = () => {
                 const msgId = event.data.message_id || event.data.messageId;
                 if (!msgId) return;
                 const incomingCitations = normalizeCitations(event.data.citations ?? event.data.citation);
-                if (targetConv) {
-                    const hasTarget = targetConv.messages.some(m => m.id === msgId);
-                    if (hasTarget) {
-                        const updatedMessages = targetConv.messages.map(m =>
-                            m.id === msgId ? { ...m, citations: mergeCitations(m.citations || [], incomingCitations) } : m
-                        );
-                        updateConversation(targetSessionId, { messages: updatedMessages });
-                    } else {
-                        // Buffer citations if message not yet created (out-of-order WS events).
-                        const pMsg: Message = sessionPending.get(msgId) || {
-                            id: msgId, role: 'assistant', content: '', reasoning_content: '', status: 'streaming', citations: [], usage: undefined
-                        };
-                        pMsg.citations = mergeCitations(pMsg.citations || [], incomingCitations);
-                        sessionPending.set(msgId, pMsg);
-                    }
-                } else {
-                    // Buffer citations if message not yet created
-                    const pMsg: Message = sessionPending.get(msgId) || {
-                        id: msgId, role: 'assistant', content: '', reasoning_content: '', status: 'streaming', citations: [], usage: undefined
-                    };
-                    pMsg.citations = mergeCitations(pMsg.citations || [], incomingCitations);
-                    sessionPending.set(msgId, pMsg);
+                const pMsg: Message = sessionPending.get(msgId) || {
+                    id: msgId, role: 'assistant', content: '', reasoning_content: '', status: 'streaming', citations: [], usage: undefined
+                };
+                pMsg.citations = mergeCitations(pMsg.citations || [], incomingCitations);
+                sessionPending.set(msgId, pMsg);
+
+                if (!targetConv) {
+                    return;
                 }
+
+                schedulePendingFlush();
             }
             // --- Agent runtime ---
             else if (event.type === 'agent_runtime') {

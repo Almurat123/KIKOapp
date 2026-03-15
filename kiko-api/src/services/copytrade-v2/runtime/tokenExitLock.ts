@@ -15,8 +15,28 @@ export interface DistributedTokenExitLock {
   dbAcquired: boolean;
 }
 
-function buildScopedKey(prefix: string, chainId: number, tokenAddress: string): string {
-  return `${prefix}:${chainId}:${String(tokenAddress || '').toLowerCase()}`;
+function normalizeWalletScope(walletAddress?: string | null, ownerScope?: string | null): string {
+  const normalizedWallet = String(walletAddress || '').trim().toLowerCase();
+  if (normalizedWallet) return normalizedWallet;
+  const normalizedOwnerScope = String(ownerScope || '').trim().toLowerCase();
+  return normalizedOwnerScope || 'unknown-wallet';
+}
+
+export function buildTokenExitLockScopeKey(params: {
+  chainId: number;
+  tokenAddress: string;
+  walletAddress?: string | null;
+  ownerScope?: string | null;
+}): string {
+  return [
+    params.chainId,
+    String(params.tokenAddress || '').toLowerCase(),
+    normalizeWalletScope(params.walletAddress, params.ownerScope),
+  ].join(':');
+}
+
+function buildScopedKey(prefix: string, scopeKey: string): string {
+  return `${prefix}:${scopeKey}`;
 }
 
 async function acquireDbLock(key: string, owner: string): Promise<boolean> {
@@ -60,10 +80,18 @@ async function releaseDbLock(key: string, owner: string): Promise<void> {
 export async function acquireDistributedTokenExitLock(params: {
   chainId: number;
   tokenAddress: string;
+  walletAddress?: string | null;
+  ownerScope?: string | null;
   owner: string;
 }): Promise<DistributedTokenExitLock | null> {
-  const redisKey = buildScopedKey(TOKEN_EXIT_LOCK_REDIS_PREFIX, params.chainId, params.tokenAddress);
-  const dbKey = buildScopedKey(TOKEN_EXIT_LOCK_DB_PREFIX, params.chainId, params.tokenAddress);
+  const scopeKey = buildTokenExitLockScopeKey({
+    chainId: params.chainId,
+    tokenAddress: params.tokenAddress,
+    walletAddress: params.walletAddress,
+    ownerScope: params.ownerScope,
+  });
+  const redisKey = buildScopedKey(TOKEN_EXIT_LOCK_REDIS_PREFIX, scopeKey);
+  const dbKey = buildScopedKey(TOKEN_EXIT_LOCK_DB_PREFIX, scopeKey);
   const redisReady = isRedisAvailable();
 
   let redisAcquired = false;
@@ -73,6 +101,7 @@ export async function acquireDistributedTokenExitLock(params: {
       logger.info(LogCode.WTC_TX_SKIPPED, 'Distributed token exit lock blocked by Redis', {
         chainId: params.chainId,
         token: params.tokenAddress,
+        walletAddress: params.walletAddress || null,
         redisKey,
       });
       return null;
@@ -87,6 +116,7 @@ export async function acquireDistributedTokenExitLock(params: {
     logger.info(LogCode.WTC_TX_SKIPPED, 'Distributed token exit lock blocked by DB', {
       chainId: params.chainId,
       token: params.tokenAddress,
+      walletAddress: params.walletAddress || null,
       dbKey,
     });
     return null;
@@ -96,6 +126,7 @@ export async function acquireDistributedTokenExitLock(params: {
     logger.warn(LogCode.SYS_INFO, 'Redis unavailable for token exit lock; DB lock only', {
       chainId: params.chainId,
       token: params.tokenAddress,
+      walletAddress: params.walletAddress || null,
       dbKey,
     });
   }
@@ -118,3 +149,7 @@ export async function releaseDistributedTokenExitLock(lock: DistributedTokenExit
     await releaseRedisLock(lock.redisKey, lock.owner).catch(() => {});
   }
 }
+
+export const __testOnly = {
+  buildTokenExitLockScopeKey,
+};

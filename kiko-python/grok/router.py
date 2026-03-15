@@ -55,6 +55,50 @@ def log_tools(message: str) -> None:
     return
 
 
+def normalize_citations_for_client(citations: List[Any]) -> List[Dict[str, str]]:
+    normalized: List[Dict[str, str]] = []
+    seen_urls = set()
+
+    for item in citations or []:
+        cite_dict: Dict[str, str] = {}
+
+        if hasattr(item, "url"):
+            url = str(getattr(item, "url", "") or "").strip()
+            if url:
+                cite_dict["url"] = url
+            for attr in ["title", "snippet", "avatar_url", "avatarUrl", "avatar", "icon_url", "iconUrl"]:
+                value = getattr(item, attr, None)
+                if value:
+                    key = "avatar_url" if attr in {"avatarUrl", "avatar", "icon_url", "iconUrl"} else attr
+                    cite_dict[key] = str(value)
+        elif isinstance(item, dict):
+            url = str(item.get("url", "") or "").strip()
+            if url:
+                cite_dict["url"] = url
+            if item.get("title"):
+                cite_dict["title"] = str(item["title"])
+            if item.get("snippet"):
+                cite_dict["snippet"] = str(item["snippet"])
+            for attr in ["avatar_url", "avatarUrl", "avatar", "icon_url", "iconUrl"]:
+                value = item.get(attr)
+                if value:
+                    cite_dict["avatar_url"] = str(value)
+                    break
+        elif isinstance(item, str):
+            url = item.strip()
+            if url:
+                cite_dict["url"] = url
+
+        url = cite_dict.get("url")
+        if not url or url in seen_urls:
+            continue
+
+        seen_urls.add(url)
+        normalized.append(cite_dict)
+
+    return normalized
+
+
 def get_kb():
     """
     Lazy-load the RAG KnowledgeBase when RAG is explicitly enabled.
@@ -2825,113 +2869,9 @@ async def chat_completions(
                     else:
                         log_citations(f"[Citations] No final response available")
                     
-                    # Log final citations status with detailed structure
                     if collected_citations:
-                        log_citations(f"[Citations] Final: {len(collected_citations)} citations will be sent to client")
-                        
-                        # Helper function to extract X/Twitter avatar from tweet URL or user URL
-                        def get_x_avatar_from_url(url: str) -> str | None:
-                            """
-                            Extract Twitter/X profile avatar URL from various URL formats:
-                            1. https://x.com/username/status/1234567890 (tweet with username)
-                            2. https://x.com/i/status/1234567890 (anonymous tweet)
-                            3. https://x.com/i/user/1234567890 (user profile by ID)
-                            4. https://x.com/username (direct profile link)
-                            """
-                            import re
-                            
-                            log_citations(f"[Citations] Processing URL for avatar: {url}")
-                            
-                            # Pattern 1: Tweet URL with username
-                            tweet_pattern = r'https?://(?:x\.com|twitter\.com)/([^/]+)/status/(\d+)'
-                            tweet_match = re.search(tweet_pattern, url)
-                            
-                            if tweet_match:
-                                username = tweet_match.group(1)
-                                tweet_id = tweet_match.group(2)
-                                log_citations(f"[Citations] Tweet URL detected - username: '{username}', tweet_id: {tweet_id}")
-                                
-                                # If username is 'i', it's an anonymous link - skip network fetch to avoid delaying completion
-                                if username == 'i':
-                                    log_citations(f"[Citations] Anonymous tweet URL - skipping avatar lookup to avoid latency")
-                                    return None
-                                
-                                # Validate and return avatar URL
-                                if username and username != 'i':
-                                    avatar_url = f"https://unavatar.io/twitter/{username}"
-                                    log_citations(f"[Citations] ✓ Generated avatar: {avatar_url}")
-                                    return avatar_url
-                                else:
-                                    log_citations(f"[Citations] ✗ Invalid username: '{username}'")
-                                    return None
-                            
-                            # Pattern 2: User profile URL by ID (x.com/i/user/123456)
-                            user_id_pattern = r'https?://(?:x\.com|twitter\.com)/i/user/(\d+)'
-                            user_id_match = re.search(user_id_pattern, url)
-                            
-                            if user_id_match:
-                                user_id = user_id_match.group(1)
-                                log_citations(f"[Citations] User ID URL detected: {user_id}")
-                                log_citations(f"[Citations] ⚠️ Cannot fetch avatar from user ID without API key")
-                                # We cannot resolve user ID to username without Twitter API v2 authentication
-                                # Return None for now
-                                return None
-                            
-                            # Pattern 3: Direct profile URL (x.com/username)
-                            profile_pattern = r'https?://(?:x\.com|twitter\.com)/([^/]+)/?$'
-                            profile_match = re.search(profile_pattern, url)
-                            
-                            if profile_match:
-                                username = profile_match.group(1)
-                                # Skip special paths
-                                if username not in ['i', 'home', 'explore', 'notifications', 'messages', 'settings']:
-                                    log_citations(f"[Citations] Profile URL detected - username: {username}")
-                                    avatar_url = f"https://unavatar.io/twitter/{username}"
-                                    log_citations(f"[Citations] ✓ Generated avatar: {avatar_url}")
-                                    return avatar_url
-                            
-                            log_citations(f"[Citations] ✗ No matching pattern for URL: {url}")
-                            return None
-                        
-                        # Process each citation to add avatar_url for X/Twitter links
-                        for cite in collected_citations:
-                            if isinstance(cite, dict) and 'url' in cite:
-                                url = cite['url']
-                                # Check if it's an X/Twitter URL and doesn't already have an avatar
-                                if ('x.com' in url or 'twitter.com' in url) and not cite.get('avatar_url'):
-                                    log_citations(f"[Citations] Attempting to extract avatar for X URL: {url}")
-                                    avatar_url = get_x_avatar_from_url(url)
-                                    if avatar_url:
-                                        cite['avatar_url'] = avatar_url
-                                        log_citations(f"[Citations] ✓ Added X avatar for {url[:50]}...: {avatar_url}")
-                                    else:
-                                        log_citations(f"[Citations] ✗ No avatar extracted for {url[:50]}...")
-                        
-                        # Validate all citations are dicts with url
-                        validated_citations = []
-                        for i, cite in enumerate(collected_citations):
-                            if isinstance(cite, dict) and 'url' in cite:
-                                validated_citations.append(cite)
-                                print(f"  [{i+1}] ✓ Valid dict, URL: {cite.get('url', 'N/A')[:60]}..., Avatar: {cite.get('avatar_url', 'None')[:60] if cite.get('avatar_url') else 'None'}...")
-                            else:
-                                # Try to fix invalid citation
-                                cite_str = str(cite) if not isinstance(cite, list) else ', '.join(str(item) for item in cite)
-                                print(f"  [{i+1}] ⚠️  Invalid citation type: {type(cite).__name__}, Value: {cite_str[:80]}...")
-                                # Try to parse if it's a string list
-                                if isinstance(cite, str) and cite.startswith('[') and cite.endswith(']'):
-                                    try:
-                                        import ast
-                                        parsed = ast.literal_eval(cite)
-                                        if isinstance(parsed, list):
-                                            print(f"      → Parsing as list, found {len(parsed)} URLs")
-                                            for url in parsed:
-                                                validated_citations.append({'url': str(url)})
-                                    except:
-                                        pass
-                                elif isinstance(cite, str):
-                                    validated_citations.append({'url': cite})
-                        collected_citations = validated_citations
-                        log_citations(f"[Citations] After validation: {len(collected_citations)} valid citations")
+                        collected_citations = normalize_citations_for_client(collected_citations)
+                        log_citations(f"[Citations] Final: {len(collected_citations)} normalized citations will be sent to client")
                     else:
                         log_citations(f"[Citations] Final: No citations collected")
                     

@@ -5,6 +5,7 @@ import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
 import { processClaimedTasks } from './chat/taskClaimRunner.js';
 import { toolRegistry } from '../tooling/registry.js';
+import { ensureToolRegistryInitialized } from '../tooling/bootstrap.js';
 import { assembleChatContext } from './chat/contextAssembler.js';
 import { ToolExecutionEngine } from './chat/toolExecutionEngine.js';
 import { ChatStreamBroker } from './chat/streamBroker.js';
@@ -81,6 +82,7 @@ export class ChatWorker {
         let userId: string | null = null;
         let broker: ChatStreamBroker | null = null;
         try {
+            ensureToolRegistryInitialized();
             logger.info(LogCode.AI_ORCHESTRATOR, 'ChatWorker: starting task', {
                 taskId: task.id,
                 sessionId: task.sessionId,
@@ -252,7 +254,11 @@ export class ChatWorker {
 
             const moderated = await moderationClient.moderateOutput(broker.getContent(), userId, task.sessionId, task.model);
             if (moderated.safe === false) {
-                throw new Error('Assistant output blocked by moderation');
+                const moderationMessage = sanitizeUserFacingError(buildOutputModerationErrorMessage(moderated));
+                await broker.blockContent(moderationMessage, { clearReasoning: true });
+                const error = new Error(buildOutputModerationErrorMessage(moderated));
+                (error as any).code = 'OUTPUT_MODERATION_BLOCK';
+                throw error;
             }
             await broker.complete({ content: moderated.filtered_text || broker.getContent() });
             await persistBillingUsage({
@@ -294,7 +300,10 @@ export class ChatWorker {
                     assistantMessageId: task.assistantMessageId,
                     model: task.model,
                 });
-                await failureBroker.fail(userFacingError);
+                await failureBroker.fail(userFacingError, {
+                    replaceContent: error?.code === 'OUTPUT_MODERATION_BLOCK',
+                    clearReasoning: error?.code === 'OUTPUT_MODERATION_BLOCK',
+                });
             }
             await this.repo.updateTaskStatus(task.id, 'error', userFacingError);
             this.broadcastTaskStatus(userId, task, { taskId: task.id, status: 'error', error: userFacingError });
@@ -355,8 +364,24 @@ function sanitizeUserFacingError(input: string): string {
         .replace(/\s*\|\s*raw=.*$/s, '')
         .trim();
 
+    if (stripped.startsWith('Assistant output blocked by moderation')) {
+        return 'The final answer was blocked by the output safety filter before delivery.';
+    }
+
     // Keep concise reason while preserving explicit code prefix if present.
     return stripped || 'Task failed';
+}
+
+function buildOutputModerationErrorMessage(moderated: { verification?: any }): string {
+    const categories = Object.entries(moderated?.verification?.categories || {})
+        .filter(([, flagged]) => Boolean(flagged))
+        .map(([name]) => name);
+
+    if (categories.length > 0) {
+        return `Assistant output blocked by moderation (${categories.join(', ')})`;
+    }
+
+    return 'Assistant output blocked by moderation';
 }
 
 export const chatWorker = new ChatWorker();

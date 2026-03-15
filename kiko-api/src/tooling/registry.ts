@@ -1,5 +1,6 @@
 export const CHAIN_IDS = [1, 8453, 10, 42161, 137, 56, 900];
 import { maybeRetryChainAwareToolExecution, prepareChainAwareToolExecution } from './chainAwareExecution.js';
+import { ensureToolRegistryInitialized } from './bootstrap.js';
 
 /**
  * Tool Definition Interfaces
@@ -65,10 +66,12 @@ export class ToolRegistry {
     }
 
     getTool(name: string): Tool | undefined {
+        ensureToolRegistryInitialized();
         return this.tools.get(name);
     }
 
     getAllTools(): Tool[] {
+        ensureToolRegistryInitialized();
         return Array.from(this.tools.values());
     }
 
@@ -83,6 +86,7 @@ export class ToolRegistry {
     }
 
     async execute(name: string, args: any, context?: ToolContext): Promise<any> {
+        ensureToolRegistryInitialized();
         const tool = this.getTool(name);
         if (!tool) {
             throw new Error(`Tool ${name} not found`);

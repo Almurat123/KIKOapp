@@ -337,7 +337,8 @@
   /* Strict vertical alignment */
   gap: 4px;
   /* Consistent spacing between all items */
-  margin-top: 12px;
+  padding-top: 8px;
+  margin-top: 4px;
   margin-bottom: 4px;
   /* Room for hover effects and general breathing space */
   opacity: 1;
@@ -358,8 +359,13 @@
   border-radius: 6px;
   color: #71717a;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: 
+    opacity 0.3s cubic-bezier(0.2, 0.8, 0.2, 1),
+    background 0.2s ease,
+    transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1),
+    color 0.2s ease;
   padding: 0;
+  will-change: opacity, transform;
 }
 
 .actionBtn:hover {
@@ -395,17 +401,30 @@
 }
 
 .actions .actionBtn,
-.actions .tokenUsage {
+.actions .tokenUsage,
+.actions .sourcesButton {
   opacity: 0;
-  pointer-events: none;
+  visibility: hidden;
+  transform: translateY(4px);
+  transition: 
+    opacity 0.3s cubic-bezier(0.2, 0.8, 0.2, 1),
+    visibility 0.3s,
+    transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
 .messageRow:hover .actions .actionBtn,
 .messageRow:hover .actions .tokenUsage,
+.messageRow:hover .actions .sourcesButton,
 .messageRow:focus-within .actions .actionBtn,
-.messageRow:focus-within .actions .tokenUsage {
+.messageRow:focus-within .actions .tokenUsage,
+.messageRow:focus-within .actions .sourcesButton {
   opacity: 1;
-  pointer-events: auto;
+  visibility: visible;
+  transform: translateY(0);
+  transition: 
+    opacity 0.3s cubic-bezier(0.2, 0.8, 0.2, 1),
+    visibility 0s,
+    transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
 .tokenIcon {
@@ -414,23 +433,34 @@
 
 /* Sources Button - Align with others */
 .sourcesButton {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   gap: 8px;
+  margin-left: 4px;
+  padding: 0 8px;
+  height: 28px;
   background: transparent;
   border: none;
-  padding: 0 8px;
   border-radius: 6px;
-  color: #71717a;
-  /* Default color like buttons */
   cursor: pointer;
-  transition: all 0.2s ease;
-  height: 28px;
-  margin-left: auto;
+  transition: 
+    opacity 0.3s cubic-bezier(0.2, 0.8, 0.2, 1),
+    background 0.2s ease,
+    transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1),
+    color 0.2s ease;
+  flex-shrink: 0;
+  color: #71717a;
+  will-change: opacity, transform;
 }
 
 .sourcesButton:hover {
-  background: transparent;
+  background: rgba(255, 255, 255, 0.1);
+  color: #e4e4e7;
+}
+
+.sourcesButton:active {
+  transform: scale(0.92);
+  background: rgba(255, 255, 255, 0.15);
 }
 
 .aiActions {
@@ -3051,33 +3081,7 @@
    Sources Icons & Sidebar Styles (Grok.com style)
    ========================================== */
 
-/* Sources Button - Single button with icons and count text */
-/* Hover animation: no background by default, show on hover (like actionBtn) */
-.sourcesButton {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  margin-left: 8px;
-  padding: 0 12px;
-  height: 28px;
-  background: transparent;
-  border: none;
-  border-radius: 6px;
-  cursor: pointer;
-  transition: all 0.15s ease;
-  flex-shrink: 0;
-  color: #71717a;
-}
-
-.sourcesButton:hover {
-  background: rgba(255, 255, 255, 0.1);
-  color: #e4e4e7;
-}
-
-.sourcesButton:active {
-  transform: scale(0.92);
-  background: rgba(255, 255, 255, 0.15);
-}
+/* Sources Button - Moved to line 416 for consolidation */
 
 .light .sourcesButton {
   color: #9ca3af;

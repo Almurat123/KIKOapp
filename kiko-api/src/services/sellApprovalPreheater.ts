@@ -2,7 +2,6 @@ import { ethers } from 'ethers';
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
 import { NATIVE_TOKEN_ADDRESS, isNativeToken } from '../config/tokenRegistry.js';
-import { getBestQuote } from './quoteService.js';
 import {
   callRpc,
   getErc20Allowance,
@@ -11,6 +10,9 @@ import {
 } from './rpcManager.js';
 import { isTransactionQueueBusy, sendTransaction } from './privyWallet.js';
 import { recordFollowerTransactionFactForLatestPosition } from './copytrade-v2/data-flow/followerTransactionFactLedger.js';
+import { getZeroExQuote } from './zeroEx.js';
+import { getKyberQuote } from './kyberAggregator.js';
+import { clearApprovalPreheatState, upsertApprovalPreheatState } from './swap/approvalPreheatState.js';
 
 const PREHEAT_ENABLED = (process.env.COPYTRADE_SELL_APPROVAL_PREHEAT_ENABLED || 'false') === 'true';
 const PREHEAT_MIN_USD = Number(process.env.COPYTRADE_SELL_APPROVAL_PREHEAT_MIN_USD || '0.5');
@@ -101,11 +103,8 @@ function buildProbeAmountBase(
   return probe;
 }
 
-function extractSpenders(quoteBundle: { best: any; quotes: any[] }): string[] {
-  const raw = [
-    quoteBundle.best?.allowanceTarget,
-    ...(quoteBundle.quotes || []).map((q) => q?.allowanceTarget)
-  ].filter(Boolean);
+function extractSpenders(rawSpenders: Array<string | null | undefined>): string[] {
+  const raw = rawSpenders.filter(Boolean);
 
   const seen = new Set<string>();
   const output: string[] = [];
@@ -154,27 +153,35 @@ async function refreshSpendersFromQuotes(params: {
   if (inflight) return await inflight;
 
   const task = (async (): Promise<string[]> => {
-    const probeAmountHuman = Number(ethers.formatUnits(params.probeAmountBase, params.decimals));
-    if (!Number.isFinite(probeAmountHuman) || probeAmountHuman <= 0) return [];
+    const amountInBase = params.probeAmountBase.toString();
+    const [zeroExQuote, kyberQuote] = await Promise.all([
+      getZeroExQuote(
+        params.tokenAddress,
+        NATIVE_TOKEN_ADDRESS,
+        amountInBase,
+        params.chainId,
+        PREHEAT_SLIPPAGE_BPS,
+        params.walletAddress,
+        undefined,
+        false,
+        true
+      ).catch(() => null),
+      getKyberQuote(
+        params.tokenAddress,
+        NATIVE_TOKEN_ADDRESS,
+        amountInBase,
+        params.chainId,
+        PREHEAT_SLIPPAGE_BPS,
+        params.walletAddress,
+        'copyTrade',
+        true
+      ).catch(() => null)
+    ]);
 
-    const quoteBundle = await getBestQuote({
-      tokenIn: params.tokenAddress,
-      tokenOut: NATIVE_TOKEN_ADDRESS,
-      actualTokenIn: params.tokenAddress,
-      actualTokenOut: NATIVE_TOKEN_ADDRESS,
-      amountInBase: params.probeAmountBase.toString(),
-      amountInHuman: probeAmountHuman,
-      tokenInDecimals: params.decimals,
-      tokenOutDecimals: 18,
-      chainId: params.chainId,
-      slippageBps: PREHEAT_SLIPPAGE_BPS,
-      userAddress: params.walletAddress,
-      feeContext: 'copyTrade',
-      isSell: true
-    });
-
-    if (!quoteBundle?.best) return [];
-    const spenders = extractSpenders(quoteBundle);
+    const spenders = extractSpenders([
+      zeroExQuote?.allowanceTarget || zeroExQuote?.issues?.allowance?.spender,
+      kyberQuote?.allowanceTarget || kyberQuote?.routerAddress,
+    ]);
     setCachedSpenders(params.chainId, params.tokenAddress, spenders);
     return spenders;
   })().finally(() => {
@@ -188,6 +195,7 @@ async function refreshSpendersFromQuotes(params: {
 async function approveWithFallback(params: {
   userId: string;
   accessToken?: string;
+  walletAddress: string;
   chainId: number;
   tokenAddress: string;
   spender: string;
@@ -209,12 +217,34 @@ async function approveWithFallback(params: {
       txPurpose: params.txPurpose
     });
     txHashes.push(txHash);
+    if (amount === MAX_UINT256) {
+      await upsertApprovalPreheatState({
+        userId,
+        chainId,
+        walletAddress: params.walletAddress,
+        tokenAddress,
+        spenderAddress: spender,
+        txHash,
+        status: 'submitted',
+      }).catch(() => undefined);
+    }
     return await waitForReceipt(chainId, txHash, PREHEAT_TIMEOUT_MS);
   };
 
   try {
     const ok = await sendApprove(MAX_UINT256);
-    if (ok) return { success: true, txHashes };
+    if (ok) {
+      await upsertApprovalPreheatState({
+        userId,
+        chainId,
+        walletAddress: params.walletAddress,
+        tokenAddress,
+        spenderAddress: spender,
+        txHash: txHashes[txHashes.length - 1] || '',
+        status: 'confirmed',
+      }).catch(() => undefined);
+      return { success: true, txHashes };
+    }
   } catch (error: any) {
     const message = String(error?.message || error || '');
     if (message.includes('wallet_tx_queue_busy_skip_preheat')) {
@@ -305,6 +335,7 @@ export async function preheatSellApprovalForToken(
       const approval = await approveWithFallback({
         userId: params.userId,
         accessToken: params.accessToken,
+        walletAddress,
         chainId: params.chainId,
         tokenAddress,
         spender,
@@ -344,6 +375,12 @@ export async function preheatSellApprovalForToken(
         });
         return { status: 'deferred', reasonCode: 'wallet_tx_queue_busy' };
       } else {
+        await clearApprovalPreheatState({
+          chainId: params.chainId,
+          walletAddress,
+          tokenAddress,
+          spenderAddress: spender,
+        }).catch(() => undefined);
         for (const txHash of approval.txHashes) {
           void recordFollowerTransactionFactForLatestPosition({
             userId: params.userId,

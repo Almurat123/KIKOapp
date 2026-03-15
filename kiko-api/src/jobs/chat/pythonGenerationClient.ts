@@ -2,10 +2,13 @@ import { logger } from '../../utils/logger.js';
 import { LogCode } from '../../config/logRegistry.js';
 import type { GenerationMessage } from './nodePromptAssembler.js';
 
-const GENERATION_SERVICE_URL = (process.env.GENERATION_SERVICE_URL || 'http://127.0.0.1:8000/generation').replace(/\/+$/, '');
 const INTERNAL_SERVICE_KEY = process.env.INTERNAL_SERVICE_KEY || '';
 const STREAM_POLL_MS = Math.max(100, parseInt(process.env.GENERATION_STREAM_POLL_MS || '250', 10) || 250);
 const FIRST_EVENT_WARN_MS = Math.max(1000, parseInt(process.env.GENERATION_FIRST_EVENT_WARN_MS || '5000', 10) || 5000);
+
+function getGenerationServiceUrl(): string {
+    return (process.env.GENERATION_SERVICE_URL || 'http://127.0.0.1:8000/generation').replace(/\/+$/, '');
+}
 
 function buildHeaders(): Record<string, string> {
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
@@ -73,7 +76,7 @@ export class PythonGenerationClient {
         });
 
         const streamAbort = new AbortController();
-        const response = await fetch(`${GENERATION_SERVICE_URL}/internal/v1/stream`, {
+        const response = await fetch(`${getGenerationServiceUrl()}/internal/v1/stream`, {
             method: 'POST',
             headers,
             body: JSON.stringify({
@@ -107,6 +110,7 @@ export class PythonGenerationClient {
         let providerState: { previousResponseId?: string } | undefined;
         let terminalState: GenerationTerminalState = 'open';
         let toolCallSignalReceived = false;
+        const allowVisibleStreamingAfterToolSignal = shouldAllowVisibleStreamingAfterToolSignal(params.providerOptions, params.tools);
 
         const flushFinalCallbacks = async () => {
             if (latestUsage) {
@@ -173,19 +177,24 @@ export class PythonGenerationClient {
                 if (event.type === 'assistant_delta') {
                     const delta = String(event.payload?.text || '');
                     textBuffer += delta;
-                    if (delta && !toolCallSignalReceived) {
+                    if (delta && (!toolCallSignalReceived || allowVisibleStreamingAfterToolSignal)) {
                         await params.onTextDelta(delta);
                     }
                 } else if (event.type === 'reasoning_delta') {
                     const delta = String(event.payload?.text || '');
                     reasoningBuffer += delta;
-                    if (delta && !toolCallSignalReceived) {
+                    if (delta && (!toolCallSignalReceived || allowVisibleStreamingAfterToolSignal)) {
                         await params.onReasoningDelta(delta);
                     }
                 } else if (event.type === 'usage') {
                     latestUsage = event.payload?.usage || {};
                 } else if (event.type === 'citation') {
-                    bufferedCitations.push(event.payload?.citation ?? event.payload?.citations);
+                    const citation = event.payload?.citation ?? event.payload?.citations;
+                    if (allowVisibleStreamingAfterToolSignal) {
+                        params.onCitation(citation);
+                    } else {
+                        bufferedCitations.push(citation);
+                    }
                 } else if (event.type === 'tool_call_signal') {
                     toolCallSignalReceived = true;
                 } else if (event.type === 'provider_state') {
@@ -246,4 +255,13 @@ export class PythonGenerationClient {
 
 function wait(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function shouldAllowVisibleStreamingAfterToolSignal(
+    providerOptions: Record<string, any> | undefined,
+    tools: any[],
+): boolean {
+    const nativeTools = providerOptions?.tool_policy?.native_tools;
+    const nativeSearchEnabled = Boolean(nativeTools?.enable_search);
+    return nativeSearchEnabled && Array.isArray(tools) && tools.length === 0;
 }

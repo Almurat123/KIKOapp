@@ -14,6 +14,7 @@ import type {
     PlanStep,
     PlanStepExecution,
     PlanStepStatus,
+    ProviderNativeEvidenceSnapshot,
 } from './contracts.js';
 
 export class ChatStreamBroker {
@@ -80,7 +81,33 @@ export class ChatStreamBroker {
     }
 
     pushUsage(usage: OrchestratorUsage) {
-        this.usage = usage;
+        this.usage = mergeOrchestratorUsage(this.usage, usage);
+    }
+
+    async blockContent(replacement: string, options?: { clearReasoning?: boolean }) {
+        this.content = replacement;
+        if (options?.clearReasoning) {
+            this.reasoning = '';
+        }
+        if (this.params.userId) {
+            chatWS.broadcastToUser(this.params.userId, {
+                type: 'content_block',
+                sessionId: this.params.sessionId,
+                data: {
+                    messageId: this.params.assistantMessageId,
+                    content: replacement,
+                    replace: true,
+                    clearReasoning: Boolean(options?.clearReasoning),
+                    is_final: false,
+                },
+            });
+        }
+        await chatRepo.updateMessage(this.params.assistantMessageId, {
+            content: this.content,
+            reasoning_content: this.reasoning,
+            data: this.assistantData,
+            status: 'streaming',
+        });
     }
 
     pushCitation(citation: any) {
@@ -92,6 +119,16 @@ export class ChatStreamBroker {
         if (key && this.citationKeys.has(key)) return;
         if (key) this.citationKeys.add(key);
         this.citations.push(citation);
+        if (this.params.userId) {
+            chatWS.broadcastToUser(this.params.userId, {
+                type: 'citations',
+                sessionId: this.params.sessionId,
+                data: {
+                    messageId: this.params.assistantMessageId,
+                    citations: [citation],
+                },
+            });
+        }
     }
 
     async bootstrapRuntime(plan: PlanCard) {
@@ -327,12 +364,32 @@ export class ChatStreamBroker {
         return this.usage;
     }
 
+    getCitations() {
+        return [...this.citations];
+    }
+
     getToolResults() {
         return [...this.toolResults];
     }
 
     getContent() {
         return this.content;
+    }
+
+    getProviderNativeEvidence(): ProviderNativeEvidenceSnapshot[] {
+        return Array.isArray(this.assistantData.providerNativeEvidence)
+            ? [...this.assistantData.providerNativeEvidence]
+            : [];
+    }
+
+    async recordProviderNativeEvidence(snapshot: ProviderNativeEvidenceSnapshot) {
+        const existing = this.getProviderNativeEvidence();
+        const merged = mergeProviderNativeEvidence(existing, snapshot);
+        this.assistantData = {
+            ...this.assistantData,
+            providerNativeEvidence: merged,
+        };
+        await this.persistRuntimeState('streaming');
     }
 
     async complete(overrides?: { content?: string }) {
@@ -360,7 +417,13 @@ export class ChatStreamBroker {
         }
     }
 
-    async fail(message: string) {
+    async fail(message: string, options?: { replaceContent?: boolean; clearReasoning?: boolean }) {
+        if (options?.replaceContent) {
+            this.content = message;
+            if (options.clearReasoning) {
+                this.reasoning = '';
+            }
+        }
         await this.markPlanFailed(message);
         try {
             await chatRepo.updateMessage(this.params.assistantMessageId, {
@@ -619,10 +682,10 @@ export class ChatStreamBroker {
     private async markPlanFailed(message: string) {
         if (!this.planCard) return;
         const next = this.clonePlan(this.planCard);
+        const now = new Date().toISOString();
         const active = next.steps.find((step) => step.status === 'in_progress')
             || next.steps.find((step) => step.status === 'pending');
         if (active) {
-            const now = new Date().toISOString();
             active.status = 'failed';
             active.completedAt = now;
             active.feedback = message;
@@ -638,6 +701,15 @@ export class ChatStreamBroker {
                 },
             ];
         }
+        next.steps = terminalizeRemainingPlanStepsAfterFailure(
+            next.steps,
+            active?.id,
+            now,
+            this.localeText(
+                'Not completed because the task stopped after an earlier error.',
+                '由于任务在更早步骤失败，此步骤未继续执行。'
+            ),
+        );
         next.status = 'failed';
         next.currentStepId = undefined;
         next.activity = this.appendRuntimeEvent(next.activity, this.makeRuntimeEvent('runtime_error', message, {
@@ -670,6 +742,7 @@ export class ChatStreamBroker {
             ...this.assistantData,
             agentRuntime: {
                 plan: this.planCard,
+                providerNativeEvidence: this.getProviderNativeEvidence(),
             },
         };
         await chatRepo.updateMessage(this.params.assistantMessageId, {
@@ -791,6 +864,40 @@ export class ChatStreamBroker {
     }
 }
 
+function mergeProviderNativeEvidence(
+    existing: ProviderNativeEvidenceSnapshot[],
+    incoming: ProviderNativeEvidenceSnapshot,
+): ProviderNativeEvidenceSnapshot[] {
+    const merged = [...existing];
+    const duplicate = merged.find((item) =>
+        item.round === incoming.round
+        && item.querySummary === incoming.querySummary
+        && JSON.stringify(item.sourceTypes) === JSON.stringify(incoming.sourceTypes)
+    );
+    if (duplicate) {
+        duplicate.results = mergeProviderNativeResults(duplicate.results || [], incoming.results || []);
+        duplicate.retrievedAt = incoming.retrievedAt;
+        return merged;
+    }
+    merged.push({
+        ...incoming,
+        results: mergeProviderNativeResults([], incoming.results || []),
+    });
+    return merged;
+}
+
+function mergeProviderNativeResults(existing: ProviderNativeEvidenceSnapshot['results'], incoming: ProviderNativeEvidenceSnapshot['results']) {
+    const seen = new Set(existing.map((item) => `${item.sourceType}:${item.url || ''}:${item.snippet || ''}:${item.title || ''}`));
+    const merged = [...existing];
+    for (const item of incoming) {
+        const key = `${item.sourceType}:${item.url || ''}:${item.snippet || ''}:${item.title || ''}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        merged.push(item);
+    }
+    return merged;
+}
+
 function describeToolAction(toolName: string, locale: 'en' | 'zh' = 'en'): string {
     const labels: Record<string, { en: string; zh: string }> = {
         external_web_search: { en: 'check web and social context', zh: '获取网页与社交上下文' },
@@ -850,6 +957,41 @@ export function mergeCollapsedExecutionDetail(existingDetail: any, result: Orche
         ...current,
         collapsed,
     };
+}
+
+export function mergeOrchestratorUsage(
+    existing: OrchestratorUsage | null | undefined,
+    incoming: OrchestratorUsage | null | undefined,
+): OrchestratorUsage | null {
+    if (!existing && !incoming) return null;
+    const promptTokens = Number(existing?.prompt_tokens || 0) + Number(incoming?.prompt_tokens || 0);
+    const completionTokens = Number(existing?.completion_tokens || 0) + Number(incoming?.completion_tokens || 0);
+    const reportedTotal = Number(existing?.total_tokens || 0) + Number(incoming?.total_tokens || 0);
+    const computedTotal = promptTokens + completionTokens;
+
+    return {
+        prompt_tokens: promptTokens,
+        completion_tokens: completionTokens,
+        total_tokens: reportedTotal > 0 ? reportedTotal : computedTotal,
+    };
+}
+
+export function terminalizeRemainingPlanStepsAfterFailure(
+    steps: PlanStep[],
+    activeStepId: string | undefined,
+    completedAt: string,
+    fallbackFeedback: string,
+): PlanStep[] {
+    return steps.map((step) => {
+        if (step.id === activeStepId) return step;
+        if (step.status !== 'pending' && step.status !== 'in_progress') return step;
+        return {
+            ...step,
+            status: 'failed',
+            completedAt,
+            feedback: step.feedback || fallbackFeedback,
+        };
+    });
 }
 
 function findLastIndex<T>(items: T[], predicate: (value: T) => boolean): number {

@@ -3,6 +3,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import type { Skill, SkillMetadata, SkillRegistry } from './types.js';
 import { toolRegistry } from '../tooling/registry.js';
+import { ensureToolRegistryInitialized } from '../tooling/bootstrap.js';
 
 // Get current directory
 const __filename = fileURLToPath(import.meta.url);
@@ -16,6 +17,7 @@ class Registry implements SkillRegistry {
     constructor(baseDir: string, label: string) {
         this.baseDir = baseDir;
         this.label = label;
+        ensureToolRegistryInitialized();
         // Auto-load skills on instantiation
         this.loadSkills();
     }
@@ -119,6 +121,7 @@ class Registry implements SkillRegistry {
             if (frontmatter?.description && !metadata.description) {
                 metadata.description = frontmatter.description;
             }
+            metadata.tools = this.filterRegisteredTools(metadata.id, metadata.tools || []);
 
             const skill: Skill = {
                 metadata,
@@ -149,6 +152,16 @@ class Registry implements SkillRegistry {
 
     getAllSkills(): Skill[] {
         return Array.from(this.skills.values());
+    }
+
+    private filterRegisteredTools(skillId: string, toolNames: string[]): string[] {
+        const registered = new Set(toolRegistry.getAllDefinitions().map((definition) => definition.name));
+        const allowed = Array.from(new Set((toolNames || []).map((name) => String(name || '').trim()).filter(Boolean)));
+        const missing = allowed.filter((name) => !registered.has(name));
+        if (missing.length > 0) {
+            console.warn(`[SkillRegistry:${this.label}] Skill ${skillId} references unregistered tools: ${missing.join(', ')}`);
+        }
+        return allowed.filter((name) => registered.has(name));
     }
 
     /**

@@ -2380,12 +2380,12 @@ export async function getErc20Allowance(
     spenderAddress: string,
     chainIdOrName: number | string,
     blockTag: string | number = 'latest',
-    options: { lane?: EndpointExecutionLane } = {}
+    options: { lane?: EndpointExecutionLane; bypassCache?: boolean } = {}
 ): Promise<bigint> {
     const chainId = typeof chainIdOrName === 'number'
         ? chainIdOrName
         : CHAIN_NAME_TO_ID[String(chainIdOrName).toLowerCase()];
-    if (chainId) {
+    if (chainId && !options.bypassCache) {
         const cached = getErc20AllowanceSnapshot(chainId, tokenAddress, ownerAddress, spenderAddress, blockTag);
         if (cached !== null) return cached;
     }
@@ -2399,7 +2399,7 @@ export async function getErc20Allowance(
     if (!result || result === '0x') return 0n;
     const [allowance] = iface.decodeFunctionResult('allowance', result);
     const value = BigInt(allowance);
-    if (chainId) return setErc20AllowanceSnapshot(chainId, tokenAddress, ownerAddress, spenderAddress, blockTag, value);
+    if (chainId && !options.bypassCache) return setErc20AllowanceSnapshot(chainId, tokenAddress, ownerAddress, spenderAddress, blockTag, value);
     return value;
 }
 

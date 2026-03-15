@@ -8,6 +8,11 @@ import {
   type ExitExecutionState,
   type PositionExitIntentPayload,
 } from './intentTypes.js';
+import {
+  claimQueuedExitIntentIds,
+  removeExitIntentQueueEntry,
+  scheduleExitIntentQueueEntry,
+} from './positionExitIntentQueue.js';
 
 const ACTIVE_INTENT_STATES: ExitExecutionState[] = [
   'EXIT_INTENT_CREATED',
@@ -142,6 +147,11 @@ export async function enqueuePositionExitIntent(payload: PositionExitIntentPaylo
       metadataJson: payload.metadata ? payload.metadata as Prisma.InputJsonValue : undefined,
     },
   });
+  await scheduleExitIntentQueueEntry({
+    intentId: row.id,
+    lane: row.lane,
+    notBefore: row.notBefore,
+  }).catch(() => false);
   return { record: toRecord(row), created: true };
 }
 
@@ -151,6 +161,72 @@ export async function claimPendingExitIntents(params: {
   workerId: string;
   staleClaimMs?: number;
 }): Promise<PositionExitIntentRecord[]> {
+  const queuedIds = await claimQueuedExitIntentIds({
+    lane: params.lane,
+    limit: params.limit,
+  }).catch(() => null);
+  if (queuedIds && queuedIds.length > 0) {
+    const queuedRows = await prisma.positionExitIntent.findMany({
+      where: {
+        id: { in: queuedIds },
+        lane: params.lane,
+        lifecycleState: { in: ACTIVE_INTENT_STATES },
+      },
+    });
+    const byId = new Map(queuedRows.map((row) => [row.id, row]));
+    const now = new Date();
+    const staleBefore = new Date(Date.now() - Math.max(30_000, Number(params.staleClaimMs || 120_000)));
+    const claimedQueued: PositionExitIntentRecord[] = [];
+    for (const intentId of queuedIds) {
+      const candidate = byId.get(intentId);
+      if (!candidate) continue;
+      if (candidate.notBefore && candidate.notBefore.getTime() > Date.now()) {
+        await scheduleExitIntentQueueEntry({
+          intentId: candidate.id,
+          lane: candidate.lane,
+          notBefore: candidate.notBefore,
+        }).catch(() => false);
+        continue;
+      }
+      const updated = await prisma.positionExitIntent.updateMany({
+        where: {
+          id: candidate.id,
+          lifecycleState: { in: ACTIVE_INTENT_STATES },
+          OR: [
+            { claimedAt: null },
+            { claimedAt: { lt: staleBefore } },
+          ],
+        },
+        data: {
+          claimedBy: params.workerId,
+          claimedAt: now,
+          lifecycleState: candidate.lifecycleState === 'EXIT_INTENT_CREATED'
+            ? 'EXIT_PRECHECK_READY'
+            : candidate.lifecycleState,
+        },
+      });
+      if (updated.count > 0) {
+        claimedQueued.push(toRecord({
+          ...candidate,
+          claimedBy: params.workerId,
+          claimedAt: now,
+          lifecycleState: candidate.lifecycleState === 'EXIT_INTENT_CREATED'
+            ? 'EXIT_PRECHECK_READY'
+            : candidate.lifecycleState,
+        }));
+      } else {
+        await scheduleExitIntentQueueEntry({
+          intentId: candidate.id,
+          lane: candidate.lane,
+          notBefore: candidate.notBefore,
+        }).catch(() => false);
+      }
+    }
+    if (claimedQueued.length > 0) {
+      return claimedQueued;
+    }
+  }
+
   const now = new Date();
   const staleBefore = new Date(Date.now() - Math.max(30_000, Number(params.staleClaimMs || 120_000)));
   const candidates = await prisma.positionExitIntent.findMany({
@@ -245,11 +321,44 @@ export async function updatePositionExitIntentState(params: {
       metadataJson: Object.keys(metadata).length > 0 ? metadata as Prisma.InputJsonValue : undefined,
     },
   });
+  if (TERMINAL_INTENT_STATES.includes(params.lifecycleState) || params.close) {
+    await removeExitIntentQueueEntry({
+      intentId: params.id,
+      lane: params.lane ?? null,
+    }).catch(() => undefined);
+    return;
+  }
+  if (ACTIVE_INTENT_STATES.includes(params.lifecycleState) && params.clearClaim !== false) {
+    const row = await prisma.positionExitIntent.findUnique({
+      where: { id: params.id },
+      select: {
+        id: true,
+        lane: true,
+        notBefore: true,
+      },
+    }).catch(() => null);
+    if (row?.id && row?.lane) {
+      await scheduleExitIntentQueueEntry({
+        intentId: row.id,
+        lane: row.lane,
+        notBefore: row.notBefore,
+      }).catch(() => false);
+    }
+  }
 }
 
 export async function getPositionExitIntentById(id: string): Promise<PositionExitIntentRecord | null> {
   const row = await prisma.positionExitIntent.findUnique({ where: { id } });
   return row ? toRecord(row) : null;
+}
+
+export async function getPositionExitIntentsByIds(ids: string[]): Promise<PositionExitIntentRecord[]> {
+  if (!ids.length) return [];
+  const rows = await prisma.positionExitIntent.findMany({
+    where: { id: { in: ids } },
+  });
+  const byId = new Map(rows.map((row) => [row.id, toRecord(row)]));
+  return ids.map((id) => byId.get(id)).filter((row): row is PositionExitIntentRecord => Boolean(row));
 }
 
 export async function hasActiveExitIntent(positionId: string): Promise<boolean> {

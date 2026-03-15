@@ -41,6 +41,7 @@ interface PlanCardProps {
   plan: PlanCardData;
   reasoningText?: string;
   isStreaming?: boolean;
+  messageStatus?: string;
 }
 
 type DetailEntry = {
@@ -48,13 +49,14 @@ type DetailEntry = {
   value: string;
 };
 
-export const PlanCard: React.FC<PlanCardProps> = ({ plan, reasoningText, isStreaming = false }) => {
-  const steps = Array.isArray(plan.steps) ? plan.steps : [];
+export const PlanCard: React.FC<PlanCardProps> = ({ plan, reasoningText, isStreaming = false, messageStatus }) => {
   const locale: 'en' | 'zh' = plan.locale === 'zh' ? 'zh' : 'en';
+  const resolvedPlan = useMemo(() => normalizePlanForMessageStatus(plan, messageStatus, locale), [plan, messageStatus, locale]);
+  const steps = Array.isArray(resolvedPlan.steps) ? resolvedPlan.steps : [];
   const liveReasoning = normalizeReasoning(reasoningText || '');
-  const visualStatus: PlanStepStatus = isStreaming && (plan.status === 'pending' || plan.status === 'in_progress')
+  const visualStatus: PlanStepStatus = isStreaming && (resolvedPlan.status === 'pending' || resolvedPlan.status === 'in_progress')
     ? 'in_progress'
-    : (plan.status || 'pending');
+    : (resolvedPlan.status || 'pending');
   const isActive = visualStatus === 'in_progress';
   const defaultOpen = useMemo(() => {
     const firstExpandable = steps.find((step) => (step.executions || []).length > 0);
@@ -102,7 +104,7 @@ export const PlanCard: React.FC<PlanCardProps> = ({ plan, reasoningText, isStrea
 
       <div className={planStyles.timeline}>
         {steps.map((step, index) => {
-          const visualStepStatus: PlanStepStatus = isStreaming && step.status === 'pending' && plan.currentStepId === step.id
+          const visualStepStatus: PlanStepStatus = isStreaming && step.status === 'pending' && resolvedPlan.currentStepId === step.id
             ? 'in_progress'
             : step.status;
           const isExpanded = openStepIds.includes(step.id);
@@ -209,6 +211,54 @@ function compactSentence(value: string): string {
 
 function normalizeReasoning(value: string): string {
   return String(value || '').replace(/\r\n/g, '\n').trim();
+}
+
+function normalizePlanForMessageStatus(
+  plan: PlanCardData,
+  messageStatus: string | undefined,
+  locale: 'en' | 'zh',
+): PlanCardData {
+  const resolved: PlanCardData = {
+    ...plan,
+    steps: Array.isArray(plan.steps) ? plan.steps.map((step) => ({ ...step, executions: [...(step.executions || [])] })) : [],
+  };
+
+  const isTerminalError = messageStatus === 'error';
+  const isTerminalSuccess = messageStatus === 'complete';
+
+  if (isTerminalError && resolved.status !== 'failed') {
+    resolved.status = 'failed';
+    resolved.currentStepId = undefined;
+  } else if (isTerminalSuccess && (resolved.status === 'pending' || resolved.status === 'in_progress')) {
+    resolved.status = 'completed';
+    resolved.currentStepId = undefined;
+  }
+
+  if (resolved.status === 'failed') {
+    resolved.steps = (resolved.steps || []).map((step) => {
+      if (step.status !== 'pending' && step.status !== 'in_progress') return step;
+      return {
+        ...step,
+        status: 'failed',
+        feedback: step.feedback || (locale === 'zh'
+          ? '由于任务已终止，此步骤未继续执行。'
+          : 'This step did not continue because the task already stopped.'),
+      };
+    });
+  } else if (resolved.status === 'completed') {
+    resolved.steps = (resolved.steps || []).map((step) => {
+      if (step.status !== 'pending' && step.status !== 'in_progress') return step;
+      return {
+        ...step,
+        status: 'completed',
+        feedback: step.feedback || (locale === 'zh'
+          ? '任务已完成，此步骤无需继续执行。'
+          : 'The task completed without needing additional work for this step.'),
+      };
+    });
+  }
+
+  return resolved;
 }
 
 function summarizeDetail(detail: any): DetailEntry[] {

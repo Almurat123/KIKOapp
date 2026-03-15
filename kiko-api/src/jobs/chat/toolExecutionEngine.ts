@@ -1,10 +1,12 @@
 import { toolRegistry } from '../../tooling/registry.js';
+import { ensureToolRegistryInitialized } from '../../tooling/bootstrap.js';
 import type { OrchestratorToolCall, OrchestratorToolResult } from './contracts.js';
 import { checkToolAgainstPolicy, createPolicyError, type ControlPolicySnapshot } from './controlPolicy.js';
 import { checkMutationExecutionGate } from './executionGate.js';
 
 export class ToolExecutionEngine {
     async execute(call: OrchestratorToolCall, toolContext: Record<string, any>): Promise<OrchestratorToolResult> {
+        ensureToolRegistryInitialized();
         const controlPolicy = (toolContext?.__controlPolicy || null) as ControlPolicySnapshot | null;
         const policyCheck = checkToolAgainstPolicy({
             call,

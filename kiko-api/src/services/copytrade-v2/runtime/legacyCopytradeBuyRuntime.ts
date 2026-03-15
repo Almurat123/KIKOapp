@@ -1,5 +1,6 @@
 import { buildRecoverablePendingEntryTxHash } from '../buy/pendingProtectionPolicy.js';
 import { resolveEntryDeviationCurrentPrice } from '../buy/entryDeviationPriceSelection.js';
+import { releaseMirrorSellAfterBuyConfirm } from '../buy/buyConfirmationMirrorSellRelease.js';
 
 type SingleUserBuyResult = {
     outcome: 'executed' | 'pending' | 'skipped' | 'failed';
@@ -77,7 +78,6 @@ export async function processSingleUserBuy(params: {
         resolveDisplayTokenSymbol,
         buildOrderAuditFields,
         resolveDisplayTokenSymbolAsync,
-        executePositionExit,
         applyBuyConfirmationTransition,
         scheduleCopytradeBuyConfirmationFlow,
         SELL_PREHEAT_DELAY_MS,
@@ -1133,14 +1133,13 @@ export async function processSingleUserBuy(params: {
                         targetSellTxHash: context.targetSellTxHash || null,
                         reasonCode: context.reasonCode,
                     });
-                    await executePositionExit({
-                        userId: config.userId,
-                        tokenAddress: tokenToBuy,
+                    await releaseMirrorSellAfterBuyConfirm({
+                        position: mirrorSellPosition,
                         chainId,
-                        exitReason: 'mirror_sell',
-                        tokenInfo,
-                        config: { ...effectiveConfig, user: effectiveConfig.user },
-                        positions: [mirrorSellPosition]
+                        tokenAddress: tokenToBuy,
+                        targetWallet,
+                        targetSellTxHash: context.targetSellTxHash,
+                        reasonCode: context.reasonCode,
                     });
                 }
             };

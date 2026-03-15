@@ -628,9 +628,13 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                 case 'content_block':
                     if (conversationId) {
                         const blockMessageId = event.data.message_id || event.data.messageId;
+                        const shouldReplace = Boolean(event.data.replace);
+                        const shouldClearReasoning = Boolean(event.data.clearReasoning);
                         const freshMsgs = messagesRef.current;
                         const updated = freshMsgs.map(m => m.id === blockMessageId ? {
-                            ...m, content: (m.content || '') + (event.data.content || '')
+                            ...m,
+                            content: shouldReplace ? String(event.data.content || '') : (m.content || '') + (event.data.content || ''),
+                            reasoning_content: shouldClearReasoning ? '' : m.reasoning_content,
                         } : m);
                         updateConversation(conversationId, {
                             messages: updated,

@@ -312,6 +312,7 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({
               plan={runtimePlan}
               reasoningText={message.reasoning_content}
               isStreaming={message.status !== 'complete' && message.status !== 'error'}
+              messageStatus={message.status}
             />
           </div>
         </div>

@@ -1,5 +1,6 @@
 import { CORE_UNIFIED, GROK_SEARCH_DELTA } from '../../services/ai/prompts/v2/CORE.js';
-import type { ChatContextSnapshot, PlanCard } from './contracts.js';
+import type { ChatContextSnapshot, PlanCard, ProviderNativeEvidenceSnapshot } from './contracts.js';
+import type { IntentEnvelope, ToolPhase } from './nodeSkillResolver.js';
 import type { ProviderInfo } from './providerPolicyBuilder.js';
 import type { SearchMode, SkillMatch } from './skillIntentMatcher.js';
 
@@ -30,6 +31,9 @@ export function assembleGenerationMessages(
         rankedMatches?: SkillMatch[];
         searchMode?: SearchMode;
         searchReason?: string;
+        toolPhase?: ToolPhase;
+        intentEnvelope?: IntentEnvelope;
+        providerNativeEvidence?: ProviderNativeEvidenceSnapshot[];
     },
 ): GenerationMessage[] {
     const runtime = snapshot.runtime || {};
@@ -43,10 +47,10 @@ export function assembleGenerationMessages(
     if (providerInfo.provider === 'grok' && guidance?.searchMode !== 'forbidden') {
         systemParts.push(GROK_SEARCH_DELTA);
     }
-    if (providerInfo.supportsNativeSearch && guidance?.searchMode !== 'forbidden') {
+    if (providerInfo.supportsNativeSearch && guidance?.toolPhase === 'native_search_only') {
         systemParts.push('For real-time requests, retrieve evidence before concluding.');
     }
-    if (providerInfo.provider === 'grok' && guidance?.searchMode === 'required') {
+    if (providerInfo.provider === 'grok' && guidance?.toolPhase === 'native_search_only') {
         systemParts.push('REALTIME SOCIAL SEARCH REQUIRED: Search first. If evidence is thin, say so plainly.');
     }
     if (providerInfo.provider === 'grok' && guidance?.searchMode !== 'forbidden') {
@@ -67,6 +71,7 @@ export function assembleGenerationMessages(
         ...contextTextParts,
         buildExecutionPlanBlock(guidance?.executionPlan),
         buildToolGuidanceBlock(guidance),
+        buildProviderNativeEvidenceBlock(guidance?.providerNativeEvidence),
         `[SKILLS]\n${skillPrompts.length > 0 ? skillPrompts.join('\n\n') : 'No extra skill prompts selected.'}`,
         `[USER_QUERY]\n${snapshot.lastUserMessage || ''}`,
     ].join('\n\n');
@@ -81,10 +86,13 @@ function buildToolGuidanceBlock(guidance?: {
     preferredTools?: string[];
     strategyNotes?: string[];
     allowAllTools?: boolean;
-    executionPlan?: PlanCard | null;
-    rankedMatches?: SkillMatch[];
-    searchMode?: SearchMode;
-    searchReason?: string;
+        executionPlan?: PlanCard | null;
+        rankedMatches?: SkillMatch[];
+        searchMode?: SearchMode;
+        searchReason?: string;
+        toolPhase?: ToolPhase;
+        intentEnvelope?: IntentEnvelope;
+        providerNativeEvidence?: ProviderNativeEvidenceSnapshot[];
 }): string {
     const lines: string[] = [];
     const preferredTools = guidance?.preferredTools || [];
@@ -115,13 +123,25 @@ function buildToolGuidanceBlock(guidance?: {
     if (lines.length > 0 || guidance?.allowAllTools || guidance?.searchMode) {
         if (lines.length > 0) lines.push('');
         lines.push('[TOOL_POLICY]');
-        lines.push('- Matched local skills are primary for this turn. Use their tools before generic search whenever they can answer the request.');
-        if (guidance?.searchMode === 'required') {
-            lines.push(`- Generic search mode: required (${guidance.searchReason || 'external_evidence_required'}). Search before concluding.`);
-        } else if (guidance?.searchMode === 'fallback') {
-            lines.push(`- Generic search mode: fallback (${guidance.searchReason || 'local_skill_first'}). Search only if the user explicitly asks for external evidence or local tools are insufficient.`);
+        if (guidance?.toolPhase === 'native_search_only') {
+            lines.push('- Current phase: native_search_only. Use provider-native search now. Do not substitute local Node tools in this phase.');
+        } else if (guidance?.toolPhase === 'execution') {
+            lines.push('- Current phase: execution. Use only the currently approved execution tools; do not reopen search or unrelated analysis.');
         } else {
-            lines.push(`- Generic search mode: forbidden (${guidance?.searchReason || 'no_external_search_needed'}). Do not search unless the user explicitly asks for web/X evidence.`);
+            lines.push('- Current phase: local_analysis. Reuse any provider-native evidence already gathered before deciding whether another tool is needed.');
+        }
+        if (guidance?.searchMode === 'required') {
+            lines.push(`- Search mode: required (${guidance.searchReason || 'external_evidence_required'}).`);
+        } else if (guidance?.searchMode === 'fallback') {
+            lines.push(`- Search mode: fallback (${guidance.searchReason || 'local_skill_first'}).`);
+        } else {
+            lines.push(`- Search mode: forbidden (${guidance?.searchReason || 'no_external_search_needed'}).`);
+        }
+        if (guidance?.intentEnvelope) {
+            lines.push(`- Intent envelope: primary=${guidance.intentEnvelope.primary_intent}; domain=${guidance.intentEnvelope.domain}; task_mode=${guidance.intentEnvelope.task_mode}; search_target=${guidance.intentEnvelope.search_target}.`);
+            if (guidance.intentEnvelope.required_evidence.length > 0) {
+                lines.push(`- Required evidence before final execution/conclusion: ${guidance.intentEnvelope.required_evidence.join(', ')}.`);
+            }
         }
         if (guidance?.allowAllTools) {
             lines.push('- Registered tools remain available when explicitly permitted by the policy layer.');
@@ -130,6 +150,31 @@ function buildToolGuidanceBlock(guidance?: {
     }
 
     return lines.join('\n');
+}
+
+function buildProviderNativeEvidenceBlock(providerNativeEvidence?: ProviderNativeEvidenceSnapshot[]): string {
+    const snapshots = Array.isArray(providerNativeEvidence) ? providerNativeEvidence : [];
+    if (snapshots.length === 0) return '';
+    return toJsonBlock('PROVIDER_NATIVE_EVIDENCE', snapshots);
+}
+
+export function buildRoundToolPolicySystemMessage(guidance: {
+    preferredTools?: string[];
+    strategyNotes?: string[];
+    allowAllTools?: boolean;
+    executionPlan?: PlanCard | null;
+    rankedMatches?: SkillMatch[];
+    searchMode?: SearchMode;
+    searchReason?: string;
+    toolPhase?: ToolPhase;
+    intentEnvelope?: IntentEnvelope;
+    providerNativeEvidence?: ProviderNativeEvidenceSnapshot[];
+}): GenerationMessage | null {
+    const content = [
+        buildToolGuidanceBlock(guidance),
+        buildProviderNativeEvidenceBlock(guidance.providerNativeEvidence),
+    ].filter(Boolean).join('\n\n');
+    return content ? { role: 'system', content } : null;
 }
 
 function buildExecutionPlanBlock(plan: PlanCard | null | undefined): string {

@@ -50,6 +50,8 @@ import { resolveEthCopytradeRelayPolicy } from '../copytrade-v2/eth/ethRelayPoli
 import { setOrderMetadata } from '../order-runtime/context.js';
 import { resolveTradeSendNonce } from './swapNoncePolicy.js';
 import { getApprovalQuoteRefreshDelayMs, shouldRetryApprovalQuoteRefresh } from './approvalQuoteRefreshPolicy.js';
+import { waitForApprovalReady, type ApprovalReadinessResult } from './approvalReadiness.js';
+import { clearApprovalPreheatState, getApprovalPreheatState } from './approvalPreheatState.js';
 
 // 0x AllowanceHolder address (Base). If a token already has sufficient allowance here,
 // we can skip Permit2 first-try and reduce sell failure risk for problematic tokens.
@@ -684,155 +686,218 @@ export class SwapExecutor {
                 const approvalData = iface.encodeFunctionData('approve', [best.allowanceTarget, exactApproval]);
 
                 try {
-                    const approveTxHash = await sendTransaction(userId, params.accessToken || '', {
-                        to: actualTokenIn,
-                        data: approvalData,
-                        value: '0',
-                        chainId,
-                        txPurpose: 'approval',
-                    });
+                    const finalizeApprovalReady = async (approvalTxHash: string, approvalReady: ApprovalReadinessResult): Promise<void> => {
+                        approvalExecutedOnChain = true;
 
-                    logger.info(LogCode.EXE_TX_BROADCAST, 'Approval transaction sent', { txHash: approveTxHash });
+                        logger.info(LogCode.EXE_TX_BROADCAST, 'Approval ready for swap, proceeding with quote refresh', {
+                            txHash: approvalTxHash,
+                            readyBy: approvalReady.readyBy,
+                            allowance: approvalReady.allowance?.toString(),
+                            blockNumber: approvalReady.receipt?.blockNumber,
+                            elapsedMs: approvalReady.elapsedMs
+                        });
 
-                    // CRITICAL: Must wait for approval to be CONFIRMED on-chain
-                    // Allowance-holder checks on-chain state, mempool is not enough
-                    logger.info(LogCode.EXE_TX_BROADCAST, 'Waiting for approval confirmation...', { txHash: approveTxHash });
-
-                    const receipt = await waitForReceipt(chainId, approveTxHash, 60000);
-                    if (!receipt || receipt.status === 0 || receipt.status === '0x0') {
-                        throw new Error(`Approval transaction failed: ${approveTxHash}`);
-                    }
-                    approvalExecutedOnChain = true;
-
-                    logger.info(LogCode.EXE_TX_BROADCAST, 'Approval confirmed on-chain, proceeding with swap', {
-                        txHash: approveTxHash,
-                        blockNumber: receipt.blockNumber
-                    });
-
-                    // Update transaction card: approval confirmed
-                    try {
-                        const messageId = (params as any).messageId;
-                        if (messageId) {
-                            const { getMessage, updateMessage } = await import('../../repositories/chatRepository.js');
-                            const { chatWS } = await import('../../services/chatWebSocket.js');
-                            const currentMessage = await getMessage(messageId);
-                            if (currentMessage) {
-                                const currentData = typeof currentMessage.data === 'object' && currentMessage.data
-                                    ? currentMessage.data
-                                    : {};
-                                const updatedData = {
-                                    ...currentData,
-                                    status: 'approval_confirmed',
-                                    approvalTxHash: approveTxHash,
-                                    message: '✅ Approval confirmed. Executing swap...',
-                                    isLoading: true
-                                };
-                                await updateMessage(messageId, { data: updatedData });
-                                chatWS.broadcastToUser(userId, {
-                                    type: 'transaction_update',
-                                    sessionId: currentMessage.sessionId,
-                                    data: {
-                                        messageId: messageId,
-                                        status: 'approving',
-                                        message: '⏳ Waiting for approval...',
-                                        txHash: approveTxHash,
+                        // Update transaction card: approval confirmed
+                        try {
+                            const messageId = (params as any).messageId;
+                            if (messageId) {
+                                const { getMessage, updateMessage } = await import('../../repositories/chatRepository.js');
+                                const { chatWS } = await import('../../services/chatWebSocket.js');
+                                const currentMessage = await getMessage(messageId);
+                                if (currentMessage) {
+                                    const currentData = typeof currentMessage.data === 'object' && currentMessage.data
+                                        ? currentMessage.data
+                                        : {};
+                                    const updatedData = {
+                                        ...currentData,
+                                        status: 'approval_confirmed',
+                                        approvalTxHash,
+                                        message: '✅ Approval confirmed. Executing swap...',
                                         isLoading: true
-                                    }
+                                    };
+                                    await updateMessage(messageId, { data: updatedData });
+                                    chatWS.broadcastToUser(userId, {
+                                        type: 'transaction_update',
+                                        sessionId: currentMessage.sessionId,
+                                        data: {
+                                            messageId: messageId,
+                                            status: 'approving',
+                                            message: '⏳ Waiting for approval...',
+                                            txHash: approvalTxHash,
+                                            isLoading: true
+                                        }
+                                    });
+                                }
+                            }
+                        } catch (wsError) {
+                            console.warn('[SwapExecutor] Failed to update approval confirmed card:', wsError);
+                        }
+
+                        const originalDex = best.dex;
+                        const originalAllowanceTarget = best.allowanceTarget;
+                        const approvalRefreshExcludeDex = String(originalDex || '').toLowerCase() === '0x'
+                            ? 'kyber'
+                            : String(originalDex || '').toLowerCase() === 'kyber'
+                                ? '0x'
+                                : undefined;
+                        let freshQuoteApplied = false;
+                        let freshQuoteFailure = 'fresh_quote_missing_after_approval';
+                        for (let refreshAttempt = 1; refreshAttempt <= 2; refreshAttempt++) {
+                            const propagationDelayMs = approvalReady.readyBy === 'allowance' && refreshAttempt === 1
+                                ? 0
+                                : getApprovalQuoteRefreshDelayMs(refreshAttempt);
+                            if (propagationDelayMs > 0) {
+                                logger.info(LogCode.EXE_TX_BROADCAST, 'Waiting for approval state propagation across network...', {
+                                    delayMs: propagationDelayMs,
+                                    attempt: refreshAttempt
                                 });
+                                await new Promise(resolve => setTimeout(resolve, propagationDelayMs));
+                            }
+
+                            logger.info(LogCode.EXE_TX_BROADCAST, 'Re-fetching quote after approval confirmation', {
+                                originalDex: best.dexName,
+                                attempt: refreshAttempt
+                            });
+
+                            const { best: freshQuote } = await getBestQuote({
+                                tokenIn: actualTokenInFixed,
+                                tokenOut: actualTokenOutFixed,
+                                actualTokenIn: actualTokenInFixed,
+                                actualTokenOut: actualTokenOutFixed,
+                                amountInBase,
+                                amountInHuman: parseFloat(amountInHuman),
+                                tokenInDecimals: decimalsIn,
+                                tokenOutDecimals: decimalsOut,
+                                chainId,
+                                slippageBps,
+                                userAddress: walletAddress,
+                                affiliateFee,
+                                refPrice,
+                                feeContext,
+                                isSell: isSellForFee,
+                                // Approval refresh must bypass turbo timing and stale quote reuse.
+                                executionMode: 'normal',
+                                preferPermit2: false,
+                                skipCache: true,
+                                excludeDex: approvalRefreshExcludeDex,
+                            });
+
+                            const quoteFound = !!(freshQuote && freshQuote.to && freshQuote.data);
+                            const allowanceChanged = !!(
+                                quoteFound
+                                && freshQuote.allowanceTarget
+                                && originalAllowanceTarget
+                                && freshQuote.allowanceTarget.toLowerCase() !== originalAllowanceTarget.toLowerCase()
+                            );
+
+                            if (!quoteFound) {
+                                freshQuoteFailure = 'fresh_quote_missing_after_approval';
+                            } else if (allowanceChanged) {
+                                freshQuoteFailure = 'fresh_quote_allowance_changed_after_approval';
+                                logger.warn(LogCode.EXE_TX_BROADCAST, 'Fresh quote uses different allowance target after approval', {
+                                    oldDex: best.dexName,
+                                    newDex: freshQuote.dexName,
+                                    oldAllowanceTarget: originalAllowanceTarget,
+                                    newAllowanceTarget: freshQuote.allowanceTarget,
+                                    attempt: refreshAttempt
+                                });
+                            } else {
+                                logger.info(LogCode.EXE_TX_BROADCAST, 'Using fresh quote after approval', {
+                                    oldDex: best.dexName,
+                                    newDex: freshQuote.dexName,
+                                    oldAmountOut: best.amountOut,
+                                    newAmountOut: freshQuote.amountOut,
+                                    attempt: refreshAttempt
+                                });
+                                Object.assign(best, freshQuote);
+                                freshQuoteApplied = true;
+                                break;
+                            }
+
+                            if (!shouldRetryApprovalQuoteRefresh({
+                                attempt: refreshAttempt,
+                                quoteFound,
+                                allowanceChanged
+                            })) {
+                                break;
                             }
                         }
-                    } catch (wsError) {
-                        console.warn('[SwapExecutor] Failed to update approval confirmed card:', wsError);
-                    }
 
-                    const originalDex = best.dex;
-                    const originalAllowanceTarget = best.allowanceTarget;
-                    let freshQuoteApplied = false;
-                    let freshQuoteFailure = 'fresh_quote_missing_after_approval';
-                    for (let refreshAttempt = 1; refreshAttempt <= 2; refreshAttempt++) {
-                        const propagationDelayMs = getApprovalQuoteRefreshDelayMs(refreshAttempt);
-                        if (propagationDelayMs > 0) {
-                            logger.info(LogCode.EXE_TX_BROADCAST, 'Waiting for approval state propagation across network...', {
-                                delayMs: propagationDelayMs,
-                                attempt: refreshAttempt
+                        if (!freshQuoteApplied) {
+                            logger.error(LogCode.SYS_ERROR, 'Failed to fetch approval-compatible fresh quote', {
+                                dex: best.dexName,
+                                reasonCode: freshQuoteFailure
                             });
-                            await new Promise(resolve => setTimeout(resolve, propagationDelayMs));
+                            throw new Error(`Failed to fetch approval-compatible fresh quote: ${freshQuoteFailure}`);
                         }
+                    };
 
-                        logger.info(LogCode.EXE_TX_BROADCAST, 'Re-fetching quote after approval confirmation', {
-                            originalDex: best.dexName,
-                            attempt: refreshAttempt
-                        });
-
-                        const { best: freshQuote } = await getBestQuote({
-                            tokenIn: actualTokenInFixed,
-                            tokenOut: actualTokenOutFixed,
-                            actualTokenIn: actualTokenInFixed,
-                            actualTokenOut: actualTokenOutFixed,
-                            amountInBase,
-                            amountInHuman: parseFloat(amountInHuman),
-                            tokenInDecimals: decimalsIn,
-                            tokenOutDecimals: decimalsOut,
+                    const trackedPreheatApproval = isSellTx
+                        ? await getApprovalPreheatState({
                             chainId,
-                            slippageBps,
-                            userAddress: walletAddress,
-                            affiliateFee,
-                            refPrice,
-                            feeContext,
-                            isSell: isSellForFee,
-                            // Approval refresh must bypass turbo timing and stale quote reuse.
-                            executionMode: 'normal',
-                            preferPermit2: false,
-                            skipCache: true,
+                            walletAddress,
+                            tokenAddress: actualTokenIn,
+                            spenderAddress: best.allowanceTarget,
+                        }).catch(() => null)
+                        : null;
+
+                    if (trackedPreheatApproval?.txHash && trackedPreheatApproval.status !== 'failed') {
+                        logger.info(LogCode.EXE_TX_BROADCAST, 'Reusing in-flight preheat approval for sell', {
+                            txHash: trackedPreheatApproval.txHash,
+                            spender: best.allowanceTarget,
+                            status: trackedPreheatApproval.status
                         });
-
-                        const quoteFound = !!(freshQuote && freshQuote.to && freshQuote.data);
-                        const allowanceChanged = !!(
-                            quoteFound
-                            && freshQuote.allowanceTarget
-                            && originalAllowanceTarget
-                            && freshQuote.allowanceTarget.toLowerCase() !== originalAllowanceTarget.toLowerCase()
-                        );
-
-                        if (!quoteFound) {
-                            freshQuoteFailure = 'fresh_quote_missing_after_approval';
-                        } else if (allowanceChanged) {
-                            freshQuoteFailure = 'fresh_quote_allowance_changed_after_approval';
-                            logger.warn(LogCode.EXE_TX_BROADCAST, 'Fresh quote uses different allowance target after approval', {
-                                oldDex: best.dexName,
-                                newDex: freshQuote.dexName,
-                                oldAllowanceTarget: originalAllowanceTarget,
-                                newAllowanceTarget: freshQuote.allowanceTarget,
-                                attempt: refreshAttempt
+                        try {
+                            const reusedApprovalReady = await waitForApprovalReady({
+                                chainId,
+                                txHash: trackedPreheatApproval.txHash,
+                                tokenAddress: actualTokenIn,
+                                ownerAddress: walletAddress,
+                                spenderAddress: best.allowanceTarget,
+                                requiredAmount: exactApproval,
+                                timeoutMs: 20_000
                             });
-                        } else {
-                            logger.info(LogCode.EXE_TX_BROADCAST, 'Using fresh quote after approval', {
-                                oldDex: best.dexName,
-                                newDex: freshQuote.dexName,
-                                oldAmountOut: best.amountOut,
-                                newAmountOut: freshQuote.amountOut,
-                                attempt: refreshAttempt
+                            await finalizeApprovalReady(trackedPreheatApproval.txHash, reusedApprovalReady);
+                            await clearApprovalPreheatState({
+                                chainId,
+                                walletAddress,
+                                tokenAddress: actualTokenIn,
+                                spenderAddress: best.allowanceTarget,
+                            }).catch(() => undefined);
+                        } catch (reusedApprovalError: any) {
+                            logger.warn(LogCode.EXE_TX_BROADCAST, 'Preheat approval reuse failed, sending direct approval', {
+                                txHash: trackedPreheatApproval.txHash,
+                                spender: best.allowanceTarget,
+                                error: reusedApprovalError?.message || String(reusedApprovalError)
                             });
-                            Object.assign(best, freshQuote);
-                            freshQuoteApplied = true;
-                            break;
-                        }
-
-                        if (!shouldRetryApprovalQuoteRefresh({
-                            attempt: refreshAttempt,
-                            quoteFound,
-                            allowanceChanged
-                        })) {
-                            break;
                         }
                     }
 
-                    if (!freshQuoteApplied) {
-                        logger.error(LogCode.SYS_ERROR, 'Failed to fetch approval-compatible fresh quote', {
-                            dex: best.dexName,
-                            reasonCode: freshQuoteFailure
+                    if (!approvalExecutedOnChain) {
+                        const approveTxHash = await sendTransaction(userId, params.accessToken || '', {
+                            to: actualTokenIn,
+                            data: approvalData,
+                            value: '0',
+                            chainId,
+                            txPurpose: 'approval',
                         });
-                        throw new Error(`Failed to fetch approval-compatible fresh quote: ${freshQuoteFailure}`);
+
+                        logger.info(LogCode.EXE_TX_BROADCAST, 'Approval transaction sent', { txHash: approveTxHash });
+
+                        // CRITICAL: Must wait for approval to be CONFIRMED on-chain
+                        // Allowance-holder checks on-chain state, mempool is not enough
+                        logger.info(LogCode.EXE_TX_BROADCAST, 'Waiting for approval confirmation...', { txHash: approveTxHash });
+
+                        const approvalReady = await waitForApprovalReady({
+                            chainId,
+                            txHash: approveTxHash,
+                            tokenAddress: actualTokenIn,
+                            ownerAddress: walletAddress,
+                            spenderAddress: best.allowanceTarget,
+                            requiredAmount: exactApproval,
+                            timeoutMs: 60000
+                        });
+                        await finalizeApprovalReady(approveTxHash, approvalReady);
                     }
                 } catch (approvalError: any) {
                     logger.error(LogCode.EXE_TX_REVERTED, 'Approval failed', { error: approvalError.message });

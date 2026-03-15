@@ -33,7 +33,12 @@ import { buildOrderAuditFields } from '../../order-runtime/sinks/persistence.js'
 import type { OrderRuntimeContext } from '../../order-runtime/types.js';
 import { emitCopytradeDomainAudit } from '../audit/copytradeDomainAudit.js';
 import { recordFollowerTransactionFactByPosition } from '../data-flow/followerTransactionFactLedger.js';
-import { acquireDistributedTokenExitLock, releaseDistributedTokenExitLock, type DistributedTokenExitLock } from './tokenExitLock.js';
+import {
+  acquireDistributedTokenExitLock,
+  buildTokenExitLockScopeKey,
+  releaseDistributedTokenExitLock,
+  type DistributedTokenExitLock,
+} from './tokenExitLock.js';
 import { evaluateAutoExitPriceGuard } from './autoExitPriceGuard.js';
 import {
   ExitHotPathDeferredError,
@@ -204,10 +209,6 @@ function markPositionLocallyClosed(positionId: string): void {
   setTimeout(() => positionsBeingExited.delete(positionId), LOCAL_POSITION_CLOSE_GUARD_MS);
 }
 
-function buildTokenExitLockKey(chainId: number, tokenAddress: string): string {
-  return `${chainId}:${String(tokenAddress || '').toLowerCase()}`;
-}
-
 function tryAcquireTokenExitLock(lockKey: string, owner: string): boolean {
   const existing = tokenExitsBeingProcessed.get(lockKey);
   if (existing && Date.now() - existing.startedAt < TOKEN_EXIT_LOCK_MAX_MS) {
@@ -270,7 +271,12 @@ export async function executePositionExit(params: {
     // Fetch universal global slippage from UserSettings
     const settings = params.userSettings || await prisma.userSettings.findUnique({ where: { userId } });
     const universalSlippageBps = getSlippageBps(settings);
-    const tokenExitLockKey = buildTokenExitLockKey(chainId, tokenAddress);
+    const tokenExitLockKey = buildTokenExitLockScopeKey({
+        chainId,
+        tokenAddress,
+        walletAddress: user?.walletAddress,
+        ownerScope: userId,
+    });
     const tokenExitLockOwner = `${userId}:${exitReason}:${Date.now()}`;
     let tokenExitLockAcquired = false;
     let distributedTokenExitLock: DistributedTokenExitLock | null = null;
@@ -295,10 +301,11 @@ export async function executePositionExit(params: {
 
         tokenExitLockAcquired = tryAcquireTokenExitLock(tokenExitLockKey, tokenExitLockOwner);
         if (!tokenExitLockAcquired) {
-            logger.warn(LogCode.EXE_TX_BROADCAST, 'Deferring position exit due to active same-token exit lock', {
+            logger.warn(LogCode.EXE_TX_BROADCAST, 'Deferring position exit due to active wallet-token exit lock', {
                 userId,
                 token: tokenAddress,
                 chainId,
+                walletAddress: user?.walletAddress || null,
                 reason: exitReason,
                 lockKey: tokenExitLockKey,
             });
@@ -313,13 +320,16 @@ export async function executePositionExit(params: {
         distributedTokenExitLock = await acquireDistributedTokenExitLock({
             chainId,
             tokenAddress,
+            walletAddress: user?.walletAddress,
+            ownerScope: userId,
             owner: tokenExitLockOwner,
         });
         if (!distributedTokenExitLock) {
-            logger.warn(LogCode.EXE_TX_BROADCAST, 'Deferring position exit due to distributed same-token exit lock', {
+            logger.warn(LogCode.EXE_TX_BROADCAST, 'Deferring position exit due to distributed wallet-token exit lock', {
                 userId,
                 token: tokenAddress,
                 chainId,
+                walletAddress: user?.walletAddress || null,
                 reason: exitReason,
                 lockKey: tokenExitLockKey,
             });

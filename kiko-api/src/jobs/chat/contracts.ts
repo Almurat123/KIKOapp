@@ -53,6 +53,24 @@ export interface RuntimeDirective {
     metadata?: Record<string, any>;
 }
 
+export interface ProviderNativeEvidenceResult {
+    sourceType: 'x_search' | 'web_search';
+    title?: string;
+    url?: string;
+    snippet?: string;
+    query?: string;
+    retrievedAt: string;
+    round: number;
+}
+
+export interface ProviderNativeEvidenceSnapshot {
+    sourceTypes: Array<'x_search' | 'web_search'>;
+    querySummary: string;
+    results: ProviderNativeEvidenceResult[];
+    retrievedAt: string;
+    round: number;
+}
+
 export type PlanStepStatus = 'pending' | 'in_progress' | 'completed' | 'failed';
 
 export interface PlanStepExecution {
@@ -105,6 +123,7 @@ export interface AgentRuntimeEvent {
 
 export interface AgentRuntimeSnapshot {
     plan: PlanCard;
+    providerNativeEvidence?: ProviderNativeEvidenceSnapshot[];
 }
 
 export interface AgentRuntimeEnvelope {
