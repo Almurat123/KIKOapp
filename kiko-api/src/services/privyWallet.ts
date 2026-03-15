@@ -103,7 +103,7 @@ const LOCAL_SIGNER_ENABLED = (process.env.LOCAL_SIGNER_ENABLED || 'false').toLow
 let privyClient: PrivyClient | null = null;
 
 function shouldReturnAcceptedLifecycleImmediately(tx: TransactionRequest): boolean {
-    return tx.txPurpose === 'approval';
+    return tx.txPurpose === 'approval' || isFastTradeExecutionProfile(tx);
 }
 
 function getLocalSignerPrivateKey(chainId: number): string {
@@ -1220,11 +1220,18 @@ export async function sendTransactionLifecycle(
                         });
                     }
                     if (shouldReturnAcceptedLifecycleImmediately(txWithNonce)) {
-                        logger.info(LogCode.SYS_INFO, 'Privy lifecycle early return for approval send', {
+                        logger.info(
+                            LogCode.SYS_INFO,
+                            txWithNonce.txPurpose === 'approval'
+                                ? 'Privy lifecycle early return for approval send'
+                                : 'Privy lifecycle early return for fast trade send',
+                            {
                             chainId: txWithNonce.chainId,
                             txHash: response.hash,
                             txPurpose: txWithNonce.txPurpose,
-                        });
+                            executionProfile: txWithNonce.executionProfile || 'default',
+                            }
+                        );
                         if (runtimeContext) {
                             recordLifecycleOnOrder(runtimeContext, lifecycleBase, {
                                 reasonCode: inferOrderReasonCode(lifecycleBase.lastRpcError || lifecycleBase.status)
