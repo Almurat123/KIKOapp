@@ -110,6 +110,10 @@ export function buildDirectSwapFeeSettlement(params: {
   };
 }
 
+function requiresCanonicalSourceTxHashForFeeContext(feeContext: FeeContext): boolean {
+  return feeContext === 'copyTrade';
+}
+
 export async function collectDirectSwapFee(params: {
   request: DirectSwapFeeRequest;
   normalizedTokenIn: string;
@@ -129,6 +133,16 @@ export async function collectDirectSwapFee(params: {
   const markFeeExecutionSent = deps?.markFeeExecutionSent || markDirectSwapFeeExecutionSent;
   const markFeeExecutionFailed = deps?.markFeeExecutionFailed || markDirectSwapFeeExecutionFailed;
   const inflightWaitMs = Math.max(0, Math.floor(Number(deps?.waitMs ?? 1200)));
+  const sourceTxHash = String(request.sourceTxHash || '').trim().toLowerCase();
+
+  if (requiresCanonicalSourceTxHashForFeeContext(feeContext) && !sourceTxHash) {
+    logger.warn(LogCode.SYS_INFO, trace('Direct swap fee skipped: missing canonical source tx hash'), {
+      reasonCode: 'fee_skip_missing_source_tx_hash',
+      feeContext,
+      mode: request.mode,
+    });
+    return;
+  }
 
   const fee = resolvePlatformFee(feeContext, request.feeBpsOverride);
   if (fee.bps <= 0 || !validateEvmAddress(fee.evmRecipient)) return;
@@ -210,7 +224,6 @@ export async function collectDirectSwapFee(params: {
     return { feeTxHash, feeKind: 'token' };
   };
 
-  const sourceTxHash = String(request.sourceTxHash || '').trim().toLowerCase();
   const feeExecutionKey = sourceTxHash
     ? buildDirectSwapFeeExecutionKey({
       userId: request.userId,
@@ -374,3 +387,7 @@ export async function collectDirectSwapFeeFromSettlement(params: {
     deps
   });
 }
+
+export const __directSwapFeeCollectorTest = {
+  requiresCanonicalSourceTxHashForFeeContext,
+};

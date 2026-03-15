@@ -31,7 +31,7 @@ import { getTokenInfo } from './tokenService.js';
 import { getPlatformFee, isValidEvmAddress, type FeeContext } from './platformFeeService.js';
 import {
   buildDirectSwapFeeSettlement,
-  collectDirectSwapFee as collectDirectSwapFeeWithAuth,
+  collectDirectSwapFeeFromSettlement,
   type DirectSwapFeeSettlement
 } from './swap/fee/directSwapFeeCollector.js';
 import { NATIVE_TOKEN_ADDRESS, SOLANA_NATIVE_MINT, isNativeToken } from '../config/tokenRegistry.js';
@@ -445,27 +445,14 @@ export class MainSwapService {
     return normalized;
   }
 
-  private static async collectDirectSwapFee(
+  private static async collectDirectSwapFeeSettlement(
+    settlement: DirectSwapFeeSettlement,
     request: MainSwapRequest,
-    normalizedTokenIn: string,
-    normalizedTokenOut: string,
-    amountOutBase: string | undefined,
-    feeContext: FeeContext,
     trace: (msg: string) => string
   ): Promise<void> {
-    await collectDirectSwapFeeWithAuth({
-      request: {
-        userId: request.userId,
-        accessToken: request.accessToken,
-        amountIn: request.amountIn,
-        chainId: request.chainId,
-        feeBpsOverride: request.feeBpsOverride,
-        mode: request.mode
-      },
-      normalizedTokenIn,
-      normalizedTokenOut,
-      amountOutBase,
-      feeContext,
+    await collectDirectSwapFeeFromSettlement({
+      userId: request.userId,
+      settlement,
       trace
     });
   }
@@ -1579,7 +1566,8 @@ export class MainSwapService {
             amountIn: request.amountIn,
             chainId: request.chainId,
             feeBpsOverride: request.feeBpsOverride,
-            mode: request.mode
+            mode: request.mode,
+            sourceTxHash: result.txHash
           },
           normalizedTokenIn,
           normalizedTokenOut,
@@ -1588,9 +1576,6 @@ export class MainSwapService {
           deferred: result.txLifecycle?.status === 'broadcasted_unseen',
           reasonCode: result.txLifecycle?.status || 'direct_swap_result'
         });
-        if (directFeeSettlement) {
-          directFeeSettlement.sourceTxHash = result.txHash;
-        }
         return {
           success: true,
           txHash: result.txHash,
@@ -1720,7 +1705,8 @@ export class MainSwapService {
                     amountIn: request.amountIn,
                     chainId: request.chainId,
                     feeBpsOverride: request.feeBpsOverride,
-                    mode: request.mode
+                    mode: request.mode,
+                    sourceTxHash: adoptedResult.txHash
                   },
                   normalizedTokenIn,
                   normalizedTokenOut,
@@ -1738,14 +1724,8 @@ export class MainSwapService {
                 if (!acceptedInflight.shouldDeferFeeCollection) {
                   const runFeeCollection = async () => {
                     try {
-                      await this.collectDirectSwapFee(
-                        request,
-                        normalizedTokenIn,
-                        normalizedTokenOut,
-                        adoptedResult.amountOut,
-                        feeContext,
-                        trace
-                      );
+                      if (!directFeeSettlement) return;
+                      await this.collectDirectSwapFeeSettlement(directFeeSettlement, request, trace);
                     } catch (feeErr: any) {
                       logger.warn(LogCode.SYS_ERROR, trace('Direct swap fee transfer failed (non-fatal)'), {
                         error: feeErr?.message || String(feeErr)
@@ -1771,7 +1751,6 @@ export class MainSwapService {
                 // Ensure the settlement object matches the deferral decision
                 if (successResult.metadata.directFeeSettlement) {
                   successResult.metadata.directFeeSettlement.deferred = true;
-                  successResult.metadata.directFeeSettlement.sourceTxHash = adoptedResult.txHash;
                 }
                 return successResult;
               }
@@ -1788,14 +1767,25 @@ export class MainSwapService {
             if (!isTurboCopytrade && checkNativeBalancePromise) await checkNativeBalancePromise;
             const runFeeCollection = async () => {
               try {
-                await this.collectDirectSwapFee(
-                  request,
+                const directFeeSettlement = buildDirectSwapFeeSettlement({
+                  request: {
+                    userId: request.userId,
+                    accessToken: request.accessToken,
+                    amountIn: request.amountIn,
+                    chainId: request.chainId,
+                    feeBpsOverride: request.feeBpsOverride,
+                    mode: request.mode,
+                    sourceTxHash: acceptedResult.txHash
+                  },
                   normalizedTokenIn,
                   normalizedTokenOut,
-                  acceptedResult.amountOut,
+                  amountOutBase: acceptedResult.amountOut,
                   feeContext,
-                  trace
-                );
+                  deferred: false,
+                  reasonCode: acceptedResult.txLifecycle?.status || 'direct_swap_result'
+                });
+                if (!directFeeSettlement) return;
+                await this.collectDirectSwapFeeSettlement(directFeeSettlement, request, trace);
               } catch (feeErr: any) {
                 logger.warn(LogCode.SYS_ERROR, trace('Direct swap fee transfer failed (non-fatal)'), {
                   error: feeErr?.message || String(feeErr)
