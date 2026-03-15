@@ -2,16 +2,14 @@ import { ethers } from 'ethers';
 import { getErc20Decimals } from '../../rpcManager.js';
 import { resolveAttributedPositionExitAmount } from '../positions/positionAttribution.js';
 import { resolveCopytradeLedger } from '../ledger/copytradeLedgerService.js';
-import { resolveTargetSellLink } from '../reconcile/copytradeTargetSellLinkResolver.js';
-import { verifyTargetFullExit } from '../reconcile/targetSellFullExitVerifier.js';
 import { resolveMirrorSellAttributedAmount } from './mirrorSellAttribution.js';
 import type { ExitAttributionSnapshot, ExitSnapshotPosition } from './exitSnapshotTypes.js';
 import type { ExitTokenInfo, PendingAttributedExitContext, PositionExitReason } from './types.js';
 import { readExitBalanceOracle } from '../oracle/exitBalanceOracle.js';
 import { emitCopytradeOracleAudit } from '../audit/copytradeOracleAudit.js';
-import { resolveMirrorSellRatioContext } from './mirrorSellRatioContext.js';
 import { readExitBalanceHint, writeExitBalanceHint } from './exitBalanceHintStore.js';
 import { createRpcFactSuccess, type RpcFactResult } from '../../oracle/rpcFactResult.js';
+import { resolveMirrorSellTargetContext } from './mirrorSellTargetContext.js';
 
 function formatTokenAmount(amount: bigint, decimals: number): number {
   const value = Number(ethers.formatUnits(amount, decimals));
@@ -52,6 +50,7 @@ export const __exitAttributionSnapshotBuilderTest = {
   normalizeDecimalsCandidate,
   resolveSnapshotDecimalsCandidate,
   coerceMirrorSellBalanceReadWithHint,
+  resolveMirrorSellBalanceReadFastPath,
 };
 
 function coerceMirrorSellBalanceReadWithHint(input: {
@@ -80,6 +79,38 @@ function coerceMirrorSellBalanceReadWithHint(input: {
     input.balanceRead.attemptCount,
     'copytrade:balance_hint',
   );
+}
+
+async function resolveMirrorSellBalanceReadFastPath(input: {
+  balanceReadPromise: Promise<RpcFactResult<bigint>>;
+  hintedBalanceRaw: bigint | null;
+  isMirrorSell: boolean;
+  positionCount: number;
+  pendingLotCount: number;
+}): Promise<RpcFactResult<bigint>> {
+  const hintedBalanceRaw = input.hintedBalanceRaw ?? 0n;
+  if (
+    input.isMirrorSell
+    && (input.positionCount + input.pendingLotCount) > 0
+    && hintedBalanceRaw > 0n
+  ) {
+    void input.balanceReadPromise.catch(() => null);
+    return createRpcFactSuccess(
+      hintedBalanceRaw,
+      'EXIT_BALANCE_CONFIRMED_POSITIVE',
+      0,
+      'copytrade:balance_hint',
+    );
+  }
+
+  const balanceRead = await input.balanceReadPromise;
+  return coerceMirrorSellBalanceReadWithHint({
+    balanceRead,
+    hintedBalanceRaw,
+    isMirrorSell: input.isMirrorSell,
+    positionCount: input.positionCount,
+    pendingLotCount: input.pendingLotCount,
+  });
 }
 
 export function buildEvmExitAttributionSnapshotFromResolvedInputs(input: {
@@ -158,25 +189,53 @@ export async function buildEvmExitAttributionSnapshot(input: {
   positions: ExitSnapshotPosition[];
   targetWallet?: string;
 } & PendingAttributedExitContext): Promise<ExitAttributionSnapshot> {
-  const hasValidPrice = Number.isFinite(input.tokenInfo?.price) && Number(input.tokenInfo.price) > 0;
   const isMirrorSell = input.exitReason === 'mirror_sell';
-  const dec = resolveSnapshotDecimalsCandidate(input)
-    ?? await getErc20Decimals(input.tokenAddress, input.chainId, 'latest', { lane: 'critical' }).catch(() => 18);
+  const decimalsPromise = Promise.resolve(resolveSnapshotDecimalsCandidate(input))
+    .then((value) => value
+      ?? getErc20Decimals(input.tokenAddress, input.chainId, 'latest', { lane: 'critical' }).catch(() => 18));
   // Execution amount always comes from follower wallet; target wallet is used as a sell-signal verifier.
-  const balanceRead = await readExitBalanceOracle({
+  const balanceReadPromise = readExitBalanceOracle({
     tokenAddress: input.tokenAddress,
     walletAddress: input.walletAddress,
     chainId: input.chainId,
     isMirrorSell,
     rpcPath: 'copytrade_exit_balance_follower',
   });
-  const hintedBalanceRaw = await readExitBalanceHint({
+  const hintedBalanceRawPromise = readExitBalanceHint({
     chainId: input.chainId,
     walletAddress: input.walletAddress,
     tokenAddress: input.tokenAddress,
   }).catch(() => null);
-  const effectiveBalanceRead = coerceMirrorSellBalanceReadWithHint({
-    balanceRead,
+  const ledgerPromise = resolveCopytradeLedger({
+    chainId: input.chainId,
+    tokenAddress: input.tokenAddress,
+    targetWallet: input.targetWallet,
+    positions: input.positions,
+    pendingLots: input.pendingLots,
+    positionIds: input.positions.map((position) => position.id).filter(Boolean),
+  });
+  const mirrorTargetContextPromise = isMirrorSell && input.targetWallet
+    ? resolveMirrorSellTargetContext({
+        targetWallet: input.targetWallet,
+        chainId: input.chainId,
+        tokenAddress: input.tokenAddress,
+        latestTargetSellTxHash: null,
+        leaderBuyTxHash: input.pendingLots?.find((lot) => String(lot.leaderBuyTxHash || '').trim())?.leaderBuyTxHash
+          || input.positions.find((position) => String((position as any).leaderTxHash || '').trim())?.leaderTxHash
+          || null,
+        positionCreatedAt: input.positions.find((position) => position.createdAt instanceof Date)?.createdAt || null,
+        pendingCreatedAt: input.pendingLots?.find((lot) => lot.createdAt instanceof Date)?.createdAt || null,
+      })
+    : Promise.resolve(null);
+
+  const [dec, hintedBalanceRaw, ledger, mirrorTargetContext] = await Promise.all([
+    decimalsPromise,
+    hintedBalanceRawPromise,
+    ledgerPromise,
+    mirrorTargetContextPromise,
+  ]);
+  const effectiveBalanceRead = await resolveMirrorSellBalanceReadFastPath({
+    balanceReadPromise,
     hintedBalanceRaw,
     isMirrorSell,
     positionCount: input.positions.length,
@@ -199,72 +258,17 @@ export async function buildEvmExitAttributionSnapshot(input: {
     });
   }
 
-  const ledger = await resolveCopytradeLedger({
-    chainId: input.chainId,
-    tokenAddress: input.tokenAddress,
-    targetWallet: input.targetWallet,
-    positions: input.positions,
-    pendingLots: input.pendingLots,
-    positionIds: input.positions.map((position) => position.id).filter(Boolean),
-  });
   let latestTargetSellTxHash = ledger.latestTargetSellTxHash;
   let targetFullExitVerified = ledger.targetFullExitVerified;
-  let targetFullExitReasonCode: string | null = null;
-  let targetSellRatioBps: number | null = null;
-  let targetSellRatioReasonCode: string | null = null;
+  let targetFullExitReasonCode: string | null = mirrorTargetContext?.targetFullExitReasonCode || null;
+  let targetSellRatioBps: number | null = mirrorTargetContext?.targetSellRatioBps ?? null;
+  let targetSellRatioReasonCode: string | null = mirrorTargetContext?.targetSellRatioReasonCode ?? null;
 
-  if (isMirrorSell && input.targetWallet) {
-    const targetVerification = await verifyTargetFullExit({
-      targetWallet: input.targetWallet,
-      chainId: input.chainId,
-      tokenAddress: input.tokenAddress,
-    }).catch(() => null);
-    if (targetVerification) {
-      targetFullExitVerified = targetFullExitVerified || targetVerification.isFullExit;
-      targetFullExitReasonCode = targetVerification.reasonCode;
-    }
+  if (mirrorTargetContext?.latestTargetSellTxHash) {
+    latestTargetSellTxHash = latestTargetSellTxHash || mirrorTargetContext.latestTargetSellTxHash;
   }
-
-  if (isMirrorSell && input.targetWallet && (!latestTargetSellTxHash || !targetFullExitVerified)) {
-    const linkedSell = await resolveTargetSellLink({
-      targetWallet: input.targetWallet,
-      chainId: input.chainId,
-      tokenAddress: input.tokenAddress,
-      leaderBuyTxHash: input.positions.find((position: any) => position.leaderTxHash)?.leaderTxHash || null,
-      positionCreatedAt: (input.positions[0] as any)?.createdAt || null,
-      pendingCreatedAt: input.pendingLots?.[0]?.createdAt || null,
-      allowUnanchoredVerifiedFallback: true,
-      targetFullExitVerified: true,
-    }).catch(() => null);
-
-    if (linkedSell?.txHash) {
-      latestTargetSellTxHash = linkedSell.txHash;
-      targetFullExitReasonCode = linkedSell.reasonCode;
-      const verification = await verifyTargetFullExit({
-        targetWallet: input.targetWallet,
-        chainId: input.chainId,
-        tokenAddress: input.tokenAddress,
-      }).catch(() => null);
-      if (verification) {
-        targetFullExitVerified = verification.isFullExit;
-        targetFullExitReasonCode = verification.reasonCode;
-      }
-    }
-  }
-
-  if (isMirrorSell && input.targetWallet) {
-    const ratioContext = await resolveMirrorSellRatioContext({
-      targetWallet: input.targetWallet,
-      chainId: input.chainId,
-      tokenAddress: input.tokenAddress,
-      decimals: Number(dec),
-      latestTargetSellTxHash,
-      leaderBuyTxHash: input.positions.find((position) => String((position as any)?.leaderTxHash || '').trim())?.leaderTxHash || null,
-    }).catch(() => null);
-    if (ratioContext) {
-      targetSellRatioBps = ratioContext.ratioBps;
-      targetSellRatioReasonCode = ratioContext.reasonCode;
-    }
+  if (mirrorTargetContext) {
+    targetFullExitVerified = targetFullExitVerified || mirrorTargetContext.targetFullExitVerified;
   }
 
   return buildEvmExitAttributionSnapshotFromResolvedInputs({
