@@ -1,5 +1,6 @@
 import { logger } from '../../utils/logger.js';
 import { LogCode } from '../../config/logRegistry.js';
+import { containsPseudoToolCallOutput, stripPseudoToolCallOutput } from '../../services/ai/promptLeakSanitizer.js';
 import type { ChatContextSnapshot, ProviderNativeEvidenceSnapshot } from './contracts.js';
 import { buildProviderOptions, resolveProviderInfo } from './providerPolicyBuilder.js';
 import { resolveNodeSkills } from './nodeSkillResolver.js';
@@ -55,25 +56,28 @@ export async function runNodeOrchestration(params: {
     let nativeSearchRounds = 0;
     let previousResponseId: string | null | undefined = params.snapshot.previousResponseId;
     let lastRoundPolicyMessage = '';
+    let pseudoToolRepairAttempts = 0;
 
     await params.broker.bootstrapRuntime(plan);
 
-    void generateModelPlan({
-        snapshot: params.snapshot,
-        planning,
-        skillResolution,
-        generationClient: params.generationClient,
-        shouldCancel: params.shouldCancel,
-    }).then(async (modelPlan) => {
-        if (!modelPlan) return;
-        await params.broker.applyModelPlan(modelPlan);
-    }).catch((error) => {
-        logger.warn(LogCode.AI_ORCHESTRATOR, 'NodeOrchestrator: async model plan update failed', {
-            sessionId: params.snapshot.sessionId,
-            taskId: params.snapshot.taskId,
-            error: error instanceof Error ? error.message : String(error),
+    if (String(params.snapshot.model || '').trim().toLowerCase() !== 'deepseek-reasoner') {
+        void generateModelPlan({
+            snapshot: params.snapshot,
+            planning,
+            skillResolution,
+            generationClient: params.generationClient,
+            shouldCancel: params.shouldCancel,
+        }).then(async (modelPlan) => {
+            if (!modelPlan) return;
+            await params.broker.applyModelPlan(modelPlan);
+        }).catch((error) => {
+            logger.warn(LogCode.AI_ORCHESTRATOR, 'NodeOrchestrator: async model plan update failed', {
+                sessionId: params.snapshot.sessionId,
+                taskId: params.snapshot.taskId,
+                error: error instanceof Error ? error.message : String(error),
+            });
         });
-    });
+    }
 
     const messages: GenerationMessage[] = assembleGenerationMessages(
         params.snapshot,
@@ -278,6 +282,36 @@ export async function runNodeOrchestration(params: {
                 }
                 throw error;
             }
+        }
+
+        if (
+            roundResult.toolCalls.length === 0
+            && (containsPseudoToolCallOutput(roundResult.text || '') || containsPseudoToolCallOutput(roundResult.reasoning || ''))
+        ) {
+            const cleanedText = stripPseudoToolCallOutput(roundResult.text || '');
+            const cleanedReasoning = stripPseudoToolCallOutput(roundResult.reasoning || '');
+            const canRepair = pseudoToolRepairAttempts < 1 && (roundTools.length > 0 || Boolean(roundProviderOptions.enable_search));
+
+            await params.broker.blockContent?.('', { clearReasoning: true });
+            streamedRoundText = '';
+            streamedRoundReasoning = '';
+
+            if (canRepair) {
+                pseudoToolRepairAttempts += 1;
+                messages.push({
+                    role: 'system',
+                    content: planning.locale === 'zh'
+                        ? '你刚才把工具调用写成了回答正文。不要输出任何 tool JSON、tool_calls JSON 或伪代码块。若需要工具，请发出真实工具调用；否则直接正常回答。'
+                        : 'You wrote tool-call JSON in assistant text instead of making a real tool call. Do not print tool JSON or tool_calls blocks. If a tool is needed, emit a real tool call; otherwise answer normally.',
+                });
+                continue;
+            }
+
+            roundResult = {
+                ...roundResult,
+                text: cleanedText,
+                reasoning: cleanedReasoning,
+            };
         }
 
         if (currentPhase === 'native_search_only' && !forceAnswerWithoutTools && roundResult.toolCalls.length === 0) {

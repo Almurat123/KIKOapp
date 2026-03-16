@@ -6,9 +6,10 @@
 import { FastifyReply, FastifyRequest } from 'fastify';
 import { createRemoteJWKSet, jwtVerify, decodeJwt } from 'jose';
 import { AppError } from './errorHandler.js';
+import { resolvePrivyServerConfig } from '../config/privy.js';
 
 const PRIVY_JWKS_URL = process.env.PRIVY_JWKS_URL || '';
-const PRIVY_APP_ID = process.env.PRIVY_APP_ID || '';
+const { appId: PRIVY_APP_ID } = resolvePrivyServerConfig();
 const NODE_ENV = String(process.env.NODE_ENV || '').toLowerCase();
 const RAILWAY_ENVIRONMENT = String(process.env.RAILWAY_ENVIRONMENT || '').toLowerCase();
 const APP_ENV = String(process.env.APP_ENV || '').toLowerCase();

@@ -12,6 +12,7 @@ import { AppError } from '../middleware/errorHandler.js';
 import { redact } from '../utils/sanitizer.js';
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
+import { resolvePrivyServerConfig } from '../config/privy.js';
 import {
     callRpc as rpcCall,
     broadcastRawWithQuorum,
@@ -64,8 +65,7 @@ export {
 } from './privyWalletQueue.js';
 
 // Initialize Privy client
-const PRIVY_APP_ID = process.env.VITE_PRIVY_APP_ID || process.env.PRIVY_APP_ID || '';
-const PRIVY_APP_SECRET = process.env.PRIVY_APP_SECRET || '';
+const { appId: PRIVY_APP_ID, appSecret: PRIVY_APP_SECRET, frontendAppId: PRIVY_FRONTEND_APP_ID, appIdMismatch: PRIVY_APP_ID_MISMATCH } = resolvePrivyServerConfig();
 const PRIVY_AUTHORIZATION_KEY = process.env.PRIVY_AUTHORIZATION_KEY || '';
 const PRIVY_SEND_TX_CHAIN_IDS = new Set(
     String(process.env.PRIVY_SEND_TX_CHAIN_IDS || '1,8453,56')
@@ -101,6 +101,7 @@ const PRIVY_FAST_TRADE_BSC_MIN_GAS_PRICE_WEI = BigInt(Math.max(1, Number(process
 const LOCAL_SIGNER_ENABLED = (process.env.LOCAL_SIGNER_ENABLED || 'false').toLowerCase() === 'true';
 
 let privyClient: PrivyClient | null = null;
+let privyConfigWarningLogged = false;
 
 function shouldReturnAcceptedLifecycleImmediately(tx: TransactionRequest): boolean {
     return tx.txPurpose === 'approval' || isFastTradeExecutionProfile(tx);
@@ -395,6 +396,14 @@ function getPrivyClient(): PrivyClient {
             'Privy credentials not configured. Set PRIVY_APP_ID and PRIVY_APP_SECRET.',
             'PRIVY_NOT_CONFIGURED'
         );
+    }
+
+    if (PRIVY_APP_ID_MISMATCH && !privyConfigWarningLogged) {
+        privyConfigWarningLogged = true;
+        logger.warn(LogCode.SYS_INFO, 'Privy frontend/server app id mismatch detected on API server', {
+            serverAppIdConfigured: true,
+            frontendAppIdConfigured: Boolean(PRIVY_FRONTEND_APP_ID),
+        });
     }
 
     // Initialize with Authorization Key if available (required for server-side signing)

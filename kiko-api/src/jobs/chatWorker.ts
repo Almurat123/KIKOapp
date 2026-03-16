@@ -101,6 +101,7 @@ export class ChatWorker {
             broker = new ChatStreamBroker({
                 userId,
                 sessionId: task.sessionId,
+                taskId: task.id,
                 assistantMessageId: task.assistantMessageId!,
                 model: task.model,
             });
@@ -261,6 +262,11 @@ export class ChatWorker {
                 throw error;
             }
             await broker.complete({ content: moderated.filtered_text || broker.getContent() });
+            logger.info(LogCode.AI_ORCHESTRATOR, 'ChatWorker: broker completion broadcast finished', {
+                taskId: task.id,
+                sessionId: task.sessionId,
+                assistantMessageId: task.assistantMessageId,
+            });
             await persistBillingUsage({
                 assistantMessageId: task.assistantMessageId!,
                 userId,
@@ -270,6 +276,11 @@ export class ChatWorker {
                 toolCallNames: broker.getToolResults().map((item) => item.name),
             });
             await this.repo.updateTaskStatus(task.id, 'done');
+            logger.info(LogCode.AI_ORCHESTRATOR, 'ChatWorker: task marked done', {
+                taskId: task.id,
+                sessionId: task.sessionId,
+                assistantMessageId: task.assistantMessageId,
+            });
             this.broadcastTaskStatus(userId, task, { taskId: task.id, status: 'done' });
         } catch (error: any) {
             const message = error?.message || String(error);
@@ -297,6 +308,7 @@ export class ChatWorker {
                 const failureBroker = broker || new ChatStreamBroker({
                     userId,
                     sessionId: task.sessionId,
+                    taskId: task.id,
                     assistantMessageId: task.assistantMessageId,
                     model: task.model,
                 });

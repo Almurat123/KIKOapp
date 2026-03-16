@@ -14,7 +14,7 @@ import { getTrendingCasts } from '../repositories/socialRepository.js';
 import * as alchemy from '../services/alchemy.js';
 import * as privyWallet from '../services/privyWallet.js';
 import { scrub } from '../utils/scrubber.js';
-import { computeUsdCost, getBillingCategory, getUtcDateString } from '../services/billing/billingService.js';
+import { computeTotalTokens, computeUsdCost, getBillingCategory, getUtcDateString } from '../services/billing/billingService.js';
 import { recordUsage } from '../services/usageCounter.js';
 import { buildSignedHeaders } from '../utils/requestSigningClient.js';
 import { fetchJson } from '../config/unifiedApiService.js';
@@ -4213,7 +4213,17 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
         assistantMessageId: string;
         userId?: string | null;
         model: string;
-        usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } | null;
+        usage?: {
+            prompt_tokens?: number;
+            completion_tokens?: number;
+            total_tokens?: number;
+            reasoning_tokens?: number;
+            cost_in_usd_ticks?: number;
+            prompt_cache_hit_tokens?: number;
+            prompt_cache_miss_tokens?: number;
+            prompt_tokens_details?: { cached_tokens?: number; text_tokens?: number } | null;
+            completion_tokens_details?: { reasoning_tokens?: number } | null;
+        } | null;
         toolContext?: any;
         toolCallsCount?: number;
         toolCallNames?: string[];
@@ -4232,7 +4242,7 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
         );
         const promptTokens = Number(params.usage.prompt_tokens || 0);
         const completionTokens = Number(params.usage.completion_tokens || 0);
-        const totalTokens = Number(params.usage.total_tokens || promptTokens + completionTokens);
+        const totalTokens = computeTotalTokens(params.usage, params.model);
 
         const dateUtc = getUtcDateString();
 

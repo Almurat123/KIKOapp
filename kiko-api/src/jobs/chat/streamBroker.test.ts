@@ -85,13 +85,37 @@ test('terminalizeRemainingPlanStepsAfterFailure marks remaining pending steps as
 
 test('mergeOrchestratorUsage accumulates multi-round provider usage', () => {
     const merged = mergeOrchestratorUsage(
-        { prompt_tokens: 100, completion_tokens: 25, total_tokens: 125 },
-        { prompt_tokens: 80, completion_tokens: 20, total_tokens: 100 },
+        {
+            prompt_tokens: 100,
+            completion_tokens: 25,
+            total_tokens: 150,
+            prompt_cache_hit_tokens: 40,
+            prompt_cache_miss_tokens: 60,
+            completion_tokens_details: { reasoning_tokens: 25 },
+            cost_in_usd_ticks: 1000,
+        },
+        {
+            prompt_tokens: 80,
+            completion_tokens: 20,
+            total_tokens: 130,
+            reasoning_tokens: 30,
+            prompt_cache_hit_tokens: 10,
+            prompt_cache_miss_tokens: 70,
+            prompt_tokens_details: { cached_tokens: 10, text_tokens: 70 },
+            completion_tokens_details: { reasoning_tokens: 30 },
+            cost_in_usd_ticks: 2500,
+        },
     );
 
     assert.deepEqual(merged, {
         prompt_tokens: 180,
         completion_tokens: 45,
-        total_tokens: 225,
+        total_tokens: 280,
+        reasoning_tokens: 55,
+        prompt_cache_hit_tokens: 50,
+        prompt_cache_miss_tokens: 130,
+        prompt_tokens_details: { cached_tokens: 10, text_tokens: 70 },
+        completion_tokens_details: { reasoning_tokens: 55 },
+        cost_in_usd_ticks: 3500,
     });
 });

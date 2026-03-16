@@ -95,6 +95,18 @@ test('X trending queries do not expose Farcaster trending tools unless Farcaster
     assert.ok(resolution.strategyNotes.some((note) => note.includes('X/Twitter')));
 });
 
+test('DeepSeek X trending queries stay out of native-search-only and do not pivot to Polymarket', () => {
+    const resolution = resolveNodeSkills(makeSnapshot("What's trending on X today?", {
+        model: 'deepseek-reasoner',
+    }), null);
+    assert.equal(resolution.intentEnvelope.domain, 'x');
+    assert.equal(resolution.toolPhasePolicy.initialPhase, 'local_analysis');
+    assert.equal(resolution.selectedSkills.includes('polymarket_prediction'), false);
+    assert.equal(resolution.allowedTools.includes('search_polymarket'), false);
+    assert.equal(resolution.allowedTools.includes('get_polymarket_trending'), false);
+    assert.ok(resolution.strategyNotes.some((note) => note.includes('without native X search')));
+});
+
 test('Farcaster discovery stays in local analysis phase', () => {
     const resolution = resolveNodeSkills(makeSnapshot("What's trending on Farcaster today?"), null);
     assert.equal(resolution.intentEnvelope.domain, 'farcaster');

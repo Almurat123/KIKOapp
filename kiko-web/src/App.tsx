@@ -1,5 +1,6 @@
 import React, { Suspense, useEffect, useState } from 'react';
 import { createBrowserRouter, RouterProvider } from 'react-router-dom';
+import KIKOdark from './assets/images/KIKOdark.png';
 import { RootLayout } from './layouts/RootLayout';
 import { ErrorPage } from './pages/ErrorPage';
 import { lazyRoute } from './utils/lazyRoute';
@@ -31,52 +32,115 @@ function RouteFallback() {
   return (
     <div
       style={{
-        minHeight: '100vh',
+        position: 'fixed',
+        inset: 0,
+        zIndex: 9999,
         background: 'var(--bg-primary, #0b0b0c)',
-        color: 'var(--text-primary, #f5f5f5)',
         display: 'flex',
+        flexDirection: 'column',
         alignItems: 'center',
         justifyContent: 'center',
         padding: '24px',
+        userSelect: 'none',
       }}
     >
       <div
         style={{
-          width: 'min(420px, 100%)',
-          border: '1px solid rgba(255,255,255,0.08)',
-          borderRadius: '24px',
-          background: 'rgba(255,255,255,0.04)',
-          padding: '24px',
-          boxShadow: '0 20px 60px rgba(0,0,0,0.35)',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          gap: '24px',
+          animation: 'pulse-gentle 2s ease-in-out infinite',
         }}
       >
-        <div style={{ fontSize: '18px', fontWeight: 600, marginBottom: '8px' }}>Loading Kiko</div>
-        <div style={{ fontSize: '14px', lineHeight: 1.5, opacity: 0.8 }}>
-          We&apos;re restoring the page and reconnecting the app.
+        <div 
+          style={{ 
+            width: '64px', 
+            height: '64px',
+            borderRadius: '16px',
+            overflow: 'hidden',
+            boxShadow: '0 8px 32px rgba(0,0,0,0.2)',
+            background: 'rgba(255,255,255,0.03)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center'
+          }}
+        >
+          <img 
+            src={KIKOdark} 
+            alt="KiKo" 
+            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+            onError={(e) => {
+              // Fallback to a simple text logo if image fails
+              (e.target as HTMLImageElement).style.display = 'none';
+              const parent = (e.target as HTMLElement).parentElement;
+              if (parent) parent.innerHTML = '<span style="font-size: 24px; font-weight: 800; color: #fff;">K</span>';
+            }}
+          />
         </div>
-        {showRecovery ? (
-          <div style={{ marginTop: '18px' }}>
-            <div style={{ fontSize: '13px', lineHeight: 1.5, opacity: 0.72, marginBottom: '12px' }}>
-              This is taking longer than expected. A stale route chunk or mobile browser restore can leave the page stuck here.
-            </div>
-            <button
-              type="button"
-              onClick={() => window.location.reload()}
-              style={{
-                border: 0,
-                borderRadius: '999px',
-                padding: '10px 16px',
-                fontWeight: 600,
-                cursor: 'pointer',
-                background: '#f5f5f5',
-                color: '#111',
-              }}
-            >
-              Reload app
-            </button>
-          </div>
-        ) : null}
+        
+        <div style={{ 
+          fontSize: '15px', 
+          fontWeight: 500, 
+          letterSpacing: '0.02em',
+          opacity: 0.6,
+          color: 'var(--text-primary, #f5f5f5)'
+        }}>
+          Loading Kiko...
+        </div>
       </div>
+
+      {showRecovery && (
+        <div 
+          style={{ 
+            position: 'absolute',
+            bottom: '10vh',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            gap: '12px',
+            animation: 'fadeIn 0.5s ease-out forwards'
+          }}
+        >
+          <p style={{ 
+            fontSize: '13px', 
+            opacity: 0.4, 
+            textAlign: 'center',
+            maxWidth: '280px',
+            lineHeight: 1.5
+          }}>
+            Taking longer than expected? It might be a connection issue.
+          </p>
+          <button
+            type="button"
+            onClick={() => window.location.reload()}
+            style={{
+              background: 'rgba(255, 255, 255, 0.08)',
+              backdropFilter: 'blur(20px)',
+              WebkitBackdropFilter: 'blur(20px)',
+              border: '1px solid rgba(255, 255, 255, 0.12)',
+              borderRadius: '14px',
+              padding: '10px 24px',
+              fontSize: '14px',
+              fontWeight: 600,
+              color: 'var(--text-primary, #f5f5f5)',
+              cursor: 'pointer',
+              boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+              transition: 'all 0.2s ease'
+            }}
+            onMouseOver={(e) => {
+              e.currentTarget.style.background = 'rgba(255, 255, 255, 0.12)';
+              e.currentTarget.style.transform = 'translateY(-1px)';
+            }}
+            onMouseOut={(e) => {
+              e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)';
+              e.currentTarget.style.transform = 'translateY(0)';
+            }}
+          >
+            Reload app
+          </button>
+        </div>
+      )}
     </div>
   );
 }

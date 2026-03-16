@@ -1,9 +1,9 @@
 .swapCard {
     position: relative;
     width: 100%;
-    max-width: 320px;
+    max-width: 420px;
     background: var(--bg-card);
-    border-radius: 24px;
+    border-radius: 28px;
     overflow: hidden;
     box-shadow: var(--card-shadow);
     border: 1px solid var(--border-color);
@@ -11,9 +11,7 @@
     user-select: none;
     transition: border-color 0.3s ease, background 0.3s ease;
     margin: 0;
-    /* Force no auto margin */
     align-self: flex-start;
-    /* Force flex alignment */
 }
 
 
@@ -29,13 +27,13 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 10px 14px 0 14px;
+    padding: 16px 20px 0 20px;
 }
 
 .swapTitle {
     color: var(--text-primary);
-    font-weight: 500;
-    font-size: 16px;
+    font-weight: 600;
+    font-size: 18px;
 }
 
 .swapSettings {
@@ -56,25 +54,24 @@
 
 /* Main Area */
 .swapMain {
-    padding: 6px 10px;
+    padding: 12px 16px;
     display: flex;
     flex-direction: column;
-    gap: 3px;
+    gap: 4px;
     position: relative;
 }
 
 .swapFrom,
 .swapTo {
     background: var(--bg-hover);
-    border-radius: 12px;
-    padding: 8px 10px;
+    border-radius: 16px;
+    padding: 14px 18px;
     display: flex;
     flex-direction: column;
-    gap: 3px;
+    gap: 6px;
     border: 1px solid transparent;
     transition: all 0.2s ease;
     position: relative;
-    /* Anchor for arrow */
     z-index: 1;
 }
 
@@ -140,9 +137,9 @@
 }
 
 .swapAmountInput {
-    font-size: 24px;
+    font-size: 32px;
     color: var(--text-primary);
-    font-weight: 500;
+    font-weight: 600;
     letter-spacing: -0.025em;
     width: 100%;
     overflow: hidden;
@@ -154,9 +151,9 @@
 }
 
 .swapAmountOutput {
-    font-size: 24px;
+    font-size: 32px;
     color: var(--success-color, #4ade80);
-    font-weight: 500;
+    font-weight: 600;
     letter-spacing: -0.025em;
     width: 100%;
     overflow: hidden;
@@ -167,10 +164,10 @@
 .swapToken {
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 8px;
     background: var(--bg-card);
     border-radius: 9999px;
-    padding: 4px 12px 4px 6px;
+    padding: 6px 14px 6px 8px;
     cursor: pointer;
     border: 1px solid var(--border-color);
     box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
@@ -183,18 +180,18 @@
 }
 
 .tokenEmoji {
-    font-size: 20px;
+    font-size: 24px;
     line-height: 1;
-    width: 24px;
-    height: 24px;
+    width: 32px;
+    height: 32px;
     display: flex;
     align-items: center;
     justify-content: center;
 }
 
 .tokenImage {
-    width: 24px;
-    height: 24px;
+    width: 32px;
+    height: 32px;
     border-radius: 50%;
     object-fit: cover;
     flex-shrink: 0;
@@ -203,7 +200,7 @@
 
 .tokenName {
     font-weight: 600;
-    font-size: 14px;
+    font-size: 16px;
     color: var(--text-primary);
 }
 
@@ -272,8 +269,8 @@
 
 .arrowInner {
     background: var(--bg-hover);
-    padding: 6px;
-    border-radius: 6px;
+    padding: 8px;
+    border-radius: 8px;
     color: var(--text-secondary);
     transition: color 0.2s ease;
     display: flex;
@@ -287,15 +284,15 @@
 
 /* Buttons */
 .swapButtons {
-    padding: 6px 10px 10px 10px;
+    padding: 12px 16px 16px 16px;
     display: grid;
-    grid-template-columns: 1.2fr 2.3fr;
-    gap: 6px;
+    grid-template-columns: 1fr 2fr;
+    gap: 12px;
 }
 
 .swapRouteBtn {
-    height: 42px;
-    border-radius: 12px;
+    height: 52px;
+    border-radius: 14px;
     background: var(--bg-hover);
     color: var(--text-secondary);
     display: flex;
@@ -304,8 +301,9 @@
     transition: all 0.2s ease;
     border: none;
     cursor: pointer;
-    min-width: 120px;
-    padding: 0 10px;
+    min-width: 140px;
+    padding: 0 14px;
+    font-size: 14px;
 }
 
 .swapRouteBtn:hover {
@@ -318,16 +316,16 @@
 }
 
 .swapConfirmBtn {
-    height: 40px;
-    border-radius: 12px;
+    height: 52px;
+    border-radius: 14px;
     background: var(--text-primary);
     color: var(--bg-primary);
     font-weight: 700;
-    font-size: 14px;
+    font-size: 16px;
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 6px;
+    gap: 8px;
     transition: all 0.2s ease;
     border: none;
     cursor: pointer;
@@ -595,7 +593,7 @@
     flex: 1;
     overflow-y: auto;
     padding: 8px;
-    max-height: 400px;
+    max-height: 500px;
 }
 
 .tokenItem {
@@ -703,8 +701,8 @@
 }
 
 .cancelBtn {
-    height: 40px;
-    border-radius: 12px;
+    height: 52px;
+    border-radius: 14px;
     background: var(--bg-hover);
     color: var(--text-secondary);
     border: 1px solid var(--border-color);

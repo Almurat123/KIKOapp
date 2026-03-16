@@ -17,7 +17,7 @@ import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
 import { evaluateUsageAccess } from '../services/usageAccess.js';
 import { insertUsageRecord } from '../repositories/billingRepository.js';
-import { computeUsdCost, getBillingCategory, getUtcDateString } from '../services/billing/billingService.js';
+import { computeTotalTokens, computeUsdCost, getBillingCategory, getUtcDateString } from '../services/billing/billingService.js';
 import { recordUsage } from '../services/usageCounter.js';
 import { randomUUID } from 'crypto';
 import { buildDailyMarketContext } from '../services/ai/dailyMarketContext.js';
@@ -328,7 +328,17 @@ async function processStreamResponse(
 async function persistProxyUsage(params: {
     userId?: string;
     model: string;
-    usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } | null;
+    usage?: {
+        prompt_tokens?: number;
+        completion_tokens?: number;
+        total_tokens?: number;
+        reasoning_tokens?: number;
+        cost_in_usd_ticks?: number;
+        prompt_cache_hit_tokens?: number;
+        prompt_cache_miss_tokens?: number;
+        prompt_tokens_details?: { cached_tokens?: number; text_tokens?: number } | null;
+        completion_tokens_details?: { reasoning_tokens?: number } | null;
+    } | null;
     toolCallsCount?: number;
     toolCallNames?: string[];
     isFree?: boolean;
@@ -339,7 +349,7 @@ async function persistProxyUsage(params: {
     const usage = params.usage || {};
     const promptTokens = Number(usage.prompt_tokens || 0);
     const completionTokens = Number(usage.completion_tokens || 0);
-    const totalTokens = Number(usage.total_tokens || promptTokens + completionTokens);
+    const totalTokens = computeTotalTokens(usage, params.model);
     const modelCategory = getBillingCategory(params.model);
     const toolCallsCount = Number(params.toolCallsCount || 0);
     const usdCost = computeUsdCost(

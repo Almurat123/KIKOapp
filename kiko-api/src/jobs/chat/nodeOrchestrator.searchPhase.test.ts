@@ -33,9 +33,11 @@ function makeSnapshot(message: string, overrides: Partial<ChatContextSnapshot> =
 function makeBroker() {
     const citations: any[] = [];
     const texts: string[] = [];
+    const replacements: string[] = [];
     const providerNativeEvidence: any[] = [];
     return {
         texts,
+        replacements,
         citations,
         providerNativeEvidence,
         async bootstrapRuntime() {},
@@ -55,6 +57,11 @@ function makeBroker() {
         getContent() { return texts.join(''); },
         async pushText(text: string) { texts.push(text); },
         async pushReasoning() {},
+        async blockContent(content: string) {
+            replacements.push(content);
+            texts.length = 0;
+            if (content) texts.push(content);
+        },
     };
 }
 
@@ -201,4 +208,78 @@ test('native search phase exits with controlled insufficient-evidence answer aft
     assert.deepEqual(seenRounds[2]?.tools, []);
     assert.equal(seenRounds[2]?.enableSearch, false);
     assert.equal(broker.texts.at(-1), 'I could not retrieve enough real-time evidence from X or web search.');
+});
+
+test('pseudo tool JSON in assistant text is rejected and retried as a real tool call', async () => {
+    const snapshot = makeSnapshot("What's trending on X right now?", {
+        model: 'deepseek-reasoner',
+    });
+    const broker = makeBroker();
+    let generationRound = 0;
+    let executeCalls = 0;
+
+    const generationClient = {
+        async generate(params: any) {
+            if (String(params?.taskId || '').endsWith(':plan')) {
+                return { text: '', reasoning: '', toolCalls: [] };
+            }
+            generationRound += 1;
+            if (generationRound === 1) {
+                return {
+                    text: [
+                        "I'll search for the current trending topics on X.",
+                        '```json',
+                        '{',
+                        '  "tool": "search_x_trending",',
+                        '  "parameters": { "limit": 10 }',
+                        '}',
+                        '```',
+                    ].join('\n'),
+                    reasoning: '',
+                    toolCalls: [],
+                };
+            }
+            if (generationRound === 2) {
+                return {
+                    text: '',
+                    reasoning: '',
+                    toolCalls: [
+                        {
+                            id: 'tool-1',
+                            name: 'search_polymarket',
+                            arguments: { query: 'trending', limit: 5 },
+                        },
+                    ],
+                };
+            }
+            return {
+                text: 'Here are the current topics trending on X based on native search.',
+                reasoning: '',
+                toolCalls: [],
+            };
+        },
+    };
+
+    await runNodeOrchestration({
+        snapshot,
+        generationClient: generationClient as any,
+        toolExecutionEngine: {
+            async execute(call: any) {
+                executeCalls += 1;
+                assert.equal(call.name, 'search_polymarket');
+                return {
+                    ok: true,
+                    result: { markets: [{ title: 'BTC trending' }] },
+                    metadata: { source: 'tool_runtime' },
+                };
+            },
+        } as any,
+        broker: broker as any,
+        toolContext: {},
+    });
+
+    assert.equal(generationRound, 3);
+    assert.equal(executeCalls, 1);
+    assert.deepEqual(broker.replacements, ['']);
+    assert.equal(broker.texts.join(''), 'Here are the current topics trending on X based on native search.');
 });

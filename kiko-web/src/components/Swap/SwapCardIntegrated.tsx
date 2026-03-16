@@ -870,14 +870,14 @@ export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
                 onClick={onClose}
                 title="Close"
               >
-                <X size={16} />
+                <X size={20} />
               </button>
             )}
             <button
               className={styles.swapSettings}
               onClick={() => setShowSettings(!showSettings)}
             >
-              <Settings2 size={16} />
+              <Settings2 size={20} />
             </button>
           </div>
         </div>
@@ -1010,7 +1010,7 @@ export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
                   <span className={styles.tokenEmoji}>{tokenInEmoji}</span>
                 )}
                 <span className={styles.tokenName}>{tokenInSymbol}</span>
-                <ChevronDown size={14} style={{ color: 'var(--text-tertiary)' }} />
+                <ChevronDown size={18} style={{ color: 'var(--text-tertiary)' }} />
               </button>
             </div>
 
@@ -1031,7 +1031,7 @@ export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
                 className={styles.arrowButton}
               >
                 <div className={styles.arrowInner}>
-                  <ArrowDown size={16} strokeWidth={3} />
+                  <ArrowDown size={20} strokeWidth={3} />
                 </div>
               </button>
             </div>
@@ -1067,7 +1067,7 @@ export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
                   <span className={styles.tokenEmoji}>{tokenOutEmoji}</span>
                 )}
                 <span className={styles.tokenName}>{tokenOutSymbol}</span>
-                <ChevronDown size={14} style={{ color: 'var(--text-tertiary)' }} />
+                <ChevronDown size={18} style={{ color: 'var(--text-tertiary)' }} />
               </button>
             </div>
 
@@ -1111,7 +1111,7 @@ export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
             className={styles.swapRouteBtn}
           >
             <span className={styles.routeBtnLabel}>
-              <ChevronDown size={14} />
+              <ChevronDown size={18} />
               <span className={styles.routeBtnText}>{selectedDex || 'Route'}</span>
             </span>
           </button>
@@ -1123,7 +1123,7 @@ export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
           >
             {effectiveIsExecuting ? (
               <>
-                <Zap size={16} />
+                <Zap size={18} />
                 <span>{actionButtonLabel}</span>
               </>
             ) : (
@@ -1211,7 +1211,7 @@ export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
                     setSearchQuery('');
                   }}
                 >
-                  <X size={20} />
+                  <X size={24} />
                 </button>
               </div>
 
@@ -1219,7 +1219,7 @@ export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
               <div className={styles.searchContainer}>
                 <div style={{ position: 'relative' }}>
                   <Search
-                    size={16}
+                    size={20}
                     style={{
                       position: 'absolute',
                       left: '16px',
@@ -1328,7 +1328,7 @@ export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
                             alignItems: 'center',
                             justifyContent: 'center',
                           }}>
-                            <Check size={12} color="#000" />
+                            <Check size={14} color="#000" />
                           </div>
                         )}
                       </button>

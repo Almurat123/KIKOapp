@@ -3,6 +3,11 @@ import * as chatRepo from '../../repositories/chatRepository.js';
 import { chatWS } from '../../services/chatWebSocket.js';
 import { LogCode } from '../../config/logRegistry.js';
 import { logger } from '../../utils/logger.js';
+import {
+    createLeadingInternalScaffoldSuppressor,
+    sanitizeReasoningForDisplay,
+    stripLeadingInternalScaffold,
+} from '../../services/ai/promptLeakSanitizer.js';
 import type {
     AgentRuntimeEnvelope,
     AgentRuntimeEvent,
@@ -20,6 +25,7 @@ import type {
 export class ChatStreamBroker {
     private content = '';
     private reasoning = '';
+    private rawReasoning = '';
     private citations: any[] = [];
     private citationKeys = new Set<string>();
     private usage: OrchestratorUsage | null = null;
@@ -27,11 +33,13 @@ export class ChatStreamBroker {
     private lastPersistMs = 0;
     private planCard: PlanCard | null = null;
     private assistantData: Record<string, any> = {};
+    private readonly contentSuppressor = createLeadingInternalScaffoldSuppressor();
 
     constructor(
         private readonly params: {
             userId: string | null;
             sessionId: string;
+            taskId?: string;
             assistantMessageId: string;
             model: string;
         }
@@ -44,6 +52,7 @@ export class ChatStreamBroker {
             sessionId: this.params.sessionId,
             data: {
                 messageId: this.params.assistantMessageId,
+                taskId: this.params.taskId,
                 role: 'assistant',
                 model: this.params.model,
             },
@@ -52,12 +61,14 @@ export class ChatStreamBroker {
 
     async pushText(text: string) {
         if (!text) return;
-        this.content += text;
+        const visibleText = this.contentSuppressor.push(text);
+        if (!visibleText) return;
+        this.content += visibleText;
         if (this.params.userId) {
             chatWS.broadcastToUser(this.params.userId, {
                 type: 'chunk',
                 sessionId: this.params.sessionId,
-                data: { messageId: this.params.assistantMessageId, content: text },
+                data: { messageId: this.params.assistantMessageId, content: visibleText },
             });
         }
         await this.persistStreaming();
@@ -65,7 +76,13 @@ export class ChatStreamBroker {
 
     async pushReasoning(text: string) {
         if (!text) return;
-        this.reasoning += text;
+        this.rawReasoning += text;
+        const sanitized = sanitizeReasoningForDisplay(this.rawReasoning);
+        const visibleReasoning = sanitized.startsWith(this.reasoning)
+            ? sanitized.slice(this.reasoning.length)
+            : sanitized;
+        this.reasoning = sanitized;
+        if (!visibleReasoning) return;
         if (this.params.userId) {
             chatWS.broadcastToUser(this.params.userId, {
                 type: 'chunk',
@@ -73,7 +90,7 @@ export class ChatStreamBroker {
                 data: {
                     messageId: this.params.assistantMessageId,
                     type: 'reasoning',
-                    reasoning_content: text,
+                    reasoning_content: visibleReasoning,
                 },
             });
         }
@@ -88,6 +105,7 @@ export class ChatStreamBroker {
         this.content = replacement;
         if (options?.clearReasoning) {
             this.reasoning = '';
+            this.rawReasoning = '';
         }
         if (this.params.userId) {
             chatWS.broadcastToUser(this.params.userId, {
@@ -95,6 +113,7 @@ export class ChatStreamBroker {
                 sessionId: this.params.sessionId,
                 data: {
                     messageId: this.params.assistantMessageId,
+                    taskId: this.params.taskId,
                     content: replacement,
                     replace: true,
                     clearReasoning: Boolean(options?.clearReasoning),
@@ -394,8 +413,21 @@ export class ChatStreamBroker {
 
     async complete(overrides?: { content?: string }) {
         if (typeof overrides?.content === 'string') {
-            this.content = overrides.content;
+            this.content = stripLeadingInternalScaffold(overrides.content);
+        } else {
+            const bufferedTail = this.contentSuppressor.flush();
+            if (bufferedTail) {
+                this.content += bufferedTail;
+                if (this.params.userId) {
+                    chatWS.broadcastToUser(this.params.userId, {
+                        type: 'chunk',
+                        sessionId: this.params.sessionId,
+                        data: { messageId: this.params.assistantMessageId, content: bufferedTail },
+                    });
+                }
+            }
         }
+        this.content = stripLeadingInternalScaffold(this.content);
         await this.completePlanCard();
         await chatRepo.updateMessage(this.params.assistantMessageId, {
             content: this.content,
@@ -410,6 +442,7 @@ export class ChatStreamBroker {
                 sessionId: this.params.sessionId,
                 data: {
                     messageId: this.params.assistantMessageId,
+                    taskId: this.params.taskId,
                     usage: this.usage || undefined,
                     citations: this.citations,
                 },
@@ -422,7 +455,14 @@ export class ChatStreamBroker {
             this.content = message;
             if (options.clearReasoning) {
                 this.reasoning = '';
+                this.rawReasoning = '';
             }
+        } else {
+            const bufferedTail = this.contentSuppressor.flush();
+            if (bufferedTail) {
+                this.content += bufferedTail;
+            }
+            this.content = stripLeadingInternalScaffold(this.content);
         }
         await this.markPlanFailed(message);
         try {
@@ -445,6 +485,7 @@ export class ChatStreamBroker {
                 sessionId: this.params.sessionId,
                 data: {
                     messageId: this.params.assistantMessageId,
+                    taskId: this.params.taskId,
                     error: message,
                     citations: this.citations,
                     usage: this.usage || undefined,
@@ -455,6 +496,7 @@ export class ChatStreamBroker {
                 sessionId: this.params.sessionId,
                 data: {
                     messageId: this.params.assistantMessageId,
+                    taskId: this.params.taskId,
                     usage: this.usage || undefined,
                     citations: this.citations,
                 },
@@ -966,14 +1008,53 @@ export function mergeOrchestratorUsage(
     if (!existing && !incoming) return null;
     const promptTokens = Number(existing?.prompt_tokens || 0) + Number(incoming?.prompt_tokens || 0);
     const completionTokens = Number(existing?.completion_tokens || 0) + Number(incoming?.completion_tokens || 0);
+    const reasoningTokens = getUsageReasoningTokens(existing) + getUsageReasoningTokens(incoming);
     const reportedTotal = Number(existing?.total_tokens || 0) + Number(incoming?.total_tokens || 0);
-    const computedTotal = promptTokens + completionTokens;
+    const computedTotal = promptTokens + completionTokens + reasoningTokens;
+    const costInUsdTicks = Number(existing?.cost_in_usd_ticks || 0) + Number(incoming?.cost_in_usd_ticks || 0);
+    const promptCacheHitTokens = Number(existing?.prompt_cache_hit_tokens || 0) + Number(incoming?.prompt_cache_hit_tokens || 0);
+    const promptCacheMissTokens = Number(existing?.prompt_cache_miss_tokens || 0) + Number(incoming?.prompt_cache_miss_tokens || 0);
+    const promptTokensDetails = mergeUsageDetails(existing?.prompt_tokens_details, incoming?.prompt_tokens_details);
+    const completionTokensDetails = mergeUsageDetails(existing?.completion_tokens_details, incoming?.completion_tokens_details);
 
     return {
         prompt_tokens: promptTokens,
         completion_tokens: completionTokens,
-        total_tokens: reportedTotal > 0 ? reportedTotal : computedTotal,
+        total_tokens: Math.max(reportedTotal, computedTotal),
+        reasoning_tokens: reasoningTokens > 0 ? reasoningTokens : undefined,
+        cost_in_usd_ticks: costInUsdTicks > 0 ? costInUsdTicks : undefined,
+        prompt_cache_hit_tokens: promptCacheHitTokens > 0 ? promptCacheHitTokens : undefined,
+        prompt_cache_miss_tokens: promptCacheMissTokens > 0 ? promptCacheMissTokens : undefined,
+        prompt_tokens_details: promptTokensDetails,
+        completion_tokens_details: completionTokensDetails,
     };
+}
+
+function getUsageReasoningTokens(usage: OrchestratorUsage | null | undefined): number {
+    if (!usage) return 0;
+    return Number(usage.reasoning_tokens || usage.completion_tokens_details?.reasoning_tokens || 0);
+}
+
+function mergeUsageDetails<T extends Record<string, any> | null | undefined>(
+    existing: T,
+    incoming: T,
+): T | undefined {
+    if (!existing && !incoming) return undefined;
+    const keys = new Set<string>([
+        ...Object.keys(existing || {}),
+        ...Object.keys(incoming || {}),
+    ]);
+    const merged: Record<string, any> = {};
+    for (const key of keys) {
+        const left = existing?.[key];
+        const right = incoming?.[key];
+        if (typeof left === 'number' || typeof right === 'number') {
+            merged[key] = Number(left || 0) + Number(right || 0);
+            continue;
+        }
+        merged[key] = right ?? left;
+    }
+    return merged as T;
 }
 
 export function terminalizeRemainingPlanStepsAfterFailure(

@@ -217,4 +217,20 @@ export interface OrchestratorUsage {
     prompt_tokens?: number;
     completion_tokens?: number;
     total_tokens?: number;
+    reasoning_tokens?: number;
+    cost_in_usd_ticks?: number;
+    prompt_cache_hit_tokens?: number;
+    prompt_cache_miss_tokens?: number;
+    prompt_tokens_details?: {
+        text_tokens?: number;
+        audio_tokens?: number;
+        image_tokens?: number;
+        cached_tokens?: number;
+    } | null;
+    completion_tokens_details?: {
+        reasoning_tokens?: number;
+        audio_tokens?: number;
+        accepted_prediction_tokens?: number;
+        rejected_prediction_tokens?: number;
+    } | null;
 }

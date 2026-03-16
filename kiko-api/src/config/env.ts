@@ -119,7 +119,7 @@ export interface EnvConfig {
         termsVersion: string;
         deepseekModels: string[];
         grokModels: string[];
-        modelPricing: Record<string, { promptUsdPer1M: number; completionUsdPer1M: number }>;
+        modelPricing: Record<string, { promptUsdPer1M: number; completionUsdPer1M: number; cachedPromptUsdPer1M?: number }>;
     };
     usageLimits: {
         enabled: boolean;
@@ -243,24 +243,24 @@ function validateEnv(): EnvConfig {
             console.warn('[Env] Failed to parse USAGE_LIMITS_TIERS_JSON, using default tiers.');
         }
     }
-    const deepseekModels = (process.env.BILLING_DEEPSEEK_MODELS || 'deepseek-chat,deepseek-reasoner,gpt-5-mini,grok-4-1-fast-non-reasoning')
+    const deepseekModels = (process.env.BILLING_DEEPSEEK_MODELS || 'deepseek-chat,deepseek-reasoner')
         .split(',')
         .map(v => v.trim())
         .filter(Boolean);
-    const grokModels = (process.env.BILLING_GROK_MODELS || 'grok-4-1-fast-reasoning')
+    const grokModels = (process.env.BILLING_GROK_MODELS || 'grok-4-1-fast-reasoning,grok-4-1-fast-non-reasoning')
         .split(',')
         .map(v => v.trim())
         .filter(Boolean);
-    let modelPricing: Record<string, { promptUsdPer1M: number; completionUsdPer1M: number }> = {
+    let modelPricing: Record<string, { promptUsdPer1M: number; completionUsdPer1M: number; cachedPromptUsdPer1M?: number }> = {
         'grok-4-1-fast-reasoning': { promptUsdPer1M: 0.20, completionUsdPer1M: 0.50 },
         'grok-4-1-fast-non-reasoning': { promptUsdPer1M: 0.20, completionUsdPer1M: 0.50 },
         // OpenAI GPT (USD per 1M tokens); override via BILLING_MODEL_PRICING_JSON if needed.
-        'deepseek-chat': { promptUsdPer1M: 0.285714, completionUsdPer1M: 0.428571 },
-        'deepseek-reasoner': { promptUsdPer1M: 0.285714, completionUsdPer1M: 0.428571 },
-        'gpt-4o-mini': { promptUsdPer1M: 0.15, completionUsdPer1M: 0.60 },
-        'gpt-4.1': { promptUsdPer1M: 2.00, completionUsdPer1M: 8.00 },
-        'gpt-5-mini': { promptUsdPer1M: 2.00, completionUsdPer1M: 8.00 },
-        'gpt-5.2': { promptUsdPer1M: 2.00, completionUsdPer1M: 8.00 },
+        'deepseek-chat': { promptUsdPer1M: 0.28, cachedPromptUsdPer1M: 0.028, completionUsdPer1M: 0.42 },
+        'deepseek-reasoner': { promptUsdPer1M: 0.28, cachedPromptUsdPer1M: 0.028, completionUsdPer1M: 0.42 },
+        'gpt-4o-mini': { promptUsdPer1M: 0.15, cachedPromptUsdPer1M: 0.075, completionUsdPer1M: 0.60 },
+        'gpt-4.1': { promptUsdPer1M: 2.00, cachedPromptUsdPer1M: 0.50, completionUsdPer1M: 8.00 },
+        'gpt-5-mini': { promptUsdPer1M: 0.25, cachedPromptUsdPer1M: 0.025, completionUsdPer1M: 2.00 },
+        'gpt-5.2': { promptUsdPer1M: 1.75, cachedPromptUsdPer1M: 0.175, completionUsdPer1M: 14.00 },
     };
     if (process.env.BILLING_MODEL_PRICING_JSON) {
         try {

@@ -9,6 +9,49 @@ const INTERNAL_JSON_MARKERS = [
     'expected_assistant_behavior',
 ];
 
+const INTERNAL_LABELED_JSON_BLOCKS = new Set([
+    'USER_SETTINGS',
+    'USER_CONTEXT',
+    'EXECUTION_PLAN',
+    'PROVIDER_NATIVE_EVIDENCE',
+]);
+
+const PSEUDO_TOOL_CALL_PATTERNS = [
+    /```json\s*[\s\S]*?"tool_calls"\s*:\s*\[/i,
+    /```json\s*[\s\S]*?"tool_name"\s*:\s*"/i,
+    /```json\s*[\s\S]*?"tool"\s*:\s*"/i,
+    /(?:^|\n)\s*\{\s*"tool_calls"\s*:\s*\[/i,
+    /(?:^|\n)\s*\{\s*"tool_name"\s*:\s*"/i,
+    /(?:^|\n)\s*\{\s*"tool"\s*:\s*"/i,
+];
+
+const REASONING_INTERNAL_PATTERNS = [
+    /task strategy/i,
+    /task_strategy/i,
+    /tool preferences/i,
+    /tool policy/i,
+    /current phase/i,
+    /intent envelope/i,
+    /provider-native/i,
+    /available skills?/i,
+    /available tools?/i,
+    /preferred tools?/i,
+    /let me call/i,
+    /i should use/i,
+    /i'?ll call/i,
+    /tool_calls?/i,
+    /\btool_name\b/i,
+    /search_polymarket/i,
+    /get_polymarket/i,
+    /search_farcaster/i,
+    /get_trending_casts/i,
+    /x_search/i,
+    /farcaster/i,
+    /polymarket/i,
+    /<call_[^>]+>/i,
+    /<\/[a-z_]+>/i,
+];
+
 export function sanitizeSkillPrompt(rawPrompt: string): string {
     const normalized = String(rawPrompt || '').replace(/\r\n/g, '\n');
 
@@ -32,15 +75,11 @@ export function sanitizeSkillPrompt(rawPrompt: string): string {
 export function stripLeadingInternalScaffold(answer: string): string {
     let next = String(answer || '');
 
-    next = next.replace(
-        /^\s*```json\s*[\s\S]*?```\s*/i,
-        (block) => containsInternalJsonMarker(block) ? '' : block,
-    );
-
-    next = next.replace(
-        /^\s*json\s*\n\s*\{[\s\S]*?\}\s*/i,
-        (block) => containsInternalJsonMarker(block) ? '' : block,
-    );
+    while (true) {
+        const stripped = stripLeadingInternalScaffoldOnce(next);
+        if (stripped === next) break;
+        next = stripped;
+    }
 
     return next.trimStart();
 }
@@ -76,6 +115,18 @@ export function createLeadingInternalScaffoldSuppressor() {
                 }
             }
 
+            if (startsWithInternalLabeledJsonBlock(trimmed)) {
+                const stripped = stripLeadingInternalScaffold(buffer);
+                if (stripped !== buffer.trimStart()) {
+                    buffer = stripped;
+                    passthrough = true;
+                    const flushed = buffer;
+                    buffer = '';
+                    return flushed;
+                }
+                return '';
+            }
+
             if (buffer.length >= 48 || /\n/.test(buffer)) {
                 passthrough = true;
                 const flushed = stripLeadingInternalScaffold(buffer);
@@ -96,7 +147,127 @@ export function createLeadingInternalScaffoldSuppressor() {
     };
 }
 
+export function containsPseudoToolCallOutput(answer: string): boolean {
+    const text = String(answer || '');
+    return PSEUDO_TOOL_CALL_PATTERNS.some((pattern) => pattern.test(text));
+}
+
+export function stripPseudoToolCallOutput(answer: string): string {
+    let next = String(answer || '');
+
+    next = next.replace(/```json\s*[\s\S]*?"tool_calls"\s*:\s*\[[\s\S]*?```/gi, '');
+    next = next.replace(/```json\s*[\s\S]*?"tool_name"\s*:\s*"[\s\S]*?```/gi, '');
+    next = next.replace(/```json\s*[\s\S]*?"tool"\s*:\s*"[\s\S]*?```/gi, '');
+    next = next.replace(/(?:^|\n)\s*\{\s*"tool_calls"\s*:\s*\[[\s\S]*?\}\s*(?=\n|$)/gi, '\n');
+    next = next.replace(/(?:^|\n)\s*\{\s*"tool_name"\s*:\s*"[\s\S]*?\}\s*(?=\n|$)/gi, '\n');
+    next = next.replace(/(?:^|\n)\s*\{\s*"tool"\s*:\s*"[\s\S]*?\}\s*(?=\n|$)/gi, '\n');
+
+    return next.replace(/\n{3,}/g, '\n\n').trim();
+}
+
+export function sanitizeReasoningForDisplay(reasoning: string): string {
+    let next = String(reasoning || '').replace(/\r\n/g, '\n');
+    next = stripLeadingInternalScaffold(next);
+    next = stripPseudoToolCallOutput(next);
+    next = next.replace(/<\/?[a-z_][^>\n]*>/gi, '');
+
+    const sentences = next
+        .split(/(?<=[.!?。！？])\s+|\n+/)
+        .map((item) => item.trim())
+        .filter(Boolean)
+        .filter((item) => !REASONING_INTERNAL_PATTERNS.some((pattern) => pattern.test(item)));
+
+    const deduped: string[] = [];
+    const seen = new Set<string>();
+    for (const sentence of sentences) {
+        const key = sentence.toLowerCase();
+        if (seen.has(key)) continue;
+        seen.add(key);
+        deduped.push(sentence);
+    }
+
+    const result = deduped.join(' ').trim();
+    if (result) return result;
+
+    if (String(reasoning || '').trim()) {
+        return 'Analyzing the request and checking what evidence can be gathered.';
+    }
+    return '';
+}
+
 function containsInternalJsonMarker(value: string): boolean {
     const normalized = String(value || '').toLowerCase();
     return INTERNAL_JSON_MARKERS.some((marker) => normalized.includes(marker));
+}
+
+function stripLeadingInternalScaffoldOnce(answer: string): string {
+    let next = String(answer || '');
+
+    next = next.replace(
+        /^\s*```json\s*[\s\S]*?```\s*/i,
+        (block) => containsInternalJsonMarker(block) ? '' : block,
+    );
+
+    next = next.replace(
+        /^\s*json\s*\n\s*\{[\s\S]*?\}\s*/i,
+        (block) => containsInternalJsonMarker(block) ? '' : block,
+    );
+
+    const trimmed = next.trimStart();
+    const strippedLabeledBlock = stripLeadingInternalLabeledJsonBlock(trimmed);
+    if (strippedLabeledBlock !== trimmed) {
+        return strippedLabeledBlock;
+    }
+
+    return next;
+}
+
+function startsWithInternalLabeledJsonBlock(value: string): boolean {
+    const match = String(value || '').match(/^\[([A-Z_]+)\]\s*\n/);
+    return !!match && INTERNAL_LABELED_JSON_BLOCKS.has(match[1]);
+}
+
+function stripLeadingInternalLabeledJsonBlock(value: string): string {
+    const match = String(value || '').match(/^\[([A-Z_]+)\]\s*\n/);
+    if (!match || !INTERNAL_LABELED_JSON_BLOCKS.has(match[1])) {
+        return value;
+    }
+    const remainder = value.slice(match[0].length).trimStart();
+    const jsonValue = extractLeadingJsonValue(remainder);
+    if (!jsonValue) return value;
+    return remainder.slice(jsonValue.length).trimStart();
+}
+
+function extractLeadingJsonValue(value: string): string | null {
+    const text = String(value || '');
+    const opening = text[0];
+    const closing = opening === '{' ? '}' : opening === '[' ? ']' : '';
+    if (!closing) return null;
+
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+
+    for (let i = 0; i < text.length; i += 1) {
+        const char = text[i];
+        if (inString) {
+            if (escaped) escaped = false;
+            else if (char === '\\') escaped = true;
+            else if (char === '"') inString = false;
+            continue;
+        }
+        if (char === '"') {
+            inString = true;
+            continue;
+        }
+        if (char === opening) depth += 1;
+        if (char === closing) {
+            depth -= 1;
+            if (depth === 0) {
+                return text.slice(0, i + 1);
+            }
+        }
+    }
+
+    return null;
 }

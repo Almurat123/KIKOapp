@@ -1,4 +1,4 @@
-import { computeUsdCost, getBillingCategory, getUtcDateString } from '../../services/billing/billingService.js';
+import { computeTotalTokens, computeUsdCost, getBillingCategory, getUtcDateString } from '../../services/billing/billingService.js';
 import { insertUsageRecord } from '../../repositories/billingRepository.js';
 import { recordUsage } from '../../services/usageCounter.js';
 
@@ -35,7 +35,17 @@ export async function persistBillingUsage(params: {
     assistantMessageId: string;
     userId?: string | null;
     model: string;
-    usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } | null;
+    usage?: {
+        prompt_tokens?: number;
+        completion_tokens?: number;
+        total_tokens?: number;
+        reasoning_tokens?: number;
+        cost_in_usd_ticks?: number;
+        prompt_cache_hit_tokens?: number;
+        prompt_cache_miss_tokens?: number;
+        prompt_tokens_details?: { cached_tokens?: number; text_tokens?: number } | null;
+        completion_tokens_details?: { reasoning_tokens?: number } | null;
+    } | null;
     toolContext?: any;
     toolCallNames?: string[];
 }): Promise<void> {
@@ -51,7 +61,7 @@ export async function persistBillingUsage(params: {
     );
     const promptTokens = Number(params.usage.prompt_tokens || 0);
     const completionTokens = Number(params.usage.completion_tokens || 0);
-    const totalTokens = Number(params.usage.total_tokens || promptTokens + completionTokens);
+    const totalTokens = computeTotalTokens(params.usage, params.model);
     const dateUtc = getUtcDateString();
 
     await insertUsageRecord({

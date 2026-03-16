@@ -133,6 +133,11 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
         }
     }
 
+    if (preferXNativeSearch && !isGrok && !querySignals.prediction) {
+        selected = selected.filter((skillId) => !['social_farcaster', 'polymarket_prediction', 'market_macro'].includes(skillId));
+        strategyNotes.push('This is an X/Twitter query on a provider path without native X search. Do not pivot to Farcaster or Polymarket unless the user explicitly asks for those domains.');
+    }
+
     selected = selected
         .filter((skillId, index) => selected.indexOf(skillId) === index && !!skillRegistryExec.getSkill(skillId))
         .slice(0, querySignals.welcome ? 1 : 3);
@@ -271,6 +276,9 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
         hasRequestedToken,
     });
     const toolPhasePolicy = buildToolPhasePolicy(snapshot, tradingIntent, intentEnvelope);
+    if (!isGrok && intentEnvelope.search_mode === 'required') {
+        strategyNotes.push('This provider does not support provider-native X/web search in the current orchestration path. Use only relevant local tools if they truly match the request, otherwise state the limitation plainly.');
+    }
     strategyNotes.push(describePhasePolicy(intentEnvelope, toolPhasePolicy));
 
     logger.info(LogCode.AI_SKILLS_ATTACHED, 'Node skill resolution completed', {
@@ -417,6 +425,7 @@ function buildToolPhasePolicy(
     tradingIntent: TradingIntent | null,
     intentEnvelope: IntentEnvelope,
 ): ToolPhasePolicy {
+    const supportsNativeSearch = String(snapshot.model || '').toLowerCase().includes('grok');
     const confirmationKind = String(snapshot.confirmationState?.kind || '');
     const executionReady = intentEnvelope.execution_risk === 'mutation'
         && intentEnvelope.required_evidence.length === 0
@@ -436,10 +445,13 @@ function buildToolPhasePolicy(
     }
 
     if (
+        supportsNativeSearch
+        && (
         intentEnvelope.search_mode === 'required'
         || intentEnvelope.domain === 'x'
         || intentEnvelope.search_target === 'x'
         || intentEnvelope.search_target === 'x_and_web'
+        )
     ) {
         return {
             initialPhase: 'native_search_only',
