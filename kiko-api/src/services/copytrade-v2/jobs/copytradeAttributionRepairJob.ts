@@ -1,5 +1,6 @@
 import prisma from '../../../db/prisma.js';
 import { getErc20Decimals } from '../../rpcManager.js';
+import { classifyCopytradeAssetEligibility } from '../../copytradeAssetEligibility.js';
 import { emitCopytradeDomainAudit } from '../audit/copytradeDomainAudit.js';
 import { emitCopytradeSummaryAudit } from '../audit/copytradeSummaryAudit.js';
 import { findLedgerFirstRepairCandidates } from '../ledger/copytradeLedgerSelectors.js';
@@ -30,6 +31,7 @@ export async function repairCopytradePositionAttribution(params: {
       entryAmount: true,
       entryAmountDec: true,
       entryAmountExact: true,
+      status: true,
       exitReason: true,
       exitRetryCount: true,
     },
@@ -80,6 +82,15 @@ export async function repairCopytradePositionAttribution(params: {
     return 'repair_required';
   }
 
+  const assetEligibility = classifyCopytradeAssetEligibility({
+    chainId: params.chainId,
+    tokenAddress: params.tokenAddress,
+  });
+  const canRearmMirrorSell = ledger?.targetFullExitVerified
+    && String(position.exitReason || '').toLowerCase() === 'mirror_sell'
+    && String(position.status || '').toLowerCase() === 'open'
+    && assetEligibility.allowed;
+
   const encoded = encodePositionTokenAmount({
     exactAmount: repair.repairedExactAmount,
   });
@@ -88,10 +99,10 @@ export async function repairCopytradePositionAttribution(params: {
     data: {
       entryAmountExact: encoded.exactAmount || repair.repairedExactAmount,
       entryAmountDec: encoded.decimalAmount || undefined,
-      exitRetryCount: ledger?.targetFullExitVerified && String(position.exitReason || '').toLowerCase() === 'mirror_sell'
+      exitRetryCount: canRearmMirrorSell
         ? Math.max(1, Number(position.exitRetryCount || 0))
         : position.exitRetryCount,
-      lastExitAttempt: ledger?.targetFullExitVerified && String(position.exitReason || '').toLowerCase() === 'mirror_sell'
+      lastExitAttempt: canRearmMirrorSell
         ? null
         : undefined,
     },
@@ -100,12 +111,14 @@ export async function repairCopytradePositionAttribution(params: {
   await syncCopytradeLedgerFromLegacy({
     positionId: params.positionId,
     targetWallet: params.targetWallet,
-    lifecycleState: ledger?.targetFullExitVerified && String(position.exitReason || '').toLowerCase() === 'mirror_sell'
+    lifecycleState: canRearmMirrorSell
       ? 'FOLLOWER_EXIT_FAILED_RETRYABLE'
       : 'FOLLOWER_OPEN',
     targetFullExitVerified: ledger?.targetFullExitVerified,
-    lastExecutionState: ledger?.targetFullExitVerified ? 'retryable_failure' : 'repair_completed',
-    lastExecutionReasonCode: repair.reasonCode,
+    lastExecutionState: canRearmMirrorSell ? 'retryable_failure' : 'repair_completed',
+    lastExecutionReasonCode: canRearmMirrorSell
+      ? repair.reasonCode
+      : (assetEligibility.allowed ? repair.reasonCode : assetEligibility.reasonCode || repair.reasonCode),
     targetSellTxHash: ledger?.latestTargetSellTxHash || null,
   }).catch(() => null);
 
@@ -119,6 +132,8 @@ export async function repairCopytradePositionAttribution(params: {
       repairSource: repair.source || null,
       repairedExactAmount: repair.repairedExactAmount,
       targetFullExitVerified: ledger?.targetFullExitVerified || false,
+      retryRearmed: canRearmMirrorSell,
+      forbiddenAsset: !assetEligibility.allowed,
     },
   });
   return 'repaired';

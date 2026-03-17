@@ -1,6 +1,7 @@
 import { ethers } from 'ethers';
 
 import prisma from '../../../db/prisma.js';
+import { classifyCopytradeAssetEligibility } from '../../copytradeAssetEligibility.js';
 import { emitCopytradeDomainAudit } from '../audit/copytradeDomainAudit.js';
 import { normalizeToken, normalizeWallet } from '../runtime/chainIdentityNormalizer.js';
 import { syncCopytradeLedgerFromLegacy } from '../ledger/copytradeLedgerRepository.js';
@@ -14,6 +15,7 @@ import { enqueuePositionExitIntent } from './positionExitIntentStore.js';
 import { upsertTargetSellEvent, type TargetSellEventRecord } from './targetSellEventStore.js';
 import type { PositionExitReason } from './types.js';
 import { nudgePositionExitIntentWorker } from './positionExitIntentWorker.js';
+import { persistTerminalExitBlockState } from './persistence.js';
 
 function parsePositiveBigInt(value: unknown): bigint {
   const raw = String(value || '').trim();
@@ -114,6 +116,32 @@ export async function scheduleMirrorSellIntentsForEvent(params: {
   let scheduled = 0;
   let skipped = 0;
   for (const position of params.positions) {
+    const assetEligibility = classifyCopytradeAssetEligibility({
+      chainId: position.chainId,
+      tokenAddress: position.tokenAddress,
+    });
+    if (!assetEligibility.allowed) {
+      await persistTerminalExitBlockState({
+        positions: [{ id: position.id } as any],
+        targetWallet: params.event.targetWallet,
+        reasonCode: assetEligibility.reasonCode || 'forbidden_asset',
+      }).catch(() => undefined);
+      skipped += 1;
+      emitCopytradeDomainAudit('mirror_sell_idempotent_skip', {
+        extra: {
+          positionId: position.id,
+          userId: position.userId,
+          chainId: position.chainId,
+          tokenAddress: position.tokenAddress,
+          targetWallet: params.event.targetWallet,
+          targetSellTxHash: event.targetSellTxHash,
+          blockedReason: 'forbidden_asset',
+          reasonCode: assetEligibility.reasonCode,
+        },
+      });
+      continue;
+    }
+
     const trackedRemainingRaw = await resolveTrackedRemainingRaw({
       position,
       targetWallet: params.event.targetWallet,

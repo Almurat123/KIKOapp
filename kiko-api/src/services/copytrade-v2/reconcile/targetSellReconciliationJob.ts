@@ -3,6 +3,7 @@ import { ethers } from 'ethers';
 import prisma from '../../../db/prisma.js';
 import { LogCode } from '../../../config/logRegistry.js';
 import { logger } from '../../../utils/logger.js';
+import { classifyCopytradeAssetEligibility } from '../../copytradeAssetEligibility.js';
 import { verifyTargetFullExit, formatTargetRemainingBalance } from './targetSellFullExitVerifier.js';
 import { armPendingAttributedPositionsForMirrorSell } from '../positions/pendingAttributedPositionLedger.js';
 import { emitCopytradeDomainAudit } from '../audit/copytradeDomainAudit.js';
@@ -192,6 +193,59 @@ async function hasActivePositionContext(params: {
   return Boolean(position?.id);
 }
 
+async function loadFollowerRecoveryEvidence(params: {
+  userId: string;
+  configId: string;
+  chainId: number;
+  tokenAddress: string;
+}): Promise<{
+  hasActivePosition: boolean;
+  hasPendingAttributedLot: boolean;
+  hasLedgerContext: boolean;
+}> {
+  const [hasActivePosition, pendingLot, ledger] = await Promise.all([
+    hasActivePositionContext(params),
+    prisma.pendingAttributedPosition.findFirst({
+      where: {
+        userId: params.userId,
+        chainId: params.chainId,
+        tokenAddress: {
+          equals: params.tokenAddress,
+          mode: 'insensitive',
+        },
+        status: { in: ['armed', 'sell_armed', 'consumed'] },
+        position: {
+          configId: params.configId,
+        },
+      },
+      select: { id: true },
+    }),
+    prisma.copytradePositionLedger.findFirst({
+      where: {
+        userId: params.userId,
+        configId: params.configId,
+        chainId: params.chainId,
+        tokenAddress: {
+          equals: params.tokenAddress,
+          mode: 'insensitive',
+        },
+        OR: [
+          { positionIdLegacy: { not: null } },
+          { pendingLotIdLegacy: { not: null } },
+          { leaderBuyTxHash: { not: null } },
+          { followerBuyTxHash: { not: null } },
+        ],
+      },
+      select: { id: true },
+    }),
+  ]);
+  return {
+    hasActivePosition,
+    hasPendingAttributedLot: Boolean(pendingLot?.id),
+    hasLedgerContext: Boolean(ledger?.id),
+  };
+}
+
 async function createOrReuseRecoveredPosition(params: {
   userId: string;
   configId: string;
@@ -379,6 +433,12 @@ async function recoverMissingOrphanMirrorSellPositions(params: {
   let scheduledRecoveredOrphans = 0;
 
   for (const signal of signals) {
+    const assetEligibility = classifyCopytradeAssetEligibility({
+      chainId: signal.chainId,
+      tokenAddress: signal.tokenAddress,
+    });
+    if (!assetEligibility.allowed) continue;
+
     const configs = configMap.get(`${signal.chainId}:${signal.targetWallet}`) || [];
     if (configs.length === 0) continue;
 
@@ -398,13 +458,28 @@ async function recoverMissingOrphanMirrorSellPositions(params: {
       });
       if (hasInFlight) continue;
 
-      const hasContext = await hasActivePositionContext({
+      const recoveryEvidence = await loadFollowerRecoveryEvidence({
         userId: config.userId,
         configId: config.id,
         chainId: signal.chainId,
         tokenAddress: signal.tokenAddress,
       });
-      if (hasContext) continue;
+      if (recoveryEvidence.hasActivePosition) continue;
+      if (!recoveryEvidence.hasPendingAttributedLot && !recoveryEvidence.hasLedgerContext) {
+        emitCopytradeDomainAudit('mirror_sell_idempotent_skip', {
+          extra: {
+            userId: config.userId,
+            configId: config.id,
+            chainId: signal.chainId,
+            tokenAddress: signal.tokenAddress,
+            targetWallet: signal.targetWallet,
+            targetSellTxHash: signal.targetSellTxHash,
+            blockedReason: 'missing_follower_evidence',
+            reasonCode: 'orphan_recovery_evidence_missing',
+          },
+        });
+        continue;
+      }
 
       const followerWallet = signal.chainId === 900
         ? String(config.user?.solanaWalletAddress || '').trim()
@@ -567,6 +642,11 @@ export async function runTargetSellReconciliationCycle(): Promise<{
   const openCandidates = await findLedgerFirstReconcileOpenCandidates({ createdAfter });
 
   for (const position of openCandidates) {
+    const assetEligibility = classifyCopytradeAssetEligibility({
+      chainId: position.chainId,
+      tokenAddress: position.tokenAddress,
+    });
+    if (!assetEligibility.allowed) continue;
     scannedOpen += 1;
     const fullExit = await verifyTargetFullExit({
       targetWallet: position.config.targetWallet,
@@ -691,6 +771,11 @@ export async function runTargetSellReconciliationCycle(): Promise<{
   const pendingCandidates = await findLedgerFirstReconcilePendingCandidates({ createdAfter });
 
   for (const lot of pendingCandidates) {
+    const assetEligibility = classifyCopytradeAssetEligibility({
+      chainId: lot.chainId,
+      tokenAddress: lot.tokenAddress,
+    });
+    if (!assetEligibility.allowed) continue;
     scannedPending += 1;
     const fullExit = await verifyTargetFullExit({
       targetWallet: lot.position.config.targetWallet,

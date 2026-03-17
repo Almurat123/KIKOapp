@@ -1,4 +1,5 @@
 import { determineCopyTradeDirection } from '../../copyTradeDirection.js';
+import { evaluateCopytradeSignalAssetPolicy } from '../../copytradeAssetEligibility.js';
 import type { CopytradeOrderAggregate } from '../contracts/aggregate.js';
 import { CopytradeDomainError } from '../contracts/errors.js';
 import {
@@ -218,6 +219,24 @@ export class CopytradeOrderFlowOrchestrator {
         mode: policy.mode,
         skipped: true,
         reasonCode,
+      };
+    }
+
+    const assetPolicy = evaluateCopytradeSignalAssetPolicy({
+      chainId: signal.chainId,
+      tokenIn: signal.swap.tokenIn,
+      tokenOut: signal.swap.tokenOut,
+      direction: resolvedDirection,
+    });
+    if (!assetPolicy.allowed) {
+      order = await this.transition(order, 'FAIL_TERMINAL', (assetPolicy.reasonCode || 'failed_terminal') as CopytradeReasonCode, {
+        blockedToken: assetPolicy.blockedToken,
+      });
+      return {
+        order,
+        mode: policy.mode,
+        skipped: true,
+        reasonCode: order.lastReasonCode,
       };
     }
 

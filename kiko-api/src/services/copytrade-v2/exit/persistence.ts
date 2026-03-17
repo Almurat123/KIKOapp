@@ -67,6 +67,51 @@ export async function persistDeferredExitRetryState(params: {
   }));
 }
 
+export async function persistTerminalExitBlockState(params: {
+  positions: Array<AttributedPositionLike & { id: string }>;
+  targetWallet?: string | null;
+  reasonCode: string;
+}): Promise<void> {
+  if (params.positions.length === 0) return;
+  const ids = params.positions.map((position) => position.id);
+  const closedAt = new Date();
+  const syntheticExitTxHash = `TERMINAL_BLOCK_${params.reasonCode}`
+    .toUpperCase()
+    .replace(/[^A-Z0-9_]/g, '_')
+    .slice(0, 120);
+
+  await prisma.position.updateMany({
+    where: {
+      id: { in: ids },
+      status: { in: ['open', 'pending', 'closing', 'close_pending'] as any },
+    },
+    data: {
+      status: 'failed_final' as any,
+      exitRetryCount: 0,
+      lastExitAttempt: null,
+      exitReason: params.reasonCode,
+      closedAt,
+    },
+  });
+
+  await consumePendingAttributedPositions({
+    positionIds: ids,
+    exitTxHash: syntheticExitTxHash,
+    reasonCode: `terminal_block:${params.reasonCode}`,
+  }).catch(() => 0);
+
+  await Promise.all(ids.map(async (positionId) => {
+    await syncCopytradeLedgerFromLegacy({
+      positionId,
+      targetWallet: params.targetWallet,
+      lifecycleState: 'FOLLOWER_EXIT_FAILED_TERMINAL',
+      lastExecutionState: 'terminal_failure',
+      lastExecutionReasonCode: params.reasonCode,
+      closedAt,
+    }).catch(() => null);
+  }));
+}
+
 export async function persistPendingExitFinalityState(params: {
   positions: Array<AttributedPositionLike & { id: string; exitRetryCount?: number | null }>;
   targetWallet?: string | null;

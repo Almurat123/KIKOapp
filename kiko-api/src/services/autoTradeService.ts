@@ -41,6 +41,7 @@ import { callRpc, getNativeBalance as rpcGetNativeBalance, getErc20Balance, getE
 import { startCopyTradePendingWatcher, stopCopyTradePendingWatcher } from './copyTradePendingService.js';
 import { assertConfigExecutable } from './copyTradeConfigSignatureService.js';
 import { determineCopyTradeDirection } from './copyTradeDirection.js';
+import { evaluateCopytradeSignalAssetPolicy } from './copytradeAssetEligibility.js';
 import {
     resolveExecutionModeFromConfig,
     type CopyTradeExecutionMode
@@ -696,6 +697,25 @@ export async function handleSwapDetected(
             txHash: swap.txHash,
             tokenIn: swap.tokenIn,
             tokenOut: swap.tokenOut
+        });
+        return;
+    }
+
+    const assetPolicy = evaluateCopytradeSignalAssetPolicy({
+        chainId,
+        tokenIn: swap.tokenIn,
+        tokenOut: swap.tokenOut,
+        direction: isSell ? 'sell' : isBuy ? 'buy' : isTokenToToken ? 'token_swap' : 'unknown',
+    });
+    if (!assetPolicy.allowed) {
+        logger.warn(LogCode.WTC_TX_SKIPPED, 'Skipping copytrade: forbidden_asset', {
+            targetWallet,
+            chainId,
+            txHash: swap.txHash,
+            tokenIn: swap.tokenIn,
+            tokenOut: swap.tokenOut,
+            blockedToken: assetPolicy.blockedToken,
+            reasonCode: assetPolicy.reasonCode,
         });
         return;
     }

@@ -1,6 +1,7 @@
 import { ethers } from 'ethers';
 import prisma from '../../../db/prisma.js';
 import { getErc20Decimals, getTransactionReceipt } from '../../rpcManager.js';
+import { classifyCopytradeAssetEligibility } from '../../copytradeAssetEligibility.js';
 import { emitCopytradeDomainAudit } from '../audit/copytradeDomainAudit.js';
 import { emitCopytradeSummaryAudit } from '../audit/copytradeSummaryAudit.js';
 import { findLedgerFirstOrphanSweepCandidates } from '../ledger/copytradeLedgerSelectors.js';
@@ -338,25 +339,13 @@ async function runCopytradeStateHygieneCycle(): Promise<{
     orderBy: { updatedAt: 'desc' },
   });
   if (reopenCandidates.length > 0) {
-    const reopenedIds = reopenCandidates.map((position) => position.id);
-    const reopened = await prisma.position.updateMany({
-      where: { id: { in: reopenedIds } },
-      data: {
-        status: 'open',
-        exitReason: 'mirror_sell',
-        exitRetryCount: 1,
-        lastExitAttempt: null,
-        closedAt: null,
-      },
-    });
-    reopenedFailedMaxRetryPositions = Number(reopened.count || 0);
     await Promise.all(reopenCandidates.map(async (position) => {
       await syncCopytradeLedgerFromLegacy({
         positionId: position.id,
         targetWallet: position.config?.targetWallet || null,
-        lifecycleState: 'FOLLOWER_EXIT_FAILED_RETRYABLE',
-        lastExecutionState: 'retryable_failure',
-        lastExecutionReasonCode: 'hygiene_reopen_failed_max_retries',
+        lifecycleState: 'FOLLOWER_EXIT_FAILED_TERMINAL',
+        lastExecutionState: 'terminal_failure',
+        lastExecutionReasonCode: 'hygiene_reopen_blocked_missing_evidence',
       }).catch(() => null);
     }));
   }
@@ -492,6 +481,29 @@ async function runCopytradeStateHygieneCycle(): Promise<{
     take: 200,
   });
   for (const order of stuckSellOrders) {
+    const assetEligibility = classifyCopytradeAssetEligibility({
+      chainId: order.chainId,
+      tokenAddress: String(order.tokenIn || ''),
+    });
+    if (!assetEligibility.allowed) continue;
+
+    const ledger = await prisma.copytradePositionLedger.findFirst({
+      where: {
+        userId: String(order.userId || ''),
+        configId: String(order.configId || ''),
+        chainId: order.chainId,
+        tokenAddress: {
+          equals: String(order.tokenIn || ''),
+          mode: 'insensitive',
+        },
+      },
+      select: {
+        id: true,
+        targetFullExitVerified: true,
+      },
+    }).catch(() => null);
+    if (!ledger?.id || !ledger.targetFullExitVerified) continue;
+
     const tokenWhere = order.chainId === 900
       ? { tokenAddress: String(order.tokenIn || '') }
       : { tokenAddress: { equals: String(order.tokenIn || ''), mode: 'insensitive' as const } };
@@ -542,6 +554,12 @@ export async function runCopytradeOrphanSweepCycle(params?: {
   let quarantinedPendingLots = 0;
 
   for (const position of candidates) {
+    const assetEligibility = classifyCopytradeAssetEligibility({
+      chainId: position.chainId,
+      tokenAddress: position.tokenAddress,
+    });
+    if (!assetEligibility.allowed) continue;
+
     const pendingRepair = await repairMissingPendingExpectedAmount({
       positionId: position.id,
       chainId: position.chainId,

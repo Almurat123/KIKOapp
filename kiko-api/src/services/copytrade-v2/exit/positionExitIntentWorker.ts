@@ -19,9 +19,11 @@ import {
 import {
   classifyExitIntentExecutionError,
   getMaxSameJobRetryAttempts,
+  isTerminalExitBlockReason,
   resolveSameJobRetryDelayMs,
 } from './exitIntentExecutionPolicy.js';
 import { recordExitIntentProgress } from './exitIntentProgress.js';
+import { persistTerminalExitBlockState } from './persistence.js';
 
 const EVM_EXIT_CONCURRENCY = Math.max(2, Number(process.env.COPYTRADE_EVM_EXIT_CONCURRENCY || '6'));
 const SOLANA_EXIT_CONCURRENCY = Math.max(1, Number(process.env.COPYTRADE_SOLANA_EXIT_CONCURRENCY || '2'));
@@ -31,6 +33,10 @@ const CONFIRMATION_RECHECK_MS = Math.max(15_000, Number(process.env.COPYTRADE_EX
 const RETRY_COOLDOWN_MS = Math.max(
   1_000,
   Number(process.env.COPYTRADE_EXIT_INTENT_RETRY_COOLDOWN_MS || String(STANDARD_EXIT_INTENT_RETRY_MS))
+);
+const MAX_QUEUE_RETRY_ATTEMPTS = Math.max(
+  0,
+  Number(process.env.COPYTRADE_EXIT_INTENT_QUEUE_RETRY_LIMIT || '3')
 );
 
 const laneLimits: Record<ExitIntentLane, number> = {
@@ -57,6 +63,61 @@ function bumpLaneInflight(lane: ExitIntentLane, delta: number): void {
   laneInflight.set(lane, Math.max(0, getLaneInflight(lane) + delta));
 }
 
+function readQueueRetryCount(intent: { metadata?: Record<string, unknown> | null }): number {
+  const raw = Number((intent.metadata as Record<string, unknown> | null)?.queueRetryCount || 0);
+  return Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : 0;
+}
+
+async function markIntentRetryable(params: {
+  intent: any;
+  reasonCode: string;
+  retryDelayMs: number;
+  queueRetryCount: number;
+  lane?: ExitIntentLane | string | null;
+}): Promise<void> {
+  await updatePositionExitIntentState({
+    id: params.intent.id,
+    lifecycleState: 'EXIT_RETRYABLE_UNRESOLVED',
+    lastReasonCode: params.reasonCode,
+    lane: (params.lane || params.intent.lane) as ExitIntentLane,
+    notBefore: new Date(Date.now() + params.retryDelayMs),
+    clearClaim: true,
+    metadataPatch: {
+      queueRetryCount: params.queueRetryCount,
+      lastQueueRetryReasonCode: params.reasonCode,
+      lastQueueRetryAt: new Date().toISOString(),
+    },
+  });
+}
+
+async function markIntentTerminal(params: {
+  intent: any;
+  reasonCode: string;
+  position?: any | null;
+  targetWallet?: string | null;
+  archivePosition?: boolean;
+}): Promise<void> {
+  if (params.archivePosition && params.position) {
+    await persistTerminalExitBlockState({
+      positions: [params.position],
+      targetWallet: params.targetWallet || null,
+      reasonCode: params.reasonCode,
+    }).catch(() => undefined);
+  }
+  await updatePositionExitIntentState({
+    id: params.intent.id,
+    lifecycleState: 'EXIT_FAILED_TERMINAL',
+    lastReasonCode: params.reasonCode,
+    clearClaim: true,
+    close: true,
+    metadataPatch: {
+      queueRetryCount: readQueueRetryCount(params.intent),
+      terminalReasonCode: params.reasonCode,
+      terminalizedAt: new Date().toISOString(),
+    },
+  });
+}
+
 async function loadIntentPosition(positionId: string) {
   return prisma.position.findUnique({
     where: { id: positionId },
@@ -66,7 +127,7 @@ async function loadIntentPosition(positionId: string) {
   });
 }
 
-async function processConfirmationIntent(intent: any): Promise<void> {
+async function processConfirmationIntent(intent: any): Promise<'confirmed_success' | 'retryable_unresolved' | 'confirmed_failed'> {
   const position = await prisma.position.findUnique({
     where: { id: intent.positionId },
     select: {
@@ -86,7 +147,7 @@ async function processConfirmationIntent(intent: any): Promise<void> {
       clearClaim: true,
       close: true,
     });
-    return;
+    return 'confirmed_failed';
   }
 
   if (String(position.status || '').toLowerCase() === 'closed') {
@@ -100,16 +161,25 @@ async function processConfirmationIntent(intent: any): Promise<void> {
       clearClaim: true,
       close: true,
     });
-    return;
+    return 'confirmed_success';
   }
 
-  await updatePositionExitIntentState({
-    id: intent.id,
-    lifecycleState: 'EXIT_RETRYABLE_UNRESOLVED',
-    lastReasonCode: 'confirmation_reconcile_retry',
+  const queueRetryCount = readQueueRetryCount(intent) + 1;
+  if (queueRetryCount > MAX_QUEUE_RETRY_ATTEMPTS) {
+    await markIntentTerminal({
+      intent,
+      reasonCode: 'confirmation_retry_budget_exhausted',
+      archivePosition: false,
+    });
+    return 'confirmed_failed';
+  }
+
+  await markIntentRetryable({
+    intent,
+    reasonCode: 'confirmation_reconcile_retry',
+    retryDelayMs: RETRY_COOLDOWN_MS,
+    queueRetryCount,
     lane: intent.chainId === 900 ? 'solana-exit' : 'evm-exit',
-    notBefore: new Date(Date.now() + RETRY_COOLDOWN_MS),
-    clearClaim: true,
   });
   emitCopytradeDomainAudit('exit_confirmation_unresolved_retry', {
     extra: {
@@ -120,14 +190,26 @@ async function processConfirmationIntent(intent: any): Promise<void> {
       targetSellTxHash: intent.targetSellTxHash || null,
       executionTxHash: intent.executionTxHash || null,
       reasonCode: 'confirmation_reconcile_retry',
+      queueRetryCount,
     },
   });
+  return 'retryable_unresolved';
 }
 
 async function processExitIntent(intent: any): Promise<void> {
+  let finalityState: 'confirmed_success' | 'pending_visibility' | 'retryable_unresolved' | 'confirmed_failed' = 'retryable_unresolved';
+  let settleRetryIntervalMs = RETRY_COOLDOWN_MS;
   if (intent.lane === 'confirmation-reconcile') {
-    await processConfirmationIntent(intent);
-    return;
+    try {
+      finalityState = await processConfirmationIntent(intent);
+      return;
+    } finally {
+      await settleExitIntentExecution({
+        identityKey: intent.identityKey,
+        finalityState,
+        minRetryIntervalMs: settleRetryIntervalMs,
+      }).catch(() => undefined);
+    }
   }
 
   const claim = await claimExitIntentExecution({
@@ -139,18 +221,27 @@ async function processExitIntent(intent: any): Promise<void> {
       reasonCode: claim.blockedReason === 'cooldown' ? 'intent_cooldown_active' : 'intent_inflight_active',
       retryAfterMs: claim.retryAfterMs || RETRY_COOLDOWN_MS,
     });
-    await updatePositionExitIntentState({
-      id: intent.id,
-      lifecycleState: 'EXIT_RETRYABLE_UNRESOLVED',
-      lastReasonCode: claim.blockedReason === 'cooldown' ? 'intent_cooldown_active' : 'intent_inflight_active',
-      notBefore: new Date(Date.now() + retryDelayMs),
-      clearClaim: true,
+    const reasonCode = claim.blockedReason === 'cooldown' ? 'intent_cooldown_active' : 'intent_inflight_active';
+    const queueRetryCount = readQueueRetryCount(intent) + 1;
+    if (queueRetryCount > MAX_QUEUE_RETRY_ATTEMPTS) {
+      await markIntentTerminal({
+        intent,
+        reasonCode: 'exit_retry_budget_exhausted',
+        archivePosition: false,
+      });
+      return;
+    }
+    await markIntentRetryable({
+      intent,
+      reasonCode,
+      retryDelayMs,
+      queueRetryCount,
     });
     return;
   }
 
-  let finalityState: 'confirmed_success' | 'pending_visibility' | 'retryable_unresolved' | 'confirmed_failed' = 'retryable_unresolved';
-  let settleRetryIntervalMs = RETRY_COOLDOWN_MS;
+  let loadedPosition: any | null = null;
+  let loadedTargetWallet: string | null = null;
   try {
     await updatePositionExitIntentState({
       id: intent.id,
@@ -172,38 +263,48 @@ async function processExitIntent(intent: any): Promise<void> {
         },
       }),
     ]);
+    loadedPosition = position;
+    loadedTargetWallet = config?.targetWallet || null;
 
     if (!position) {
-      await updatePositionExitIntentState({
-        id: intent.id,
-        lifecycleState: 'EXIT_FAILED_TERMINAL',
-        lastReasonCode: 'intent_position_missing',
-        clearClaim: true,
-        close: true,
+      await markIntentTerminal({
+        intent,
+        reasonCode: 'intent_position_missing',
       });
       finalityState = 'confirmed_failed';
       return;
     }
 
     if (!['open', 'pending'].includes(String(position.status || '').toLowerCase())) {
-      await updatePositionExitIntentState({
-        id: intent.id,
-        lifecycleState: String(position.status || '').toLowerCase() === 'closed' ? 'EXIT_CONFIRMED' : 'EXIT_FAILED_TERMINAL',
-        lastReasonCode: `intent_position_${String(position.status || 'missing').toLowerCase()}`,
-        clearClaim: true,
-        close: true,
+      const normalizedStatus = String(position.status || '').toLowerCase();
+      if (normalizedStatus === 'closed') {
+        await updatePositionExitIntentState({
+          id: intent.id,
+          lifecycleState: 'EXIT_CONFIRMED',
+          lastReasonCode: `intent_position_${normalizedStatus}`,
+          clearClaim: true,
+          close: true,
+        });
+        finalityState = 'confirmed_success';
+        return;
+      }
+      await markIntentTerminal({
+        intent,
+        reasonCode: isTerminalExitBlockReason(position.exitReason)
+          ? String(position.exitReason)
+          : `intent_position_${normalizedStatus || 'missing'}`,
+        position,
+        targetWallet: loadedTargetWallet,
+        archivePosition: false,
       });
-      finalityState = String(position.status || '').toLowerCase() === 'closed' ? 'confirmed_success' : 'confirmed_failed';
+      finalityState = 'confirmed_failed';
       return;
     }
 
     if (!config?.user) {
-      await updatePositionExitIntentState({
-        id: intent.id,
-        lifecycleState: 'EXIT_FAILED_TERMINAL',
-        lastReasonCode: 'intent_config_or_user_missing',
-        clearClaim: true,
-        close: true,
+      await markIntentTerminal({
+        intent,
+        reasonCode: 'intent_config_or_user_missing',
       });
       finalityState = 'confirmed_failed';
       return;
@@ -371,6 +472,25 @@ async function processExitIntent(intent: any): Promise<void> {
       return;
     }
 
+    if (['failed', 'failed_final'].includes(String(refreshed?.status || '').toLowerCase())) {
+      await recordExitIntentProgress({
+        intentId: intent.id,
+        workerId,
+        stage: 'confirmed',
+        reasonCode: String(refreshed?.exitReason || 'exit_failed_terminal'),
+        executionTxHash: refreshed?.exitTxHash || null,
+      });
+      await markIntentTerminal({
+        intent,
+        reasonCode: String(refreshed?.exitReason || 'exit_failed_terminal'),
+        position: loadedPosition,
+        targetWallet: loadedTargetWallet,
+        archivePosition: false,
+      });
+      finalityState = 'confirmed_failed';
+      return;
+    }
+
     if (refreshed?.exitTxHash) {
       await recordExitIntentProgress({
         intentId: intent.id,
@@ -394,12 +514,23 @@ async function processExitIntent(intent: any): Promise<void> {
     }
 
     settleRetryIntervalMs = RETRY_COOLDOWN_MS;
-    await updatePositionExitIntentState({
-      id: intent.id,
-      lifecycleState: 'EXIT_RETRYABLE_UNRESOLVED',
-      lastReasonCode: 'exit_no_txhash_retry',
-      notBefore: new Date(Date.now() + RETRY_COOLDOWN_MS),
-      clearClaim: true,
+    const queueRetryCount = readQueueRetryCount(intent) + 1;
+    if (queueRetryCount > MAX_QUEUE_RETRY_ATTEMPTS) {
+      await markIntentTerminal({
+        intent,
+        reasonCode: 'exit_retry_budget_exhausted',
+        position: loadedPosition,
+        targetWallet: loadedTargetWallet,
+        archivePosition: false,
+      });
+      finalityState = 'confirmed_failed';
+      return;
+    }
+    await markIntentRetryable({
+      intent,
+      reasonCode: 'exit_no_txhash_retry',
+      retryDelayMs: RETRY_COOLDOWN_MS,
+      queueRetryCount,
     });
     finalityState = 'retryable_unresolved';
   } catch (error: any) {
@@ -416,7 +547,6 @@ async function processExitIntent(intent: any): Promise<void> {
       reasonCode,
       retryAfterMs: (error as any)?.retryAfterMs,
     });
-    settleRetryIntervalMs = retryDelayMs;
     await recordExitIntentProgress({
       intentId: intent.id,
       workerId,
@@ -427,12 +557,35 @@ async function processExitIntent(intent: any): Promise<void> {
         lastErrorMessage: error?.message || String(error),
       },
     }).catch(() => undefined);
-    await updatePositionExitIntentState({
-      id: intent.id,
-      lifecycleState: 'EXIT_RETRYABLE_UNRESOLVED',
-      lastReasonCode: reasonCode,
-      notBefore: new Date(Date.now() + retryDelayMs),
-      clearClaim: true,
+    if (!disposition.queueRetryAllowed) {
+      await markIntentTerminal({
+        intent,
+        reasonCode,
+        position: loadedPosition,
+        targetWallet: loadedTargetWallet,
+        archivePosition: disposition.archivePosition,
+      }).catch(() => undefined);
+      finalityState = 'confirmed_failed';
+      return;
+    }
+    const queueRetryCount = readQueueRetryCount(intent) + 1;
+    if (queueRetryCount > MAX_QUEUE_RETRY_ATTEMPTS) {
+      await markIntentTerminal({
+        intent,
+        reasonCode: 'exit_retry_budget_exhausted',
+        position: loadedPosition,
+        targetWallet: loadedTargetWallet,
+        archivePosition: false,
+      }).catch(() => undefined);
+      finalityState = 'confirmed_failed';
+      return;
+    }
+    settleRetryIntervalMs = retryDelayMs;
+    await markIntentRetryable({
+      intent,
+      reasonCode,
+      retryDelayMs,
+      queueRetryCount,
     }).catch(() => undefined);
     finalityState = 'retryable_unresolved';
   } finally {

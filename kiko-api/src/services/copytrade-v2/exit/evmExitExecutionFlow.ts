@@ -6,6 +6,7 @@ import { getErc20Balance } from '../../rpcManager.js';
 import { executeSwapViaPort } from '../../swap/swapExecutionPort.js';
 import { emitCopytradeDomainAudit } from '../audit/copytradeDomainAudit.js';
 import { executeEvmExitPlan } from './executor.js';
+import { evaluateEvmExitEconomics } from './exitEconomics.js';
 import {
   buildMirrorSellIdempotencyKeys,
   claimMirrorSellIdempotency,
@@ -124,6 +125,44 @@ export async function executePlannedEvmExitFlow(params: {
         const remainingBalance = await getErc20Balance(params.tokenAddress, params.walletAddress, params.chainId, 'latest', { lane: 'critical' });
         const dustUsd = Number(ethers.formatUnits(remainingBalance, params.exitPlan.decimals)) * (params.tokenInfo?.price || 0);
         if (remainingBalance > 1000n && (dustUsd >= 0.05 || isPartialSell)) {
+          const economics = await evaluateEvmExitEconomics({
+            chainId: params.chainId,
+            walletAddress: params.walletAddress,
+            tokenAddress: params.tokenAddress,
+            amountInBase: remainingBalance,
+            tokenDecimals: params.exitPlan.decimals,
+            slippageBps: 2000,
+          }).catch(() => ({
+            executable: false,
+            reasonCode: 'exit_blocked_uneconomic',
+            expectedOutBase: 0n,
+            gasFloorBase: 0n,
+            gasEstimate: 0,
+            gasPriceWei: 0n,
+          }));
+          if (!economics.executable) {
+            emitCopytradeDomainAudit('mirror_sell_idempotent_skip', {
+              runtimeContext,
+              extra: {
+                userId: params.userId,
+                chainId: params.chainId,
+                tokenAddress: params.tokenAddress,
+                targetWallet: params.targetWallet || null,
+                blockedReason: 'uneconomic_dust_sweep',
+                reasonCode: economics.reasonCode,
+                expectedOutBase: economics.expectedOutBase.toString(),
+                gasFloorBase: economics.gasFloorBase.toString(),
+                gasEstimate: economics.gasEstimate,
+                gasPriceWei: economics.gasPriceWei.toString(),
+              },
+            });
+            return {
+              status: 'confirmed',
+              txHash,
+              isPartialSell,
+              runtimeContext,
+            };
+          }
           const dustAmountHuman = ethers.formatUnits(remainingBalance, params.exitPlan.decimals);
           await executeSwapViaPort({
             userId: params.userId,

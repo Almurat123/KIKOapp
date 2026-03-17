@@ -12,6 +12,7 @@ import { getTokenMetadata } from '../../rpcService.js';
 import { getErc20Balance } from '../../rpcManager.js';
 import { trackCopyTrade, trackSwap } from '../../userActivityService.js';
 import { publishCopytradeRawNotification } from '../notifications/copytradeNotificationPublisher.js';
+import { classifyCopytradeAssetEligibility } from '../../copytradeAssetEligibility.js';
 import {
   resolveExecutionModeFromConfig,
   type CopyTradeExecutionMode,
@@ -21,9 +22,10 @@ import { executePlannedEvmExitFlow } from '../exit/evmExitExecutionFlow.js';
 import {
   persistFailedExitState,
   persistDeferredExitRetryState,
-    persistPendingExitFinalityState,
+  persistPendingExitFinalityState,
   persistSuccessfulExit,
   reconcileNoopExitPosition,
+  persistTerminalExitBlockState,
 } from '../exit/persistence.js';
 import { getExitInflightRetryGraceMs, hasRecentInflightExitRetryGuard } from '../exit/retryGuard.js';
 import { resolveSolanaDbBalanceFallback } from '../exit/solanaDbBalanceFallback.js';
@@ -296,6 +298,27 @@ export async function executePositionExit(params: {
                 token: tokenAddress,
                 chainId,
                 reason: exitReason
+            });
+            return null;
+        }
+
+        const assetEligibility = classifyCopytradeAssetEligibility({
+            chainId,
+            tokenAddress,
+        });
+        if (!assetEligibility.allowed) {
+            logger.warn(LogCode.WTC_TX_SKIPPED, 'Copytrade exit blocked for forbidden asset', {
+                userId,
+                token: tokenAddress,
+                chainId,
+                reason: exitReason,
+                reasonCode: assetEligibility.reasonCode,
+                classification: assetEligibility.classification,
+            });
+            await persistTerminalExitBlockState({
+                positions: exitPositions as any,
+                targetWallet: config.targetWallet,
+                reasonCode: assetEligibility.reasonCode || 'forbidden_asset',
             });
             return null;
         }
