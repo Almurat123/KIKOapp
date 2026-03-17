@@ -9,35 +9,35 @@ import { resolveChainInput } from '../../../utils/chainParam.js';
 export const GetEarlyBuyersTool: Tool = {
     definition: {
         name: 'get_early_buyers',
-        description: 'Get the earliest buyers of a token. Useful for analyzing who bought first and potential insider/whale activity. Supports optional time range. Works on EVM chains and Solana.',
+        description: 'Get the earliest buyers of a token, optionally within a precise time window. Use this after you know the token contract and, if relevant, the event/post time window you want to analyze. If you choose this tool, emit a real structured tool call immediately. Do not narrate "Calling get_early_buyers" in plain text. Use address plus optional start_time/end_time; do not invent timestamp_range or other unofficial fields.',
         parameters: {
             type: 'object',
             properties: {
                 address: {
                     type: 'string',
-                    description: 'The token contract address'
+                    description: 'The token contract address.'
                 },
                 chain: {
                     type: 'string',
-                    description: 'The blockchain (eth, base, bsc, solana, arbitrum, polygon, optimism)',
+                    description: 'The blockchain (eth, base, bsc, solana, arbitrum, polygon, optimism).',
                     enum: ['eth', 'base', 'bsc', 'solana', 'arbitrum', 'polygon', 'optimism']
                 },
                 chain_id: {
                     type: 'number',
-                    description: 'Numeric chain ID (preferred when available), e.g. 1, 8453, 56, 900'
+                    description: 'Numeric chain ID (preferred when available), e.g. 1, 8453, 56, 900.'
                 },
                 limit: {
                     type: 'number',
-                    description: 'Number of early buyers to return (default 10, max 50)',
+                    description: 'Number of early buyers to return (default 10, max 50).',
                     default: 10
                 },
                 start_time: {
                     type: 'string',
-                    description: 'Optional start time (ISO string or unix seconds) to filter buyers by time range.'
+                    description: 'Optional inclusive start time. Use ISO datetime or unix seconds. Example: 2026-03-10T12:00:00Z.'
                 },
                 end_time: {
                     type: 'string',
-                    description: 'Optional end time (ISO string or unix seconds) to filter buyers by time range.'
+                    description: 'Optional inclusive end time. Use ISO datetime or unix seconds. Example: 2026-03-10T13:00:00Z.'
                 },
                 quality_mode: {
                     type: 'boolean',

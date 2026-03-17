@@ -54,7 +54,6 @@ export async function runNodeOrchestration(params: {
         metadata?: Record<string, any>;
     }>();
     let duplicateOnlyRounds = 0;
-    let forceAnswerWithoutTools = false;
     const toolUsageCount = new Map<string, number>();
     const knownToolNames = new Set(params.snapshot.toolDefinitions.map((item) => item.name));
     const providerNativeEvidence: ProviderNativeEvidenceSnapshot[] = [];
@@ -62,7 +61,6 @@ export async function runNodeOrchestration(params: {
     let currentPhase = skillResolution.currentPhase;
     let previousResponseId: string | null | undefined = params.snapshot.previousResponseId;
     let lastRoundPolicyMessage = '';
-    let pseudoToolRepairAttempts = 0;
 
     await params.broker.bootstrapRuntime(plan);
 
@@ -187,17 +185,15 @@ export async function runNodeOrchestration(params: {
         }
 
         const providerReadyMessages = sanitizeProviderHistory(messages, params.snapshot.model);
-        const roundTools = forceAnswerWithoutTools
-            ? []
-            : buildGenerationTools(
-                params.snapshot.toolDefinitions,
-                effectiveAllowedTools,
-                skillResolution.blockedTools,
-                skillResolution.preferredTools,
-                strictPolicy ? false : skillResolution.allowAllTools,
-                providerInfo.provider,
-                currentPhase,
-            );
+        const roundTools = buildGenerationTools(
+            params.snapshot.toolDefinitions,
+            effectiveAllowedTools,
+            skillResolution.blockedTools,
+            skillResolution.preferredTools,
+            strictPolicy ? false : skillResolution.allowAllTools,
+            providerInfo.provider,
+            currentPhase,
+        );
         const roundProviderOptions = buildProviderOptions(
             params.snapshot,
             providerInfo,
@@ -304,21 +300,13 @@ export async function runNodeOrchestration(params: {
         ) {
             const cleanedText = stripPseudoToolCallOutput(roundResult.text || '');
             const cleanedReasoning = stripPseudoToolCallOutput(roundResult.reasoning || '');
-            const canRepair = pseudoToolRepairAttempts < 1 && (roundTools.length > 0 || Boolean(roundProviderOptions.enable_search));
+            const textChanged = cleanedText !== (roundResult.text || '');
+            const reasoningChanged = cleanedReasoning !== (roundResult.reasoning || '');
 
-            await params.broker.blockContent?.('', { clearReasoning: true });
-            streamedRoundText = '';
-            streamedRoundReasoning = '';
-
-            if (canRepair) {
-                pseudoToolRepairAttempts += 1;
-                messages.push({
-                    role: 'system',
-                    content: planning.locale === 'zh'
-                        ? '你刚才把工具调用写成了回答正文。不要输出任何 tool JSON、tool_calls JSON 或伪代码块。若需要工具，请发出真实工具调用；否则直接正常回答。'
-                        : 'You wrote tool-call JSON in assistant text instead of making a real tool call. Do not print tool JSON or tool_calls blocks. If a tool is needed, emit a real tool call; otherwise answer normally.',
-                });
-                continue;
+            if (textChanged || reasoningChanged) {
+                await params.broker.blockContent?.(cleanedText, { clearReasoning: reasoningChanged });
+                streamedRoundText = cleanedText;
+                streamedRoundReasoning = reasoningChanged ? '' : streamedRoundReasoning;
             }
 
             roundResult = {
@@ -607,27 +595,8 @@ export async function runNodeOrchestration(params: {
                 duplicateOnlyRounds,
                 tools: actionableToolCalls.map((call) => call.name),
             });
-            if (duplicateOnlyRounds >= 2) {
-                const evidenceSnapshot = buildFinalizationEvidenceSnapshot(
-                    executedToolResults,
-                    providerNativeEvidence,
-                );
-                const finalizationDirective = planning.locale === 'zh'
-                    ? '你已经拿到了工具结果。不要再调用任何工具，请直接基于已有结果给出最终回答。'
-                    : 'You already have tool outputs. Do not call tools again; provide the final answer from existing evidence.';
-                messages.push({
-                    role: 'system',
-                    content: evidenceSnapshot
-                        ? `${finalizationDirective}\n\nTool evidence JSON:\n${evidenceSnapshot}`
-                        : finalizationDirective,
-                });
-                forceAnswerWithoutTools = true;
-                duplicateOnlyRounds = 0;
-                continue;
-            }
         } else {
             duplicateOnlyRounds = 0;
-            forceAnswerWithoutTools = false;
         }
     }
 

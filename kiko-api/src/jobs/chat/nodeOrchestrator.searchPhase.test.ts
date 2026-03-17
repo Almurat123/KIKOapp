@@ -217,7 +217,7 @@ test('search-capable queries can still return a direct answer without forced ret
     assert.equal(broker.texts.at(-1), 'Here is a concise answer without using tools.');
 });
 
-test('pseudo tool JSON in assistant text is rejected and retried as a real tool call', async () => {
+test('pseudo tool JSON in assistant text is sanitized but does not trigger a forced retry', async () => {
     const snapshot = makeSnapshot("What's trending on X right now?", {
         model: 'deepseek-reasoner',
         runtime: {
@@ -226,8 +226,6 @@ test('pseudo tool JSON in assistant text is rejected and retried as a real tool 
     });
     const broker = makeBroker();
     let generationRound = 0;
-    let executeCalls = 0;
-
     const generationClient = {
         async generate(params: any) {
             if (String(params?.taskId || '').endsWith(':plan')) {
@@ -249,70 +247,21 @@ test('pseudo tool JSON in assistant text is rejected and retried as a real tool 
                     toolCalls: [],
                 };
             }
-            if (generationRound === 2) {
-                return {
-                    text: '',
-                    reasoning: '',
-                    toolCalls: [
-                        {
-                            id: 'tool-1',
-                            name: 'external_web_search',
-                            arguments: { query: 'trending on X right now', limit: 5 },
-                        },
-                    ],
-                };
-            }
-            if (generationRound === 3) {
-                return {
-                    text: '',
-                    reasoning: '',
-                    toolCalls: [
-                        {
-                            id: 'tool-2',
-                            name: 'get_wallet_info',
-                            arguments: { wallet: '0xabc', chain_id: 8453 },
-                        },
-                    ],
-                };
-            }
-            return {
-                text: 'Here are the current topics trending on X after search and chain-side verification.',
-                reasoning: '',
-                toolCalls: [],
-            };
+            throw new Error('unexpected extra generation round');
         },
     };
 
     await runNodeOrchestration({
         snapshot,
         generationClient: generationClient as any,
-        toolExecutionEngine: {
-            async execute(call: any) {
-                executeCalls += 1;
-                if (executeCalls === 1) {
-                    assert.equal(call.name, 'external_web_search');
-                    return {
-                        ok: true,
-                        result: { results: [{ title: 'BTC trending' }] },
-                        metadata: { source: 'tool_runtime' },
-                    };
-                }
-                assert.equal(call.name, 'get_wallet_info');
-                return {
-                    ok: true,
-                    result: { wallet: '0xabc', chain: 'base' },
-                    metadata: { source: 'tool_runtime' },
-                };
-            },
-        } as any,
+        toolExecutionEngine: { async execute() { throw new Error('no tool execution expected'); } } as any,
         broker: broker as any,
         toolContext: {},
     });
 
-    assert.equal(generationRound, 4);
-    assert.equal(executeCalls, 2);
-    assert.deepEqual(broker.replacements, ['']);
-    assert.equal(broker.texts.join(''), 'Here are the current topics trending on X after search and chain-side verification.');
+    assert.equal(generationRound, 1);
+    assert.deepEqual(broker.replacements, ["I'll search for the current trending topics on X."]);
+    assert.equal(broker.texts.join(''), "I'll search for the current trending topics on X.");
 });
 
 test('provider-native search does not finish an X query before chain evidence is gathered', async () => {
@@ -422,7 +371,7 @@ test('plain-text answers are allowed without the removed hard evidence gate', as
     assert.equal(broker.texts.join(''), 'I found the buyers already and can summarize them now.');
 });
 
-test('function_call-style pseudo tool output is rejected and retried as a real tool call', async () => {
+test('function_call-style pseudo tool output is sanitized but does not trigger a forced retry', async () => {
     const tokenAddress = '0xeCCBb861c0dda7eFd964010085488B69317e4444';
     const snapshot = makeSnapshot('2026-03-10上架的alpha，然后你能查询当天的early buyer吗？', {
         model: 'deepseek-reasoner',
@@ -430,8 +379,6 @@ test('function_call-style pseudo tool output is rejected and retried as a real t
     });
     const broker = makeBroker();
     let generationRound = 0;
-    let executeCalls = 0;
-
     const generationClient = {
         async generate(params: any) {
             if (String(params?.taskId || '').endsWith(':plan')) {
@@ -451,78 +398,24 @@ test('function_call-style pseudo tool output is rejected and retried as a real t
                     toolCalls: [],
                 };
             }
-            if (generationRound === 2) {
-                return {
-                    text: '',
-                    reasoning: '',
-                    toolCalls: [
-                        {
-                            id: 'tool-search',
-                            name: 'external_web_search',
-                            arguments: { query: `${tokenAddress} Binance Alpha 2026-03-10`, limit: 5 },
-                        },
-                    ],
-                };
-            }
-            if (generationRound === 3) {
-                return {
-                    text: '',
-                    reasoning: '',
-                    toolCalls: [
-                        {
-                            id: 'tool-buyers',
-                            name: 'get_early_buyers',
-                            arguments: {
-                                token_address: tokenAddress,
-                                chain_id: 56,
-                                start_time: '2026-03-10T00:00:00Z',
-                                end_time: '2026-03-10T23:59:59Z',
-                            },
-                        },
-                    ],
-                };
-            }
-            return {
-                text: 'Here are the early buyers for that Alpha listing day.',
-                reasoning: '',
-                toolCalls: [],
-            };
+            throw new Error('unexpected extra generation round');
         },
     };
 
     await runNodeOrchestration({
         snapshot,
         generationClient: generationClient as any,
-        toolExecutionEngine: {
-            async execute(call: any) {
-                executeCalls += 1;
-                if (executeCalls === 1) {
-                    assert.equal(call.name, 'external_web_search');
-                    return {
-                        ok: true,
-                        result: { results: [{ title: 'Binance Alpha listing' }] },
-                        metadata: { source: 'tool_runtime' },
-                    };
-                }
-                assert.equal(call.name, 'get_early_buyers');
-                return {
-                    ok: true,
-                    result: { earlyBuyers: [{ address: '0xabc' }] },
-                    metadata: { source: 'tool_runtime' },
-                };
-            },
-        } as any,
+        toolExecutionEngine: { async execute() { throw new Error('no tool execution expected'); } } as any,
         broker: broker as any,
         toolContext: {},
     });
 
-    assert.equal(generationRound, 4);
-    assert.equal(executeCalls, 2);
+    assert.equal(generationRound, 1);
     assert.deepEqual(broker.replacements, ['']);
-    assert.equal(broker.texts.join(''), 'Here are the early buyers for that Alpha listing day.');
+    assert.equal(broker.texts.join(''), '');
 });
 
-test('prose-style pseudo tool narration is rejected and retried as a real tool call', async () => {
+test('prose-style pseudo tool narration is sanitized but does not trigger a forced retry', async () => {
     const tokenAddress = '0xeCCBb861c0dda7eFd964010085488B69317e4444';
     const snapshot = makeSnapshot('Find the early buyers around 2026-03-10 for this token', {
         model: 'deepseek-reasoner',
@@ -530,8 +423,6 @@ test('prose-style pseudo tool narration is rejected and retried as a real tool c
     });
     const broker = makeBroker();
     let generationRound = 0;
-    let executeCalls = 0;
-
     const generationClient = {
         async generate(params: any) {
             if (String(params?.taskId || '').endsWith(':plan')) {
@@ -549,78 +440,24 @@ test('prose-style pseudo tool narration is rejected and retried as a real tool c
                     toolCalls: [],
                 };
             }
-            if (generationRound === 2) {
-                return {
-                    text: '',
-                    reasoning: '',
-                    toolCalls: [
-                        {
-                            id: 'search-1',
-                            name: 'external_web_search',
-                            arguments: { query: `${tokenAddress} Binance Alpha 2026-03-10`, limit: 5 },
-                        },
-                    ],
-                };
-            }
-            if (generationRound === 3) {
-                return {
-                    text: '',
-                    reasoning: '',
-                    toolCalls: [
-                        {
-                            id: 'buyers-1',
-                            name: 'get_early_buyers',
-                            arguments: {
-                                token_address: tokenAddress,
-                                chain_id: 56,
-                                start_time: '2026-03-10T00:00:00Z',
-                                end_time: '2026-03-10T23:59:59Z',
-                            },
-                        },
-                    ],
-                };
-            }
-            return {
-                text: 'Here are the early buyers after real search and chain verification.',
-                reasoning: '',
-                toolCalls: [],
-            };
+            throw new Error('unexpected extra generation round');
         },
     };
 
     await runNodeOrchestration({
         snapshot,
         generationClient: generationClient as any,
-        toolExecutionEngine: {
-            async execute(call: any) {
-                executeCalls += 1;
-                if (executeCalls === 1) {
-                    assert.equal(call.name, 'external_web_search');
-                    return {
-                        ok: true,
-                        result: { results: [{ title: 'Binance Alpha date' }] },
-                        metadata: { source: 'tool_runtime' },
-                    };
-                }
-                assert.equal(call.name, 'get_early_buyers');
-                return {
-                    ok: true,
-                    result: { earlyBuyers: [{ address: '0xabc' }] },
-                    metadata: { source: 'tool_runtime' },
-                };
-            },
-        } as any,
+        toolExecutionEngine: { async execute() { throw new Error('no tool execution expected'); } } as any,
         broker: broker as any,
         toolContext: {},
     });
 
-    assert.equal(generationRound, 4);
-    assert.equal(executeCalls, 2);
-    assert.deepEqual(broker.replacements, ['']);
-    assert.equal(broker.texts.join(''), 'Here are the early buyers after real search and chain verification.');
+    assert.equal(generationRound, 1);
+    assert.deepEqual(broker.replacements, ['I will use real tools now.']);
+    assert.equal(broker.texts.join(''), 'I will use real tools now.');
 });
 
-test('pure early-buyer requests do not terminate on tool-name narration without real execution', async () => {
+test('pure early-buyer tool-name narration ends with the model response and does not auto-continue', async () => {
     const tokenAddress = '0xeCCBb861c0dda7eFd964010085488B69317e4444';
     const snapshot = makeSnapshot(`Check ${tokenAddress} early buyer`, {
         model: 'deepseek-reasoner',
@@ -628,8 +465,6 @@ test('pure early-buyer requests do not terminate on tool-name narration without 
     });
     const broker = makeBroker();
     let generationRound = 0;
-    let executeCalls = 0;
-
     const generationClient = {
         async generate(params: any) {
             if (String(params?.taskId || '').endsWith(':plan')) {
@@ -646,70 +481,26 @@ test('pure early-buyer requests do not terminate on tool-name narration without 
                     toolCalls: [],
                 };
             }
-            if (generationRound === 2) {
-                return {
-                    text: '',
-                    reasoning: '',
-                    toolCalls: [
-                        {
-                            id: 'token-1',
-                            name: 'get_token_info',
-                            arguments: { address: tokenAddress, chain_id: 56 },
-                        },
-                    ],
-                };
-            }
-            if (generationRound === 3) {
-                return {
-                    text: '',
-                    reasoning: '',
-                    toolCalls: [
-                        {
-                            id: 'buyers-1',
-                            name: 'get_early_buyers',
-                            arguments: { address: tokenAddress, chain_id: 56, limit: 20 },
-                        },
-                    ],
-                };
-            }
-            return {
-                text: 'Here are the early buyers for the provided token.',
-                reasoning: '',
-                toolCalls: [],
-            };
+            throw new Error('unexpected extra generation round');
         },
     };
 
     await runNodeOrchestration({
         snapshot,
         generationClient: generationClient as any,
-        toolExecutionEngine: {
-            async execute(call: any) {
-                executeCalls += 1;
-                if (executeCalls === 1) {
-                    assert.equal(call.name, 'get_token_info');
-                    return {
-                        ok: true,
-                        result: { address: tokenAddress, symbol: 'TEST' },
-                        metadata: { source: 'tool_runtime' },
-                    };
-                }
-                assert.equal(call.name, 'get_early_buyers');
-                return {
-                    ok: true,
-                    result: { earlyBuyers: [{ address: '0xabc' }] },
-                    metadata: { source: 'tool_runtime' },
-                };
-            },
-        } as any,
+        toolExecutionEngine: { async execute() { throw new Error('no tool execution expected'); } } as any,
         broker: broker as any,
         toolContext: {},
     });
 
-    assert.equal(generationRound, 4);
-    assert.equal(executeCalls, 2);
-    assert.deepEqual(broker.replacements, ['']);
-    assert.equal(broker.texts.join(''), 'Here are the early buyers for the provided token.');
+    assert.equal(generationRound, 1);
+    assert.deepEqual(broker.replacements, [
+        `I will fetch on-chain token info and early-buyer data now for ${tokenAddress} on BNB Chain (chain id 56). Proceeding to gather evidence.`,
+    ]);
+    assert.equal(
+        broker.texts.join(''),
+        `I will fetch on-chain token info and early-buyer data now for ${tokenAddress} on BNB Chain (chain id 56). Proceeding to gather evidence.`,
+    );
 });
 
 test('normalizeToolCallForProvider rewrites legacy early-buyer time arguments to start_time/end_time', () => {

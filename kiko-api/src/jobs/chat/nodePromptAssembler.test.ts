@@ -184,6 +184,9 @@ test('assembleGenerationMessages tells non-native-search providers to use local 
     assert.match(String(systemMessage?.content || ''), /use local search tools such as external_web_search/i);
     assert.match(String(systemMessage?.content || ''), /combine search evidence with chain-side evidence/i);
     assert.match(String(systemMessage?.content || ''), /do not say you found, confirmed, verified, or retrieved anything unless a real tool/i);
+    assert.match(String(systemMessage?.content || ''), /never narrate planned tool usage in plain text/i);
+    assert.match(String(systemMessage?.content || ''), /\[TOOL_CALL_EXAMPLES\]/);
+    assert.match(String(systemMessage?.content || ''), /i will use external_web_search/i);
 });
 
 test('assembleGenerationMessages reminds the model of the real early-buyer time contract', () => {
@@ -227,6 +230,7 @@ test('assembleGenerationMessages reminds the model of the real early-buyer time 
     const systemMessage = messages.find((message) => message.role === 'system');
     assert.match(String(systemMessage?.content || ''), /address plus start_time\/end_time/i);
     assert.match(String(systemMessage?.content || ''), /do not invent timestamp_range/i);
+    assert.match(String(systemMessage?.content || ''), /do not write "Calling get_early_buyers"/i);
 });
 
 test('assembleGenerationMessages does not send stored reasoning_content back to DeepSeek history', () => {
