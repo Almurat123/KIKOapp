@@ -23,6 +23,11 @@ const PSEUDO_TOOL_CALL_PATTERNS = [
     /(?:^|\n)\s*\{\s*"tool_calls"\s*:\s*\[/i,
     /(?:^|\n)\s*\{\s*"tool_name"\s*:\s*"/i,
     /(?:^|\n)\s*\{\s*"tool"\s*:\s*"/i,
+    /<tool_calls?>[\s\S]*?<\/tool_calls?>/i,
+    /<toolcall>[\s\S]*?<\/toolcall>/i,
+    /<invoke\b[^>]*>[\s\S]*?<\/invoke>/i,
+    /<parameter\b[^>]*>[\s\S]*?<\/parameter>/i,
+    /<tool_name>[\s\S]*?<\/tool_name>/i,
 ];
 
 const REASONING_INTERNAL_PATTERNS = [
@@ -41,6 +46,10 @@ const REASONING_INTERNAL_PATTERNS = [
     /i'?ll call/i,
     /tool_calls?/i,
     /\btool_name\b/i,
+    /<tool_calls?>/i,
+    /<invoke\b/i,
+    /<parameter\b/i,
+    /\bterminated\b/i,
     /search_polymarket/i,
     /get_polymarket/i,
     /search_farcaster/i,
@@ -161,6 +170,14 @@ export function stripPseudoToolCallOutput(answer: string): string {
     next = next.replace(/(?:^|\n)\s*\{\s*"tool_calls"\s*:\s*\[[\s\S]*?\}\s*(?=\n|$)/gi, '\n');
     next = next.replace(/(?:^|\n)\s*\{\s*"tool_name"\s*:\s*"[\s\S]*?\}\s*(?=\n|$)/gi, '\n');
     next = next.replace(/(?:^|\n)\s*\{\s*"tool"\s*:\s*"[\s\S]*?\}\s*(?=\n|$)/gi, '\n');
+    next = next.replace(/<tool_calls?>[\s\S]*?<\/tool_calls?>/gi, '\n');
+    next = next.replace(/<toolcall>[\s\S]*?<\/toolcall>/gi, '\n');
+    next = next.replace(/<invoke\b[^>]*>[\s\S]*?<\/invoke>/gi, '\n');
+    next = next.replace(/<parameter\b[^>]*>[\s\S]*?<\/parameter>/gi, '\n');
+    next = next.replace(/<tool_name>[\s\S]*?<\/tool_name>/gi, '\n');
+    next = next.replace(/<call_[^>\n]+>/gi, '\n');
+    next = next.replace(/<\/call_[^>\n]+>/gi, '\n');
+    next = next.replace(/<ToolCall>\s*[\s\S]*?<\/ToolCall>/gi, '\n');
 
     return next.replace(/\n{3,}/g, '\n\n').trim();
 }

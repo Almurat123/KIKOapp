@@ -46,18 +46,31 @@ export function buildTaskPlanningContext(
             : 'Clarify the goal first, then decide what evidence to gather next.',
         preferredPlanTools(skillResolution, []),
     );
+    const needsChainPlanStep = asksOnChainEvidence
+        || skillResolution.intentEnvelope.required_evidence.some((item) =>
+            ['onchain_token_evidence', 'onchain_wallet_evidence', 'connected_chain_evidence'].includes(item),
+        );
+    const steps: PlanStep[] = [initialStep];
+    if (asksRealtimeSocial) {
+        steps.push(buildSocialPlanStep(skillResolution, query));
+    }
+    if (needsChainPlanStep) {
+        steps.push(buildChainEvidencePlanStep(skillResolution, query));
+    }
+    if (asksCreatorEvidence) {
+        steps.push(buildCreatorPlanStep(skillResolution, query));
+    }
+    steps.push(buildSummaryPlanStep(query));
 
     return {
         plan: {
             planId: randomUUID(),
-            title: locale === 'zh' ? '正在处理你的请求' : 'Working on your request',
-            summary: locale === 'zh'
-                ? '我会逐步查看信息并在拿到结果后继续。'
-                : 'I will inspect the task step by step and continue as results come in.',
+            title: resolvePlanTitle(locale, asksRealtimeSocial, needsChainPlanStep),
+            summary: resolvePlanSummary(locale, asksRealtimeSocial, needsChainPlanStep),
             locale,
             status: 'in_progress',
             currentStepId: initialStep.id,
-            steps: [initialStep],
+            steps,
             activity: [],
         },
         asksRealtimeSocial,
@@ -66,6 +79,36 @@ export function buildTaskPlanningContext(
         requestedToken,
         locale,
     };
+}
+
+function resolvePlanTitle(locale: 'en' | 'zh', asksRealtimeSocial: boolean, asksChainEvidence: boolean): string {
+    if (locale === 'zh') {
+        if (asksRealtimeSocial && asksChainEvidence) return '核实发布时间与链上买家';
+        if (asksRealtimeSocial) return '核实社交时间线';
+        if (asksChainEvidence) return '整理链上证据';
+        return '正在处理你的请求';
+    }
+    if (asksRealtimeSocial && asksChainEvidence) return 'Verify timing and on-chain buyers';
+    if (asksRealtimeSocial) return 'Verify social timing';
+    if (asksChainEvidence) return 'Gather on-chain evidence';
+    return 'Working on your request';
+}
+
+function resolvePlanSummary(locale: 'en' | 'zh', asksRealtimeSocial: boolean, asksChainEvidence: boolean): string {
+    if (locale === 'zh') {
+        if (asksRealtimeSocial && asksChainEvidence) {
+            return '我会先确认帖子时间，再用链上工具核对买家和交易证据。';
+        }
+        if (asksRealtimeSocial) return '我会先确认相关帖子、时间点和公开来源。';
+        if (asksChainEvidence) return '我会先获取链上证据，再整理结论。';
+        return '我会逐步查看信息并在拿到结果后继续。';
+    }
+    if (asksRealtimeSocial && asksChainEvidence) {
+        return 'I will verify the public post timing first, then gather chain-side buyer and transaction evidence.';
+    }
+    if (asksRealtimeSocial) return 'I will verify the relevant public post and timing first.';
+    if (asksChainEvidence) return 'I will gather on-chain evidence before writing the answer.';
+    return 'I will inspect the task step by step and continue as results come in.';
 }
 
 export function buildSocialPlanStep(skillResolution: SkillResolution, query: string): PlanStep {

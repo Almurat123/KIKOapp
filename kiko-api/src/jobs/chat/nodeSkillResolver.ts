@@ -141,6 +141,9 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
             ensureSupportingSkill(selected, 'wallet_portfolio');
         }
         strategyNotes.push('Any X/Twitter query in this system must gather search evidence and chain-side evidence together before concluding.');
+        if (querySignals.timeContext && hasRequestedToken) {
+            strategyNotes.push('For time-anchored token analysis, establish the public post or announcement timestamp first, then run get_early_buyers with the real address + start_time/end_time contract.');
+        }
     }
 
     if (selected.length === 0 && !querySignals.welcome) {

@@ -148,11 +148,13 @@ test('official announcement date lookups are treated as required search even wit
     }), null);
 
     assert.equal(resolution.searchMode, 'required');
-    assert.equal(resolution.searchReason, 'explicit_search_intent');
+    assert.equal(resolution.searchReason, 'social_plus_chain_evidence_required');
     assert.equal(resolution.toolPhasePolicy.initialPhase, 'native_search_only');
     assert.equal(resolution.toolPhasePolicy.nextPhaseAfterNativeSearch, 'local_analysis');
     assert.ok(resolution.allowedTools.includes('get_token_info'));
     assert.ok(resolution.preferredTools.includes('get_early_buyers'));
+    assert.ok(resolution.intentEnvelope.required_evidence.includes('onchain_token_evidence'));
+    assert.ok(resolution.strategyNotes.some((note) => note.includes('start_time/end_time')));
 });
 
 test('official source lookup handles split Chinese intent words and English synonyms', () => {

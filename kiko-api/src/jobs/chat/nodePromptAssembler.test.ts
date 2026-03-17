@@ -183,6 +183,50 @@ test('assembleGenerationMessages tells non-native-search providers to use local 
     const systemMessage = messages.find((message) => message.role === 'system');
     assert.match(String(systemMessage?.content || ''), /use local search tools such as external_web_search/i);
     assert.match(String(systemMessage?.content || ''), /do not stop after search alone/i);
+    assert.match(String(systemMessage?.content || ''), /do not say you found, confirmed, verified, or retrieved anything unless a real tool/i);
+});
+
+test('assembleGenerationMessages reminds the model of the real early-buyer time contract', () => {
+    const snapshot: ChatContextSnapshot = {
+        sessionId: 'session-5',
+        taskId: 'task-5',
+        model: 'deepseek-reasoner',
+        history: [],
+        lastUserMessage: 'Find early buyers around 2026-03-10 12:00 UTC for 0xeCCBb861c0dda7eFd964010085488B69317e4444',
+        runtime: {
+            contextBlocks: {},
+            userSettings: {},
+        },
+        requestedTokenAddresses: ['0xeCCBb861c0dda7eFd964010085488B69317e4444'],
+        requestedTokenSymbols: [],
+        toolDefinitions: [],
+    };
+
+    const providerInfo: ProviderInfo = {
+        provider: 'deepseek',
+        model: snapshot.model,
+        supportsNativeSearch: false,
+        supportsPreviousResponse: false,
+    };
+
+    const messages = assembleGenerationMessages(snapshot, [], providerInfo, {
+        searchMode: 'required',
+        searchReason: 'social_plus_chain_evidence_required',
+        toolPhase: 'local_analysis',
+        intentEnvelope: {
+            primary_intent: 'social_discovery',
+            task_mode: 'discover',
+            search_mode: 'required',
+            search_target: 'x',
+            domain: 'x',
+            execution_risk: 'read_only',
+            required_evidence: ['native_search_results', 'onchain_token_evidence'],
+        },
+    });
+
+    const systemMessage = messages.find((message) => message.role === 'system');
+    assert.match(String(systemMessage?.content || ''), /address plus start_time\/end_time/i);
+    assert.match(String(systemMessage?.content || ''), /do not invent timestamp_range/i);
 });
 
 test('assembleGenerationMessages does not send stored reasoning_content back to DeepSeek history', () => {

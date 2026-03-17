@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { toolRegistry } from '../../tooling/registry.js';
 import type { ChatContextSnapshot } from './contracts.js';
-import { buildGenerationTools, runNodeOrchestration } from './nodeOrchestrator.js';
+import { buildGenerationTools, normalizeToolCallForProvider, runNodeOrchestration } from './nodeOrchestrator.js';
 
 function makeSnapshot(message: string, overrides: Partial<ChatContextSnapshot> = {}): ChatContextSnapshot {
     const { runtime: runtimeOverrides, ...restOverrides } = overrides;
@@ -49,6 +49,7 @@ function makeBroker() {
         async markPlanStepStarted() {},
         async recordToolResult() {},
         async markAnswerStarted() {},
+        async setRuntimeState() {},
         pushUsage() {},
         pushCitation(citation: any) { citations.push(citation); },
         getCitations() { return [...citations]; },
@@ -133,6 +134,19 @@ test('native search phase runs before local token analysis tools', async () => {
                     ],
                 };
             }
+            if (generationRound === 2) {
+                return {
+                    text: '',
+                    reasoning: '',
+                    toolCalls: [
+                        {
+                            id: 'token-1',
+                            name: 'get_token_info',
+                            arguments: { address: 'btc', chain_id: 1 },
+                        },
+                    ],
+                };
+            }
             return {
                 text: 'Based on X sentiment and on-chain context, BTC holders are still active.',
                 reasoning: '',
@@ -144,7 +158,16 @@ test('native search phase runs before local token analysis tools', async () => {
     await runNodeOrchestration({
         snapshot,
         generationClient: generationClient as any,
-        toolExecutionEngine: { async execute() { throw new Error('no local tool execution expected in this test'); } } as any,
+        toolExecutionEngine: {
+            async execute(call: any) {
+                assert.equal(call.name, 'get_token_info');
+                return {
+                    ok: true,
+                    result: { symbol: 'BTC' },
+                    metadata: { source: 'tool_runtime' },
+                };
+            },
+        } as any,
         broker: broker as any,
         toolContext: {},
     });
@@ -152,6 +175,7 @@ test('native search phase runs before local token analysis tools', async () => {
     assert.equal(seenRounds[0]?.enableSearch, true);
     assert.deepEqual(seenRounds[0]?.tools, []);
     assert.equal(seenRounds[1]?.enableSearch, false);
+    assert.ok(seenRounds[1]?.tools.includes('get_token_info'));
     assert.ok(broker.providerNativeEvidence.length >= 1);
     assert.equal(broker.texts.at(-1), 'Based on X sentiment and on-chain context, BTC holders are still active.');
 });
@@ -213,6 +237,9 @@ test('native search phase exits with controlled insufficient-evidence answer aft
 test('pseudo tool JSON in assistant text is rejected and retried as a real tool call', async () => {
     const snapshot = makeSnapshot("What's trending on X right now?", {
         model: 'deepseek-reasoner',
+        runtime: {
+            walletAddress: '0xabc',
+        },
     });
     const broker = makeBroker();
     let generationRound = 0;
@@ -246,14 +273,27 @@ test('pseudo tool JSON in assistant text is rejected and retried as a real tool 
                     toolCalls: [
                         {
                             id: 'tool-1',
-                            name: 'search_polymarket',
-                            arguments: { query: 'trending', limit: 5 },
+                            name: 'external_web_search',
+                            arguments: { query: 'trending on X right now', limit: 5 },
+                        },
+                    ],
+                };
+            }
+            if (generationRound === 3) {
+                return {
+                    text: '',
+                    reasoning: '',
+                    toolCalls: [
+                        {
+                            id: 'tool-2',
+                            name: 'get_wallet_info',
+                            arguments: { wallet: '0xabc', chain_id: 8453 },
                         },
                     ],
                 };
             }
             return {
-                text: 'Here are the current topics trending on X based on native search.',
+                text: 'Here are the current topics trending on X after search and chain-side verification.',
                 reasoning: '',
                 toolCalls: [],
             };
@@ -266,10 +306,90 @@ test('pseudo tool JSON in assistant text is rejected and retried as a real tool 
         toolExecutionEngine: {
             async execute(call: any) {
                 executeCalls += 1;
-                assert.equal(call.name, 'search_polymarket');
+                if (executeCalls === 1) {
+                    assert.equal(call.name, 'external_web_search');
+                    return {
+                        ok: true,
+                        result: { results: [{ title: 'BTC trending' }] },
+                        metadata: { source: 'tool_runtime' },
+                    };
+                }
+                assert.equal(call.name, 'get_wallet_info');
                 return {
                     ok: true,
-                    result: { markets: [{ title: 'BTC trending' }] },
+                    result: { wallet: '0xabc', chain: 'base' },
+                    metadata: { source: 'tool_runtime' },
+                };
+            },
+        } as any,
+        broker: broker as any,
+        toolContext: {},
+    });
+
+    assert.equal(generationRound, 4);
+    assert.equal(executeCalls, 2);
+    assert.deepEqual(broker.replacements, ['']);
+    assert.equal(broker.texts.join(''), 'Here are the current topics trending on X after search and chain-side verification.');
+});
+
+test('provider-native search does not finish an X query before chain evidence is gathered', async () => {
+    const snapshot = makeSnapshot("What's trending on X for 0x1111111111111111111111111111111111111111?", {
+        requestedTokenAddresses: ['0x1111111111111111111111111111111111111111'],
+    });
+    const broker = makeBroker();
+    let generationRound = 0;
+    let executeCalls = 0;
+
+    const generationClient = {
+        async generate(params: any) {
+            if (String(params?.taskId || '').endsWith(':plan')) {
+                return { text: '', reasoning: '', toolCalls: [] };
+            }
+            generationRound += 1;
+            if (generationRound === 1) {
+                return {
+                    text: 'I found the relevant X timing evidence already.',
+                    reasoning: '',
+                    toolCalls: [
+                        {
+                            id: 'native-1',
+                            name: 'x_search',
+                            arguments: { query: '0x1111111111111111111111111111111111111111 trending on X' },
+                        },
+                    ],
+                };
+            }
+            if (generationRound === 2) {
+                return {
+                    text: '',
+                    reasoning: '',
+                    toolCalls: [
+                        {
+                            id: 'chain-1',
+                            name: 'get_token_info',
+                            arguments: { address: '0x1111111111111111111111111111111111111111', chain_id: 1 },
+                        },
+                    ],
+                };
+            }
+            return {
+                text: 'Final answer after public-search evidence and chain-side verification.',
+                reasoning: '',
+                toolCalls: [],
+            };
+        },
+    };
+
+    await runNodeOrchestration({
+        snapshot,
+        generationClient: generationClient as any,
+        toolExecutionEngine: {
+            async execute(call: any) {
+                executeCalls += 1;
+                assert.equal(call.name, 'get_token_info');
+                return {
+                    ok: true,
+                    result: { address: call.arguments.address, symbol: 'TEST' },
                     metadata: { source: 'tool_runtime' },
                 };
             },
@@ -280,6 +400,126 @@ test('pseudo tool JSON in assistant text is rejected and retried as a real tool 
 
     assert.equal(generationRound, 3);
     assert.equal(executeCalls, 1);
+    assert.equal(broker.texts.join(''), 'Final answer after public-search evidence and chain-side verification.');
+});
+
+test('strict evidence gate retries instead of accepting a plain-text answer before chain tools run', async () => {
+    const tokenAddress = '0xeCCBb861c0dda7eFd964010085488B69317e4444';
+    const snapshot = makeSnapshot(`Search X for ${tokenAddress} at 2026-03-10 12:00 UTC and find early buyers`, {
+        model: 'deepseek-reasoner',
+        requestedTokenAddresses: [tokenAddress],
+    });
+    const broker = makeBroker();
+    let generationRound = 0;
+    let executeCalls = 0;
+
+    const generationClient = {
+        async generate(params: any) {
+            if (String(params?.taskId || '').endsWith(':plan')) {
+                return { text: '', reasoning: '', toolCalls: [] };
+            }
+            generationRound += 1;
+            if (generationRound === 1) {
+                return {
+                    text: 'I found the buyers already and can summarize them now.',
+                    reasoning: 'I should just answer directly.',
+                    toolCalls: [],
+                };
+            }
+            if (generationRound === 2) {
+                return {
+                    text: '',
+                    reasoning: '',
+                    toolCalls: [
+                        {
+                            id: 'search-1',
+                            name: 'external_web_search',
+                            arguments: {
+                                query: `${tokenAddress} Binance Alpha 2026-03-10 12:00 UTC`,
+                                limit: 5,
+                            },
+                        },
+                    ],
+                };
+            }
+            if (generationRound === 3) {
+                return {
+                    text: '',
+                    reasoning: '',
+                    toolCalls: [
+                        {
+                            id: 'buyers-1',
+                            name: 'get_early_buyers',
+                            arguments: {
+                                token_address: tokenAddress,
+                                chain_id: 56,
+                                timestamp: '2026-03-10T12:00:00Z',
+                                limit: 20,
+                            },
+                        },
+                    ],
+                };
+            }
+            return {
+                text: 'Here are the early buyers around the specified timestamp.',
+                reasoning: '',
+                toolCalls: [],
+            };
+        },
+    };
+
+    await runNodeOrchestration({
+        snapshot,
+        generationClient: generationClient as any,
+        toolExecutionEngine: {
+            async execute(call: any) {
+                executeCalls += 1;
+                if (executeCalls === 1) {
+                    assert.equal(call.name, 'external_web_search');
+                    return {
+                        ok: true,
+                        result: { results: [{ title: 'Binance Alpha update' }] },
+                        metadata: { source: 'tool_runtime' },
+                    };
+                }
+                assert.equal(call.name, 'get_early_buyers');
+                assert.equal(call.arguments.address, tokenAddress);
+                assert.ok(call.arguments.start_time);
+                assert.ok(call.arguments.end_time);
+                assert.equal('timestamp' in call.arguments, false);
+                assert.equal('token_address' in call.arguments, false);
+                return {
+                    ok: true,
+                    result: { earlyBuyers: [{ address: '0xabc' }] },
+                    metadata: { source: 'tool_runtime' },
+                };
+            },
+        } as any,
+        broker: broker as any,
+        toolContext: {},
+    });
+
+    assert.equal(generationRound, 4);
+    assert.equal(executeCalls, 2);
     assert.deepEqual(broker.replacements, ['']);
-    assert.equal(broker.texts.join(''), 'Here are the current topics trending on X based on native search.');
+    assert.equal(broker.texts.join(''), 'Here are the early buyers around the specified timestamp.');
+});
+
+test('normalizeToolCallForProvider rewrites legacy early-buyer time arguments to start_time/end_time', () => {
+    const normalized = normalizeToolCallForProvider({
+        id: 'buyers-legacy',
+        name: 'get_early_buyers',
+        arguments: {
+            token_address: '0xabc',
+            chain_id: 56,
+            timestamp: '2026-03-10T12:00:00Z',
+            limit: 10,
+        },
+    }, 'deepseek');
+
+    assert.equal(normalized.arguments.address, '0xabc');
+    assert.equal(typeof normalized.arguments.start_time, 'string');
+    assert.equal(typeof normalized.arguments.end_time, 'string');
+    assert.equal('token_address' in normalized.arguments, false);
+    assert.equal('timestamp' in normalized.arguments, false);
 });

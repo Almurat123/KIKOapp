@@ -19,6 +19,17 @@ import {
 } from './taskPlanner.js';
 import { generateModelPlan } from './modelPlanGenerator.js';
 
+const SEARCH_EVIDENCE_TOOLS = new Set([
+    'external_web_search',
+]);
+
+const CHAIN_EVIDENCE_TOOLS = new Set([
+    'get_token_info',
+    'get_wallet_info',
+    'get_early_buyers',
+    'analyze_creator',
+]);
+
 export async function runNodeOrchestration(params: {
     snapshot: ChatContextSnapshot;
     generationClient: PythonGenerationClient;
@@ -57,6 +68,7 @@ export async function runNodeOrchestration(params: {
     let previousResponseId: string | null | undefined = params.snapshot.previousResponseId;
     let lastRoundPolicyMessage = '';
     let pseudoToolRepairAttempts = 0;
+    let evidenceRepairAttempts = 0;
 
     await params.broker.bootstrapRuntime(plan);
 
@@ -129,6 +141,14 @@ export async function runNodeOrchestration(params: {
     for (let round = 1; round <= 8; round += 1) {
         if (params.shouldCancel && await params.shouldCancel()) {
             throw new Error('Task cancelled');
+        }
+        if (currentPhase === 'native_search_only') {
+            await params.broker.setRuntimeState?.(
+                'search_in_progress',
+                planning.locale === 'zh'
+                    ? '正在检索公开来源并确认时间线'
+                    : 'Searching public sources and confirming the timeline',
+            );
         }
         logger.info(LogCode.AI_ORCHESTRATOR, 'NodeOrchestrator: generation round start', {
             sessionId: params.snapshot.sessionId,
@@ -337,8 +357,37 @@ export async function runNodeOrchestration(params: {
         }
 
         if (roundResult.toolCalls.length === 0) {
+            const evidenceState = resolveRequiredEvidenceState({
+                snapshot: params.snapshot,
+                skillResolution,
+                currentPhase,
+                executedToolResults,
+                providerNativeEvidence,
+                latestText: roundResult.text || '',
+                locale: planning.locale,
+            });
+            if (evidenceState.blockAnswer && !forceAnswerWithoutTools) {
+                const canRepair = evidenceRepairAttempts < 2 && roundTools.length > 0;
+                await params.broker.blockContent?.('', { clearReasoning: true });
+                await params.broker.setRuntimeState?.(evidenceState.runtimeState, evidenceState.summary);
+                streamedRoundText = '';
+                streamedRoundReasoning = '';
+                if (canRepair) {
+                    evidenceRepairAttempts += 1;
+                    messages.push({
+                        role: 'system',
+                        content: evidenceState.retryInstruction,
+                    });
+                    continue;
+                }
+                throw createOrchestrationError(
+                    'REQUIRED_EVIDENCE_MISSING',
+                    evidenceState.failureMessage,
+                );
+            }
             const summaryStep = buildSummaryPlanStep(params.snapshot.lastUserMessage);
             await params.broker.markAnswerStarted(summaryStep);
+            await params.broker.setRuntimeState?.(undefined);
             await params.broker.markPlanPhase(
                 planning.locale === 'zh'
                     ? '已完成证据整理，正在生成回答'
@@ -388,6 +437,13 @@ export async function runNodeOrchestration(params: {
                 if (evidenceSnapshot && skillResolution.toolPhasePolicy.nextPhaseAfterNativeSearch) {
                     currentPhase = skillResolution.toolPhasePolicy.nextPhaseAfterNativeSearch;
                     forceAnswerWithoutTools = false;
+                    evidenceRepairAttempts = 0;
+                    await params.broker.setRuntimeState?.(
+                        'chain_query_in_progress',
+                        planning.locale === 'zh'
+                            ? '已确认公开来源，正在收集链上证据'
+                            : 'Public-source timing confirmed; gathering chain-side evidence',
+                    );
                     continue;
                 }
                 if (evidenceSnapshot && (roundResult.text || '').trim().length > 0) {
@@ -429,8 +485,37 @@ export async function runNodeOrchestration(params: {
             }
 
             if ((roundResult.text || '').trim().length > 0 || (roundResult.reasoning || '').trim().length > 0) {
+                const evidenceState = resolveRequiredEvidenceState({
+                    snapshot: params.snapshot,
+                    skillResolution,
+                    currentPhase,
+                    executedToolResults,
+                    providerNativeEvidence,
+                    latestText: roundResult.text || '',
+                    locale: planning.locale,
+                });
+                if (evidenceState.blockAnswer && !forceAnswerWithoutTools) {
+                    const canRepair = evidenceRepairAttempts < 2 && roundTools.length > 0;
+                    await params.broker.blockContent?.('', { clearReasoning: true });
+                    await params.broker.setRuntimeState?.(evidenceState.runtimeState, evidenceState.summary);
+                    streamedRoundText = '';
+                    streamedRoundReasoning = '';
+                    if (canRepair) {
+                        evidenceRepairAttempts += 1;
+                        messages.push({
+                            role: 'system',
+                            content: evidenceState.retryInstruction,
+                        });
+                        continue;
+                    }
+                    throw createOrchestrationError(
+                        'REQUIRED_EVIDENCE_MISSING',
+                        evidenceState.failureMessage,
+                    );
+                }
                 const summaryStep = buildSummaryPlanStep(params.snapshot.lastUserMessage);
                 await params.broker.markAnswerStarted(summaryStep);
+                await params.broker.setRuntimeState?.(undefined);
                 await params.broker.markPlanPhase(
                     planning.locale === 'zh'
                         ? '已完成证据整理，正在生成回答'
@@ -557,6 +642,14 @@ export async function runNodeOrchestration(params: {
                 || (planning.asksOnChainEvidence && planning.requestedToken
                     ? buildChainEvidencePlanStep(skillResolution, params.snapshot.lastUserMessage)
                     : null);
+            if (CHAIN_EVIDENCE_TOOLS.has(call.name)) {
+                await params.broker.setRuntimeState?.(
+                    'chain_query_in_progress',
+                    planning.locale === 'zh'
+                        ? '正在执行链上查询'
+                        : 'Running chain-side queries',
+                );
+            }
             await params.broker.markPlanStepStarted(call, plannedStep || undefined);
             const toolKey = buildToolCallKey(call.name, call.arguments || {});
             let result;
@@ -652,14 +745,62 @@ function isStalePreviousResponseError(message: string): boolean {
     );
 }
 
-function normalizeToolCallForProvider(
+export function normalizeToolCallForProvider(
     call: { id: string; name: string; arguments: Record<string, any> },
     provider: 'openai' | 'deepseek' | 'grok',
 ) {
     // Hard-policy mode does not perform provider fallback tool remapping.
     // Tool names must be validated as-is by the policy layer.
     void provider;
-    return call;
+    if (String(call.name || '') !== 'get_early_buyers') {
+        return call;
+    }
+
+    const args = { ...(call.arguments || {}) };
+    if (!args.address && typeof args.token_address === 'string') {
+        args.address = args.token_address;
+    }
+
+    const explicitStart = normalizeTimeValue(args.start_time);
+    const explicitEnd = normalizeTimeValue(args.end_time);
+    let startTime = explicitStart;
+    let endTime = explicitEnd;
+
+    if ((!startTime || !endTime) && typeof args.timestamp_range === 'string') {
+        const rawRange = String(args.timestamp_range).trim();
+        const explicitRange = rawRange.match(/^(\d{10,13})\s*-\s*(\d{10,13})$/)
+            || rawRange.match(/^(.+?)\s*(?:to|->)\s*(.+)$/i);
+        if (explicitRange) {
+            startTime ||= normalizeTimeValue(explicitRange[1]);
+            endTime ||= normalizeTimeValue(explicitRange[2]);
+        }
+    }
+
+    if (!startTime && !endTime) {
+        const centerTime = normalizeTimeValue(args.timestamp ?? args.center_time ?? args.post_time ?? args.time);
+        if (centerTime) {
+            const windowHours = normalizeWindowHours(args.window_hours ?? args.time_window_hours);
+            const windowMs = windowHours * 60 * 60 * 1000;
+            startTime = new Date(Date.parse(centerTime) - windowMs).toISOString();
+            endTime = new Date(Date.parse(centerTime) + windowMs).toISOString();
+        }
+    }
+
+    if (startTime) args.start_time = startTime;
+    if (endTime) args.end_time = endTime;
+    delete args.token_address;
+    delete args.timestamp_range;
+    delete args.timestamp;
+    delete args.center_time;
+    delete args.post_time;
+    delete args.time;
+    delete args.window_hours;
+    delete args.time_window_hours;
+
+    return {
+        ...call,
+        arguments: args,
+    };
 }
 
 function isProviderManagedNativeTool(toolName: string, provider: 'openai' | 'deepseek' | 'grok') {
@@ -799,6 +940,182 @@ function stableStringify(value: any): string {
         return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stableStringify(value[key])}`).join(',')}}`;
     }
     return JSON.stringify(value);
+}
+
+type EvidenceGateState = {
+    blockAnswer: boolean;
+    runtimeState?: 'blocked_on_missing_evidence' | 'blocked_on_missing_timestamp';
+    summary: string;
+    retryInstruction: string;
+    failureMessage: string;
+};
+
+function resolveRequiredEvidenceState(params: {
+    snapshot: ChatContextSnapshot;
+    skillResolution: ReturnType<typeof resolveNodeSkills>;
+    currentPhase: 'native_search_only' | 'local_analysis' | 'execution';
+    executedToolResults: Map<string, { name?: string; arguments?: Record<string, any>; ok?: boolean; result?: any; metadata?: Record<string, any> }>;
+    providerNativeEvidence: ProviderNativeEvidenceSnapshot[];
+    latestText: string;
+    locale: 'en' | 'zh';
+}): EvidenceGateState {
+    const { snapshot, skillResolution, currentPhase, executedToolResults, providerNativeEvidence, latestText, locale } = params;
+    const required = new Set(skillResolution.intentEnvelope.required_evidence || []);
+    const requiresSearchEvidence = skillResolution.searchMode === 'required'
+        || required.has('native_search_results');
+    const requiresChainEvidence = Array.from(required).some((item) =>
+        ['onchain_token_evidence', 'onchain_wallet_evidence', 'connected_chain_evidence'].includes(item),
+    );
+
+    if (currentPhase === 'native_search_only' || (!requiresSearchEvidence && !requiresChainEvidence)) {
+        return buildNonBlockingEvidenceGateState();
+    }
+
+    const hasSearchEvidence = !requiresSearchEvidence
+        || providerNativeEvidence.length > 0
+        || hasSuccessfulToolEvidence(executedToolResults, snapshot, SEARCH_EVIDENCE_TOOLS);
+    const hasChainEvidence = !requiresChainEvidence
+        || hasSuccessfulToolEvidence(executedToolResults, snapshot, CHAIN_EVIDENCE_TOOLS);
+
+    if (hasSearchEvidence && hasChainEvidence) {
+        return buildNonBlockingEvidenceGateState();
+    }
+
+    const missingParts: string[] = [];
+    if (!hasSearchEvidence) missingParts.push('search evidence');
+    if (!hasChainEvidence) missingParts.push('chain evidence');
+    const exactTimestampProvided = hasExactTimestamp(snapshot.lastUserMessage);
+    const hasTokenContext = (snapshot.requestedTokenAddresses || []).length > 0 || (snapshot.requestedTokenSymbols || []).length > 0;
+    const missingTimestamp = !hasChainEvidence && hasTokenContext && /announcement|post|tweet|日期|时间|公告|发文/i.test(snapshot.lastUserMessage) && !exactTimestampProvided;
+
+    const summary = missingTimestamp
+        ? (locale === 'zh'
+            ? '缺少精确时间点，仍不能开始链上时间窗查询'
+            : 'An exact timestamp is still missing, so the time-window chain query cannot start yet')
+        : (locale === 'zh'
+            ? `仍缺少${!hasSearchEvidence && !hasChainEvidence ? '搜索和链上' : !hasSearchEvidence ? '搜索' : '链上'}证据，不能直接给结论`
+            : `Still missing ${missingParts.join(' and ')}, so do not conclude yet`);
+
+    const retryInstruction = missingTimestamp
+        ? (locale === 'zh'
+            ? '不要假装已经找到结果。你仍缺少精确时间点。若需要继续，请只明确说明缺少精确时间点，并给出一个清晰的替代窗口选项；不要重复同一句确认。'
+            : 'Do not pretend the result is already verified. You still need an exact timestamp. If you must respond, state that the exact timestamp is missing and offer one clear fallback window option; do not repeat the same clarification.')
+        : buildEvidenceRetryInstruction({
+            locale,
+            missingSearchEvidence: !hasSearchEvidence,
+            missingChainEvidence: !hasChainEvidence,
+            exactTimestampProvided,
+        });
+
+    const failureMessage = missingTimestamp
+        ? (locale === 'zh'
+            ? '缺少精确时间点，无法完成基于事件时间窗的链上查询。'
+            : 'Missing exact timestamp for the event-anchored chain query.')
+        : (locale === 'zh'
+            ? `缺少必要证据：${!hasSearchEvidence && !hasChainEvidence ? '搜索证据与链上证据' : !hasSearchEvidence ? '搜索证据' : '链上证据'}。`
+            : `Missing required evidence: ${missingParts.join(' and ')}.`);
+
+    const claimsCompletionWithoutEvidence = /\b(found|confirmed|verified|retrieved|located|identified)\b/i.test(latestText)
+        || /找到了|已确认|已验证|已定位|已获取/u.test(latestText);
+
+    return claimsCompletionWithoutEvidence || !missingTimestamp
+        ? {
+            blockAnswer: true,
+            runtimeState: missingTimestamp ? 'blocked_on_missing_timestamp' : 'blocked_on_missing_evidence',
+            summary,
+            retryInstruction,
+            failureMessage,
+        }
+        : buildNonBlockingEvidenceGateState();
+}
+
+function buildNonBlockingEvidenceGateState(): EvidenceGateState {
+    return {
+        blockAnswer: false,
+        summary: '',
+        retryInstruction: '',
+        failureMessage: '',
+    };
+}
+
+function buildEvidenceRetryInstruction(params: {
+    locale: 'en' | 'zh';
+    missingSearchEvidence: boolean;
+    missingChainEvidence: boolean;
+    exactTimestampProvided: boolean;
+}) {
+    const { locale, missingSearchEvidence, missingChainEvidence, exactTimestampProvided } = params;
+    if (locale === 'zh') {
+        if (missingSearchEvidence && missingChainEvidence) {
+            return '你还没有完成必需的搜索证据和链上证据。不要直接作答。先做真实搜索，再调用相关链上工具。';
+        }
+        if (missingSearchEvidence) {
+            return '你还没有拿到真实搜索证据。不要直接作答。先使用真实搜索工具，再继续。';
+        }
+        if (exactTimestampProvided) {
+            return '用户已经给了足够的时间点和对象。不要再次索要同样信息。请直接调用链上工具，使用真实参数 address + start_time/end_time。';
+        }
+        return '你还没有拿到必需的链上证据。不要直接下结论。请调用相关链上工具；如果仍缺精确时间点，只允许明确说明一次并给出清晰替代窗口。';
+    }
+    if (missingSearchEvidence && missingChainEvidence) {
+        return 'You still owe both real search evidence and chain-side evidence. Do not answer yet. Search first, then call the relevant chain tools.';
+    }
+    if (missingSearchEvidence) {
+        return 'You still owe real search evidence. Do not answer yet. Use a real search tool before concluding.';
+    }
+    if (exactTimestampProvided) {
+        return 'The user already supplied enough timing and target context. Do not ask for the same information again. Call the chain tool now using the real address + start_time/end_time contract.';
+    }
+    return 'You still owe chain-side evidence. Do not conclude yet. Call the relevant chain tool; if an exact timestamp is still missing, ask for it only once and offer a clear fallback window.';
+}
+
+function hasSuccessfulToolEvidence(
+    executedToolResults: Map<string, { name?: string; arguments?: Record<string, any>; ok?: boolean; result?: any; metadata?: Record<string, any> }>,
+    snapshot: ChatContextSnapshot,
+    toolNames: Set<string>,
+): boolean {
+    for (const item of executedToolResults.values()) {
+        const toolName = String(item?.name || '').trim();
+        if (!toolNames.has(toolName) || item?.ok === false) continue;
+        return true;
+    }
+
+    for (const toolCall of snapshot.recentToolTrace?.toolCalls || []) {
+        const toolName = String(toolCall?.tool || '').trim();
+        const status = String(toolCall?.status || '').trim().toLowerCase();
+        if (!toolNames.has(toolName)) continue;
+        if (['success', 'cached', 'complete', 'completed'].includes(status)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+function hasExactTimestamp(value: string): boolean {
+    const text = String(value || '');
+    return /\b20\d{2}[-/]\d{1,2}[-/]\d{1,2}[ t]\d{1,2}:\d{2}(?::\d{2})?\s*(utc|gmt|z)?\b/i.test(text)
+        || /\b\d{1,2}:\d{2}\s*(utc|gmt)\b/i.test(text)
+        || /\b\d{4}-\d{2}-\d{2}t\d{2}:\d{2}:\d{2}z\b/i.test(text);
+}
+
+function normalizeTimeValue(value: unknown): string | undefined {
+    if (value == null) return undefined;
+    const raw = String(value).trim();
+    if (!raw) return undefined;
+    const numeric = Number(raw);
+    if (!Number.isNaN(numeric)) {
+        const millis = numeric < 1e12 ? numeric * 1000 : numeric;
+        return new Date(millis).toISOString();
+    }
+    const parsed = Date.parse(raw);
+    if (Number.isNaN(parsed)) return undefined;
+    return new Date(parsed).toISOString();
+}
+
+function normalizeWindowHours(value: unknown): number {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric) || numeric <= 0) return 1;
+    return Math.min(24, numeric);
 }
 
 export function buildFinalizationEvidenceSnapshot(

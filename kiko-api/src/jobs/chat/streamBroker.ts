@@ -16,6 +16,7 @@ import type {
     OrchestratorToolResult,
     OrchestratorUsage,
     PlanCard,
+    PlanRuntimeState,
     PlanStep,
     PlanStepExecution,
     PlanStepStatus,
@@ -205,6 +206,22 @@ export class ChatStreamBroker {
                 { stepId: step.id },
             ),
         );
+        await this.persistPlanCard(next);
+    }
+
+    async setRuntimeState(state: PlanRuntimeState | undefined, summary?: string) {
+        if (!this.planCard) return;
+        const next = this.clonePlan(this.planCard);
+        next.runtimeState = state;
+        if (summary) {
+            next.activity = this.appendRuntimeEvent(
+                next.activity,
+                this.makeRuntimeEvent('runtime_note', summary, {
+                    status: next.status === 'failed' ? 'failed' : 'in_progress',
+                    detail: state ? { runtimeState: state } : undefined,
+                }),
+            );
+        }
         await this.persistPlanCard(next);
     }
 
@@ -677,6 +694,7 @@ export class ChatStreamBroker {
             : next.steps.some((item) => item.status === 'failed')
                 ? 'failed'
                 : 'in_progress';
+        next.runtimeState = result.ok ? undefined : next.runtimeState;
         next.activity = this.appendRuntimeEvent(next.activity, this.makeRuntimeEvent(
             result.ok ? 'tool_completed' : 'tool_failed',
             execution.summary,
@@ -709,6 +727,7 @@ export class ChatStreamBroker {
             return step;
         });
         next.currentStepId = undefined;
+        next.runtimeState = undefined;
         // `complete()` means the task reached a controlled terminal answer.
         // Keep failed step details for debugging, but do not brand the whole plan as failed.
         next.status = 'completed';
@@ -753,6 +772,7 @@ export class ChatStreamBroker {
             ),
         );
         next.status = 'failed';
+        next.runtimeState = 'blocked_on_missing_evidence';
         next.currentStepId = undefined;
         next.activity = this.appendRuntimeEvent(next.activity, this.makeRuntimeEvent('runtime_error', message, {
             detail: { error: message },

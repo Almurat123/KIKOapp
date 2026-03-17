@@ -72,6 +72,11 @@ export interface ProviderNativeEvidenceSnapshot {
 }
 
 export type PlanStepStatus = 'pending' | 'in_progress' | 'completed' | 'failed';
+export type PlanRuntimeState =
+    | 'search_in_progress'
+    | 'chain_query_in_progress'
+    | 'blocked_on_missing_evidence'
+    | 'blocked_on_missing_timestamp';
 
 export interface PlanStepExecution {
     id: string;
@@ -141,6 +146,7 @@ export interface PlanCard {
     summary: string;
     locale?: 'en' | 'zh';
     status: 'pending' | 'in_progress' | 'completed' | 'failed';
+    runtimeState?: PlanRuntimeState;
     currentStepId?: string;
     steps: PlanStep[];
     activity?: AgentRuntimeEvent[];

@@ -123,6 +123,21 @@ test('stripPseudoToolCallOutput removes fake tool-call json blocks from assistan
     assert.equal(stripPseudoToolCallOutput(leaked), "I'll search now.\n\nFinal answer.");
 });
 
+test('stripPseudoToolCallOutput removes xml-like tool call blocks from assistant text', () => {
+    const leaked = [
+        'I will use a tool now.',
+        '<tool_calls>',
+        '<invoke name="get_early_buyers">',
+        '<parameter name="address">0xabc</parameter>',
+        '</invoke>',
+        '</tool_calls>',
+        'Final answer.',
+    ].join('\n');
+
+    assert.equal(stripPseudoToolCallOutput(leaked), 'I will use a tool now.\n\nFinal answer.');
+    assert.equal(containsPseudoToolCallOutput(leaked), true);
+});
+
 test('sanitizeReasoningForDisplay keeps visible reasoning while dropping internal tool chatter', () => {
     const raw = [
         'The user is asking about trending topics on X.',
@@ -137,5 +152,20 @@ test('sanitizeReasoningForDisplay keeps visible reasoning while dropping interna
     assert.equal(
         sanitizeReasoningForDisplay(raw),
         'The user is asking about trending topics on X. I should explain the limitation honestly.',
+    );
+});
+
+test('sanitizeReasoningForDisplay removes xml-like tool chatter and terminated state', () => {
+    const raw = [
+        'I need to verify the timestamp first.',
+        '<ToolCall>{"name":"get_token_info","arguments":{"address":"0xabc"}}</ToolCall>',
+        '<tool_calls><invoke name="get_early_buyers"></invoke></tool_calls>',
+        'terminated',
+        'Then I can summarize the result.',
+    ].join('\n');
+
+    assert.equal(
+        sanitizeReasoningForDisplay(raw),
+        'I need to verify the timestamp first. Then I can summarize the result.',
     );
 });

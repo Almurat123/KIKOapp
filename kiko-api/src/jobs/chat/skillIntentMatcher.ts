@@ -327,7 +327,8 @@ export function detectQuerySignals(query: string, snapshot: ChatContextSnapshot,
     const lower = String(query || '').toLowerCase();
     const raw = String(query || '');
     const hasRequestedToken = (snapshot.requestedTokenAddresses || []).length > 0 || (snapshot.requestedTokenSymbols || []).length > 0;
-    const explicitSearch = isExplicitSearchIntent(lower, raw) || requiresOfficialPostLookup(lower, raw);
+    const officialPostLookup = requiresOfficialPostLookup(lower, raw);
+    const explicitSearch = isExplicitSearchIntent(lower, raw) || officialPostLookup;
     const xSearch = /\btwitter\b/i.test(lower)
         || lower.includes('x.com')
         || /\bon\s+x\b/i.test(lower)
@@ -340,7 +341,7 @@ export function detectQuerySignals(query: string, snapshot: ChatContextSnapshot,
     const pnlSignal = containsAny(lower, ['pnl', 'profit', 'profits', 'profitability', 'performance']) || ['盈亏', '收益', '利润', '表现'].some((word) => raw.includes(word));
     const realtimeSignal = containsAny(lower, ['trending', 'trend', 'latest', 'today', 'current', 'right now', 'hot', 'buzz'])
         || ['趋势', '今天', '现在', '最新', '热门', '在聊什么'].some((word) => raw.includes(word));
-    const socialChainEvidence = xSearch;
+    const socialChainEvidence = xSearch || (officialPostLookup && hasRequestedToken);
 
     return {
         welcome: isAssistantMetaQuery(lower, raw),
