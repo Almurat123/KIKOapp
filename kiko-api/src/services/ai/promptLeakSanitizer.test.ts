@@ -138,6 +138,21 @@ test('stripPseudoToolCallOutput removes xml-like tool call blocks from assistant
     assert.equal(containsPseudoToolCallOutput(leaked), true);
 });
 
+test('stripPseudoToolCallOutput removes function_call style tool blocks from assistant text', () => {
+    const leaked = [
+        'I will fetch the early buyers now.',
+        '<function_call name="get_early_buyers">',
+        '<argument name="token">0xeCCBb861c0dda7eFd964010085488B69317e4444</argument>',
+        '<argument name="chain">56</argument>',
+        '<argument name="date">2026-03-10</argument>',
+        '</function_call>',
+        'Final answer.',
+    ].join('\n');
+
+    assert.equal(stripPseudoToolCallOutput(leaked), 'I will fetch the early buyers now.\n\nFinal answer.');
+    assert.equal(containsPseudoToolCallOutput(leaked), true);
+});
+
 test('sanitizeReasoningForDisplay keeps visible reasoning while dropping internal tool chatter', () => {
     const raw = [
         'The user is asking about trending topics on X.',
