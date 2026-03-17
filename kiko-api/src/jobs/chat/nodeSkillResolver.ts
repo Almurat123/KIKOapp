@@ -1,6 +1,7 @@
 import { LogCode } from '../../config/logRegistry.js';
 import { skillRegistryExec } from '../../skills/registry.js';
 import { logger } from '../../utils/logger.js';
+import { resolveRequestedChainHint } from './chainIntent.js';
 import type { ChatContextSnapshot } from './contracts.js';
 import {
     detectQuerySignals,
@@ -78,6 +79,12 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
     const explicitRiskRequest = querySignals.risk;
     const asksWalletPnl = querySignals.pnl;
     const hasRequestedToken = querySignals.hasRequestedToken;
+    const requiresSocialChainEvidence = querySignals.socialChainEvidence;
+    const requestedChain = resolveRequestedChainHint({
+        text: rawQuery,
+        requestedTokenAddresses: snapshot.requestedTokenAddresses,
+        requestedTokenSymbols: snapshot.requestedTokenSymbols,
+    });
     const explicitlyMentionsFarcaster = containsAny(rawQuery, ['farcaster', 'warpcast', 'cast', 'casts', 'fc']);
     const preferXNativeSearch = querySignals.xSearch && !explicitlyMentionsFarcaster;
     const asksEarlyBuyers = containsAny(snapshot.lastUserMessage, [
@@ -122,8 +129,26 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
         }
     }
 
+    if (requiresSocialChainEvidence) {
+        ensureSupportingSkill(selected, 'market_macro');
+        if (snapshot.runtime.walletAddress || snapshot.runtime.userAddress) {
+            ensureSupportingSkill(selected, 'wallet_portfolio');
+        }
+        if (hasRequestedToken) {
+            ensureSupportingSkill(selected, 'token_analysis');
+        }
+        if (querySignals.wallet || asksWalletPnl) {
+            ensureSupportingSkill(selected, 'wallet_portfolio');
+        }
+        strategyNotes.push('Any X/Twitter query in this system must gather search evidence and chain-side evidence together before concluding.');
+    }
+
     if (selected.length === 0 && !querySignals.welcome) {
         selected = ['market_macro'];
+    }
+
+    if (requestedChain?.chainId && snapshot.runtime.chainId && requestedChain.chainId !== Number(snapshot.runtime.chainId)) {
+        strategyNotes.push(`The user explicitly requested ${requestedChain.chainName}. Treat the connected chain only as wallet context; requested chain overrides it for this turn.`);
     }
 
     if (preferXNativeSearch) {
@@ -134,8 +159,15 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
     }
 
     if (preferXNativeSearch && !isGrok && !querySignals.prediction) {
-        selected = selected.filter((skillId) => !['social_farcaster', 'polymarket_prediction', 'market_macro'].includes(skillId));
+        selected = selected.filter((skillId) => {
+            if (skillId === 'social_farcaster' || skillId === 'polymarket_prediction') return false;
+            if (skillId === 'market_macro') return requiresSocialChainEvidence;
+            return true;
+        });
         strategyNotes.push('This is an X/Twitter query on a provider path without native X search. Do not pivot to Farcaster or Polymarket unless the user explicitly asks for those domains.');
+        if (requiresSocialChainEvidence) {
+            strategyNotes.push('Use local external_web_search together with chain-analysis tools on this provider path, because provider-native X search is unavailable.');
+        }
     }
 
     selected = selected
@@ -201,6 +233,9 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
     if (hasRequestedToken) {
         pushPreferred(preferredTools, 'get_token_info');
     }
+    if (requiresSocialChainEvidence && !isGrok) {
+        pushPreferred(preferredTools, 'external_web_search');
+    }
     if (asksEarlyBuyers && hasRequestedToken) {
         pushPreferred(preferredTools, 'get_early_buyers');
         pushPreferred(preferredTools, 'get_token_info');
@@ -212,6 +247,17 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
     }
     if (asksWalletPnl) {
         pushPreferred(preferredTools, 'analyze_wallet_pnl_batch');
+    }
+    if (requiresSocialChainEvidence && (querySignals.wallet || asksWalletPnl)) {
+        pushPreferred(preferredTools, 'get_wallet_info');
+        pushPreferred(preferredTools, 'analyze_wallet_pnl_batch');
+    }
+    if (requiresSocialChainEvidence && hasRequestedToken) {
+        pushPreferred(preferredTools, 'get_early_buyers');
+        pushPreferred(preferredTools, 'analyze_creator');
+    }
+    if (requiresSocialChainEvidence && (snapshot.runtime.walletAddress || snapshot.runtime.userAddress)) {
+        pushPreferred(preferredTools, 'get_wallet_info');
     }
 
     for (const skillId of selected) {
@@ -402,8 +448,14 @@ function buildIntentEnvelope(params: {
     if (effectiveSearchMode === 'required') {
         requiredEvidence.push('native_search_results');
     }
-    if ((hasRequestedToken || querySignals.tokenAnalysis) && querySignals.realtime) {
+    if ((hasRequestedToken || querySignals.tokenAnalysis) && (querySignals.realtime || querySignals.socialChainEvidence)) {
         requiredEvidence.push('onchain_token_evidence');
+    }
+    if (querySignals.socialChainEvidence && (querySignals.wallet || asksWalletPnl)) {
+        requiredEvidence.push('onchain_wallet_evidence');
+    }
+    if (querySignals.socialChainEvidence && !hasRequestedToken && !(querySignals.wallet || asksWalletPnl)) {
+        requiredEvidence.push('connected_chain_evidence');
     }
     if (primaryIntent === 'polymarket_order') {
         requiredEvidence.push('verified_polymarket_token_id');
@@ -468,11 +520,8 @@ function buildToolPhasePolicy(
 }
 
 function requiresPostSearchLocalAnalysis(intentEnvelope: IntentEnvelope): boolean {
-    if (intentEnvelope.domain === 'x' && intentEnvelope.execution_risk === 'read_only' && intentEnvelope.primary_intent === 'search_discovery') {
-        return false;
-    }
-    if (intentEnvelope.domain === 'x' && intentEnvelope.primary_intent === 'social_discovery' && intentEnvelope.required_evidence.length <= 1) {
-        return false;
+    if (intentEnvelope.domain === 'x') {
+        return true;
     }
     return intentEnvelope.required_evidence.some((item) => item !== 'native_search_results')
         || ['token_analysis', 'token_risk', 'wallet_analysis', 'polymarket_discovery', 'polymarket_order'].includes(intentEnvelope.primary_intent);

@@ -91,7 +91,8 @@ test('X trending queries do not expose Farcaster trending tools unless Farcaster
     assert.equal(resolution.allowedTools.includes('search_farcaster_casts'), false);
     assert.equal(resolution.intentEnvelope.domain, 'x');
     assert.equal(resolution.toolPhasePolicy.initialPhase, 'native_search_only');
-    assert.equal(resolution.toolPhasePolicy.nextPhaseAfterNativeSearch, null);
+    assert.equal(resolution.toolPhasePolicy.nextPhaseAfterNativeSearch, 'local_analysis');
+    assert.ok(resolution.intentEnvelope.required_evidence.includes('connected_chain_evidence'));
     assert.ok(resolution.strategyNotes.some((note) => note.includes('X/Twitter')));
 });
 
@@ -105,6 +106,50 @@ test('DeepSeek X trending queries stay out of native-search-only and do not pivo
     assert.equal(resolution.allowedTools.includes('search_polymarket'), false);
     assert.equal(resolution.allowedTools.includes('get_polymarket_trending'), false);
     assert.ok(resolution.strategyNotes.some((note) => note.includes('without native X search')));
+});
+
+test('DeepSeek X plus contract-and-time queries require external search plus chain tools', () => {
+    const contract = '0x1111111111111111111111111111111111111111';
+    const resolution = resolveNodeSkills(makeSnapshot(`Search X for ${contract} around yesterday's announcement`, {
+        model: 'deepseek-reasoner',
+        requestedTokenAddresses: [contract],
+    }), null);
+
+    assert.equal(resolution.searchMode, 'required');
+    assert.equal(resolution.toolPhasePolicy.initialPhase, 'local_analysis');
+    assert.ok(resolution.allowedTools.includes('external_web_search'));
+    assert.ok(resolution.allowedTools.includes('get_token_info'));
+    assert.ok(resolution.preferredTools.includes('external_web_search'));
+    assert.ok(resolution.preferredTools.includes('get_token_info'));
+    assert.ok(resolution.intentEnvelope.required_evidence.includes('onchain_token_evidence'));
+    assert.ok(resolution.strategyNotes.some((note) => note.includes('external_web_search')));
+});
+
+test('generic X queries still require search plus chain-side follow-up', () => {
+    const resolution = resolveNodeSkills(makeSnapshot("What's trending on X today?", {
+        model: 'deepseek-reasoner',
+        runtime: {
+            walletAddress: '0xabc',
+        },
+    }), null);
+
+    assert.equal(resolution.searchMode, 'required');
+    assert.ok(resolution.allowedTools.includes('external_web_search'));
+    assert.ok(resolution.allowedTools.includes('get_wallet_info'));
+    assert.ok(resolution.preferredTools.includes('external_web_search'));
+    assert.ok(resolution.preferredTools.includes('get_wallet_info'));
+});
+
+test('resolver records that explicit query chain overrides connected chain', () => {
+    const resolution = resolveNodeSkills(makeSnapshot('Buy CAKE on BNB chain', {
+        requestedTokenSymbols: ['CAKE', 'BNB'],
+        runtime: {
+            chainId: 8453,
+            chainName: 'Base',
+        },
+    }), null);
+
+    assert.ok(resolution.strategyNotes.some((note) => note.includes('requested BNB Chain')));
 });
 
 test('Farcaster discovery stays in local analysis phase', () => {

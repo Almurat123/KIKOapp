@@ -23,6 +23,7 @@ export interface QuerySignals {
     welcome: boolean;
     explicitSearch: boolean;
     realtime: boolean;
+    timeContext: boolean;
     xSearch: boolean;
     webSearch: boolean;
     wallet: boolean;
@@ -38,6 +39,7 @@ export interface QuerySignals {
     social: boolean;
     market: boolean;
     hasRequestedToken: boolean;
+    socialChainEvidence: boolean;
 }
 
 export interface SkillMatch {
@@ -159,12 +161,16 @@ export function matchSkillsForQuery(params: {
 
     const selectedForSearch = rankedMatches.length > 0 ? rankedMatches : scored.slice(0, 1);
     const hasStrongLocalDomainSkill = selectedForSearch.some((match) => !['market_macro', 'welcome_onboarding'].includes(match.skillId));
-    const searchMode: SearchMode = querySignals.explicitSearch
+    const searchMode: SearchMode = querySignals.socialChainEvidence
+        ? 'required'
+        : querySignals.explicitSearch
         ? 'required'
         : querySignals.realtime
             ? 'fallback'
             : 'forbidden';
-    const searchReason = querySignals.explicitSearch
+    const searchReason = querySignals.socialChainEvidence
+        ? 'social_plus_chain_evidence_required'
+        : querySignals.explicitSearch
         ? 'explicit_search_intent'
         : querySignals.realtime
             ? hasStrongLocalDomainSkill
@@ -329,16 +335,22 @@ export function detectQuerySignals(query: string, snapshot: ChatContextSnapshot,
         || /\bx\s+search\b/i.test(lower)
         || ['推特', '推文', 'X上', 'x上'].some((word) => raw.includes(word));
     const webSearch = /\bweb\s+search\b/i.test(lower) || /\bsearch\s+(the\s+)?web\b/i.test(lower) || /\bon\s+the\s+web\b/i.test(lower) || ['网页', '网站', '网上'].some((word) => raw.includes(word));
+    const timeContext = hasTimeOrEventContext(lower, raw);
+    const walletSignal = containsAny(lower, ['wallet', 'balance', 'portfolio', 'holdings']) || ['钱包', '余额', '持仓'].some((word) => raw.includes(word));
+    const pnlSignal = containsAny(lower, ['pnl', 'profit', 'profits', 'profitability', 'performance']) || ['盈亏', '收益', '利润', '表现'].some((word) => raw.includes(word));
+    const realtimeSignal = containsAny(lower, ['trending', 'trend', 'latest', 'today', 'current', 'right now', 'hot', 'buzz'])
+        || ['趋势', '今天', '现在', '最新', '热门', '在聊什么'].some((word) => raw.includes(word));
+    const socialChainEvidence = xSearch;
 
     return {
         welcome: isAssistantMetaQuery(lower, raw),
         explicitSearch,
-        realtime: containsAny(lower, ['trending', 'trend', 'latest', 'today', 'current', 'right now', 'hot', 'buzz'])
-            || ['趋势', '今天', '现在', '最新', '热门', '在聊什么'].some((word) => raw.includes(word)),
+        realtime: realtimeSignal,
+        timeContext,
         xSearch,
         webSearch,
-        wallet: containsAny(lower, ['wallet', 'balance', 'portfolio', 'holdings']) || ['钱包', '余额', '持仓'].some((word) => raw.includes(word)),
-        pnl: containsAny(lower, ['pnl', 'profit', 'profits', 'profitability', 'performance']) || ['盈亏', '收益', '利润', '表现'].some((word) => raw.includes(word)),
+        wallet: walletSignal,
+        pnl: pnlSignal,
         risk: isExplicitRiskRequest(lower, raw),
         prediction: containsAny(lower, ['polymarket', 'prediction', 'predictions', 'odds', 'bet', 'bets', 'betting', 'wager'])
             || ['押注', '赔率', '预测市场', '大家在赌什么'].some((word) => raw.includes(word)),
@@ -355,6 +367,7 @@ export function detectQuerySignals(query: string, snapshot: ChatContextSnapshot,
             || ['farcaster', '社交', '情绪', '推特', '推文'].some((word) => raw.includes(word)),
         market: containsAny(lower, ['market', 'macro', 'news', 'gas', 'economic', 'overview']) || ['行情', '宏观', '新闻', 'gas'].some((word) => raw.includes(word)),
         hasRequestedToken,
+        socialChainEvidence,
     };
 }
 
@@ -378,6 +391,22 @@ function isExplicitRiskRequest(query: string, rawQuery: string): boolean {
         '检查风险', '风险检查', '安全检查', '这个安全吗', '这个代币安全吗', '是不是土狗',
         '是不是骗局', '是不是貔貅', '貔貅', '蜜罐', '土狗', '拉地毯', 'rug', 'honeypot',
     ]);
+}
+
+function hasTimeOrEventContext(query: string, rawQuery: string): boolean {
+    if (containsAny(query, [
+        'announcement', 'announcements', 'announce', 'announced', 'news', 'event', 'events',
+        'date', 'time', 'timeline', 'when', 'yesterday', 'tomorrow', 'this week', 'last week',
+        'before', 'after',
+    ])) {
+        return true;
+    }
+    if (['公告', '新闻', '事件', '时间', '日期', '昨天', '明天', '之前', '之后', '本周', '上周'].some((word) => rawQuery.includes(word))) {
+        return true;
+    }
+    return /\b20\d{2}[-/]\d{1,2}[-/]\d{1,2}\b/.test(query)
+        || /\b\d{1,2}:\d{2}\b/.test(query)
+        || /\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\s+\d{1,2}\b/i.test(rawQuery);
 }
 
 function isAssistantMetaQuery(query: string, rawQuery: string): boolean {

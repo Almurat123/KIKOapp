@@ -1,4 +1,5 @@
 import type { ChatContextSnapshot } from './contracts.js';
+import { resolveRequestedChainHint } from './chainIntent.js';
 
 const STABLE_SYMBOLS = new Set(['USDC', 'USDT', 'DAI', 'FDUSD', 'BUSD', 'USD1']);
 const NATIVE_SYMBOLS = new Set(['ETH', 'WETH', 'BNB', 'WBNB', 'SOL', 'WSOL', 'POL', 'MATIC', 'WMATIC']);
@@ -13,6 +14,11 @@ export function parseTradingIntent(text: string, snapshot: ChatContextSnapshot):
     const raw = String(text || '').trim();
     const lower = raw.toLowerCase();
     const confirmation = snapshot.confirmationState || {};
+    const requestedChain = resolveRequestedChainHint({
+        text: raw,
+        requestedTokenAddresses: snapshot.requestedTokenAddresses,
+        requestedTokenSymbols: snapshot.requestedTokenSymbols,
+    });
 
     if (confirmation.kind === 'swap_confirmation') {
         return {
@@ -51,7 +57,7 @@ export function parseTradingIntent(text: string, snapshot: ChatContextSnapshot):
         const symbols = extractSymbols(raw);
         const contractAddresses = snapshot.requestedTokenAddresses || [];
         const tokenOut = contractAddresses[0] || guessTokenOut(raw, symbols, snapshot) || undefined;
-        const tokenIn = guessTokenIn(raw, symbols, snapshot, tokenOut) || undefined;
+        const tokenIn = guessTokenIn(raw, symbols, snapshot, tokenOut, requestedChain?.chainId) || undefined;
         return {
             kind: 'trading',
             type: 'swap',
@@ -59,6 +65,8 @@ export function parseTradingIntent(text: string, snapshot: ChatContextSnapshot):
                 amount: amountMatch ? amountMatch[1] : undefined,
                 token_in: tokenIn,
                 token_out: tokenOut,
+                chain_id: requestedChain?.chainId,
+                chain_name: requestedChain?.chainName,
                 requested_addresses: snapshot.requestedTokenAddresses || [],
                 requested_symbols: snapshot.requestedTokenSymbols || [],
             },
@@ -97,9 +105,15 @@ function guessTokenOut(raw: string, symbols: string[], snapshot: ChatContextSnap
     return symbols[0] || null;
 }
 
-function guessTokenIn(raw: string, symbols: string[], snapshot: ChatContextSnapshot, tokenOut?: string | null): string | null {
+function guessTokenIn(
+    raw: string,
+    symbols: string[],
+    snapshot: ChatContextSnapshot,
+    tokenOut?: string | null,
+    requestedChainId?: number,
+): string | null {
     const lower = raw.toLowerCase();
-    const chainId = Number(snapshot.runtime.chainId || 8453);
+    const chainId = Number(requestedChainId || snapshot.runtime.chainId || 8453);
     const nativeByChain: Record<number, string> = {
         1: 'ETH',
         10: 'ETH',

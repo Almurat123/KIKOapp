@@ -10,6 +10,7 @@ import { fetchJson } from '../../config/unifiedApiService.js';
 import { findTokenOnAnyChain, getTokenInfo } from '../../services/ai/tokenDetector.js';
 import { chatWS } from '../../services/chatWebSocket.js';
 import { getFastSwapDecision, prepareFastSwapExecution } from './fastSwapExecutor.js';
+import { resolveRequestedChainHint } from './chainIntent.js';
 import type { ChatContextSnapshot } from './contracts.js';
 import { ChatStreamBroker } from './streamBroker.js';
 
@@ -237,25 +238,36 @@ export async function maybeExecuteFastSwap(params: {
 }
 
 async function buildFastSwapIntent(snapshot: ChatContextSnapshot): Promise<any> {
+    const contractAddress = snapshot.requestedTokenAddresses[0];
+    const detectedToken = contractAddress ? await findTokenOnAnyChain(contractAddress).catch(() => null) : null;
+    return deriveFastSwapIntentDraft(snapshot, detectedToken?.chainId);
+}
+
+export function deriveFastSwapIntentDraft(snapshot: ChatContextSnapshot, detectedTokenChainId?: number): any {
     const chainId = snapshot.runtime.chainId || 8453;
     const query = snapshot.lastUserMessage;
     const lower = query.toLowerCase();
-    const destinationAsset = extractDestinationAsset(query, chainId);
+    const contractAddress = snapshot.requestedTokenAddresses[0];
+    const requestedChain = resolveRequestedChainHint({
+        text: query,
+        requestedTokenAddresses: snapshot.requestedTokenAddresses,
+        requestedTokenSymbols: snapshot.requestedTokenSymbols,
+    });
+    const destinationAsset = extractDestinationAsset(query, requestedChain?.chainId || chainId);
     const explicitBuy = /\b(buy|get|swap|trade|ape)\b/i.test(query) || /买|换/.test(query);
     const amountMatch = query.match(/\b(all|\d+(?:\.\d+)?%?)\b/i);
     const symbolCandidates = snapshot.requestedTokenSymbols.filter((symbol) =>
         !['BUY', 'SELL', 'SWAP', 'TRADE', 'GET', 'ALL'].includes(symbol)
     );
-    const contractAddress = snapshot.requestedTokenAddresses[0];
-    const detectedToken = contractAddress ? await findTokenOnAnyChain(contractAddress).catch(() => null) : null;
     const destinationChainId = destinationAsset ? inferChainIdFromAsset(destinationAsset) : undefined;
-    const inferredChainId = detectedToken?.chainId || destinationChainId || chainId;
-    const nativeSymbol = nativeSymbolForChain(inferredChainId);
+    const inferredChainId = requestedChain?.chainId || detectedTokenChainId || destinationChainId || chainId;
+    const effectiveChainId = inferredChainId || 8453;
+    const nativeSymbol = nativeSymbolForChain(effectiveChainId);
     const explicitSell =
         /\b(sell|dump)\b/i.test(query)
         || /卖/.test(query)
         || (!!contractAddress && !!destinationAsset && destinationAsset.toUpperCase() !== String(contractAddress).toUpperCase());
-    const target = contractAddress || symbolCandidates.find((symbol) => !STABLE_SYMBOLS.has(symbol) && symbol !== nativeSymbolForChain(chainId))
+    const target = contractAddress || symbolCandidates.find((symbol) => !STABLE_SYMBOLS.has(symbol) && symbol !== nativeSymbolForChain(effectiveChainId))
         || symbolCandidates[0];
     let tokenIn = nativeSymbol;
     let tokenOut = destinationAsset || target || '';
@@ -267,7 +279,7 @@ async function buildFastSwapIntent(snapshot: ChatContextSnapshot): Promise<any> 
         tokenOut = target;
         tokenIn = nativeSymbol;
     }
-    const explicitSource = extractSourceSymbol(query, symbolCandidates, tokenOut, inferredChainId);
+    const explicitSource = extractSourceSymbol(query, symbolCandidates, tokenOut, effectiveChainId);
     if (explicitSource) tokenIn = explicitSource;
     const parsedAmount = normalizeRequestedAmount(amountMatch?.[1], lower, explicitSell, tokenIn);
 
@@ -279,7 +291,7 @@ async function buildFastSwapIntent(snapshot: ChatContextSnapshot): Promise<any> 
             amount: parsedAmount,
         },
         contractAddress,
-        chainId: inferredChainId,
+        chainId: effectiveChainId,
     };
 }
 
@@ -292,7 +304,6 @@ function inferChainIdFromAsset(asset: string): number | undefined {
     if (upper === 'BNB') return 56;
     if (upper === 'POL' || upper === 'MATIC') return 137;
     if (upper === 'SOL') return 900;
-    if (upper === 'ETH' || upper === 'WETH') return 8453;
     return undefined;
 }
 
