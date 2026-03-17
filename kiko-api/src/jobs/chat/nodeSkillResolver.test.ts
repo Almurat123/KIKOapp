@@ -140,6 +140,38 @@ test('generic X queries still require search plus chain-side follow-up', () => {
     assert.ok(resolution.preferredTools.includes('get_wallet_info'));
 });
 
+test('official announcement date lookups are treated as required search even without explicit X keyword', () => {
+    const contract = '0xeCCBb861c0dda7eFd964010085488B69317e4444';
+    const resolution = resolveNodeSkills(makeSnapshot(`你可以寻找这个代币的${contract}在binance官方账户发布关于这个代币发布上架Alpha的帖子日期当时，购买的早期购买者吗？`, {
+        model: 'grok-4-1-fast-non-reasoning',
+        requestedTokenAddresses: [contract],
+    }), null);
+
+    assert.equal(resolution.searchMode, 'required');
+    assert.equal(resolution.searchReason, 'explicit_search_intent');
+    assert.equal(resolution.toolPhasePolicy.initialPhase, 'native_search_only');
+    assert.equal(resolution.toolPhasePolicy.nextPhaseAfterNativeSearch, 'local_analysis');
+    assert.ok(resolution.allowedTools.includes('get_token_info'));
+    assert.ok(resolution.preferredTools.includes('get_early_buyers'));
+});
+
+test('official source lookup handles split Chinese intent words and English synonyms', () => {
+    const contract = '0xeCCBb861c0dda7eFd964010085488B69317e4444';
+    const zhResolution = resolveNodeSkills(makeSnapshot(`帮我找一下 Binance 官方 账户 关于 ${contract} 上架 Alpha 的 帖子 日期`, {
+        model: 'grok-4-1-fast-non-reasoning',
+        requestedTokenAddresses: [contract],
+    }), null);
+    const enResolution = resolveNodeSkills(makeSnapshot(`Find the date when Binance official handle posted the Alpha listing update for ${contract}`, {
+        model: 'grok-4-1-fast-non-reasoning',
+        requestedTokenAddresses: [contract],
+    }), null);
+
+    assert.equal(zhResolution.searchMode, 'required');
+    assert.equal(enResolution.searchMode, 'required');
+    assert.equal(zhResolution.toolPhasePolicy.initialPhase, 'native_search_only');
+    assert.equal(enResolution.toolPhasePolicy.initialPhase, 'native_search_only');
+});
+
 test('resolver records that explicit query chain overrides connected chain', () => {
     const resolution = resolveNodeSkills(makeSnapshot('Buy CAKE on BNB chain', {
         requestedTokenSymbols: ['CAKE', 'BNB'],

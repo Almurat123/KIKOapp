@@ -327,7 +327,7 @@ export function detectQuerySignals(query: string, snapshot: ChatContextSnapshot,
     const lower = String(query || '').toLowerCase();
     const raw = String(query || '');
     const hasRequestedToken = (snapshot.requestedTokenAddresses || []).length > 0 || (snapshot.requestedTokenSymbols || []).length > 0;
-    const explicitSearch = isExplicitSearchIntent(lower, raw);
+    const explicitSearch = isExplicitSearchIntent(lower, raw) || requiresOfficialPostLookup(lower, raw);
     const xSearch = /\btwitter\b/i.test(lower)
         || lower.includes('x.com')
         || /\bon\s+x\b/i.test(lower)
@@ -407,6 +407,26 @@ function hasTimeOrEventContext(query: string, rawQuery: string): boolean {
     return /\b20\d{2}[-/]\d{1,2}[-/]\d{1,2}\b/.test(query)
         || /\b\d{1,2}:\d{2}\b/.test(query)
         || /\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\s+\d{1,2}\b/i.test(rawQuery);
+}
+
+function requiresOfficialPostLookup(query: string, rawQuery: string): boolean {
+    const officialQualifier = containsAny(query, [
+        'official', 'verified', 'main account', 'main handle', 'officially',
+    ]) || ['官方', '认证', '主号', '主账户', '主账号'].some((word) => rawQuery.includes(word));
+    const accountCarrier = containsAny(query, [
+        'account', 'handle', 'channel', 'page', 'profile',
+    ]) || ['账户', '账号', '帐号', '主页', '频道'].some((word) => rawQuery.includes(word));
+    const postCarrier = containsAny(query, [
+        'post', 'posts', 'tweet', 'tweets', 'thread', 'threads', 'announcement', 'announcements',
+        'listing announcement', 'listing post', 'announcement post', 'post date', 'tweet date',
+        'posted', 'publish', 'published', 'publication time',
+    ]) || ['帖子', '发帖', '贴文', '推文', '公告', '发文', '发布时间', '发布日期'].some((word) => rawQuery.includes(word));
+    const listingCarrier = containsAny(query, [
+        'alpha listing', 'list on alpha', 'alpha listed', 'listing', 'listed',
+    ]) || ['Alpha', '上架', '上币', '挂盘'].some((word) => rawQuery.includes(word));
+    const mentionsOfficialSource = (officialQualifier && accountCarrier) || (officialQualifier && postCarrier) || (accountCarrier && postCarrier);
+    const mentionsEntity = containsAny(query, ['binance', 'coinbase', 'okx', 'bybit', 'kucoin']) || ['币安', '欧易', '交易所', 'Coinbase', 'Bybit', 'KuCoin'].some((word) => rawQuery.includes(word));
+    return mentionsEntity && (mentionsOfficialSource || (officialQualifier && listingCarrier) || (postCarrier && listingCarrier));
 }
 
 function isAssistantMetaQuery(query: string, rawQuery: string): boolean {
