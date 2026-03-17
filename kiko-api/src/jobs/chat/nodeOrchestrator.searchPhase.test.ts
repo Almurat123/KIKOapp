@@ -605,6 +605,104 @@ test('function_call-style pseudo tool output is rejected and retried as a real t
     assert.equal(broker.texts.join(''), 'Here are the early buyers for that Alpha listing day.');
 });
 
+test('prose-style pseudo tool narration is rejected and retried as a real tool call', async () => {
+    const tokenAddress = '0xeCCBb861c0dda7eFd964010085488B69317e4444';
+    const snapshot = makeSnapshot('Find the early buyers around 2026-03-10 for this token', {
+        model: 'deepseek-reasoner',
+        requestedTokenAddresses: [tokenAddress],
+    });
+    const broker = makeBroker();
+    let generationRound = 0;
+    let executeCalls = 0;
+
+    const generationClient = {
+        async generate(params: any) {
+            if (String(params?.taskId || '').endsWith(':plan')) {
+                return { text: '', reasoning: '', toolCalls: [] };
+            }
+            generationRound += 1;
+            if (generationRound === 1) {
+                return {
+                    text: [
+                        'I will use real tools now.',
+                        `Function call: external_web_search(query="${tokenAddress} Binance Alpha 2026-03-10")`,
+                        `Using tool get_early_buyers(address="${tokenAddress}", chain_id=56)`,
+                    ].join('\n'),
+                    reasoning: '',
+                    toolCalls: [],
+                };
+            }
+            if (generationRound === 2) {
+                return {
+                    text: '',
+                    reasoning: '',
+                    toolCalls: [
+                        {
+                            id: 'search-1',
+                            name: 'external_web_search',
+                            arguments: { query: `${tokenAddress} Binance Alpha 2026-03-10`, limit: 5 },
+                        },
+                    ],
+                };
+            }
+            if (generationRound === 3) {
+                return {
+                    text: '',
+                    reasoning: '',
+                    toolCalls: [
+                        {
+                            id: 'buyers-1',
+                            name: 'get_early_buyers',
+                            arguments: {
+                                token_address: tokenAddress,
+                                chain_id: 56,
+                                start_time: '2026-03-10T00:00:00Z',
+                                end_time: '2026-03-10T23:59:59Z',
+                            },
+                        },
+                    ],
+                };
+            }
+            return {
+                text: 'Here are the early buyers after real search and chain verification.',
+                reasoning: '',
+                toolCalls: [],
+            };
+        },
+    };
+
+    await runNodeOrchestration({
+        snapshot,
+        generationClient: generationClient as any,
+        toolExecutionEngine: {
+            async execute(call: any) {
+                executeCalls += 1;
+                if (executeCalls === 1) {
+                    assert.equal(call.name, 'external_web_search');
+                    return {
+                        ok: true,
+                        result: { results: [{ title: 'Binance Alpha date' }] },
+                        metadata: { source: 'tool_runtime' },
+                    };
+                }
+                assert.equal(call.name, 'get_early_buyers');
+                return {
+                    ok: true,
+                    result: { earlyBuyers: [{ address: '0xabc' }] },
+                    metadata: { source: 'tool_runtime' },
+                };
+            },
+        } as any,
+        broker: broker as any,
+        toolContext: {},
+    });
+
+    assert.equal(generationRound, 4);
+    assert.equal(executeCalls, 2);
+    assert.deepEqual(broker.replacements, ['']);
+    assert.equal(broker.texts.join(''), 'Here are the early buyers after real search and chain verification.');
+});
+
 test('normalizeToolCallForProvider rewrites legacy early-buyer time arguments to start_time/end_time', () => {
     const normalized = normalizeToolCallForProvider({
         id: 'buyers-legacy',

@@ -153,6 +153,19 @@ test('stripPseudoToolCallOutput removes function_call style tool blocks from ass
     assert.equal(containsPseudoToolCallOutput(leaked), true);
 });
 
+test('stripPseudoToolCallOutput removes prose-style function call lines from assistant text', () => {
+    const leaked = [
+        'I will handle this now.',
+        'Function call: get_early_buyers(address="0xeCCBb861c0dda7eFd964010085488B69317e4444", chain_id=56)',
+        'Tool: external_web_search',
+        'Using tool get_token_info(address="0xeCCBb861c0dda7eFd964010085488B69317e4444")',
+        'Final answer.',
+    ].join('\n');
+
+    assert.equal(stripPseudoToolCallOutput(leaked), 'I will handle this now.\n\nFinal answer.');
+    assert.equal(containsPseudoToolCallOutput(leaked), true);
+});
+
 test('sanitizeReasoningForDisplay keeps visible reasoning while dropping internal tool chatter', () => {
     const raw = [
         'The user is asking about trending topics on X.',
@@ -182,5 +195,19 @@ test('sanitizeReasoningForDisplay removes xml-like tool chatter and terminated s
     assert.equal(
         sanitizeReasoningForDisplay(raw),
         'I need to verify the timestamp first. Then I can summarize the result.',
+    );
+});
+
+test('sanitizeReasoningForDisplay removes prose-style pseudo tool narration', () => {
+    const raw = [
+        'I need real search evidence first.',
+        'Function call: external_web_search(query="Binance Alpha listing")',
+        'Using tool get_early_buyers(address="0xabc")',
+        'Then I can summarize the verified result.',
+    ].join('\n');
+
+    assert.equal(
+        sanitizeReasoningForDisplay(raw),
+        'I need real search evidence first. Then I can summarize the verified result.',
     );
 });
