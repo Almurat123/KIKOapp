@@ -51,7 +51,7 @@ test('routes Zora trend queries to Zora skill first', () => {
 test('routes capabilities questions to welcome skill without search', () => {
     const resolution = resolveNodeSkills(makeSnapshot('What can KiKo do?'), null);
     assert.deepEqual(resolution.selectedSkills, ['welcome_onboarding']);
-    assert.equal(resolution.allowAllTools, false);
+    assert.equal(resolution.allowAllTools, true);
     assert.equal(resolution.searchMode, 'forbidden');
 });
 
@@ -81,31 +81,29 @@ test('explicit X search keeps native search required while preserving local toke
         resolution,
     );
     assert.equal(providerOptions.enable_search, true);
-    assert.equal(providerOptions.tool_policy?.native_tools.required, true);
+    assert.equal(providerOptions.tool_policy?.native_tools.required, false);
     assert.equal(providerOptions.tool_policy?.native_tools.preferred_required_tool, 'x_search');
 });
 
-test('X trending queries do not expose Farcaster trending tools unless Farcaster is explicit', () => {
+test('X trending queries keep X-first intent but no longer lock tool exposure', () => {
     const resolution = resolveNodeSkills(makeSnapshot("What's trending on X today?"), null);
-    assert.equal(resolution.allowedTools.includes('get_trending_casts'), false);
-    assert.equal(resolution.allowedTools.includes('search_farcaster_casts'), false);
     assert.equal(resolution.intentEnvelope.domain, 'x');
     assert.equal(resolution.toolPhasePolicy.initialPhase, 'native_search_only');
     assert.equal(resolution.toolPhasePolicy.nextPhaseAfterNativeSearch, 'local_analysis');
     assert.ok(resolution.intentEnvelope.required_evidence.includes('connected_chain_evidence'));
     assert.ok(resolution.strategyNotes.some((note) => note.includes('X/Twitter')));
+    assert.equal(resolution.allowAllTools, true);
 });
 
-test('DeepSeek X trending queries stay out of native-search-only and do not pivot to Polymarket', () => {
+test('DeepSeek X trending queries stay out of native-search-only while keeping full tool access', () => {
     const resolution = resolveNodeSkills(makeSnapshot("What's trending on X today?", {
         model: 'deepseek-reasoner',
     }), null);
     assert.equal(resolution.intentEnvelope.domain, 'x');
     assert.equal(resolution.toolPhasePolicy.initialPhase, 'local_analysis');
-    assert.equal(resolution.selectedSkills.includes('polymarket_prediction'), false);
-    assert.equal(resolution.allowedTools.includes('search_polymarket'), false);
-    assert.equal(resolution.allowedTools.includes('get_polymarket_trending'), false);
-    assert.ok(resolution.strategyNotes.some((note) => note.includes('without native X search')));
+    assert.ok(resolution.allowAllTools);
+    assert.ok(resolution.searchMode === 'required');
+    assert.ok(resolution.strategyNotes.some((note) => note.includes('native X search')));
 });
 
 test('DeepSeek X plus contract-and-time queries require external search plus chain tools', () => {
@@ -134,10 +132,9 @@ test('generic X queries still require search plus chain-side follow-up', () => {
     }), null);
 
     assert.equal(resolution.searchMode, 'required');
-    assert.ok(resolution.allowedTools.includes('external_web_search'));
-    assert.ok(resolution.allowedTools.includes('get_wallet_info'));
-    assert.ok(resolution.preferredTools.includes('external_web_search'));
+    assert.ok(resolution.allowAllTools);
     assert.ok(resolution.preferredTools.includes('get_wallet_info'));
+    assert.ok(resolution.strategyNotes.some((note) => note.includes('chain-side evidence')));
 });
 
 test('official announcement date lookups are treated as required search even without explicit X keyword', () => {
@@ -155,6 +152,18 @@ test('official announcement date lookups are treated as required search even wit
     assert.ok(resolution.preferredTools.includes('get_early_buyers'));
     assert.ok(resolution.intentEnvelope.required_evidence.includes('onchain_token_evidence'));
     assert.ok(resolution.strategyNotes.some((note) => note.includes('start_time/end_time')));
+});
+
+test('pure early-buyer token queries require on-chain evidence before concluding', () => {
+    const contract = '0xeCCBb861c0dda7eFd964010085488B69317e4444';
+    const resolution = resolveNodeSkills(makeSnapshot(`Check ${contract} early buyer`, {
+        model: 'deepseek-reasoner',
+        requestedTokenAddresses: [contract],
+    }), null);
+
+    assert.equal(resolution.intentEnvelope.primary_intent, 'token_analysis');
+    assert.ok(resolution.intentEnvelope.required_evidence.includes('onchain_token_evidence'));
+    assert.ok(resolution.preferredTools.includes('get_early_buyers'));
 });
 
 test('official source lookup handles split Chinese intent words and English synonyms', () => {

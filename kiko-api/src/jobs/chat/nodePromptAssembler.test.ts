@@ -182,7 +182,7 @@ test('assembleGenerationMessages tells non-native-search providers to use local 
 
     const systemMessage = messages.find((message) => message.role === 'system');
     assert.match(String(systemMessage?.content || ''), /use local search tools such as external_web_search/i);
-    assert.match(String(systemMessage?.content || ''), /do not stop after search alone/i);
+    assert.match(String(systemMessage?.content || ''), /combine search evidence with chain-side evidence/i);
     assert.match(String(systemMessage?.content || ''), /do not say you found, confirmed, verified, or retrieved anything unless a real tool/i);
 });
 

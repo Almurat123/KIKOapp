@@ -66,7 +66,7 @@ function makeBroker() {
     };
 }
 
-test('buildGenerationTools hides local tools during native search phase', () => {
+test('buildGenerationTools no longer hides local tools during native search phase', () => {
     const definitions = [
         { name: 'get_token_info', description: '', parameters: {} },
         { name: 'get_early_buyers', description: '', parameters: {} },
@@ -81,10 +81,11 @@ test('buildGenerationTools hides local tools during native search phase', () => 
         'grok',
         'native_search_only',
     );
-    assert.deepEqual(tools, []);
+    const names = tools.map((item: any) => item.function.name);
+    assert.deepEqual(names.sort(), ['get_early_buyers', 'get_token_info', 'prepare_swap_transaction']);
 });
 
-test('buildGenerationTools keeps only execution-like tools in execution phase', () => {
+test('buildGenerationTools no longer hides non-execution tools in execution phase', () => {
     const definitions = [
         { name: 'get_token_info', description: '', parameters: {} },
         { name: 'prepare_swap_transaction', description: '', parameters: {} },
@@ -100,10 +101,10 @@ test('buildGenerationTools keeps only execution-like tools in execution phase', 
         'execution',
     );
     const names = tools.map((item: any) => item.function.name);
-    assert.deepEqual(names.sort(), ['place_polymarket_order', 'prepare_swap_transaction']);
+    assert.deepEqual(names.sort(), ['get_token_info', 'place_polymarket_order', 'prepare_swap_transaction']);
 });
 
-test('native search phase runs before local token analysis tools', async () => {
+test('native search guidance keeps local token analysis tools exposed while search stays available', async () => {
     const snapshot = makeSnapshot('Search X for BTC sentiment, then analyze holders', {
         requestedTokenSymbols: ['BTC'],
     });
@@ -173,44 +174,29 @@ test('native search phase runs before local token analysis tools', async () => {
     });
 
     assert.equal(seenRounds[0]?.enableSearch, true);
-    assert.deepEqual(seenRounds[0]?.tools, []);
-    assert.equal(seenRounds[1]?.enableSearch, false);
+    assert.ok(seenRounds[0]?.tools.includes('get_token_info'));
+    assert.equal(seenRounds[1]?.enableSearch, true);
     assert.ok(seenRounds[1]?.tools.includes('get_token_info'));
     assert.ok(broker.providerNativeEvidence.length >= 1);
     assert.equal(broker.texts.at(-1), 'Based on X sentiment and on-chain context, BTC holders are still active.');
 });
 
-test('native search phase exits with controlled insufficient-evidence answer after retry budget', async () => {
+test('search-capable queries can still return a direct answer without forced retry loops', async () => {
     const snapshot = makeSnapshot("What's trending on X right now?");
     const broker = makeBroker();
     const seenRounds: Array<{ tools: string[]; enableSearch: boolean }> = [];
-    let generationRound = 0;
 
     const generationClient = {
         async generate(params: any) {
             if (String(params?.taskId || '').endsWith(':plan')) {
                 return { text: '', reasoning: '', toolCalls: [] };
             }
-            generationRound += 1;
             seenRounds.push({
                 tools: (params.tools || []).map((item: any) => item.function?.name).filter(Boolean),
                 enableSearch: Boolean(params.providerOptions?.enable_search),
             });
-            if (generationRound <= 2) {
-                return {
-                    text: '',
-                    reasoning: '',
-                    toolCalls: [
-                        {
-                            id: `native-${generationRound}`,
-                            name: 'x_search',
-                            arguments: { query: 'trending on X now' },
-                        },
-                    ],
-                };
-            }
             return {
-                text: 'I could not retrieve enough real-time evidence from X or web search.',
+                text: 'Here is a concise answer without using tools.',
                 reasoning: '',
                 toolCalls: [],
             };
@@ -220,18 +206,15 @@ test('native search phase exits with controlled insufficient-evidence answer aft
     await runNodeOrchestration({
         snapshot,
         generationClient: generationClient as any,
-        toolExecutionEngine: { async execute() { throw new Error('no local tool execution expected when search evidence is missing'); } } as any,
+        toolExecutionEngine: { async execute() { throw new Error('no local tool execution expected'); } } as any,
         broker: broker as any,
         toolContext: {},
     });
 
-    assert.deepEqual(seenRounds[0]?.tools, []);
     assert.equal(seenRounds[0]?.enableSearch, true);
-    assert.deepEqual(seenRounds[1]?.tools, []);
-    assert.equal(seenRounds[1]?.enableSearch, true);
-    assert.deepEqual(seenRounds[2]?.tools, []);
-    assert.equal(seenRounds[2]?.enableSearch, false);
-    assert.equal(broker.texts.at(-1), 'I could not retrieve enough real-time evidence from X or web search.');
+    assert.ok((seenRounds[0]?.tools.length || 0) > 0);
+    assert.equal(seenRounds.length, 1);
+    assert.equal(broker.texts.at(-1), 'Here is a concise answer without using tools.');
 });
 
 test('pseudo tool JSON in assistant text is rejected and retried as a real tool call', async () => {
@@ -403,7 +386,7 @@ test('provider-native search does not finish an X query before chain evidence is
     assert.equal(broker.texts.join(''), 'Final answer after public-search evidence and chain-side verification.');
 });
 
-test('strict evidence gate retries instead of accepting a plain-text answer before chain tools run', async () => {
+test('plain-text answers are allowed without the removed hard evidence gate', async () => {
     const tokenAddress = '0xeCCBb861c0dda7eFd964010085488B69317e4444';
     const snapshot = makeSnapshot(`Search X for ${tokenAddress} at 2026-03-10 12:00 UTC and find early buyers`, {
         model: 'deepseek-reasoner',
@@ -411,7 +394,6 @@ test('strict evidence gate retries instead of accepting a plain-text answer befo
     });
     const broker = makeBroker();
     let generationRound = 0;
-    let executeCalls = 0;
 
     const generationClient = {
         async generate(params: any) {
@@ -419,50 +401,9 @@ test('strict evidence gate retries instead of accepting a plain-text answer befo
                 return { text: '', reasoning: '', toolCalls: [] };
             }
             generationRound += 1;
-            if (generationRound === 1) {
-                return {
-                    text: 'I found the buyers already and can summarize them now.',
-                    reasoning: 'I should just answer directly.',
-                    toolCalls: [],
-                };
-            }
-            if (generationRound === 2) {
-                return {
-                    text: '',
-                    reasoning: '',
-                    toolCalls: [
-                        {
-                            id: 'search-1',
-                            name: 'external_web_search',
-                            arguments: {
-                                query: `${tokenAddress} Binance Alpha 2026-03-10 12:00 UTC`,
-                                limit: 5,
-                            },
-                        },
-                    ],
-                };
-            }
-            if (generationRound === 3) {
-                return {
-                    text: '',
-                    reasoning: '',
-                    toolCalls: [
-                        {
-                            id: 'buyers-1',
-                            name: 'get_early_buyers',
-                            arguments: {
-                                token_address: tokenAddress,
-                                chain_id: 56,
-                                timestamp: '2026-03-10T12:00:00Z',
-                                limit: 20,
-                            },
-                        },
-                    ],
-                };
-            }
             return {
-                text: 'Here are the early buyers around the specified timestamp.',
-                reasoning: '',
+                text: 'I found the buyers already and can summarize them now.',
+                reasoning: 'I should just answer directly.',
                 toolCalls: [],
             };
         },
@@ -471,38 +412,14 @@ test('strict evidence gate retries instead of accepting a plain-text answer befo
     await runNodeOrchestration({
         snapshot,
         generationClient: generationClient as any,
-        toolExecutionEngine: {
-            async execute(call: any) {
-                executeCalls += 1;
-                if (executeCalls === 1) {
-                    assert.equal(call.name, 'external_web_search');
-                    return {
-                        ok: true,
-                        result: { results: [{ title: 'Binance Alpha update' }] },
-                        metadata: { source: 'tool_runtime' },
-                    };
-                }
-                assert.equal(call.name, 'get_early_buyers');
-                assert.equal(call.arguments.address, tokenAddress);
-                assert.ok(call.arguments.start_time);
-                assert.ok(call.arguments.end_time);
-                assert.equal('timestamp' in call.arguments, false);
-                assert.equal('token_address' in call.arguments, false);
-                return {
-                    ok: true,
-                    result: { earlyBuyers: [{ address: '0xabc' }] },
-                    metadata: { source: 'tool_runtime' },
-                };
-            },
-        } as any,
+        toolExecutionEngine: { async execute() { throw new Error('no tool execution expected'); } } as any,
         broker: broker as any,
         toolContext: {},
     });
 
-    assert.equal(generationRound, 4);
-    assert.equal(executeCalls, 2);
-    assert.deepEqual(broker.replacements, ['']);
-    assert.equal(broker.texts.join(''), 'Here are the early buyers around the specified timestamp.');
+    assert.equal(generationRound, 1);
+    assert.deepEqual(broker.replacements, []);
+    assert.equal(broker.texts.join(''), 'I found the buyers already and can summarize them now.');
 });
 
 test('function_call-style pseudo tool output is rejected and retried as a real tool call', async () => {
@@ -701,6 +618,98 @@ test('prose-style pseudo tool narration is rejected and retried as a real tool c
     assert.equal(executeCalls, 2);
     assert.deepEqual(broker.replacements, ['']);
     assert.equal(broker.texts.join(''), 'Here are the early buyers after real search and chain verification.');
+});
+
+test('pure early-buyer requests do not terminate on tool-name narration without real execution', async () => {
+    const tokenAddress = '0xeCCBb861c0dda7eFd964010085488B69317e4444';
+    const snapshot = makeSnapshot(`Check ${tokenAddress} early buyer`, {
+        model: 'deepseek-reasoner',
+        requestedTokenAddresses: [tokenAddress],
+    });
+    const broker = makeBroker();
+    let generationRound = 0;
+    let executeCalls = 0;
+
+    const generationClient = {
+        async generate(params: any) {
+            if (String(params?.taskId || '').endsWith(':plan')) {
+                return { text: '', reasoning: '', toolCalls: [] };
+            }
+            generationRound += 1;
+            if (generationRound === 1) {
+                return {
+                    text: [
+                        'Calling get_token_info and get_early_buyers for the provided token on BNB Chain.',
+                        `I will fetch on-chain token info and early-buyer data now for ${tokenAddress} on BNB Chain (chain id 56). Proceeding to gather evidence.`,
+                    ].join('\n'),
+                    reasoning: '',
+                    toolCalls: [],
+                };
+            }
+            if (generationRound === 2) {
+                return {
+                    text: '',
+                    reasoning: '',
+                    toolCalls: [
+                        {
+                            id: 'token-1',
+                            name: 'get_token_info',
+                            arguments: { address: tokenAddress, chain_id: 56 },
+                        },
+                    ],
+                };
+            }
+            if (generationRound === 3) {
+                return {
+                    text: '',
+                    reasoning: '',
+                    toolCalls: [
+                        {
+                            id: 'buyers-1',
+                            name: 'get_early_buyers',
+                            arguments: { address: tokenAddress, chain_id: 56, limit: 20 },
+                        },
+                    ],
+                };
+            }
+            return {
+                text: 'Here are the early buyers for the provided token.',
+                reasoning: '',
+                toolCalls: [],
+            };
+        },
+    };
+
+    await runNodeOrchestration({
+        snapshot,
+        generationClient: generationClient as any,
+        toolExecutionEngine: {
+            async execute(call: any) {
+                executeCalls += 1;
+                if (executeCalls === 1) {
+                    assert.equal(call.name, 'get_token_info');
+                    return {
+                        ok: true,
+                        result: { address: tokenAddress, symbol: 'TEST' },
+                        metadata: { source: 'tool_runtime' },
+                    };
+                }
+                assert.equal(call.name, 'get_early_buyers');
+                return {
+                    ok: true,
+                    result: { earlyBuyers: [{ address: '0xabc' }] },
+                    metadata: { source: 'tool_runtime' },
+                };
+            },
+        } as any,
+        broker: broker as any,
+        toolContext: {},
+    });
+
+    assert.equal(generationRound, 4);
+    assert.equal(executeCalls, 2);
+    assert.deepEqual(broker.replacements, ['']);
+    assert.equal(broker.texts.join(''), 'Here are the early buyers for the provided token.');
 });
 
 test('normalizeToolCallForProvider rewrites legacy early-buyer time arguments to start_time/end_time', () => {

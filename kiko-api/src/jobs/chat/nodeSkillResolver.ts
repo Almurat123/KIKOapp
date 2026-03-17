@@ -72,7 +72,7 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
     const blockedTools: string[] = [];
     const preferredTools: string[] = [];
     const strategyNotes: string[] = [];
-    let allowAllTools = Boolean(tradingIntent);
+    let allowAllTools = true;
 
     const matchResult = matchSkillsForQuery({ snapshot, tradingIntent });
     const querySignals = matchResult.querySignals;
@@ -98,7 +98,6 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
 
     let selected = matchResult.rankedMatches.map((item) => item.skillId);
     if (querySignals.welcome) {
-        allowAllTools = false;
         strategyNotes.push('This is a greeting, self-introduction, or capabilities question. Answer directly without tools unless the user explicitly asks for live data or on-chain evidence.');
         selected = selected.filter((skillId) => skillId === 'welcome_onboarding');
     }
@@ -140,7 +139,7 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
         if (querySignals.wallet || asksWalletPnl) {
             ensureSupportingSkill(selected, 'wallet_portfolio');
         }
-        strategyNotes.push('Any X/Twitter query in this system must gather search evidence and chain-side evidence together before concluding.');
+        strategyNotes.push('For X/Twitter queries in this system, prefer combining search evidence with chain-side evidence when it materially improves the answer.');
         if (querySignals.timeContext && hasRequestedToken) {
             strategyNotes.push('For time-anchored token analysis, establish the public post or announcement timestamp first, then run get_early_buyers with the real address + start_time/end_time contract.');
         }
@@ -154,23 +153,8 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
         strategyNotes.push(`The user explicitly requested ${requestedChain.chainName}. Treat the connected chain only as wallet context; requested chain overrides it for this turn.`);
     }
 
-    if (preferXNativeSearch) {
-        selected = selected.filter((skillId) => skillId !== 'social_farcaster');
-        if (selected.length === 0 && !querySignals.welcome) {
-            selected = ['market_macro'];
-        }
-    }
-
-    if (preferXNativeSearch && !isGrok && !querySignals.prediction) {
-        selected = selected.filter((skillId) => {
-            if (skillId === 'social_farcaster' || skillId === 'polymarket_prediction') return false;
-            if (skillId === 'market_macro') return requiresSocialChainEvidence;
-            return true;
-        });
-        strategyNotes.push('This is an X/Twitter query on a provider path without native X search. Do not pivot to Farcaster or Polymarket unless the user explicitly asks for those domains.');
-        if (requiresSocialChainEvidence) {
-            strategyNotes.push('Use local external_web_search together with chain-analysis tools on this provider path, because provider-native X search is unavailable.');
-        }
+    if (preferXNativeSearch && !isGrok && requiresSocialChainEvidence) {
+        strategyNotes.push('This provider path has no native X search. Prefer local external_web_search together with relevant chain-analysis tools when you need current X/Twitter context.');
     }
 
     selected = selected
@@ -221,16 +205,8 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
         allowedTools = allowedTools.filter((tool) => tool !== 'analyze_wallet_pnl_batch' && tool !== 'analyze_wallet_pnl');
     }
 
-    if (isGrok) {
-        pushPreferred(blockedTools, 'external_web_search');
-        allowedTools = allowedTools.filter((tool) => tool !== 'external_web_search');
-    }
     if (preferXNativeSearch) {
-        for (const toolName of ['get_trending_casts', 'search_farcaster_casts', 'get_farcaster_user']) {
-            pushPreferred(blockedTools, toolName);
-        }
-        allowedTools = allowedTools.filter((tool) => !['get_trending_casts', 'search_farcaster_casts', 'get_farcaster_user'].includes(tool));
-        strategyNotes.push('This query is explicitly about X/Twitter. Do not substitute Farcaster trending tools unless the user explicitly asks for Farcaster.');
+        strategyNotes.push('This query is explicitly about X/Twitter. Prefer X-related evidence first, but choose the tools that best answer the request.');
     }
 
     if (hasRequestedToken) {
@@ -392,6 +368,12 @@ function buildIntentEnvelope(params: {
 
     const rawQuery = String(snapshot.lastUserMessage || '');
     const lower = rawQuery.toLowerCase();
+    const asksEarlyBuyerEvidence = containsAny(lower, [
+        'early buyers', 'earliest buyers', 'first buyers', 'first buyer', 'early buyer',
+        'holders', 'holder', 'first trades', 'first swaps', 'snipers', 'creator', 'deployer',
+    ]) || containsAny(rawQuery, [
+        '早期买家', '首批买家', '早期购买者', '持有人', '前几位买家', '早期购买', '创建者', '部署者',
+    ]);
     const mentionsExecution = containsAny(lower, [
         'place order', 'buy yes', 'buy no', 'sell yes', 'sell no', 'place a', '下注', '下单', '买 yes', '买 no', '卖 yes', '卖 no',
     ]);
@@ -454,6 +436,9 @@ function buildIntentEnvelope(params: {
     if ((hasRequestedToken || querySignals.tokenAnalysis) && (querySignals.realtime || querySignals.socialChainEvidence)) {
         requiredEvidence.push('onchain_token_evidence');
     }
+    if ((hasRequestedToken || querySignals.tokenAnalysis) && asksEarlyBuyerEvidence) {
+        requiredEvidence.push('onchain_token_evidence');
+    }
     if (querySignals.socialChainEvidence && (querySignals.wallet || asksWalletPnl)) {
         requiredEvidence.push('onchain_wallet_evidence');
     }
@@ -471,7 +456,7 @@ function buildIntentEnvelope(params: {
         search_target: searchTarget,
         domain,
         execution_risk: taskMode === 'execute' || taskMode === 'confirm' ? 'mutation' : 'read_only',
-        required_evidence: requiredEvidence,
+        required_evidence: Array.from(new Set(requiredEvidence)),
     };
 }
 

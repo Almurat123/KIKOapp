@@ -166,6 +166,17 @@ test('stripPseudoToolCallOutput removes prose-style function call lines from ass
     assert.equal(containsPseudoToolCallOutput(leaked), true);
 });
 
+test('stripPseudoToolCallOutput removes tool-name narration lines from assistant text', () => {
+    const leaked = [
+        'Calling get_token_info and get_early_buyers for the provided token on BNB Chain.',
+        'I will fetch on-chain token info and early-buyer data now for 0xecc... using get_token_info and get_early_buyers.',
+        'Final answer.',
+    ].join('\n');
+
+    assert.equal(stripPseudoToolCallOutput(leaked), 'Final answer.');
+    assert.equal(containsPseudoToolCallOutput(leaked), true);
+});
+
 test('sanitizeReasoningForDisplay keeps visible reasoning while dropping internal tool chatter', () => {
     const raw = [
         'The user is asking about trending topics on X.',

@@ -61,7 +61,7 @@ export function assembleGenerationMessages(
         systemParts.push('When a request mixes social timing with token or on-chain analysis, use native search for the timing/news context and local chain tools for wallet, holder, buyer, transfer, and token evidence.');
     }
     if (guidance?.intentEnvelope?.domain === 'x') {
-        systemParts.push('For X/Twitter queries in this system, do not stop after search alone. Pair the search evidence with chain-side evidence before the final answer.');
+        systemParts.push('For X/Twitter queries in this system, combine search evidence with chain-side evidence when it materially improves the answer.');
     }
     if (!providerInfo.supportsNativeSearch && guidance?.searchMode === 'required') {
         systemParts.push('This provider path has no provider-native search. When search evidence is required, use local search tools such as external_web_search together with any relevant chain-analysis tools.');
@@ -137,11 +137,11 @@ function buildToolGuidanceBlock(guidance?: {
         if (lines.length > 0) lines.push('');
         lines.push('[TOOL_POLICY]');
         if (guidance?.toolPhase === 'native_search_only') {
-            lines.push('- Current phase: native_search_only. Use provider-native search now. Do not substitute local Node tools in this phase.');
+            lines.push('- Current phase preference: native_search_only. Prefer provider-native search first when it fits, but all registered tools remain available subject to policy.');
         } else if (guidance?.toolPhase === 'execution') {
-            lines.push('- Current phase: execution. Use only the currently approved execution tools; do not reopen search or unrelated analysis.');
+            lines.push('- Current phase preference: execution. Prefer the most relevant execution or verification tools, and avoid unrelated detours.');
         } else {
-            lines.push('- Current phase: local_analysis. Reuse any provider-native evidence already gathered before deciding whether another tool is needed.');
+            lines.push('- Current phase preference: local_analysis. Reuse any evidence already gathered before deciding whether another tool is needed.');
         }
         if (guidance?.searchMode === 'required') {
             lines.push(`- Search mode: required (${guidance.searchReason || 'external_evidence_required'}).`);
@@ -157,7 +157,7 @@ function buildToolGuidanceBlock(guidance?: {
             }
         }
         if (guidance?.allowAllTools) {
-            lines.push('- Registered tools remain available when explicitly permitted by the policy layer.');
+            lines.push('- All registered tools remain available for this turn unless the policy layer explicitly blocks them.');
         }
         lines.push('- If the user asks for on-chain evidence such as early buyers, holders, first trades, or creator wallets, do not answer from summaries alone when a relevant local tool is available.');
     }

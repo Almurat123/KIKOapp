@@ -102,7 +102,6 @@ export function buildProviderOptions(
             || ['早期买家', '首批买家', '持有人', '创建者', '部署者', '前几位买家'].some((word) => String(query || '').includes(word))
         );
     const searchAttempt = Math.max(1, phaseContext?.searchAttempt || 1);
-    const nativeSearchRequired = currentPhase === 'native_search_only';
 
     const xSeedHandles = extractXHandles([
         snapshot.runtime.farcaster,
@@ -114,7 +113,7 @@ export function buildProviderOptions(
     const previousResponseId = sanitizePreviousResponseId(phaseContext?.previousResponseId ?? snapshot.previousResponseId);
     const actionClass = snapshot.policySnapshot?.actionClass || 'READ_ONLY';
     const hardMutationPolicy = snapshot.policySnapshot?.enforcementLevel === 'hard' && actionClass !== 'READ_ONLY';
-    const nativeSearchEnabled = !hardMutationPolicy && currentPhase === 'native_search_only';
+    const nativeSearchEnabled = !hardMutationPolicy && requiresRealtimeSocialSearch;
     const enabledNativeTools = nativeSearchEnabled
         ? resolveEnabledNativeTools(intentEnvelope)
         : [];
@@ -136,7 +135,7 @@ export function buildProviderOptions(
             native_tools: {
                 enable_search: nativeSearchEnabled,
                 enabled_tools: enabledNativeTools,
-                required: nativeSearchEnabled ? nativeSearchRequired : false,
+                required: false,
                 preferred_required_tool: preferredRequiredTool,
                 include_options: nativeSearchEnabled
                     ? ['inline_citations', ...(requiresRealtimeSocialSearch ? ['web_search_call_output', 'x_search_call_output'] : [])]
@@ -144,16 +143,14 @@ export function buildProviderOptions(
                 allow_extra_sdk_tools: false,
                 reason: hardMutationPolicy
                     ? 'mutation_node_control_only'
-                    : currentPhase === 'native_search_only'
-                    ? 'phase_native_search_only'
+                    : nativeSearchEnabled
+                    ? 'search_enabled_for_query'
                     : requestsOnchainEvidence
                     ? 'native_search_required_with_local_chain_tools'
                     : skillResolution?.searchReason
-                        || (nativeSearchRequired
-                            ? 'required_realtime_social_search'
-                            : requiresRealtimeSocialSearch
-                                ? 'native_search_fallback'
-                                : 'native_search_disabled'),
+                        || (requiresRealtimeSocialSearch
+                            ? 'native_search_fallback'
+                            : 'native_search_disabled'),
             },
             execution: {
                 per_tool_timeout_ms: 20000,
