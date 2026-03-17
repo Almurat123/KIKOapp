@@ -18,6 +18,13 @@ import {
   buildTargetSellEventPayload,
   persistTargetSellEventAndSchedulePositions,
 } from '../exit/positionExitIntentScheduler.js';
+import { findRecentTargetSellEvents, replaceTargetSellEventMetadata } from '../exit/targetSellEventStore.js';
+import {
+  cloneTargetSellEventReconcileMetadata,
+  isTargetSellEventConfigDue,
+  markTargetSellEventConfigResolved,
+  markTargetSellEventConfigRetry,
+} from '../exit/targetSellEventReconcileState.js';
 import { normalizeToken, normalizeWallet } from '../runtime/chainIdentityNormalizer.js';
 import {
   readEvmTokenBalanceFast,
@@ -26,6 +33,18 @@ import {
 } from '../../rpc/balanceRpcReader.js';
 
 const TARGET_SELL_RECONCILE_WINDOW_MS = Math.max(60_000, Number(process.env.COPYTRADE_TARGET_SELL_RECONCILE_WINDOW_MS || '21600000'));
+const TARGET_SELL_EVENT_RECONCILE_LOOKBACK_MS = Math.max(
+  15 * 60_000,
+  Number(process.env.COPYTRADE_TARGET_SELL_EVENT_RECONCILE_LOOKBACK_MS || '3600000'),
+);
+const TARGET_SELL_EVENT_RECONCILE_BATCH_SIZE = Math.max(
+  20,
+  Number(process.env.COPYTRADE_TARGET_SELL_EVENT_RECONCILE_BATCH_SIZE || '120'),
+);
+const TARGET_SELL_POSITION_SWEEP_INTERVAL_MS = Math.max(
+  5 * 60_000,
+  Number(process.env.COPYTRADE_TARGET_SELL_POSITION_SWEEP_INTERVAL_MS || '900000'),
+);
 const ORPHAN_RECOVERY_ENTRY_TX_PREFIX = 'RECOVERED_ONCHAIN_';
 const ORPHAN_RECOVERY_LEADER_TX_PREFIX = 'ORPHAN_RECOVERY_';
 const ORPHAN_RECOVERY_RESIDUAL_RATIO_SKIP_BPS = Math.max(
@@ -55,6 +74,8 @@ type WalletTransactionSellRow = {
   amountIn: string | null;
   blockTimestamp: Date;
 };
+
+let lastTrackedPositionSweepAt = 0;
 
 function computeDustThresholdRaw(decimals: number): bigint {
   const normalized = Math.max(0, Number.isFinite(decimals) ? Math.floor(decimals) : 0);
@@ -370,7 +391,6 @@ async function createOrReuseRecoveredPosition(params: {
 }
 
 async function recoverMissingOrphanMirrorSellPositions(params: {
-  createdAfter: Date;
   hasInFlightMirrorSellOrder: typeof hasInFlightMirrorSellOrder;
 }): Promise<{ recoveredOrphans: number; scheduledRecoveredOrphans: number }> {
   const activeConfigs = await prisma.copyTradeConfig.findMany({
@@ -405,97 +425,191 @@ async function recoverMissingOrphanMirrorSellPositions(params: {
     return { recoveredOrphans: 0, scheduledRecoveredOrphans: 0 };
   }
 
-  const sellRows = await prisma.walletTransaction.findMany({
-    where: {
-      chainId: { in: chainIds },
-      walletAddress: { in: targetWallets, mode: 'insensitive' },
-      txType: { in: ['TARGET_SELL', 'TARGET_TOKEN_SWAP'] },
-      blockTimestamp: { gte: params.createdAfter },
-    },
-    orderBy: [{ blockTimestamp: 'desc' }, { createdAt: 'desc' }],
-    take: 200,
-    select: {
-      walletAddress: true,
-      chainId: true,
-      txHash: true,
-      txType: true,
-      tokenAddress: true,
-      tokenInAddress: true,
-      tokenSymbol: true,
-      tokenInSymbol: true,
-      amountIn: true,
-      blockTimestamp: true,
-    },
+  const events = await findRecentTargetSellEvents({
+    chainIds,
+    targetWallets,
+    detectedAfter: new Date(Date.now() - TARGET_SELL_EVENT_RECONCILE_LOOKBACK_MS),
+    take: TARGET_SELL_EVENT_RECONCILE_BATCH_SIZE,
   });
-
-  const signals = resolveRecentTargetSellSignals(sellRows as WalletTransactionSellRow[]);
   let recoveredOrphans = 0;
   let scheduledRecoveredOrphans = 0;
 
-  for (const signal of signals) {
+  for (const event of events) {
     const assetEligibility = classifyCopytradeAssetEligibility({
-      chainId: signal.chainId,
-      tokenAddress: signal.tokenAddress,
+      chainId: event.chainId,
+      tokenAddress: event.tokenAddress,
     });
     if (!assetEligibility.allowed) continue;
 
-    const configs = configMap.get(`${signal.chainId}:${signal.targetWallet}`) || [];
+    const configs = configMap.get(`${event.chainId}:${event.targetWallet}`) || [];
     if (configs.length === 0) continue;
 
-    const fullExit = await verifyTargetFullExit({
-      targetWallet: signal.targetWallet,
-      chainId: signal.chainId,
-      tokenAddress: signal.tokenAddress,
-    });
-    if (!fullExit.isFullExit) continue;
+    let metadata = cloneTargetSellEventReconcileMetadata(event.metadata);
+    let metadataChanged = false;
+    const now = new Date();
+    const dueConfigs = configs.filter((config) => isTargetSellEventConfigDue(metadata, config.id, now.getTime()));
+    if (dueConfigs.length === 0) continue;
 
-    for (const config of configs) {
+    const fullExit = event.targetFullExitVerified
+      ? {
+        isFullExit: true,
+        reasonCode: 'TARGET_SELL_EVENT_PERSISTED_FULL_EXIT',
+        remainingBalanceRaw: event.targetRemainingBalanceRaw || '0',
+        dustThresholdRaw: '0',
+      }
+      : await verifyTargetFullExit({
+        targetWallet: event.targetWallet,
+        chainId: event.chainId,
+        tokenAddress: event.tokenAddress,
+      });
+
+    if (!fullExit.isFullExit) {
+      for (const config of dueConfigs) {
+        markTargetSellEventConfigResolved({
+          metadata,
+          configId: config.id,
+          blockedReason: 'target_not_full_exit',
+          reasonCode: fullExit.reasonCode || 'TARGET_SELL_BALANCE_UNVERIFIED',
+          now,
+        });
+        metadataChanged = true;
+      }
+      if (metadataChanged) {
+        await replaceTargetSellEventMetadata(event.id, metadata).catch(() => null);
+      }
+      continue;
+    }
+
+    for (const config of dueConfigs) {
       const hasInFlight = await params.hasInFlightMirrorSellOrder({
         userId: config.userId,
         configId: config.id,
-        chainId: signal.chainId,
-        tokenAddress: signal.tokenAddress,
+        chainId: event.chainId,
+        tokenAddress: event.tokenAddress,
       });
-      if (hasInFlight) continue;
+      if (hasInFlight) {
+        markTargetSellEventConfigResolved({
+          metadata,
+          configId: config.id,
+          blockedReason: 'inflight',
+          reasonCode: 'reconcile_inflight_exit_order',
+          now,
+        });
+        metadataChanged = true;
+        continue;
+      }
 
       const recoveryEvidence = await loadFollowerRecoveryEvidence({
         userId: config.userId,
         configId: config.id,
-        chainId: signal.chainId,
-        tokenAddress: signal.tokenAddress,
+        chainId: event.chainId,
+        tokenAddress: event.tokenAddress,
       });
-      if (recoveryEvidence.hasActivePosition) continue;
-      if (!recoveryEvidence.hasPendingAttributedLot && !recoveryEvidence.hasLedgerContext) {
-        emitCopytradeDomainAudit('mirror_sell_idempotent_skip', {
-          extra: {
-            userId: config.userId,
-            configId: config.id,
-            chainId: signal.chainId,
-            tokenAddress: signal.tokenAddress,
-            targetWallet: signal.targetWallet,
-            targetSellTxHash: signal.targetSellTxHash,
-            blockedReason: 'missing_follower_evidence',
-            reasonCode: 'orphan_recovery_evidence_missing',
-          },
+      if (recoveryEvidence.hasActivePosition) {
+        markTargetSellEventConfigResolved({
+          metadata,
+          configId: config.id,
+          blockedReason: 'active_position_present',
+          reasonCode: 'orphan_recovery_active_position_present',
+          now,
         });
+        metadataChanged = true;
+        continue;
+      }
+      if (!recoveryEvidence.hasPendingAttributedLot && !recoveryEvidence.hasLedgerContext) {
+        const retry = markTargetSellEventConfigRetry({
+          metadata,
+          configId: config.id,
+          blockedReason: 'missing_follower_evidence',
+          reasonCode: 'orphan_recovery_evidence_missing',
+          now,
+        });
+        metadataChanged = true;
+        if (retry.shouldAudit) {
+          emitCopytradeDomainAudit('mirror_sell_idempotent_skip', {
+            extra: {
+              userId: config.userId,
+              configId: config.id,
+              chainId: event.chainId,
+              tokenAddress: event.tokenAddress,
+              targetWallet: event.targetWallet,
+              targetSellTxHash: event.targetSellTxHash,
+              blockedReason: 'missing_follower_evidence',
+              reasonCode: retry.exhausted
+                ? 'orphan_recovery_evidence_missing_exhausted'
+                : 'orphan_recovery_evidence_missing',
+              retryAttemptCount: retry.attemptCount,
+              retryExhausted: retry.exhausted,
+              retryAfterMs: retry.nextRetryAt ? Math.max(0, retry.nextRetryAt.getTime() - now.getTime()) : null,
+            },
+          });
+        }
         continue;
       }
 
-      const followerWallet = signal.chainId === 900
+      const followerWallet = event.chainId === 900
         ? String(config.user?.solanaWalletAddress || '').trim()
-        : normalizeWallet(signal.chainId, config.user?.walletAddress || '');
-      if (!followerWallet) continue;
+        : normalizeWallet(event.chainId, config.user?.walletAddress || '');
+      if (!followerWallet) {
+        markTargetSellEventConfigResolved({
+          metadata,
+          configId: config.id,
+          blockedReason: 'missing_follower_wallet',
+          reasonCode: 'orphan_recovery_missing_follower_wallet',
+          now,
+        });
+        metadataChanged = true;
+        continue;
+      }
 
       const followerBalance = await loadFollowerTokenBalance({
-        chainId: signal.chainId,
+        chainId: event.chainId,
         walletAddress: followerWallet,
-        tokenAddress: signal.tokenAddress,
+        tokenAddress: event.tokenAddress,
       }).catch(() => null);
-      if (!followerBalance) continue;
+      if (!followerBalance) {
+        const retry = markTargetSellEventConfigRetry({
+          metadata,
+          configId: config.id,
+          blockedReason: 'follower_balance_unavailable',
+          reasonCode: 'orphan_recovery_balance_unavailable',
+          now,
+        });
+        metadataChanged = true;
+        if (retry.shouldAudit) {
+          emitCopytradeDomainAudit('mirror_sell_idempotent_skip', {
+            extra: {
+              userId: config.userId,
+              configId: config.id,
+              chainId: event.chainId,
+              tokenAddress: event.tokenAddress,
+              targetWallet: event.targetWallet,
+              targetSellTxHash: event.targetSellTxHash,
+              blockedReason: 'follower_balance_unavailable',
+              reasonCode: retry.exhausted
+                ? 'orphan_recovery_balance_unavailable_exhausted'
+                : 'orphan_recovery_balance_unavailable',
+              retryAttemptCount: retry.attemptCount,
+              retryExhausted: retry.exhausted,
+            },
+          });
+        }
+        continue;
+      }
 
       const dustThresholdRaw = computeDustThresholdRaw(followerBalance.decimals);
-      if (followerBalance.balanceRaw <= dustThresholdRaw) continue;
-      const targetSellAmountRaw = parsePositiveBigInt(signal.amountIn);
+      if (followerBalance.balanceRaw <= dustThresholdRaw) {
+        markTargetSellEventConfigResolved({
+          metadata,
+          configId: config.id,
+          blockedReason: 'follower_balance_dust',
+          reasonCode: 'orphan_recovery_balance_dust',
+          now,
+        });
+        metadataChanged = true;
+        continue;
+      }
+      const targetSellAmountRaw = parsePositiveBigInt((event.metadata as Record<string, unknown> | null)?.targetSellAmountRaw);
       if (shouldSkipOrphanRecoveryResidual({
         followerBalanceRaw: followerBalance.balanceRaw,
         targetSellAmountRaw,
@@ -503,10 +617,10 @@ async function recoverMissingOrphanMirrorSellPositions(params: {
         logger.info(LogCode.WTC_TX_SKIPPED, '[TargetSellReconcile] Skip orphan recovery for residual tail balance', {
           userId: config.userId,
           configId: config.id,
-          chainId: signal.chainId,
-          tokenAddress: signal.tokenAddress,
-          targetWallet: signal.targetWallet,
-          targetSellTxHash: signal.targetSellTxHash,
+          chainId: event.chainId,
+          tokenAddress: event.tokenAddress,
+          targetWallet: event.targetWallet,
+          targetSellTxHash: event.targetSellTxHash,
           followerWallet,
           followerBalanceRaw: followerBalance.balanceRaw.toString(),
           targetSellAmountRaw: targetSellAmountRaw.toString(),
@@ -514,16 +628,24 @@ async function recoverMissingOrphanMirrorSellPositions(params: {
           residualSkipBps: ORPHAN_RECOVERY_RESIDUAL_RATIO_SKIP_BPS,
           reasonCode: 'orphan_recovery_residual_tail_skip',
         });
+        markTargetSellEventConfigResolved({
+          metadata,
+          configId: config.id,
+          blockedReason: 'residual_tail_balance',
+          reasonCode: 'orphan_recovery_residual_tail_skip',
+          now,
+        });
+        metadataChanged = true;
         continue;
       }
 
       const recoveredPosition = await createOrReuseRecoveredPosition({
         userId: config.userId,
         configId: config.id,
-        chainId: signal.chainId,
-        tokenAddress: signal.tokenAddress,
-        tokenSymbol: signal.tokenSymbol,
-        targetSellTxHash: signal.targetSellTxHash,
+        chainId: event.chainId,
+        tokenAddress: event.tokenAddress,
+        tokenSymbol: String((event.metadata as Record<string, unknown> | null)?.tokenSymbol || '') || null,
+        targetSellTxHash: event.targetSellTxHash,
         balanceRaw: followerBalance.balanceRaw,
         decimals: followerBalance.decimals,
       });
@@ -535,10 +657,10 @@ async function recoverMissingOrphanMirrorSellPositions(params: {
           userId: config.userId,
           configId: config.id,
           positionId: recoveredPosition.id,
-          tokenAddress: signal.tokenAddress,
-          chainId: signal.chainId,
-          targetWallet: signal.targetWallet,
-          targetSellTxHash: signal.targetSellTxHash,
+          tokenAddress: event.tokenAddress,
+          chainId: event.chainId,
+          targetWallet: event.targetWallet,
+          targetSellTxHash: event.targetSellTxHash,
           followerWallet,
           balanceRaw: followerBalance.balanceRaw.toString(),
           dustThresholdRaw: dustThresholdRaw.toString(),
@@ -549,17 +671,17 @@ async function recoverMissingOrphanMirrorSellPositions(params: {
 
       const scheduled = await persistTargetSellEventAndSchedulePositions({
         event: buildTargetSellEventPayload({
-          chainId: signal.chainId,
-          targetWallet: signal.targetWallet,
-          tokenAddress: signal.tokenAddress,
-          targetSellTxHash: signal.targetSellTxHash,
+          chainId: event.chainId,
+          targetWallet: event.targetWallet,
+          tokenAddress: event.tokenAddress,
+          targetSellTxHash: event.targetSellTxHash,
           targetFullExitVerified: true,
           targetRemainingBalanceRaw: fullExit.remainingBalanceRaw || null,
           source: 'reconcile',
           metadata: {
             orphanRecovery: true,
             targetFullExitReasonCode: fullExit.reasonCode,
-            orphanRecoveryBlockTimestamp: signal.blockTimestamp.toISOString(),
+            orphanRecoveryDetectedAt: event.detectedAt.toISOString(),
           },
         }),
         positions: [{
@@ -579,20 +701,33 @@ async function recoverMissingOrphanMirrorSellPositions(params: {
       }).catch(() => null);
 
       if (scheduled && scheduled.scheduled > 0) {
+        metadata = cloneTargetSellEventReconcileMetadata(scheduled.event.metadata);
+        markTargetSellEventConfigResolved({
+          metadata,
+          configId: config.id,
+          blockedReason: 'scheduled',
+          reasonCode: 'orphan_recovery_exit_scheduled',
+          now,
+        });
+        metadataChanged = true;
         scheduledRecoveredOrphans += scheduled.scheduled;
         emitCopytradeDomainAudit('FOLLOWER_ORPHAN_EXIT_SCHEDULED', {
           extra: {
             userId: config.userId,
             configId: config.id,
             positionId: recoveredPosition.id,
-            tokenAddress: signal.tokenAddress,
-            chainId: signal.chainId,
-            targetWallet: signal.targetWallet,
-            targetSellTxHash: signal.targetSellTxHash,
+            tokenAddress: event.tokenAddress,
+            chainId: event.chainId,
+            targetWallet: event.targetWallet,
+            targetSellTxHash: event.targetSellTxHash,
             reasonCode: 'orphan_recovery_exit_scheduled',
           },
         });
       }
+    }
+
+    if (metadataChanged) {
+      await replaceTargetSellEventMetadata(event.id, metadata).catch(() => null);
     }
   }
 
@@ -633,13 +768,17 @@ export async function runTargetSellReconciliationCycle(): Promise<{
   scheduledRecoveredOrphans: number;
 }> {
   const createdAfter = new Date(Date.now() - TARGET_SELL_RECONCILE_WINDOW_MS);
+  const nowMs = Date.now();
+  const shouldRunTrackedPositionSweep = nowMs - lastTrackedPositionSweepAt >= TARGET_SELL_POSITION_SWEEP_INTERVAL_MS;
   let scannedOpen = 0;
   let scannedPending = 0;
   let armedPending = 0;
   let scheduledOpen = 0;
   let fullExitMatches = 0;
 
-  const openCandidates = await findLedgerFirstReconcileOpenCandidates({ createdAfter });
+  const openCandidates = shouldRunTrackedPositionSweep
+    ? await findLedgerFirstReconcileOpenCandidates({ createdAfter })
+    : [];
 
   for (const position of openCandidates) {
     const assetEligibility = classifyCopytradeAssetEligibility({
@@ -768,7 +907,9 @@ export async function runTargetSellReconciliationCycle(): Promise<{
     }
   }
 
-  const pendingCandidates = await findLedgerFirstReconcilePendingCandidates({ createdAfter });
+  const pendingCandidates = shouldRunTrackedPositionSweep
+    ? await findLedgerFirstReconcilePendingCandidates({ createdAfter })
+    : [];
 
   for (const lot of pendingCandidates) {
     const assetEligibility = classifyCopytradeAssetEligibility({
@@ -906,8 +1047,11 @@ export async function runTargetSellReconciliationCycle(): Promise<{
     }
   }
 
+  if (shouldRunTrackedPositionSweep) {
+    lastTrackedPositionSweepAt = nowMs;
+  }
+
   const orphanRecovery = await recoverMissingOrphanMirrorSellPositions({
-    createdAfter,
     hasInFlightMirrorSellOrder,
   });
 

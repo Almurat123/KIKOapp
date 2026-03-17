@@ -169,3 +169,51 @@ export async function findLatestTargetSellEvent(input: {
   await cacheSetJson(cacheKey(record), record, TARGET_SELL_EVENT_TTL_SEC).catch(() => undefined);
   return record;
 }
+
+export async function findRecentTargetSellEvents(input: {
+  chainIds: number[];
+  targetWallets: string[];
+  detectedAfter: Date;
+  take?: number;
+}): Promise<TargetSellEventRecord[]> {
+  const chainIds = [...new Set(input.chainIds.map((value) => Number(value)).filter((value) => Number.isFinite(value) && value > 0))];
+  const targetWallets = [...new Set(
+    input.targetWallets
+      .map((wallet) => String(wallet || '').trim().toLowerCase())
+      .filter(Boolean),
+  )];
+  if (chainIds.length === 0 || targetWallets.length === 0) return [];
+
+  const rows = await prisma.targetSellEvent.findMany({
+    where: {
+      chainId: { in: chainIds },
+      targetWallet: { in: targetWallets },
+      detectedAt: { gte: input.detectedAfter },
+    },
+    orderBy: [{ updatedAt: 'desc' }, { detectedAt: 'desc' }],
+    take: Math.max(1, Math.min(500, Number(input.take || 200))),
+  });
+  return rows.map(toRecord);
+}
+
+export async function replaceTargetSellEventMetadata(
+  eventId: string,
+  metadata: Record<string, unknown> | null,
+): Promise<TargetSellEventRecord | null> {
+  const normalizedId = String(eventId || '').trim();
+  if (!normalizedId) return null;
+  const row = await prisma.targetSellEvent.update({
+    where: { id: normalizedId },
+    data: {
+      metadataJson: metadata && Object.keys(metadata).length > 0
+        ? metadata as Prisma.InputJsonValue
+        : Prisma.JsonNull,
+    },
+  }).catch(() => null);
+  if (!row) return null;
+
+  const record = toRecord(row);
+  await cacheSetJson(cacheKey(record), record, TARGET_SELL_EVENT_TTL_SEC).catch(() => undefined);
+  await cacheSetJson(latestCacheKey(record), record, TARGET_SELL_EVENT_TTL_SEC).catch(() => undefined);
+  return record;
+}

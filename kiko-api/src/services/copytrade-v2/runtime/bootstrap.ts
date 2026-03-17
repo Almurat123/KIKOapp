@@ -14,8 +14,8 @@ import { LogCode } from '../../../config/logRegistry.js';
 import type { DecodedSwap } from '../../txDecoder.js';
 
 const TARGET_SELL_RECONCILIATION_INTERVAL_MS = Math.max(
-  15_000,
-  Number(process.env.COPYTRADE_TARGET_SELL_RECONCILIATION_INTERVAL_MS || '30000'),
+  60_000,
+  Number(process.env.COPYTRADE_TARGET_SELL_RECONCILIATION_INTERVAL_MS || '120000'),
 );
 const ATTRIBUTION_REPAIR_INTERVAL_MS = 600_000;
 const ORPHAN_SWEEP_INTERVAL_MS = Math.max(

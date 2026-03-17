@@ -12,10 +12,14 @@ import {
   type TargetSellEventPayload,
 } from './intentTypes.js';
 import { enqueuePositionExitIntent } from './positionExitIntentStore.js';
-import { upsertTargetSellEvent, type TargetSellEventRecord } from './targetSellEventStore.js';
+import { replaceTargetSellEventMetadata, upsertTargetSellEvent, type TargetSellEventRecord } from './targetSellEventStore.js';
 import type { PositionExitReason } from './types.js';
 import { nudgePositionExitIntentWorker } from './positionExitIntentWorker.js';
 import { persistTerminalExitBlockState } from './persistence.js';
+import {
+  cloneTargetSellEventReconcileMetadata,
+  markTargetSellEventConfigResolved,
+} from './targetSellEventReconcileState.js';
 
 function parsePositiveBigInt(value: unknown): bigint {
   const raw = String(value || '').trim();
@@ -115,6 +119,8 @@ export async function scheduleMirrorSellIntentsForEvent(params: {
   const event = params.event;
   let scheduled = 0;
   let skipped = 0;
+  let metadata = cloneTargetSellEventReconcileMetadata(event.metadata);
+  let metadataChanged = false;
   for (const position of params.positions) {
     const assetEligibility = classifyCopytradeAssetEligibility({
       chainId: position.chainId,
@@ -127,6 +133,13 @@ export async function scheduleMirrorSellIntentsForEvent(params: {
         reasonCode: assetEligibility.reasonCode || 'forbidden_asset',
       }).catch(() => undefined);
       skipped += 1;
+      markTargetSellEventConfigResolved({
+        metadata,
+        configId: position.configId,
+        blockedReason: 'forbidden_asset',
+        reasonCode: assetEligibility.reasonCode || 'forbidden_asset',
+      });
+      metadataChanged = true;
       emitCopytradeDomainAudit('mirror_sell_idempotent_skip', {
         extra: {
           positionId: position.id,
@@ -172,10 +185,24 @@ export async function scheduleMirrorSellIntentsForEvent(params: {
     const result = await enqueuePositionExitIntent(payload);
     if (result.created) {
       scheduled += 1;
+      markTargetSellEventConfigResolved({
+        metadata,
+        configId: position.configId,
+        blockedReason: 'scheduled',
+        reasonCode: 'mirror_sell_intent_scheduled',
+      });
+      metadataChanged = true;
       nudgePositionExitIntentWorker(payload.lane);
       continue;
     }
     skipped += 1;
+    markTargetSellEventConfigResolved({
+      metadata,
+      configId: position.configId,
+      blockedReason: 'active_intent',
+      reasonCode: 'position_exit_intent_active',
+    });
+    metadataChanged = true;
     emitCopytradeDomainAudit('mirror_sell_idempotent_skip', {
       extra: {
         positionId: position.id,
@@ -188,6 +215,12 @@ export async function scheduleMirrorSellIntentsForEvent(params: {
         reasonCode: 'position_exit_intent_active',
       },
     });
+  }
+  if (metadataChanged) {
+    const replaced = await replaceTargetSellEventMetadata(event.id, metadata).catch(() => null);
+    if (replaced) {
+      metadata = cloneTargetSellEventReconcileMetadata(replaced.metadata);
+    }
   }
   return { event, scheduled, skipped };
 }
