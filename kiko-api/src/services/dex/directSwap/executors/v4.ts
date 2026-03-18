@@ -10,6 +10,7 @@ import type { OrderRuntimeContext } from '../../../order-runtime/types.js';
 import { markOrderPrepared, recordOrderRoute, setOrderMetadata } from '../../../order-runtime/context.js';
 import { getCanonicalAssetIdentity } from '../../../evmCanonicalAsset.js';
 import { probeV4HookCapability, resolveV4HookCapabilityProfile } from '../../v4HookCapabilities.js';
+import { TRADE_QUOTE_PROFILE } from '../../../rpc/profile.js';
 
 interface ExecuteSwapParams {
   userId: string;
@@ -157,8 +158,7 @@ export async function executeV4Swap(
   if (!fastMode) {
     try {
       const gasPriceHex = await deps.callRpc<string>(chainId, 'eth_gasPrice', [], {
-        strategy: 'fast',
-        importance: 'critical'
+        profile: TRADE_QUOTE_PROFILE
       });
       gasPriceWei = gasPriceHex ? BigInt(gasPriceHex) : undefined;
     } catch {
@@ -278,8 +278,7 @@ export async function executeV4Swap(
         data: tx.data,
         value: isNativeIn ? ethers.toQuantity(amountInWei) : '0x0'
       }, 'latest'], {
-        strategy: 'fast',
-        importance: 'critical'
+        profile: TRADE_QUOTE_PROFILE
       });
     } catch (err: any) {
       const errSummary = deps.summarizeRpcError(err);
@@ -296,8 +295,7 @@ export async function executeV4Swap(
               data: candidateTx.data,
               value: isNativeIn ? ethers.toQuantity(amountInWei) : '0x0'
             }, 'latest'], {
-              strategy: 'fast',
-              importance: 'critical'
+              profile: TRADE_QUOTE_PROFILE
             });
             selectedHookData = candidate;
             tx = candidateTx;
@@ -379,7 +377,7 @@ export async function executeV4Swap(
         to: tx.to,
         data: tx.data,
         value: isNativeIn ? ethers.toQuantity(amountInWei) : '0x0'
-      }]);
+      }], { profile: TRADE_QUOTE_PROFILE });
       gasLimit = (BigInt(estimate) * 2n).toString();
     } catch {
       gasLimit = cachedGasLimit || deps.turboV4GasLimit;
@@ -401,7 +399,7 @@ export async function executeV4Swap(
           to: tx.to,
           data: tx.data,
           value: isNativeIn ? ethers.toQuantity(amountInWei) : '0x0'
-        }]);
+        }], { profile: TRADE_QUOTE_PROFILE });
 
         const estimatedGas = BigInt(estimate);
         const buffered = estimatedGas * 2n;

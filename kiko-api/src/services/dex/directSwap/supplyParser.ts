@@ -8,6 +8,7 @@ import type { DirectSwapHint, HintedSourcePool } from '../directSwapTypes.js';
 import type { SelectedV4Pool } from '../v4ExecutionPlan.js';
 import type { PoolInfo } from '../poolInfo.js';
 import { findV4Pools } from '../uniswapV4.js';
+import { TRADE_QUOTE_PROFILE } from '../../rpc/profile.js';
 
 const NATIVE_TOKEN = '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
 const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
@@ -264,7 +265,7 @@ async function resolveV4PoolByIdFallback(
   for (const inToken of inCandidates) {
     for (const outToken of outCandidates) {
       if (!inToken || !outToken || inToken === outToken) continue;
-      const found = await findV4Pools(inToken, outToken, chainId, { strategy: 'fast' }).catch(() => []);
+      const found = await findV4Pools(inToken, outToken, chainId, { profile: TRADE_QUOTE_PROFILE }).catch(() => []);
       for (const pool of found) poolMap.set(String(pool.poolId).toLowerCase(), pool);
     }
   }
@@ -330,7 +331,7 @@ async function resolveV4PoolByPairFallback(
   for (const inToken of inCandidates) {
     for (const outToken of outCandidates) {
       if (!inToken || !outToken || inToken === outToken) continue;
-      const found = await findV4Pools(inToken, outToken, chainId, { strategy: 'fast' }).catch(() => []);
+      const found = await findV4Pools(inToken, outToken, chainId, { profile: TRADE_QUOTE_PROFILE }).catch(() => []);
       for (const pool of found) poolMap.set(String(pool.poolId).toLowerCase(), pool);
     }
   }

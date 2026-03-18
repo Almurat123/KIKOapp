@@ -11,6 +11,9 @@ import { getDexPriceDetailed } from './dexPriceService.js'; // 🔗 DEX 价格 f
 import { decideLaunchpadOraclePrice, decideValidatedMarketPrice, isLaunchpadOracleSource } from './pricing/launchpadOraclePolicy.js';
 import { getTokenSupply } from './rpcService.js';
 import { isErc20ContractAddress } from '../utils/evmTokenCheck.js';
+import { resolveRpcCallProfile, type RpcCallProfile } from './rpc/profile.js';
+import type { RpcImportance } from './rpc/types.js';
+import type { RpcPurpose } from './rpc/purpose.js';
 
 /**
  * Token Service
@@ -36,6 +39,31 @@ const NATIVE_TOKENS = new Set([
 
 type OnChainPriceFetcher = typeof import('./onChainPriceService.js').getOnChainPrice;
 type DexPriceFetcher = typeof getDexPriceDetailed;
+type TokenRpcStrategy =
+    | 'fast'
+    | 'cheap'
+    | RpcCallProfile;
+
+function buildTradeAwareRpcProfile(params: {
+    rpcStrategy: TokenRpcStrategy;
+    fastMode?: boolean;
+    priority?: ApiPriority;
+}): { strategy: 'fast' | 'cheap'; purpose: RpcPurpose; importance: RpcImportance } {
+    if (typeof params.rpcStrategy !== 'string') {
+        const resolved = resolveRpcCallProfile(params.rpcStrategy, {
+            purpose: params.fastMode || params.priority === 'high' ? 'trade_execution' : 'interactive_read',
+            strategy: 'cheap',
+            importance: params.fastMode || params.priority === 'high' ? 'critical' : 'normal',
+        });
+        return resolved;
+    }
+    const isTradePath = params.fastMode || params.priority === 'high' || params.rpcStrategy === 'fast';
+    return {
+        strategy: params.rpcStrategy,
+        purpose: isTradePath ? 'trade_execution' : 'interactive_read',
+        importance: isTradePath ? 'critical' : 'normal',
+    };
+}
 
 async function fetchAdaptiveEvmOnChainPrice(params: {
     tokenAddress: string;
@@ -45,11 +73,11 @@ async function fetchAdaptiveEvmOnChainPrice(params: {
     getOnChainPriceImpl?: OnChainPriceFetcher;
 }): Promise<any> {
     const getOnChainPriceImpl = params.getOnChainPriceImpl || (await import('./onChainPriceService.js')).getOnChainPrice;
-    const rpcProfile = {
-        strategy: params.rpcStrategy,
-        purpose: params.fastMode || params.rpcStrategy === 'fast' ? 'trade_execution' : 'interactive_read',
-        importance: params.fastMode || params.rpcStrategy === 'fast' ? 'critical' : 'normal',
-    } as const;
+    const rpcProfile = buildTradeAwareRpcProfile({
+        rpcStrategy: params.rpcStrategy,
+        fastMode: params.fastMode,
+        priority: params.fastMode ? 'high' : 'normal',
+    });
     const first = await getOnChainPriceImpl(params.tokenAddress, params.chainId, {
         rpcStrategy: rpcProfile,
         lightweight: params.fastMode,
@@ -122,7 +150,7 @@ export async function getTokenInfo(
         verbose?: boolean;
         forceRefresh?: boolean;
         priority?: ApiPriority;
-        rpcStrategy?: 'fast' | 'cheap';
+        rpcStrategy?: TokenRpcStrategy;
         fastMode?: boolean;
     } = { verbose: true, forceRefresh: false, priority: 'normal' }
 ): Promise<any> {
@@ -201,7 +229,7 @@ async function fetchTokenInfoFromAPIs(
     chainId: number,
     verbose: boolean,
     priority: ApiPriority = 'normal',
-    rpcStrategy: 'fast' | 'cheap' = 'cheap',
+    rpcStrategy: TokenRpcStrategy = 'cheap',
     fastMode: boolean = false
 ): Promise<any> {
     const isSolana = chainId === 900;
@@ -227,6 +255,7 @@ async function fetchTokenInfoFromAPIs(
     // ⚠️ Solana (chainId 900): Uses Jupiter API instead of RPC
 
     const shouldUseOnChainRpc = isSolana || fastMode || priority === 'high' || rpcStrategy === 'fast';
+    const rpcProfile = buildTradeAwareRpcProfile({ rpcStrategy, fastMode, priority });
     if (verbose) {
         logger.debug(LogCode.API_FETCH_SUCCESS, isSolana ? '📡 Jupiter API Strategy (Solana)' : '🚀 Hybrid Strategy (EVM): adaptive RPC + API', {
             token: tokenAddress,
@@ -246,7 +275,7 @@ async function fetchTokenInfoFromAPIs(
                 return fetchAdaptiveEvmOnChainPrice({
                     tokenAddress,
                     chainId,
-                    rpcStrategy,
+                    rpcStrategy: rpcProfile.strategy,
                     fastMode,
                 });
             })())
@@ -288,7 +317,10 @@ async function fetchTokenInfoFromAPIs(
             };
         })();
 
-    const metaPromise = getTokenMetadata(chainId, tokenAddress, { rpcStrategy });
+    const metaPromise = getTokenMetadata(chainId, tokenAddress, {
+        rpcStrategy: rpcProfile.strategy,
+        profile: rpcProfile,
+    });
 
     const [rpcData, metadata] = await Promise.allSettled([rpcPromise, metaPromise]);
 
@@ -469,7 +501,11 @@ async function fetchTokenInfoFromAPIs(
 
     if (price > 0) {
         try {
-            const rpcSupply = await getTokenSupply(chainId, tokenAddress, { rpcStrategy, defaultDecimals: decimals });
+            const rpcSupply = await getTokenSupply(chainId, tokenAddress, {
+                rpcStrategy: rpcProfile.strategy,
+                defaultDecimals: decimals,
+                profile: rpcProfile,
+            });
             if (rpcSupply > 0) {
                 marketCap = rpcSupply * price;
             } else if (rpc?.marketCap && rpc.marketCap > 0) {

@@ -9,6 +9,7 @@ import { callRpc as callRpcRaw } from '../rpcManager.js';
 import { logger } from '../../utils/logger.js';
 import { LogCode } from '../../config/logRegistry.js';
 import { findV4Pools, isV4Supported, V4PoolInfo, calculatePriceFromSqrtX96 as v4CalcPrice } from './uniswapV4.js';
+import { resolveRpcCallProfile, type RpcCallProfile } from '../rpc/profile.js';
 
 // V2 Pool ABI
 const V2_POOL_ABI = [
@@ -86,6 +87,7 @@ const erc20Interface = new ethers.Interface(ERC20_ABI);
 
 type PoolLookupOptions = {
     fastScan?: boolean;
+    profile?: RpcCallProfile;
 };
 
 async function callRpc<T = any>(
@@ -94,9 +96,15 @@ async function callRpc<T = any>(
     params: any[],
     options?: PoolLookupOptions
 ): Promise<T> {
+    const profile = resolveRpcCallProfile(options?.profile, {
+        purpose: 'interactive_read',
+        strategy: options?.fastScan ? 'fast' : 'cheap',
+        importance: options?.fastScan ? 'critical' : 'normal'
+    });
     return await callRpcRaw<T>(chainId, method, params, {
-        strategy: 'fast',
-        importance: 'critical',
+        strategy: profile.strategy,
+        importance: profile.importance,
+        purpose: profile.purpose,
         exhaustiveFailover: true
     });
 }
@@ -107,7 +115,7 @@ async function callRpc<T = any>(
 async function getV2PoolInfoInternal(
     poolAddress: string,
     chainId: number,
-    options?: { fastScan?: boolean; includeMetadata?: boolean }
+    options?: { fastScan?: boolean; includeMetadata?: boolean; profile?: RpcCallProfile }
 ): Promise<PoolInfo | null> {
     try {
         const includeMetadata = options?.includeMetadata !== false;
@@ -137,8 +145,8 @@ async function getV2PoolInfoInternal(
         let token1Meta: { symbol?: string; decimals?: number } = {};
         if (includeMetadata) {
             [token0Meta, token1Meta] = await Promise.all([
-                getTokenMetadata(token0, chainId),
-                getTokenMetadata(token1, chainId)
+                getTokenMetadata(token0, chainId, options),
+                getTokenMetadata(token1, chainId, options)
             ]);
         }
 
@@ -170,16 +178,18 @@ async function getV2PoolInfoInternal(
 
 export async function getV2PoolInfo(
     poolAddress: string,
-    chainId: number
+    chainId: number,
+    options?: PoolLookupOptions
 ): Promise<PoolInfo | null> {
-    return await getV2PoolInfoInternal(poolAddress, chainId, { includeMetadata: true, fastScan: false });
+    return await getV2PoolInfoInternal(poolAddress, chainId, { includeMetadata: true, fastScan: false, profile: options?.profile });
 }
 
 async function getV2PoolInfoLite(
     poolAddress: string,
-    chainId: number
+    chainId: number,
+    options?: PoolLookupOptions
 ): Promise<PoolInfo | null> {
-    return await getV2PoolInfoInternal(poolAddress, chainId, { includeMetadata: false, fastScan: true });
+    return await getV2PoolInfoInternal(poolAddress, chainId, { includeMetadata: false, fastScan: true, profile: options?.profile });
 }
 
 /**
@@ -188,7 +198,7 @@ async function getV2PoolInfoLite(
 async function getV3PoolInfoInternal(
     poolAddress: string,
     chainId: number,
-    options?: { fastScan?: boolean; includeMetadata?: boolean }
+    options?: { fastScan?: boolean; includeMetadata?: boolean; profile?: RpcCallProfile }
 ): Promise<PoolInfo | null> {
     try {
         const includeMetadata = options?.includeMetadata !== false;
@@ -226,8 +236,8 @@ async function getV3PoolInfoInternal(
         let token1Meta: { symbol?: string; decimals?: number } = {};
         if (includeMetadata) {
             [token0Meta, token1Meta] = await Promise.all([
-                getTokenMetadata(token0, chainId),
-                getTokenMetadata(token1, chainId)
+                getTokenMetadata(token0, chainId, options),
+                getTokenMetadata(token1, chainId, options)
             ]);
         }
 
@@ -262,16 +272,18 @@ async function getV3PoolInfoInternal(
 
 export async function getV3PoolInfo(
     poolAddress: string,
-    chainId: number
+    chainId: number,
+    options?: PoolLookupOptions
 ): Promise<PoolInfo | null> {
-    return await getV3PoolInfoInternal(poolAddress, chainId, { includeMetadata: true, fastScan: false });
+    return await getV3PoolInfoInternal(poolAddress, chainId, { includeMetadata: true, fastScan: false, profile: options?.profile });
 }
 
 async function getV3PoolInfoLite(
     poolAddress: string,
-    chainId: number
+    chainId: number,
+    options?: PoolLookupOptions
 ): Promise<PoolInfo | null> {
-    return await getV3PoolInfoInternal(poolAddress, chainId, { includeMetadata: false, fastScan: true });
+    return await getV3PoolInfoInternal(poolAddress, chainId, { includeMetadata: false, fastScan: true, profile: options?.profile });
 }
 
 /**
@@ -279,15 +291,16 @@ async function getV3PoolInfoLite(
  */
 async function getTokenMetadata(
     tokenAddress: string,
-    chainId: number
+    chainId: number,
+    options?: PoolLookupOptions
 ): Promise<{ symbol?: string; decimals?: number }> {
     try {
         const symbolData = erc20Interface.encodeFunctionData('symbol');
         const decimalsData = erc20Interface.encodeFunctionData('decimals');
 
         const [symbolResult, decimalsResult] = await Promise.all([
-            callRpc<string>(chainId, 'eth_call', [{ to: tokenAddress, data: symbolData }, 'latest']).catch(() => null),
-            callRpc<string>(chainId, 'eth_call', [{ to: tokenAddress, data: decimalsData }, 'latest']).catch(() => null)
+            callRpc<string>(chainId, 'eth_call', [{ to: tokenAddress, data: symbolData }, 'latest'], options).catch(() => null),
+            callRpc<string>(chainId, 'eth_call', [{ to: tokenAddress, data: decimalsData }, 'latest'], options).catch(() => null)
         ]);
 
         const symbol = symbolResult ? erc20Interface.decodeFunctionResult('symbol', symbolResult)[0] : undefined;
@@ -388,12 +401,12 @@ async function doFindTokenPools(
             const pairResult = await callRpc<string>(chainId, 'eth_call', [{
                 to: factory.v2!.address,
                 data: pairData
-            }, 'latest'], { fastScan });
+            }, 'latest'], { fastScan, profile: options?.profile });
             if (!pairResult || pairResult === ZERO_ADDR) return null;
             const pairAddress = ethers.getAddress('0x' + pairResult.slice(-40));
             const poolInfo = fastScan
-                ? await getV2PoolInfoLite(pairAddress, chainId)
-                : await getV2PoolInfo(pairAddress, chainId);
+                ? await getV2PoolInfoLite(pairAddress, chainId, options)
+                : await getV2PoolInfo(pairAddress, chainId, options);
             if (poolInfo && BigInt(poolInfo.reserve0 || '0') > 0) {
                 poolInfo.dex = factory.v2!.dex;
                 return poolInfo;
@@ -412,12 +425,12 @@ async function doFindTokenPools(
                         const poolResult = await callRpc<string>(chainId, 'eth_call', [{
                             to: v3Factory.address,
                             data: poolData
-                        }, 'latest'], { fastScan });
+                        }, 'latest'], { fastScan, profile: options?.profile });
                         if (!poolResult || poolResult === ZERO_ADDR) return null;
                         const poolAddress = ethers.getAddress('0x' + poolResult.slice(-40));
                         const poolInfo = fastScan
-                            ? await getV3PoolInfoLite(poolAddress, chainId)
-                            : await getV3PoolInfo(poolAddress, chainId);
+                            ? await getV3PoolInfoLite(poolAddress, chainId, options)
+                            : await getV3PoolInfo(poolAddress, chainId, options);
                         if (poolInfo && BigInt(poolInfo.liquidity || '0') > 0) {
                             poolInfo.dex = v3Factory.dex;
                             return poolInfo;
@@ -444,12 +457,12 @@ async function doFindTokenPools(
                     const poolResult = await callRpc<string>(chainId, 'eth_call', [{
                         to: aerodromeFactory.address,
                         data: poolData
-                    }, 'latest'], { fastScan });
+                    }, 'latest'], { fastScan, profile: options?.profile });
                     if (!poolResult || poolResult === ZERO_ADDR) return null;
                     const poolAddress = ethers.getAddress('0x' + poolResult.slice(-40));
                     const poolInfo = fastScan
-                        ? await getV2PoolInfoLite(poolAddress, chainId)
-                        : await getV2PoolInfo(poolAddress, chainId);
+                        ? await getV2PoolInfoLite(poolAddress, chainId, options)
+                        : await getV2PoolInfo(poolAddress, chainId, options);
                     if (poolInfo && BigInt(poolInfo.reserve0 || '0') > 0) {
                         poolInfo.dex = aerodromeFactory.dex;
                         return { ...poolInfo, version: 'aerodrome' } as PoolInfo;
@@ -464,7 +477,10 @@ async function doFindTokenPools(
     const v4Promise: Promise<PoolInfo[]> = (async () => {
         if (!isV4Supported(chainId)) return [];
         try {
-            const v4Pools = await findV4Pools(tokenA, tokenB, chainId, { strategy: fastScan ? 'fast' : 'cheap' });
+            const v4Pools = await findV4Pools(tokenA, tokenB, chainId, {
+                strategy: fastScan ? 'fast' : 'cheap',
+                profile: options?.profile
+            });
             return v4Pools.map((v4Pool) => ({
                 poolAddress: v4Pool.poolId,
                 token0: v4Pool.poolKey.currency0,

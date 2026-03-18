@@ -1,6 +1,7 @@
 import { buildRecoverablePendingEntryTxHash } from '../buy/pendingProtectionPolicy.js';
 import { resolveEntryDeviationCurrentPrice } from '../buy/entryDeviationPriceSelection.js';
 import { releaseMirrorSellAfterBuyConfirm } from '../buy/buyConfirmationMirrorSellRelease.js';
+import { TRADE_METADATA_PROFILE } from '../../rpc/profile.js';
 
 type SingleUserBuyResult = {
     outcome: 'executed' | 'pending' | 'skipped' | 'failed';
@@ -1015,8 +1016,16 @@ export async function processSingleUserBuy(params: {
                         maxEntryDeviationModeFloorBps: effectiveConfig.maxEntryDeviationModeFloorBps,
                         allowFallbackEntryDeviationBypass: isEntryDeviationPriceUnreliable(chainId, tokenInfo),
                         refreshTokenInfoForRetry: async () => tokenInfoCache
-                            ? await getTokenInfoOnce(tokenInfoCache, tokenToBuy, chainId, { verbose: false, forceRefresh: true, rpcStrategy: 'fast' })
-                            : await getTokenInfo(tokenToBuy, chainId, { verbose: false, forceRefresh: true, rpcStrategy: 'fast' })
+                            ? await getTokenInfoOnce(tokenInfoCache, tokenToBuy, chainId, {
+                                verbose: false,
+                                forceRefresh: true,
+                                rpcStrategy: TRADE_METADATA_PROFILE
+                            })
+                            : await getTokenInfo(tokenToBuy, chainId, {
+                                verbose: false,
+                                forceRefresh: true,
+                                rpcStrategy: TRADE_METADATA_PROFILE
+                            })
                     });
                     if (submissionResult.status === 'aborted') {
                         return { outcome: 'failed' };

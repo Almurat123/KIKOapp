@@ -25,6 +25,7 @@ import { buildOrderAuditFields } from '../../order-runtime/sinks/persistence.js'
 import type { OrderRuntimeContext } from '../../order-runtime/types.js';
 import { repairCopytradePositionAttribution } from '../jobs/copytradeAttributionRepairJob.js';
 import { evaluateAutoExitPriceGuard } from './autoExitPriceGuard.js';
+import { TRADE_METADATA_PROFILE } from '../../rpc/profile.js';
 
 const EXIT_INFLIGHT_RETRY_GRACE_MS = getExitInflightRetryGraceMs();
 const MIN_POSITION_AGE_FOR_TPSL_MS = Math.max(0, Number(process.env.MIN_POSITION_AGE_FOR_TPSL_MS || '90000'));
@@ -665,7 +666,7 @@ export async function checkPositionsForExits(
                 const tokenInfo = await getTokenInfo(position.tokenAddress, position.chainId, {
                     forceRefresh: true,
                     priority: 'high',
-                    rpcStrategy: 'fast',
+                    rpcStrategy: TRADE_METADATA_PROFILE,
                 });
                 if (!tokenInfo) {
                     logger.warn(LogCode.API_FETCH_FAILED, 'Token info not available for retry', { token: position.tokenAddress });
@@ -733,7 +734,7 @@ export async function checkPositionsForExits(
                 const info = await getTokenInfo(address, chainId, {
                     forceRefresh: true,
                     priority: 'high',
-                    rpcStrategy: 'fast',
+                    rpcStrategy: TRADE_METADATA_PROFILE,
                 });
                 if (info && info.price) {
                     tokenPriceMap.set(`${address.toLowerCase()}_${chainId}`, info);

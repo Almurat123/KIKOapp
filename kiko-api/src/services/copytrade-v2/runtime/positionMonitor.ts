@@ -35,6 +35,7 @@ import { buildOrderAuditFields } from '../../order-runtime/sinks/persistence.js'
 import type { OrderRuntimeContext } from '../../order-runtime/types.js';
 import { emitCopytradeDomainAudit } from '../audit/copytradeDomainAudit.js';
 import { recordFollowerTransactionFactByPosition } from '../data-flow/followerTransactionFactLedger.js';
+import { TRADE_METADATA_PROFILE } from '../../rpc/profile.js';
 import {
   acquireDistributedTokenExitLock,
   buildTokenExitLockScopeKey,
@@ -170,7 +171,7 @@ async function resolveDisplayTokenSymbolAsync(symbol: unknown, tokenAddress: str
   const fallbackPrefix = String(tokenAddress || '').slice(0, 6);
   if (current !== fallbackPrefix) return current;
   try {
-    const meta = await getTokenMetadata(chainId, tokenAddress, { rpcStrategy: 'fast' });
+    const meta = await getTokenMetadata(chainId, tokenAddress, { profile: TRADE_METADATA_PROFILE });
     return resolveDisplayTokenSymbol(meta?.symbol, tokenAddress);
   } catch {
     return current;
@@ -990,7 +991,7 @@ export async function checkPositionsForExits(): Promise<void> {
                 const tokenInfo = await getTokenInfo(position.tokenAddress, position.chainId, {
                     forceRefresh: true,
                     priority: 'high',
-                    rpcStrategy: 'fast',
+                    rpcStrategy: TRADE_METADATA_PROFILE,
                 });
                 if (!tokenInfo) {
                     logger.warn(LogCode.API_FETCH_FAILED, 'Token info not available for retry', { token: position.tokenAddress });
@@ -1064,7 +1065,7 @@ export async function checkPositionsForExits(): Promise<void> {
                 const info = await getTokenInfo(address, chainId, {
                     forceRefresh: true,
                     priority: 'high',
-                    rpcStrategy: 'fast',
+                    rpcStrategy: TRADE_METADATA_PROFILE,
                 });
                 if (info && info.price) {
                     tokenPriceMap.set(`${address.toLowerCase()}_${chainId}`, info);
@@ -1171,7 +1172,7 @@ export async function checkPositionsForExits(): Promise<void> {
                         const live = await getTokenInfo(position.tokenAddress, position.chainId, {
                             forceRefresh: true,
                             priority: 'high',
-                            rpcStrategy: 'fast',
+                            rpcStrategy: TRADE_METADATA_PROFILE,
                         });
                         if (live?.price > 0) {
                             tokenInfo = live;

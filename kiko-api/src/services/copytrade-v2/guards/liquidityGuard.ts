@@ -7,6 +7,7 @@ import { resolveSolanaDirectLiquidity } from '../../solana/direct/liquidity.js';
 import type { SolDirectProvider } from '../../solana/direct/types.js';
 import type { DecodedSwap } from '../../txDecoder.js';
 import { getChainConfig } from '../../../config/chainConfig.js';
+import { TRADE_QUOTE_PROFILE } from '../../rpc/profile.js';
 
 // Guard-level total budget is ~1200ms, so keep direct Solana liquidity bounded.
 const COPYTRADE_SOL_LIQ_TIMEOUT_MS = Number(process.env.COPYTRADE_SOL_LIQ_TIMEOUT_MS || '650');
@@ -114,7 +115,7 @@ async function loadTargetInteractedPools(
                 return await deps.getV3PoolInfo(poolAddress, chainId);
             }
             if (kind === 'v4' && v4PoolKey) {
-                const pool = await deps.getV4PoolInfo(v4PoolKey, chainId, { strategy: 'fast' });
+                const pool = await deps.getV4PoolInfo(v4PoolKey, chainId, { profile: TRADE_QUOTE_PROFILE });
                 if (!pool) return null;
                 return {
                     poolAddress: pool.poolId,

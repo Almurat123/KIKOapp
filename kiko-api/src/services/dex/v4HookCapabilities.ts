@@ -2,6 +2,7 @@ import { ethers } from 'ethers';
 
 import { getNativeAliasSetForChain } from '../evmCanonicalAsset.js';
 import { resolveV4HookProfile, type V4HookFamily } from './v4Hooks.js';
+import { TRADE_QUOTE_PROFILE } from '../rpc/profile.js';
 
 export type V4HookCapabilityStatus =
   | 'supported_safe'
@@ -153,8 +154,7 @@ export async function resolveV4HookCapabilityProfile(
   if (params.callRpc && params.allowProbe !== false && hookAddress !== ZERO_HOOK) {
     try {
       const code = await params.callRpc<string>(params.chainId, 'eth_getCode', [hookAddress, 'latest'], {
-        strategy: 'fast',
-        importance: 'critical',
+        profile: TRADE_QUOTE_PROFILE,
       });
       if (code && code !== '0x') {
         codeHash = ethers.keccak256(code as `0x${string}`);
@@ -229,8 +229,7 @@ export async function probeV4HookCapability(
       data: params.tx.data,
       value: params.tx.value || '0x0',
     }, 'latest'], {
-      strategy: 'fast',
-      importance: 'critical',
+      profile: TRADE_QUOTE_PROFILE,
     });
     const safe = {
       ...resolved,

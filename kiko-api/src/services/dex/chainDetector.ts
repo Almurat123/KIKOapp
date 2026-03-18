@@ -5,14 +5,16 @@
 
 import { ethers } from 'ethers';
 import { callRpc as callRpcRaw } from '../rpcManager.js';
+import { TRADE_METADATA_PROFILE } from '../rpc/profile.js';
 
 const ERC20_ABI = ['function symbol() view returns (string)'];
 const erc20Interface = new ethers.Interface(ERC20_ABI);
 
 async function callRpc<T = any>(chainId: number, method: string, params: any): Promise<T> {
     return callRpcRaw<T>(chainId, method, params, {
-        strategy: 'fast',
-        importance: 'critical',
+        strategy: TRADE_METADATA_PROFILE.strategy,
+        importance: TRADE_METADATA_PROFILE.importance,
+        purpose: TRADE_METADATA_PROFILE.purpose,
         exhaustiveFailover: true
     });
 }

@@ -2,6 +2,7 @@ import { ethers } from 'ethers';
 import { callRpc as callRpcRaw } from '../rpcManager.js';
 import { logger } from '../../utils/logger.js';
 import { LogCode } from '../../config/logRegistry.js';
+import { TRADE_QUOTE_PROFILE } from '../rpc/profile.js';
 
 const MIN_TICK = -887272;
 const MAX_TICK = 887272;
@@ -115,8 +116,9 @@ async function multicall3(chainId: number, calls: Array<{ target: string; allowF
     callData: call.callData
   }))]);
   const result = await callRpcRaw<string>(chainId, 'eth_call', [{ to: MULTICALL3_ADDRESS, data: encoded }, 'latest'], {
-    strategy: 'fast',
-    importance: 'critical',
+    strategy: TRADE_QUOTE_PROFILE.strategy,
+    importance: TRADE_QUOTE_PROFILE.importance,
+    purpose: TRADE_QUOTE_PROFILE.purpose,
     exhaustiveFailover: true
   });
   return multicall3Interface.decodeFunctionResult('aggregate3', result)[0] as Array<{ success: boolean; returnData: string }>;
@@ -274,4 +276,3 @@ export async function reconstructV3PoolLiquidityUsd(params: {
     return null;
   }
 }
-

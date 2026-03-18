@@ -19,6 +19,7 @@ import {
     DEFAULT_DEADLINE_SECONDS,
     MAX_UINT256
 } from './types.js';
+import { TRADE_QUOTE_PROFILE } from '../rpc/profile.js';
 
 const AERODROME_FACTORY = '0x420DD381b31aEf6683db6B902084cB0FFECe40Da';
 const ETH_ADDRESS = '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
@@ -28,8 +29,9 @@ const erc20Interface = new ethers.Interface(ERC20_ABI);
 
 async function callRpc<T = any>(chainId: number, method: string, params: any[]): Promise<T> {
     return await callRpcRaw<T>(chainId, method, params, {
-        strategy: 'fast',
-        importance: 'critical',
+        strategy: TRADE_QUOTE_PROFILE.strategy,
+        importance: TRADE_QUOTE_PROFILE.importance,
+        purpose: TRADE_QUOTE_PROFILE.purpose,
         exhaustiveFailover: true
     });
 }

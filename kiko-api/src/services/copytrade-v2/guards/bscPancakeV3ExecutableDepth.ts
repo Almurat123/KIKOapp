@@ -2,6 +2,7 @@ import { ethers } from 'ethers';
 import { getChainConfig } from '../../../config/chainConfig.js';
 import { getNativeTokenPriceUsd } from '../../onChainPriceService.js';
 import { callRpc as callRpcRaw } from '../../rpcManager.js';
+import { TRADE_QUOTE_PROFILE } from '../../rpc/profile.js';
 
 const PANCAKE_QUOTER_V2 = '0xB048Bbc1Ee6b733FFfCFb9e9CeF7375518e25997';
 const PANCAKE_V3_FEE_TIERS = [100, 500, 2500, 10000] as const;
@@ -21,8 +22,9 @@ export interface BscExecutableDepthResult {
 
 async function callRpc<T = any>(chainId: number, method: string, params: any): Promise<T> {
     return callRpcRaw<T>(chainId, method, params, {
-        strategy: 'fast',
-        importance: 'critical',
+        strategy: TRADE_QUOTE_PROFILE.strategy,
+        importance: TRADE_QUOTE_PROFILE.importance,
+        purpose: TRADE_QUOTE_PROFILE.purpose,
         exhaustiveFailover: true
     });
 }
@@ -131,4 +133,3 @@ export async function evaluateBscPancakeV3ExecutableDepth(params: {
         priceImpactPct
     };
 }
-

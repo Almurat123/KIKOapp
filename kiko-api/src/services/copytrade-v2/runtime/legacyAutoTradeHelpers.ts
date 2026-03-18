@@ -7,6 +7,7 @@ import { notificationService, type TradeNotificationParams } from '../../notific
 import { resolveExecutionModeFromConfig, type CopyTradeExecutionMode } from '../../copyTradeExecutionMode.js';
 import type { DirectSwapHint } from '../../MainSwapService.js';
 import type { DecodedSwap } from '../../txDecoder.js';
+import { TRADE_METADATA_PROFILE } from '../../rpc/profile.js';
 
 const DEFAULT_COPYTRADE_SLIPPAGE_BPS = 1500;
 const MIN_COPYTRADE_SLIPPAGE_BPS = 50;
@@ -103,7 +104,7 @@ export async function resolveDisplayTokenSymbolAsync(symbol: unknown, tokenAddre
     const fallbackPrefix = String(tokenAddress || '').slice(0, 6);
     if (current !== fallbackPrefix) return current;
     try {
-        const meta = await getTokenMetadata(chainId, tokenAddress, { rpcStrategy: 'fast' });
+        const meta = await getTokenMetadata(chainId, tokenAddress, { profile: TRADE_METADATA_PROFILE });
         return resolveDisplayTokenSymbol(meta?.symbol, tokenAddress);
     } catch {
         return current;

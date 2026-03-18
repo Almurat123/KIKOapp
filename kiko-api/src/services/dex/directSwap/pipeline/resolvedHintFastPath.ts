@@ -9,6 +9,7 @@ import { matchV4PoolKeyById } from '../../uniswapV4.js';
 import type { SelectedV4Pool } from '../../v4ExecutionPlan.js';
 import { resolveV4HookCapabilityProfile } from '../../v4HookCapabilities.js';
 import { resolvePoolHintFromSwapSupply } from '../supplyParser.js';
+import { TRADE_QUOTE_PROFILE, type RpcCallProfile } from '../../../rpc/profile.js';
 
 const poolTokenInterface = new ethers.Interface([
   'function token0() view returns (address)',
@@ -36,7 +37,12 @@ interface FastPathDeps {
     chainIdOrName: number | string,
     method: string,
     params?: any,
-    options?: { strategy?: 'fast' | 'cheap'; importance?: 'normal' | 'critical'; exhaustiveFailover?: boolean }
+    options?: {
+      strategy?: 'fast' | 'cheap';
+      importance?: 'normal' | 'critical';
+      exhaustiveFailover?: boolean;
+      profile?: RpcCallProfile;
+    }
   ) => Promise<T>;
   executeV2Swap: (params: ExecuteParams, expectedOut: bigint) => Promise<DirectSwapResult>;
   executeV3Swap: (params: ExecuteParams, pool: any, dex: 'uniswap' | 'pancake', options?: { fastMode?: boolean; executionMode?: 'safe' | 'normal' | 'turbo' }) => Promise<DirectSwapResult>;
@@ -115,13 +121,13 @@ async function readPoolPairTokens(
         chainId,
         'eth_call',
         [{ to: poolAddress, data: poolTokenInterface.encodeFunctionData('token0', []) }, 'latest'],
-        { strategy: 'fast', importance: 'critical' }
+        { profile: TRADE_QUOTE_PROFILE }
       ),
       deps.callRpc<string>(
         chainId,
         'eth_call',
         [{ to: poolAddress, data: poolTokenInterface.encodeFunctionData('token1', []) }, 'latest'],
-        { strategy: 'fast', importance: 'critical' }
+        { profile: TRADE_QUOTE_PROFILE }
       )
     ]);
     const token0 = ethers.getAddress(`0x${token0Hex.slice(-40)}`).toLowerCase();

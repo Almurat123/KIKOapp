@@ -20,6 +20,7 @@ import {
     DEFAULT_DEADLINE_SECONDS,
     MAX_UINT256
 } from './types.js';
+import { TRADE_QUOTE_PROFILE } from '../rpc/profile.js';
 
 // PancakeSwap V3 Quoter on BSC
 const PANCAKE_QUOTER_V2 = '0xB048Bbc1Ee6b733FFfCFb9e9CeF7375518e25997';
@@ -34,8 +35,9 @@ const erc20Interface = new ethers.Interface(ERC20_ABI);
 
 async function callRpc<T = any>(chainId: number, method: string, params: any): Promise<T> {
     return callRpcRaw<T>(chainId, method, params, {
-        strategy: 'fast',
-        importance: 'critical',
+        strategy: TRADE_QUOTE_PROFILE.strategy,
+        importance: TRADE_QUOTE_PROFILE.importance,
+        purpose: TRADE_QUOTE_PROFILE.purpose,
         exhaustiveFailover: true
     });
 }

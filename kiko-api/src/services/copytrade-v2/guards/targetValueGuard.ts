@@ -10,6 +10,7 @@ import { getTokenDecimalsFromRegistry } from '../../../config/tokenRegistry.js';
 import { logger } from '../../../utils/logger.js';
 import { LogCode } from '../../../config/logRegistry.js';
 import { resolveNativeLikeTargetValue, type TargetValueReasonCode } from './targetValueResolver.js';
+import { TRADE_METADATA_PROFILE } from '../../rpc/profile.js';
 
 const ZORA_TOKEN = '0x1111111111166b7fe7bd91427724b487980afc69';
 
@@ -136,7 +137,7 @@ export async function computeBuyTargetValueSnapshot(
         const amountInBN = parsePositiveBigInt(swap.amountIn);
 
         if (isStableIn) {
-            const stableInfo = await getTokenInfo(swap.tokenIn, chainId, { rpcStrategy: 'fast', fastMode: true });
+            const stableInfo = await getTokenInfo(swap.tokenIn, chainId, { rpcStrategy: TRADE_METADATA_PROFILE, fastMode: true });
             const stableInfoDecimals = Number(stableInfo?.decimals);
             const registryDecimals = getTokenDecimalsFromRegistry(swap.tokenIn, chainId);
             const strictDecimalsIn = Number.isFinite(stableInfoDecimals) && stableInfoDecimals > 0
@@ -152,7 +153,7 @@ export async function computeBuyTargetValueSnapshot(
                 targetValueReasonCode = 'TARGET_VALUE_STRICT_AMOUNT_IN_SELECTED';
             }
         } else if (isZoraIn) {
-            const zoraInfo = await getTokenInfo(ZORA_TOKEN, chainId, { rpcStrategy: 'fast', fastMode: true });
+            const zoraInfo = await getTokenInfo(ZORA_TOKEN, chainId, { rpcStrategy: TRADE_METADATA_PROFILE, fastMode: true });
             if (!zoraInfo || zoraInfo.price <= 0) {
                 logger.error(LogCode.API_FETCH_FAILED, 'Failed to fetch ZORA price, cannot calculate trade value', {
                     token: ZORA_TOKEN

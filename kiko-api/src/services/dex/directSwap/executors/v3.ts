@@ -7,6 +7,7 @@ import type { TxLifecycleResult } from '../../../txLifecycle.js';
 import { isTxLifecycleSendAccepted } from '../../../txLifecycle.js';
 import type { OrderRuntimeContext } from '../../../order-runtime/types.js';
 import { markOrderPrepared, recordOrderRoute } from '../../../order-runtime/context.js';
+import { TRADE_QUOTE_PROFILE, type RpcCallProfile } from '../../../rpc/profile.js';
 
 interface ExecuteSwapParams {
   userId: string;
@@ -34,7 +35,11 @@ interface V3ExecutorDeps {
     chainId: number,
     method: string,
     params: any[],
-    options?: { strategy?: 'fast' | 'cheap'; importance?: 'normal' | 'critical' }
+    options?: {
+      strategy?: 'fast' | 'cheap';
+      importance?: 'normal' | 'critical';
+      profile?: RpcCallProfile;
+    }
   ) => Promise<T>;
   sendTransaction: (userId: string, accessToken: string, tx: any) => Promise<TxLifecycleResult>;
   getTxExecutionProfile: (chainId: number) => 'default' | 'base-sniper' | 'bsc-sniper';
@@ -99,8 +104,7 @@ export async function executeV3Swap(
         to: pool.poolAddress,
         data: feeCallData
       }, 'latest'], {
-        strategy: 'fast',
-        importance: 'critical'
+        profile: TRADE_QUOTE_PROFILE
       });
       if (feeResult && feeResult !== '0x') {
         const decodedFee = Number(v3PoolFeeInterface.decodeFunctionResult('fee', feeResult)[0]);
@@ -131,7 +135,7 @@ export async function executeV3Swap(
           const result = await deps.callRpc<string>(chainId, 'eth_call', [{
             to: quoterAddress,
             data: callData
-          }, 'latest']);
+          }, 'latest'], { profile: TRADE_QUOTE_PROFILE });
           if (!result || result === '0x') continue;
           const decoded = deps.v3QuoterInterface.decodeFunctionResult('quoteExactInputSingle', result);
           const amountOut = decoded[0] as bigint;
@@ -231,8 +235,7 @@ export async function executeV3Swap(
         data,
         value: isNativeIn ? ethers.toQuantity(amountInWei) : '0x0'
       }], {
-        strategy: 'fast',
-        importance: 'critical'
+        profile: TRADE_QUOTE_PROFILE
       });
       gasLimit = (BigInt(estimate) * 2n).toString();
     } catch (simErr: any) {
@@ -279,8 +282,7 @@ export async function executeV3Swap(
               data: candidateData,
               value: isNativeIn ? ethers.toQuantity(amountInWei) : '0x0'
             }], {
-              strategy: 'fast',
-              importance: 'critical'
+              profile: TRADE_QUOTE_PROFILE
             });
             data = candidateData;
             bestFee = fee;
@@ -322,8 +324,7 @@ export async function executeV3Swap(
         data,
         value: isNativeIn ? ethers.toQuantity(amountInWei) : '0x0'
       }], {
-        strategy: 'fast',
-        importance: 'critical'
+        profile: TRADE_QUOTE_PROFILE
       });
       gasLimit = (BigInt(estimate) * 2n).toString();
     } catch (simErr: any) {

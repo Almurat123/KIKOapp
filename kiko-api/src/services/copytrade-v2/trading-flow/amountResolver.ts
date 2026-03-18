@@ -9,6 +9,7 @@ import { getTokenInfo } from '../../tokenService.js';
 import { getErc20Balance, getErc20Decimals, getNativeBalance } from '../../rpcManager.js';
 import { normalizeToken } from '../runtime/chainIdentityNormalizer.js';
 import type { CopytradeMode } from '../contracts/modePolicy.js';
+import { TRADE_METADATA_PROFILE } from '../../rpc/profile.js';
 
 const DEFAULT_MIN_AMOUNT = 0.0000001;
 const DEFAULT_EVM_DECIMALS = 18;
@@ -137,7 +138,7 @@ async function resolveUsdPrice(tokenAddress: string, chainId: number): Promise<n
     verbose: false,
     priority: 'high',
     fastMode: true,
-    rpcStrategy: 'fast',
+    rpcStrategy: TRADE_METADATA_PROFILE,
   }).catch(() => null);
 
   const price = Number(tokenInfo?.price || 0);
@@ -159,7 +160,7 @@ async function resolveTokenDecimals(params: {
       verbose: false,
       priority: 'high',
       fastMode: true,
-      rpcStrategy: 'fast',
+      rpcStrategy: TRADE_METADATA_PROFILE,
     }).catch(() => null);
     const decimals = Number(tokenInfo?.decimals || DEFAULT_SOLANA_DECIMALS);
     return Number.isFinite(decimals) && decimals > 0 ? decimals : DEFAULT_SOLANA_DECIMALS;

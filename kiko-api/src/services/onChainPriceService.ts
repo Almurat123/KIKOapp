@@ -1410,7 +1410,14 @@ async function fetchPriceFromUniswapV4PoolId(
 ): Promise<OnChainPriceData | null> {
     if (!V4_STATE_VIEW[chainId]) return null;
 
-    const pools = await findV4Pools(tokenAddress, quote.address, chainId);
+    const v4DiscoveryProfile = resolveRpcCallProfile(rpcStrategy);
+    const pools = await findV4Pools(tokenAddress, quote.address, chainId, {
+        profile: {
+            strategy: v4DiscoveryProfile.strategy,
+            purpose: v4DiscoveryProfile.purpose || 'interactive_read',
+            importance: v4DiscoveryProfile.importance || 'normal',
+        },
+    });
     if (!pools.length) return null;
 
     const decimalsCache = new Map<string, number>();

@@ -32,7 +32,7 @@ import { moralisService } from './moralisService.js';
 import { warpcastService } from './warpcastService.js';
 import { notificationService, type TradeNotificationParams } from './notificationService.js';
 import { getTokenInfo } from './tokenService.js';
-import { getTokenMetadata, getTokenSupply } from './rpcService.js';
+import { getTokenDecimals, getTokenMetadata, getTokenSupply } from './rpcService.js';
 import { getDexPrice, getDexPriceDetailed } from './dexPriceService.js';
 import { cacheHub } from '../cache/DataCacheHub.js';
 import { logger } from '../utils/logger.js';
@@ -85,6 +85,12 @@ import { cleanupPendingCopytradePosition } from './copytrade-v2/buy/pendingLifec
 import { buildCopytradeBuyPlannedArtifact } from './copytrade-v2/buy/plannedExecutionArtifact.js';
 import { shouldAbortCopytradeBuyRetry } from './copytrade-v2/buy/copytradeBuyRetryGuard.js';
 import { evaluateBuyPriceDeviationGuard } from './copytrade-v2/buy/buyGuardPriceDeviation.js';
+import {
+    type SingleUserBuyResult,
+    resolveTurboMetadataFallbackInfo,
+    scheduleAsyncMarketCapHydration,
+    summarizeSingleUserBuyResults,
+} from './copytrade-v2/buy/tradeHotPathSupport.js';
 import { resolveAttributedPositionExitAmount } from './copytrade-v2/positions/positionAttribution.js';
 import { finalizeCopytradeBuyPosition } from './copytrade-v2/positions/positionPersistence.js';
 import {
@@ -116,6 +122,7 @@ import { getReferenceExpectedOutput } from './dex/directSwap/application/quoteEn
 import type { ConfirmationOutcome } from './swap/confirmationCoordinator.js';
 import type { MirrorSellAfterConfirmContext } from './copytrade-v2/buy/buyConfirmationTransition.js';
 import { evaluateStaleBuySignal } from './copytrade-v2/buy/staleBuyPolicy.js';
+import { TRADE_METADATA_PROFILE } from './rpc/profile.js';
 import {
     executePositionExit as executePositionExitRuntime,
     checkPositionsForExits as checkPositionsForExitsRuntime,
@@ -657,8 +664,8 @@ export async function handleSwapDetected(
     // Optional pre-warm to avoid adding API pressure/noise on hot webhook paths.
     if (COPYTRADE_ENABLE_DETECTION_PREWARM) {
         Promise.allSettled([
-            getTokenInfo(swap.tokenIn, chainId, { priority: 'high', rpcStrategy: 'fast', fastMode: true }),
-            getTokenInfo(swap.tokenOut, chainId, { priority: 'high', rpcStrategy: 'fast', fastMode: true }),
+            getTokenInfo(swap.tokenIn, chainId, { priority: 'high', rpcStrategy: TRADE_METADATA_PROFILE, fastMode: true }),
+            getTokenInfo(swap.tokenOut, chainId, { priority: 'high', rpcStrategy: TRADE_METADATA_PROFILE, fastMode: true }),
             getNativeTokenPriceUsd(chainId),
             detectLaunchpadToken(swap.tokenOut, chainId),
         ]).catch(() => undefined);
@@ -870,8 +877,6 @@ async function handleTargetBuy(
 
     logger.debug(LogCode.EXE_QUOTE_FETCHED, `Fast path execution started for ${tokenToBuy}`, { targetWallet, token: tokenToBuy });
 
-    // 1. FIRST: Check for active configs. If none, exit immediately (No API calls, No Logs)
-    // ⚡ Use DataCacheHub config cache (60s TTL) to avoid hitting Prisma on every webhook
     const rawConfigsFound = await cacheHub.getCopyTradeConfigs(
         normalizedWallet,
         chainId,
@@ -903,7 +908,10 @@ async function handleTargetBuy(
 
     const userIds = [...new Set(rawConfigs.map(c => c.userId))];
     // ⚡ Fire token metadata in parallel with the shared warmup so both arrive together.
-    const turboMetaPromise = getTokenMetadata(chainId, tokenToBuy, { rpcStrategy: 'fast' }).catch(() => null);
+    const turboMetaPromise = getTokenMetadata(chainId, tokenToBuy, {
+        rpcStrategy: TRADE_METADATA_PROFILE.strategy,
+        profile: TRADE_METADATA_PROFILE,
+    }).catch(() => null);
     const sharedWarmup = await getCopytradeBuySharedWarmup(chainId, userIds);
     const userMap = sharedWarmup.userMap;
     const allowSelfTarget = (process.env.COPYTRADE_ALLOW_SELF_TARGET || 'false') === 'true';
@@ -975,30 +983,23 @@ async function handleTargetBuy(
         ? detectLaunchpadToken(tokenToBuy, chainId).catch(() => null)
         : Promise.resolve(null);
 
-    // Turbo Mode: only if ALL configs explicitly choose turbo.
     const skipTokenInfo = uniqueExecutableConfigs.every(c => c.executionMode === 'turbo');
     if (skipTokenInfo) {
         try {
-            // ⚡ Reuse the metadata that was prefetched in parallel with the user DB query.
-            const meta = await turboMetaPromise;
-            const fallbackInfo = {
-                price: 0,
-                symbol: meta?.symbol || 'UNKNOWN',
-                name: meta?.name || 'Unknown Token',
-                decimals: meta?.decimals || 18,
-                liquidity: 0,
-                volume24h: 0,
-                fdv: 0,
-                marketCap: 0,
-                pairCreatedAt: Date.now(),
-                socials: [],
-                websites: [],
-                provider: 'rpc-metadata'
-            };
+            const { tokenInfo: fallbackInfo, metadataTimedOut } = await resolveTurboMetadataFallbackInfo({
+                tokenAddress: tokenToBuy,
+                metadataPromise: turboMetaPromise,
+                timeoutMs: TRADE_METADATA_PROFILE.latencyBudgetMs || 900,
+                metadataProfile: TRADE_METADATA_PROFILE,
+                getTokenDecimals,
+                chainId,
+            });
 
             logger.info(LogCode.EXE_QUOTE_FETCHED, '[CopyTrade] Token info disabled - using RPC metadata fallback', {
                 token: tokenToBuy,
-                chainId
+                chainId,
+                provider: fallbackInfo.provider,
+                metadataTimedOut,
             });
 
             await processBuyWithInfo(targetWallet, tokenToBuy, swap, chainId, uniqueExecutableConfigs, fallbackInfo, true, launchpadPromise, tokenInfoCache, sharedWarmup, context?.timing, detectedAt);
@@ -1012,29 +1013,24 @@ async function handleTargetBuy(
         }
     }
 
-    // 2. SECOND: Fetch Token Info & Launchpad (parallel, non-blocking)
-    // 🚀 Copy Trade uses HIGH priority to bypass rate limits for critical order execution
-    const tokenInfoPromise = getTokenInfoOnce(tokenInfoCache, tokenToBuy, chainId, { priority: 'high', rpcStrategy: 'fast', fastMode: true });
+    const tokenInfoPromise = getTokenInfoOnce(tokenInfoCache, tokenToBuy, chainId, { priority: 'high', rpcStrategy: TRADE_METADATA_PROFILE, fastMode: true });
     const tokenInfo = await tokenInfoPromise;
     const launchpadResult = await resolveLaunchpad(launchpadPromise, chainId);
 
     if (!tokenInfo || tokenInfo.price <= 0) {
-        // 🚨 Fallback: If we detected it as a valid Launchpad token (Clanker/Pump/etc), we might trust it blind
-        // because DexScreener is slow to index new pairs.
         if (launchpadResult && launchpadResult.data) {
             logger.warn(LogCode.DEC_FAILED_UNKNOWN_DEX, `${tokenToBuy} missing DexScreener info - using Launchpad fallback`, {
                 provider: launchpadResult.provider,
                 token: tokenToBuy
             });
 
-            // Construct fallback token info using launchpad data when available
             const lpData = launchpadResult.data;
-            const lpPrice = lpData.tokenPrice?.priceInUsdc || lpData.tokenPrice?.usd; // Allow undefined to trigger derivation
+            const lpPrice = lpData.tokenPrice?.priceInUsdc || lpData.tokenPrice?.usd;
             const lpMarketCap = parseFloat(lpData.marketCap || '0');
             const lpVolume = parseFloat(lpData.volume24h || lpData.totalVolume || '0');
 
             const fallbackInfo = {
-                price: typeof lpPrice === 'string' ? parseFloat(lpPrice) : (lpPrice || 0), // If 0, processBuyWithInfo will derive it
+                price: typeof lpPrice === 'string' ? parseFloat(lpPrice) : (lpPrice || 0),
                 symbol: lpData.symbol || 'UNKNOWN',
                 name: lpData.name || 'Unknown Token',
                 decimals: lpData.decimals || 18,
@@ -1043,26 +1039,21 @@ async function handleTargetBuy(
                 fdv: lpMarketCap,
                 marketCap: lpMarketCap,
                 pairCreatedAt: lpData.createdAt ? new Date(lpData.createdAt).getTime() : Date.now(),
-                // Empty arrays for social/web to prevent checks failing on undefined
                 socials: [],
                 websites: [],
                 provider: launchpadResult.provider
             };
-
-            // Proceed with fallback info
-            // NOTE: We must be careful about price calculations later.
-            // If price is 0, we can only do "Buy X ETH worth", not "Buy Y Tokens".
-            // Our logic below handles "Target Swap Value" based on Input ETH, so we are safe.
             await processBuyWithInfo(targetWallet, tokenToBuy, swap, chainId, uniqueExecutableConfigs, fallbackInfo, true, launchpadPromise, tokenInfoCache, sharedWarmup, context?.timing, detectedAt);
             return;
         }
 
-        // ⚡ FAST-MODE FALLBACK: If we have active configs and fast execution, proceed with metadata-only info.
-        // This avoids waiting on slow APIs when RPC price is unavailable.
         const allowFastFallback = configs.some((c: any) => c.fastExecutionEnabled !== false);
         if (allowFastFallback) {
             try {
-                const meta = await getTokenMetadata(chainId, tokenToBuy, { rpcStrategy: 'fast' });
+                const meta = await getTokenMetadata(chainId, tokenToBuy, {
+                    rpcStrategy: TRADE_METADATA_PROFILE.strategy,
+                    profile: TRADE_METADATA_PROFILE,
+                });
                 const fallbackInfo = {
                     price: 0,
                     symbol: meta?.symbol || 'UNKNOWN',
@@ -1098,7 +1089,6 @@ async function handleTargetBuy(
 }
 
 /**
- * Process the buy execution now that we have (or faked) the token info
  */
 async function processBuyWithInfo(
     targetWallet: string,
@@ -1183,8 +1173,6 @@ async function processBuyWithInfo(
     }
     const valueMs = Date.now() - tStart;
 
-    // 🚨 SELF-HEALING: If token price is missing (Fallback Mode), derive it from the trade itself
-    // impliedPrice = Total Value USD / Token Amount
     if ((!tokenInfo.price || tokenInfo.price <= 0) && targetSwapValueUsd > 0) {
         try {
             const amountOutBN = BigInt(swap.amountOut);
@@ -1202,20 +1190,30 @@ async function processBuyWithInfo(
 
                 if (chainId !== 900 && (!tokenInfo.marketCap || tokenInfo.marketCap <= 0)) {
                     try {
-                        const totalSupply = await getTokenSupply(chainId, tokenToBuy, {
-                            rpcStrategy: 'fast',
-                            defaultDecimals: decimals,
+                        scheduleAsyncMarketCapHydration({
+                            chainId,
+                            tokenAddress: tokenToBuy,
+                            impliedPrice,
+                            decimals,
+                            getTokenSupply,
+                            profile: TRADE_METADATA_PROFILE,
+                            onResolved: (marketCap, totalSupply) => {
+                                tokenInfo.marketCap = marketCap;
+                                tokenInfo.fdv = marketCap;
+                                logger.info(LogCode.DATA_RECOVERY, 'Derived EVM market cap from RPC supply and implied price', {
+                                    token: tokenToBuy,
+                                    marketCap,
+                                    totalSupply,
+                                    impliedPrice
+                                });
+                            },
+                            onError: (supplyErr) => {
+                                logger.warn(LogCode.API_FETCH_FAILED, 'Failed to derive EVM market cap from RPC supply', {
+                                    token: tokenToBuy,
+                                    error: supplyErr instanceof Error ? supplyErr.message : String(supplyErr)
+                                });
+                            }
                         });
-                        if (Number.isFinite(totalSupply) && totalSupply > 0) {
-                            tokenInfo.marketCap = totalSupply * impliedPrice;
-                            tokenInfo.fdv = tokenInfo.marketCap;
-                            logger.info(LogCode.DATA_RECOVERY, 'Derived EVM market cap from RPC supply and implied price', {
-                                token: tokenToBuy,
-                                marketCap: tokenInfo.marketCap,
-                                totalSupply,
-                                impliedPrice
-                            });
-                        }
                     } catch (supplyErr: any) {
                         logger.warn(LogCode.API_FETCH_FAILED, 'Failed to derive EVM market cap from RPC supply', {
                             token: tokenToBuy,
@@ -1283,18 +1281,13 @@ async function processBuyWithInfo(
         }
     }
 
-    // Record Leader Trade Stats (Buy)
-    // We record it once for the leader, regardless of how many users copy it
     recordNewTrade(targetWallet, chainId, 'buy', targetSwapValueUsd);
 
-    // TURBO FAST LANE:
-    // Skip batch analytics/caching/delays and execute immediately for all-turbo configs.
     const turboConfigs = configs.filter((c) => resolveExecutionModeForConfig(c) === 'turbo');
     const normalConfigs = configs.filter((c) => resolveExecutionModeForConfig(c) !== 'turbo');
 
     if (turboConfigs.length > 0) {
         const turboUserIds = [...new Set(turboConfigs.map(c => c.userId).filter(Boolean))];
-        // ⚡ Parallel: native price fetch + user settings warmup run concurrently (~100ms saved)
         const quickNativePrice = sharedWarmup!.nativePriceUsd;
         const turboUserSettingsMap = sharedWarmup!.userSettingsMap;
         logger.info(LogCode.EXE_QUOTE_FETCHED, '[CopyTrade] Turbo fast lane enabled', {
@@ -1511,17 +1504,14 @@ async function processBuyWithInfo(
         dynamicBatchSize = 5;
     }
 
-    // 📈 PRIORITY SORTING: Process by buy amount (largest first gets best price)
     const sortedConfigs = [...eligibleConfigs].sort((a, b) => (b.buyAmountUsd || 0) - (a.buyAmountUsd || 0));
 
-    // Track execution stats
     let successCount = 0;
     let pendingCount = 0;
     let executionSkippedCount = 0;
     let failCount = 0;
     let currentPriceMultiplier = 1.0; // Track price drift during execution
 
-    // 🚀 EXECUTE IN SMART BATCHES
     const execStart = Date.now();
     for (let i = 0; i < sortedConfigs.length; i += dynamicBatchSize) {
         const batch = sortedConfigs.slice(i, i + dynamicBatchSize);
@@ -1533,7 +1523,6 @@ async function processBuyWithInfo(
             priceMultiplier: currentPriceMultiplier.toFixed(3)
         });
 
-        // Execute batch in parallel
         const results = await Promise.allSettled(
             batch.map(config =>
                 processSingleUserBuy(
@@ -1567,35 +1556,29 @@ async function processBuyWithInfo(
             )
         );
 
-        // Count results
         const batchSummary = summarizeSingleUserBuyResults(results);
         successCount += batchSummary.executed;
         pendingCount += batchSummary.pending;
         executionSkippedCount += batchSummary.skipped;
         failCount += batchSummary.failed;
 
-        // 🔄 ADAPTIVE DELAY: Wait between batches, longer if we're impacting price
         if (i + dynamicBatchSize < sortedConfigs.length) {
-            // Base delay + extra delay based on batch impact
             const batchVolumeUsd = batch.reduce((sum, c) => sum + ((c.buyAmountUsd || 0) * scalingFactor), 0);
             const impactRatio = liquidity > 0 ? batchVolumeUsd / liquidity : 0;
 
-            // 100ms base + up to 400ms for high impact batches
             const adaptiveDelay = 100 + Math.min(400, Math.floor(impactRatio * 2000));
 
             await new Promise(resolve => setTimeout(resolve, adaptiveDelay));
 
-            // 📊 Optional: Re-check price after high-impact batches
             if (impactRatio > 0.05 && i + dynamicBatchSize * 2 < sortedConfigs.length) {
                 let step1Request: MainSwapRequest | undefined;
                 try {
                     const freshInfo = tokenInfoCache
-                        ? await getTokenInfoOnce(tokenInfoCache, tokenToBuy, chainId, { forceRefresh: true, priority: 'high', rpcStrategy: 'fast' })
-                        : await getTokenInfo(tokenToBuy, chainId, { forceRefresh: true, priority: 'high', rpcStrategy: 'fast' });
+                        ? await getTokenInfoOnce(tokenInfoCache, tokenToBuy, chainId, { forceRefresh: true, priority: 'high', rpcStrategy: TRADE_METADATA_PROFILE })
+                        : await getTokenInfo(tokenToBuy, chainId, { forceRefresh: true, priority: 'high', rpcStrategy: TRADE_METADATA_PROFILE });
                     if (freshInfo && freshInfo.price > 0 && tokenInfo.price > 0) {
                         currentPriceMultiplier = freshInfo.price / tokenInfo.price;
 
-                        // 🛑 CIRCUIT BREAKER: Stop if price pumped too much (>50%)
                         if (currentPriceMultiplier > 1.5) {
                             logger.warn(LogCode.WTC_TX_SKIPPED, `🛑 Circuit breaker triggered: Price pumped ${((currentPriceMultiplier - 1) * 100).toFixed(1)}%`, {
                                 originalPrice: tokenInfo.price,
@@ -1603,7 +1586,6 @@ async function processBuyWithInfo(
                                 remainingUsers: sortedConfigs.length - i - dynamicBatchSize
                             });
 
-                            // Notify remaining users that their trade was skipped
                             const remainingConfigs = sortedConfigs.slice(i + dynamicBatchSize);
                             for (const config of remainingConfigs) {
                                 await notificationService.sendNotification({
@@ -1619,11 +1601,10 @@ async function processBuyWithInfo(
                                     }
                                 }).catch(() => { }); // Ignore notification errors
                             }
-                            break; // Exit the batch loop
+                            break;
                         }
                     }
                 } catch (err) {
-                    // Ignore price check errors, continue with execution
                 }
             }
         }
@@ -1654,32 +1635,6 @@ async function processBuyWithInfo(
             }
         } : {})
     });
-}
-
-type SingleUserBuyOutcome = 'executed' | 'pending' | 'skipped' | 'failed';
-
-type SingleUserBuyResult = {
-    outcome: SingleUserBuyOutcome;
-};
-
-function summarizeSingleUserBuyResults(results: PromiseSettledResult<SingleUserBuyResult>[]) {
-    let executed = 0;
-    let pending = 0;
-    let skipped = 0;
-    let failed = 0;
-
-    for (const result of results) {
-        if (result.status === 'rejected') {
-            failed++;
-            continue;
-        }
-        if (result.value.outcome === 'executed') executed++;
-        else if (result.value.outcome === 'pending') pending++;
-        else if (result.value.outcome === 'skipped') skipped++;
-        else failed++;
-    }
-
-    return { executed, pending, skipped, failed };
 }
 
 /**

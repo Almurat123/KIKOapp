@@ -3,6 +3,7 @@ import { getChainConfig } from '../config/chainConfig.js';
 import cacheClient from '../cache/cacheClient.js';
 import { PublicKey } from '@solana/web3.js';
 import { decodeFunctionResult, encodeFunctionData, parseAbi } from 'viem';
+import { resolveRpcCallProfile, type RpcCallProfile } from './rpc/profile.js';
 
 const METADATA_L1_TTL_MS = Math.max(30_000, Number(process.env.COPYTRADE_METADATA_L1_TTL_MS || 10 * 60_000));
 const METADATA_L2_TTL_SECONDS = Math.max(30, Number(process.env.COPYTRADE_METADATA_L2_TTL_SECONDS || 30 * 60));
@@ -23,13 +24,43 @@ export interface OnChainMetadata {
     decimals: number;
 }
 
+type RpcReadOptions = {
+    rpcStrategy?: 'fast' | 'cheap';
+    defaultDecimals?: number;
+    profile?: RpcCallProfile;
+};
+
+function timeoutError(label: string, timeoutMs: number): Error {
+    return new Error(`${label}_timeout_${timeoutMs}ms`);
+}
+
+async function withLatencyBudget<T>(
+    promise: Promise<T>,
+    timeoutMs: number | undefined,
+    label: string
+): Promise<T> {
+    if (!Number.isFinite(timeoutMs) || !timeoutMs || timeoutMs <= 0) {
+        return promise;
+    }
+
+    return await Promise.race<T>([
+        promise,
+        new Promise<T>((_, reject) => setTimeout(() => reject(timeoutError(label, timeoutMs)), timeoutMs)),
+    ]);
+}
+
 export async function getTokenSupply(
     chainId: number,
     address: string,
-    options: { rpcStrategy?: 'fast' | 'cheap'; defaultDecimals?: number } = {}
+    options: RpcReadOptions = {}
 ): Promise<number> {
     const normalized = parseAddress(address, chainId);
-    const rpcStrategy = options.rpcStrategy || 'cheap';
+    const profile = resolveRpcCallProfile(options.profile, {
+        purpose: 'interactive_read',
+        strategy: options.rpcStrategy || 'cheap',
+        importance: options.rpcStrategy === 'fast' ? 'critical' : 'normal',
+    });
+    const rpcStrategy = profile.strategy;
 
     if (isNativePlaceholder(normalized)) {
         return 0;
@@ -40,11 +71,13 @@ export async function getTokenSupply(
             return 0;
         }
         try {
-            const supply = await callRpc<any>('solana', 'getTokenSupply', [normalized], {
+            const supply = await withLatencyBudget(callRpc<any>('solana', 'getTokenSupply', [normalized], {
                 strategy: rpcStrategy,
                 rpcClass: 'best_effort_read',
-                path: 'token_supply'
-            });
+                path: 'token_supply',
+                purpose: profile.purpose,
+                importance: profile.importance,
+            }), profile.latencyBudgetMs, 'token_supply');
             const uiAmount = Number(supply?.value?.uiAmount ?? NaN);
             if (Number.isFinite(uiAmount) && uiAmount >= 0) return uiAmount;
 
@@ -69,17 +102,23 @@ export async function getTokenSupply(
             const decimals = await getTokenDecimals(chainId, normalized, {
                 rpcStrategy: strategy,
                 defaultDecimals: options.defaultDecimals ?? DEFAULT_DECIMALS,
+                profile: {
+                    ...profile,
+                    strategy,
+                },
             });
-            const resultHex = await callRpc<string>(
+            const resultHex = await withLatencyBudget(callRpc<string>(
                 chainId,
                 'eth_call',
                 [{ to: normalized, data: totalSupplyData }, 'latest'],
                 {
                     strategy,
                     rpcClass: 'best_effort_read',
-                    path: 'token_supply'
+                    path: 'token_supply',
+                    purpose: profile.purpose,
+                    importance: profile.importance,
                 }
-            );
+            ), profile.latencyBudgetMs, 'token_supply');
             const decoded = decodeFunctionResult({
                 abi: totalSupplyAbi,
                 functionName: 'totalSupply',
@@ -173,16 +212,30 @@ function readBorshString(buffer: Buffer, offset: number): { value: string; nextO
     return { value: cleaned, nextOffset: end };
 }
 
-async function getSolanaMetadataViaRpc(mintAddress: string): Promise<{ name: string; symbol: string } | null> {
+async function getSolanaMetadataViaRpc(
+    mintAddress: string,
+    profile?: RpcCallProfile
+): Promise<{ name: string; symbol: string } | null> {
     if (!isValidSolanaMintAddress(mintAddress)) {
         return null;
     }
+    const resolvedProfile = resolveRpcCallProfile(profile, {
+        purpose: 'interactive_read',
+        strategy: 'cheap',
+        importance: 'normal',
+    });
     try {
         const metadataPda = deriveSolanaMetadataPda(mintAddress);
-        const result = await callRpc<any>('solana', 'getAccountInfo', [
+        const result = await withLatencyBudget(callRpc<any>('solana', 'getAccountInfo', [
             metadataPda,
             { encoding: 'base64' }
-        ], { rpcClass: 'best_effort_read', path: 'token_metadata' });
+        ], {
+            rpcClass: 'best_effort_read',
+            path: 'token_metadata',
+            strategy: resolvedProfile.strategy,
+            purpose: resolvedProfile.purpose,
+            importance: resolvedProfile.importance,
+        }), resolvedProfile.latencyBudgetMs, 'token_metadata');
 
         const encoded = result?.value?.data?.[0];
         if (encoded && typeof encoded === 'string') {
@@ -205,12 +258,14 @@ async function getSolanaMetadataViaRpc(mintAddress: string): Promise<{ name: str
     }
 
     try {
-        const asset = await callRpc<any>('solana', 'getAsset', [mintAddress], {
+        const asset = await withLatencyBudget(callRpc<any>('solana', 'getAsset', [mintAddress], {
             rpcClass: 'best_effort_read',
             path: 'token_metadata_asset',
-            importance: 'critical',
             exhaustiveFailover: true,
-        });
+            strategy: resolvedProfile.strategy,
+            purpose: resolvedProfile.purpose,
+            importance: resolvedProfile.importance,
+        }), resolvedProfile.latencyBudgetMs, 'token_metadata_asset');
 
         const contentMeta = asset?.content?.metadata || {};
         const extMeta = asset?.mint_extensions?.metadata || {};
@@ -308,10 +363,15 @@ async function setMetadataCache(chainId: number, address: string, value: OnChain
 export async function getTokenDecimals(
     chainId: number,
     address: string,
-    options: { rpcStrategy?: 'fast' | 'cheap'; defaultDecimals?: number } = {}
+    options: RpcReadOptions = {}
 ): Promise<number> {
     const normalized = parseAddress(address, chainId);
     const fallbackDecimals = Number(options.defaultDecimals ?? DEFAULT_DECIMALS);
+    const profile = resolveRpcCallProfile(options.profile, {
+        purpose: 'interactive_read',
+        strategy: options.rpcStrategy || 'cheap',
+        importance: options.rpcStrategy === 'fast' ? 'critical' : 'normal',
+    });
 
     if (isNativePlaceholder(normalized)) {
         return defaultMetadata(chainId).decimals;
@@ -324,10 +384,13 @@ export async function getTokenDecimals(
         const cachedSol = await getDecimalsFromCache(chainId, normalized);
         if (typeof cachedSol === 'number') return cachedSol;
         try {
-            const supply = await callRpc<any>('solana', 'getTokenSupply', [normalized], {
+            const supply = await withLatencyBudget(callRpc<any>('solana', 'getTokenSupply', [normalized], {
                 rpcClass: 'best_effort_read',
-                path: 'token_decimals'
-            });
+                path: 'token_decimals',
+                purpose: profile.purpose,
+                importance: profile.importance,
+                strategy: profile.strategy,
+            }), profile.latencyBudgetMs, 'token_decimals');
             const decimals = Number(supply?.value?.decimals);
             if (Number.isFinite(decimals) && decimals >= 0 && decimals <= 255) {
                 await setDecimalsCache(chainId, normalized, decimals);
@@ -347,7 +410,10 @@ export async function getTokenDecimals(
     }
 
     try {
-        const decimalsRaw = await callEthCall(chainId, normalized, 'decimals', options.rpcStrategy || 'cheap');
+        const decimalsRaw = await callEthCall(chainId, normalized, 'decimals', {
+            rpcStrategy: profile.strategy,
+            profile,
+        });
         const decimals = Number(decimalsRaw);
         if (!Number.isFinite(decimals) || decimals < 0 || decimals > 255) {
             throw new Error('invalid_decimals_result');
@@ -366,10 +432,15 @@ export async function getTokenDecimals(
 export async function getTokenMetadata(
     chainId: number,
     address: string,
-    options: { rpcStrategy?: 'fast' | 'cheap' } = {}
+    options: RpcReadOptions = {}
 ): Promise<OnChainMetadata> {
     const normalized = parseAddress(address, chainId);
-    const rpcStrategy = options.rpcStrategy || 'cheap';
+    const profile = resolveRpcCallProfile(options.profile, {
+        purpose: 'interactive_read',
+        strategy: options.rpcStrategy || 'cheap',
+        importance: options.rpcStrategy === 'fast' ? 'critical' : 'normal',
+    });
+    const rpcStrategy = profile.strategy;
 
     if (isNativePlaceholder(normalized)) {
         return defaultMetadata(chainId);
@@ -378,7 +449,11 @@ export async function getTokenMetadata(
     const cached = await getMetadataFromCache(chainId, normalized);
     if (cached) return cached;
 
-    const decimals = await getTokenDecimals(chainId, normalized, { rpcStrategy, defaultDecimals: DEFAULT_DECIMALS });
+    const decimals = await getTokenDecimals(chainId, normalized, {
+        rpcStrategy,
+        defaultDecimals: DEFAULT_DECIMALS,
+        profile,
+    });
     if (chainId !== 900 && await hasNegativeCache(chainId, normalized)) {
         return { name: 'Unknown Token', symbol: 'UNK', decimals };
     }
@@ -389,7 +464,7 @@ export async function getTokenMetadata(
             return { name: 'Unknown Token', symbol: 'UNK', decimals };
         }
         try {
-            const solMeta = await getSolanaMetadataViaRpc(normalized);
+            const solMeta = await withLatencyBudget(getSolanaMetadataViaRpc(normalized, profile), profile.latencyBudgetMs, 'token_metadata');
             const resolvedName = String(solMeta?.name || '').trim();
             const resolvedSymbol = String(solMeta?.symbol || '').trim();
             const validMetadata = !!resolvedName && !!resolvedSymbol && !/^unk(nown)?$/i.test(resolvedSymbol);
@@ -412,8 +487,8 @@ export async function getTokenMetadata(
     }
 
     const [nameResult, symbolResult] = await Promise.allSettled([
-        callEthCall(chainId, normalized, 'name', rpcStrategy),
-        callEthCall(chainId, normalized, 'symbol', rpcStrategy)
+        callEthCall(chainId, normalized, 'name', { rpcStrategy, profile }),
+        callEthCall(chainId, normalized, 'symbol', { rpcStrategy, profile })
     ]);
 
     const meta: OnChainMetadata = {
@@ -430,23 +505,31 @@ async function callEthCall(
     chainId: number,
     to: string,
     functionName: 'name' | 'symbol' | 'decimals',
-    rpcStrategy: 'fast' | 'cheap'
+    options: { rpcStrategy: 'fast' | 'cheap'; profile?: RpcCallProfile }
 ): Promise<string | number> {
     const data = encodeFunctionData({
         abi: ERC20_ABI,
         functionName
     });
 
-    const resultHex = await callRpc<string>(
+    const profile = resolveRpcCallProfile(options.profile, {
+        purpose: 'interactive_read',
+        strategy: options.rpcStrategy,
+        importance: options.rpcStrategy === 'fast' ? 'critical' : 'normal',
+    });
+
+    const resultHex = await withLatencyBudget(callRpc<string>(
         chainId,
         'eth_call',
         [{ to, data }, 'latest'],
         {
-            strategy: rpcStrategy,
+            strategy: profile.strategy,
             rpcClass: 'best_effort_read',
-            path: functionName === 'decimals' ? 'token_decimals' : 'token_metadata'
+            path: functionName === 'decimals' ? 'token_decimals' : 'token_metadata',
+            purpose: profile.purpose,
+            importance: profile.importance,
         }
-    );
+    ), profile.latencyBudgetMs, functionName === 'decimals' ? 'token_decimals' : 'token_metadata');
 
     return decodeFunctionResult({
         abi: ERC20_ABI,

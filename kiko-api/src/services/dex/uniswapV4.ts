@@ -15,6 +15,7 @@ import { callRpc as callRpcRaw } from '../rpcManager.js';
 import { logger } from '../../utils/logger.js';
 import { LogCode } from '../../config/logRegistry.js';
 import { CLANKER_HOOKS_BY_CHAIN, getKnownV4HooksByChain, resolveV4HookProfile } from './v4Hooks.js';
+import { resolveRpcCallProfile, type RpcCallProfile } from '../rpc/profile.js';
 
 // StateView ABI
 const V4_STATE_VIEW_ABI = [
@@ -127,11 +128,17 @@ async function callRpc<T = any>(
     chainId: number,
     method: string,
     params: any,
-    options?: { strategy?: 'fast' | 'cheap' }
+    options?: { strategy?: 'fast' | 'cheap'; profile?: RpcCallProfile }
 ): Promise<T> {
-    return callRpcRaw<T>(chainId, method, params, {
+    const profile = resolveRpcCallProfile(options?.profile, {
+        purpose: 'interactive_read',
         strategy: options?.strategy || 'fast',
-        importance: 'critical',
+        importance: (options?.strategy || 'fast') === 'fast' ? 'critical' : 'normal'
+    });
+    return callRpcRaw<T>(chainId, method, params, {
+        strategy: profile.strategy,
+        importance: profile.importance,
+        purpose: profile.purpose,
         exhaustiveFailover: true
     });
 }
@@ -216,7 +223,7 @@ export function computePoolId(poolKey: V4PoolKey): string {
 export async function getV4PoolInfo(
     poolKey: V4PoolKey,
     chainId: number,
-    options?: { strategy?: 'fast' | 'cheap' }
+    options?: { strategy?: 'fast' | 'cheap'; profile?: RpcCallProfile }
 ): Promise<V4PoolInfo | null> {
     const stateView = V4_STATE_VIEW[chainId];
     if (!stateView) return null;
@@ -281,12 +288,18 @@ export async function findV4Pools(
     tokenA: string,
     tokenB: string,
     chainId: number,
-    options?: { strategy?: 'fast' | 'cheap' }
+    options?: { strategy?: 'fast' | 'cheap'; profile?: RpcCallProfile }
 ): Promise<V4PoolInfo[]> {
     const configs = V4_CONFIGS[chainId];
     if (!configs) return [];
 
-    const cacheKey = `${chainId}:${tokenA.toLowerCase()}:${tokenB.toLowerCase()}`;
+    const profile = resolveRpcCallProfile(options?.profile, {
+        purpose: 'interactive_read',
+        strategy: options?.strategy || 'cheap',
+        importance: options?.strategy === 'fast' ? 'critical' : 'normal'
+    });
+    const discoveryMode = profile.strategy === 'fast' ? 'fast' : 'full';
+    const cacheKey = `${chainId}:${tokenA.toLowerCase()}:${tokenB.toLowerCase()}:${discoveryMode}`;
     const cached = v4PoolCache.get(cacheKey);
     if (cached && Date.now() - cached.timestamp < V4_POOL_CACHE_TTL) {
         return cached.pools;
@@ -318,7 +331,7 @@ export async function findV4Pools(
     }
 
     const promise = (async () => {
-        const isFastStrategy = options?.strategy === 'fast';
+        const isFastStrategy = profile.strategy === 'fast';
         const shouldKeepPool = (pool: V4PoolInfo | null): pool is V4PoolInfo => {
             if (!pool) return false;
             if (BigInt(pool.liquidity) > 0n) return true;

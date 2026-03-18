@@ -21,6 +21,7 @@ import {
     DEFAULT_DEADLINE_SECONDS,
     MAX_UINT256
 } from './types.js';
+import { TRADE_QUOTE_PROFILE } from '../rpc/profile.js';
 
 // V3 Quoter for getting quotes (same as in onChainPriceService)
 const QUOTER_V2_ADDRESSES: Record<number, string> = {
@@ -40,8 +41,9 @@ const erc20Interface = new ethers.Interface(ERC20_ABI);
 
 async function callRpc<T = any>(chainId: number, method: string, params: any): Promise<T> {
     return callRpcRaw<T>(chainId, method, params, {
-        strategy: 'fast',
-        importance: 'critical',
+        strategy: TRADE_QUOTE_PROFILE.strategy,
+        importance: TRADE_QUOTE_PROFILE.importance,
+        purpose: TRADE_QUOTE_PROFILE.purpose,
         exhaustiveFailover: true
     });
 }

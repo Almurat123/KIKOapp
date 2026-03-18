@@ -7,6 +7,13 @@ import { callRpc as callRpcBase, callRpcRaw as callRpcRawBase } from '../../../r
 import { getKyberQuote } from '../../../kyberAggregator.js';
 import { getTokenDetails } from '../../../geckoTerminal.js';
 import { getTokenDecimals, getTokenMetadata } from '../../../rpcService.js';
+import { reserveTradePathTemplate } from '../../../rpc/tradeTemplate.js';
+import {
+  resolveRpcCallProfile,
+  TRADE_METADATA_PROFILE,
+  TRADE_QUOTE_PROFILE,
+  type RpcCallProfile
+} from '../../../rpc/profile.js';
 import { get as getDbCache } from '../../../../cache/dbCache.js';
 import { get as cacheGet, set as cacheSet } from '../../../../cache/cacheClient.js';
 import { V2_ROUTER_ABI, V3_FEE_TIERS } from '../../types.js';
@@ -119,7 +126,41 @@ type DirectSwapRpcOptions = {
   strategy?: 'fast' | 'cheap';
   importance?: 'normal' | 'critical';
   exhaustiveFailover?: boolean;
+  profile?: RpcCallProfile;
+  traceKey?: string;
 };
+
+function toNumericChainId(chainIdOrName: number | string): number | null {
+  return typeof chainIdOrName === 'number' && Number.isFinite(chainIdOrName)
+    ? chainIdOrName
+    : null;
+}
+
+function buildDirectSwapRpcOptions(
+  chainIdOrName: number | string,
+  options: DirectSwapRpcOptions = {},
+  fallbackProfile: RpcCallProfile = TRADE_QUOTE_PROFILE
+) {
+  const profile = resolveRpcCallProfile(options.profile, {
+    purpose: fallbackProfile.purpose,
+    strategy: options.strategy || fallbackProfile.strategy,
+    importance: options.importance || fallbackProfile.importance,
+  });
+  const chainId = toNumericChainId(chainIdOrName);
+  if (chainId) {
+    reserveTradePathTemplate({
+      chainId,
+      template: 'direct_swap_quote',
+      traceKey: options.traceKey,
+    });
+  }
+  return {
+    strategy: profile.strategy,
+    importance: profile.importance,
+    purpose: profile.purpose,
+    exhaustiveFailover: options.exhaustiveFailover ?? true,
+  };
+}
 
 async function callRpc<T = any>(
   chainIdOrName: number | string,
@@ -127,11 +168,7 @@ async function callRpc<T = any>(
   params: any = [],
   options: DirectSwapRpcOptions = {}
 ): Promise<T> {
-  return callRpcBase<T>(chainIdOrName, method, params, {
-    strategy: options.strategy || 'fast',
-    importance: options.importance || 'critical',
-    exhaustiveFailover: options.exhaustiveFailover ?? true
-  });
+  return callRpcBase<T>(chainIdOrName, method, params, buildDirectSwapRpcOptions(chainIdOrName, options));
 }
 
 async function callRpcRaw<T = any>(
@@ -140,11 +177,7 @@ async function callRpcRaw<T = any>(
   params: any = [],
   options: DirectSwapRpcOptions = {}
 ): Promise<any> {
-  return callRpcRawBase<T>(chainIdOrName, method, params, {
-    strategy: options.strategy || 'fast',
-    importance: options.importance || 'critical',
-    exhaustiveFailover: options.exhaustiveFailover ?? true
-  });
+  return callRpcRawBase<T>(chainIdOrName, method, params, buildDirectSwapRpcOptions(chainIdOrName, options));
 }
 
 function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
@@ -206,7 +239,7 @@ export async function getV2ExpectedOutput(
         const result = await rpc<string>(chainId, 'eth_call', [{
             to: router,
             data: callData
-        }, 'latest']);
+        }, 'latest'], { profile: TRADE_QUOTE_PROFILE });
         if (!result || result === '0x') return 0n;
         const decoded = v2RouterInterface.decodeFunctionResult('getAmountsOut', result);
         const amounts = decoded[0] as bigint[];
@@ -247,7 +280,7 @@ export async function getV3BestQuoteOut(
                 const result = await rpc<string>(chainId, 'eth_call', [{
                     to: quoter,
                     data: callData
-                }, 'latest']);
+                }, 'latest'], { profile: TRADE_QUOTE_PROFILE });
                 if (!result || result === '0x') return 0n;
                 const decoded = v3QuoterInterface.decodeFunctionResult('quoteExactInputSingle', result);
                 return decoded[0] as bigint;
@@ -295,7 +328,9 @@ export async function getV3BridgeQuoteOut(
                 sqrtPriceLimitX96: 0
             };
             const data1 = v3QuoterInterface.encodeFunctionData('quoteExactInputSingle', [params1]);
-            const res1 = await rpc<string>(chainId, 'eth_call', [{ to: quoter, data: data1 }, 'latest']);
+            const res1 = await rpc<string>(chainId, 'eth_call', [{ to: quoter, data: data1 }, 'latest'], {
+                profile: TRADE_QUOTE_PROFILE
+            });
             if (res1 && res1 !== '0x') {
                 const decoded1 = v3QuoterInterface.decodeFunctionResult('quoteExactInputSingle', res1);
                 hop1Out = decoded1[0] as bigint;
@@ -315,7 +350,9 @@ export async function getV3BridgeQuoteOut(
                     sqrtPriceLimitX96: 0
                 };
                 const data2 = v3QuoterInterface.encodeFunctionData('quoteExactInputSingle', [params2]);
-                const res2 = await rpc<string>(chainId, 'eth_call', [{ to: quoter, data: data2 }, 'latest']);
+                const res2 = await rpc<string>(chainId, 'eth_call', [{ to: quoter, data: data2 }, 'latest'], {
+                    profile: TRADE_QUOTE_PROFILE
+                });
                 if (!res2 || res2 === '0x') continue;
                 const decoded2 = v3QuoterInterface.decodeFunctionResult('quoteExactInputSingle', res2);
                 const out = decoded2[0] as bigint;
@@ -613,7 +650,7 @@ async function getV4BestSpotOut(
     }
 
     try {
-        const best = await getV4BestPoolQuote(tokenIn, tokenOut, amountInWei, chainId);
+        const best = await getV4BestPoolQuote(tokenIn, tokenOut, amountInWei, chainId, undefined, undefined, { traceKey: cacheKey });
         v4SpotCache.set(cacheKey, { value: best.amountOut, timestamp: Date.now() });
         await cacheSet(
             v4SpotRedisKey(cacheKey),
@@ -672,7 +709,7 @@ async function callDopplerLensQuote(
     ]);
 
     const response = await withTimeout(
-        callRpcRaw<any>(chainId, 'eth_call', [{ to: lens, data }, 'latest'], { strategy: 'fast', importance: 'critical' }),
+        callRpcRaw<any>(chainId, 'eth_call', [{ to: lens, data }, 'latest'], { profile: TRADE_QUOTE_PROFILE }),
         V4_QUOTER_TIMEOUT_MS
     ).catch(() => null);
     if (!response?.result) return 0n;
@@ -779,7 +816,10 @@ export async function callV4QuoterExactOut(
             }
             try {
                 const response = await withTimeout(
-                    callRpcRaw<any>(chainId, 'eth_call', [callParams, 'latest'], { strategy: 'fast', importance: 'critical' }),
+                    callRpcRaw<any>(chainId, 'eth_call', [callParams, 'latest'], {
+                        profile: TRADE_QUOTE_PROFILE,
+                        traceKey: payee || cacheKey
+                    }),
                     V4_QUOTER_TIMEOUT_MS
                 );
 
@@ -828,9 +868,18 @@ export async function getV4BestPoolQuote(
     hint?: DirectSwapHint,
     options?: {
         preloadedPools?: V4PoolInfo[];
+        traceKey?: string;
+        profile?: RpcCallProfile;
+        metadataProfile?: RpcCallProfile;
     }
 ): Promise<{ pool: SelectedV4Pool | null; amountOut: bigint }> {
-    const pools = options?.preloadedPools || await findV4Pools(tokenIn, tokenOut, chainId);
+    const quoteProfile = resolveRpcCallProfile(options?.profile, TRADE_QUOTE_PROFILE);
+    reserveTradePathTemplate({
+        chainId,
+        template: 'direct_swap_quote',
+        traceKey: options?.traceKey || `${tokenIn.toLowerCase()}:${tokenOut.toLowerCase()}:${amountInWei.toString()}:${payee || 'nopayee'}`
+    });
+    const pools = options?.preloadedPools || await findV4Pools(tokenIn, tokenOut, chainId, { profile: quoteProfile });
     const hintedPool = pools.length === 0
         ? await resolveHintedV4PoolFromSourceTx({ tokenIn, tokenOut, chainId, hint })
         : null;
@@ -838,9 +887,10 @@ export async function getV4BestPoolQuote(
 
     const basePoolKey = (pools[0]?.poolKey || hintedPool?.poolKey);
     if (!basePoolKey) return { pool: null, amountOut: 0n };
+    const metadataProfile = options?.metadataProfile || TRADE_METADATA_PROFILE;
     const [meta0, meta1] = await Promise.all([
-        getTokenMetadata(chainId, basePoolKey.currency0),
-        getTokenMetadata(chainId, basePoolKey.currency1)
+        getTokenMetadata(chainId, basePoolKey.currency0, { profile: metadataProfile }),
+        getTokenMetadata(chainId, basePoolKey.currency1, { profile: metadataProfile })
     ]);
     const decimals0 = meta0.decimals || 18;
     const decimals1 = meta1.decimals || 18;
@@ -998,9 +1048,13 @@ async function getV4ViaZoraBridgeExpectedOutput(
     if (normalizedIn.toLowerCase() === zoraToken.toLowerCase()) return 0n;
     if (normalizedOut.toLowerCase() === zoraToken.toLowerCase()) return 0n;
 
-    const firstHop = await getV4BestPoolQuote(normalizedIn, zoraToken, amountInWei, chainId, recipient);
+    const firstHop = await getV4BestPoolQuote(normalizedIn, zoraToken, amountInWei, chainId, recipient, undefined, {
+        traceKey: `${normalizedIn.toLowerCase()}:${zoraToken.toLowerCase()}:${amountInWei.toString()}:${recipient || 'nopayee'}`
+    });
     if (!firstHop.pool || firstHop.amountOut <= 0n) return 0n;
-    const secondHop = await getV4BestPoolQuote(zoraToken, normalizedOut, firstHop.amountOut, chainId, recipient);
+    const secondHop = await getV4BestPoolQuote(zoraToken, normalizedOut, firstHop.amountOut, chainId, recipient, undefined, {
+        traceKey: `${zoraToken.toLowerCase()}:${normalizedOut.toLowerCase()}:${firstHop.amountOut.toString()}:${recipient || 'nopayee'}`
+    });
     return secondHop.amountOut > 0n ? secondHop.amountOut : 0n;
 }
 
@@ -1047,7 +1101,7 @@ export async function getReferenceExpectedOutput(
 
         const sourceCandidates = await Promise.all([
             withTimeout(
-                getV4BestPoolQuote(poolTokenIn, poolTokenOut, amountInWei, chainId, recipient),
+                getV4BestPoolQuote(poolTokenIn, poolTokenOut, amountInWei, chainId, recipient, undefined, { traceKey: traceId }),
                 REFERENCE_QUOTE_TIMEOUT_MS
             )
                 .then(r => ({ source: 'v4', amountOut: r.amountOut }))
@@ -1319,8 +1373,8 @@ export async function getReferenceExpectedOutput(
             );
             if (inDetails?.price && outDetails?.price && inDetails.price > 0 && outDetails.price > 0) {
                 const [inDecimals, outDecimals] = await Promise.all([
-                    getTokenDecimals(chainId, tokenIn, { defaultDecimals: 18 }),
-                    getTokenDecimals(chainId, tokenOut, { defaultDecimals: 18 })
+                    getTokenDecimals(chainId, tokenIn, { defaultDecimals: 18, profile: TRADE_METADATA_PROFILE }),
+                    getTokenDecimals(chainId, tokenOut, { defaultDecimals: 18, profile: TRADE_METADATA_PROFILE })
                 ]);
                 const inAmountHuman = Number(amountInWei) / Math.pow(10, inDecimals || 18);
                 const outAmountHuman = inAmountHuman * (inDetails.price / outDetails.price);

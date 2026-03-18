@@ -10,6 +10,7 @@ import { logger } from '../../../utils/logger.js';
 import { LogCode } from '../../../config/logRegistry.js';
 import { resolveReplaySpender } from './adapters/registry.js';
 import { readEvmTokenBalanceFast, readEvmTokenDecimalsFast } from '../../rpc/balanceRpcReader.js';
+import { TRADE_QUOTE_PROFILE } from '../../rpc/profile.js';
 
 const ROUTER_EXECUTE_ABI = [
   'function execute(bytes commands, bytes[] inputs) payable returns (uint256 amountOut)'
@@ -101,8 +102,9 @@ async function resolveSourcePreBlockTag(chainId: number, sourceTxHash?: string):
   if (!/^0x[a-f0-9]{64}$/.test(txHash)) return undefined;
   try {
     const tx = await callRpc<any>(chainId, 'eth_getTransactionByHash', [txHash], {
-      strategy: 'fast',
-      importance: 'critical'
+      strategy: TRADE_QUOTE_PROFILE.strategy,
+      importance: TRADE_QUOTE_PROFILE.importance,
+      purpose: TRADE_QUOTE_PROFILE.purpose
     });
     const blockHex = String(tx?.blockNumber || '').toLowerCase();
     if (!/^0x[0-9a-f]+$/.test(blockHex)) return undefined;
@@ -225,8 +227,9 @@ export async function simulatePlan(
         data,
         value: value === '0' ? '0x0' : ethers.toBeHex(BigInt(value))
       }, normalizedBlockTag], {
-        strategy: 'fast',
-        importance: 'critical',
+        strategy: TRADE_QUOTE_PROFILE.strategy,
+        importance: TRADE_QUOTE_PROFILE.importance,
+        purpose: TRADE_QUOTE_PROFILE.purpose,
         signal: controller.signal
       });
     } finally {
