@@ -35,7 +35,7 @@ export async function processSingleUserBuy(params: {
         emitCopyTradeBuyGuardAudit,
         logger,
         LogCode,
-        getCopyTradeDispatchDetectedAt,
+        getCopyTradeDispatchTimingAnchor,
         isCopyTradeDelayExceeded,
         emitCopyTradeTimingAudit,
         isTokenLockedForUser,
@@ -157,8 +157,8 @@ export async function processSingleUserBuy(params: {
         let swapMetadata: any = undefined;
 
         try {
-            const dispatchDetectedAt = getCopyTradeDispatchDetectedAt(timing, detectedAt);
-            const inboundDelayMs = dispatchDetectedAt ? Math.max(0, Date.now() - dispatchDetectedAt) : null;
+            const dispatchTimingAnchor = getCopyTradeDispatchTimingAnchor(timing);
+            const inboundDelayMs = dispatchTimingAnchor.timestamp ? Math.max(0, Date.now() - dispatchTimingAnchor.timestamp) : null;
             if (inboundDelayMs !== null && inboundDelayMs > 800) {
                 logger.info(LogCode.EXE_QUOTE_FETCHED, '[CopyTradeTiming] user buy dispatch delay', {
                     userId: config.userId,
@@ -166,7 +166,7 @@ export async function processSingleUserBuy(params: {
                     chainId,
                     inboundDelayMs,
                     delayFirstSeenMs: timing?.firstSeenAt ? Math.max(0, Date.now() - timing.firstSeenAt) : null,
-                    delayAnchor: timing?.dispatchEligibleAt ? 'dispatch_eligible' : (timing?.swapReadyAt ? 'swap_ready' : 'legacy_detected_at'),
+                    delayAnchor: dispatchTimingAnchor.delayAnchor,
                     executionMode
                 });
             }

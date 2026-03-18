@@ -107,6 +107,21 @@ export function getCopyTradeDispatchDetectedAt(
     return legacyDetectedAt;
 }
 
+export function getCopyTradeDispatchTimingAnchor(
+    timing: CopyTradeTimingSnapshot | undefined
+): { timestamp?: number; delayAnchor: CopyTradeDelayCheckResult['delayAnchor'] } {
+    if (timing?.dispatchEligibleAt) {
+        return { timestamp: timing.dispatchEligibleAt, delayAnchor: 'dispatch_eligible' };
+    }
+    if (timing?.swapReadyAt) {
+        return { timestamp: timing.swapReadyAt, delayAnchor: 'swap_ready' };
+    }
+    if (timing?.firstSeenAt) {
+        return { timestamp: timing.firstSeenAt, delayAnchor: 'first_seen' };
+    }
+    return { timestamp: undefined, delayAnchor: 'none' };
+}
+
 export function evaluateCopyTradeDelay(
     timingOrDetectedAt: CopyTradeTimingSnapshot | number | undefined,
     turboMode: boolean,

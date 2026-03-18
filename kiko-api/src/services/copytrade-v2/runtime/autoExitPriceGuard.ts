@@ -1,6 +1,9 @@
-const UNSAFE_VALIDATION_REASONS = new Set([
+const SOFT_DEGRADED_VALIDATION_REASONS = new Set([
   'market_validator_unavailable',
   'launchpad_oracle_validator_unavailable',
+]);
+
+const HARD_UNSAFE_VALIDATION_REASONS = new Set([
   'market_validator_reference_conflict',
   'market_validator_single_source_outlier_rejected',
 ]);
@@ -79,7 +82,7 @@ export function evaluateAutoExitPriceGuard(input: {
     };
   }
 
-  if (priceValidationReason && UNSAFE_VALIDATION_REASONS.has(priceValidationReason)) {
+  if (priceValidationReason && HARD_UNSAFE_VALIDATION_REASONS.has(priceValidationReason)) {
     return {
       allowed: false,
       reasonCode: 'AUTO_EXIT_PRICE_VALIDATION_FAILED',
@@ -104,6 +107,19 @@ export function evaluateAutoExitPriceGuard(input: {
   }
 
   if (metrics.referencePrice || referenceProvider) {
+    return {
+      allowed: true,
+      reasonCode: 'AUTO_EXIT_PRICE_OK',
+      metrics,
+    };
+  }
+
+  if (
+    priceValidationReason
+    && SOFT_DEGRADED_VALIDATION_REASONS.has(priceValidationReason)
+    && provider
+    && !provider.includes('fourmeme')
+  ) {
     return {
       allowed: true,
       reasonCode: 'AUTO_EXIT_PRICE_OK',
