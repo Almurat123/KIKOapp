@@ -136,15 +136,54 @@ export class ToolExecutionEngine {
         if (args.address && String(args.address).toLowerCase() !== String(walletAddress).toLowerCase()) return undefined;
         if (args.chainId && Number(args.chainId) !== chainId) return undefined;
 
-        const tokens = this.normalizeBalanceEntries(toolContext.balance);
-        if (tokens.length === 0) return undefined;
+        const chainSnapshot = this.resolveCurrentChainBalanceSnapshot(toolContext, chainId);
+        const tokens = chainSnapshot?.tokens || this.normalizeBalanceEntries(toolContext.balance);
+        const ethBalance = chainSnapshot?.ethBalance ?? (toolContext.nativeBalance ? String(toolContext.nativeBalance) : undefined);
+        if (tokens.length === 0 && ethBalance == null) return undefined;
 
         return {
             address: walletAddress,
             chain: toolContext.chainName || toolContext.chain || String(chainId),
-            ethBalance: toolContext.nativeBalance ? String(toolContext.nativeBalance) : undefined,
+            ethBalance,
             tokens,
         };
+    }
+
+    private resolveCurrentChainBalanceSnapshot(toolContext: Record<string, any>, chainId: number): { ethBalance?: string; tokens: Array<{ symbol: string; balance: string; decimals?: number; contractAddress?: string }> } | null {
+        const tokens = this.normalizeBalanceEntries(toolContext.balance);
+        const nativeBalance = toolContext.nativeBalance != null ? String(toolContext.nativeBalance) : undefined;
+        if (tokens.length > 0 || nativeBalance != null) {
+            return { ethBalance: nativeBalance, tokens };
+        }
+
+        const chainKey = this.resolveAllChainBalanceKey(chainId);
+        const allChainBalances = toolContext.allChainBalances;
+        const chainSnapshot = chainKey && allChainBalances && typeof allChainBalances === 'object'
+            ? allChainBalances[chainKey]
+            : null;
+        if (!chainSnapshot || typeof chainSnapshot !== 'object') return null;
+
+        const snapshotTokens = this.normalizeBalanceEntries(chainSnapshot.tokens);
+        const ethBalance = chainSnapshot.ethBalanceFormatted ?? chainSnapshot.ethBalance ?? chainSnapshot.nativeBalance;
+        if (snapshotTokens.length === 0 && ethBalance == null) return null;
+
+        return {
+            ethBalance: ethBalance != null ? String(ethBalance) : undefined,
+            tokens: snapshotTokens,
+        };
+    }
+
+    private resolveAllChainBalanceKey(chainId: number): string | null {
+        const mapping: Record<number, string> = {
+            1: 'eth',
+            10: 'optimism',
+            56: 'bsc',
+            137: 'polygon',
+            42161: 'arbitrum',
+            8453: 'base',
+            900: 'solana',
+        };
+        return mapping[chainId] || null;
     }
 
     private buildTokenInfoFromContext(args: Record<string, any>, toolContext: Record<string, any>): any | undefined {
@@ -167,7 +206,7 @@ export class ToolExecutionEngine {
             return balance
                 .map((item) => ({
                     symbol: String(item?.symbol || item?.tokenSymbol || item?.contractAddress || ''),
-                    balance: String(item?.balance || item?.amount || item?.formatted || item?.value || '0'),
+                    balance: String(item?.balance || item?.tokenBalance || item?.amount || item?.formatted || item?.value || '0'),
                     decimals: Number.isFinite(item?.decimals) ? Number(item.decimals) : undefined,
                     contractAddress: item?.contractAddress || item?.contract,
                 }))
@@ -177,7 +216,7 @@ export class ToolExecutionEngine {
             if (raw && typeof raw === 'object') {
                 return {
                     symbol,
-                    balance: String((raw as any).balance || (raw as any).amount || (raw as any).formatted || (raw as any).value || '0'),
+                    balance: String((raw as any).balance || (raw as any).tokenBalance || (raw as any).amount || (raw as any).formatted || (raw as any).value || '0'),
                     decimals: Number.isFinite((raw as any).decimals) ? Number((raw as any).decimals) : undefined,
                     contractAddress: (raw as any).contractAddress || (raw as any).contract,
                 };

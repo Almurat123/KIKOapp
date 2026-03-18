@@ -198,6 +198,13 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
         }
     }
 
+    if (tradingIntent?.kind === 'trade' && tradingIntent.type === 'swap') {
+        pushPreferred(preferredTools, 'get_wallet_info');
+        pushPreferred(preferredTools, 'simulate_swap');
+        pushPreferred(preferredTools, 'prepare_swap_transaction');
+        strategyNotes.push('For swap intents, prefer wallet/preflight evidence first: resolve balance with get_wallet_info, run simulate_swap once, then use prepare_swap_transaction only after preflight is available.');
+    }
+
     if (!strictPolicy) {
         allowedTools = Array.from(availableToolNames).sort();
     }

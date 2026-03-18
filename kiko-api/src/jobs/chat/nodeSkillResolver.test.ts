@@ -166,6 +166,27 @@ test('pure early-buyer token queries require on-chain evidence before concluding
     assert.ok(resolution.preferredTools.includes('get_early_buyers'));
 });
 
+test('swap intents prefer wallet info and preflight before prepare swap execution', () => {
+    const contract = '0x950e88438098bc08879243984a3cf7c63eb95ba3';
+    const resolution = resolveNodeSkills(makeSnapshot(`Sell all ${contract} to ETH`, {
+        model: 'gpt-5-mini',
+        requestedTokenAddresses: [contract],
+        runtime: {
+            chainId: 8453,
+            chainName: 'Base',
+            walletAddress: '0xA386bc9D8F26AB170A847D73226e3e0BCEb0fe8E',
+        },
+    }), {
+        kind: 'trade',
+        type: 'swap',
+    } as any);
+
+    assert.ok(resolution.preferredTools.includes('get_wallet_info'));
+    assert.ok(resolution.preferredTools.includes('simulate_swap'));
+    assert.ok(resolution.preferredTools.includes('prepare_swap_transaction'));
+    assert.ok(resolution.strategyNotes.some((note) => note.includes('simulate_swap once')));
+});
+
 test('official source lookup handles split Chinese intent words and English synonyms', () => {
     const contract = '0xeCCBb861c0dda7eFd964010085488B69317e4444';
     const zhResolution = resolveNodeSkills(makeSnapshot(`帮我找一下 Binance 官方 账户 关于 ${contract} 上架 Alpha 的 帖子 日期`, {

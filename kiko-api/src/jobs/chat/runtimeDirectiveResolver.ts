@@ -182,7 +182,16 @@ function resolveBalanceAutoResolutionGuard(input: {
     const isTradeLike = /\b(swap|buy|sell|trade|exchange|convert|all|\d+(?:\.\d+)?%)\b/i.test(input.raw) || /买|卖|兑换|全部/.test(input.raw);
     if (!isTradeLike) return null;
 
-    const hasBalanceSnapshot = Boolean(input.toolContext?.balance) || Boolean(input.toolContext?.nativeBalance);
+    const allChainBalances = input.toolContext?.allChainBalances;
+    const chainKey = resolveAllChainBalanceKey(input.chainId);
+    const chainSnapshot = chainKey && allChainBalances && typeof allChainBalances === 'object'
+        ? allChainBalances[chainKey]
+        : null;
+    const hasBalanceSnapshot = Boolean(input.toolContext?.balance)
+        || Boolean(input.toolContext?.nativeBalance)
+        || Boolean(chainSnapshot?.ethBalance)
+        || Boolean(chainSnapshot?.ethBalanceFormatted)
+        || (Array.isArray(chainSnapshot?.tokens) && chainSnapshot.tokens.length > 0);
     if (hasBalanceSnapshot) return null;
 
     const tokenMatch = Array.from(input.raw.matchAll(/\b[A-Z]{2,10}\b/g))
@@ -200,4 +209,18 @@ function resolveBalanceAutoResolutionGuard(input: {
             chainName: input.chainName,
         },
     };
+}
+
+function resolveAllChainBalanceKey(chainId?: number): string | null {
+    if (!chainId) return null;
+    const mapping: Record<number, string> = {
+        1: 'eth',
+        10: 'optimism',
+        56: 'bsc',
+        137: 'polygon',
+        42161: 'arbitrum',
+        8453: 'base',
+        900: 'solana',
+    };
+    return mapping[chainId] || null;
 }
