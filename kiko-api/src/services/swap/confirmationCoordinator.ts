@@ -24,6 +24,7 @@ export interface ConfirmationOutcome {
     reason?: string;
     receipt?: any | null;
     visible?: boolean;
+    resolvedTxHash?: string;
 }
 
 const confirmationInflight = new Map<string, Promise<ConfirmationOutcome>>();

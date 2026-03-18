@@ -6,7 +6,11 @@ import {
   type CopyTradeTimingSnapshot,
 } from './copyTradeTimingModel.js';
 
-export type WebhookSwapTimingSource = 'webhook_cached_predecoded' | 'webhook_decode';
+export type WebhookSwapTimingSource =
+  | 'webhook_cached_predecoded'
+  | 'webhook_decode'
+  | 'webhook_provisional_predecoded'
+  | 'webhook_provisional_activity';
 
 export function buildWebhookDecodeReadyTiming(params: {
   swapSource: WebhookSwapTimingSource;
@@ -15,11 +19,15 @@ export function buildWebhookDecodeReadyTiming(params: {
   nowMs?: number;
 }): CopyTradeTimingSnapshot {
   const nowMs = params.nowMs ?? Date.now();
-  if (params.swapSource === 'webhook_cached_predecoded' && params.cachedTiming) {
+  if (
+    (params.swapSource === 'webhook_cached_predecoded'
+      || params.swapSource === 'webhook_provisional_predecoded')
+    && params.cachedTiming
+  ) {
     return markCopyTradeSwapReady(
       mergeCopyTradeTimingSnapshots(params.cachedTiming, params.pendingHintTiming),
       nowMs,
-      'webhook_cached_predecoded'
+      params.swapSource
     );
   }
 

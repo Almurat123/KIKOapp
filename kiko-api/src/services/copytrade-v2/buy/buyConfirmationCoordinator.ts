@@ -1,6 +1,7 @@
 import { LogCode } from '../../../config/logRegistry.js';
 import { logger } from '../../../utils/logger.js';
 import type { ConfirmationOutcome } from '../../swap/confirmationCoordinator.js';
+import type { OrderRuntimeContext } from '../../order-runtime/types.js';
 import { waitForCopytradeBuyConfirmation } from './buyConfirmationPolicy.js';
 import { scheduleLateBuyConfirmationRecovery } from './lateBuyConfirmationRecovery.js';
 import type { BuyConfirmationTransitionResult } from './buyConfirmationTransition.js';
@@ -11,6 +12,9 @@ export async function runCopytradeBuyConfirmationFlow(params: {
   tokenAddress: string;
   timeoutMs: number;
   pollMs: number;
+  txHashes?: string[];
+  orderId?: string | null;
+  runtimeContext?: OrderRuntimeContext | null;
   onTransition: (
     confirmation: ConfirmationOutcome,
     recoverySource: 'initial_wait' | 'late_recovery',
@@ -29,6 +33,9 @@ export async function runCopytradeBuyConfirmationFlow(params: {
     txHash: params.txHash,
     timeoutMs: params.timeoutMs,
     pollMs: params.pollMs,
+    txHashes: params.txHashes,
+    orderId: params.orderId,
+    runtimeContext: params.runtimeContext,
   }).catch(() => null);
 
   if (!confirmation) {
@@ -46,6 +53,9 @@ export async function runCopytradeBuyConfirmationFlow(params: {
       chainId: params.chainId,
       txHash: params.txHash,
       tokenAddress: params.tokenAddress,
+      txHashes: params.txHashes,
+      orderId: params.orderId,
+      runtimeContext: params.runtimeContext,
       timeoutMs: params.lateRecoveryTimeoutMs,
       pollMs: params.lateRecoveryPollMs,
       onResolved: async (lateConfirmation) => {
@@ -65,6 +75,9 @@ export function scheduleCopytradeBuyConfirmationFlow(params: {
   delayMs: number;
   timeoutMs: number;
   pollMs: number;
+  txHashes?: string[];
+  orderId?: string | null;
+  runtimeContext?: OrderRuntimeContext | null;
   onTransition: (
     confirmation: ConfirmationOutcome,
     recoverySource: 'initial_wait' | 'late_recovery',
@@ -84,6 +97,9 @@ export function scheduleCopytradeBuyConfirmationFlow(params: {
       tokenAddress: params.tokenAddress,
       timeoutMs: params.timeoutMs,
       pollMs: params.pollMs,
+      txHashes: params.txHashes,
+      orderId: params.orderId,
+      runtimeContext: params.runtimeContext,
       onTransition: params.onTransition,
       lateRecoveryTimeoutMs: params.lateRecoveryTimeoutMs,
       lateRecoveryPollMs: params.lateRecoveryPollMs,

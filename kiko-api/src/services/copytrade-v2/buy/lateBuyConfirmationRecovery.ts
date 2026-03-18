@@ -1,6 +1,7 @@
 import { logger } from '../../../utils/logger.js';
 import { LogCode } from '../../../config/logRegistry.js';
 import type { ConfirmationOutcome } from '../../swap/confirmationCoordinator.js';
+import type { OrderRuntimeContext } from '../../order-runtime/types.js';
 import { waitForCopytradeBuyConfirmation } from './buyConfirmationPolicy.js';
 
 const DEFAULT_RECOVERY_TIMEOUT_MS = Math.max(30_000, Number(process.env.COPYTRADE_BUY_LATE_RECOVERY_TIMEOUT_MS || '180000'));
@@ -23,12 +24,18 @@ async function probeBuyConfirmation(params: {
   txHash: string;
   timeoutMs: number;
   pollMs: number;
+  txHashes?: string[];
+  orderId?: string | null;
+  runtimeContext?: OrderRuntimeContext | null;
 }): Promise<ConfirmationOutcome | null> {
   const confirmation = await waitForCopytradeBuyConfirmation({
     chainId: params.chainId,
     txHash: params.txHash,
     timeoutMs: params.timeoutMs,
     pollMs: params.pollMs,
+    txHashes: params.txHashes,
+    orderId: params.orderId,
+    runtimeContext: params.runtimeContext,
     forceRefresh: true,
     allowCachedUncertain: false,
   }).catch(() => null);
@@ -43,11 +50,22 @@ export function scheduleLateBuyConfirmationRecovery(params: {
   chainId: number;
   txHash: string;
   tokenAddress: string;
+  txHashes?: string[];
+  orderId?: string | null;
+  runtimeContext?: OrderRuntimeContext | null;
   onResolved: (confirmation: ConfirmationOutcome) => Promise<void>;
   timeoutMs?: number;
   pollMs?: number;
 }, deps?: {
-  probeBuyConfirmation?: (params: { chainId: number; txHash: string; timeoutMs: number; pollMs: number; }) => Promise<ConfirmationOutcome | null>;
+  probeBuyConfirmation?: (params: {
+    chainId: number;
+    txHash: string;
+    timeoutMs: number;
+    pollMs: number;
+    txHashes?: string[];
+    orderId?: string | null;
+    runtimeContext?: OrderRuntimeContext | null;
+  }) => Promise<ConfirmationOutcome | null>;
   sleep?: (ms: number) => Promise<void>;
 }): void {
   const recoveryKey = buildRecoveryKey(params.chainId, params.txHash);
@@ -78,6 +96,9 @@ export function scheduleLateBuyConfirmationRecovery(params: {
         txHash: params.txHash,
         timeoutMs: Math.min(remainingTimeoutMs, attemptTimeoutMs),
         pollMs,
+        txHashes: params.txHashes,
+        orderId: params.orderId,
+        runtimeContext: params.runtimeContext,
       });
       if (confirmation) {
         logger.info(LogCode.SYS_INFO, '[CopyTradeBuyConfirm] Late confirmation resolved', {

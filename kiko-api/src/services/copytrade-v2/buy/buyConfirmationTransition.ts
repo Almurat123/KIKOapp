@@ -105,6 +105,7 @@ export async function applyBuyConfirmationTransition(params: {
   const resolveReceiptAmount = deps?.resolveConfirmedReceiptTokenAmount || resolveConfirmedReceiptTokenAmount;
   const persistReceiptAmount = deps?.persistConfirmedBuyAmount || persistConfirmedBuyAmount;
   const recordFollowerFact = deps?.recordFollowerTransactionFactByPosition || recordFollowerTransactionFactByPosition;
+  const resolvedTxHash = confirmation.resolvedTxHash || txHash;
 
   if (confirmation.kind === 'confirmed_failed') {
     if (persistedPositionId) {
@@ -131,7 +132,7 @@ export async function applyBuyConfirmationTransition(params: {
     logger.warn(LogCode.EXE_TX_REVERTED, '[CopyTradeBuyConfirm] Buy transaction failed after submission', {
       chainId,
       token: tokenToBuy,
-      txHash,
+      txHash: resolvedTxHash,
       recoverySource,
       reason: confirmation.reason || 'confirmed_failed'
     });
@@ -142,7 +143,7 @@ export async function applyBuyConfirmationTransition(params: {
     logger.info(LogCode.SYS_INFO, '[SellApprovalPreheat] Skipped: buy tx not confirmed yet', {
       chainId,
       token: tokenToBuy,
-      txHash,
+      txHash: resolvedTxHash,
       recoverySource
     });
     return 'deferred';
@@ -152,7 +153,7 @@ export async function applyBuyConfirmationTransition(params: {
   if (persistedPositionId) {
     confirmedAmountRaw = await resolveReceiptAmount({
       chainId,
-      txHash,
+      txHash: resolvedTxHash,
       tokenAddress: tokenToBuy,
       walletAddress,
       receipt: confirmation.receipt,
@@ -165,7 +166,7 @@ export async function applyBuyConfirmationTransition(params: {
         tokenAddress: tokenToBuy,
         walletAddress,
         targetWallet,
-        txHash,
+        txHash: resolvedTxHash,
         amountRaw: confirmedAmountRaw,
         decimals: tokenInfo.decimals,
       }).catch(() => null);
@@ -175,7 +176,7 @@ export async function applyBuyConfirmationTransition(params: {
       positionId: persistedPositionId,
       kind: 'buy',
       phase: 'confirmed',
-      txHash,
+      txHash: resolvedTxHash,
       walletAddress,
       amountRaw: confirmedAmountRaw,
       reasonCode: confirmedAmountRaw ? 'ok_follower_buy_confirmed' : 'ok_follower_buy_confirmed_without_receipt_amount',
@@ -206,7 +207,7 @@ export async function applyBuyConfirmationTransition(params: {
     if (promotionAction.action === 'promote_open') {
       const promoteResult = await prismaClient.position.updateMany({
         where: { id: persistedPositionId, status: positionStatusCompat.pendingCreateStatus as any },
-        data: { status: 'open' as any, entryTxHash: txHash }
+        data: { status: 'open' as any, entryTxHash: resolvedTxHash }
       }).catch((error) => {
         logger.error(LogCode.SYS_ERROR, 'Failed to promote pending buy position to open', { error });
         return null;
@@ -219,7 +220,7 @@ export async function applyBuyConfirmationTransition(params: {
         emitDomainAudit('BUY_CONFIRMATION_PROMOTED_OPEN', {
           extra: {
             positionId: persistedPositionId,
-            txHash,
+            txHash: resolvedTxHash,
             chainId,
             tokenAddress: tokenToBuy,
             recoverySource,
@@ -233,7 +234,7 @@ export async function applyBuyConfirmationTransition(params: {
       emitDomainAudit('BUY_CONFIRMATION_CLOSED_BEFORE_OPEN', {
         extra: {
           positionId: persistedPositionId,
-          txHash,
+          txHash: resolvedTxHash,
           chainId,
           tokenAddress: tokenToBuy,
           recoverySource,
@@ -249,7 +250,7 @@ export async function applyBuyConfirmationTransition(params: {
       positionId: persistedPositionId,
       promotionOutcome,
       rowsUpdated,
-      txHash,
+      txHash: resolvedTxHash,
       chainId,
       token: tokenToBuy,
       recoverySource,
@@ -271,7 +272,7 @@ export async function applyBuyConfirmationTransition(params: {
       userId,
       chainId,
       tokenAddress: tokenToBuy,
-      txHash,
+      txHash: resolvedTxHash,
       recoverySource,
       settlement: directFeeSettlement,
     });

@@ -50,6 +50,7 @@ import {
     getPendingPredecodeSource,
     isPendingPredecodeTrusted
 } from '../services/copytrade-v2/ingress/pendingPredecodeTrustPolicy.js';
+import { decideEvmProvisionalIngress } from '../services/copytrade-v2/ingress/evmIngressDecisionPolicy.js';
 import {
     buildActivityCashHint,
     buildTxSkeletonFromAlchemyActivity,
@@ -741,12 +742,76 @@ async function processAlchemyWebhookPayload(payload: any): Promise<void> {
                     .filter((r) => !!r.predecoded?.swap && isPendingPredecodeTrusted(r.predecoded))
                     .map((r) => [r.wallet.toLowerCase(), r.predecoded!])
             );
+            const provisionalDispatchByWallet = new Map<string, {
+                swap: any;
+                swapSource: 'webhook_provisional_predecoded' | 'webhook_provisional_activity';
+                cashHint: ActivityCashHint | null;
+                reasonCode: string;
+                allowMissingSourceTxFrom: boolean;
+            }>();
 
             const decodeStart = Date.now();
             const decodeDeadline = decodeStart + WEBHOOK_FETCH_PARSE_BUDGET_MS;
             let receipt: any = null;
             const allWalletsHaveTrustedPredecoded = trustedPredecodedByWallet.size === trackedWallets.length && trackedWallets.length > 0;
-            if (!allWalletsHaveTrustedPredecoded) {
+            if (!isSolanaItems && trackedWallets.length === 1 && !allWalletsHaveTrustedPredecoded) {
+                const trackedTarget = trackedWallets[0]?.address;
+                const cached = trackedTarget ? predecodedByWallet.get(trackedTarget.toLowerCase()) : null;
+                let cashHint: ActivityCashHint | null = null;
+                const evaluateProvisionalDecision = async (swap: any, swapOrigin: 'cached_predecoded' | 'activity_decode') => {
+                    cashHint = cashHint || await buildActivityCashHint(evmActivities, trackedTarget, chainId).catch(() => null);
+                    return decideEvmProvisionalIngress({
+                        chainId,
+                        trackedWalletCount: trackedWallets.length,
+                        trackedWallet: trackedTarget,
+                        swapOrigin,
+                        swap,
+                        sourceTxFrom,
+                        pendingHintTargetWallet: pendingHint?.targetWallet,
+                        cashLegHint: cashHint || undefined,
+                    });
+                };
+
+                let provisionalDecision = null as Awaited<ReturnType<typeof evaluateProvisionalDecision>> | null;
+                let provisionalSwap = null as any;
+                if (cached?.swap && !isPendingPredecodeTrusted(cached)) {
+                    provisionalSwap = cached.swap;
+                    provisionalDecision = await evaluateProvisionalDecision(cached.swap, 'cached_predecoded');
+                }
+
+                if (!provisionalDecision || provisionalDecision.action !== 'dispatch_provisional') {
+                    const activitySwap = await decodeSwapFromActivities(evmActivities, trackedTarget, chainId).catch(() => null);
+                    if (activitySwap) {
+                        activitySwap.txHash = txHash;
+                        activitySwap.router = txSkeleton.to || '';
+                        provisionalSwap = activitySwap;
+                        provisionalDecision = await evaluateProvisionalDecision(activitySwap, 'activity_decode');
+                    }
+                }
+
+                if (provisionalDecision?.action === 'dispatch_provisional' && provisionalSwap) {
+                    provisionalDispatchByWallet.set(trackedTarget.toLowerCase(), {
+                        swap: provisionalSwap,
+                        swapSource: provisionalDecision.swapSource,
+                        cashHint: cashHint || null,
+                        reasonCode: provisionalDecision.reasonCode,
+                        allowMissingSourceTxFrom: provisionalDecision.allowMissingSourceTxFrom,
+                    });
+                    await recordCopytradeIngressTrace({
+                        chainId,
+                        txHash,
+                        targetWallet: trackedTarget,
+                        eventType: 'provisional_dispatch_ready',
+                        source: 'alchemy_webhook',
+                        payload: {
+                            reasonCode: provisionalDecision.reasonCode,
+                            swapSource: provisionalDecision.swapSource,
+                            sourceTxFrom: sourceTxFrom || null,
+                        },
+                    }).catch(() => undefined);
+                }
+            }
+            if (!allWalletsHaveTrustedPredecoded && provisionalDispatchByWallet.size === 0) {
                 const fetchReceiptWithRetry = async () => {
                     const maxAttempts = Math.max(1, Number(process.env.COPYTRADE_WEBHOOK_RECEIPT_MAX_ATTEMPTS || 2));
                     const baseDelayMs = Math.max(40, Number(process.env.COPYTRADE_WEBHOOK_RECEIPT_RETRY_BASE_MS || 120));
@@ -846,16 +911,28 @@ async function processAlchemyWebhookPayload(payload: any): Promise<void> {
                     return;
                 }
                 const cached = predecodedByWallet.get(trackedTarget.toLowerCase());
+                const provisionalDispatch = provisionalDispatchByWallet.get(trackedTarget.toLowerCase()) || null;
                 const cachedTrusted = isPendingPredecodeTrusted(cached);
                 const useCachedSwap = cachedTrusted && Boolean(cached?.swap);
-                let swap = useCachedSwap ? (cached?.swap || null) : null;
-                let swapSource: 'webhook_cached_predecoded' | 'webhook_decode' = useCachedSwap
+                let swap = useCachedSwap
+                    ? (cached?.swap || null)
+                    : (provisionalDispatch?.swap || null);
+                let swapSource: 'webhook_cached_predecoded' | 'webhook_decode' | 'webhook_provisional_predecoded' | 'webhook_provisional_activity' = useCachedSwap
                     ? 'webhook_cached_predecoded'
-                    : 'webhook_decode';
+                    : (provisionalDispatch?.swapSource || 'webhook_decode');
                 let resolvedTxForContext = txSkeleton;
-                let activityCashHint: ActivityCashHint | null = null;
+                let activityCashHint: ActivityCashHint | null = provisionalDispatch?.cashHint || null;
+                const allowProvisionalBindingBypass = provisionalDispatch?.allowMissingSourceTxFrom === true;
                 if (useCachedSwap) {
                     usedPredecoded += 1;
+                } else if (provisionalDispatch) {
+                    console.log('[Webhook] Provisional copytrade dispatch accepted before receipt confirmation', {
+                        chainId,
+                        txHash,
+                        wallet: trackedTarget,
+                        swapSource: provisionalDispatch.swapSource,
+                        reasonCode: provisionalDispatch.reasonCode,
+                    });
                 } else if (cached?.swap && !cachedTrusted) {
                     console.warn('[Webhook] Ignoring untrusted pending predecoded swap until receipt-confirmed decode', {
                         chainId,
@@ -984,46 +1061,66 @@ async function processAlchemyWebhookPayload(payload: any): Promise<void> {
                         resolutionSource = effectiveSourceTxFrom ? 'fetch_transaction' : '';
                     }
                     if (!effectiveSourceTxFrom) {
-                        emitDeferredBindingMissingFinal();
+                        if (!allowProvisionalBindingBypass || !swap) {
+                            emitDeferredBindingMissingFinal();
+                            await recordCopytradeIngressTrace({
+                                chainId,
+                                txHash,
+                                targetWallet: trackedTarget,
+                                eventType: 'missing_source_tx_from_final',
+                                source: 'alchemy_webhook',
+                            }).catch(() => undefined);
+                            console.error(`[Webhook] Ignore tx ${txHash}: missing source tx.from after deferred tx_from_only binding`);
+                            return;
+                        }
                         await recordCopytradeIngressTrace({
                             chainId,
                             txHash,
                             targetWallet: trackedTarget,
-                            eventType: 'missing_source_tx_from_final',
-                            source: 'alchemy_webhook',
+                            eventType: 'provisional_binding_bypass',
+                            source: swapSource,
+                            payload: {
+                                reasonCode: provisionalDispatch?.reasonCode || 'provisional_binding_bypass',
+                            },
                         }).catch(() => undefined);
-                        console.error(`[Webhook] Ignore tx ${txHash}: missing source tx.from after deferred tx_from_only binding`);
-                        return;
-                    }
-                    emitDeferredBindingResolved(effectiveSourceTxFrom, resolutionSource || 'unknown');
-                    sourceTxFrom = effectiveSourceTxFrom;
-                    if (normalizedTrackedTarget !== effectiveSourceTxFrom) {
-                        if (!swap) {
-                            emitCopytradeDomainAudit('signal_wallet_mismatch', {
-                                extra: {
+                        console.warn('[Webhook] Provisional dispatch bypassed missing source tx.from because signal is uniquely attributable', {
+                            chainId,
+                            txHash,
+                            wallet: trackedTarget,
+                            reasonCode: provisionalDispatch?.reasonCode || 'provisional_binding_bypass',
+                        });
+                        sourceTxFrom = '';
+                    } else {
+                        emitDeferredBindingResolved(effectiveSourceTxFrom, resolutionSource || 'unknown');
+                        sourceTxFrom = effectiveSourceTxFrom;
+                        if (normalizedTrackedTarget !== effectiveSourceTxFrom) {
+                            if (!swap) {
+                                emitCopytradeDomainAudit('signal_wallet_mismatch', {
+                                    extra: {
+                                        chainId,
+                                        txHash,
+                                        sourceTxFrom: effectiveSourceTxFrom,
+                                        pendingTargetWallet: normalizedTrackedTarget,
+                                        reasonCode: 'webhook_candidate_source_wallet_mismatch'
+                                    }
+                                });
+                                console.error('[Webhook] Candidate wallet mismatch detected after deferred tx_from_only binding; dropping wallet', {
                                     chainId,
                                     txHash,
                                     sourceTxFrom: effectiveSourceTxFrom,
-                                    pendingTargetWallet: normalizedTrackedTarget,
-                                    reasonCode: 'webhook_candidate_source_wallet_mismatch'
-                                }
-                            });
-                            console.error('[Webhook] Candidate wallet mismatch detected after deferred tx_from_only binding; dropping wallet', {
+                                    candidateWallet: normalizedTrackedTarget
+                                });
+                                return;
+                            }
+                            console.warn('[Webhook] Candidate wallet mismatch tolerated because swap decoded for tracked wallet', {
                                 chainId,
                                 txHash,
                                 sourceTxFrom: effectiveSourceTxFrom,
-                                candidateWallet: normalizedTrackedTarget
+                                candidateWallet: normalizedTrackedTarget,
+                                tokenIn: swap.tokenIn,
+                                tokenOut: swap.tokenOut
                             });
-                            return;
                         }
-                        console.warn('[Webhook] Candidate wallet mismatch tolerated because swap decoded for tracked wallet', {
-                            chainId,
-                            txHash,
-                            sourceTxFrom: effectiveSourceTxFrom,
-                            candidateWallet: normalizedTrackedTarget,
-                            tokenIn: swap.tokenIn,
-                            tokenOut: swap.tokenOut
-                        });
                     }
                 }
                 if (!swap) return;
