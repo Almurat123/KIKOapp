@@ -66,7 +66,9 @@ export function shouldAttemptTransferBasedDecode(params: {
   logs: TransferLog[];
   walletAddress: string;
   nativeValue?: string;
+  decodeMode?: 'live' | 'history';
 }): boolean {
   if (params.hasPoolSwapEvidence || params.hasDexIntentEvidence) return true;
+  if (params.decodeMode === 'history') return false;
   return hasLikelyTransferSwapEvidence(params.logs, params.walletAddress, params.nativeValue || '0');
 }

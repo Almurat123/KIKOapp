@@ -550,7 +550,9 @@ export async function backfillMissingTargetUsd(params: {
           fetchTransactionReceipt(row.txHash, cid),
         ]);
         if (tx && receipt) {
-          const swap = await parseSwapTransaction(tx, receipt, cid, row.walletAddress);
+          const swap = await parseSwapTransaction(tx, receipt, cid, row.walletAddress, {
+            decodeMode: 'history'
+          });
           if (swap) {
             const tokenIn = normalizeAddress(swap.tokenIn);
             const tokenOut = normalizeAddress(swap.tokenOut);
@@ -673,7 +675,13 @@ export async function bootstrapTrackedWalletHistory(
     | {
       fetchTransaction: (txHash: string, chainId: number) => Promise<any>;
       fetchTransactionReceipt: (txHash: string, chainId: number) => Promise<any>;
-      parseSwapTransaction: (tx: any, receipt: any, chainId: number, walletAddress: string) => Promise<any>;
+      parseSwapTransaction: (
+        tx: any,
+        receipt: any,
+        chainId: number,
+        walletAddress: string,
+        options?: { decodeMode?: 'live' | 'history' }
+      ) => Promise<any>;
     }
     | null
     = null;
@@ -719,7 +727,9 @@ export async function bootstrapTrackedWalletHistory(
               deps.fetchTransactionReceipt(tx.txHash, chainId),
             ]);
             if (rawTx && receipt) {
-              const swap = await deps.parseSwapTransaction(rawTx, receipt, chainId, walletAddress);
+              const swap = await deps.parseSwapTransaction(rawTx, receipt, chainId, walletAddress, {
+                decodeMode: 'history'
+              });
               if (swap?.tokenIn && swap?.tokenOut) {
                 const tokenIn = normalizeAddress(swap.tokenIn);
                 const tokenOut = normalizeAddress(swap.tokenOut);

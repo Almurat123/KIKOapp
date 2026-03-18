@@ -1120,7 +1120,10 @@ export async function parseSwapTransaction(
         status: number | string | boolean;
     },
     chainId: number,
-    targetWallet?: string
+    targetWallet?: string,
+    options?: {
+        decodeMode?: 'live' | 'history';
+    }
 ): Promise<DecodedSwap | null> {
     const PROFILE = process.env.COPYTRADE_PROFILE ? process.env.COPYTRADE_PROFILE === 'true' : true;
     const t0 = Date.now();
@@ -1193,7 +1196,8 @@ export async function parseSwapTransaction(
         hasDexIntentEvidence,
         logs: receipt.logs,
         walletAddress: effectiveWallet,
-        nativeValue: tx.value
+        nativeValue: tx.value,
+        decodeMode: options?.decodeMode || 'live'
     });
 
     if (!hasTransferEvidence) {
