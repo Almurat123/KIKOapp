@@ -36,6 +36,16 @@ export function extractRequestedTokenAddresses(text: string): string[] {
     return Array.from(values);
 }
 
+export function extractRequestedTokenAddressesFromHistory(messages: any[], recentUserLimit = 6): string[] {
+    const values = new Set<string>();
+    for (const message of collectRecentUserMessages(messages, recentUserLimit)) {
+        for (const value of extractRequestedTokenAddresses(String(message?.content || ''))) {
+            values.add(value);
+        }
+    }
+    return Array.from(values);
+}
+
 export function extractRequestedTokenSymbols(text: string): string[] {
     const values = new Set<string>();
     for (const match of text.matchAll(/\b[A-Z]{2,10}\b/g)) {
@@ -44,12 +54,32 @@ export function extractRequestedTokenSymbols(text: string): string[] {
     return Array.from(values);
 }
 
+export function extractRequestedTokenSymbolsFromHistory(messages: any[], recentUserLimit = 6): string[] {
+    const values = new Set<string>();
+    for (const message of collectRecentUserMessages(messages, recentUserLimit)) {
+        for (const value of extractRequestedTokenSymbols(String(message?.content || ''))) {
+            values.add(value);
+        }
+    }
+    return Array.from(values);
+}
+
 export function extractRecentToolTrace(messages: any[]): RecentToolTrace | null {
-    const recentAssistant = [...(messages || [])].reverse().find((msg) => msg.role === 'assistant' && msg.data?.toolTrace);
-    if (!recentAssistant?.data?.toolTrace?.toolCalls) return null;
+    const assistantMessages = [...(messages || [])]
+        .filter((msg) => msg.role === 'assistant' && Array.isArray(msg.data?.toolTrace?.toolCalls))
+        .sort(compareMessagesChronologically);
+    if (assistantMessages.length === 0) return null;
+
+    const toolCalls = assistantMessages
+        .flatMap((msg) => Array.isArray(msg.data?.toolTrace?.toolCalls) ? msg.data.toolTrace.toolCalls : [])
+        .filter((call) => call && typeof call === 'object' && String(call.tool || '').trim())
+        .slice(-48);
+    if (toolCalls.length === 0) return null;
+
+    const recentAssistant = assistantMessages[assistantMessages.length - 1];
     return {
         messageId: recentAssistant.id,
-        toolCalls: recentAssistant.data.toolTrace.toolCalls,
+        toolCalls,
     };
 }
 
@@ -224,4 +254,20 @@ function resolveOrderConfirmationFromToolTrace(trace: RecentToolTrace | null): {
         };
     }
     return null;
+}
+
+function collectRecentUserMessages(messages: any[], recentUserLimit: number): any[] {
+    return [...(messages || [])]
+        .filter((msg) => msg?.role === 'user')
+        .sort(compareMessagesChronologically)
+        .slice(-Math.max(1, recentUserLimit));
+}
+
+function compareMessagesChronologically(a: any, b: any): number {
+    const aIndex = Number(a?.message_index ?? a?.messageIndex ?? 0);
+    const bIndex = Number(b?.message_index ?? b?.messageIndex ?? 0);
+    if (aIndex !== bIndex) return aIndex - bIndex;
+    const aCreated = String(a?.createdAt || a?.created_at || '');
+    const bCreated = String(b?.createdAt || b?.created_at || '');
+    return aCreated.localeCompare(bCreated);
 }

@@ -18,6 +18,8 @@ const STARTUP_RECOVERY_INTERVAL_MS = Math.max(30_000, Number(process.env.COPYTRA
 const STARTUP_RECOVERY_CYCLES = Math.max(1, Number(process.env.COPYTRADE_STARTUP_RECOVERY_CYCLES || 5));
 const STARTUP_RECOVERY_LOOKBACK_MS = Math.max(60_000, Number(process.env.COPYTRADE_STARTUP_RECOVERY_LOOKBACK_MS || 10 * 60_000));
 const STARTUP_RECOVERY_HISTORY_LIMIT = Math.max(10, Number(process.env.COPYTRADE_STARTUP_RECOVERY_HISTORY_LIMIT || 30));
+const STARTUP_RECOVERY_DISPATCH_SOURCE = 'target_history_sell_recovery';
+const STARTUP_SELL_RECOVERY_TRACE_PREFIX = 'startup_sell_recovery';
 
 let started = false;
 
@@ -64,7 +66,9 @@ export function selectRecoverableRecentTargetTxs(
   const seen = new Set<string>();
   return rows
     .filter((row) => row.blockTimestamp.getTime() >= minTimestamp)
-    .filter((row) => row.txType === 'TARGET_BUY' || row.txType === 'TARGET_SELL' || row.txType === 'TARGET_TOKEN_SWAP')
+    // Missed-buy recovery is intentionally disabled: replaying historical buys
+    // changes the user's market entry, while missed sells must still be recovered.
+    .filter((row) => row.txType === 'TARGET_SELL')
     .filter((row) => {
       const key = `${row.chainId}:${row.walletAddress.toLowerCase()}:${row.txHash.toLowerCase()}`;
       if (seen.has(key)) return false;
@@ -139,7 +143,7 @@ async function runEvmMissedTradeRecoveryCycle(runNumber: number): Promise<boolea
         walletAddress: targetWallet,
         chainId: wallet.chainId,
         blockTimestamp: { gte: new Date(nowMs - STARTUP_RECOVERY_LOOKBACK_MS) },
-        txType: { in: ['TARGET_BUY', 'TARGET_SELL', 'TARGET_TOKEN_SWAP'] },
+        txType: 'TARGET_SELL',
       },
       select: {
         txHash: true,
@@ -159,7 +163,7 @@ async function runEvmMissedTradeRecoveryCycle(runNumber: number): Promise<boolea
     );
 
     for (const row of recoverable) {
-      const recovered = await recoverTargetTxFromHistory({
+      const recovered = await recoverMissedTargetSellFromHistory({
         chainId: row.chainId,
         txHash: row.txHash,
         targetWallet,
@@ -178,7 +182,7 @@ async function runEvmMissedTradeRecoveryCycle(runNumber: number): Promise<boolea
   return true;
 }
 
-async function recoverTargetTxFromHistory(params: {
+async function recoverMissedTargetSellFromHistory(params: {
   chainId: number;
   txHash: string;
   targetWallet: string;
@@ -203,18 +207,18 @@ async function recoverTargetTxFromHistory(params: {
     chainId: params.chainId,
     txHash,
     targetWallet,
-    eventTypes: ['dispatch_enqueued', 'startup_recovery_dispatch_enqueued'],
+    eventTypes: ['dispatch_enqueued', 'startup_recovery_dispatch_enqueued', `${STARTUP_SELL_RECOVERY_TRACE_PREFIX}_dispatch_enqueued`],
   }).catch(() => false);
   if (alreadyDispatched) return false;
 
-  await recordCopytradeIngressTrace({
-    chainId: params.chainId,
-    txHash,
-    targetWallet,
-    eventType: 'startup_recovery_attempt',
-    source: 'startup_recovery',
-    payload: { blockTimestamp: params.blockTimestamp.toISOString() },
-  }).catch(() => undefined);
+    await recordCopytradeIngressTrace({
+      chainId: params.chainId,
+      txHash,
+      targetWallet,
+      eventType: `${STARTUP_SELL_RECOVERY_TRACE_PREFIX}_attempt`,
+      source: 'startup_recovery',
+      payload: { blockTimestamp: params.blockTimestamp.toISOString() },
+    }).catch(() => undefined);
 
   const [tx, receipt] = await Promise.all([
     fetchTransaction(txHash, params.chainId).catch(() => null),
@@ -225,7 +229,7 @@ async function recoverTargetTxFromHistory(params: {
       chainId: params.chainId,
       txHash,
       targetWallet,
-      eventType: 'startup_recovery_missing_tx_or_receipt',
+      eventType: `${STARTUP_SELL_RECOVERY_TRACE_PREFIX}_missing_tx_or_receipt`,
       source: 'startup_recovery',
       payload: { hasTx: Boolean(tx), hasReceipt: Boolean(receipt) },
     }).catch(() => undefined);
@@ -238,7 +242,7 @@ async function recoverTargetTxFromHistory(params: {
       chainId: params.chainId,
       txHash,
       targetWallet,
-      eventType: 'startup_recovery_non_success_receipt',
+      eventType: `${STARTUP_SELL_RECOVERY_TRACE_PREFIX}_non_success_receipt`,
       source: 'startup_recovery',
       payload: { status },
     }).catch(() => undefined);
@@ -266,7 +270,7 @@ async function recoverTargetTxFromHistory(params: {
       chainId: params.chainId,
       txHash,
       targetWallet,
-      eventType: 'startup_recovery_no_swap',
+      eventType: `${STARTUP_SELL_RECOVERY_TRACE_PREFIX}_no_swap`,
       source: 'startup_recovery',
     }).catch(() => undefined);
     return false;
@@ -275,17 +279,17 @@ async function recoverTargetTxFromHistory(params: {
   const nowMs = Date.now();
   const timing = markCopyTradeTaskEnqueued(
     markCopyTradeSwapReady(
-      buildCopyTradeFirstSeenTiming(nowMs, 'target_history_recovery'),
+      buildCopyTradeFirstSeenTiming(nowMs, STARTUP_RECOVERY_DISPATCH_SOURCE),
       nowMs,
-      'target_history_recovery',
+      STARTUP_RECOVERY_DISPATCH_SOURCE,
     ),
     nowMs,
   );
 
   await Promise.allSettled([
-    markCopyTradeIngressFirstSeen(params.chainId, txHash, nowMs, 'target_history_recovery'),
-    markCopyTradeIngressConfirmed(params.chainId, txHash, nowMs, 'target_history_recovery'),
-    markCopyTradeIngressSwapReady(params.chainId, txHash, nowMs, 'target_history_recovery'),
+    markCopyTradeIngressFirstSeen(params.chainId, txHash, nowMs, STARTUP_RECOVERY_DISPATCH_SOURCE),
+    markCopyTradeIngressConfirmed(params.chainId, txHash, nowMs, STARTUP_RECOVERY_DISPATCH_SOURCE),
+    markCopyTradeIngressSwapReady(params.chainId, txHash, nowMs, STARTUP_RECOVERY_DISPATCH_SOURCE),
     persistSwapExecutionContext({
       chainId: params.chainId,
       txHash,
@@ -304,7 +308,7 @@ async function recoverTargetTxFromHistory(params: {
     chainId: params.chainId,
     txHash,
     targetWallet,
-    eventType: 'startup_recovery_swap_decoded',
+    eventType: `${STARTUP_SELL_RECOVERY_TRACE_PREFIX}_swap_decoded`,
     source: 'startup_recovery',
     payload: {
       tokenIn: swap.tokenIn,
@@ -323,14 +327,16 @@ async function recoverTargetTxFromHistory(params: {
     sourceBlockTimestampMs: params.blockTimestamp.getTime(),
     detectedAt: nowMs,
     timing,
-    source: 'target_history_recovery',
+    source: STARTUP_RECOVERY_DISPATCH_SOURCE,
   });
 
   await recordCopytradeIngressTrace({
     chainId: params.chainId,
     txHash,
     targetWallet,
-    eventType: accepted ? 'startup_recovery_dispatch_enqueued' : 'startup_recovery_dispatch_suppressed',
+    eventType: accepted
+      ? `${STARTUP_SELL_RECOVERY_TRACE_PREFIX}_dispatch_enqueued`
+      : `${STARTUP_SELL_RECOVERY_TRACE_PREFIX}_dispatch_suppressed`,
     source: 'startup_recovery',
   }).catch(() => undefined);
 

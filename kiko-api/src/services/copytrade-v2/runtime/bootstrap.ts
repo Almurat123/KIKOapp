@@ -1,6 +1,5 @@
 import prisma from '../../../db/prisma.js';
 import { onSwapDetected } from '../../watcherService.js';
-import { enqueueCopyTradeTask } from '../../copyTradeQueue.js';
 import { onSolanaSwapDetected, startSolanaWatcher } from '../../solanaWatcher.js';
 import { startCopyTradePendingWatcher, stopCopyTradePendingWatcher } from '../../copyTradePendingService.js';
 import { runTargetSellReconciliationCycle } from '../reconcile/targetSellReconciliationJob.js';
@@ -13,6 +12,7 @@ import { hasRecentEndUserActivity } from '../../runtimeActivityService.js';
 import { logger } from '../../../utils/logger.js';
 import { LogCode } from '../../../config/logRegistry.js';
 import type { DecodedSwap } from '../../txDecoder.js';
+import { dispatchCopyTradeIfReady } from '../ingress/copyTradeFastDispatcher.js';
 
 const TARGET_SELL_RECONCILIATION_INTERVAL_MS = Math.max(
   60_000,
@@ -170,7 +170,15 @@ export function initCopytradeV2Bootstrap(params: {
   logger.info(LogCode.SYS_STARTUP, 'Initializing CopyTrade V2 bootstrap...');
 
   onSwapDetected(async (targetWallet, swap, chainId) => {
-    enqueueCopyTradeTask(targetWallet, swap, chainId);
+    const txHash = String(swap?.txHash || '').trim();
+    if (!txHash) return;
+    await dispatchCopyTradeIfReady({
+      chainId,
+      txHash,
+      targetWallet,
+      swap,
+      source: 'watcher_live',
+    });
   });
 
   onSolanaSwapDetected(params.solanaHandler);

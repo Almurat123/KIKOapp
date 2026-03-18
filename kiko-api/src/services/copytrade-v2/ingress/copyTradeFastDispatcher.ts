@@ -51,12 +51,13 @@ export async function dispatchCopyTradeIfReady(params: DispatchParams): Promise<
         return false;
     }
 
-    enqueueCopyTradeTask(params.targetWallet, params.swap, params.chainId, {
+    await enqueueCopyTradeTask(params.targetWallet, params.swap, params.chainId, {
         detectedAt: timing.dispatchEligibleAt || timing.swapReadyAt || params.detectedAt,
         timing,
         sourceTxFrom: params.sourceTxFrom,
         sourceBlockTimestampMs: params.sourceBlockTimestampMs,
-        source: params.source
+        source: params.source,
+        ingressAlreadyMarked: true
     });
     return true;
 }

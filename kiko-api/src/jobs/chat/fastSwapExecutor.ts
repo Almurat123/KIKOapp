@@ -116,14 +116,25 @@ function resolveInitialSwapParams(parsedIntent: any, lastUserMessage: string, de
 } {
     let tokenIn = parsedIntent?.swapIntent?.tokenIn || 'ETH';
     let tokenOut = parsedIntent?.swapIntent?.tokenOut || parsedIntent?.contractAddress || '';
-    const amountIn = parsedIntent?.swapIntent?.amount || '0.001';
     const chainId = parsedIntent?.chainId || defaultChainId || 8453;
+    const lower = String(lastUserMessage || '').toLowerCase();
+    const isSellOperation = /\b(sell|dump)\b/i.test(lastUserMessage || '') || /卖/.test(lastUserMessage || '');
+    const isBuyOperation = /\b(buy|买|get)\b/i.test(lastUserMessage || '');
+    const hasExplicitAmount = /\b(all|\d+(?:\.\d+)?%?)\b/i.test(lower) || /全部|全卖|卖光|清仓|满仓|最大|full balance|max/i.test(lastUserMessage || '');
+    const providedAmount = parsedIntent?.swapIntent?.amount;
+    let amountIn = '0.001';
+    if (isSellOperation && !isBuyOperation) {
+        // For sell flows, never invent a tiny default amount.
+        // If the user did not specify an amount, interpret it as a full-balance sell and let the
+        // balance resolver convert it to the exact amount.
+        amountIn = hasExplicitAmount ? String(providedAmount || 'all') : 'all';
+    } else {
+        amountIn = String(providedAmount || '0.001');
+    }
 
     const tokenInLower = tokenIn.toLowerCase();
     const tokenOutLower = tokenOut.toLowerCase();
     if (tokenInLower === tokenOutLower || (tokenIn.startsWith('0x') && tokenOut.startsWith('0x') && tokenInLower === tokenOutLower)) {
-        const isSellOperation = /\b(sell|卖)\b/i.test(lastUserMessage || '');
-        const isBuyOperation = /\b(buy|买|get)\b/i.test(lastUserMessage || '');
         const isSolana = chainId === 900;
         const isBsc = chainId === 56 || /\bBNB\b/i.test(lastUserMessage || '');
         const isPolygon = chainId === 137;

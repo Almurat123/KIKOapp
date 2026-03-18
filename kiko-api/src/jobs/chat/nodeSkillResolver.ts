@@ -73,6 +73,12 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
     const preferredTools: string[] = [];
     const strategyNotes: string[] = [];
     let allowAllTools = true;
+    const strictPolicy = snapshot.policySnapshot?.enforcementLevel === 'hard';
+    const sessionToolNames = Array.from(new Set(
+        (snapshot.recentToolTrace?.toolCalls || [])
+            .map((call) => String(call?.tool || '').trim())
+            .filter((toolName) => toolName && availableToolNames.has(toolName)),
+    ));
 
     const matchResult = matchSkillsForQuery({ snapshot, tradingIntent });
     const querySignals = matchResult.querySignals;
@@ -192,17 +198,8 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
         }
     }
 
-    if (contextBlocks.tokenContext || prefetched.get_token_info) {
-        allowedTools = allowedTools.filter((tool) => tool !== 'get_token_info');
-    }
-    if (contextBlocks.walletState || prefetched.get_wallet_info) {
-        allowedTools = allowedTools.filter((tool) => tool !== 'get_wallet_info');
-    }
-    if (!explicitRiskRequest) {
-        allowedTools = allowedTools.filter((tool) => tool !== 'check_token_risk');
-    }
-    if (!asksWalletPnl) {
-        allowedTools = allowedTools.filter((tool) => tool !== 'analyze_wallet_pnl_batch' && tool !== 'analyze_wallet_pnl');
+    if (!strictPolicy) {
+        allowedTools = Array.from(availableToolNames).sort();
     }
 
     if (preferXNativeSearch) {
@@ -241,6 +238,18 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
 
     for (const skillId of selected) {
         pushPreferredToolsForSkill(skillId, preferredTools);
+    }
+
+    if (sessionToolNames.length > 0) {
+        for (const toolName of sessionToolNames) {
+            if (!allowedTools.includes(toolName)) {
+                allowedTools.push(toolName);
+            }
+        }
+        for (const toolName of sessionToolNames) {
+            pushPreferred(preferredTools, toolName);
+        }
+        strategyNotes.push(`Session tool context is available. Tools already used in this session may be reused directly when they fit the current request: ${sessionToolNames.join(', ')}.`);
     }
 
     if (selected.length > 0) {

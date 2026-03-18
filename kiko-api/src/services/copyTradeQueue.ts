@@ -12,6 +12,7 @@ import {
     type CopyTradeTimingSnapshot
 } from './copytrade-v2/timing/copyTradeTimingModel.js';
 import { emitCopyTradeTimingAudit } from './copytrade-v2/timing/copyTradeTimingAudit.js';
+import { tryMarkCopyTradeIngressEnqueued } from './copytrade-v2/ingress/copyTradeIngressState.js';
 
 type QueueTask = {
     targetWallet: string;
@@ -167,12 +168,40 @@ function processQueue(): void {
     resolveIdleWaitersIfDrained();
 }
 
-export function enqueueCopyTradeTask(
+export async function enqueueCopyTradeTask(
     targetWallet: string,
     swap: DecodedSwap,
     chainId: number,
-    context?: { detectedAt?: number; timing?: CopyTradeTimingSnapshot; source?: string; sourceTxFrom?: string; sourceBlockTimestampMs?: number }
-): void {
+    context?: {
+        detectedAt?: number;
+        timing?: CopyTradeTimingSnapshot;
+        source?: string;
+        sourceTxFrom?: string;
+        sourceBlockTimestampMs?: number;
+        ingressAlreadyMarked?: boolean;
+    }
+): Promise<boolean> {
+    const txHash = normalizeTxIdentity(chainId, swap?.txHash) || '';
+    const source = context?.source || 'queue';
+    if (txHash && !context?.ingressAlreadyMarked) {
+        const marked = await tryMarkCopyTradeIngressEnqueued(
+            chainId,
+            txHash,
+            Date.now(),
+            source
+        );
+        if (!marked.accepted) {
+            logger.info(LogCode.SYS_INFO, '[CopyTradeQueue] Suppressed duplicate enqueue at queue boundary', {
+                chainId,
+                txHash,
+                targetWallet,
+                source,
+                executionEnqueuedAt: marked.state?.executionEnqueuedAt || null
+            });
+            return false;
+        }
+    }
+
     markCopyTradeTxState(chainId, swap?.txHash || 'nohash', 'task_enqueued', {
         wallet: targetWallet
     }).catch(() => { });
@@ -197,6 +226,7 @@ export function enqueueCopyTradeTask(
     if (inFlight < MAX_CONCURRENCY) {
         setImmediate(processQueue);
     }
+    return true;
 }
 
 export function getCopyTradeQueueStats() {

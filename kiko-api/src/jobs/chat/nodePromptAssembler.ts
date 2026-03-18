@@ -136,7 +136,8 @@ function buildToolGuidanceBlock(guidance?: {
     if (preferredTools.length > 0) {
         if (lines.length > 0) lines.push('');
         lines.push('[TOOL_PREFERENCES]');
-        lines.push(`- Preferred tools for this query: ${preferredTools.join(', ')}`);
+        lines.push(`- Suggested tools for this query: ${preferredTools.join(', ')}`);
+        lines.push('- Suggested tools are guidance, not a whitelist.');
     }
 
     if (lines.length > 0 || guidance?.allowAllTools || guidance?.searchMode) {
@@ -314,6 +315,8 @@ function buildUserContext(snapshot: ChatContextSnapshot): Record<string, any> {
         farcaster: summarizeFarcaster(runtime.farcaster),
         token: summarizeTokenSnapshot(runtime.tokenSnapshot),
         launchpad: summarizeLaunchpad(runtime.launchpad),
+        all_chain_balances: summarizeAllChainBalances(runtime.allChainBalances),
+        all_chain_balances_snapshot_at: normalizePrimitive(runtime.allChainBalancesSnapshotAt),
         pending_confirmation: summarizeConfirmationState(snapshot.confirmationState),
         recent_tools: summarizeRecentToolTrace(snapshot.recentToolTrace),
         requested_addresses: limitArray(snapshot.requestedTokenAddresses, 3),
@@ -353,6 +356,35 @@ function summarizeLaunchpad(launchpad: Record<string, any> | null | undefined): 
         creator: normalizePrimitive(launchpad.creator),
         status: normalizePrimitive(launchpad.status),
     });
+}
+
+function summarizeAllChainBalances(allChainBalances: Record<string, any> | null | undefined): Record<string, any> | undefined {
+    if (!allChainBalances || typeof allChainBalances !== 'object') return undefined;
+    const chainEntries = Object.entries(allChainBalances)
+        .map(([chainName, balance]) => {
+            if (!balance || typeof balance !== 'object') return null;
+            const native = normalizePrimitive(balance.ethBalanceFormatted ?? balance.ethBalance ?? balance.nativeBalance);
+            const tokens = Array.isArray(balance.tokens)
+                ? balance.tokens
+                    .slice(0, 5)
+                    .map((token: any) => {
+                        const symbol = normalizePrimitive(token?.symbol);
+                        const amount = normalizePrimitive(token?.tokenBalance ?? token?.balance ?? token?.formatted);
+                        if (!symbol || !amount) return null;
+                        return { symbol, amount };
+                    })
+                    .filter(Boolean)
+                : [];
+            return stripEmptyEntries({
+                chain: chainName,
+                native,
+                tokens,
+            });
+        })
+        .filter(Boolean)
+        .slice(0, 7);
+    if (chainEntries.length === 0) return undefined;
+    return { chains: chainEntries };
 }
 
 function summarizeConfirmationState(confirmationState: ChatContextSnapshot['confirmationState']): Record<string, any> | undefined {

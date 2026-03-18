@@ -6,7 +6,9 @@ import { buildLaunchpadContextBlock, buildTokenContextBlock } from './contextBlo
 import {
     extractRecentToolTrace,
     extractRequestedTokenAddresses,
+    extractRequestedTokenAddressesFromHistory,
     extractRequestedTokenSymbols,
+    extractRequestedTokenSymbolsFromHistory,
     resolveTradeConfirmationState,
     sanitizeHistory,
 } from './conversationStateResolver.js';
@@ -24,6 +26,16 @@ const CHAIN_NAMES: Record<number, string> = {
     42161: 'Arbitrum',
     8453: 'Base',
     900: 'Solana',
+};
+
+const CHAIN_BALANCE_KEYS: Record<number, string> = {
+    1: 'eth',
+    10: 'optimism',
+    56: 'bsc',
+    137: 'polygon',
+    42161: 'arbitrum',
+    8453: 'base',
+    900: 'solana',
 };
 
 export function assembleChatContext(params: {
@@ -66,8 +78,9 @@ export function assembleChatContext(params: {
     const toolContext = task.toolContext || {};
     const chainId = Number(toolContext.chainId || 0) || undefined;
     const chainName = chainId ? CHAIN_NAMES[chainId] || String(chainId) : undefined;
+    const currentChainBalance = resolveCurrentChainBalanceSnapshot(toolContext, chainId);
     const toolResultsCache = new Map<string, any>();
-    if ((toolContext.walletAddress || toolContext.userAddress) && chainId) {
+    if ((toolContext.walletAddress || toolContext.userAddress) && chainId && currentChainBalance) {
         toolResultsCache.set(stableStringify({
             name: 'wallet_info_seed',
             walletAddress: toolContext.walletAddress || toolContext.userAddress,
@@ -79,12 +92,18 @@ export function assembleChatContext(params: {
         })}`, {
             address: toolContext.walletAddress || toolContext.userAddress,
             chain: chainName || chainId,
-            ethBalance: toolContext.nativeBalance,
-            tokens: normalizeBalanceEntries(toolContext.balance),
+            ethBalance: currentChainBalance.ethBalance,
+            tokens: currentChainBalance.tokens,
         });
     }
-    const requestedAddressSet = new Set(extractRequestedTokenAddresses(lastUserMessage));
-    const requestedTokenSymbols = extractRequestedTokenSymbols(lastUserMessage);
+    const requestedAddressSet = new Set([
+        ...extractRequestedTokenAddressesFromHistory(history),
+        ...extractRequestedTokenAddresses(lastUserMessage),
+    ]);
+    const requestedTokenSymbols = Array.from(new Set([
+        ...extractRequestedTokenSymbolsFromHistory(history),
+        ...extractRequestedTokenSymbols(lastUserMessage),
+    ]));
     const prefetchedToolResults = buildPrefetchedToolResults({
         toolContext,
         chainId,
@@ -157,6 +176,8 @@ export function assembleChatContext(params: {
             tokenSnapshot: toolContext.tokenSnapshot || toolContext.tokenContext || toolContext.tokenInfo || null,
             launchpad: toolContext.launchpad || toolContext.launchpadInfo || null,
             balanceSnapshotAt: toolContext.balanceSnapshotAt || toolContext.balanceFetchedAt || toolContext.balanceUpdatedAt || null,
+            allChainBalances: toolContext.allChainBalances || null,
+            allChainBalancesSnapshotAt: toolContext.allChainBalancesSnapshotAt || null,
             systemDirectives,
             prefetchedToolResults,
             contextBlocks: {
@@ -215,7 +236,7 @@ function normalizeBalanceEntries(balance: any): Array<{ symbol: string; balance:
     if (Array.isArray(balance)) {
         return balance.map((item) => ({
             symbol: String(item?.symbol || item?.tokenSymbol || item?.contractAddress || ''),
-            balance: String(item?.balance || item?.amount || item?.formatted || '0'),
+            balance: String(item?.balance || item?.tokenBalance || item?.amount || item?.formatted || item?.value || '0'),
             decimals: Number.isFinite(item?.decimals) ? Number(item.decimals) : undefined,
             contractAddress: item?.contractAddress || item?.contract,
         })).filter((item) => item.symbol);
@@ -224,7 +245,7 @@ function normalizeBalanceEntries(balance: any): Array<{ symbol: string; balance:
         if (raw && typeof raw === 'object') {
             return {
                 symbol,
-                balance: String((raw as any).balance || (raw as any).amount || (raw as any).formatted || '0'),
+                balance: String((raw as any).balance || (raw as any).tokenBalance || (raw as any).amount || (raw as any).formatted || (raw as any).value || '0'),
                 decimals: Number.isFinite((raw as any).decimals) ? Number((raw as any).decimals) : undefined,
                 contractAddress: (raw as any).contractAddress || (raw as any).contract,
             };
@@ -283,6 +304,8 @@ function buildClientContext(toolContext: any, chainId?: number, chainName?: stri
         toolConfig: toolContext.toolConfig,
         tokenSnapshot: toolContext.tokenSnapshot || toolContext.tokenContext || toolContext.tokenInfo,
         launchpad: toolContext.launchpad || toolContext.launchpadInfo,
+        allChainBalances: toolContext.allChainBalances,
+        allChainBalancesSnapshotAt: toolContext.allChainBalancesSnapshotAt,
     };
     return `[CLIENT_CONTEXT]\n${JSON.stringify(payload, null, 2)}`;
 }
@@ -301,14 +324,16 @@ function buildPrefetchedToolResults(params: {
     const isTradeLike = /\b(swap|buy|sell|trade|convert|ape|bridge|cross[\s-]?chain)\b/i.test(lower) || /买|卖|换|兑换|跨链/.test(lower);
     const wantsWallet = /\b(balance|portfolio|wallet|holdings|pnl)\b/i.test(lower) || /余额|钱包|持有/.test(lower);
     const wantsLaunchpad = /\b(launchpad|pump|four\.meme|moonshot|letsbonk|bonk|portal|zora)\b/i.test(lower) || /发射台|打新/.test(lower);
+    const currentChainBalance = resolveCurrentChainBalanceSnapshot(params.toolContext, params.chainId);
 
-    if (walletAddress && params.chainId && (isTradeLike || wantsWallet || params.toolContext.balance || params.toolContext.nativeBalance)) {
-        const tokens = normalizeBalanceEntries(params.toolContext.balance);
-        if (tokens.length > 0 || params.toolContext.nativeBalance != null) {
+    if (walletAddress && params.chainId && (isTradeLike || wantsWallet || currentChainBalance)) {
+        const tokens = currentChainBalance?.tokens || normalizeBalanceEntries(params.toolContext.balance);
+        const ethBalance = currentChainBalance?.ethBalance ?? params.toolContext.nativeBalance;
+        if (tokens.length > 0 || ethBalance != null) {
             prefetched.get_wallet_info = {
                 address: walletAddress,
                 chain: params.chainName || String(params.chainId),
-                ethBalance: params.toolContext.nativeBalance ? String(params.toolContext.nativeBalance) : undefined,
+                ethBalance: ethBalance != null ? String(ethBalance) : undefined,
                 tokens,
             };
         }
@@ -353,4 +378,31 @@ function buildPrefetchedToolResults(params: {
     }
 
     return Object.keys(prefetched).length > 0 ? prefetched : null;
+}
+
+function resolveCurrentChainBalanceSnapshot(toolContext: any, chainId?: number): { ethBalance?: string | number; tokens: Array<{ symbol: string; balance: string; decimals?: number; contractAddress?: string }> } | null {
+    if (!toolContext || !chainId) return null;
+    const singleChainTokens = normalizeBalanceEntries(toolContext.balance);
+    const singleChainEthBalance = toolContext.nativeBalance;
+    if (singleChainTokens.length > 0 || singleChainEthBalance != null) {
+        return {
+            ethBalance: singleChainEthBalance,
+            tokens: singleChainTokens,
+        };
+    }
+
+    const chainKey = CHAIN_BALANCE_KEYS[chainId];
+    const allChainBalances = toolContext.allChainBalances;
+    if (!chainKey || !allChainBalances || typeof allChainBalances !== 'object') return null;
+    const chainBalance = allChainBalances[chainKey];
+    if (!chainBalance || typeof chainBalance !== 'object') return null;
+
+    const tokens = normalizeBalanceEntries(chainBalance.tokens);
+    const ethBalance = chainBalance.ethBalanceFormatted ?? chainBalance.ethBalance ?? chainBalance.nativeBalance;
+    if (tokens.length === 0 && ethBalance == null) return null;
+
+    return {
+        ethBalance,
+        tokens,
+    };
 }

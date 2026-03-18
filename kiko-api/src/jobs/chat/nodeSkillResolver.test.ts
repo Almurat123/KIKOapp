@@ -225,3 +225,43 @@ test('resolver only exposes tools that exist in the runtime toolDefinitions snap
     assert.deepEqual(resolution.allowedTools, ['get_token_info']);
     assert.deepEqual(resolution.preferredTools, ['get_token_info']);
 });
+
+test('resolver carries forward session-used tools into orchestration context', () => {
+    const snapshot = makeSnapshot('继续', {
+        recentToolTrace: {
+            messageId: 'assistant-1',
+            toolCalls: [
+                { tool: 'external_web_search', status: 'success' },
+                { tool: 'get_token_info', status: 'success' },
+            ],
+        },
+    });
+
+    const resolution = resolveNodeSkills(snapshot, null);
+    assert.ok(resolution.allowedTools.includes('external_web_search'));
+    assert.ok(resolution.allowedTools.includes('get_token_info'));
+    assert.ok(resolution.preferredTools.includes('external_web_search'));
+    assert.ok(resolution.preferredTools.includes('get_token_info'));
+    assert.ok(resolution.strategyNotes.some((note) => note.includes('Session tool context is available')));
+});
+
+test('resolver keeps the full available registry exposed on non-hard-policy turns', () => {
+    const snapshot = makeSnapshot('What can you do?', {
+        toolDefinitions: [
+            {
+                name: 'get_token_info',
+                description: 'Token info',
+                parameters: { type: 'object', properties: {} },
+            },
+            {
+                name: 'external_web_search',
+                description: 'Search the web',
+                parameters: { type: 'object', properties: {} },
+            },
+        ] as any,
+    });
+
+    const resolution = resolveNodeSkills(snapshot, null);
+    assert.ok(resolution.allowAllTools);
+    assert.deepEqual(resolution.allowedTools.sort(), ['external_web_search', 'get_token_info']);
+});

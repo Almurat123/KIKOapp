@@ -19,6 +19,9 @@ import { parseTradingIntent } from './chat/tradingIntentResolver.js';
 import { resolveNodeSkills } from './chat/nodeSkillResolver.js';
 import { buildTaskPlanningContext } from './chat/taskPlanner.js';
 import { buildControlPolicySnapshot } from './chat/controlPolicy.js';
+import { getWalletBalance } from '../services/alchemy.js';
+import { walletService } from '../services/walletService.js';
+import { ethers } from 'ethers';
 
 type AITask = Awaited<ReturnType<typeof chatRepo.getTask>>;
 
@@ -97,6 +100,8 @@ export class ChatWorker {
             if (!userId) {
                 throw new Error('Missing session user');
             }
+
+            await this.hydrateWalletSnapshotIfNeeded(task);
 
             broker = new ChatStreamBroker({
                 userId,
@@ -363,6 +368,102 @@ export class ChatWorker {
         // Grok error chunks in router can emit synthetic ids derived from hash(messages),
         // e.g. chatcmpl--8058831201540333229. These are not valid continuation anchors.
         return /^chatcmpl-?-?\d+$/.test(normalized);
+    }
+
+    private async hydrateWalletSnapshotIfNeeded(task: NonNullable<AITask>): Promise<void> {
+        const toolContext = task.toolContext || {};
+        const walletAddress = toolContext.walletAddress || toolContext.userAddress;
+        const chainId = Number(toolContext.chainId || 0);
+        if (!walletAddress || !chainId) return;
+
+        const messages = await this.repo.getSessionMessages(task.sessionId).catch(() => []);
+        const lastUserMessage = [...messages].reverse().find((msg) => msg.role === 'user')?.content || '';
+        const lower = String(lastUserMessage || '').toLowerCase();
+        const isTradeLike = /\b(swap|buy|sell|trade|convert|ape|bridge|cross[\s-]?chain)\b/i.test(lower) || /买|卖|换|兑换|跨链/.test(lower);
+        const wantsWallet = /\b(balance|portfolio|wallet|holdings|pnl)\b/i.test(lower) || /余额|钱包|持有/.test(lower);
+        if (!isTradeLike && !wantsWallet) return;
+
+        const chainMap: Record<number, string> = {
+            1: 'eth',
+            8453: 'base',
+            56: 'bsc',
+            42161: 'arbitrum',
+            10: 'optimism',
+            137: 'polygon',
+            900: 'solana',
+        };
+        const nativeSymbolMap: Record<number, string> = {
+            1: 'ETH',
+            8453: 'ETH',
+            56: 'BNB',
+            42161: 'ETH',
+            10: 'ETH',
+            137: 'POL',
+            900: 'SOL',
+        };
+
+        try {
+            const hydratedBalance: Record<string, string> = {};
+            const needsSingleChainSnapshot = !toolContext.balance || !toolContext.nativeBalance;
+            if (needsSingleChainSnapshot) {
+                const chainName = chainMap[chainId] || 'eth';
+                const walletSnapshot = await getWalletBalance(walletAddress, chainName);
+
+                if (walletSnapshot?.ethBalanceFormatted !== undefined && walletSnapshot?.ethBalanceFormatted !== null) {
+                    const nativeSymbol = nativeSymbolMap[chainId] || 'ETH';
+                    hydratedBalance[nativeSymbol] = String(walletSnapshot.ethBalanceFormatted);
+                    toolContext.nativeBalance = String(walletSnapshot.ethBalanceFormatted);
+                }
+
+                for (const token of walletSnapshot?.tokens || []) {
+                    const decimals = typeof token.decimals === 'number' ? token.decimals : 18;
+                    let formatted = '0';
+                    try {
+                        formatted = ethers.formatUnits(token.tokenBalance || '0', decimals);
+                    } catch {
+                        formatted = '0';
+                    }
+                    if (token.symbol) {
+                        hydratedBalance[token.symbol] = formatted;
+                    }
+                    if (token.contractAddress) {
+                        hydratedBalance[token.contractAddress.toLowerCase()] = formatted;
+                    }
+                }
+            }
+
+            let allChainBalances = toolContext.allChainBalances;
+            const hasAllChainSnapshot = !!allChainBalances && typeof allChainBalances === 'object' && Object.keys(allChainBalances).length > 0;
+            if (!hasAllChainSnapshot) {
+                const solanaAddress = toolContext.solanaWalletAddress || toolContext.solanaAddress || toolContext.userSolanaAddress;
+                const fetchedAllBalances = await walletService.getAllChainBalances(walletAddress, solanaAddress, {
+                    forceRefresh: false,
+                });
+                if (fetchedAllBalances && Object.keys(fetchedAllBalances).length > 0) {
+                    allChainBalances = fetchedAllBalances;
+                }
+            }
+
+            if (Object.keys(hydratedBalance).length > 0) {
+                toolContext.balance = hydratedBalance;
+                toolContext.balanceSnapshotAt = new Date().toISOString();
+            }
+            if (allChainBalances && typeof allChainBalances === 'object' && Object.keys(allChainBalances).length > 0) {
+                toolContext.allChainBalances = allChainBalances;
+                toolContext.allChainBalancesSnapshotAt = new Date().toISOString();
+            }
+            if (Object.keys(hydratedBalance).length > 0 || (allChainBalances && typeof allChainBalances === 'object')) {
+                task.toolContext = toolContext;
+            }
+        } catch (error: any) {
+            logger.warn(LogCode.API_FETCH_FAILED, 'ChatWorker: failed to hydrate wallet snapshot', {
+                taskId: task.id,
+                sessionId: task.sessionId,
+                walletAddress: walletAddress.slice(0, 10),
+                chainId,
+                error: error?.message || String(error),
+            });
+        }
     }
 }
 

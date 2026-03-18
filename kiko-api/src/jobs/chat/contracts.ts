@@ -178,6 +178,8 @@ export interface ChatContextSnapshot {
         tokenSnapshot?: Record<string, any> | null;
         launchpad?: Record<string, any> | null;
         balanceSnapshotAt?: string | null;
+        allChainBalances?: Record<string, any> | null;
+        allChainBalancesSnapshotAt?: string | null;
         systemDirectives?: RuntimeDirective[];
         prefetchedToolResults?: Record<string, any> | null;
         contextBlocks?: {

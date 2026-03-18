@@ -1,7 +1,7 @@
 import prisma from '../db/prisma.js';
 import { withRetry } from '../db/prisma.js';
 import { normalizeAddress } from '../utils/address.js';
-import { getWalletTransactions } from './alchemy.js';
+import { getWalletTransactions, type WalletTransaction } from './alchemy.js';
 import { calculateTargetPnlSummary } from './targetWalletPnl.js';
 import { del as cacheDel, setIfNotExists } from '../cache/cacheClient.js';
 import { logger } from '../utils/logger.js';
@@ -18,6 +18,8 @@ const TARGET_STATUS_MAX_TX_USD_LOW_CONF = Number(process.env.TARGET_STATUS_MAX_T
 const TARGET_HISTORY_REFRESH_TTL_SEC = Number(process.env.TARGET_HISTORY_REFRESH_TTL_SEC || 180);
 // How old (in seconds) cached PnL metrics can be before being considered stale and recomputed on-demand.
 const TARGET_METRICS_STALE_SEC = Number(process.env.TARGET_METRICS_STALE_SEC || 300);
+
+type BootstrapWalletTransaction = WalletTransaction & Record<string, unknown>;
 
 function chainIdToLabel(chainId: number): string {
   if (chainId === 8453) return 'base';
@@ -53,6 +55,53 @@ function choosePositive(...values: Array<number | null | undefined>): number | n
     if (n > 0) return n;
   }
   return null;
+}
+
+function scoreWalletTransactionForBootstrap(tx: Partial<BootstrapWalletTransaction>): number {
+  let score = 0;
+  if (tx.txType && tx.txType !== 'TRANSFER_IN' && tx.txType !== 'TRANSFER_OUT') score += 10;
+  if (tx.tokenAddress) score += 4;
+  if ((tx as any).tokenInAddress || (tx as any).tokenOutAddress) score += 6;
+  if (tx.amount && tx.amount !== '0' && tx.amount !== '0.0') score += 2;
+  if ((tx as any).amountIn || (tx as any).amountOut) score += 3;
+  if (safeNum(tx.valueUsd) > 0) score += 3;
+  if (safeNum((tx as any).valueInUsd) > 0 || safeNum((tx as any).valueOutUsd) > 0) score += 2;
+  if ((tx as any).parseReason) score += 2;
+  if ((tx as any).source) score += 1;
+  if (tx.blockTimestamp) score += 1;
+  return score;
+}
+
+function choosePreferredBootstrapTransaction(
+  left: BootstrapWalletTransaction,
+  right: BootstrapWalletTransaction
+): BootstrapWalletTransaction {
+  const leftScore = scoreWalletTransactionForBootstrap(left);
+  const rightScore = scoreWalletTransactionForBootstrap(right);
+  if (rightScore !== leftScore) return rightScore > leftScore ? right : left;
+
+  const leftTs = left.blockTimestamp ? new Date(left.blockTimestamp).getTime() : 0;
+  const rightTs = right.blockTimestamp ? new Date(right.blockTimestamp).getTime() : 0;
+  if (rightTs !== leftTs) return rightTs > leftTs ? right : left;
+
+  return right;
+}
+
+function dedupeBootstrapWalletTransactions(
+  txs: BootstrapWalletTransaction[]
+): BootstrapWalletTransaction[] {
+  const deduped = new Map<string, BootstrapWalletTransaction>();
+  for (const tx of txs) {
+    const txHash = String(tx?.txHash || '').trim().toLowerCase();
+    if (!txHash) continue;
+    const existing = deduped.get(txHash);
+    deduped.set(txHash, existing ? choosePreferredBootstrapTransaction(existing, tx) : tx);
+  }
+  return Array.from(deduped.values()).sort((a, b) => {
+    const leftTs = a.blockTimestamp ? new Date(a.blockTimestamp).getTime() : 0;
+    const rightTs = b.blockTimestamp ? new Date(b.blockTimestamp).getTime() : 0;
+    return rightTs - leftTs;
+  });
 }
 
 function sanitizeTxUsd(row: {
@@ -610,10 +659,11 @@ export async function bootstrapTrackedWalletHistory(
     }
   }
 
-  const txs = await getWalletTransactions(walletAddress, { chain, limit, source }).catch((err: any) => {
+  const rawTxs = await getWalletTransactions(walletAddress, { chain, limit, source }).catch((err: any) => {
     console.warn('[TargetTracking] Failed to fetch wallet history:', err?.message || err);
     return [];
   });
+  const txs = dedupeBootstrapWalletTransactions(rawTxs as BootstrapWalletTransaction[]);
   if (!txs?.length) return;
 
   const isTradeType = (txType?: string | null): boolean =>
@@ -770,7 +820,8 @@ export async function bootstrapTrackedWalletHistory(
   console.log('[TargetTracking] Bootstrap completed', {
     walletAddress,
     chainId,
-    fetched: txs.length,
+    fetched: rawTxs.length,
+    deduped: txs.length,
     upserted: ok,
     failed
   });
@@ -880,3 +931,9 @@ export async function getTargetWalletStatus(params: {
     recentTransactions: recentTx,
   };
 }
+
+export const __targetWalletTrackingTest = {
+  dedupeBootstrapWalletTransactions,
+  choosePreferredBootstrapTransaction,
+  scoreWalletTransactionForBootstrap,
+};

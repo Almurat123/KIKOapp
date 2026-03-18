@@ -7,7 +7,6 @@ import { ethers } from 'ethers';
 import prisma, { withRetry } from '../db/prisma.js';
 import { DecodedSwap } from './txDecoder.js';
 import { onSwapDetected } from './watcherService.js';
-import { enqueueCopyTradeTask } from './copyTradeQueue.js';
 import type { DirectSwapHint, MainSwapRequest, MainSwapResult } from './MainSwapService.js';
 import { detectLaunchpadToken } from './ai/launchpadDetector.js';
 import { zoraSniperService } from './zoraSniperService.js';
@@ -78,6 +77,7 @@ import { resolveEntryDeviationModePolicy } from './copytrade-v2/config/entryDevi
 import { emitEntryDeviationSummary } from './copytrade-v2/audit/entryDeviationAudit.js';
 import { executeEvmCopytradeBuySubmissionFlow } from './copytrade-v2/buy/evmBuySubmissionFlow.js';
 import { persistCopytradeBuySubmission } from './copytrade-v2/buy/buyPersistenceFlow.js';
+import { dispatchCopyTradeIfReady } from './copytrade-v2/ingress/copyTradeFastDispatcher.js';
 import { runPostBuyAiFlow } from './copytrade-v2/buy/postBuyAiFlow.js';
 import { applyBuyConfirmationTransition } from './copytrade-v2/buy/buyConfirmationTransition.js';
 import { scheduleCopytradeBuyConfirmationFlow } from './copytrade-v2/buy/buyConfirmationCoordinator.js';
@@ -1733,7 +1733,15 @@ export function initAutoTradeService(): void {
 
     // Register swap callbacks
     onSwapDetected(async (targetWallet, swap, chainId) => {
-        enqueueCopyTradeTask(targetWallet, swap, chainId);
+        const txHash = String(swap?.txHash || '').trim();
+        if (!txHash) return;
+        await dispatchCopyTradeIfReady({
+            chainId,
+            txHash,
+            targetWallet,
+            swap,
+            source: 'watcher_live'
+        });
     });
     onSolanaSwapDetected(handleSwapDetected);
 
