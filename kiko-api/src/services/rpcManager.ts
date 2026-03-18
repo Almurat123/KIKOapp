@@ -706,10 +706,6 @@ function getEndpointAttemptBudget(
         return lifecycleBudget;
     }
 
-    if (forceExhaustive) {
-        return Math.max(1, endpointCount);
-    }
-
     const ethCallBudget = method === 'eth_call'
         ? (importance === 'critical' ? RPC_MAX_ENDPOINT_ATTEMPTS_ETH_CALL_CRITICAL : RPC_MAX_ENDPOINT_ATTEMPTS_ETH_CALL_NORMAL)
         : null;
@@ -819,12 +815,22 @@ function expandCriticalSelectionWithPublicFallback(params: {
 function shouldForceExhaustiveFailover(
     method: string,
     importance: RpcImportance,
-    options?: { exhaustiveFailover?: boolean }
+    options?: { exhaustiveFailover?: boolean },
+    purpose?: RpcPurpose
 ): boolean {
     if (options?.exhaustiveFailover === true) return true;
-    // Trade-critical path: exhaust all available endpoints for reliability.
-    // eth_call is latency-sensitive and already uses hedge + capped endpoint budget.
     if (importance !== 'critical') return false;
+    if (purpose === 'tx_visibility' || purpose === 'trade_execution') {
+        return method === 'eth_call'
+            || method === 'eth_estimateGas'
+            || method === 'eth_sendRawTransaction'
+            || method === 'eth_getTransactionByHash'
+            || method === 'eth_getTransactionReceipt'
+            || method === 'eth_getTransactionCount'
+            || method === 'eth_feeHistory'
+            || method === 'eth_gasPrice'
+            || method === 'eth_maxPriorityFeePerGas';
+    }
     if (method === 'eth_call') return RPC_FORCE_EXHAUSTIVE_ETH_CALL_CRITICAL;
     return method === 'eth_estimateGas'
         || method === 'eth_sendRawTransaction'
@@ -1183,7 +1189,7 @@ export async function callRpc<T = any>(
             });
             const sortedEndpoints = scoreTable.map((row) => row.endpoint);
             const forceExhaustiveFailover = purposeProfile.allowExhaustiveFailover
-                && shouldForceExhaustiveFailover(method, effectiveImportance, options);
+                && shouldForceExhaustiveFailover(method, effectiveImportance, options, purpose);
             const lane = inferRpcLane(method, effectiveImportance);
             const backgroundPressure = executionLane === 'cheap' && lane === 'background' && hasCriticalRpcPressure();
             let endpointBudget = getEndpointAttemptBudget(
@@ -1197,7 +1203,13 @@ export async function callRpc<T = any>(
             if (backgroundPressure) {
                 endpointBudget = Math.max(1, Math.min(endpointBudget, 1));
             }
-            endpointBudget = Math.max(1, Math.min(endpointBudget, purposeProfile.maxEndpointAttempts));
+            endpointBudget = Math.max(
+                1,
+                Math.min(
+                    endpointBudget,
+                    forceExhaustiveFailover ? sortedEndpoints.length : purposeProfile.maxEndpointAttempts
+                )
+            );
             if (purposeProfile.allowPremiumFallback) {
                 endpointBudget = extendCheapBudgetToIncludePremiumFallback({
                     strategy: requestedStrategy,
@@ -1953,7 +1965,7 @@ export async function callRpcRaw<T = any>(
         });
         const sortedEndpoints = scoreTable.map((row) => row.endpoint);
         const forceExhaustiveFailover = purposeProfile.allowExhaustiveFailover
-            && shouldForceExhaustiveFailover(method, effectiveImportance, options);
+            && shouldForceExhaustiveFailover(method, effectiveImportance, options, purpose);
         let endpointBudget = getEndpointAttemptBudget(
             method,
             effectiveImportance,
@@ -1961,7 +1973,13 @@ export async function callRpcRaw<T = any>(
             cooldownActive,
             forceExhaustiveFailover
         );
-        endpointBudget = Math.max(1, Math.min(endpointBudget, purposeProfile.maxEndpointAttempts));
+        endpointBudget = Math.max(
+            1,
+            Math.min(
+                endpointBudget,
+                forceExhaustiveFailover ? sortedEndpoints.length : purposeProfile.maxEndpointAttempts
+            )
+        );
         if (purposeProfile.allowPremiumFallback) {
             endpointBudget = extendCheapBudgetToIncludePremiumFallback({
                 strategy: requestedStrategy,
