@@ -91,7 +91,7 @@ export class EvmExecutor implements SwapExecutor {
         provider: string
     ): Promise<SwapResult> {
         const config = getChainConfig(chainId);
-        const rpcProvider = getEthersProvider(chainId);
+        const rpcProvider = getEthersProvider(chainId, 'tx_visibility');
 
         try {
             const receipt = await rpcProvider.waitForTransaction(txHash, 1, 30000);
@@ -167,7 +167,7 @@ export class EvmExecutor implements SwapExecutor {
         }
 
         const config = getChainConfig(chainId);
-        const provider = getEthersProvider(chainId);
+        const provider = getEthersProvider(chainId, 'interactive_read');
 
         const contract = new ethers.Contract(
             token,

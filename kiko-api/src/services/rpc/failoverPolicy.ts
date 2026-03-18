@@ -28,6 +28,21 @@ export function isRateLimitedFailure(message: string): boolean {
   );
 }
 
+export function isHighSeverityRpcFailure(message: string): boolean {
+  const lower = String(message || '').toLowerCase();
+  if (!lower) return false;
+  return (
+    lower.includes('http 401')
+    || lower.includes('http 402')
+    || lower.includes('http 403')
+    || lower.includes('http 429')
+    || lower.includes('payment required')
+    || lower.includes('forbidden')
+    || lower.includes('unauthorized')
+    || isRateLimitedFailure(lower)
+  );
+}
+
 export function shouldSkipFailoverDelay(message: string): boolean {
   const lower = String(message || '').toLowerCase();
   return (

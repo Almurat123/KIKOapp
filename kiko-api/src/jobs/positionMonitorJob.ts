@@ -4,14 +4,22 @@
  */
 
 import { checkPositionsForExits } from '../services/copytrade-v2/runtime/positionMonitor.js';
+import prisma from '../db/prisma.js';
+import { hasRecentEndUserActivity } from '../services/runtimeActivityService.js';
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
 
 // Check interval (ms)
 const CHECK_INTERVAL = 30000; // 30 seconds
+const IDLE_CHECK_INTERVAL = 10 * 60 * 1000; // 10 minutes
 
 let isRunning = false;
 let checkTimer: NodeJS.Timeout | null = null;
+
+function scheduleNextRun(delayMs: number): void {
+    if (!isRunning) return;
+    checkTimer = setTimeout(runCheck, delayMs);
+}
 
 /**
  * Run position check
@@ -20,6 +28,17 @@ async function runCheck(): Promise<void> {
     if (!isRunning) return;
 
     try {
+        const openPositions = await prisma.position.count({
+            where: { status: 'open' },
+        });
+        const recentActivity = hasRecentEndUserActivity();
+        if (openPositions === 0 && !recentActivity) {
+            logger.info(LogCode.SYS_INFO, 'Position monitor idle; deferring high-frequency polling', {
+                nextRunMs: IDLE_CHECK_INTERVAL,
+            });
+            scheduleNextRun(IDLE_CHECK_INTERVAL);
+            return;
+        }
         logger.aggregate(LogCode.JOB_HEARTBEAT, 'Running position check');
         await checkPositionsForExits();
     } catch (error) {
@@ -28,7 +47,7 @@ async function runCheck(): Promise<void> {
 
     // Schedule next check
     if (isRunning) {
-        checkTimer = setTimeout(runCheck, CHECK_INTERVAL);
+        scheduleNextRun(CHECK_INTERVAL);
     }
 }
 

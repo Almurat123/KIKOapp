@@ -1,5 +1,6 @@
 import type { RpcEndpointConfig } from '../../config/apiEndpoints.js';
-import { inferRpcLane, shouldPreferPremium } from './policy.js';
+import { inferRpcLane, shouldPreferPremiumForPurpose } from './policy.js';
+import type { RpcPurpose } from './purpose.js';
 import type {
   RpcEndpointHealthView,
   RpcEndpointScoreBreakdown,
@@ -8,12 +9,13 @@ import type {
 } from './types.js';
 
 export function scoreRpcEndpoint(params: {
-  endpoint: RpcEndpointConfig;
-  method: string;
-  importance: RpcImportance;
-  now: number;
-  health: RpcEndpointHealthView;
-  usage: RpcEndpointUsageView;
+    endpoint: RpcEndpointConfig;
+    method: string;
+    importance: RpcImportance;
+    purpose?: RpcPurpose;
+    now: number;
+    health: RpcEndpointHealthView;
+    usage: RpcEndpointUsageView;
 }): RpcEndpointScoreBreakdown {
   const { endpoint, method, importance, now, health, usage } = params;
   const lane = inferRpcLane(method, importance);
@@ -28,16 +30,16 @@ export function scoreRpcEndpoint(params: {
   score += latencyScore;
   reasons.push(`latency=${latencyScore.toFixed(2)}`);
 
-  if (shouldPreferPremium(lane, importance)) {
+  if (shouldPreferPremiumForPurpose(params.purpose, lane, importance)) {
     if (endpoint.type === 'premium') {
       score += 3;
       reasons.push('premium_preferred');
-    } else if (endpoint.type === 'public') {
+    } else if (endpoint.type === 'public_free') {
       score -= 1;
       reasons.push('public_penalty');
     }
   } else if (lane === 'background') {
-    if (endpoint.type === 'public') {
+    if (endpoint.type === 'public_free') {
       score += 2;
       reasons.push('cheap_preferred');
     } else if (endpoint.type === 'premium') {
@@ -93,10 +95,11 @@ export function scoreRpcEndpoint(params: {
 }
 
 export function sortRpcEndpointsByScore(params: {
-  endpoints: RpcEndpointConfig[];
-  method: string;
-  importance: RpcImportance;
-  now: number;
+    endpoints: RpcEndpointConfig[];
+    method: string;
+    importance: RpcImportance;
+    purpose?: RpcPurpose;
+    now: number;
   getHealth: (url: string) => RpcEndpointHealthView;
   getUsage: (url: string) => RpcEndpointUsageView;
 }): RpcEndpointConfig[] {
@@ -105,6 +108,7 @@ export function sortRpcEndpointsByScore(params: {
       endpoint,
       method: params.method,
       importance: params.importance,
+      purpose: params.purpose,
       now: params.now,
       health: params.getHealth(endpoint.url),
       usage: params.getUsage(endpoint.url)
@@ -114,10 +118,11 @@ export function sortRpcEndpointsByScore(params: {
 }
 
 export function buildRpcScoreTable(params: {
-  endpoints: RpcEndpointConfig[];
-  method: string;
-  importance: RpcImportance;
-  now: number;
+    endpoints: RpcEndpointConfig[];
+    method: string;
+    importance: RpcImportance;
+    purpose?: RpcPurpose;
+    now: number;
   getHealth: (url: string) => RpcEndpointHealthView;
   getUsage: (url: string) => RpcEndpointUsageView;
 }): RpcEndpointScoreBreakdown[] {
@@ -126,6 +131,7 @@ export function buildRpcScoreTable(params: {
       endpoint,
       method: params.method,
       importance: params.importance,
+      purpose: params.purpose,
       now: params.now,
       health: params.getHealth(endpoint.url),
       usage: params.getUsage(endpoint.url)

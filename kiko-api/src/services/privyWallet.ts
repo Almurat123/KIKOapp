@@ -127,7 +127,7 @@ async function sendWithLocalSigner(tx: TransactionRequest): Promise<TxLifecycleR
         ).trim();
     const provider = localRpcUrl
         ? new ethers.JsonRpcProvider(localRpcUrl, tx.chainId, { staticNetwork: true })
-        : getEthersProvider(tx.chainId);
+        : getEthersProvider(tx.chainId, 'trade_execution');
     const wallet = new ethers.Wallet(privateKey, provider);
 
     const txReq: ethers.TransactionRequest = {
@@ -952,7 +952,7 @@ export async function sendTransactionLifecycle(
                     txWithNonce.txPurpose === 'trade' || txWithNonce.txPurpose === 'speedup';
                 if (needsDeterministicNonce && !txWithNonce.nonce) {
                     try {
-                        const provider = getEthersProvider(txWithNonce.chainId);
+                        const provider = getEthersProvider(txWithNonce.chainId, 'tx_visibility');
                         const fallbackNonce = await provider.getTransactionCount(walletInfo.address, 'pending');
                         txWithNonce.nonce = BigInt(fallbackNonce).toString();
                         logger.warn(LogCode.SYS_INFO, 'Trade nonce fallback applied from ethers provider', {

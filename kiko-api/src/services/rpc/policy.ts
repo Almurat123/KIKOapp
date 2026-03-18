@@ -1,4 +1,5 @@
 import type { RpcEndpointConfig } from '../../config/apiEndpoints.js';
+import { getRpcPurposeProfile, type RpcPurpose } from './purpose.js';
 import type { RpcEndpointHealthView, RpcImportance, RpcLane, RpcStrategyUpgradeDecision } from './types.js';
 
 export function inferRpcLane(method: string, importance: RpcImportance): RpcLane {
@@ -19,13 +20,27 @@ export function shouldPreferPremium(lane: RpcLane, importance: RpcImportance): b
   return importance === 'critical' && lane === 'route_read';
 }
 
+export function shouldPreferPremiumForPurpose(purpose?: RpcPurpose, lane?: RpcLane, importance?: RpcImportance): boolean {
+  if (purpose) {
+    return getRpcPurposeProfile(purpose).premiumFirst;
+  }
+  return shouldPreferPremium(lane || 'background', importance || 'normal');
+}
+
 export function shouldUpgradeRpcStrategy(params: {
   endpoints: RpcEndpointConfig[];
   getHealth: (url: string) => RpcEndpointHealthView;
   method: string;
   importance: RpcImportance;
+  purpose?: RpcPurpose;
 }): RpcStrategyUpgradeDecision {
   const lane = inferRpcLane(params.method, params.importance);
+  if (params.purpose) {
+    const profile = getRpcPurposeProfile(params.purpose);
+    if (!profile.allowPremiumEndpoints) {
+      return { upgrade: false, lane, reasons: ['purpose_disallows_premium_upgrade'] };
+    }
+  }
   const reasons: string[] = [];
   const top = params.endpoints.slice(0, 3);
   if (top.length === 0) {

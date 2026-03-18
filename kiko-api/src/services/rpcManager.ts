@@ -28,6 +28,7 @@ import { inferRpcLane, shouldUpgradeRpcStrategy } from './rpc/policy.js';
 import {
     classifyFailoverReason,
     extendCheapBudgetToIncludePremiumFallback,
+    isHighSeverityRpcFailure,
     isRateLimitedFailure,
     shouldSkipFailoverDelay,
     summarizeTopFailoverReasons,
@@ -46,6 +47,13 @@ import { getSharedTxObservation, waitForSharedTxConfirmation } from './rpc/confi
 import { withRpcReadBudget } from './rpc/readBudget.js';
 import { inferExecutionLane } from './rpc/executionLane.js';
 import { withRpcLaneBudget } from './rpc/laneBudget.js';
+import {
+    getRpcPurposeProfile,
+    inferLegacyRpcPurpose,
+    purposeAllowsHedge,
+    purposeUsesPublicFreeOnly,
+    type RpcPurpose,
+} from './rpc/purpose.js';
 
 const RPC_TIMEOUT_MS = Number(process.env.RPC_TIMEOUT_MS || '10000'); // 10s default
 const RPC_TIMEOUT_FAST_MS = Number(process.env.RPC_TIMEOUT_FAST_MS || '2500');
@@ -268,6 +276,31 @@ function getPrimaryRpcUrl(chainSlug: string): string | undefined {
     if (!key) return undefined;
     const value = (process.env as Record<string, string | undefined>)[key];
     return value || undefined;
+}
+
+function isPublicFreeEndpoint(endpoint: RpcEndpointConfig): boolean {
+    return endpoint.type === 'public_free';
+}
+
+function filterEndpointsForPurpose(endpoints: RpcEndpointConfig[], purpose: RpcPurpose): RpcEndpointConfig[] {
+    if (purposeUsesPublicFreeOnly(purpose)) {
+        return endpoints.filter((endpoint) => isPublicFreeEndpoint(endpoint) || endpoint.type === 'fallback');
+    }
+    if (purpose === 'trade_execution') {
+        return endpoints.filter((endpoint) => endpoint.type === 'premium' || endpoint.type === 'fallback');
+    }
+    return endpoints;
+}
+
+function countSelectedFreeEndpoints(endpoints: RpcEndpointConfig[]): number {
+    return endpoints.filter((endpoint) => isPublicFreeEndpoint(endpoint)).length;
+}
+
+function forceOpenEndpointCircuit(url: string, cooldownMs: number): void {
+    const health = getOrCreateHealth(url);
+    health.circuitOpen = true;
+    health.consecutiveFailures = Math.max(health.consecutiveFailures, CIRCUIT_BREAKER_THRESHOLD);
+    health.lastFailureTime = Date.now() + Math.max(0, cooldownMs - CIRCUIT_BREAKER_RESET_TIME);
 }
 
 interface RpcRequest {
@@ -713,13 +746,13 @@ function expandEthCallSelectionWithCheapFallback(params: {
         return params.selectedEndpoints;
     }
 
-    const hasPublic = params.selectedEndpoints.some((endpoint) => endpoint.type === 'public');
+    const hasPublic = params.selectedEndpoints.some((endpoint) => endpoint.type === 'public_free');
     if (hasPublic) return params.selectedEndpoints;
 
     const cheapEndpoints = filterEndpointsByMethod(
         getRpcEndpointsWithStrategy(params.chainSlug, 'cheap', params.primaryUrl),
         params.method
-    ).filter((endpoint) => endpoint.type === 'public');
+    ).filter((endpoint) => endpoint.type === 'public_free');
 
     if (!cheapEndpoints.length) return params.selectedEndpoints;
 
@@ -745,7 +778,7 @@ function expandCriticalSelectionWithPublicFallback(params: {
         return params.selectedEndpoints;
     }
 
-    if (params.selectedEndpoints.some((endpoint) => endpoint.type === 'public')) {
+    if (params.selectedEndpoints.some((endpoint) => endpoint.type === 'public_free')) {
         return params.selectedEndpoints;
     }
 
@@ -764,7 +797,7 @@ function expandCriticalSelectionWithPublicFallback(params: {
     const cheapPublicEndpoints = filterEndpointsByMethod(
         getRpcEndpointsForLane(params.chainSlug, 'cheap', params.primaryUrl),
         params.method
-    ).filter((endpoint) => endpoint.type === 'public');
+    ).filter((endpoint) => endpoint.type === 'public_free');
 
     if (!cheapPublicEndpoints.length) {
         return params.selectedEndpoints;
@@ -975,6 +1008,7 @@ export async function callRpc<T = any>(
     method: string,
     params: any = [],
     options: {
+        purpose?: RpcPurpose;
         strategy?: 'fast' | 'cheap';
         importance?: RpcImportance;
         rpcClass?: RpcClass;
@@ -993,7 +1027,14 @@ export async function callRpc<T = any>(
         : chainIdOrName.toLowerCase();
     let primaryUrl: string | undefined;
     let chainId: number;
-    const requestedStrategy: 'fast' | 'cheap' = options.strategy || 'cheap';
+    const purpose = options.purpose || inferLegacyRpcPurpose({
+        method,
+        strategy: options.strategy,
+        importance: options.importance,
+        path: options.path,
+    });
+    const purposeProfile = getRpcPurposeProfile(purpose);
+    const requestedStrategy: 'fast' | 'cheap' = options.strategy || purposeProfile.strategy;
 
     const isLatestBlockRead =
         method === 'eth_getBlockByNumber'
@@ -1018,8 +1059,8 @@ export async function callRpc<T = any>(
     }
 
     const effectiveImportance: RpcImportance =
-        options.importance || (options.strategy === 'fast' ? 'critical' : 'normal');
-    const executionLane: EndpointExecutionLane = options.lane || inferExecutionLane(method, effectiveImportance);
+        options.importance || purposeProfile.importance || (options.strategy === 'fast' ? 'critical' : 'normal');
+    const executionLane: EndpointExecutionLane = options.lane || purposeProfile.lane || inferExecutionLane(method, effectiveImportance);
 
     try {
         const config = getChainConfig(chainId);
@@ -1029,23 +1070,26 @@ export async function callRpc<T = any>(
         primaryUrl = getPrimaryRpcUrl(chainSlug);
         endpoints = getRpcEndpointsForLane(chainSlug, executionLane, primaryUrl);
         endpoints = filterEndpointsByMethod(endpoints, method);
+        endpoints = filterEndpointsForPurpose(endpoints, purpose);
 
         const upgradeDecision = shouldUpgradeRpcStrategy({
             endpoints,
             getHealth: getEndpointHealthView,
             method,
-            importance: effectiveImportance
+            importance: effectiveImportance,
+            purpose,
         });
-        if (executionLane === 'cheap' && strategy === 'cheap' && upgradeDecision.upgrade) {
+        if (!purposeUsesPublicFreeOnly(purpose) && executionLane === 'cheap' && strategy === 'cheap' && upgradeDecision.upgrade) {
             const upgraded = getRpcEndpointsForLane(chainSlug, 'critical', primaryUrl);
             if (upgraded.length > 0) {
-                endpoints = filterEndpointsByMethod(upgraded, method);
+                endpoints = filterEndpointsForPurpose(filterEndpointsByMethod(upgraded, method), purpose);
                 logger.warn(LogCode.API_FETCH_FAILED, 'RPC strategy upgraded to fast due to degraded cheap pool', {
                     chain: chainName,
                     method,
                     executionLane,
                     lane: upgradeDecision.lane,
                     reasons: upgradeDecision.reasons,
+                    purpose,
                     role: LogRole.METRIC
                 });
             }
@@ -1056,7 +1100,7 @@ export async function callRpc<T = any>(
         const isTxLifecycleMethod = method === 'eth_sendRawTransaction'
             || method === 'eth_getTransactionByHash'
             || method === 'eth_getTransactionReceipt';
-        if (isTxLifecycleMethod) {
+        if (isTxLifecycleMethod && purpose === 'tx_visibility') {
             const cheapEndpoints = filterEndpointsByMethod(
                 getRpcEndpointsForLane(chainSlug, 'cheap', primaryUrl),
                 method
@@ -1082,7 +1126,7 @@ export async function callRpc<T = any>(
     }
 
     const rpcClass: RpcClass = options.rpcClass || inferRpcClass(method, effectiveImportance);
-    const path = String(options.path || 'default');
+        const path = String(options.path || purpose);
     const backoffKey = buildMethodBackoffKey(chainId, executionLane, method, effectiveImportance, rpcClass);
     const cooldownState = getMethodBackoffState(backoffKey);
     const cooldownActive = !!cooldownState;
@@ -1129,12 +1173,14 @@ export async function callRpc<T = any>(
                 endpoints,
                 method,
                 importance: effectiveImportance,
+                purpose,
                 now: Date.now(),
                 getHealth: getEndpointHealthView,
                 getUsage: getEndpointUsageView
             });
             const sortedEndpoints = scoreTable.map((row) => row.endpoint);
-            const forceExhaustiveFailover = shouldForceExhaustiveFailover(method, effectiveImportance, options);
+            const forceExhaustiveFailover = purposeProfile.allowExhaustiveFailover
+                && shouldForceExhaustiveFailover(method, effectiveImportance, options);
             const lane = inferRpcLane(method, effectiveImportance);
             const backgroundPressure = executionLane === 'cheap' && lane === 'background' && hasCriticalRpcPressure();
             let endpointBudget = getEndpointAttemptBudget(
@@ -1148,13 +1194,16 @@ export async function callRpc<T = any>(
             if (backgroundPressure) {
                 endpointBudget = Math.max(1, Math.min(endpointBudget, 1));
             }
-            endpointBudget = extendCheapBudgetToIncludePremiumFallback({
-                strategy: requestedStrategy,
-                sortedEndpoints,
-                endpointBudget,
-                forceExhaustiveFailover
-            });
-            const selectedAfterEthCallExpansion = expandEthCallSelectionWithCheapFallback({
+            endpointBudget = Math.max(1, Math.min(endpointBudget, purposeProfile.maxEndpointAttempts));
+            if (purposeProfile.allowPremiumFallback) {
+                endpointBudget = extendCheapBudgetToIncludePremiumFallback({
+                    strategy: requestedStrategy,
+                    sortedEndpoints,
+                    endpointBudget,
+                    forceExhaustiveFailover
+                });
+            }
+            const selectedAfterEthCallExpansion = purposeUsesPublicFreeOnly(purpose) ? sortedEndpoints.slice(0, endpointBudget) : expandEthCallSelectionWithCheapFallback({
                 method,
                 path,
                 importance: effectiveImportance,
@@ -1162,15 +1211,15 @@ export async function callRpc<T = any>(
                 chainSlug,
                 primaryUrl,
             });
-            const selectedEndpoints = expandCriticalSelectionWithPublicFallback({
+            const selectedEndpoints = purpose === 'tx_visibility' ? expandCriticalSelectionWithPublicFallback({
                 executionLane,
                 selectedEndpoints: selectedAfterEthCallExpansion,
                 chainSlug,
                 primaryUrl,
                 method,
-            });
+            }) : selectedAfterEthCallExpansion;
             const selectedPremiumCount = selectedEndpoints.filter((endpoint) => endpoint.type === 'premium').length;
-            const selectedPublicCount = selectedEndpoints.filter((endpoint) => endpoint.type === 'public').length;
+            const selectedPublicCount = countSelectedFreeEndpoints(selectedEndpoints);
             const txLifecycleCritical =
                 effectiveImportance === 'critical'
                 && (
@@ -1194,7 +1243,8 @@ export async function callRpc<T = any>(
                             endpoints,
                             getHealth: getEndpointHealthView,
                             method,
-                            importance: effectiveImportance
+                            importance: effectiveImportance,
+                            purpose,
                         })
                     })
                 });
@@ -1317,11 +1367,12 @@ export async function callRpc<T = any>(
             }
         };
 
-            const canHedgeReads = method === 'eth_getTransactionByHash' || method === 'eth_getTransactionReceipt';
+        const canHedgeReads = method === 'eth_getTransactionByHash' || method === 'eth_getTransactionReceipt';
         const canHedgeEthCall = method === 'eth_call';
         const canHedgeWrites = method === 'eth_sendRawTransaction' && RPC_CRITICAL_HEDGE_ALLOW_WRITE;
         const canUseCriticalHedge =
             RPC_CRITICAL_HEDGE_ENABLED &&
+            purposeAllowsHedge(purpose) &&
             !cooldownActive &&
             effectiveImportance === 'critical' &&
             selectedEndpoints.length >= 2 &&
@@ -1350,11 +1401,11 @@ export async function callRpc<T = any>(
             if (fanoutSendRaw) {
             const sendRawFanoutMax = Math.max(
                 1,
-                Math.min(
-                    selectedEndpoints.length,
-                    Number(process.env.RPC_SENDRAW_FANOUT_MAX || '3')
-                )
-            );
+                    Math.min(
+                        selectedEndpoints.length,
+                        Math.min(Number(process.env.RPC_SENDRAW_FANOUT_MAX || '3'), purposeProfile.sendRawFanoutMax)
+                    )
+                );
             const endpointsToTry = selectedEndpoints.slice(0, sendRawFanoutMax);
             let acceptedHash: string | null = null;
             let acceptedCount = 0;
@@ -1511,10 +1562,10 @@ export async function callRpc<T = any>(
                 return result;
             } catch (error: any) {
                 const message = String(error?.message || error || '');
-                if (message === 'circuit_open') {
-                    lastError = new Error('all_endpoints_circuit_open');
-                    registerFailureReason(message);
-                    logger.debug(LogCode.API_FETCH_FAILED, `RPC circuit open, skipping endpoint`, {
+                    if (message === 'circuit_open') {
+                        lastError = new Error('all_endpoints_circuit_open');
+                        registerFailureReason(message);
+                        logger.debug(LogCode.API_FETCH_FAILED, `RPC circuit open, skipping endpoint`, {
                         chain: chainName,
                         endpoint: maskEndpoint(endpoint.url),
                         role: LogRole.METRIC
@@ -1538,10 +1589,13 @@ export async function callRpc<T = any>(
                     continue;
                 }
 
-                lastError = error instanceof Error ? error : new Error(message);
-                registerFailureReason(message);
+                    lastError = error instanceof Error ? error : new Error(message);
+                    registerFailureReason(message);
+                    if (purposeUsesPublicFreeOnly(purpose) && isHighSeverityRpcFailure(message)) {
+                        forceOpenEndpointCircuit(endpoint.url, CIRCUIT_BREAKER_RESET_TIME * 4);
+                    }
 
-                const isContractError = isNonRetryableRpcErrorMessage(message);
+                    const isContractError = isNonRetryableRpcErrorMessage(message);
                 if (isContractError) {
                     throw lastError;
                 }
@@ -1783,6 +1837,7 @@ export async function callRpcRaw<T = any>(
     method: string,
     params: any = [],
     options: {
+        purpose?: RpcPurpose;
         strategy?: 'fast' | 'cheap';
         importance?: RpcImportance;
         rpcClass?: RpcClass;
@@ -1796,7 +1851,14 @@ export async function callRpcRaw<T = any>(
     let chainId: number;
     let chainSlug = 'eth';
     let primaryUrl: string | undefined;
-    const requestedStrategy: 'fast' | 'cheap' = options.strategy || 'cheap';
+    const purpose = options.purpose || inferLegacyRpcPurpose({
+        method,
+        strategy: options.strategy,
+        importance: options.importance,
+        path: options.path,
+    });
+    const purposeProfile = getRpcPurposeProfile(purpose);
+    const requestedStrategy: 'fast' | 'cheap' = options.strategy || purposeProfile.strategy;
 
     // Resolve Chain ID
     if (typeof chainIdOrName === 'number') {
@@ -1808,8 +1870,8 @@ export async function callRpcRaw<T = any>(
     }
 
     const effectiveImportance: RpcImportance =
-        options.importance || (options.strategy === 'fast' ? 'critical' : 'normal');
-    const executionLane: EndpointExecutionLane = options.lane || inferExecutionLane(method, effectiveImportance);
+        options.importance || purposeProfile.importance || (options.strategy === 'fast' ? 'critical' : 'normal');
+    const executionLane: EndpointExecutionLane = options.lane || purposeProfile.lane || inferExecutionLane(method, effectiveImportance);
 
     try {
         const config = getChainConfig(chainId);
@@ -1819,23 +1881,26 @@ export async function callRpcRaw<T = any>(
         primaryUrl = getPrimaryRpcUrl(chainSlug);
         endpoints = getRpcEndpointsForLane(chainSlug, executionLane, primaryUrl);
         endpoints = filterEndpointsByMethod(endpoints, method);
+        endpoints = filterEndpointsForPurpose(endpoints, purpose);
 
         const upgradeDecision = shouldUpgradeRpcStrategy({
             endpoints,
             getHealth: getEndpointHealthView,
             method,
-            importance: effectiveImportance
+            importance: effectiveImportance,
+            purpose,
         });
-        if (executionLane === 'cheap' && strategy === 'cheap' && upgradeDecision.upgrade) {
+        if (!purposeUsesPublicFreeOnly(purpose) && executionLane === 'cheap' && strategy === 'cheap' && upgradeDecision.upgrade) {
             const upgraded = getRpcEndpointsForLane(chainSlug, 'critical', primaryUrl);
             if (upgraded.length > 0) {
-                endpoints = filterEndpointsByMethod(upgraded, method);
+                endpoints = filterEndpointsForPurpose(filterEndpointsByMethod(upgraded, method), purpose);
                 logger.warn(LogCode.API_FETCH_FAILED, 'RPC strategy upgraded to fast due to degraded cheap pool', {
                     chain: chainName,
                     method,
                     executionLane,
                     lane: upgradeDecision.lane,
-                    reasons: upgradeDecision.reasons
+                    reasons: upgradeDecision.reasons,
+                    purpose,
                 });
             }
         }
@@ -1847,7 +1912,7 @@ export async function callRpcRaw<T = any>(
         throw new Error(`No RPC endpoints configured for ${chainName}`);
     }
     const rpcClass: RpcClass = options.rpcClass || inferRpcClass(method, effectiveImportance);
-    const path = String(options.path || 'default');
+    const path = String(options.path || purpose);
     const backoffKey = buildMethodBackoffKey(chainId, executionLane, method, effectiveImportance, rpcClass);
     const cooldownState = getMethodBackoffState(backoffKey);
     const cooldownActive = !!cooldownState;
@@ -1875,12 +1940,14 @@ export async function callRpcRaw<T = any>(
             endpoints,
             method,
             importance: effectiveImportance,
+            purpose,
             now: Date.now(),
             getHealth: getEndpointHealthView,
             getUsage: getEndpointUsageView
         });
         const sortedEndpoints = scoreTable.map((row) => row.endpoint);
-        const forceExhaustiveFailover = shouldForceExhaustiveFailover(method, effectiveImportance, options);
+        const forceExhaustiveFailover = purposeProfile.allowExhaustiveFailover
+            && shouldForceExhaustiveFailover(method, effectiveImportance, options);
         let endpointBudget = getEndpointAttemptBudget(
             method,
             effectiveImportance,
@@ -1888,37 +1955,41 @@ export async function callRpcRaw<T = any>(
             cooldownActive,
             forceExhaustiveFailover
         );
-        endpointBudget = extendCheapBudgetToIncludePremiumFallback({
-            strategy: requestedStrategy,
-            sortedEndpoints,
-            endpointBudget,
-            forceExhaustiveFailover
-        });
-        const selectedEndpoints = expandCriticalSelectionWithPublicFallback({
+        endpointBudget = Math.max(1, Math.min(endpointBudget, purposeProfile.maxEndpointAttempts));
+        if (purposeProfile.allowPremiumFallback) {
+            endpointBudget = extendCheapBudgetToIncludePremiumFallback({
+                strategy: requestedStrategy,
+                sortedEndpoints,
+                endpointBudget,
+                forceExhaustiveFailover
+            });
+        }
+        const selectedEndpoints = purpose === 'tx_visibility' ? expandCriticalSelectionWithPublicFallback({
             executionLane,
             selectedEndpoints: sortedEndpoints.slice(0, endpointBudget),
             chainSlug,
             primaryUrl,
             method,
-        });
+        }) : sortedEndpoints.slice(0, endpointBudget);
         const selectedPremiumCount = selectedEndpoints.filter((endpoint) => endpoint.type === 'premium').length;
-        const selectedPublicCount = selectedEndpoints.filter((endpoint) => endpoint.type === 'public').length;
+        const selectedPublicCount = countSelectedFreeEndpoints(selectedEndpoints);
         if (RPC_EXPLAIN_ENABLED && effectiveImportance === 'critical') {
             logger.info(LogCode.SYS_INFO, 'RPC raw selection explain', {
                 chain: chainName,
                 ...buildRpcSelectionExplain({
                     method,
-                    importance: effectiveImportance,
-                    strategy: options.strategy || 'cheap',
-                    scores: scoreTable,
-                    selectedEndpoints,
-                    upgradeDecision: shouldUpgradeRpcStrategy({
-                        endpoints,
-                        getHealth: getEndpointHealthView,
-                        method,
-                        importance: effectiveImportance
+                        importance: effectiveImportance,
+                        strategy: options.strategy || 'cheap',
+                        scores: scoreTable,
+                        selectedEndpoints,
+                        upgradeDecision: shouldUpgradeRpcStrategy({
+                            endpoints,
+                            getHealth: getEndpointHealthView,
+                            method,
+                            importance: effectiveImportance,
+                            purpose,
+                        })
                     })
-                })
             });
         }
         let lastError: Error | null = null;
@@ -2014,6 +2085,9 @@ export async function callRpcRaw<T = any>(
                 }
                 lastError = error instanceof Error ? error : new Error(msg);
                 registerFailureReason(msg);
+                if (purposeUsesPublicFreeOnly(purpose) && isHighSeverityRpcFailure(msg)) {
+                    forceOpenEndpointCircuit(endpoint.url, CIRCUIT_BREAKER_RESET_TIME * 4);
+                }
 
                 const isContractError = isNonRetryableRpcErrorMessage(msg);
                 if (isContractError) {
@@ -2289,17 +2363,17 @@ export async function getNativeBalance(
         : chainIdOrName;
 
     if (chainName === 'solana') {
-        const result = await callRpc<{ value: number }>('solana', 'getBalance', [address]);
+        const result = await callRpc<{ value: number }>('solana', 'getBalance', [address], { purpose: 'interactive_read' });
         return result.value.toString();
     } else {
         const chainId = typeof chainIdOrName === 'number' ? chainIdOrName : CHAIN_NAME_TO_ID[String(chainName).toLowerCase()];
         if (chainId) {
             const cached = getNativeBalanceSnapshot(chainId, address, blockTag);
             if (cached !== null) return cached;
-            const value = await callRpc<string>(chainIdOrName, 'eth_getBalance', [address, blockTag], { lane: options.lane });
+            const value = await callRpc<string>(chainIdOrName, 'eth_getBalance', [address, blockTag], { lane: options.lane, purpose: 'interactive_read' });
             return setNativeBalanceSnapshot(chainId, address, blockTag, value);
         }
-        return await callRpc<string>(chainIdOrName, 'eth_getBalance', [address, blockTag], { lane: options.lane });
+        return await callRpc<string>(chainIdOrName, 'eth_getBalance', [address, blockTag], { lane: options.lane, purpose: 'interactive_read' });
     }
 }
 
@@ -2331,7 +2405,7 @@ export async function getErc20Balance(
             const result = await callRpc<string>(chainIdOrName, 'eth_call', [{
                 to: tokenAddress,
                 data
-            }, blockTag], { lane: options.lane });
+            }, blockTag], { lane: options.lane, purpose: 'interactive_read' });
 
             if (!result || result === '0x') return 0n;
             const [balance] = iface.decodeFunctionResult('balanceOf', result);
@@ -2362,7 +2436,7 @@ export async function getErc20Decimals(
             const result = await callRpc<string>(chainIdOrName, 'eth_call', [{
                 to: tokenAddress,
                 data
-            }, blockTag], { lane: options.lane });
+            }, blockTag], { lane: options.lane, purpose: 'interactive_read' });
 
             if (!result || result === '0x') return 18;
             const [decimals] = iface.decodeFunctionResult('decimals', result);
@@ -2394,7 +2468,7 @@ export async function getErc20Allowance(
     const result = await callRpc<string>(chainIdOrName, 'eth_call', [{
         to: tokenAddress,
         data
-    }, blockTag], { lane: options.lane });
+    }, blockTag], { lane: options.lane, purpose: 'interactive_read' });
 
     if (!result || result === '0x') return 0n;
     const [allowance] = iface.decodeFunctionResult('allowance', result);
@@ -2412,10 +2486,10 @@ export async function getBlockNumber(chainIdOrName: number | string): Promise<nu
         : chainIdOrName;
 
     if (chainName === 'solana') {
-        const result = await callRpc<number>(chainName, 'getSlot', []);
+        const result = await callRpc<number>(chainName, 'getSlot', [], { purpose: 'interactive_read' });
         return result;
     } else {
-        const hex = await callRpc<string>(chainIdOrName, 'eth_blockNumber', []);
+        const hex = await callRpc<string>(chainIdOrName, 'eth_blockNumber', [], { purpose: 'interactive_read' });
         return parseInt(hex, 16);
     }
 }
@@ -2435,7 +2509,8 @@ export async function getBlockByNumber(
     return await callRpc(
         chainId,
         'eth_getBlockByNumber',
-        [blockHex, fullTransactions]
+        [blockHex, fullTransactions],
+        { purpose: 'interactive_read' }
     );
 }
 
@@ -2452,14 +2527,14 @@ export async function getTransactionByHash(
         return await callRpc(chainId, 'getTransaction', [
             txHash,
             { encoding: 'jsonParsed', maxSupportedTransactionVersion: 0 }
-        ]);
+        ], { purpose: 'tx_visibility' });
     } else {
         const observed = await getSharedTxObservation({
             chainId,
             txHash,
             scope: 'tx',
             producer: async () => ({
-                tx: await callRpc(chainId, 'eth_getTransactionByHash', [txHash], { strategy: 'fast', importance: 'critical', lane: 'critical' }).catch(() => null),
+                tx: await callRpc(chainId, 'eth_getTransactionByHash', [txHash], { purpose: 'tx_visibility', lane: 'critical' }).catch(() => null),
                 receipt: null,
                 observedAt: Date.now()
             })
@@ -2481,7 +2556,7 @@ export async function getTransactionReceipt(
         scope: 'receipt',
         producer: async () => ({
             tx: null,
-            receipt: await callRpc(chainId, 'eth_getTransactionReceipt', [txHash], { strategy: 'fast', importance: 'critical', lane: 'critical' }).catch(() => null),
+            receipt: await callRpc(chainId, 'eth_getTransactionReceipt', [txHash], { purpose: 'tx_visibility', lane: 'critical' }).catch(() => null),
             observedAt: Date.now()
         })
     });
@@ -2497,7 +2572,7 @@ export async function getGasPrice(chainId: number): Promise<string> {
     if (config.name === 'Solana') {
         return '0';
     } else {
-        const hex = await callRpc<string>(chainId, 'eth_gasPrice', []);
+        const hex = await callRpc<string>(chainId, 'eth_gasPrice', [], { purpose: 'tx_visibility' });
         return parseInt(hex, 16).toString();
     }
 
@@ -2622,7 +2697,7 @@ export function getRpcEndpoints(chainId: number, strategy?: 'fast' | 'cheap'): s
 
 // Cache providers to avoid creating new instances for every call (memory optimization)
 // Key: chainId, Value: { provider: JsonRpcProvider, url: string, timestamp: number }
-const providerCache = new Map<number, { provider: ethers.JsonRpcProvider, url: string, timestamp: number }>();
+const providerCache = new Map<string, { provider: ethers.JsonRpcProvider, url: string, timestamp: number }>();
 const PROVIDER_CACHE_TTL = 60000; // Refresh provider mapping every 1 minute
 const SOLANA_CONN_CACHE = new Map<string, { connection: Connection; timestamp: number }>();
 const SOLANA_CONN_CACHE_TTL = Math.max(1_000, Number(process.env.SOLANA_CONN_CACHE_TTL_MS || '15000'));
@@ -2715,18 +2790,29 @@ function patchSolanaConnectionRpc(
  * @param chainId Chain ID
  * @returns ethers.JsonRpcProvider
  */
-export function getEthersProvider(chainId: number): ethers.JsonRpcProvider {
-    const endpoints = getRpcEndpoints(chainId);
-
+export function getEthersProvider(chainId: number, purpose: RpcPurpose = 'interactive_read'): ethers.JsonRpcProvider {
+    const chainSlug = CHAIN_ID_TO_NAME[chainId] || 'eth';
+    const primaryUrl = getPrimaryRpcUrl(chainSlug);
+    const purposeProfile = getRpcPurposeProfile(purpose);
+    let endpoints = getRpcEndpointsForLane(chainSlug, purposeProfile.lane, primaryUrl);
+    endpoints = filterEndpointsForPurpose(endpoints, purpose);
     if (endpoints.length === 0) {
         throw new Error(`No RPC endpoints configured for chain ${chainId}`);
     }
 
-    // Use the first (best) endpoint
-    const bestUrl = endpoints[0];
+    const sorted = sortEndpointsByScore(
+        endpoints,
+        purpose === 'trade_execution' ? 'eth_sendRawTransaction' : 'eth_call',
+        purposeProfile.importance
+    );
+    const bestUrl = sorted[0]?.url;
+    if (!bestUrl) {
+        throw new Error(`No RPC endpoints configured for chain ${chainId}`);
+    }
 
     const now = Date.now();
-    const cached = providerCache.get(chainId);
+    const cacheKey = `${chainId}:${purpose}`;
+    const cached = providerCache.get(cacheKey);
 
     // Return cached provider if valid and URL matches (and not too old)
     if (cached && cached.url === bestUrl && (now - cached.timestamp < PROVIDER_CACHE_TTL)) {
@@ -2738,7 +2824,7 @@ export function getEthersProvider(chainId: number): ethers.JsonRpcProvider {
         staticNetwork: true // Optimization
     });
 
-    providerCache.set(chainId, {
+    providerCache.set(cacheKey, {
         provider,
         url: bestUrl,
         timestamp: now
@@ -3058,7 +3144,7 @@ export async function probeTxVisibility(params: {
                         params.chainId,
                         'eth_getTransactionByHash',
                         [params.txHash],
-                        { strategy: 'fast', importance: 'critical', exhaustiveFailover: true }
+                        { purpose: 'tx_visibility' }
                     ).catch(() => null),
                     receipt: null,
                     observedAt: Date.now(),
@@ -3221,7 +3307,7 @@ export async function waitForReceiptStateMachine(params: {
                                         params.chainId,
                                         'eth_getTransactionByHash',
                                         [params.txHash],
-                                        { strategy: 'fast', importance: 'critical', exhaustiveFailover: true, path: 'confirm_wait' }
+                                        { purpose: 'tx_visibility', path: 'confirm_wait' }
                                     ).catch((err: any) => {
                                         observationError = err?.message || String(err);
                                         return null;
@@ -3230,7 +3316,7 @@ export async function waitForReceiptStateMachine(params: {
                                         params.chainId,
                                         'eth_getTransactionReceipt',
                                         [params.txHash],
-                                        { strategy: 'fast', importance: 'critical', exhaustiveFailover: true, path: 'confirm_wait' }
+                                        { purpose: 'tx_visibility', path: 'confirm_wait' }
                                     ).catch((err: any) => {
                                         observationError = err?.message || String(err);
                                         return null;
@@ -3377,9 +3463,7 @@ export async function broadcastRawWithQuorum(params: {
         'eth_sendRawTransaction',
         [params.signedRawTransaction],
         {
-            strategy: 'fast',
-            importance: 'critical',
-            exhaustiveFailover: true,
+            purpose: 'trade_execution',
             sendRawFanout: true,
             bypassRawTxCache: params.bypassRawTxCache === true
         }
@@ -3479,6 +3563,8 @@ export const __rpcManagerTest = {
     createStableRequestKey,
     tryGetRawTxHash,
     shouldTreatSendRawErrorAsKnown,
+    filterEndpointsForPurpose,
+    countSelectedFreeEndpoints,
     getEndpointAttemptBudget,
     getMethodConcurrencyLimit,
     expandCriticalSelectionWithPublicFallback,

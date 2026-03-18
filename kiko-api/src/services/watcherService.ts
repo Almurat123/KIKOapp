@@ -171,7 +171,7 @@ export async function fetchTransactionReceipt(txHash: string, chainId: number): 
 async function fetchRecentTransactionsRpc(address: string, chainId: number): Promise<any[]> {
     try {
         // 1. Get latest block number
-        const blockHex = await rpcCall<string>(chainId, 'eth_blockNumber', [], { strategy: 'cheap' });
+        const blockHex = await rpcCall<string>(chainId, 'eth_blockNumber', [], { purpose: 'polling_background' });
         if (!blockHex) return [];
 
         const latestBlock = parseInt(blockHex, 16);
@@ -183,7 +183,7 @@ async function fetchRecentTransactionsRpc(address: string, chainId: number): Pro
         const promises = [];
         for (let i = 0; i < lookback; i++) {
             const blockNum = '0x' + (latestBlock - i).toString(16);
-            promises.push(rpcCall<any>(chainId, 'eth_getBlockByNumber', [blockNum, true], { strategy: 'cheap' }));
+            promises.push(rpcCall<any>(chainId, 'eth_getBlockByNumber', [blockNum, true], { purpose: 'polling_background' }));
         }
 
         const results = await Promise.all(promises);

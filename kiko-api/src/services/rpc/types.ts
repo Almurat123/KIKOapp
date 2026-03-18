@@ -1,4 +1,5 @@
 import type { RpcEndpointConfig } from '../../config/apiEndpoints.js';
+import type { RpcPurpose } from './purpose.js';
 
 export type RpcImportance = 'normal' | 'critical';
 
@@ -22,6 +23,7 @@ export interface RpcEndpointUsageView {
 export interface RpcEndpointScoreBreakdown {
   endpoint: RpcEndpointConfig;
   lane: RpcLane;
+  purpose?: RpcPurpose;
   score: number;
   reasons: string[];
 }

@@ -205,7 +205,7 @@ export async function buyTokenAMAP(params: BuyTokenParams): Promise<string> {
     logger.debug(LogCode.EXE_TX_BROADCAST, 'Transaction sent, waiting for confirmation', { txHash });
 
     // Wait for confirmation and check status
-    const provider = getEthersProvider(chainId);
+    const provider = getEthersProvider(chainId, 'tx_visibility');
     const receipt = await provider.waitForTransaction(txHash, 1);
 
     if (!receipt || receipt.status === 0) {
@@ -289,7 +289,7 @@ export async function sellToken(params: SellTokenParams): Promise<string> {
         amount
     });
 
-    const provider = getEthersProvider(chainId);
+    const provider = getEthersProvider(chainId, 'tx_visibility');
 
     // Send transaction via Privy
     const txHash = await sendTransaction(userId, '', {
@@ -324,7 +324,7 @@ async function checkAndApproveForFourMeme(
     amount: string,
     chainId: number
 ): Promise<void> {
-    const provider = getEthersProvider(chainId);
+    const provider = getEthersProvider(chainId, 'interactive_read');
 
     const ERC20_ABI = [
         'function allowance(address owner, address spender) view returns (uint256)',

@@ -4,16 +4,17 @@ import assert from 'node:assert/strict';
 import { getRpcEndpointsWithStrategy } from '../config/apiEndpoints.js';
 
 describe('Solana RPC endpoints', () => {
-  test('includes primary RPC url and excludes known unusable public endpoints', () => {
+  test('cheap strategy keeps public free Solana endpoints ahead of premium fallbacks', () => {
     const primary = 'https://primary-sol.example/rpc';
     const endpoints = getRpcEndpointsWithStrategy('solana', 'cheap', primary);
     const urls = endpoints.map((item) => item.url);
+    const types = endpoints.map((item) => item.type);
 
     assert.ok(urls.includes(primary));
+    assert.ok(urls.includes('https://solana-rpc.publicnode.com'));
+    assert.ok(urls.includes('https://rpc.ankr.com/solana'));
     assert.ok(urls.includes('https://api.mainnet-beta.solana.com'));
-    assert.ok(urls.includes('https://solana.api.pocket.network'));
-    assert.equal(urls.includes('https://solana-rpc.publicnode.com'), false);
-    assert.equal(urls.includes('https://rpc.ankr.com/solana'), false);
-    assert.equal(urls.includes('https://solana.drpc.org'), false);
+    assert.equal(urls.includes('https://solana.api.pocket.network'), false);
+    assert.equal(types[0], 'public_free');
   });
 });

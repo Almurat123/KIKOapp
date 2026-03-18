@@ -8,7 +8,8 @@ import { runCopytradeAttributionRepairCycle } from '../jobs/copytradeAttribution
 import { runCopytradeOrphanSweepCycle } from '../jobs/copytradeOrphanSweepJob.js';
 import { runDeferredBuyFeeRecoveryBackfill } from '../buy/deferredBuyFeeRecoveryBackfill.js';
 import { runDeferredSellApprovalPreheatBackfill } from '../buy/deferredSellApprovalPreheatBackfill.js';
-import { runBackgroundCycleWhenIdle } from '../exit/exitHotPathPressure.js';
+import { getLiveExitPressureSnapshot, runBackgroundCycleWhenIdle } from '../exit/exitHotPathPressure.js';
+import { hasRecentEndUserActivity } from '../../runtimeActivityService.js';
 import { logger } from '../../../utils/logger.js';
 import { LogCode } from '../../../config/logRegistry.js';
 import type { DecodedSwap } from '../../txDecoder.js';
@@ -30,6 +31,7 @@ const DEFERRED_APPROVAL_BACKFILL_INTERVAL_MS = Math.max(
   30_000,
   Number(process.env.COPYTRADE_DEFERRED_APPROVAL_BACKFILL_INTERVAL_MS || '60000'),
 );
+const IDLE_HYGIENE_INTERVAL_MS = 10 * 60_000;
 
 type PositionStatusCompat = {
   lockStatuses: string[];
@@ -48,8 +50,35 @@ let attributionRepairInterval: NodeJS.Timeout | null = null;
 let orphanSweepInterval: NodeJS.Timeout | null = null;
 let deferredFeeBackfillInterval: NodeJS.Timeout | null = null;
 let deferredApprovalBackfillInterval: NodeJS.Timeout | null = null;
+const lastIdleHygieneRunByCycle = new Map<string, number>();
 
 async function runCopytradeBackgroundTaskWhenIdle<T>(cycle: string, fn: () => Promise<T>): Promise<T | null> {
+  const recentUserActivity = hasRecentEndUserActivity();
+  const liveExitPressure = await getLiveExitPressureSnapshot().catch(() => null);
+  const activePositionCount = await prisma.position.count({
+    where: {
+      status: { in: ['open', 'pending'] as any },
+    },
+  }).catch(() => 0);
+  const hasActiveWork = activePositionCount > 0 || Boolean(
+    liveExitPressure
+    && (liveExitPressure.activeIntentCount > 0 || liveExitPressure.claimedIntentCount > 0 || liveExitPressure.recentActivityCount > 0)
+  );
+  if (!recentUserActivity && !hasActiveWork) {
+    const now = Date.now();
+    const lastRunAt = lastIdleHygieneRunByCycle.get(cycle) || 0;
+    if (now - lastRunAt < IDLE_HYGIENE_INTERVAL_MS) {
+      logger.info(LogCode.SYS_INFO, '[CopyTradeV2] Background cycle skipped while idle', {
+        cycle,
+        nextEligibleInMs: Math.max(0, IDLE_HYGIENE_INTERVAL_MS - (now - lastRunAt)),
+      });
+      return null;
+    }
+    lastIdleHygieneRunByCycle.set(cycle, now);
+  } else {
+    lastIdleHygieneRunByCycle.delete(cycle);
+  }
+
   const result = await runBackgroundCycleWhenIdle({
     cycle,
     fn,

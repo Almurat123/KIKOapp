@@ -267,7 +267,7 @@ async function pollOneChainPending(chainId: number): Promise<void> {
                     url: ep.url,
                     priority: i + 1,
                     requiresAuth: false,
-                    type: 'public'
+                    type: 'public_free'
                 }));
                 return callRpcCustom<any>(freeEndpoints, 'eth_getBlockByNumber', ['pending', true], {
                     importance: 'normal'
@@ -275,8 +275,7 @@ async function pollOneChainPending(chainId: number): Promise<void> {
             }
         }
         return callRpc<any>(chainId, 'eth_getBlockByNumber', ['pending', true], {
-            strategy: 'cheap',
-            importance: 'normal'
+            purpose: 'polling_background'
         }).catch(() => null);
     })();
 

@@ -50,8 +50,8 @@ function buildEndpointList(): RpcEndpointConfig[] {
     const all = getRpcEndpointsWithStrategy('solana', 'fast', process.env.SOLANA_RPC_URL);
     const usable = all.filter((ep) => ep.type !== 'fallback' && !isCoolingDown(ep.url));
     const premium = usable.filter((ep) => ep.type === 'premium');
-    const publicPreferred = usable.filter((ep) => ep.type === 'public' && !ep.url.includes('api.mainnet-beta.solana.com'));
-    const publicLast = usable.filter((ep) => ep.type === 'public' && ep.url.includes('api.mainnet-beta.solana.com'));
+    const publicPreferred = usable.filter((ep) => ep.type === 'public_free' && !ep.url.includes('api.mainnet-beta.solana.com'));
+    const publicLast = usable.filter((ep) => ep.type === 'public_free' && ep.url.includes('api.mainnet-beta.solana.com'));
     const ordered = [...premium, ...publicPreferred, ...publicLast];
     const seen = new Set<string>();
     return ordered.filter((ep) => {

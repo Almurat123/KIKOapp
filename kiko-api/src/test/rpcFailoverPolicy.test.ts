@@ -10,7 +10,7 @@ import {
   summarizeTopFailoverReasons,
 } from '../services/rpc/failoverPolicy.js';
 
-function endpoint(type: 'premium' | 'public' | 'fallback', priority: number): RpcEndpointConfig {
+function endpoint(type: 'premium' | 'public_free' | 'fallback', priority: number): RpcEndpointConfig {
   return {
     name: `${type}-${priority}`,
     url: `https://${type}-${priority}.rpc`,
@@ -23,8 +23,8 @@ function endpoint(type: 'premium' | 'public' | 'fallback', priority: number): Rp
 describe('rpc failover policy', () => {
   test('cheap budget extends until first premium endpoint', () => {
     const sortedEndpoints: RpcEndpointConfig[] = [
-      endpoint('public', 1),
-      endpoint('public', 2),
+      endpoint('public_free', 1),
+      endpoint('public_free', 2),
       endpoint('premium', 3),
       endpoint('premium', 4),
     ];
@@ -39,7 +39,7 @@ describe('rpc failover policy', () => {
 
   test('fast budget is unchanged by cheap fallback rule', () => {
     const sortedEndpoints: RpcEndpointConfig[] = [
-      endpoint('public', 1),
+      endpoint('public_free', 1),
       endpoint('premium', 2),
     ];
     const budget = extendCheapBudgetToIncludePremiumFallback({

@@ -11,7 +11,7 @@ describe('solana blockhash provider', () => {
       undefined,
       'test_operation',
       {
-        getRpcEndpointsWithStrategy: () => [{ name: 'rpc-1', url: 'https://rpc-1', priority: 1, requiresAuth: false, type: 'public' }],
+        getRpcEndpointsWithStrategy: () => [{ name: 'rpc-1', url: 'https://rpc-1', priority: 1, requiresAuth: false, type: 'public_free' }],
         callRpcCustom: async (_endpoints: any, _method: string, params: any[]) => {
           rpcCalls.push(params[0].commitment);
           return { blockhash: 'finalized-hash', lastValidBlockHeight: 1 };
@@ -45,7 +45,7 @@ describe('solana blockhash provider', () => {
       undefined,
       'test_operation',
       {
-        getRpcEndpointsWithStrategy: () => [{ name: 'rpc-1', url: 'https://rpc-1', priority: 1, requiresAuth: false, type: 'public' }],
+        getRpcEndpointsWithStrategy: () => [{ name: 'rpc-1', url: 'https://rpc-1', priority: 1, requiresAuth: false, type: 'public_free' }],
         callRpcCustom: async (_endpoints: any, _method: string, params: any[]) => {
           rpcCalls.push(params[0].commitment);
           if (params[0].commitment === 'finalized') {
@@ -74,7 +74,7 @@ describe('solana blockhash provider', () => {
         connection as any,
         'test_operation',
         {
-          getRpcEndpointsWithStrategy: () => [{ name: 'rpc-1', url: 'https://rpc-1', priority: 1, requiresAuth: false, type: 'public' }],
+          getRpcEndpointsWithStrategy: () => [{ name: 'rpc-1', url: 'https://rpc-1', priority: 1, requiresAuth: false, type: 'public_free' }],
           callRpcCustom: async () => { throw new Error('all rpc endpoints failed'); }
         } as any
       ),
@@ -91,8 +91,8 @@ describe('solana blockhash provider', () => {
   test('replay: endpoint failover recovers the copytrade Solana blockhash path', async () => {
     const endpointAttempts: Array<{ endpoint: string; commitment: string }> = [];
     const endpoints = [
-      { name: 'rpc-1', url: 'https://rpc-1', priority: 1, requiresAuth: false, type: 'public' },
-      { name: 'rpc-2', url: 'https://rpc-2', priority: 2, requiresAuth: false, type: 'public' },
+      { name: 'rpc-1', url: 'https://rpc-1', priority: 1, requiresAuth: false, type: 'public_free' },
+      { name: 'rpc-2', url: 'https://rpc-2', priority: 2, requiresAuth: false, type: 'public_free' },
       { name: 'rpc-3', url: 'https://rpc-3', priority: 3, requiresAuth: false, type: 'premium' },
     ];
 
@@ -130,7 +130,7 @@ describe('solana blockhash provider', () => {
       undefined,
       'copytrade_nested_shape',
       {
-        getRpcEndpointsWithStrategy: () => [{ name: 'rpc-1', url: 'https://rpc-1', priority: 1, requiresAuth: false, type: 'public' }],
+        getRpcEndpointsWithStrategy: () => [{ name: 'rpc-1', url: 'https://rpc-1', priority: 1, requiresAuth: false, type: 'public_free' }],
         callRpcCustom: async () => ({
           context: { slot: 999 },
           value: {
@@ -152,7 +152,7 @@ describe('solana blockhash provider', () => {
         undefined,
         'invalid_shape',
         {
-          getRpcEndpointsWithStrategy: () => [{ name: 'rpc-1', url: 'https://rpc-1', priority: 1, requiresAuth: false, type: 'public' }],
+          getRpcEndpointsWithStrategy: () => [{ name: 'rpc-1', url: 'https://rpc-1', priority: 1, requiresAuth: false, type: 'public_free' }],
           callRpcCustom: async () => ({ value: { blockhash: null, lastValidBlockHeight: 1 } }),
         } as any
       ),

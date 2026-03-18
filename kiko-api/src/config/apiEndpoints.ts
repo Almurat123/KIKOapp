@@ -20,7 +20,7 @@ export interface RpcEndpointConfig {
   url: string;
   priority: number; // Lower is higher priority (1 = first choice)
   requiresAuth: boolean;
-  type: 'premium' | 'public' | 'fallback';
+  type: 'premium' | 'public_free' | 'fallback';
   limits?: RpcEndpointLimits;
   weight?: number; // Optional weight for selection (higher = preferred)
   capabilities?: RpcEndpointCapabilities; // Optional method capability hints
@@ -95,8 +95,8 @@ export function getRpcEndpoints(chainSlug: string, primaryUrl?: string): RpcEndp
       url: ep.url,
       priority: index + 1,
       requiresAuth: false,
-      type: 'public',
-      limits: getDefaultLimits('public')
+      type: 'public_free',
+      limits: getDefaultLimits('public_free')
     });
   });
 
@@ -216,7 +216,7 @@ export function getRpcEndpointsForLane(
 function getBscPreferredEndpoints(primaryUrl?: string): RpcEndpointConfig[] {
   const endpoints: RpcEndpointConfig[] = [];
   let priority = 1;
-  const push = (name: string, url?: string, requiresAuth = false, type: 'premium' | 'public' | 'fallback' = 'public') => {
+  const push = (name: string, url?: string, requiresAuth = false, type: 'premium' | 'public_free' | 'fallback' = 'public_free') => {
     if (!url) return;
     endpoints.push({ name, url, priority: priority++, requiresAuth, type, limits: getDefaultLimits(type) });
   };
@@ -225,9 +225,9 @@ function getBscPreferredEndpoints(primaryUrl?: string): RpcEndpointConfig[] {
   if (env.apiKeys.alchemy) push('Alchemy', getAlchemyUrl('bsc') || undefined, true, 'premium');
   if (env.apiKeys.ankr) push('Ankr', `https://rpc.ankr.com/bsc/${env.apiKeys.ankr}`, true, 'premium');
 
-  push('PublicNode', 'https://bsc-rpc.publicnode.com', false, 'public');
-  push('Binance Dataseed', 'https://bsc-dataseed.binance.org', false, 'public');
-  push('DRPC', 'https://bsc.drpc.org', false, 'public');
+  push('PublicNode', 'https://bsc-rpc.publicnode.com', false, 'public_free');
+  push('Binance Dataseed', 'https://bsc-dataseed.binance.org', false, 'public_free');
+  push('DRPC', 'https://bsc.drpc.org', false, 'public_free');
 
   const seen = new Set<string>();
   return endpoints.filter(ep => {
@@ -240,14 +240,14 @@ function getBscPreferredEndpoints(primaryUrl?: string): RpcEndpointConfig[] {
 function getBscCheapEndpoints(primaryUrl?: string): RpcEndpointConfig[] {
   const endpoints: RpcEndpointConfig[] = [];
   let priority = 1;
-  const push = (name: string, url?: string, requiresAuth = false, type: 'premium' | 'public' | 'fallback' = 'public') => {
+  const push = (name: string, url?: string, requiresAuth = false, type: 'premium' | 'public_free' | 'fallback' = 'public_free') => {
     if (!url) return;
     endpoints.push({ name, url, priority: priority++, requiresAuth, type, limits: getDefaultLimits(type) });
   };
 
-  push('PublicNode', 'https://bsc-rpc.publicnode.com', false, 'public');
-  push('Binance Dataseed', 'https://bsc-dataseed.binance.org', false, 'public');
-  push('DRPC', 'https://bsc.drpc.org', false, 'public');
+  push('PublicNode', 'https://bsc-rpc.publicnode.com', false, 'public_free');
+  push('Binance Dataseed', 'https://bsc-dataseed.binance.org', false, 'public_free');
+  push('DRPC', 'https://bsc.drpc.org', false, 'public_free');
 
   if (primaryUrl) push('Primary', primaryUrl, true, 'premium');
   if (env.apiKeys.alchemy) push('Alchemy', getAlchemyUrl('bsc') || undefined, true, 'premium');
@@ -271,7 +271,7 @@ function prioritizePremium(endpoints: RpcEndpointConfig[]): RpcEndpointConfig[] 
 function getGenericCriticalEndpoints(chainSlug: string, primaryUrl?: string): RpcEndpointConfig[] {
   const endpoints: RpcEndpointConfig[] = [];
   let priority = 1;
-  const push = (name: string, url?: string, requiresAuth = false, type: 'premium' | 'public' | 'fallback' = 'public') => {
+  const push = (name: string, url?: string, requiresAuth = false, type: 'premium' | 'public_free' | 'fallback' = 'public_free') => {
     if (!url) return;
     endpoints.push({ name, url, priority: priority++, requiresAuth, type, limits: getDefaultLimits(type) });
   };
@@ -291,7 +291,7 @@ function getGenericCriticalEndpoints(chainSlug: string, primaryUrl?: string): Rp
 
   const freeEndpoints = getVerifiedFreeEndpoints(chainSlug);
   freeEndpoints.forEach((ep) => {
-    push(ep.name, ep.url, false, 'public');
+    push(ep.name, ep.url, false, 'public_free');
   });
 
   const seen = new Set<string>();
@@ -321,7 +321,7 @@ function getBasePreferredEndpoints(primaryUrl?: string): RpcEndpointConfig[] {
   const endpoints: RpcEndpointConfig[] = [];
   let priority = 1;
 
-  const push = (name: string, url?: string, requiresAuth = false, type: 'premium' | 'public' | 'fallback' = 'public') => {
+  const push = (name: string, url?: string, requiresAuth = false, type: 'premium' | 'public_free' | 'fallback' = 'public_free') => {
     if (!url) return;
     endpoints.push({ name, url, priority: priority++, requiresAuth, type, limits: getDefaultLimits(type) });
   };
@@ -336,10 +336,10 @@ function getBasePreferredEndpoints(primaryUrl?: string): RpcEndpointConfig[] {
     push('Primary', primaryUrl, true, 'premium');
   }
 
-  push('DRPC', 'https://base.drpc.org', false, 'public');
-  push('PublicNode', 'https://base-rpc.publicnode.com', false, 'public');
-  push('Base Official', 'https://mainnet.base.org', false, 'public');
-  push('Coinbase', 'https://api.developer.coinbase.com/rpc/v1/base/ilSV6rJjgR0WwRdvqjG5cL07exQrmr8t', false, 'public');
+  push('DRPC', 'https://base.drpc.org', false, 'public_free');
+  push('PublicNode', 'https://base-rpc.publicnode.com', false, 'public_free');
+  push('Base Official', 'https://mainnet.base.org', false, 'public_free');
+  push('Coinbase', 'https://api.developer.coinbase.com/rpc/v1/base/ilSV6rJjgR0WwRdvqjG5cL07exQrmr8t', true, 'premium');
 
   if (env.apiKeys.ankr) {
     push('Ankr', `https://rpc.ankr.com/base/${env.apiKeys.ankr}`, true, 'premium');
@@ -362,16 +362,15 @@ function getBaseCheapEndpoints(primaryUrl?: string): RpcEndpointConfig[] {
   const endpoints: RpcEndpointConfig[] = [];
   let priority = 1;
 
-  const push = (name: string, url?: string, requiresAuth = false, type: 'premium' | 'public' | 'fallback' = 'public') => {
+  const push = (name: string, url?: string, requiresAuth = false, type: 'premium' | 'public_free' | 'fallback' = 'public_free') => {
     if (!url) return;
     endpoints.push({ name, url, priority: priority++, requiresAuth, type, limits: getDefaultLimits(type) });
   };
 
   // Cheap-first order: stable public endpoints -> premium fallbacks
-  push('DRPC', 'https://base.drpc.org', false, 'public');
-  push('PublicNode', 'https://base-rpc.publicnode.com', false, 'public');
-  push('Base Official', 'https://mainnet.base.org', false, 'public');
-  push('Coinbase', 'https://api.developer.coinbase.com/rpc/v1/base/ilSV6rJjgR0WwRdvqjG5cL07exQrmr8t', false, 'public');
+  push('DRPC', 'https://base.drpc.org', false, 'public_free');
+  push('PublicNode', 'https://base-rpc.publicnode.com', false, 'public_free');
+  push('Base Official', 'https://mainnet.base.org', false, 'public_free');
 
   if (primaryUrl) {
     push('Primary', primaryUrl, true, 'premium');
@@ -405,7 +404,7 @@ function getSolanaEndpoints(primaryUrl?: string, strategy: 'fast' | 'cheap' = 'c
     name: string,
     url?: string,
     requiresAuth = false,
-    type: 'premium' | 'public' | 'fallback' = 'public',
+    type: 'premium' | 'public_free' | 'fallback' = 'public_free',
     capabilities?: RpcEndpointCapabilities
   ) => {
     if (!url) return;
@@ -424,6 +423,9 @@ function getSolanaEndpoints(primaryUrl?: string, strategy: 'fast' | 'cheap' = 'c
 
   if (premiumFirst) {
     // fast/critical: paid nodes first for lowest latency on copytrade/sniper paths
+    if (primaryUrl) {
+      push('Primary', primaryUrl, true, 'premium');
+    }
     if (env.apiKeys.helius) {
       push(
         'Helius',
@@ -437,16 +439,19 @@ function getSolanaEndpoints(primaryUrl?: string, strategy: 'fast' | 'cheap' = 'c
       push('Alchemy', `https://solana-mainnet.g.alchemy.com/v2/${env.apiKeys.alchemy}`, true, 'premium');
     }
     // Public as backup
-    push('PublicNode', 'https://solana-rpc.publicnode.com', false, 'public');
-    push('Ankr Public', 'https://rpc.ankr.com/solana', false, 'public');
-    push('Solana Official', 'https://api.mainnet-beta.solana.com', false, 'public');
+    push('PublicNode', 'https://solana-rpc.publicnode.com', false, 'public_free');
+    push('Ankr Public', 'https://rpc.ankr.com/solana', false, 'public_free');
+    push('Solana Official', 'https://api.mainnet-beta.solana.com', false, 'public_free');
     push('DRPC', 'https://solana.drpc.org', false, 'fallback');
   } else {
     // cheap: public nodes first to conserve paid quota
-    push('PublicNode', 'https://solana-rpc.publicnode.com', false, 'public');
-    push('Ankr Public', 'https://rpc.ankr.com/solana', false, 'public');
-    push('Solana Official', 'https://api.mainnet-beta.solana.com', false, 'public');
+    push('PublicNode', 'https://solana-rpc.publicnode.com', false, 'public_free');
+    push('Ankr Public', 'https://rpc.ankr.com/solana', false, 'public_free');
+    push('Solana Official', 'https://api.mainnet-beta.solana.com', false, 'public_free');
     push('DRPC', 'https://solana.drpc.org', false, 'fallback');
+    if (primaryUrl) {
+      push('Primary', primaryUrl, true, 'premium');
+    }
     if (env.apiKeys.alchemy) {
       push('Alchemy', `https://solana-mainnet.g.alchemy.com/v2/${env.apiKeys.alchemy}`, true, 'premium');
     }

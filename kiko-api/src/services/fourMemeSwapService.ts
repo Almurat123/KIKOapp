@@ -4,15 +4,14 @@
  */
 
 import {
-    createPublicClient,
-    http,
     parseEther,
     type Address,
     encodeFunctionData,
+    decodeFunctionResult,
     parseAbi,
 } from 'viem';
-import { base, bsc } from 'viem/chains';
 import { sendTransaction, isPrivyConfigured } from './privyWallet.js';
+import { callRpc, getTransactionReceipt } from './rpcManager.js';
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
 import { type FeeContext } from './platformFeeService.js';
@@ -49,15 +48,44 @@ const ERC20_ABI = parseAbi([
 ]);
 
 export class FourMemeSwapService {
-    private getClient(chainId: number) {
-        return createPublicClient({
-            chain: chainId === 56 ? bsc : base,
-            transport: http()
+    private getHelperAddress(chainId: number): Address {
+        return chainId === 56 ? FOURMEME_HELPER.BSC : FOURMEME_HELPER.BASE;
+    }
+
+    private async readContract<TAbi extends readonly unknown[], TName extends string>(params: {
+        chainId: number;
+        address: Address;
+        abi: TAbi;
+        functionName: TName;
+        args: readonly unknown[];
+    }) {
+        const data = encodeFunctionData({
+            abi: params.abi as any,
+            functionName: params.functionName as any,
+            args: params.args as any,
+        });
+        const raw = await callRpc<string>(params.chainId, 'eth_call', [
+            { to: params.address, data },
+            'latest',
+        ], {
+            purpose: 'interactive_read',
+            path: 'fourmeme_read',
+        });
+        return decodeFunctionResult({
+            abi: params.abi as any,
+            functionName: params.functionName as any,
+            data: raw as `0x${string}`,
         });
     }
 
-    private getHelperAddress(chainId: number): Address {
-        return chainId === 56 ? FOURMEME_HELPER.BSC : FOURMEME_HELPER.BASE;
+    private async waitForReceipt(chainId: number, txHash: string, timeoutMs = 30_000): Promise<void> {
+        const startedAt = Date.now();
+        while (Date.now() - startedAt < timeoutMs) {
+            const receipt = await getTransactionReceipt(chainId, txHash).catch(() => null);
+            if (receipt) return;
+            await new Promise((resolve) => setTimeout(resolve, 1000));
+        }
+        throw new Error(`Timed out waiting for receipt: ${txHash}`);
     }
 
     /**
@@ -80,7 +108,6 @@ export class FourMemeSwapService {
             throw new Error('Privy not configured');
         }
 
-        const client = this.getClient(params.chainId);
         const helper = this.getHelperAddress(params.chainId);
 
         const isBuy = params.tokenIn === 'ETH' || params.tokenIn === 'BNB' || params.tokenIn === '0x0000000000000000000000000000000000000000';
@@ -88,12 +115,26 @@ export class FourMemeSwapService {
         let amountInWei = parseEther(params.amountIn);
 
         // 1. Get Token Info to see version and liquidity status
-        const info = await client.readContract({
+        const info = await this.readContract({
+            chainId: params.chainId,
             address: helper,
             abi: HELPER_ABI,
             functionName: 'getTokenInfo',
             args: [targetToken]
-        });
+        }) as readonly [
+            bigint,
+            Address,
+            Address,
+            bigint,
+            bigint,
+            bigint,
+            bigint,
+            bigint,
+            bigint,
+            bigint,
+            bigint,
+            boolean,
+        ];
 
         const [version, tokenManager, quote, , , , , , , , , liquidityAdded] = info;
 
@@ -112,12 +153,13 @@ export class FourMemeSwapService {
             // BUY Logic
             const slippagePct = params.slippage || 3;
             // Get estimate to calculate minAmount
-            const estimate = await client.readContract({
+            const estimate = await this.readContract({
+                chainId: params.chainId,
                 address: helper,
                 abi: HELPER_ABI,
                 functionName: 'tryBuy',
                 args: [targetToken, BigInt(0), amountInWei]
-            });
+            }) as readonly [Address, Address, bigint, bigint, bigint, bigint, bigint, bigint];
             const [, , estimatedAmount] = estimate;
             const minAmount = (estimatedAmount * BigInt(100 - slippagePct)) / BigInt(100);
 
@@ -150,12 +192,13 @@ export class FourMemeSwapService {
         } else {
             // SELL Logic
             // 1. Check Allowance for TokenManager
-            const allowance = await client.readContract({
+            const allowance = await this.readContract({
+                chainId: params.chainId,
                 address: targetToken,
                 abi: ERC20_ABI,
                 functionName: 'allowance',
                 args: [params.walletAddress as Address, tokenManager as Address]
-            });
+            }) as bigint;
 
             if (allowance < amountInWei) {
                 logger.info(LogCode.EXE_TX_BROADCAST, 'Four.Meme: Approving TokenManager', { token: targetToken });
@@ -174,7 +217,7 @@ export class FourMemeSwapService {
 
                 // Wait for approval confirmation before proceeding with sell
                 logger.debug(LogCode.EXE_TX_BROADCAST, 'Four.Meme: Waiting for approval confirmation', { txHash: approveTxHash });
-                await client.waitForTransactionReceipt({ hash: approveTxHash as `0x${string}` });
+                await this.waitForReceipt(params.chainId, approveTxHash);
                 logger.info(LogCode.EXE_TX_CONFIRMED, 'Four.Meme: Approval confirmed', { txHash: approveTxHash });
             }
 
