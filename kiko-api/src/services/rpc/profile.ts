@@ -22,6 +22,13 @@ export const TRADE_METADATA_PROFILE: Readonly<RpcCallProfile> = {
   latencyBudgetMs: 900,
 };
 
+export const TRADE_READ_PROFILE: Readonly<RpcCallProfile> = {
+  purpose: 'trade_execution',
+  strategy: 'fast',
+  importance: 'critical',
+  latencyBudgetMs: 1000,
+};
+
 export const TRADE_QUOTE_PROFILE: Readonly<RpcCallProfile> = {
   purpose: 'trade_execution',
   strategy: 'fast',
@@ -33,6 +40,27 @@ export const TRADE_VISIBILITY_PROFILE: Readonly<RpcCallProfile> = {
   purpose: 'tx_visibility',
   strategy: 'fast',
   importance: 'critical',
+  latencyBudgetMs: 1500,
+};
+
+export const TX_NONCE_PROFILE: Readonly<RpcCallProfile> = {
+  purpose: 'tx_visibility',
+  strategy: 'fast',
+  importance: 'critical',
+  latencyBudgetMs: 1200,
+};
+
+export const EXECUTION_FEE_PROFILE: Readonly<RpcCallProfile> = {
+  purpose: 'tx_visibility',
+  strategy: 'fast',
+  importance: 'critical',
+  latencyBudgetMs: 900,
+};
+
+export const INTERACTIVE_READ_PROFILE: Readonly<RpcCallProfile> = {
+  purpose: 'interactive_read',
+  strategy: 'cheap',
+  importance: 'normal',
   latencyBudgetMs: 1500,
 };
 

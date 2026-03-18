@@ -43,6 +43,7 @@ import {
 import { inferOrderReasonCode } from './order-runtime/reasonCodes.js';
 import { bindOrderToTxHash, reportRpcUncertain, reportSendAccepted } from './order-runtime/adjudicator/service.js';
 import { shouldRetryAfterBroadcastUnseen } from './rpc/visibilityPolicy.js';
+import { EXECUTION_FEE_PROFILE, TX_NONCE_PROFILE } from './rpc/profile.js';
 import { withWalletChainLock } from './nonce/walletNonceLane.js';
 import { resolveNonceFloor } from './nonce/nonceFloorPolicy.js';
 import { resolvePendingNonce } from './nonce/pendingNonceResolution.js';
@@ -589,7 +590,11 @@ export async function getPendingNonce(chainId: number, walletAddress: string): P
                 chainId,
                 'eth_getTransactionCount',
                 [walletAddress, 'pending'],
-                { strategy: 'fast', importance: 'critical' }
+                {
+                    strategy: TX_NONCE_PROFILE.strategy,
+                    purpose: TX_NONCE_PROFILE.purpose,
+                    importance: TX_NONCE_PROFILE.importance,
+                }
             );
             const resolved = resolvePendingNonce({
                 cachedNonce: cached?.nonce,
@@ -893,7 +898,11 @@ export async function sendTransactionLifecycle(
                             ? getPendingNonce(txWithNonce.chainId, walletInfo.address).catch(() => undefined)
                             : Promise.resolve(txWithNonce.nonce),
                         needsGas
-                            ? rpcCall<string>(txWithNonce.chainId, 'eth_gasPrice', [], { strategy: 'fast', importance: 'critical' }).catch(() => null)
+                            ? rpcCall<string>(txWithNonce.chainId, 'eth_gasPrice', [], {
+                                strategy: EXECUTION_FEE_PROFILE.strategy,
+                                purpose: EXECUTION_FEE_PROFILE.purpose,
+                                importance: EXECUTION_FEE_PROFILE.importance,
+                            }).catch(() => null)
                             : Promise.resolve(null)
                     ]);
                     if (needsNonce && nonceResult) {

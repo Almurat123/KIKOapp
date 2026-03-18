@@ -13,6 +13,7 @@ import { get as getDbCache, set as setDbCache } from '../cache/dbCache.js';
 import { matchV4PoolKeyById } from './dex/uniswapV4.js';
 import { decodeSwapFromLogs } from './txDecoder/evmTransferFallback.js';
 import { isSwapTransaction, shouldAttemptTransferBasedDecode } from './txDecoder/evmSwapEvidence.js';
+import { TRADE_QUOTE_PROFILE } from './rpc/profile.js';
 export { decodeSwapFromLogs } from './txDecoder/evmTransferFallback.js';
 export { isSwapTransaction } from './txDecoder/evmSwapEvidence.js';
 
@@ -80,7 +81,11 @@ async function detectPoolDex(pool: string, chainId: number): Promise<'uniswap' |
         const factoryHex = await rpcCall<string>(
             chainId, 'eth_call',
             [{ to: pool, data: '0xc45a0155' }, 'latest'],
-            { strategy: 'fast' }
+            {
+                purpose: TRADE_QUOTE_PROFILE.purpose,
+                strategy: TRADE_QUOTE_PROFILE.strategy,
+                importance: TRADE_QUOTE_PROFILE.importance
+            }
         );
         if (factoryHex && factoryHex.length >= 42) {
             const factory = '0x' + factoryHex.slice(-40).toLowerCase();
@@ -111,8 +116,16 @@ async function getPoolTokens(chainId: number, pool: string): Promise<{ token0: s
         const token1Data = iface.encodeFunctionData('token1', []);
 
         const [token0Res, token1Res] = await Promise.all([
-            rpcCall<string>(chainId, 'eth_call', [{ to: pool, data: token0Data }, 'latest'], { strategy: 'fast' }),
-            rpcCall<string>(chainId, 'eth_call', [{ to: pool, data: token1Data }, 'latest'], { strategy: 'fast' }),
+            rpcCall<string>(chainId, 'eth_call', [{ to: pool, data: token0Data }, 'latest'], {
+                purpose: TRADE_QUOTE_PROFILE.purpose,
+                strategy: TRADE_QUOTE_PROFILE.strategy,
+                importance: TRADE_QUOTE_PROFILE.importance
+            }),
+            rpcCall<string>(chainId, 'eth_call', [{ to: pool, data: token1Data }, 'latest'], {
+                purpose: TRADE_QUOTE_PROFILE.purpose,
+                strategy: TRADE_QUOTE_PROFILE.strategy,
+                importance: TRADE_QUOTE_PROFILE.importance
+            }),
         ]);
 
         if (!token0Res || !token1Res) return null;
@@ -319,7 +332,11 @@ async function cacheInfinityPoolKey(
         const result = await rpcCall<string>(chainId, 'eth_call', [{
             to: poolManager,
             data: callData
-        }, 'latest'], { strategy: 'fast' });
+        }, 'latest'], {
+            purpose: TRADE_QUOTE_PROFILE.purpose,
+            strategy: TRADE_QUOTE_PROFILE.strategy,
+            importance: TRADE_QUOTE_PROFILE.importance
+        });
 
         if (!result || result === '0x') return;
         const decoded = infinityPoolKeyInterface.decodeFunctionResult('poolIdToPoolKey', result)[0];
@@ -397,7 +414,11 @@ async function fetchV4InitLog(
                 toBlock: 'latest',
                 topics: [V4_INIT_EVENT, poolId]
             }],
-            { strategy: 'fast' }
+            {
+                purpose: TRADE_QUOTE_PROFILE.purpose,
+                strategy: TRADE_QUOTE_PROFILE.strategy,
+                importance: TRADE_QUOTE_PROFILE.importance
+            }
         );
         if (!logs || logs.length === 0) return null;
         return logs[0];

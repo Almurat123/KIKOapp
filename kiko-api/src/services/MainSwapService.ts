@@ -72,6 +72,7 @@ import {
 import { recordPlanRun, recordSuccessSample } from './copytrade-v2/planner/sampleLibrary.js';
 import type { SwapExecutionContextV1 } from './copytrade-v2/context/types.js';
 import { buildDirectSwapHintFromContext } from './copytrade-v2/context/contextStore.js';
+import { TRADE_READ_PROFILE, TRADE_VISIBILITY_PROFILE } from './rpc/profile.js';
 
 /**
  * Swap execution mode to determine behavior and fee structure
@@ -1406,7 +1407,11 @@ export class MainSwapService {
               request.chainId,
               'eth_getBalance',
               [request.walletAddress, 'latest'],
-              { importance: 'critical', strategy: 'fast' }
+              {
+                strategy: TRADE_READ_PROFILE.strategy,
+                purpose: TRADE_READ_PROFILE.purpose,
+                importance: TRADE_READ_PROFILE.importance,
+              }
             );
             const balanceWei = BigInt(balanceHex);
             const requiredWei = amountInWei + reserveWei;
@@ -2319,8 +2324,9 @@ export class MainSwapService {
           try {
             if (executionResult.txHash) {
               const buyTx = await callRpc<any>(request.chainId, 'eth_getTransactionByHash', [executionResult.txHash], {
-                strategy: 'fast',
-                importance: 'critical'
+                strategy: TRADE_VISIBILITY_PROFILE.strategy,
+                purpose: TRADE_VISIBILITY_PROFILE.purpose,
+                importance: TRADE_VISIBILITY_PROFILE.importance,
               });
               const buyNonceHex = buyTx?.nonce as string | undefined;
               if (buyNonceHex) {

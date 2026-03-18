@@ -13,6 +13,7 @@ import { recordFollowerTransactionFactForLatestPosition } from './copytrade-v2/d
 import { getZeroExQuote } from './zeroEx.js';
 import { getKyberQuote } from './kyberAggregator.js';
 import { clearApprovalPreheatState, upsertApprovalPreheatState } from './swap/approvalPreheatState.js';
+import { TX_NONCE_PROFILE } from './rpc/profile.js';
 
 const PREHEAT_ENABLED = (process.env.COPYTRADE_SELL_APPROVAL_PREHEAT_ENABLED || 'false') === 'true';
 const PREHEAT_MIN_USD = Number(process.env.COPYTRADE_SELL_APPROVAL_PREHEAT_MIN_USD || '0.5');
@@ -62,8 +63,16 @@ async function waitForReceipt(chainId: number, txHash: string, timeoutMs: number
 async function hasPendingOutgoingTx(chainId: number, walletAddress: string): Promise<boolean> {
   try {
     const [latestHex, pendingHex] = await Promise.all([
-      callRpc<string>(chainId, 'eth_getTransactionCount', [walletAddress, 'latest'], { strategy: 'fast', importance: 'critical' }),
-      callRpc<string>(chainId, 'eth_getTransactionCount', [walletAddress, 'pending'], { strategy: 'fast', importance: 'critical' })
+      callRpc<string>(chainId, 'eth_getTransactionCount', [walletAddress, 'latest'], {
+        strategy: TX_NONCE_PROFILE.strategy,
+        purpose: TX_NONCE_PROFILE.purpose,
+        importance: TX_NONCE_PROFILE.importance,
+      }),
+      callRpc<string>(chainId, 'eth_getTransactionCount', [walletAddress, 'pending'], {
+        strategy: TX_NONCE_PROFILE.strategy,
+        purpose: TX_NONCE_PROFILE.purpose,
+        importance: TX_NONCE_PROFILE.importance,
+      })
     ]);
     const latest = latestHex ? BigInt(latestHex) : 0n;
     const pending = pendingHex ? BigInt(pendingHex) : latest;

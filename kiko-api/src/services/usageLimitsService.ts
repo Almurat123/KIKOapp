@@ -1,6 +1,7 @@
 import { env } from '../config/env.js';
 import { getEmbeddedWalletAddress } from './privyWallet.js';
 import { callRpc } from './rpcManager.js';
+import { INTERACTIVE_READ_PROFILE } from './rpc/profile.js';
 
 const USAGE_LIMIT_CACHE_TTL_MS = Number(process.env.USAGE_LIMIT_CACHE_TTL_MS || '30000');
 const usageLimitCache = new Map<string, { expiresAt: number; value: { limit: number; tokenBalance: number } }>();
@@ -45,7 +46,12 @@ export async function getUserTokenBalance(params: { userId: string }): Promise<n
                 data: encodeBalanceOf(walletAddress)
             },
             'latest'
-        ], { strategy: 'cheap' });
+        ], {
+            strategy: INTERACTIVE_READ_PROFILE.strategy,
+            purpose: INTERACTIVE_READ_PROFILE.purpose,
+            importance: INTERACTIVE_READ_PROFILE.importance,
+            path: 'usage_limit_balance',
+        });
         return formatErc20Balance(String(data), env.usageLimits.tokenDecimals);
     } catch (error) {
         // Fallback to 0 on balance fetch errors to avoid breaking usage summary.

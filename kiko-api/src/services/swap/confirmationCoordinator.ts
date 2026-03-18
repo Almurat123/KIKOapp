@@ -15,6 +15,8 @@ import { reportReceiptSeen, reportTxByHashSeen } from '../order-runtime/adjudica
 import type { OrderRuntimeContext } from '../order-runtime/types.js';
 import { waitForSolanaTransactionConfirmation } from '../solana/confirmation/solanaConfirmationCoordinator.js';
 import { waitForReplacementVisibility } from './replacementVisibilityGate.js';
+import { getExecutionFeeSnapshot } from './executionFeeSnapshot.js';
+import { TX_NONCE_PROFILE } from '../rpc/profile.js';
 
 export type ConfirmationKind = 'confirmed_success' | 'confirmed_failed' | 'timeout' | 'uncertain';
 
@@ -394,7 +396,11 @@ export function scheduleSpeedUp(params: {
                     params.chainId,
                     'eth_getTransactionCount',
                     [sender, 'latest'],
-                    { strategy: 'fast', importance: 'critical' }
+                    {
+                        strategy: TX_NONCE_PROFILE.strategy,
+                        purpose: TX_NONCE_PROFILE.purpose,
+                        importance: TX_NONCE_PROFILE.importance,
+                    }
                 ).catch(() => null);
                 if (latestNonceHex) {
                     const latestNonce = BigInt(latestNonceHex);
@@ -421,10 +427,9 @@ export function scheduleSpeedUp(params: {
 
             if (!maxFeePerGas && !maxPriorityFeePerGas && !gasPrice) {
                 try {
-                    const block = await confirmationDeps.callRpc<any>(params.chainId, 'eth_getBlockByNumber', ['latest', false], { strategy: 'fast', importance: 'critical' });
-                    const baseFeePerGas = block?.baseFeePerGas ? BigInt(block.baseFeePerGas) : null;
-                    const priorityHex = await confirmationDeps.callRpc<string>(params.chainId, 'eth_maxPriorityFeePerGas', [], { strategy: 'fast', importance: 'critical' });
-                    const priorityFee = priorityHex ? BigInt(priorityHex) : null;
+                    const feeSnapshot = await getExecutionFeeSnapshot(params.chainId);
+                    const baseFeePerGas = feeSnapshot.baseFeePerGas;
+                    const priorityFee = feeSnapshot.maxPriorityFeePerGas;
                     if (priorityFee) maxPriorityFeePerGas = priorityFee;
                     if (baseFeePerGas && priorityFee) maxFeePerGas = baseFeePerGas * 2n + priorityFee;
                 } catch {

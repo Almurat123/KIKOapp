@@ -11,6 +11,7 @@ import { EvmExecutor } from './executor/EvmExecutor.js';
 import { SolanaExecutor } from './executor/SolanaExecutor.js';
 import { logger } from '../../utils/logger.js';
 import { LogCode } from '../../config/logRegistry.js';
+import { diffRpcMethodUsageSnapshots, getRpcMethodUsageSnapshot } from '../rpcManager.js';
 
 export class SwapRouter {
     private providers: SwapProvider[];
@@ -40,6 +41,7 @@ export class SwapRouter {
             amountIn: request.amountIn,
             chainId: request.chainId
         });
+        const rpcUsageBefore = getRpcMethodUsageSnapshot(request.chainId);
 
         try {
             // 1. Get quotes from all relevant providers
@@ -102,6 +104,43 @@ export class SwapRouter {
                 provider: 'unknown',
                 confirmed: false
             };
+        } finally {
+            const rpcUsageAfter = getRpcMethodUsageSnapshot(request.chainId);
+            const delta = diffRpcMethodUsageSnapshots(rpcUsageBefore, rpcUsageAfter);
+            if (delta.length > 0) {
+                const totals = delta.reduce((acc, row) => {
+                    acc.requests += row.requests;
+                    acc.endpointAttempts += row.endpointAttempts;
+                    acc.successes += row.successes;
+                    acc.endpointFailures += row.endpointFailures;
+                    acc.allFailed += row.allFailed;
+                    acc.timeoutErrors += row.timeoutErrors;
+                    return acc;
+                }, {
+                    requests: 0,
+                    endpointAttempts: 0,
+                    successes: 0,
+                    endpointFailures: 0,
+                    allFailed: 0,
+                    timeoutErrors: 0
+                });
+                logger.info(LogCode.SYS_INFO, 'SwapRouter: RPC usage delta', {
+                    chainId: request.chainId,
+                    swapKind: request.isSell ? 'sell' : 'buy',
+                    feeContext: request.feeContext || null,
+                    totals,
+                    topMethods: delta.slice(0, 8).map((row) => ({
+                        method: row.method,
+                        path: row.path,
+                        requests: row.requests,
+                        endpointAttempts: row.endpointAttempts,
+                        successes: row.successes,
+                        endpointFailures: row.endpointFailures,
+                        allFailed: row.allFailed,
+                        timeoutErrors: row.timeoutErrors
+                    }))
+                });
+            }
         }
     }
 

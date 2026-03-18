@@ -1,5 +1,6 @@
 import { callRpc } from '../rpcManager.js';
 import { withScopedCache } from '../rpc/cacheStore.js';
+import { EXECUTION_FEE_PROFILE } from '../rpc/profile.js';
 
 const EXECUTION_FEE_SNAPSHOT_TTL_MS = Math.max(
   100,
@@ -37,14 +38,16 @@ export async function getExecutionFeeSnapshot(
     producer: async () => {
       const [blockResult, priorityResult] = await Promise.allSettled([
         runtime.callRpc<any>(chainId, 'eth_getBlockByNumber', ['latest', false], {
-          strategy: 'fast',
-          importance: 'critical',
-          path: 'swap_execution_fee'
+          strategy: EXECUTION_FEE_PROFILE.strategy,
+          purpose: EXECUTION_FEE_PROFILE.purpose,
+          importance: EXECUTION_FEE_PROFILE.importance,
+          path: 'swap_execution_fee',
         }),
         runtime.callRpc<string>(chainId, 'eth_maxPriorityFeePerGas', [], {
-          strategy: 'fast',
-          importance: 'critical',
-          path: 'swap_execution_fee'
+          strategy: EXECUTION_FEE_PROFILE.strategy,
+          purpose: EXECUTION_FEE_PROFILE.purpose,
+          importance: EXECUTION_FEE_PROFILE.importance,
+          path: 'swap_execution_fee',
         })
       ]);
 

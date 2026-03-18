@@ -1,4 +1,5 @@
 import { callRpc, getTransactionByHash } from '../rpcManager.js';
+import { TX_NONCE_PROFILE } from '../rpc/profile.js';
 
 export type ReplacementVisibilityReasonCode =
   | 'REPLACEMENT_VISIBLE'
@@ -74,7 +75,11 @@ export async function waitForReplacementVisibility(
         params.chainId,
         'eth_getTransactionCount',
         [params.sender, 'latest'],
-        { strategy: 'fast', importance: 'critical' },
+        {
+          strategy: TX_NONCE_PROFILE.strategy,
+          purpose: TX_NONCE_PROFILE.purpose,
+          importance: TX_NONCE_PROFILE.importance,
+        },
       ).catch(() => null);
       if (latestNonceHex) {
         const latestNonce = BigInt(latestNonceHex);
