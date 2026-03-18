@@ -317,12 +317,19 @@ function inferFastSwapType(tokenIn: string, tokenOut: string, chainId: number): 
     return 'buy';
 }
 
-function findSnapshotBalanceForToken(snapshot: ChatContextSnapshot, tokenIn: string, chainName: string, isNative: boolean): number | null {
+export function findSnapshotBalanceForToken(snapshot: ChatContextSnapshot, tokenIn: string, chainName: string, isNative: boolean): number | null {
     if (isNative) {
-        const nativeBalance = Number(snapshot.runtime.nativeBalance);
+        const allChainSnapshot = snapshot.runtime.allChainBalances?.[chainName] || null;
+        const nativeBalance = Number(
+            snapshot.runtime.nativeBalance
+            ?? allChainSnapshot?.ethBalanceFormatted
+            ?? allChainSnapshot?.ethBalance
+            ?? allChainSnapshot?.nativeBalance
+        );
         if (Number.isFinite(nativeBalance) && nativeBalance >= 0) return nativeBalance;
     }
-    const entries = normalizeBalanceEntries(snapshot.runtime.balance);
+    const allChainSnapshot = snapshot.runtime.allChainBalances?.[chainName] || null;
+    const entries = normalizeBalanceEntries(snapshot.runtime.balance || allChainSnapshot?.tokens);
     if (entries.length === 0) return null;
     const tokenLower = String(tokenIn || '').toLowerCase();
     const tokenUpper = String(tokenIn || '').toUpperCase();
@@ -368,7 +375,7 @@ function normalizeBalanceEntries(balance: any): Array<{ symbol: string; balance:
     if (Array.isArray(balance)) {
         return balance.map((item) => ({
             symbol: String(item?.symbol || item?.tokenSymbol || item?.contractAddress || ''),
-            balance: String(item?.balance || item?.amount || item?.formatted || '0'),
+            balance: String(item?.balance || item?.tokenBalance || item?.amount || item?.formatted || item?.value || '0'),
             contractAddress: item?.contractAddress || item?.contract,
         })).filter((item) => item.symbol);
     }
@@ -376,7 +383,7 @@ function normalizeBalanceEntries(balance: any): Array<{ symbol: string; balance:
         if (raw && typeof raw === 'object') {
             return {
                 symbol,
-                balance: String((raw as any).balance || (raw as any).amount || (raw as any).formatted || '0'),
+                balance: String((raw as any).balance || (raw as any).tokenBalance || (raw as any).amount || (raw as any).formatted || (raw as any).value || '0'),
                 contractAddress: (raw as any).contractAddress || (raw as any).contract,
             };
         }

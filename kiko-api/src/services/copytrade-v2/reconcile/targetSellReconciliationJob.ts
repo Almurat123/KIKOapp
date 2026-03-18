@@ -110,6 +110,12 @@ export function shouldSkipOrphanRecoveryResidual(params: {
   return (followerBalanceRaw * 10_000n) <= (targetSellAmountRaw * BigInt(skipRatioBps));
 }
 
+export function shouldSkipOrphanRecoveryForResolvedMirrorSell(params: {
+  hasResolvedMirrorSellForTargetSell: boolean;
+}): boolean {
+  return params.hasResolvedMirrorSellForTargetSell === true;
+}
+
 function resolveSellSignalTokenAddress(row: WalletTransactionSellRow): string | null {
   if (String(row.txType || '').toUpperCase() === 'TARGET_TOKEN_SWAP') {
     return row.tokenInAddress || null;
@@ -219,12 +225,15 @@ async function loadFollowerRecoveryEvidence(params: {
   configId: string;
   chainId: number;
   tokenAddress: string;
+  targetSellTxHash: string;
 }): Promise<{
   hasActivePosition: boolean;
   hasPendingAttributedLot: boolean;
   hasLedgerContext: boolean;
+  hasResolvedMirrorSellForTargetSell: boolean;
 }> {
-  const [hasActivePosition, pendingLot, ledger] = await Promise.all([
+  const normalizedTargetSellTxHash = String(params.targetSellTxHash || '').trim().toLowerCase();
+  const [hasActivePosition, pendingLot, ledger, resolvedMirrorSell] = await Promise.all([
     hasActivePositionContext(params),
     prisma.pendingAttributedPosition.findFirst({
       where: {
@@ -259,11 +268,32 @@ async function loadFollowerRecoveryEvidence(params: {
       },
       select: { id: true },
     }),
+    prisma.copytradePositionLedger.findFirst({
+      where: {
+        userId: params.userId,
+        configId: params.configId,
+        chainId: params.chainId,
+        tokenAddress: {
+          equals: params.tokenAddress,
+          mode: 'insensitive',
+        },
+        targetSellTxHash: normalizedTargetSellTxHash,
+        OR: [
+          { followerExitTxHash: { not: null } },
+          { closedAt: { not: null } },
+          { lifecycleState: { in: ['closed', 'exit_confirmed', 'consumed', 'fully_exited'] } },
+          { exitExecutionState: { in: ['EXIT_CONFIRMED', 'confirmed_success'] } },
+          { lastExecutionState: { in: ['EXIT_CONFIRMED', 'confirmed_success'] } },
+        ],
+      },
+      select: { id: true },
+    }),
   ]);
   return {
     hasActivePosition,
     hasPendingAttributedLot: Boolean(pendingLot?.id),
     hasLedgerContext: Boolean(ledger?.id),
+    hasResolvedMirrorSellForTargetSell: Boolean(resolvedMirrorSell?.id),
   };
 }
 
@@ -504,6 +534,7 @@ async function recoverMissingOrphanMirrorSellPositions(params: {
         configId: config.id,
         chainId: event.chainId,
         tokenAddress: event.tokenAddress,
+        targetSellTxHash: event.targetSellTxHash,
       });
       if (recoveryEvidence.hasActivePosition) {
         markTargetSellEventConfigResolved({
@@ -511,6 +542,19 @@ async function recoverMissingOrphanMirrorSellPositions(params: {
           configId: config.id,
           blockedReason: 'active_position_present',
           reasonCode: 'orphan_recovery_active_position_present',
+          now,
+        });
+        metadataChanged = true;
+        continue;
+      }
+      if (shouldSkipOrphanRecoveryForResolvedMirrorSell({
+        hasResolvedMirrorSellForTargetSell: recoveryEvidence.hasResolvedMirrorSellForTargetSell,
+      })) {
+        markTargetSellEventConfigResolved({
+          metadata,
+          configId: config.id,
+          blockedReason: 'resolved_mirror_sell_present',
+          reasonCode: 'orphan_recovery_resolved_mirror_sell_present',
           now,
         });
         metadataChanged = true;

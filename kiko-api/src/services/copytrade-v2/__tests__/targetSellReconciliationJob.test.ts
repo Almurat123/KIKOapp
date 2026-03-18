@@ -4,6 +4,7 @@ import test from 'node:test';
 import {
   buildOrphanRecoveryMarkers,
   resolveRecentTargetSellSignals,
+  shouldSkipOrphanRecoveryForResolvedMirrorSell,
   shouldSkipOrphanRecoveryResidual,
 } from '../reconcile/targetSellReconciliationJob.js';
 
@@ -83,4 +84,19 @@ test('orphan recovery residual guard keeps materially large follower balances el
   });
 
   assert.equal(skipped, false);
+});
+
+test('orphan recovery skips when a resolved mirror sell already exists for the same target sell', () => {
+  assert.equal(
+    shouldSkipOrphanRecoveryForResolvedMirrorSell({
+      hasResolvedMirrorSellForTargetSell: true,
+    }),
+    true,
+  );
+  assert.equal(
+    shouldSkipOrphanRecoveryForResolvedMirrorSell({
+      hasResolvedMirrorSellForTargetSell: false,
+    }),
+    false,
+  );
 });

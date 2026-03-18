@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { ChatContextSnapshot } from './contracts.js';
-import { deriveFastSwapIntentDraft } from './fastSwapCoordinator.js';
+import { deriveFastSwapIntentDraft, findSnapshotBalanceForToken } from './fastSwapCoordinator.js';
 
 function makeSnapshot(message: string, overrides: Partial<ChatContextSnapshot> = {}): ChatContextSnapshot {
     const { runtime: runtimeOverrides, ...restOverrides } = overrides;
@@ -51,4 +51,32 @@ test('deriveFastSwapIntentDraft does not hard-map ETH to Base when no explicit c
     assert.equal(intent.chainId, 1);
     assert.equal(intent.swapIntent.tokenIn, 'ETH');
     assert.equal(intent.swapIntent.tokenOut, 'USDC');
+});
+
+test('findSnapshotBalanceForToken falls back to all-chain balances when single-chain balance is missing', () => {
+    const snapshot = makeSnapshot('Sell all USDC to ETH', {
+        runtime: {
+            chainId: 8453,
+            chainName: 'Base',
+            allChainBalances: {
+                base: {
+                    ethBalanceFormatted: 0.145,
+                    tokens: [
+                        {
+                            symbol: 'USDC',
+                            tokenBalance: '1234.5',
+                            decimals: 6,
+                            contractAddress: '0x1234567890abcdef1234567890abcdef12345678',
+                        },
+                    ],
+                },
+            },
+        },
+    });
+
+    const nativeBalance = findSnapshotBalanceForToken(snapshot, 'ETH', 'base', true);
+    const tokenBalance = findSnapshotBalanceForToken(snapshot, '0x1234567890abcdef1234567890abcdef12345678', 'base', false);
+
+    assert.equal(nativeBalance, 0.145);
+    assert.equal(tokenBalance, 1234.5);
 });
