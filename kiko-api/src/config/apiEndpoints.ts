@@ -516,7 +516,6 @@ export function getVerifiedFreeEndpoints(chainSlug: string): { name: string; url
       { name: 'DRPC', url: 'https://base.drpc.org' },
       { name: 'PublicNode', url: 'https://base-rpc.publicnode.com' },
       { name: 'Base Official', url: 'https://mainnet.base.org' },
-      { name: 'Coinbase', url: 'https://api.developer.coinbase.com/rpc/v1/base/ilSV6rJjgR0WwRdvqjG5cL07exQrmr8t' },
     ],
 
     // BSC: PublicNode/Defibit are more stable under load than binance dataseed

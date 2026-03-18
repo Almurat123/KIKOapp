@@ -1,6 +1,7 @@
 import type { RpcEndpointConfig } from '../../config/apiEndpoints.js';
+import { computeProjectedCapacityPressure } from './prediction.js';
 import { getRpcPurposeProfile, type RpcPurpose } from './purpose.js';
-import type { RpcEndpointHealthView, RpcImportance, RpcLane, RpcStrategyUpgradeDecision } from './types.js';
+import type { RpcEndpointHealthView, RpcEndpointUsageView, RpcImportance, RpcLane, RpcStrategyUpgradeDecision } from './types.js';
 
 export function inferRpcLane(method: string, importance: RpcImportance): RpcLane {
   if (method === 'eth_sendRawTransaction' || method === 'eth_getTransactionCount' || method === 'eth_feeHistory' || method === 'eth_maxPriorityFeePerGas') {
@@ -30,6 +31,7 @@ export function shouldPreferPremiumForPurpose(purpose?: RpcPurpose, lane?: RpcLa
 export function shouldUpgradeRpcStrategy(params: {
   endpoints: RpcEndpointConfig[];
   getHealth: (url: string) => RpcEndpointHealthView;
+  getUsage?: (url: string) => RpcEndpointUsageView;
   method: string;
   importance: RpcImportance;
   purpose?: RpcPurpose;
@@ -50,6 +52,8 @@ export function shouldUpgradeRpcStrategy(params: {
   let unhealthy = 0;
   let openCircuits = 0;
   let lowSuccess = 0;
+  let predictedPressure = 0;
+  let predictedHardCap = 0;
 
   for (const endpoint of top) {
     const health = params.getHealth(endpoint.url);
@@ -63,14 +67,32 @@ export function shouldUpgradeRpcStrategy(params: {
       lowSuccess += 1;
       unhealthy += 1;
     }
+    const projected = computeProjectedCapacityPressure({
+      endpoint,
+      usage: params.getUsage
+        ? params.getUsage(endpoint.url)
+        : { inFlight: 0, secondCount: 0, minuteCount: 0, lastUsedAt: 0 },
+      method: params.method,
+      lane,
+      importance: params.importance,
+      purpose: params.purpose,
+    });
+    if (projected.projectedPressure >= 0.9) {
+      predictedPressure += 1;
+    }
+    if (projected.projectedPressure >= 1) {
+      predictedHardCap += 1;
+    }
   }
 
   if (openCircuits > 0) reasons.push(`open_circuit:${openCircuits}`);
   if (lowSuccess > 0) reasons.push(`low_success:${lowSuccess}`);
+  if (predictedPressure > 0) reasons.push(`predicted_pressure:${predictedPressure}`);
+  if (predictedHardCap > 0) reasons.push(`predicted_hard_cap:${predictedHardCap}`);
 
   const upgrade = lane === 'write' || lane === 'confirm'
-    ? unhealthy >= 1
-    : unhealthy === top.length;
+    ? unhealthy >= 1 || predictedPressure >= 1
+    : unhealthy === top.length || predictedPressure >= Math.max(1, Math.min(2, top.length));
 
   if (upgrade && reasons.length === 0) {
     reasons.push('lane_policy_upgrade');

@@ -1075,6 +1075,7 @@ export async function callRpc<T = any>(
         const upgradeDecision = shouldUpgradeRpcStrategy({
             endpoints,
             getHealth: getEndpointHealthView,
+            getUsage: getEndpointUsageView,
             method,
             importance: effectiveImportance,
             purpose,
@@ -1242,6 +1243,7 @@ export async function callRpc<T = any>(
                         upgradeDecision: shouldUpgradeRpcStrategy({
                             endpoints,
                             getHealth: getEndpointHealthView,
+                            getUsage: getEndpointUsageView,
                             method,
                             importance: effectiveImportance,
                             purpose,
@@ -1886,6 +1888,7 @@ export async function callRpcRaw<T = any>(
         const upgradeDecision = shouldUpgradeRpcStrategy({
             endpoints,
             getHealth: getEndpointHealthView,
+            getUsage: getEndpointUsageView,
             method,
             importance: effectiveImportance,
             purpose,
@@ -1985,6 +1988,7 @@ export async function callRpcRaw<T = any>(
                         upgradeDecision: shouldUpgradeRpcStrategy({
                             endpoints,
                             getHealth: getEndpointHealthView,
+                            getUsage: getEndpointUsageView,
                             method,
                             importance: effectiveImportance,
                             purpose,
@@ -2344,6 +2348,7 @@ function shouldUpgradeToFast(endpoints: RpcEndpointConfig[], method: string, imp
     return shouldUpgradeRpcStrategy({
         endpoints,
         getHealth: getEndpointHealthView,
+        getUsage: getEndpointUsageView,
         method,
         importance
     }).upgrade;

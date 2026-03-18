@@ -1,5 +1,6 @@
 import type { RpcEndpointConfig } from '../../config/apiEndpoints.js';
 import { inferRpcLane, shouldPreferPremiumForPurpose } from './policy.js';
+import { computeProjectedCapacityPressure } from './prediction.js';
 import type { RpcPurpose } from './purpose.js';
 import type {
   RpcEndpointHealthView,
@@ -70,6 +71,28 @@ export function scoreRpcEndpoint(params: {
   if (limits?.rpm && usage.minuteCount >= limits.rpm) {
     score -= lane === 'write' || lane === 'confirm' ? 2 : 1;
     reasons.push('rpm_pressure');
+  }
+
+  const projected = computeProjectedCapacityPressure({
+    endpoint,
+    usage,
+    method,
+    lane,
+    importance,
+    purpose: params.purpose,
+  });
+  if (projected.projectedPressure >= 1) {
+    const penalty = lane === 'write' || lane === 'confirm' ? 5 : 3.5;
+    score -= penalty;
+    reasons.push(`predicted_cap=-${penalty.toFixed(2)}`);
+  } else if (projected.projectedPressure >= 0.9) {
+    const penalty = lane === 'write' || lane === 'confirm' ? 2.5 : 1.75;
+    score -= penalty;
+    reasons.push(`predicted_pressure=-${penalty.toFixed(2)}`);
+  } else if (projected.projectedPressure >= 0.75) {
+    const penalty = lane === 'write' || lane === 'confirm' ? 1.5 : 1;
+    score -= penalty;
+    reasons.push(`predicted_soft_pressure=-${penalty.toFixed(2)}`);
   }
 
   if (now - usage.lastUsedAt < 50) {

@@ -45,8 +45,13 @@ async function fetchAdaptiveEvmOnChainPrice(params: {
     getOnChainPriceImpl?: OnChainPriceFetcher;
 }): Promise<any> {
     const getOnChainPriceImpl = params.getOnChainPriceImpl || (await import('./onChainPriceService.js')).getOnChainPrice;
+    const rpcProfile = {
+        strategy: params.rpcStrategy,
+        purpose: params.fastMode || params.rpcStrategy === 'fast' ? 'trade_execution' : 'interactive_read',
+        importance: params.fastMode || params.rpcStrategy === 'fast' ? 'critical' : 'normal',
+    } as const;
     const first = await getOnChainPriceImpl(params.tokenAddress, params.chainId, {
-        rpcStrategy: params.rpcStrategy,
+        rpcStrategy: rpcProfile,
         lightweight: params.fastMode,
     });
     if (first?.price && Number(first.price) > 0) return first;
@@ -57,7 +62,11 @@ async function fetchAdaptiveEvmOnChainPrice(params: {
 
     const alternateStrategy: 'fast' | 'cheap' = params.rpcStrategy === 'fast' ? 'cheap' : 'fast';
     const second = await getOnChainPriceImpl(params.tokenAddress, params.chainId, {
-        rpcStrategy: alternateStrategy,
+        rpcStrategy: {
+            strategy: alternateStrategy,
+            purpose: rpcProfile.purpose,
+            importance: rpcProfile.importance,
+        },
         lightweight: params.fastMode,
     });
     if (second?.price && Number(second.price) > 0) return second;

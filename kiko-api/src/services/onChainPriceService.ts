@@ -15,6 +15,7 @@ import { ethers } from 'ethers';
 import { calculatePriceFromSqrtX96, findV4Pools, V4_STATE_VIEW } from './dex/uniswapV4.js';
 import { get as getDbCache, set as setDbCache } from '../cache/dbCache.js';
 import { selectBestOnChainPriceCandidate, type OnChainPriceCandidate } from './pricing/onChainCandidateSelector.js';
+import type { RpcPurpose } from './rpc/purpose.js';
 
 // Uniswap V2 Factory ABI (minimal)
 const FACTORY_V2_ABI = parseAbi([
@@ -195,8 +196,26 @@ function onChainPriceRedisKey(cacheKey: string): string {
     return `onchain:price:${cacheKey}`;
 }
 
-type RpcStrategy = 'fast' | 'cheap';
+type RpcStrategy =
+    | 'fast'
+    | 'cheap'
+    | { strategy: 'fast' | 'cheap'; purpose?: RpcPurpose; importance?: 'normal' | 'critical' };
 const FAST_RPC_RACE = Number(process.env.FAST_RPC_RACE || 1);
+
+function resolveRpcCallProfile(rpcStrategy: RpcStrategy): { strategy: 'fast' | 'cheap'; purpose?: RpcPurpose; importance?: 'normal' | 'critical' } {
+    if (typeof rpcStrategy === 'string') {
+        return {
+            strategy: rpcStrategy,
+            purpose: 'interactive_read',
+            importance: rpcStrategy === 'fast' ? 'critical' : 'normal'
+        };
+    }
+    return {
+        strategy: rpcStrategy.strategy,
+        purpose: rpcStrategy.purpose || 'interactive_read',
+        importance: rpcStrategy.importance || (rpcStrategy.strategy === 'fast' ? 'critical' : 'normal')
+    };
+}
 
 async function callRpcWithStrategy<T = any>(
     chainId: number,
@@ -204,14 +223,19 @@ async function callRpcWithStrategy<T = any>(
     params: any[],
     rpcStrategy: RpcStrategy
 ): Promise<T> {
-    if (rpcStrategy === 'fast' && FAST_RPC_RACE > 1) {
+    const profile = resolveRpcCallProfile(rpcStrategy);
+    if (profile.strategy === 'fast' && FAST_RPC_RACE > 1) {
         const candidates = ['fast', 'cheap'];
         const attempts = candidates.slice(0, FAST_RPC_RACE).map((strategy) =>
-            callRpc<T>(chainId, method, params, { strategy: strategy as 'fast' | 'cheap' })
+            callRpc<T>(chainId, method, params, {
+                strategy: strategy as 'fast' | 'cheap',
+                purpose: profile.purpose,
+                importance: profile.importance
+            })
         );
         return await Promise.any(attempts);
     }
-    return callRpc<T>(chainId, method, params, { strategy: rpcStrategy });
+    return callRpc<T>(chainId, method, params, profile);
 }
 
 function normalizeCurrency(address: string): string {
@@ -399,7 +423,7 @@ async function raceOrNull<T>(promise: Promise<T>, timeoutMs: number): Promise<T 
 export async function getOnChainPrice(
     tokenAddress: string,
     chainId: number,
-    options: { rpcStrategy?: 'fast' | 'cheap'; blockTag?: string | number; lightweight?: boolean } = {}
+    options: { rpcStrategy?: RpcStrategy; blockTag?: string | number; lightweight?: boolean } = {}
 ): Promise<OnChainPriceData | null> {
     const rpcStrategy = options.rpcStrategy || 'cheap';
     const blockTag = options.blockTag ?? 'latest';

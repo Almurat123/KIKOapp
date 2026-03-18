@@ -46,6 +46,34 @@ type TurboRescueBypassDecision = {
 
 type SourceAnchorLike = NonNullable<ReturnType<typeof resolveSourceAnchorExpectation>>;
 
+function computeTurboDirectAttemptTimeoutMs(params: {
+  turboFastDeadline: number;
+  phaseDeadline: number;
+  hintPoolTimeoutMs: number;
+}): number {
+  const remainingFastMs = params.turboFastDeadline - Date.now();
+  const remainingPhaseMs = params.phaseDeadline - Date.now();
+  return Math.max(
+    120,
+    Math.min(
+      params.hintPoolTimeoutMs,
+      remainingFastMs,
+      remainingPhaseMs
+    )
+  );
+}
+
+function shouldDemoteFailedSourceHint(error?: string): boolean {
+  const lower = String(error || '').toLowerCase();
+  if (!lower) return false;
+  return (
+    lower.includes('pool_pair_mismatch')
+    || lower.includes('hint_fast_path_timeout')
+    || lower.includes('hint_pool_tokens_unavailable')
+    || lower.includes('hint_fastpath_disallowed')
+  );
+}
+
 function buildV4CandidatePool(candidate: ResolvedPoolHint): SelectedV4Pool | null {
   if (candidate.kind !== 'v4' || !candidate.poolAddress || !candidate.v4PoolKey) return null;
   return {
@@ -256,6 +284,7 @@ const sourceAnchor = resolveSourceAnchorExpectation({
   // Ultra-simple turbo fast path:
   // If we can resolve a single pool directly from tracked source tx,
   // execute it immediately without quote ranking/anchor prechecks.
+  let failedSourcePriorityId: string | null = null;
   if (sourceHintCandidate) {
     const sourceResolvedHint = sourcePoolToResolvedHint(sourceHintCandidate);
     logger.info(LogCode.SYS_INFO, '[DirectSwap] Turbo source-pool immediate direct attempt', {
@@ -265,15 +294,29 @@ const sourceAnchor = resolveSourceAnchorExpectation({
       dex: sourceResolvedHint.dex || null,
       poolAddress: sourceResolvedHint.poolAddress || null
     });
-    const sourceDirectTry = await params.tryResolvedPoolHintFastPath(
-      normalizedParams,
-      {
-        ...(hint || {}),
-        canUseResolvedPoolFastPath: true,
-        routeHopCount: 1,
-        resolvedPoolHint: sourceResolvedHint
-      },
-      { executionMode: 'turbo', trustedHint: true }
+    const sourceDirectAttemptTimeoutMs = computeTurboDirectAttemptTimeoutMs({
+      turboFastDeadline,
+      phaseDeadline: singlePoolPhaseDeadline,
+      hintPoolTimeoutMs
+    });
+    const sourceDirectTry: DirectSwapResult | null = await params.withTimeout(
+      params.tryResolvedPoolHintFastPath(
+        normalizedParams,
+        {
+          ...(hint || {}),
+          canUseResolvedPoolFastPath: true,
+          routeHopCount: 1,
+          resolvedPoolHint: sourceResolvedHint
+        },
+        { executionMode: 'turbo', trustedHint: true }
+      ),
+      sourceDirectAttemptTimeoutMs
+    ).catch(
+      (): DirectSwapResult => ({
+        success: false,
+        error: 'hint_fast_path_timeout',
+        provider: 'failed'
+      })
     );
     if (sourceDirectTry?.success) {
       return {
@@ -286,6 +329,9 @@ const sourceAnchor = resolveSourceAnchorExpectation({
       traceId,
       error: sourceDirectTry?.error || 'unknown'
     });
+    if (shouldDemoteFailedSourceHint(sourceDirectTry?.error)) {
+      failedSourcePriorityId = resolvedHintIdentity(sourceResolvedHint);
+    }
   }
 
   const sourcePriorityCandidate = sourceHintCandidate
@@ -386,6 +432,20 @@ const sourceAnchor = resolveSourceAnchorExpectation({
       cachedHint: Boolean(cachedSinglePoolHint)
     }
   });
+
+  if (failedSourcePriorityId && turboCandidates.length > 1) {
+    const before = turboCandidates.length;
+    turboCandidates = turboCandidates.filter((candidate) => resolvedHintIdentity(candidate) !== failedSourcePriorityId);
+    if (before !== turboCandidates.length) {
+      logger.info(LogCode.SYS_INFO, '[DirectSwap] Turbo correct-flow demoted failed source hint candidate', {
+        chainId,
+        traceId,
+        before,
+        after: turboCandidates.length,
+        failedSourcePriorityId
+      });
+    }
+  }
 
   if (chainId === 8453) {
     const aeroTrusted = isLikelyAerodromeHintTrustworthy(hint);
@@ -571,10 +631,24 @@ const sourceAnchor = resolveSourceAnchorExpectation({
       quotedOut: candidateQuotedOut > 0n ? candidateQuotedOut.toString() : null
     });
     const sendStartAt = Date.now();
-    const directTry = await params.tryResolvedPoolHintFastPath(
-      normalizedParams,
-      turboHint,
-      { executionMode: 'turbo', trustedHint: true }
+    const directAttemptTimeoutMs = computeTurboDirectAttemptTimeoutMs({
+      turboFastDeadline,
+      phaseDeadline: singlePoolPhaseDeadline,
+      hintPoolTimeoutMs
+    });
+    const directTry: DirectSwapResult | null = await params.withTimeout(
+      params.tryResolvedPoolHintFastPath(
+        normalizedParams,
+        turboHint,
+        { executionMode: 'turbo', trustedHint: true }
+      ),
+      directAttemptTimeoutMs
+    ).catch(
+      (): DirectSwapResult => ({
+        success: false,
+        error: 'hint_fast_path_timeout',
+        provider: 'failed'
+      })
     );
     const sendMs = Date.now() - sendStartAt;
     const routeMs = sendStartAt - routeStartAt;
