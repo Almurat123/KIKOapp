@@ -25,6 +25,8 @@ import {
 import { resolveTxFinalState, toLifecycleResultFromFinalState } from './order-runtime/adjudicator/finalState.js';
 import { buildRpcSelectionExplain } from './rpc/explain.js';
 import { inferRpcLane, shouldUpgradeRpcStrategy } from './rpc/policy.js';
+import { estimateUpcomingRpcBurstSize } from './rpc/prediction.js';
+import { getProjectedEndpointUsage, reserveProjectedEndpointUsage, resetProjectedEndpointUsage } from './rpc/reservation.js';
 import {
     classifyFailoverReason,
     extendCheapBudgetToIncludePremiumFallback,
@@ -1219,6 +1221,7 @@ export async function callRpc<T = any>(
                 primaryUrl,
                 method,
             }) : selectedAfterEthCallExpansion;
+            reserveProjectedSelection(selectedEndpoints, method, effectiveImportance, purpose);
             const selectedPremiumCount = selectedEndpoints.filter((endpoint) => endpoint.type === 'premium').length;
             const selectedPublicCount = countSelectedFreeEndpoints(selectedEndpoints);
             const txLifecycleCritical =
@@ -1974,6 +1977,7 @@ export async function callRpcRaw<T = any>(
             primaryUrl,
             method,
         }) : sortedEndpoints.slice(0, endpointBudget);
+        reserveProjectedSelection(selectedEndpoints, method, effectiveImportance, purpose);
         const selectedPremiumCount = selectedEndpoints.filter((endpoint) => endpoint.type === 'premium').length;
         const selectedPublicCount = countSelectedFreeEndpoints(selectedEndpoints);
         if (RPC_EXPLAIN_ENABLED && effectiveImportance === 'critical') {
@@ -2262,19 +2266,42 @@ function getEndpointHealthView(url: string) {
 
 function getEndpointUsageView(url: string) {
     const usage = getOrCreateUsage(url);
+    const reserved = getProjectedEndpointUsage(url);
     return {
         inFlight: usage.inFlight,
         secondCount: usage.secondCount,
         minuteCount: usage.minuteCount,
-        lastUsedAt: usage.lastUsedAt
+        lastUsedAt: usage.lastUsedAt,
+        reservedSecondCount: reserved.reservedSecondCount,
+        reservedMinuteCount: reserved.reservedMinuteCount
     };
 }
 
+function reserveProjectedSelection(endpoints: RpcEndpointConfig[], method: string, importance: RpcImportance, purpose: RpcPurpose): void {
+    if (endpoints.length === 0) return;
+    const lane = inferRpcLane(method, importance);
+    const burstSize = estimateUpcomingRpcBurstSize({ method, lane, importance, purpose });
+    reserveProjectedEndpointUsage({
+        url: endpoints[0]!.url,
+        lane,
+        secondUnits: burstSize,
+        minuteUnits: burstSize
+    });
+    if (endpoints.length > 1 && (importance === 'critical' || method === 'eth_call')) {
+        reserveProjectedEndpointUsage({
+            url: endpoints[1]!.url,
+            lane,
+            secondUnits: 1,
+            minuteUnits: 1
+        });
+    }
+}
+
 function endpointCapacityPressure(endpoint: RpcEndpointConfig): number {
-    const usage = getOrCreateUsage(endpoint.url);
+    const usage = getEndpointUsageView(endpoint.url);
     const limits = endpoint.limits || {};
-    const rpsPressure = limits.rps ? usage.secondCount / Math.max(1, limits.rps) : 0;
-    const rpmPressure = limits.rpm ? usage.minuteCount / Math.max(1, limits.rpm) : 0;
+    const rpsPressure = limits.rps ? (usage.secondCount + (usage.reservedSecondCount || 0)) / Math.max(1, limits.rps) : 0;
+    const rpmPressure = limits.rpm ? (usage.minuteCount + (usage.reservedMinuteCount || 0)) / Math.max(1, limits.rpm) : 0;
     const inFlightPressure = limits.maxInFlight ? usage.inFlight / Math.max(1, limits.maxInFlight) : 0;
     return Math.max(rpsPressure, rpmPressure, inFlightPressure);
 }
@@ -3600,6 +3627,7 @@ export const __rpcManagerTest = {
     resetRuntimeStateForTest: () => {
         endpointHealth.clear();
         endpointUsage.clear();
+        resetProjectedEndpointUsage();
         methodBackoff.clear();
         methodLimiter.clear();
         inflightRpcRequests.clear();

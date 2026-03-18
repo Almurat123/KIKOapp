@@ -18,6 +18,8 @@ export interface RpcEndpointUsageView {
   secondCount: number;
   minuteCount: number;
   lastUsedAt: number;
+  reservedSecondCount?: number;
+  reservedMinuteCount?: number;
 }
 
 export interface RpcEndpointScoreBreakdown {

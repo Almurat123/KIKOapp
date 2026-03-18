@@ -51,11 +51,13 @@ export function computeProjectedCapacityPressure(params: {
     purpose: params.purpose,
   });
   const limits = params.endpoint.limits || {};
+  const reservedSecondCount = Math.max(0, params.usage.reservedSecondCount || 0);
+  const reservedMinuteCount = Math.max(0, params.usage.reservedMinuteCount || 0);
   const projectedRpsPressure = limits.rps
-    ? (params.usage.secondCount + burstSize) / Math.max(1, limits.rps)
+    ? (params.usage.secondCount + reservedSecondCount + burstSize) / Math.max(1, limits.rps)
     : 0;
   const projectedRpmPressure = limits.rpm
-    ? (params.usage.minuteCount + burstSize) / Math.max(1, limits.rpm)
+    ? (params.usage.minuteCount + reservedMinuteCount + burstSize) / Math.max(1, limits.rpm)
     : 0;
   const projectedInFlightPressure = limits.maxInFlight
     ? (params.usage.inFlight + 1) / Math.max(1, limits.maxInFlight)
