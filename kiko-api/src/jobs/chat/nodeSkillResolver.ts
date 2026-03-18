@@ -198,7 +198,7 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
         }
     }
 
-    if (tradingIntent?.kind === 'trade' && tradingIntent.type === 'swap') {
+    if (tradingIntent?.kind === 'trading' && tradingIntent.type === 'swap') {
         pushPreferred(preferredTools, 'get_wallet_info');
         pushPreferred(preferredTools, 'simulate_swap');
         pushPreferred(preferredTools, 'prepare_swap_transaction');
