@@ -1294,27 +1294,27 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
         }
 
         if (scrollContainerRef.current && (messages.length > 0 || firstSendPending)) {
-            const lastMessage = messages[messages.length - 1];
-            const isAIMessage = lastMessage?.role === 'assistant';
             const { scrollTop, scrollHeight, clientHeight } = scrollContainerRef.current;
             const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
-            const isNearBottom = distanceFromBottom < 50;
-            const shouldScroll = isNearBottom || firstSendPending || isThinking || (isStreaming && isAIMessage);
+            const isNearBottom = distanceFromBottom < 100; // Increased threshold for stability
+            
+            // Only auto-scroll if we are sending, thinking, or streaming AND near bottom
+            const shouldScroll = (firstSendPending || isThinking || isStreaming) && isNearBottom;
 
             if (shouldScroll) {
                 requestAnimationFrame(() => {
-                    const currentSelection = window.getSelection();
-                    if (scrollContainerRef.current && !userScrolledUpRef.current &&
-                        (!currentSelection || currentSelection.toString().length === 0)) {
-                        scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight;
-                        isAtBottomRef.current = true;
-                        lastScrollTopRef.current = scrollContainerRef.current.scrollTop;
-                        // DO NOT reset userScrolledUpRef here - only handleScroll should do that
+                    if (scrollContainerRef.current && !userScrolledUpRef.current) {
+                        const currentSelection = window.getSelection();
+                        if (!currentSelection || currentSelection.toString().length === 0) {
+                            scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight;
+                            isAtBottomRef.current = true;
+                            lastScrollTopRef.current = scrollContainerRef.current.scrollTop;
+                        }
                     }
                 });
             }
         }
-    }, [messages, isThinking, isStreaming, firstSendPending]);
+    }, [messages.length, isThinking, isStreaming, firstSendPending, scrollToBottom]);
 
     const handleScroll = () => {
         if (scrollContainerRef.current) {
@@ -1366,7 +1366,19 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
     };
 
     const handleInputFocus = () => {
-        scrollToBottom();
+        // Only auto-scroll if user is already at bottom or near bottom
+        // This prevents the "jump to bottom" when clicking to copy text or reading history
+        const selection = window.getSelection();
+        const hasSelection = selection && selection.toString().length > 0;
+
+        if (scrollContainerRef.current && !userScrolledUpRef.current && !hasSelection) {
+            const { scrollTop, scrollHeight, clientHeight } = scrollContainerRef.current;
+            const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
+            if (distanceFromBottom < 100) {
+                scrollToBottom();
+            }
+        }
+
         // Only trigger suggestions if there is input (user preference: strictly on matching)
         if (input && input.trim().length > 0) {
             detectIntent(input);

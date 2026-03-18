@@ -814,7 +814,7 @@ class ChatWorker:
         task_id = ""
         session_id = ""
         assistant_message_id = ""
-        model = "deepseek-chat"
+        model = settings.DEFAULT_MODEL
         provider = None
         provider_request_id = None
         selected_intent = "TRADING"

@@ -56,7 +56,6 @@ const CHAT_CONTEXT_RESERVED_OUTPUT_TOKENS = Math.max(512, parseInt(process.env.C
 function normalizeModel(model?: string): string {
     const normalized = (model || '').toLowerCase().trim();
     if (!normalized) return 'deepseek-chat';
-    if (normalized === 'gpt5-2' || normalized === 'gpt-5.2') return 'gpt-5-mini';
     return normalized;
 }
 

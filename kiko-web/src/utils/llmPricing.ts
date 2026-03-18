@@ -16,10 +16,8 @@ const PRICING: Record<string, { input: number; output: number; currency: Currenc
     // GPT (USD)
     'deepseek-chat': { input: 0.285714, output: 0.428571, currency: 'USD' },
     'deepseek-reasoner': { input: 0.285714, output: 0.428571, currency: 'USD' },
-    'gpt-4o-mini': { input: 0.15, output: 0.60, currency: 'USD' },
     'gpt-4.1': { input: 2.00, output: 8.00, currency: 'USD' },
-    'gpt-5-mini': { input: 2.00, output: 8.00, currency: 'USD' },
-    'gpt-5.2': { input: 2.00, output: 8.00, currency: 'USD' },
+    'gpt-5.4-mini-2026-03-17': { input: 0.75, output: 4.50, currency: 'USD' },
 };
 
 // xAI official tool invocation pricing (USD per 1 call)

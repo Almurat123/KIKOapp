@@ -101,6 +101,7 @@ class Settings:
     CONTEXT_MAX_INPUT_TOKENS = int(os.getenv("CHAT_CONTEXT_MAX_INPUT_TOKENS", "16000"))
     CONTEXT_RESERVED_OUTPUT_TOKENS = int(os.getenv("CHAT_CONTEXT_RESERVED_OUTPUT_TOKENS", "3500"))
     DEFAULT_NATIVE_PRICE_USD = float(os.getenv("CHAT_DEFAULT_NATIVE_PRICE_USD", "2000"))
+    DEFAULT_MODEL = os.getenv("DEFAULT_MODEL", "gpt-5.4-mini-2026-03-17")
 
 
 settings = Settings()

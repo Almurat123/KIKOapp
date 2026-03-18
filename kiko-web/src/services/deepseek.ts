@@ -74,17 +74,14 @@ const RETRY_DELAY = 1000; // 1 second
  * 
  * Current mapping:
  * - deepseek-chat/deepseek-reasoner: DeepSeek
- * - gpt-5-mini: OpenAI GPT
+ * - gpt-5.4-mini-2026-03-17: OpenAI GPT-5.4-mini
  * 
  * @param modelId - Frontend model identifier (e.g., 'deepseek-reasoner')
  * @param mode - Model mode ('thinking' or 'fast')
  * @returns Actual model name
  */
 export function getModelName(modelId?: string, mode?: string): string {
-  if (modelId === 'deepseek-chat' || modelId === 'deepseek-reasoner' || modelId === 'gpt-5-mini') {
-    return modelId;
-  }
-  if (modelId === 'gpt5-2' || modelId === 'gpt-5.2') return 'gpt-5-mini';
+  if (modelId) return modelId;
   if (mode === 'thinking') return 'deepseek-reasoner';
   return DEFAULT_MODEL;
 }
@@ -96,7 +93,10 @@ export function getRecommendedMaxTokens(modelName: string): number {
   if (modelName === 'deepseek-reasoner') {
     return 32000;
   }
-  if (modelName === 'gpt-5-mini' || modelName === 'gpt-5.2') {
+  if (modelName.includes('gpt-5.4')) {
+    return 16384;
+  }
+  if (modelName === 'gpt-5-mini' || modelName.includes('gpt-5')) {
     return 8192;
   }
   return 4096;

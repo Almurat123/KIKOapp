@@ -257,10 +257,8 @@ function validateEnv(): EnvConfig {
         // OpenAI GPT (USD per 1M tokens); override via BILLING_MODEL_PRICING_JSON if needed.
         'deepseek-chat': { promptUsdPer1M: 0.28, cachedPromptUsdPer1M: 0.028, completionUsdPer1M: 0.42 },
         'deepseek-reasoner': { promptUsdPer1M: 0.28, cachedPromptUsdPer1M: 0.028, completionUsdPer1M: 0.42 },
-        'gpt-4o-mini': { promptUsdPer1M: 0.15, cachedPromptUsdPer1M: 0.075, completionUsdPer1M: 0.60 },
         'gpt-4.1': { promptUsdPer1M: 2.00, cachedPromptUsdPer1M: 0.50, completionUsdPer1M: 8.00 },
-        'gpt-5-mini': { promptUsdPer1M: 0.25, cachedPromptUsdPer1M: 0.025, completionUsdPer1M: 2.00 },
-        'gpt-5.2': { promptUsdPer1M: 1.75, cachedPromptUsdPer1M: 0.175, completionUsdPer1M: 14.00 },
+        'gpt-5.4-mini-2026-03-17': { promptUsdPer1M: 0.75, cachedPromptUsdPer1M: 0.075, completionUsdPer1M: 4.50 },
     };
     if (process.env.BILLING_MODEL_PRICING_JSON) {
         try {

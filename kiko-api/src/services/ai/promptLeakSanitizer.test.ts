@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
     containsPseudoToolCallOutput,
+    createPseudoToolCallStreamSuppressor,
     createLeadingInternalScaffoldSuppressor,
     sanitizeSkillPrompt,
     sanitizeReasoningForDisplay,
@@ -93,6 +94,30 @@ test('createLeadingInternalScaffoldSuppressor suppresses leaked labeled runtime 
     assert.equal(tail, '');
 });
 
+test('createPseudoToolCallStreamSuppressor removes ToolCall blocks with attributes while preserving surrounding text', () => {
+    const suppressor = createPseudoToolCallStreamSuppressor();
+
+    const first = suppressor.push('I will gather the evidence now.\n<ToolCall id="0"> {"name":"get_token_info"}');
+    const second = suppressor.push(' </ToolCall>\nFinal answer.\n');
+    const tail = suppressor.flush();
+
+    assert.equal(first, 'I will gather the evidence now.');
+    assert.equal(second, 'Final answer.\n');
+    assert.equal(tail, '');
+});
+
+test('createPseudoToolCallStreamSuppressor removes prose-style pseudo tool lines during streaming', () => {
+    const suppressor = createPseudoToolCallStreamSuppressor();
+
+    const first = suppressor.push('Calling get_token_info now...\n');
+    const second = suppressor.push('Then I can summarize the result.\n');
+    const tail = suppressor.flush();
+
+    assert.equal(first, '');
+    assert.equal(second, 'Then I can summarize the result.\n');
+    assert.equal(tail, '');
+});
+
 test('containsPseudoToolCallOutput detects fake tool-call json in assistant text', () => {
     const leaked = [
         "I'll search now.",
@@ -153,6 +178,18 @@ test('stripPseudoToolCallOutput removes function_call style tool blocks from ass
     assert.equal(containsPseudoToolCallOutput(leaked), true);
 });
 
+test('stripPseudoToolCallOutput removes ToolCall blocks with attributes from assistant text', () => {
+    const leaked = [
+        'I will gather the evidence now.',
+        '<ToolCall id="0"> {"name":"get_token_info","arguments":{"chain_id":56,"token_address":"0xabc"}} </ToolCall>',
+        '<ToolCall id="1"> {"name":"get_early_buyers","arguments":{"chain_id":56,"token_address":"0xabc","date":"2026-03-10"}} </ToolCall>',
+        'Final answer.',
+    ].join('\n');
+
+    assert.equal(stripPseudoToolCallOutput(leaked), 'I will gather the evidence now.\n\nFinal answer.');
+    assert.equal(containsPseudoToolCallOutput(leaked), true);
+});
+
 test('stripPseudoToolCallOutput removes prose-style function call lines from assistant text', () => {
     const leaked = [
         'I will handle this now.',
@@ -206,6 +243,20 @@ test('sanitizeReasoningForDisplay removes xml-like tool chatter and terminated s
     assert.equal(
         sanitizeReasoningForDisplay(raw),
         'I need to verify the timestamp first. Then I can summarize the result.',
+    );
+});
+
+test('sanitizeReasoningForDisplay removes ToolCall blocks with attributes', () => {
+    const raw = [
+        'I need the on-chain evidence first.',
+        '<ToolCall id="0"> {"name":"get_token_info","arguments":{"address":"0xabc"}} </ToolCall>',
+        '<ToolCall id="1"> {"name":"get_early_buyers","arguments":{"address":"0xabc","date":"2026-03-10"}} </ToolCall>',
+        'Then I can summarize the result.',
+    ].join('\n');
+
+    assert.equal(
+        sanitizeReasoningForDisplay(raw),
+        'I need the on-chain evidence first. Then I can summarize the result.',
     );
 });
 

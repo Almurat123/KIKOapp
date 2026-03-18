@@ -22,8 +22,10 @@ import { recordUsage } from '../services/usageCounter.js';
 import { randomUUID } from 'crypto';
 import { buildDailyMarketContext } from '../services/ai/dailyMarketContext.js';
 import {
+    createPseudoToolCallStreamSuppressor,
     createLeadingInternalScaffoldSuppressor,
     stripLeadingInternalScaffold,
+    stripPseudoToolCallOutput,
 } from '../services/ai/promptLeakSanitizer.js';
 
 interface ChatMessage {
@@ -65,7 +67,6 @@ const OPENAI_API_URL = process.env.OPENAI_API_URL || 'https://api.openai.com/v1/
 function normalizeModel(model?: string): string {
     const normalized = (model || '').toLowerCase().trim();
     if (!normalized) return 'deepseek-chat';
-    if (normalized === 'gpt5-2' || normalized === 'gpt-5.2') return 'gpt-5-mini';
     return normalized;
 }
 
@@ -196,6 +197,7 @@ async function processStreamResponse(
     let hasToolCalls = false;
     let usage: any = undefined;
     const contentSuppressor = createLeadingInternalScaffoldSuppressor();
+    const pseudoToolSuppressor = createPseudoToolCallStreamSuppressor();
     let streamModel = '';
 
     try {
@@ -227,7 +229,7 @@ async function processStreamResponse(
                         }
 
                         if (choice?.delta?.content) {
-                            const visibleContent = contentSuppressor.push(choice.delta.content);
+                            const visibleContent = pseudoToolSuppressor.push(contentSuppressor.push(choice.delta.content));
                             assistantContent += visibleContent;
                             if (visibleContent) {
                                 choice.delta.content = visibleContent;
@@ -301,7 +303,7 @@ async function processStreamResponse(
         }
     }
 
-    const trailingVisibleContent = contentSuppressor.flush();
+    const trailingVisibleContent = pseudoToolSuppressor.push(contentSuppressor.flush()) + pseudoToolSuppressor.flush();
     if (trailingVisibleContent) {
         assistantContent += trailingVisibleContent;
         if (shouldForward && reply) {
@@ -320,7 +322,7 @@ async function processStreamResponse(
         }
     }
 
-    assistantContent = stripLeadingInternalScaffold(assistantContent);
+    assistantContent = stripPseudoToolCallOutput(stripLeadingInternalScaffold(assistantContent));
 
     return { hasToolCalls, toolCalls, assistantContent, reasoningContent, usage };
 }
@@ -591,23 +593,35 @@ export async function aiRoutes(fastify: FastifyInstance) {
                             let grokUsage: any = null;
                             const grokToolCallsById = new Map<string, string>();
                             let grokToolCallSeq = 0;
+                            const contentSuppressor = createLeadingInternalScaffoldSuppressor();
+                            const pseudoToolSuppressor = createPseudoToolCallStreamSuppressor();
 
                             try {
                                 while (true) {
                                     const { done, value } = await reader.read();
                                     if (done) break;
-                                    reply.raw.write(value);
 
                                     grokBuffer += decoder.decode(value, { stream: true });
                                     const lines = grokBuffer.split('\n');
                                     grokBuffer = lines.pop() || '';
 
                                     for (const line of lines) {
-                                        if (!line.startsWith('data: ')) continue;
-                                        const data = line.slice(6).trim();
-                                        if (!data || data === '[DONE]') continue;
-                                        try {
-                                            const parsed = JSON.parse(data);
+                                        if (line.trim() === 'data: [DONE]') {
+                                            reply.raw.write(line + '\n');
+                                            continue;
+                                        }
+
+                                        let lineToForward = line;
+                                        let skipForward = false;
+
+                                        if (line.startsWith('data: ')) {
+                                            const data = line.slice(6).trim();
+                                            if (!data) {
+                                                reply.raw.write(line + '\n');
+                                                continue;
+                                            }
+                                            try {
+                                                const parsed = JSON.parse(data);
                                             if (parsed.usage) grokUsage = parsed.usage;
                                             const deltaToolCalls = parsed?.choices?.[0]?.delta?.tool_calls;
                                             if (Array.isArray(deltaToolCalls)) {
@@ -620,14 +634,46 @@ export async function aiRoutes(fastify: FastifyInstance) {
                                                     }
                                                 }
                                             }
-                                        } catch {
-                                            // ignore malformed intermediate chunks
+                                                const choice = parsed?.choices?.[0];
+                                                if (choice?.delta?.content) {
+                                                    const visibleContent = pseudoToolSuppressor.push(contentSuppressor.push(choice.delta.content));
+                                                    if (visibleContent) {
+                                                        choice.delta.content = visibleContent;
+                                                    } else if (!choice.delta.reasoning_content && !choice.delta.tool_calls && !parsed.usage) {
+                                                        skipForward = true;
+                                                    } else {
+                                                        delete choice.delta.content;
+                                                    }
+                                                    lineToForward = `data: ${JSON.stringify(parsed)}`;
+                                                }
+                                            } catch {
+                                                // ignore malformed intermediate chunks
+                                            }
+                                        }
+
+                                        if (!skipForward) {
+                                            reply.raw.write(lineToForward + '\n');
                                         }
                                     }
                                 }
                             } catch (error) {
                                 logger.error(LogCode.WS_ERROR, '[AI Routes] Grok stream interrupted', { error });
                             } finally {
+                                const trailingVisibleContent = pseudoToolSuppressor.push(contentSuppressor.flush()) + pseudoToolSuppressor.flush();
+                                if (trailingVisibleContent) {
+                                    const trailingChunk = {
+                                        id: 'sanitized-tail',
+                                        object: 'chat.completion.chunk',
+                                        created: Math.floor(Date.now() / 1000),
+                                        model: normalizedModel,
+                                        choices: [{
+                                            index: 0,
+                                            delta: { content: trailingVisibleContent },
+                                            finish_reason: null,
+                                        }],
+                                    };
+                                    reply.raw.write(`data: ${JSON.stringify(trailingChunk)}\n\n`);
+                                }
                                 await persistProxyUsage({
                                     userId,
                                     model: normalizedModel,

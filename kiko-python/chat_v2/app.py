@@ -207,7 +207,7 @@ async def send_message(session_id: str, body: MessageSendRequest, request: Reque
     if not s:
         raise HTTPException(status_code=404, detail="Session not found")
 
-    model = (body.model or s.model or "deepseek-chat").strip() or "deepseek-chat"
+    model = (body.model or s.model or settings.DEFAULT_MODEL).strip() or settings.DEFAULT_MODEL
     user_msg = await repo.create_message(db, session_id, "user", body.content, status="complete")
     assistant_msg = await repo.create_message(db, session_id, "assistant", "", status="streaming")
 

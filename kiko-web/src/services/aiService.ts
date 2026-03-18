@@ -59,7 +59,7 @@ export async function generateAIResponse(
     // Generate response
     // Note: generateAIResponse doesn't currently accept model params
     // If needed, add modelId and mode parameters to this function
-    // Using default model (gpt-4o-mini) with recommended settings for chat
+    // Using default model (gpt-5.4-mini-2026-03-17) with recommended settings for chat
     logger.ai('request', 'GPT', { temperature: 0.8 });
     const response = await chatCompletion(messages, {
       temperature: 0.8, // Better for conversational chat

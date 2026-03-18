@@ -24,7 +24,7 @@ const PSEUDO_TOOL_CALL_PATTERNS = [
     /(?:^|\n)\s*\{\s*"tool_name"\s*:\s*"/i,
     /(?:^|\n)\s*\{\s*"tool"\s*:\s*"/i,
     /<tool_calls?>[\s\S]*?<\/tool_calls?>/i,
-    /<toolcall>[\s\S]*?<\/toolcall>/i,
+    /<toolcall\b[^>]*>[\s\S]*?<\/toolcall>/i,
     /<invoke\b[^>]*>[\s\S]*?<\/invoke>/i,
     /<parameter\b[^>]*>[\s\S]*?<\/parameter>/i,
     /<tool_name>[\s\S]*?<\/tool_name>/i,
@@ -185,7 +185,7 @@ export function stripPseudoToolCallOutput(answer: string): string {
     next = next.replace(/(?:^|\n)\s*\{\s*"tool_name"\s*:\s*"[\s\S]*?\}\s*(?=\n|$)/gi, '\n');
     next = next.replace(/(?:^|\n)\s*\{\s*"tool"\s*:\s*"[\s\S]*?\}\s*(?=\n|$)/gi, '\n');
     next = next.replace(/<tool_calls?>[\s\S]*?<\/tool_calls?>/gi, '\n');
-    next = next.replace(/<toolcall>[\s\S]*?<\/toolcall>/gi, '\n');
+    next = next.replace(/<toolcall\b[^>]*>[\s\S]*?<\/toolcall>/gi, '\n');
     next = next.replace(/<invoke\b[^>]*>[\s\S]*?<\/invoke>/gi, '\n');
     next = next.replace(/<parameter\b[^>]*>[\s\S]*?<\/parameter>/gi, '\n');
     next = next.replace(/<tool_name>[\s\S]*?<\/tool_name>/gi, '\n');
@@ -198,9 +198,66 @@ export function stripPseudoToolCallOutput(answer: string): string {
     next = next.replace(/(?:^|\n)\s*i\s+will\s+fetch\b[^\n]*\b(?:get_[a-z0-9_]+|analyze_[a-z0-9_]+)\b[^\n]*(?=\n|$)/gim, '\n');
     next = next.replace(/<call_[^>\n]+>/gi, '\n');
     next = next.replace(/<\/call_[^>\n]+>/gi, '\n');
-    next = next.replace(/<ToolCall>\s*[\s\S]*?<\/ToolCall>/gi, '\n');
+    next = next.replace(/<ToolCall\b[^>]*>\s*[\s\S]*?<\/ToolCall>/gi, '\n');
 
     return next.replace(/\n{3,}/g, '\n\n').trim();
+}
+
+export function createPseudoToolCallStreamSuppressor() {
+    let buffer = '';
+
+    return {
+        push(delta: string): string {
+            if (!delta) return '';
+            buffer += delta;
+            return emitPseudoSafeContent(false);
+        },
+        flush(): string {
+            return emitPseudoSafeContent(true);
+        },
+    };
+
+    function emitPseudoSafeContent(flush: boolean): string {
+        let working = buffer;
+        let output = '';
+
+        while (true) {
+            const blockStart = findEarliestPseudoBlockStart(working);
+            if (!blockStart) break;
+
+            output += emitSafeLines(working.slice(0, blockStart.index), true);
+
+            const closeIndex = blockStart.closePattern
+                ? working.slice(blockStart.index).search(blockStart.closePattern)
+                : -1;
+
+            if (closeIndex < 0) {
+                buffer = working.slice(blockStart.index);
+                return output;
+            }
+
+            const absoluteCloseIndex = blockStart.index + closeIndex;
+            const matchedClose = working.slice(absoluteCloseIndex).match(blockStart.closePattern!);
+            const closeLength = matchedClose?.[0]?.length || 0;
+            working = working.slice(absoluteCloseIndex + closeLength);
+        }
+
+        if (!flush) {
+            const lastNewline = working.lastIndexOf('\n');
+            if (lastNewline < 0) {
+                buffer = working;
+                return output;
+            }
+
+            output += emitSafeLines(working.slice(0, lastNewline + 1), false);
+            buffer = working.slice(lastNewline + 1);
+            return output;
+        }
+
+        output += stripPseudoToolCallOutput(working);
+        buffer = '';
+        return output;
+    }
 }
 
 export function sanitizeReasoningForDisplay(reasoning: string): string {
@@ -274,6 +331,50 @@ function stripLeadingInternalLabeledJsonBlock(value: string): string {
     const jsonValue = extractLeadingJsonValue(remainder);
     if (!jsonValue) return value;
     return remainder.slice(jsonValue.length).trimStart();
+}
+
+const STREAM_PSEUDO_BLOCKS: Array<{ openPattern: RegExp; closePattern: RegExp | null }> = [
+    { openPattern: /<tool_calls?\b[^>]*>/i, closePattern: /<\/tool_calls?>/i },
+    { openPattern: /<toolcall\b[^>]*>/i, closePattern: /<\/toolcall>/i },
+    { openPattern: /<invoke\b[^>]*>/i, closePattern: /<\/invoke>/i },
+    { openPattern: /<parameter\b[^>]*>/i, closePattern: /<\/parameter>/i },
+    { openPattern: /<tool_name>/i, closePattern: /<\/tool_name>/i },
+    { openPattern: /<function_call\b[^>]*>/i, closePattern: /<\/function_call>/i },
+    { openPattern: /<argument\b[^>]*>/i, closePattern: /<\/argument>/i },
+    { openPattern: /<ToolCall\b[^>]*>/i, closePattern: /<\/ToolCall>/i },
+    { openPattern: /```json/i, closePattern: /```/i },
+];
+
+function findEarliestPseudoBlockStart(value: string): { index: number; closePattern: RegExp | null } | null {
+    let earliest: { index: number; closePattern: RegExp | null } | null = null;
+
+    for (const block of STREAM_PSEUDO_BLOCKS) {
+        const match = block.openPattern.exec(value);
+        if (!match || typeof match.index !== 'number') continue;
+        if (!earliest || match.index < earliest.index) {
+            earliest = { index: match.index, closePattern: block.closePattern };
+        }
+    }
+
+    return earliest;
+}
+
+function emitSafeLines(value: string, flushAll: boolean): string {
+    if (!value) return '';
+    if (flushAll) {
+        return stripPseudoToolCallOutput(value);
+    }
+
+    const lines = value.split(/(?<=\n)/);
+    const safeLines = lines.map((line) => {
+        const sanitized = stripPseudoToolCallOutput(line);
+        if (!sanitized) return '';
+        if (line.endsWith('\n') && !sanitized.endsWith('\n')) {
+            return `${sanitized}\n`;
+        }
+        return sanitized;
+    }).filter(Boolean);
+    return safeLines.join('');
 }
 
 function extractLeadingJsonValue(value: string): string | null {
