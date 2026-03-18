@@ -926,6 +926,7 @@ export class SwapExecutor {
                                 ? '0x'
                                 : undefined;
                         let freshQuoteApplied = false;
+                        let freshQuoteAllowanceChanged = false;
                         let freshQuoteFailure = 'fresh_quote_missing_after_approval';
                         for (let refreshAttempt = 1; refreshAttempt <= 2; refreshAttempt++) {
                             const propagationDelayMs = approvalReady.readyBy === 'allowance' && refreshAttempt === 1
@@ -979,6 +980,7 @@ export class SwapExecutor {
                                 freshQuoteFailure = 'fresh_quote_missing_after_approval';
                             } else if (allowanceChanged) {
                                 freshQuoteFailure = 'fresh_quote_allowance_changed_after_approval';
+                                freshQuoteAllowanceChanged = true;
                                 logger.warn(LogCode.EXE_TX_BROADCAST, 'Fresh quote uses different allowance target after approval', {
                                     oldDex: best.dexName,
                                     newDex: freshQuote.dexName,
@@ -1009,11 +1011,20 @@ export class SwapExecutor {
                         }
 
                         if (!freshQuoteApplied) {
-                            logger.error(LogCode.SYS_ERROR, 'Failed to fetch approval-compatible fresh quote', {
-                                dex: best.dexName,
-                                reasonCode: freshQuoteFailure
-                            });
-                            throw new Error(`Failed to fetch approval-compatible fresh quote: ${freshQuoteFailure}`);
+                            if (isSellTx && !freshQuoteAllowanceChanged) {
+                                logger.warn(LogCode.SYS_INFO, 'Reusing pre-approval quote after refresh failure on sell', {
+                                    dex: best.dexName,
+                                    reasonCode: freshQuoteFailure,
+                                    originalAllowanceTarget,
+                                    approvalRefreshExcludeDex,
+                                });
+                            } else {
+                                logger.error(LogCode.SYS_ERROR, 'Failed to fetch approval-compatible fresh quote', {
+                                    dex: best.dexName,
+                                    reasonCode: freshQuoteFailure
+                                });
+                                throw new Error(`Failed to fetch approval-compatible fresh quote: ${freshQuoteFailure}`);
+                            }
                         }
                     };
 
@@ -1033,15 +1044,16 @@ export class SwapExecutor {
                             status: trackedPreheatApproval.status
                         });
                         try {
-                            const reusedApprovalReady = await waitForApprovalReady({
-                                chainId,
-                                txHash: trackedPreheatApproval.txHash,
-                                tokenAddress: actualTokenIn,
-                                ownerAddress: walletAddress,
-                                spenderAddress: best.allowanceTarget,
-                                requiredAmount: exactApproval,
-                                timeoutMs: 20_000
-                            });
+                        const reusedApprovalReady = await waitForApprovalReady({
+                            chainId,
+                            txHash: trackedPreheatApproval.txHash,
+                            tokenAddress: actualTokenIn,
+                            ownerAddress: walletAddress,
+                            spenderAddress: best.allowanceTarget,
+                            requiredAmount: exactApproval,
+                            timeoutMs: 20_000,
+                            allowanceCheckEnabled: !isSellTx
+                        });
                             await finalizeApprovalReady(trackedPreheatApproval.txHash, reusedApprovalReady);
                             await clearApprovalPreheatState({
                                 chainId,
@@ -1089,7 +1101,8 @@ export class SwapExecutor {
                             ownerAddress: walletAddress,
                             spenderAddress: best.allowanceTarget,
                             requiredAmount: exactApproval,
-                            timeoutMs: 60000
+                            timeoutMs: 60000,
+                            allowanceCheckEnabled: !isSellTx
                         });
                         await finalizeApprovalReady(approveTxHash, approvalReady);
                     }

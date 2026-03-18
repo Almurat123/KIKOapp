@@ -114,4 +114,34 @@ describe('approvalReadiness', () => {
     assert.equal(result.readyBy, 'allowance');
     assert.equal(result.allowance, 100n);
   });
+
+  test('can skip allowance polling and rely on receipt readiness', async () => {
+    let allowanceReads = 0;
+    const result = await waitForApprovalReady({
+      chainId: 56,
+      txHash: '0xapprove',
+      tokenAddress: '0xtoken',
+      ownerAddress: '0xowner',
+      spenderAddress: '0xspender',
+      requiredAmount: 100n,
+      timeoutMs: 2000,
+      pollIntervalMs: 10,
+      allowanceCheckEnabled: false,
+    }, {
+      waitForReceipt: async () => ({ status: 1, blockNumber: 1234 }),
+      getAllowance: async () => {
+        allowanceReads += 1;
+        return 0n;
+      },
+      sleep: async () => undefined,
+      now: (() => {
+        let tick = 0;
+        return () => ++tick;
+      })()
+    });
+
+    assert.equal(allowanceReads, 0);
+    assert.equal(result.readyBy, 'receipt');
+    assert.equal(result.receipt?.blockNumber, 1234);
+  });
 });
