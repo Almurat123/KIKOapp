@@ -51,6 +51,16 @@ const FAST_SWAP_NATIVE_WHITELIST = new Map<number, Set<string>>([
     [900, new Set(['SOL', 'WSOL'])],
 ]);
 
+const FAST_SWAP_NATIVE_RESOLUTION: Record<string, Set<string>> = {
+    base: new Set(['ETH', 'WETH']),
+    eth: new Set(['ETH', 'WETH']),
+    bsc: new Set(['BNB', 'WBNB']),
+    polygon: new Set(['POL', 'MATIC', 'WMATIC']),
+    arbitrum: new Set(['ETH', 'WETH']),
+    optimism: new Set(['ETH', 'WETH']),
+    solana: new Set(['SOL', 'WSOL']),
+};
+
 function isAddressLike(value: unknown): boolean {
     if (typeof value !== 'string') return false;
     const trimmed = value.trim();
@@ -201,7 +211,12 @@ async function resolveAmountByBalance(input: {
     const raw = String(input.amountIn);
     if (!(raw === 'all' || raw.endsWith('%'))) return raw;
 
-    const isNative = ['ETH', 'BNB', 'SOL'].includes(input.tokenIn.toUpperCase()) && !input.tokenIn.startsWith('0x');
+    const isNative = (() => {
+        if (input.tokenIn.startsWith('0x')) return false;
+        const upper = input.tokenIn.toUpperCase();
+        const chainNativeSymbols = FAST_SWAP_NATIVE_RESOLUTION[input.actualChainName] || new Set(['ETH']);
+        return chainNativeSymbols.has(upper);
+    })();
     let balance = input.findSnapshotBalance(input.tokenIn, input.actualChainName, isNative);
     if (balance === null) {
         balance = await input.fetchOnchainBalance(input.walletAddress, input.actualChainName, input.tokenIn, isNative);

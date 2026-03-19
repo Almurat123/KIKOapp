@@ -40,3 +40,39 @@ test('prepareFastSwapExecution resolves sell-without-amount to exact balance ins
   assert.equal(prepared.tokenIn, tokenAddress);
   assert.equal(prepared.tokenOut, 'ETH');
 });
+
+test('prepareFastSwapExecution treats Polygon native POL as native balance source', async () => {
+  const prepared = await prepareFastSwapExecution({
+    parsedIntent: {
+      detailed: { action: 'swap' },
+      swapIntent: {
+        tokenIn: 'POL',
+        tokenOut: 'USDC',
+      },
+      chainId: 137,
+    },
+    lastUserMessage: 'Sell all POL to USDC',
+    taskToolContext: {
+      userId: 'user-1',
+      walletAddress: '0xA386bc9D8F26AB170A847D73226e3e0BCEb0fe8E',
+      chainId: 137,
+    },
+    chainIdMap: { 137: 'polygon' },
+    findSnapshotBalance: (tokenIn, chainName, isNative) => {
+      assert.equal(tokenIn, 'POL');
+      assert.equal(chainName, 'polygon');
+      assert.equal(isNative, true);
+      return 10;
+    },
+    fetchOnchainBalance: async () => {
+      throw new Error('should not hit on-chain balance when snapshot balance is available');
+    },
+    resolveSolWallet: async () => null,
+    resolveEvmWallet: async () => '0xA386bc9D8F26AB170A847D73226e3e0BCEb0fe8E',
+  });
+
+  assert.equal(prepared.shouldFallbackToLlm, false);
+  assert.equal(prepared.amountIn, '9.5');
+  assert.equal(prepared.tokenIn, 'POL');
+  assert.equal(prepared.tokenOut, 'USDC');
+});

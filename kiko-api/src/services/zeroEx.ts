@@ -15,12 +15,15 @@ import { fetchJson } from '../config/unifiedApiService.js';
 import { callRpc } from './rpcManager.js';
 import type { RpcExecutionLane } from './rpc/executionLane.js';
 import { Decimal } from 'decimal.js';
+import { normalizeNativeTokenFor0x } from './zeroExNormalize.js';
 
 const ZEROX_BASE_URL = 'https://api.0x.org';
 const ZEROX_API_KEY = env.apiKeys.zeroEx || '';
 const PRICE_QUOTE_MIN_USDC_RAW = 100000n; // 0.1 USDC (6 decimals)
 const PRICE_QUOTE_MAX_MULTIPLIER = 1_000_000n;
 const PRICE_BOOTSTRAP_SAMPLE_MULTIPLIERS = [1n, 1_000n, 1_000_000n, 1_000_000_000n];
+const NATIVE_TOKEN_PLACEHOLDER = '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE';
+const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
 
 // Chain ID mapping for 0x API (verified supported chains only)
 // Based on: https://0x.org/docs/introduction/0x-cheat-sheet#-chain-support
@@ -307,10 +310,12 @@ export async function getZeroExPrice(
   try {
     // Get the appropriate base URL for the chain
     const baseUrl = CHAIN_BASE_URLS[chainId] || ZEROX_BASE_URL;
+    const normalizedSellToken = normalizeNativeTokenFor0x(sellToken, chainId);
+    const normalizedBuyToken = normalizeNativeTokenFor0x(buyToken, chainId);
 
     const params = new URLSearchParams({
-      sellToken,
-      buyToken,
+      sellToken: normalizedSellToken,
+      buyToken: normalizedBuyToken,
       sellAmount,
     });
 
@@ -346,17 +351,17 @@ export async function getZeroExPrice(
 
     // Check if liquidity is available
     if (data.liquidityAvailable === false) {
-      logger.warn(LogCode.API_FETCH_FAILED, '0x API price returned liquidityAvailable=false', {
-        sellToken,
-        buyToken,
+    logger.warn(LogCode.API_FETCH_FAILED, '0x API price returned liquidityAvailable=false', {
+        sellToken: normalizedSellToken,
+        buyToken: normalizedBuyToken,
         chainId
       });
       return null; // No liquidity available for price
     }
 
     logger.info(LogCode.API_FETCH_SUCCESS, '0x API price received successfully', {
-      sellToken,
-      buyToken,
+      sellToken: normalizedSellToken,
+      buyToken: normalizedBuyToken,
       chainId,
       liquidityAvailable: data.liquidityAvailable ?? 'not-specified'
     });
@@ -431,22 +436,12 @@ export async function getZeroExQuote(
     const useLegacyEndpoint = false; // False = use V2 endpoints
     const isPolygon = chainId === 137;
 
-    // Normalize native token addresses
-    // allowance-holder endpoint accepts 0xEeee... format for native tokens
-    const normalizeToken = (token: string, isSell: boolean): string => {
-      const isNative = token.toLowerCase() === '0x0000000000000000000000000000000000000000'
-        || token.toLowerCase() === '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
+    // Normalize native token addresses and symbols before calling 0x.
+    // allowance-holder endpoint accepts 0xEeee... format for native tokens.
+    const normalizeToken = (token: string): string => normalizeNativeTokenFor0x(token, chainId);
 
-      if (!isNative) {
-        return token;
-      }
-
-      // For allowance-holder endpoint, use 0xEeee... format
-      return '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE';
-    };
-
-    const normalizeSellToken = normalizeToken(sellToken, true);
-    const normalizeBuyToken = normalizeToken(buyToken, false);
+    const normalizeSellToken = normalizeToken(sellToken);
+    const normalizeBuyToken = normalizeToken(buyToken);
 
     // v1 endpoint uses slippagePercentage (as decimal, e.g., 0.5 for 0.5%)
     // permit2 endpoint uses slippageBps (in basis points, e.g., 50 for 0.5%)
@@ -1163,6 +1158,7 @@ export async function getTokenPriceUSD(
   options: { lane?: RpcExecutionLane } = {}
 ): Promise<number | null> {
   try {
+    const normalizedInput = normalizeNativeTokenFor0x(tokenAddress, chainId);
     // Use USDC as reference (most chains have USDC)
     const usdcAddresses: Record<number, string> = {
       1: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48', // USDC on Ethereum
@@ -1190,11 +1186,11 @@ export async function getTokenPriceUSD(
     }
 
     // Handle native token - use wrapped native token address (WETH, WBNB, etc.)
-    let actualTokenAddress = tokenAddress;
-    const lowerToken = tokenAddress?.toLowerCase() || '';
-    if (lowerToken === '0x0000000000000000000000000000000000000000' ||
-      lowerToken === '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee' ||
-      !tokenAddress) {
+    let actualTokenAddress = normalizedInput;
+    const lowerToken = normalizedInput?.toLowerCase() || '';
+    if (lowerToken === ZERO_ADDRESS ||
+      lowerToken === NATIVE_TOKEN_PLACEHOLDER.toLowerCase() ||
+      !normalizedInput) {
       // Use getNativeTokenAddress which returns the wrapped native token for each chain
       const wrappedNativeAddress = getNativeTokenAddress(chainId);
       if (wrappedNativeAddress) {
@@ -1264,3 +1260,7 @@ export async function getTokenPriceUSD(
     return null;
   }
 }
+
+export const __testOnly = {
+  normalizeNativeTokenFor0x,
+};
