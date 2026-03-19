@@ -47,6 +47,7 @@ function buildResolvedHint(poolAddress: string): ResolvedPoolHint {
 
 function createBaseParams(overrides?: {
   earlyHintedPool?: HintedSourcePool | null;
+  runtimeContext?: any;
   singlePoolResolver?: TurboResolver;
   tryResolvedPoolHintFastPath?: (
     params: any,
@@ -79,7 +80,8 @@ function createBaseParams(overrides?: {
       amountIn: '1',
       amountInWei: 1_000_000n,
       chainId: 8453,
-      slippageBps: 500
+      slippageBps: 500,
+      runtimeContext: overrides?.runtimeContext
     },
     logger: {
       info: () => undefined,
@@ -234,6 +236,54 @@ test('runTurboCorrectFlow halts after an ambiguous fast-path timeout instead of 
   assert.equal(result.result.success, false);
   assert.equal(result.result.error, 'hint_fast_path_timeout');
   assert.deepEqual(callOrder, ['0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee']);
+});
+
+test('runTurboCorrectFlow converts a timed-out send_started attempt into an inflight halt', async () => {
+  const sourceHint = buildSourceHint('0xabababababababababababababababababababab');
+  const runtimeContext = {
+    state: 'send_started',
+    lastLifecycle: {
+      status: 'broadcasted_unseen',
+      txHash: '0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc',
+      attempts: 1,
+      chainId: 8453
+    },
+    attempts: [
+      {
+        id: 'attempt-1',
+        state: 'sending'
+      }
+    ]
+  };
+  const callOrder: string[] = [];
+
+  const result = await runTurboCorrectFlow(createBaseParams({
+    earlyHintedPool: sourceHint,
+    runtimeContext,
+    singlePoolResolver: {
+      resolveCandidates: async () => [
+        buildResolvedHint('0xabababababababababababababababababababab'),
+        buildResolvedHint('0xcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd')
+      ]
+    },
+    tryResolvedPoolHintFastPath: async (_params, hint) => {
+      const poolAddress = String(hint?.resolvedPoolHint?.poolAddress || '').toLowerCase();
+      callOrder.push(poolAddress);
+      if (poolAddress === '0xabababababababababababababababababababab') {
+        return await new Promise<DirectSwapResult | null>(() => undefined);
+      }
+      return {
+        success: true,
+        txHash: '0xshould-not-run',
+        provider: 'uniswap-v3'
+      };
+    }
+  }));
+
+  assert.equal(result.result.success, false);
+  assert.equal(result.result.error, 'direct_swap_send_inflight:send_started');
+  assert.equal(result.result.txHash, '0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc');
+  assert.deepEqual(callOrder, ['0xabababababababababababababababababababab']);
 });
 
 test('runTurboCorrectFlow halts after source direct attempt already has send-started evidence', async () => {

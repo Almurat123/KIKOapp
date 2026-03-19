@@ -5,6 +5,7 @@ import type { DirectSwapResult } from '../types.js';
 import { dedupeResolvedHints, type ResolvedPoolHint, type TurboResolver } from '../turbo.js';
 import type { SelectedV4Pool } from '../../v4ExecutionPlan.js';
 import type { V4PoolInfo } from '../../uniswapV4.js';
+import type { OrderRuntimeContext } from '../../../order-runtime/types.js';
 import {
   buildTurboRescueOrder,
   buildTurboSinglePoolAttemptPlan,
@@ -17,7 +18,10 @@ import { evaluateSourceAnchorQuote, resolveSourceAnchorExpectation } from '../do
 import { summarizeTurboCandidateKinds } from './turboFlow.js';
 import { applyTurboQuoteAssist } from './turboQuoteAssist.js';
 import { buildResolvedHintQuoteKey } from '../quote/types.js';
-import { shouldHaltFurtherDirectSwapAttempts } from './directSwapAttemptGuard.js';
+import {
+  buildTimedOutDirectSwapAttempt,
+  shouldHaltFurtherDirectSwapAttempts
+} from './directSwapAttemptGuard.js';
 
 type LoggerLike = {
   info: (code: LogCode, message: string, context?: Record<string, unknown>) => void;
@@ -35,6 +39,7 @@ type TurboExecuteParams = {
   chainId: number;
   slippageBps: number;
   mevProtection?: boolean;
+  runtimeContext?: OrderRuntimeContext;
 };
 
 type WithTimeoutFn = <T>(promise: Promise<T>, timeoutMs: number) => Promise<T>;
@@ -313,10 +318,9 @@ const sourceAnchor = resolveSourceAnchorExpectation({
       ),
       sourceDirectAttemptTimeoutMs
     ).catch(
-      (): DirectSwapResult => ({
-        success: false,
-        error: 'hint_fast_path_timeout',
-        provider: 'failed'
+      (): DirectSwapResult => buildTimedOutDirectSwapAttempt({
+        runtimeContext: normalizedParams.runtimeContext,
+        timeoutError: 'hint_fast_path_timeout'
       })
     );
     if (sourceDirectTry?.success) {
@@ -655,10 +659,9 @@ const sourceAnchor = resolveSourceAnchorExpectation({
       ),
       directAttemptTimeoutMs
     ).catch(
-      (): DirectSwapResult => ({
-        success: false,
-        error: 'hint_fast_path_timeout',
-        provider: 'failed'
+      (): DirectSwapResult => buildTimedOutDirectSwapAttempt({
+        runtimeContext: normalizedParams.runtimeContext,
+        timeoutError: 'hint_fast_path_timeout'
       })
     );
     const sendMs = Date.now() - sendStartAt;

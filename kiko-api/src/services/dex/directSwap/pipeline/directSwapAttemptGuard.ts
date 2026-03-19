@@ -28,7 +28,12 @@ export function evaluateDirectSwapSendGuard(params: {
 }): DirectSwapSendGuardDecision {
   const runtimeState = String(params.runtimeContext?.state || '').trim().toLowerCase();
   const lifecycleStatus = resolveLifecycleStatus(params.runtimeContext, params.lifecycle);
-  const txHash = String(params.lifecycle?.txHash || params.runtimeContext?.canonicalTxHash || '').trim().toLowerCase() || null;
+  const txHash = String(
+    params.lifecycle?.txHash
+    || params.runtimeContext?.lastLifecycle?.txHash
+    || params.runtimeContext?.canonicalTxHash
+    || ''
+  ).trim().toLowerCase() || null;
   const hasSendStarted = runtimeState === 'send_started'
     || params.runtimeContext?.attempts?.some((attempt) => attempt.state === 'sending') === true;
 
@@ -82,4 +87,27 @@ export function shouldHaltFurtherDirectSwapAttempts(
     runtimeContext: result.runtimeContext,
     lifecycle: result.txLifecycle,
   }).blocked;
+}
+
+export function buildTimedOutDirectSwapAttempt(params: {
+  runtimeContext?: OrderRuntimeContext | null;
+  lifecycle?: TxLifecycleResult | null;
+  timeoutError?: string;
+}): DirectSwapResult {
+  const sendGuard = evaluateDirectSwapSendGuard({
+    runtimeContext: params.runtimeContext,
+    lifecycle: params.lifecycle,
+  });
+  const timeoutError = String(params.timeoutError || 'hint_fast_path_timeout').trim() || 'hint_fast_path_timeout';
+  const guardedError = sendGuard.blocked
+    ? `direct_swap_send_inflight:${sendGuard.reasonCode}`
+    : timeoutError;
+  return {
+    success: false,
+    error: guardedError,
+    provider: 'failed',
+    runtimeContext: params.runtimeContext || undefined,
+    txLifecycle: params.lifecycle || params.runtimeContext?.lastLifecycle,
+    txHash: sendGuard.txHash || undefined,
+  };
 }

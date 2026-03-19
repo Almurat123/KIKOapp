@@ -8,6 +8,7 @@ import {
 } from './buyConfirmationPolicy.js';
 import { finalizeCopytradeBuyPosition } from '../positions/positionPersistence.js';
 import { upsertPendingAttributedPosition } from '../positions/pendingAttributedPositionLedger.js';
+import { syncCopytradeLedgerFromLegacy } from '../ledger/copytradeLedgerRepository.js';
 
 export async function persistCopytradeBuySubmission(params: {
   pendingPositionId?: string | null;
@@ -23,12 +24,14 @@ export async function persistCopytradeBuySubmission(params: {
   attributedEntryAmountExact?: string | null;
   entryTxHash: string;
   leaderBuyTxHash?: string | null;
+  targetWallet?: string | null;
   entryUsdValue: number;
   txLifecycleStatus?: string;
   runtimeContext?: OrderRuntimeContext;
 }, deps?: {
   finalizeCopytradeBuyPosition?: typeof finalizeCopytradeBuyPosition;
   upsertPendingAttributedPosition?: typeof upsertPendingAttributedPosition;
+  syncCopytradeLedgerFromLegacy?: typeof syncCopytradeLedgerFromLegacy;
 }): Promise<{
   nextPositionStatus: CopytradeBuyPositionStatus;
   persistedPositionId: string;
@@ -38,6 +41,7 @@ export async function persistCopytradeBuySubmission(params: {
 }> {
   const finalizePosition = deps?.finalizeCopytradeBuyPosition || finalizeCopytradeBuyPosition;
   const upsertPendingLot = deps?.upsertPendingAttributedPosition || upsertPendingAttributedPosition;
+  const syncLedger = deps?.syncCopytradeLedgerFromLegacy || syncCopytradeLedgerFromLegacy;
 
   const nextPositionStatus: CopytradeBuyPositionStatus = (params.entryTxHash && params.chainId === 900)
     ? 'open'
@@ -91,6 +95,31 @@ export async function persistCopytradeBuySubmission(params: {
         txHash: params.entryTxHash,
         positionId: persistedPositionId,
         error: lotErr?.message || String(lotErr),
+      });
+    });
+  }
+
+  if (persistedPositionId && params.targetWallet) {
+    const executionState = nextPositionStatus === 'open'
+      ? 'submitted_open'
+      : 'submitted_unresolved';
+    const executionReasonCode = nextPositionStatus === 'open'
+      ? 'buy_submission_open'
+      : 'buy_submission_visible';
+    await syncLedger({
+      positionId: persistedPositionId,
+      targetWallet: params.targetWallet,
+      followerBuyTxHash: params.entryTxHash,
+      lastExecutionState: executionState,
+      lastExecutionReasonCode: executionReasonCode,
+    }).catch((ledgerErr: any) => {
+      logger.warn(LogCode.SYS_ERROR, 'Failed to sync unresolved copytrade ledger exposure after buy submission', {
+        userId: params.userId,
+        token: params.tokenAddress,
+        chainId: params.chainId,
+        txHash: params.entryTxHash,
+        positionId: persistedPositionId,
+        error: ledgerErr?.message || String(ledgerErr),
       });
     });
   }
