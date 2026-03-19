@@ -1015,6 +1015,7 @@ export async function processSingleUserBuy(params: {
                         maxEntryDeviationThresholdPolicy: effectiveConfig.maxEntryDeviationThresholdPolicy,
                         maxEntryDeviationModeFloorBps: effectiveConfig.maxEntryDeviationModeFloorBps,
                         allowFallbackEntryDeviationBypass: isEntryDeviationPriceUnreliable(chainId, tokenInfo),
+                        pendingPositionId,
                         refreshTokenInfoForRetry: async () => tokenInfoCache
                             ? await getTokenInfoOnce(tokenInfoCache, tokenToBuy, chainId, {
                                 verbose: false,

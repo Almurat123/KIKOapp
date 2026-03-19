@@ -51,6 +51,7 @@ import { resolveSolanaWalletRecord } from './solana/solanaWalletResolver.js';
 import { sendSolanaTransactionWithContextDeps } from './solana/solanaPrivySender.js';
 import { resolveSolanaSigningContext, type ResolvedSolanaSigningContext } from './solana/solanaSigningContext.js';
 import { fetchPrivyEmbeddedWalletInfo, type EmbeddedWalletChainType } from './privyEmbeddedWalletResolver.js';
+import { markPendingAttributedPositionAccepted } from './copytrade-v2/positions/pendingAttributedPositionLedger.js';
 import {
     __resetUserTransactionSchedulerForTests,
     __runUserTransactionTaskForTests,
@@ -106,6 +107,25 @@ let privyConfigWarningLogged = false;
 
 function shouldReturnAcceptedLifecycleImmediately(tx: TransactionRequest): boolean {
     return tx.txPurpose === 'approval' || isFastTradeExecutionProfile(tx);
+}
+
+async function syncAcceptedCopytradePendingPosition(params: {
+    runtimeContext?: OrderRuntimeContext;
+    txHash?: string | null;
+    lifecycleStatus?: string | null;
+}): Promise<void> {
+    const pendingPositionId = String(params.runtimeContext?.metadata?.copytradePendingPositionId || '').trim();
+    const txHash = String(params.txHash || '').trim().toLowerCase();
+    if (!pendingPositionId || !/^0x[a-f0-9]{64}$/.test(txHash)) return;
+    const status = String(params.lifecycleStatus || '').trim().toLowerCase() === 'visible_pending'
+        ? 'broadcasted_unseen'
+        : 'pending_broadcast';
+    await markPendingAttributedPositionAccepted({
+        positionId: pendingPositionId,
+        entryTxHash: txHash,
+        reasonCode: 'buy_tx_accepted',
+        positionStatus: status,
+    }).catch(() => 0);
 }
 
 function getLocalSignerPrivateKey(chainId: number): string {
@@ -1091,6 +1111,11 @@ export async function sendTransactionLifecycle(
                             priorAcceptedLifecycle = { ...rawLifecycle };
                             seedNextPendingNonce(txWithNonce.chainId, walletInfo.address, txWithNonce.nonce);
                             reportAcceptedEvidence(tx, rawLifecycle.txHash, 'raw_broadcast');
+                            await syncAcceptedCopytradePendingPosition({
+                                runtimeContext,
+                                txHash: rawLifecycle.txHash,
+                                lifecycleStatus: rawLifecycle.status,
+                            });
                         }
                         if (runtimeContext) {
                             if (rawLifecycle.txHash) {
@@ -1227,6 +1252,11 @@ export async function sendTransactionLifecycle(
                     priorAcceptedLifecycle = { ...lifecycleBase };
                     seedNextPendingNonce(txWithNonce.chainId, walletInfo.address, txWithNonce.nonce);
                     reportAcceptedEvidence(tx, response.hash, 'privy_sendtx');
+                    await syncAcceptedCopytradePendingPosition({
+                        runtimeContext,
+                        txHash: response.hash,
+                        lifecycleStatus: lifecycleBase.status,
+                    });
                     if (runtimeContext) {
                         attachOrderTxHash(runtimeContext, response.hash, { canonical: true });
                         markOrderHashAccepted(runtimeContext, response.hash);

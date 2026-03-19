@@ -34,6 +34,26 @@ export function evaluateCopytradeBuyAcceptedInflight(params: {
 
   const acceptedTxHash = params.runtimeContext?.canonicalTxHash || params.txHash || undefined;
   if (!resolution.accepted || resolution.failed || !acceptedTxHash) {
+    const runtimeState = String(params.runtimeContext?.state || '').trim().toLowerCase();
+    const lifecycleStatus = String(params.lifecycle?.status || '').trim().toLowerCase();
+    const hasDurableAcceptedEvidence = Boolean(acceptedTxHash)
+      && !resolution.failed
+      && (
+        runtimeState === 'hash_accepted'
+        || runtimeState === 'rpc_uncertain'
+        || runtimeState === 'mempool_visible'
+        || runtimeState === 'included'
+        || lifecycleStatus === 'broadcasted_unseen'
+        || lifecycleStatus === 'visible_pending'
+      );
+    if (hasDurableAcceptedEvidence) {
+      return {
+        adoptAcceptedTx: true,
+        txHash: acceptedTxHash,
+        reasonCode: runtimeState || lifecycleStatus || 'accepted_hash_present',
+        shouldDeferFeeCollection: lifecycleStatus !== 'visible_pending' && lifecycleStatus !== 'confirmed_success',
+      };
+    }
     return {
       adoptAcceptedTx: false,
       reasonCode: resolution.reasonCode || 'not_accepted',

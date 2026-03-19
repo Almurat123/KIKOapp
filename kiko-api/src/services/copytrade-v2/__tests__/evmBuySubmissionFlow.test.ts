@@ -161,3 +161,107 @@ test('evm buy submission flow carries fallback pricing guard context into turbo 
     allowUnreliablePriceBypass: true,
   });
 });
+
+test('evm buy submission flow aborts before send when buy admission is preempted by target sell', async () => {
+  let executeCalled = false;
+
+  const result = await executeEvmCopytradeBuySubmissionFlow(
+    {
+      userId: 'user-3',
+      privyUserId: 'did:privy:user-3',
+      walletAddress: '0x1234567890123456789012345678901234567890',
+      tokenToBuy: '0x9999999999999999999999999999999999999999',
+      chainId: 8453,
+      usdAmount: 15,
+      nativePrice: 2500,
+      baseSlippageBps: 300,
+      executionMode: 'turbo',
+      turboMode: true,
+      fastSwapMode: true,
+      checkTokenBeforeSwap: false,
+      tokenInfo: { price: 0.03 },
+      pendingPositionId: 'pos-preempted',
+    },
+    {
+      async buildCopytradeBuyPlannedArtifact() {
+        return {
+          executionContextBase: {
+            sourceTxHash: '0xleader-preempted',
+          },
+          async getExecutionPlan() {
+            return null;
+          },
+        } as any;
+      },
+      async evaluateCopytradeBuyAdmission() {
+        return {
+          blocked: true,
+          reasonCode: 'target_sell_preempted',
+          targetSellTxHash: '0xsell',
+        };
+      },
+      async executeSwapViaPort() {
+        executeCalled = true;
+        throw new Error('should_not_execute');
+      },
+    },
+  );
+
+  assert.equal(executeCalled, false);
+  assert.deepEqual(result, {
+    status: 'aborted',
+    reasonCode: 'target_sell_preempted',
+  });
+});
+
+test('evm buy submission flow aborts before send when a buy tx was already accepted', async () => {
+  let executeCalled = false;
+
+  const result = await executeEvmCopytradeBuySubmissionFlow(
+    {
+      userId: 'user-4',
+      privyUserId: 'did:privy:user-4',
+      walletAddress: '0x1234567890123456789012345678901234567890',
+      tokenToBuy: '0x9999999999999999999999999999999999999999',
+      chainId: 8453,
+      usdAmount: 15,
+      nativePrice: 2500,
+      baseSlippageBps: 300,
+      executionMode: 'turbo',
+      turboMode: true,
+      fastSwapMode: true,
+      checkTokenBeforeSwap: false,
+      tokenInfo: { price: 0.03 },
+      pendingPositionId: 'pos-accepted',
+    },
+    {
+      async buildCopytradeBuyPlannedArtifact() {
+        return {
+          executionContextBase: {
+            sourceTxHash: '0xleader-accepted',
+          },
+          async getExecutionPlan() {
+            return null;
+          },
+        } as any;
+      },
+      async evaluateCopytradeBuyAdmission() {
+        return {
+          blocked: true,
+          reasonCode: 'buy_tx_already_accepted',
+          acceptedTxHash: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        };
+      },
+      async executeSwapViaPort() {
+        executeCalled = true;
+        throw new Error('should_not_execute');
+      },
+    },
+  );
+
+  assert.equal(executeCalled, false);
+  assert.deepEqual(result, {
+    status: 'aborted',
+    reasonCode: 'buy_tx_already_accepted',
+  });
+});

@@ -9,6 +9,7 @@ import type { CopyTradeExecutionMode } from '../../copyTradeExecutionMode.js';
 import { buildCopytradeBuyPlannedArtifact } from './plannedExecutionArtifact.js';
 import { shouldAbortCopytradeBuyRetry } from './copytradeBuyRetryGuard.js';
 import { resolveTxFinalState } from '../../order-runtime/adjudicator/finalState.js';
+import { evaluateCopytradeBuyAdmission } from './buyAdmissionGuard.js';
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -78,15 +79,18 @@ export async function executeEvmCopytradeBuySubmissionFlow(params: {
   maxEntryDeviationThresholdPolicy?: string;
   maxEntryDeviationModeFloorBps?: number | null;
   allowFallbackEntryDeviationBypass?: boolean;
+  pendingPositionId?: string | null;
 }, deps?: {
   buildCopytradeBuyPlannedArtifact?: typeof buildCopytradeBuyPlannedArtifact;
   executeSwapViaPort?: typeof executeSwapViaPort;
   shouldAbortCopytradeBuyRetry?: typeof shouldAbortCopytradeBuyRetry;
+  evaluateCopytradeBuyAdmission?: typeof evaluateCopytradeBuyAdmission;
   sleep?: (ms: number) => Promise<void>;
 }): Promise<EvmCopytradeBuySubmissionResult> {
   const artifactBuilder = deps?.buildCopytradeBuyPlannedArtifact || buildCopytradeBuyPlannedArtifact;
   const swapExecutor = deps?.executeSwapViaPort || executeSwapViaPort;
   const abortRetryGuard = deps?.shouldAbortCopytradeBuyRetry || shouldAbortCopytradeBuyRetry;
+  const admissionGuard = deps?.evaluateCopytradeBuyAdmission || evaluateCopytradeBuyAdmission;
   const sleepFn = deps?.sleep || sleep;
 
   const baseAmount = params.usdAmount / params.nativePrice;
@@ -134,6 +138,7 @@ export async function executeEvmCopytradeBuySubmissionFlow(params: {
           inputValueUsd: params.usdAmount,
           allowUnreliablePriceBypass: params.allowFallbackEntryDeviationBypass,
         } : undefined,
+        copytradePendingPositionId: params.pendingPositionId || undefined,
       },
       executionPlan,
       userSettings: {
@@ -205,6 +210,26 @@ export async function executeEvmCopytradeBuySubmissionFlow(params: {
     };
   };
 
+  const abortIfBuyPreempted = async (stage: string): Promise<EvmCopytradeBuySubmissionResult | null> => {
+    const admission = await admissionGuard({
+      pendingPositionId: params.pendingPositionId,
+    });
+    if (!admission.blocked) return null;
+    logger.warn(LogCode.SYS_INFO, `[CopyTradeBuyGuard] Buy submission aborted before ${stage}`, {
+      userId: params.userId,
+      token: params.tokenToBuy,
+      chainId: params.chainId,
+      pendingPositionId: params.pendingPositionId || null,
+      reasonCode: admission.reasonCode,
+      targetSellTxHash: admission.targetSellTxHash || null,
+      acceptedTxHash: admission.acceptedTxHash || null,
+    });
+    return {
+      status: 'aborted',
+      reasonCode: admission.reasonCode,
+    };
+  };
+
   let attributedEntryAmountHuman: string | undefined;
   let txLifecycleStatus: string | undefined;
   let runtimeContext: OrderRuntimeContext | undefined;
@@ -218,6 +243,8 @@ export async function executeEvmCopytradeBuySubmissionFlow(params: {
   });
 
   try {
+    const preemptedBeforeStep1 = await abortIfBuyPreempted('buy_step_1_send');
+    if (preemptedBeforeStep1) return preemptedBeforeStep1;
     logger.info(LogCode.EXE_TX_BROADCAST, `Buy Step 1: 100% amount, ${params.baseSlippageBps / 100}% slippage`, {
       userId: params.userId,
       eth: baseAmount.toFixed(6),
@@ -312,6 +339,8 @@ export async function executeEvmCopytradeBuySubmissionFlow(params: {
     executionStep: 'buy_step_2',
   });
   try {
+    const preemptedBeforeStep2 = await abortIfBuyPreempted('buy_step_2_send');
+    if (preemptedBeforeStep2) return preemptedBeforeStep2;
     logger.info(LogCode.EXE_TX_BROADCAST, `Buy Step 2: 99% amount, ${slippage2 / 100}% slippage`, {
       userId: params.userId,
       eth: amount99.toFixed(6),
@@ -352,6 +381,8 @@ export async function executeEvmCopytradeBuySubmissionFlow(params: {
     executionStep: 'buy_step_3',
   });
   try {
+    const preemptedBeforeStep3 = await abortIfBuyPreempted('buy_step_3_send');
+    if (preemptedBeforeStep3) return preemptedBeforeStep3;
     logger.info(LogCode.EXE_TX_BROADCAST, `Buy Step 3: 98% amount, ${slippage3 / 100}% slippage`, {
       userId: params.userId,
       eth: amount98.toFixed(6),

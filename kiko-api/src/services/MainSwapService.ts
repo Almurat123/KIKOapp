@@ -59,6 +59,7 @@ import { inferOrderReasonCode } from './order-runtime/reasonCodes.js';
 import { resolveTxFinalState } from './order-runtime/adjudicator/finalState.js';
 import { describeVisibilityFailure, shouldPassVisibilityGate } from './rpc/visibilityPolicy.js';
 import { evaluateCopytradeBuyAcceptedInflight } from './copytrade-v2/buy/copytradeBuyAcceptedInflight.js';
+import { evaluateCopytradeBuyAdmission } from './copytrade-v2/buy/buyAdmissionGuard.js';
 import type { ExecutionPlanV1, ReplayDriftDiagnosis, ReplayPrecheckResult } from './copytrade-v2/planner/types.js';
 import { isP2ExecutorEnabled, isP2SampleLearningEnabled, isP2ShadowRunEnabled } from './copytrade-v2/planner/featureFlags.js';
 import {
@@ -198,6 +199,7 @@ export interface MainSwapRequest {
     contextHitSource?: 'redis' | 'db' | 'inline' | 'miss';
     strictReplica?: boolean;
     copytradeFallbackPricingGuard?: CopytradeFallbackPricingGuardContext;
+    copytradePendingPositionId?: string;
   };
   executionPlan?: ExecutionPlanV1;
   runtimeContext?: OrderRuntimeContext;
@@ -509,7 +511,8 @@ export class MainSwapService {
       request.runtimeContext = runtimeContext;
       setOrderMetadata(runtimeContext, {
         slippageBps: request.slippageBps ?? null,
-        mode: request.mode
+        mode: request.mode,
+        copytradePendingPositionId: request.executionContext?.copytradePendingPositionId || null,
       });
       const finalizeResult = (result: MainSwapResult): MainSwapResult => {
         const enriched: MainSwapResult = {
@@ -2035,6 +2038,33 @@ export class MainSwapService {
         skipNoLiquidity: turboSkip0xBuyNoLiq,
       });
       const turboHardFailure = /revert|execution reverted|rpc_failed|all rpc endpoints failed|eth_sendrawtransaction|nonce|insufficient|replacement transaction|network failure|temporarily unavailable|service unavailable|http 50[234]/i.test(directFailureMessage);
+
+      if (isTurboCopytrade && isBuyDirection) {
+        const admission = await evaluateCopytradeBuyAdmission({
+          pendingPositionId: request.executionContext?.copytradePendingPositionId,
+        });
+        if (admission.blocked) {
+          logger.warn(LogCode.SYS_INFO, trace('Turbo copytrade buy blocked before fallback due to sell preemption or closed pending position'), {
+            reasonCode: admission.reasonCode,
+            pendingPositionId: request.executionContext?.copytradePendingPositionId || null,
+            targetSellTxHash: admission.targetSellTxHash || null,
+            acceptedTxHash: admission.acceptedTxHash || null,
+            direct_timeout_reason: directTimeoutReason || undefined,
+            fallback_used: false,
+          });
+          return {
+            success: false,
+            error: admission.reasonCode,
+            txLifecycle: lastDirectResult?.txLifecycle || request.runtimeContext?.lastLifecycle,
+            runtimeContext: request.runtimeContext,
+            metadata: {
+              provider: lastDirectResult?.provider || 'blocked',
+              mode: request.mode,
+              txLifecycleStatus: lastDirectResult?.txLifecycle?.status || request.runtimeContext?.lastLifecycle?.status,
+            }
+          };
+        }
+      }
 
       if (isTurboCopytrade && isBuyDirection) {
         if (!turboCopytradeFallbackPlan.shouldFallback) {

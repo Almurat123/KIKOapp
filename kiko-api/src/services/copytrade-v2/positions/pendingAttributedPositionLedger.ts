@@ -20,6 +20,11 @@ export interface PendingAttributedPositionLotLike {
   createdAt?: Date | null;
 }
 
+function isOnchainTxHash(value?: string | null): boolean {
+  const normalized = String(value || '').trim().toLowerCase();
+  return /^0x[a-f0-9]{64}$/.test(normalized);
+}
+
 function normalizeOptionalAmount(value?: string | null): string | null {
   const raw = String(value || '').trim();
   return raw ? raw : null;
@@ -88,6 +93,42 @@ export async function cancelPendingAttributedPosition(params: {
     },
   });
   return result.count;
+}
+
+export async function markPendingAttributedPositionAccepted(params: {
+  positionId?: string | null;
+  entryTxHash: string;
+  reasonCode: string;
+  positionStatus?: 'pending_broadcast' | 'broadcasted_unseen';
+}): Promise<number> {
+  const positionId = String(params.positionId || '').trim();
+  const entryTxHash = String(params.entryTxHash || '').trim().toLowerCase();
+  if (!positionId || !isOnchainTxHash(entryTxHash)) return 0;
+
+  const [pendingResult, positionResult] = await Promise.all([
+    prisma.pendingAttributedPosition.updateMany({
+      where: {
+        positionId,
+        status: { in: ['armed', 'sell_armed'] },
+      },
+      data: {
+        entryTxHash,
+        reasonCode: params.reasonCode,
+      },
+    }),
+    prisma.position.updateMany({
+      where: {
+        id: positionId,
+        status: { in: ['pending', 'pending_broadcast', 'broadcasted_unseen'] as any },
+      },
+      data: {
+        entryTxHash,
+        status: (params.positionStatus || 'pending_broadcast') as any,
+      },
+    }),
+  ]);
+
+  return Math.max(pendingResult.count, positionResult.count);
 }
 
 export async function armPendingAttributedPositionsForMirrorSell(params: {
