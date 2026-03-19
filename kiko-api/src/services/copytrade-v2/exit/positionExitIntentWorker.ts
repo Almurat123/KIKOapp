@@ -25,7 +25,10 @@ import {
 import { recordExitIntentProgress } from './exitIntentProgress.js';
 import { persistTerminalExitBlockState } from './persistence.js';
 import { advanceCanonicalOrderState, findCanonicalOrderByIdentity } from '../orders/canonicalOrderState.js';
-import { shouldAwaitBuyConfirmationForMirrorSell } from '../orders/canonicalOrderPolicy.js';
+import {
+  canExecuteMirrorSellFromPendingExposure,
+  shouldAwaitBuyConfirmationForMirrorSell,
+} from '../orders/canonicalOrderPolicy.js';
 
 const EVM_EXIT_CONCURRENCY = Math.max(2, Number(process.env.COPYTRADE_EVM_EXIT_CONCURRENCY || '6'));
 const SOLANA_EXIT_CONCURRENCY = Math.max(1, Number(process.env.COPYTRADE_SOLANA_EXIT_CONCURRENCY || '2'));
@@ -299,10 +302,18 @@ async function processExitIntent(intent: any): Promise<void> {
       return;
     }
 
+    const allowMirrorSellFromPendingExposure = canExecuteMirrorSellFromPendingExposure({
+      exitReason: intent.exitReason,
+      positionStatus: position.status,
+      canonicalOrderLifecycle: canonicalOrderLifecycleState,
+      entryTxHash: position.entryTxHash,
+    });
+
     if (shouldAwaitBuyConfirmationForMirrorSell({
       exitReason: intent.exitReason,
       positionStatus: position.status,
       canonicalOrderLifecycle: canonicalOrderLifecycleState,
+      entryTxHash: position.entryTxHash,
     })) {
       const queueRetryCount = readQueueRetryCount(intent) + 1;
       if (queueRetryCount > MAX_QUEUE_RETRY_ATTEMPTS) {
@@ -368,7 +379,10 @@ async function processExitIntent(intent: any): Promise<void> {
       }).catch(() => null);
     }
 
-    if (!['open', 'pending'].includes(String(position.status || '').toLowerCase())) {
+    if (
+      !['open', 'pending'].includes(String(position.status || '').toLowerCase())
+      && !allowMirrorSellFromPendingExposure
+    ) {
       const normalizedStatus = String(position.status || '').toLowerCase();
       if (normalizedStatus === 'closed') {
         await updatePositionExitIntentState({

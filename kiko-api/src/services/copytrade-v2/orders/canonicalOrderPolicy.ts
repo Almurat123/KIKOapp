@@ -36,8 +36,13 @@ export function shouldAwaitBuyConfirmationForMirrorSell(params: {
   exitReason?: string | null;
   positionStatus?: string | null;
   canonicalOrderLifecycle?: string | null;
+  entryTxHash?: string | null;
 }): boolean {
   if (String(params.exitReason || '').trim().toLowerCase() !== 'mirror_sell') {
+    return false;
+  }
+
+  if (canExecuteMirrorSellFromPendingExposure(params)) {
     return false;
   }
 
@@ -48,4 +53,31 @@ export function shouldAwaitBuyConfirmationForMirrorSell(params: {
 
   const lifecycleState = String(params.canonicalOrderLifecycle || '').trim().toUpperCase();
   return lifecycleState === 'BUY_SUBMITTING' || lifecycleState === 'BUY_ACCEPTED';
+}
+
+export function canExecuteMirrorSellFromPendingExposure(params: {
+  exitReason?: string | null;
+  positionStatus?: string | null;
+  canonicalOrderLifecycle?: string | null;
+  entryTxHash?: string | null;
+}): boolean {
+  if (String(params.exitReason || '').trim().toLowerCase() !== 'mirror_sell') {
+    return false;
+  }
+
+  const lifecycleState = String(params.canonicalOrderLifecycle || '').trim().toUpperCase();
+  if (lifecycleState !== 'EXIT_ARMED') {
+    return false;
+  }
+
+  const entryTxHash = readMetadataString(
+    params.entryTxHash ? { entryTxHash: params.entryTxHash } : null,
+    'entryTxHash',
+  );
+  if (!entryTxHash) {
+    return false;
+  }
+
+  const normalizedStatus = String(params.positionStatus || '').trim().toLowerCase();
+  return normalizedStatus === 'pending_broadcast' || normalizedStatus === 'broadcasted_unseen';
 }

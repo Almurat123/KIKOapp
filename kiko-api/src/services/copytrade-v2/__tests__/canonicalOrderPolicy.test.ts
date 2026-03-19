@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  canExecuteMirrorSellFromPendingExposure,
   resolveCanonicalSellPreemption,
   shouldAwaitBuyConfirmationForMirrorSell,
 } from '../orders/canonicalOrderPolicy.js';
@@ -36,4 +37,22 @@ test('mirror sell does not wait once open position is ready for exit', () => {
     positionStatus: 'open',
     canonicalOrderLifecycle: 'BUY_CONFIRMED_OPEN',
   }), false);
+});
+
+test('mirror sell does not wait when sell-preempted order has pending broadcast tx exposure', () => {
+  assert.equal(shouldAwaitBuyConfirmationForMirrorSell({
+    exitReason: 'mirror_sell',
+    positionStatus: 'pending_broadcast',
+    canonicalOrderLifecycle: 'EXIT_ARMED',
+    entryTxHash: '0xbuy',
+  }), false);
+});
+
+test('mirror sell can execute from pending broadcast exposure once order is exit-armed', () => {
+  assert.equal(canExecuteMirrorSellFromPendingExposure({
+    exitReason: 'mirror_sell',
+    positionStatus: 'broadcasted_unseen',
+    canonicalOrderLifecycle: 'EXIT_ARMED',
+    entryTxHash: '0xbuy',
+  }), true);
 });
