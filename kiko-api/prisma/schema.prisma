@@ -546,7 +546,7 @@ model PositionExitIntent {
 
 model CopytradeOrder {
   id              String                 @id
-  canonicalKey    String?                @unique(map: "copytrade_orders_canonical_key")
+  canonicalKey    String?                @map("canonical_key") @unique(map: "copytrade_orders_canonical_key")
   chainId         Int                    @map("chain_id")
   txHash          String                 @map("tx_hash")
   targetWallet    String                 @map("target_wallet")
