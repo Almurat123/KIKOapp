@@ -4,6 +4,7 @@ import { resolveTxFinalState } from '../../order-runtime/adjudicator/finalState.
 
 export interface CopytradeBuyAcceptedInflightDecision {
   adoptAcceptedTx: boolean;
+  blockAdditionalSend: boolean;
   txHash?: string;
   reasonCode: string;
   shouldDeferFeeCollection: boolean;
@@ -20,6 +21,7 @@ export function evaluateCopytradeBuyAcceptedInflight(params: {
   if (params.mode !== 'copytrade' || !params.isBuyDirection) {
     return {
       adoptAcceptedTx: false,
+      blockAdditionalSend: false,
       reasonCode: 'not_copytrade_buy',
       shouldDeferFeeCollection: false
     };
@@ -33,9 +35,20 @@ export function evaluateCopytradeBuyAcceptedInflight(params: {
   });
 
   const acceptedTxHash = params.runtimeContext?.canonicalTxHash || params.txHash || undefined;
+  const runtimeState = String(params.runtimeContext?.state || '').trim().toLowerCase();
+  const lifecycleStatus = String(params.lifecycle?.status || '').trim().toLowerCase();
+  const hasSendStartedEvidence = runtimeState === 'send_started'
+    || params.runtimeContext?.attempts?.some((attempt) => attempt.state === 'sending') === true;
+  if (hasSendStartedEvidence && !resolution.failed) {
+    return {
+      adoptAcceptedTx: false,
+      blockAdditionalSend: true,
+      txHash: acceptedTxHash,
+      reasonCode: 'send_started',
+      shouldDeferFeeCollection: true,
+    };
+  }
   if (!resolution.accepted || resolution.failed || !acceptedTxHash) {
-    const runtimeState = String(params.runtimeContext?.state || '').trim().toLowerCase();
-    const lifecycleStatus = String(params.lifecycle?.status || '').trim().toLowerCase();
     const hasDurableAcceptedEvidence = Boolean(acceptedTxHash)
       && !resolution.failed
       && (
@@ -49,6 +62,7 @@ export function evaluateCopytradeBuyAcceptedInflight(params: {
     if (hasDurableAcceptedEvidence) {
       return {
         adoptAcceptedTx: true,
+        blockAdditionalSend: true,
         txHash: acceptedTxHash,
         reasonCode: runtimeState || lifecycleStatus || 'accepted_hash_present',
         shouldDeferFeeCollection: lifecycleStatus !== 'visible_pending' && lifecycleStatus !== 'confirmed_success',
@@ -56,6 +70,7 @@ export function evaluateCopytradeBuyAcceptedInflight(params: {
     }
     return {
       adoptAcceptedTx: false,
+      blockAdditionalSend: false,
       reasonCode: resolution.reasonCode || 'not_accepted',
       shouldDeferFeeCollection: false
     };
@@ -63,6 +78,7 @@ export function evaluateCopytradeBuyAcceptedInflight(params: {
 
   return {
     adoptAcceptedTx: true,
+    blockAdditionalSend: true,
     txHash: acceptedTxHash,
     reasonCode: resolution.reasonCode || resolution.state || 'send_accepted',
     shouldDeferFeeCollection: !resolution.visible && !resolution.success

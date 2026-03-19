@@ -87,6 +87,79 @@ test('evm buy submission flow preserves unresolved turbo submissions for later r
   assert.equal(result.txLifecycleStatus, 'broadcasted_unseen');
 });
 
+test('evm buy submission flow preserves send-started copytrade buys instead of retrying another send', async () => {
+  const result = await executeEvmCopytradeBuySubmissionFlow(
+    {
+      userId: 'user-send-started',
+      privyUserId: 'did:privy:user-send-started',
+      walletAddress: '0x1234567890123456789012345678901234567890',
+      tokenToBuy: '0x9999999999999999999999999999999999999999',
+      chainId: 8453,
+      usdAmount: 10,
+      nativePrice: 2000,
+      baseSlippageBps: 300,
+      executionMode: 'turbo',
+      turboMode: true,
+      fastSwapMode: true,
+      checkTokenBeforeSwap: false,
+      tokenInfo: { price: 0.01 },
+    },
+    {
+      async buildCopytradeBuyPlannedArtifact() {
+        return {
+          executionContextBase: {
+            sourceTxHash: '0xleader-send-started',
+          },
+          async getExecutionPlan() {
+            return null;
+          },
+        } as any;
+      },
+      async executeSwapViaPort(request) {
+        request.runtimeContext = {
+          orderId: 'order-send-started',
+          chainId: 8453,
+          userId: 'did:privy:user-send-started',
+          walletAddress: '0x1234567890123456789012345678901234567890',
+          side: 'buy',
+          mode: 'copytrade',
+          state: 'send_started',
+          reasonCode: 'none',
+          relatedTxHashes: [],
+          route: {},
+          timing: { createdAt: Date.now(), sendStartedAt: Date.now() },
+          attempts: [{
+            id: 'attempt-1',
+            attempt: 1,
+            channel: 'privy_sendtx',
+            state: 'sending',
+            startedAt: Date.now(),
+            updatedAt: Date.now(),
+          }],
+          fallbackUsed: false,
+          metadata: {},
+        };
+        return {
+          success: false,
+          error: 'copytrade_buy_send_inflight',
+          runtimeContext: request.runtimeContext,
+          metadata: {
+            provider: 'direct-swap',
+            mode: request.mode,
+          },
+        };
+      },
+      shouldAbortCopytradeBuyRetry() {
+        return { shouldAbortRetry: false, reasonCode: 'none' };
+      },
+    },
+  );
+
+  assert.equal(result.status, 'submitted_unresolved');
+  assert.equal(result.reasonCode, 'send_started');
+  assert.equal(result.txLifecycleStatus, 'broadcasted_unseen');
+});
+
 test('evm buy submission flow carries fallback pricing guard context into turbo requests', async () => {
   let capturedRequest: MainSwapRequest | null = null;
 
@@ -263,5 +336,65 @@ test('evm buy submission flow aborts before send when a buy tx was already accep
   assert.deepEqual(result, {
     status: 'aborted',
     reasonCode: 'buy_tx_already_accepted',
+  });
+});
+
+test('evm buy submission flow passes canonical leader-buy identity to admission guard without a pending position id', async () => {
+  let executeCalled = false;
+  let capturedAdmissionArgs: Record<string, unknown> | null = null;
+
+  const result = await executeEvmCopytradeBuySubmissionFlow(
+    {
+      userId: 'user-5',
+      privyUserId: 'did:privy:user-5',
+      walletAddress: '0x1234567890123456789012345678901234567890',
+      tokenToBuy: '0x9999999999999999999999999999999999999999',
+      chainId: 8453,
+      usdAmount: 15,
+      nativePrice: 2500,
+      baseSlippageBps: 300,
+      executionMode: 'turbo',
+      turboMode: true,
+      fastSwapMode: true,
+      checkTokenBeforeSwap: false,
+      tokenInfo: { price: 0.03 },
+    },
+    {
+      async buildCopytradeBuyPlannedArtifact() {
+        return {
+          executionContextBase: {
+            sourceTxHash: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+          },
+          async getExecutionPlan() {
+            return null;
+          },
+        } as any;
+      },
+      async evaluateCopytradeBuyAdmission(args) {
+        capturedAdmissionArgs = args as any;
+        return {
+          blocked: true,
+          reasonCode: 'buy_tx_already_accepted',
+          acceptedTxHash: '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+        };
+      },
+      async executeSwapViaPort() {
+        executeCalled = true;
+        throw new Error('should_not_execute');
+      },
+    },
+  );
+
+  assert.equal(executeCalled, false);
+  assert.deepEqual(result, {
+    status: 'aborted',
+    reasonCode: 'buy_tx_already_accepted',
+  });
+  assert.deepEqual(capturedAdmissionArgs, {
+    pendingPositionId: undefined,
+    userId: 'user-5',
+    chainId: 8453,
+    tokenAddress: '0x9999999999999999999999999999999999999999',
+    leaderBuyTxHash: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
   });
 });

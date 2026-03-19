@@ -200,6 +200,7 @@ export interface MainSwapRequest {
     strictReplica?: boolean;
     copytradeFallbackPricingGuard?: CopytradeFallbackPricingGuardContext;
     copytradePendingPositionId?: string;
+    copytradeUserId?: string;
   };
   executionPlan?: ExecutionPlanV1;
   runtimeContext?: OrderRuntimeContext;
@@ -2016,6 +2017,26 @@ export class MainSwapService {
           }
         };
       }
+      if (acceptedBeforeFallback.blockAdditionalSend) {
+        logger.warn(LogCode.SYS_INFO, trace('Direct swap send already started; blocking fallback resend for copytrade buy'), {
+          txHash: acceptedBeforeFallback.txHash || undefined,
+          reasonCode: acceptedBeforeFallback.reasonCode,
+          runtimeState: request.runtimeContext?.state || null,
+          lifecycleStatus: lastDirectResult?.txLifecycle?.status || request.runtimeContext?.lastLifecycle?.status || null,
+        });
+        return {
+          success: false,
+          error: 'copytrade_buy_send_inflight',
+          reasonCode: 'copytrade_buy_send_inflight',
+          txLifecycle: lastDirectResult?.txLifecycle || request.runtimeContext?.lastLifecycle,
+          runtimeContext: request.runtimeContext,
+          metadata: {
+            provider: lastDirectResult?.provider || 'direct-swap',
+            mode: request.mode,
+            txLifecycleStatus: lastDirectResult?.txLifecycle?.status || request.runtimeContext?.lastLifecycle?.status,
+          }
+        };
+      }
 
       const routeMs = directTraceState.first_send_at
         ? directTraceState.first_send_at - directTraceState.direct_start_at
@@ -2042,6 +2063,10 @@ export class MainSwapService {
       if (isTurboCopytrade && isBuyDirection) {
         const admission = await evaluateCopytradeBuyAdmission({
           pendingPositionId: request.executionContext?.copytradePendingPositionId,
+          userId: request.executionContext?.copytradeUserId,
+          chainId: request.chainId,
+          tokenAddress: request.tokenOut,
+          leaderBuyTxHash: request.executionContext?.sourceTxHash,
         });
         if (admission.blocked) {
           logger.warn(LogCode.SYS_INFO, trace('Turbo copytrade buy blocked before fallback due to sell preemption or closed pending position'), {

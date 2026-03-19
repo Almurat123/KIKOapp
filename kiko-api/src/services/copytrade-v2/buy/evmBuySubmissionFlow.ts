@@ -102,6 +102,7 @@ export async function executeEvmCopytradeBuySubmissionFlow(params: {
     tokenOut: params.tokenToBuy,
     swap: params.swap,
   });
+  const leaderBuyTxHash = String(plannedArtifact.executionContextBase?.sourceTxHash || '').trim().toLowerCase() || null;
 
   const buildRequest = async (args: {
     amount: number;
@@ -139,6 +140,7 @@ export async function executeEvmCopytradeBuySubmissionFlow(params: {
           allowUnreliablePriceBypass: params.allowFallbackEntryDeviationBypass,
         } : undefined,
         copytradePendingPositionId: params.pendingPositionId || undefined,
+        copytradeUserId: params.userId,
       },
       executionPlan,
       userSettings: {
@@ -185,13 +187,23 @@ export async function executeEvmCopytradeBuySubmissionFlow(params: {
     });
     if (resolution.failed || resolution.success) return null;
     const errorText = compactCopyTradeError(failedResult?.error || failedResult?.metadata?.txLifecycleStatus || reasonCode).toLowerCase();
+    const runtimeState = String(runtimeContext.state || '').trim().toLowerCase();
     const looksUnresolved =
       errorText.includes('timeout')
       || errorText.includes('rpc')
       || errorText.includes('network')
+      || errorText.includes('send_inflight')
+      || runtimeState === 'send_started'
       || resolution.state === 'rpc_uncertain'
       || resolution.state === 'send_accepted';
     if (!looksUnresolved) return null;
+    const unresolvedReasonCode = runtimeState === 'send_started'
+      ? 'send_started'
+      : errorText.includes('send_inflight')
+        ? 'copytrade_buy_send_inflight'
+        : (resolution.reasonCode && resolution.reasonCode !== 'none'
+          ? resolution.reasonCode
+          : 'submission_unresolved');
     logger.warn(LogCode.SYS_INFO, reasonCode, {
       userId: params.userId,
       token: params.tokenToBuy,
@@ -203,7 +215,7 @@ export async function executeEvmCopytradeBuySubmissionFlow(params: {
     });
     return {
       status: 'submitted_unresolved',
-      reasonCode: resolution.reasonCode || 'submission_unresolved',
+      reasonCode: unresolvedReasonCode,
       txLifecycleStatus: failedResult?.txLifecycle?.status || failedResult?.metadata?.txLifecycleStatus || runtimeContext.lastLifecycle?.status || 'broadcasted_unseen',
       runtimeContext,
       swapMetadata: failedResult?.metadata,
@@ -213,6 +225,10 @@ export async function executeEvmCopytradeBuySubmissionFlow(params: {
   const abortIfBuyPreempted = async (stage: string): Promise<EvmCopytradeBuySubmissionResult | null> => {
     const admission = await admissionGuard({
       pendingPositionId: params.pendingPositionId,
+      userId: params.userId,
+      chainId: params.chainId,
+      tokenAddress: params.tokenToBuy,
+      leaderBuyTxHash,
     });
     if (!admission.blocked) return null;
     logger.warn(LogCode.SYS_INFO, `[CopyTradeBuyGuard] Buy submission aborted before ${stage}`, {

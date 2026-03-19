@@ -22,22 +22,83 @@ function isOnchainTxHash(value?: string | null): boolean {
 
 export async function evaluateCopytradeBuyAdmission(params: {
   pendingPositionId?: string | null;
+  userId?: string | null;
+  chainId?: number | null;
+  tokenAddress?: string | null;
+  leaderBuyTxHash?: string | null;
 }): Promise<CopytradeBuyAdmissionDecision> {
   const pendingPositionId = String(params.pendingPositionId || '').trim();
-  if (!pendingPositionId) {
+  const userId = String(params.userId || '').trim();
+  const tokenAddress = String(params.tokenAddress || '').trim().toLowerCase();
+  const leaderBuyTxHash = String(params.leaderBuyTxHash || '').trim().toLowerCase();
+  const chainId = Number(params.chainId);
+
+  const canQueryCanonicalIdentity =
+    Boolean(userId)
+    && Boolean(tokenAddress)
+    && Boolean(leaderBuyTxHash)
+    && Number.isFinite(chainId)
+    && chainId > 0;
+
+  if (!pendingPositionId && !canQueryCanonicalIdentity) {
     return { blocked: false, reasonCode: 'buy_admission_ok' };
   }
 
-  const [position, pendingLot] = await Promise.all([
-    prisma.position.findUnique({
-      where: { id: pendingPositionId },
-      select: {
-        id: true,
-        status: true,
-      },
-    }).catch(() => null),
-    getPendingAttributedPositionById(pendingPositionId).catch(() => null),
-  ]);
+  let position: { id: string; status: string; entryTxHash?: string | null } | null = null;
+  let pendingLot: {
+    status?: string | null;
+    targetSellTxHash?: string | null;
+    entryTxHash?: string | null;
+  } | null = null;
+
+  if (pendingPositionId) {
+    [position, pendingLot] = await Promise.all([
+      prisma.position.findUnique({
+        where: { id: pendingPositionId },
+        select: {
+          id: true,
+          status: true,
+          entryTxHash: true,
+        },
+      }).catch(() => null),
+      getPendingAttributedPositionById(pendingPositionId).catch(() => null),
+    ]);
+  }
+
+  if (!position && canQueryCanonicalIdentity) {
+    const [canonicalPosition, canonicalPendingLot] = await Promise.all([
+      prisma.position.findFirst({
+        where: {
+          userId,
+          chainId,
+          tokenAddress,
+          leaderTxHash: leaderBuyTxHash,
+        },
+        orderBy: { createdAt: 'desc' },
+        select: {
+          id: true,
+          status: true,
+          entryTxHash: true,
+        },
+      }).catch(() => null),
+      prisma.pendingAttributedPosition.findFirst({
+        where: {
+          userId,
+          chainId,
+          tokenAddress,
+          leaderBuyTxHash,
+        },
+        orderBy: { createdAt: 'desc' },
+        select: {
+          status: true,
+          targetSellTxHash: true,
+          entryTxHash: true,
+        },
+      }).catch(() => null),
+    ]);
+    position = canonicalPosition;
+    pendingLot = canonicalPendingLot;
+  }
 
   const positionStatus = String(position?.status || '').toLowerCase();
   if (positionStatus === 'closed' || positionStatus === 'failed' || positionStatus === 'failed_final') {
@@ -78,8 +139,8 @@ export async function evaluateCopytradeBuyAdmission(params: {
       blocked: true,
       reasonCode: 'position_already_open',
       targetSellTxHash: pendingLot?.targetSellTxHash || null,
-      acceptedTxHash: isOnchainTxHash(position?.id ? pendingLot?.entryTxHash : null)
-        ? String(pendingLot?.entryTxHash || '').toLowerCase()
+      acceptedTxHash: isOnchainTxHash(pendingLot?.entryTxHash || position?.entryTxHash)
+        ? String(pendingLot?.entryTxHash || position?.entryTxHash || '').toLowerCase()
         : null,
     };
   }
@@ -87,14 +148,14 @@ export async function evaluateCopytradeBuyAdmission(params: {
   if (
     positionStatus === 'pending_broadcast'
     || positionStatus === 'broadcasted_unseen'
-    || isOnchainTxHash(pendingLot?.entryTxHash)
+    || isOnchainTxHash(pendingLot?.entryTxHash || position?.entryTxHash)
   ) {
     return {
       blocked: true,
       reasonCode: 'buy_tx_already_accepted',
       targetSellTxHash: pendingLot?.targetSellTxHash || null,
-      acceptedTxHash: isOnchainTxHash(pendingLot?.entryTxHash)
-        ? String(pendingLot?.entryTxHash || '').toLowerCase()
+      acceptedTxHash: isOnchainTxHash(pendingLot?.entryTxHash || position?.entryTxHash)
+        ? String(pendingLot?.entryTxHash || position?.entryTxHash || '').toLowerCase()
         : null,
     };
   }

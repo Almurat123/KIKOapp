@@ -55,3 +55,48 @@ test('assembleChatContext uses all-chain balances to seed current wallet state w
     assert.ok(Array.isArray(snapshot.runtime.prefetchedToolResults?.get_wallet_info?.tokens));
     assert.equal(snapshot.runtime.prefetchedToolResults?.get_wallet_info?.tokens?.[0]?.symbol, 'USDC');
 });
+
+test('assembleChatContext surfaces exact requested token balances from direct token balance hydration', () => {
+    const token = '0xe6cbe943baef2dbca46d68fe0db2e3a60073bba3';
+    const snapshot = assembleChatContext({
+        task: {
+            id: 'task-2',
+            sessionId: 'session-2',
+            userMessageId: 'user-2',
+            assistantMessageId: 'assistant-2',
+            model: 'gpt-5-mini',
+            toolContext: {
+                walletAddress: '0xA386bc9D8F26AB170A847D73226e3e0BCEb0fe8E',
+                chainId: 8453,
+                chainName: 'Base',
+                nativeBalance: '0.000642567281279995',
+                balance: {
+                    [token]: {
+                        balance: '1870734.311693124190730712',
+                        tokenBalance: '1870734.311693124190730712',
+                        decimals: 18,
+                        contractAddress: token,
+                    },
+                },
+                balanceSnapshotAt: '2026-03-19T00:00:00.000Z',
+            },
+        },
+        session: {
+            userId: 'user-2',
+        },
+        messages: [
+            {
+                role: 'user',
+                content: `Sell all ${token} to ETH`,
+            },
+        ],
+        toolDefinitions: [],
+        userId: 'user-2',
+    });
+
+    const walletState = String(snapshot.runtime.contextBlocks?.walletState || '');
+    assert.match(walletState, /1870734\.311693124190730712/);
+    assert.match(walletState, /\[REQUESTED_BALANCES\]/);
+    assert.equal(snapshot.runtime.prefetchedToolResults?.get_wallet_info?.tokens?.[0]?.contractAddress, token);
+    assert.equal(snapshot.runtime.prefetchedToolResults?.get_wallet_info?.tokens?.[0]?.balance, '1870734.311693124190730712');
+});

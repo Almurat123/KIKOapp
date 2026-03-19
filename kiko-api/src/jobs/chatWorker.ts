@@ -382,6 +382,11 @@ export class ChatWorker {
         const isTradeLike = /\b(swap|buy|sell|trade|convert|ape|bridge|cross[\s-]?chain)\b/i.test(lower) || /买|卖|换|兑换|跨链/.test(lower);
         const wantsWallet = /\b(balance|portfolio|wallet|holdings|pnl)\b/i.test(lower) || /余额|钱包|持有/.test(lower);
         if (!isTradeLike && !wantsWallet) return;
+        const requestedTokenAddresses = Array.from(new Set(
+            messages
+                .filter((msg) => msg.role === 'user')
+                .flatMap((msg) => Array.from(String(msg.content || '').matchAll(/\b0x[a-fA-F0-9]{40}\b/g)).map((match) => String(match[0] || '').toLowerCase())),
+        ));
 
         const chainMap: Record<number, string> = {
             1: 'eth',
@@ -452,7 +457,41 @@ export class ChatWorker {
                 toolContext.allChainBalances = allChainBalances;
                 toolContext.allChainBalancesSnapshotAt = new Date().toISOString();
             }
-            if (Object.keys(hydratedBalance).length > 0 || (allChainBalances && typeof allChainBalances === 'object')) {
+
+            const exactBalanceChain = chainMap[chainId];
+            if (exactBalanceChain && requestedTokenAddresses.length > 0) {
+                const mergedBalance: Record<string, any> = {
+                    ...(toolContext.balance && typeof toolContext.balance === 'object' ? toolContext.balance : {}),
+                };
+
+                for (const tokenAddress of requestedTokenAddresses) {
+                    try {
+                        const exactBalance = await walletService.getTokenBalance(walletAddress, exactBalanceChain, tokenAddress);
+                        mergedBalance[tokenAddress] = {
+                            balance: exactBalance.formatted,
+                            tokenBalance: exactBalance.formatted,
+                            decimals: exactBalance.decimals,
+                            contractAddress: tokenAddress,
+                        };
+                    } catch (error: any) {
+                        logger.warn(LogCode.API_FETCH_FAILED, 'ChatWorker: failed to hydrate exact requested token balance', {
+                            taskId: task.id,
+                            sessionId: task.sessionId,
+                            walletAddress: walletAddress.slice(0, 10),
+                            chainId,
+                            tokenAddress,
+                            error: error?.message || String(error),
+                        });
+                    }
+                }
+
+                if (Object.keys(mergedBalance).length > 0) {
+                    toolContext.balance = mergedBalance;
+                    toolContext.balanceSnapshotAt = new Date().toISOString();
+                }
+            }
+
+            if (toolContext.balance || Object.keys(hydratedBalance).length > 0 || (allChainBalances && typeof allChainBalances === 'object')) {
                 task.toolContext = toolContext;
             }
         } catch (error: any) {
