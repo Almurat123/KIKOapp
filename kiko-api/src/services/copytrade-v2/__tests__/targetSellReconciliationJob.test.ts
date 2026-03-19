@@ -4,6 +4,7 @@ import test from 'node:test';
 import {
   buildOrphanRecoveryMarkers,
   resolveRecentTargetSellSignals,
+  shouldRunTargetSellReconcileCycle,
   shouldSkipOrphanRecoveryForResolvedMirrorSell,
   shouldSkipOrphanRecoveryResidual,
 } from '../reconcile/targetSellReconciliationJob.js';
@@ -98,5 +99,29 @@ test('orphan recovery skips when a resolved mirror sell already exists for the s
       hasResolvedMirrorSellForTargetSell: false,
     }),
     false,
+  );
+});
+
+test('target sell reconcile skips entirely when there is no follower work context', () => {
+  assert.equal(
+    shouldRunTargetSellReconcileCycle({
+      activePositionCount: 0,
+      pendingAttributedLotCount: 0,
+    }),
+    false,
+  );
+  assert.equal(
+    shouldRunTargetSellReconcileCycle({
+      activePositionCount: 1,
+      pendingAttributedLotCount: 0,
+    }),
+    true,
+  );
+  assert.equal(
+    shouldRunTargetSellReconcileCycle({
+      activePositionCount: 0,
+      pendingAttributedLotCount: 1,
+    }),
+    true,
   );
 });

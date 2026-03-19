@@ -5,6 +5,10 @@ const NON_CRITICAL_IDLE_TIMEOUT_MS = Math.max(
   60_000,
   Number(process.env.NON_CRITICAL_IDLE_TIMEOUT_MS || `${30 * 60 * 1000}`)
 );
+const IDLE_SKIP_LOG_WINDOW_MS = Math.max(
+  30_000,
+  Number(process.env.IDLE_SKIP_LOG_WINDOW_MS || '300000')
+);
 
 let lastEndUserActivityAt = 0;
 
@@ -24,14 +28,13 @@ export function hasRecentEndUserActivity(now = Date.now()): boolean {
 export function shouldRunNonCriticalJob(jobName: string, now = Date.now()): boolean {
   const active = hasRecentEndUserActivity(now);
   if (!active) {
-    logger.info(LogCode.SYS_INFO, `[IdleMode] Skipping non-critical job while idle`, {
+    logger.throttled(LogCode.SYS_INFO, `[IdleMode] Skipping non-critical job while idle`, {
       jobName,
       idleTimeoutMs: NON_CRITICAL_IDLE_TIMEOUT_MS,
       lastEndUserActivityAt: lastEndUserActivityAt > 0
         ? new Date(lastEndUserActivityAt).toISOString()
         : null,
-    });
+    }, IDLE_SKIP_LOG_WINDOW_MS);
   }
   return active;
 }
-

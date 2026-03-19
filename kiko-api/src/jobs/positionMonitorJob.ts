@@ -10,7 +10,7 @@ import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
 
 // Check interval (ms)
-const CHECK_INTERVAL = 30000; // 30 seconds
+const CHECK_INTERVAL = 60000; // 60 seconds
 const IDLE_CHECK_INTERVAL = 10 * 60 * 1000; // 10 minutes
 
 let isRunning = false;
@@ -60,7 +60,7 @@ export function startPositionMonitor(): void {
         return;
     }
 
-    console.log('[PositionMonitor] Starting position monitor (every 30s)...');
+    console.log('[PositionMonitor] Starting position monitor (every 60s)...');
     isRunning = true;
 
     // Start checking after initial delay

@@ -1939,12 +1939,40 @@ export class MainSwapService {
         });
       }
 
-      if (!isTurboCopytrade && inflightDirectPromise) {
+      if (inflightDirectPromise) {
         const fallbackProbeMs = isTurboCopytrade ? 1800 : 1200;
         const settledBeforeFallback = await settleWithin(inflightDirectPromise, fallbackProbeMs);
         if (settledBeforeFallback) {
           lastDirectResult = settledBeforeFallback;
           if (settledBeforeFallback.success) {
+            const acceptedBeforeVisibility = evaluateCopytradeBuyAcceptedInflight({
+              mode: request.mode,
+              isBuyDirection,
+              chainId: request.chainId,
+              txHash: settledBeforeFallback.txHash,
+              runtimeContext: request.runtimeContext,
+              lifecycle: settledBeforeFallback.txLifecycle || null
+            });
+            if (acceptedBeforeVisibility.adoptAcceptedTx) {
+              logger.warn(LogCode.SYS_INFO, trace('Direct swap accepted before fallback visibility probe; locking tx and skipping fallback path'), {
+                txHash: acceptedBeforeVisibility.txHash || settledBeforeFallback.txHash,
+                reasonCode: acceptedBeforeVisibility.reasonCode,
+                deferFeeCollection: acceptedBeforeVisibility.shouldDeferFeeCollection,
+                probeMs: fallbackProbeMs,
+              });
+              return {
+                success: true,
+                txHash: acceptedBeforeVisibility.txHash || settledBeforeFallback.txHash,
+                amountOut: settledBeforeFallback.amountOut,
+                txLifecycle: settledBeforeFallback.txLifecycle,
+                runtimeContext: request.runtimeContext,
+                metadata: {
+                  provider: settledBeforeFallback.provider || 'direct-swap',
+                  mode: request.mode,
+                  txLifecycleStatus: settledBeforeFallback.txLifecycle?.status
+                }
+              };
+            }
             const visibleSettled = await enforceVisibilityGate(settledBeforeFallback, 'fallback_probe');
             lastDirectResult = visibleSettled;
             if (visibleSettled.success) {

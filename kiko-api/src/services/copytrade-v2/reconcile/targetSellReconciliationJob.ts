@@ -75,6 +75,11 @@ type WalletTransactionSellRow = {
   blockTimestamp: Date;
 };
 
+type TargetSellReconcileWorkContext = {
+  activePositionCount: number;
+  pendingAttributedLotCount: number;
+};
+
 let lastTrackedPositionSweepAt = 0;
 
 function computeDustThresholdRaw(decimals: number): bigint {
@@ -165,6 +170,33 @@ export function buildOrphanRecoveryMarkers(targetSellTxHash: string): {
   return {
     entryTxHash: `${ORPHAN_RECOVERY_ENTRY_TX_PREFIX}${normalized}`,
     leaderTxHash: `${ORPHAN_RECOVERY_LEADER_TX_PREFIX}${normalized}`,
+  };
+}
+
+export function shouldRunTargetSellReconcileCycle(context: TargetSellReconcileWorkContext): boolean {
+  return context.activePositionCount > 0 || context.pendingAttributedLotCount > 0;
+}
+
+async function loadTargetSellReconcileWorkContext(): Promise<TargetSellReconcileWorkContext> {
+  const [activePositionCount, pendingAttributedLotCount] = await Promise.all([
+    prisma.position.count({
+      where: {
+        status: { in: ['open', 'pending'] as any },
+      },
+    }).catch(() => 0),
+    prisma.pendingAttributedPosition.count({
+      where: {
+        status: { in: ['armed', 'sell_armed', 'consumed'] as any },
+        position: {
+          status: { in: ['open', 'pending'] as any },
+        },
+      },
+    }).catch(() => 0),
+  ]);
+
+  return {
+    activePositionCount,
+    pendingAttributedLotCount,
   };
 }
 
@@ -811,6 +843,27 @@ export async function runTargetSellReconciliationCycle(): Promise<{
   recoveredOrphans: number;
   scheduledRecoveredOrphans: number;
 }> {
+  const workContext = await loadTargetSellReconcileWorkContext();
+  if (!shouldRunTargetSellReconcileCycle(workContext)) {
+    const noopResult = {
+      scannedOpen: 0,
+      scannedPending: 0,
+      armedPending: 0,
+      scheduledOpen: 0,
+      fullExitMatches: 0,
+      recoveredOrphans: 0,
+      scheduledRecoveredOrphans: 0,
+    };
+    emitCopytradeSummaryAudit('RECONCILE_CYCLE_SUMMARY', {
+      action: 'noop',
+      ...noopResult,
+      activePositionCount: workContext.activePositionCount,
+      pendingAttributedLotCount: workContext.pendingAttributedLotCount,
+      legacyFallbackUsed: false,
+    });
+    return noopResult;
+  }
+
   const createdAfter = new Date(Date.now() - TARGET_SELL_RECONCILE_WINDOW_MS);
   const nowMs = Date.now();
   const shouldRunTrackedPositionSweep = nowMs - lastTrackedPositionSweepAt >= TARGET_SELL_POSITION_SWEEP_INTERVAL_MS;

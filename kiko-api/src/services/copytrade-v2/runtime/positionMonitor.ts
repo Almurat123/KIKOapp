@@ -7,7 +7,6 @@ import { DynamicTakeProfitService } from '../../dynamicTakeProfitService.js';
 import { getSolanaConnection, SOLANA_CONFIG } from '../../../config/solanaConfig.js';
 import { executeSolanaSwap } from '../../solanaExecutor.js';
 import { getSolanaEmbeddedWalletAddress } from '../../privyWallet.js';
-import { getTokenInfo } from '../../tokenService.js';
 import { getTokenMetadata } from '../../rpcService.js';
 import { getErc20Balance } from '../../rpcManager.js';
 import { trackCopyTrade, trackSwap } from '../../userActivityService.js';
@@ -43,6 +42,7 @@ import {
   type DistributedTokenExitLock,
 } from './tokenExitLock.js';
 import { evaluateAutoExitPriceGuard } from './autoExitPriceGuard.js';
+import { getGuardPriceSnapshot } from './guardPrice.js';
 import {
   ExitHotPathDeferredError,
   hasIntentContext,
@@ -988,8 +988,7 @@ export async function checkPositionsForExits(): Promise<void> {
                     continue;
                 }
 
-                const tokenInfo = await getTokenInfo(position.tokenAddress, position.chainId, {
-                    forceRefresh: true,
+                const tokenInfo = await getGuardPriceSnapshot(position.tokenAddress, position.chainId, {
                     priority: 'high',
                     rpcStrategy: TRADE_METADATA_PROFILE,
                 });
@@ -1062,8 +1061,7 @@ export async function checkPositionsForExits(): Promise<void> {
         const batch = tokenList.slice(i, i + TOKEN_BATCH_SIZE);
         await Promise.all(batch.map(async ({ address, chainId }) => {
             try {
-                const info = await getTokenInfo(address, chainId, {
-                    forceRefresh: true,
+                const info = await getGuardPriceSnapshot(address, chainId, {
                     priority: 'high',
                     rpcStrategy: TRADE_METADATA_PROFILE,
                 });
@@ -1169,12 +1167,11 @@ export async function checkPositionsForExits(): Promise<void> {
                 if (!tokenInfo && position.chainId === 900) {
                     // Solana-specific live retry using the validated token oracle path.
                     try {
-                        const live = await getTokenInfo(position.tokenAddress, position.chainId, {
-                            forceRefresh: true,
+                        const live = await getGuardPriceSnapshot(position.tokenAddress, position.chainId, {
                             priority: 'high',
                             rpcStrategy: TRADE_METADATA_PROFILE,
                         });
-                        if (live?.price > 0) {
+                        if (Number(live?.price || 0) > 0) {
                             tokenInfo = live;
                             tokenPriceMap.set(tokenKey, tokenInfo);
                             logger.info(LogCode.API_FETCH_SUCCESS, 'TP/SL price recovered via per-position Solana retry', {

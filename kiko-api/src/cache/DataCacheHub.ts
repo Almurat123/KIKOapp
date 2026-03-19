@@ -37,6 +37,18 @@ interface NativePriceData {
     timestamp: number;
 }
 
+interface TokenPriceSnapshotData {
+    price: number;
+    provider: string;
+    symbol?: string;
+    decimals?: number;
+    priceValidationReason?: string | null;
+    referencePrice?: number | null;
+    referenceProvider?: string | null;
+    priceFallbackUsed?: boolean;
+    timestamp: number;
+}
+
 interface UserSettingsData {
     settings: any;
     timestamp: number;
@@ -57,6 +69,9 @@ class DataCacheHub extends EventEmitter {
     
     // Native 价格缓存 (chainId -> Price)
     private nativePriceCache: Map<number, NativePriceData>;
+    private tokenInflight: Map<string, Promise<any>>;
+    private nativePriceInflight: Map<number, Promise<number>>;
+    private tokenPriceSnapshotCache: LRUCache<string, TokenPriceSnapshotData>;
     
     // User Settings 缓存 (userId -> Settings)
     private userSettingsCache: LRUCache<string, UserSettingsData>;
@@ -67,6 +82,7 @@ class DataCacheHub extends EventEmitter {
     // 缓存配置
     private readonly TOKEN_CACHE_TTL = 30 * 1000; // 30秒
     private readonly NATIVE_PRICE_TTL = 60 * 60 * 1000; // 1小时
+    private readonly TOKEN_PRICE_SNAPSHOT_TTL = 30 * 1000; // 30秒
     private readonly USER_SETTINGS_TTL = 5 * 60 * 1000; // 5分钟
     private readonly CONFIG_CACHE_TTL = 60 * 1000; // 1分钟
 
@@ -80,6 +96,12 @@ class DataCacheHub extends EventEmitter {
         });
 
         this.nativePriceCache = new Map();
+        this.tokenInflight = new Map();
+        this.nativePriceInflight = new Map();
+        this.tokenPriceSnapshotCache = new LRUCache<string, TokenPriceSnapshotData>({
+            max: 2000,
+            ttl: this.TOKEN_PRICE_SNAPSHOT_TTL,
+        });
         
         this.userSettingsCache = new LRUCache<string, UserSettingsData>({
             max: 500,
@@ -104,6 +126,10 @@ class DataCacheHub extends EventEmitter {
 
     // ==================== Token Info 缓存 ====================
 
+    private tokenPriceSnapshotKey(tokenAddress: string, chainId: number): string {
+        return `${chainId}:${tokenAddress.toLowerCase()}`;
+    }
+
     /**
      * 获取 Token 信息（从缓存或回调函数）
      */
@@ -123,22 +149,38 @@ class DataCacheHub extends EventEmitter {
             return cached;
         }
 
-        // 缓存未命中，调用获取函数
-        logger.debug(LogCode.CACHE_MISS, 'Token cache miss, fetching...', { token: tokenAddress });
-        const data = await fetchFn();
-        
-        if (data) {
-            const cacheData: TokenCacheData = {
-                ...data,
-                timestamp: Date.now()
-            };
-            this.tokenCache.set(cacheKey, cacheData);
-            
-            // 触发缓存更新事件
-            this.emit('tokenUpdated', { chainId, tokenAddress, data: cacheData });
+        const inflight = this.tokenInflight.get(cacheKey);
+        if (inflight) {
+            logger.debug(LogCode.CACHE_HIT, 'Token cache inflight reuse', {
+                token: tokenAddress,
+                chainId,
+            });
+            return inflight;
         }
 
-        return data;
+        // 缓存未命中，调用获取函数
+        logger.debug(LogCode.CACHE_MISS, 'Token cache miss, fetching...', { token: tokenAddress });
+        const promise = (async () => {
+            const data = await fetchFn();
+
+            if (data) {
+                const cacheData: TokenCacheData = {
+                    ...data,
+                    timestamp: Date.now()
+                };
+                this.tokenCache.set(cacheKey, cacheData);
+                
+                // 触发缓存更新事件
+                this.emit('tokenUpdated', { chainId, tokenAddress, data: cacheData });
+            }
+
+            return data;
+        })().finally(() => {
+            this.tokenInflight.delete(cacheKey);
+        });
+
+        this.tokenInflight.set(cacheKey, promise);
+        return promise;
     }
 
     /**
@@ -162,6 +204,57 @@ class DataCacheHub extends EventEmitter {
         );
     }
 
+    getTokenPriceSnapshot(tokenAddress: string, chainId: number): {
+        price: number;
+        provider: string;
+        symbol?: string;
+        decimals?: number;
+        priceValidationReason?: string | null;
+        referencePrice?: number | null;
+        referenceProvider?: string | null;
+        priceFallbackUsed?: boolean;
+    } | null {
+        const key = this.tokenPriceSnapshotKey(tokenAddress, chainId);
+        const cached = this.tokenPriceSnapshotCache.get(key);
+        if (!cached) return null;
+        if (!(Number.isFinite(cached.price) && cached.price > 0)) return null;
+        return {
+            price: cached.price,
+            provider: cached.provider,
+            symbol: cached.symbol,
+            decimals: cached.decimals,
+            priceValidationReason: cached.priceValidationReason ?? null,
+            referencePrice: cached.referencePrice ?? null,
+            referenceProvider: cached.referenceProvider ?? null,
+            priceFallbackUsed: Boolean(cached.priceFallbackUsed),
+        };
+    }
+
+    setTokenPriceSnapshot(tokenAddress: string, chainId: number, input: {
+        price: number;
+        provider: string;
+        symbol?: string;
+        decimals?: number;
+        priceValidationReason?: string | null;
+        referencePrice?: number | null;
+        referenceProvider?: string | null;
+        priceFallbackUsed?: boolean;
+    }): void {
+        if (!(Number.isFinite(input.price) && input.price > 0)) return;
+        const key = this.tokenPriceSnapshotKey(tokenAddress, chainId);
+        this.tokenPriceSnapshotCache.set(key, {
+            price: input.price,
+            provider: String(input.provider || 'unknown'),
+            symbol: input.symbol ? String(input.symbol) : undefined,
+            decimals: Number.isFinite(Number(input.decimals)) ? Number(input.decimals) : undefined,
+            priceValidationReason: input.priceValidationReason ? String(input.priceValidationReason) : null,
+            referencePrice: Number.isFinite(Number(input.referencePrice)) && Number(input.referencePrice) > 0 ? Number(input.referencePrice) : null,
+            referenceProvider: input.referenceProvider ? String(input.referenceProvider) : null,
+            priceFallbackUsed: Boolean(input.priceFallbackUsed),
+            timestamp: Date.now(),
+        });
+    }
+
     // ==================== Native Price 缓存 ====================
 
     /**
@@ -178,16 +271,29 @@ class DataCacheHub extends EventEmitter {
             return cached.price;
         }
 
-        // 缓存未命中
-        logger.debug(LogCode.CACHE_MISS, 'Native price cache miss, fetching...', { chainId });
-        const price = await fetchFn();
-        
-        if (price > 0) {
-            this.nativePriceCache.set(chainId, { price, timestamp: Date.now() });
-            this.emit('nativePriceUpdated', { chainId, price });
+        const inflight = this.nativePriceInflight.get(chainId);
+        if (inflight) {
+            logger.debug(LogCode.CACHE_HIT, 'Native price inflight reuse', { chainId });
+            return inflight;
         }
 
-        return price;
+        // 缓存未命中
+        logger.debug(LogCode.CACHE_MISS, 'Native price cache miss, fetching...', { chainId });
+        const promise = (async () => {
+            const price = await fetchFn();
+            
+            if (price > 0) {
+                this.nativePriceCache.set(chainId, { price, timestamp: Date.now() });
+                this.emit('nativePriceUpdated', { chainId, price });
+            }
+
+            return price;
+        })().finally(() => {
+            this.nativePriceInflight.delete(chainId);
+        });
+
+        this.nativePriceInflight.set(chainId, promise);
+        return promise;
     }
 
     /**
@@ -301,6 +407,9 @@ class DataCacheHub extends EventEmitter {
     clearAll() {
         this.tokenCache.clear();
         this.nativePriceCache.clear();
+        this.tokenInflight.clear();
+        this.nativePriceInflight.clear();
+        this.tokenPriceSnapshotCache.clear();
         this.userSettingsCache.clear();
         this.configCache.clear();
         logger.info(LogCode.SYS_STARTUP, 'All caches cleared');
@@ -314,6 +423,10 @@ class DataCacheHub extends EventEmitter {
             tokens: {
                 size: this.tokenCache.size,
                 max: this.tokenCache.max,
+            },
+            tokenPriceSnapshots: {
+                size: this.tokenPriceSnapshotCache.size,
+                max: this.tokenPriceSnapshotCache.max,
             },
             nativePrices: this.nativePriceCache.size,
             userSettings: {

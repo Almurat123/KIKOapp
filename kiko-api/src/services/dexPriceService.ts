@@ -28,6 +28,7 @@ import { LogCode } from '../config/logRegistry.js';
 import { getSolanaNativeQuotePrice } from './solana/direct/nativeQuote.js';
 import { buildScopedCacheKey, getScopedCacheValue, setScopedCacheValue, withScopedSingleFlight } from './rpc/cacheStore.js';
 import type { RpcExecutionLane } from './rpc/executionLane.js';
+import { cacheHub } from '../cache/DataCacheHub.js';
 
 const RAYDIUM_PRICE_API = 'https://api-v3.raydium.io/mint/price';
 const PUMP_FUN_PROGRAM_ID = '6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P';
@@ -93,6 +94,17 @@ export async function getDexPriceDetailed(
     if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
         return { price: cached.price, provider: cached.provider };
     }
+    if (typeof chainId === 'number') {
+        const sharedSnapshot = cacheHub.getTokenPriceSnapshot(tokenAddress, chainId);
+        if (sharedSnapshot) {
+            priceCache.set(cacheKey, {
+                price: sharedSnapshot.price,
+                provider: sharedSnapshot.provider,
+                timestamp: Date.now(),
+            });
+            return sharedSnapshot;
+        }
+    }
     const throttled = getScopedCacheValue<DexPriceResult | PriceFailureEntry>(sharedKey);
     if (throttled && 'kind' in throttled && throttled.kind === 'failure') {
         return { price: 0, provider: throttled.provider };
@@ -103,6 +115,17 @@ export async function getDexPriceDetailed(
             const hot = priceCache.get(cacheKey);
             if (hot && Date.now() - hot.timestamp < CACHE_TTL_MS) {
                 return { price: hot.price, provider: hot.provider };
+            }
+            if (typeof chainId === 'number') {
+                const sharedSnapshot = cacheHub.getTokenPriceSnapshot(tokenAddress, chainId);
+                if (sharedSnapshot) {
+                    priceCache.set(cacheKey, {
+                        price: sharedSnapshot.price,
+                        provider: sharedSnapshot.provider,
+                        timestamp: Date.now(),
+                    });
+                    return sharedSnapshot;
+                }
             }
 
             let price = 0;
@@ -125,6 +148,9 @@ export async function getDexPriceDetailed(
 
             if (Number.isFinite(price) && price > 0) {
                 priceCache.set(cacheKey, { price, provider, timestamp: Date.now() });
+                if (typeof chainId === 'number') {
+                    cacheHub.setTokenPriceSnapshot(tokenAddress, chainId, { price, provider });
+                }
                 return { price, provider };
             }
 

@@ -101,6 +101,10 @@ const ENDPOINT_METHOD_TIMEOUT_MIN_ATTEMPTS = Math.max(3, Number(process.env.RPC_
 const ENDPOINT_METHOD_TIMEOUT_RATE_THRESHOLD = Math.min(1, Math.max(0, Number(process.env.RPC_ENDPOINT_METHOD_TIMEOUT_RATE_THRESHOLD || '0.3')));
 const ENDPOINT_METHOD_TIMEOUT_COOLDOWN_MS = Math.max(1_000, Number(process.env.RPC_ENDPOINT_METHOD_TIMEOUT_COOLDOWN_MS || '60000'));
 const RPC_EXPLAIN_ENABLED = (process.env.RPC_EXPLAIN_ENABLED || 'true').toLowerCase() === 'true';
+const RPC_UPGRADE_LOG_WINDOW_MS = Math.max(
+    30_000,
+    Number(process.env.RPC_UPGRADE_LOG_WINDOW_MS || '60000')
+);
 const RPC_ERC20_BALANCE_SUCCESS_TTL_MS = Math.max(200, Number(process.env.RPC_ERC20_BALANCE_SUCCESS_TTL_MS || '750'));
 const RPC_ERC20_BALANCE_FAILURE_COOLDOWN_MS = Math.max(200, Number(process.env.RPC_ERC20_BALANCE_FAILURE_COOLDOWN_MS || '1200'));
 const RPC_ERC20_DECIMALS_SUCCESS_TTL_MS = Math.max(30_000, Number(process.env.RPC_ERC20_DECIMALS_SUCCESS_TTL_MS || '21600000'));
@@ -1093,7 +1097,7 @@ export async function callRpc<T = any>(
             const upgraded = getRpcEndpointsForLane(chainSlug, 'critical', primaryUrl);
             if (upgraded.length > 0) {
                 endpoints = filterEndpointsForPurpose(filterEndpointsByMethod(upgraded, method), purpose);
-                logger.warn(LogCode.API_FETCH_FAILED, 'RPC strategy upgraded to fast due to degraded cheap pool', {
+                logger.throttled(LogCode.API_FETCH_FAILED, 'RPC strategy upgraded to fast due to degraded cheap pool', {
                     chain: chainName,
                     method,
                     executionLane,
@@ -1101,7 +1105,7 @@ export async function callRpc<T = any>(
                     reasons: upgradeDecision.reasons,
                     purpose,
                     role: LogRole.METRIC
-                });
+                }, RPC_UPGRADE_LOG_WINDOW_MS);
             }
         }
 
@@ -1765,14 +1769,14 @@ export async function callRpcRaw<T = any>(
             const upgraded = getRpcEndpointsForLane(chainSlug, 'critical', primaryUrl);
             if (upgraded.length > 0) {
                 endpoints = filterEndpointsForPurpose(filterEndpointsByMethod(upgraded, method), purpose);
-                logger.warn(LogCode.API_FETCH_FAILED, 'RPC strategy upgraded to fast due to degraded cheap pool', {
+                logger.throttled(LogCode.API_FETCH_FAILED, 'RPC strategy upgraded to fast due to degraded cheap pool', {
                     chain: chainName,
                     method,
                     executionLane,
                     lane: upgradeDecision.lane,
                     reasons: upgradeDecision.reasons,
                     purpose,
-                });
+                }, RPC_UPGRADE_LOG_WINDOW_MS);
             }
         }
     } catch (e) {

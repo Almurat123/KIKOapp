@@ -564,5 +564,18 @@ async function fetchTokenInfoFromAPIs(
         priceFallbackUsed: result.priceFallbackUsed
     });
 
+    if (Number.isFinite(result.price) && result.price > 0) {
+        cacheHub.setTokenPriceSnapshot(tokenAddress, chainId, {
+            price: result.price,
+            provider: result.provider,
+            symbol: result.symbol,
+            decimals: result.decimals,
+            priceValidationReason: result.priceValidationReason ?? null,
+            referencePrice: result.referencePrice ?? null,
+            referenceProvider: result.referenceProvider ?? null,
+            priceFallbackUsed: result.priceFallbackUsed,
+        });
+    }
+
     return result;
 }

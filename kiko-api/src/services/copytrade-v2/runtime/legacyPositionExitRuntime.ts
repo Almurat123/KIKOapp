@@ -6,7 +6,6 @@ import { DynamicTakeProfitService } from '../../dynamicTakeProfitService.js';
 import { getSolanaConnection, SOLANA_CONFIG } from '../../../config/solanaConfig.js';
 import { executeSolanaSwap } from '../../solanaExecutor.js';
 import { getSolanaEmbeddedWalletAddress } from '../../privyWallet.js';
-import { getTokenInfo } from '../../tokenService.js';
 import { getErc20Balance } from '../../rpcManager.js';
 import { trackCopyTrade, trackSwap } from '../../userActivityService.js';
 import { notificationService } from '../../notificationService.js';
@@ -26,6 +25,7 @@ import type { OrderRuntimeContext } from '../../order-runtime/types.js';
 import { repairCopytradePositionAttribution } from '../jobs/copytradeAttributionRepairJob.js';
 import { evaluateAutoExitPriceGuard } from './autoExitPriceGuard.js';
 import { TRADE_METADATA_PROFILE } from '../../rpc/profile.js';
+import { getGuardPriceSnapshot } from './guardPrice.js';
 
 const EXIT_INFLIGHT_RETRY_GRACE_MS = getExitInflightRetryGraceMs();
 const MIN_POSITION_AGE_FOR_TPSL_MS = Math.max(0, Number(process.env.MIN_POSITION_AGE_FOR_TPSL_MS || '90000'));
@@ -663,8 +663,7 @@ export async function checkPositionsForExits(
                     continue;
                 }
 
-                const tokenInfo = await getTokenInfo(position.tokenAddress, position.chainId, {
-                    forceRefresh: true,
+                const tokenInfo = await getGuardPriceSnapshot(position.tokenAddress, position.chainId, {
                     priority: 'high',
                     rpcStrategy: TRADE_METADATA_PROFILE,
                 });
@@ -731,8 +730,7 @@ export async function checkPositionsForExits(
         const batch = tokenList.slice(i, i + TOKEN_BATCH_SIZE);
         await Promise.all(batch.map(async ({ address, chainId }) => {
             try {
-                const info = await getTokenInfo(address, chainId, {
-                    forceRefresh: true,
+                const info = await getGuardPriceSnapshot(address, chainId, {
                     priority: 'high',
                     rpcStrategy: TRADE_METADATA_PROFILE,
                 });
