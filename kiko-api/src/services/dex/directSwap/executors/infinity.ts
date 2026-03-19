@@ -6,6 +6,7 @@ import type { TxLifecycleResult } from '../../../txLifecycle.js';
 import { isTxLifecycleSendAccepted } from '../../../txLifecycle.js';
 import type { OrderRuntimeContext } from '../../../order-runtime/types.js';
 import { markOrderPrepared, recordOrderRoute } from '../../../order-runtime/context.js';
+import { evaluateDirectSwapSendGuard } from '../pipeline/directSwapAttemptGuard.js';
 
 interface ExecuteSwapParams {
   userId: string;
@@ -219,6 +220,19 @@ export async function executeInfinitySwap(
       poolAddress: deps.pancakeInfinityRouter
     });
     markOrderPrepared(params.runtimeContext);
+  }
+
+  const sendGuard = evaluateDirectSwapSendGuard({
+    runtimeContext: params.runtimeContext,
+  });
+  if (sendGuard.blocked) {
+    return {
+      success: false,
+      error: `direct_swap_send_inflight:${sendGuard.reasonCode}`,
+      provider: 'failed',
+      runtimeContext: params.runtimeContext,
+      txLifecycle: params.runtimeContext?.lastLifecycle,
+    };
   }
 
   const txLifecycle = await deps.sendTransaction(userId, accessToken, {

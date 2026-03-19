@@ -5,6 +5,7 @@ import { runTurboCorrectFlow } from '../pipeline/turboCorrectFlow.js';
 import type { HintedSourcePool } from '../../directSwapTypes.js';
 import type { DirectSwapResult } from '../types.js';
 import type { ResolvedPoolHint, TurboResolver } from '../turbo.js';
+import { evaluateDirectSwapSendGuard } from '../pipeline/directSwapAttemptGuard.js';
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
   return new Promise<T>((resolve, reject) => {
@@ -167,7 +168,7 @@ test('runTurboCorrectFlow demotes a mismatched source hint and switches to the n
   ]);
 });
 
-test('runTurboCorrectFlow times out a hung source fast path and still advances to the next candidate', async () => {
+test('runTurboCorrectFlow times out a hung source fast path and halts before another attempt', async () => {
   const sourceHint = buildSourceHint('0xcccccccccccccccccccccccccccccccccccccccc');
   const fallbackCandidate = buildResolvedHint('0xdddddddddddddddddddddddddddddddddddddddd');
   const callOrder: string[] = [];
@@ -194,11 +195,164 @@ test('runTurboCorrectFlow times out a hung source fast path and still advances t
     }
   }));
 
-  assert.equal(result.result.success, true);
-  assert.equal(result.result.txHash, '0xrecovered');
-  assert.equal(result.selectedResolvedHintForCache?.poolAddress, fallbackCandidate.poolAddress);
+  assert.equal(result.result.success, false);
+  assert.equal(result.result.error, 'hint_fast_path_timeout');
+  assert.equal(result.selectedResolvedHintForCache?.poolAddress, sourceHint.pool.poolAddress);
+  assert.deepEqual(callOrder, ['0xcccccccccccccccccccccccccccccccccccccccc']);
+});
+
+test('runTurboCorrectFlow halts after an ambiguous fast-path timeout instead of sending another attempt', async () => {
+  const sourceHint = buildSourceHint('0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee');
+  const callOrder: string[] = [];
+
+  const result = await runTurboCorrectFlow(createBaseParams({
+    earlyHintedPool: sourceHint,
+    singlePoolResolver: {
+      resolveCandidates: async () => [
+        buildResolvedHint('0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee'),
+        buildResolvedHint('0xffffffffffffffffffffffffffffffffffffffff')
+      ]
+    },
+    tryResolvedPoolHintFastPath: async (_params, hint) => {
+      const poolAddress = String(hint?.resolvedPoolHint?.poolAddress || '').toLowerCase();
+      callOrder.push(poolAddress);
+      if (poolAddress === '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee') {
+        return {
+          success: false,
+          error: 'hint_fast_path_timeout',
+          provider: 'failed'
+        };
+      }
+      return {
+        success: true,
+        txHash: '0xshould-not-send',
+        provider: 'uniswap-v3'
+      };
+    }
+  }));
+
+  assert.equal(result.result.success, false);
+  assert.equal(result.result.error, 'hint_fast_path_timeout');
+  assert.deepEqual(callOrder, ['0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee']);
+});
+
+test('runTurboCorrectFlow halts after source direct attempt already has send-started evidence', async () => {
+  const sourceHint = buildSourceHint('0x1111111111111111111111111111111111111110');
+  const callOrder: string[] = [];
+
+  const result = await runTurboCorrectFlow(createBaseParams({
+    earlyHintedPool: sourceHint,
+    singlePoolResolver: {
+      resolveCandidates: async () => [
+        buildResolvedHint('0x1111111111111111111111111111111111111110'),
+        buildResolvedHint('0x2222222222222222222222222222222222222220')
+      ]
+    },
+    tryResolvedPoolHintFastPath: async (_params, hint) => {
+      const poolAddress = String(hint?.resolvedPoolHint?.poolAddress || '').toLowerCase();
+      callOrder.push(poolAddress);
+      if (poolAddress === '0x1111111111111111111111111111111111111110') {
+        return {
+          success: false,
+          error: 'failed_to_send_transaction:broadcasted_unseen',
+          provider: 'failed',
+          txHash: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+          txLifecycle: {
+            status: 'broadcasted_unseen',
+            txHash: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+            chainId: 8453,
+            attempts: 1,
+          } as any,
+          runtimeContext: {
+            state: 'send_started',
+            canonicalTxHash: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+            attempts: [{ state: 'sending' }],
+            lastLifecycle: { status: 'broadcasted_unseen' },
+          } as any,
+        };
+      }
+      return {
+        success: true,
+        txHash: '0xshould-not-run',
+        provider: 'uniswap-v3'
+      };
+    }
+  }));
+
+  assert.equal(result.result.success, false);
+  assert.equal(result.result.error, 'failed_to_send_transaction:broadcasted_unseen');
+  assert.deepEqual(callOrder, ['0x1111111111111111111111111111111111111110']);
+});
+
+test('runTurboCorrectFlow halts after candidate attempt already has visible tx evidence', async () => {
+  const sourceHint = buildSourceHint('0x3333333333333333333333333333333333333330');
+  const callOrder: string[] = [];
+
+  const result = await runTurboCorrectFlow(createBaseParams({
+    earlyHintedPool: sourceHint,
+    singlePoolResolver: {
+      resolveCandidates: async () => [
+        buildResolvedHint('0x3333333333333333333333333333333333333330'),
+        buildResolvedHint('0x4444444444444444444444444444444444444440'),
+        buildResolvedHint('0x5555555555555555555555555555555555555550')
+      ]
+    },
+    tryResolvedPoolHintFastPath: async (_params, hint) => {
+      const poolAddress = String(hint?.resolvedPoolHint?.poolAddress || '').toLowerCase();
+      callOrder.push(poolAddress);
+      if (poolAddress === '0x3333333333333333333333333333333333333330') {
+        return {
+          success: false,
+          error: 'hint_pool_pair_mismatch:pool_pair_mismatch',
+          provider: 'failed'
+        };
+      }
+      if (poolAddress === '0x4444444444444444444444444444444444444440') {
+        return {
+          success: false,
+          error: 'failed_to_send_transaction:visible_pending',
+          provider: 'failed',
+          txHash: '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+          txLifecycle: {
+            status: 'visible_pending',
+            txHash: '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+            chainId: 8453,
+            attempts: 1,
+          } as any,
+          runtimeContext: {
+            state: 'hash_accepted',
+            canonicalTxHash: '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+            attempts: [{ state: 'accepted' }],
+            lastLifecycle: { status: 'visible_pending' },
+          } as any,
+        };
+      }
+      return {
+        success: true,
+        txHash: '0xshould-not-run',
+        provider: 'uniswap-v3'
+      };
+    }
+  }));
+
+  assert.equal(result.result.success, false);
+  assert.equal(result.result.error, 'failed_to_send_transaction:visible_pending');
   assert.deepEqual(callOrder, [
-    '0xcccccccccccccccccccccccccccccccccccccccc',
-    '0xdddddddddddddddddddddddddddddddddddddddd'
+    '0x3333333333333333333333333333333333333330',
+    '0x4444444444444444444444444444444444444440'
   ]);
+});
+
+test('direct swap send guard blocks additional send when runtime is already send_started', () => {
+  const decision = evaluateDirectSwapSendGuard({
+    runtimeContext: {
+      state: 'send_started',
+      canonicalTxHash: undefined,
+      lastLifecycle: { status: 'broadcasted_unseen' },
+      attempts: [{ state: 'sending' }],
+    } as any,
+  });
+
+  assert.equal(decision.blocked, true);
+  assert.equal(decision.reasonCode, 'send_started');
 });

@@ -10,6 +10,7 @@ import type { SelectedV4Pool } from '../../v4ExecutionPlan.js';
 import { resolveV4HookCapabilityProfile } from '../../v4HookCapabilities.js';
 import { resolvePoolHintFromSwapSupply } from '../supplyParser.js';
 import { TRADE_QUOTE_PROFILE, type RpcCallProfile } from '../../../rpc/profile.js';
+import { shouldHaltFurtherDirectSwapAttempts } from './directSwapAttemptGuard.js';
 
 const poolTokenInterface = new ethers.Interface([
   'function token0() view returns (address)',
@@ -678,6 +679,18 @@ export async function runResolvedHintFastPathFlow(params: {
       selectedResolvedHintForCache
     };
   }
+  if (shouldHaltFurtherDirectSwapAttempts(directTry)) {
+    return {
+      result: directTry || {
+        success: false,
+        error: 'direct_swap_attempt_halted',
+        provider: 'failed'
+      },
+      resolvedHintFastPathSkipped,
+      resolvedHintFastPathFailed,
+      selectedResolvedHintForCache
+    };
+  }
   resolvedHintFastPathFailed = Boolean(directTry && !directTry.success);
 
   if (!params.turboMode) {
@@ -714,6 +727,18 @@ export async function runResolvedHintFastPathFlow(params: {
       }
       return {
         result: retryTry,
+        resolvedHintFastPathSkipped,
+        resolvedHintFastPathFailed,
+        selectedResolvedHintForCache
+      };
+    }
+    if (shouldHaltFurtherDirectSwapAttempts(retryTry)) {
+      return {
+        result: retryTry || {
+          success: false,
+          error: 'direct_swap_attempt_halted',
+          provider: 'failed'
+        },
         resolvedHintFastPathSkipped,
         resolvedHintFastPathFailed,
         selectedResolvedHintForCache

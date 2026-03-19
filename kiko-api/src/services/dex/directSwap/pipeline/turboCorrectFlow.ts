@@ -17,6 +17,7 @@ import { evaluateSourceAnchorQuote, resolveSourceAnchorExpectation } from '../do
 import { summarizeTurboCandidateKinds } from './turboFlow.js';
 import { applyTurboQuoteAssist } from './turboQuoteAssist.js';
 import { buildResolvedHintQuoteKey } from '../quote/types.js';
+import { shouldHaltFurtherDirectSwapAttempts } from './directSwapAttemptGuard.js';
 
 type LoggerLike = {
   info: (code: LogCode, message: string, context?: Record<string, unknown>) => void;
@@ -321,6 +322,16 @@ const sourceAnchor = resolveSourceAnchorExpectation({
     if (sourceDirectTry?.success) {
       return {
         result: sourceDirectTry,
+        selectedResolvedHintForCache: sourceResolvedHint
+      };
+    }
+    if (shouldHaltFurtherDirectSwapAttempts(sourceDirectTry)) {
+      return {
+        result: sourceDirectTry || {
+          success: false,
+          error: 'direct_swap_attempt_halted',
+          provider: 'failed'
+        },
         selectedResolvedHintForCache: sourceResolvedHint
       };
     }
@@ -673,6 +684,16 @@ const sourceAnchor = resolveSourceAnchorExpectation({
     if (directTry?.success) {
       return {
         result: directTry,
+        selectedResolvedHintForCache: candidate
+      };
+    }
+    if (shouldHaltFurtherDirectSwapAttempts(directTry)) {
+      return {
+        result: directTry || {
+          success: false,
+          error: 'direct_swap_attempt_halted',
+          provider: 'failed'
+        },
         selectedResolvedHintForCache: candidate
       };
     }

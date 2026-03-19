@@ -11,6 +11,7 @@ import { markOrderPrepared, recordOrderRoute, setOrderMetadata } from '../../../
 import { getCanonicalAssetIdentity } from '../../../evmCanonicalAsset.js';
 import { probeV4HookCapability, resolveV4HookCapabilityProfile } from '../../v4HookCapabilities.js';
 import { TRADE_QUOTE_PROFILE } from '../../../rpc/profile.js';
+import { evaluateDirectSwapSendGuard } from '../pipeline/directSwapAttemptGuard.js';
 
 interface ExecuteSwapParams {
   userId: string;
@@ -432,6 +433,19 @@ export async function executeV4Swap(
       selectedHookFamily: hookFamily,
       selectedHookData: selectedHookData.slice(0, 18)
     });
+  }
+
+  const sendGuard = evaluateDirectSwapSendGuard({
+    runtimeContext: params.runtimeContext,
+  });
+  if (sendGuard.blocked) {
+    return {
+      success: false,
+      error: `direct_swap_send_inflight:${sendGuard.reasonCode}`,
+      provider: 'failed',
+      runtimeContext: params.runtimeContext,
+      txLifecycle: params.runtimeContext?.lastLifecycle,
+    };
   }
 
   const txLifecycle = await deps.sendTransaction(userId, accessToken, {
