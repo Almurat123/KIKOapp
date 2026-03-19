@@ -51,7 +51,10 @@ import { resolveSolanaWalletRecord } from './solana/solanaWalletResolver.js';
 import { sendSolanaTransactionWithContextDeps } from './solana/solanaPrivySender.js';
 import { resolveSolanaSigningContext, type ResolvedSolanaSigningContext } from './solana/solanaSigningContext.js';
 import { fetchPrivyEmbeddedWalletInfo, type EmbeddedWalletChainType } from './privyEmbeddedWalletResolver.js';
-import { markPendingAttributedPositionAccepted } from './copytrade-v2/positions/pendingAttributedPositionLedger.js';
+import {
+    markPendingAttributedPositionAccepted,
+    markPendingAttributedPositionSendStarted,
+} from './copytrade-v2/positions/pendingAttributedPositionLedger.js';
 import {
     __resetUserTransactionSchedulerForTests,
     __runUserTransactionTaskForTests,
@@ -125,6 +128,18 @@ async function syncAcceptedCopytradePendingPosition(params: {
         entryTxHash: txHash,
         reasonCode: 'buy_tx_accepted',
         positionStatus: status,
+    }).catch(() => 0);
+}
+
+async function syncSendStartedCopytradePendingPosition(params: {
+    runtimeContext?: OrderRuntimeContext;
+}): Promise<void> {
+    const pendingPositionId = String(params.runtimeContext?.metadata?.copytradePendingPositionId || '').trim();
+    if (!pendingPositionId) return;
+    await markPendingAttributedPositionSendStarted({
+        positionId: pendingPositionId,
+        reasonCode: 'buy_send_started',
+        positionStatus: 'pending_broadcast',
     }).catch(() => 0);
 }
 
@@ -851,6 +866,7 @@ export async function sendTransactionLifecycle(
             if (runtimeContext) {
                 markOrderPrepared(runtimeContext);
                 markOrderSendStarted(runtimeContext);
+                await syncSendStartedCopytradePendingPosition({ runtimeContext });
                 setOrderMetadata(runtimeContext, {
                     txPurpose: tx.txPurpose || 'other',
                     executionProfile: tx.executionProfile || 'default',

@@ -166,7 +166,66 @@ describe('buy confirmation transition', () => {
       reasonCode: 'TARGET_SELL_SEEN_IN_LEDGER',
     });
     assert.equal(notified, true);
-    assert.equal(preheated, true);
+    assert.equal(preheated, false);
+  });
+
+  test('confirmed buy with pending target sell still releases mirror sell even when position closed before open', async () => {
+    let notified = false;
+    let preheated = false;
+    let mirrorSellContext: any = null;
+
+    const result = await applyBuyConfirmationTransition({
+      confirmation: { success: true, kind: 'confirmed_success', visible: true },
+      chainId: 8453,
+      tokenToBuy: '0xpep',
+      txHash: '0xbuy-race',
+      userId: 'user',
+      targetWallet: '0xtarget',
+      persistedPositionId: 'pos-race',
+      pendingPositionCreatedAt: null,
+      tokenInfo: { symbol: 'PEPE', price: 1, decimals: 18 },
+      walletAddress: '0xwallet',
+      positionStatusCompat: { pendingCreateStatus: 'pending', failedFinalStatus: 'failed' },
+      recoverySource: 'initial_wait',
+      onMirrorSellAfterConfirm: async (context) => {
+        mirrorSellContext = context;
+      },
+      onNotifySuccess: async () => {
+        notified = true;
+      },
+      deps: {
+        prisma: {
+          position: {
+            updateMany: async () => ({ count: 0 }),
+          },
+        } as any,
+        resolvePendingMirrorSellIntent: async () => ({
+          shouldMirrorSell: true,
+          targetSellTxHash: '0xtargetsell-race',
+          reasonCode: 'TARGET_SELL_SEEN_IN_LEDGER',
+        }),
+        resolveBuyConfirmationPromotionAction: async () => ({
+          action: 'closed_before_open',
+          status: 'closed',
+          exitTxHash: '0xexit',
+          exitReason: 'mirror_sell',
+        }),
+        preheatSellApprovalForToken: async () => {
+          preheated = true;
+          return { status: 'completed', reasonCode: 'approval_warmed' };
+        },
+        emitCopytradeDomainAudit: () => {},
+      },
+    });
+
+    assert.equal(result, 'confirmed_success');
+    assert.deepEqual(mirrorSellContext, {
+      positionId: 'pos-race',
+      targetSellTxHash: '0xtargetsell-race',
+      reasonCode: 'TARGET_SELL_SEEN_IN_LEDGER',
+    });
+    assert.equal(notified, true);
+    assert.equal(preheated, false);
   });
 
   test('defers fee recovery out of the buy confirmation hot path', async () => {

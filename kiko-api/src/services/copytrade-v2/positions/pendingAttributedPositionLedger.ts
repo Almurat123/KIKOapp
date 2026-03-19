@@ -131,6 +131,38 @@ export async function markPendingAttributedPositionAccepted(params: {
   return Math.max(pendingResult.count, positionResult.count);
 }
 
+export async function markPendingAttributedPositionSendStarted(params: {
+  positionId?: string | null;
+  reasonCode: string;
+  positionStatus?: 'pending_broadcast' | 'broadcasted_unseen';
+}): Promise<number> {
+  const positionId = String(params.positionId || '').trim();
+  if (!positionId) return 0;
+
+  const [pendingResult, positionResult] = await Promise.all([
+    prisma.pendingAttributedPosition.updateMany({
+      where: {
+        positionId,
+        status: { in: ['armed', 'sell_armed'] },
+      },
+      data: {
+        reasonCode: params.reasonCode,
+      },
+    }),
+    prisma.position.updateMany({
+      where: {
+        id: positionId,
+        status: { in: ['pending', 'pending_broadcast', 'broadcasted_unseen'] as any },
+      },
+      data: {
+        status: (params.positionStatus || 'pending_broadcast') as any,
+      },
+    }),
+  ]);
+
+  return Math.max(pendingResult.count, positionResult.count);
+}
+
 export async function armPendingAttributedPositionsForMirrorSell(params: {
   userId: string;
   chainId: number;

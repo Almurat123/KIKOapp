@@ -15,6 +15,7 @@ test('evm buy submission flow preserves unresolved turbo submissions for later r
   const result = await executeEvmCopytradeBuySubmissionFlow(
     {
       userId: 'user-1',
+      configId: 'cfg-1',
       privyUserId: 'did:privy:user-1',
       walletAddress: '0x1234567890123456789012345678901234567890',
       tokenToBuy: '0x9999999999999999999999999999999999999999',
@@ -91,6 +92,7 @@ test('evm buy submission flow preserves send-started copytrade buys instead of r
   const result = await executeEvmCopytradeBuySubmissionFlow(
     {
       userId: 'user-send-started',
+      configId: 'cfg-send-started',
       privyUserId: 'did:privy:user-send-started',
       walletAddress: '0x1234567890123456789012345678901234567890',
       tokenToBuy: '0x9999999999999999999999999999999999999999',
@@ -166,6 +168,7 @@ test('evm buy submission flow carries fallback pricing guard context into turbo 
   const result = await executeEvmCopytradeBuySubmissionFlow(
     {
       userId: 'user-2',
+      configId: 'cfg-2',
       privyUserId: 'did:privy:user-2',
       walletAddress: '0x1234567890123456789012345678901234567890',
       tokenToBuy: '0x9999999999999999999999999999999999999999',
@@ -241,6 +244,7 @@ test('evm buy submission flow aborts before send when buy admission is preempted
   const result = await executeEvmCopytradeBuySubmissionFlow(
     {
       userId: 'user-3',
+      configId: 'cfg-3',
       privyUserId: 'did:privy:user-3',
       walletAddress: '0x1234567890123456789012345678901234567890',
       tokenToBuy: '0x9999999999999999999999999999999999999999',
@@ -293,6 +297,7 @@ test('evm buy submission flow aborts before send when a buy tx was already accep
   const result = await executeEvmCopytradeBuySubmissionFlow(
     {
       userId: 'user-4',
+      configId: 'cfg-4',
       privyUserId: 'did:privy:user-4',
       walletAddress: '0x1234567890123456789012345678901234567890',
       tokenToBuy: '0x9999999999999999999999999999999999999999',
@@ -346,6 +351,7 @@ test('evm buy submission flow passes canonical leader-buy identity to admission 
   const result = await executeEvmCopytradeBuySubmissionFlow(
     {
       userId: 'user-5',
+      configId: 'cfg-5',
       privyUserId: 'did:privy:user-5',
       walletAddress: '0x1234567890123456789012345678901234567890',
       tokenToBuy: '0x9999999999999999999999999999999999999999',
@@ -393,6 +399,7 @@ test('evm buy submission flow passes canonical leader-buy identity to admission 
   assert.deepEqual(capturedAdmissionArgs, {
     pendingPositionId: undefined,
     userId: 'user-5',
+    configId: 'cfg-5',
     chainId: 8453,
     tokenAddress: '0x9999999999999999999999999999999999999999',
     leaderBuyTxHash: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',

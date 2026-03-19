@@ -23,18 +23,21 @@ function isOnchainTxHash(value?: string | null): boolean {
 export async function evaluateCopytradeBuyAdmission(params: {
   pendingPositionId?: string | null;
   userId?: string | null;
+  configId?: string | null;
   chainId?: number | null;
   tokenAddress?: string | null;
   leaderBuyTxHash?: string | null;
 }): Promise<CopytradeBuyAdmissionDecision> {
   const pendingPositionId = String(params.pendingPositionId || '').trim();
   const userId = String(params.userId || '').trim();
+  const configId = String(params.configId || '').trim();
   const tokenAddress = String(params.tokenAddress || '').trim().toLowerCase();
   const leaderBuyTxHash = String(params.leaderBuyTxHash || '').trim().toLowerCase();
   const chainId = Number(params.chainId);
 
   const canQueryCanonicalIdentity =
     Boolean(userId)
+    && Boolean(configId)
     && Boolean(tokenAddress)
     && Boolean(leaderBuyTxHash)
     && Number.isFinite(chainId)
@@ -70,6 +73,7 @@ export async function evaluateCopytradeBuyAdmission(params: {
       prisma.position.findFirst({
         where: {
           userId,
+          configId,
           chainId,
           tokenAddress,
           leaderTxHash: leaderBuyTxHash,
@@ -87,6 +91,9 @@ export async function evaluateCopytradeBuyAdmission(params: {
           chainId,
           tokenAddress,
           leaderBuyTxHash,
+          position: {
+            configId,
+          },
         },
         orderBy: { createdAt: 'desc' },
         select: {

@@ -53,6 +53,7 @@ export type EvmCopytradeBuySubmissionResult =
 
 export async function executeEvmCopytradeBuySubmissionFlow(params: {
   userId: string;
+  configId: string;
   privyUserId: string;
   walletAddress: string;
   tokenToBuy: string;
@@ -226,6 +227,7 @@ export async function executeEvmCopytradeBuySubmissionFlow(params: {
     const admission = await admissionGuard({
       pendingPositionId: params.pendingPositionId,
       userId: params.userId,
+      configId: params.configId,
       chainId: params.chainId,
       tokenAddress: params.tokenToBuy,
       leaderBuyTxHash,

@@ -990,6 +990,7 @@ export async function processSingleUserBuy(params: {
                             : undefined;
                     const submissionResult = await executeEvmCopytradeBuySubmissionFlow({
                         userId: config.userId,
+                        configId: effectiveConfig.id,
                         privyUserId: effectiveConfig.user.privyDid,
                         walletAddress: effectiveConfig.user.walletAddress,
                         tokenToBuy,
