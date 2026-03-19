@@ -81,6 +81,12 @@ test('mirror sell persists durable target-sell event even when no positions are 
         persisted.push(event);
         return Promise.resolve(event);
       },
+      async listActiveCanonicalOrders() {
+        return [];
+      },
+      async advanceCanonicalOrderState() {
+        return null;
+      },
       async armPendingAttributedPositionsForMirrorSell() {
         return 0;
       },
@@ -181,6 +187,12 @@ test('mirror sell schedules canonical exit intents instead of executing immediat
       },
       upsertTargetSellEvent(event: any) {
         return Promise.resolve({ id: 'evt-1', ...event });
+      },
+      async listActiveCanonicalOrders() {
+        return [];
+      },
+      async advanceCanonicalOrderState() {
+        return null;
       },
       buildTargetSellEventPayload(event: any) {
         return event;
@@ -300,6 +312,12 @@ test('mirror sell resolves pending follower exposure without preexisting ledger 
       },
       upsertTargetSellEvent(event: any) {
         return Promise.resolve({ id: 'evt-1', ...event });
+      },
+      async listActiveCanonicalOrders() {
+        return [];
+      },
+      async advanceCanonicalOrderState() {
+        return null;
       },
       buildTargetSellEventPayload(event: any) {
         return event;
@@ -428,6 +446,12 @@ test('mirror sell resolves exposure from pending attribution when ledger is empt
       upsertTargetSellEvent(event: any) {
         return Promise.resolve({ id: 'evt-1', ...event });
       },
+      async listActiveCanonicalOrders() {
+        return [];
+      },
+      async advanceCanonicalOrderState() {
+        return null;
+      },
       buildTargetSellEventPayload(event: any) {
         return event;
       },
@@ -528,6 +552,12 @@ test('mirror sell still skips when no exposure exists anywhere', async () => {
       },
       upsertTargetSellEvent(event: any) {
         return Promise.resolve({ id: 'evt-1', ...event });
+      },
+      async listActiveCanonicalOrders() {
+        return [];
+      },
+      async advanceCanonicalOrderState() {
+        return null;
       },
       async armPendingAttributedPositionsForMirrorSell() {
         return 0;

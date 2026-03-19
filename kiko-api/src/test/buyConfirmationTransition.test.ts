@@ -228,6 +228,86 @@ describe('buy confirmation transition', () => {
     assert.equal(preheated, false);
   });
 
+  test('canonical order target sell metadata releases mirror sell and keeps order armed for exit', async () => {
+    let mirrorSellContext: any = null;
+    const advanced: any[] = [];
+
+    const result = await applyBuyConfirmationTransition({
+      confirmation: { success: true, kind: 'confirmed_success', visible: true },
+      chainId: 8453,
+      tokenToBuy: '0xpep',
+      txHash: '0xbuy-canonical',
+      userId: 'user',
+      configId: 'cfg-1',
+      targetWallet: '0xtarget',
+      leaderBuyTxHash: '0xleader',
+      persistedPositionId: 'pos-canonical',
+      pendingPositionCreatedAt: null,
+      tokenInfo: { symbol: 'PEPE', price: 1, decimals: 18 },
+      walletAddress: '0xwallet',
+      positionStatusCompat: { pendingCreateStatus: 'pending', failedFinalStatus: 'failed' },
+      recoverySource: 'initial_wait',
+      onMirrorSellAfterConfirm: async (context) => {
+        mirrorSellContext = context;
+      },
+      deps: {
+        prisma: {
+          position: {
+            updateMany: async () => ({ count: 1 }),
+          },
+        } as any,
+        resolvePendingMirrorSellIntent: async () => ({
+          shouldMirrorSell: false,
+          reasonCode: 'NO_PENDING_MIRROR_SELL_INTENT',
+        }),
+        resolveBuyConfirmationPromotionAction: async () => ({ action: 'promote_open' }),
+        claimOrCreateCanonicalOrder: async () => ({
+          id: 'order-1',
+          canonicalKey: 'chain:leader:target:user:cfg:token:buy',
+          lifecycleState: 'BUY_SUBMITTING',
+          lastReasonCode: 'ok_buy_submitted',
+          chainId: 8453,
+          txHash: '0xleader',
+          targetWallet: '0xtarget',
+          tokenIn: '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee',
+          tokenOut: '0xpep',
+          userId: 'user',
+          configId: 'cfg-1',
+          metadata: {
+            targetSellTxHash: '0xtargetsell-canonical',
+            targetSellReasonCode: 'sell_preempted_before_buy_confirm',
+          },
+        }),
+        advanceCanonicalOrderState: async (params) => {
+          advanced.push(params);
+          return null;
+        },
+        recordCanonicalOrderExecution: async () => undefined,
+        preheatSellApprovalForToken: async () => ({ status: 'noop', reasonCode: 'approval_already_sufficient' }),
+        emitCopytradeDomainAudit: () => {},
+      },
+    });
+
+    assert.equal(result, 'confirmed_success');
+    assert.deepEqual(mirrorSellContext, {
+      positionId: 'pos-canonical',
+      targetSellTxHash: '0xtargetsell-canonical',
+      reasonCode: 'sell_preempted_before_buy_confirm',
+    });
+    assert.equal(
+      advanced.some((entry) =>
+        entry.lifecycleState === 'EXIT_ARMED'
+        && entry.eventType === 'ORDER_BUY_CONFIRMED_RELEASED_TO_EXIT'
+        && entry.metadataPatch?.targetSellTxHash === '0xtargetsell-canonical'
+      ),
+      true,
+    );
+    assert.equal(
+      advanced.some((entry) => entry.lifecycleState === 'BUY_CONFIRMED_OPEN' && entry.eventType === 'ORDER_BUY_CONFIRMED_OPEN'),
+      false,
+    );
+  });
+
   test('defers fee recovery out of the buy confirmation hot path', async () => {
     let scheduledFeeRecovery: any = null;
     let collectorCalled = false;

@@ -24,6 +24,8 @@ import {
 } from './exitIntentExecutionPolicy.js';
 import { recordExitIntentProgress } from './exitIntentProgress.js';
 import { persistTerminalExitBlockState } from './persistence.js';
+import { advanceCanonicalOrderState, findCanonicalOrderByIdentity } from '../orders/canonicalOrderState.js';
+import { shouldAwaitBuyConfirmationForMirrorSell } from '../orders/canonicalOrderPolicy.js';
 
 const EVM_EXIT_CONCURRENCY = Math.max(2, Number(process.env.COPYTRADE_EVM_EXIT_CONCURRENCY || '6'));
 const SOLANA_EXIT_CONCURRENCY = Math.max(1, Number(process.env.COPYTRADE_SOLANA_EXIT_CONCURRENCY || '2'));
@@ -242,6 +244,8 @@ async function processExitIntent(intent: any): Promise<void> {
 
   let loadedPosition: any | null = null;
   let loadedTargetWallet: string | null = null;
+  let canonicalOrderId: string | null = String(intent.metadata?.orderId || '').trim() || null;
+  let canonicalOrderLifecycleState: string | null = null;
   try {
     await updatePositionExitIntentState({
       id: intent.id,
@@ -266,6 +270,26 @@ async function processExitIntent(intent: any): Promise<void> {
     loadedPosition = position;
     loadedTargetWallet = config?.targetWallet || null;
 
+    if (!canonicalOrderId && position?.leaderTxHash && loadedTargetWallet) {
+      const canonicalOrder = await findCanonicalOrderByIdentity({
+        userId: intent.userId,
+        configId: intent.configId,
+        chainId: intent.chainId,
+        targetWallet: loadedTargetWallet,
+        tokenAddress: intent.tokenAddress,
+        leaderTxHash: position.leaderTxHash,
+        direction: 'buy',
+      }).catch(() => null);
+      canonicalOrderId = canonicalOrder?.id || null;
+      canonicalOrderLifecycleState = canonicalOrder?.lifecycleState || null;
+    } else if (canonicalOrderId) {
+      const canonicalOrder = await prisma.copytradeOrder.findUnique({
+        where: { id: canonicalOrderId },
+        select: { lifecycleState: true },
+      }).catch(() => null);
+      canonicalOrderLifecycleState = canonicalOrder?.lifecycleState || null;
+    }
+
     if (!position) {
       await markIntentTerminal({
         intent,
@@ -273,6 +297,75 @@ async function processExitIntent(intent: any): Promise<void> {
       });
       finalityState = 'confirmed_failed';
       return;
+    }
+
+    if (shouldAwaitBuyConfirmationForMirrorSell({
+      exitReason: intent.exitReason,
+      positionStatus: position.status,
+      canonicalOrderLifecycle: canonicalOrderLifecycleState,
+    })) {
+      const queueRetryCount = readQueueRetryCount(intent) + 1;
+      if (queueRetryCount > MAX_QUEUE_RETRY_ATTEMPTS) {
+        await markIntentTerminal({
+          intent,
+          reasonCode: 'buy_confirmation_retry_budget_exhausted',
+          position,
+          targetWallet: loadedTargetWallet,
+          archivePosition: false,
+        });
+        finalityState = 'confirmed_failed';
+        return;
+      }
+      await recordExitIntentProgress({
+        intentId: intent.id,
+        workerId,
+        stage: 'retry_wait',
+        reasonCode: 'buy_confirmation_pending',
+        metadata: {
+          positionStatus: position.status,
+          canonicalOrderLifecycle: canonicalOrderLifecycleState,
+          retryAfterMs: CONFIRMATION_RECHECK_MS,
+        },
+      }).catch(() => undefined);
+      if (canonicalOrderId) {
+        await advanceCanonicalOrderState({
+          orderId: canonicalOrderId,
+          lifecycleState: 'EXIT_ARMED',
+          reasonCode: 'sell_preempted_before_buy_confirm',
+          eventType: 'ORDER_EXIT_AWAITING_BUY_CONFIRM',
+          metadataPatch: {
+            exitIntentId: intent.id,
+            targetSellTxHash: intent.targetSellTxHash || null,
+            positionIdLegacy: intent.positionId,
+            lastKnownExposureSource: 'exit_waiting_for_buy_confirm',
+          },
+        }).catch(() => null);
+      }
+      await markIntentRetryable({
+        intent,
+        reasonCode: 'buy_confirmation_pending',
+        retryDelayMs: CONFIRMATION_RECHECK_MS,
+        queueRetryCount,
+        lane: intent.chainId === 900 ? 'solana-exit' : 'evm-exit',
+      });
+      finalityState = 'retryable_unresolved';
+      settleRetryIntervalMs = CONFIRMATION_RECHECK_MS;
+      return;
+    }
+
+    if (canonicalOrderId) {
+      await advanceCanonicalOrderState({
+        orderId: canonicalOrderId,
+        lifecycleState: 'EXIT_SUBMITTING',
+        reasonCode: 'ok_exit_submitted',
+        eventType: 'ORDER_EXIT_SUBMITTING',
+        metadataPatch: {
+          exitIntentId: intent.id,
+          targetSellTxHash: intent.targetSellTxHash || null,
+          positionIdLegacy: intent.positionId,
+          lastKnownExposureSource: 'exit_intent_worker',
+        },
+      }).catch(() => null);
     }
 
     if (!['open', 'pending'].includes(String(position.status || '').toLowerCase())) {
@@ -448,6 +541,21 @@ async function processExitIntent(intent: any): Promise<void> {
         clearClaim: true,
         close: true,
       });
+      if (canonicalOrderId) {
+        await advanceCanonicalOrderState({
+          orderId: canonicalOrderId,
+          lifecycleState: 'EXIT_CONFIRMED_CLOSED',
+          reasonCode: 'ok_exit_confirmed_closed',
+          eventType: 'ORDER_EXIT_CONFIRMED',
+          metadataPatch: {
+            sellTxHash: txHash,
+            targetSellTxHash: intent.targetSellTxHash || null,
+            positionIdLegacy: intent.positionId,
+            lastKnownExposureSource: 'exit_execution',
+          },
+          closedAt: new Date(),
+        }).catch(() => null);
+      }
       finalityState = 'confirmed_success';
       return;
     }
@@ -468,6 +576,21 @@ async function processExitIntent(intent: any): Promise<void> {
         clearClaim: true,
         close: true,
       });
+      if (canonicalOrderId) {
+        await advanceCanonicalOrderState({
+          orderId: canonicalOrderId,
+          lifecycleState: 'EXIT_CONFIRMED_CLOSED',
+          reasonCode: String(refreshed?.exitReason || 'ok_exit_confirmed_closed'),
+          eventType: 'ORDER_EXIT_CONFIRMED_DUST',
+          metadataPatch: {
+            sellTxHash: refreshed?.exitTxHash || null,
+            targetSellTxHash: intent.targetSellTxHash || null,
+            positionIdLegacy: intent.positionId,
+            lastKnownExposureSource: 'exit_execution',
+          },
+          closedAt: new Date(),
+        }).catch(() => null);
+      }
       finalityState = 'confirmed_success';
       return;
     }
@@ -487,6 +610,21 @@ async function processExitIntent(intent: any): Promise<void> {
         targetWallet: loadedTargetWallet,
         archivePosition: false,
       });
+      if (canonicalOrderId) {
+        await advanceCanonicalOrderState({
+          orderId: canonicalOrderId,
+          lifecycleState: 'FAILED_TERMINAL',
+          reasonCode: String(refreshed?.exitReason || 'failed_terminal'),
+          eventType: 'ORDER_EXIT_FAILED',
+          metadataPatch: {
+            sellTxHash: refreshed?.exitTxHash || null,
+            targetSellTxHash: intent.targetSellTxHash || null,
+            positionIdLegacy: intent.positionId,
+            lastKnownExposureSource: 'exit_failed',
+          },
+          closedAt: new Date(),
+        }).catch(() => null);
+      }
       finalityState = 'confirmed_failed';
       return;
     }
@@ -508,6 +646,20 @@ async function processExitIntent(intent: any): Promise<void> {
         notBefore: new Date(Date.now() + CONFIRMATION_RECHECK_MS),
         clearClaim: true,
       });
+      if (canonicalOrderId) {
+        await advanceCanonicalOrderState({
+          orderId: canonicalOrderId,
+          lifecycleState: 'EXIT_ACCEPTED',
+          reasonCode: 'ok_exit_accepted',
+          eventType: 'ORDER_EXIT_ACCEPTED',
+          metadataPatch: {
+            sellTxHash: refreshed.exitTxHash,
+            targetSellTxHash: intent.targetSellTxHash || null,
+            positionIdLegacy: intent.positionId,
+            lastKnownExposureSource: 'exit_visible',
+          },
+        }).catch(() => null);
+      }
       finalityState = 'pending_visibility';
       settleRetryIntervalMs = CONFIRMATION_RECHECK_MS;
       return;

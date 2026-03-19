@@ -10,6 +10,7 @@ import { normalizeToken, normalizeTxHash, normalizeWallet } from '../runtime/cha
 function toAggregate(row: any): CopytradeOrderAggregate {
   return {
     id: row.id,
+    canonicalKey: row.canonicalKey || null,
     chainId: row.chainId,
     txHash: row.txHash,
     targetWallet: row.targetWallet,
@@ -64,14 +65,29 @@ export class PrismaCopytradeOrderRepository implements CopytradeOrderRepositoryP
   ): Promise<{ order: CopytradeOrderAggregate; claimed: boolean }> {
     const txHash = normalizeTxHash(signal.chainId, signal.swap.txHash);
     const targetWallet = normalizeWallet(signal.chainId, signal.targetWallet);
+    const activeConfig = await lookupActiveConfig(targetWallet, signal.chainId);
+    const canonicalKey = [
+      String(signal.chainId),
+      txHash,
+      targetWallet,
+      activeConfig.userId || '',
+      activeConfig.configId || '',
+      'unknown',
+    ].join(':');
 
-    const existing = await prisma.copytradeOrder.findUnique({
+    const existing = await prisma.copytradeOrder.findFirst({
       where: {
-        chainId_txHash_targetWallet: {
-          chainId: signal.chainId,
-          txHash,
-          targetWallet,
-        },
+        OR: [
+          { canonicalKey },
+          {
+            chainId: signal.chainId,
+            txHash,
+            targetWallet,
+            userId: activeConfig.userId,
+            configId: activeConfig.configId,
+            direction: 'unknown',
+          },
+        ],
       },
     });
 
@@ -79,12 +95,11 @@ export class PrismaCopytradeOrderRepository implements CopytradeOrderRepositoryP
       return { order: toAggregate(existing), claimed: false };
     }
 
-    const activeConfig = await lookupActiveConfig(targetWallet, signal.chainId);
-
     try {
       const created = await prisma.copytradeOrder.create({
         data: {
           id: crypto.randomUUID(),
+          canonicalKey,
           chainId: signal.chainId,
           txHash,
           targetWallet,
@@ -116,13 +131,19 @@ export class PrismaCopytradeOrderRepository implements CopytradeOrderRepositoryP
         error instanceof Prisma.PrismaClientKnownRequestError
         && error.code === 'P2002'
       ) {
-        const raced = await prisma.copytradeOrder.findUnique({
+        const raced = await prisma.copytradeOrder.findFirst({
           where: {
-            chainId_txHash_targetWallet: {
-              chainId: signal.chainId,
-              txHash,
-              targetWallet,
-            },
+            OR: [
+              { canonicalKey },
+              {
+                chainId: signal.chainId,
+                txHash,
+                targetWallet,
+                userId: activeConfig.userId,
+                configId: activeConfig.configId,
+                direction: 'unknown',
+              },
+            ],
           },
         });
         if (raced) return { order: toAggregate(raced), claimed: false };

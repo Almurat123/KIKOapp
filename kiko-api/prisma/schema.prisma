@@ -546,6 +546,7 @@ model PositionExitIntent {
 
 model CopytradeOrder {
   id              String                 @id
+  canonicalKey    String?                @unique(map: "copytrade_orders_canonical_key")
   chainId         Int                    @map("chain_id")
   txHash          String                 @map("tx_hash")
   targetWallet    String                 @map("target_wallet")
@@ -569,7 +570,7 @@ model CopytradeOrder {
   events          CopytradeOrderEvent[]
   executions      CopytradeOrderExecution[]
 
-  @@unique([chainId, txHash, targetWallet], map: "copytrade_orders_identity_key")
+  @@index([chainId, txHash, targetWallet], map: "idx_copytrade_orders_signal_identity")
   @@index([lifecycleState, updatedAt(sort: Desc)], map: "idx_copytrade_orders_state_updated")
   @@index([userId, createdAt(sort: Desc)], map: "idx_copytrade_orders_user_created")
   @@index([configId, createdAt(sort: Desc)], map: "idx_copytrade_orders_config_created")

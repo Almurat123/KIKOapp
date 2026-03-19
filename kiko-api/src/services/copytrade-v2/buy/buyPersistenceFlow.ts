@@ -9,6 +9,11 @@ import {
 import { finalizeCopytradeBuyPosition } from '../positions/positionPersistence.js';
 import { upsertPendingAttributedPosition } from '../positions/pendingAttributedPositionLedger.js';
 import { syncCopytradeLedgerFromLegacy } from '../ledger/copytradeLedgerRepository.js';
+import {
+  advanceCanonicalOrderState,
+  claimOrCreateCanonicalOrder,
+  recordCanonicalOrderExecution,
+} from '../orders/canonicalOrderState.js';
 
 export async function persistCopytradeBuySubmission(params: {
   pendingPositionId?: string | null;
@@ -32,6 +37,9 @@ export async function persistCopytradeBuySubmission(params: {
   finalizeCopytradeBuyPosition?: typeof finalizeCopytradeBuyPosition;
   upsertPendingAttributedPosition?: typeof upsertPendingAttributedPosition;
   syncCopytradeLedgerFromLegacy?: typeof syncCopytradeLedgerFromLegacy;
+  claimOrCreateCanonicalOrder?: typeof claimOrCreateCanonicalOrder;
+  advanceCanonicalOrderState?: typeof advanceCanonicalOrderState;
+  recordCanonicalOrderExecution?: typeof recordCanonicalOrderExecution;
 }): Promise<{
   nextPositionStatus: CopytradeBuyPositionStatus;
   persistedPositionId: string;
@@ -42,6 +50,9 @@ export async function persistCopytradeBuySubmission(params: {
   const finalizePosition = deps?.finalizeCopytradeBuyPosition || finalizeCopytradeBuyPosition;
   const upsertPendingLot = deps?.upsertPendingAttributedPosition || upsertPendingAttributedPosition;
   const syncLedger = deps?.syncCopytradeLedgerFromLegacy || syncCopytradeLedgerFromLegacy;
+  const claimOrder = deps?.claimOrCreateCanonicalOrder || claimOrCreateCanonicalOrder;
+  const advanceOrderState = deps?.advanceCanonicalOrderState || advanceCanonicalOrderState;
+  const recordOrderExecution = deps?.recordCanonicalOrderExecution || recordCanonicalOrderExecution;
 
   const nextPositionStatus: CopytradeBuyPositionStatus = (params.entryTxHash && params.chainId === 900)
     ? 'open'
@@ -122,6 +133,59 @@ export async function persistCopytradeBuySubmission(params: {
         error: ledgerErr?.message || String(ledgerErr),
       });
     });
+  }
+
+  const leaderBuyTxHash = String(params.leaderBuyTxHash || '').trim().toLowerCase();
+  if (leaderBuyTxHash && params.targetWallet) {
+    const order = await claimOrder({
+      userId: params.userId,
+      configId: params.configId,
+      chainId: params.chainId,
+      targetWallet: params.targetWallet,
+      tokenAddress: params.tokenAddress,
+      leaderTxHash: leaderBuyTxHash,
+      direction: 'buy',
+      mode: 'legacy',
+      tokenOut: params.tokenAddress,
+      metadata: {
+        buyTxHash: params.entryTxHash,
+        positionIdLegacy: persistedPositionId,
+        lastKnownExposureSource: 'position_projection',
+        txLifecycleStatus: params.txLifecycleStatus || null,
+        runtimeOrderId: params.runtimeContext?.orderId || null,
+        runtimeCanonicalTxHash: params.runtimeContext?.canonicalTxHash || null,
+      },
+    }).catch(() => null);
+
+    if (order) {
+      const lifecycleState = nextPositionStatus === 'open' ? 'BUY_ACCEPTED' : 'BUY_SUBMITTING';
+      const reasonCode = nextPositionStatus === 'open' ? 'buy_tx_accepted' : 'buy_tx_visible';
+      await advanceOrderState({
+        orderId: order.id,
+        lifecycleState,
+        reasonCode,
+        eventType: 'ORDER_BUY_PERSISTED',
+        metadataPatch: {
+          buyTxHash: params.entryTxHash,
+          positionIdLegacy: persistedPositionId,
+          lastKnownExposureSource: 'position_projection',
+          positionStatus: nextPositionStatus,
+        },
+      }).catch(() => null);
+      await recordOrderExecution({
+        orderId: order.id,
+        status: nextPositionStatus === 'open' ? 'accepted' : 'submitted',
+        reasonCode,
+        txHash: params.entryTxHash,
+        mode: 'legacy',
+        retryable: false,
+        metadata: {
+          txLifecycleStatus: params.txLifecycleStatus || null,
+          runtimeOrderId: params.runtimeContext?.orderId || null,
+          runtimeCanonicalTxHash: params.runtimeContext?.canonicalTxHash || null,
+        },
+      }).catch(() => null);
+    }
   }
 
   return {

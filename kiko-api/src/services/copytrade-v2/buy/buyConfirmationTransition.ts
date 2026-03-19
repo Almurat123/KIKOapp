@@ -19,6 +19,12 @@ import { emitCopytradeDomainAudit } from '../audit/copytradeDomainAudit.js';
 import { scheduleDeferredBuyFeeRecovery } from './deferredBuyFeeRecovery.js';
 import { scheduleDeferredSellApprovalPreheat } from './deferredSellApprovalPreheat.js';
 import { recordFollowerTransactionFactByPosition } from '../data-flow/followerTransactionFactLedger.js';
+import {
+  advanceCanonicalOrderState,
+  claimOrCreateCanonicalOrder,
+  recordCanonicalOrderExecution,
+} from '../orders/canonicalOrderState.js';
+import { resolveCanonicalSellPreemption } from '../orders/canonicalOrderPolicy.js';
 
 export type BuyConfirmationTransitionResult = 'confirmed_success' | 'confirmed_failed' | 'deferred';
 export interface MirrorSellAfterConfirmContext {
@@ -43,6 +49,7 @@ export async function applyBuyConfirmationTransition(params: {
   tokenToBuy: string;
   txHash: string;
   userId: string;
+  configId?: string;
   targetWallet: string;
   leaderBuyTxHash?: string | null;
   persistedPositionId?: string | null;
@@ -72,6 +79,9 @@ export async function applyBuyConfirmationTransition(params: {
     resolveConfirmedReceiptTokenAmount?: typeof resolveConfirmedReceiptTokenAmount;
     persistConfirmedBuyAmount?: typeof persistConfirmedBuyAmount;
     recordFollowerTransactionFactByPosition?: typeof recordFollowerTransactionFactByPosition;
+    claimOrCreateCanonicalOrder?: typeof claimOrCreateCanonicalOrder;
+    advanceCanonicalOrderState?: typeof advanceCanonicalOrderState;
+    recordCanonicalOrderExecution?: typeof recordCanonicalOrderExecution;
   };
 }): Promise<BuyConfirmationTransitionResult> {
   const {
@@ -80,6 +90,7 @@ export async function applyBuyConfirmationTransition(params: {
     tokenToBuy,
     txHash,
     userId,
+    configId,
     targetWallet,
     leaderBuyTxHash,
     persistedPositionId,
@@ -105,7 +116,27 @@ export async function applyBuyConfirmationTransition(params: {
   const resolveReceiptAmount = deps?.resolveConfirmedReceiptTokenAmount || resolveConfirmedReceiptTokenAmount;
   const persistReceiptAmount = deps?.persistConfirmedBuyAmount || persistConfirmedBuyAmount;
   const recordFollowerFact = deps?.recordFollowerTransactionFactByPosition || recordFollowerTransactionFactByPosition;
+  const claimOrder = deps?.claimOrCreateCanonicalOrder || claimOrCreateCanonicalOrder;
+  const advanceOrderState = deps?.advanceCanonicalOrderState || advanceCanonicalOrderState;
+  const recordOrderExecution = deps?.recordCanonicalOrderExecution || recordCanonicalOrderExecution;
   const resolvedTxHash = confirmation.resolvedTxHash || txHash;
+  const canonicalOrder = leaderBuyTxHash && targetWallet && configId
+    ? await claimOrder({
+        userId,
+        configId,
+        chainId,
+        targetWallet,
+        tokenAddress: tokenToBuy,
+        leaderTxHash: leaderBuyTxHash,
+        direction: 'buy',
+        mode: 'legacy',
+        tokenOut: tokenToBuy,
+        metadata: {
+          buyTxHash: resolvedTxHash,
+          positionIdLegacy: persistedPositionId || null,
+        },
+      }).catch(() => null)
+    : null;
 
   if (confirmation.kind === 'confirmed_failed') {
     if (persistedPositionId) {
@@ -136,6 +167,29 @@ export async function applyBuyConfirmationTransition(params: {
       recoverySource,
       reason: confirmation.reason || 'confirmed_failed'
     });
+    if (canonicalOrder) {
+      await advanceOrderState({
+        orderId: canonicalOrder.id,
+        lifecycleState: 'FAILED_TERMINAL',
+        reasonCode: 'buy_confirmation_failed',
+        eventType: 'ORDER_BUY_CONFIRM_FAILED',
+        metadataPatch: {
+          buyTxHash: resolvedTxHash,
+          positionIdLegacy: persistedPositionId || null,
+        },
+      }).catch(() => null);
+      await recordOrderExecution({
+        orderId: canonicalOrder.id,
+        status: 'failed_terminal',
+        reasonCode: 'buy_confirmation_failed',
+        txHash: resolvedTxHash,
+        mode: 'legacy',
+        retryable: false,
+        metadata: {
+          recoverySource,
+        },
+      }).catch(() => null);
+    }
     return 'confirmed_failed';
   }
 
@@ -196,6 +250,12 @@ export async function applyBuyConfirmationTransition(params: {
     leaderBuyTxHash: leaderBuyTxHash || undefined,
     positionCreatedAt: pendingPositionCreatedAt
   }).catch(() => null);
+  const canonicalMirrorIntent = resolveCanonicalSellPreemption(canonicalOrder);
+  const resolvedMirrorIntent = pendingMirrorIntent?.shouldMirrorSell
+    ? pendingMirrorIntent
+    : canonicalMirrorIntent.shouldMirrorSell
+      ? canonicalMirrorIntent
+      : pendingMirrorIntent;
 
   const promotionAction = await resolvePromotionAction({
     positionId: persistedPositionId
@@ -254,17 +314,61 @@ export async function applyBuyConfirmationTransition(params: {
       chainId,
       token: tokenToBuy,
       recoverySource,
-      targetSellTxHash: pendingMirrorIntent?.targetSellTxHash || undefined,
-      targetSellReasonCode: pendingMirrorIntent?.reasonCode || undefined
+      targetSellTxHash: resolvedMirrorIntent?.targetSellTxHash || undefined,
+      targetSellReasonCode: resolvedMirrorIntent?.reasonCode || undefined
     });
   }
 
-  if (pendingMirrorIntent?.shouldMirrorSell && persistedPositionId && onMirrorSellAfterConfirm) {
+  if (resolvedMirrorIntent?.shouldMirrorSell && persistedPositionId && onMirrorSellAfterConfirm) {
+    if (canonicalOrder) {
+      await advanceOrderState({
+        orderId: canonicalOrder.id,
+        lifecycleState: 'EXIT_ARMED',
+        reasonCode: 'exit_armed_from_target_sell',
+        eventType: 'ORDER_EXIT_ARMED_AFTER_BUY_CONFIRM',
+        metadataPatch: {
+          buyTxHash: resolvedTxHash,
+          targetSellTxHash: resolvedMirrorIntent.targetSellTxHash || null,
+          targetSellReasonCode: resolvedMirrorIntent.reasonCode || null,
+          positionIdLegacy: persistedPositionId,
+          lastKnownExposureSource: 'buy_confirmed_open',
+        },
+      }).catch(() => null);
+    }
     await onMirrorSellAfterConfirm({
       positionId: persistedPositionId,
-      targetSellTxHash: pendingMirrorIntent.targetSellTxHash,
-      reasonCode: pendingMirrorIntent.reasonCode,
+      targetSellTxHash: resolvedMirrorIntent.targetSellTxHash,
+      reasonCode: resolvedMirrorIntent.reasonCode as any,
     });
+  }
+
+  if (canonicalOrder) {
+    await advanceOrderState({
+      orderId: canonicalOrder.id,
+      lifecycleState: resolvedMirrorIntent?.shouldMirrorSell ? 'EXIT_ARMED' : 'BUY_CONFIRMED_OPEN',
+      reasonCode: resolvedMirrorIntent?.shouldMirrorSell ? 'exit_armed_from_target_sell' : 'ok_buy_confirmed_open',
+      eventType: resolvedMirrorIntent?.shouldMirrorSell ? 'ORDER_BUY_CONFIRMED_RELEASED_TO_EXIT' : 'ORDER_BUY_CONFIRMED_OPEN',
+      metadataPatch: {
+        buyTxHash: resolvedTxHash,
+        targetSellTxHash: resolvedMirrorIntent?.targetSellTxHash || null,
+        targetSellReasonCode: resolvedMirrorIntent?.reasonCode || null,
+        positionIdLegacy: persistedPositionId || null,
+        confirmedAmountRaw,
+        lastKnownExposureSource: resolvedMirrorIntent?.shouldMirrorSell ? 'buy_confirmed_release_to_exit' : 'buy_confirmed_open',
+      },
+    }).catch(() => null);
+    await recordOrderExecution({
+      orderId: canonicalOrder.id,
+      status: 'confirmed',
+      reasonCode: 'ok_buy_confirmed_open',
+      txHash: resolvedTxHash,
+      mode: 'legacy',
+      retryable: false,
+      metadata: {
+        recoverySource,
+        confirmedAmountRaw,
+      },
+    }).catch(() => null);
   }
 
   if (directFeeSettlement?.deferred) {
@@ -285,7 +389,7 @@ export async function applyBuyConfirmationTransition(params: {
   // Production-grade behavior: avoid speculative approval traffic on the critical buy path.
   // Approval preheat is only useful for future sells and should never compete with a just-confirmed buy
   // or an already-armed mirror sell.
-  if (!pendingMirrorIntent?.shouldMirrorSell) {
+  if (!resolvedMirrorIntent?.shouldMirrorSell) {
     const preheatResult = await preheatSell({
       userId,
       walletAddress,

@@ -1,6 +1,11 @@
 import { buildRecoverablePendingEntryTxHash } from '../buy/pendingProtectionPolicy.js';
 import { resolveEntryDeviationCurrentPrice } from '../buy/entryDeviationPriceSelection.js';
 import { releaseMirrorSellAfterBuyConfirm } from '../buy/buyConfirmationMirrorSellRelease.js';
+import {
+    advanceCanonicalOrderState as advanceCanonicalOrderStateFallback,
+    claimOrCreateCanonicalOrder as claimOrCreateCanonicalOrderFallback,
+    listActiveCanonicalOrders as listActiveCanonicalOrdersFallback,
+} from '../orders/canonicalOrderState.js';
 import { TRADE_METADATA_PROFILE } from '../../rpc/profile.js';
 
 type SingleUserBuyResult = {
@@ -76,6 +81,9 @@ export async function processSingleUserBuy(params: {
         getTokenInfoOnce,
         getTokenInfo,
         persistCopytradeBuySubmission,
+        claimOrCreateCanonicalOrder,
+        advanceCanonicalOrderState,
+        listActiveCanonicalOrders,
         resolveDisplayTokenSymbol,
         buildOrderAuditFields,
         resolveDisplayTokenSymbolAsync,
@@ -156,6 +164,43 @@ export async function processSingleUserBuy(params: {
         let txLifecycleStatus: string | undefined;
         let orderRuntimeContext: any = undefined;
         let swapMetadata: any = undefined;
+        const claimCanonicalOrder = claimOrCreateCanonicalOrder || claimOrCreateCanonicalOrderFallback;
+        const advanceCanonicalOrder = advanceCanonicalOrderState || advanceCanonicalOrderStateFallback;
+        const canonicalOrder = leaderTxHash
+            ? await claimCanonicalOrder({
+                userId: config.userId,
+                configId: config.id,
+                chainId,
+                targetWallet,
+                tokenAddress: tokenToBuy,
+                leaderTxHash,
+                direction: 'buy',
+                mode: executionMode,
+                tokenIn: swap?.tokenIn || null,
+                tokenOut: tokenToBuy,
+                followerWallet: config.user?.walletAddress || null,
+                metadata: {
+                    sourceRuntime: 'legacy_copytrade_buy_runtime',
+                    executionMode,
+                    turboMode,
+                },
+            }).catch(() => null)
+            : null;
+        const advanceOrder = async (
+            lifecycleState: string,
+            reasonCode: string,
+            eventType: string,
+            metadataPatch?: Record<string, unknown>
+        ) => {
+            if (!canonicalOrder) return null;
+            return advanceCanonicalOrder({
+                orderId: canonicalOrder.id,
+                lifecycleState,
+                reasonCode,
+                eventType,
+                metadataPatch,
+            }).catch(() => null);
+        };
 
         try {
             const dispatchTimingAnchor = getCopyTradeDispatchTimingAnchor(timing);
@@ -645,7 +690,7 @@ export async function processSingleUserBuy(params: {
                     const balanceNative = ethers.formatEther(nativeBalance);
                     const requiredNative = ethers.formatEther(tradeCostWei + gasBufferWei);
 
-                    logger.throttled(LogCode.EXE_INSUFFICIENT_FUNDS, 'Skipping trade: Insufficient gas buffer', {
+                logger.throttled(LogCode.EXE_INSUFFICIENT_FUNDS, 'Skipping trade: Insufficient gas buffer', {
                         userId: config.userId,
                         chainId,
                         balance: balanceNative,
@@ -668,11 +713,18 @@ export async function processSingleUserBuy(params: {
                         }
                     });
                     emitGuardAudit('skip', 'insufficient_gas_buffer');
+                    await advanceOrder('FAILED_TERMINAL', 'buy_skipped_insufficient_gas_buffer', 'ORDER_BUY_SKIPPED', {
+                        lastKnownExposureSource: 'guard_skip',
+                        skipReasonCode: 'buy_skipped_insufficient_gas_buffer',
+                    });
                     return { outcome: 'skipped' };
                 }
             }
 
             emitGuardAudit('pass', 'guards_passed_pre_execution');
+            await advanceOrder('VALIDATED', 'ok_validated', 'ORDER_BUY_ADMITTED', {
+                lastKnownExposureSource: 'buy_admitted',
+            });
 
             try {
                 const pendingPos = await prisma.$transaction(async (tx: any) => {
@@ -709,15 +761,25 @@ export async function processSingleUserBuy(params: {
                 pendingPositionId = pendingPos.id;
                 pendingPositionCreatedAt = pendingPos.createdAt;
                 logger.info(LogCode.EXE_TX_BROADCAST, 'Created PENDING position lock', { userId: config.userId, token: tokenToBuy, positionId: pendingPositionId });
+                await advanceOrder('BUY_SUBMITTING', 'buy_send_started', 'ORDER_BUY_PENDING_POSITION_CREATED', {
+                    positionIdLegacy: pendingPositionId,
+                    lastKnownExposureSource: 'pending_position',
+                });
             } catch (err: any) {
                 const isUniqueConflict = String(err?.code || '').toUpperCase() === 'P2002'
                     || String(err?.message || '').toLowerCase().includes('unique constraint');
                 if (err.message.includes('DUPLICATE_TRADE') || isUniqueConflict) {
                     logger.info(LogCode.WTC_TX_SKIPPED, 'Skipping duplicate trade (DB Lock)', { userId: config.userId, token: tokenToBuy });
                     emitGuardAudit('skip', 'duplicate_trade_lock');
+                    await advanceOrder('FAILED_TERMINAL', 'duplicate_trade_lock', 'ORDER_BUY_SKIPPED', {
+                        skipReasonCode: 'duplicate_trade_lock',
+                    });
                     return { outcome: 'skipped' };
                 } else {
                     logger.error(LogCode.SYS_ERROR, 'Failed to create pending position', { error: err.message });
+                    await advanceOrder('FAILED_TERMINAL', 'failed_terminal', 'ORDER_BUY_FAILED', {
+                        lastKnownExposureSource: 'pending_position_error',
+                    });
                     return { outcome: 'failed' };
                 }
             }
@@ -1064,6 +1126,12 @@ export async function processSingleUserBuy(params: {
                             pendingPositionId,
                             ...buildOrderAuditFields(orderRuntimeContext)
                         });
+                        await advanceOrder('BUY_SUBMITTING', submissionResult.reasonCode, 'ORDER_BUY_UNRESOLVED', {
+                            positionIdLegacy: pendingPositionId,
+                            runtimeOrderId: orderRuntimeContext?.orderId || null,
+                            runtimeCanonicalTxHash: orderRuntimeContext?.canonicalTxHash || null,
+                            lastKnownExposureSource: 'pending_position',
+                        });
                         return { outcome: 'pending' };
                     }
                     txHash = submissionResult.txHash;
@@ -1079,6 +1147,10 @@ export async function processSingleUserBuy(params: {
                 if (pendingPositionId) {
                     await prisma.position.deleteMany({ where: { id: pendingPositionId } }).catch((e: any) => logger.error(LogCode.SYS_ERROR, 'Failed to cleanup pending pos', { error: e }));
                 }
+                await advanceOrder('FAILED_TERMINAL', 'failed_terminal', 'ORDER_BUY_FAILED', {
+                    positionIdLegacy: pendingPositionId,
+                    lastKnownExposureSource: 'buy_submission_failed',
+                });
                 return { outcome: 'failed' };
             }
 
@@ -1124,6 +1196,19 @@ export async function processSingleUserBuy(params: {
                 positionAmountStorageReasonCode: persistenceResult.positionAmountStorageReasonCode,
                 ...buildOrderAuditFields(orderRuntimeContext)
             });
+            await advanceOrder(
+                nextPositionStatus === 'open' ? 'BUY_ACCEPTED' : 'BUY_SUBMITTING',
+                nextPositionStatus === 'open' ? 'buy_tx_accepted' : 'buy_tx_visible',
+                'ORDER_BUY_SUBMITTED',
+                {
+                    buyTxHash: txHash,
+                    positionIdLegacy: persistedPositionId,
+                    runtimeOrderId: orderRuntimeContext?.orderId || null,
+                    runtimeCanonicalTxHash: orderRuntimeContext?.canonicalTxHash || null,
+                    lastKnownExposureSource: 'position_projection',
+                    positionStatus: nextPositionStatus,
+                }
+            );
 
             const notifyBuySuccessConfirmed = async () => {
                 sendNotificationAsync({
@@ -1175,6 +1260,7 @@ export async function processSingleUserBuy(params: {
                     tokenToBuy,
                     txHash,
                     userId: effectiveConfig.user.privyDid,
+                    configId: effectiveConfig.id,
                     targetWallet,
                     leaderBuyTxHash: leaderTxHash || undefined,
                     persistedPositionId,
@@ -1309,6 +1395,7 @@ async function resolveMirrorSellExposure(params: {
         | 'MIRROR_SELL_EXPOSURE_RESOLVED_FROM_PENDING_POSITION'
         | 'MIRROR_SELL_EXPOSURE_RESOLVED_FROM_PENDING_ATTRIBUTION'
         | 'MIRROR_SELL_EXPOSURE_RESOLVED_FROM_UNRESOLVED_LEDGER_SYNC'
+        | 'projection_missing_but_order_authoritative'
         | 'MIRROR_SELL_NO_LEDGER_CANDIDATES';
 }> {
     const ledgerRows = await params.prisma.copytradePositionLedger.findMany({
@@ -1433,7 +1520,9 @@ export async function handleTargetSell(params: {
         persistTargetSellEventAndSchedulePositions,
         syncCopytradeLedgerFromLegacy,
         armPendingAttributedPositionsForMirrorSell,
-        recordNewTrade
+        recordNewTrade,
+        listActiveCanonicalOrders,
+        advanceCanonicalOrderState
     } = deps;
     const { targetWallet, swap, chainId } = params;
     const tokenToSell = swap.tokenIn;
@@ -1539,6 +1628,16 @@ export async function handleTargetSell(params: {
         : null;
 
     await Promise.all(uniqueExecutableConfigs.map(async (config: any) => {
+        const loadActiveOrders = listActiveCanonicalOrders || listActiveCanonicalOrdersFallback;
+        const advanceOrderState = advanceCanonicalOrderState || advanceCanonicalOrderStateFallback;
+        const activeOrders = await loadActiveOrders({
+            userId: config.userId,
+            configId: config.id,
+            chainId,
+            targetWallet: normalizedWallet,
+            tokenAddress: tokenToSell,
+            direction: 'buy',
+        }).catch(() => []);
         const exposure = await resolveMirrorSellExposure({
             prisma,
             userId: config.userId,
@@ -1547,11 +1646,42 @@ export async function handleTargetSell(params: {
             tokenAddress: tokenToSell,
             targetWallet: normalizedWallet,
         });
-        const positionIds = exposure.positionIds;
-        const matchedPositions = exposure.positions;
+        let positionIds = exposure.positionIds;
+        let matchedPositions = exposure.positions;
         let executionPolicyReasonCode = exposure.reasonCode;
 
+        if (matchedPositions.length === 0 && activeOrders.length > 0) {
+            const fallbackPositionIds = activeOrders
+                .map((order: any) => String(order.metadata?.positionIdLegacy || '').trim())
+                .filter(Boolean);
+            if (fallbackPositionIds.length > 0) {
+                const authoritativePositions = await prisma.position.findMany({
+                    where: {
+                        id: { in: fallbackPositionIds },
+                        status: { in: [...MIRROR_SELL_ACTIVE_POSITION_STATUSES] as any },
+                    },
+                }).catch(() => []);
+                if (authoritativePositions.length > 0) {
+                    matchedPositions = authoritativePositions;
+                    positionIds = authoritativePositions.map((position: any) => position.id);
+                    executionPolicyReasonCode = 'projection_missing_but_order_authoritative';
+                }
+            }
+        }
+
         if (matchedPositions.length === 0) {
+            await Promise.all(activeOrders.map((order: any) =>
+                advanceOrderState({
+                    orderId: order.id,
+                    lifecycleState: order.lifecycleState,
+                    reasonCode: 'sell_preempted_before_buy_confirm',
+                    eventType: 'ORDER_SELL_PREEMPTED_WITHOUT_POSITION',
+                    metadataPatch: {
+                        targetSellTxHash: swap.txHash || null,
+                        lastKnownExposureSource: 'target_sell_seen_without_projection',
+                    },
+                }).catch(() => null)
+            ));
             logger.info(
                 LogCode.WTC_TX_SKIPPED,
                 'Mirror sell skipped: no ledger-backed follower exposure for target sell',
@@ -1570,6 +1700,19 @@ export async function handleTargetSell(params: {
             return;
         }
 
+        const orderByLeaderBuy = new Map(
+            activeOrders
+                .map((order: any) => [String(order.txHash || '').trim().toLowerCase(), order] as const)
+        );
+        const positionOrderMap = new Map<string, string>();
+        matchedPositions.forEach((position: any) => {
+            const leaderKey = String(position.leaderTxHash || '').trim().toLowerCase();
+            const matchedOrder = leaderKey ? orderByLeaderBuy.get(leaderKey) : activeOrders[0];
+            if (matchedOrder) {
+                positionOrderMap.set(position.id, matchedOrder.id);
+            }
+        });
+
         if (executionPolicyReasonCode !== 'MIRROR_SELL_LEDGER_MATCHED') {
             await Promise.all(matchedPositions.map((position: any) =>
                 syncCopytradeLedgerFromLegacy({
@@ -1581,6 +1724,21 @@ export async function handleTargetSell(params: {
                     lastExecutionReasonCode: executionPolicyReasonCode,
                 }).catch(() => null)
             ));
+            await Promise.all(matchedPositions.map((position: any) => {
+                const orderId = positionOrderMap.get(position.id);
+                if (!orderId) return Promise.resolve(null);
+                return advanceOrderState({
+                    orderId,
+                    lifecycleState: 'EXIT_ARMED',
+                    reasonCode: executionPolicyReasonCode,
+                    eventType: 'ORDER_PROJECTION_REPAIRED_FROM_SELL',
+                    metadataPatch: {
+                        targetSellTxHash: swap.txHash || null,
+                        positionIdLegacy: position.id,
+                        lastKnownExposureSource: 'projection_repaired_from_order',
+                    },
+                }).catch(() => null);
+            }));
 
             logger.warn(LogCode.SYS_INFO, 'Mirror sell resolved follower exposure without preexisting ledger rows', {
                 userId: config.userId,
@@ -1659,6 +1817,7 @@ export async function handleTargetSell(params: {
             }),
             positions: matchedPositions.map((position: any) => ({
                 id: position.id,
+                orderId: positionOrderMap.get(position.id) || null,
                 userId: position.userId,
                 configId: position.configId,
                 chainId: position.chainId,
@@ -1684,6 +1843,23 @@ export async function handleTargetSell(params: {
             return null;
         });
         if (scheduled) {
+            await Promise.all(matchedPositions.map((position: any) => {
+                const orderId = positionOrderMap.get(position.id);
+                if (!orderId) return Promise.resolve(null);
+                return advanceOrderState({
+                    orderId,
+                    lifecycleState: 'EXIT_ARMED',
+                    reasonCode: 'exit_armed_from_target_sell',
+                    eventType: 'ORDER_EXIT_ARMED',
+                    metadataPatch: {
+                        targetSellTxHash: swap.txHash || null,
+                        positionIdLegacy: position.id,
+                        lastKnownExposureSource: executionPolicyReasonCode === 'MIRROR_SELL_LEDGER_MATCHED'
+                            ? 'ledger_projection'
+                            : 'projection_repaired_from_order',
+                    },
+                }).catch(() => null);
+            }));
             logger.info(LogCode.SYS_INFO, 'Mirror sell scheduled canonical exit intents', {
                 userId: config.userId,
                 token: tokenToSell,

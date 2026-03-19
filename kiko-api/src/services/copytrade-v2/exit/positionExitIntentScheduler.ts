@@ -11,6 +11,7 @@ import {
   type PositionExitIntentPayload,
   type TargetSellEventPayload,
 } from './intentTypes.js';
+import { advanceCanonicalOrderState } from '../orders/canonicalOrderState.js';
 import { enqueuePositionExitIntent } from './positionExitIntentStore.js';
 import { replaceTargetSellEventMetadata, upsertTargetSellEvent, type TargetSellEventRecord } from './targetSellEventStore.js';
 import type { PositionExitReason } from './types.js';
@@ -79,6 +80,7 @@ export async function persistTargetSellEventAndSchedulePositions(params: {
   event: TargetSellEventPayload;
   positions: Array<{
     id: string;
+    orderId?: string | null;
     userId: string;
     configId: string;
     chainId: number;
@@ -107,6 +109,7 @@ export async function scheduleMirrorSellIntentsForEvent(params: {
   event: TargetSellEventRecord;
   positions: Array<{
     id: string;
+    orderId?: string | null;
     userId: string;
     configId: string;
     chainId: number;
@@ -180,10 +183,24 @@ export async function scheduleMirrorSellIntentsForEvent(params: {
         targetSellRatioBps: event.targetSellRatioBps,
         targetFullExitVerified: event.targetFullExitVerified,
         targetWallet: event.targetWallet,
+        orderId: position.orderId || null,
       },
     };
     const result = await enqueuePositionExitIntent(payload);
     if (result.created) {
+      if (position.orderId) {
+        await advanceCanonicalOrderState({
+          orderId: position.orderId,
+          lifecycleState: 'EXIT_ARMED',
+          reasonCode: 'exit_armed_from_target_sell',
+          eventType: 'ORDER_EXIT_INTENT_SCHEDULED',
+          metadataPatch: {
+            targetSellTxHash: event.targetSellTxHash || null,
+            positionIdLegacy: position.id,
+            lastKnownExposureSource: 'exit_intent_projection',
+          },
+        }).catch(() => null);
+      }
       scheduled += 1;
       markTargetSellEventConfigResolved({
         metadata,
@@ -232,6 +249,7 @@ export async function schedulePositionExitIntent(params: {
     configId: string;
     chainId: number;
     tokenAddress: string;
+    orderId?: string | null;
   };
   exitReason: PositionExitReason;
   priority?: number;
@@ -246,9 +264,25 @@ export async function schedulePositionExitIntent(params: {
     exitReason: params.exitReason,
     priority: params.priority ?? 150,
     lane: resolveExitIntentLane(params.position.chainId),
-    metadata: params.metadata,
+    metadata: {
+      ...(params.metadata || {}),
+      orderId: params.position.orderId || (params.metadata as Record<string, unknown> | undefined)?.orderId || null,
+    },
   });
   if (result.created) {
+    const orderId = String(params.position.orderId || (params.metadata as Record<string, unknown> | undefined)?.orderId || '').trim();
+    if (orderId) {
+      await advanceCanonicalOrderState({
+        orderId,
+        lifecycleState: 'EXIT_ARMED',
+        reasonCode: params.exitReason === 'mirror_sell' ? 'exit_armed_from_target_sell' : 'ok_exit_armed',
+        eventType: 'ORDER_EXIT_INTENT_SCHEDULED',
+        metadataPatch: {
+          positionIdLegacy: params.position.id,
+          lastKnownExposureSource: 'exit_intent_projection',
+        },
+      }).catch(() => null);
+    }
     nudgePositionExitIntentWorker(resolveExitIntentLane(params.position.chainId));
   }
   return result.created;

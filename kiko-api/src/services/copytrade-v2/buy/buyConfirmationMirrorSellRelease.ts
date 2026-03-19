@@ -12,6 +12,7 @@ export async function releaseMirrorSellAfterBuyConfirm(params: {
     configId: string;
     chainId: number;
     tokenAddress: string;
+    orderId?: string | null;
     entryAmountExact?: string | null;
     entryAmountDec?: string | number | { toString(): string } | null;
   } | null;
@@ -43,6 +44,7 @@ export async function releaseMirrorSellAfterBuyConfirm(params: {
         configId: position.configId,
         chainId: position.chainId,
         tokenAddress: position.tokenAddress,
+        orderId: position.orderId || null,
       },
       exitReason: 'mirror_sell',
       priority: 230,
@@ -68,6 +70,7 @@ export async function releaseMirrorSellAfterBuyConfirm(params: {
     }),
     positions: [{
       id: position.id,
+      orderId: position.orderId || null,
       userId: position.userId,
       configId: position.configId,
       chainId: position.chainId,

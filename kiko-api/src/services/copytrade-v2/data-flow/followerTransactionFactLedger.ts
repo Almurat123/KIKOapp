@@ -3,6 +3,7 @@ import crypto from 'node:crypto';
 import { Prisma } from '@prisma/client';
 import prisma from '../../../db/prisma.js';
 import { normalizeToken, normalizeTxHash, normalizeWallet } from '../runtime/chainIdentityNormalizer.js';
+import { buildCanonicalOrderKey } from '../orders/canonicalOrderState.js';
 
 type PositionIdentity = {
   id: string;
@@ -86,14 +87,17 @@ async function appendFollowerFact(position: PositionIdentity, params: {
   const leaderTxHash = normalizeTxHash(position.chainId, position.leaderTxHash);
   if (!targetWallet || !leaderTxHash) return;
 
+  const canonicalKey = buildCanonicalOrderKey({
+    userId: position.userId,
+    configId: position.configId,
+    chainId: position.chainId,
+    targetWallet,
+    tokenAddress: position.tokenAddress,
+    leaderTxHash,
+    direction: 'buy',
+  });
   const order = await prisma.copytradeOrder.findUnique({
-    where: {
-      chainId_txHash_targetWallet: {
-        chainId: position.chainId,
-        txHash: leaderTxHash,
-        targetWallet,
-      },
-    },
+    where: { canonicalKey },
     select: {
       id: true,
       lifecycleState: true,
