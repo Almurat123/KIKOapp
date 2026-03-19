@@ -193,13 +193,29 @@ export async function processSingleUserBuy(params: {
             metadataPatch?: Record<string, unknown>
         ) => {
             if (!canonicalOrder) return null;
-            return advanceCanonicalOrder({
-                orderId: canonicalOrder.id,
-                lifecycleState,
-                reasonCode,
-                eventType,
-                metadataPatch,
-            }).catch(() => null);
+            try {
+                return await advanceCanonicalOrder({
+                    orderId: canonicalOrder.id,
+                    lifecycleState,
+                    reasonCode,
+                    eventType,
+                    metadataPatch,
+                });
+            } catch (orderErr: any) {
+                logger.error(LogCode.SYS_ERROR, 'Failed to advance canonical order state during legacy copytrade buy runtime', {
+                    userId: config.userId,
+                    configId: config.id,
+                    token: tokenToBuy,
+                    chainId,
+                    leaderTxHash: leaderTxHash || null,
+                    canonicalOrderId: canonicalOrder.id,
+                    lifecycleState,
+                    reasonCode,
+                    eventType,
+                    error: orderErr?.message || String(orderErr),
+                });
+                return null;
+            }
         };
 
         try {
@@ -1163,6 +1179,7 @@ export async function processSingleUserBuy(params: {
             }
 
             const persistenceResult = await persistCopytradeBuySubmission({
+                canonicalOrderId: canonicalOrder?.id || null,
                 pendingPositionId,
                 pendingPositionCreatedAt,
                 userId: effectiveConfig.userId,
@@ -1196,6 +1213,20 @@ export async function processSingleUserBuy(params: {
                 positionAmountStorageReasonCode: persistenceResult.positionAmountStorageReasonCode,
                 ...buildOrderAuditFields(orderRuntimeContext)
             });
+            if (!persistenceResult.canonicalOrderPersisted) {
+                logger.error(LogCode.SYS_ERROR, 'Canonical order buy submission persistence did not complete', {
+                    userId: config.userId,
+                    configId: config.id,
+                    token: tokenToBuy,
+                    chainId,
+                    txHash,
+                    leaderTxHash: leaderTxHash || null,
+                    canonicalOrderId: canonicalOrder?.id || null,
+                    positionId: persistedPositionId,
+                    positionStatus: nextPositionStatus,
+                    ...buildOrderAuditFields(orderRuntimeContext)
+                });
+            }
             await advanceOrder(
                 nextPositionStatus === 'open' ? 'BUY_ACCEPTED' : 'BUY_SUBMITTING',
                 nextPositionStatus === 'open' ? 'buy_tx_accepted' : 'buy_tx_visible',

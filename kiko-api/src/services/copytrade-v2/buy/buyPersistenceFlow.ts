@@ -16,6 +16,7 @@ import {
 } from '../orders/canonicalOrderState.js';
 
 export async function persistCopytradeBuySubmission(params: {
+  canonicalOrderId?: string | null;
   pendingPositionId?: string | null;
   pendingPositionCreatedAt?: Date | null;
   userId: string;
@@ -46,6 +47,7 @@ export async function persistCopytradeBuySubmission(params: {
   pendingPositionCreatedAt?: Date | null;
   pendingPositionSettled: true;
   positionAmountStorageReasonCode: string;
+  canonicalOrderPersisted: boolean;
 }> {
   const finalizePosition = deps?.finalizeCopytradeBuyPosition || finalizeCopytradeBuyPosition;
   const upsertPendingLot = deps?.upsertPendingAttributedPosition || upsertPendingAttributedPosition;
@@ -135,45 +137,46 @@ export async function persistCopytradeBuySubmission(params: {
     });
   }
 
+  let canonicalOrderPersisted = false;
   const leaderBuyTxHash = String(params.leaderBuyTxHash || '').trim().toLowerCase();
-  if (leaderBuyTxHash && params.targetWallet) {
-    const order = await claimOrder({
-      userId: params.userId,
-      configId: params.configId,
-      chainId: params.chainId,
-      targetWallet: params.targetWallet,
-      tokenAddress: params.tokenAddress,
-      leaderTxHash: leaderBuyTxHash,
-      direction: 'buy',
-      mode: 'legacy',
-      tokenOut: params.tokenAddress,
-      metadata: {
-        buyTxHash: params.entryTxHash,
-        positionIdLegacy: persistedPositionId,
-        lastKnownExposureSource: 'position_projection',
-        txLifecycleStatus: params.txLifecycleStatus || null,
-        runtimeOrderId: params.runtimeContext?.orderId || null,
-        runtimeCanonicalTxHash: params.runtimeContext?.canonicalTxHash || null,
-      },
-    }).catch(() => null);
+  if ((params.canonicalOrderId || leaderBuyTxHash) && params.targetWallet) {
+    const lifecycleState = nextPositionStatus === 'open' ? 'BUY_ACCEPTED' : 'BUY_SUBMITTING';
+    const reasonCode = nextPositionStatus === 'open' ? 'buy_tx_accepted' : 'buy_tx_visible';
+    const orderMetadata = {
+      buyTxHash: params.entryTxHash,
+      positionIdLegacy: persistedPositionId,
+      lastKnownExposureSource: 'position_projection',
+      txLifecycleStatus: params.txLifecycleStatus || null,
+      runtimeOrderId: params.runtimeContext?.orderId || null,
+      runtimeCanonicalTxHash: params.runtimeContext?.canonicalTxHash || null,
+      positionStatus: nextPositionStatus,
+    };
 
-    if (order) {
-      const lifecycleState = nextPositionStatus === 'open' ? 'BUY_ACCEPTED' : 'BUY_SUBMITTING';
-      const reasonCode = nextPositionStatus === 'open' ? 'buy_tx_accepted' : 'buy_tx_visible';
+    try {
+      const orderId = params.canonicalOrderId || (
+        await claimOrder({
+          userId: params.userId,
+          configId: params.configId,
+          chainId: params.chainId,
+          targetWallet: params.targetWallet,
+          tokenAddress: params.tokenAddress,
+          leaderTxHash: leaderBuyTxHash,
+          direction: 'buy',
+          mode: 'legacy',
+          tokenOut: params.tokenAddress,
+          metadata: orderMetadata,
+        })
+      ).id;
+
       await advanceOrderState({
-        orderId: order.id,
+        orderId,
         lifecycleState,
         reasonCode,
         eventType: 'ORDER_BUY_PERSISTED',
-        metadataPatch: {
-          buyTxHash: params.entryTxHash,
-          positionIdLegacy: persistedPositionId,
-          lastKnownExposureSource: 'position_projection',
-          positionStatus: nextPositionStatus,
-        },
-      }).catch(() => null);
+        metadataPatch: orderMetadata,
+      });
       await recordOrderExecution({
-        orderId: order.id,
+        orderId,
         status: nextPositionStatus === 'open' ? 'accepted' : 'submitted',
         reasonCode,
         txHash: params.entryTxHash,
@@ -184,7 +187,20 @@ export async function persistCopytradeBuySubmission(params: {
           runtimeOrderId: params.runtimeContext?.orderId || null,
           runtimeCanonicalTxHash: params.runtimeContext?.canonicalTxHash || null,
         },
-      }).catch(() => null);
+      });
+      canonicalOrderPersisted = true;
+    } catch (orderErr: any) {
+      logger.error(LogCode.SYS_ERROR, 'Failed to persist canonical order buy submission state', {
+        userId: params.userId,
+        configId: params.configId,
+        token: params.tokenAddress,
+        chainId: params.chainId,
+        txHash: params.entryTxHash,
+        leaderBuyTxHash: leaderBuyTxHash || null,
+        canonicalOrderId: params.canonicalOrderId || null,
+        positionId: persistedPositionId,
+        error: orderErr?.message || String(orderErr),
+      });
     }
   }
 
@@ -194,5 +210,6 @@ export async function persistCopytradeBuySubmission(params: {
     pendingPositionCreatedAt,
     pendingPositionSettled: true,
     positionAmountStorageReasonCode: persistedPosition.reasonCode,
+    canonicalOrderPersisted,
   };
 }
