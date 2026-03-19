@@ -461,8 +461,10 @@ async function start() {
         }
 
         try {
-            startEvmMissedTradeRecovery();
-            logger.info(LogCode.SYS_STARTUP, 'EVM missed-trade recovery started');
+            const recoveryStarted = startEvmMissedTradeRecovery();
+            logger.info(LogCode.SYS_STARTUP, recoveryStarted ? 'EVM missed-trade recovery started' : 'EVM missed-trade recovery disabled', {
+                mode: recoveryStarted ? 'startup_sell_recovery' : 'event_driven_only',
+            });
         } catch (recoveryError: any) {
             logger.error(LogCode.SYS_ERROR, 'EVM missed-trade recovery failed to start', { error: recoveryError.message });
         }

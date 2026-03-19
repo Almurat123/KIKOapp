@@ -233,6 +233,46 @@ test('assembleGenerationMessages reminds the model of the real early-buyer time 
     assert.match(String(systemMessage?.content || ''), /do not write "Calling get_early_buyers"/i);
 });
 
+test('assembleGenerationMessages tells swap execution flows not to use get_token_price for contract-address tokens', () => {
+    const snapshot: ChatContextSnapshot = {
+        sessionId: 'session-6',
+        taskId: 'task-6',
+        model: 'gpt-5-mini',
+        history: [],
+        lastUserMessage: 'Sell all 0x950e88438098bc08879243984a3cf7c63eb95ba3 to ETH',
+        runtime: {
+            contextBlocks: {},
+            userSettings: {},
+        },
+        requestedTokenAddresses: ['0x950e88438098bc08879243984a3cf7c63eb95ba3'],
+        requestedTokenSymbols: [],
+        toolDefinitions: [],
+    };
+
+    const providerInfo: ProviderInfo = {
+        provider: 'openai',
+        model: snapshot.model,
+        supportsNativeSearch: false,
+        supportsPreviousResponse: true,
+    };
+
+    const messages = assembleGenerationMessages(snapshot, [], providerInfo, {
+        intentEnvelope: {
+            primary_intent: 'swap_execution',
+            task_mode: 'execute',
+            search_mode: 'forbidden',
+            search_target: 'none',
+            domain: 'token',
+            execution_risk: 'mutation',
+            required_evidence: [],
+        },
+    });
+
+    const systemMessage = messages.find((message) => message.role === 'system');
+    assert.match(String(systemMessage?.content || ''), /do not use get_token_price for contract-address tokens/i);
+    assert.match(String(systemMessage?.content || ''), /use get_wallet_info, get_token_info, simulate_swap, and prepare_swap_transaction instead/i);
+});
+
 test('assembleGenerationMessages does not send stored reasoning_content back to DeepSeek history', () => {
     const snapshot: ChatContextSnapshot = {
         sessionId: 'session-2',

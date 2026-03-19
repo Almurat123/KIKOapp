@@ -68,6 +68,9 @@ export function assembleGenerationMessages(
     if (!providerInfo.supportsNativeSearch && guidance?.searchMode === 'required') {
         systemParts.push('This provider path has no provider-native search. When search evidence is required, use local search tools such as external_web_search together with any relevant chain-analysis tools.');
     }
+    if (guidance?.intentEnvelope?.primary_intent === 'swap_execution' || guidance?.intentEnvelope?.primary_intent === 'copytrade_execution') {
+        systemParts.push('For swap or execution tasks, do not use get_token_price for contract-address tokens or sell-all flows. get_token_price is for mainstream symbol lookups only. Use get_wallet_info, get_token_info, simulate_swap, and prepare_swap_transaction instead.');
+    }
     if (guidance?.intentEnvelope?.required_evidence?.includes('onchain_token_evidence')) {
         systemParts.push('For time-anchored token buyer analysis, use get_early_buyers with its real contract: address plus start_time/end_time. Do not invent timestamp_range, timestamp-only, XML tool tags, or pseudo schemas.');
     }

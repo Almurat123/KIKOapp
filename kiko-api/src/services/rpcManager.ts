@@ -24,6 +24,7 @@ import {
 } from './order-runtime/adjudicator/service.js';
 import { resolveTxFinalState, toLifecycleResultFromFinalState } from './order-runtime/adjudicator/finalState.js';
 import { buildRpcSelectionExplain } from './rpc/explain.js';
+import { recordRpcSelectionExplainAggregate, recordRpcSelectionExplainAllFailed } from './rpc/explainAggregate.js';
 import { inferRpcLane, shouldUpgradeRpcStrategy } from './rpc/policy.js';
 import { estimateUpcomingRpcBurstSize } from './rpc/prediction.js';
 import { getProjectedEndpointUsage, reserveProjectedEndpointUsage, resetProjectedEndpointUsage } from './rpc/reservation.js';
@@ -1239,8 +1240,6 @@ export async function callRpc<T = any>(
                 method,
             }) : selectedAfterEthCallExpansion;
             reserveProjectedSelection(selectedEndpoints, method, effectiveImportance, purpose);
-            const selectedPremiumCount = selectedEndpoints.filter((endpoint) => endpoint.type === 'premium').length;
-            const selectedPublicCount = countSelectedFreeEndpoints(selectedEndpoints);
             const txLifecycleCritical =
                 effectiveImportance === 'critical'
                 && (
@@ -1250,25 +1249,25 @@ export async function callRpc<T = any>(
                 );
 
             if (RPC_EXPLAIN_ENABLED && (txLifecycleCritical || options.path === 'direct_swap' || options.path === 'confirm_wait')) {
-                logger.info(LogCode.SYS_INFO, 'RPC selection explain', {
-                    chain: chainName,
-                    backgroundPressure,
-                    criticalPressure: getCriticalRpcPressureSnapshot(),
-                    ...buildRpcSelectionExplain({
+                const explainSnapshot = buildRpcSelectionExplain({
+                    method,
+                    importance: effectiveImportance,
+                    strategy: options.strategy || 'cheap',
+                    scores: scoreTable,
+                    selectedEndpoints,
+                    upgradeDecision: shouldUpgradeRpcStrategy({
+                        endpoints,
+                        getHealth: getEndpointHealthView,
+                        getUsage: getEndpointUsageView,
                         method,
                         importance: effectiveImportance,
-                        strategy: options.strategy || 'cheap',
-                        scores: scoreTable,
-                        selectedEndpoints,
-                        upgradeDecision: shouldUpgradeRpcStrategy({
-                            endpoints,
-                            getHealth: getEndpointHealthView,
-                            getUsage: getEndpointUsageView,
-                            method,
-                            importance: effectiveImportance,
-                            purpose,
-                        })
+                        purpose,
                     })
+                });
+                recordRpcSelectionExplainAggregate({
+                    chain: chainName,
+                    purpose,
+                    snapshot: explainSnapshot,
                 });
             }
 
@@ -1657,8 +1656,6 @@ export async function callRpc<T = any>(
                     rpc_failure_code: rpcFailureCode,
                     totalEndpoints: sortedEndpoints.length,
                     attemptedEndpoints: selectedEndpoints.length,
-                    selectedPremiumCount,
-                    selectedPublicCount,
                     endpointBudget,
                     exhaustiveFailover: forceExhaustiveFailover,
                     rate_limited_failures: rateLimitedFailures,
@@ -1673,6 +1670,13 @@ export async function callRpc<T = any>(
                     method
                 });
             }
+            recordRpcSelectionExplainAllFailed({
+                chain: chainName,
+                method,
+                purpose,
+                lane: executionLane,
+                reasons: summarizeTopFailoverReasons(failureReasonCounts).map((row) => String(row.reason || 'unknown')),
+            });
             markRpcMethodUsage(chainId, executionLane, method, effectiveImportance, rpcClass, path, 'allFailed');
             markChainRpcDegraded(chainId, method, lastError?.message || 'all_endpoints_failed');
 
@@ -1856,24 +1860,35 @@ export async function callRpcRaw<T = any>(
         const selectedPremiumCount = selectedEndpoints.filter((endpoint) => endpoint.type === 'premium').length;
         const selectedPublicCount = countSelectedFreeEndpoints(selectedEndpoints);
         if (RPC_EXPLAIN_ENABLED && effectiveImportance === 'critical') {
-            logger.info(LogCode.SYS_INFO, 'RPC raw selection explain', {
-                chain: chainName,
-                ...buildRpcSelectionExplain({
+            const explainSnapshot = buildRpcSelectionExplain({
+                method,
+                importance: effectiveImportance,
+                strategy: options.strategy || 'cheap',
+                scores: scoreTable,
+                selectedEndpoints,
+                upgradeDecision: shouldUpgradeRpcStrategy({
+                    endpoints,
+                    getHealth: getEndpointHealthView,
+                    getUsage: getEndpointUsageView,
                     method,
-                        importance: effectiveImportance,
-                        strategy: options.strategy || 'cheap',
-                        scores: scoreTable,
-                        selectedEndpoints,
-                        upgradeDecision: shouldUpgradeRpcStrategy({
-                            endpoints,
-                            getHealth: getEndpointHealthView,
-                            getUsage: getEndpointUsageView,
-                            method,
-                            importance: effectiveImportance,
-                            purpose,
-                        })
-                    })
+                    importance: effectiveImportance,
+                    purpose,
+                })
             });
+            const criticalFallbackSelected = selectedPublicCount > 0 && selectedPremiumCount === 0;
+            if (criticalFallbackSelected) {
+                logger.info(LogCode.SYS_INFO, 'RPC raw selection explain (critical fallback)', {
+                    chain: chainName,
+                    purpose,
+                    ...explainSnapshot,
+                });
+            } else {
+                recordRpcSelectionExplainAggregate({
+                    chain: chainName,
+                    purpose,
+                    snapshot: explainSnapshot,
+                });
+            }
         }
         let lastError: Error | null = null;
         let rateLimitedFailures = 0;
@@ -2024,6 +2039,13 @@ export async function callRpcRaw<T = any>(
                 method
             });
         }
+        recordRpcSelectionExplainAllFailed({
+            chain: chainName,
+            method,
+            purpose,
+            lane: executionLane,
+            reasons: summarizeTopFailoverReasons(failureReasonCounts).map((row) => String(row.reason || 'unknown')),
+        });
         markRpcMethodUsage(chainId, executionLane, method, effectiveImportance, rpcClass, path, 'allFailed');
 
         throw new Error(`All RPC endpoints failed for ${chainName}. Last error: ${lastError?.message || 'Unknown'}`);

@@ -79,6 +79,7 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
             .map((call) => String(call?.tool || '').trim())
             .filter((toolName) => toolName && availableToolNames.has(toolName)),
     ));
+    const hasRequestedTokenAddress = Array.isArray(snapshot.requestedTokenAddresses) && snapshot.requestedTokenAddresses.length > 0;
 
     const matchResult = matchSkillsForQuery({ snapshot, tradingIntent });
     const querySignals = matchResult.querySignals;
@@ -203,10 +204,19 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
         pushPreferred(preferredTools, 'simulate_swap');
         pushPreferred(preferredTools, 'prepare_swap_transaction');
         strategyNotes.push('For swap intents, prefer wallet/preflight evidence first: resolve balance with get_wallet_info, run simulate_swap once, then use prepare_swap_transaction only after preflight is available.');
+        strategyNotes.push('Do not use get_token_price as a prerequisite for selling or swapping a contract-address token. That tool is only for mainstream symbol price lookups.');
     }
 
     if (!strictPolicy) {
         allowedTools = Array.from(availableToolNames).sort();
+    }
+
+    if ((tradingIntent?.kind === 'trading' && tradingIntent.type === 'swap') || hasRequestedTokenAddress) {
+        removeTool(allowedTools, 'get_token_price');
+        removeTool(preferredTools, 'get_token_price');
+        if (hasRequestedTokenAddress) {
+            strategyNotes.push('get_token_price is restricted to mainstream symbol lookups. Contract-address tokens should use wallet, token, and swap tooling instead.');
+        }
     }
 
     if (preferXNativeSearch) {
@@ -557,6 +567,14 @@ function ensureSupportingSkill(selected: string[], skillId: string) {
 function pushPreferred(target: string[], toolName: string) {
     if (!target.includes(toolName)) {
         target.push(toolName);
+    }
+}
+
+function removeTool(target: string[], toolName: string) {
+    let index = target.indexOf(toolName);
+    while (index !== -1) {
+        target.splice(index, 1);
+        index = target.indexOf(toolName);
     }
 }
 

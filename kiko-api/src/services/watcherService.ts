@@ -12,6 +12,7 @@ import { fetchJson } from '../config/unifiedApiService.js';
 import { get as cacheGet, set as cacheSet, acquireLock, releaseLock } from '../cache/cacheClient.js';
 import { randomUUID } from 'node:crypto';
 import { buildTxIdentityKey, normalizeTxIdentity } from '../utils/txIdentity.js';
+import { recordProfileTimingAggregate } from './profileAggregate.js';
 
 const PROFILE = process.env.COPYTRADE_PROFILE ? process.env.COPYTRADE_PROFILE === 'true' : true;
 
@@ -129,10 +130,10 @@ export async function fetchTransaction(txHash: string, chainId: number): Promise
     try {
         const result = await getTransactionByHash(chainId, txHash);
         if (PROFILE) {
-            logger.info(LogCode.SYS_INFO, '[Profile] fetchTransaction', {
+            recordProfileTimingAggregate({
+                group: 'fetch_transaction',
                 chainId,
-                tx: txHash.slice(0, 12),
-                ms: Date.now() - start
+                ms: Date.now() - start,
             });
         }
         return result;
@@ -150,10 +151,10 @@ export async function fetchTransactionReceipt(txHash: string, chainId: number): 
     try {
         const result = await getTransactionReceipt(chainId, txHash);
         if (PROFILE) {
-            logger.info(LogCode.SYS_INFO, '[Profile] fetchReceipt', {
+            recordProfileTimingAggregate({
+                group: 'fetch_receipt',
                 chainId,
-                tx: txHash.slice(0, 12),
-                ms: Date.now() - start
+                ms: Date.now() - start,
             });
         }
         return result;

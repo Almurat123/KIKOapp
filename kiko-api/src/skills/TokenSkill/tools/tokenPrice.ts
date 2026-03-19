@@ -1,31 +1,30 @@
 import { Tool } from '../../../tooling/registry.js';
 import * as coinbase from '../../../services/coinbase.js';
 import { fetchJson } from '../../../config/unifiedApiService.js';
-import { resolveChainInput } from '../../../utils/chainParam.js';
 
 export const GetTokenPriceTool: Tool = {
     definition: {
         name: 'get_token_price',
-        description: 'Get real-time price for mainstream cryptocurrencies (BTC, ETH, SOL, USDC, etc.). Uses Coinbase with CoinGecko fallback.',
+        description: 'Get real-time price for mainstream cryptocurrencies by symbol only (BTC, ETH, SOL, USDC, etc.). Uses Coinbase with CoinGecko fallback. Do not use for contract addresses.',
         parameters: {
             type: 'object',
             properties: {
                 symbol: {
                     type: 'string',
-                    description: 'Token symbol (e.g., BTC, ETH) or contract address (0x..., Solana mint). Case insensitive.',
+                    description: 'Mainstream token symbol only (e.g., BTC, ETH, SOL). Case insensitive. Contract addresses are not supported.',
                 },
                 symbol_or_address: {
                     type: 'string',
-                    description: 'Alias of symbol for Python/Grok callers. Can be a token symbol or contract address.',
+                    description: 'Alias of symbol for Python/Grok callers. Use a mainstream symbol only; contract addresses are rejected.',
                 },
                 chain: {
                     type: 'string',
-                    description: 'Optional blockchain network for address lookups (eth, base, bsc, solana, arbitrum, polygon, optimism, avalanche).',
+                    description: 'Optional blockchain network for symbol lookups where available (eth, base, bsc, solana, arbitrum, polygon, optimism, avalanche).',
                     enum: ['eth', 'solana', 'base', 'bsc', 'arbitrum', 'polygon', 'optimism', 'avalanche']
                 },
                 chain_id: {
                     type: 'number',
-                    description: 'Optional numeric chain ID for address lookups, e.g. 1, 8453, 56, 900.',
+                    description: 'Optional numeric chain ID for symbol lookups where available, e.g. 1, 8453, 56, 900.',
                 },
             },
             required: []
@@ -44,32 +43,9 @@ export const GetTokenPriceTool: Tool = {
             console.log(`[GetTokenPrice] Fetching price for ${symbol} (isAddress: ${isAddress})...`);
 
             if (isAddress) {
-                const { findTokenOnAnyChain, getTokenInfo } = await import('../../../services/ai/tokenDetector.js');
-                const resolved = resolveChainInput(args, {
-                    contextChainId: context?.chainId,
-                    defaultChain: 'eth',
-                });
-                if (resolved.invalidChainId) {
-                    return { error: `Unsupported chain_id: ${String(args.chain_id)}` };
-                }
-
-                const tokenInfo = resolved.chainId
-                    ? await getTokenInfo(symbol, resolved.chainId)
-                    : await findTokenOnAnyChain(symbol);
-                if (tokenInfo && tokenInfo.price) {
-                    return {
-                        symbol: tokenInfo.symbol,
-                        name: tokenInfo.name,
-                        address: tokenInfo.address,
-                        chain: tokenInfo.chainName,
-                        price: `$${tokenInfo.price < 0.01 ? tokenInfo.price.toFixed(8) : tokenInfo.price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 6 })}`,
-                        priceRaw: tokenInfo.price,
-                        marketCap: tokenInfo.marketCap ? `$${tokenInfo.marketCap.toLocaleString()}` : undefined,
-                        source: 'On-Chain (DexScreener/Gecko)',
-                        timestamp: new Date().toISOString()
-                    };
-                }
-                return { error: `Could not find price for address ${symbol}` };
+                return {
+                    error: 'get_token_price is for mainstream symbol lookups only. For contract-address tokens, use get_token_info or wallet/swap tooling instead.',
+                };
             }
 
             // 1. Try Coinbase (Symbols only)

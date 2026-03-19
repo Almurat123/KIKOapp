@@ -6,6 +6,7 @@
 import { ethers } from 'ethers';
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
+import { recordProfileTimingAggregate } from './profileAggregate.js';
 import { getChainConfig } from '../config/chainConfig.js';
 import { callRpc as rpcCall } from './rpcManager.js';
 import { NATIVE_TOKEN_ADDRESS } from '../config/tokenRegistry.js';
@@ -1141,10 +1142,11 @@ export async function parseSwapTransaction(
             : receipt.status;
     if (status !== 1) {
         if (PROFILE) {
-            logger.info(LogCode.DEC_SWAP_DETECTION, '[Profile] parseSwapTransaction', {
-                tx: tx.hash?.slice(0, 12),
+            recordProfileTimingAggregate({
+                group: 'parse_swap_transaction',
+                chainId,
                 path: 'status_not_success',
-                ms: Date.now() - t0
+                ms: Date.now() - t0,
             });
         }
         return null;
@@ -1202,10 +1204,11 @@ export async function parseSwapTransaction(
 
     if (!hasTransferEvidence) {
         if (PROFILE) {
-            logger.info(LogCode.DEC_SWAP_DETECTION, '[Profile] parseSwapTransaction', {
-                tx: tx.hash?.slice(0, 12),
+            recordProfileTimingAggregate({
+                group: 'parse_swap_transaction',
+                chainId,
                 path: 'no_swap_evidence',
-                totalMs: Date.now() - t0
+                ms: Date.now() - t0,
             });
         }
         return null;
@@ -1287,10 +1290,11 @@ export async function parseSwapTransaction(
 
         const repaired = !hasMissingLegAmount(baseSwap);
         if (repaired && reversedDirection) {
-            logger.info(LogCode.DEC_SWAP_DETECTION, 'Swap repair used reversed pool direction while preserving wallet direction', {
-                source,
-                tokenIn: baseSwap.tokenIn,
-                tokenOut: baseSwap.tokenOut
+            recordProfileTimingAggregate({
+                group: 'swap_repair_reversed_direction',
+                chainId,
+                path: source,
+                ms: 0,
             });
         }
         return { repaired, reversed: reversedDirection };
@@ -1361,11 +1365,11 @@ export async function parseSwapTransaction(
             finalTransferSwap.tokenOut = NATIVE_ADDRESS;
         }
         if (PROFILE) {
-            logger.info(LogCode.DEC_SWAP_DETECTION, '[Profile] parseSwapTransaction', {
-                tx: tx.hash?.slice(0, 12),
+            recordProfileTimingAggregate({
+                group: 'parse_swap_transaction',
+                chainId,
                 path: decodePath,
-                transferMs: Date.now() - tTransferStart,
-                totalMs: Date.now() - t0
+                ms: Date.now() - t0,
             });
         }
         return attachRouteContext(attachSourceTx(finalTransferSwap), receipt.logs, chainId);
@@ -1387,11 +1391,11 @@ export async function parseSwapTransaction(
                 v4Swap.tokenOut = NATIVE_ADDRESS;
             }
             if (PROFILE) {
-                logger.info(LogCode.DEC_SWAP_DETECTION, '[Profile] parseSwapTransaction', {
-                    tx: tx.hash?.slice(0, 12),
+                recordProfileTimingAggregate({
+                    group: 'parse_swap_transaction',
+                    chainId,
                     path: 'v4_events',
-                    v4Ms: Date.now() - tV4Start,
-                    totalMs: Date.now() - t0
+                    ms: Date.now() - t0,
                 });
             }
             return attachRouteContext(attachSourceTx(v4Swap), receipt.logs, chainId);
@@ -1415,11 +1419,11 @@ export async function parseSwapTransaction(
             poolSwap.tokenOut = NATIVE_ADDRESS;
         }
         if (PROFILE) {
-            logger.info(LogCode.DEC_SWAP_DETECTION, '[Profile] parseSwapTransaction', {
-                tx: tx.hash?.slice(0, 12),
+            recordProfileTimingAggregate({
+                group: 'parse_swap_transaction',
+                chainId,
                 path: 'pool_events',
-                poolMs: Date.now() - tPoolStart,
-                totalMs: Date.now() - t0
+                ms: Date.now() - t0,
             });
         }
         return attachRouteContext(attachSourceTx(poolSwap), receipt.logs, chainId);
@@ -1443,10 +1447,11 @@ export async function parseSwapTransaction(
                 }
             };
             if (PROFILE) {
-                logger.info(LogCode.DEC_SWAP_DETECTION, '[Profile] parseSwapTransaction', {
-                    tx: tx.hash?.slice(0, 12),
+                recordProfileTimingAggregate({
+                    group: 'parse_swap_transaction',
+                    chainId,
                     path: 'pool_like_infer',
-                    totalMs: Date.now() - t0
+                    ms: Date.now() - t0,
                 });
             }
             return attachRouteContext(attachSourceTx(swap), receipt.logs, chainId);
@@ -1457,11 +1462,11 @@ export async function parseSwapTransaction(
     const swap = decodeSwapFromLogs(receipt.logs, effectiveWallet, tx.value);
     if (!swap) {
         if (PROFILE) {
-            logger.info(LogCode.DEC_SWAP_DETECTION, '[Profile] parseSwapTransaction', {
-                tx: tx.hash?.slice(0, 12),
+            recordProfileTimingAggregate({
+                group: 'parse_swap_transaction',
+                chainId,
                 path: 'no_swap',
-                fallbackMs: Date.now() - tFallbackStart,
-                totalMs: Date.now() - t0
+                ms: Date.now() - t0,
             });
         }
         return null;
@@ -1482,11 +1487,11 @@ export async function parseSwapTransaction(
     }
 
     if (PROFILE) {
-        logger.info(LogCode.DEC_SWAP_DETECTION, '[Profile] parseSwapTransaction', {
-            tx: tx.hash?.slice(0, 12),
+        recordProfileTimingAggregate({
+            group: 'parse_swap_transaction',
+            chainId,
             path: 'fallback_transfer',
-            fallbackMs: Date.now() - tFallbackStart,
-            totalMs: Date.now() - t0
+            ms: Date.now() - t0,
         });
     }
     return attachRouteContext(attachSourceTx(swap), receipt.logs, chainId);

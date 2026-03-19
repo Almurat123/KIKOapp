@@ -4,35 +4,46 @@ import { parseSwapTransaction } from '../../txDecoder.js';
 import { normalizeAddress } from '../../../utils/address.js';
 import { logger } from '../../../utils/logger.js';
 import { LogCode } from '../../../config/logRegistry.js';
-import { bootstrapTrackedWalletHistory } from '../../targetWalletTrackingService.js';
 import { buildCopyTradeFirstSeenTiming, markCopyTradeSwapReady, markCopyTradeTaskEnqueued } from '../timing/copyTradeTimingModel.js';
 import { markCopyTradeIngressConfirmed, markCopyTradeIngressFirstSeen, markCopyTradeIngressSwapReady } from './copyTradeIngressState.js';
 import { dispatchCopyTradeIfReady } from './copyTradeFastDispatcher.js';
 import { persistSwapExecutionContext } from '../context/swapContextPersistence.js';
 import { ensureCopytradeIngressTraceTable, hasCopytradeIngressTraceEvent, recordCopytradeIngressTrace } from './ingressTraceStore.js';
 import { runBackgroundCycleWhenIdle } from '../exit/exitHotPathPressure.js';
+import { findRecentTargetSellEvents } from '../exit/targetSellEventStore.js';
 
 const EVM_RECOVERY_CHAIN_IDS = [1, 8453, 56, 42161, 10, 137];
 const STARTUP_RECOVERY_DELAY_MS = Math.max(5_000, Number(process.env.COPYTRADE_STARTUP_RECOVERY_DELAY_MS || 20_000));
 const STARTUP_RECOVERY_INTERVAL_MS = Math.max(30_000, Number(process.env.COPYTRADE_STARTUP_RECOVERY_INTERVAL_MS || 60_000));
 const STARTUP_RECOVERY_CYCLES = Math.max(1, Number(process.env.COPYTRADE_STARTUP_RECOVERY_CYCLES || 5));
 const STARTUP_RECOVERY_LOOKBACK_MS = Math.max(60_000, Number(process.env.COPYTRADE_STARTUP_RECOVERY_LOOKBACK_MS || 10 * 60_000));
-const STARTUP_RECOVERY_HISTORY_LIMIT = Math.max(10, Number(process.env.COPYTRADE_STARTUP_RECOVERY_HISTORY_LIMIT || 30));
+const STARTUP_RECOVERY_EVENT_LIMIT = Math.max(10, Number(process.env.COPYTRADE_STARTUP_RECOVERY_EVENT_LIMIT || 30));
+const EVM_STARTUP_RECOVERY_ENABLED = (process.env.COPYTRADE_ENABLE_EVM_STARTUP_RECOVERY || 'false').toLowerCase() === 'true';
 const STARTUP_RECOVERY_DISPATCH_SOURCE = 'target_history_sell_recovery';
 const STARTUP_SELL_RECOVERY_TRACE_PREFIX = 'startup_sell_recovery';
 
 let started = false;
 
-type RecoverableWalletTx = {
+type RecoverableTargetSellEvent = {
+  id: string;
   txHash: string;
   walletAddress: string;
   chainId: number;
   blockTimestamp: Date;
-  txType: string;
 };
 
-export function startEvmMissedTradeRecovery(): void {
-  if (started) return;
+export function isEvmMissedTradeRecoveryEnabled(): boolean {
+  return EVM_STARTUP_RECOVERY_ENABLED;
+}
+
+export function startEvmMissedTradeRecovery(): boolean {
+  if (started) return true;
+  if (!EVM_STARTUP_RECOVERY_ENABLED) {
+    logger.info(LogCode.SYS_INFO, '[CopyTradeRecovery] EVM startup recovery disabled', {
+      mode: 'event_driven_only',
+    });
+    return false;
+  }
   started = true;
 
   let remainingRuns = STARTUP_RECOVERY_CYCLES;
@@ -55,20 +66,18 @@ export function startEvmMissedTradeRecovery(): void {
   };
 
   setTimeout(schedule, STARTUP_RECOVERY_DELAY_MS).unref();
+  return true;
 }
 
-export function selectRecoverableRecentTargetTxs(
-  rows: RecoverableWalletTx[],
+export function selectRecoverableRecentTargetSellEvents(
+  rows: RecoverableTargetSellEvent[],
   nowMs: number,
   lookbackMs: number,
-): RecoverableWalletTx[] {
+): RecoverableTargetSellEvent[] {
   const minTimestamp = nowMs - lookbackMs;
   const seen = new Set<string>();
   return rows
     .filter((row) => row.blockTimestamp.getTime() >= minTimestamp)
-    // Missed-buy recovery is intentionally disabled: replaying historical buys
-    // changes the user's market entry, while missed sells must still be recovered.
-    .filter((row) => row.txType === 'TARGET_SELL')
     .filter((row) => {
       const key = `${row.chainId}:${row.walletAddress.toLowerCase()}:${row.txHash.toLowerCase()}`;
       if (seen.has(key)) return false;
@@ -101,10 +110,35 @@ async function runEvmMissedTradeRecoveryCycle(runNumber: number): Promise<boolea
   });
 
   let scannedWallets = 0;
+  let scannedEvents = 0;
   let recoveredTxs = 0;
   const nowMs = Date.now();
+  const targetWallets = wallets
+    .map((wallet) => normalizeAddress(wallet.targetWallet))
+    .filter(Boolean);
+  const recentEvents = targetWallets.length > 0
+    ? await findRecentTargetSellEvents({
+      chainIds: EVM_RECOVERY_CHAIN_IDS,
+      targetWallets,
+      detectedAfter: new Date(nowMs - STARTUP_RECOVERY_LOOKBACK_MS),
+      take: STARTUP_RECOVERY_EVENT_LIMIT,
+    }).catch(() => [])
+    : [];
+  const recoverable = selectRecoverableRecentTargetSellEvents(
+    recentEvents.map((event) => ({
+      id: event.id,
+      txHash: event.targetSellTxHash,
+      walletAddress: event.targetWallet,
+      chainId: event.chainId,
+      blockTimestamp: event.detectedAt,
+    })),
+    nowMs,
+    STARTUP_RECOVERY_LOOKBACK_MS,
+  );
+  scannedWallets = targetWallets.length;
+  scannedEvents = recoverable.length;
 
-  for (const wallet of wallets) {
+  for (const row of recoverable) {
     const pressure = await runBackgroundCycleWhenIdle({
       cycle: 'startup_recovery_mid_cycle_guard',
       fn: async () => false,
@@ -113,76 +147,34 @@ async function runEvmMissedTradeRecoveryCycle(runNumber: number): Promise<boolea
       logger.info(LogCode.SYS_INFO, '[CopyTradeRecovery] startup recovery paused by live exit pressure', {
         runNumber,
         scannedWallets,
+        scannedEvents,
         recoveredTxs,
       });
       break;
     }
-
-    const targetWallet = normalizeAddress(wallet.targetWallet);
-    if (!targetWallet) continue;
-    scannedWallets += 1;
-
-    await recordCopytradeIngressTrace({
-      chainId: wallet.chainId,
-      txHash: `startup-cycle-${runNumber}`,
-      targetWallet,
-      eventType: 'startup_recovery_wallet_scan',
-      source: 'startup_recovery',
-      payload: { runNumber },
-    }).catch(() => undefined);
-
-    await bootstrapTrackedWalletHistory(
-      targetWallet,
-      wallet.chainId,
-      STARTUP_RECOVERY_HISTORY_LIMIT,
-      { force: true, source: 'startup_recovery' },
-    ).catch(() => undefined);
-
-    const recentRows = await prisma.walletTransaction.findMany({
-      where: {
-        walletAddress: targetWallet,
-        chainId: wallet.chainId,
-        blockTimestamp: { gte: new Date(nowMs - STARTUP_RECOVERY_LOOKBACK_MS) },
-        txType: 'TARGET_SELL',
-      },
-      select: {
-        txHash: true,
-        walletAddress: true,
-        chainId: true,
-        blockTimestamp: true,
-        txType: true,
-      },
-      orderBy: { blockTimestamp: 'desc' },
-      take: STARTUP_RECOVERY_HISTORY_LIMIT,
-    });
-
-    const recoverable = selectRecoverableRecentTargetTxs(
-      recentRows as RecoverableWalletTx[],
-      nowMs,
-      STARTUP_RECOVERY_LOOKBACK_MS,
-    );
-
-    for (const row of recoverable) {
-      const recovered = await recoverMissedTargetSellFromHistory({
-        chainId: row.chainId,
-        txHash: row.txHash,
-        targetWallet,
-        blockTimestamp: row.blockTimestamp,
-      }).catch(() => false);
-      if (recovered) recoveredTxs += 1;
-    }
+    const recovered = await recoverMissedTargetSellFromEvent({
+      eventId: row.id,
+      chainId: row.chainId,
+      txHash: row.txHash,
+      targetWallet: row.walletAddress,
+      blockTimestamp: row.blockTimestamp,
+    }).catch(() => false);
+    if (recovered) recoveredTxs += 1;
   }
 
-  logger.info(LogCode.SYS_INFO, '[CopyTradeRecovery] startup recovery cycle finished', {
+  const logLevel = scannedEvents > 0 || recoveredTxs > 0 ? 'info' : 'debug';
+  logger[logLevel](LogCode.SYS_INFO, '[CopyTradeRecovery] startup recovery cycle finished', {
     runNumber,
     scannedWallets,
+    scannedEvents,
     recoveredTxs,
     lookbackMs: STARTUP_RECOVERY_LOOKBACK_MS,
   });
   return true;
 }
 
-async function recoverMissedTargetSellFromHistory(params: {
+async function recoverMissedTargetSellFromEvent(params: {
+  eventId: string;
   chainId: number;
   txHash: string;
   targetWallet: string;
@@ -217,7 +209,7 @@ async function recoverMissedTargetSellFromHistory(params: {
       targetWallet,
       eventType: `${STARTUP_SELL_RECOVERY_TRACE_PREFIX}_attempt`,
       source: 'startup_recovery',
-      payload: { blockTimestamp: params.blockTimestamp.toISOString() },
+      payload: { blockTimestamp: params.blockTimestamp.toISOString(), eventId: params.eventId },
     }).catch(() => undefined);
 
   const [tx, receipt] = await Promise.all([

@@ -11,6 +11,7 @@ const SNAPSHOT_LOG_WINDOW_MS = Number(process.env.COPYTRADE_PENDING_REFRESH_LOG_
 const trackedByChain = new Map<number, Set<string>>();
 let lastRefreshAt = 0;
 let refreshPromise: Promise<void> | null = null;
+let lastSnapshotSignature = '';
 
 function resolveCandidateAddress(raw: unknown): string {
     if (typeof raw === 'string') return normalizeAddress(raw);
@@ -59,10 +60,23 @@ export async function refreshTrackedWalletSnapshot(): Promise<void> {
         trackedByChain.clear();
         for (const [chainId, set] of next) trackedByChain.set(chainId, set);
         lastRefreshAt = Date.now();
-        logger.throttled(LogCode.SYS_INFO, '[CopyTradeTrackedWallets] Snapshot refreshed', {
-            chains: Array.from(trackedByChain.keys()),
-            totalWallets: rows.length
-        }, SNAPSHOT_LOG_WINDOW_MS);
+        const signature = JSON.stringify(
+            [...trackedByChain.entries()]
+                .sort((a, b) => a[0] - b[0])
+                .map(([chainId, set]) => [chainId, [...set].sort()]),
+        );
+        if (signature !== lastSnapshotSignature) {
+            lastSnapshotSignature = signature;
+            logger.throttled(LogCode.SYS_INFO, '[CopyTradeTrackedWallets] Snapshot refreshed', {
+                chains: Array.from(trackedByChain.keys()),
+                totalWallets: rows.length
+            }, SNAPSHOT_LOG_WINDOW_MS);
+        } else {
+            logger.debug(LogCode.SYS_INFO, '[CopyTradeTrackedWallets] Snapshot unchanged', {
+                chains: Array.from(trackedByChain.keys()),
+                totalWallets: rows.length,
+            });
+        }
     })().finally(() => {
         refreshPromise = null;
     });
@@ -103,9 +117,15 @@ export function __setTrackedWalletSnapshotForTests(input: Record<number, string[
         trackedByChain.set(chainId, new Set(normalized));
     }
     lastRefreshAt = Date.now();
+    lastSnapshotSignature = JSON.stringify(
+        [...trackedByChain.entries()]
+            .sort((a, b) => a[0] - b[0])
+            .map(([chainId, set]) => [chainId, [...set].sort()]),
+    );
 }
 
 export function __resetTrackedWalletSnapshotForTests(): void {
     trackedByChain.clear();
     lastRefreshAt = 0;
+    lastSnapshotSignature = '';
 }

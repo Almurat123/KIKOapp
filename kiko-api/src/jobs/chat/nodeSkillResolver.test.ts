@@ -177,14 +177,15 @@ test('swap intents prefer wallet info and preflight before prepare swap executio
             walletAddress: '0xA386bc9D8F26AB170A847D73226e3e0BCEb0fe8E',
         },
     }), {
-        kind: 'trade',
+        kind: 'trading',
         type: 'swap',
     } as any);
 
     assert.ok(resolution.preferredTools.includes('get_wallet_info'));
     assert.ok(resolution.preferredTools.includes('simulate_swap'));
     assert.ok(resolution.preferredTools.includes('prepare_swap_transaction'));
-    assert.ok(resolution.strategyNotes.some((note) => note.includes('simulate_swap once')));
+    assert.ok(resolution.strategyNotes.some((note) => note.includes('preflight evidence first')));
+    assert.ok(!resolution.allowedTools.includes('get_token_price'));
 });
 
 test('official source lookup handles split Chinese intent words and English synonyms', () => {

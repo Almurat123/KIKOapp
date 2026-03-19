@@ -2,6 +2,7 @@ import { ethers } from 'ethers';
 
 import { logger } from '../../utils/logger.js';
 import { LogCode } from '../../config/logRegistry.js';
+import { recordProfileTimingAggregate } from '../profileAggregate.js';
 
 export type TransferLog = { address: string; topics: string[]; data: string };
 
@@ -207,9 +208,10 @@ export function decodeSwapFromLogs(
     return null;
   }
 
-  logger.info(LogCode.DEC_SUCCESS, 'Swap successfully decoded from logs', {
-    tokenIn: tokenSentAddress,
-    tokenOut: tokenReceived[0],
+  recordProfileTimingAggregate({
+    group: 'swap_decoded_from_logs',
+    path: 'transfer_logs',
+    ms: 0,
   });
   logger.debug(LogCode.DEC_SUCCESS, 'Decoded swap values', {
     amountIn: amountSent,
