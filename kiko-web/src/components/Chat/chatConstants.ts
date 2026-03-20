@@ -5,8 +5,8 @@ export interface ChatModelOption {
 }
 
 export const MODEL_OPTIONS: ChatModelOption[] = [
-    { id: 'deepseek-chat', name: 'DeepSeek-V3.3', mode: 'fast' },
-    { id: 'deepseek-reasoner', name: 'DeepSeek-V3.3', mode: 'thinking' },
+    { id: 'deepseek-chat', name: 'DeepSeek-V3.2', mode: 'fast' },
+    { id: 'deepseek-reasoner', name: 'DeepSeek-V3.2', mode: 'thinking' },
     { id: 'gpt-5.4-mini-2026-03-17', name: 'GPT-5.4-mini', mode: 'thinking' },
     { id: 'grok-4-1-fast-reasoning', name: 'Grok-4.1-Fast', mode: 'thinking' },
     { id: 'grok-4-1-fast-non-reasoning', name: 'Grok-4.1-Fast', mode: 'fast' },

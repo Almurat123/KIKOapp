@@ -16,11 +16,11 @@ import { agentAttrs } from '../../agent/attrs';
 
 // Model options
 // According to DeepSeek API docs: https://api-docs.deepseek.com/zh-cn/quick_start/pricing
-// - deepseek-chat: DeepSeek-V3.3 (非思考模式)
-// - deepseek-reasoner: DeepSeek-V3.3 (思考模式)
+// - deepseek-chat: DeepSeek-V3.2 (非思考模式)
+// - deepseek-reasoner: DeepSeek-V3.2 (思考模式)
 const MODEL_OPTIONS = [
-  { id: 'deepseek-chat', name: 'DeepSeek-V3.3', mode: 'fast' },
-  { id: 'deepseek-reasoner', name: 'DeepSeek-V3.3', mode: 'thinking' },
+  { id: 'deepseek-chat', name: 'DeepSeek-V3.2', mode: 'fast' },
+  { id: 'deepseek-reasoner', name: 'DeepSeek-V3.2', mode: 'thinking' },
   { id: 'gpt-5.4-mini-2026-03-17', name: 'GPT-5.4-mini', mode: 'thinking' },
   { id: 'grok-4-1-fast-reasoning', name: 'Grok-4.1-Fast', mode: 'thinking' },
   { id: 'grok-4-1-fast-non-reasoning', name: 'Grok-4.1-Fast', mode: 'fast' },
