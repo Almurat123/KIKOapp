@@ -6,7 +6,7 @@ import { DynamicTakeProfitService } from '../../dynamicTakeProfitService.js';
 import { getSolanaConnection, SOLANA_CONFIG } from '../../../config/solanaConfig.js';
 import { executeSolanaSwap } from '../../solanaExecutor.js';
 import { getSolanaEmbeddedWalletAddress } from '../../privyWallet.js';
-import { getErc20Balance } from '../../rpcManager.js';
+import { cacheHub } from '../../../cache/DataCacheHub.js';
 import { trackCopyTrade, trackSwap } from '../../userActivityService.js';
 import { notificationService } from '../../notificationService.js';
 import { buildEvmExitPlan } from '../exit/planner.js';
@@ -723,24 +723,11 @@ export async function checkPositionsForExits(
     });
 
     const tokenPriceMap = new Map<string, any>();
-    const tokenList = Array.from(uniqueTokens.values());
-    const TOKEN_BATCH_SIZE = 10;
-
-    for (let i = 0; i < tokenList.length; i += TOKEN_BATCH_SIZE) {
-        const batch = tokenList.slice(i, i + TOKEN_BATCH_SIZE);
-        await Promise.all(batch.map(async ({ address, chainId }) => {
-            try {
-                const info = await getGuardPriceSnapshot(address, chainId, {
-                    priority: 'high',
-                    rpcStrategy: TRADE_METADATA_PROFILE,
-                });
-                if (info && info.price) {
-                    tokenPriceMap.set(`${address.toLowerCase()}_${chainId}`, info);
-                }
-            } catch (err) {
-                logger.throttled(LogCode.API_FETCH_FAILED, 'Monitoring: Failed to fetch price', { token: address, error: (err as Error).message });
-            }
-        }));
+    for (const { address, chainId } of uniqueTokens.values()) {
+        const snapshot = cacheHub.getTokenPriceSnapshot(address, chainId);
+        if (snapshot) {
+            tokenPriceMap.set(`${address.toLowerCase()}_${chainId}`, snapshot);
+        }
     }
 
     const POSITION_BATCH_SIZE = 20;
@@ -751,69 +738,6 @@ export async function checkPositionsForExits(
             if (deps.positionsBeingExited.has(position.id)) return;
 
             try {
-                let balance = 0n;
-                let isBalanceCheckSuccess = false;
-
-                try {
-                    if (position.chainId === 900) {
-                        const solAddress = await getSolanaEmbeddedWalletAddress(position.user.privyDid);
-                        if (solAddress) {
-                            const connection = getSolanaConnection();
-                            const { value } = await connection.getParsedTokenAccountsByOwner(
-                                new PublicKey(solAddress),
-                                { mint: new PublicKey(position.tokenAddress) }
-                            );
-                            for (const acc of value) {
-                                balance += BigInt(acc.account.data.parsed.info.tokenAmount.amount);
-                            }
-                            isBalanceCheckSuccess = true;
-                        }
-                    } else {
-                        balance = await getErc20Balance(position.tokenAddress, position.user.walletAddress, position.chainId);
-                        isBalanceCheckSuccess = true;
-                    }
-
-                    if (isBalanceCheckSuccess && balance === 0n) {
-                        const positionAgeMs = Date.now() - new Date(position.createdAt).getTime();
-                        const MIN_AGE_FOR_AUTO_CLOSE_MS = 2 * 60 * 1000;
-
-                        if (positionAgeMs < MIN_AGE_FOR_AUTO_CLOSE_MS) {
-                            logger.warn(LogCode.EXE_TX_REVERTED, 'Deleting new position with 0 balance (likely reverted buy)', {
-                                positionId: position.id,
-                                ageSeconds: Math.round(positionAgeMs / 1000),
-                                chainId: position.chainId
-                            });
-                            await prisma.position.delete({ where: { id: position.id } });
-                            return;
-                        }
-
-                        logger.info(LogCode.EXE_TX_CONFIRMED, 'Auto-closing position: 0 balance found on-chain (likely manual sell)', { positionId: position.id, chainId: position.chainId });
-                        await prisma.position.update({
-                            where: { id: position.id },
-                            data: { status: 'closed', exitReason: 'manual', exitTxHash: 'MANUAL_ON_CHAIN', closedAt: new Date() }
-                        });
-
-                        if (position.user?.farcasterFid) {
-                            await notificationService.sendNotification({
-                                userId: position.userId,
-                                farcasterFid: position.user.farcasterFid,
-                                type: 'TRADE_SUCCESS_SELL',
-                                data: {
-                                    alertTitle: 'Position Auto-Closed',
-                                    tokenSymbol: position.tokenSymbol || 'Unknown',
-                                    usdValue: '0.00',
-                                    targetWallet: 'Manual/External',
-                                    txHash: 'External',
-                                    chainId: position.chainId
-                                }
-                            });
-                        }
-                        return;
-                    }
-                } catch (balanceErr: any) {
-                    logger.warn(LogCode.SYS_ERROR, 'Error checking on-chain balance', { positionId: position.id, error: balanceErr.message });
-                }
-
                 const tokenKey = `${position.tokenAddress.toLowerCase()}_${position.chainId}`;
                 const tokenInfo = tokenPriceMap.get(tokenKey);
 

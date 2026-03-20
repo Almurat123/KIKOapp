@@ -1,6 +1,7 @@
 import { buildRecoverablePendingEntryTxHash } from '../buy/pendingProtectionPolicy.js';
 import { resolveEntryDeviationCurrentPrice } from '../buy/entryDeviationPriceSelection.js';
 import { releaseMirrorSellAfterBuyConfirm } from '../buy/buyConfirmationMirrorSellRelease.js';
+import { scheduleLateBuySubmissionAdoption } from '../buy/lateBuySubmissionAdoption.js';
 import {
     advanceCanonicalOrderState as advanceCanonicalOrderStateFallback,
     claimOrCreateCanonicalOrder as claimOrCreateCanonicalOrderFallback,
@@ -1115,6 +1116,57 @@ export async function processSingleUserBuy(params: {
                         orderRuntimeContext = submissionResult.runtimeContext;
                         swapMetadata = submissionResult.swapMetadata;
                         preservePendingPosition = true;
+                        const persistLateAdoptedBuySubmission = async (resolved: {
+                            txHash: string;
+                            txLifecycleStatus?: string;
+                            runtimeContext?: typeof orderRuntimeContext;
+                        }) => {
+                            const persistenceResult = await persistCopytradeBuySubmission({
+                                canonicalOrderId: canonicalOrder?.id || null,
+                                pendingPositionId,
+                                pendingPositionCreatedAt,
+                                userId: effectiveConfig.userId,
+                                configId: effectiveConfig.id,
+                                tokenAddress: tokenToBuy,
+                                tokenSymbol: resolveDisplayTokenSymbol(tokenInfo.symbol || (swap as any)?.tokenSymbol, tokenToBuy),
+                                chainId,
+                                tokenPrice: tokenInfo.price,
+                                entryAmount: (usdAmount / nativePrice).toString(),
+                                attributedEntryAmountHuman: attributedEntryAmountHuman || undefined,
+                                attributedEntryAmountExact: swapMetadata?.directFeeSettlement?.amountOutBase || undefined,
+                                entryTxHash: resolved.txHash,
+                                leaderBuyTxHash: leaderTxHash || undefined,
+                                targetWallet,
+                                entryUsdValue: usdAmount,
+                                txLifecycleStatus: resolved.txLifecycleStatus || txLifecycleStatus,
+                                runtimeContext: resolved.runtimeContext || orderRuntimeContext,
+                            });
+                            logger.info(LogCode.EXE_TX_CONFIRMED, 'Late copy trade buy submission adopted and position state updated', {
+                                userId: config.userId,
+                                token: tokenToBuy,
+                                txHash: resolved.txHash,
+                                txLifecycleStatus: resolved.txLifecycleStatus || txLifecycleStatus || 'unknown',
+                                positionStatus: persistenceResult.nextPositionStatus,
+                                positionId: persistenceResult.persistedPositionId,
+                                positionAmountStorageReasonCode: persistenceResult.positionAmountStorageReasonCode,
+                                ...buildOrderAuditFields(resolved.runtimeContext || orderRuntimeContext)
+                            });
+                            await advanceOrder(
+                                persistenceResult.nextPositionStatus === 'open' ? 'BUY_ACCEPTED' : 'BUY_AWAITING_FINALITY',
+                                persistenceResult.nextPositionStatus === 'open' ? 'buy_tx_accepted' : 'buy_awaiting_finality',
+                                'ORDER_BUY_SUBMITTED',
+                                {
+                                    buyTxHash: resolved.txHash,
+                                    positionIdLegacy: persistenceResult.persistedPositionId,
+                                    runtimeOrderId: (resolved.runtimeContext || orderRuntimeContext)?.orderId || null,
+                                    runtimeCanonicalTxHash: (resolved.runtimeContext || orderRuntimeContext)?.canonicalTxHash || null,
+                                    lastKnownExposureSource: 'position_projection',
+                                    positionStatus: persistenceResult.nextPositionStatus,
+                                    awaitingKind: persistenceResult.nextPositionStatus === 'open' ? null : 'buy_finality',
+                                    nextObservationAt: persistenceResult.nextPositionStatus === 'open' ? null : new Date().toISOString(),
+                                }
+                            );
+                        };
                         if (pendingPositionId) {
                             const unresolvedMarker = buildRecoverablePendingEntryTxHash(
                                 submissionResult.runtimeContext?.canonicalTxHash
@@ -1148,6 +1200,41 @@ export async function processSingleUserBuy(params: {
                             runtimeCanonicalTxHash: orderRuntimeContext?.canonicalTxHash || null,
                             lastKnownExposureSource: 'pending_position',
                         });
+                        const unresolvedTxHash = String(
+                            orderRuntimeContext?.canonicalTxHash
+                            || orderRuntimeContext?.lastLifecycle?.txHash
+                            || ''
+                        ).trim().toLowerCase();
+                        if (/^0x[a-f0-9]{64}$/.test(unresolvedTxHash)) {
+                            await persistLateAdoptedBuySubmission({
+                                txHash: unresolvedTxHash,
+                                txLifecycleStatus: txLifecycleStatus || orderRuntimeContext?.lastLifecycle?.status || undefined,
+                                runtimeContext: orderRuntimeContext,
+                            });
+                        } else if (orderRuntimeContext) {
+                            scheduleLateBuySubmissionAdoption({
+                                chainId,
+                                runtimeContext: orderRuntimeContext,
+                                onAdopt: async ({ txHash, txLifecycleStatus, runtimeContext }) => {
+                                    await persistLateAdoptedBuySubmission({
+                                        txHash,
+                                        txLifecycleStatus,
+                                        runtimeContext,
+                                    });
+                                },
+                                onExhausted: async (resolution) => {
+                                    logger.warn(LogCode.SYS_INFO, 'Late buy submission adoption exhausted without tx evidence', {
+                                        userId: config.userId,
+                                        token: tokenToBuy,
+                                        chainId,
+                                        pendingPositionId,
+                                        resolutionState: resolution.state,
+                                        resolutionReasonCode: resolution.reasonCode,
+                                        ...buildOrderAuditFields(orderRuntimeContext)
+                                    });
+                                }
+                            });
+                        }
                         return { outcome: 'pending' };
                     }
                     txHash = submissionResult.txHash;

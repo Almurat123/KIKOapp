@@ -98,9 +98,7 @@ import {
     listPendingAttributedPositions,
     upsertPendingAttributedPosition
 } from './copytrade-v2/positions/pendingAttributedPositionLedger.js';
-import { runTargetSellReconciliationCycle } from './copytrade-v2/reconcile/targetSellReconciliationJob.js';
 import { runCopytradeAttributionRepairCycle } from './copytrade-v2/jobs/copytradeAttributionRepairJob.js';
-import { runCopytradeOrphanSweepCycle } from './copytrade-v2/jobs/copytradeOrphanSweepJob.js';
 import { repairCopytradePositionAttribution } from './copytrade-v2/jobs/copytradeAttributionRepairJob.js';
 import { upsertTargetSellEvent } from './copytrade-v2/exit/targetSellEventStore.js';
 import { syncCopytradeLedgerFromLegacy } from './copytrade-v2/ledger/copytradeLedgerRepository.js';
@@ -167,9 +165,7 @@ type PositionStatusCompat = {
 let positionStatusCompatCache: { value: PositionStatusCompat; ts: number } | null = null;
 const POSITION_STATUS_COMPAT_TTL_MS = 30_000;
 let zombieCleanupInterval: NodeJS.Timeout | null = null;
-let targetSellReconciliationInterval: NodeJS.Timeout | null = null;
 let attributionRepairInterval: NodeJS.Timeout | null = null;
-let orphanSweepInterval: NodeJS.Timeout | null = null;
 
 async function getPositionStatusCompat(): Promise<PositionStatusCompat> {
     const cached = positionStatusCompatCache;
@@ -334,9 +330,7 @@ const COPYTRADE_DISABLE_MIRROR_SELL_DUST_SWEEP = (process.env.COPYTRADE_DISABLE_
 const DEFAULT_COPYTRADE_SLIPPAGE_BPS = 1500;
 const MIN_COPYTRADE_SLIPPAGE_BPS = 50;
 const MAX_COPYTRADE_SLIPPAGE_BPS = 5000;
-const TARGET_SELL_RECONCILIATION_INTERVAL_MS = Math.max(15_000, Number(process.env.COPYTRADE_TARGET_SELL_RECONCILIATION_INTERVAL_MS || '30000'));
 const ATTRIBUTION_REPAIR_INTERVAL_MS = 600_000;
-const ORPHAN_SWEEP_INTERVAL_MS = Math.max(60_000, Number(process.env.COPYTRADE_ORPHAN_SWEEP_INTERVAL_MS || '600000'));
 const CHAIN_LAUNCHPAD_PROVIDERS: Record<number, Set<string>> = {
     8453: new Set(['zora']),
     56: new Set(['fourmeme']),
@@ -1759,33 +1753,6 @@ export function initAutoTradeService(): void {
     // Start Zombie Cleanup Job (Risk #1 Mitigation)
     // Runs every 5 minutes to remove stale PENDING locks
     zombieCleanupInterval = setInterval(cleanupPendingPositions, 5 * 60 * 1000);
-    targetSellReconciliationInterval = setInterval(() => {
-        void runTargetSellReconciliationCycle()
-            .then((result) => {
-                if (result.scheduledOpen > 0 || result.armedPending > 0 || result.fullExitMatches > 0) {
-                    logger.info(LogCode.SYS_INFO, '[TargetSellReconcile] Cycle completed', result);
-                }
-                if (result.fullExitMatches > 0) {
-                    void runCopytradeOrphanSweepCycle({ staleBefore: new Date() })
-                        .then((sweep) => {
-                            if (sweep.scheduledRetryCount > 0 || sweep.quarantinedPendingLots > 0) {
-                                logger.info(LogCode.SYS_INFO, '[CopyTradeOrphanSweep] Follow-up sweep after full-exit matches', sweep);
-                            }
-                        })
-                        .catch((err: any) => {
-                            logger.warn(LogCode.SYS_ERROR, '[CopyTradeOrphanSweep] Follow-up sweep failed', {
-                                error: err?.message || String(err)
-                            });
-                        });
-                }
-            })
-            .catch((err: any) => {
-                logger.warn(LogCode.SYS_ERROR, '[TargetSellReconcile] Cycle failed', {
-                    error: err?.message || String(err)
-                });
-            });
-    }, TARGET_SELL_RECONCILIATION_INTERVAL_MS);
-
     attributionRepairInterval = setInterval(() => {
         void runCopytradeAttributionRepairCycle()
             .then((result) => {
@@ -1800,22 +1767,7 @@ export function initAutoTradeService(): void {
             });
     }, ATTRIBUTION_REPAIR_INTERVAL_MS);
 
-    orphanSweepInterval = setInterval(() => {
-        void runCopytradeOrphanSweepCycle()
-            .then((result) => {
-                if (result.scheduledRetryCount > 0 || result.quarantinedPendingLots > 0) {
-                    logger.info(LogCode.SYS_INFO, '[CopyTradeOrphanSweep] Cycle completed', result);
-                }
-            })
-            .catch((err: any) => {
-                logger.warn(LogCode.SYS_ERROR, '[CopyTradeOrphanSweep] Cycle failed', {
-                    error: err?.message || String(err)
-                });
-            });
-    }, ORPHAN_SWEEP_INTERVAL_MS);
-
     void runCopytradeAttributionRepairCycle().catch(() => { });
-    void runCopytradeOrphanSweepCycle().catch(() => { });
 }
 
 /**
@@ -1828,17 +1780,9 @@ export async function stopAutoTradeService(): Promise<void> {
         clearInterval(zombieCleanupInterval);
         zombieCleanupInterval = null;
     }
-    if (targetSellReconciliationInterval) {
-        clearInterval(targetSellReconciliationInterval);
-        targetSellReconciliationInterval = null;
-    }
     if (attributionRepairInterval) {
         clearInterval(attributionRepairInterval);
         attributionRepairInterval = null;
-    }
-    if (orphanSweepInterval) {
-        clearInterval(orphanSweepInterval);
-        orphanSweepInterval = null;
     }
     stopCopyTradePendingWatcher();
     // Note: watchers are event-driven, setting flag stops processing

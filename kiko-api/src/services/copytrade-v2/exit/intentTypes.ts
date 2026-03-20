@@ -22,7 +22,7 @@ export interface TargetSellEventPayload {
   targetFullExitVerified?: boolean;
   targetRemainingBalanceRaw?: string | null;
   detectedAt?: Date;
-  source: 'webhook' | 'reconcile' | 'orphan_sweep' | 'monitor' | 'buy_confirmation';
+  source: 'webhook' | 'monitor' | 'buy_confirmation';
   metadata?: Record<string, unknown>;
 }
 

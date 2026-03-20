@@ -88,6 +88,81 @@ test('evm buy submission flow preserves unresolved turbo submissions for later r
   assert.equal(result.txLifecycleStatus, 'broadcasted_unseen');
 });
 
+test('evm buy submission flow preserves visibility-timeout turbo failures when order context exists', async () => {
+  const result = await executeEvmCopytradeBuySubmissionFlow(
+    {
+      userId: 'user-visibility-timeout',
+      configId: 'cfg-visibility-timeout',
+      privyUserId: 'did:privy:user-visibility-timeout',
+      walletAddress: '0x1234567890123456789012345678901234567890',
+      tokenToBuy: '0x9999999999999999999999999999999999999999',
+      chainId: 8453,
+      usdAmount: 10,
+      nativePrice: 2000,
+      baseSlippageBps: 300,
+      executionMode: 'turbo',
+      turboMode: true,
+      fastSwapMode: true,
+      checkTokenBeforeSwap: false,
+      tokenInfo: { price: 0.01 },
+      pendingPositionId: 'pending-vis-timeout',
+    },
+    {
+      async buildCopytradeBuyPlannedArtifact() {
+        return {
+          executionContextBase: {
+            sourceTxHash: '0xleader-visibility-timeout',
+          },
+          async getExecutionPlan() {
+            return null;
+          },
+        } as any;
+      },
+      async executeSwapViaPort(request) {
+        request.runtimeContext = {
+          orderId: 'order-visibility-timeout',
+          chainId: 8453,
+          userId: 'did:privy:user-visibility-timeout',
+          walletAddress: '0x1234567890123456789012345678901234567890',
+          side: 'buy',
+          mode: 'copytrade',
+          state: 'created',
+          reasonCode: 'visibility_timeout',
+          relatedTxHashes: [],
+          route: {},
+          timing: { createdAt: Date.now() },
+          attempts: [],
+          fallbackUsed: true,
+          metadata: { copytradePendingPositionId: 'pending-vis-timeout' },
+          lastLifecycle: {
+            status: 'dropped_timeout',
+            chainId: 8453,
+            attempts: 1,
+          },
+        };
+        return {
+          success: false,
+          error: 'visibility_timeout',
+          runtimeContext: request.runtimeContext,
+          txLifecycle: request.runtimeContext.lastLifecycle,
+          metadata: {
+            provider: 'direct-swap',
+            mode: request.mode,
+            txLifecycleStatus: request.runtimeContext.lastLifecycle?.status,
+          },
+        };
+      },
+      shouldAbortCopytradeBuyRetry() {
+        return { shouldAbortRetry: false, reasonCode: 'none' };
+      },
+    },
+  );
+
+  assert.equal(result.status, 'submitted_unresolved');
+  assert.equal(result.reasonCode, 'visibility_timeout');
+  assert.equal(result.txLifecycleStatus, 'dropped_timeout');
+});
+
 test('evm buy submission flow preserves send-started copytrade buys instead of retrying another send', async () => {
   const result = await executeEvmCopytradeBuySubmissionFlow(
     {

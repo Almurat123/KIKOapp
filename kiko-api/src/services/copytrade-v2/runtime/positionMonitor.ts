@@ -1,6 +1,7 @@
 import { ethers } from 'ethers';
 import { PublicKey } from '@solana/web3.js';
 import prisma from '../../../db/prisma.js';
+import { cacheHub } from '../../../cache/DataCacheHub.js';
 import { logger } from '../../../utils/logger.js';
 import { LogCode } from '../../../config/logRegistry.js';
 import { DynamicTakeProfitService } from '../../dynamicTakeProfitService.js';
@@ -8,7 +9,6 @@ import { getSolanaConnection, SOLANA_CONFIG } from '../../../config/solanaConfig
 import { executeSolanaSwap } from '../../solanaExecutor.js';
 import { getSolanaEmbeddedWalletAddress } from '../../privyWallet.js';
 import { getTokenMetadata } from '../../rpcService.js';
-import { getErc20Balance } from '../../rpcManager.js';
 import { trackCopyTrade, trackSwap } from '../../userActivityService.js';
 import { publishCopytradeRawNotification } from '../notifications/copytradeNotificationPublisher.js';
 import { classifyCopytradeAssetEligibility } from '../../copytradeAssetEligibility.js';
@@ -1051,27 +1051,12 @@ export async function checkPositionsForExits(): Promise<void> {
         }
     });
 
-    const tokenPriceMap = new Map<string, any>(); // Store complete tokenInfo objects
-
-    // Process unique tokens in parallel chunks (limit concurrency)
-    const tokenList = Array.from(uniqueTokens.values());
-    const TOKEN_BATCH_SIZE = 10;
-
-    for (let i = 0; i < tokenList.length; i += TOKEN_BATCH_SIZE) {
-        const batch = tokenList.slice(i, i + TOKEN_BATCH_SIZE);
-        await Promise.all(batch.map(async ({ address, chainId }) => {
-            try {
-                const info = await getGuardPriceSnapshot(address, chainId, {
-                    priority: 'high',
-                    rpcStrategy: TRADE_METADATA_PROFILE,
-                });
-                if (info && info.price) {
-                    tokenPriceMap.set(`${address.toLowerCase()}_${chainId}`, info);
-                }
-            } catch (err) {
-                logger.throttled(LogCode.API_FETCH_FAILED, 'Monitoring: Failed to fetch price', { token: address, error: (err as Error).message });
-            }
-        }));
+    const tokenPriceMap = new Map<string, any>();
+    for (const { address, chainId } of uniqueTokens.values()) {
+        const snapshot = cacheHub.getTokenPriceSnapshot(address, chainId);
+        if (snapshot) {
+            tokenPriceMap.set(`${address.toLowerCase()}_${chainId}`, snapshot);
+        }
     }
 
     // 3. Process positions in PARALLEL (with batching)
@@ -1084,110 +1069,11 @@ export async function checkPositionsForExits(): Promise<void> {
             if (positionsBeingExited.has(position.id)) return;
 
             try {
-                // STEP A: Check on-chain balance first (detect manual sells or dust)
-                let balance = 0n;
-                let isBalanceCheckSuccess = false;
-
-                try {
-                    if (position.chainId === 900) {
-                        // SOLANA Balance Check
-                        const solAddress = await getSolanaEmbeddedWalletAddress(position.user.privyDid);
-                        if (solAddress) {
-                            const connection = getSolanaConnection();
-                            const { value } = await connection.getParsedTokenAccountsByOwner(
-                                new PublicKey(solAddress),
-                                { mint: new PublicKey(position.tokenAddress) }
-                            );
-                            // Sum up all accounts for this mint
-                            for (const acc of value) {
-                                balance += BigInt(acc.account.data.parsed.info.tokenAmount.amount);
-                            }
-                            isBalanceCheckSuccess = true;
-                        }
-                    } else {
-                        // EVM Balance Check
-                        balance = await getErc20Balance(position.tokenAddress, position.user.walletAddress, position.chainId, 'latest', { lane: 'critical' });
-                        isBalanceCheckSuccess = true;
-                    }
-
-                    // Auto-Close if balance is empty (0)
-                    // Note: We user stricter check here than 'dust', effectively 0 balance
-                    // CRITICAL FIX: Don't auto-close positions created within last 2 minutes
-                    // This prevents false "sold" notifications for reverted buy transactions
-                    if (isBalanceCheckSuccess && balance === 0n) {
-                        const positionAgeMs = Date.now() - new Date(position.createdAt).getTime();
-                        const MIN_AGE_FOR_AUTO_CLOSE_MS = 2 * 60 * 1000; // 2 minutes
-
-                        if (positionAgeMs < MIN_AGE_FOR_AUTO_CLOSE_MS) {
-                            // Position is too new - likely a failed/reverted buy transaction
-                            // Delete the position silently instead of notifying about a "sell"
-                            logger.warn(LogCode.EXE_TX_REVERTED, 'Deleting new position with 0 balance (likely reverted buy)', {
-                                positionId: position.id,
-                                ageSeconds: Math.round(positionAgeMs / 1000),
-                                chainId: position.chainId
-                            });
-                            await prisma.position.delete({ where: { id: position.id } });
-                            return; // Stop processing - no notification needed
-                        }
-
-                        logger.info(LogCode.EXE_TX_CONFIRMED, 'Auto-closing position: 0 balance found on-chain (likely manual sell)', { positionId: position.id, chainId: position.chainId });
-                        await prisma.position.update({
-                            where: { id: position.id },
-                            data: { status: 'closed', exitReason: 'manual', exitTxHash: 'MANUAL_ON_CHAIN', closedAt: new Date() }
-                        });
-                        markPositionLocallyClosed(position.id);
-
-                        // Notify user that position was auto-closed
-                        if (position.user?.farcasterFid) {
-                            await publishCopytradeRawNotification({
-                                dedupeKey: `position-auto-close:${position.userId}:${position.chainId}:${position.id}`,
-                                userId: position.userId,
-                                farcasterFid: position.user.farcasterFid,
-                                type: 'TRADE_SUCCESS_SELL', // Reusing sell success notification type
-                                data: {
-                                    alertTitle: 'Position Auto-Closed',
-                                    tokenSymbol: position.tokenSymbol || 'Unknown',
-                                    usdValue: '0.00',
-                                    targetWallet: 'Manual/External',
-                                    txHash: 'External',
-                                    chainId: position.chainId
-                                }
-                            });
-                        }
-                        return; // Stop processing this position
-                    }
-                } catch (balanceErr: any) {
-                    logger.warn(LogCode.SYS_ERROR, 'Error checking on-chain balance', { positionId: position.id, error: balanceErr.message });
-                    // Continue to price check even if balance check fails (e.g. RPC error), unless it's critical
-                }
-
-                // STEP B: Check for TP/SL
+                // STEP A: Use cached price data only. If no cached price exists, skip this cycle.
                 const tokenKey = `${position.tokenAddress.toLowerCase()}_${position.chainId}`;
-                let tokenInfo = tokenPriceMap.get(tokenKey); // Now this is the COMPLETE object
-                if (!tokenInfo && position.chainId === 900) {
-                    // Solana-specific live retry using the validated token oracle path.
-                    try {
-                        const live = await getGuardPriceSnapshot(position.tokenAddress, position.chainId, {
-                            priority: 'high',
-                            rpcStrategy: TRADE_METADATA_PROFILE,
-                        });
-                        if (Number(live?.price || 0) > 0) {
-                            tokenInfo = live;
-                            tokenPriceMap.set(tokenKey, tokenInfo);
-                            logger.info(LogCode.API_FETCH_SUCCESS, 'TP/SL price recovered via per-position Solana retry', {
-                                positionId: position.id,
-                                token: position.tokenSymbol || position.tokenAddress,
-                                chainId: position.chainId,
-                                provider: tokenInfo.provider
-                            });
-                        }
-                    } catch {
-                        // no-op; keep skip behavior when retry also fails
-                    }
-                }
+                const tokenInfo = tokenPriceMap.get(tokenKey);
 
                 if (!tokenInfo) {
-                    // Price not available in batch (and Solana retry failed) - LOG THIS for debugging TP failures
                     logger.warn(LogCode.API_FETCH_FAILED, 'TP/SL check skipped: Price not available', {
                         positionId: position.id,
                         token: position.tokenSymbol || position.tokenAddress,
@@ -1197,6 +1083,7 @@ export async function checkPositionsForExits(): Promise<void> {
                     return;
                 }
 
+                // STEP B: Check for TP/SL
                 const currentPrice = tokenInfo.price;
                 const profitLossPct = ((currentPrice - position.entryPrice) / position.entryPrice) * 100;
                 const positionAgeMs = Date.now() - new Date(position.createdAt).getTime();
