@@ -5,6 +5,10 @@ import { getTokenInfo } from '../../tokenService.js';
 import type { ConfirmationOutcome } from '../../swap/confirmationCoordinator.js';
 import { applyBuyConfirmationTransition } from './buyConfirmationTransition.js';
 import { releaseMirrorSellAfterBuyConfirm } from './buyConfirmationMirrorSellRelease.js';
+import {
+  resolveDisplayTokenSymbol,
+  sendNotificationAsync,
+} from '../runtime/legacyAutoTradeHelpers.js';
 
 type PositionStatusCompatLike = {
   pendingCreateStatus: string;
@@ -41,8 +45,19 @@ export async function processCanonicalBuyFinality(params: {
   orderId: string;
   confirmation: ConfirmationOutcome;
   recoverySource?: 'initial_wait' | 'late_recovery';
+  deps?: {
+    prisma?: typeof prisma;
+    getTokenInfo?: typeof getTokenInfo;
+    applyBuyConfirmationTransition?: typeof applyBuyConfirmationTransition;
+    sendNotificationAsync?: typeof sendNotificationAsync;
+  };
 }): Promise<'processed' | 'skipped'> {
-  const order = await prisma.copytradeOrder.findUnique({
+  const prismaClient = params.deps?.prisma || prisma;
+  const getTokenInfoFn = params.deps?.getTokenInfo || getTokenInfo;
+  const applyTransition = params.deps?.applyBuyConfirmationTransition || applyBuyConfirmationTransition;
+  const sendNotification = params.deps?.sendNotificationAsync || sendNotificationAsync;
+
+  const order = await prismaClient.copytradeOrder.findUnique({
     where: { id: params.orderId },
     select: {
       id: true,
@@ -62,7 +77,7 @@ export async function processCanonicalBuyFinality(params: {
   if (!positionId) return 'skipped';
 
   const [position, config, positionStatusCompat] = await Promise.all([
-    prisma.position.findUnique({
+    prismaClient.position.findUnique({
       where: { id: positionId },
       select: {
         id: true,
@@ -76,7 +91,7 @@ export async function processCanonicalBuyFinality(params: {
         entryAmountDec: true,
       },
     }).catch(() => null),
-    prisma.copyTradeConfig.findUnique({
+    prismaClient.copyTradeConfig.findUnique({
       where: { id: order.configId },
       include: { user: true },
     }).catch(() => null),
@@ -89,7 +104,7 @@ export async function processCanonicalBuyFinality(params: {
     ? String(position.status)
     : positionStatusCompat.pendingCreateStatus;
 
-  const tokenInfo = await getTokenInfo(order.tokenOut, order.chainId, {
+  const tokenInfo = await getTokenInfoFn(order.tokenOut, order.chainId, {
     verbose: false,
     forceRefresh: false,
     priority: 'normal',
@@ -105,7 +120,7 @@ export async function processCanonicalBuyFinality(params: {
     return 'skipped';
   }
 
-  await applyBuyConfirmationTransition({
+  await applyTransition({
     confirmation: params.confirmation,
     chainId: order.chainId,
     tokenToBuy: order.tokenOut,
@@ -149,6 +164,20 @@ export async function processCanonicalBuyFinality(params: {
         targetSellTxHash: context.targetSellTxHash,
         reasonCode: context.reasonCode,
       });
+    },
+    onNotifySuccess: async () => {
+      sendNotification({
+        userId: config.user.privyDid,
+        farcasterFid: config.user.farcasterFid,
+        type: 'TRADE_SUCCESS_BUY',
+        data: {
+          tokenSymbol: resolveDisplayTokenSymbol(tokenInfo.symbol, order.tokenOut),
+          usdValue: Number(config.buyAmountUsd || 0).toFixed(2),
+          targetWallet: order.targetWallet,
+          txHash: readMetadataString(metadata, 'buyTxHash') || params.confirmation.resolvedTxHash || order.txHash,
+          chainId: order.chainId,
+        },
+      }, 'copytrade_buy_success_confirmed_canonical');
     },
   });
 
