@@ -203,6 +203,43 @@ test('runTurboCorrectFlow times out a hung source fast path and halts before ano
   assert.deepEqual(callOrder, ['0xcccccccccccccccccccccccccccccccccccccccc']);
 });
 
+test('runTurboCorrectFlow waits for late-settling source fast path before falling back', async () => {
+  const sourceHint = buildSourceHint('0xccccccccccccccccccccccccccccccccccccccce');
+  const fallbackCandidate = buildResolvedHint('0xddddddddddddddddddddddddddddddddddddddde');
+  const callOrder: string[] = [];
+
+  const result = await runTurboCorrectFlow(createBaseParams({
+    earlyHintedPool: sourceHint,
+    singlePoolResolver: {
+      resolveCandidates: async () => [
+        buildResolvedHint('0xccccccccccccccccccccccccccccccccccccccce'),
+        fallbackCandidate
+      ]
+    },
+    tryResolvedPoolHintFastPath: async (_params, hint) => {
+      const poolAddress = String(hint?.resolvedPoolHint?.poolAddress || '').toLowerCase();
+      callOrder.push(poolAddress);
+      if (poolAddress === '0xccccccccccccccccccccccccccccccccccccccce') {
+        await new Promise((resolve) => setTimeout(resolve, 40));
+        return {
+          success: true,
+          txHash: '0xlate-settle',
+          provider: 'uniswap-v3'
+        };
+      }
+      return {
+        success: true,
+        txHash: '0xshould-not-run',
+        provider: 'uniswap-v3'
+      };
+    }
+  }));
+
+  assert.equal(result.result.success, true);
+  assert.equal(result.result.txHash, '0xlate-settle');
+  assert.deepEqual(callOrder, ['0xccccccccccccccccccccccccccccccccccccccce']);
+});
+
 test('runTurboCorrectFlow halts after an ambiguous fast-path timeout instead of sending another attempt', async () => {
   const sourceHint = buildSourceHint('0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee');
   const callOrder: string[] = [];

@@ -52,7 +52,11 @@ export function shouldAwaitBuyConfirmationForMirrorSell(params: {
   }
 
   const lifecycleState = String(params.canonicalOrderLifecycle || '').trim().toUpperCase();
-  return lifecycleState === 'BUY_SUBMITTING' || lifecycleState === 'BUY_ACCEPTED';
+  return lifecycleState === 'BUY_SUBMITTING'
+    || lifecycleState === 'BUY_SEND_STARTED'
+    || lifecycleState === 'BUY_ACCEPTED'
+    || lifecycleState === 'BUY_VISIBLE'
+    || lifecycleState === 'BUY_AWAITING_FINALITY';
 }
 
 export function canExecuteMirrorSellFromPendingExposure(params: {
@@ -66,7 +70,7 @@ export function canExecuteMirrorSellFromPendingExposure(params: {
   }
 
   const lifecycleState = String(params.canonicalOrderLifecycle || '').trim().toUpperCase();
-  if (lifecycleState !== 'EXIT_ARMED') {
+  if (lifecycleState !== 'EXIT_ARMED' && lifecycleState !== 'EXIT_AWAITING_FINALITY') {
     return false;
   }
 

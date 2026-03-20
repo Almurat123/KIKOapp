@@ -140,8 +140,8 @@ export async function persistCopytradeBuySubmission(params: {
   let canonicalOrderPersisted = false;
   const leaderBuyTxHash = String(params.leaderBuyTxHash || '').trim().toLowerCase();
   if ((params.canonicalOrderId || leaderBuyTxHash) && params.targetWallet) {
-    const lifecycleState = nextPositionStatus === 'open' ? 'BUY_ACCEPTED' : 'BUY_SUBMITTING';
-    const reasonCode = nextPositionStatus === 'open' ? 'buy_tx_accepted' : 'buy_tx_visible';
+    const lifecycleState = nextPositionStatus === 'open' ? 'BUY_ACCEPTED' : 'BUY_AWAITING_FINALITY';
+    const reasonCode = nextPositionStatus === 'open' ? 'buy_tx_accepted' : 'buy_awaiting_finality';
     const orderMetadata = {
       buyTxHash: params.entryTxHash,
       positionIdLegacy: persistedPositionId,
@@ -150,6 +150,8 @@ export async function persistCopytradeBuySubmission(params: {
       runtimeOrderId: params.runtimeContext?.orderId || null,
       runtimeCanonicalTxHash: params.runtimeContext?.canonicalTxHash || null,
       positionStatus: nextPositionStatus,
+      awaitingKind: nextPositionStatus === 'open' ? null : 'buy_finality',
+      nextObservationAt: nextPositionStatus === 'open' ? null : new Date().toISOString(),
     };
 
     try {

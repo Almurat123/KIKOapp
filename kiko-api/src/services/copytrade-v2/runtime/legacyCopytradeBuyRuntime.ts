@@ -1228,8 +1228,8 @@ export async function processSingleUserBuy(params: {
                 });
             }
             await advanceOrder(
-                nextPositionStatus === 'open' ? 'BUY_ACCEPTED' : 'BUY_SUBMITTING',
-                nextPositionStatus === 'open' ? 'buy_tx_accepted' : 'buy_tx_visible',
+                nextPositionStatus === 'open' ? 'BUY_ACCEPTED' : 'BUY_AWAITING_FINALITY',
+                nextPositionStatus === 'open' ? 'buy_tx_accepted' : 'buy_awaiting_finality',
                 'ORDER_BUY_SUBMITTED',
                 {
                     buyTxHash: txHash,
@@ -1238,6 +1238,8 @@ export async function processSingleUserBuy(params: {
                     runtimeCanonicalTxHash: orderRuntimeContext?.canonicalTxHash || null,
                     lastKnownExposureSource: 'position_projection',
                     positionStatus: nextPositionStatus,
+                    awaitingKind: nextPositionStatus === 'open' ? null : 'buy_finality',
+                    nextObservationAt: nextPositionStatus === 'open' ? null : new Date().toISOString(),
                 }
             );
 

@@ -69,6 +69,10 @@ function computeTurboDirectAttemptTimeoutMs(params: {
   );
 }
 
+function computeTurboDirectAttemptSettleGraceMs(timeoutMs: number): number {
+  return Math.max(200, Math.min(15_000, timeoutMs * 15));
+}
+
 function shouldDemoteFailedSourceHint(error?: string): boolean {
   const lower = String(error || '').toLowerCase();
   if (!lower) return false;
@@ -256,6 +260,59 @@ export async function runTurboCorrectFlow(params: {
     wrappedNativeAddress
   } = params;
 
+  const runTimedDirectAttempt = async (attempt: () => Promise<DirectSwapResult | null>): Promise<DirectSwapResult | null> => {
+    const directAttemptTimeoutMs = computeTurboDirectAttemptTimeoutMs({
+      turboFastDeadline,
+      phaseDeadline: singlePoolPhaseDeadline,
+      hintPoolTimeoutMs
+    });
+    const settleGraceMs = computeTurboDirectAttemptSettleGraceMs(directAttemptTimeoutMs);
+    const attemptPromise = attempt();
+
+    try {
+      return await params.withTimeout(attemptPromise, directAttemptTimeoutMs);
+    } catch (error: any) {
+      const message = String(error?.message || error || '').toLowerCase();
+      const looksLikeTimeout = message.includes('timeout');
+      if (!looksLikeTimeout) {
+        return {
+          success: false,
+          error: String(error?.message || error || 'direct_swap_attempt_failed'),
+          provider: 'failed',
+          runtimeContext: normalizedParams.runtimeContext,
+          txLifecycle: normalizedParams.runtimeContext?.lastLifecycle,
+          txHash: normalizedParams.runtimeContext?.canonicalTxHash || undefined,
+        };
+      }
+
+      logger.warn(LogCode.SYS_INFO, '[DirectSwap] Turbo direct attempt timed out; waiting for late settle before fallback', {
+        chainId,
+        traceId,
+        timeoutMs: directAttemptTimeoutMs,
+        settleGraceMs,
+      });
+      const lateSettled = await params.withTimeout(attemptPromise, settleGraceMs).catch(() => null);
+      if (lateSettled) {
+        logger.info(LogCode.SYS_INFO, '[DirectSwap] Turbo direct attempt late settle resolved after timeout', {
+          chainId,
+          traceId,
+          timeoutMs: directAttemptTimeoutMs,
+          settleGraceMs,
+          success: Boolean(lateSettled.success),
+          txHash: lateSettled.txHash || null,
+          provider: lateSettled.provider || null,
+          error: lateSettled.success ? null : lateSettled.error || null,
+        });
+        return lateSettled;
+      }
+
+      return buildTimedOutDirectSwapAttempt({
+        runtimeContext: normalizedParams.runtimeContext,
+        timeoutError: 'hint_fast_path_timeout'
+      });
+    }
+  };
+
   const singlePoolPhaseDeadline = Math.min(
     turboFastDeadline,
     swapStart + Math.max(250, turboSinglePoolPhaseMs)
@@ -300,12 +357,7 @@ const sourceAnchor = resolveSourceAnchorExpectation({
       dex: sourceResolvedHint.dex || null,
       poolAddress: sourceResolvedHint.poolAddress || null
     });
-    const sourceDirectAttemptTimeoutMs = computeTurboDirectAttemptTimeoutMs({
-      turboFastDeadline,
-      phaseDeadline: singlePoolPhaseDeadline,
-      hintPoolTimeoutMs
-    });
-    const sourceDirectTry: DirectSwapResult | null = await params.withTimeout(
+    const sourceDirectTry: DirectSwapResult | null = await runTimedDirectAttempt(() =>
       params.tryResolvedPoolHintFastPath(
         normalizedParams,
         {
@@ -315,13 +367,7 @@ const sourceAnchor = resolveSourceAnchorExpectation({
           resolvedPoolHint: sourceResolvedHint
         },
         { executionMode: 'turbo', trustedHint: true }
-      ),
-      sourceDirectAttemptTimeoutMs
-    ).catch(
-      (): DirectSwapResult => buildTimedOutDirectSwapAttempt({
-        runtimeContext: normalizedParams.runtimeContext,
-        timeoutError: 'hint_fast_path_timeout'
-      })
+      )
     );
     if (sourceDirectTry?.success) {
       return {
@@ -646,23 +692,12 @@ const sourceAnchor = resolveSourceAnchorExpectation({
       quotedOut: candidateQuotedOut > 0n ? candidateQuotedOut.toString() : null
     });
     const sendStartAt = Date.now();
-    const directAttemptTimeoutMs = computeTurboDirectAttemptTimeoutMs({
-      turboFastDeadline,
-      phaseDeadline: singlePoolPhaseDeadline,
-      hintPoolTimeoutMs
-    });
-    const directTry: DirectSwapResult | null = await params.withTimeout(
+    const directTry: DirectSwapResult | null = await runTimedDirectAttempt(() =>
       params.tryResolvedPoolHintFastPath(
         normalizedParams,
         turboHint,
         { executionMode: 'turbo', trustedHint: true }
-      ),
-      directAttemptTimeoutMs
-    ).catch(
-      (): DirectSwapResult => buildTimedOutDirectSwapAttempt({
-        runtimeContext: normalizedParams.runtimeContext,
-        timeoutError: 'hint_fast_path_timeout'
-      })
+      )
     );
     const sendMs = Date.now() - sendStartAt;
     const routeMs = sendStartAt - routeStartAt;

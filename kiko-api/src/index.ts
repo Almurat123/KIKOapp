@@ -44,6 +44,7 @@ import { tokenAlertService } from './services/tokenAlertService.js';
 import { startPositionMonitor } from './jobs/positionMonitorJob.js';
 import { startPositionExitIntentWorker, stopPositionExitIntentWorker } from './services/copytrade-v2/exit/positionExitIntentWorker.js';
 import { startEvmMissedTradeRecovery } from './services/copytrade-v2/ingress/evmMissedTradeRecovery.js';
+import { startOrderObservationJob, stopOrderObservationJob } from './services/copytrade-v2/orders/orderObservationJob.js';
 import { isPrivyConfigured } from './services/privyWallet.js';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
 import { rateLimiter } from './middleware/rateLimiter.js';
@@ -486,6 +487,14 @@ async function start() {
             logger.error(LogCode.SYS_ERROR, 'Copytrade exit intent worker failed to start', { error: exitWorkerError.message });
         }
 
+        logger.debug(LogCode.SYS_STARTUP, 'Starting canonical order observation job...');
+        try {
+            startOrderObservationJob();
+            logger.info(LogCode.SYS_STARTUP, 'Canonical order observation job started');
+        } catch (orderObservationError: any) {
+            logger.error(LogCode.SYS_ERROR, 'Canonical order observation job failed to start', { error: orderObservationError.message });
+        }
+
         logger.debug(LogCode.SYS_STARTUP, 'Starting Polymarket copy watcher...');
         try {
             await startPolymarketWatcher();
@@ -532,6 +541,7 @@ process.on('SIGTERM', async () => {
     logger.info(LogCode.SYS_SHUTDOWN, 'SIGTERM received, shutting down gracefully...');
     stopDataRetentionScheduler();
     stopPositionExitIntentWorker();
+    stopOrderObservationJob();
     stopPolymarketWatcher();
     await stopAutoTradeService();
     if (prisma) await (prisma as any).$disconnect();
@@ -543,6 +553,7 @@ process.on('SIGINT', async () => {
     logger.info(LogCode.SYS_SHUTDOWN, 'SIGINT received, shutting down gracefully...');
     stopDataRetentionScheduler();
     stopPositionExitIntentWorker();
+    stopOrderObservationJob();
     stopPolymarketWatcher();
     await stopAutoTradeService();
     if (prisma) await (prisma as any).$disconnect();

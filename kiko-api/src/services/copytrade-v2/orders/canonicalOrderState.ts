@@ -31,6 +31,8 @@ export interface CanonicalOrderSnapshot {
   metadata: Record<string, unknown>;
 }
 
+export type CanonicalOrderAwaitingKind = 'buy_finality' | 'exit_finality' | 'projection_repair';
+
 function toSnapshot(row: any): CanonicalOrderSnapshot {
   return {
     id: row.id,
@@ -237,6 +239,88 @@ export async function findCanonicalOrderByIdentity(identity: CanonicalOrderIdent
   return row ? toSnapshot(row) : null;
 }
 
+export async function getCanonicalOrderById(orderId: string): Promise<CanonicalOrderSnapshot | null> {
+  const row = await prisma.copytradeOrder.findUnique({
+    where: { id: orderId },
+  }).catch(() => null);
+  return row ? toSnapshot(row) : null;
+}
+
+export async function markCanonicalOrderAwaitingObservation(params: {
+  orderId: string;
+  kind: CanonicalOrderAwaitingKind;
+  delayMs?: number;
+  lifecycleState?: string | null;
+  reasonCode: string;
+  eventType: string;
+  txHash?: string | null;
+  metadataPatch?: Record<string, unknown>;
+}): Promise<CanonicalOrderSnapshot | null> {
+  const nextObservationAt = new Date(Date.now() + Math.max(0, Number(params.delayMs || 0)));
+  return advanceCanonicalOrderState({
+    orderId: params.orderId,
+    lifecycleState: params.lifecycleState || (
+      params.kind === 'buy_finality' ? 'BUY_AWAITING_FINALITY' : 'EXIT_AWAITING_FINALITY'
+    ),
+    reasonCode: params.reasonCode,
+    eventType: params.eventType,
+    metadataPatch: {
+      awaitingKind: params.kind,
+      nextObservationAt: nextObservationAt.toISOString(),
+      lastObservedTxHash: params.txHash || null,
+      ...(params.metadataPatch || {}),
+    },
+  });
+}
+
+export async function clearCanonicalOrderObservation(params: {
+  orderId: string;
+  lifecycleState?: string | null;
+  reasonCode: string;
+  eventType: string;
+  metadataPatch?: Record<string, unknown>;
+}): Promise<CanonicalOrderSnapshot | null> {
+  const current = await getCanonicalOrderById(params.orderId);
+  if (!current) return null;
+
+  return advanceCanonicalOrderState({
+    orderId: params.orderId,
+    lifecycleState: params.lifecycleState || current.lifecycleState,
+    reasonCode: params.reasonCode,
+    eventType: params.eventType,
+    metadataPatch: {
+      awaitingKind: null,
+      nextObservationAt: null,
+      ...(params.metadataPatch || {}),
+    },
+  });
+}
+
+export async function listCanonicalOrdersForObservation(params?: {
+  take?: number;
+}): Promise<CanonicalOrderSnapshot[]> {
+  const rows = await prisma.copytradeOrder.findMany({
+    where: {
+      lifecycleState: {
+        in: [
+          'BUY_SUBMITTING',
+          'BUY_ACCEPTED',
+          'BUY_VISIBLE',
+          'BUY_AWAITING_FINALITY',
+          'EXIT_ARMED',
+          'EXIT_SUBMITTING',
+          'EXIT_ACCEPTED',
+          'EXIT_VISIBLE',
+          'EXIT_AWAITING_FINALITY',
+        ],
+      },
+    },
+    orderBy: { updatedAt: 'asc' },
+    take: Math.min(Math.max(params?.take || 200, 1), 500),
+  }).catch(() => []);
+  return rows.map(toSnapshot);
+}
+
 export async function listActiveCanonicalOrders(params: {
   userId: string;
   configId: string;
@@ -256,12 +340,19 @@ export async function listActiveCanonicalOrders(params: {
       lifecycleState: {
         in: [
           'VALIDATED',
+          'BUY_ADMITTED',
+          'BUY_SEND_STARTED',
           'BUY_SUBMITTING',
           'BUY_ACCEPTED',
+          'BUY_VISIBLE',
+          'BUY_AWAITING_FINALITY',
           'BUY_CONFIRMED_OPEN',
+          'SELL_PREEMPTED',
           'EXIT_ARMED',
           'EXIT_SUBMITTING',
           'EXIT_ACCEPTED',
+          'EXIT_VISIBLE',
+          'EXIT_AWAITING_FINALITY',
         ],
       },
     },

@@ -176,6 +176,11 @@ export async function applyBuyConfirmationTransition(params: {
         metadataPatch: {
           buyTxHash: resolvedTxHash,
           positionIdLegacy: persistedPositionId || null,
+          awaitingKind: null,
+          nextObservationAt: null,
+          lastObservedTxHash: resolvedTxHash,
+          lastObservedTxState: 'confirmed_failed',
+          lastObservedAt: new Date().toISOString(),
         },
       }).catch(() => null);
       await recordOrderExecution({
@@ -332,6 +337,11 @@ export async function applyBuyConfirmationTransition(params: {
           targetSellReasonCode: resolvedMirrorIntent.reasonCode || null,
           positionIdLegacy: persistedPositionId,
           lastKnownExposureSource: 'buy_confirmed_open',
+          awaitingKind: null,
+          nextObservationAt: null,
+          lastObservedTxHash: resolvedTxHash,
+          lastObservedTxState: 'confirmed_success',
+          lastObservedAt: new Date().toISOString(),
         },
       }).catch(() => null);
     }
@@ -355,6 +365,11 @@ export async function applyBuyConfirmationTransition(params: {
         positionIdLegacy: persistedPositionId || null,
         confirmedAmountRaw,
         lastKnownExposureSource: resolvedMirrorIntent?.shouldMirrorSell ? 'buy_confirmed_release_to_exit' : 'buy_confirmed_open',
+        awaitingKind: null,
+        nextObservationAt: null,
+        lastObservedTxHash: resolvedTxHash,
+        lastObservedTxState: 'confirmed_success',
+        lastObservedAt: new Date().toISOString(),
       },
     }).catch(() => null);
     await recordOrderExecution({

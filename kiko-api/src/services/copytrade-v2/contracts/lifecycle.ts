@@ -1,13 +1,21 @@
 export type CopytradeLifecycleState =
   | 'DETECTED'
   | 'VALIDATED'
+  | 'BUY_ADMITTED'
+  | 'BUY_SKIPPED'
+  | 'BUY_SEND_STARTED'
   | 'BUY_SUBMITTING'
   | 'BUY_ACCEPTED'
+  | 'BUY_VISIBLE'
+  | 'BUY_AWAITING_FINALITY'
   | 'BUY_CONFIRMED_OPEN'
   | 'EXIT_ARMED'
   | 'EXIT_SUBMITTING'
   | 'EXIT_ACCEPTED'
+  | 'EXIT_VISIBLE'
+  | 'EXIT_AWAITING_FINALITY'
   | 'EXIT_CONFIRMED_CLOSED'
+  | 'SELL_PREEMPTED'
   | 'FAILED_RETRYABLE'
   | 'FAILED_TERMINAL'
   | 'DEFERRED'
@@ -32,12 +40,19 @@ export type CopytradeLifecycleEvent =
 export type CopytradeReasonCode =
   | 'ok_detected'
   | 'ok_validated'
+  | 'ok_buy_admitted'
+  | 'ok_buy_skipped'
   | 'ok_buy_submitted'
   | 'ok_buy_accepted'
+  | 'buy_send_started'
+  | 'buy_tx_visible'
+  | 'buy_awaiting_finality'
   | 'ok_buy_confirmed_open'
   | 'ok_exit_armed'
   | 'ok_exit_submitted'
   | 'ok_exit_accepted'
+  | 'ok_exit_visible'
+  | 'exit_awaiting_finality'
   | 'ok_exit_confirmed_closed'
   | 'ok_retry_scheduled'
   | 'ingress_deduped'
@@ -53,6 +68,14 @@ export type CopytradeReasonCode =
   | 'forbidden_asset_stablecoin'
   | 'forbidden_asset_native_like'
   | 'forbidden_asset_wrapped_native'
+  | 'buy_skipped_insufficient_gas_buffer'
+  | 'sell_preempted_before_buy_confirm'
+  | 'exit_armed_from_target_sell'
+  | 'projection_missing_but_order_authoritative'
+  | 'projection_repaired_from_order'
+  | 'order_observation_timeout'
+  | 'order_observation_uncertain'
+  | 'confirmation_unavailable'
   | 'failed_retryable'
   | 'failed_terminal'
   | 'failed_retry_budget_exhausted'
@@ -90,6 +113,13 @@ const ALLOWED_TRANSITIONS: Record<
     FAIL_RETRYABLE: 'FAILED_RETRYABLE',
     FAIL_TERMINAL: 'FAILED_TERMINAL',
   },
+  BUY_ADMITTED: {
+    BUY_SUBMIT: 'BUY_SUBMITTING',
+    DEFER: 'DEFERRED',
+    QUARANTINE: 'QUARANTINED',
+    FAIL_RETRYABLE: 'FAILED_RETRYABLE',
+    FAIL_TERMINAL: 'FAILED_TERMINAL',
+  },
   BUY_SUBMITTING: {
     BUY_ACCEPT: 'BUY_ACCEPTED',
     DEFER: 'DEFERRED',
@@ -97,7 +127,30 @@ const ALLOWED_TRANSITIONS: Record<
     FAIL_RETRYABLE: 'FAILED_RETRYABLE',
     FAIL_TERMINAL: 'FAILED_TERMINAL',
   },
+  BUY_SEND_STARTED: {
+    BUY_ACCEPT: 'BUY_ACCEPTED',
+    DEFER: 'DEFERRED',
+    QUARANTINE: 'QUARANTINED',
+    FAIL_RETRYABLE: 'FAILED_RETRYABLE',
+    FAIL_TERMINAL: 'FAILED_TERMINAL',
+  },
   BUY_ACCEPTED: {
+    BUY_CONFIRM_OPEN: 'BUY_CONFIRMED_OPEN',
+    ARM_EXIT: 'EXIT_ARMED',
+    DEFER: 'DEFERRED',
+    QUARANTINE: 'QUARANTINED',
+    FAIL_RETRYABLE: 'FAILED_RETRYABLE',
+    FAIL_TERMINAL: 'FAILED_TERMINAL',
+  },
+  BUY_VISIBLE: {
+    BUY_CONFIRM_OPEN: 'BUY_CONFIRMED_OPEN',
+    ARM_EXIT: 'EXIT_ARMED',
+    DEFER: 'DEFERRED',
+    QUARANTINE: 'QUARANTINED',
+    FAIL_RETRYABLE: 'FAILED_RETRYABLE',
+    FAIL_TERMINAL: 'FAILED_TERMINAL',
+  },
+  BUY_AWAITING_FINALITY: {
     BUY_CONFIRM_OPEN: 'BUY_CONFIRMED_OPEN',
     ARM_EXIT: 'EXIT_ARMED',
     DEFER: 'DEFERRED',
@@ -133,7 +186,26 @@ const ALLOWED_TRANSITIONS: Record<
     FAIL_RETRYABLE: 'FAILED_RETRYABLE',
     FAIL_TERMINAL: 'FAILED_TERMINAL',
   },
+  EXIT_VISIBLE: {
+    EXIT_CONFIRM_CLOSED: 'EXIT_CONFIRMED_CLOSED',
+    DEFER: 'DEFERRED',
+    QUARANTINE: 'QUARANTINED',
+    FAIL_RETRYABLE: 'FAILED_RETRYABLE',
+    FAIL_TERMINAL: 'FAILED_TERMINAL',
+  },
+  EXIT_AWAITING_FINALITY: {
+    EXIT_CONFIRM_CLOSED: 'EXIT_CONFIRMED_CLOSED',
+    DEFER: 'DEFERRED',
+    QUARANTINE: 'QUARANTINED',
+    FAIL_RETRYABLE: 'FAILED_RETRYABLE',
+    FAIL_TERMINAL: 'FAILED_TERMINAL',
+  },
   EXIT_CONFIRMED_CLOSED: {},
+  BUY_SKIPPED: {},
+  SELL_PREEMPTED: {
+    ARM_EXIT: 'EXIT_ARMED',
+    FAIL_TERMINAL: 'FAILED_TERMINAL',
+  },
   FAILED_RETRYABLE: {
     RETRY: 'VALIDATED',
     FAIL_TERMINAL: 'FAILED_TERMINAL',

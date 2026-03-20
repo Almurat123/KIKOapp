@@ -56,3 +56,21 @@ test('mirror sell can execute from pending broadcast exposure once order is exit
     entryTxHash: '0xbuy',
   }), true);
 });
+
+test('mirror sell still waits when canonical order is only awaiting buy finality', () => {
+  assert.equal(shouldAwaitBuyConfirmationForMirrorSell({
+    exitReason: 'mirror_sell',
+    positionStatus: 'pending',
+    canonicalOrderLifecycle: 'BUY_AWAITING_FINALITY',
+    entryTxHash: '0xbuy',
+  }), true);
+});
+
+test('mirror sell can execute from pending exposure while exit is awaiting finality', () => {
+  assert.equal(canExecuteMirrorSellFromPendingExposure({
+    exitReason: 'mirror_sell',
+    positionStatus: 'pending_broadcast',
+    canonicalOrderLifecycle: 'EXIT_AWAITING_FINALITY',
+    entryTxHash: '0xbuy',
+  }), true);
+});

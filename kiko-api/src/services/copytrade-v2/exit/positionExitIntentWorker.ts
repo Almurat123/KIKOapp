@@ -29,6 +29,11 @@ import {
   canExecuteMirrorSellFromPendingExposure,
   shouldAwaitBuyConfirmationForMirrorSell,
 } from '../orders/canonicalOrderPolicy.js';
+import {
+  observeCanonicalOrderState,
+  scheduleCanonicalOrderObservation,
+} from '../orders/canonicalOrderObserver.js';
+import { syncOrderProjections } from '../orders/canonicalOrderProjectionSync.js';
 
 const EVM_EXIT_CONCURRENCY = Math.max(2, Number(process.env.COPYTRADE_EVM_EXIT_CONCURRENCY || '6'));
 const SOLANA_EXIT_CONCURRENCY = Math.max(1, Number(process.env.COPYTRADE_SOLANA_EXIT_CONCURRENCY || '2'));
@@ -167,6 +172,53 @@ async function processConfirmationIntent(intent: any): Promise<'confirmed_succes
       close: true,
     });
     return 'confirmed_success';
+  }
+
+  const executionTxHash = String(position.exitTxHash || intent.executionTxHash || '').trim().toLowerCase();
+  const orderId = String(intent.metadata?.orderId || '').trim();
+  if (executionTxHash && orderId) {
+    const observation = await observeCanonicalOrderState({
+      orderId,
+      kind: 'exit',
+      chainId: intent.chainId,
+      txHashes: [executionTxHash],
+      timeoutMs: CONFIRMATION_RECHECK_MS,
+      pollMs: Math.max(1_000, Math.floor(CONFIRMATION_RECHECK_MS / 5)),
+      forceRefresh: true,
+    }).catch(() => null);
+
+    if (observation?.confirmation.kind === 'confirmed_success') {
+      await scheduleCanonicalOrderObservation({
+        orderId,
+        kind: 'exit',
+        txHash: observation.resolvedTxHash || executionTxHash,
+        delayMs: CONFIRMATION_RECHECK_MS,
+        reasonCode: 'projection_repaired_from_order',
+        metadataPatch: {
+          awaitingKind: 'projection_repair',
+          exitIntentId: intent.id,
+          lastKnownExposureSource: 'exit_confirmation_projection_repair',
+        },
+      }).catch(() => null);
+      await syncOrderProjections(orderId).catch(() => null);
+      await markIntentRetryable({
+        intent,
+        reasonCode: 'projection_repair_pending',
+        retryDelayMs: RETRY_COOLDOWN_MS,
+        queueRetryCount: readQueueRetryCount(intent),
+        lane: 'confirmation-reconcile',
+      });
+      return 'retryable_unresolved';
+    }
+
+    if (observation?.confirmation.kind === 'confirmed_failed') {
+      await markIntentTerminal({
+        intent,
+        reasonCode: observation.confirmation.reason || 'confirmed_failed',
+        archivePosition: false,
+      });
+      return 'confirmed_failed';
+    }
   }
 
   const queueRetryCount = readQueueRetryCount(intent) + 1;
@@ -315,18 +367,40 @@ async function processExitIntent(intent: any): Promise<void> {
       canonicalOrderLifecycle: canonicalOrderLifecycleState,
       entryTxHash: position.entryTxHash,
     })) {
-      const queueRetryCount = readQueueRetryCount(intent) + 1;
-      if (queueRetryCount > MAX_QUEUE_RETRY_ATTEMPTS) {
-        await markIntentTerminal({
-          intent,
-          reasonCode: 'buy_confirmation_retry_budget_exhausted',
-          position,
-          targetWallet: loadedTargetWallet,
-          archivePosition: false,
-        });
-        finalityState = 'confirmed_failed';
-        return;
+      const observedBuy = canonicalOrderId && position.entryTxHash
+        ? await observeCanonicalOrderState({
+            orderId: canonicalOrderId,
+            kind: 'buy',
+            chainId: intent.chainId,
+            txHashes: [position.entryTxHash],
+            timeoutMs: Math.max(5_000, Math.floor(CONFIRMATION_RECHECK_MS / 2)),
+            pollMs: Math.max(1_000, Math.floor(CONFIRMATION_RECHECK_MS / 5)),
+            forceRefresh: true,
+          }).catch(() => null)
+        : null;
+
+      if (observedBuy?.confirmation.kind === 'confirmed_success') {
+        canonicalOrderLifecycleState = observedBuy.order?.lifecycleState || canonicalOrderLifecycleState;
+      } else if (canonicalOrderId) {
+        await scheduleCanonicalOrderObservation({
+          orderId: canonicalOrderId,
+          kind: 'buy',
+          txHash: position.entryTxHash,
+          delayMs: CONFIRMATION_RECHECK_MS,
+          reasonCode: observedBuy?.reasonCode || 'buy_confirmation_pending',
+          metadataPatch: {
+            exitIntentId: intent.id,
+            targetSellTxHash: intent.targetSellTxHash || null,
+            positionIdLegacy: intent.positionId,
+            lastKnownExposureSource: 'exit_waiting_for_buy_confirm',
+          },
+        }).catch(() => null);
       }
+
+      if (observedBuy?.confirmation.kind === 'confirmed_success' && canonicalOrderId) {
+        await syncOrderProjections(canonicalOrderId).catch(() => null);
+      } else {
+      const queueRetryCount = readQueueRetryCount(intent) + 1;
       await recordExitIntentProgress({
         intentId: intent.id,
         workerId,
@@ -362,6 +436,7 @@ async function processExitIntent(intent: any): Promise<void> {
       finalityState = 'retryable_unresolved';
       settleRetryIntervalMs = CONFIRMATION_RECHECK_MS;
       return;
+      }
     }
 
     if (canonicalOrderId) {
