@@ -26,6 +26,7 @@ import { UnifiedChartCard } from '../Chart/UnifiedChartCard';
 import { TransactionStatusCard } from './TransactionStatusCard';
 import { PlanCard } from './PlanCard';
 import { ThinkingTimer } from './ThinkingTimer';
+import { PolymarketEmbedCard } from './PolymarketEmbedCard';
 import { TokenCapsule } from './TokenCapsule';
 import { CitationRenderer } from './CitationRenderer';
 import { XPostCard } from './XPostCard';
@@ -292,6 +293,18 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({
                   chainId={message.data?.chainId || chainId}
                   errorMessage={message.data?.errorMessage || message.data?.error}
                   isLoading={message.data?.isLoading}
+                />
+              </div>
+            </div>
+          </div>
+        );
+      case 'polymarket-embed':
+        return (
+          <div className={styles.inlineCard}>
+            <div className={styles.animFluid}>
+              <div className={styles.cardContent}>
+                <PolymarketEmbedCard
+                  marketSlug={message.data?.market_slug || message.data?.slug}
                 />
               </div>
             </div>

@@ -217,16 +217,16 @@ function convertEtLocalToUtc(params: {
 
 function parseMarketWindowLabel(question: string, now: Date = new Date()): ParsedMarketWindow | null {
     const match = String(question || '').match(
-        /([A-Za-z]+)\s+(\d{1,2}),\s*(\d{1,2}):(\d{2})(AM|PM)-(\d{1,2}):(\d{2})(AM|PM)\s*ET/i
+        /([A-Za-z]+)\s+(\d{1,2}),\s*(\d{1,2})(?::(\d{2}))?\s*(AM|PM)?\s*-\s*(\d{1,2})(?::(\d{2}))?\s*(AM|PM)\s*ET/i
     );
     if (!match) return null;
 
     const month = MONTH_LOOKUP[String(match[1] || '').toLowerCase()];
     const day = Number(match[2]);
-    const startHour = to24Hour(Number(match[3]), String(match[5] || 'AM'));
-    const startMinute = Number(match[4]);
-    const endHour = to24Hour(Number(match[6]), String(match[8] || 'AM'));
-    const endMinute = Number(match[7]);
+    const startHour = to24Hour(Number(match[3]), String(match[5] || match[8]));
+    const startMinute = match[4] ? Number(match[4]) : 0;
+    const endHour = to24Hour(Number(match[6]), String(match[8]));
+    const endMinute = match[7] ? Number(match[7]) : 0;
     if (!month || !Number.isFinite(day)) return null;
 
     const etNow = getEtParts(now);

@@ -15,7 +15,6 @@
         "prepare_polymarket_bet",
         "get_market_activity",
         "get_whale_watch",
-        "get_current_time",
         "create_polymarket_copy_config",
         "update_polymarket_copy_config",
         "delete_polymarket_copy_config",

@@ -128,12 +128,26 @@ test('parseMarketWindowLabel recognizes upcoming and live short-window markets i
     'Ethereum Up or Down - March 24, 4:45AM-5:00AM ET',
     now
   );
+  const abbreviated = __testables.parseMarketWindowLabel(
+    'Bitcoin Up or Down - March 24, 6:55-7AM ET',
+    now
+  );
+  const abbreviatedPm = __testables.parseMarketWindowLabel(
+    'Bitcoin Up or Down - March 24, 6-7PM ET',
+    now
+  );
 
   assert.equal(upcoming?.status, 'upcoming');
   assert.equal(upcoming?.secondsToStart, 120);
   assert.equal(upcoming?.secondsToEnd, 420);
   assert.equal(live?.status, 'live');
   assert.equal(live?.secondsToEnd, 120);
+  
+  assert.ok(abbreviated);
+  assert.equal(abbreviated.status, 'upcoming');
+  
+  assert.ok(abbreviatedPm);
+  assert.equal(abbreviatedPm.status, 'upcoming');
 });
 
 test('compareNewMarketPriority prefers the next starting window over the near-expiry live window', () => {

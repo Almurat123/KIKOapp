@@ -267,6 +267,33 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
             pushPreferred(preferredTools, toolName);
         }
         strategyNotes.push(`Session tool context is available. Tools already used in this session may be reused directly when they fit the current request: ${sessionToolNames.join(', ')}.`);
+
+        // P2: Polymarket discovery guard — prevent the model from re-running discovery when
+        // results are already in the session history. This is the primary fix for the
+        // "AI keeps repeating get_new_markets / get_polymarket_trending_markets on every turn" bug.
+        const POLYMARKET_DISCOVERY_TOOLS = new Set([
+            'get_polymarket_trending_markets',
+            'get_polymarket_trending',
+            'get_new_markets',
+            'get_polymarket_event',
+        ]);
+        const sessionPolyDiscovery = sessionToolNames.filter((toolName) => POLYMARKET_DISCOVERY_TOOLS.has(toolName));
+        if (sessionPolyDiscovery.length > 0) {
+            strategyNotes.push(
+                `⚠️ POLYMARKET DISCOVERY ALREADY DONE: The following discovery tools have already been called this session and returned data: ${sessionPolyDiscovery.join(', ')}. ` +
+                `Do NOT call them again. Reuse their results. ` +
+                `Short user replies ("yes", "ok", "this one", "go ahead", "好", "确认", "这个") are confirmations — ` +
+                `respond by calling prepare_polymarket_bet or place_polymarket_order, NOT by running discovery again.`,
+            );
+        }
+
+        // P1: get_current_time budget — one call per task is enough.
+        if (sessionToolNames.includes('get_current_time')) {
+            strategyNotes.push(
+                '⏱️ TIME ALREADY CHECKED: get_current_time was already called this session. Do NOT call it again. ' +
+                'Use the time result from the earlier round; wall-clock drift within a single task is negligible.',
+            );
+        }
     }
 
     if (selected.length > 0) {

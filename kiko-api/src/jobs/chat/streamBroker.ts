@@ -554,6 +554,7 @@ export class ChatStreamBroker {
         if (clientAction.type === 'show_chart_card') dbMessageType = 'chart-card';
         else if (clientAction.type === 'show_strategy_card') dbMessageType = 'strategy-card';
         else if (clientAction.type === 'show_token_card') dbMessageType = 'token-card';
+        else if (clientAction.type === 'show_polymarket_card') dbMessageType = 'polymarket-embed';
         else if (clientAction.type === 'show_transaction_status_card' || clientAction.type === 'show_cross_chain_status_card') {
             dbMessageType = 'transaction-status-card';
         }

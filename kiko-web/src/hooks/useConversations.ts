@@ -17,7 +17,8 @@ export interface Message {
     | 'strategy-card'
     | 'chart-card'
     | 'transaction-status-card'
-    | 'plan-card';
+    | 'plan-card'
+    | 'polymarket-embed';
   data?: any;
   citations?: Array<string | { url: string; avatar_url?: string }>;
   reasoning_content?: string;

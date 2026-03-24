@@ -267,9 +267,10 @@
   max-width: 100%;
 }
 
-.bubble * {
-  user-select: text !important;
-  -webkit-user-select: text !important;
+/* User selection handled by specific markdown/text containers to avoid polluting interactive cards */
+.bubble {
+  user-select: text;
+  -webkit-user-select: text;
 }
 
 .bubble:hover {
@@ -318,12 +319,11 @@
   color: #374151;
 }
 
-.aiBubble * {
+/* Removed wildcard override which polluted nested cards with forced font sizes and colors */
+.aiBubble {
+  color: #e4e4e7;
   font-size: 15px;
   line-height: 1.4;
-  color: inherit;
-  user-select: text;
-  -webkit-user-select: text;
 }
 
 .aiBubble:hover {

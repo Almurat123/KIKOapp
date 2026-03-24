@@ -263,12 +263,16 @@ export const GetNewMarketsTool: Tool = {
         const limit = Math.min(args.limit || 10, 20);
         const result = await import('../../../services/polymarket.js').then(m => m.getNewMarkets(limit));
 
+        const noEligibleWindows = result.eligibleWindowCount === 0;
         return {
             source: 'Polymarket',
             type: 'Newest Events',
             count: result.events.length,
-            sort_mode: result.eligibleWindowCount > 0 ? 'next_starting_window_first' : 'no_soon_window_available',
+            sort_mode: noEligibleWindows ? 'no_soon_window_available' : 'next_starting_window_first',
             eligible_window_count: result.eligibleWindowCount,
+            ...(noEligibleWindows && {
+                '⚠️ market_availability_warning': 'NO tradable short-window markets exist within the next 6 hours. Do NOT recommend any of the listed events as suitable for immediate trading. Inform the user there are no open 5-minute markets right now and show when the earliest one starts.',
+            }),
             selection_note: result.selectionNote,
             events: result.events.map(e => ({
                 id: e.id,
@@ -301,6 +305,37 @@ export const GetNewMarketsTool: Tool = {
                     }))
                 }))
             }))
+        };
+    },
+    permissions: 'public'
+};
+
+/**
+ * Show Polymarket Embed Card Tool
+ */
+export const ShowPolymarketCardTool: Tool = {
+    definition: {
+        name: 'show_polymarket_card',
+        description: 'Show an interactive Polymarket live market card in the chat. Use this when you want to provide a real-time visual representation of a market as part of your recommendation.',
+        parameters: {
+            type: 'object',
+            properties: {
+                slug: {
+                    type: 'string',
+                    description: 'The Polymarket market slug (e.g., "btc-updown-5m-1774349700").'
+                }
+            },
+            required: ['slug']
+        }
+    },
+    handler: async (args: { slug: string }) => {
+        return {
+            __client_action: {
+                type: 'show_polymarket_card',
+                data: {
+                    market_slug: args.slug
+                }
+            }
         };
     },
     permissions: 'public'
