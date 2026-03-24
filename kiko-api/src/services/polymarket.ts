@@ -81,8 +81,10 @@ interface ParsedMarketWindow {
     label: string | null;
 }
 
-const NEW_MARKET_SOON_HORIZON_SECONDS = 6 * 60 * 60;
+const NEW_MARKET_SOON_HORIZON_SECONDS = 48 * 60 * 60; // show markets up to 48h ahead so newly created windows are always visible
 const NEW_MARKET_MIN_LIVE_SECONDS_LEFT = 120;
+const TRADABLE_HORIZON_SECONDS = 6 * 60 * 60; // only flag as 'tradable' if within 6h
+const MIN_TRADABLE_LIQUIDITY = 10; // minimum liquidity in USD to be considered tradable
 
 const MONTH_LOOKUP: Record<string, number> = {
     january: 1,
@@ -357,6 +359,8 @@ export const __testables = {
     parseMarketWindowLabel,
     compareNewMarketPriority,
     isEligibleNewMarketWindow,
+    MIN_TRADABLE_LIQUIDITY,
+    TRADABLE_HORIZON_SECONDS,
 };
 
 /**
@@ -509,9 +513,12 @@ export async function getNewMarkets(limit: number = 10): Promise<{
         liquidity: number;
         creationDate: string;
         recommendedWindow?: ParsedMarketWindow | null;
+        tradable: boolean;
+        tradable_detail: string;
         markets: ParsedMarket[];
     }>;
     eligibleWindowCount: number;
+    tradableWindowCount: number;
     selectionNote: string;
 }> {
     const url = `${GAMMA_API_BASE}/events?limit=${limit}&active=true&closed=false&order=createdAt&ascending=false`;
@@ -526,6 +533,7 @@ export async function getNewMarkets(limit: number = 10): Promise<{
 
     const now = new Date();
     let eligibleWindowCount = 0;
+    let tradableWindowCount = 0;
     const mappedEvents = data.map((event, index) => {
         const markets = (event.markets || [])
             .filter((market) => !market.closed)
@@ -535,16 +543,37 @@ export async function getNewMarkets(limit: number = 10): Promise<{
             .filter((window): window is ParsedMarketWindow => Boolean(window));
         const eligibleWindows = windowCandidates.filter(isEligibleNewMarketWindow);
         const recommendedWindow = eligibleWindows.sort(compareNewMarketPriority)[0] || null;
+        
+        // Check tradability: within 6h AND has real liquidity
+        const eventLiquidity = Math.floor(event.liquidity || 0);
+        const withinTradableHorizon = recommendedWindow
+            ? (recommendedWindow.status === 'live' || 
+               (recommendedWindow.status === 'upcoming' && 
+                (recommendedWindow.secondsToStart ?? Number.MAX_SAFE_INTEGER) <= TRADABLE_HORIZON_SECONDS))
+            : false;
+        const hasLiquidity = eventLiquidity >= MIN_TRADABLE_LIQUIDITY;
+        const isTradable = withinTradableHorizon && hasLiquidity;
+        
         if (recommendedWindow) eligibleWindowCount += 1;
+        if (isTradable) tradableWindowCount += 1;
+        
         const sortPriority = recommendedWindow ? (recommendedWindow.status === 'upcoming' ? 0 : recommendedWindow.status === 'live' ? 1 : 2) : 3;
 
         return {
             id: event.id,
             title: event.title,
             volume: Math.floor(event.volume || 0),
-            liquidity: Math.floor(event.liquidity || 0),
-            creationDate: normalizeDate(event.startDate) || '', // Gamma may omit some timestamps; keep an empty string instead of leaking undefined.
+            liquidity: eventLiquidity,
+            creationDate: normalizeDate(event.startDate) || '',
             recommendedWindow,
+            tradable: isTradable,
+            tradable_detail: !recommendedWindow
+                ? 'no_window_found'
+                : !withinTradableHorizon
+                    ? 'window_too_far_ahead'
+                    : !hasLiquidity
+                        ? 'no_liquidity_yet'
+                        : 'ok',
             markets,
             __sort: {
                 priority: sortPriority,
@@ -576,8 +605,11 @@ export async function getNewMarkets(limit: number = 10): Promise<{
     return {
         events: mappedEvents.map(({ __sort, ...event }) => event),
         eligibleWindowCount,
-        selectionNote: eligibleWindowCount > 0
-            ? 'Recommended markets are limited to upcoming windows within the next 6 hours and live windows with more than 2 minutes remaining.'
-            : 'No upcoming short-window market is listed within the next 6 hours, and near-expiry live windows are excluded from recommendations.'
+        tradableWindowCount,
+        selectionNote: tradableWindowCount > 0
+            ? `${tradableWindowCount} market(s) are tradable now (within 6h and have liquidity). Others are listed for discovery only.`
+            : eligibleWindowCount > 0
+                ? `${eligibleWindowCount} short-window market(s) found but none are tradable yet (no liquidity or window is too far ahead). Show them to the user with tradable=false and explain when they might open.`
+                : 'No short-window market found within 48 hours.'
     };
 }

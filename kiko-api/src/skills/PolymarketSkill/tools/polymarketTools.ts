@@ -263,22 +263,22 @@ export const GetNewMarketsTool: Tool = {
         const limit = Math.min(args.limit || 30, 50);
         const result = await import('../../../services/polymarket.js').then(m => m.getNewMarkets(limit));
 
-        const noEligibleWindows = result.eligibleWindowCount === 0;
+        const noTradableWindows = result.tradableWindowCount === 0;
         return {
             source: 'Polymarket',
             type: 'Newest Events',
             count: result.events.length,
-            sort_mode: noEligibleWindows ? 'no_soon_window_available' : 'next_starting_window_first',
+            tradable_window_count: result.tradableWindowCount,
             eligible_window_count: result.eligibleWindowCount,
-            ...(noEligibleWindows && {
-                '⚠️ market_availability_warning': 'NO tradable short-window markets exist within the next 6 hours. Do NOT recommend any of the listed events as suitable for immediate trading. Inform the user there are no open 5-minute markets right now and show when the earliest one starts.',
-            }),
+            sort_mode: noTradableWindows ? 'discovery_only_no_tradable_windows' : 'tradable_windows_first',
             selection_note: result.selectionNote,
             events: result.events.map(e => ({
                 id: e.id,
                 title: e.title,
                 createdAt: new Date(e.creationDate).toLocaleDateString(),
                 liquidity: `$${e.liquidity.toLocaleString()}`,
+                tradable: e.tradable,
+                tradable_detail: e.tradable_detail,
                 recommended_window: e.recommendedWindow ? {
                     start_at: e.recommendedWindow.startAt,
                     end_at: e.recommendedWindow.endAt,

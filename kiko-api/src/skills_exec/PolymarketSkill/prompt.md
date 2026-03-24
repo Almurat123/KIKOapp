@@ -6,7 +6,12 @@
 
 2. **NO REPEAT TIME CHECK**: Do NOT call `get_current_time` more than once per task. If it was already called in any prior round, treat the result as still valid. Wall-clock drift within a single task is negligible.
 
-3. **NO FUTURE-DATED MARKET RECOMMENDATIONS**: If `get_new_markets` returns a result with `sort_mode: "no_soon_window_available"` or any `⚠️ market_availability_warning` field, do NOT present the listed markets as recommended bets for "today" or "now". State clearly that there are no tradable short-window markets at this time and tell the user what the earliest available window is.
+3. **SHOW 5-MINUTE MARKETS, FLAG TRADABILITY**: The tool now returns every 5-minute market found within 48 hours. Each event has a `tradable` boolean and a `tradable_detail` field:
+   - `tradable: true` → Window is within 6h AND has real liquidity → recommend for immediate trading.
+   - `tradable: false, tradable_detail: "no_liquidity_yet"` → Market exists but no buyers/sellers yet → show it, tell user "liquidity has not opened yet, check closer to the window time."
+   - `tradable: false, tradable_detail: "window_too_far_ahead"` → Window is >6h away → show it as a "watchlist" item, tell user when to expect it.
+   - **NEVER hide all markets just because `tradable_window_count === 0`.** Always list what was found with clear tradability status.
+
 
 
 1. **Market Discovery**:

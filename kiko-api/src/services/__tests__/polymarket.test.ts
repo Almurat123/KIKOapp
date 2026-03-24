@@ -172,23 +172,26 @@ test('compareNewMarketPriority prefers the next starting window over the near-ex
   assert.ok(__testables.compareNewMarketPriority(expired, null) < 0);
 });
 
-test('isEligibleNewMarketWindow excludes tomorrow windows and near-expiry live windows', () => {
+test('isEligibleNewMarketWindow includes tomorrow windows (48h horizon) and excludes near-expiry live windows', () => {
   const now = new Date('2026-03-24T08:58:00Z');
 
+  // March 25, ~24h away -> now eligible under 48h discovery horizon
   const tomorrowWindow = __testables.parseMarketWindowLabel(
     'Ethereum Up or Down - March 25, 5:25AM-5:30AM ET',
     now
   );
+  // Near expiry live (< 2min remaining) -> still excluded
   const nearExpiryLive = __testables.parseMarketWindowLabel(
     'Ethereum Up or Down - March 24, 4:45AM-5:00AM ET',
     new Date('2026-03-24T08:59:15Z')
   );
+  // Upcoming in a few minutes -> eligible
   const soonUpcoming = __testables.parseMarketWindowLabel(
     'Ethereum Up or Down - March 24, 5:00AM-5:05AM ET',
     now
   );
 
-  assert.equal(__testables.isEligibleNewMarketWindow(tomorrowWindow), false);
-  assert.equal(__testables.isEligibleNewMarketWindow(nearExpiryLive), false);
+  assert.equal(__testables.isEligibleNewMarketWindow(tomorrowWindow), true); // within 48h horizon
+  assert.equal(__testables.isEligibleNewMarketWindow(nearExpiryLive), false); // near expiry still excluded
   assert.equal(__testables.isEligibleNewMarketWindow(soonUpcoming), true);
 });
