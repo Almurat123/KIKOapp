@@ -185,7 +185,7 @@ export const SearchPolymarketTool: Tool = {
         }
     },
     handler: async (args: { query: string; limit?: number }) => {
-        const limit = Math.min(args.limit || 10, 20);
+        const limit = Math.min(args.limit || 20, 50);
         const result = await searchEvents(args.query, limit);
         const query = String(args.query || '').trim();
         const queryTerms = query
@@ -260,7 +260,7 @@ export const GetNewMarketsTool: Tool = {
         }
     },
     handler: async (args: { limit?: number }) => {
-        const limit = Math.min(args.limit || 10, 20);
+        const limit = Math.min(args.limit || 30, 50);
         const result = await import('../../../services/polymarket.js').then(m => m.getNewMarkets(limit));
 
         const noEligibleWindows = result.eligibleWindowCount === 0;

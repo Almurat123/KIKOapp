@@ -217,7 +217,7 @@ function convertEtLocalToUtc(params: {
 
 function parseMarketWindowLabel(question: string, now: Date = new Date()): ParsedMarketWindow | null {
     const match = String(question || '').match(
-        /([A-Za-z]+)\s+(\d{1,2}),\s*(\d{1,2})(?::(\d{2}))?\s*(AM|PM)?\s*-\s*(\d{1,2})(?::(\d{2}))?\s*(AM|PM)\s*ET/i
+        /([A-Za-z]+)\s+(\d{1,2}),\s*(\d{1,2})(?::(\d{2}))?\s*(AM|PM)?\s*[-–—]\s*(\d{1,2})(?::(\d{2}))?\s*(AM|PM)\s*ET/i
     );
     if (!match) return null;
 
@@ -472,20 +472,23 @@ export async function searchEvents(query: string, limit: number = 10): Promise<{
     const url = `${GAMMA_API_BASE}/public-search?q=${encodeURIComponent(query)}&limit=${limit}&events_status=active`;
 
     // # [Logic]: Search events
-    const data = await unifiedApiService.fetchJson<any[]>({
+    const response = await unifiedApiService.fetchJson<any>({
         url,
         method: 'GET',
         requestTimeout: 15000,
         endpointName: 'polymarket-search'
     });
 
-    if (!Array.isArray(data)) {
+    // Gamma public-search returns { results: [], pagination: {} }
+    const results = (response && Array.isArray(response.results)) ? response.results : [];
+
+    if (results.length === 0) {
         return { events: [] };
     }
 
-    // Extract events from search results (data is often slightly different structure)
+    // Extract events from search results
     return {
-        events: data.map(event => ({
+        events: results.map((event: any) => ({
             id: event.id.toString(),
             title: event.title,
             volume: Math.floor(event.volume || 0),
