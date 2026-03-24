@@ -3,6 +3,7 @@ import { contextBudgetManager } from '../../services/ai/contextBudgetManager.js'
 import type { ChatContextSnapshot } from './contracts.js';
 import { buildBalanceContextBlock } from './balanceContextBuilder.js';
 import { buildLaunchpadContextBlock, buildTokenContextBlock } from './contextBlockBuilder.js';
+import { isExplicitChainSwitchRequest } from './chainIntent.js';
 import {
     extractRecentToolTrace,
     extractRequestedTokenAddresses,
@@ -143,7 +144,9 @@ export function assembleChatContext(params: {
     });
     const clientContext = buildClientContext(toolContext, chainId, chainName);
 
-    const confirmationState = resolveTradeConfirmationState(messages, lastUserMessage);
+    const confirmationState = isExplicitChainSwitchRequest(lastUserMessage)
+        ? null
+        : resolveTradeConfirmationState(messages, lastUserMessage);
     const systemDirectives = resolveRuntimeDirectives({
         task,
         lastUserMessage,

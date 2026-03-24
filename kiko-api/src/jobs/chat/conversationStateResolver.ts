@@ -1,5 +1,6 @@
 import type { ChatHistoryMessage, RecentToolTrace, TradeConfirmationState } from './contracts.js';
 import type { ActionClass } from './controlPolicy.js';
+import { isExplicitChainSwitchRequest } from './chainIntent.js';
 
 const EVM_ADDR_RE = /\b0x[a-fA-F0-9]{40}\b/g;
 const SOL_ADDR_RE = /\b[1-9A-HJ-NP-Za-km-z]{32,44}\b/g;
@@ -171,6 +172,7 @@ export function parseCopyTradeRequestFromText(text: string): {
 
 export function resolveTradeConfirmationState(messages: any[], latestUserMessage: string): TradeConfirmationState | null {
     const raw = String(latestUserMessage || '');
+    if (isExplicitChainSwitchRequest(raw)) return null;
     const maybeProceed = isConfirmationMessage(raw) || isSetupProceedMessage(raw);
     if (!maybeProceed) return null;
 

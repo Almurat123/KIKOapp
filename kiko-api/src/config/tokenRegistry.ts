@@ -40,6 +40,14 @@ export const TOKEN_REGISTRY: Record<string, TokenEntry> = {
             10: NATIVE_TOKEN_ADDRESS,    // Optimism
         }
     },
+    'BNB': {
+        symbol: 'BNB',
+        name: 'BNB',
+        decimals: 18,
+        addresses: {
+            56: NATIVE_TOKEN_ADDRESS,
+        }
+    },
     'POL': {
         symbol: 'POL',
         name: 'Polygon',
@@ -54,6 +62,8 @@ export const TOKEN_REGISTRY: Record<string, TokenEntry> = {
         decimals: 6,
         addresses: {
             1: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
+            56: '0x8ac76a51cc950d9822d68b83fe1ad97b32cd580d',
+            10: '0x0b2c639c533813f4aa9d7837caf62653d097ff85',
             8453: '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913',
             137: '0x2791bca1f2de4661ed88a30c99a7a9449aa84174',
             42161: '0xaf88d065e77c8cC2239327C5EDb3A432268e5831',
@@ -80,6 +90,14 @@ export const TOKEN_REGISTRY: Record<string, TokenEntry> = {
             8453: '0x4200000000000000000000000000000000000006',
             42161: '0x82af49447d8a07e3bd95bd0d56f35241523fbab1',
             10: '0x4200000000000000000000000000000000000006',
+        }
+    },
+    'WBNB': {
+        symbol: 'WBNB',
+        name: 'Wrapped BNB',
+        decimals: 18,
+        addresses: {
+            56: '0xbb4cdb9cbd36b01bd1cbaebf2de08d9173bc095c',
         }
     }
 };
@@ -109,5 +127,9 @@ export function isNativeToken(address: string, chainId: number): boolean {
     return addrLower === NATIVE_TOKEN_ADDRESS ||
         addrLower === '0x0000000000000000000000000000000000000000' ||
         addrLower === 'eth' ||
-        addrLower === 'ether';
+        addrLower === 'ether' ||
+        addrLower === 'bnb' ||
+        addrLower === 'matic' ||
+        addrLower === 'pol' ||
+        addrLower === 'base';
 }

@@ -1050,6 +1050,16 @@ export const chatApi = {
         });
     },
 
+    async reportChainSwitchResult(
+        taskId: string,
+        payload: { chainId: number; chainName?: string; status: 'success' | 'failed'; error?: string }
+    ): Promise<{ success: boolean; task: ChatTask }> {
+        return chatFetch<{ success: boolean; task: ChatTask }>(`/api/chat/tasks/${taskId}/chain-switch`, {
+            method: 'POST',
+            body: JSON.stringify(payload),
+        });
+    },
+
     /**
      * Poll for message chunks
      */

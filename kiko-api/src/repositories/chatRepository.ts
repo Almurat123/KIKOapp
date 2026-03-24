@@ -351,6 +351,19 @@ export async function updateTaskStatus(
     return mapPrismaTask(task);
 }
 
+export async function updateTaskToolContext(
+    taskId: string,
+    toolContext: any,
+): Promise<any> {
+    const task = await prisma.aITask.update({
+        where: { id: taskId },
+        data: {
+            toolContext: toolContext ? JSON.stringify(toolContext) : null,
+        },
+    });
+    return mapPrismaTask(task);
+}
+
 export async function getSessionActiveTask(sessionId: string): Promise<any> {
     const task = await prisma.aITask.findFirst({
         where: {

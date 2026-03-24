@@ -1,4 +1,11 @@
 
+import { searchTokens as searchDexTokens, type DexScreenerToken } from './dexscreener.js';
+import {
+    findTokenOnAnyChain as findDetectedTokenOnAnyChain,
+    getTokenInfo as getDetectedTokenInfo,
+    type TokenInfo as DetectedTokenInfo,
+} from './ai/tokenDetector.js';
+
 // Common token mappings by chain for popular tokens
 // This allows resolving symbols like "ETH", "USDC" to contract addresses
 export const COMMON_TOKENS: Record<number, Record<string, string>> = {
@@ -50,6 +57,53 @@ export const COMMON_TOKENS: Record<number, Record<string, string>> = {
         'USDT': '0xc2132D05D31c914a87C6611C10748AEb04B58e8F',
         'DAI': '0x8f3Cf7ad23Cd3CaDbD9735AFf958023239c6A063',
     },
+    // Optimism (chainId: 10)
+    10: {
+        'ETH': '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE',
+        'WETH': '0x4200000000000000000000000000000000000006',
+        'USDC': '0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85',
+        'USDC.e': '0x7F5c764cBc14f9669B88837ca1490cCa17c31607',
+        'USDCE': '0x7F5c764cBc14f9669B88837ca1490cCa17c31607',
+        'USDT': '0x94b008aA00579c1307B0EF2b499aD98a8ce58e58',
+        'DAI': '0xDA10009cBd5D07dd0CeCc66161FC93D7c9000da1',
+        'OP': '0x4200000000000000000000000000000000000042',
+    },
+    // Solana (chainId: 900)
+    900: {
+        'SOL': 'So11111111111111111111111111111111111111112',
+        'USDC': 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
+        'USDT': 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB',
+    },
+};
+
+const CHAIN_NATIVE_SYMBOLS: Record<number, string> = {
+    1: 'ETH',
+    10: 'ETH',
+    56: 'BNB',
+    137: 'MATIC',
+    8453: 'ETH',
+    42161: 'ETH',
+    900: 'SOL',
+};
+
+const TOKEN_LOGO_URI_BY_SYMBOL: Record<string, string> = {
+    ETH: '/assets/tokens/eth.png',
+    WETH: '/assets/tokens/eth.png',
+    SOL: '/assets/tokens/sol.png',
+    WSOL: '/assets/tokens/sol.png',
+    BNB: '/assets/tokens/bsc.png',
+    WBNB: '/assets/tokens/bsc.png',
+    MATIC: '/assets/tokens/polygon.png',
+    WMATIC: '/assets/tokens/polygon.png',
+    POL: '/assets/tokens/polygon.png',
+    USDC: '/assets/tokens/usdc.png',
+    'USDC.E': '/assets/tokens/usdc.png',
+    USDCE: '/assets/tokens/usdc.png',
+    USDBC: '/assets/tokens/usdc.png',
+    USDT: '/assets/tokens/usdt.png',
+    BASE: '/assets/tokens/base.png',
+    ARB: '/assets/tokens/arbitrum.png',
+    OP: '/assets/tokens/optimism.png',
 };
 
 function normalizeSymbolForLookup(token: string): string {
@@ -58,6 +112,45 @@ function normalizeSymbolForLookup(token: string): string {
         .replace(/^\$/g, '')
         .toLowerCase()
         .replace(/[^a-z0-9]/g, '');
+}
+
+function normalizeDisplaySymbol(symbol: string): string {
+    const upper = String(symbol || '').trim().toUpperCase();
+    if (!upper) return 'UNKNOWN';
+    if (upper === 'USDCE') return 'USDC.e';
+    if (upper === 'USDC.E') return 'USDC.e';
+    return upper;
+}
+
+function isHexAddressLike(token: string): boolean {
+    return /^0x[0-9a-fA-F]{40}$/.test(String(token || '').trim());
+}
+
+function isSolanaAddressLike(token: string): boolean {
+    return /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(String(token || '').trim());
+}
+
+function addressesMatch(left: string, right: string): boolean {
+    const lhs = String(left || '').trim();
+    const rhs = String(right || '').trim();
+    if (!lhs || !rhs) return false;
+    if (lhs.startsWith('0x') || rhs.startsWith('0x')) {
+        return lhs.toLowerCase() === rhs.toLowerCase();
+    }
+    return lhs === rhs;
+}
+
+function getChainNativeSymbol(chainId: number): string {
+    return CHAIN_NATIVE_SYMBOLS[chainId] || 'ETH';
+}
+
+function shouldPreserveExplicitNativeSymbol(symbol: string, chainId: number): boolean {
+    const normalized = normalizeDisplaySymbol(symbol);
+    const nativeSymbol = getChainNativeSymbol(chainId);
+    if (normalized === nativeSymbol) return true;
+    if (chainId === 8453 && normalized === 'BASE') return true;
+    if (chainId === 137 && (normalized === 'MATIC' || normalized === 'POL')) return true;
+    return false;
 }
 
 /**
@@ -148,6 +241,215 @@ export function normalizeTokenAddress(address: string): string {
 
 
     return address;
+}
+
+export function getKnownTokenLogoURI(symbol?: string | null): string | undefined {
+    if (!symbol) return undefined;
+    const normalized = normalizeDisplaySymbol(symbol);
+    return TOKEN_LOGO_URI_BY_SYMBOL[normalized] || TOKEN_LOGO_URI_BY_SYMBOL[normalized.replace(/[^A-Z0-9]/g, '')];
+}
+
+export function resolveCommonTokenDisplay(
+    token: string,
+    chainId: number
+): { symbol: string; logoURI?: string } | null {
+    const raw = String(token || '').trim();
+    if (!raw) return null;
+
+    if (isNativeToken(raw)) {
+        const explicitSymbol = !isHexAddressLike(raw) && shouldPreserveExplicitNativeSymbol(raw, chainId)
+            ? normalizeDisplaySymbol(raw)
+            : getChainNativeSymbol(chainId);
+        return {
+            symbol: explicitSymbol,
+            logoURI: getKnownTokenLogoURI(explicitSymbol),
+        };
+    }
+
+    const chainTokens = COMMON_TOKENS[chainId] || {};
+
+    for (const [symbol, address] of Object.entries(chainTokens)) {
+        if (addressesMatch(address, raw)) {
+            const normalizedSymbol = normalizeDisplaySymbol(symbol);
+            return {
+                symbol: normalizedSymbol,
+                logoURI: getKnownTokenLogoURI(normalizedSymbol),
+            };
+        }
+    }
+
+    for (const tokensBySymbol of Object.values(COMMON_TOKENS)) {
+        for (const [symbol, address] of Object.entries(tokensBySymbol)) {
+            if (addressesMatch(address, raw)) {
+                const normalizedSymbol = normalizeDisplaySymbol(symbol);
+                return {
+                    symbol: normalizedSymbol,
+                    logoURI: getKnownTokenLogoURI(normalizedSymbol),
+                };
+            }
+        }
+    }
+
+    if (!isHexAddressLike(raw)) {
+        const direct = chainTokens[raw] || chainTokens[raw.toUpperCase()];
+        if (direct) {
+            const symbol = Object.entries(chainTokens).find(([, address]) => address === direct)?.[0] || raw.toUpperCase();
+            const normalizedSymbol = normalizeDisplaySymbol(symbol);
+            return {
+                symbol: normalizedSymbol,
+                logoURI: getKnownTokenLogoURI(normalizedSymbol),
+            };
+        }
+
+        const targetNorm = normalizeSymbolForLookup(raw);
+        if (targetNorm) {
+            for (const symbol of Object.keys(chainTokens)) {
+                if (normalizeSymbolForLookup(symbol) === targetNorm) {
+                    const normalizedSymbol = normalizeDisplaySymbol(symbol);
+                    return {
+                        symbol: normalizedSymbol,
+                        logoURI: getKnownTokenLogoURI(normalizedSymbol),
+                    };
+                }
+            }
+        }
+
+        const fallbackSymbol = normalizeDisplaySymbol(raw);
+        return {
+            symbol: fallbackSymbol,
+            logoURI: getKnownTokenLogoURI(fallbackSymbol),
+        };
+    }
+
+    return null;
+}
+
+export interface TokenDisplayMetadata {
+    symbol: string;
+    logoURI?: string;
+}
+
+type TokenDisplayResolverDeps = {
+    getDetectedTokenInfo?: typeof getDetectedTokenInfo;
+    findDetectedTokenOnAnyChain?: typeof findDetectedTokenOnAnyChain;
+    searchDexTokens?: typeof searchDexTokens;
+};
+
+function normalizeResolvedSymbol(symbol?: string | null, fallback?: string): string {
+    const raw = String(symbol || fallback || '').trim();
+    if (!raw) return 'UNKNOWN';
+    return normalizeDisplaySymbol(raw);
+}
+
+function toDynamicTokenDisplay(
+    candidate: Pick<DetectedTokenInfo, 'symbol' | 'logoURI'> | Pick<DexScreenerToken, 'symbol' | 'imageUrl'>,
+    fallbackSymbol: string
+): TokenDisplayMetadata {
+    const symbol = normalizeResolvedSymbol(candidate.symbol, fallbackSymbol);
+    const logoURI =
+        typeof (candidate as { logoURI?: unknown }).logoURI === 'string'
+            ? (candidate as { logoURI: string }).logoURI
+            : (typeof (candidate as { imageUrl?: unknown }).imageUrl === 'string'
+                ? (candidate as { imageUrl: string }).imageUrl
+                : undefined);
+    return {
+        symbol,
+        logoURI: logoURI || getKnownTokenLogoURI(symbol),
+    };
+}
+
+function pickBestSearchCandidate(
+    query: string,
+    chainId: number,
+    results: DexScreenerToken[]
+): DexScreenerToken | null {
+    if (!results.length) return null;
+    const normalizedQuery = normalizeSymbolForLookup(query);
+    const sameChain = results.filter((item) => {
+        const normalizedChain = String(item.chainId || '').toLowerCase();
+        if (chainId === 900) return normalizedChain === 'solana';
+        if (chainId === 56) return normalizedChain === 'bsc';
+        if (chainId === 8453) return normalizedChain === 'base';
+        if (chainId === 42161) return normalizedChain === 'arbitrum';
+        if (chainId === 137) return normalizedChain === 'polygon';
+        if (chainId === 10) return normalizedChain === 'optimism';
+        if (chainId === 1) return normalizedChain === 'ethereum';
+        return false;
+    });
+    const candidates = sameChain.length ? sameChain : results;
+    const exactSymbol = candidates.find((item) => normalizeSymbolForLookup(item.symbol) === normalizedQuery);
+    if (exactSymbol) return exactSymbol;
+    const exactName = candidates.find((item) => normalizeSymbolForLookup(item.name) === normalizedQuery);
+    if (exactName) return exactName;
+    return candidates[0] || null;
+}
+
+export async function resolveTokenDisplayMetadata(
+    token: string,
+    chainId: number,
+    deps: TokenDisplayResolverDeps = {}
+): Promise<TokenDisplayMetadata> {
+    const raw = String(token || '').trim();
+    if (!raw) return { symbol: 'UNKNOWN' };
+
+    const common = resolveCommonTokenDisplay(raw, chainId);
+    if (
+        common?.symbol
+        && (
+            isHexAddressLike(raw)
+            || isSolanaAddressLike(raw)
+            || isNativeToken(raw)
+            || Boolean(common.logoURI)
+            || common.symbol !== normalizeDisplaySymbol(raw)
+        )
+    ) {
+        return common;
+    }
+
+    const getSpecificInfo = deps.getDetectedTokenInfo || getDetectedTokenInfo;
+    const getGlobalInfo = deps.findDetectedTokenOnAnyChain || findDetectedTokenOnAnyChain;
+    const searchDynamicTokens = deps.searchDexTokens || searchDexTokens;
+
+    if (isHexAddressLike(raw) || isSolanaAddressLike(raw)) {
+        try {
+            const specific = await getSpecificInfo(raw, chainId);
+            if (specific?.symbol && specific.symbol !== 'UNKNOWN') {
+                return toDynamicTokenDisplay(specific, raw);
+            }
+        } catch {
+            // Fall through to global lookup.
+        }
+
+        try {
+            const global = await getGlobalInfo(raw);
+            if (global?.symbol && global.symbol !== 'UNKNOWN') {
+                return toDynamicTokenDisplay(global, raw);
+            }
+        } catch {
+            // Fall through to fallback.
+        }
+
+        return {
+            symbol: `${raw.slice(0, 6)}...${raw.slice(-4)}`,
+            logoURI: undefined,
+        };
+    }
+
+    const normalizedSymbol = normalizeDisplaySymbol(raw);
+    try {
+        const searchResults = await searchDynamicTokens(raw);
+        const candidate = pickBestSearchCandidate(raw, chainId, searchResults);
+        if (candidate?.symbol) {
+            return toDynamicTokenDisplay(candidate, normalizedSymbol);
+        }
+    } catch {
+        // Fall back to known-symbol rendering below.
+    }
+
+    return {
+        symbol: normalizedSymbol,
+        logoURI: getKnownTokenLogoURI(normalizedSymbol),
+    };
 }
 
 /**

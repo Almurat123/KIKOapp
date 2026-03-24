@@ -214,8 +214,8 @@ export async function executePositionExit(
 
             const balanceUsd = deps.formatTokenAmount(balance, decimals) * (hasValidPrice ? tokenInfo.price : 0);
 
-            if (balance < 1000n) {
-                const treatAsEmptyOrDust = balance <= 0n || balance < 1000n || (hasValidPrice && balanceUsd < 0.1);
+            if (balance <= 1000n) {
+                const treatAsEmptyOrDust = balance <= 0n || balance <= 1000n || (hasValidPrice && balanceUsd < 0.1);
                 if (treatAsEmptyOrDust) {
                     logger.throttled(LogCode.WTC_TX_SKIPPED, 'Closing database record for empty or negligible balance', {
                         userId,

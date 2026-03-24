@@ -1,5 +1,6 @@
 import { Tool } from '../../../tooling/registry.js';
 import { chainIdToSlug } from '../../../utils/chainParam.js';
+import { markPendingToolContextChainSwitch } from '../../../jobs/chat/toolContextChainState.js';
 
 export const SwitchChainTool: Tool = {
     definition: {
@@ -20,17 +21,58 @@ export const SwitchChainTool: Tool = {
             required: ['chain_id']
         }
     },
-    handler: async (args, _context) => {
+    handler: async (args, context) => {
         const chainId = args.chain_id;
         const chainName = args.chain_name || chainIdToSlug(chainId) || `Chain ${chainId}`;
+        let evmWalletAddress = context?.evmWalletAddress || context?.walletAddress || context?.userAddress;
+        let solanaWalletAddress = context?.solanaWalletAddress || context?.solanaAddress || context?.userSolanaAddress;
+
+        if (context?.userId) {
+            try {
+                const { getEmbeddedWalletAddress, getSolanaEmbeddedWalletAddress } = await import('../../../services/privyWallet.js');
+                if (chainId === 900 && !solanaWalletAddress) {
+                    solanaWalletAddress = (await getSolanaEmbeddedWalletAddress(context.userId)) || solanaWalletAddress;
+                }
+                if (chainId !== 900 && !evmWalletAddress) {
+                    evmWalletAddress = (await getEmbeddedWalletAddress(context.userId)) || evmWalletAddress;
+                }
+            } catch {
+                // Keep the existing context if wallet lookup fails.
+            }
+        }
+
+        if (context && typeof context === 'object') {
+            const nextContext = markPendingToolContextChainSwitch({
+                toolContext: context,
+                chainId,
+                chainName,
+                evmWalletAddress,
+                solanaWalletAddress,
+            });
+            for (const key of Object.keys(context)) {
+                delete (context as Record<string, any>)[key];
+            }
+            Object.assign(context, nextContext);
+
+            const taskId = context.__snapshot?.taskId || context.taskId;
+            if (taskId) {
+                try {
+                    const chatRepo = await import('../../../repositories/chatRepository.js');
+                    await chatRepo.updateTaskToolContext(taskId, nextContext);
+                } catch {
+                    // In-memory context is still updated for the current turn.
+                }
+            }
+        }
 
         return {
-            summary: `Switching KiKo to ${chainName} (Chain ID: ${chainId})...`,
+            summary: `Requested wallet switch to ${chainName} (Chain ID: ${chainId}). Wait for wallet confirmation before executing trades on that chain.`,
             __client_action: {
                 type: 'switch_chain',
                 payload: {
                     chainId: chainId,
-                    chainName: chainName
+                    chainName: chainName,
+                    taskId: context?.__snapshot?.taskId || context?.taskId,
                 }
             }
         };

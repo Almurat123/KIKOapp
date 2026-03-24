@@ -28,6 +28,7 @@ export interface TokenData {
     address: string;
     symbol: string;
     name: string;
+    logoURI?: string;
     decimals: number;
     price?: number;
     priceUsd?: number;

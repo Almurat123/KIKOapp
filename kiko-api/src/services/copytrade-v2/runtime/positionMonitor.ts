@@ -43,6 +43,7 @@ import {
 } from './tokenExitLock.js';
 import { evaluateAutoExitPriceGuard } from './autoExitPriceGuard.js';
 import { getGuardPriceSnapshot } from './guardPrice.js';
+import { reconcileMirrorSellDustPosition } from './mirrorSellDustReconciler.js';
 import {
   ExitHotPathDeferredError,
   hasIntentContext,
@@ -487,8 +488,8 @@ export async function executePositionExit(params: {
 
             // 2. Rent Reclamation / Dust Handling
             // If balance is effectively zero (or just dust < 1000 raw units), we consider it empty.
-            if (balance < 1000n) {
-                const treatAsEmptyOrDust = balance <= 0n || balance < 1000n || (hasValidPrice && balanceUsd < 0.1);
+            if (balance <= 1000n) {
+                const treatAsEmptyOrDust = balance <= 0n || balance <= 1000n || (hasValidPrice && balanceUsd < 0.1);
                 // CHECK: If we have an open position record but no balance, close it.
                 // This handles the case where an external sell happened or previous sell leftover dust.
                 if (treatAsEmptyOrDust) {
@@ -1072,6 +1073,25 @@ export async function checkPositionsForExits(): Promise<void> {
                 // STEP A: Use cached price data only. If no cached price exists, skip this cycle.
                 const tokenKey = `${position.tokenAddress.toLowerCase()}_${position.chainId}`;
                 const tokenInfo = tokenPriceMap.get(tokenKey);
+
+                const mirrorSellDustReconciliation = await reconcileMirrorSellDustPosition({
+                    position: {
+                        id: position.id,
+                        exitReason: position.exitReason,
+                        status: position.status,
+                        tokenAddress: position.tokenAddress,
+                        chainId: position.chainId,
+                        tokenSymbol: position.tokenSymbol,
+                        userId: position.userId,
+                        configId: position.configId,
+                    },
+                    walletAddress: position.user?.walletAddress,
+                    currentPrice: Number(tokenInfo?.price || 0),
+                });
+                if (mirrorSellDustReconciliation.closed) {
+                    markPositionLocallyClosed(position.id);
+                    return;
+                }
 
                 if (!tokenInfo) {
                     logger.warn(LogCode.API_FETCH_FAILED, 'TP/SL check skipped: Price not available', {

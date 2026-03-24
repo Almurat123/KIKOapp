@@ -22,6 +22,7 @@ import { buildControlPolicySnapshot } from './chat/controlPolicy.js';
 import { getWalletBalance } from '../services/alchemy.js';
 import { walletService } from '../services/walletService.js';
 import { ethers } from 'ethers';
+import { isExplicitChainSwitchRequest } from './chat/chainIntent.js';
 
 type AITask = Awaited<ReturnType<typeof chatRepo.getTask>>;
 
@@ -91,17 +92,14 @@ export class ChatWorker {
                 sessionId: task.sessionId,
                 model: task.model,
             });
-            const [session, messages] = await Promise.all([
-                this.repo.getSession(task.sessionId),
-                this.repo.getSessionMessages(task.sessionId),
-            ]);
+            const sessionPromise = this.repo.getSession(task.sessionId);
+            const messagesPromise = this.repo.getSessionMessages(task.sessionId);
+            const session = await sessionPromise;
             userId = session?.userId || null;
 
             if (!userId) {
                 throw new Error('Missing session user');
             }
-
-            await this.hydrateWalletSnapshotIfNeeded(task);
 
             broker = new ChatStreamBroker({
                 userId,
@@ -111,12 +109,20 @@ export class ChatWorker {
                 model: task.model,
             });
             broker.start();
+            this.broadcastTaskStatus(userId, task, { taskId: task.id, status: 'running', message: 'Loading wallet and context' });
+
+            const messages = await messagesPromise;
+            const hydrationStartedAt = Date.now();
+            await this.hydrateWalletSnapshotIfNeeded(task, messages);
+            const hydrationMs = Date.now() - hydrationStartedAt;
+
             this.broadcastTaskStatus(userId, task, { taskId: task.id, status: 'running', message: 'Analyzing query' });
             logger.info(LogCode.AI_ORCHESTRATOR, 'ChatWorker: task context loaded', {
                 taskId: task.id,
                 sessionId: task.sessionId,
                 messageCount: messages.length,
                 assistantMessageId: task.assistantMessageId,
+                hydrationMs,
             });
 
             const lastUserMessage = [...messages].reverse().find((msg) => msg.role === 'user')?.content || '';
@@ -150,25 +156,27 @@ export class ChatWorker {
             });
             await broker.bootstrapRuntime(buildTaskPlanningContext(snapshot, skillResolution).plan);
 
-            const directFollowup = await executeDirectTradeFollowup({
-                snapshot,
-                task,
-                userId,
-                broker,
-                toolExecutionEngine: this.toolExecutionEngine,
-            });
-            if (directFollowup.handled) {
-                await persistBillingUsage({
-                    assistantMessageId: task.assistantMessageId!,
+            if (!isExplicitChainSwitchRequest(lastUserMessage)) {
+                const directFollowup = await executeDirectTradeFollowup({
+                    snapshot,
+                    task,
                     userId,
-                    model: task.model,
-                    usage: broker.getUsage(),
-                    toolContext: task.toolContext,
-                    toolCallNames: broker.getToolResults().map((item) => item.name),
+                    broker,
+                    toolExecutionEngine: this.toolExecutionEngine,
                 });
-                await this.repo.updateTaskStatus(task.id, 'done');
-                this.broadcastTaskStatus(userId, task, { taskId: task.id, status: 'done' });
-                return;
+                if (directFollowup.handled) {
+                    await persistBillingUsage({
+                        assistantMessageId: task.assistantMessageId!,
+                        userId,
+                        model: task.model,
+                        usage: broker.getUsage(),
+                        toolContext: task.toolContext,
+                        toolCallNames: broker.getToolResults().map((item) => item.name),
+                    });
+                    await this.repo.updateTaskStatus(task.id, 'done');
+                    this.broadcastTaskStatus(userId, task, { taskId: task.id, status: 'done' });
+                    return;
+                }
             }
 
             const fastSwapResult = await maybeExecuteFastSwap({
@@ -370,13 +378,15 @@ export class ChatWorker {
         return /^chatcmpl-?-?\d+$/.test(normalized);
     }
 
-    private async hydrateWalletSnapshotIfNeeded(task: NonNullable<AITask>): Promise<void> {
+    private async hydrateWalletSnapshotIfNeeded(task: NonNullable<AITask>, prefetchedMessages?: Array<{ role?: string | null; content?: string | null }>): Promise<void> {
         const toolContext = task.toolContext || {};
         const walletAddress = toolContext.walletAddress || toolContext.userAddress;
         const chainId = Number(toolContext.chainId || 0);
         if (!walletAddress || !chainId) return;
 
-        const messages = await this.repo.getSessionMessages(task.sessionId).catch(() => []);
+        const messages = Array.isArray(prefetchedMessages)
+            ? prefetchedMessages
+            : await this.repo.getSessionMessages(task.sessionId).catch(() => []);
         const lastUserMessage = [...messages].reverse().find((msg) => msg.role === 'user')?.content || '';
         const lower = String(lastUserMessage || '').toLowerCase();
         const isTradeLike = /\b(swap|buy|sell|trade|convert|ape|bridge|cross[\s-]?chain)\b/i.test(lower) || /买|卖|换|兑换|跨链/.test(lower);

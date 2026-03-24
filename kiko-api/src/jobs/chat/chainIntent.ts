@@ -4,6 +4,15 @@ export interface RequestedChainHint {
     source: 'explicit_query' | 'address_shape' | 'native_symbol';
 }
 
+const CHAIN_SWITCH_PATTERNS = [
+    /\bswitch\s+(?:wallet\s+)?chain\b/i,
+    /\bswitch\s+to\s+(?:ethereum|eth|base|bnb|bsc|bnb chain|binance smart chain|polygon|matic|pol|arbitrum|arb|optimism|op|solana|sol)\b/i,
+    /\bchange\s+(?:wallet\s+)?chain\b/i,
+    /\bmove\s+to\s+(?:ethereum|eth|base|bnb|bsc|bnb chain|binance smart chain|polygon|matic|pol|arbitrum|arb|optimism|op|solana|sol)\b/i,
+    /切换(?:到|至)?(?:钱包)?链/,
+    /切到(?:以太坊|eth|base|bnb|bsc|币安|polygon|matic|pol|arbitrum|optimism|solana|sol)/,
+];
+
 const CHAIN_QUERY_PATTERNS: Array<{ chainId: number; chainName: string; patterns: RegExp[] }> = [
     {
         chainId: 1,
@@ -118,4 +127,10 @@ export function resolveRequestedChainHint(params: {
     }
 
     return null;
+}
+
+export function isExplicitChainSwitchRequest(text: string): boolean {
+    const raw = String(text || '');
+    if (!raw.trim()) return false;
+    return CHAIN_SWITCH_PATTERNS.some((pattern) => pattern.test(raw));
 }

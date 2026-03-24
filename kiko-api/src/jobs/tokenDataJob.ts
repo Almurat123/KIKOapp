@@ -27,7 +27,7 @@ import { acquireLock, releaseLock, set as setRedisCache, get as getRedisCache, i
 import { getNativeTokenPriceUsd } from '../services/onChainPriceService.js';
 import { computeLaunchpadMultiple } from '../services/launchpadMultipleService.js';
 import prisma from '../db/prisma.js';
-import { shouldRunNonCriticalJob } from '../services/runtimeActivityService.js';
+import { hasRecentEndUserActivity } from '../services/runtimeActivityService.js';
 
 /**
  * Supported chains configuration
@@ -97,6 +97,13 @@ const LAUNCHPAD_CREATOR_DISCOVERY_BUDGET_PER_RUN = Math.max(
   2,
   Number(process.env.LAUNCHPAD_CREATOR_DISCOVERY_BUDGET_PER_RUN || '6')
 );
+
+/**
+ * Token refresh should not stop completely when the app is idle.
+ * Primary chains keep a 5 minute cadence while users are active, but
+ * fall back to a 30 minute cadence when there has been no recent traffic.
+ */
+const TOKEN_IDLE_REFRESH_INTERVAL_MS = 30 * 60 * 1000;
 
 function resolveChainId(chainId: string): number | null {
   if (chainId === 'eth') return 1;
@@ -1355,6 +1362,7 @@ import { randomUUID } from 'node:crypto';
 const refreshLocks = new Map<string, boolean>();
 let refreshPrimaryChainsInProgress = false;
 let refreshPrimaryChainsStartedAt = 0;
+let lastTokenRefreshAt = 0;
 const LAUNCHPAD_ENRICH_TIMEOUT_MS = Math.max(
   10_000,
   Number(process.env.LAUNCHPAD_ENRICH_TIMEOUT_MS || '25000')
@@ -1580,6 +1588,14 @@ async function refreshChainTokens(chain: typeof SUPPORTED_CHAINS[0], force = fal
   }
 }
 
+function shouldRunTokenRefresh(now = Date.now()): boolean {
+  if (hasRecentEndUserActivity(now)) {
+    return true;
+  }
+
+  return (now - lastTokenRefreshAt) >= TOKEN_IDLE_REFRESH_INTERVAL_MS;
+}
+
 /**
  * Refresh primary chains (ETH, Solana, Base, BSC)
  * Called every 5 minutes
@@ -1595,6 +1611,7 @@ async function refreshPrimaryChains(force = false): Promise<void> {
 
   refreshPrimaryChainsInProgress = true;
   refreshPrimaryChainsStartedAt = Date.now();
+  lastTokenRefreshAt = refreshPrimaryChainsStartedAt;
   const startTime = refreshPrimaryChainsStartedAt;
 
   try {
@@ -1667,7 +1684,7 @@ export function getSupportedChains(): string[] {
 export function startTokenDataJobs(): void {
   // Primary chains: Every 5 minutes
   cron.schedule(`*/${PRIMARY_REFRESH_INTERVAL_MINUTES} * * * *`, () => {
-    if (!shouldRunNonCriticalJob('token_primary_refresh')) return;
+    if (!shouldRunTokenRefresh()) return;
     void refreshPrimaryChains();
   }, {
     timezone: 'UTC',
@@ -1675,7 +1692,7 @@ export function startTokenDataJobs(): void {
 
   // Secondary chains: Every 4 hours
   cron.schedule(`0 */${SECONDARY_REFRESH_INTERVAL_HOURS} * * *`, () => {
-    if (!shouldRunNonCriticalJob('token_secondary_refresh')) return;
+    if (!shouldRunTokenRefresh()) return;
     void refreshSecondaryChains();
   }, {
     timezone: 'UTC',
@@ -1686,7 +1703,6 @@ export function startTokenDataJobs(): void {
 
   // Run initial refresh on startup (with delay for services to be ready)
   setTimeout(() => {
-    if (!shouldRunNonCriticalJob('token_startup_refresh')) return;
     logger.info(LogCode.SYS_INFO, 'Starting initial token refresh...');
     void refreshPrimaryChains();  // Start with primary chains
     // Secondary chains will wait for their scheduled time

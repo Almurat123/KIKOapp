@@ -1,0 +1,2613 @@
+[
+  {
+    "fid": 1483478,
+    "username": "<a href=\"https://warpcast.com/planetix\" target=\"_blank\">planetix</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 0
+  },
+  {
+    "fid": 347,
+    "username": "<a href=\"https://warpcast.com/greg\" target=\"_blank\">greg</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 3
+  },
+  {
+    "fid": 1041585,
+    "username": "<a href=\"https://warpcast.com/qrcoindotfun\" target=\"_blank\">qrcoindotfun</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 4
+  },
+  {
+    "fid": 2030264,
+    "username": "<a href=\"https://warpcast.com/hello26\" target=\"_blank\">hello26</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 8
+  },
+  {
+    "fid": 309710,
+    "username": "<a href=\"https://warpcast.com/nomadicframe\" target=\"_blank\">nomadicframe</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 10
+  },
+  {
+    "fid": 2826778,
+    "username": "<a href=\"https://warpcast.com/sebklaey\" target=\"_blank\">sebklaey</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 12
+  },
+  {
+    "fid": 2199288,
+    "username": "<a href=\"https://warpcast.com/surfin\" target=\"_blank\">surfin</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 14
+  },
+  {
+    "fid": 2791968,
+    "username": "<a href=\"https://warpcast.com/wheninrem\" target=\"_blank\">wheninrem</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 15
+  },
+  {
+    "fid": 2853459,
+    "username": "<a href=\"https://warpcast.com/basebuzz\" target=\"_blank\">basebuzz</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 19
+  },
+  {
+    "fid": 2112252,
+    "username": "<a href=\"https://warpcast.com/dropcastxyz\" target=\"_blank\">dropcastxyz</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 20
+  },
+  {
+    "fid": 1108459,
+    "username": "<a href=\"https://warpcast.com/gramvoyage.base.eth\" target=\"_blank\">gramvoyage.base.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 21
+  },
+  {
+    "fid": 1328810,
+    "username": "<a href=\"https://warpcast.com/rep-hq\" target=\"_blank\">rep-hq</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 22
+  },
+  {
+    "fid": 1046430,
+    "username": "<a href=\"https://warpcast.com/inflynce\" target=\"_blank\">inflynce</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 24
+  },
+  {
+    "fid": 539854,
+    "username": "<a href=\"https://warpcast.com/0xael.eth\" target=\"_blank\">0xael.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 26
+  },
+  {
+    "fid": 3063224,
+    "username": "<a href=\"https://warpcast.com/viperscore\" target=\"_blank\">viperscore</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 27
+  },
+  {
+    "fid": 12,
+    "username": "<a href=\"https://warpcast.com/linda\" target=\"_blank\">linda</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 28
+  },
+  {
+    "fid": 845623,
+    "username": "<a href=\"https://warpcast.com/naitikrahane\" target=\"_blank\">naitikrahane</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 29
+  },
+  {
+    "fid": 15549,
+    "username": "<a href=\"https://warpcast.com/dish\" target=\"_blank\">dish</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 30
+  },
+  {
+    "fid": 738574,
+    "username": "<a href=\"https://warpcast.com/kokocodes\" target=\"_blank\">kokocodes</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 31
+  },
+  {
+    "fid": 3069647,
+    "username": "<a href=\"https://warpcast.com/embodied\" target=\"_blank\">embodied</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 32
+  },
+  {
+    "fid": 194,
+    "username": "<a href=\"https://warpcast.com/rish\" target=\"_blank\">rish</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 33
+  },
+  {
+    "fid": 562300,
+    "username": "<a href=\"https://warpcast.com/mintclub\" target=\"_blank\">mintclub</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 34
+  },
+  {
+    "fid": 1,
+    "username": "<a href=\"https://warpcast.com/farcaster\" target=\"_blank\">farcaster</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 35
+  },
+  {
+    "fid": 5650,
+    "username": "<a href=\"https://warpcast.com/vitalik.eth\" target=\"_blank\">vitalik.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 36
+  },
+  {
+    "fid": 3069250,
+    "username": "<a href=\"https://warpcast.com/bonig\" target=\"_blank\">bonig</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 38
+  },
+  {
+    "fid": 3071463,
+    "username": "<a href=\"https://warpcast.com/crisisglobaloil.base.eth\" target=\"_blank\">crisisglobaloil.base.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 41
+  },
+  {
+    "fid": 509587,
+    "username": "<a href=\"https://warpcast.com/mehdi-benembarek\" target=\"_blank\">mehdi-benembarek</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 43
+  },
+  {
+    "fid": 8106,
+    "username": "<a href=\"https://warpcast.com/project7\" target=\"_blank\">project7</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 44
+  },
+  {
+    "fid": 15983,
+    "username": "<a href=\"https://warpcast.com/jacek\" target=\"_blank\">jacek</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 47
+  },
+  {
+    "fid": 3078237,
+    "username": "<a href=\"https://warpcast.com/tempoxyz\" target=\"_blank\">tempoxyz</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 49
+  },
+  {
+    "fid": 2851974,
+    "username": "<a href=\"https://warpcast.com/xautusdt.base.eth\" target=\"_blank\">xautusdt.base.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 52
+  },
+  {
+    "fid": 3065851,
+    "username": "<a href=\"https://warpcast.com/oildoge\" target=\"_blank\">oildoge</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 53
+  },
+  {
+    "fid": 5818,
+    "username": "<a href=\"https://warpcast.com/adrienne\" target=\"_blank\">adrienne</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 54
+  },
+  {
+    "fid": 1909243,
+    "username": "<a href=\"https://warpcast.com/esi88base.base.eth\" target=\"_blank\">esi88base.base.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 55
+  },
+  {
+    "fid": 7212,
+    "username": "<a href=\"https://warpcast.com/bbroad\" target=\"_blank\">bbroad</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 57
+  },
+  {
+    "fid": 3076741,
+    "username": "<a href=\"https://warpcast.com/baseshops.base.eth\" target=\"_blank\">baseshops.base.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 58
+  },
+  {
+    "fid": 2851042,
+    "username": "<a href=\"https://warpcast.com/thecrossing\" target=\"_blank\">thecrossing</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 60
+  },
+  {
+    "fid": 16098,
+    "username": "<a href=\"https://warpcast.com/jpfraneto\" target=\"_blank\">jpfraneto</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 63
+  },
+  {
+    "fid": 2564631,
+    "username": "<a href=\"https://warpcast.com/fruitlingvalley\" target=\"_blank\">fruitlingvalley</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 65
+  },
+  {
+    "fid": 3062857,
+    "username": "<a href=\"https://warpcast.com/liquefield\" target=\"_blank\">liquefield</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 66
+  },
+  {
+    "fid": 2857200,
+    "username": "<a href=\"https://warpcast.com/bitcointrump.base.eth\" target=\"_blank\">bitcointrump.base.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 69
+  },
+  {
+    "fid": 16906,
+    "username": "<a href=\"https://warpcast.com/jenasawyer\" target=\"_blank\">jenasawyer</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 70
+  },
+  {
+    "fid": 3076864,
+    "username": "<a href=\"https://warpcast.com/usdmaker.base.eth\" target=\"_blank\">usdmaker.base.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 72
+  },
+  {
+    "fid": 347050,
+    "username": "<a href=\"https://warpcast.com/trupty\" target=\"_blank\">trupty</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 74
+  },
+  {
+    "fid": 3,
+    "username": "<a href=\"https://warpcast.com/dwr\" target=\"_blank\">dwr</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 75
+  },
+  {
+    "fid": 1538051,
+    "username": "<a href=\"https://warpcast.com/flexasaurusrex.eth\" target=\"_blank\">flexasaurusrex.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 76
+  },
+  {
+    "fid": 617,
+    "username": "<a href=\"https://warpcast.com/cameron\" target=\"_blank\">cameron</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 77
+  },
+  {
+    "fid": 2854356,
+    "username": "<a href=\"https://warpcast.com/pinch\" target=\"_blank\">pinch</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 78
+  },
+  {
+    "fid": 1103525,
+    "username": "<a href=\"https://warpcast.com/cheeka\" target=\"_blank\">cheeka</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 79
+  },
+  {
+    "fid": 213222,
+    "username": "<a href=\"https://warpcast.com/hendrazk\" target=\"_blank\">hendrazk</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 82
+  },
+  {
+    "fid": 1020531,
+    "username": "<a href=\"https://warpcast.com/kexius\" target=\"_blank\">kexius</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 83
+  },
+  {
+    "fid": 3061768,
+    "username": "<a href=\"https://warpcast.com/indexbarrel.base.eth\" target=\"_blank\">indexbarrel.base.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 86
+  },
+  {
+    "fid": 3621,
+    "username": "<a href=\"https://warpcast.com/horsefacts.eth\" target=\"_blank\">horsefacts.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 91
+  },
+  {
+    "fid": 441956,
+    "username": "<a href=\"https://warpcast.com/arrotu\" target=\"_blank\">arrotu</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 94
+  },
+  {
+    "fid": 1550542,
+    "username": "<a href=\"https://warpcast.com/hunt16z\" target=\"_blank\">hunt16z</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 96
+  },
+  {
+    "fid": 2815190,
+    "username": "<a href=\"https://warpcast.com/dieworkwear.eth\" target=\"_blank\">dieworkwear.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 98
+  },
+  {
+    "fid": 2802,
+    "username": "<a href=\"https://warpcast.com/garrett\" target=\"_blank\">garrett</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 100
+  },
+  {
+    "fid": 371981,
+    "username": "<a href=\"https://warpcast.com/olenakarp.eth\" target=\"_blank\">olenakarp.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 104
+  },
+  {
+    "fid": 3061835,
+    "username": "<a href=\"https://warpcast.com/oilbarrelindex.base.eth\" target=\"_blank\">oilbarrelindex.base.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 105
+  },
+  {
+    "fid": 2433,
+    "username": "<a href=\"https://warpcast.com/seneca\" target=\"_blank\">seneca</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 107
+  },
+  {
+    "fid": 4373,
+    "username": "<a href=\"https://warpcast.com/maxp.eth\" target=\"_blank\">maxp.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 108
+  },
+  {
+    "fid": 2612445,
+    "username": "<a href=\"https://warpcast.com/czyzi.base.eth\" target=\"_blank\">czyzi.base.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 109
+  },
+  {
+    "fid": 4528,
+    "username": "<a href=\"https://warpcast.com/geoffgolberg\" target=\"_blank\">geoffgolberg</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 110
+  },
+  {
+    "fid": 431880,
+    "username": "<a href=\"https://warpcast.com/basement5k\" target=\"_blank\">basement5k</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 111
+  },
+  {
+    "fid": 3073300,
+    "username": "<a href=\"https://warpcast.com/gas-reserve.base.eth\" target=\"_blank\">gas-reserve.base.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 114
+  },
+  {
+    "fid": 18723,
+    "username": "<a href=\"https://warpcast.com/brixbounty\" target=\"_blank\">brixbounty</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 117
+  },
+  {
+    "fid": 489795,
+    "username": "<a href=\"https://warpcast.com/vrose.eth\" target=\"_blank\">vrose.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 120
+  },
+  {
+    "fid": 3642,
+    "username": "<a href=\"https://warpcast.com/toadyhawk.eth\" target=\"_blank\">toadyhawk.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 122
+  },
+  {
+    "fid": 1467344,
+    "username": "<a href=\"https://warpcast.com/surgelabs\" target=\"_blank\">surgelabs</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 123
+  },
+  {
+    "fid": 4461,
+    "username": "<a href=\"https://warpcast.com/limone.eth\" target=\"_blank\">limone.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 128
+  },
+  {
+    "fid": 473,
+    "username": "<a href=\"https://warpcast.com/matthew\" target=\"_blank\">matthew</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 132
+  },
+  {
+    "fid": 190218,
+    "username": "<a href=\"https://warpcast.com/icetoad.eth\" target=\"_blank\">icetoad.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 134
+  },
+  {
+    "fid": 557,
+    "username": "<a href=\"https://warpcast.com/pugson\" target=\"_blank\">pugson</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 135
+  },
+  {
+    "fid": 1325,
+    "username": "<a href=\"https://warpcast.com/cassie\" target=\"_blank\">cassie</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 136
+  },
+  {
+    "fid": 3021914,
+    "username": "<a href=\"https://warpcast.com/basedgames\" target=\"_blank\">basedgames</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 140
+  },
+  {
+    "fid": 1841,
+    "username": "<a href=\"https://warpcast.com/martin\" target=\"_blank\">martin</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 143
+  },
+  {
+    "fid": 864405,
+    "username": "<a href=\"https://warpcast.com/bertwurst.eth\" target=\"_blank\">bertwurst.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 144
+  },
+  {
+    "fid": 2982229,
+    "username": "<a href=\"https://warpcast.com/ugorenergy.base.eth\" target=\"_blank\">ugorenergy.base.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 146
+  },
+  {
+    "fid": 3065831,
+    "username": "<a href=\"https://warpcast.com/425-we-bullish.base.eth\" target=\"_blank\">425-we-bullish.base.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 147
+  },
+  {
+    "fid": 1043408,
+    "username": "<a href=\"https://warpcast.com/quotient\" target=\"_blank\">quotient</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 148
+  },
+  {
+    "fid": 2987,
+    "username": "<a href=\"https://warpcast.com/raihan\" target=\"_blank\">raihan</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 149
+  },
+  {
+    "fid": 56,
+    "username": "<a href=\"https://warpcast.com/dcposch.eth\" target=\"_blank\">dcposch.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 151
+  },
+  {
+    "fid": 1575,
+    "username": "<a href=\"https://warpcast.com/pl\" target=\"_blank\">pl</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 156
+  },
+  {
+    "fid": 3065735,
+    "username": "<a href=\"https://warpcast.com/oilinuoil.base.eth\" target=\"_blank\">oilinuoil.base.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 158
+  },
+  {
+    "fid": 398800,
+    "username": "<a href=\"https://warpcast.com/basedcoin\" target=\"_blank\">basedcoin</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 159
+  },
+  {
+    "fid": 446697,
+    "username": "<a href=\"https://warpcast.com/zeni.eth\" target=\"_blank\">zeni.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 161
+  },
+  {
+    "fid": 431,
+    "username": "<a href=\"https://warpcast.com/j4ck.eth\" target=\"_blank\">j4ck.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 165
+  },
+  {
+    "fid": 1287,
+    "username": "<a href=\"https://warpcast.com/july\" target=\"_blank\">july</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 166
+  },
+  {
+    "fid": 667187,
+    "username": "<a href=\"https://warpcast.com/megapot\" target=\"_blank\">megapot</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 171
+  },
+  {
+    "fid": 2819260,
+    "username": "<a href=\"https://warpcast.com/icvkicvk.base.eth\" target=\"_blank\">icvkicvk.base.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 172
+  },
+  {
+    "fid": 3064645,
+    "username": "<a href=\"https://warpcast.com/grokettegrok.base.eth\" target=\"_blank\">grokettegrok.base.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 176
+  },
+  {
+    "fid": 19640,
+    "username": "<a href=\"https://warpcast.com/zaal\" target=\"_blank\">zaal</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 177
+  },
+  {
+    "fid": 190000,
+    "username": "<a href=\"https://warpcast.com/ruminations\" target=\"_blank\">ruminations</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 178
+  },
+  {
+    "fid": 3059966,
+    "username": "<a href=\"https://warpcast.com/waronbase.base.eth\" target=\"_blank\">waronbase.base.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 179
+  },
+  {
+    "fid": 1351067,
+    "username": "<a href=\"https://warpcast.com/russls.base.eth\" target=\"_blank\">russls.base.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 180
+  },
+  {
+    "fid": 3059877,
+    "username": "<a href=\"https://warpcast.com/huhpo.base.eth\" target=\"_blank\">huhpo.base.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 181
+  },
+  {
+    "fid": 3043412,
+    "username": "<a href=\"https://warpcast.com/xrp-global.base.eth\" target=\"_blank\">xrp-global.base.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 182
+  },
+  {
+    "fid": 3036277,
+    "username": "<a href=\"https://warpcast.com/internationaloil.base.eth\" target=\"_blank\">internationaloil.base.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 183
+  },
+  {
+    "fid": 4407,
+    "username": "<a href=\"https://warpcast.com/keccers.eth\" target=\"_blank\">keccers.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 185
+  },
+  {
+    "fid": 3066026,
+    "username": "<a href=\"https://warpcast.com/x-dislike.base.eth\" target=\"_blank\">x-dislike.base.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 186
+  },
+  {
+    "fid": 3061549,
+    "username": "<a href=\"https://warpcast.com/globaloilsupply.base.eth\" target=\"_blank\">globaloilsupply.base.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 187
+  },
+  {
+    "fid": 1065420,
+    "username": "<a href=\"https://warpcast.com/rizkyyt\" target=\"_blank\">rizkyyt</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 188
+  },
+  {
+    "fid": 5774,
+    "username": "<a href=\"https://warpcast.com/tldr\" target=\"_blank\">tldr</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 189
+  },
+  {
+    "fid": 1020,
+    "username": "<a href=\"https://warpcast.com/jake\" target=\"_blank\">jake</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 192
+  },
+  {
+    "fid": 4282,
+    "username": "<a href=\"https://warpcast.com/matthewfox\" target=\"_blank\">matthewfox</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 196
+  },
+  {
+    "fid": 2850537,
+    "username": "<a href=\"https://warpcast.com/opensea-.base.eth\" target=\"_blank\">opensea-.base.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 197
+  },
+  {
+    "fid": 1725,
+    "username": "<a href=\"https://warpcast.com/sayangel\" target=\"_blank\">sayangel</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 198
+  },
+  {
+    "fid": 576,
+    "username": "<a href=\"https://warpcast.com/nonlinear.eth\" target=\"_blank\">nonlinear.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 199
+  },
+  {
+    "fid": 849116,
+    "username": "<a href=\"https://warpcast.com/uniquebeing404\" target=\"_blank\">uniquebeing404</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 201
+  },
+  {
+    "fid": 409857,
+    "username": "<a href=\"https://warpcast.com/yerbearserker\" target=\"_blank\">yerbearserker</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 202
+  },
+  {
+    "fid": 3068885,
+    "username": "<a href=\"https://warpcast.com/drcx-.base.eth\" target=\"_blank\">drcx-.base.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 208
+  },
+  {
+    "fid": 2652063,
+    "username": "<a href=\"https://warpcast.com/nftchain.base.eth\" target=\"_blank\">nftchain.base.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 209
+  },
+  {
+    "fid": 19832,
+    "username": "<a href=\"https://warpcast.com/thief\" target=\"_blank\">thief</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 210
+  },
+  {
+    "fid": 1237,
+    "username": "<a href=\"https://warpcast.com/nicholas\" target=\"_blank\">nicholas</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 217
+  },
+  {
+    "fid": 4877,
+    "username": "<a href=\"https://warpcast.com/trish\" target=\"_blank\">trish</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 218
+  },
+  {
+    "fid": 15351,
+    "username": "<a href=\"https://warpcast.com/0ffline\" target=\"_blank\">0ffline</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 221
+  },
+  {
+    "fid": 3068040,
+    "username": "<a href=\"https://warpcast.com/vdavanguard.base.eth\" target=\"_blank\">vdavanguard.base.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 223
+  },
+  {
+    "fid": 217261,
+    "username": "<a href=\"https://warpcast.com/duckfacts.eth\" target=\"_blank\">duckfacts.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 227
+  },
+  {
+    "fid": 318447,
+    "username": "<a href=\"https://warpcast.com/plantsnft\" target=\"_blank\">plantsnft</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 228
+  },
+  {
+    "fid": 887819,
+    "username": "<a href=\"https://warpcast.com/mj41nfts\" target=\"_blank\">mj41nfts</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 230
+  },
+  {
+    "fid": 9140,
+    "username": "<a href=\"https://warpcast.com/peth\" target=\"_blank\">peth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 232
+  },
+  {
+    "fid": 3069349,
+    "username": "<a href=\"https://warpcast.com/fine9999.base.eth\" target=\"_blank\">fine9999.base.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 235
+  },
+  {
+    "fid": 3064660,
+    "username": "<a href=\"https://warpcast.com/barrelindexoil.base.eth\" target=\"_blank\">barrelindexoil.base.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 237
+  },
+  {
+    "fid": 2,
+    "username": "<a href=\"https://warpcast.com/v\" target=\"_blank\">v</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 238
+  },
+  {
+    "fid": 3067289,
+    "username": "<a href=\"https://warpcast.com/federaltariffs.base.eth\" target=\"_blank\">federaltariffs.base.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 239
+  },
+  {
+    "fid": 263333,
+    "username": "<a href=\"https://warpcast.com/clfx.eth\" target=\"_blank\">clfx.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 240
+  },
+  {
+    "fid": 734,
+    "username": "<a href=\"https://warpcast.com/salvino\" target=\"_blank\">salvino</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 242
+  },
+  {
+    "fid": 2499715,
+    "username": "<a href=\"https://warpcast.com/fantoken.base.eth\" target=\"_blank\">fantoken.base.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 245
+  },
+  {
+    "fid": 2941207,
+    "username": "<a href=\"https://warpcast.com/franky-.base.eth\" target=\"_blank\">franky-.base.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 246
+  },
+  {
+    "fid": 3077730,
+    "username": "<a href=\"https://warpcast.com/basetrendhunter.base.eth\" target=\"_blank\">basetrendhunter.base.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 247
+  },
+  {
+    "fid": 1693704,
+    "username": "<a href=\"https://warpcast.com/asnalkf.base.eth\" target=\"_blank\">asnalkf.base.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 250
+  },
+  {
+    "fid": 8152,
+    "username": "<a href=\"https://warpcast.com/beep.eth\" target=\"_blank\">beep.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 251
+  },
+  {
+    "fid": 211159,
+    "username": "<a href=\"https://warpcast.com/beecurious\" target=\"_blank\">beecurious</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 255
+  },
+  {
+    "fid": 2904,
+    "username": "<a href=\"https://warpcast.com/wake\" target=\"_blank\">wake</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 256
+  },
+  {
+    "fid": 3064664,
+    "username": "<a href=\"https://warpcast.com/feeliq.base.eth\" target=\"_blank\">feeliq.base.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 258
+  },
+  {
+    "fid": 206,
+    "username": "<a href=\"https://warpcast.com/coopahtroopa.eth\" target=\"_blank\">coopahtroopa.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 261
+  },
+  {
+    "fid": 1445247,
+    "username": "<a href=\"https://warpcast.com/colonell.base.eth\" target=\"_blank\">colonell.base.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 265
+  },
+  {
+    "fid": 2053657,
+    "username": "<a href=\"https://warpcast.com/mrobserver.base.eth\" target=\"_blank\">mrobserver.base.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 266
+  },
+  {
+    "fid": 2214565,
+    "username": "<a href=\"https://warpcast.com/zayncodes\" target=\"_blank\">zayncodes</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 267
+  },
+  {
+    "fid": 2982,
+    "username": "<a href=\"https://warpcast.com/jacy\" target=\"_blank\">jacy</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 269
+  },
+  {
+    "fid": 1970,
+    "username": "<a href=\"https://warpcast.com/grin\" target=\"_blank\">grin</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 270
+  },
+  {
+    "fid": 11599,
+    "username": "<a href=\"https://warpcast.com/mjc716\" target=\"_blank\">mjc716</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 273
+  },
+  {
+    "fid": 269694,
+    "username": "<a href=\"https://warpcast.com/bitfloorsghost.eth\" target=\"_blank\">bitfloorsghost.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 275
+  },
+  {
+    "fid": 3189,
+    "username": "<a href=\"https://warpcast.com/duaneking\" target=\"_blank\">duaneking</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 276
+  },
+  {
+    "fid": 11528,
+    "username": "<a href=\"https://warpcast.com/jrf\" target=\"_blank\">jrf</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 278
+  },
+  {
+    "fid": 234616,
+    "username": "<a href=\"https://warpcast.com/pichi\" target=\"_blank\">pichi</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 280
+  },
+  {
+    "fid": 2796306,
+    "username": "<a href=\"https://warpcast.com/x-elonmusk.base.eth\" target=\"_blank\">x-elonmusk.base.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 282
+  },
+  {
+    "fid": 221578,
+    "username": "<a href=\"https://warpcast.com/apex777.eth\" target=\"_blank\">apex777.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 284
+  },
+  {
+    "fid": 415337,
+    "username": "<a href=\"https://warpcast.com/sonyasupposedly\" target=\"_blank\">sonyasupposedly</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 286
+  },
+  {
+    "fid": 522467,
+    "username": "<a href=\"https://warpcast.com/aylinhanim\" target=\"_blank\">aylinhanim</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 287
+  },
+  {
+    "fid": 6131,
+    "username": "<a href=\"https://warpcast.com/neynar\" target=\"_blank\">neynar</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 288
+  },
+  {
+    "fid": 375831,
+    "username": "<a href=\"https://warpcast.com/milibooo\" target=\"_blank\">milibooo</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 290
+  },
+  {
+    "fid": 1192389,
+    "username": "<a href=\"https://warpcast.com/jdferguson.base.eth\" target=\"_blank\">jdferguson.base.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 292
+  },
+  {
+    "fid": 3064971,
+    "username": "<a href=\"https://warpcast.com/westernexchange.base.eth\" target=\"_blank\">westernexchange.base.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 295
+  },
+  {
+    "fid": 214447,
+    "username": "<a href=\"https://warpcast.com/yes2crypto.eth\" target=\"_blank\">yes2crypto.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 298
+  },
+  {
+    "fid": 600314,
+    "username": "<a href=\"https://warpcast.com/jenifermichael\" target=\"_blank\">jenifermichael</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 300
+  },
+  {
+    "fid": 3065391,
+    "username": "<a href=\"https://warpcast.com/trustliberaty.base.eth\" target=\"_blank\">trustliberaty.base.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 302
+  },
+  {
+    "fid": 6841,
+    "username": "<a href=\"https://warpcast.com/deodad\" target=\"_blank\">deodad</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 306
+  },
+  {
+    "fid": 214746,
+    "username": "<a href=\"https://warpcast.com/jvhbo\" target=\"_blank\">jvhbo</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 307
+  },
+  {
+    "fid": 492381,
+    "username": "<a href=\"https://warpcast.com/maieth.eth\" target=\"_blank\">maieth.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 308
+  },
+  {
+    "fid": 899923,
+    "username": "<a href=\"https://warpcast.com/shawmakesmagic\" target=\"_blank\">shawmakesmagic</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 309
+  },
+  {
+    "fid": 2494,
+    "username": "<a href=\"https://warpcast.com/7858.eth\" target=\"_blank\">7858.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 310
+  },
+  {
+    "fid": 513318,
+    "username": "<a href=\"https://warpcast.com/0xsayan.eth\" target=\"_blank\">0xsayan.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 313
+  },
+  {
+    "fid": 3064826,
+    "username": "<a href=\"https://warpcast.com/prosumer.base.eth\" target=\"_blank\">prosumer.base.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 315
+  },
+  {
+    "fid": 249647,
+    "username": "<a href=\"https://warpcast.com/je11yf15h\" target=\"_blank\">je11yf15h</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 316
+  },
+  {
+    "fid": 1075107,
+    "username": "<a href=\"https://warpcast.com/greywash\" target=\"_blank\">greywash</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 321
+  },
+  {
+    "fid": 13495,
+    "username": "<a href=\"https://warpcast.com/galazio\" target=\"_blank\">galazio</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 323
+  },
+  {
+    "fid": 2849016,
+    "username": "<a href=\"https://warpcast.com/defense-.base.eth\" target=\"_blank\">defense-.base.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 324
+  },
+  {
+    "fid": 20919,
+    "username": "<a href=\"https://warpcast.com/rainbow\" target=\"_blank\">rainbow</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 329
+  },
+  {
+    "fid": 3061368,
+    "username": "<a href=\"https://warpcast.com/ugorreserver.base.eth\" target=\"_blank\">ugorreserver.base.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 331
+  },
+  {
+    "fid": 376276,
+    "username": "<a href=\"https://warpcast.com/thenater\" target=\"_blank\">thenater</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 334
+  },
+  {
+    "fid": 2805375,
+    "username": "<a href=\"https://warpcast.com/globals.base.eth\" target=\"_blank\">globals.base.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 335
+  },
+  {
+    "fid": 13505,
+    "username": "<a href=\"https://warpcast.com/jvaleska.eth\" target=\"_blank\">jvaleska.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 337
+  },
+  {
+    "fid": 2210,
+    "username": "<a href=\"https://warpcast.com/kenny\" target=\"_blank\">kenny</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 338
+  },
+  {
+    "fid": 4167,
+    "username": "<a href=\"https://warpcast.com/nounishprof\" target=\"_blank\">nounishprof</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 339
+  },
+  {
+    "fid": 243300,
+    "username": "<a href=\"https://warpcast.com/yonfrula\" target=\"_blank\">yonfrula</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 340
+  },
+  {
+    "fid": 3019267,
+    "username": "<a href=\"https://warpcast.com/nationaloil.base.eth\" target=\"_blank\">nationaloil.base.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 341
+  },
+  {
+    "fid": 472,
+    "username": "<a href=\"https://warpcast.com/ccarella\" target=\"_blank\">ccarella</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 343
+  },
+  {
+    "fid": 2855,
+    "username": "<a href=\"https://warpcast.com/jesus\" target=\"_blank\">jesus</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 344
+  },
+  {
+    "fid": 1613014,
+    "username": "<a href=\"https://warpcast.com/volt-perps\" target=\"_blank\">volt-perps</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 346
+  },
+  {
+    "fid": 430484,
+    "username": "<a href=\"https://warpcast.com/vito4ka.eth\" target=\"_blank\">vito4ka.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 347
+  },
+  {
+    "fid": 311933,
+    "username": "<a href=\"https://warpcast.com/burr.eth\" target=\"_blank\">burr.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 348
+  },
+  {
+    "fid": 14937,
+    "username": "<a href=\"https://warpcast.com/sgt-sl8termelon\" target=\"_blank\">sgt-sl8termelon</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 349
+  },
+  {
+    "fid": 316323,
+    "username": "<a href=\"https://warpcast.com/smshakil\" target=\"_blank\">smshakil</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 350
+  },
+  {
+    "fid": 10215,
+    "username": "<a href=\"https://warpcast.com/zoo\" target=\"_blank\">zoo</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 353
+  },
+  {
+    "fid": 2781378,
+    "username": "<a href=\"https://warpcast.com/galatico-x.base.eth\" target=\"_blank\">galatico-x.base.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 356
+  },
+  {
+    "fid": 4085,
+    "username": "<a href=\"https://warpcast.com/christopher\" target=\"_blank\">christopher</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 359
+  },
+  {
+    "fid": 6622,
+    "username": "<a href=\"https://warpcast.com/frdysk\" target=\"_blank\">frdysk</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 360
+  },
+  {
+    "fid": 3068174,
+    "username": "<a href=\"https://warpcast.com/little-doge.base.eth\" target=\"_blank\">little-doge.base.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 362
+  },
+  {
+    "fid": 2950686,
+    "username": "<a href=\"https://warpcast.com/rocklees.base.eth\" target=\"_blank\">rocklees.base.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 363
+  },
+  {
+    "fid": 210045,
+    "username": "<a href=\"https://warpcast.com/nicolaus\" target=\"_blank\">nicolaus</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 365
+  },
+  {
+    "fid": 7143,
+    "username": "<a href=\"https://warpcast.com/six\" target=\"_blank\">six</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 366
+  },
+  {
+    "fid": 816137,
+    "username": "<a href=\"https://warpcast.com/dylantale\" target=\"_blank\">dylantale</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 369
+  },
+  {
+    "fid": 2610285,
+    "username": "<a href=\"https://warpcast.com/trumpjr\" target=\"_blank\">trumpjr</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 371
+  },
+  {
+    "fid": 528,
+    "username": "<a href=\"https://warpcast.com/0xen\" target=\"_blank\">0xen</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 372
+  },
+  {
+    "fid": 454826,
+    "username": "<a href=\"https://warpcast.com/luci13.eth\" target=\"_blank\">luci13.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 374
+  },
+  {
+    "fid": 217248,
+    "username": "<a href=\"https://warpcast.com/myk\" target=\"_blank\">myk</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 375
+  },
+  {
+    "fid": 947631,
+    "username": "<a href=\"https://warpcast.com/aylaaa.eth\" target=\"_blank\">aylaaa.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 377
+  },
+  {
+    "fid": 3057019,
+    "username": "<a href=\"https://warpcast.com/waroilforge.base.eth\" target=\"_blank\">waroilforge.base.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 378
+  },
+  {
+    "fid": 2339447,
+    "username": "<a href=\"https://warpcast.com/tuha61.base.eth\" target=\"_blank\">tuha61.base.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 381
+  },
+  {
+    "fid": 12152,
+    "username": "<a href=\"https://warpcast.com/pirosb3\" target=\"_blank\">pirosb3</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 388
+  },
+  {
+    "fid": 20005,
+    "username": "<a href=\"https://warpcast.com/anaroth\" target=\"_blank\">anaroth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 390
+  },
+  {
+    "fid": 1321,
+    "username": "<a href=\"https://warpcast.com/kepano\" target=\"_blank\">kepano</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 392
+  },
+  {
+    "fid": 395346,
+    "username": "<a href=\"https://warpcast.com/lambchop\" target=\"_blank\">lambchop</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 397
+  },
+  {
+    "fid": 6373,
+    "username": "<a href=\"https://warpcast.com/priyanka\" target=\"_blank\">priyanka</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 399
+  },
+  {
+    "fid": 1606,
+    "username": "<a href=\"https://warpcast.com/samantha\" target=\"_blank\">samantha</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 402
+  },
+  {
+    "fid": 2007,
+    "username": "<a href=\"https://warpcast.com/jacopo.eth\" target=\"_blank\">jacopo.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 404
+  },
+  {
+    "fid": 2484585,
+    "username": "<a href=\"https://warpcast.com/coinangel.base.eth\" target=\"_blank\">coinangel.base.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 405
+  },
+  {
+    "fid": 14364,
+    "username": "<a href=\"https://warpcast.com/purp\" target=\"_blank\">purp</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 409
+  },
+  {
+    "fid": 2228880,
+    "username": "<a href=\"https://warpcast.com/zahid66.base.eth\" target=\"_blank\">zahid66.base.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 414
+  },
+  {
+    "fid": 8004,
+    "username": "<a href=\"https://warpcast.com/ahn.eth\" target=\"_blank\">ahn.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 416
+  },
+  {
+    "fid": 243719,
+    "username": "<a href=\"https://warpcast.com/downshift.eth\" target=\"_blank\">downshift.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 418
+  },
+  {
+    "fid": 2884365,
+    "username": "<a href=\"https://warpcast.com/thebarrongate.base.eth\" target=\"_blank\">thebarrongate.base.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 423
+  },
+  {
+    "fid": 3067783,
+    "username": "<a href=\"https://warpcast.com/alienpepe.base.eth\" target=\"_blank\">alienpepe.base.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 424
+  },
+  {
+    "fid": 3066455,
+    "username": "<a href=\"https://warpcast.com/dogeoil.base.eth\" target=\"_blank\">dogeoil.base.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 425
+  },
+  {
+    "fid": 12239,
+    "username": "<a href=\"https://warpcast.com/alitiknazoglu\" target=\"_blank\">alitiknazoglu</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 426
+  },
+  {
+    "fid": 66,
+    "username": "<a href=\"https://warpcast.com/tayyab\" target=\"_blank\">tayyab</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 428
+  },
+  {
+    "fid": 3068255,
+    "username": "<a href=\"https://warpcast.com/coinswapp.base.eth\" target=\"_blank\">coinswapp.base.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 432
+  },
+  {
+    "fid": 2865939,
+    "username": "<a href=\"https://warpcast.com/circlebasemod.base.eth\" target=\"_blank\">circlebasemod.base.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 435
+  },
+  {
+    "fid": 238032,
+    "username": "<a href=\"https://warpcast.com/5050\" target=\"_blank\">5050</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 436
+  },
+  {
+    "fid": 616,
+    "username": "<a href=\"https://warpcast.com/dylsteck.eth\" target=\"_blank\">dylsteck.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 438
+  },
+  {
+    "fid": 11244,
+    "username": "<a href=\"https://warpcast.com/bfg\" target=\"_blank\">bfg</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 443
+  },
+  {
+    "fid": 880,
+    "username": "<a href=\"https://warpcast.com/accountless.eth\" target=\"_blank\">accountless.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 446
+  },
+  {
+    "fid": 15776,
+    "username": "<a href=\"https://warpcast.com/claireujma\" target=\"_blank\">claireujma</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 452
+  },
+  {
+    "fid": 20270,
+    "username": "<a href=\"https://warpcast.com/erica\" target=\"_blank\">erica</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 457
+  },
+  {
+    "fid": 269091,
+    "username": "<a href=\"https://warpcast.com/nickysap\" target=\"_blank\">nickysap</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 459
+  },
+  {
+    "fid": 191042,
+    "username": "<a href=\"https://warpcast.com/atown\" target=\"_blank\">atown</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 461
+  },
+  {
+    "fid": 9677,
+    "username": "<a href=\"https://warpcast.com/leewardbound\" target=\"_blank\">leewardbound</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 462
+  },
+  {
+    "fid": 1331766,
+    "username": "<a href=\"https://warpcast.com/bribe\" target=\"_blank\">bribe</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 469
+  },
+  {
+    "fid": 193,
+    "username": "<a href=\"https://warpcast.com/derek\" target=\"_blank\">derek</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 470
+  },
+  {
+    "fid": 333517,
+    "username": "<a href=\"https://warpcast.com/kraken8.eth\" target=\"_blank\">kraken8.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 473
+  },
+  {
+    "fid": 2818027,
+    "username": "<a href=\"https://warpcast.com/elonxr.base.eth\" target=\"_blank\">elonxr.base.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 478
+  },
+  {
+    "fid": 535036,
+    "username": "<a href=\"https://warpcast.com/shamimarshad\" target=\"_blank\">shamimarshad</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 482
+  },
+  {
+    "fid": 310124,
+    "username": "<a href=\"https://warpcast.com/eggman.eth\" target=\"_blank\">eggman.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 483
+  },
+  {
+    "fid": 2870535,
+    "username": "<a href=\"https://warpcast.com/reserveunited.base.eth\" target=\"_blank\">reserveunited.base.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 488
+  },
+  {
+    "fid": 290139,
+    "username": "<a href=\"https://warpcast.com/msh\" target=\"_blank\">msh</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 489
+  },
+  {
+    "fid": 12921,
+    "username": "<a href=\"https://warpcast.com/jessyjeanne\" target=\"_blank\">jessyjeanne</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 491
+  },
+  {
+    "fid": 17940,
+    "username": "<a href=\"https://warpcast.com/metaend.eth\" target=\"_blank\">metaend.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 494
+  },
+  {
+    "fid": 9933,
+    "username": "<a href=\"https://warpcast.com/m00npapi.eth\" target=\"_blank\">m00npapi.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 499
+  },
+  {
+    "fid": 17355,
+    "username": "<a href=\"https://warpcast.com/degencummunist.eth\" target=\"_blank\">degencummunist.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 503
+  },
+  {
+    "fid": 258848,
+    "username": "<a href=\"https://warpcast.com/zoopdrop.eth\" target=\"_blank\">zoopdrop.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 505
+  },
+  {
+    "fid": 2850326,
+    "username": "<a href=\"https://warpcast.com/departmentus.base.eth\" target=\"_blank\">departmentus.base.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 508
+  },
+  {
+    "fid": 2872122,
+    "username": "<a href=\"https://warpcast.com/ugsr-.base.eth\" target=\"_blank\">ugsr-.base.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 509
+  },
+  {
+    "fid": 1086301,
+    "username": "<a href=\"https://warpcast.com/customersupport\" target=\"_blank\">customersupport</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 510
+  },
+  {
+    "fid": 360439,
+    "username": "<a href=\"https://warpcast.com/azflin\" target=\"_blank\">azflin</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 513
+  },
+  {
+    "fid": 5062,
+    "username": "<a href=\"https://warpcast.com/zherring\" target=\"_blank\">zherring</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 514
+  },
+  {
+    "fid": 13893,
+    "username": "<a href=\"https://warpcast.com/javabu.eth\" target=\"_blank\">javabu.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 516
+  },
+  {
+    "fid": 3072943,
+    "username": "<a href=\"https://warpcast.com/barrel--index.base.eth\" target=\"_blank\">barrel--index.base.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 522
+  },
+  {
+    "fid": 3702,
+    "username": "<a href=\"https://warpcast.com/supertightwoody\" target=\"_blank\">supertightwoody</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 525
+  },
+  {
+    "fid": 1089736,
+    "username": "<a href=\"https://warpcast.com/enb\" target=\"_blank\">enb</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 529
+  },
+  {
+    "fid": 5521,
+    "username": "<a href=\"https://warpcast.com/wong\" target=\"_blank\">wong</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 530
+  },
+  {
+    "fid": 189,
+    "username": "<a href=\"https://warpcast.com/abram\" target=\"_blank\">abram</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 532
+  },
+  {
+    "fid": 3090500,
+    "username": "<a href=\"https://warpcast.com/downald.base.eth\" target=\"_blank\">downald.base.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 533
+  },
+  {
+    "fid": 9218,
+    "username": "<a href=\"https://warpcast.com/tinyrainboot\" target=\"_blank\">tinyrainboot</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 537
+  },
+  {
+    "fid": 4567,
+    "username": "<a href=\"https://warpcast.com/symbiotech\" target=\"_blank\">symbiotech</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 544
+  },
+  {
+    "fid": 2452998,
+    "username": "<a href=\"https://warpcast.com/lnfinity.base.eth\" target=\"_blank\">lnfinity.base.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 546
+  },
+  {
+    "fid": 3071146,
+    "username": "<a href=\"https://warpcast.com/memecardcoin.base.eth\" target=\"_blank\">memecardcoin.base.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 547
+  },
+  {
+    "fid": 1764427,
+    "username": "<a href=\"https://warpcast.com/sinbadnetwork.base.eth\" target=\"_blank\">sinbadnetwork.base.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 548
+  },
+  {
+    "fid": 499783,
+    "username": "<a href=\"https://warpcast.com/tako-unik\" target=\"_blank\">tako-unik</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 556
+  },
+  {
+    "fid": 2852846,
+    "username": "<a href=\"https://warpcast.com/all-ethereum.base.eth\" target=\"_blank\">all-ethereum.base.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 558
+  },
+  {
+    "fid": 2763754,
+    "username": "<a href=\"https://warpcast.com/blazink.base.eth\" target=\"_blank\">blazink.base.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 559
+  },
+  {
+    "fid": 266248,
+    "username": "<a href=\"https://warpcast.com/derion.eth\" target=\"_blank\">derion.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 569
+  },
+  {
+    "fid": 2852546,
+    "username": "<a href=\"https://warpcast.com/crazyrich-.base.eth\" target=\"_blank\">crazyrich-.base.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 572
+  },
+  {
+    "fid": 1802505,
+    "username": "<a href=\"https://warpcast.com/realgg.base.eth\" target=\"_blank\">realgg.base.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 573
+  },
+  {
+    "fid": 274,
+    "username": "<a href=\"https://warpcast.com/n\" target=\"_blank\">n</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 577
+  },
+  {
+    "fid": 6591,
+    "username": "<a href=\"https://warpcast.com/mattlee\" target=\"_blank\">mattlee</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 579
+  },
+  {
+    "fid": 516359,
+    "username": "<a href=\"https://warpcast.com/nothing11\" target=\"_blank\">nothing11</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 585
+  },
+  {
+    "fid": 368013,
+    "username": "<a href=\"https://warpcast.com/ryanhube.eth\" target=\"_blank\">ryanhube.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 586
+  },
+  {
+    "fid": 386000,
+    "username": "<a href=\"https://warpcast.com/underdog13\" target=\"_blank\">underdog13</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 587
+  },
+  {
+    "fid": 20384,
+    "username": "<a href=\"https://warpcast.com/itsbasil\" target=\"_blank\">itsbasil</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 592
+  },
+  {
+    "fid": 734400,
+    "username": "<a href=\"https://warpcast.com/thecurioushermit\" target=\"_blank\">thecurioushermit</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 596
+  },
+  {
+    "fid": 1392437,
+    "username": "<a href=\"https://warpcast.com/basestreet.base.eth\" target=\"_blank\">basestreet.base.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 603
+  },
+  {
+    "fid": 2613938,
+    "username": "<a href=\"https://warpcast.com/degitvanguard.base.eth\" target=\"_blank\">degitvanguard.base.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 606
+  },
+  {
+    "fid": 308220,
+    "username": "<a href=\"https://warpcast.com/odysseyheart\" target=\"_blank\">odysseyheart</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 615
+  },
+  {
+    "fid": 211205,
+    "username": "<a href=\"https://warpcast.com/aerodrome\" target=\"_blank\">aerodrome</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 620
+  },
+  {
+    "fid": 303712,
+    "username": "<a href=\"https://warpcast.com/artem3\" target=\"_blank\">artem3</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 624
+  },
+  {
+    "fid": 885645,
+    "username": "<a href=\"https://warpcast.com/naruto007.eth\" target=\"_blank\">naruto007.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 627
+  },
+  {
+    "fid": 307834,
+    "username": "<a href=\"https://warpcast.com/trebor69\" target=\"_blank\">trebor69</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 629
+  },
+  {
+    "fid": 1057806,
+    "username": "<a href=\"https://warpcast.com/kasabiann\" target=\"_blank\">kasabiann</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 632
+  },
+  {
+    "fid": 3305,
+    "username": "<a href=\"https://warpcast.com/joanwestenberg.eth\" target=\"_blank\">joanwestenberg.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 635
+  },
+  {
+    "fid": 1025296,
+    "username": "<a href=\"https://warpcast.com/ismail1243118\" target=\"_blank\">ismail1243118</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 638
+  },
+  {
+    "fid": 436728,
+    "username": "<a href=\"https://warpcast.com/olystuart\" target=\"_blank\">olystuart</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 645
+  },
+  {
+    "fid": 200506,
+    "username": "<a href=\"https://warpcast.com/stemo.eth\" target=\"_blank\">stemo.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 647
+  },
+  {
+    "fid": 5049,
+    "username": "<a href=\"https://warpcast.com/jawa\" target=\"_blank\">jawa</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 648
+  },
+  {
+    "fid": 638859,
+    "username": "<a href=\"https://warpcast.com/annagrace\" target=\"_blank\">annagrace</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 650
+  },
+  {
+    "fid": 403020,
+    "username": "<a href=\"https://warpcast.com/push-\" target=\"_blank\">push-</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 654
+  },
+  {
+    "fid": 8,
+    "username": "<a href=\"https://warpcast.com/jacob\" target=\"_blank\">jacob</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 655
+  },
+  {
+    "fid": 281676,
+    "username": "<a href=\"https://warpcast.com/anemale.eth\" target=\"_blank\">anemale.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 660
+  },
+  {
+    "fid": 2813071,
+    "username": "<a href=\"https://warpcast.com/usprojectcapital.base.eth\" target=\"_blank\">usprojectcapital.base.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 663
+  },
+  {
+    "fid": 3074370,
+    "username": "<a href=\"https://warpcast.com/siren-chain.base.eth\" target=\"_blank\">siren-chain.base.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 664
+  },
+  {
+    "fid": 3077880,
+    "username": "<a href=\"https://warpcast.com/ripplenew.base.eth\" target=\"_blank\">ripplenew.base.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 666
+  },
+  {
+    "fid": 2481298,
+    "username": "<a href=\"https://warpcast.com/topmarketcap.base.eth\" target=\"_blank\">topmarketcap.base.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 668
+  },
+  {
+    "fid": 340986,
+    "username": "<a href=\"https://warpcast.com/trillobyte\" target=\"_blank\">trillobyte</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 669
+  },
+  {
+    "fid": 412,
+    "username": "<a href=\"https://warpcast.com/joeblau\" target=\"_blank\">joeblau</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 675
+  },
+  {
+    "fid": 476846,
+    "username": "<a href=\"https://warpcast.com/tarikgerikalan\" target=\"_blank\">tarikgerikalan</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 680
+  },
+  {
+    "fid": 1214,
+    "username": "<a href=\"https://warpcast.com/df\" target=\"_blank\">df</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 682
+  },
+  {
+    "fid": 15732,
+    "username": "<a href=\"https://warpcast.com/kompreni\" target=\"_blank\">kompreni</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 685
+  },
+  {
+    "fid": 315558,
+    "username": "<a href=\"https://warpcast.com/jito\" target=\"_blank\">jito</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 686
+  },
+  {
+    "fid": 1133953,
+    "username": "<a href=\"https://warpcast.com/bondings.base.eth\" target=\"_blank\">bondings.base.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 689
+  },
+  {
+    "fid": 3067314,
+    "username": "<a href=\"https://warpcast.com/sosoilsupply.base.eth\" target=\"_blank\">sosoilsupply.base.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 691
+  },
+  {
+    "fid": 3080478,
+    "username": "<a href=\"https://warpcast.com/reservepetroleum.base.eth\" target=\"_blank\">reservepetroleum.base.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 692
+  },
+  {
+    "fid": 2923040,
+    "username": "<a href=\"https://warpcast.com/uxrkoin.base.eth\" target=\"_blank\">uxrkoin.base.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 693
+  },
+  {
+    "fid": 379581,
+    "username": "<a href=\"https://warpcast.com/banthafodderdan\" target=\"_blank\">banthafodderdan</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 696
+  },
+  {
+    "fid": 4905,
+    "username": "<a href=\"https://warpcast.com/mxjxn\" target=\"_blank\">mxjxn</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 701
+  },
+  {
+    "fid": 249958,
+    "username": "<a href=\"https://warpcast.com/thepapercrane\" target=\"_blank\">thepapercrane</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 704
+  },
+  {
+    "fid": 293726,
+    "username": "<a href=\"https://warpcast.com/drivenbyboredom\" target=\"_blank\">drivenbyboredom</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 705
+  },
+  {
+    "fid": 2852247,
+    "username": "<a href=\"https://warpcast.com/usxgold.base.eth\" target=\"_blank\">usxgold.base.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 712
+  },
+  {
+    "fid": 3061979,
+    "username": "<a href=\"https://warpcast.com/barrelxindex.base.eth\" target=\"_blank\">barrelxindex.base.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 714
+  },
+  {
+    "fid": 897299,
+    "username": "<a href=\"https://warpcast.com/inabahoor\" target=\"_blank\">inabahoor</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 715
+  },
+  {
+    "fid": 12990,
+    "username": "<a href=\"https://warpcast.com/juli\" target=\"_blank\">juli</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 719
+  },
+  {
+    "fid": 234568,
+    "username": "<a href=\"https://warpcast.com/ventra\" target=\"_blank\">ventra</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 722
+  },
+  {
+    "fid": 1024920,
+    "username": "<a href=\"https://warpcast.com/greygood\" target=\"_blank\">greygood</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 723
+  },
+  {
+    "fid": 4923,
+    "username": "<a href=\"https://warpcast.com/antimofm.eth\" target=\"_blank\">antimofm.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 728
+  },
+  {
+    "fid": 9318,
+    "username": "<a href=\"https://warpcast.com/catra.eth\" target=\"_blank\">catra.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 730
+  },
+  {
+    "fid": 675829,
+    "username": "<a href=\"https://warpcast.com/mcilroyc\" target=\"_blank\">mcilroyc</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 732
+  },
+  {
+    "fid": 2801173,
+    "username": "<a href=\"https://warpcast.com/uspreserve.base.eth\" target=\"_blank\">uspreserve.base.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 741
+  },
+  {
+    "fid": 196957,
+    "username": "<a href=\"https://warpcast.com/baseddesigner.eth\" target=\"_blank\">baseddesigner.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 749
+  },
+  {
+    "fid": 472680,
+    "username": "<a href=\"https://warpcast.com/maryamm13\" target=\"_blank\">maryamm13</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 750
+  },
+  {
+    "fid": 296687,
+    "username": "<a href=\"https://warpcast.com/jonathancolton\" target=\"_blank\">jonathancolton</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 752
+  },
+  {
+    "fid": 307654,
+    "username": "<a href=\"https://warpcast.com/samsteffanina\" target=\"_blank\">samsteffanina</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 757
+  },
+  {
+    "fid": 4027,
+    "username": "<a href=\"https://warpcast.com/awkquarian\" target=\"_blank\">awkquarian</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 769
+  },
+  {
+    "fid": 218957,
+    "username": "<a href=\"https://warpcast.com/genuinejack\" target=\"_blank\">genuinejack</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 773
+  },
+  {
+    "fid": 199989,
+    "username": "<a href=\"https://warpcast.com/smokingfrog.eth\" target=\"_blank\">smokingfrog.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 775
+  },
+  {
+    "fid": 3017,
+    "username": "<a href=\"https://warpcast.com/rafi\" target=\"_blank\">rafi</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 781
+  },
+  {
+    "fid": 2407883,
+    "username": "<a href=\"https://warpcast.com/oilus.base.eth\" target=\"_blank\">oilus.base.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 786
+  },
+  {
+    "fid": 2853834,
+    "username": "<a href=\"https://warpcast.com/americausor.base.eth\" target=\"_blank\">americausor.base.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 789
+  },
+  {
+    "fid": 1050528,
+    "username": "<a href=\"https://warpcast.com/buckyball\" target=\"_blank\">buckyball</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 795
+  },
+  {
+    "fid": 517425,
+    "username": "<a href=\"https://warpcast.com/shahbazbaaz\" target=\"_blank\">shahbazbaaz</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 796
+  },
+  {
+    "fid": 308588,
+    "username": "<a href=\"https://warpcast.com/terrybain\" target=\"_blank\">terrybain</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 805
+  },
+  {
+    "fid": 539,
+    "username": "<a href=\"https://warpcast.com/ace\" target=\"_blank\">ace</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 808
+  },
+  {
+    "fid": 532378,
+    "username": "<a href=\"https://warpcast.com/bluclaat\" target=\"_blank\">bluclaat</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 811
+  },
+  {
+    "fid": 284904,
+    "username": "<a href=\"https://warpcast.com/mokonk\" target=\"_blank\">mokonk</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 821
+  },
+  {
+    "fid": 261625,
+    "username": "<a href=\"https://warpcast.com/popszi\" target=\"_blank\">popszi</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 826
+  },
+  {
+    "fid": 18570,
+    "username": "<a href=\"https://warpcast.com/qt\" target=\"_blank\">qt</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 839
+  },
+  {
+    "fid": 2838729,
+    "username": "<a href=\"https://warpcast.com/espressocoin.base.eth\" target=\"_blank\">espressocoin.base.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 848
+  },
+  {
+    "fid": 1046731,
+    "username": "<a href=\"https://warpcast.com/marabara\" target=\"_blank\">marabara</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 850
+  },
+  {
+    "fid": 315653,
+    "username": "<a href=\"https://warpcast.com/superfluid\" target=\"_blank\">superfluid</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 859
+  },
+  {
+    "fid": 404134,
+    "username": "<a href=\"https://warpcast.com/chutichx\" target=\"_blank\">chutichx</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 869
+  },
+  {
+    "fid": 1073340,
+    "username": "<a href=\"https://warpcast.com/msbabu\" target=\"_blank\">msbabu</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 872
+  },
+  {
+    "fid": 2924327,
+    "username": "<a href=\"https://warpcast.com/powwel.base.eth\" target=\"_blank\">powwel.base.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 873
+  },
+  {
+    "fid": 1332114,
+    "username": "<a href=\"https://warpcast.com/beluart\" target=\"_blank\">beluart</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 875
+  },
+  {
+    "fid": 372614,
+    "username": "<a href=\"https://warpcast.com/tashacrypt.eth\" target=\"_blank\">tashacrypt.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 876
+  },
+  {
+    "fid": 10420,
+    "username": "<a href=\"https://warpcast.com/lefteris.eth\" target=\"_blank\">lefteris.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 877
+  },
+  {
+    "fid": 1945680,
+    "username": "<a href=\"https://warpcast.com/royal333.base.eth\" target=\"_blank\">royal333.base.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 886
+  },
+  {
+    "fid": 2490945,
+    "username": "<a href=\"https://warpcast.com/clothingstore.base.eth\" target=\"_blank\">clothingstore.base.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 889
+  },
+  {
+    "fid": 1860696,
+    "username": "<a href=\"https://warpcast.com/yairpalma33.base.eth\" target=\"_blank\">yairpalma33.base.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 891
+  },
+  {
+    "fid": 1583474,
+    "username": "<a href=\"https://warpcast.com/minnigbase.base.eth\" target=\"_blank\">minnigbase.base.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 893
+  },
+  {
+    "fid": 1843907,
+    "username": "<a href=\"https://warpcast.com/sphinxy.base.eth\" target=\"_blank\">sphinxy.base.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 895
+  },
+  {
+    "fid": 332316,
+    "username": "<a href=\"https://warpcast.com/victoresteves.eth\" target=\"_blank\">victoresteves.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 901
+  },
+  {
+    "fid": 369904,
+    "username": "<a href=\"https://warpcast.com/coolbeans1r.eth\" target=\"_blank\">coolbeans1r.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 906
+  },
+  {
+    "fid": 3237,
+    "username": "<a href=\"https://warpcast.com/nt\" target=\"_blank\">nt</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 909
+  },
+  {
+    "fid": 426,
+    "username": "<a href=\"https://warpcast.com/brianjckim\" target=\"_blank\">brianjckim</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 911
+  },
+  {
+    "fid": 859268,
+    "username": "<a href=\"https://warpcast.com/fx1hubs.base.eth\" target=\"_blank\">fx1hubs.base.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 915
+  },
+  {
+    "fid": 2210464,
+    "username": "<a href=\"https://warpcast.com/tuhin19666.base.eth\" target=\"_blank\">tuhin19666.base.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 921
+  },
+  {
+    "fid": 2906584,
+    "username": "<a href=\"https://warpcast.com/goldil.base.eth\" target=\"_blank\">goldil.base.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 922
+  },
+  {
+    "fid": 1975670,
+    "username": "<a href=\"https://warpcast.com/hero73baseeth.base.eth\" target=\"_blank\">hero73baseeth.base.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 924
+  },
+  {
+    "fid": 379435,
+    "username": "<a href=\"https://warpcast.com/with-dani69\" target=\"_blank\">with-dani69</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 929
+  },
+  {
+    "fid": 416580,
+    "username": "<a href=\"https://warpcast.com/msmeghna\" target=\"_blank\">msmeghna</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 930
+  },
+  {
+    "fid": 440747,
+    "username": "<a href=\"https://warpcast.com/arob1000\" target=\"_blank\">arob1000</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 936
+  },
+  {
+    "fid": 7479,
+    "username": "<a href=\"https://warpcast.com/chaskin.eth\" target=\"_blank\">chaskin.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 938
+  },
+  {
+    "fid": 7418,
+    "username": "<a href=\"https://warpcast.com/flexasaurusrex\" target=\"_blank\">flexasaurusrex</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 942
+  },
+  {
+    "fid": 6806,
+    "username": "<a href=\"https://warpcast.com/dawufi\" target=\"_blank\">dawufi</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 948
+  },
+  {
+    "fid": 13077,
+    "username": "<a href=\"https://warpcast.com/naomiii\" target=\"_blank\">naomiii</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 949
+  },
+  {
+    "fid": 198783,
+    "username": "<a href=\"https://warpcast.com/hammallama.eth\" target=\"_blank\">hammallama.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 953
+  },
+  {
+    "fid": 2902893,
+    "username": "<a href=\"https://warpcast.com/antoniors.base.eth\" target=\"_blank\">antoniors.base.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 964
+  },
+  {
+    "fid": 1443837,
+    "username": "<a href=\"https://warpcast.com/jakeward.base.eth\" target=\"_blank\">jakeward.base.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 967
+  },
+  {
+    "fid": 351897,
+    "username": "<a href=\"https://warpcast.com/ramsey\" target=\"_blank\">ramsey</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 974
+  },
+  {
+    "fid": 12756,
+    "username": "<a href=\"https://warpcast.com/fercaggiano\" target=\"_blank\">fercaggiano</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 977
+  },
+  {
+    "fid": 791687,
+    "username": "<a href=\"https://warpcast.com/twochanz.eth\" target=\"_blank\">twochanz.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 985
+  },
+  {
+    "fid": 4522,
+    "username": "<a href=\"https://warpcast.com/kagami\" target=\"_blank\">kagami</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 986
+  },
+  {
+    "fid": 16601,
+    "username": "<a href=\"https://warpcast.com/ritanesterova.eth\" target=\"_blank\">ritanesterova.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 990
+  },
+  {
+    "fid": 2828824,
+    "username": "<a href=\"https://warpcast.com/ripple-.base.eth\" target=\"_blank\">ripple-.base.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 995
+  },
+  {
+    "fid": 2379360,
+    "username": "<a href=\"https://warpcast.com/uselesscoin.base.eth\" target=\"_blank\">uselesscoin.base.eth</a>",
+    "source": "dune_hot_casts",
+    "isActive": true,
+    "firstSeenIndex": 998
+  }
+]

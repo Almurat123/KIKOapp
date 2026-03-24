@@ -16,6 +16,18 @@ export type UsageDecision = {
     modelCategory: 'deepseek' | 'grok' | 'other';
 };
 
+export function isCurrentRequestFree(decision: Pick<UsageDecision, 'modelCategory' | 'normalUsed' | 'advancedUsed'>): boolean {
+    if (decision.modelCategory === 'deepseek') {
+        return decision.normalUsed < env.billing.dailyFreeDeepseek;
+    }
+
+    if (decision.modelCategory === 'grok') {
+        return decision.advancedUsed < env.billing.dailyFreeGrok;
+    }
+
+    return false;
+}
+
 export async function evaluateUsageAccess(params: { userId: string; model: string }): Promise<UsageDecision> {
     const dateUtc = getUtcDateString();
     const modelCategory = getBillingCategory(params.model);
@@ -95,4 +107,3 @@ export async function evaluateUsageAccess(params: { userId: string; model: strin
         modelCategory
     };
 }
-

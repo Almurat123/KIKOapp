@@ -117,16 +117,25 @@ const formatTokenAmount = (displayAmount?: string, rawAmount?: string, decimals?
     return displayAmount || rawAmount || '0.00';
 };
 
+const normalizeTokenIconKey = (symbol: string): string => {
+    const upper = formatTokenSymbol(symbol).replace(/[^A-Z0-9]/g, '');
+    const aliases: Record<string, string> = {
+        WSOL: 'SOL',
+        WBNB: 'BNB',
+        WMATIC: 'MATIC',
+        USDCE: 'USDC',
+        USDBC: 'USDC',
+    };
+    return aliases[upper] || upper;
+};
+
 const getTokenIconUrl = (symbol: string): string | null => {
     const iconMap: Record<string, string> = {
         ETH: '/assets/tokens/eth.png',
         WETH: '/assets/tokens/eth.png',
         SOL: '/assets/tokens/sol.png',
-        WSOL: '/assets/tokens/sol.png',
         BNB: '/assets/tokens/bsc.png',
-        WBNB: '/assets/tokens/bsc.png',
         MATIC: '/assets/tokens/polygon.png',
-        WMATIC: '/assets/tokens/polygon.png',
         POL: '/assets/tokens/polygon.png',
         USDC: '/assets/tokens/usdc.png',
         USDT: '/assets/tokens/usdt.png',
@@ -134,7 +143,7 @@ const getTokenIconUrl = (symbol: string): string | null => {
         ARB: '/assets/tokens/arbitrum.png',
         OP: '/assets/tokens/optimism.png',
     };
-    return iconMap[symbol] || null;
+    return iconMap[normalizeTokenIconKey(symbol)] || null;
 };
 
 export const TransactionStatusCard: React.FC<TransactionStatusCardProps> = ({

@@ -261,15 +261,29 @@ async function broadcastClientAction(params: {
 function isQuoteExpiredFromTrace(snapshot: ChatContextSnapshot): boolean {
     const toolCalls = snapshot.recentToolTrace?.toolCalls || [];
     const relevant = [...toolCalls].reverse().find((entry) =>
-        ['simulate_swap', 'get_cross_chain_quote'].includes(String(entry.tool || '')) &&
+        ['simulate_swap', 'prepare_swap_transaction', 'get_cross_chain_quote', 'prepare_cross_chain_tx'].includes(String(entry.tool || '')) &&
         ['success', 'cached'].includes(String(entry.status || ''))
     );
-    const finishedAt = (relevant as any)?.finishedAt || (relevant as any)?.simulatedAt || undefined;
+    const finishedAt = extractTradeTraceTimestamp(relevant);
     if (!finishedAt) return true;
     const ts = new Date(String(finishedAt)).getTime();
     if (!Number.isFinite(ts)) return true;
     const ttlMs = Math.max(5000, parseInt(process.env.CHAT_SIM_QUOTE_TTL_MS || '45000', 10) || 45000);
     return Date.now() - ts > ttlMs;
+}
+
+function extractTradeTraceTimestamp(entry: any): string | undefined {
+    if (!entry || typeof entry !== 'object') return undefined;
+    return entry.finishedAt
+        || entry.completedAt
+        || entry.simulatedAt
+        || entry.createdAt
+        || entry.result?.finishedAt
+        || entry.result?.completedAt
+        || entry.result?.simulatedAt
+        || entry.result?.createdAt
+        || entry.result?.timestamp
+        || undefined;
 }
 
 function resolveInvalidTradeConfirmation(snapshot: ChatContextSnapshot): {

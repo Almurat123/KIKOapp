@@ -153,6 +153,10 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
         !isStreaming &&
         (hasActiveTaskInProgress || (hasStreamingAssistant && !hasStreamingAssistantContent));
     const activeTaskId = currentConv?.activeTask?.id || null;
+    const activeTaskIdRef = useRef<string | null>(activeTaskId);
+    useEffect(() => {
+        activeTaskIdRef.current = activeTaskId;
+    }, [activeTaskId]);
     const walletAddress = useMemo(() => {
         if (currentChain.id === 900) {
             const solLink = user?.linkedAccounts?.find(
@@ -347,9 +351,46 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                     if (normalizedAction.type === 'switch_chain') {
                         const actionData = normalizedAction.payload || normalizedAction.data;
                         const targetChainId = actionData.chainId || actionData.chain_id;
+                        const targetTaskId = actionData.taskId || actionData.task_id || activeTaskIdRef.current;
                         if (targetChainId) {
-                            switchChain(targetChainId);
-                            toast.success(`Switching to ${actionData.chainName || 'target chain'}...`);
+                            void (async () => {
+                                try {
+                                    await switchChain(targetChainId);
+                                } catch (error: any) {
+                                    const switchFailedMessage = error?.message || `Failed to switch to ${actionData.chainName || 'target chain'}.`;
+                                    if (targetTaskId) {
+                                        try {
+                                            await chatApi.reportChainSwitchResult(targetTaskId, {
+                                                chainId: targetChainId,
+                                                chainName: actionData.chainName,
+                                                status: 'failed',
+                                                error: switchFailedMessage,
+                                            });
+                                        } catch (ackError) {
+                                            logger.warn('Failed to report chain switch failure to backend:', ackError);
+                                        }
+                                    }
+                                    toast.error(switchFailedMessage);
+                                    return;
+                                }
+
+                                if (targetTaskId) {
+                                    try {
+                                        await chatApi.reportChainSwitchResult(targetTaskId, {
+                                            chainId: targetChainId,
+                                            chainName: actionData.chainName,
+                                            status: 'success',
+                                        });
+                                    } catch (ackError: any) {
+                                        const ackMessage = ackError?.message || 'Wallet switched, but KiKo failed to sync the new chain state.';
+                                        logger.warn('Failed to report chain switch success to backend:', ackError);
+                                        toast.error(ackMessage);
+                                        return;
+                                    }
+                                }
+
+                                toast.success(`Switched to ${actionData.chainName || 'target chain'}.`);
+                            })();
                         }
                         break;
                     }

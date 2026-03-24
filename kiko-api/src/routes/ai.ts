@@ -15,7 +15,7 @@ import { fetchJson } from '../config/unifiedApiService.js';
 import { resolveGeoFromIp } from '../services/ipGeo.js';
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
-import { evaluateUsageAccess } from '../services/usageAccess.js';
+import { evaluateUsageAccess, isCurrentRequestFree } from '../services/usageAccess.js';
 import { insertUsageRecord } from '../repositories/billingRepository.js';
 import { computeTotalTokens, computeUsdCost, getBillingCategory, getUtcDateString } from '../services/billing/billingService.js';
 import { recordUsage } from '../services/usageCounter.js';
@@ -347,7 +347,7 @@ async function persistProxyUsage(params: {
 }): Promise<void> {
     if (!params.userId) return;
 
-    const assistantMessageId = `ai-route-${randomUUID()}`;
+    const assistantMessageId = randomUUID();
     const usage = params.usage || {};
     const promptTokens = Number(usage.prompt_tokens || 0);
     const completionTokens = Number(usage.completion_tokens || 0);
@@ -442,6 +442,8 @@ export async function aiRoutes(fastify: FastifyInstance) {
                         tokenBalance: usageDecision.tokenBalance
                     });
                 }
+
+                const requestIsFree = isCurrentRequestFree(usageDecision);
 
                 // -----------------------------------------------------------------
                 // GROK PROXY: Forward to kiko-python if model is grok-*
@@ -680,7 +682,7 @@ export async function aiRoutes(fastify: FastifyInstance) {
                                     usage: grokUsage,
                                     toolCallsCount: grokToolCallsById.size,
                                     toolCallNames: Array.from(grokToolCallsById.values()),
-                                    isFree: true
+                                    isFree: requestIsFree
                                 });
                                 reply.raw.end();
                                 reader.releaseLock();
@@ -700,7 +702,7 @@ export async function aiRoutes(fastify: FastifyInstance) {
                                         .map((tc: any) => String(tc?.function?.name || '').trim().toLowerCase())
                                         .filter(Boolean)
                                     : [],
-                                isFree: true
+                                isFree: requestIsFree
                             });
                             return reply.send(data);
                         }
@@ -1017,7 +1019,7 @@ export async function aiRoutes(fastify: FastifyInstance) {
                             usage: lastUsage,
                             toolCallsCount: totalToolCallsCount,
                             toolCallNames: totalToolCallNames,
-                            isFree: true
+                            isFree: requestIsFree
                         });
                         // Send [DONE] marker to indicate stream completion
                         reply.raw.write('data: [DONE]\n\n');
@@ -1029,7 +1031,7 @@ export async function aiRoutes(fastify: FastifyInstance) {
                             usage: lastUsage,
                             toolCallsCount: totalToolCallsCount,
                             toolCallNames: totalToolCallNames,
-                            isFree: true
+                            isFree: requestIsFree
                         });
                         // Non-streaming response
                         return reply.send({
@@ -1103,7 +1105,7 @@ export async function aiRoutes(fastify: FastifyInstance) {
                         usage: lastUsage,
                         toolCallsCount: totalToolCallsCount,
                         toolCallNames: totalToolCallNames,
-                        isFree: true
+                        isFree: requestIsFree
                     });
                     reply.raw.write('data: [DONE]\n\n');
                     reply.raw.end();
@@ -1114,7 +1116,7 @@ export async function aiRoutes(fastify: FastifyInstance) {
                         usage: lastUsage,
                         toolCallsCount: totalToolCallsCount,
                         toolCallNames: totalToolCallNames,
-                        isFree: true
+                        isFree: requestIsFree
                     });
                     return reply.code(500).send({
                         error: `Maximum tool call iterations (${maxIterations}) reached. Please try breaking your request into smaller parts.`,

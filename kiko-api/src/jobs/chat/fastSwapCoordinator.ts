@@ -7,12 +7,13 @@ import { LogCode } from '../../config/logRegistry.js';
 import { logger } from '../../utils/logger.js';
 import { buildSignedHeaders } from '../../utils/requestSigningClient.js';
 import { fetchJson } from '../../config/unifiedApiService.js';
-import { findTokenOnAnyChain, getTokenInfo } from '../../services/ai/tokenDetector.js';
+import { findTokenOnAnyChain } from '../../services/ai/tokenDetector.js';
 import { chatWS } from '../../services/chatWebSocket.js';
 import { getFastSwapDecision, prepareFastSwapExecution } from './fastSwapExecutor.js';
 import { resolveRequestedChainHint } from './chainIntent.js';
 import type { ChatContextSnapshot } from './contracts.js';
 import { ChatStreamBroker } from './streamBroker.js';
+import { resolveTokenDisplayMetadata } from '../../services/tokens.js';
 
 const CHAIN_ID_MAP: Record<number, string> = {
     1: 'eth',
@@ -125,6 +126,11 @@ export async function maybeExecuteFastSwap(params: {
         return { handled: false };
     }
 
+    const [tokenInDisplay, tokenOutDisplay] = await Promise.all([
+        resolveTokenDisplayMetadata(prepared.tokenIn, prepared.chainId),
+        resolveTokenDisplayMetadata(prepared.tokenOut, prepared.chainId),
+    ]);
+
     const txCardMessage = await chatRepo.createMessage(
         params.task.sessionId,
         'assistant',
@@ -136,8 +142,10 @@ export async function maybeExecuteFastSwap(params: {
                 swapType: inferFastSwapType(prepared.tokenIn, prepared.tokenOut, prepared.chainId),
                 tokenIn: prepared.tokenIn,
                 tokenOut: prepared.tokenOut,
-                tokenInSymbol: await resolveTokenSymbol(prepared.tokenIn, prepared.chainId),
-                tokenOutSymbol: await resolveTokenSymbol(prepared.tokenOut, prepared.chainId),
+                tokenInSymbol: tokenInDisplay.symbol,
+                tokenOutSymbol: tokenOutDisplay.symbol,
+                tokenInLogoURI: tokenInDisplay.logoURI,
+                tokenOutLogoURI: tokenOutDisplay.logoURI,
                 amountIn: prepared.amountIn,
                 chainId: prepared.chainId,
                 startedAt: Date.now(),
@@ -389,25 +397,6 @@ function normalizeBalanceEntries(balance: any): Array<{ symbol: string; balance:
         }
         return { symbol, balance: String(raw) };
     });
-}
-
-async function resolveTokenSymbol(token: string, chainId: number): Promise<string> {
-    const isEvmAddress = token.startsWith('0x') && token.length > 20;
-    const isSolanaAddress = token.length >= 32 && token.length <= 44 && !token.startsWith('0x');
-    if (!isEvmAddress && !isSolanaAddress) return token.toUpperCase();
-    try {
-        const info = await findTokenOnAnyChain(token);
-        if (info?.symbol && info.symbol !== 'UNKNOWN') return String(info.symbol).toUpperCase();
-        const specificInfo = await getTokenInfo(token, chainId);
-        if (specificInfo?.symbol && specificInfo.symbol !== 'UNKNOWN') return String(specificInfo.symbol).toUpperCase();
-    } catch (error: any) {
-        logger.warn(LogCode.API_FETCH_FAILED, 'Fast swap token symbol resolution failed', {
-            token,
-            chainId,
-            error: error?.message || String(error),
-        });
-    }
-    return `${token.slice(0, 6)}...${token.slice(-4)}`;
 }
 
 async function prewarmQuote(params: {

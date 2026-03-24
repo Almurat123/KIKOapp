@@ -8,7 +8,6 @@ import { AppError } from '../../middleware/errorHandler.js';
 import { getBestQuote, QuoteResult } from '../quoteService.js';
 import { getPlatformFee, isValidEvmAddress, FeeContext } from '../platformFeeService.js';
 import { toWei } from '../zeroEx.js';
-import { getKyberQuote } from '../kyberAggregator.js';
 import { getDexPrice } from '../dexPriceService.js';
 import { getTokenInfo } from '../tokenService.js';
 import { executeSolanaSwapWithResult } from '../solanaExecutor.js';
@@ -18,7 +17,7 @@ import { NATIVE_TOKEN_ADDRESS, SOLANA_NATIVE_MINT, TOKEN_REGISTRY, isNativeToken
 import { handleSwapError } from './handleSwapError.js';
 import { callRpc, getErc20Balance, getErc20Decimals, getErc20Allowance } from '../../services/rpcManager.js';
 import { monitorEvmTransaction, scheduleSpeedUp, waitForReceipt, waitForTransactionConfirmation } from './confirmationCoordinator.js';
-import { appendPermit2SignatureToCalldata, executeApproval, tryBuildKyberPermit, validatePermit2Payload } from './permitHelpers.js';
+import { appendPermit2SignatureToCalldata, executeApproval, validatePermit2Payload } from './permitHelpers.js';
 import type { OrderRuntimeContext } from '../order-runtime/types.js';
 import { extendFailoverSendContext, type FailoverSendContext } from './failover/failoverSendContext.js';
 import { scoreEvmSellReliability } from './reliability/evmSellReliabilityScorer.js';
@@ -55,6 +54,7 @@ import { waitForApprovalReady, type ApprovalReadinessResult } from './approvalRe
 import { clearApprovalPreheatState, getApprovalPreheatState, upsertApprovalPreheatState } from './approvalPreheatState.js';
 import { getSellQuotePreheatState, getUsableWarmSellQuote } from './sellQuotePreheatState.js';
 import { getExecutionFeeSnapshot } from './executionFeeSnapshot.js';
+import { shouldRetryPermit2AsAllowanceHolder, shouldUseSignedPermitForSell } from './permitFallbackPolicy.js';
 
 // 0x AllowanceHolder address (Base). If a token already has sufficient allowance here,
 // we can skip Permit2 first-try and reduce sell failure risk for problematic tokens.
@@ -719,10 +719,12 @@ export class SwapExecutor {
             if (needsApproval) {
                 let permitApprovalCovered = false;
                 if (
-                    sellReliability.allowSignedPermit
-                    && isSellTx
-                    && !isNativeIn
-                    && best.dex === '0x'
+                    shouldUseSignedPermitForSell({
+                        dex: best.dex,
+                        allowSignedPermit: sellReliability.allowSignedPermit,
+                        isSellTx,
+                        isNativeIn,
+                    })
                     && best.approvalKind === 'permit2_24h'
                     && best.requiresTypedSignature
                     && best.permit2Payload
@@ -745,71 +747,25 @@ export class SwapExecutor {
                     }
                 }
 
-                if (!permitApprovalCovered && !sellReliability.allowSignedPermit && isSellTx && !isNativeIn && (best.dex === '0x' || best.dex === 'kyber')) {
-                    logger.info(LogCode.EXE_TX_BROADCAST, 'Sell reliability scorer prefers explicit approval over signed permit', {
+                if (
+                    !permitApprovalCovered
+                    && isSellTx
+                    && !isNativeIn
+                    && (best.dex === '0x' || best.dex === 'kyber')
+                    && !shouldUseSignedPermitForSell({
+                        dex: best.dex,
+                        allowSignedPermit: sellReliability.allowSignedPermit,
+                        isSellTx,
+                        isNativeIn,
+                    })
+                ) {
+                    logger.info(LogCode.EXE_TX_BROADCAST, 'Sell path prefers explicit approval over signed permit', {
                         chainId,
                         dex: best.dexName,
-                        reasonCode: sellReliability.reasonCode || 'sell_reliability_explicit_approval'
+                        reasonCode: best.dex === 'kyber'
+                            ? 'kyber_sell_explicit_approval_required'
+                            : (sellReliability.reasonCode || 'sell_reliability_explicit_approval')
                     });
-                }
-
-                if (!permitApprovalCovered && sellReliability.allowSignedPermit && isSellTx && !isNativeIn && best.dex === 'kyber') {
-                    try {
-                        const kyberPermit = await tryBuildKyberPermit({
-                            userId,
-                            chainId,
-                            token: actualTokenInFixed,
-                            owner: walletAddress,
-                            spender: best.allowanceTarget,
-                            amountInBase
-                        });
-                        if (kyberPermit) {
-                            const kyberPermitQuote = await getKyberQuote(
-                                actualTokenInFixed,
-                                actualTokenOutFixed,
-                                amountInBase,
-                                chainId,
-                                slippageBps,
-                                walletAddress,
-                                feeContext,
-                                isSellForFee,
-                                undefined,
-                                {
-                                    permit: kyberPermit.permit,
-                                    deadline: kyberPermit.deadline
-                                }
-                            );
-                            if (kyberPermitQuote?.data && kyberPermitQuote?.routerAddress) {
-                                const amountOutBase = kyberPermitQuote.amountOutBase || kyberPermitQuote.amountOut || '0';
-                                const amountOutHuman = ethers.formatUnits(amountOutBase, decimalsOut);
-                                Object.assign(best, {
-                                    dex: 'kyber',
-                                    dexName: 'KyberSwap',
-                                    amountOut: amountOutHuman,
-                                    amountOutBase,
-                                    gasEstimate: kyberPermitQuote.gas ? parseInt(String(kyberPermitQuote.gas), 10) : best.gasEstimate,
-                                    priceImpact: kyberPermitQuote.priceImpact || best.priceImpact,
-                                    path: [actualTokenInFixed, actualTokenOutFixed],
-                                    router: kyberPermitQuote.routerAddress,
-                                    data: kyberPermitQuote.data,
-                                    to: kyberPermitQuote.to || kyberPermitQuote.routerAddress,
-                                    value: kyberPermitQuote.value || '0',
-                                    allowanceTarget: kyberPermitQuote.allowanceTarget || kyberPermitQuote.routerAddress,
-                                    permit2Expiry: kyberPermit.deadline
-                                } as Partial<QuoteResult>);
-                                permitApprovalCovered = true;
-                                logger.info(LogCode.EXE_TX_BROADCAST, 'Kyber sell permit prepared (24h), skipping on-chain approve', {
-                                    chainId,
-                                    permitExpiry: kyberPermit.deadline
-                                });
-                            }
-                        }
-                    } catch (kyberPermitErr: any) {
-                        logger.warn(LogCode.EXE_TX_BROADCAST, 'Kyber permit sign failed, falling back to approve', {
-                            chainId,
-                            error: kyberPermitErr?.message || String(kyberPermitErr)
-                        });
-                    }
                 }
 
                 if (permitApprovalCovered) {
@@ -1563,6 +1519,29 @@ export class SwapExecutor {
             const isRevert = errorMsg.includes('reverted') || errorMsg.includes('execution failed');
             const isPermit2Path = best?.dex === '0x' && best?.approvalKind === 'permit2_24h';
 
+            if (shouldRetryPermit2AsAllowanceHolder({
+                isPermit2Path,
+                permit2ExecutionFallbackTried: params.permit2ExecutionFallbackTried,
+                isSellTx,
+            })) {
+                logger.warn(LogCode.EXE_TX_REVERTED, '0x permit2 execution failed, retrying with allowance-holder path', {
+                    chainId,
+                    error: execError.message?.slice(0, 160),
+                    slippageBps
+                });
+                return this.executeEvm({
+                    ...params,
+                    excludeDex: undefined,
+                    preferPermit2: false,
+                    permit2ExecutionFallbackTried: true,
+                    failoverSendContext: extendFailoverSendContext(params.failoverSendContext, {
+                        previousDex: best?.dex,
+                        previousDexName: best?.dexName,
+                        previousReasonCode: 'permit2_execution_failed'
+                    })
+                });
+            }
+
             // If transfer failed on a SELL order, token likely has restrictions.
             // Retry once by reducing amount by 1 base unit (last digit) to avoid balance/fee edge cases.
             if (isTransferFailed && isSellTx) {
@@ -1601,26 +1580,6 @@ export class SwapExecutor {
                     `This token has transfer restrictions that prevent selling. ` +
                     `Possible reasons: 1) Maximum sell amount limit 2) High sell tax 3) Anti-bot protection.`
                 );
-            }
-
-            // If Permit2 signed successfully but execution reverted, retry once via allowance-holder path.
-            if (isPermit2Path && !params.permit2ExecutionFallbackTried) {
-                logger.warn(LogCode.EXE_TX_REVERTED, '0x permit2 execution failed, retrying with allowance-holder path', {
-                    chainId,
-                    error: execError.message?.slice(0, 160),
-                    slippageBps
-                });
-                return this.executeEvm({
-                    ...params,
-                    excludeDex: undefined,
-                    preferPermit2: false,
-                    permit2ExecutionFallbackTried: true,
-                    failoverSendContext: extendFailoverSendContext(params.failoverSendContext, {
-                        previousDex: best?.dex,
-                        previousDexName: best?.dexName,
-                        previousReasonCode: 'permit2_execution_failed'
-                    })
-                });
             }
 
             // Fast failover: if first attempt fails, immediately switch DEX with same slippage

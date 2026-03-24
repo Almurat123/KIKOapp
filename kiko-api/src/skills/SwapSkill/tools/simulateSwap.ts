@@ -1,6 +1,7 @@
 import { Tool } from '../../../tooling/registry.js';
 import { fetchJson } from '../../../config/unifiedApiService.js';
 import { buildSignedHeaders } from '../../../utils/requestSigningClient.js';
+import { validateSwapExecutionChain } from './chainExecutionGuard.js';
 
 export const SimulateSwapTool: Tool = {
     definition: {
@@ -20,6 +21,11 @@ export const SimulateSwapTool: Tool = {
     },
     handler: async (args, context) => {
         try {
+            const chainGuard = await validateSwapExecutionChain(args, context);
+            if (!chainGuard.ok) {
+                return { error: chainGuard.error, code: chainGuard.code };
+            }
+
             const API_BASE =
                 process.env.API_BASE_URL ||
                 (process.env.PORT ? `http://127.0.0.1:${process.env.PORT}` : 'http://localhost:3001');

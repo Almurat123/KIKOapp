@@ -111,6 +111,18 @@ export const ChainProvider: React.FC<ChainProviderProps> = ({ children }) => {
     }
   }, [currentChain.id]);
 
+  useEffect(() => {
+    const evmWallet = wallets.find((wallet: any) => wallet?.walletClientType !== 'solana');
+    const walletChainId = typeof evmWallet?.chainId === 'string' && evmWallet.chainId.startsWith('eip155:')
+      ? Number(evmWallet.chainId.replace('eip155:', ''))
+      : undefined;
+    if (!walletChainId || currentChain.id === 900 || currentChain.id === walletChainId) return;
+    const matchingChain = SUPPORTED_CHAINS.find((chain) => chain.id === walletChainId);
+    if (matchingChain) {
+      setCurrentChain(matchingChain);
+    }
+  }, [wallets, currentChain.id]);
+
   const handleSwitchChain = async (targetChainId: number) => {
     try {
       // 1. Solana Switch Logic

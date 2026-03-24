@@ -429,6 +429,9 @@ export const RootLayout: React.FC = () => {
                         activeTaskId: c.activeTask.id,
                     });
                 }
+                if (typeof window !== 'undefined') {
+                    window.dispatchEvent(new CustomEvent('kiko-usage-refresh'));
+                }
                 return;
             }
             // --- Complete (use only messageId so we don't process the same completion twice with messageId vs taskId) ---

@@ -167,7 +167,8 @@ function hasTradePrecheckEvidence(
         const targetOut = normalizeToken(args.token_out);
         const targetChain = Number(args.chain_id || 0) || null;
         return calls.some((call) => {
-            if (String(call.tool || '') !== 'simulate_swap') return false;
+            const callTool = String(call.tool || '');
+            if (!['simulate_swap', 'prepare_swap_transaction'].includes(callTool)) return false;
             if (!['success', 'cached'].includes(String(call.status || ''))) return false;
             const callIn = normalizeToken(call.args?.token_in);
             const callOut = normalizeToken(call.args?.token_out);
@@ -176,10 +177,26 @@ function hasTradePrecheckEvidence(
         });
     }
     if (toolName === 'prepare_cross_chain_tx') {
-        return calls.some((call) =>
-            String(call.tool || '') === 'get_cross_chain_quote'
-            && ['success', 'cached'].includes(String(call.status || ''))
-        );
+        const targetFrom = normalizeToken(args.fromToken);
+        const targetTo = normalizeToken(args.toToken);
+        const targetAmount = normalizeToken(args.fromAmount);
+        const targetFromChain = Number(args.fromChain || 0) || null;
+        const targetToChain = Number(args.toChain || 0) || null;
+        return calls.some((call) => {
+            const callTool = String(call.tool || '');
+            if (!['get_cross_chain_quote', 'prepare_cross_chain_tx'].includes(callTool)) return false;
+            if (!['success', 'cached'].includes(String(call.status || ''))) return false;
+            const callFrom = normalizeToken(call.args?.fromToken);
+            const callTo = normalizeToken(call.args?.toToken);
+            const callAmount = normalizeToken(call.args?.fromAmount);
+            const callFromChain = Number(call.args?.fromChain || 0) || null;
+            const callToChain = Number(call.args?.toChain || 0) || null;
+            return callFrom === targetFrom
+                && callTo === targetTo
+                && callAmount === targetAmount
+                && callFromChain === targetFromChain
+                && callToChain === targetToChain;
+        });
     }
     return true;
 }

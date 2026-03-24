@@ -4,6 +4,7 @@ import {
     extractRecentToolTrace,
     extractRequestedTokenAddressesFromHistory,
     extractRequestedTokenSymbolsFromHistory,
+    resolveTradeConfirmationState,
 } from './conversationStateResolver.js';
 
 test('extractRequestedTokenAddressesFromHistory keeps prior contract context for short follow-up turns', () => {
@@ -61,4 +62,35 @@ test('extractRecentToolTrace aggregates tool calls across the session instead of
         trace?.toolCalls.map((call) => call.tool),
         ['external_web_search', 'get_token_info', 'get_early_buyers'],
     );
+});
+
+test('resolveTradeConfirmationState does not treat explicit chain switch requests as trade confirmations', () => {
+    const state = resolveTradeConfirmationState([
+        {
+            role: 'assistant',
+            id: 'a1',
+            message_index: 1,
+            data: {
+                toolTrace: {
+                    toolCalls: [
+                        {
+                            tool: 'prepare_swap_transaction',
+                            status: 'success',
+                            args: {
+                                token_in: '0x8ac76a51cc950d982d68b83fe1ad97b32cd580d',
+                                token_out: 'BNB',
+                                amount_in: '0.065216073765713464',
+                                chain_id: 56,
+                            },
+                            result: {
+                                finishedAt: '2026-03-19T09:36:35.000Z',
+                            },
+                        },
+                    ],
+                },
+            },
+        },
+    ], 'Switch to polygon');
+
+    assert.equal(state, null);
 });

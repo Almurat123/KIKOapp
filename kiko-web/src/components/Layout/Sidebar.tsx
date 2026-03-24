@@ -101,6 +101,21 @@ export const Sidebar: React.FC<SidebarProps> = ({
   }, [fetchUsageSummary]);
 
   useEffect(() => {
+    const handleVisibilityOrFocus = () => {
+      if (document.hidden) return;
+      fetchUsageSummary();
+    };
+
+    window.addEventListener('focus', handleVisibilityOrFocus);
+    document.addEventListener('visibilitychange', handleVisibilityOrFocus);
+
+    return () => {
+      window.removeEventListener('focus', handleVisibilityOrFocus);
+      document.removeEventListener('visibilitychange', handleVisibilityOrFocus);
+    };
+  }, [fetchUsageSummary]);
+
+  useEffect(() => {
     const handleResize = () => {
       setIsMobile(window.innerWidth < 768);
     };

@@ -3,6 +3,8 @@ import { TradeContext, getTradeContext } from '../../../services/TradeContext.js
 import { getTokenData } from '../../../services/UnifiedDataLayer.js';
 import { buildSignedHeaders } from '../../../utils/requestSigningClient.js';
 import { getChainConfig } from '../../../config/chainConfig.js';
+import { resolveTokenDisplayMetadata } from '../../../services/tokens.js';
+import { validateSwapExecutionChain } from './chainExecutionGuard.js';
 // Note: swapAggregator import removed - using internal API call instead
 
 interface SwapArgs {
@@ -208,25 +210,6 @@ function matchesSimulatedSwap(simulated: SwapArgs | null, args: SwapArgs): boole
     return sameTokenIn && sameTokenOut;
 }
 
-async function resolveDisplaySymbol(token: string, chainId: number): Promise<string> {
-    const raw = String(token || '').trim();
-    if (!raw) return 'UNKNOWN';
-    const lower = raw.toLowerCase();
-    const nativeSymbol = getChainConfig(chainId).nativeCurrency.symbol.toUpperCase();
-    if (lower === NATIVE_PLACEHOLDER || lower === 'eth' || lower === nativeSymbol.toLowerCase()) return nativeSymbol;
-    if (!isAddressLike(raw)) return raw.toUpperCase();
-    const knownSymbols: Record<string, string> = {
-        '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913': 'USDC',
-        '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48': 'USDC',
-        '0xdac17f958d2ee523a2206206994597c13d831ec7': 'USDT',
-        '0x6b175474e89094c44da98b954eedeac495271d0f': 'DAI',
-        '0x50c5725949a6f0c72e6c4a641f24049a917db0cb': 'DAI',
-        '0x4200000000000000000000000000000000000006': 'WETH',
-    };
-    if (knownSymbols[lower]) return knownSymbols[lower];
-    return `${raw.slice(0, 6)}...${raw.slice(-4)}`;
-}
-
 export const PrepareSwapTransactionTool: Tool<SwapArgs> = {
     definition: {
         name: 'prepare_swap_transaction',
@@ -332,6 +315,11 @@ When show-quote-before-swap is enabled (default), execution must follow:
             // Get or create TradeContext for caching token data across the swap flow
             const tradeCtx = getTradeContext(context);
             console.log(`[PrepareSwapTransaction] Using TradeContext: ${tradeCtx.id}`);
+
+            const chainGuard = await validateSwapExecutionChain(args, context);
+            if (!chainGuard.ok) {
+                return { error: chainGuard.error, code: chainGuard.code, mode: 'error' };
+            }
 
             // ========== ⚡ INSTANT PRE-WARMING OPTIMIZATION ⚡ ==========
             // Start quote fetch IMMEDIATELY before any checks
@@ -548,6 +536,10 @@ When show-quote-before-swap is enabled (default), execution must follow:
 
                 if (!userId || !accessToken || !sessionId) {
                     console.warn('[PrepareSwapTransaction] Missing userId/accessToken/sessionId, falling back to client action');
+                    const [tokenInDisplay, tokenOutDisplay] = await Promise.all([
+                        resolveTokenDisplayMetadata(args.token_in, args.chain_id),
+                        resolveTokenDisplayMetadata(args.token_out, args.chain_id),
+                    ]);
                     // Fallback to client action if no auth context
                     return {
                         __client_action: {
@@ -562,16 +554,16 @@ When show-quote-before-swap is enabled (default), execution must follow:
                         },
                         mode: 'execute_client',
                         requires_user_confirmation: false,
-                        summary: `Executing instant swap: ${args.amount_in} ${args.token_in} → ${args.token_out} on chain ${args.chain_id}. Transaction will be submitted automatically.`
+                        summary: `Executing instant swap: ${args.amount_in} ${tokenInDisplay.symbol} → ${tokenOutDisplay.symbol} on chain ${args.chain_id}. Transaction will be submitted automatically.`
                     };
                 }
 
                 // ⚡ STEP 1: Create persistent transaction card message IMMEDIATELY
                 const { createMessage, updateMessage } = await import('../../../repositories/chatRepository.js');
                 const { chatWS } = await import('../../../services/chatWebSocket.js');
-                const [tokenInSymbol, tokenOutSymbol] = await Promise.all([
-                    resolveDisplaySymbol(args.token_in, args.chain_id),
-                    resolveDisplaySymbol(args.token_out, args.chain_id),
+                const [tokenInDisplay, tokenOutDisplay] = await Promise.all([
+                    resolveTokenDisplayMetadata(args.token_in, args.chain_id),
+                    resolveTokenDisplayMetadata(args.token_out, args.chain_id),
                 ]);
 
                 const transactionMessage = await createMessage(
@@ -585,8 +577,10 @@ When show-quote-before-swap is enabled (default), execution must follow:
                             swapType: 'buy',
                             tokenIn: args.token_in,
                             tokenOut: args.token_out,
-                            tokenInSymbol,
-                            tokenOutSymbol,
+                            tokenInSymbol: tokenInDisplay.symbol,
+                            tokenOutSymbol: tokenOutDisplay.symbol,
+                            tokenInLogoURI: tokenInDisplay.logoURI,
+                            tokenOutLogoURI: tokenOutDisplay.logoURI,
                             amountIn: args.amount_in,
                             chainId: args.chain_id,
                             slippage: args.slippage || 0.5,
@@ -612,8 +606,10 @@ When show-quote-before-swap is enabled (default), execution must follow:
                                 status: 'sending',
                                 tokenIn: args.token_in,
                                 tokenOut: args.token_out,
-                                tokenInSymbol,
-                                tokenOutSymbol,
+                                tokenInSymbol: tokenInDisplay.symbol,
+                                tokenOutSymbol: tokenOutDisplay.symbol,
+                                tokenInLogoURI: tokenInDisplay.logoURI,
+                                tokenOutLogoURI: tokenOutDisplay.logoURI,
                                 amountIn: args.amount_in,
                                 chainId: args.chain_id,
                                 slippage: args.slippage || 0.5,
@@ -1070,10 +1066,14 @@ When show-quote-before-swap is enabled (default), execution must follow:
 
             // DEPRECATED: Swap cards removed from chat interface
             // Return simulation-only response, user must explicitly confirm via text
+            const [tokenInSummaryDisplay, tokenOutSummaryDisplay] = await Promise.all([
+                resolveTokenDisplayMetadata(args.token_in, args.chain_id),
+                resolveTokenDisplayMetadata(args.token_out, args.chain_id),
+            ]);
             return {
                 mode: 'simulation_only',
                 success: true,
-                summary: `Swap prepared: ${args.amount_in} ${args.token_in} → ${args.token_out}. Please reply "confirm" or "execute" to complete the trade.`,
+                summary: `Swap prepared: ${args.amount_in} ${tokenInSummaryDisplay.symbol} → ${tokenOutSummaryDisplay.symbol}. Please reply "confirm" or "execute" to complete the trade.`,
                 requires_confirmation: true,
                 swapDetails: {
                     tokenIn: args.token_in,

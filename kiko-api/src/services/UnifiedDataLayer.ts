@@ -63,6 +63,7 @@ export async function getTokenData(
             address: rawData.address || address,
             symbol: rawData.symbol || 'UNKNOWN',
             name: rawData.name || rawData.symbol || 'Unknown Token',
+            logoURI: rawData.logoURI || rawData.imageUrl,
             decimals: rawData.decimals || 18,
             price: rawData.price || rawData.priceUsd,
             priceUsd: rawData.priceUsd || rawData.price,

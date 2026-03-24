@@ -100,3 +100,56 @@ test('assembleChatContext surfaces exact requested token balances from direct to
     assert.equal(snapshot.runtime.prefetchedToolResults?.get_wallet_info?.tokens?.[0]?.contractAddress, token);
     assert.equal(snapshot.runtime.prefetchedToolResults?.get_wallet_info?.tokens?.[0]?.balance, '1870734.311693124190730712');
 });
+
+test('assembleChatContext clears swap confirmation for explicit chain switch requests', () => {
+    const snapshot = assembleChatContext({
+        task: {
+            id: 'task-3',
+            sessionId: 'session-3',
+            userMessageId: 'user-3',
+            assistantMessageId: 'assistant-3',
+            model: 'gpt-5-mini',
+            toolContext: {
+                walletAddress: '0xA386bc9D8F26AB170A847D73226e3e0BCEb0fe8E',
+                chainId: 8453,
+                chainName: 'Base',
+            },
+        },
+        session: {
+            userId: 'user-3',
+        },
+        messages: [
+            {
+                role: 'assistant',
+                id: 'assistant-1',
+                message_index: 1,
+                data: {
+                    toolTrace: {
+                        toolCalls: [
+                            {
+                                tool: 'prepare_swap_transaction',
+                                status: 'success',
+                                args: {
+                                    token_in: '0x8ac76a51cc950d982d68b83fe1ad97b32cd580d',
+                                    token_out: 'BNB',
+                                    amount_in: '0.065216073765713464',
+                                    chain_id: 56,
+                                },
+                                result: { finishedAt: '2026-03-19T09:36:35.000Z' },
+                            },
+                        ],
+                    },
+                },
+            },
+            {
+                role: 'user',
+                content: 'Switch to polygon',
+                message_index: 2,
+            },
+        ],
+        toolDefinitions: [],
+        userId: 'user-3',
+    });
+
+    assert.equal(snapshot.confirmationState, null);
+});

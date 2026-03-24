@@ -262,6 +262,55 @@ export async function seedInitialQualityUsers(fids: number[]): Promise<number> {
   return saveQualityUsers(users);
 }
 
+/**
+ * Merge a new list of FIDs into the current active quality-user set.
+ * Existing active users remain active; provided FIDs are upserted/reactivated.
+ */
+export async function mergeQualityUsersFromFids(
+  fids: number[],
+  source: string = 'dune_hot_casts'
+): Promise<number> {
+  const uniqueFids = Array.from(new Set(
+    fids
+      .map((fid) => Number(fid))
+      .filter((fid) => Number.isInteger(fid) && fid > 0)
+  ));
+
+  if (uniqueFids.length === 0) return 0;
+
+  try {
+    await withRetry(async () => {
+      await prisma.$transaction(async (tx) => {
+        const now = new Date();
+
+        for (const fid of uniqueFids) {
+          await tx.qualityFarcasterUser.upsert({
+            where: { fid },
+            update: {
+              source,
+              isActive: true,
+              lastVerifiedAt: now,
+              updatedAt: now,
+            },
+            create: {
+              fid,
+              source,
+              isActive: true,
+              lastVerifiedAt: now,
+            },
+          });
+        }
+      });
+    });
+
+    await clearCache();
+    return uniqueFids.length;
+  } catch (error) {
+    console.error('[QualityUsersRepo] Error merging quality users:', error);
+    throw error;
+  }
+}
+
 export async function hasQualityUsers(): Promise<boolean> {
   try {
     const count = await prisma.qualityFarcasterUser.count({
@@ -371,6 +420,7 @@ export default {
   saveQualityUsers,
   updateUserCoinStatus,
   seedInitialQualityUsers,
+  mergeQualityUsersFromFids,
   hasQualityUsers,
   getQualityUsersStats,
   clearCache,

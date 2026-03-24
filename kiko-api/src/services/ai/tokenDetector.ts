@@ -17,6 +17,7 @@ export interface TokenInfo {
     name: string;
     chainId: number;
     chainName: string;
+    logoURI?: string;
     price?: number;
     priceChange24h?: number;
     marketCap?: number;
@@ -102,6 +103,7 @@ export async function findTokenOnAnyChain(address: string): Promise<TokenInfo | 
                     name: launchpadResult.data?.name || 'Unknown Token',
                     chainId: launchpadResult.chainId,
                     chainName: 'Base',
+                    logoURI: launchpadResult.data?.imageUrl || launchpadResult.data?.logoURI,
                     launchpad: {
                         provider: launchpadResult.provider,
                         data: launchpadResult.data,
@@ -129,6 +131,7 @@ export async function findTokenOnAnyChain(address: string): Promise<TokenInfo | 
             name: match.baseToken.name,
             chainId,
             chainName: CHAIN_ID_TO_NAME[chainId] || 'Unknown',
+            logoURI: typeof (match as any)?.info?.imageUrl === 'string' ? (match as any).info.imageUrl : undefined,
             price: match.priceUsd ? parseFloat(match.priceUsd) : undefined,
             priceChange24h: match.priceChange24h,
             volume24h: match.volume24h,
@@ -181,6 +184,7 @@ export async function getTokenInfo(address: string, chainId: number): Promise<To
                     name: geckoData.name,
                     chainId,
                     chainName: CHAIN_ID_TO_NAME[chainId] || 'Unknown',
+                    logoURI: geckoData.imageUrl,
                     price: geckoData.price,
                     priceChange24h: geckoData.priceChange24h,
                     volume24h: geckoData.volume24h,
@@ -222,6 +226,7 @@ export async function getTokenInfo(address: string, chainId: number): Promise<To
                     name: dexData.name,
                     chainId,
                     chainName: CHAIN_ID_TO_NAME[chainId] || 'Unknown',
+                    logoURI: dexData.imageUrl,
                     price: dexData.price,
                     priceChange24h: dexData.priceChange24h,
                     volume24h: dexData.volume24h,
@@ -262,6 +267,7 @@ export async function getTokenInfo(address: string, chainId: number): Promise<To
                 name: launchpadResult.data.name || 'Unknown Token',
                 chainId: launchpadResult.chainId,
                 chainName: CHAIN_ID_TO_NAME[launchpadResult.chainId] || 'Unknown',
+                logoURI: launchpadResult.data?.imageUrl || launchpadResult.data?.logoURI,
                 launchpad: {
                     provider: launchpadResult.provider,
                     data: launchpadResult.data,

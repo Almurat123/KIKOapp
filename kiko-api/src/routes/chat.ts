@@ -11,12 +11,13 @@ import { chatWS } from '../services/chatWebSocket.js';
 import { chatWorker } from '../jobs/chatWorker.js';
 import prisma from '../db/prisma.js';
 import { sanitizedErrorResponse } from '../utils/securityUtils.js';
-import { evaluateUsageAccess } from '../services/usageAccess.js';
+import { evaluateUsageAccess, isCurrentRequestFree } from '../services/usageAccess.js';
 import { getWalletBalance } from '../services/alchemy.js';
 import { ethers } from 'ethers';
 import cacheClient from '../cache/cacheClient.js';
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
+import { resolveToolContextChainSwitchAck } from '../jobs/chat/toolContextChainState.js';
 
 // Request body types
 interface CreateSessionBody {
@@ -49,6 +50,13 @@ interface UpdateSessionBody {
     title?: string;
     model?: string;
     status?: 'active' | 'archived';
+}
+
+interface ReportChainSwitchBody {
+    chainId?: number;
+    chainName?: string;
+    status: 'success' | 'failed';
+    error?: string;
 }
 
 function normalizeTaskModel(model?: string): string {
@@ -329,7 +337,7 @@ export async function chatRoutes(fastify: FastifyInstance) {
                     }
 
                     billingContext = {
-                        isFree: true,
+                        isFree: isCurrentRequestFree(usageDecision),
                         modelCategory: usageDecision.modelCategory
                     };
                 } catch (usageError: any) {
@@ -367,14 +375,21 @@ export async function chatRoutes(fastify: FastifyInstance) {
                             : undefined;
 
                 let resolvedWalletAddress: string | undefined = walletAddress || undefined;
-                if (!resolvedWalletAddress && userId) {
+                let evmWalletAddress: string | undefined = chainId === 900 ? undefined : walletAddress || undefined;
+                let solanaWalletAddress: string | undefined = chainId === 900 ? walletAddress || undefined : undefined;
+                if (userId) {
                     try {
-                        if (chainId === 900) {
-                            const { getSolanaEmbeddedWalletAddress } = await import('../services/privyWallet.js');
-                            resolvedWalletAddress = (await getSolanaEmbeddedWalletAddress(userId)) || undefined;
-                        } else {
-                            const { getEmbeddedWalletAddress } = await import('../services/privyWallet.js');
-                            resolvedWalletAddress = (await getEmbeddedWalletAddress(userId)) || undefined;
+                        const { getEmbeddedWalletAddress, getSolanaEmbeddedWalletAddress } = await import('../services/privyWallet.js');
+                        const [resolvedEvmWallet, resolvedSolanaWallet] = await Promise.all([
+                            getEmbeddedWalletAddress(userId).catch(() => null),
+                            getSolanaEmbeddedWalletAddress(userId).catch(() => null),
+                        ]);
+                        evmWalletAddress = resolvedEvmWallet || evmWalletAddress;
+                        solanaWalletAddress = resolvedSolanaWallet || solanaWalletAddress;
+                        if (!resolvedWalletAddress) {
+                            resolvedWalletAddress = chainId === 900
+                                ? (resolvedSolanaWallet || undefined)
+                                : (resolvedEvmWallet || undefined);
                         }
                     } catch (e) {
                         fastify.log.warn({ err: e }, 'Failed to resolve embedded wallet address for chat task');
@@ -477,6 +492,11 @@ export async function chatRoutes(fastify: FastifyInstance) {
                         userId,
                         sessionId, // Add sessionId to toolContext for backend execution
                         walletAddress: resolvedWalletAddress,
+                        userAddress: resolvedWalletAddress,
+                        evmWalletAddress,
+                        solanaWalletAddress,
+                        solanaAddress: solanaWalletAddress,
+                        userSolanaAddress: solanaWalletAddress,
                         chainId,
                         farcaster: mergedFarcasterContext,
                         toolConfig,
@@ -721,6 +741,70 @@ export async function chatRoutes(fastify: FastifyInstance) {
             } catch (error: any) {
                 fastify.log.error('Error stopping task:', error);
                 return reply.code(500).send(sanitizedErrorResponse(error, 'stopTask'));
+            }
+        }
+    );
+
+    fastify.post<{ Params: { taskId: string }; Body: ReportChainSwitchBody }>(
+        '/tasks/:taskId/chain-switch',
+        { preHandler: requireAuth },
+        async (request: FastifyRequest<{ Params: { taskId: string }; Body: ReportChainSwitchBody }>, reply: FastifyReply) => {
+            try {
+                const { taskId } = request.params;
+                const task = await chatRepo.getTask(taskId);
+
+                if (!task) {
+                    return reply.code(404).send({ error: 'Task not found' });
+                }
+
+                const userId = (request as any).user?.sub;
+                const session = await chatRepo.getSession(task.sessionId);
+                if (!session || session.userId !== userId) {
+                    return reply.code(403).send({ error: 'Access denied' });
+                }
+
+                const toolContext = task.toolContext && typeof task.toolContext === 'object'
+                    ? task.toolContext
+                    : {};
+                const pending = toolContext.pendingChainSwitch && typeof toolContext.pendingChainSwitch === 'object'
+                    ? toolContext.pendingChainSwitch
+                    : null;
+                if (request.body.status !== 'success' && request.body.status !== 'failed') {
+                    return reply.code(400).send({ error: 'status must be success or failed' });
+                }
+                const chainId = Number(request.body?.chainId || pending?.targetChainId || 0) || 0;
+                const chainName = request.body?.chainName || pending?.targetChainName;
+
+                if (!chainId) {
+                    return reply.code(400).send({ error: 'Target chainId is required' });
+                }
+
+                if (pending?.targetChainId && Number(pending.targetChainId) !== chainId) {
+                    return reply.code(409).send({
+                        error: 'Pending chain switch target does not match the reported chain',
+                        pendingChainId: pending.targetChainId,
+                        chainId,
+                    });
+                }
+
+                const nextToolContext = resolveToolContextChainSwitchAck({
+                    toolContext,
+                    chainId,
+                    chainName,
+                    evmWalletAddress: toolContext.evmWalletAddress,
+                    solanaWalletAddress: toolContext.solanaWalletAddress || toolContext.solanaAddress || toolContext.userSolanaAddress,
+                    status: request.body.status,
+                    error: request.body.error,
+                });
+
+                const updatedTask = await chatRepo.updateTaskToolContext(taskId, nextToolContext);
+                return reply.send({
+                    success: true,
+                    task: updatedTask,
+                });
+            } catch (error: any) {
+                fastify.log.error('Error reporting chain switch result:', error);
+                return reply.code(500).send(sanitizedErrorResponse(error, 'reportChainSwitchResult'));
             }
         }
     );
