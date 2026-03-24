@@ -17,6 +17,8 @@
         "get_whale_watch",
         "get_current_time",
         "create_polymarket_copy_config",
+        "update_polymarket_copy_config",
+        "delete_polymarket_copy_config",
         "list_polymarket_positions",
         "get_polymarket_trader_stats",
         "check_polymarket_readiness",
@@ -27,7 +29,8 @@
         "prepare_swap_transaction",
         "place_polymarket_order",
         "withdraw_polymarket_position",
-        "cancel_polymarket_order"
+        "cancel_polymarket_order",
+        "modify_polymarket_order"
     ],
     "examples": {
         "en": [

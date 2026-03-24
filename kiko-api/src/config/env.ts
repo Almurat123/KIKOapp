@@ -243,7 +243,10 @@ function validateEnv(): EnvConfig {
             console.warn('[Env] Failed to parse USAGE_LIMITS_TIERS_JSON, using default tiers.');
         }
     }
-    const deepseekModels = (process.env.BILLING_DEEPSEEK_MODELS || 'deepseek-chat,deepseek-reasoner')
+    const deepseekModels = (
+        process.env.BILLING_DEEPSEEK_MODELS ||
+        'deepseek-chat,deepseek-reasoner,gpt-5.4-mini-2026-03-17'
+    )
         .split(',')
         .map(v => v.trim())
         .filter(Boolean);

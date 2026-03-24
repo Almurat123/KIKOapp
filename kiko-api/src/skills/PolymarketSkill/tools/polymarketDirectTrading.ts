@@ -346,7 +346,10 @@ export const PlacePolymarketOrderTool: Tool = {
 
             // Get or create config
             let config = await prisma.polymarketCopyConfig.findFirst({
-                where: { userId: user.privyDid }
+                where: {
+                    userId: user.privyDid,
+                    targetWallet: '0x0000000000000000000000000000000000000000'
+                }
             });
 
             if (!config) {
@@ -513,6 +516,107 @@ export const CancelPolymarketOrderTool: Tool = {
                     error: result.error || 'Failed to cancel order'
                 };
             }
+        } catch (error: any) {
+            return {
+                success: false,
+                error: error.message
+            };
+        }
+    },
+    permissions: 'authenticated'
+};
+
+/**
+ * Modify Polymarket Order Tool
+ */
+export const ModifyPolymarketOrderTool: Tool = {
+    definition: {
+        name: 'modify_polymarket_order',
+        description: 'Modify an open Polymarket order by cancelling it and replacing it with a new price. Use when the user wants to edit, reprice, or replace an existing order.',
+        parameters: {
+            type: 'object',
+            properties: {
+                order_id: {
+                    type: 'string',
+                    description: 'Existing order ID to modify.'
+                },
+                new_price: {
+                    type: 'number',
+                    description: 'Replacement price between 0.01 and 0.99.'
+                },
+                amount_usd: {
+                    type: 'number',
+                    description: 'Optional replacement notional for BUY orders. If omitted, the tool reuses the old order notional.'
+                },
+                shares: {
+                    type: 'number',
+                    description: 'Optional replacement size for SELL orders. If omitted, the tool reuses the remaining open shares.'
+                },
+                token_id: {
+                    type: 'string',
+                    description: 'Optional explicit token ID override. Usually omitted because the tool reuses the existing order asset.'
+                },
+                question: {
+                    type: 'string',
+                    description: 'Optional market question override.'
+                },
+                outcome: {
+                    type: 'string',
+                    description: 'Optional outcome label override.'
+                },
+                side: {
+                    type: 'string',
+                    enum: ['BUY', 'SELL'],
+                    description: 'Optional side override. Usually omitted because the tool reuses the existing order side.'
+                }
+            },
+            required: ['order_id', 'new_price']
+        }
+    },
+    handler: async (args: {
+        order_id: string;
+        new_price: number;
+        amount_usd?: number;
+        shares?: number;
+        token_id?: string;
+        question?: string;
+        outcome?: string;
+        side?: 'BUY' | 'SELL';
+    }, context) => {
+        const userId = context?.userId;
+        if (!userId) {
+            throw new Error('User authentication required');
+        }
+
+        try {
+            const { modifyOrder } = await import('../../../services/polymarketExecutor.js');
+            const result = await modifyOrder({
+                userId,
+                orderId: args.order_id,
+                newPrice: args.new_price,
+                amountUsd: args.amount_usd,
+                shares: args.shares,
+                tokenId: args.token_id,
+                question: args.question,
+                outcome: args.outcome,
+                side: args.side,
+            });
+
+            if (result.success) {
+                return {
+                    success: true,
+                    order_id: result.newOrderId,
+                    replaced_order_id: args.order_id,
+                    message: `✅ Order replaced successfully at $${args.new_price.toFixed(3)}.`
+                };
+            }
+
+            return {
+                success: false,
+                replaced_order_id: args.order_id,
+                cancelled_original: result.cancelledOriginal || false,
+                error: result.error || 'Failed to modify order'
+            };
         } catch (error: any) {
             return {
                 success: false,

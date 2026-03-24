@@ -15,6 +15,7 @@ import { fetchJson } from '../config/unifiedApiService.js';
 import crypto from 'crypto';
 import { notificationService } from './notifications/farcaster/index.js';
 import { VoidSigner } from 'ethers';
+import { getOpenOrdersForUser } from './polymarketDataService.js';
 
 // CLOB API endpoints
 const CLOB_API = 'https://clob.polymarket.com';
@@ -250,21 +251,64 @@ export async function placeBuyOrder(params: BuyOrderParams): Promise<{ success: 
         const isDirectTrade = config?.targetWallet === '0x0000000000000000000000000000000000000000' || params.marketSlug === 'direct-trade';
 
         if (!isDirectTrade || !result.success) {
-            await prisma.polymarketPosition.create({
-                data: {
-                    userId: user.privyDid,
-                    configId: params.configId,
-                    marketSlug: params.marketSlug,
-                    conditionId: params.conditionId,
-                    assetId: params.tokenId,
-                    question: params.question,
-                    outcome: params.outcome,
-                    entryPrice: params.price,
-                    shares: shares,
-                    costBasis: params.amountUsd,
-                    status: result.success ? 'open' : 'failed'
+            if (result.success) {
+                const existingPosition = await prisma.polymarketPosition.findFirst({
+                    where: {
+                        userId: user.privyDid,
+                        configId: params.configId,
+                        assetId: params.tokenId,
+                        status: 'open'
+                    }
+                });
+
+                if (existingPosition) {
+                    const nextShares = existingPosition.shares + shares;
+                    const nextCostBasis = existingPosition.costBasis + params.amountUsd;
+                    const nextEntryPrice = nextShares > 0 ? nextCostBasis / nextShares : params.price;
+
+                    await prisma.polymarketPosition.update({
+                        where: { id: existingPosition.id },
+                        data: {
+                            shares: nextShares,
+                            costBasis: nextCostBasis,
+                            entryPrice: nextEntryPrice,
+                            currentPrice: params.price
+                        }
+                    });
+                } else {
+                    await prisma.polymarketPosition.create({
+                        data: {
+                            userId: user.privyDid,
+                            configId: params.configId,
+                            marketSlug: params.marketSlug,
+                            conditionId: params.conditionId,
+                            assetId: params.tokenId,
+                            question: params.question,
+                            outcome: params.outcome,
+                            entryPrice: params.price,
+                            shares: shares,
+                            costBasis: params.amountUsd,
+                            status: 'open'
+                        }
+                    });
                 }
-            });
+            } else {
+                await prisma.polymarketPosition.create({
+                    data: {
+                        userId: user.privyDid,
+                        configId: params.configId,
+                        marketSlug: params.marketSlug,
+                        conditionId: params.conditionId,
+                        assetId: params.tokenId,
+                        question: params.question,
+                        outcome: params.outcome,
+                        entryPrice: params.price,
+                        shares: shares,
+                        costBasis: params.amountUsd,
+                        status: 'failed'
+                    }
+                });
+            }
         }
 
         return result;
@@ -367,22 +411,32 @@ export async function placeSellOrder(params: SellOrderParams): Promise<{ success
         // Update position in DB if it exists
         if (params.positionId) {
             try {
-                // Try finding by internal ID or assetId
-                const where = params.positionId.length < 50
-                    ? { id: params.positionId }
-                    : { userId_assetId: { userId: params.userId, assetId: params.positionId } };
-
-                // Note: userId_assetId might need specialized handling if not unique in schema
-                // For now, let's keep it simple: try update by ID if it's short
                 if (params.positionId.length < 50) {
-                    await prisma.polymarketPosition.update({
-                        where: { id: params.positionId },
-                        data: {
-                            status: result.success ? 'closed' : 'open',
-                            exitReason: result.success ? 'manual_sell' : `sell_failed: ${result.error?.slice(0, 100)}`,
-                            closedAt: result.success ? new Date() : null
-                        }
+                    const currentPosition = await prisma.polymarketPosition.findUnique({
+                        where: { id: params.positionId }
                     });
+
+                    if (currentPosition) {
+                        const remainingShares = Math.max(0, currentPosition.shares - params.shares);
+                        const soldRatio = currentPosition.shares > 0
+                            ? clampFraction(params.shares / currentPosition.shares)
+                            : 1;
+                        const remainingCostBasis = Math.max(0, currentPosition.costBasis * (1 - soldRatio));
+                        const fullyClosed = result.success && remainingShares <= 0.000001;
+
+                        await prisma.polymarketPosition.update({
+                            where: { id: params.positionId },
+                            data: {
+                                status: result.success ? (fullyClosed ? 'closed' : 'open') : 'open',
+                                shares: result.success ? (fullyClosed ? 0 : remainingShares) : currentPosition.shares,
+                                costBasis: result.success ? (fullyClosed ? 0 : remainingCostBasis) : currentPosition.costBasis,
+                                exitReason: result.success
+                                    ? (fullyClosed ? 'manual_sell' : 'partial_sell')
+                                    : `sell_failed: ${result.error?.slice(0, 100)}`,
+                                closedAt: result.success && fullyClosed ? new Date() : null
+                            }
+                        });
+                    }
                 }
             } catch (e) {
                 // Ignore update errors
@@ -433,7 +487,8 @@ export async function handlePositionChange(
     type: 'OPENED' | 'CLOSED' | 'INCREASED' | 'DECREASED',
     targetWallet: string,
     position: any,
-    configIds: string[]
+    configIds: string[],
+    previousPosition: any = null,
 ): Promise<void> {
     console.log(`[PolymarketExecutor] Handling ${type} for ${position.title?.slice(0, 30)}...`);
 
@@ -514,11 +569,22 @@ export async function handlePositionChange(
                 if (userPosition) {
                     console.log(`[PolymarketExecutor] Mirroring sell for user ${userId.slice(0, 15)}...`);
 
+                    let sellPrice = 0.01;
+                    try {
+                        const { getBestBid } = await import('./polymarketDataService.js');
+                        const bestBid = await getBestBid(userPosition.assetId);
+                        if (bestBid && bestBid > 0) {
+                            sellPrice = bestBid;
+                        }
+                    } catch (e) {
+                        console.warn('[PolymarketExecutor] Failed to fetch executable mirror-sell price, using fallback 0.01', e);
+                    }
+
                     const result = await placeSellOrder({
                         userId,
                         positionId: userPosition.id,
                         shares: userPosition.shares,
-                        minPrice: 0.01
+                        minPrice: sellPrice
                     });
 
                     if (result.success) {
@@ -554,8 +620,85 @@ export async function handlePositionChange(
                         });
                     }
                 }
+            } else if (type === 'INCREASED') {
+                const userPosition = await prisma.polymarketPosition.findFirst({
+                    where: {
+                        userId: config.user.privyDid,
+                        assetId: position.assetId,
+                        status: 'open'
+                    }
+                });
+
+                const deltaRatio = computePositionDeltaRatio({
+                    type,
+                    previousSize: previousPosition?.size,
+                    currentSize: position?.size,
+                });
+
+                if (!userPosition || !deltaRatio || deltaRatio <= 0) {
+                    console.log(`[PolymarketExecutor] Skipping INCREASED mirror for ${userId.slice(0, 15)}... (no base position or delta)`);
+                    continue;
+                }
+
+                const additionalUsd = Math.max(1, Number((userPosition.costBasis * deltaRatio).toFixed(2)));
+                console.log(`[PolymarketExecutor] Mirroring INCREASED position for user ${userId.slice(0, 15)}... ratio=${deltaRatio.toFixed(4)} usd=${additionalUsd}`);
+
+                await placeBuyOrder({
+                    userId,
+                    configId: config.id,
+                    tokenId: position.assetId || '',
+                    price: position.avgPrice || userPosition.entryPrice || 0.5,
+                    amountUsd: additionalUsd,
+                    question: position.title || userPosition.question || '',
+                    outcome: position.outcome || userPosition.outcome || '',
+                    marketSlug: position.market || userPosition.marketSlug || '',
+                    conditionId: position.conditionId || userPosition.conditionId || ''
+                });
+            } else if (type === 'DECREASED' && config.mirrorSell) {
+                const userPosition = await prisma.polymarketPosition.findFirst({
+                    where: {
+                        userId: config.user.privyDid,
+                        assetId: position.assetId,
+                        status: 'open'
+                    }
+                });
+
+                const deltaRatio = computePositionDeltaRatio({
+                    type,
+                    previousSize: previousPosition?.size,
+                    currentSize: position?.size,
+                });
+
+                if (!userPosition || !deltaRatio || deltaRatio <= 0) {
+                    console.log(`[PolymarketExecutor] Skipping DECREASED mirror for ${userId.slice(0, 15)}... (no base position or delta)`);
+                    continue;
+                }
+
+                const sharesToSell = Math.min(userPosition.shares, Number((userPosition.shares * deltaRatio).toFixed(6)));
+                if (sharesToSell <= 0) {
+                    continue;
+                }
+
+                let sellPrice = 0.01;
+                try {
+                    const { getBestBid } = await import('./polymarketDataService.js');
+                    const bestBid = await getBestBid(userPosition.assetId);
+                    if (bestBid && bestBid > 0) {
+                        sellPrice = bestBid;
+                    }
+                } catch (e) {
+                    console.warn('[PolymarketExecutor] Failed to fetch executable price for DECREASED mirror-sell, using fallback 0.01', e);
+                }
+
+                console.log(`[PolymarketExecutor] Mirroring DECREASED position for user ${userId.slice(0, 15)}... ratio=${deltaRatio.toFixed(4)} shares=${sharesToSell}`);
+
+                await placeSellOrder({
+                    userId,
+                    positionId: userPosition.id,
+                    shares: sharesToSell,
+                    minPrice: sellPrice
+                });
             }
-            // INCREASED and DECREASED can be handled similarly if needed
         }
     } catch (error: any) {
         console.error('[PolymarketExecutor] Error handling position change:', error);
@@ -578,6 +721,75 @@ export interface ClosePositionParams {
 export interface CancelOrderParams {
     userId: string;
     orderId: string;
+}
+
+export interface ModifyOrderParams {
+    userId: string;
+    orderId: string;
+    newPrice: number;
+    side?: 'BUY' | 'SELL';
+    tokenId?: string;
+    question?: string;
+    outcome?: string;
+    amountUsd?: number;
+    shares?: number;
+}
+
+function clampFraction(value: number): number {
+    if (!Number.isFinite(value)) return 0;
+    if (value < 0) return 0;
+    if (value > 1) return 1;
+    return value;
+}
+
+export function computePositionDeltaRatio(params: {
+    type: 'OPENED' | 'CLOSED' | 'INCREASED' | 'DECREASED';
+    previousSize?: number;
+    currentSize?: number;
+}): number | null {
+    if (params.type !== 'INCREASED' && params.type !== 'DECREASED') return null;
+    const previousSize = Number(params.previousSize || 0);
+    const currentSize = Number(params.currentSize || 0);
+    if (!Number.isFinite(previousSize) || previousSize <= 0 || !Number.isFinite(currentSize)) {
+        return null;
+    }
+    const delta = Math.abs(currentSize - previousSize);
+    return clampFraction(delta / previousSize);
+}
+
+async function ensureDirectTradeConfig(userId: string, walletAddress: string) {
+    let user = await prisma.user.findFirst({
+        where: { privyDid: userId }
+    });
+
+    if (!user) {
+        user = await prisma.user.create({
+            data: {
+                privyDid: userId,
+                walletAddress
+            }
+        });
+    }
+
+    let config = await prisma.polymarketCopyConfig.findFirst({
+        where: {
+            userId: user.privyDid,
+            targetWallet: '0x0000000000000000000000000000000000000000'
+        }
+    });
+
+    if (!config) {
+        config = await prisma.polymarketCopyConfig.create({
+            data: {
+                userId: user.privyDid,
+                targetWallet: '0x0000000000000000000000000000000000000000',
+                betSizeUsd: 10,
+                maxOpenBets: 10
+            }
+        });
+    }
+
+    return { user, config };
 }
 
 /**
@@ -710,6 +922,114 @@ export async function cancelOrder(params: CancelOrderParams): Promise<{
 
     } catch (error: any) {
         console.error('[PolymarketExecutor] Cancel order failed:', error);
+        return { success: false, error: error.message };
+    }
+}
+
+/**
+ * Modify an open Polymarket order by cancelling it and placing a replacement.
+ * This models Polymarket order changes as cancel + recreate rather than in-place amend.
+ */
+export async function modifyOrder(params: ModifyOrderParams): Promise<{
+    success: boolean;
+    newOrderId?: string;
+    error?: string;
+    cancelledOriginal?: boolean;
+}> {
+    console.log('[PolymarketExecutor] Modifying order:', params.orderId);
+
+    if (!Number.isFinite(params.newPrice) || params.newPrice <= 0 || params.newPrice >= 1) {
+        return { success: false, error: 'newPrice must be between 0.01 and 0.99' };
+    }
+
+    try {
+        const creds = await getUserApiCreds(params.userId);
+        if (!creds) {
+            return { success: false, error: 'User has no Polymarket API credentials' };
+        }
+
+        const openOrders = await getOpenOrdersForUser(params.userId, creds.walletAddress);
+        const existing = openOrders.find((order) => order.id === params.orderId);
+        if (!existing) {
+            return { success: false, error: 'Open order not found for this user' };
+        }
+
+        const side = params.side || existing.side;
+        const tokenId = params.tokenId || existing.assetId;
+        const question = params.question || existing.title || 'Polymarket Order';
+        const outcome = params.outcome || existing.outcome || '';
+
+        const cancelResult = await cancelOrder({
+            userId: params.userId,
+            orderId: params.orderId
+        });
+
+        if (!cancelResult.success) {
+            return { success: false, error: cancelResult.error };
+        }
+
+        if (side === 'SELL') {
+            const remainingShares = Math.max(existing.size - existing.filled, 0);
+            const shares = typeof params.shares === 'number' && params.shares > 0
+                ? params.shares
+                : remainingShares;
+
+            if (!shares || shares <= 0) {
+                return {
+                    success: false,
+                    cancelledOriginal: true,
+                    error: 'Original order was cancelled, but no sell shares were available for the replacement order'
+                };
+            }
+
+            const result = await placeSellOrder({
+                userId: params.userId,
+                assetId: tokenId,
+                shares,
+                minPrice: params.newPrice
+            });
+
+            return {
+                success: result.success,
+                newOrderId: result.orderId,
+                cancelledOriginal: true,
+                error: result.success ? undefined : `Original order was cancelled, but replacement failed: ${result.error}`
+            };
+        }
+
+        const replacementAmountUsd = typeof params.amountUsd === 'number' && params.amountUsd > 0
+            ? params.amountUsd
+            : Number((existing.size * existing.price).toFixed(2));
+
+        if (!replacementAmountUsd || replacementAmountUsd <= 0) {
+            return {
+                success: false,
+                cancelledOriginal: true,
+                error: 'Original order was cancelled, but the replacement buy amount could not be derived'
+            };
+        }
+
+        const { config } = await ensureDirectTradeConfig(params.userId, creds.walletAddress);
+        const result = await placeBuyOrder({
+            userId: params.userId,
+            configId: config.id,
+            tokenId,
+            price: params.newPrice,
+            amountUsd: replacementAmountUsd,
+            question,
+            outcome,
+            marketSlug: 'direct-trade',
+            conditionId: ''
+        });
+
+        return {
+            success: result.success,
+            newOrderId: result.orderId,
+            cancelledOriginal: true,
+            error: result.success ? undefined : `Original order was cancelled, but replacement failed: ${result.error}`
+        };
+    } catch (error: any) {
+        console.error('[PolymarketExecutor] Modify order failed:', error);
         return { success: false, error: error.message };
     }
 }

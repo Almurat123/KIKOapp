@@ -19,6 +19,8 @@ import {
     GetMarketActivityTool,
     GetWhaleWatchTool,
     CreatePolymarketCopyConfigTool,
+    UpdatePolymarketCopyConfigTool,
+    DeletePolymarketCopyConfigTool,
     ListPolymarketPositionsTool,
     GetPolymarketTraderStatsTool,
     CheckPolymarketReadinessTool,
@@ -27,6 +29,7 @@ import {
     PlacePolymarketOrderTool,
     WithdrawPolymarketPositionTool,
     CancelPolymarketOrderTool,
+    ModifyPolymarketOrderTool,
 } from '../skills/PolymarketSkill/index.js';
 import { SetTokenAlertTool, ListTokenAlertsTool, RemoveTokenAlertTool } from '../skills/TokenAlertSkill/index.js';
 
@@ -69,6 +72,8 @@ const BUILT_IN_TOOLS = [
     GetMarketActivityTool,
     GetWhaleWatchTool,
     CreatePolymarketCopyConfigTool,
+    UpdatePolymarketCopyConfigTool,
+    DeletePolymarketCopyConfigTool,
     ListPolymarketPositionsTool,
     GetPolymarketTraderStatsTool,
     CheckPolymarketReadinessTool,
@@ -77,6 +82,7 @@ const BUILT_IN_TOOLS = [
     PlacePolymarketOrderTool,
     WithdrawPolymarketPositionTool,
     CancelPolymarketOrderTool,
+    ModifyPolymarketOrderTool,
     AnalyzeWalletPnlTool,
     AnalyzeWalletPnlBatchTool,
     GetTokenTopGainersTool,

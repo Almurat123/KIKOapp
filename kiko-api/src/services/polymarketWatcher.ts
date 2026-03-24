@@ -18,6 +18,7 @@ export interface PositionChangeEvent {
     type: 'OPENED' | 'CLOSED' | 'INCREASED' | 'DECREASED';
     targetWallet: string;
     position: PolymarketUserPosition;
+    previousPosition?: PolymarketUserPosition | null;
     configIds: string[]; // Configs watching this wallet
 }
 
@@ -82,22 +83,34 @@ async function pollWallet(wallet: string, configIds: string[]): Promise<void> {
     // Emit events for changes
     for (const pos of diff.opened) {
         console.log(`[PolymarketWatcher] 🟢 NEW POSITION: ${pos.title} (${pos.outcome}) by ${wallet.slice(0, 8)}...`);
-        await emit({ type: 'OPENED', targetWallet: wallet, position: pos, configIds });
+        await emit({ type: 'OPENED', targetWallet: wallet, position: pos, previousPosition: null, configIds });
     }
 
     for (const pos of diff.closed) {
         console.log(`[PolymarketWatcher] 🔴 CLOSED POSITION: ${pos.title} (${pos.outcome}) by ${wallet.slice(0, 8)}...`);
-        await emit({ type: 'CLOSED', targetWallet: wallet, position: pos, configIds });
+        await emit({ type: 'CLOSED', targetWallet: wallet, position: pos, previousPosition: oldPositions.find((oldPos) => oldPos.assetId === pos.assetId) || null, configIds });
     }
 
     for (const pos of diff.increased) {
         console.log(`[PolymarketWatcher] 🟡 INCREASED POSITION: ${pos.title} (${pos.outcome}) by ${wallet.slice(0, 8)}...`);
-        await emit({ type: 'INCREASED', targetWallet: wallet, position: pos, configIds });
+        await emit({
+            type: 'INCREASED',
+            targetWallet: wallet,
+            position: pos,
+            previousPosition: oldPositions.find((oldPos) => oldPos.assetId === pos.assetId) || null,
+            configIds
+        });
     }
 
     for (const pos of diff.decreased) {
         console.log(`[PolymarketWatcher] 🟠 DECREASED POSITION: ${pos.title} (${pos.outcome}) by ${wallet.slice(0, 8)}...`);
-        await emit({ type: 'DECREASED', targetWallet: wallet, position: pos, configIds });
+        await emit({
+            type: 'DECREASED',
+            targetWallet: wallet,
+            position: pos,
+            previousPosition: oldPositions.find((oldPos) => oldPos.assetId === pos.assetId) || null,
+            configIds
+        });
     }
 
     // Update cache
@@ -157,5 +170,5 @@ export function clearCache(): void {
 
 // Auto-register the executor handler
 onPositionChange(async (event) => {
-    await handlePositionChange(event.type, event.targetWallet, event.position, event.configIds);
+    await handlePositionChange(event.type, event.targetWallet, event.position, event.configIds, event.previousPosition || null);
 });

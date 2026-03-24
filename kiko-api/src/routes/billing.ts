@@ -95,7 +95,7 @@ export async function billingRoutes(fastify: FastifyInstance) {
             return reply.send({
                 dateUtc,
                 total: { used: counts.total, limit: totalLimit },
-                normal: { used: counts.deepseek, limit: env.billing.dailyFreeDeepseek },
+                normal: { used: counts.deepseek + counts.other, limit: env.billing.dailyFreeDeepseek },
                 advanced: { used: counts.grok, limit: env.billing.dailyFreeGrok },
                 tokenBalance,
             });

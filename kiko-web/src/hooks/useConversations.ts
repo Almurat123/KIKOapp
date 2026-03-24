@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { chatApi } from '../services/api';
 import { usePrivy } from '@privy-io/react-auth';
+import { mergeTransactionCardData } from '../utils/transactionCardState';
 
 export interface Message {
   id: string;
@@ -259,6 +260,14 @@ export const useConversations = () => {
               ...dbMsg,
               type: localMsg.type,
               data: localMsg.data ?? dbMsg.data,
+            };
+            continue;
+          }
+          if (localIsTxCard && dbMsg.type === 'transaction-status-card') {
+            dbMessages[i] = {
+              ...dbMsg,
+              type: localMsg.type,
+              data: mergeTransactionCardData(dbMsg.data ?? {}, localMsg.data ?? {}),
             };
           }
         }

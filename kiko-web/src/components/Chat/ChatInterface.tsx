@@ -30,6 +30,7 @@ import { ChatMessageList } from './ChatMessageList';
 import { ChatComposer } from './ChatComposer';
 import { ACTION_CARD_TYPE_MAP, COMMON_TOKENS, MODEL_OPTIONS } from './chatConstants';
 import { requiresContractAddressInFastMode, resolveNativeToken, resolveTokenForChat, resolveTokenForFastSwap } from './chatTokenResolution';
+import { mergeTransactionCardData } from '../../utils/transactionCardState';
 
 interface TaskState {
     id: string;
@@ -414,12 +415,10 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                             const nextMessage: Message = {
                                 ...current,
                                 type: 'transaction-status-card',
-                                data: {
-                                    ...(current.data || {}),
-                                    ...patch,
-                                },
+                                data: mergeTransactionCardData(current.data || {}, patch),
                             };
                             const updated = replaceMessageAtIndex(currentMessages, idx, nextMessage);
+                            messagesRef.current = updated;
                             updateConversation(conversationId, { messages: updated });
                         };
 
@@ -642,7 +641,9 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                                 updated = replaceMessageAtIndex(updated, targetIdx, {
                                     ...updated[targetIdx],
                                     type: newCardType as Message['type'],
-                                    data: { ...existingData, ...actionData }
+                                    data: newCardType === 'transaction-status-card'
+                                        ? mergeTransactionCardData(existingData, actionData)
+                                        : { ...existingData, ...actionData }
                                 });
                                 logger.debug('[Card] Replaced message at index', { targetIdx, newCardType });
                             } else if (targetMessageId) {
@@ -692,13 +693,13 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                         const freshMsgs = messagesRef.current;
                         const updated = freshMsgs.map(m => {
                             if (m.id === mid && m.type === 'transaction-status-card') {
+                                const mergedData = mergeTransactionCardData(m.data || {}, {
+                                    ...event.data,
+                                    isLoading: !['transaction_complete', 'transaction_confirmed'].includes(event.type) && !['success', 'failed'].includes(event.data.status)
+                                });
                                 return {
                                     ...m,
-                                    data: {
-                                        ...m.data,
-                                        ...event.data,
-                                        isLoading: !['transaction_complete', 'transaction_confirmed'].includes(event.type) && !['success', 'failed'].includes(event.data.status)
-                                    }
+                                    data: mergedData
                                 };
                             }
                             return m;

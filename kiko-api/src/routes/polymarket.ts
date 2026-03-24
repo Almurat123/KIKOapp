@@ -627,6 +627,68 @@ export const polymarketRoutes: FastifyPluginAsync = async (fastify) => {
     });
 
     /**
+     * POST /api/polymarket/trading/order/modify
+     * Modify an open limit order by cancelling and replacing it
+     * Requires: JWT auth
+     */
+    fastify.post('/trading/order/modify', { preHandler: requireAuth }, async (request, reply) => {
+        try {
+            const user = (request as any).user;
+            const privyDid = user?.sub || user?.privyDid;
+            if (!privyDid) {
+                return reply.status(401).send({ success: false, error: 'Authentication required' });
+            }
+
+            const {
+                orderId,
+                newPrice,
+                amountUsd,
+                shares,
+                tokenId,
+                question,
+                outcome,
+                side,
+            } = request.body as {
+                orderId: string;
+                newPrice: number;
+                amountUsd?: number;
+                shares?: number;
+                tokenId?: string;
+                question?: string;
+                outcome?: string;
+                side?: 'BUY' | 'SELL';
+            };
+
+            if (!orderId || typeof newPrice !== 'number') {
+                return reply.status(400).send({ success: false, error: 'orderId and newPrice are required' });
+            }
+
+            const { modifyOrder } = await import('../services/polymarketExecutor.js');
+            const result = await modifyOrder({
+                userId: privyDid,
+                orderId,
+                newPrice,
+                amountUsd,
+                shares,
+                tokenId,
+                question,
+                outcome,
+                side,
+            });
+
+            return {
+                success: result.success,
+                orderId: result.newOrderId,
+                cancelledOriginal: result.cancelledOriginal || false,
+                error: result.error
+            };
+        } catch (error: any) {
+            console.error('[Polymarket] Error modifying order:', error);
+            return reply.status(500).send({ success: false, error: error.message });
+        }
+    });
+
+    /**
      * POST /api/polymarket/trading/position/close
      * Close (sell) an active position
      * Requires: JWT auth

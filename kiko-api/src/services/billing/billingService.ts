@@ -24,7 +24,6 @@ export function getBillingCategory(model: string): BillingCategory {
     if (normalized.includes('grok')) return 'grok';
     if (env.billing.deepseekModels.includes(normalized)) return 'deepseek';
     if (normalized.includes('deepseek')) return 'deepseek';
-
     return 'other';
 }
 

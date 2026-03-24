@@ -210,6 +210,72 @@ function matchesSimulatedSwap(simulated: SwapArgs | null, args: SwapArgs): boole
     return sameTokenIn && sameTokenOut;
 }
 
+type SocketRecoveryTradeRecord = {
+    id?: string;
+    txHash?: string | null;
+    status?: string | null;
+    tokenOutAmount?: string | null;
+    tokenInSymbol?: string | null;
+    tokenOutSymbol?: string | null;
+};
+
+function resolveSocketRecoverySearchStartMs(params: {
+    requestStartedAt?: unknown;
+    recoveryStartedAt: number;
+    lookbackMs?: number;
+}): number {
+    const lookbackMs = Math.max(0, Number(params.lookbackMs ?? 5000));
+    const recoveryStartedAt = Number(params.recoveryStartedAt || Date.now());
+    const requestStartedAt = Number(params.requestStartedAt);
+    const anchor = Number.isFinite(requestStartedAt) && requestStartedAt > 0
+        ? Math.min(requestStartedAt, recoveryStartedAt)
+        : recoveryStartedAt;
+    return Math.max(0, anchor - lookbackMs);
+}
+
+function buildSocketRecoveryResult(params: {
+    currentData: Record<string, any>;
+    recentSwap: SocketRecoveryTradeRecord;
+    args: Pick<SwapArgs, 'amount_in' | 'token_in' | 'token_out'>;
+}) {
+    const recoveredStatus = String(params.recentSwap.status || '').toLowerCase() === 'success'
+        ? 'success'
+        : 'pending';
+    const txHash = params.recentSwap.txHash || undefined;
+    const completionData = {
+        ...params.currentData,
+        status: recoveredStatus,
+        txHash,
+        amountOut: params.recentSwap.tokenOutAmount || params.currentData.amountOut,
+        tokenInSymbol: params.recentSwap.tokenInSymbol || params.currentData.tokenInSymbol,
+        tokenOutSymbol: params.recentSwap.tokenOutSymbol || params.currentData.tokenOutSymbol,
+        completedAt: Date.now(),
+        message: recoveredStatus === 'success'
+            ? `✅ Swap completed! Transaction: ${txHash?.slice(0, 10)}...`
+            : `⏳ Transaction submitted. Waiting for confirmation: ${txHash?.slice(0, 10)}...`,
+        isLoading: recoveredStatus === 'pending'
+    };
+
+    return {
+        completionData,
+        toolResult: {
+            success: true,
+            mode: recoveredStatus === 'success' ? 'executed' : 'pending',
+            txHash,
+            summary: recoveredStatus === 'success'
+                ? `✅ Swap executed successfully! ${params.args.amount_in} ${params.args.token_in} → ${params.args.token_out}. Transaction: ${txHash?.slice(0, 10)}...`
+                : `⏳ Swap submitted: ${params.args.amount_in} ${params.args.token_in} → ${params.args.token_out}. Waiting for confirmation on-chain.`,
+            data: {
+                txHash,
+                status: params.recentSwap.status,
+                tradeId: params.recentSwap.id
+            },
+            _final: true,
+            recovered_from_socket_error: true
+        }
+    };
+}
+
 export const PrepareSwapTransactionTool: Tool<SwapArgs> = {
     definition: {
         name: 'prepare_swap_transaction',
@@ -896,6 +962,11 @@ When show-quote-before-swap is enabled (default), execution must follow:
                             // Optimized polling: Start fast, slow down if no result
                             const maxWaitTime = 60000; // 60 seconds total (reduced from 90s)
                             const startTime = Date.now();
+                            const searchStartMs = resolveSocketRecoverySearchStartMs({
+                                requestStartedAt: transactionMessage.data?.startedAt,
+                                recoveryStartedAt: startTime,
+                                lookbackMs: 5000
+                            });
                             let pollInterval = 500; // Start with 500ms (reduced from 1s)
                             const maxPollInterval = 3000; // Max 3s (reduced from 5s)
 
@@ -909,11 +980,19 @@ When show-quote-before-swap is enabled (default), execution must follow:
                                 recentSwap = await prisma.swapHistory.findFirst({
                                     where: {
                                         userId: context?.userId,
+                                        chainId: args.chain_id,
                                         createdAt: {
-                                            gte: new Date(startTime - 5000) // Include 5s buffer before socket error
+                                            gte: new Date(searchStartMs)
+                                        },
+                                        status: {
+                                            in: ['pending', 'success']
                                         },
                                         tokenInAddress: {
                                             contains: args.token_in,
+                                            mode: 'insensitive'
+                                        },
+                                        tokenOutAddress: {
+                                            contains: args.token_out,
                                             mode: 'insensitive'
                                         }
                                     },
@@ -926,17 +1005,16 @@ When show-quote-before-swap is enabled (default), execution must follow:
                                     // Transaction was recorded! Update card and return success
                                     console.log(`[PrepareSwapTransaction] ✅ Found transaction after ${Math.round((Date.now() - startTime) / 1000)}s (${pollCount} polls):`, recentSwap.txHash);
                                     const currentData = transactionMessage.data || {};
-                                    const completionData = {
-                                        ...currentData,
-                                        status: 'success',
-                                        txHash: recentSwap.txHash,
-                                        amountOut: recentSwap.tokenOutAmount || currentData.amountOut,
-                                        tokenInSymbol: recentSwap.tokenInSymbol || currentData.tokenInSymbol,
-                                        tokenOutSymbol: recentSwap.tokenOutSymbol || currentData.tokenOutSymbol,
-                                        completedAt: Date.now(),
-                                        message: `✅ Swap completed! Transaction: ${recentSwap.txHash.slice(0, 10)}...`,
-                                        isLoading: false
-                                    };
+                                    const recoveryResult = buildSocketRecoveryResult({
+                                        currentData,
+                                        recentSwap,
+                                        args: {
+                                            amount_in: args.amount_in,
+                                            token_in: args.token_in,
+                                            token_out: args.token_out
+                                        }
+                                    });
+                                    const { completionData } = recoveryResult;
                                     isFinalized = true;
                                     if (pendingTimer) {
                                         clearTimeout(pendingTimer);
@@ -957,19 +1035,7 @@ When show-quote-before-swap is enabled (default), execution must follow:
                                             }
                                         }
                                     });
-                                    return {
-                                        success: true,
-                                        mode: 'executed',
-                                        txHash: recentSwap.txHash,
-                                        summary: `✅ Swap executed successfully! ${args.amount_in} ${args.token_in} → ${args.token_out}. Transaction: ${recentSwap.txHash.slice(0, 10)}...`,
-                                        data: {
-                                            txHash: recentSwap.txHash,
-                                            status: recentSwap.status,
-                                            tradeId: recentSwap.id
-                                        },
-                                        _final: true,
-                                        recovered_from_socket_error: true
-                                    };
+                                    return recoveryResult.toolResult;
                                 }
 
                                 // Log only every 5 polls to reduce noise
@@ -1109,4 +1175,9 @@ When show-quote-before-swap is enabled (default), execution must follow:
             return { error: `Failed to prepare swap: ${error.message}`, mode: 'error' };
         }
     }
+};
+
+export const __prepareSwapTest = {
+    resolveSocketRecoverySearchStartMs,
+    buildSocketRecoveryResult,
 };

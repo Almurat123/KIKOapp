@@ -58,10 +58,14 @@ const TRADE_MUTATION_TOOLS = [
 const ORDER_MUTATION_TOOLS = [
     'place_polymarket_order',
     'cancel_polymarket_order',
+    'modify_polymarket_order',
     'withdraw_polymarket_position',
     'create_copy_trade_config',
     'delete_copy_trade_config',
     'pause_copy_trade_config',
+    'create_polymarket_copy_config',
+    'update_polymarket_copy_config',
+    'delete_polymarket_copy_config',
 ];
 
 const POLICY_COUNTERS = new Map<string, number>();
@@ -116,9 +120,9 @@ export function resolveActionClass(snapshot: ChatContextSnapshot, tradingIntent:
 }
 
 function isOrderMutationQuery(query: string): boolean {
-    return /\b(place|submit|create|cancel|close|withdraw)\b/.test(query)
+    return /\b(place|submit|create|cancel|close|withdraw|modify|edit|replace|change|pause|resume|stop)\b/.test(query)
         && (/\border\b/.test(query) || /\bpolymarket\b/.test(query))
-        || /撤单|下单|平仓|取消订单/.test(query);
+        || /撤单|下单|平仓|取消订单|改单|改价|暂停跟单|恢复跟单|停止跟单/.test(query);
 }
 
 export function isTradeMutationTool(toolName: string): boolean {

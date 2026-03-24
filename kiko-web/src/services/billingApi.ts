@@ -1,8 +1,7 @@
 import { getAuthToken } from '../utils/authToken';
+import { resolveCoreApiBase } from '../utils/coreApiBase';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || (
-  import.meta.env.PROD ? 'https://api.kiko.app' : 'http://localhost:3001'
-);
+const API_BASE_URL = resolveCoreApiBase();
 
 async function authFetch(path: string, options: RequestInit = {}, authToken?: string | null) {
   const token = authToken ?? await getAuthToken();

@@ -40,7 +40,7 @@ export async function evaluateUsageAccess(params: { userId: string; model: strin
             totalUsed: counts.total,
             totalLimit: 0,
             tokenBalance: 0,
-            normalUsed: counts.deepseek,
+            normalUsed: counts.deepseek + counts.other,
             advancedUsed: counts.grok,
             modelCategory
         };
@@ -49,7 +49,7 @@ export async function evaluateUsageAccess(params: { userId: string; model: strin
     const { limit: totalLimit, tokenBalance } = await getUserDailyLimit({ userId: params.userId });
     const counts = await getUsageCounts({ userId: params.userId, dateUtc });
     const totalUsed = counts.total;
-    const normalUsed = counts.deepseek;
+    const normalUsed = counts.deepseek + counts.other;
     const advancedUsed = counts.grok;
 
     // 1. Check strict hard cap total limit

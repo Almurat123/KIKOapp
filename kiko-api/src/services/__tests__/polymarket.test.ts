@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { __testables } from '../polymarket.js';
+import { computePositionDeltaRatio } from '../polymarketExecutor.js';
 
 test('parseMarket maps outcomes to concrete token ids and orderbook metadata', () => {
   const market = __testables.parseMarket({
@@ -88,4 +89,30 @@ test('normalizeDate returns null for blank or missing timestamps', () => {
   assert.equal(__testables.normalizeDate(''), null);
   assert.equal(__testables.normalizeDate('   '), null);
   assert.equal(__testables.normalizeDate('2026-03-15T00:00:00Z'), '2026-03-15T00:00:00Z');
+});
+
+test('computePositionDeltaRatio returns proportional changes for mirrored sizing', () => {
+  assert.equal(computePositionDeltaRatio({
+    type: 'INCREASED',
+    previousSize: 100,
+    currentSize: 150,
+  }), 0.5);
+
+  assert.equal(computePositionDeltaRatio({
+    type: 'DECREASED',
+    previousSize: 200,
+    currentSize: 50,
+  }), 0.75);
+
+  assert.equal(computePositionDeltaRatio({
+    type: 'OPENED',
+    previousSize: 0,
+    currentSize: 50,
+  }), null);
+
+  assert.equal(computePositionDeltaRatio({
+    type: 'DECREASED',
+    previousSize: 0,
+    currentSize: 50,
+  }), null);
 });
