@@ -16,6 +16,17 @@ type SwapExecutionGuardResult =
         error: string;
       };
 
+const POLYGON_CHAIN_ID = 137;
+const POLYMARKET_POLYGON_COLLATERAL_TOKEN_ALIASES = new Set([
+    'usdc',
+    'usdce',
+    'usdc.e',
+    'usdc_native',
+    'native_usdc',
+    '0x2791bca1f2de4661ed88a30c99a7a9449aa84174',
+    '0x3c499c542cef5e3811e1192ce70d8cc03d5c3359',
+]);
+
 function isAddressLike(value: unknown): boolean {
     const raw = String(value || '').trim();
     if (!raw) return false;
@@ -30,12 +41,34 @@ function collectRecentUserText(snapshot: any): string {
     return userMessages.map((item: any) => String(item?.content || '')).join('\n');
 }
 
+function normalizeCollateralToken(value: unknown): string {
+    return String(value || '')
+        .trim()
+        .toLowerCase()
+        .replace(/\s+/g, '')
+        .replace(/_/g, '')
+        .replace(/-/g, '');
+}
+
+function isPolymarketPolygonCollateralSwap(args: SwapArgsLike, targetChainId?: number): boolean {
+    if (Number(targetChainId || 0) !== POLYGON_CHAIN_ID) return false;
+    const normalizedTokens = [args.token_in, args.token_out]
+        .map((token) => normalizeCollateralToken(token))
+        .filter(Boolean);
+    if (normalizedTokens.length < 2) return false;
+    return normalizedTokens.every((token) => POLYMARKET_POLYGON_COLLATERAL_TOKEN_ALIASES.has(token));
+}
+
 export async function validateSwapExecutionChain(
     args: SwapArgsLike,
     context: Record<string, any> | undefined,
 ): Promise<SwapExecutionGuardResult> {
     const targetChainId = Number(args.chain_id || 0) || undefined;
     if (!targetChainId) return { ok: true };
+
+    if (isPolymarketPolygonCollateralSwap(args, targetChainId)) {
+        return { ok: true };
+    }
 
     const pendingChainSwitchId = Number(context?.pendingChainSwitch?.targetChainId || 0) || undefined;
     if (pendingChainSwitchId) {

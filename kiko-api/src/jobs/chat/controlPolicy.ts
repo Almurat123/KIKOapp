@@ -109,6 +109,11 @@ export function buildControlPolicySnapshot(params: {
 
 export function resolveActionClass(snapshot: ChatContextSnapshot, tradingIntent: TradingIntent | null): ActionClass {
     const query = String(snapshot.lastUserMessage || '').toLowerCase();
+    const confirmationKind = String(snapshot.confirmationState?.kind || '');
+    if (confirmationKind === 'order_confirmation') {
+        const confirmationActionClass = snapshot.confirmationState?.order?.actionClass;
+        return confirmationActionClass === 'TRADE_MUTATION' ? 'TRADE_MUTATION' : 'ORDER_MUTATION';
+    }
     if (isOrderMutationQuery(query)) return 'ORDER_MUTATION';
     if (tradingIntent?.type === 'swap' || tradingIntent?.type === 'cross_chain_trade') {
         return 'TRADE_MUTATION';

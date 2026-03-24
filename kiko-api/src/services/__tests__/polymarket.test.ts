@@ -116,3 +116,44 @@ test('computePositionDeltaRatio returns proportional changes for mirrored sizing
     currentSize: 50,
   }), null);
 });
+
+test('parseMarketWindowLabel recognizes upcoming and live short-window markets in ET', () => {
+  const now = new Date('2026-03-24T08:58:00Z');
+
+  const upcoming = __testables.parseMarketWindowLabel(
+    'Ethereum Up or Down - March 24, 5:00AM-5:05AM ET',
+    now
+  );
+  const live = __testables.parseMarketWindowLabel(
+    'Ethereum Up or Down - March 24, 4:45AM-5:00AM ET',
+    now
+  );
+
+  assert.equal(upcoming?.status, 'upcoming');
+  assert.equal(upcoming?.secondsToStart, 120);
+  assert.equal(upcoming?.secondsToEnd, 420);
+  assert.equal(live?.status, 'live');
+  assert.equal(live?.secondsToEnd, 120);
+});
+
+test('compareNewMarketPriority prefers the next starting window over the near-expiry live window', () => {
+  const now = new Date('2026-03-24T08:58:00Z');
+
+  const upcoming = __testables.parseMarketWindowLabel(
+    'Ethereum Up or Down - March 24, 5:00AM-5:05AM ET',
+    now
+  );
+  const live = __testables.parseMarketWindowLabel(
+    'Ethereum Up or Down - March 24, 4:45AM-5:00AM ET',
+    now
+  );
+  const expired = __testables.parseMarketWindowLabel(
+    'Ethereum Up or Down - March 24, 4:30AM-4:35AM ET',
+    now
+  );
+
+  assert.ok(upcoming && live && expired);
+  assert.ok(__testables.compareNewMarketPriority(upcoming, live) < 0);
+  assert.ok(__testables.compareNewMarketPriority(live, expired) < 0);
+  assert.ok(__testables.compareNewMarketPriority(expired, null) < 0);
+});

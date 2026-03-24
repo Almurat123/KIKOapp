@@ -247,7 +247,7 @@ export const __testables = {
 export const GetNewMarketsTool: Tool = {
     definition: {
         name: 'get_new_markets',
-        description: 'Get newly created prediction markets. Use this when the user asks "what is new", "newest", "today", "just opened", "next 5 minutes", or other recency-sensitive questions. This is the right companion to get_polymarket_trending_markets when "hot" could mean newly opened rather than high 24h volume. Returns market IDs plus outcome token IDs when available.',
+        description: 'Get newly created prediction markets. Use this when the user asks "what is new", "newest", "today", "just opened", "next 5 minutes", or other recency-sensitive questions. This is the right companion to get_polymarket_trending_markets when "hot" could mean newly opened rather than high 24h volume. The service prioritizes the next-starting short-window market over a near-expiry market when both are visible. Returns market IDs plus outcome token IDs when available.',
         parameters: {
             type: 'object',
             properties: {
@@ -267,11 +267,20 @@ export const GetNewMarketsTool: Tool = {
             source: 'Polymarket',
             type: 'Newest Events',
             count: result.events.length,
+            sort_mode: 'next_starting_window_first',
             events: result.events.map(e => ({
                 id: e.id,
                 title: e.title,
                 createdAt: new Date(e.creationDate).toLocaleDateString(),
                 liquidity: `$${e.liquidity.toLocaleString()}`,
+                recommended_window: e.recommendedWindow ? {
+                    start_at: e.recommendedWindow.startAt,
+                    end_at: e.recommendedWindow.endAt,
+                    status: e.recommendedWindow.status,
+                    seconds_to_start: e.recommendedWindow.secondsToStart,
+                    seconds_to_end: e.recommendedWindow.secondsToEnd,
+                    duration_minutes: e.recommendedWindow.durationMinutes,
+                } : null,
                 markets: e.markets.map(m => ({
                     id: m.id,
                     slug: m.slug,

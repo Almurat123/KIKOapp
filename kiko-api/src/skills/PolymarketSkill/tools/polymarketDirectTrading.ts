@@ -34,6 +34,7 @@ export const CheckPolymarketReadinessTool: Tool = {
 
             return {
                 ready: readiness.isReady,
+                chain_policy: 'polygon_only',
                 credentials: readiness.hasCredentials,
                 delegation: readiness.hasDelegatedEvm,
                 approvals: {
@@ -66,7 +67,7 @@ export const CheckPolymarketReadinessTool: Tool = {
                 next_step: readiness.isReady
                     ? 'You can now place orders using place_polymarket_order.'
                     : readiness.conversionRequired
-                        ? 'Convert Polygon native USDC (0x3c499c542cef5e3811e1192ce70d8cc03d5c3359) to Polymarket USDC.e (0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174) using prepare_swap_transaction, then check readiness again.'
+                        ? 'Convert Polygon native USDC (0x3c499c542cef5e3811e1192ce70d8cc03d5c3359) to Polymarket USDC.e (0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174) using prepare_swap_transaction, then check readiness again. No wallet chain switch is required.'
                         : readiness.missingSteps[0]
             };
         } catch (error: any) {

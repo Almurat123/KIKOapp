@@ -69,6 +69,33 @@ interface ParsedMarket {
     outcomes: ParsedOutcome[];
 }
 
+interface ParsedMarketWindow {
+    startAt: string | null;
+    endAt: string | null;
+    startMs: number | null;
+    endMs: number | null;
+    status: 'upcoming' | 'live' | 'expired' | 'unknown';
+    secondsToStart: number | null;
+    secondsToEnd: number | null;
+    durationMinutes: number | null;
+    label: string | null;
+}
+
+const MONTH_LOOKUP: Record<string, number> = {
+    january: 1,
+    february: 2,
+    march: 3,
+    april: 4,
+    may: 5,
+    june: 6,
+    july: 7,
+    august: 8,
+    september: 9,
+    october: 10,
+    november: 11,
+    december: 12,
+};
+
 function parseStringArray(raw?: string): string[] {
     if (!raw) return [];
     try {
@@ -89,6 +116,181 @@ function normalizeString(value: unknown): string | null {
     if (typeof value !== 'string') return null;
     const trimmed = value.trim();
     return trimmed.length > 0 ? trimmed : null;
+}
+
+function getEtParts(now: Date): {
+    year: number;
+    month: number;
+    day: number;
+    hour: number;
+    minute: number;
+    second: number;
+} {
+    const formatter = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'America/New_York',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false,
+    });
+    const parts = formatter.formatToParts(now);
+    const read = (type: Intl.DateTimeFormatPartTypes) => Number(parts.find((part) => part.type === type)?.value || '0');
+    return {
+        year: read('year'),
+        month: read('month'),
+        day: read('day'),
+        hour: read('hour'),
+        minute: read('minute'),
+        second: read('second'),
+    };
+}
+
+function formatDateTimeInEt(date: Date): string {
+    return new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'America/New_York',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false,
+    }).format(date);
+}
+
+function to24Hour(hour: number, meridiem: string): number {
+    const normalized = meridiem.toUpperCase();
+    if (normalized === 'AM') {
+        return hour === 12 ? 0 : hour;
+    }
+    return hour === 12 ? 12 : hour + 12;
+}
+
+function convertEtLocalToUtc(params: {
+    year: number;
+    month: number;
+    day: number;
+    hour: number;
+    minute: number;
+    second?: number;
+}): Date {
+    let utcMs = Date.UTC(
+        params.year,
+        params.month - 1,
+        params.day,
+        params.hour,
+        params.minute,
+        params.second || 0,
+    );
+
+    for (let i = 0; i < 3; i += 1) {
+        const observed = getEtParts(new Date(utcMs));
+        const desiredLocalMs = Date.UTC(
+            params.year,
+            params.month - 1,
+            params.day,
+            params.hour,
+            params.minute,
+            params.second || 0,
+        );
+        const observedLocalMs = Date.UTC(
+            observed.year,
+            observed.month - 1,
+            observed.day,
+            observed.hour,
+            observed.minute,
+            observed.second,
+        );
+        const deltaMs = desiredLocalMs - observedLocalMs;
+        if (deltaMs === 0) break;
+        utcMs += deltaMs;
+    }
+
+    return new Date(utcMs);
+}
+
+function parseMarketWindowLabel(question: string, now: Date = new Date()): ParsedMarketWindow | null {
+    const match = String(question || '').match(
+        /([A-Za-z]+)\s+(\d{1,2}),\s*(\d{1,2}):(\d{2})(AM|PM)-(\d{1,2}):(\d{2})(AM|PM)\s*ET/i
+    );
+    if (!match) return null;
+
+    const month = MONTH_LOOKUP[String(match[1] || '').toLowerCase()];
+    const day = Number(match[2]);
+    const startHour = to24Hour(Number(match[3]), String(match[5] || 'AM'));
+    const startMinute = Number(match[4]);
+    const endHour = to24Hour(Number(match[6]), String(match[8] || 'AM'));
+    const endMinute = Number(match[7]);
+    if (!month || !Number.isFinite(day)) return null;
+
+    const etNow = getEtParts(now);
+    const year = etNow.year;
+    const start = convertEtLocalToUtc({
+        year,
+        month,
+        day,
+        hour: startHour,
+        minute: startMinute,
+    });
+    let end = convertEtLocalToUtc({
+        year,
+        month,
+        day,
+        hour: endHour,
+        minute: endMinute,
+    });
+
+    if (end.getTime() <= start.getTime()) {
+        end = new Date(end.getTime() + 24 * 60 * 60 * 1000);
+    }
+
+    const startMs = start.getTime();
+    const endMs = end.getTime();
+    const nowMs = now.getTime();
+    const status: ParsedMarketWindow['status'] = startMs > nowMs
+        ? 'upcoming'
+        : endMs > nowMs
+            ? 'live'
+            : 'expired';
+
+    return {
+        startAt: start.toISOString(),
+        endAt: end.toISOString(),
+        startMs,
+        endMs,
+        status,
+        secondsToStart: Math.max(0, Math.round((startMs - nowMs) / 1000)),
+        secondsToEnd: Math.max(0, Math.round((endMs - nowMs) / 1000)),
+        durationMinutes: Math.max(1, Math.round((endMs - startMs) / 60000)),
+        label: `${formatDateTimeInEt(start)} -> ${formatDateTimeInEt(end)} ET`,
+    };
+}
+
+function compareNewMarketPriority(a: ParsedMarketWindow | null, b: ParsedMarketWindow | null): number {
+    const rank = (window: ParsedMarketWindow | null): number => {
+        if (!window) return 3;
+        if (window.status === 'upcoming') return 0;
+        if (window.status === 'live') return 1;
+        if (window.status === 'expired') return 2;
+        return 3;
+    };
+    const aRank = rank(a);
+    const bRank = rank(b);
+    if (aRank !== bRank) return aRank - bRank;
+
+    if (a?.status === 'upcoming' && b?.status === 'upcoming') {
+        return Number(a.secondsToStart || 0) - Number(b.secondsToStart || 0);
+    }
+    if (a?.status === 'live' && b?.status === 'live') {
+        return Number(b.secondsToEnd || 0) - Number(a.secondsToEnd || 0);
+    }
+    if (a?.status === 'expired' && b?.status === 'expired') {
+        return Number(a.endMs || 0) - Number(b.endMs || 0);
+    }
+    return 0;
 }
 
 /**
@@ -137,7 +339,9 @@ function parseMarket(market: PolymarketMarket): ParsedMarket {
 
 export const __testables = {
     normalizeDate,
-    parseMarket
+    parseMarket,
+    parseMarketWindowLabel,
+    compareNewMarketPriority,
 };
 
 /**
@@ -286,6 +490,7 @@ export async function getNewMarkets(limit: number = 10): Promise<{
         volume: number;
         liquidity: number;
         creationDate: string;
+        recommendedWindow?: ParsedMarketWindow | null;
         markets: ParsedMarket[];
     }>;
 }> {
@@ -299,16 +504,53 @@ export async function getNewMarkets(limit: number = 10): Promise<{
         endpointName: 'polymarket-new-markets'
     });
 
-    return {
-        events: data.map(event => ({
+    const now = new Date();
+    const mappedEvents = data.map((event, index) => {
+        const markets = (event.markets || [])
+            .filter((market) => !market.closed)
+            .map(parseMarket);
+        const windowCandidates = markets
+            .map((market) => parseMarketWindowLabel(market.question, now))
+            .filter((window): window is ParsedMarketWindow => Boolean(window));
+        const recommendedWindow = windowCandidates.sort(compareNewMarketPriority)[0] || null;
+        const sortPriority = recommendedWindow ? (recommendedWindow.status === 'upcoming' ? 0 : recommendedWindow.status === 'live' ? 1 : 2) : 3;
+
+        return {
             id: event.id,
             title: event.title,
             volume: Math.floor(event.volume || 0),
             liquidity: Math.floor(event.liquidity || 0),
             creationDate: normalizeDate(event.startDate) || '', // Gamma may omit some timestamps; keep an empty string instead of leaking undefined.
-            markets: (event.markets || [])
-                .filter((market) => !market.closed)
-                .map(parseMarket)
-        }))
+            recommendedWindow,
+            markets,
+            __sort: {
+                priority: sortPriority,
+                startMs: recommendedWindow?.startMs ?? Number.MAX_SAFE_INTEGER,
+                secondsToStart: recommendedWindow?.secondsToStart ?? Number.MAX_SAFE_INTEGER,
+                secondsToEnd: recommendedWindow?.secondsToEnd ?? Number.MAX_SAFE_INTEGER,
+                sourceIndex: index,
+            }
+        };
+    });
+
+    mappedEvents.sort((a, b) => {
+        if (a.__sort.priority !== b.__sort.priority) {
+            return a.__sort.priority - b.__sort.priority;
+        }
+        if (a.__sort.priority === 0 && b.__sort.priority === 0) {
+            if (a.__sort.startMs !== b.__sort.startMs) {
+                return a.__sort.startMs - b.__sort.startMs;
+            }
+        }
+        if (a.__sort.priority === 1 && b.__sort.priority === 1) {
+            if (a.__sort.secondsToEnd !== b.__sort.secondsToEnd) {
+                return b.__sort.secondsToEnd - a.__sort.secondsToEnd;
+            }
+        }
+        return a.__sort.sourceIndex - b.__sort.sourceIndex;
+    });
+
+    return {
+        events: mappedEvents.map(({ __sort, ...event }) => event)
     };
 }

@@ -24,7 +24,6 @@
         "check_polymarket_readiness",
         "setup_polymarket_credentials",
         "check_polymarket_approvals",
-        "switch_wallet_chain",
         "simulate_swap",
         "prepare_swap_transaction",
         "place_polymarket_order",

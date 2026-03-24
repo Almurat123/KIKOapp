@@ -12,6 +12,7 @@
      1. overall hot by 24h volume,
      2. newly opened markets,
      3. short-window markets that are live and actually tradable now.
+   - If the user asks for the "next" 5-minute market, do not recommend the current market if it is already near expiry. Prefer the next full chronological window after the current time.
    - If the query is time-sensitive ("today", "now", "next 5 minutes", "currently"), check current time first, then interpret ET labels against the user's timezone.
    - When helpful, answer in grouped buckets instead of forcing a single ranking: overall hot, newest short-window, and best liquidity for immediate execution.
    - If the user selects a market from a previous answer, do not repeat discovery. Treat that as a progression from discovery to bet preparation.
@@ -38,7 +39,7 @@
    - If search results are fuzzy or the market title is only approximately matched, stop and ask for the direct Polymarket link or a clearer market title.
    - If readiness shows missing balance, missing approvals, or missing credentials, stop execution and tell the user exactly what is missing.
    - If readiness reports `conversion_required=true`, treat that as an actionable prerequisite, not a dead end. Use `prepare_swap_transaction` on Polygon to swap native USDC (`0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359`) into Polymarket USDC.e (`0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174`), then check readiness again.
-   - If the wallet is not already on Polygon for a Polymarket trade flow, use `switch_wallet_chain` to move to chain 137 before Polygon swap or approval actions.
+   - Polymarket is Polygon-only. Do not ask the user to switch chains for Polymarket readiness, balance checks, approvals, or the USDC -> USDC.e conversion path. Inspect the Polygon state directly and keep the chain detail internal.
    - When a user already explicitly asked to place the Polymarket trade, you may execute the prerequisite USDC -> USDC.e conversion as part of the same task because it is required to complete the requested trade. Still report that conversion step clearly.
    - For cashing out or cancelling orders, confirm the user’s intent and proceed via internal execution flow.
    - If the user asks to edit, reprice, or modify an open order, prefer `modify_polymarket_order`. Treat that as cancel + replace, and warn clearly if the original order was cancelled but the replacement failed.
@@ -83,6 +84,14 @@ Internal behavior:
 - Use get_new_markets to find the current Solana windows.
 - Use get_polymarket_quote on the returned token_id before suggesting a bet.
 - Return exact ET window, user-local time when helpful, token_id, and executable buy/sell prices.
+</example>
+
+<example>
+User: I want the 5:00-5:05 market, not the one that is about to end
+Internal behavior:
+- Do not keep pushing the current 4:45-5:00 market if less than 2 minutes remain.
+- Search for the next chronological 5-minute window.
+- If the next window is not listed yet, say that clearly and tell the user to wait for that exact market instead of betting the almost-finished one.
 </example>
 
 <example>

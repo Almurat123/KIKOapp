@@ -94,3 +94,50 @@ test('resolveTradeConfirmationState does not treat explicit chain switch request
 
     assert.equal(state, null);
 });
+
+test('resolveTradeConfirmationState extracts order confirmation from a prepared Polymarket bet', () => {
+    const state = resolveTradeConfirmationState([
+        {
+            role: 'assistant',
+            id: 'a1',
+            message_index: 1,
+            data: {
+                toolTrace: {
+                    toolCalls: [
+                        {
+                            tool: 'prepare_polymarket_bet',
+                            status: 'success',
+                            args: {
+                                token_id: 'token-up',
+                                question: 'Ethereum Up or Down - March 25, 5:00AM-5:05AM ET',
+                                outcome: 'Up',
+                                amount_usd: 1,
+                            },
+                            result: {
+                                requires_confirmation: true,
+                                confirmation_payload: {
+                                    tool_name: 'place_polymarket_order',
+                                    args: {
+                                        token_id: 'token-up',
+                                        side: 'BUY',
+                                        amount_usd: 1,
+                                        question: 'Ethereum Up or Down - March 25, 5:00AM-5:05AM ET',
+                                        outcome: 'Up',
+                                    },
+                                    confirmation_token: 'abc123',
+                                    action_class: 'ORDER_MUTATION',
+                                },
+                            },
+                        },
+                    ],
+                },
+            },
+        },
+    ], 'confirm');
+
+    assert.equal(state?.kind, 'order_confirmation');
+    assert.equal(state?.order?.toolName, 'place_polymarket_order');
+    assert.equal(state?.order?.args?.token_id, 'token-up');
+    assert.equal(state?.order?.confirmationToken, 'abc123');
+    assert.equal(state?.order?.actionClass, 'ORDER_MUTATION');
+});

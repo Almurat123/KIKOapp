@@ -79,3 +79,20 @@ test('validateSwapExecutionChain allows execution when connected chain and reque
 
     assert.deepEqual(result, { ok: true });
 });
+
+test('validateSwapExecutionChain allows Polymarket Polygon collateral swaps without chain switch prompts', async () => {
+    const result = await validateSwapExecutionChain({
+        token_in: 'USDC',
+        token_out: 'USDC.e',
+        chain_id: 137,
+    }, {
+        chainId: 8453,
+        pendingChainSwitch: {
+            targetChainId: 56,
+            targetChainName: 'BNB Chain',
+            status: 'pending',
+        },
+    });
+
+    assert.deepEqual(result, { ok: true });
+});

@@ -3,6 +3,7 @@ import { getTradesByAssetId } from '../../../services/polymarketTradeService.js'
 import { getExecutablePrice } from '../../../services/polymarketDataService.js';
 import { checkTradingReadiness } from '../../../services/polymarketApprovalService.js';
 import { getEventDetails } from '../../../services/polymarket.js';
+import { computeConfirmationToken } from '../../../jobs/chat/executionGate.js';
 
 /**
  * Get Market Activity Tool
@@ -259,10 +260,20 @@ export const PreparePolymarketBetTool: Tool = {
         const nextStep = readiness == null
             ? 'If you want to place this bet next, check readiness or place the order directly if the account is already prepared.'
             : readiness.isReady
-                ? 'Account looks ready. You can place the order with the selected token_id and your amount.'
+                ? 'Account looks ready. Reply "confirm" to place the prepared order, or change the amount/outcome first.'
                 : readiness.conversionRequired
                     ? 'Convert Polygon native USDC to Polymarket USDC.e, then check readiness again.'
                     : readiness.missingSteps[0] || 'Complete readiness setup before placing the order.';
+
+        const orderArgs = args.amount_usd && readiness?.isReady
+            ? {
+                token_id: tokenId,
+                side: 'BUY',
+                amount_usd: args.amount_usd,
+                question: args.question,
+                outcome: args.outcome,
+            }
+            : null;
 
         return {
             source: 'Polymarket Bet Prep',
@@ -289,6 +300,15 @@ export const PreparePolymarketBetTool: Tool = {
                 : null,
             sibling_markets: siblingMarkets,
             next_step: nextStep,
+            requires_confirmation: Boolean(orderArgs),
+            confirmation_payload: orderArgs
+                ? {
+                    tool_name: 'place_polymarket_order',
+                    args: orderArgs,
+                    confirmation_token: computeConfirmationToken('place_polymarket_order', orderArgs),
+                    action_class: 'ORDER_MUTATION',
+                }
+                : null,
             note: 'Use this tool after market selection to move from discovery into a concrete bet-preparation bundle. Do not stop at only listing markets if the user has already chosen one.',
         };
     },
