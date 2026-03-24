@@ -267,7 +267,9 @@ export const GetNewMarketsTool: Tool = {
             source: 'Polymarket',
             type: 'Newest Events',
             count: result.events.length,
-            sort_mode: 'next_starting_window_first',
+            sort_mode: result.eligibleWindowCount > 0 ? 'next_starting_window_first' : 'no_soon_window_available',
+            eligible_window_count: result.eligibleWindowCount,
+            selection_note: result.selectionNote,
             events: result.events.map(e => ({
                 id: e.id,
                 title: e.title,

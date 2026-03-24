@@ -157,3 +157,24 @@ test('compareNewMarketPriority prefers the next starting window over the near-ex
   assert.ok(__testables.compareNewMarketPriority(live, expired) < 0);
   assert.ok(__testables.compareNewMarketPriority(expired, null) < 0);
 });
+
+test('isEligibleNewMarketWindow excludes tomorrow windows and near-expiry live windows', () => {
+  const now = new Date('2026-03-24T08:58:00Z');
+
+  const tomorrowWindow = __testables.parseMarketWindowLabel(
+    'Ethereum Up or Down - March 25, 5:25AM-5:30AM ET',
+    now
+  );
+  const nearExpiryLive = __testables.parseMarketWindowLabel(
+    'Ethereum Up or Down - March 24, 4:45AM-5:00AM ET',
+    new Date('2026-03-24T08:59:15Z')
+  );
+  const soonUpcoming = __testables.parseMarketWindowLabel(
+    'Ethereum Up or Down - March 24, 5:00AM-5:05AM ET',
+    now
+  );
+
+  assert.equal(__testables.isEligibleNewMarketWindow(tomorrowWindow), false);
+  assert.equal(__testables.isEligibleNewMarketWindow(nearExpiryLive), false);
+  assert.equal(__testables.isEligibleNewMarketWindow(soonUpcoming), true);
+});

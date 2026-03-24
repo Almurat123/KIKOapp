@@ -81,6 +81,9 @@ interface ParsedMarketWindow {
     label: string | null;
 }
 
+const NEW_MARKET_SOON_HORIZON_SECONDS = 6 * 60 * 60;
+const NEW_MARKET_MIN_LIVE_SECONDS_LEFT = 120;
+
 const MONTH_LOOKUP: Record<string, number> = {
     january: 1,
     february: 2,
@@ -293,6 +296,17 @@ function compareNewMarketPriority(a: ParsedMarketWindow | null, b: ParsedMarketW
     return 0;
 }
 
+function isEligibleNewMarketWindow(window: ParsedMarketWindow | null): boolean {
+    if (!window) return false;
+    if (window.status === 'upcoming') {
+        return Number(window.secondsToStart || Number.MAX_SAFE_INTEGER) <= NEW_MARKET_SOON_HORIZON_SECONDS;
+    }
+    if (window.status === 'live') {
+        return Number(window.secondsToEnd || 0) > NEW_MARKET_MIN_LIVE_SECONDS_LEFT;
+    }
+    return false;
+}
+
 /**
  * Format probability as percentage string
  */
@@ -342,6 +356,7 @@ export const __testables = {
     parseMarket,
     parseMarketWindowLabel,
     compareNewMarketPriority,
+    isEligibleNewMarketWindow,
 };
 
 /**
@@ -493,6 +508,8 @@ export async function getNewMarkets(limit: number = 10): Promise<{
         recommendedWindow?: ParsedMarketWindow | null;
         markets: ParsedMarket[];
     }>;
+    eligibleWindowCount: number;
+    selectionNote: string;
 }> {
     const url = `${GAMMA_API_BASE}/events?limit=${limit}&active=true&closed=false&order=createdAt&ascending=false`;
 
@@ -505,6 +522,7 @@ export async function getNewMarkets(limit: number = 10): Promise<{
     });
 
     const now = new Date();
+    let eligibleWindowCount = 0;
     const mappedEvents = data.map((event, index) => {
         const markets = (event.markets || [])
             .filter((market) => !market.closed)
@@ -512,7 +530,9 @@ export async function getNewMarkets(limit: number = 10): Promise<{
         const windowCandidates = markets
             .map((market) => parseMarketWindowLabel(market.question, now))
             .filter((window): window is ParsedMarketWindow => Boolean(window));
-        const recommendedWindow = windowCandidates.sort(compareNewMarketPriority)[0] || null;
+        const eligibleWindows = windowCandidates.filter(isEligibleNewMarketWindow);
+        const recommendedWindow = eligibleWindows.sort(compareNewMarketPriority)[0] || null;
+        if (recommendedWindow) eligibleWindowCount += 1;
         const sortPriority = recommendedWindow ? (recommendedWindow.status === 'upcoming' ? 0 : recommendedWindow.status === 'live' ? 1 : 2) : 3;
 
         return {
@@ -551,6 +571,10 @@ export async function getNewMarkets(limit: number = 10): Promise<{
     });
 
     return {
-        events: mappedEvents.map(({ __sort, ...event }) => event)
+        events: mappedEvents.map(({ __sort, ...event }) => event),
+        eligibleWindowCount,
+        selectionNote: eligibleWindowCount > 0
+            ? 'Recommended markets are limited to upcoming windows within the next 6 hours and live windows with more than 2 minutes remaining.'
+            : 'No upcoming short-window market is listed within the next 6 hours, and near-expiry live windows are excluded from recommendations.'
     };
 }
