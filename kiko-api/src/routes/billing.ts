@@ -98,6 +98,7 @@ export async function billingRoutes(fastify: FastifyInstance) {
                 normal: { used: counts.deepseek + counts.other, limit: env.billing.dailyFreeDeepseek },
                 advanced: { used: counts.grok, limit: env.billing.dailyFreeGrok },
                 tokenBalance,
+                usesTotalLimitOnly: tokenBalance > 0,
             });
         }
     );

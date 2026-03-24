@@ -68,6 +68,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     normal: { used: number; limit: number };
     advanced: { used: number; limit: number };
     tokenBalance: number;
+    usesTotalLimitOnly: boolean;
   } | null>(null);
 
   const fetchUsageSummary = React.useCallback(async () => {
@@ -474,18 +475,29 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
         <div className={styles.footer}>
           <div className={styles.usageSummary}>
-            <div className={styles.usageRow}>
-              <span className={styles.usageLabel}>Normal</span>
-              <span className={styles.usageValue}>
-                {usageSummary ? `${usageSummary.normal.used}/${usageSummary.normal.limit}` : '--'}
-              </span>
-            </div>
-            <div className={styles.usageRow}>
-              <span className={styles.usageLabel}>Advanced</span>
-              <span className={styles.usageValue}>
-                {usageSummary ? `${usageSummary.advanced.used}/${usageSummary.advanced.limit}` : '--'}
-              </span>
-            </div>
+            {usageSummary?.usesTotalLimitOnly ? (
+              <div className={styles.usageRow}>
+                <span className={styles.usageLabel}>Total</span>
+                <span className={styles.usageValue}>
+                  {`${usageSummary.total.used}/${usageSummary.total.limit}`}
+                </span>
+              </div>
+            ) : (
+              <>
+                <div className={styles.usageRow}>
+                  <span className={styles.usageLabel}>Normal</span>
+                  <span className={styles.usageValue}>
+                    {usageSummary ? `${usageSummary.normal.used}/${usageSummary.normal.limit}` : '--'}
+                  </span>
+                </div>
+                <div className={styles.usageRow}>
+                  <span className={styles.usageLabel}>Advanced</span>
+                  <span className={styles.usageValue}>
+                    {usageSummary ? `${usageSummary.advanced.used}/${usageSummary.advanced.limit}` : '--'}
+                  </span>
+                </div>
+              </>
+            )}
             <div className={styles.usageRow}>
               <span className={styles.usageLabel}>Token</span>
               <span className={styles.usageValue}>

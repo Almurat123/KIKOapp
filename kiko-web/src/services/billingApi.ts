@@ -58,5 +58,6 @@ export async function getUsageSummary(authToken?: string | null) {
     normal: { used: number; limit: number };
     advanced: { used: number; limit: number };
     tokenBalance: number;
+    usesTotalLimitOnly: boolean;
   }>;
 }

@@ -11,12 +11,19 @@ export type UsageDecision = {
     totalUsed: number;
     totalLimit: number;
     tokenBalance: number;
+    usesTotalLimitOnly: boolean;
     normalUsed: number;
     advancedUsed: number;
     modelCategory: 'deepseek' | 'grok' | 'other';
 };
 
-export function isCurrentRequestFree(decision: Pick<UsageDecision, 'modelCategory' | 'normalUsed' | 'advancedUsed'>): boolean {
+export function isCurrentRequestFree(
+    decision: Pick<UsageDecision, 'allowed' | 'usesTotalLimitOnly' | 'modelCategory' | 'normalUsed' | 'advancedUsed'>
+): boolean {
+    if (decision.usesTotalLimitOnly) {
+        return decision.allowed;
+    }
+
     if (decision.modelCategory === 'deepseek') {
         return decision.normalUsed < env.billing.dailyFreeDeepseek;
     }
@@ -40,6 +47,7 @@ export async function evaluateUsageAccess(params: { userId: string; model: strin
             totalUsed: counts.total,
             totalLimit: 0,
             tokenBalance: 0,
+            usesTotalLimitOnly: false,
             normalUsed: counts.deepseek + counts.other,
             advancedUsed: counts.grok,
             modelCategory
@@ -51,6 +59,7 @@ export async function evaluateUsageAccess(params: { userId: string; model: strin
     const totalUsed = counts.total;
     const normalUsed = counts.deepseek + counts.other;
     const advancedUsed = counts.grok;
+    const usesTotalLimitOnly = tokenBalance > 0;
 
     // 1. Check strict hard cap total limit
     if (totalLimit > 0 && totalUsed >= totalLimit) {
@@ -61,13 +70,29 @@ export async function evaluateUsageAccess(params: { userId: string; model: strin
             totalUsed,
             totalLimit,
             tokenBalance,
+            usesTotalLimitOnly,
             normalUsed,
             advancedUsed,
             modelCategory
         };
     }
 
-    // 2. Check individual model category limits
+    // Holder users are governed by the total daily tier only.
+    if (usesTotalLimitOnly) {
+        return {
+            allowed: true,
+            dateUtc,
+            totalUsed,
+            totalLimit,
+            tokenBalance,
+            usesTotalLimitOnly,
+            normalUsed,
+            advancedUsed,
+            modelCategory
+        };
+    }
+
+    // 2. Check individual model category limits for non-holder users
     if (modelCategory === 'grok' && advancedUsed >= env.billing.dailyFreeGrok) {
         return {
             allowed: false,
@@ -76,6 +101,7 @@ export async function evaluateUsageAccess(params: { userId: string; model: strin
             totalUsed,
             totalLimit,
             tokenBalance,
+            usesTotalLimitOnly,
             normalUsed,
             advancedUsed,
             modelCategory
@@ -90,6 +116,7 @@ export async function evaluateUsageAccess(params: { userId: string; model: strin
             totalUsed,
             totalLimit,
             tokenBalance,
+            usesTotalLimitOnly,
             normalUsed,
             advancedUsed,
             modelCategory
@@ -102,6 +129,7 @@ export async function evaluateUsageAccess(params: { userId: string; model: strin
         totalUsed,
         totalLimit,
         tokenBalance,
+        usesTotalLimitOnly,
         normalUsed,
         advancedUsed,
         modelCategory
