@@ -185,7 +185,7 @@ export const GetPolymarketQuoteTool: Tool = {
 export const PreparePolymarketBetTool: Tool = {
     definition: {
         name: 'prepare_polymarket_bet',
-        description: 'Prepare an execution-ready Polymarket bet bundle for a selected outcome. Use this when the user has already picked a market or says "I want this", "buy this", "就这个", or "我要这个". It returns live executable prices, estimated shares, and, when user auth context is available, trading readiness and concrete next steps. Prefer this over repeating discovery tools once a specific token_id is known.',
+        description: 'Prepare an execution-ready Polymarket bet bundle for a selected outcome. Use this when the user has already picked a market or says "I want this", "buy this", or "take this one". It returns live executable prices, estimated shares, and, when user auth context is available, trading readiness and concrete next steps. Prefer this over repeating discovery tools once a specific token_id is known.',
         parameters: {
             type: 'object',
             properties: {
