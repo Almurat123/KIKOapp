@@ -3,7 +3,9 @@ import { getEmbeddedWalletAddress } from './privyWallet.js';
 import { callRpc } from './rpcManager.js';
 import { INTERACTIVE_READ_PROFILE } from './rpc/profile.js';
 
-const USAGE_LIMIT_CACHE_TTL_MS = Number(process.env.USAGE_LIMIT_CACHE_TTL_MS || '30000');
+// Cache token balance + derived daily limit for a full day by default.
+// This keeps chat sends from repeatedly re-checking chain state on every request.
+const USAGE_LIMIT_CACHE_TTL_MS = Number(process.env.USAGE_LIMIT_CACHE_TTL_MS || String(24 * 60 * 60 * 1000));
 const usageLimitCache = new Map<string, { expiresAt: number; value: { limit: number; tokenBalance: number } }>();
 const usageLimitInflight = new Map<string, Promise<{ limit: number; tokenBalance: number }>>();
 
