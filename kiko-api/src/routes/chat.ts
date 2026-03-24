@@ -18,6 +18,7 @@ import cacheClient from '../cache/cacheClient.js';
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
 import { resolveToolContextChainSwitchAck } from '../jobs/chat/toolContextChainState.js';
+import { recordUsage } from '../services/usageCounter.js';
 
 // Request body types
 interface CreateSessionBody {
@@ -287,6 +288,7 @@ export async function chatRoutes(fastify: FastifyInstance) {
                 }
 
                 let billingContext: { isFree: boolean; modelCategory: string } | undefined;
+                let usageDateUtc: string | undefined;
 
                 try {
                     const [activeTask, usageDecision] = await Promise.all([
@@ -340,6 +342,7 @@ export async function chatRoutes(fastify: FastifyInstance) {
                         isFree: isCurrentRequestFree(usageDecision),
                         modelCategory: usageDecision.modelCategory
                     };
+                    usageDateUtc = usageDecision.dateUtc;
                 } catch (usageError: any) {
                     fastify.log.error('Usage limit check failed:', usageError);
                     return reply.code(500).send({
@@ -509,6 +512,18 @@ export async function chatRoutes(fastify: FastifyInstance) {
                         billing: billingContext,
                     }
                 );
+                if (billingContext?.modelCategory && usageDateUtc) {
+                    try {
+                        await recordUsage({
+                        userId,
+                        dateUtc: usageDateUtc,
+                        modelCategory: billingContext.modelCategory,
+                        assistantMessageId: assistantMessage.id,
+                        });
+                    } catch (usageError) {
+                        fastify.log.warn({ err: usageError, sessionId, assistantMessageId: assistantMessage.id }, 'Failed to eagerly record usage count');
+                    }
+                }
                 logger.info(LogCode.AI_API_CALL, 'Chat route: task created', {
                     userId,
                     sessionId,

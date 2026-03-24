@@ -10,7 +10,7 @@ import { requireAuth } from '../middleware/auth.js';
 import { searchTokens as searchGeckoTerminal, getTokenDetails as getGeckoTokenDetails, getCandlestickData as getGeckoCandlestickData, getTrendingTokens as getLiveTrendingTokens, type TrendingDuration } from '../services/geckoTerminal.js';
 import { searchTokens as searchDexScreener, getTokenDetails as getDexTokenDetails, getTokenPairAddress, getCandlestickData as getDexCandlestickData, getTrendingTokensPremium } from '../services/dexscreener.js';
 import { get, set } from '../cache/cacheClient.js';
-import { getTrendingTokens, getLastUpdateTime as getTrendingUpdateTime, saveTrendingTokenCreator } from '../repositories/tokenRepository.js';
+import { getTrendingTokens, getLastUpdateTime as getTrendingUpdateTime, saveTrendingTokenCreator, searchCachedTrendingTokens } from '../repositories/tokenRepository.js';
 import { getSupportedChains, refreshSingleChain } from '../jobs/tokenDataJob.js';
 import { env } from '../config/env.js';
 import { fetchJson } from '../config/unifiedApiService.js';
@@ -45,6 +45,20 @@ const SUPPORTED_CHAINS_INFO = [
   { id: 'optimism', name: 'Optimism', network: 'optimism' },
   { id: 'polygon', name: 'Polygon', network: 'polygon' },
 ];
+
+function mergeTokenSearchResults(...groups: any[][]): any[] {
+  const seen = new Set<string>();
+  const merged: any[] = [];
+  for (const group of groups) {
+    for (const item of group || []) {
+      const key = `${String(item?.network || '').toLowerCase()}:${String(item?.address || '').toLowerCase()}`;
+      if (!item?.address || seen.has(key)) continue;
+      seen.add(key);
+      merged.push(item);
+    }
+  }
+  return merged;
+}
 
 function chainFromId(chainId?: number): string | undefined {
   if (!Number.isFinite(chainId || NaN)) return undefined;
@@ -459,35 +473,41 @@ export async function tokenRoutes(fastify: FastifyInstance) {
         });
       }
 
-      // Try Gecko Terminal first, then DexScreener
-      let results = [];
-      if (safeNetwork) {
-        results = await searchGeckoTerminal(sanitizedQuery, safeNetwork);
-      } else {
-        // Try both APIs
-        const [geckoResults, dexscreenerResults] = await Promise.all([
-          searchGeckoTerminal(sanitizedQuery),
-          searchDexScreener(sanitizedQuery),
-        ]);
+      const cachedResults = await searchCachedTrendingTokens(sanitizedQuery, safeNetwork, 20).catch(() => []);
 
-        // Convert DexScreener results to match TokenSearchResult format
-        const formattedDexResults = dexscreenerResults.map(token => ({
-          address: token.address,
-          name: token.name,
-          symbol: token.symbol,
-          network: token.network,
-          price: token.price,
-          priceChange24h: token.priceChange24h,
-          volume24h: token.volume24h,
-          liquidity: token.liquidity,
-          fdv: token.fdv,
-          poolAddress: token.poolAddress,
-          socials: token.socials,
-          websites: token.websites,
-        }));
-
-        results = [...geckoResults, ...formattedDexResults];
+      let geckoResults: any[] = [];
+      let formattedDexResults: any[] = [];
+      try {
+        if (safeNetwork) {
+          geckoResults = await searchGeckoTerminal(sanitizedQuery, safeNetwork);
+        } else {
+          const [geckoRawResults, dexscreenerResults] = await Promise.all([
+            searchGeckoTerminal(sanitizedQuery),
+            searchDexScreener(sanitizedQuery),
+          ]);
+          geckoResults = geckoRawResults;
+          formattedDexResults = dexscreenerResults.map(token => ({
+            address: token.address,
+            name: token.name,
+            symbol: token.symbol,
+            network: token.network,
+            price: token.price,
+            priceChange24h: token.priceChange24h,
+            volume24h: token.volume24h,
+            liquidity: token.liquidity,
+            fdv: token.fdv,
+            poolAddress: token.poolAddress,
+            socials: token.socials,
+            websites: token.websites,
+          }));
+        }
+      } catch (searchError) {
+        if (!cachedResults.length) {
+          throw searchError;
+        }
       }
+
+      const results = mergeTokenSearchResults(cachedResults, geckoResults, formattedDexResults);
 
       // Cache results
       await set(cacheKey, JSON.stringify(results), TOKEN_CACHE_TTL);

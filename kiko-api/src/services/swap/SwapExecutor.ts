@@ -200,6 +200,49 @@ function evaluateCopytradeFallbackEntryDeviation(params: {
     };
 }
 
+type ApprovalBoundExecutionDecision = {
+    quoteToExecute: QuoteResult;
+    refreshApplied: boolean;
+    refreshFailureCode?: string;
+};
+
+function finalizeApprovedSellQuote(params: {
+    originalQuote: QuoteResult;
+    refreshedQuote: QuoteResult | null;
+}): ApprovalBoundExecutionDecision {
+    const { originalQuote, refreshedQuote } = params;
+    if (!refreshedQuote || !refreshedQuote.to || !refreshedQuote.data) {
+        return {
+            quoteToExecute: originalQuote,
+            refreshApplied: false,
+            refreshFailureCode: 'fresh_quote_missing_after_approval',
+        };
+    }
+
+    if (String(refreshedQuote.dex || '').toLowerCase() !== String(originalQuote.dex || '').toLowerCase()) {
+        return {
+            quoteToExecute: originalQuote,
+            refreshApplied: false,
+            refreshFailureCode: 'fresh_quote_dex_changed_after_approval',
+        };
+    }
+
+    const originalAllowanceTarget = String(originalQuote.allowanceTarget || '').toLowerCase();
+    const refreshedAllowanceTarget = String(refreshedQuote.allowanceTarget || '').toLowerCase();
+    if (originalAllowanceTarget && refreshedAllowanceTarget && originalAllowanceTarget !== refreshedAllowanceTarget) {
+        return {
+            quoteToExecute: originalQuote,
+            refreshApplied: false,
+            refreshFailureCode: 'fresh_quote_allowance_changed_after_approval',
+        };
+    }
+
+    return {
+        quoteToExecute: refreshedQuote,
+        refreshApplied: true,
+    };
+}
+
 /**
  * Unified Swap Executor
  * Handles both EVM and Solana swaps with robust error handling and gas management.
@@ -874,16 +917,14 @@ export class SwapExecutor {
                             console.warn('[SwapExecutor] Failed to update approval confirmed card:', wsError);
                         }
 
+                        const originalQuote = { ...best };
                         const originalDex = best.dex;
-                        const originalAllowanceTarget = best.allowanceTarget;
-                        const approvalRefreshExcludeDex = String(originalDex || '').toLowerCase() === '0x'
-                            ? 'kyber'
-                            : String(originalDex || '').toLowerCase() === 'kyber'
-                                ? '0x'
-                                : undefined;
-                        let freshQuoteApplied = false;
-                        let freshQuoteAllowanceChanged = false;
-                        let freshQuoteFailure = 'fresh_quote_missing_after_approval';
+                        const approvalRefreshAllowedDexes = originalDex ? [originalDex as QuoteDex] : undefined;
+                        let refreshDecision: ApprovalBoundExecutionDecision = {
+                            quoteToExecute: originalQuote,
+                            refreshApplied: false,
+                            refreshFailureCode: 'refresh_skipped_after_approval',
+                        };
                         for (let refreshAttempt = 1; refreshAttempt <= 2; refreshAttempt++) {
                             const propagationDelayMs = approvalReady.readyBy === 'allowance' && refreshAttempt === 1
                                 ? 0
@@ -896,7 +937,7 @@ export class SwapExecutor {
                                 await new Promise(resolve => setTimeout(resolve, propagationDelayMs));
                             }
 
-                            logger.info(LogCode.EXE_TX_BROADCAST, 'Re-fetching quote after approval confirmation', {
+                            logger.info(LogCode.EXE_TX_BROADCAST, 'Re-fetching pinned quote after approval confirmation', {
                                 originalDex: best.dexName,
                                 attempt: refreshAttempt
                             });
@@ -917,70 +958,54 @@ export class SwapExecutor {
                                 refPrice,
                                 feeContext,
                                 isSell: isSellForFee,
-                                // Approval refresh must bypass turbo timing and stale quote reuse.
                                 executionMode: 'normal',
                                 preferPermit2: false,
                                 skipCache: true,
-                                excludeDex: approvalRefreshExcludeDex,
+                                allowedDexes: approvalRefreshAllowedDexes,
+                                preferredDexes: approvalRefreshAllowedDexes,
                             });
 
-                            const quoteFound = !!(freshQuote && freshQuote.to && freshQuote.data);
-                            const allowanceChanged = !!(
-                                quoteFound
-                                && freshQuote.allowanceTarget
-                                && originalAllowanceTarget
-                                && freshQuote.allowanceTarget.toLowerCase() !== originalAllowanceTarget.toLowerCase()
-                            );
+                            refreshDecision = finalizeApprovedSellQuote({
+                                originalQuote,
+                                refreshedQuote: freshQuote || null,
+                            });
 
-                            if (!quoteFound) {
-                                freshQuoteFailure = 'fresh_quote_missing_after_approval';
-                            } else if (allowanceChanged) {
-                                freshQuoteFailure = 'fresh_quote_allowance_changed_after_approval';
-                                freshQuoteAllowanceChanged = true;
-                                logger.warn(LogCode.EXE_TX_BROADCAST, 'Fresh quote uses different allowance target after approval', {
-                                    oldDex: best.dexName,
-                                    newDex: freshQuote.dexName,
-                                    oldAllowanceTarget: originalAllowanceTarget,
-                                    newAllowanceTarget: freshQuote.allowanceTarget,
+                            if (refreshDecision.refreshApplied) {
+                                logger.info(LogCode.EXE_TX_BROADCAST, 'Using pinned fresh quote after approval', {
+                                    dex: refreshDecision.quoteToExecute.dexName,
+                                    oldAmountOut: originalQuote.amountOut,
+                                    newAmountOut: refreshDecision.quoteToExecute.amountOut,
                                     attempt: refreshAttempt
                                 });
-                            } else {
-                                logger.info(LogCode.EXE_TX_BROADCAST, 'Using fresh quote after approval', {
-                                    oldDex: best.dexName,
-                                    newDex: freshQuote.dexName,
-                                    oldAmountOut: best.amountOut,
-                                    newAmountOut: freshQuote.amountOut,
-                                    attempt: refreshAttempt
-                                });
-                                Object.assign(best, freshQuote);
-                                freshQuoteApplied = true;
+                                Object.assign(best, refreshDecision.quoteToExecute);
                                 break;
                             }
 
+                            logger.warn(LogCode.SYS_INFO, 'Keeping approved quote after incompatible refresh attempt', {
+                                dex: originalQuote.dexName,
+                                reasonCode: refreshDecision.refreshFailureCode,
+                                approvedAllowanceTarget: originalQuote.allowanceTarget,
+                                attemptedAllowanceTarget: freshQuote?.allowanceTarget || null,
+                                attemptedDex: freshQuote?.dexName || null,
+                                attempt: refreshAttempt
+                            });
+
                             if (!shouldRetryApprovalQuoteRefresh({
                                 attempt: refreshAttempt,
-                                quoteFound,
-                                allowanceChanged
+                                quoteFound: Boolean(freshQuote && freshQuote.to && freshQuote.data),
+                                allowanceChanged: refreshDecision.refreshFailureCode === 'fresh_quote_allowance_changed_after_approval'
                             })) {
                                 break;
                             }
                         }
 
-                        if (!freshQuoteApplied) {
-                            if (isSellTx && !freshQuoteAllowanceChanged) {
-                                logger.warn(LogCode.SYS_INFO, 'Reusing pre-approval quote after refresh failure on sell', {
-                                    dex: best.dexName,
-                                    reasonCode: freshQuoteFailure,
-                                    originalAllowanceTarget,
-                                    approvalRefreshExcludeDex,
-                                });
-                            } else {
-                                logger.error(LogCode.SYS_ERROR, 'Failed to fetch approval-compatible fresh quote', {
-                                    dex: best.dexName,
-                                    reasonCode: freshQuoteFailure
-                                });
-                                throw new Error(`Failed to fetch approval-compatible fresh quote: ${freshQuoteFailure}`);
-                            }
+                        if (!refreshDecision.refreshApplied) {
+                            logger.warn(LogCode.SYS_INFO, 'Proceeding with approved original quote after refresh fallback', {
+                                dex: originalQuote.dexName,
+                                reasonCode: refreshDecision.refreshFailureCode,
+                                allowanceTarget: originalQuote.allowanceTarget
+                            });
+                            Object.assign(best, originalQuote);
                         }
                     };
 
@@ -1848,3 +1873,7 @@ export class SwapExecutor {
     }
 
 }
+
+export const __swapExecutorTest = {
+    finalizeApprovedSellQuote,
+};

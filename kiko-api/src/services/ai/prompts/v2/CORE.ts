@@ -71,6 +71,10 @@ Skills and tool rules:
 4. If [TOKEN_CONTEXT] is already complete, avoid duplicate token metadata queries.
 5. If [USER_BALANCE_CONTEXT] is already complete, avoid duplicate balance queries.
 6. For cross-chain requests, if source-chain balance is missing, fetch source-chain information first.
+7. For ambiguous ranking words such as "hot", "trending", "best", "what's live right now", do not collapse to a single default ranking if the domain has multiple materially different slices. First identify the likely axes such as overall volume, recency/newness, short-window tradability, and current executability.
+8. If the user asks for a time-sensitive market or uses words like "today", "now", "next 5 minutes", or "currently", fetch or anchor current time before choosing tools or interpreting venue timestamps.
+9. When the user intent is broad but action-oriented, prefer a small internal expansion over an immediate clarification question: gather 2-3 relevant slices, synthesize them, and then suggest the best next narrowing choice.
+10. For short follow-up turns like "this one", "I want this", "就这个", or "买这个", do not restart discovery if the previous turn already identified candidates. Reuse the prior evidence chain and advance the workflow toward preparation or execution.
 
 Multi-skill orchestration protocol (internal):
 1. Before calling tools, create a short internal plan:
@@ -86,7 +90,9 @@ Multi-skill orchestration protocol (internal):
 5. If steps are dependent, execute sequentially and update the plan after each key result.
 6. For screening tasks, use a funnel: candidate discovery -> quality filtering -> ranking/deep analysis -> execution/config creation.
 7. For event or future-probability questions, use Prediction Market signals when available, but label them as market-implied probability rather than confirmed fact.
-8. After tool calls complete, synthesize all evidence once and return one integrated answer with clear recommendation and next step.
+8. For market-discovery requests, do not stop at the first matching tool result if another nearby slice is needed to answer the actual user intent. Example: overall trending may need to be paired with newest markets or live quotes.
+9. For action-oriented follow-ups after discovery, prefer execution-preparation tools over repeating discovery tools. Move the user forward.
+10. After tool calls complete, synthesize all evidence once and return one integrated answer with clear recommendation and next step.
 
 ${buildDefaultScenarioPlaybook()}
 

@@ -12,6 +12,7 @@ import {
   getUserBalance,
   calculatePriceImpact,
   executeSwapInstant,
+  waitForSwapTradeSettlement,
 } from '@/services/swapService';
 import {
   getBestSwapQuote,
@@ -736,9 +737,30 @@ export function useSwap(options: UseSwapOptions = {}) {
         chainId,
         slippageBps,
         maxPriceImpact,
+        userAddress,
       });
 
-      if (instantResult.success && instantResult.txHash) {
+      if (instantResult.success && instantResult.txHash && instantResult.status === 'PENDING' && instantResult.tradeId) {
+        const settledResult = await waitForSwapTradeSettlement(instantResult.tradeId);
+        if (settledResult.success && settledResult.txHash) {
+          setState(prev => ({
+            ...prev,
+            status: 'success',
+            isExecuting: false,
+            amountIn: '0',
+            amountOut: '0',
+            quote: null,
+            isApproved: false,
+            lastTxHash: settledResult.txHash,
+          }));
+          const nextFetchId = ++balanceFetchIdRef.current;
+          await fetchUserBalance(state.tokenIn, nextFetchId);
+          return {
+            success: true,
+            txHash: settledResult.txHash,
+          };
+        }
+      } else if (instantResult.success && instantResult.txHash) {
         console.log('[useSwap] Instant swap successful:', instantResult.txHash);
         setState(prev => ({
           ...prev,
@@ -759,8 +781,34 @@ export function useSwap(options: UseSwapOptions = {}) {
       }
 
       const errorMessage = instantResult.error || 'Instant swap failed. Please try again later.';
+      if (instantResult.ambiguous && instantResult.tradeId) {
+        const settledResult = await waitForSwapTradeSettlement(instantResult.tradeId);
+        if (settledResult.success && settledResult.txHash) {
+          setState(prev => ({
+            ...prev,
+            status: 'success',
+            isExecuting: false,
+            amountIn: '0',
+            amountOut: '0',
+            quote: null,
+            isApproved: false,
+            lastTxHash: settledResult.txHash,
+          }));
+          const nextFetchId = ++balanceFetchIdRef.current;
+          await fetchUserBalance(state.tokenIn, nextFetchId);
+          return {
+            success: true,
+            txHash: settledResult.txHash,
+          };
+        }
+      }
       console.log('[useSwap] Instant swap failed:', errorMessage);
-      setState(prev => ({ ...prev, status: 'error', isExecuting: false, error: errorMessage }));
+      setState(prev => ({
+        ...prev,
+        status: 'error',
+        isExecuting: false,
+        error: errorMessage,
+      }));
       return { success: false, error: errorMessage };
     } catch (error) {
       console.error('[executeSwap] Transaction failed:', error);

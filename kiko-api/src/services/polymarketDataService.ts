@@ -352,33 +352,40 @@ export async function getOpenOrdersForUser(userId: string, wallet: string): Prom
     }
 }
 
+export type PolymarketQuoteSide = 'BUY' | 'SELL';
+
 /**
- * Get the best bid price for an asset from the CLOB
- * Used to implement a "Market Sell" by selling at the highest bid
+ * Get the current executable price for a token side from the CLOB.
+ * This is safer than reading the raw book top level directly because
+ * the binary order book representation can look inverted for complementary outcomes.
  */
-export async function getBestBid(tokenId: string): Promise<number | null> {
-    const url = `https://clob.polymarket.com/book?token_id=${tokenId}`;
+export async function getExecutablePrice(tokenId: string, side: PolymarketQuoteSide): Promise<number | null> {
+    const url = `https://clob.polymarket.com/price?token_id=${tokenId}&side=${side}`;
 
     try {
-        const data = await unifiedApiService.fetchJson<any>({
+        const data = await unifiedApiService.fetchJson<{ price?: string | number }>({
             url,
             method: 'GET',
             headers: {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
             },
-            timeout: 5000, // Faster timeout for order book
+            timeout: 5000,
             endpointName: 'clob.polymarket.com'
         });
-        const bids = data.bids || [];
-
-        if (bids.length > 0) {
-            // Bids are usually sorted high to low
-            return parseFloat(bids[0].price);
-        }
-
-        return null;
+        const parsed = typeof data?.price === 'number'
+            ? data.price
+            : parseFloat(String(data?.price ?? ''));
+        return Number.isFinite(parsed) ? parsed : null;
     } catch (error: any) {
-        logger.error(LogCode.API_FETCH_FAILED, 'Failed to fetch Polymarket orderbook', { tokenId, error: error.message });
+        logger.error(LogCode.API_FETCH_FAILED, 'Failed to fetch Polymarket executable price', { tokenId, side, error: error.message });
         return null;
     }
+}
+
+/**
+ * Backwards-compatible helper for legacy close-position logic.
+ * "Best bid" for exiting a position maps to the executable SELL price.
+ */
+export async function getBestBid(tokenId: string): Promise<number | null> {
+    return getExecutablePrice(tokenId, 'SELL');
 }

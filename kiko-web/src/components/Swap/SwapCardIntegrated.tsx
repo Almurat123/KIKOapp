@@ -13,7 +13,7 @@ import { useSolanaSwap } from '@/hooks/useSolanaSwap';
 import type { Token } from '@/types/swap';
 import { findTokenOnAnyChain, getTokenData } from '@/services/tokenDataService';
 import { MEVProtectionBadge } from './MEVProtectionBadge';
-import { executeSwapInstant } from '../../services/swapService';
+import { executeSwapInstant, waitForSwapTradeSettlement } from '../../services/swapService';
 import {
   emitImportedTokensUpdated,
   readImportedSwapTokensFromStorage,
@@ -330,9 +330,28 @@ export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
             amountIn: swapState.amountIn,
             chainId: chainId,
             slippageBps: Math.round(slippage * 100),
+            userAddress,
           });
 
-          if (result.success && result.txHash) {
+          if (result.success && result.txHash && result.status === 'PENDING' && result.tradeId) {
+            setActionMessage('Transaction submitted. Waiting for on-chain confirmation...');
+            const settled = await waitForSwapTradeSettlement(result.tradeId);
+            if (settled.success && settled.txHash) {
+              setActionMessage(`Swap sent: ${settled.txHash.slice(0, 10)}...`);
+              if (isSolana && solanaSwapTyped) {
+                solanaSwapTyped.setAmountIn('');
+              } else if (evmSwapTyped) {
+                evmSwapTyped.setAmountIn('');
+                if (evmSwapTyped.refreshSwapState) {
+                  await evmSwapTyped.refreshSwapState();
+                }
+              }
+              onSwapSuccess?.(settled.txHash);
+            } else {
+              setActionMessage(settled.error || 'Swap submission is still syncing. Please check recent transactions shortly.');
+              onSwapError?.(settled.error || 'Swap submission is still syncing.');
+            }
+          } else if (result.success && result.txHash) {
             setActionMessage(`Swap sent: ${result.txHash.slice(0, 10)}...`);
             if (isSolana && solanaSwapTyped) {
               solanaSwapTyped.setAmountIn('');
@@ -343,6 +362,29 @@ export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
               }
             }
             onSwapSuccess?.(result.txHash);
+          } else if (result.ambiguous) {
+            if (result.tradeId) {
+              setActionMessage('Transaction submitted. Verifying on-chain status...');
+              const settled = await waitForSwapTradeSettlement(result.tradeId);
+              if (settled.success && settled.txHash) {
+                setActionMessage(`Swap sent: ${settled.txHash.slice(0, 10)}...`);
+                if (isSolana && solanaSwapTyped) {
+                  solanaSwapTyped.setAmountIn('');
+                } else if (evmSwapTyped) {
+                  evmSwapTyped.setAmountIn('');
+                  if (evmSwapTyped.refreshSwapState) {
+                    await evmSwapTyped.refreshSwapState();
+                  }
+                }
+                onSwapSuccess?.(settled.txHash);
+              } else {
+                setActionMessage(settled.error || 'Swap submission is still syncing. Please check recent transactions shortly.');
+                onSwapError?.(settled.error || 'Swap submission is still syncing.');
+              }
+            } else {
+              setActionMessage(result.error || 'Swap may still be processing. Please check recent transactions.');
+              onSwapError?.(result.error || 'Swap status is being reconciled.');
+            }
           } else {
             setActionMessage(null);
             onSwapError?.(result.error || 'Server execution failed');

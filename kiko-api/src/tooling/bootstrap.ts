@@ -1,7 +1,7 @@
 import { toolRegistry } from './registry.js';
 import { GetCrossChainQuoteTool, PrepareCrossChainTxTool } from '../skills/CrossChainSkill/index.js';
 import { GetTokenInfoTool, GetTrendingTokensTool, GetTokenPriceTool, GetHistoricalPriceTool, GetEarlyBuyersTool, AnalyzeCreatorTool } from '../skills/TokenSkill/index.js';
-import { ExternalWebSearchTool, GetGasPriceTool, GetMarketOverviewTool, GetEconomicCalendarTool } from '../skills/MarketSkill/index.js';
+import { ExternalWebSearchTool, GetGasPriceTool, GetMarketOverviewTool, GetEconomicCalendarTool, GetCurrentTimeTool } from '../skills/MarketSkill/index.js';
 import { PrepareSwapTransactionTool, SimulateSwapTool } from '../skills/SwapSkill/index.js';
 import { GetWalletInfoTool, SwitchChainTool, GetUserFavoritesTool, AnalyzeWalletPnlTool, AnalyzeWalletPnlBatchTool, GetTokenTopGainersTool } from '../skills/WalletSkill/index.js';
 import { CheckTokenRiskTool } from '../skills/RiskSkill/index.js';
@@ -14,6 +14,8 @@ import {
     GetPolymarketEventTool as PMEvent,
     SearchPolymarketTool as PMSearch,
     GetNewMarketsTool as PMNew,
+    GetPolymarketQuoteTool,
+    PreparePolymarketBetTool,
     GetMarketActivityTool,
     GetWhaleWatchTool,
     CreatePolymarketCopyConfigTool,
@@ -38,6 +40,7 @@ const BUILT_IN_TOOLS = [
     SimulateSwapTool,
     GetMarketOverviewTool,
     GetEconomicCalendarTool,
+    GetCurrentTimeTool,
     GetWalletInfoTool,
     SwitchChainTool,
     GetGasPriceTool,
@@ -61,6 +64,8 @@ const BUILT_IN_TOOLS = [
     PMEvent,
     PMSearch,
     PMNew,
+    GetPolymarketQuoteTool,
+    PreparePolymarketBetTool,
     GetMarketActivityTool,
     GetWhaleWatchTool,
     CreatePolymarketCopyConfigTool,

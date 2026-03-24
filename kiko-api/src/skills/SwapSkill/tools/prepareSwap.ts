@@ -719,7 +719,7 @@ When show-quote-before-swap is enabled (default), execution must follow:
                         success?: boolean;
                         error?: string;
                         message?: string;
-                        data?: { txHash?: string; amountOut?: string; tradeId?: string };
+                        data?: { txHash?: string; amountOut?: string; tradeId?: string; status?: 'PENDING' | 'SUCCESS' | 'FAILED' };
                     };
 
                     let swapRecord: any = null;
@@ -738,7 +738,12 @@ When show-quote-before-swap is enabled (default), execution must follow:
                     }
 
                     // ⚡ STEP 3: Update transaction message with final result
-                    const finalStatus = response.ok && result.success ? 'success' : 'failed';
+                    const backendStatus = String(result.data?.status || '').toUpperCase();
+                    const finalStatus = !response.ok || !result.success
+                        ? 'failed'
+                        : backendStatus === 'PENDING'
+                            ? 'pending'
+                            : 'success';
                     const messageData = transactionMessage.data || {};
                     const completionData = {
                         ...messageData,
@@ -753,8 +758,10 @@ When show-quote-before-swap is enabled (default), execution must follow:
                         duration: messageData.startedAt ? Date.now() - messageData.startedAt : undefined,
                         message: finalStatus === 'success'
                             ? `✅ Swap completed! Transaction: ${result.data?.txHash?.slice(0, 10)}...`
-                            : `❌ Swap failed: ${result.error || 'Unknown error'}`,
-                        isLoading: false
+                            : finalStatus === 'pending'
+                                ? `⏳ Transaction submitted. Waiting for confirmation: ${result.data?.txHash?.slice(0, 10)}...`
+                                : `❌ Swap failed: ${result.error || 'Unknown error'}`,
+                        isLoading: finalStatus === 'pending'
                     };
                     isFinalized = true;
                     if (pendingTimer) {
@@ -794,6 +801,18 @@ When show-quote-before-swap is enabled (default), execution must follow:
                     }
 
                     console.log('[PrepareSwapTransaction] Backend swap successful:', result);
+
+                    if (finalStatus === 'pending') {
+                        return {
+                            success: true,
+                            mode: 'pending',
+                            txHash: result.data?.txHash,
+                            messageId: transactionMessage.id,
+                            summary: `⏳ Swap submitted: ${args.amount_in} ${args.token_in} → ${args.token_out}. Waiting for confirmation on-chain.`,
+                            data: result.data,
+                            _final: true
+                        };
+                    }
 
                     // ⚡ Return success with messageId (card already saved and displayed)
                     return {

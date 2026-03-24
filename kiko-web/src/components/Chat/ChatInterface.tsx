@@ -1841,6 +1841,9 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
             if (resp.success) {
                 const { assistantMessage, task } = resp;
+                if (typeof window !== 'undefined') {
+                    window.dispatchEvent(new CustomEvent('kiko-usage-refresh'));
+                }
 
                 // Add assistant message placeholder
                 const createdAt = (assistantMessage as any).created_at ?? assistantMessage.timestamp ?? Date.now();

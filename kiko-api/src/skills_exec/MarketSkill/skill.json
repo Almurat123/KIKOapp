@@ -7,6 +7,7 @@
     ],
     "tools": [
         "external_web_search",
+        "get_current_time",
         "get_market_overview",
         "get_economic_calendar",
         "get_gas_price"

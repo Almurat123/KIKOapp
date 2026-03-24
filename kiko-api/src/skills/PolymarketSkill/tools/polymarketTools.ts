@@ -62,7 +62,7 @@ export const GetPolymarketTrendingTool: Tool = {
 export const GetPolymarketTrendingMarketsTool: Tool = {
     definition: {
         name: 'get_polymarket_trending_markets',
-        description: 'Get specific trending prediction questions (e.g., "Will Bitcoin hit $100k?"). Sorted by 24h volume. Returns outcome names and outcome token IDs needed for trading.',
+        description: 'Get specific trending prediction questions sorted by 24h volume. Use this for overall hot markets by volume/liquidity. Do not use it alone when the user is asking for newest markets, today-only short-window markets, or "next few minutes" markets; pair with get_new_markets and current time when recency matters. Returns outcome names and outcome token IDs needed for trading.',
         parameters: {
             type: 'object',
             properties: {
@@ -84,6 +84,8 @@ export const GetPolymarketTrendingMarketsTool: Tool = {
             count: result.markets.length,
             questions: result.markets.map(m => ({
                 id: m.id,
+                slug: m.slug,
+                condition_id: m.conditionId,
                 question: m.question,
                 yes: m.yesProbability,
                 no: m.noProbability,
@@ -93,6 +95,9 @@ export const GetPolymarketTrendingMarketsTool: Tool = {
                 accepting_orders: m.acceptingOrders,
                 best_bid: m.bestBid,
                 best_ask: m.bestAsk,
+                tick_size: m.tickSize,
+                neg_risk: m.negRisk,
+                enable_order_book: m.enableOrderBook,
                 outcomes: m.outcomes.map(o => ({
                     name: o.name,
                     probability: o.probability,
@@ -134,6 +139,8 @@ export const GetPolymarketEventTool: Tool = {
             endDate: formatDateLabel(event.endDate),
             markets: event.markets.map(m => ({
                 id: m.id,
+                slug: m.slug,
+                condition_id: m.conditionId,
                 question: m.question,
                 yes: m.yesProbability,
                 no: m.noProbability,
@@ -141,6 +148,9 @@ export const GetPolymarketEventTool: Tool = {
                 accepting_orders: m.acceptingOrders,
                 best_bid: m.bestBid,
                 best_ask: m.bestAsk,
+                tick_size: m.tickSize,
+                neg_risk: m.negRisk,
+                enable_order_book: m.enableOrderBook,
                 outcomes: m.outcomes.map(o => ({
                     name: o.name,
                     probability: o.probability,
@@ -237,7 +247,7 @@ export const __testables = {
 export const GetNewMarketsTool: Tool = {
     definition: {
         name: 'get_new_markets',
-        description: 'Get newly created prediction markets. Use this when user asks "what is new", "newest markets", or "recently added". Returns market IDs plus outcome token IDs when available.',
+        description: 'Get newly created prediction markets. Use this when the user asks "what is new", "newest", "today", "just opened", "next 5 minutes", or other recency-sensitive questions. This is the right companion to get_polymarket_trending_markets when "hot" could mean newly opened rather than high 24h volume. Returns market IDs plus outcome token IDs when available.',
         parameters: {
             type: 'object',
             properties: {
@@ -264,10 +274,15 @@ export const GetNewMarketsTool: Tool = {
                 liquidity: `$${e.liquidity.toLocaleString()}`,
                 markets: e.markets.map(m => ({
                     id: m.id,
+                    slug: m.slug,
+                    condition_id: m.conditionId,
                     question: m.question,
                     accepting_orders: m.acceptingOrders,
                     best_bid: m.bestBid,
                     best_ask: m.bestAsk,
+                    tick_size: m.tickSize,
+                    neg_risk: m.negRisk,
+                    enable_order_book: m.enableOrderBook,
                     outcomes: m.outcomes.map(o => ({
                         name: o.name,
                         probability: o.probability,

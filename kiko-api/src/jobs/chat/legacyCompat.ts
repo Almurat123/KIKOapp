@@ -19,7 +19,12 @@ export function getToolStatusMessage(toolName: string): string {
         get_historical_price: 'Analyzing history',
         check_token_risk: 'Evaluating risk',
         get_market_overview: 'Analyzing market',
+        get_current_time: 'Checking current time',
         get_polymarket_trending: 'Fetching predictions',
+        get_polymarket_trending_markets: 'Ranking hot markets',
+        get_new_markets: 'Checking new markets',
+        get_polymarket_quote: 'Checking live market quote',
+        prepare_polymarket_bet: 'Preparing bet details',
         get_polymarket_event: 'Analyzing event',
         search_polymarket: 'Searching markets',
         simulate_swap: 'Checking quote',
@@ -49,10 +54,21 @@ export async function persistBillingUsage(params: {
     toolContext?: any;
     toolCallNames?: string[];
 }): Promise<void> {
-    if (!params.userId || !params.usage) return;
+    if (!params.userId) return;
 
     const billingContext = params.toolContext?.billing || {};
     const modelCategory = billingContext.modelCategory || getBillingCategory(params.model);
+    const dateUtc = getUtcDateString();
+
+    await recordUsage({
+        userId: params.userId,
+        dateUtc,
+        modelCategory,
+        assistantMessageId: params.assistantMessageId,
+    });
+
+    if (!params.usage) return;
+
     const isFree = typeof billingContext.isFree === 'boolean' ? billingContext.isFree : false;
     const usdCost = computeUsdCost(
         params.usage,
@@ -62,7 +78,6 @@ export async function persistBillingUsage(params: {
     const promptTokens = Number(params.usage.prompt_tokens || 0);
     const completionTokens = Number(params.usage.completion_tokens || 0);
     const totalTokens = computeTotalTokens(params.usage, params.model);
-    const dateUtc = getUtcDateString();
 
     await insertUsageRecord({
         assistantMessageId: params.assistantMessageId,
@@ -76,11 +91,5 @@ export async function persistBillingUsage(params: {
         usdCost,
         dateUtc,
         isFree,
-    });
-    await recordUsage({
-        userId: params.userId,
-        dateUtc,
-        modelCategory,
-        assistantMessageId: params.assistantMessageId,
     });
 }

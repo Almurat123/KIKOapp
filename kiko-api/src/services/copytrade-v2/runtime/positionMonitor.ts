@@ -44,6 +44,7 @@ import {
 import { evaluateAutoExitPriceGuard } from './autoExitPriceGuard.js';
 import { getGuardPriceSnapshot } from './guardPrice.js';
 import { reconcileMirrorSellDustPosition } from './mirrorSellDustReconciler.js';
+import { reconcileStaleOpenClosedPosition } from './staleOpenPositionReconciler.js';
 import {
   ExitHotPathDeferredError,
   hasIntentContext,
@@ -1074,6 +1075,25 @@ export async function checkPositionsForExits(): Promise<void> {
                 const tokenKey = `${position.tokenAddress.toLowerCase()}_${position.chainId}`;
                 const tokenInfo = tokenPriceMap.get(tokenKey);
 
+                const staleOpenRepair = await reconcileStaleOpenClosedPosition({
+                    position: {
+                        id: position.id,
+                        status: position.status,
+                        exitReason: position.exitReason,
+                        exitTxHash: position.exitTxHash,
+                        closedAt: position.closedAt,
+                        tokenAddress: position.tokenAddress,
+                        tokenSymbol: position.tokenSymbol,
+                        chainId: position.chainId,
+                        userId: position.userId,
+                        configId: position.configId,
+                    },
+                });
+                if (staleOpenRepair.repaired) {
+                    markPositionLocallyClosed(position.id);
+                    return;
+                }
+
                 const mirrorSellDustReconciliation = await reconcileMirrorSellDustPosition({
                     position: {
                         id: position.id,
@@ -1096,7 +1116,7 @@ export async function checkPositionsForExits(): Promise<void> {
                 if (!tokenInfo) {
                     logger.warn(LogCode.API_FETCH_FAILED, 'TP/SL check skipped: Price not available', {
                         positionId: position.id,
-                        token: position.tokenSymbol || position.tokenAddress,
+                        token: resolveDisplayTokenSymbol(position.tokenSymbol, position.tokenAddress),
                         chainId: position.chainId,
                         configId: position.configId
                     });

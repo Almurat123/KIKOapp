@@ -24,6 +24,8 @@ describe('evmExecuteInstant handler routing', () => {
       rpc: [],
       swap: [],
       trade: [],
+      tradeUpdate: [],
+      settlement: [],
       track: [],
     };
 
@@ -61,6 +63,11 @@ describe('evmExecuteInstant handler routing', () => {
           amountOut: '3750',
         };
       },
+      getUserSettings: async () => ({
+        swapMethod: 'allowance_trade',
+        fastSwapMode: true,
+        mevProtection: true,
+      }),
       createSwapHistory: async (record: any) => {
         calls.trade.push(record);
         return {
@@ -68,6 +75,21 @@ describe('evmExecuteInstant handler routing', () => {
           userId: record.userId,
           tokenInUsd: record.amountInUsd,
         };
+      },
+      createPendingSwapHistory: async (record: any) => {
+        calls.trade.push(record);
+        return {
+          id: 'trade-1',
+          userId: record.userId,
+          tokenInUsd: record.amountInUsd,
+          status: 'pending',
+        };
+      },
+      updateSwapHistory: async (tradeId: string, record: any) => {
+        calls.tradeUpdate.push({ tradeId, ...record });
+      },
+      scheduleTradeSettlement: (params: any) => {
+        calls.settlement.push(params);
       },
       trackSwap: (userId: string, volumeUsd: number) => {
         calls.track.push({ userId, volumeUsd });
@@ -84,10 +106,12 @@ describe('evmExecuteInstant handler routing', () => {
     const result = await __evmExecuteInstantTest.executeEvmInstantWithDeps(baseParams as any, deps as any);
 
     assert.equal(result.txHash, '0xswap');
+    assert.equal(result.status, 'PENDING');
     assert.equal(deps.calls.swap.length, 1);
     assert.equal(deps.calls.swap[0].tokenIn, __evmExecuteInstantTest.NATIVE_TOKEN_PLACEHOLDER);
     assert.equal(deps.calls.swap[0].tokenOut, '0x9999999999999999999999999999999999999999');
     assert.equal(deps.calls.swap[0].messageId, 'msg-1');
+    assert.equal(deps.calls.swap[0].requireConfirmedTx, false);
   });
 
   test('caps ERC20 amount to on-chain balance when requested amount is too high', async () => {
@@ -140,9 +164,13 @@ describe('evmExecuteInstant handler routing', () => {
 
     assert.equal(result.tradeId, 'trade-1');
     assert.equal(deps.calls.trade.length, 1);
-    assert.equal(deps.calls.track.length, 1);
-    assert.equal(deps.calls.track[0].userId, 'user-1');
-    assert.equal(deps.calls.track[0].volumeUsd, 3750);
+    assert.equal(result.status, 'PENDING');
+    assert.equal(deps.calls.track.length, 0);
+    assert.equal(deps.calls.tradeUpdate.length, 1);
+    assert.equal(deps.calls.tradeUpdate[0].status, 'pending');
+    assert.equal(deps.calls.settlement.length, 1);
+    assert.equal(deps.calls.settlement[0].userId, 'user-1');
+    assert.equal(deps.calls.settlement[0].trackSwap, deps.trackSwap);
   });
 
   test('throws SWAP_FAILED when unified executor returns a generic failure', async () => {
@@ -161,5 +189,36 @@ describe('evmExecuteInstant handler routing', () => {
         return true;
       }
     );
+  });
+
+  test('wallet-page execution returns pending immediately and skips confirmed wait', async () => {
+    const deps = createDeps();
+
+    const result = await __evmExecuteInstantTest.executeEvmInstantWithDeps({
+      ...baseParams,
+      transactionMessageId: undefined,
+      executionSource: 'wallet_page',
+    } as any, deps as any);
+
+    assert.equal(result.status, 'PENDING');
+    assert.equal(result.txHash, '0xswap');
+    assert.equal(deps.calls.swap[0].requireConfirmedTx, false);
+    assert.equal(deps.calls.tradeUpdate.length, 1);
+    assert.equal(deps.calls.tradeUpdate[0].status, 'pending');
+    assert.equal(deps.calls.settlement.length, 1);
+  });
+
+  test('copytrade execution keeps confirmed wait enabled', async () => {
+    const deps = createDeps();
+
+    const result = await __evmExecuteInstantTest.executeEvmInstantWithDeps({
+      ...baseParams,
+      executionSource: 'copytrade',
+    } as any, deps as any);
+
+    assert.equal(result.status, 'SUCCESS');
+    assert.equal(deps.calls.swap[0].requireConfirmedTx, true);
+    assert.equal(deps.calls.tradeUpdate[0].status, 'success');
+    assert.equal(deps.calls.track.length, 1);
   });
 });

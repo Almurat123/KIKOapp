@@ -10,6 +10,230 @@ import { parseUnits } from 'viem';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
+type SwapHistoryTrade = {
+    id: string;
+    tokenIn: string;
+    tokenOut: string;
+    amountIn: string;
+    chainId: number;
+    txHash?: string;
+    status: 'PENDING' | 'SUCCESS' | 'FAILED';
+    createdAt: number;
+    error?: string;
+};
+
+const RECENT_SWAP_LOOKBACK_MS = 3 * 60 * 1000;
+const SWAP_RECONCILE_TIMEOUT_MS = 12000;
+const SWAP_RECONCILE_POLL_MS = 1500;
+const SWAP_STATUS_POLL_TIMEOUT_MS = 30000;
+
+function sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function normalizeTokenKey(value: string): string {
+    const normalized = value.trim().toLowerCase();
+    if (
+        normalized === 'eth'
+        || normalized === 'bnb'
+        || normalized === 'matic'
+        || normalized === 'pol'
+        || normalized === '0x0000000000000000000000000000000000000000'
+        || normalized === '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee'
+    ) {
+        return '__native__';
+    }
+    return normalized;
+}
+
+function parseAmount(value: string): number {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function amountsRoughlyMatch(left: string, right: string): boolean {
+    const a = parseAmount(left);
+    const b = parseAmount(right);
+    if (a === b) return true;
+    if (a <= 0 || b <= 0) return false;
+    const delta = Math.abs(a - b);
+    const max = Math.max(a, b);
+    return delta / max < 1e-9;
+}
+
+async function fetchRecentSwapHistory(userAddress: string): Promise<SwapHistoryTrade[]> {
+    const authToken = await getAuthToken();
+    const response = await fetch(`${API_BASE_URL}/api/swap/history?userAddress=${encodeURIComponent(userAddress)}&limit=10`, {
+        method: 'GET',
+        headers: authToken
+            ? {
+                'Authorization': `Bearer ${authToken}`,
+            }
+            : undefined,
+    });
+
+    if (!response.ok) {
+        throw new Error(`Failed to fetch swap history: ${response.status}`);
+    }
+
+    const data = await response.json();
+    const trades = Array.isArray(data?.data?.trades) ? data.data.trades : [];
+    return trades as SwapHistoryTrade[];
+}
+
+async function fetchSwapStatus(tradeId: string): Promise<SwapHistoryTrade | null> {
+    const authToken = await getAuthToken();
+    const response = await fetch(`${API_BASE_URL}/api/swap/status/${encodeURIComponent(tradeId)}`, {
+        method: 'GET',
+        headers: authToken
+            ? {
+                'Authorization': `Bearer ${authToken}`,
+            }
+            : undefined,
+    });
+
+    if (!response.ok) {
+        throw new Error(`Failed to fetch swap status: ${response.status}`);
+    }
+
+    const data = await response.json();
+    if (!data?.success || !data?.data) return null;
+    return data.data as SwapHistoryTrade;
+}
+
+function findMatchingRecentTrade(
+    trades: SwapHistoryTrade[],
+    params: {
+        tokenIn: string;
+        tokenOut: string;
+        amountIn: string;
+        chainId: number;
+    },
+    startedAtMs: number
+): SwapHistoryTrade | null {
+    const earliestAllowed = startedAtMs - RECENT_SWAP_LOOKBACK_MS;
+    const latestAllowed = Date.now() + 10_000;
+    const tokenInKey = normalizeTokenKey(params.tokenIn);
+    const tokenOutKey = normalizeTokenKey(params.tokenOut);
+
+    return trades.find((trade) => {
+        if (!trade || typeof trade !== 'object') return false;
+        if (trade.chainId !== params.chainId) return false;
+        if (trade.createdAt < earliestAllowed || trade.createdAt > latestAllowed) return false;
+        if (normalizeTokenKey(trade.tokenIn) !== tokenInKey) return false;
+        if (normalizeTokenKey(trade.tokenOut) !== tokenOutKey) return false;
+        return amountsRoughlyMatch(trade.amountIn, params.amountIn);
+    }) || null;
+}
+
+function isAmbiguousSwapFailure(statusCode: number | null, error: unknown): boolean {
+    if (statusCode !== null && statusCode >= 500) return true;
+    const message = error instanceof Error ? error.message : String(error || '');
+    const normalized = message.toLowerCase();
+    return normalized.includes('load failed')
+        || normalized.includes('failed to fetch')
+        || normalized.includes('networkerror')
+        || normalized.includes('fetch failed')
+        || normalized.includes('bad gateway')
+        || normalized.includes('502');
+}
+
+async function reconcileRecentInstantSwap(params: {
+    userAddress?: string;
+    tokenIn: string;
+    tokenOut: string;
+    amountIn: string;
+    chainId: number;
+    startedAtMs: number;
+}): Promise<TradeExecutionResult | null> {
+    if (!params.userAddress) return null;
+
+    const deadline = Date.now() + SWAP_RECONCILE_TIMEOUT_MS;
+    let matchedPending: SwapHistoryTrade | null = null;
+
+    while (Date.now() < deadline) {
+        try {
+            const trades = await fetchRecentSwapHistory(params.userAddress);
+            const matched = findMatchingRecentTrade(trades, params, params.startedAtMs);
+            if (matched) {
+                matchedPending = matched;
+                if (matched.status === 'SUCCESS' && matched.txHash) {
+                    return {
+                        success: true,
+                        txHash: matched.txHash,
+                        tradeId: matched.id,
+                        status: 'SUCCESS',
+                        recovered: true,
+                    };
+                }
+                if (matched.status === 'FAILED') {
+                    return {
+                        success: false,
+                        tradeId: matched.id,
+                        status: 'FAILED',
+                        error: 'Swap failed after submission.',
+                    };
+                }
+            }
+        } catch (error) {
+            console.warn('[SwapService] Reconciliation attempt failed:', error);
+        }
+
+        await sleep(SWAP_RECONCILE_POLL_MS);
+    }
+
+    if (matchedPending) {
+        return {
+            success: false,
+            tradeId: matchedPending.id,
+            status: matchedPending.status,
+            ambiguous: true,
+            error: 'The swap may already be processing. Please check your recent transactions in a few seconds.',
+        };
+    }
+
+    return null;
+}
+
+export async function waitForSwapTradeSettlement(tradeId: string): Promise<TradeExecutionResult> {
+    const deadline = Date.now() + SWAP_STATUS_POLL_TIMEOUT_MS;
+
+    while (Date.now() < deadline) {
+        try {
+            const trade = await fetchSwapStatus(tradeId);
+            if (trade?.status === 'SUCCESS' && trade.txHash) {
+                return {
+                    success: true,
+                    tradeId: trade.id,
+                    txHash: trade.txHash,
+                    status: 'SUCCESS',
+                    recovered: true,
+                };
+            }
+            if (trade?.status === 'FAILED') {
+                return {
+                    success: false,
+                    tradeId: trade.id,
+                    status: 'FAILED',
+                    error: trade.error || 'Swap failed after submission.',
+                };
+            }
+        } catch (error) {
+            console.warn('[SwapService] Swap status poll failed:', error);
+        }
+
+        await sleep(SWAP_RECONCILE_POLL_MS);
+    }
+
+    return {
+        success: false,
+        tradeId,
+        status: 'PENDING',
+        ambiguous: true,
+        error: 'Swap submission is still syncing. Please check recent transactions shortly.',
+    };
+}
+
 /**
  * Validate address format for both EVM and Solana chains
  * @param address - Address to validate
@@ -78,7 +302,9 @@ export async function executeSwapInstant(params: {
     chainId: number;
     slippageBps?: number;
     maxPriceImpact?: number;
+    userAddress?: string;
 }): Promise<TradeExecutionResult> {
+    const startedAtMs = Date.now();
     try {
         const authToken = await getAuthToken();
         if (!authToken) {
@@ -104,11 +330,38 @@ export async function executeSwapInstant(params: {
             }),
         });
 
-        const data = await response.json();
+        let data: any = null;
+        try {
+            data = await response.json();
+        } catch (parseError) {
+            if (isAmbiguousSwapFailure(response.status, parseError)) {
+                const reconciled = await reconcileRecentInstantSwap({
+                    userAddress: params.userAddress,
+                    tokenIn: params.tokenIn,
+                    tokenOut: params.tokenOut,
+                    amountIn: params.amountIn,
+                    chainId: params.chainId,
+                    startedAtMs,
+                });
+                if (reconciled) return reconciled;
+            }
+            throw parseError;
+        }
 
         if (!response.ok || !data.success) {
             const errorMessage = data.message || data.error || `Request failed: ${response.statusText}`;
             console.error('[SwapService] Instant swap failed:', errorMessage);
+            if (isAmbiguousSwapFailure(response.status, new Error(errorMessage))) {
+                const reconciled = await reconcileRecentInstantSwap({
+                    userAddress: params.userAddress,
+                    tokenIn: params.tokenIn,
+                    tokenOut: params.tokenOut,
+                    amountIn: params.amountIn,
+                    chainId: params.chainId,
+                    startedAtMs,
+                });
+                if (reconciled) return reconciled;
+            }
             return {
                 success: false,
                 error: errorMessage,
@@ -119,10 +372,23 @@ export async function executeSwapInstant(params: {
         return {
             success: true,
             txHash: data.data?.txHash,
+            tradeId: data.data?.tradeId,
+            status: data.data?.status || 'SUCCESS',
         };
     } catch (error) {
         const message = error instanceof Error ? error.message : 'Unknown error occurred';
         console.error('[SwapService] Error executing instant swap:', error);
+        if (isAmbiguousSwapFailure(null, error)) {
+            const reconciled = await reconcileRecentInstantSwap({
+                userAddress: params.userAddress,
+                tokenIn: params.tokenIn,
+                tokenOut: params.tokenOut,
+                amountIn: params.amountIn,
+                chainId: params.chainId,
+                startedAtMs,
+            });
+            if (reconciled) return reconciled;
+        }
         return {
             success: false,
             error: message,

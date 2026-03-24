@@ -8,6 +8,7 @@ import prisma from '../../../db/prisma.js';
 import { createOrDeriveCredentials, getPolymarketWallet } from '../../../services/polymarketCredService.js';
 import { checkTradingReadiness, getRequiredApprovals } from '../../../services/polymarketApprovalService.js';
 import { placeBuyOrder } from '../../../services/polymarketExecutor.js';
+import { getExecutablePrice } from '../../../services/polymarketDataService.js';
 
 /**
  * Check Polymarket Trading Readiness Tool
@@ -193,7 +194,7 @@ export const CheckPolymarketApprovalsTool: Tool = {
 export const PlacePolymarketOrderTool: Tool = {
     definition: {
         name: 'place_polymarket_order',
-        description: 'Place a BUY or SELL order on Polymarket. Requires the exact outcome token ID, price, and amount. Minimum order size is $1 USD. Do not call this tool unless an upstream market lookup returned a concrete token_id for the selected outcome.',
+        description: 'Place a BUY or SELL order on Polymarket. Requires the exact outcome token ID and amount; if price is omitted, the tool fetches the current live executable CLOB price for the selected side. Minimum order size is $1 USD. Do not call this tool unless an upstream market lookup returned a concrete token_id for the selected outcome.',
         parameters: {
             type: 'object',
             properties: {
@@ -208,7 +209,7 @@ export const PlacePolymarketOrderTool: Tool = {
                 },
                 price: {
                     type: 'number',
-                    description: 'Price between 0.01 and 0.99 (probability)'
+                    description: 'Optional limit price between 0.01 and 0.99. If omitted, the tool uses the current live executable CLOB price for the selected side.'
                 },
                 amount_usd: {
                     type: 'number',
@@ -231,7 +232,7 @@ export const PlacePolymarketOrderTool: Tool = {
                     description: 'Number of shares to sell (required for SELL orders)'
                 }
             },
-            required: ['token_id', 'price', 'question', 'outcome']
+            required: ['token_id', 'question', 'outcome']
         }
     },
     handler: async (args: {
@@ -252,8 +253,22 @@ export const PlacePolymarketOrderTool: Tool = {
         const side = args.side || 'BUY';
 
         try {
+            let resolvedPrice = typeof args.price === 'number' && Number.isFinite(args.price)
+                ? args.price
+                : null;
+
+            if (resolvedPrice == null) {
+                resolvedPrice = await getExecutablePrice(args.token_id, side);
+                if (resolvedPrice == null) {
+                    return {
+                        success: false,
+                        error: `Could not fetch live ${side} price for the selected token_id`
+                    };
+                }
+            }
+
             // Validate price range
-            if (args.price <= 0 || args.price >= 1) {
+            if (resolvedPrice <= 0 || resolvedPrice >= 1) {
                 return {
                     success: false,
                     error: 'Price must be between 0.01 and 0.99'
@@ -275,7 +290,7 @@ export const PlacePolymarketOrderTool: Tool = {
                     userId,
                     positionId: args.position_id,
                     shares: args.shares,
-                    minPrice: args.price
+                    minPrice: resolvedPrice
                 });
 
                 if (result.success) {
@@ -283,11 +298,11 @@ export const PlacePolymarketOrderTool: Tool = {
                         success: true,
                         order_id: result.orderId,
                         shares: args.shares.toFixed(2),
-                        message: `✅ SELL order placed! Sold ${args.shares.toFixed(2)} shares of "${args.outcome}" at $${args.price.toFixed(3)}.`,
+                        message: `✅ SELL order placed! Sold ${args.shares.toFixed(2)} shares of "${args.outcome}" at $${resolvedPrice.toFixed(3)}.`,
                         details: {
                             market: args.question.slice(0, 60),
                             outcome: args.outcome,
-                            price: args.price,
+                            price: resolvedPrice,
                             shares: args.shares
                         }
                     };
@@ -350,7 +365,7 @@ export const PlacePolymarketOrderTool: Tool = {
                 userId: userId,
                 configId: config.id,
                 tokenId: args.token_id,
-                price: args.price,
+                price: resolvedPrice,
                 amountUsd: args.amount_usd,
                 question: args.question,
                 outcome: args.outcome,
@@ -359,17 +374,17 @@ export const PlacePolymarketOrderTool: Tool = {
             });
 
             if (result.success) {
-                const shares = (args.amount_usd / args.price).toFixed(2);
+                const shares = (args.amount_usd / resolvedPrice).toFixed(2);
                 return {
                     success: true,
                     order_id: result.orderId,
                     amount: `$${args.amount_usd.toFixed(2)}`,
                     shares: shares,
-                    message: `✅ BUY order placed! Bought ${shares} shares of "${args.outcome}" at $${args.price.toFixed(3)} for $${args.amount_usd.toFixed(2)}.`,
+                    message: `✅ BUY order placed! Bought ${shares} shares of "${args.outcome}" at $${resolvedPrice.toFixed(3)} for $${args.amount_usd.toFixed(2)}.`,
                     details: {
                         market: args.question.slice(0, 60),
                         outcome: args.outcome,
-                        price: args.price,
+                        price: resolvedPrice,
                         amount: args.amount_usd
                     }
                 };

@@ -2241,7 +2241,11 @@ export class MainSwapService {
     }
 
     const requireConfirmedTx = request.requireConfirmedTx === true;
-    const shouldWaitForConfirmation = requireConfirmedTx ? true : !isTurboCopytrade;
+    const shouldWaitForConfirmation = requireConfirmedTx
+      ? true
+      : request.mode === 'swap-card'
+        ? false
+        : !isTurboCopytrade;
     const confirmationTimeoutMs = requireConfirmedTx
       ? 15000
       : (request.mode === 'allowance' || request.mode === 'copytrade' ? (isTurboCopytrade ? 3000 : 12000) : 60000);

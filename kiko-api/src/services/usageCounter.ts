@@ -58,21 +58,25 @@ export async function getUsageCounts(params: { userId: string; dateUtc: string }
             getDailyUsageCount(userId, dateUtc, 'grok'),
         ]);
         const otherDb = Math.max(0, totalDb - deepseekDb - grokDb);
+        const resolvedTotal = totalCached ?? totalDb;
+        const resolvedDeepseek = deepseekCached ?? deepseekDb;
+        const resolvedGrok = grokCached ?? grokDb;
+        const resolvedOther = otherCached ?? otherDb;
 
         if (ttlSeconds > 0) {
             const writes: Array<Promise<void>> = [];
-            if (totalCached === null) writes.push(cacheSet(totalKey, String(totalDb), ttlSeconds));
-            if (deepseekCached === null) writes.push(cacheSet(deepseekKey, String(deepseekDb), ttlSeconds));
-            if (grokCached === null) writes.push(cacheSet(grokKey, String(grokDb), ttlSeconds));
-            if (otherCached === null) writes.push(cacheSet(otherKey, String(otherDb), ttlSeconds));
+            if (totalCached === null) writes.push(cacheSet(totalKey, String(resolvedTotal), ttlSeconds));
+            if (deepseekCached === null) writes.push(cacheSet(deepseekKey, String(resolvedDeepseek), ttlSeconds));
+            if (grokCached === null) writes.push(cacheSet(grokKey, String(resolvedGrok), ttlSeconds));
+            if (otherCached === null) writes.push(cacheSet(otherKey, String(resolvedOther), ttlSeconds));
             await Promise.allSettled(writes);
         }
 
         return {
-            total: totalDb,
-            deepseek: deepseekDb,
-            grok: grokDb,
-            other: otherDb,
+            total: resolvedTotal,
+            deepseek: resolvedDeepseek,
+            grok: resolvedGrok,
+            other: resolvedOther,
         };
     }
 

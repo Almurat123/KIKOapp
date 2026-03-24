@@ -38,6 +38,10 @@ export interface SwapQuote {
 export interface TradeExecutionResult {
     success: boolean;
     txHash?: string;
+    tradeId?: string;
+    status?: 'PENDING' | 'SUCCESS' | 'FAILED';
+    ambiguous?: boolean;
+    recovered?: boolean;
     error?: string;
 }
 

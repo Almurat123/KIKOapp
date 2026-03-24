@@ -2,6 +2,42 @@ import { Tool } from '../../../tooling/registry.js';
 import * as geckoTerminal from '../../../services/geckoTerminal.js';
 import * as dexscreener from '../../../services/dexscreener.js';
 import { resolveChainInput } from '../../../utils/chainParam.js';
+import { findCachedTrendingToken } from '../../../repositories/tokenRepository.js';
+
+function isTokenAddressLike(value: string): boolean {
+    const raw = String(value || '').trim();
+    if (!raw) return false;
+    if (/^0x[a-fA-F0-9]{40}$/.test(raw)) return true;
+    return /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(raw);
+}
+
+type ResolveTokenInfoLookupDeps = {
+    findCachedTrendingToken?: typeof findCachedTrendingToken;
+};
+
+export async function resolveTokenInfoLookup(params: {
+    identifier: string;
+    chain: string;
+}, deps: ResolveTokenInfoLookupDeps = {}): Promise<{
+    resolvedAddress: string;
+    cachedToken: Awaited<ReturnType<typeof findCachedTrendingToken>>;
+}> {
+    const identifier = String(params.identifier || '').trim();
+    if (!identifier) {
+        return { resolvedAddress: '', cachedToken: null };
+    }
+
+    if (isTokenAddressLike(identifier)) {
+        return { resolvedAddress: identifier, cachedToken: null };
+    }
+
+    const loadCachedTrendingToken = deps.findCachedTrendingToken || findCachedTrendingToken;
+    const cachedToken = await loadCachedTrendingToken(identifier, params.chain).catch(() => null);
+    return {
+        resolvedAddress: cachedToken?.address || identifier,
+        cachedToken,
+    };
+}
 
 export const GetTokenInfoTool: Tool = {
     definition: {
@@ -12,7 +48,7 @@ export const GetTokenInfoTool: Tool = {
             properties: {
                 address: {
                     type: 'string',
-                    description: 'The smart contract address of the token (e.g. 0x...)',
+                    description: 'The token contract address, or a token symbol/name already present in KiKo cached token data for that chain.',
                 },
                 chain: {
                     type: 'string',
@@ -38,13 +74,18 @@ export const GetTokenInfoTool: Tool = {
                 return { error: `Unsupported chain_id: ${String(args.chain_id)}` };
             }
             const resolvedChainId = chainId ?? 1;
+            const requestedIdentifier = String(args.address || '').trim();
+            const { cachedToken, resolvedAddress } = await resolveTokenInfoLookup({
+                identifier: requestedIdentifier,
+                chain,
+            });
             const [launchpad, tokenData, dexData] = await Promise.all([
-                detectLaunchpadToken(args.address, resolvedChainId).catch(() => null),
-                geckoTerminal.getTokenDetails(chain, args.address).catch((gtError) => {
+                detectLaunchpadToken(resolvedAddress, resolvedChainId).catch(() => null),
+                geckoTerminal.getTokenDetails(chain, resolvedAddress).catch((gtError) => {
                     console.warn('[GetTokenInfo] GeckoTerminal failed', gtError);
                     return null;
                 }),
-                dexscreener.getTokenDetails(chain, args.address).catch((dexError) => {
+                dexscreener.getTokenDetails(chain, resolvedAddress).catch((dexError) => {
                     console.warn('[GetTokenInfo] DexScreener failed', dexError);
                     return null;
                 }),
@@ -55,14 +96,18 @@ export const GetTokenInfoTool: Tool = {
                 return {
                     source: 'DexScreener',
                     ...dexData,
+                    address: dexData.address || resolvedAddress,
+                    symbol: dexData.symbol || cachedToken?.symbol || requestedIdentifier.toUpperCase(),
+                    name: dexData.name || cachedToken?.name || requestedIdentifier,
+                    imageUrl: dexData.imageUrl || cachedToken?.imageUrl,
                     chainId: resolvedChainId, // Ensure numeric chainId
                     launchpad,
                     isLaunchpad: !!launchpad,
                     launchpadProvider,
                     // Normalized aliases (stable fields for prompts/skills)
-                    tokenAddress: dexData.address,
-                    tokenSymbol: dexData.symbol,
-                    tokenName: dexData.name,
+                    tokenAddress: dexData.address || resolvedAddress,
+                    tokenSymbol: dexData.symbol || cachedToken?.symbol,
+                    tokenName: dexData.name || cachedToken?.name,
                     priceUsd: dexData.price,
                     liquidityUsd: dexData.liquidity,
                     fdvUsd: dexData.fdv,
@@ -76,14 +121,18 @@ export const GetTokenInfoTool: Tool = {
                 const launchpadProvider = (launchpad as any)?.provider;
                 return {
                     ...tokenData,
+                    address: (tokenData as any).address || resolvedAddress,
+                    symbol: (tokenData as any).symbol || cachedToken?.symbol || requestedIdentifier.toUpperCase(),
+                    name: (tokenData as any).name || cachedToken?.name || requestedIdentifier,
+                    imageUrl: (tokenData as any).imageUrl || cachedToken?.imageUrl,
                     chainId: resolvedChainId, // Ensure numeric chainId
                     launchpad,
                     isLaunchpad: !!launchpad,
                     launchpadProvider,
                     // Normalized aliases where available (best-effort)
-                    tokenAddress: (tokenData as any).address || args.address,
-                    tokenSymbol: (tokenData as any).symbol,
-                    tokenName: (tokenData as any).name,
+                    tokenAddress: (tokenData as any).address || resolvedAddress,
+                    tokenSymbol: (tokenData as any).symbol || cachedToken?.symbol,
+                    tokenName: (tokenData as any).name || cachedToken?.name,
                     priceUsd: (tokenData as any).price,
                     liquidityUsd: (tokenData as any).liquidity,
                     fdvUsd: (tokenData as any).fdv,
@@ -95,12 +144,29 @@ export const GetTokenInfoTool: Tool = {
 
             if (launchpad) {
                 return {
-                    address: args.address,
+                    address: resolvedAddress,
+                    symbol: cachedToken?.symbol || requestedIdentifier.toUpperCase(),
+                    name: cachedToken?.name || requestedIdentifier,
+                    imageUrl: cachedToken?.imageUrl,
                     chainId: resolvedChainId,
                     launchpad,
                     isLaunchpad: true,
                     launchpadProvider: (launchpad as any)?.provider,
                     source: 'LaunchpadDetector'
+                };
+            }
+
+            if (cachedToken) {
+                return {
+                    source: 'KiKoCachedTrendingTokens',
+                    address: cachedToken.address,
+                    symbol: cachedToken.symbol,
+                    name: cachedToken.name,
+                    imageUrl: cachedToken.imageUrl,
+                    chainId: resolvedChainId,
+                    tokenAddress: cachedToken.address,
+                    tokenSymbol: cachedToken.symbol,
+                    tokenName: cachedToken.name,
                 };
             }
 

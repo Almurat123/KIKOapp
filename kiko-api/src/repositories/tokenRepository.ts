@@ -16,6 +16,8 @@ export interface TrendingToken extends TokenSearchResult {
   rank: number;
 }
 
+const SEARCHABLE_TRENDING_CHAINS = ['eth', 'base', 'bsc', 'arbitrum', 'optimism', 'polygon', 'solana'] as const;
+
 function hasPositiveLiquidity(token: Pick<TokenSearchResult, 'liquidity'>): boolean {
   return typeof token.liquidity !== 'number' || token.liquidity > 0;
 }
@@ -28,6 +30,47 @@ function toOptionalNumber(value: unknown): number | undefined {
   if (value === null || value === undefined) return undefined;
   const n = Number(value);
   return Number.isFinite(n) ? n : undefined;
+}
+
+function normalizeSearchText(value: string): string {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/^\$/g, '')
+    .replace(/[^a-z0-9]/g, '');
+}
+
+function scoreTrendingTokenMatch(query: string, token: Pick<TokenSearchResult, 'address' | 'symbol' | 'name'>): number {
+  const rawQuery = String(query || '').trim();
+  const normalizedQuery = normalizeSearchText(rawQuery);
+  if (!normalizedQuery) return -1;
+
+  const address = String(token.address || '').trim().toLowerCase();
+  const symbol = String(token.symbol || '').trim();
+  const name = String(token.name || '').trim();
+  const normalizedSymbol = normalizeSearchText(symbol);
+  const normalizedName = normalizeSearchText(name);
+
+  if (address && rawQuery.toLowerCase() === address) return 1000;
+  if (normalizedQuery === normalizedSymbol) return 950;
+  if (normalizedQuery === normalizedName) return 900;
+  if (normalizedSymbol.startsWith(normalizedQuery)) return 750;
+  if (normalizedName.startsWith(normalizedQuery)) return 700;
+  if (normalizedSymbol.includes(normalizedQuery)) return 550;
+  if (normalizedName.includes(normalizedQuery)) return 500;
+  return -1;
+}
+
+function dedupeTokenSearchResults(tokens: TokenSearchResult[]): TokenSearchResult[] {
+  const seen = new Set<string>();
+  const next: TokenSearchResult[] = [];
+  for (const token of tokens) {
+    const key = `${String(token.network || '').toLowerCase()}:${String(token.address || '').toLowerCase()}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    next.push(token);
+  }
+  return next;
 }
 
 function isFidLabel(value?: string | null): boolean {
@@ -1098,6 +1141,70 @@ export async function getTrendingTokens(
     console.error('Error getting trending tokens:', error);
     return [];
   }
+}
+
+export async function searchCachedTrendingTokens(
+  query: string,
+  chain?: string,
+  limit: number = 10,
+  deps: {
+    getTrendingTokens?: typeof getTrendingTokens;
+  } = {},
+): Promise<TokenSearchResult[]> {
+  const sanitizedQuery = String(query || '').trim();
+  if (!sanitizedQuery) return [];
+
+  const loadTrendingTokens = deps.getTrendingTokens || getTrendingTokens;
+  const aliasToChain: Record<string, string> = {
+    ethereum: 'eth',
+    binance: 'bsc',
+  };
+  const normalizedChain = chain
+    ? (aliasToChain[String(chain).trim().toLowerCase()] || String(chain).trim().toLowerCase())
+    : undefined;
+  const chains = normalizedChain
+    ? [normalizedChain]
+    : [...SEARCHABLE_TRENDING_CHAINS];
+
+  const trendingSets = await Promise.all(
+    chains.map((item) => loadTrendingTokens(item, 120).catch(() => []))
+  );
+
+  const scored = trendingSets.flatMap((tokens, idx) => {
+    const network = chains[idx];
+    return tokens
+      .map((token) => {
+        const score = scoreTrendingTokenMatch(sanitizedQuery, token);
+        if (score < 0) return null;
+        const rankBoost = Math.max(0, 200 - Number((token as any).rank || 999));
+        return {
+          token: {
+            ...token,
+            network: token.network || network,
+          },
+          score: score + rankBoost,
+        };
+      })
+      .filter((item): item is { token: TokenSearchResult; score: number } => Boolean(item));
+  });
+
+  scored.sort((left, right) => {
+    if (right.score !== left.score) return right.score - left.score;
+    return Number((left.token as any).rank || 999999) - Number((right.token as any).rank || 999999);
+  });
+
+  return dedupeTokenSearchResults(scored.map((item) => item.token)).slice(0, Math.max(1, limit));
+}
+
+export async function findCachedTrendingToken(
+  query: string,
+  chain?: string,
+  deps?: {
+    getTrendingTokens?: typeof getTrendingTokens;
+  },
+): Promise<TokenSearchResult | null> {
+  const results = await searchCachedTrendingTokens(query, chain, 1, deps);
+  return results[0] || null;
 }
 
 

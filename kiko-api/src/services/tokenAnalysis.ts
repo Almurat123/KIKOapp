@@ -3,14 +3,11 @@
  * Handles complex token-level analytics like early buyers and top traders
  */
 
-import * as helius from './helius.js';
-import * as alchemy from './alchemy.js';
 import * as rpcManager from './rpcManager.js';
 import * as dexscreener from './dexscreener.js';
 import { getSolanaTokenMetadata } from '../utils/solanaToken.js';
-import * as geckoTerminal from './geckoTerminal.js';
-import { WalletTransaction } from './alchemy.js';
 import pLimit from 'p-limit';
+import { getEvmEarlyBuyerTransfers } from './evmEarlyBuyerProvider.js';
 
 // Known contract patterns to filter out
 const KNOWN_CONTRACTS = new Set([
@@ -313,64 +310,75 @@ export async function getEarlyBuyers(
                 50,
                 Math.min(500, Number(options?.scanLimit || Math.max(limit * 8, 80)))
             );
-            const alchemyTransfers = await alchemy.getAssetTransfers(null, chainLower, {
-                contractAddresses: [tokenAddress],
-                category: ['erc20'],
-                order: 'asc',
-                maxCount: analysisLimit,
-                source: 'early_buyers'
+            const providerResult = await getEvmEarlyBuyerTransfers(tokenAddress, chainLower, {
+                limit: analysisLimit,
+                startTimeMs,
+                endTimeMs,
             });
-            if (!alchemyTransfers || alchemyTransfers.length === 0) {
+            const evmTransfers = providerResult.transfers;
+            if (!evmTransfers || evmTransfers.length === 0) {
                 return [];
             }
 
             const contractCache = new Map<string, boolean>();
             const aggregates = new Map<string, BuyerAggregate>();
-            const sortedTransfers = [...alchemyTransfers].sort((a, b) => {
+            const sortedTransfers = [...evmTransfers].sort((a, b) => {
                 const aTs = a.metadata?.blockTimestamp ? new Date(a.metadata.blockTimestamp).getTime() : 0;
                 const bTs = b.metadata?.blockTimestamp ? new Date(b.metadata.blockTimestamp).getTime() : 0;
                 return aTs - bTs;
             });
-
-            for (const tx of sortedTransfers) {
+            const prepared = await Promise.all(sortedTransfers.map(async (tx) => {
                 const buyerAddr = String(tx.to || '').trim();
-                // Basic filters
-                if (!buyerAddr) continue;
-                if (buyerAddr.toLowerCase() === tokenAddress.toLowerCase()) continue;
+                if (!buyerAddr) return null;
+                if (buyerAddr.toLowerCase() === tokenAddress.toLowerCase()) return null;
 
-                // Contract check
-                const buyerKey = buyerAddr.toLowerCase();
-                let isContractAddr = contractCache.get(buyerKey);
-                if (typeof isContractAddr !== 'boolean') {
-                    isContractAddr = await isContract(buyerAddr, chainLower);
-                    contractCache.set(buyerKey, isContractAddr);
-                }
-                if (isContractAddr) continue;
-
-                // Safe timestamp conversion
                 const timestamp = await resolveTimestampFromAssetTransfer(tx);
-                if (!timestamp) continue;
-
-                if (!isWithinRange(timestamp)) continue;
+                if (!timestamp || !isWithinRange(timestamp)) return null;
 
                 const amount = Number(tx.value || 0);
-                if (!Number.isFinite(amount) || amount <= 0) continue;
+                if (!Number.isFinite(amount) || amount <= 0) return null;
 
-                const existing = aggregates.get(buyerKey);
+                return {
+                    buyerAddr,
+                    buyerKey: buyerAddr.toLowerCase(),
+                    timestamp,
+                    txHash: String(tx.hash || ''),
+                    amount,
+                };
+            }));
+
+            const distinctBuyerKeys = Array.from(new Set(prepared.filter(Boolean).map((item) => item!.buyerKey)));
+            const contractLimiter = pLimit(8);
+            await Promise.all(
+                distinctBuyerKeys.map((buyerKey) =>
+                    contractLimiter(async () => {
+                        const sample = prepared.find((item) => item?.buyerKey === buyerKey);
+                        if (!sample) return;
+                        const contractState = await isContract(sample.buyerAddr, chainLower);
+                        contractCache.set(buyerKey, contractState);
+                    })
+                )
+            );
+
+            for (const item of prepared) {
+                if (!item) continue;
+                if (contractCache.get(item.buyerKey)) continue;
+
+                const existing = aggregates.get(item.buyerKey);
                 if (!existing) {
-                    aggregates.set(buyerKey, {
-                        address: buyerAddr,
-                        timestamp,
-                        txHash: String(tx.hash || ''),
-                        totalAmount: amount,
+                    aggregates.set(item.buyerKey, {
+                        address: item.buyerAddr,
+                        timestamp: item.timestamp,
+                        txHash: item.txHash,
+                        totalAmount: item.amount,
                         transferCount: 1,
                     });
                 } else {
-                    existing.totalAmount += amount;
+                    existing.totalAmount += item.amount;
                     existing.transferCount += 1;
-                    if (timestamp.getTime() < existing.timestamp.getTime()) {
-                        existing.timestamp = timestamp;
-                        existing.txHash = String(tx.hash || '');
+                    if (item.timestamp.getTime() < existing.timestamp.getTime()) {
+                        existing.timestamp = item.timestamp;
+                        existing.txHash = item.txHash;
                     }
                 }
             }

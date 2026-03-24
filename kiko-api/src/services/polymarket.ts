@@ -22,6 +22,8 @@ interface PolymarketEvent {
 interface PolymarketMarket {
     id: string;
     question: string;
+    conditionId?: string;
+    slug?: string;
     outcomes?: string; // JSON string: ["Yes", "No"] or ["Up", "Down"]
     clobTokenIds?: string; // JSON string aligned to outcomes
     outcomePrices: string; // JSON string: ["0.65", "0.35"]
@@ -33,6 +35,9 @@ interface PolymarketMarket {
     acceptingOrders?: boolean;
     bestBid?: number;
     bestAsk?: number;
+    negRisk?: boolean;
+    enableOrderBook?: boolean;
+    orderPriceMinTickSize?: number;
 }
 
 interface ParsedOutcome {
@@ -45,6 +50,8 @@ interface ParsedOutcome {
 interface ParsedMarket {
     id: string;
     question: string;
+    conditionId: string | null;
+    slug: string | null;
     yesPrice: number;
     noPrice: number;
     yesProbability: string; // "65%"
@@ -56,6 +63,9 @@ interface ParsedMarket {
     acceptingOrders: boolean;
     bestBid: number | null;
     bestAsk: number | null;
+    tickSize: number | null;
+    negRisk: boolean;
+    enableOrderBook: boolean;
     outcomes: ParsedOutcome[];
 }
 
@@ -70,6 +80,12 @@ function parseStringArray(raw?: string): string[] {
 }
 
 function normalizeDate(value: unknown): string | null {
+    if (typeof value !== 'string') return null;
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : null;
+}
+
+function normalizeString(value: unknown): string | null {
     if (typeof value !== 'string') return null;
     const trimmed = value.trim();
     return trimmed.length > 0 ? trimmed : null;
@@ -99,6 +115,8 @@ function parseMarket(market: PolymarketMarket): ParsedMarket {
     return {
         id: market.id,
         question: market.question,
+        conditionId: normalizeString(market.conditionId),
+        slug: normalizeString(market.slug),
         yesPrice: yes,
         noPrice: no,
         yesProbability: formatProbability(yes),
@@ -110,6 +128,9 @@ function parseMarket(market: PolymarketMarket): ParsedMarket {
         acceptingOrders: Boolean(market.acceptingOrders),
         bestBid: typeof market.bestBid === 'number' ? market.bestBid : null,
         bestAsk: typeof market.bestAsk === 'number' ? market.bestAsk : null,
+        tickSize: typeof market.orderPriceMinTickSize === 'number' ? market.orderPriceMinTickSize : null,
+        negRisk: Boolean(market.negRisk),
+        enableOrderBook: Boolean(market.enableOrderBook),
         outcomes: parsedOutcomes
     };
 }

@@ -11,8 +11,11 @@
         "search_polymarket",
         "get_polymarket_event",
         "get_new_markets",
+        "get_polymarket_quote",
+        "prepare_polymarket_bet",
         "get_market_activity",
         "get_whale_watch",
+        "get_current_time",
         "create_polymarket_copy_config",
         "list_polymarket_positions",
         "get_polymarket_trader_stats",
@@ -32,6 +35,7 @@
             "Search for markets about BTC price",
             "Follow Polymarket user 0x...",
             "Place a bet on 'Yes' for [Market]",
+            "I want this market",
             "Show my Polymarket follows",
             "What are the top prediction markets right now?"
         ],
@@ -40,6 +44,7 @@
             "Search for markets about BTC price",
             "Follow Polymarket user 0x...",
             "Place a bet on 'Yes' for [Market]",
+            "我要这个市场",
             "Show my Polymarket follows",
             "What are the top prediction markets right now?"
         ]

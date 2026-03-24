@@ -7,6 +7,8 @@ test('parseMarket maps outcomes to concrete token ids and orderbook metadata', (
   const market = __testables.parseMarket({
     id: '1548069',
     question: 'Bitcoin Up or Down - March 11, 1:00AM-1:05AM ET',
+    conditionId: '0xcondition',
+    slug: 'btc-updown-5m',
     outcomes: '["Up","Down"]',
     clobTokenIds: '["token-up","token-down"]',
     outcomePrices: '["0.505","0.495"]',
@@ -17,7 +19,10 @@ test('parseMarket maps outcomes to concrete token ids and orderbook metadata', (
     closed: false,
     acceptingOrders: true,
     bestBid: 0.5,
-    bestAsk: 0.51
+    bestAsk: 0.51,
+    negRisk: false,
+    enableOrderBook: true,
+    orderPriceMinTickSize: 0.01
   });
 
   assert.deepEqual(market.outcomes, [
@@ -34,9 +39,14 @@ test('parseMarket maps outcomes to concrete token ids and orderbook metadata', (
       tokenId: 'token-down'
     }
   ]);
+  assert.equal(market.conditionId, '0xcondition');
+  assert.equal(market.slug, 'btc-updown-5m');
   assert.equal(market.acceptingOrders, true);
   assert.equal(market.bestBid, 0.5);
   assert.equal(market.bestAsk, 0.51);
+  assert.equal(market.tickSize, 0.01);
+  assert.equal(market.negRisk, false);
+  assert.equal(market.enableOrderBook, true);
 });
 
 test('parseMarket tolerates missing token ids without fabricating them', () => {

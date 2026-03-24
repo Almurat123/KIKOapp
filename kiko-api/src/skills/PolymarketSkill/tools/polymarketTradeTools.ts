@@ -1,5 +1,7 @@
 import { Tool } from '../../../tooling/registry.js';
 import { getTradesByAssetId } from '../../../services/polymarketTradeService.js';
+import { getExecutablePrice } from '../../../services/polymarketDataService.js';
+import { checkTradingReadiness } from '../../../services/polymarketApprovalService.js';
 import { getEventDetails } from '../../../services/polymarket.js';
 
 /**
@@ -119,6 +121,175 @@ export const GetWhaleWatchTool: Tool = {
                 tx: t.transactionHash
             })),
             note: 'These are individual trades exceeding the threshold.'
+        };
+    },
+    permissions: 'public'
+};
+
+export const GetPolymarketQuoteTool: Tool = {
+    definition: {
+        name: 'get_polymarket_quote',
+        description: 'Get the live executable BUY and SELL prices for a specific Polymarket outcome token. Use this to prepare a bet before placing a Polymarket order, especially for short-window markets.',
+        parameters: {
+            type: 'object',
+            properties: {
+                token_id: {
+                    type: 'string',
+                    description: 'Exact outcome token ID returned by get_polymarket_event, get_polymarket_trending_markets, or get_new_markets.'
+                },
+                amount_usd: {
+                    type: 'number',
+                    description: 'Optional USD amount to estimate shares for a BUY.'
+                },
+                shares: {
+                    type: 'number',
+                    description: 'Optional share amount to estimate exit value for a SELL.'
+                }
+            },
+            required: ['token_id']
+        }
+    },
+    handler: async (args: { token_id: string; amount_usd?: number; shares?: number }) => {
+        const tokenId = String(args.token_id || '').trim();
+        if (!tokenId) {
+            throw new Error('token_id is required. Resolve the exact outcome first.');
+        }
+
+        const [buyPrice, sellPrice] = await Promise.all([
+            getExecutablePrice(tokenId, 'BUY'),
+            getExecutablePrice(tokenId, 'SELL'),
+        ]);
+
+        const spread = buyPrice != null && sellPrice != null
+            ? Number((sellPrice - buyPrice).toFixed(4))
+            : null;
+
+        return {
+            source: 'Polymarket CLOB',
+            token_id: tokenId,
+            buy_price: buyPrice,
+            sell_price: sellPrice,
+            spread,
+            estimated_buy_shares: args.amount_usd && buyPrice
+                ? Number((args.amount_usd / buyPrice).toFixed(4))
+                : null,
+            estimated_sell_value: args.shares && sellPrice != null
+                ? Number((args.shares * sellPrice).toFixed(4))
+                : null,
+            note: 'Use buy_price for BUY orders and sell_price for SELL/close orders. These come from the live CLOB price endpoint, not from the raw order book top row.',
+        };
+    },
+    permissions: 'public'
+};
+
+export const PreparePolymarketBetTool: Tool = {
+    definition: {
+        name: 'prepare_polymarket_bet',
+        description: 'Prepare an execution-ready Polymarket bet bundle for a selected outcome. Use this when the user has already picked a market or says "I want this", "buy this", "就这个", or "我要这个". It returns live executable prices, estimated shares, and, when user auth context is available, trading readiness and concrete next steps. Prefer this over repeating discovery tools once a specific token_id is known.',
+        parameters: {
+            type: 'object',
+            properties: {
+                token_id: {
+                    type: 'string',
+                    description: 'Exact selected outcome token ID.'
+                },
+                question: {
+                    type: 'string',
+                    description: 'Selected market question.'
+                },
+                outcome: {
+                    type: 'string',
+                    description: 'Selected outcome name, such as Yes, No, Up, or Down.'
+                },
+                amount_usd: {
+                    type: 'number',
+                    description: 'Optional intended buy amount in USD for share estimation.'
+                },
+                event_id: {
+                    type: 'string',
+                    description: 'Optional Polymarket event ID to enrich the response with sibling markets and metadata.'
+                }
+            },
+            required: ['token_id', 'question', 'outcome']
+        }
+    },
+    handler: async (args: {
+        token_id: string;
+        question: string;
+        outcome: string;
+        amount_usd?: number;
+        event_id?: string;
+    }, context) => {
+        const tokenId = String(args.token_id || '').trim();
+        if (!tokenId) {
+            throw new Error('token_id is required');
+        }
+
+        const [buyPrice, sellPrice, event] = await Promise.all([
+            getExecutablePrice(tokenId, 'BUY'),
+            getExecutablePrice(tokenId, 'SELL'),
+            args.event_id ? getEventDetails(String(args.event_id)) : Promise.resolve(null)
+        ]);
+
+        let readiness: Awaited<ReturnType<typeof checkTradingReadiness>> | null = null;
+        const userId = String(context?.userId || '').trim();
+        if (userId) {
+            try {
+                readiness = await checkTradingReadiness(userId);
+            } catch {
+                readiness = null;
+            }
+        }
+
+        const estimatedBuyShares = args.amount_usd && buyPrice
+            ? Number((args.amount_usd / buyPrice).toFixed(4))
+            : null;
+
+        const siblingMarkets = event?.markets
+            ?.filter((market) => market.question !== args.question)
+            .slice(0, 3)
+            .map((market) => ({
+                id: market.id,
+                question: market.question,
+                accepting_orders: market.acceptingOrders,
+                best_bid: market.bestBid,
+                best_ask: market.bestAsk,
+            })) || [];
+
+        const nextStep = readiness == null
+            ? 'If you want to place this bet next, check readiness or place the order directly if the account is already prepared.'
+            : readiness.isReady
+                ? 'Account looks ready. You can place the order with the selected token_id and your amount.'
+                : readiness.conversionRequired
+                    ? 'Convert Polygon native USDC to Polymarket USDC.e, then check readiness again.'
+                    : readiness.missingSteps[0] || 'Complete readiness setup before placing the order.';
+
+        return {
+            source: 'Polymarket Bet Prep',
+            selection: {
+                question: args.question,
+                outcome: args.outcome,
+                token_id: tokenId,
+                amount_usd: args.amount_usd ?? null,
+            },
+            live_quote: {
+                buy_price: buyPrice,
+                sell_price: sellPrice,
+                estimated_buy_shares: estimatedBuyShares,
+            },
+            readiness: readiness
+                ? {
+                    ready: readiness.isReady,
+                    wallet_address: readiness.walletAddress,
+                    usdc_balance: readiness.usdcBalance,
+                    native_usdc_balance: readiness.nativeUsdcBalance,
+                    conversion_required: readiness.conversionRequired,
+                    missing_steps: readiness.missingSteps,
+                }
+                : null,
+            sibling_markets: siblingMarkets,
+            next_step: nextStep,
+            note: 'Use this tool after market selection to move from discovery into a concrete bet-preparation bundle. Do not stop at only listing markets if the user has already chosen one.',
         };
     },
     permissions: 'public'
