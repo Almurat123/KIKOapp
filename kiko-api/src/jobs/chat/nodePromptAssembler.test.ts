@@ -270,7 +270,51 @@ test('assembleGenerationMessages tells swap execution flows not to use get_token
 
     const systemMessage = messages.find((message) => message.role === 'system');
     assert.match(String(systemMessage?.content || ''), /do not use get_token_price for contract-address tokens/i);
-    assert.match(String(systemMessage?.content || ''), /use get_wallet_info, get_token_info, simulate_swap, and prepare_swap_transaction instead/i);
+    assert.match(String(systemMessage?.content || ''), /use get_wallet_info, get_token_info, and prepare_swap_transaction/i);
+    assert.match(String(systemMessage?.content || ''), /simulate_swap only when quote-before-swap is enabled/i);
+});
+
+test('assembleGenerationMessages adds fast swap contract guidance when fast swap mode is enabled', () => {
+    const snapshot: ChatContextSnapshot = {
+        sessionId: 'session-fast',
+        taskId: 'task-fast',
+        model: 'gpt-5-mini',
+        history: [],
+        lastUserMessage: 'Buy VIRTUAL now',
+        runtime: {
+            contextBlocks: {},
+            userSettings: {
+                fastSwapMode: true,
+                showQuoteBeforeSwap: false,
+            },
+        },
+        requestedTokenAddresses: [],
+        requestedTokenSymbols: ['VIRTUAL'],
+        toolDefinitions: [],
+    };
+
+    const providerInfo: ProviderInfo = {
+        provider: 'openai',
+        model: snapshot.model,
+        supportsNativeSearch: false,
+        supportsPreviousResponse: true,
+    };
+
+    const messages = assembleGenerationMessages(snapshot, [], providerInfo, {
+        intentEnvelope: {
+            primary_intent: 'swap_execution',
+            task_mode: 'execute',
+            search_mode: 'forbidden',
+            search_target: 'none',
+            domain: 'token',
+            execution_risk: 'mutation',
+            required_evidence: [],
+        },
+    });
+
+    const systemMessage = messages.find((message) => message.role === 'system');
+    assert.match(String(systemMessage?.content || ''), /FAST SWAP CONTRACT:/);
+    assert.match(String(systemMessage?.content || ''), /Do not make a quote card or simulate_swap a blocking prerequisite/i);
 });
 
 test('assembleGenerationMessages does not send stored reasoning_content back to DeepSeek history', () => {

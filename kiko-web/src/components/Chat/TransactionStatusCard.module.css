@@ -211,6 +211,8 @@
     letter-spacing: var(--kiko-body-spacing);
     font-style: var(--kiko-italic-style);
     line-height: 1;
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
     color: #ffffff;
     min-width: 0;
     margin: 0;
@@ -309,7 +311,8 @@
     }
 
     .amountValue {
-        font-size: clamp(9.9rem, 40vw, 14.4rem);
+        font-size: clamp(5rem, 24vw, 7.5rem);
+        line-height: 0.92;
     }
 
     .tokenPill {

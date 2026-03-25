@@ -200,10 +200,19 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
     }
 
     if (tradingIntent?.kind === 'trading' && tradingIntent.type === 'swap') {
+        const userSettings = snapshot.runtime.userSettings || {};
+        const fastSwapMode = userSettings.fastSwapMode === true;
+        const quoteBeforeSwap = userSettings.showQuoteBeforeSwap !== false && !fastSwapMode;
         pushPreferred(preferredTools, 'get_wallet_info');
-        pushPreferred(preferredTools, 'simulate_swap');
         pushPreferred(preferredTools, 'prepare_swap_transaction');
-        strategyNotes.push('For swap intents, prefer wallet/preflight evidence first: resolve balance with get_wallet_info, run simulate_swap once, then use prepare_swap_transaction only after preflight is available.');
+        if (quoteBeforeSwap) {
+            pushPreferred(preferredTools, 'simulate_swap');
+            strategyNotes.push('Quote-before-swap mode is enabled: resolve balance with get_wallet_info, run simulate_swap once for the first pair+amount, present the quote, then use prepare_swap_transaction only after explicit user confirmation.');
+        } else if (fastSwapMode) {
+            strategyNotes.push('Fast swap mode is enabled: do not make simulate_swap a blocking prerequisite. Resolve wallet/balance context first, then move directly toward prepare_swap_transaction execution once token, chain, and amount are explicit and safe.');
+        } else {
+            strategyNotes.push('Direct execution mode is enabled: resolve wallet/balance context first, use preflight only when needed for ambiguity or safety, then move toward prepare_swap_transaction execution without stalling on quote presentation.');
+        }
         strategyNotes.push('Do not use get_token_price as a prerequisite for selling or swapping a contract-address token. That tool is only for mainstream symbol price lookups.');
     }
 
@@ -272,6 +281,7 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
         // results are already in the session history. This is the primary fix for the
         // "AI keeps repeating get_new_markets / get_polymarket_trending_markets on every turn" bug.
         const POLYMARKET_DISCOVERY_TOOLS = new Set([
+            'get_polymarket_market_overview',
             'get_polymarket_trending_markets',
             'get_polymarket_trending',
             'get_new_markets',

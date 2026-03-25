@@ -970,6 +970,7 @@ function describeToolAction(toolName: string, locale: 'en' | 'zh' = 'en'): strin
         get_wallet_info: { en: 'inspect wallet info', zh: '查询钱包信息' },
         get_market_overview: { en: 'fetch market overview', zh: '获取市场概览' },
         get_economic_calendar: { en: 'fetch economic calendar', zh: '获取经济日历' },
+        get_polymarket_market_overview: { en: 'fetch Polymarket overview', zh: '获取 Polymarket 概览' },
     };
     return labels[toolName]?.[locale] || toolName.replace(/_/g, ' ');
 }

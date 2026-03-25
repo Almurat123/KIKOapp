@@ -32,6 +32,8 @@ function makeSnapshot(message: string, overrides: Partial<ChatContextSnapshot> =
 test('routes betting trend queries to Polymarket first', () => {
     const resolution = resolveNodeSkills(makeSnapshot("what's trending bet?"), null);
     assert.equal(resolution.selectedSkills[0], 'polymarket_prediction');
+    assert.ok(resolution.allowedTools.includes('get_polymarket_market_overview'));
+    assert.ok(resolution.preferredTools.includes('get_polymarket_market_overview'));
     assert.ok(resolution.allowedTools.includes('get_polymarket_trending'));
     assert.equal(resolution.searchMode, 'fallback');
 });

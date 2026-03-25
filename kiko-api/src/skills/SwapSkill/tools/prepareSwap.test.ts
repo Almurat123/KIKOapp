@@ -67,3 +67,50 @@ test('buildSocketRecoveryResult marks confirmed trades as success', () => {
   assert.equal(result.toolResult.mode, 'executed');
   assert.equal(result.toolResult.data.status, 'success');
 });
+
+test('hasQuoteModeExecutionAuthorization requires explicit execute gate or matching confirmation state', () => {
+  assert.equal(__prepareSwapTest.hasQuoteModeExecutionAuthorization({
+    __executionGate: { phase: 'execute' },
+  } as any, {
+    token_in: 'VIRTUAL',
+    token_out: 'ETH',
+    amount_in: '1',
+    chain_id: 8453,
+  }), true);
+
+  assert.equal(__prepareSwapTest.hasQuoteModeExecutionAuthorization({
+    __snapshot: {
+      confirmationState: {
+        kind: 'swap_confirmation',
+        swap: {
+          tokenIn: 'VIRTUAL',
+          tokenOut: 'ETH',
+          chainId: 8453,
+        },
+      },
+    },
+  } as any, {
+    token_in: 'VIRTUAL',
+    token_out: 'ETH',
+    amount_in: '1',
+    chain_id: 8453,
+  }), true);
+
+  assert.equal(__prepareSwapTest.hasQuoteModeExecutionAuthorization({
+    __snapshot: {
+      confirmationState: {
+        kind: 'swap_confirmation',
+        swap: {
+          tokenIn: 'USDC',
+          tokenOut: 'ETH',
+          chainId: 8453,
+        },
+      },
+    },
+  } as any, {
+    token_in: 'VIRTUAL',
+    token_out: 'ETH',
+    amount_in: '1',
+    chain_id: 8453,
+  }), false);
+});

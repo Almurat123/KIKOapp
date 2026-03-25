@@ -8,13 +8,210 @@ import {
     getTrendingEvents,
     getTrendingMarkets,
     getEventDetails,
-    searchEvents
+    searchEvents,
+    getNewMarkets,
 } from '../../../services/polymarket.js';
 
 function formatDateLabel(value?: string | null): string | null {
     if (typeof value !== 'string') return null;
     const trimmed = value.trim();
     return trimmed.length > 0 ? trimmed.slice(0, 10) : null;
+}
+
+function formatEtTimestamp(date: Date): string {
+    return new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'America/New_York',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false,
+    }).format(date);
+}
+
+function formatUsd(value: number): string {
+    return `$${Math.floor(value || 0).toLocaleString()}`;
+}
+
+function mapTrendingEvent(event: Awaited<ReturnType<typeof getTrendingEvents>>['events'][number]) {
+    return {
+        id: event.id,
+        title: event.title,
+        vol24h: formatUsd(event.volume),
+        liquidity: formatUsd(event.liquidity),
+        endDate: formatDateLabel(event.endDate),
+    };
+}
+
+function mapTrendingMarket(market: Awaited<ReturnType<typeof getTrendingMarkets>>['markets'][number]) {
+    return {
+        id: market.id,
+        slug: market.slug,
+        condition_id: market.conditionId,
+        question: market.question,
+        yes: market.yesProbability,
+        no: market.noProbability,
+        vol24h: formatUsd(Math.floor(market.volume24hr || 0)),
+        liquidity: formatUsd(market.liquidity),
+        endDate: formatDateLabel(market.endDate),
+        accepting_orders: market.acceptingOrders,
+        best_bid: market.bestBid,
+        best_ask: market.bestAsk,
+        tick_size: market.tickSize,
+        neg_risk: market.negRisk,
+        enable_order_book: market.enableOrderBook,
+        outcomes: market.outcomes.map((outcome) => ({
+            name: outcome.name,
+            probability: outcome.probability,
+            token_id: outcome.tokenId,
+        })),
+    };
+}
+
+function mapNewMarketEvent(event: Awaited<ReturnType<typeof getNewMarkets>>['events'][number]) {
+    return {
+        id: event.id,
+        title: event.title,
+        createdAt: new Date(event.creationDate).toLocaleDateString(),
+        liquidity: formatUsd(event.liquidity),
+        liquidity_value: event.liquidity,
+        tradable: event.tradable,
+        tradable_detail: event.tradable_detail,
+        recommended_window: event.recommendedWindow ? {
+            start_at: event.recommendedWindow.startAt,
+            end_at: event.recommendedWindow.endAt,
+            status: event.recommendedWindow.status,
+            seconds_to_start: event.recommendedWindow.secondsToStart,
+            seconds_to_end: event.recommendedWindow.secondsToEnd,
+            duration_minutes: event.recommendedWindow.durationMinutes,
+        } : null,
+        markets: event.markets.map((market) => ({
+            id: market.id,
+            slug: market.slug,
+            condition_id: market.conditionId,
+            question: market.question,
+            accepting_orders: market.acceptingOrders,
+            best_bid: market.bestBid,
+            best_ask: market.bestAsk,
+            tick_size: market.tickSize,
+            neg_risk: market.negRisk,
+            enable_order_book: market.enableOrderBook,
+            outcomes: market.outcomes.map((outcome) => ({
+                name: outcome.name,
+                probability: outcome.probability,
+                token_id: outcome.tokenId,
+            })),
+        })),
+    };
+}
+
+function pickMarketSlugFromNewMarketEvent(event: ReturnType<typeof mapNewMarketEvent>): string | null {
+    for (const market of event.markets) {
+        if (market.slug) return market.slug;
+    }
+    return null;
+}
+
+function selectOverviewCardCandidate(params: {
+    hotMarkets: ReturnType<typeof mapTrendingMarket>[];
+    newestMarkets: ReturnType<typeof mapNewMarketEvent>[];
+    tradableNow: ReturnType<typeof mapNewMarketEvent>[];
+}) {
+    const tradableCandidate = params.tradableNow[0];
+    const tradableSlug = tradableCandidate ? pickMarketSlugFromNewMarketEvent(tradableCandidate) : null;
+    if (tradableSlug) {
+        return {
+            market_slug: tradableSlug,
+            title: tradableCandidate?.title || null,
+            source_bucket: 'tradable_now',
+            reason: 'best immediate execution candidate',
+        };
+    }
+
+    const newestCandidate = params.newestMarkets.find((event) => pickMarketSlugFromNewMarketEvent(event));
+    const newestSlug = newestCandidate ? pickMarketSlugFromNewMarketEvent(newestCandidate) : null;
+    if (newestSlug) {
+        return {
+            market_slug: newestSlug,
+            title: newestCandidate?.title || null,
+            source_bucket: 'newest_short_window',
+            reason: 'next chronological short-window market',
+        };
+    }
+
+    const hotCandidate = params.hotMarkets.find((market) => Boolean(market.slug));
+    if (hotCandidate?.slug) {
+        return {
+            market_slug: hotCandidate.slug,
+            title: hotCandidate.question || null,
+            source_bucket: 'hot_24h_markets',
+            reason: 'broad hot market fallback',
+        };
+    }
+
+    return null;
+}
+
+export function buildPolymarketMarketOverview(params: {
+    now?: Date;
+    trendingEvents: Awaited<ReturnType<typeof getTrendingEvents>>;
+    trendingMarkets: Awaited<ReturnType<typeof getTrendingMarkets>>;
+    newMarkets: Awaited<ReturnType<typeof getNewMarkets>>;
+    eventLimit?: number;
+    marketLimit?: number;
+    newMarketLimit?: number;
+    tradableLimit?: number;
+}) {
+    const now = params.now || new Date();
+    const eventLimit = Math.min(params.eventLimit || 5, 10);
+    const marketLimit = Math.min(params.marketLimit || 5, 10);
+    const newMarketLimit = Math.min(params.newMarketLimit || 10, 20);
+    const tradableLimit = Math.min(params.tradableLimit || 5, 10);
+
+    const hotEvents = params.trendingEvents.events.slice(0, eventLimit).map(mapTrendingEvent);
+    const hotMarkets = params.trendingMarkets.markets.slice(0, marketLimit).map(mapTrendingMarket);
+    const newestMarkets = params.newMarkets.events.slice(0, newMarketLimit).map(mapNewMarketEvent);
+    const tradableNow = newestMarkets
+        .filter((market) => market.tradable)
+        .sort((a, b) => (b.liquidity_value || 0) - (a.liquidity_value || 0))
+        .slice(0, tradableLimit);
+    const recommendedCard = selectOverviewCardCandidate({
+        hotMarkets,
+        newestMarkets,
+        tradableNow,
+    });
+
+    return {
+        source: 'Polymarket',
+        type: 'Market Overview',
+        current_time_et: formatEtTimestamp(now),
+        selection_note: params.newMarkets.selectionNote,
+        recommended_card: recommendedCard,
+        buckets: {
+            hot_24h_events: {
+                count: hotEvents.length,
+                events: hotEvents,
+            },
+            hot_24h_markets: {
+                count: hotMarkets.length,
+                markets: hotMarkets,
+            },
+            newest_short_window: {
+                count: newestMarkets.length,
+                tradable_window_count: params.newMarkets.tradableWindowCount,
+                eligible_window_count: params.newMarkets.eligibleWindowCount,
+                sort_mode: params.newMarkets.tradableWindowCount > 0 ? 'tradable_windows_first' : 'discovery_only_no_tradable_windows',
+                events: newestMarkets,
+            },
+            tradable_now: {
+                count: tradableNow.length,
+                markets: tradableNow,
+            },
+        },
+        guidance: 'Use hot_24h_markets for broad volume trends, newest_short_window for the next short-window opportunities, and tradable_now for the best immediate execution candidates. Do not collapse this into a single ranking unless the user explicitly asks for one. If recommended_card is present, show that card to the user.',
+    };
 }
 
 /**
@@ -62,7 +259,7 @@ export const GetPolymarketTrendingTool: Tool = {
 export const GetPolymarketTrendingMarketsTool: Tool = {
     definition: {
         name: 'get_polymarket_trending_markets',
-        description: 'Get specific trending prediction questions sorted by 24h volume. Use this for overall hot markets by volume/liquidity. Do not use it alone when the user is asking for newest markets, today-only short-window markets, or "next few minutes" markets; pair with get_new_markets and current time when recency matters. Returns outcome names and outcome token IDs needed for trading.',
+        description: 'Get specific trending prediction questions sorted by 24h volume. Use this for hot markets by volume/liquidity when the user explicitly wants that slice. For broad discovery ("what bets do you have?", "trending bets", "hot bets"), prefer get_polymarket_market_overview first. Do not use this alone when the user is asking for newest markets, today-only short-window markets, or "next few minutes" markets; pair with get_new_markets and current time when recency matters. Returns outcome names and outcome token IDs needed for trading.',
         parameters: {
             type: 'object',
             properties: {
@@ -238,7 +435,87 @@ export const SearchPolymarketTool: Tool = {
 };
 
 export const __testables = {
-    formatDateLabel
+    formatDateLabel,
+    formatEtTimestamp,
+    formatUsd,
+    mapTrendingEvent,
+    mapTrendingMarket,
+    mapNewMarketEvent,
+    buildPolymarketMarketOverview,
+};
+
+/**
+ * Get Polymarket Market Overview Tool
+ */
+export const GetPolymarketMarketOverviewTool: Tool = {
+    definition: {
+        name: 'get_polymarket_market_overview',
+        description: 'Get a broad Polymarket overview for questions like "what bets do you have?", "what is trending?", or "hot bets right now". This is the default discovery tool for broad requests because it returns grouped buckets: 24h hot events, 24h hot markets, newest short-window markets, and tradable-now candidates. Use it before narrower tools unless the user explicitly asks for only one slice.',
+        parameters: {
+            type: 'object',
+            properties: {
+                event_limit: {
+                    type: 'number',
+                    description: 'Number of hot 24h events to return (1-10). Default is 5.'
+                },
+                market_limit: {
+                    type: 'number',
+                    description: 'Number of hot 24h markets to return (1-10). Default is 5.'
+                },
+                new_market_limit: {
+                    type: 'number',
+                    description: 'Number of newest markets to return (1-20). Default is 10.'
+                },
+                tradable_limit: {
+                    type: 'number',
+                    description: 'Number of tradable-now short-window markets to return (1-10). Default is 5.'
+                }
+            },
+            required: []
+        }
+    },
+    handler: async (args: {
+        event_limit?: number;
+        market_limit?: number;
+        new_market_limit?: number;
+        tradable_limit?: number;
+    }) => {
+        const eventLimit = Math.min(args.event_limit || 5, 10);
+        const marketLimit = Math.min(args.market_limit || 5, 10);
+        const newMarketLimit = Math.min(args.new_market_limit || 10, 20);
+        const tradableLimit = Math.min(args.tradable_limit || 5, 10);
+
+        const [trendingEvents, trendingMarkets, newMarkets] = await Promise.all([
+            getTrendingEvents(eventLimit),
+            getTrendingMarkets(marketLimit),
+            getNewMarkets(newMarketLimit),
+        ]);
+
+        const overview = buildPolymarketMarketOverview({
+            trendingEvents,
+            trendingMarkets,
+            newMarkets,
+            eventLimit,
+            marketLimit,
+            newMarketLimit,
+            tradableLimit,
+        });
+
+        if (overview.recommended_card?.market_slug) {
+            return {
+                ...overview,
+                __client_action: {
+                    type: 'show_polymarket_card',
+                    data: {
+                        market_slug: overview.recommended_card.market_slug,
+                    },
+                },
+            };
+        }
+
+        return overview;
+    },
+    permissions: 'public'
 };
 
 /**
@@ -261,7 +538,7 @@ export const GetNewMarketsTool: Tool = {
     },
     handler: async (args: { limit?: number }) => {
         const limit = Math.min(args.limit || 30, 50);
-        const result = await import('../../../services/polymarket.js').then(m => m.getNewMarkets(limit));
+        const result = await getNewMarkets(limit);
 
         const noTradableWindows = result.tradableWindowCount === 0;
         return {

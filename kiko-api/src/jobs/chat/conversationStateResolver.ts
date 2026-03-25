@@ -88,11 +88,28 @@ export function isConfirmationMessage(message: string): boolean {
     const normalized = String(message || '').trim().toLowerCase();
     if (!normalized) return false;
     const compact = normalized.replace(/[\s._-]+/g, '');
-    const keywords = [
+    const directKeywords = new Set([
         'confirm', 'confirmed', 'proceed', 'yes', 'y', 'ok', 'okay',
         '继续', '确认', '执行', '下单', '成交', '好的', '可以',
-    ];
-    return keywords.some((k) => compact === k || compact.includes(k) || normalized === k || normalized.includes(k));
+    ]);
+    if (directKeywords.has(compact) || directKeywords.has(normalized)) {
+        return true;
+    }
+
+    const isShortAffirmation = compact.length <= 24
+        && /^(?:please)?(?:goahead|proceed|confirm(?:ed)?|execute|runit|doit|yes|ok|okay|继续|确认执行|确认下单|直接执行|现在执行)$/.test(compact);
+    if (isShortAffirmation) {
+        return true;
+    }
+
+    const containsTradeIntent = /\b(swap|buy|sell|trade|quote|price|analyze|check|get|receive|convert)\b/i.test(normalized)
+        || /买|卖|兑换|报价|价格|分析|检查|查询/.test(normalized);
+    if (containsTradeIntent) {
+        return false;
+    }
+
+    return /^(?:please\s+)?(?:go ahead|proceed|confirm(?:ed)?|execute now|run it|do it)$/i.test(normalized)
+        || /^(?:现在)?(?:继续执行|确认执行|直接执行|继续下单|确认下单)$/.test(normalized);
 }
 
 export function isSetupProceedMessage(message: string): boolean {

@@ -10,6 +10,7 @@ import { GetZoraTrendingTool, GetZoraProfileTool } from '../skills/ZoraSkill/ind
 import { CreateCopyTradeConfigTool, ListCopyTradeConfigsTool, DeleteCopyTradeConfigTool, PauseCopyTradeConfigTool } from '../skills/CopyTradeSkill/index.js';
 import {
     GetPolymarketTrendingTool as PMTrending,
+    GetPolymarketMarketOverviewTool as PMOverview,
     GetPolymarketTrendingMarketsTool as PMTrendingMarkets,
     GetPolymarketEventTool as PMEvent,
     SearchPolymarketTool as PMSearch,
@@ -63,6 +64,7 @@ const BUILT_IN_TOOLS = [
     DeleteCopyTradeConfigTool,
     PauseCopyTradeConfigTool,
     PMTrending,
+    PMOverview,
     PMTrendingMarkets,
     PMEvent,
     PMSearch,

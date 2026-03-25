@@ -4,6 +4,7 @@ import {
     extractRecentToolTrace,
     extractRequestedTokenAddressesFromHistory,
     extractRequestedTokenSymbolsFromHistory,
+    isConfirmationMessage,
     resolveTradeConfirmationState,
 } from './conversationStateResolver.js';
 
@@ -140,4 +141,12 @@ test('resolveTradeConfirmationState extracts order confirmation from a prepared 
     assert.equal(state?.order?.args?.token_id, 'token-up');
     assert.equal(state?.order?.confirmationToken, 'abc123');
     assert.equal(state?.order?.actionClass, 'ORDER_MUTATION');
+});
+
+test('isConfirmationMessage stays strict for ordinary trade requests that contain polite language', () => {
+    assert.equal(isConfirmationMessage('可以帮我报价一下这个 token 吗'), false);
+    assert.equal(isConfirmationMessage('ok buy 1 eth worth of virtual'), false);
+    assert.equal(isConfirmationMessage('可以'), true);
+    assert.equal(isConfirmationMessage('confirm'), true);
+    assert.equal(isConfirmationMessage('继续执行'), true);
 });

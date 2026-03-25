@@ -1,8 +1,6 @@
 import * as alchemy from '../../services/alchemy.js';
 import * as chatRepo from '../../repositories/chatRepository.js';
 import * as privyWallet from '../../services/privyWallet.js';
-import { MainSwapService } from '../../services/MainSwapService.js';
-import { getChainConfig } from '../../config/chainConfig.js';
 import { LogCode } from '../../config/logRegistry.js';
 import { logger } from '../../utils/logger.js';
 import { buildSignedHeaders } from '../../utils/requestSigningClient.js';
@@ -35,6 +33,27 @@ const NATIVE_SYMBOLS_BY_CHAIN: Record<number, string> = {
     8453: 'ETH',
     900: 'SOL',
 };
+
+function shouldAttachTradeDebug(task: any): boolean {
+    return task?.toolContext?.toolConfig?.tradeDebugMode === true;
+}
+
+function buildTradeDebug(task: any, details: Record<string, any>) {
+    if (!shouldAttachTradeDebug(task)) return undefined;
+    return {
+        ts: new Date().toISOString(),
+        ...details,
+    };
+}
+
+function resolveFastSwapFinalStatus(result: {
+    ok?: boolean;
+    data?: { status?: string | null };
+}): 'success' | 'pending' | 'failed' {
+    const backendStatus = String(result.data?.status || '').toUpperCase();
+    if (!result.ok) return 'failed';
+    return backendStatus === 'PENDING' ? 'pending' : 'success';
+}
 
 export async function maybeExecuteFastSwap(params: {
     snapshot: ChatContextSnapshot;
@@ -130,6 +149,14 @@ export async function maybeExecuteFastSwap(params: {
         resolveTokenDisplayMetadata(prepared.tokenIn, prepared.chainId),
         resolveTokenDisplayMetadata(prepared.tokenOut, prepared.chainId),
     ]);
+    const initialDebug = buildTradeDebug(params.task, {
+        mode: 'fast_swap',
+        path: 'chat_fast_swap_coordinator',
+        tokenIn: prepared.tokenIn,
+        tokenOut: prepared.tokenOut,
+        amountIn: prepared.amountIn,
+        chainId: prepared.chainId,
+    });
 
     const txCardMessage = await chatRepo.createMessage(
         params.task.sessionId,
@@ -138,7 +165,7 @@ export async function maybeExecuteFastSwap(params: {
         {
             type: 'transaction-status-card',
             data: {
-                status: 'pending',
+                status: 'sending',
                 swapType: inferFastSwapType(prepared.tokenIn, prepared.tokenOut, prepared.chainId),
                 tokenIn: prepared.tokenIn,
                 tokenOut: prepared.tokenOut,
@@ -149,8 +176,9 @@ export async function maybeExecuteFastSwap(params: {
                 amountIn: prepared.amountIn,
                 chainId: prepared.chainId,
                 startedAt: Date.now(),
-                message: 'Initiating fast swap...',
+                message: 'Submitting fast swap...',
                 isLoading: true,
+                ...(initialDebug ? { debug: initialDebug } : {}),
             },
             status: 'streaming',
         },
@@ -183,40 +211,85 @@ export async function maybeExecuteFastSwap(params: {
 
     let swapResult: any;
     try {
-        swapResult = await MainSwapService.executeSwap({
-            userId: params.userId || '',
-            walletAddress: prepared.resolvedWalletAddress,
+        const apiBase = process.env.API_BASE_URL
+            || (process.env.PORT ? `http://127.0.0.1:${process.env.PORT}` : 'http://localhost:3001');
+        const accessToken = params.task.toolContext?.accessToken;
+        const appKey = process.env.KIKO_WEB_APP_KEY || process.env.KIKO_MOBILE_APP_KEY || '';
+        if (!accessToken) {
+            throw new Error('Missing access token for fast swap execution');
+        }
+
+        const requestBody = {
             tokenIn: prepared.tokenIn,
             tokenOut: prepared.tokenOut,
             amountIn: prepared.amountIn,
             chainId: prepared.chainId,
             slippageBps: 300,
-            mode: 'fast-swap',
-            executionSource: 'chat',
-            routePolicy: 'external_only',
             messageId: txCardMessage.id,
-            userSettings: {
-                swapMethod: 'allowance_trade',
-                fastSwapMode: true,
-                mevProtection: true,
+        };
+
+        const response = await fetch(`${apiBase}/api/swap/execute-instant`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${accessToken}`,
+                ...(appKey ? { 'X-App-Key': appKey } : {}),
+                ...buildSignedHeaders('POST', '/api/swap/execute-instant', JSON.stringify(requestBody)),
+                'X-Transaction-Message-Id': txCardMessage.id,
             },
+            body: JSON.stringify(requestBody),
         });
+
+        const payload = await response.json() as {
+            success?: boolean;
+            error?: string;
+            message?: string;
+            data?: {
+                txHash?: string;
+                amountOut?: string | null;
+                tradeId?: string;
+                status?: 'PENDING' | 'SUCCESS' | 'FAILED';
+            };
+        };
+
+        swapResult = {
+            ok: response.ok && payload.success,
+            error: payload.error || payload.message,
+            data: payload.data || {},
+            responseStatus: response.status,
+        };
     } catch (error: any) {
-        swapResult = { success: false, error: error?.message || String(error) };
+        swapResult = { ok: false, error: error?.message || String(error), data: {} };
     }
 
+    const finalStatus = resolveFastSwapFinalStatus(swapResult);
+    const finalDebug = buildTradeDebug(params.task, {
+        mode: 'fast_swap',
+        finalStatus,
+        responseStatus: swapResult.responseStatus,
+        txHash: swapResult.data?.txHash || null,
+        tradeId: swapResult.data?.tradeId || null,
+    });
     const cardData = {
         ...(txCardMessage.data || {}),
-        status: swapResult.success ? 'success' : 'failed',
-        txHash: swapResult.txHash,
-        amountOut: swapResult.amountOut,
+        status: finalStatus,
+        txHash: swapResult.data?.txHash,
+        amountOut: swapResult.data?.amountOut,
         error: swapResult.error,
         errorMessage: swapResult.error,
         completedAt: Date.now(),
-        message: swapResult.success
-            ? `Fast swap completed ${String(swapResult.txHash || '').slice(0, 10)}...`
-            : `Swap failed: ${String(swapResult.error || 'unknown error')}`,
-        isLoading: false,
+        message: finalStatus === 'success'
+            ? `Fast swap completed ${String(swapResult.data?.txHash || '').slice(0, 10)}...`
+            : finalStatus === 'pending'
+                ? `Fast swap submitted ${String(swapResult.data?.txHash || '').slice(0, 10)}...`
+                : `Swap failed: ${String(swapResult.error || 'unknown error')}`,
+        isLoading: finalStatus === 'pending',
+        ...(finalDebug ? {
+            debug: {
+                ...((txCardMessage.data as any)?.debug || {}),
+                ...finalDebug,
+            }
+        } : {}),
     };
 
     await chatRepo.updateMessage(txCardMessage.id, {
@@ -501,3 +574,7 @@ function normalizeRequestedAmount(
     if (/\bbuy\b/.test(lower) && STABLE_SYMBOLS.has(String(tokenIn || '').toUpperCase())) return rawAmount;
     return rawAmount;
 }
+
+export const __fastSwapCoordinatorTest = {
+    resolveFastSwapFinalStatus,
+};

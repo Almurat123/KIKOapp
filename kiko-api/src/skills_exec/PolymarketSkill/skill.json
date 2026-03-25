@@ -6,6 +6,7 @@
         "PREDICTION_MARKETS"
     ],
     "tools": [
+        "get_polymarket_market_overview",
         "get_polymarket_trending",
         "get_polymarket_trending_markets",
         "search_polymarket",
@@ -32,6 +33,7 @@
     ],
     "examples": {
         "en": [
+            "What bets do you have on Polymarket?",
             "What's trending on Polymarket?",
             "Search for markets about BTC price",
             "Follow Polymarket user 0x...",

@@ -127,7 +127,16 @@ function resolveFastSwapDirectives(input: {
     toolContext: Record<string, any>;
 }): RuntimeDirective[] {
     const toolConfig = input.toolContext?.toolConfig || {};
-    if (toolConfig.fastSwapMode !== true) return [];
+    if (toolConfig.fastSwapMode !== true) {
+        if (toolConfig.showQuoteBeforeSwap !== false) {
+            return [{
+                kind: 'quote_before_swap_contract',
+                message: 'QUOTE-BEFORE-SWAP CONTRACT: simulate_swap is required before the first execution for a pair+amount. Present the quote, wait for explicit user confirmation, then call prepare_swap_transaction with execute=true. Do not execute on the first turn unless the user is explicitly confirming a prior quote.',
+                metadata: { chainId: input.chainId },
+            }];
+        }
+        return [];
+    }
 
     const requestedSymbols = Array.from(input.raw.matchAll(/\b[A-Z]{2,10}\b/g)).map((match) => String(match[0] || '').toUpperCase());
     const requestedAddresses = Array.from(input.raw.matchAll(/\b0x[a-fA-F0-9]{40}\b/g)).map((match) => String(match[0] || '').toLowerCase());
@@ -136,6 +145,11 @@ function resolveFastSwapDirectives(input: {
     const firstSymbol = requestedSymbols.find((symbol) => !NATIVE_SYMBOLS.has(symbol) && !STABLE_SYMBOLS.has(symbol));
 
     const directives: RuntimeDirective[] = [];
+    directives.push({
+        kind: 'fast_swap_contract',
+        message: 'FAST SWAP CONTRACT: fastSwapMode is ON. Do not make simulate_swap or quote presentation a blocking prerequisite. Once token target, chain, and executable amount are explicit and safe, move directly toward prepare_swap_transaction execution.',
+        metadata: { chainId: input.chainId },
+    });
     if (hasSwapVerb && hasAnyTarget && requestedAddresses.length === 0 && firstSymbol && !isFastSwapWhitelisted(firstSymbol, input.chainId)) {
         directives.push({
             kind: 'fast_swap_address_required',

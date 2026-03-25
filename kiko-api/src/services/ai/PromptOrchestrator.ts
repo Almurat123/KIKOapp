@@ -163,24 +163,18 @@ USER_QUERY_END
                 parts.push(`- Risk check: Only when user asks about risk/safety or when clearly suspicious.`);
             }
 
-            // FORCED: All users use allowance_trade mode (swap_card removed from UI)
-            const swapMethod = 'allowance_trade'; // FORCED: Always use allowance_trade, ignore database
-            if (swapMethod === 'allowance_trade' || swapMethod === 'allowance') {
-                parts.push(`- Swap execution: ⚡ ALLOWANCE TRADE MODE (DEFAULT). When calling prepare_swap_transaction, the execute parameter is ignored - all swaps execute automatically.`);
-            } else {
-                parts.push(`- Swap execution: Review mode. When calling prepare_swap_transaction, ALWAYS set execute: false parameter. User will confirm in a card before execution.`);
-            }
+            parts.push(`- Swap transport: allowance_trade is the submission mechanism. It does NOT override the active user mode. Whether you quote first or execute directly depends on fastSwapMode and showQuoteBeforeSwap.`);
 
             if (config.fastSwapMode) {
                 parts.push(`- Fast Swap Mode: Enabled. Never block or ignore the user's message just because a non-whitelisted token lacks an explicit contract address.`);
                 parts.push(`- Fast Swap Mode: First resolve token targets using wallet context, cached token metadata, prior tool results, and explicit addresses already present in the conversation. Only ask the user for a contract address when the token is still not safely resolvable.`);
-                parts.push(`- Fast Swap Mode: Do NOT call simulate_swap first. Move directly toward a swap card / executable swap flow once the token target is explicit and valid.`);
+                parts.push(`- Fast Swap Mode: Do NOT call simulate_swap as a blocking prerequisite. Once token, chain, and executable amount are explicit and valid, move directly toward prepare_swap_transaction execution.`);
             }
 
             if (config.showQuoteBeforeSwap && !config.fastSwapMode) {
-                parts.push(`- Price Simulation: ENABLED. 🚨 CRITICAL RULE: You MUST call simulate_swap ONCE before the first swap execution for a given pair+amount. After the user confirms, DO NOT re-run simulate_swap or fetch ad-hoc prices; call prepare_swap_transaction directly using the confirmed parameters.`);
+                parts.push(`- Price Simulation: ENABLED. 🚨 CRITICAL RULE: You MUST call simulate_swap ONCE before the first swap execution for a given pair+amount. Present the quote and wait for explicit user confirmation. After the user confirms, DO NOT re-run simulate_swap or fetch ad-hoc prices; call prepare_swap_transaction directly using the confirmed parameters.`);
             } else if (!config.fastSwapMode) {
-                parts.push(`- Price Simulation: Quote-first flow. When token identification is ambiguous, resolve the token using cached/searchable token metadata and present a quote before swap execution.`);
+                parts.push(`- Direct execution mode: quote-before-swap is disabled. Do not stall on quote presentation; use preflight only when needed for balance, token resolution, chain resolution, or safety validation, then move toward execution.`);
             }
 
             if (config.defaultSwapAmount) {

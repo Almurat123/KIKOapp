@@ -210,6 +210,37 @@ function matchesSimulatedSwap(simulated: SwapArgs | null, args: SwapArgs): boole
     return sameTokenIn && sameTokenOut;
 }
 
+function hasQuoteModeExecutionAuthorization(context: ToolContext | undefined, args: SwapArgs): boolean {
+    const gatePhase = String((context as any)?.__executionGate?.phase || '');
+    if (gatePhase === 'execute') return true;
+
+    const confirmation = (context as any)?.__snapshot?.confirmationState;
+    if (confirmation?.kind !== 'swap_confirmation' || !confirmation?.swap) return false;
+
+    const swap = confirmation.swap;
+    const sameChain = Number(swap.chainId || 0) === Number(args.chain_id || 0);
+    if (!sameChain) return false;
+
+    const sameTokenIn = normalizeTokenForMatch(String(swap.tokenIn || ''), args.chain_id)
+        === normalizeTokenForMatch(args.token_in, args.chain_id);
+    const sameTokenOut = normalizeTokenForMatch(String(swap.tokenOut || ''), args.chain_id)
+        === normalizeTokenForMatch(args.token_out, args.chain_id);
+
+    return sameTokenIn && sameTokenOut;
+}
+
+function shouldAttachTradeDebug(context: ToolContext | undefined): boolean {
+    return (context?.toolConfig as any)?.tradeDebugMode === true;
+}
+
+function buildTradeDebug(context: ToolContext | undefined, details: Record<string, any>) {
+    if (!shouldAttachTradeDebug(context)) return undefined;
+    return {
+        ts: new Date().toISOString(),
+        ...details,
+    };
+}
+
 type SocketRecoveryTradeRecord = {
     id?: string;
     txHash?: string | null;
@@ -560,24 +591,47 @@ When show-quote-before-swap is enabled (default), execution must follow:
             const config = context?.toolConfig as any;
             const swapMethod = 'allowance_trade'; // FORCED: Always use allowance_trade
             const fastSwapMode = config?.fastSwapMode === true;
-            const requireSimulationBeforeExecute = !fastSwapMode && config?.showQuoteBeforeSwap !== false;
+            const quoteBeforeSwapEnabled = !fastSwapMode && config?.showQuoteBeforeSwap !== false;
+            const requireSimulationBeforeExecute = quoteBeforeSwapEnabled;
+            const hasExplicitExecutionAuthorization = hasQuoteModeExecutionAuthorization(context, args);
 
             // Execute instantly ONLY if:
             // 1. args.execute is explicitly true (AI decision), OR
             // 2. fastSwapMode is enabled (for Zora fast swap)
             // CRITICAL: Respect args.execute=false for simulation/quote mode
-            const shouldExecute =
+            const executionRequested =
                 args.execute === true ||
                 context?.allowanceMode === 'instant' ||
                 fastSwapMode;
+            const shouldExecute = executionRequested && (!quoteBeforeSwapEnabled || hasExplicitExecutionAuthorization);
 
             console.log('[PrepareSwapTransaction] Execution Decision:', {
                 argsExecute: args.execute,
                 swapMethod,
                 fastSwapMode,
+                quoteBeforeSwapEnabled,
                 requireSimulationBeforeExecute,
+                executionRequested,
+                hasExplicitExecutionAuthorization,
                 finalDecision: shouldExecute
             });
+            const executionDebug = buildTradeDebug(context, {
+                mode: fastSwapMode ? 'fast_swap' : 'quote_confirm',
+                executionRequested,
+                finalDecision: shouldExecute,
+                quoteBeforeSwapEnabled,
+                hasExplicitExecutionAuthorization,
+                matchedRecentSimulation: matchesSimulatedSwap(recentSimulatedSwap, args),
+            });
+
+            if (executionRequested && quoteBeforeSwapEnabled && !hasExplicitExecutionAuthorization) {
+                console.warn('[PrepareSwapTransaction] Quote-before-swap gate downgraded execution attempt to simulation-only', {
+                    tokenIn: args.token_in,
+                    tokenOut: args.token_out,
+                    amountIn: args.amount_in,
+                    chainId: args.chain_id,
+                });
+            }
 
             if (shouldExecute && requireSimulationBeforeExecute && !matchesSimulatedSwap(recentSimulatedSwap, args)) {
                 return {
@@ -652,7 +706,8 @@ When show-quote-before-swap is enabled (default), execution must follow:
                             slippage: args.slippage || 0.5,
                             startedAt: Date.now(),
                             message: '⏳ Sending transaction...',
-                            isLoading: true
+                            isLoading: true,
+                            ...(executionDebug ? { debug: executionDebug } : {}),
                         },
                         status: 'streaming'
                     }
@@ -827,7 +882,14 @@ When show-quote-before-swap is enabled (default), execution must follow:
                             : finalStatus === 'pending'
                                 ? `⏳ Transaction submitted. Waiting for confirmation: ${result.data?.txHash?.slice(0, 10)}...`
                                 : `❌ Swap failed: ${result.error || 'Unknown error'}`,
-                        isLoading: finalStatus === 'pending'
+                        isLoading: finalStatus === 'pending',
+                        ...(executionDebug ? {
+                            debug: {
+                                ...(messageData.debug || {}),
+                                ...executionDebug,
+                                backendStatus: backendStatus || null,
+                            }
+                        } : {}),
                     };
                     isFinalized = true;
                     if (pendingTimer) {
@@ -1155,18 +1217,30 @@ When show-quote-before-swap is enabled (default), execution must follow:
                 resolveTokenDisplayMetadata(args.token_in, args.chain_id),
                 resolveTokenDisplayMetadata(args.token_out, args.chain_id),
             ]);
+            const preWarmedQuote = await preWarmQuotePromise.catch(() => null);
+            const quoteDetails = preWarmedQuote?.data
+                ? {
+                    amountOut: preWarmedQuote.data.amountOutHuman || preWarmedQuote.data.amountOut || null,
+                    priceImpact: preWarmedQuote.data.priceImpact ?? null,
+                    dex: preWarmedQuote.data.dexName || preWarmedQuote.data.dex || null,
+                }
+                : null;
             return {
                 mode: 'simulation_only',
                 success: true,
-                summary: `Swap prepared: ${args.amount_in} ${tokenInSummaryDisplay.symbol} → ${tokenOutSummaryDisplay.symbol}. Please reply "confirm" or "execute" to complete the trade.`,
+                summary: quoteDetails?.amountOut
+                    ? `Quote ready: ${args.amount_in} ${tokenInSummaryDisplay.symbol} → about ${quoteDetails.amountOut} ${tokenOutSummaryDisplay.symbol}. Please reply "confirm" or "execute" to complete the trade.`
+                    : `Swap prepared: ${args.amount_in} ${tokenInSummaryDisplay.symbol} → ${tokenOutSummaryDisplay.symbol}. Please reply "confirm" or "execute" to complete the trade.`,
                 requires_confirmation: true,
+                quote: quoteDetails,
                 swapDetails: {
                     tokenIn: args.token_in,
                     tokenOut: args.token_out,
                     amountIn: args.amount_in,
                     chainId: args.chain_id,
                     slippage: args.slippage || 0.5
-                }
+                },
+                ...(executionDebug ? { debug: executionDebug } : {})
             };
 
 
@@ -1180,4 +1254,5 @@ When show-quote-before-swap is enabled (default), execution must follow:
 export const __prepareSwapTest = {
     resolveSocketRecoverySearchStartMs,
     buildSocketRecoveryResult,
+    hasQuoteModeExecutionAuthorization,
 };

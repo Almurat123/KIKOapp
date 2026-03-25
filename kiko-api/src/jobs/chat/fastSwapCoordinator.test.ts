@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { ChatContextSnapshot } from './contracts.js';
-import { deriveFastSwapIntentDraft, findSnapshotBalanceForToken } from './fastSwapCoordinator.js';
+import { __fastSwapCoordinatorTest, deriveFastSwapIntentDraft, findSnapshotBalanceForToken } from './fastSwapCoordinator.js';
 
 function makeSnapshot(message: string, overrides: Partial<ChatContextSnapshot> = {}): ChatContextSnapshot {
     const { runtime: runtimeOverrides, ...restOverrides } = overrides;
@@ -79,4 +79,21 @@ test('findSnapshotBalanceForToken falls back to all-chain balances when single-c
 
     assert.equal(nativeBalance, 0.145);
     assert.equal(tokenBalance, 1234.5);
+});
+
+test('resolveFastSwapFinalStatus keeps submitted instant trades pending until settlement completes', () => {
+    assert.equal(__fastSwapCoordinatorTest.resolveFastSwapFinalStatus({
+        ok: true,
+        data: { status: 'PENDING' },
+    }), 'pending');
+
+    assert.equal(__fastSwapCoordinatorTest.resolveFastSwapFinalStatus({
+        ok: true,
+        data: { status: 'SUCCESS' },
+    }), 'success');
+
+    assert.equal(__fastSwapCoordinatorTest.resolveFastSwapFinalStatus({
+        ok: false,
+        data: { status: 'PENDING' },
+    }), 'failed');
 });
