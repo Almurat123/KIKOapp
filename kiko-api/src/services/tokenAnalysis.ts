@@ -172,17 +172,13 @@ export async function getEarlyBuyers(
     chain: string,
     limit: number = 10,
     options?: {
-        outputMode?: 'smart_shortlist' | 'full_table';
         includeTradeProgression?: boolean;
         tradeHistoryLimit?: number;
         startTimeMs?: number;
         endTimeMs?: number;
         minTokenAmount?: number;
-        minBuyUsd?: number;
-        minWalletTxCount?: number;
         minTransferCount?: number;
         scanLimit?: number;
-        qualitySort?: 'first_seen' | 'buy_usd_desc' | 'quality_desc';
     }
 ): Promise<EarlyBuyer[]> {
     const chainLower = chain.toLowerCase();
@@ -190,14 +186,9 @@ export async function getEarlyBuyers(
     const startTimeMs = options?.startTimeMs;
     const endTimeMs = options?.endTimeMs;
     const minTokenAmount = Number(options?.minTokenAmount || 0);
-    const minBuyUsd = Number.isFinite(Number(options?.minBuyUsd)) ? Number(options?.minBuyUsd) : undefined;
-    const minWalletTxCount = Number.isFinite(Number(options?.minWalletTxCount)) ? Number(options?.minWalletTxCount) : undefined;
     const minTransferCount = Math.max(1, Number(options?.minTransferCount || 1));
-    const qualitySort = options?.qualitySort || 'first_seen';
-    const outputMode = options?.outputMode || 'smart_shortlist';
-    const includeTradeProgression = Boolean(options?.includeTradeProgression || outputMode === 'full_table');
+    const includeTradeProgression = options?.includeTradeProgression !== false;
     const tradeHistoryLimit = Math.max(10, Math.min(100, Number(options?.tradeHistoryLimit || 25)));
-    const walletTxCountCache = new Map<string, number | null>();
 
     type BuyerAggregate = {
         address: string;
@@ -227,51 +218,22 @@ export async function getEarlyBuyers(
         return 'small';
     };
 
-    const fetchWalletTxCount = async (address: string): Promise<number | null> => {
-        const key = address.toLowerCase();
-        if (walletTxCountCache.has(key)) {
-            return walletTxCountCache.get(key) ?? null;
-        }
-        try {
-            const nonceHex = await rpcManager.callRpc<string>(chainLower, 'eth_getTransactionCount', [address, 'latest'], {
-                strategy: 'cheap',
-            });
-            const txCount = Number(BigInt(String(nonceHex || '0x0')));
-            const normalized = Number.isFinite(txCount) ? txCount : null;
-            walletTxCountCache.set(key, normalized);
-            return normalized;
-        } catch {
-            walletTxCountCache.set(key, null);
-            return null;
-        }
-    };
-
     const normalizeCandidates = async (
         candidates: BuyerAggregate[],
         currentPriceUsd: number | null,
         options?: {
             includeTradeProgression?: boolean;
             tradeHistoryLimit?: number;
-            outputMode?: 'smart_shortlist' | 'full_table';
         }
     ): Promise<EarlyBuyer[]> => {
         const includeTradeProgression = Boolean(options?.includeTradeProgression);
         const tradeHistoryLimit = Math.max(10, Math.min(100, Number(options?.tradeHistoryLimit || 25)));
-        const outputMode = options?.outputMode || 'smart_shortlist';
-        const applyQualityFilters = outputMode !== 'full_table';
 
         let filtered = candidates.filter(c =>
             Number.isFinite(c.totalAmount) &&
             c.totalAmount >= minTokenAmount &&
             c.transferCount >= minTransferCount
         );
-
-        if (applyQualityFilters && typeof minBuyUsd === 'number' && minBuyUsd > 0) {
-            filtered = filtered.filter(c => {
-                if (currentPriceUsd === null || currentPriceUsd <= 0) return true;
-                return c.totalAmount * currentPriceUsd >= minBuyUsd;
-            });
-        }
 
         const mapped = filtered.map(c => {
             const estimatedBuyUsd = currentPriceUsd !== null && currentPriceUsd > 0
@@ -294,20 +256,7 @@ export async function getEarlyBuyers(
             } as EarlyBuyer;
         });
 
-        if (applyQualityFilters && !isSolana && typeof minWalletTxCount === 'number' && minWalletTxCount > 0 && mapped.length > 0) {
-            const limiter = pLimit(4);
-            await Promise.all(
-                mapped.map(item =>
-                    limiter(async () => {
-                        item.walletTxCount = await fetchWalletTxCount(item.address);
-                    })
-                )
-            );
-        }
-
-        const mappedFiltered = (applyQualityFilters && !isSolana && typeof minWalletTxCount === 'number' && minWalletTxCount > 0)
-            ? mapped.filter(item => (item.walletTxCount ?? Number.MAX_SAFE_INTEGER) >= minWalletTxCount)
-            : mapped;
+        const mappedFiltered = mapped;
 
         if (includeTradeProgression && mappedFiltered.length > 0) {
             const limiter = pLimit(3);
@@ -324,33 +273,13 @@ export async function getEarlyBuyers(
                     })
                 )
             );
-
-            // Keep only wallets that show a real BUY when the user asks for a full table.
-            if (outputMode === 'full_table') {
-                const narrowed = mappedFiltered.filter(item => item.tradeProgression?.firstBuy);
-                if (narrowed.length > 0) {
-                    mappedFiltered.splice(0, mappedFiltered.length, ...narrowed);
-                }
+            const narrowed = mappedFiltered.filter(item => item.tradeProgression?.firstBuy);
+            if (narrowed.length > 0) {
+                mappedFiltered.splice(0, mappedFiltered.length, ...narrowed);
             }
         }
 
-        if (qualitySort === 'buy_usd_desc') {
-            mappedFiltered.sort((a, b) => {
-                const aUsd = a.estimatedBuyUsd || 0;
-                const bUsd = b.estimatedBuyUsd || 0;
-                if (bUsd !== aUsd) return bUsd - aUsd;
-                return a.timestamp.getTime() - b.timestamp.getTime();
-            });
-        } else if (qualitySort === 'quality_desc') {
-            mappedFiltered.sort((a, b) => {
-                const aScore = a.qualityScore || 0;
-                const bScore = b.qualityScore || 0;
-                if (bScore !== aScore) return bScore - aScore;
-                return a.timestamp.getTime() - b.timestamp.getTime();
-            });
-        } else {
-            mappedFiltered.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
-        }
+        mappedFiltered.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
 
         return mappedFiltered.slice(0, Math.max(1, limit));
     };
@@ -451,7 +380,6 @@ export async function getEarlyBuyers(
             return await normalizeCandidates(Array.from(aggregates.values()), currentPriceUsd, {
                 includeTradeProgression,
                 tradeHistoryLimit,
-                outputMode,
             });
         } catch (error) {
             console.error('[TokenAnalysis] Error fetching early buyers on Solana:', error);
@@ -550,7 +478,6 @@ export async function getEarlyBuyers(
             return await normalizeCandidates(Array.from(aggregates.values()), currentPriceUsd, {
                 includeTradeProgression,
                 tradeHistoryLimit,
-                outputMode,
             });
 
         } catch (error) {

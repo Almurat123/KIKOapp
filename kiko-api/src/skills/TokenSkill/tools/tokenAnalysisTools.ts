@@ -39,15 +39,6 @@ export const GetEarlyBuyersTool: Tool = {
                     type: 'string',
                     description: 'Optional inclusive end time. Use ISO datetime or unix seconds. Example: 2026-03-10T13:00:00Z.'
                 },
-                quality_mode: {
-                    type: 'boolean',
-                    description: 'When true, apply quality filtering to suppress tiny "ant" wallets. Ignored when output_mode=full_table.'
-                },
-                output_mode: {
-                    type: 'string',
-                    description: 'Use full_table for complete export-style output (all rows, full addresses, trade progression if requested). Use smart_shortlist for a quality-ranked shortlist.',
-                    enum: ['full_table', 'smart_shortlist']
-                },
                 include_trade_progression: {
                     type: 'boolean',
                     description: 'When true, attach first-buy / first-sell progression for each wallet by loading wallet trade history.'
@@ -56,28 +47,15 @@ export const GetEarlyBuyersTool: Tool = {
                     type: 'number',
                     description: 'How many wallet trade records to scan per wallet when include_trade_progression is enabled. Default 25, max 100.'
                 },
-                min_buy_usd: {
-                    type: 'number',
-                    description: 'Minimum estimated buy size in USD for quality filtering. Default is 100 when quality_mode=true.'
-                },
                 min_token_amount: {
                     type: 'number',
-                    description: 'Minimum total token amount received by a wallet during early window.'
-                },
-                min_wallet_tx_count: {
-                    type: 'number',
-                    description: 'Minimum wallet transaction count (via free RPC nonce). Filters out low-activity wallets.'
-                },
-                sort_by: {
-                    type: 'string',
-                    description: 'Ranking mode: first_seen, buy_usd_desc, quality_desc. Default quality_desc when quality_mode=true; ignored for full_table.',
-                    enum: ['first_seen', 'buy_usd_desc', 'quality_desc']
+                    description: 'Optional dust floor for token amount received during the early window.'
                 }
             },
             required: ['address']
         }
     },
-    handler: async ({ address, chain, chain_id, limit = 10, start_time, end_time, quality_mode = false, output_mode, include_trade_progression, trade_history_limit, min_buy_usd, min_token_amount, min_wallet_tx_count, sort_by }, context) => {
+    handler: async ({ address, chain, chain_id, limit = 10, start_time, end_time, include_trade_progression, trade_history_limit, min_token_amount }, context) => {
         try {
             const resolved = resolveChainInput({ chain, chain_id }, {
                 contextChainId: context?.chainId,
@@ -100,53 +78,19 @@ export const GetEarlyBuyersTool: Tool = {
             const startTimeMs = parseTime(start_time);
             const endTimeMs = parseTime(end_time);
             const boundedLimit = Math.max(1, Math.min(Number(limit) || 10, 50));
-            const isFullTable = output_mode === 'full_table';
-            const qualityModeEnabled = isFullTable ? false : quality_mode !== false;
-            const effectiveMinBuyUsd = (typeof min_buy_usd === 'number' && Number.isFinite(min_buy_usd))
-                ? Number(min_buy_usd)
-                : 0;
             const effectiveMinTokenAmount = (typeof min_token_amount === 'number' && Number.isFinite(min_token_amount))
                 ? Number(min_token_amount)
                 : 0;
-            const effectiveMinWalletTxCount = (typeof min_wallet_tx_count === 'number' && Number.isFinite(min_wallet_tx_count))
-                ? Math.max(0, Math.floor(Number(min_wallet_tx_count)))
-                : 0;
-            const effectiveSort = isFullTable
-                ? 'first_seen'
-                : (sort_by as 'first_seen' | 'buy_usd_desc' | 'quality_desc' | undefined)
-                    || (qualityModeEnabled ? 'quality_desc' : 'first_seen');
-            const includeTradeProgression = Boolean(include_trade_progression || isFullTable);
+            const includeTradeProgression = include_trade_progression !== false;
             const tradeHistoryLimit = Math.max(10, Math.min(100, Number(trade_history_limit) || 25));
 
             let buyers = await tokenAnalysis.getEarlyBuyers(address, resolved.chain, boundedLimit, {
-                outputMode: isFullTable ? 'full_table' : 'smart_shortlist',
                 includeTradeProgression,
                 tradeHistoryLimit,
                 startTimeMs,
                 endTimeMs,
-                minBuyUsd: !isFullTable && effectiveMinBuyUsd > 0 ? effectiveMinBuyUsd : undefined,
                 minTokenAmount: effectiveMinTokenAmount > 0 ? effectiveMinTokenAmount : undefined,
-                minWalletTxCount: !isFullTable && effectiveMinWalletTxCount > 0 ? effectiveMinWalletTxCount : undefined,
-                qualitySort: effectiveSort
             });
-
-            let usedFilterFallback = false;
-            if (
-                (!buyers || buyers.length === 0)
-                && qualityModeEnabled
-                && (effectiveMinBuyUsd > 0 || effectiveMinWalletTxCount > 0)
-            ) {
-                buyers = await tokenAnalysis.getEarlyBuyers(address, resolved.chain, boundedLimit, {
-                    outputMode: 'smart_shortlist',
-                    includeTradeProgression: includeTradeProgression && !isFullTable,
-                    tradeHistoryLimit,
-                    startTimeMs,
-                    endTimeMs,
-                    minTokenAmount: effectiveMinTokenAmount > 0 ? effectiveMinTokenAmount : undefined,
-                    qualitySort: effectiveSort
-                });
-                usedFilterFallback = true;
-            }
 
             if (!buyers || buyers.length === 0) {
                 return {
@@ -161,17 +105,12 @@ export const GetEarlyBuyersTool: Tool = {
                 chain: resolved.chain,
                 buyerCount: buyers.length,
                 presentation: {
-                    outputMode: isFullTable ? 'full_table' : (qualityModeEnabled ? 'smart_shortlist' : 'raw'),
+                    outputMode: 'full_table',
                     includeTradeProgression,
                     tradeHistoryLimit,
                 },
                 filters: {
-                    qualityMode: qualityModeEnabled,
-                    minBuyUsd: effectiveMinBuyUsd > 0 ? effectiveMinBuyUsd : null,
                     minTokenAmount: effectiveMinTokenAmount > 0 ? effectiveMinTokenAmount : null,
-                    minWalletTxCount: effectiveMinWalletTxCount > 0 ? effectiveMinWalletTxCount : null,
-                    sortBy: effectiveSort,
-                    filterFallbackUsed: usedFilterFallback
                 },
                 earlyBuyers: buyers.map((b, i) => ({
                     rank: i + 1,
