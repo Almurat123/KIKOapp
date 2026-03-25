@@ -206,11 +206,11 @@
 }
 
 .amountValue {
-    font-size: clamp(1.1rem, 2.4vw, 1.9rem);
-    font-weight: 800;
+    font-size: 16px;
+    font-weight: 700;
     letter-spacing: var(--kiko-body-spacing);
     font-style: var(--kiko-italic-style);
-    line-height: 1;
+    line-height: 1.15;
     -webkit-text-size-adjust: 100%;
     text-size-adjust: 100%;
     color: #ffffff;
@@ -311,8 +311,8 @@
     }
 
     .amountValue {
-        font-size: clamp(0.95rem, 4.5vw, 1.4rem);
-        line-height: 0.92;
+        font-size: 15px;
+        line-height: 1.15;
     }
 
     .tokenPill {
