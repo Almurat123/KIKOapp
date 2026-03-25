@@ -12,6 +12,7 @@ import {
     getNewMarkets,
     getCoinUpDownMarkets,
 } from '../../../services/polymarket.js';
+import { chatWS } from '../../../services/chatWebSocket.js';
 
 function formatDateLabel(value?: string | null): string | null {
     if (typeof value !== 'string') return null;
@@ -153,6 +154,59 @@ function selectOverviewCardCandidate(params: {
     }
 
     return null;
+}
+
+function selectHotMarketPreviewCandidate(hotMarkets: Array<{ slug?: string | null; question?: string | null }>) {
+    const hotCandidate = hotMarkets.find((market) => Boolean(market.slug));
+    if (!hotCandidate?.slug) return null;
+    return {
+        market_slug: hotCandidate.slug,
+        title: hotCandidate.question || null,
+        source_bucket: 'hot_24h_markets',
+        reason: 'early hot-market preview',
+    };
+}
+
+function selectNewMarketPreviewCandidate(events: Awaited<ReturnType<typeof getNewMarkets>>['events']) {
+    const newestMarkets = events.slice(0, 10).map(mapNewMarketEvent);
+    const tradableNow = newestMarkets
+        .filter((market) => market.tradable)
+        .sort((a, b) => (b.liquidity_value || 0) - (a.liquidity_value || 0))
+        .slice(0, 5);
+    return selectOverviewCardCandidate({
+        hotMarkets: [],
+        newestMarkets,
+        tradableNow,
+    });
+}
+
+function broadcastPolymarketCardPreview(
+    context: Record<string, any> | undefined,
+    candidate: { market_slug: string; title?: string | null; source_bucket?: string; reason?: string } | null,
+) {
+    const userId = String(context?.userId || '').trim();
+    const sessionId = String(context?.sessionId || '').trim();
+    const assistantMessageId = String(context?.assistantMessageId || '').trim();
+    if (!userId || !sessionId || !assistantMessageId || !candidate?.market_slug) return;
+
+    chatWS.broadcastToUser(userId, {
+        type: 'client_action',
+        sessionId,
+        data: {
+            message_id: assistantMessageId,
+            targetMessageId: assistantMessageId,
+            action: {
+                type: 'show_polymarket_card',
+                data: {
+                    market_slug: candidate.market_slug,
+                    title: candidate.title || undefined,
+                    source_bucket: candidate.source_bucket,
+                    preview: true,
+                    reason: candidate.reason,
+                },
+            },
+        },
+    });
 }
 
 export function buildPolymarketMarketOverview(params: {
@@ -540,16 +594,32 @@ export const GetPolymarketMarketOverviewTool: Tool = {
         market_limit?: number;
         new_market_limit?: number;
         tradable_limit?: number;
-    }) => {
+    }, context?: Record<string, any>) => {
         const eventLimit = Math.min(args.event_limit || 5, 10);
         const marketLimit = Math.min(args.market_limit || 5, 10);
         const newMarketLimit = Math.min(args.new_market_limit || 10, 20);
         const tradableLimit = Math.min(args.tradable_limit || 5, 10);
 
+        const trendingEventsPromise = getTrendingEvents(eventLimit);
+        const trendingMarketsPromise = getTrendingMarkets(marketLimit);
+        const newMarketsPromise = getNewMarkets(newMarketLimit);
+
+        const previewCandidate = await Promise.any([
+            trendingMarketsPromise.then((result) => selectHotMarketPreviewCandidate(result.markets.slice(0, marketLimit))),
+            newMarketsPromise.then((result) => selectNewMarketPreviewCandidate(result.events)),
+        ].map((promise) => promise.then((candidate) => {
+            if (!candidate?.market_slug) {
+                throw new Error('no_preview_candidate');
+            }
+            return candidate;
+        }))).catch(() => null);
+
+        broadcastPolymarketCardPreview(context, previewCandidate);
+
         const [trendingEvents, trendingMarkets, newMarkets] = await Promise.all([
-            getTrendingEvents(eventLimit),
-            getTrendingMarkets(marketLimit),
-            getNewMarkets(newMarketLimit),
+            trendingEventsPromise,
+            trendingMarketsPromise,
+            newMarketsPromise,
         ]);
 
         const overview = buildPolymarketMarketOverview({

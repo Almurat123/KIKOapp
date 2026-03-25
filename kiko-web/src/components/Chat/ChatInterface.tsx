@@ -20,7 +20,7 @@ import { chatApi } from '../../services/api';
 import { getWalletBalance } from '../../services/walletApi';
 import { chatWSClient, type ChatEvent } from '../../utils/chatWebSocket';
 import { clearActiveTask } from '../../utils/taskLifecycle';
-import type { Message } from '../../hooks/useConversations';
+import type { Conversation, Message } from '../../hooks/useConversations';
 import { useConversationContext } from '../../contexts/ConversationContext';
 import { useFarcasterContext } from '../../contexts/FarcasterContext';
 import { moderationService } from '../../services/moderation';
@@ -643,11 +643,12 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                             messagesRef.current = updated;
                             updateConversation(conversationId, { messages: updated });
                         }
-                    } else if (['show_chart_card', 'show_transaction_status_card', 'show_cross_chain_status_card'].includes(normalizedAction.type)) {
+                    } else if (['show_chart_card', 'show_transaction_status_card', 'show_cross_chain_status_card', 'show_polymarket_card'].includes(normalizedAction.type)) {
                         const targetMessageId = event.data.targetMessageId || event.data.message_id || event.data.messageId;
                         const actionType = normalizedAction.type;
                         const actionData = normalizedAction.data || normalizedAction.payload || {};
                         const newCardType = ACTION_CARD_TYPE_MAP[actionType] || 'text';
+                        const isPolymarketPreview = actionType === 'show_polymarket_card' && Boolean(actionData.preview);
 
                         if (conversationId) {
                             // CRITICAL: Use messagesRef.current for fresh state, not stale `messages` closure.
@@ -691,10 +692,11 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                             // (e.g., two client_actions in the same microtask) both read stale messagesRef
                             // and push duplicate cards.
                             messagesRef.current = updated;
-                            updateConversation(conversationId, {
-                                messages: updated,
-                                activeTask: null
-                            });
+                            const nextConversationPatch: Partial<Conversation> = { messages: updated };
+                            if (!isPolymarketPreview) {
+                                nextConversationPatch.activeTask = null;
+                            }
+                            updateConversation(conversationId, nextConversationPatch);
                         }
                     }
                     break;

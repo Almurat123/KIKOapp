@@ -493,6 +493,7 @@ export async function chatRoutes(fastify: FastifyInstance) {
                     assistantMessage.id,
                     {
                         userId,
+                        assistantMessageId: assistantMessage.id,
                         sessionId, // Add sessionId to toolContext for backend execution
                         walletAddress: resolvedWalletAddress,
                         userAddress: resolvedWalletAddress,

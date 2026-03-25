@@ -20,7 +20,7 @@ export const PolymarketEmbedCard: React.FC<PolymarketEmbedCardProps> = ({ market
                 title={`Polymarket Market: ${marketSlug}`}
                 className={styles.iframe}
                 frameBorder="0"
-                loading="lazy"
+                loading="eager"
             />
         </div>
     );
