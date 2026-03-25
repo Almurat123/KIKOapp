@@ -28,6 +28,8 @@ export const preprocessMarkdown = (content: string): string => {
 
   const wrapMetadataToken = (line: string) => `\`${line.trim()}\``;
 
+  const looksLikeHexScalar = (value: string) => /^0x[a-fA-F0-9]{40,64}$/.test(value.trim());
+
   const looksLikeCode = (block: string) => {
     const trimmed = block.trim();
     if (!trimmed) return false;
@@ -64,6 +66,10 @@ export const preprocessMarkdown = (content: string): string => {
 
       if (lines.length > 0 && lines.every(isMetadataPlaceholder)) {
         return `\n\n${lines.map(wrapMetadataToken).join(' ')}\n\n`;
+      }
+
+      if (lines.length === 1 && looksLikeHexScalar(lines[0])) {
+        return `\n\n${lines[0]}\n\n`;
       }
 
       if (!looksLikeCode(body)) {
@@ -110,7 +116,11 @@ export const preprocessMarkdown = (content: string): string => {
   // Keep real code fences, but unwrap metadata/prose so they render like normal content.
   processed = unwrapNonCodeTextFences(processed);
 
-  // 7. Collapse overly large blank gaps created by fence unwrapping.
+  // 7. Plain scalar hex values such as wallet addresses or tx hashes should not
+  // render as inline code capsules inside markdown tables.
+  processed = processed.replace(/`(0x[a-fA-F0-9]{40,64})`/g, '$1');
+
+  // 8. Collapse overly large blank gaps created by fence unwrapping.
   processed = processed.replace(/\n{3,}/g, '\n\n');
 
   return processed;

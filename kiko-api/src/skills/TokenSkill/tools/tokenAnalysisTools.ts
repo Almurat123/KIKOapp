@@ -119,20 +119,6 @@ export const GetEarlyBuyersTool: Tool = {
                 token: address,
                 chain: resolved.chain,
                 buyerCount: buyers.length,
-                __client_action: {
-                    type: 'show_token_card',
-                    payload: {
-                        kind: 'early_buyers_export',
-                        title: 'Early buyers export',
-                        token: address,
-                        chain: resolved.chain,
-                        buyerCount: buyers.length,
-                        includeTradeProgression,
-                        tradeHistoryLimit,
-                        outputMode: 'full_table',
-                        earlyBuyers: tableRows
-                    }
-                },
                 presentation: {
                     outputMode: 'full_table',
                     includeTradeProgression,

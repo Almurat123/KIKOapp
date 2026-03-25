@@ -643,41 +643,6 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                             messagesRef.current = updated;
                             updateConversation(conversationId, { messages: updated });
                         }
-                    } else if (normalizedAction.type === 'show_token_card') {
-                        if (conversationId) {
-                            clearActiveTask(conversationId, updateConversation, 'token_card');
-                        }
-
-                        const targetMessageId = event.data.targetMessageId || event.data.message_id || event.data.messageId;
-                        const actionData = normalizedAction.data || normalizedAction.payload || {};
-                        if (conversationId) {
-                            const freshMessages = messagesRef.current;
-                            let updated = [...freshMessages];
-                            const targetIdx = targetMessageId ? updated.findIndex(m => m.id === targetMessageId) : -1;
-
-                            if (targetIdx !== -1) {
-                                const existingData = updated[targetIdx].data || {};
-                                updated = replaceMessageAtIndex(updated, targetIdx, {
-                                    ...updated[targetIdx],
-                                    type: 'token-card',
-                                    data: { ...existingData, ...actionData }
-                                });
-                            } else if (targetMessageId) {
-                                updated.push({
-                                    id: targetMessageId,
-                                    role: 'assistant',
-                                    content: '',
-                                    reasoning_content: '',
-                                    status: 'complete',
-                                    timestamp: new Date().toISOString(),
-                                    type: 'token-card',
-                                    data: actionData
-                                } as Message);
-                            }
-
-                            messagesRef.current = updated;
-                            updateConversation(conversationId, { messages: updated, activeTask: null });
-                        }
                     } else if (['show_chart_card', 'show_transaction_status_card', 'show_cross_chain_status_card', 'show_polymarket_card'].includes(normalizedAction.type)) {
                         const targetMessageId = event.data.targetMessageId || event.data.message_id || event.data.messageId;
                         const actionType = normalizedAction.type;

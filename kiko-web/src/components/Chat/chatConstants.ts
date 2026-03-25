@@ -28,10 +28,9 @@ export const COMMON_TOKENS: Record<number, Array<{ address: string; symbol: stri
     ],
 };
 
-export const ACTION_CARD_TYPE_MAP: Record<string, 'text' | 'strategy-card' | 'chart-card' | 'transaction-status-card' | 'polymarket-embed' | 'token-card'> = {
+export const ACTION_CARD_TYPE_MAP: Record<string, 'text' | 'strategy-card' | 'chart-card' | 'transaction-status-card' | 'polymarket-embed'> = {
     show_strategy_card: 'strategy-card',
     show_chart_card: 'chart-card',
-    show_token_card: 'token-card',
     show_transaction_status_card: 'transaction-status-card',
     show_cross_chain_status_card: 'transaction-status-card',
     show_polymarket_card: 'polymarket-embed',

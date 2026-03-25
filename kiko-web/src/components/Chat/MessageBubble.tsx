@@ -28,7 +28,6 @@ import { PlanCard } from './PlanCard';
 import { ThinkingTimer } from './ThinkingTimer';
 import { PolymarketEmbedCard } from './PolymarketEmbedCard';
 import { TokenCapsule } from './TokenCapsule';
-import { EarlyBuyersTableCard } from './EarlyBuyersTableCard';
 import { CitationRenderer } from './CitationRenderer';
 import { XPostCard } from './XPostCard';
 import { MarkdownCode } from './MarkdownCode';
@@ -194,7 +193,6 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({
     : null;
   const hasRuntimeCard = !!runtimePlan;
   const hasInlineCard = !!(message.type && message.type !== 'text' && message.type !== 'plan-card' && message.data);
-  const suppressMarkdownBody = message.type === 'token-card';
   const [copied, setCopied] = useState(false);
   const [showCitations, setShowCitations] = useState(false);
   const [showReasoning, setShowReasoning] = useState(true); // 默认展开状态
@@ -312,19 +310,6 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({
             </div>
           </div>
         );
-      case 'token-card':
-        if (message.data?.kind === 'early_buyers_export' || message.data?.outputMode === 'full_table') {
-          return (
-            <div className={styles.inlineCard}>
-              <div className={styles.animFluid}>
-                <div className={styles.cardContent}>
-                  <EarlyBuyersTableCard data={message.data} />
-                </div>
-              </div>
-            </div>
-          );
-        }
-        return null;
       default:
         return null;
     }
@@ -443,7 +428,6 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({
                 {message.reasoning_content &&
                   (!message.content || message.content.trim().length === 0) &&
                   !hasInlineCard &&
-                  !suppressMarkdownBody &&
                   !hasRuntimeCard && (
                     <div className={styles.markdownContent}>
                       <ReactMarkdown
@@ -459,7 +443,6 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({
                 {message.reasoning_content &&
                   message.content &&
                   message.content.trim().length > 0 &&
-                  !suppressMarkdownBody &&
                   !hasRuntimeCard &&
                   showReasoning && (
                     <div
@@ -476,7 +459,7 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({
                       </div>
                     </div>
                   )}
-                {message.content && !suppressMarkdownBody && (
+                {message.content && (
                   <div
                     className={clsx(
                       styles.markdownContent,

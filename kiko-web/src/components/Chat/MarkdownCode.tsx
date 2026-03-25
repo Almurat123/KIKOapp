@@ -89,9 +89,9 @@ function looksLikeCode(block: string): boolean {
     return codeSignals.some((pattern) => pattern.test(trimmed));
 }
 
-function looksLikeWalletAddress(value: string): boolean {
+function looksLikeHexScalar(value: string): boolean {
   const trimmed = value.trim();
-  return /^0x[a-fA-F0-9]{40}$/.test(trimmed);
+  return /^0x[a-fA-F0-9]{40,64}$/.test(trimmed);
 }
 
 export const MarkdownCode: React.FC<MarkdownCodeProps> = ({
@@ -116,19 +116,22 @@ export const MarkdownCode: React.FC<MarkdownCodeProps> = ({
   const isMetadataOnly = lines.length > 0 && lines.every(isMetadataLine);
   const isShortSingleLineMetadata =
     isMetadataOnly && lines.length === 1 && lines[0].length <= 72;
-  const isWalletAddress = looksLikeWalletAddress(rawCode);
+  const isHexScalar = looksLikeHexScalar(rawCode);
   const shouldRenderAsCodeBlock =
-    !isWalletAddress &&
-    (!isTextLikeLanguage || (!isMetadataOnly && (looksLikeCode(rawCode) || rawCode.trim().length > 0)));
+    !isHexScalar &&
+    (
+      !isTextLikeLanguage ||
+      (!isMetadataOnly && looksLikeCode(rawCode))
+    );
 
   if (inline) {
-    if (isWalletAddress) {
+    if (isHexScalar) {
       return <span className={styles.plainAddress}>{rawCode}</span>;
     }
     return <code className={styles.inlineCode}>{rawCode}</code>;
   }
 
-  if (isWalletAddress) {
+  if (isHexScalar) {
     return <div className={styles.plainAddressBlock}>{rawCode}</div>;
   }
 
