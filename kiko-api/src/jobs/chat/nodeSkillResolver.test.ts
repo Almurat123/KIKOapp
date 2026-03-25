@@ -175,6 +175,20 @@ test('pure early-buyer token queries require on-chain evidence before concluding
     assert.ok(resolution.preferredTools.includes('get_early_buyers'));
 });
 
+test('full early-buyer export queries prefer full-table output wording', () => {
+    const contract = '0xeCCBb861c0dda7eFd964010085488B69317e4444';
+    const resolution = resolveNodeSkills(makeSnapshot(`Export the full early buyers table for ${contract}`, {
+        requestedTokenAddresses: [contract],
+    }), null);
+
+    assert.ok(resolution.preferredTools.includes('get_early_buyers'));
+    assert.ok(
+        resolution.strategyNotes.some((note) =>
+            note.includes('full early-buyer export') || note.includes('full_table mode')
+        )
+    );
+});
+
 test('swap intents prefer wallet info and preflight before prepare swap execution', () => {
     const contract = '0x950e88438098bc08879243984a3cf7c63eb95ba3';
     const resolution = resolveNodeSkills(makeSnapshot(`Sell all ${contract} to ETH`, {

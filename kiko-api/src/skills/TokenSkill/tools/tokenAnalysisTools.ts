@@ -41,7 +41,20 @@ export const GetEarlyBuyersTool: Tool = {
                 },
                 quality_mode: {
                     type: 'boolean',
-                    description: 'When true, apply quality filtering to suppress tiny "ant" wallets. Default is false for fast raw early-buyer output.'
+                    description: 'When true, apply quality filtering to suppress tiny "ant" wallets. Ignored when output_mode=full_table.'
+                },
+                output_mode: {
+                    type: 'string',
+                    description: 'Use full_table for complete export-style output (all rows, full addresses, trade progression if requested). Use smart_shortlist for a quality-ranked shortlist.',
+                    enum: ['full_table', 'smart_shortlist']
+                },
+                include_trade_progression: {
+                    type: 'boolean',
+                    description: 'When true, attach first-buy / first-sell progression for each wallet by loading wallet trade history.'
+                },
+                trade_history_limit: {
+                    type: 'number',
+                    description: 'How many wallet trade records to scan per wallet when include_trade_progression is enabled. Default 25, max 100.'
                 },
                 min_buy_usd: {
                     type: 'number',
@@ -57,14 +70,14 @@ export const GetEarlyBuyersTool: Tool = {
                 },
                 sort_by: {
                     type: 'string',
-                    description: 'Ranking mode: first_seen, buy_usd_desc, quality_desc. Default quality_desc when quality_mode=true.',
+                    description: 'Ranking mode: first_seen, buy_usd_desc, quality_desc. Default quality_desc when quality_mode=true; ignored for full_table.',
                     enum: ['first_seen', 'buy_usd_desc', 'quality_desc']
                 }
             },
             required: ['address']
         }
     },
-    handler: async ({ address, chain, chain_id, limit = 10, start_time, end_time, quality_mode = false, min_buy_usd, min_token_amount, min_wallet_tx_count, sort_by }, context) => {
+    handler: async ({ address, chain, chain_id, limit = 10, start_time, end_time, quality_mode = false, output_mode, include_trade_progression, trade_history_limit, min_buy_usd, min_token_amount, min_wallet_tx_count, sort_by }, context) => {
         try {
             const resolved = resolveChainInput({ chain, chain_id }, {
                 contextChainId: context?.chainId,
@@ -87,7 +100,8 @@ export const GetEarlyBuyersTool: Tool = {
             const startTimeMs = parseTime(start_time);
             const endTimeMs = parseTime(end_time);
             const boundedLimit = Math.max(1, Math.min(Number(limit) || 10, 50));
-            const qualityModeEnabled = quality_mode !== false;
+            const isFullTable = output_mode === 'full_table';
+            const qualityModeEnabled = isFullTable ? false : quality_mode !== false;
             const effectiveMinBuyUsd = (typeof min_buy_usd === 'number' && Number.isFinite(min_buy_usd))
                 ? Number(min_buy_usd)
                 : 0;
@@ -97,15 +111,22 @@ export const GetEarlyBuyersTool: Tool = {
             const effectiveMinWalletTxCount = (typeof min_wallet_tx_count === 'number' && Number.isFinite(min_wallet_tx_count))
                 ? Math.max(0, Math.floor(Number(min_wallet_tx_count)))
                 : 0;
-            const effectiveSort = (sort_by as 'first_seen' | 'buy_usd_desc' | 'quality_desc' | undefined)
-                || (qualityModeEnabled ? 'quality_desc' : 'first_seen');
+            const effectiveSort = isFullTable
+                ? 'first_seen'
+                : (sort_by as 'first_seen' | 'buy_usd_desc' | 'quality_desc' | undefined)
+                    || (qualityModeEnabled ? 'quality_desc' : 'first_seen');
+            const includeTradeProgression = Boolean(include_trade_progression || isFullTable);
+            const tradeHistoryLimit = Math.max(10, Math.min(100, Number(trade_history_limit) || 25));
 
             let buyers = await tokenAnalysis.getEarlyBuyers(address, resolved.chain, boundedLimit, {
+                outputMode: isFullTable ? 'full_table' : 'smart_shortlist',
+                includeTradeProgression,
+                tradeHistoryLimit,
                 startTimeMs,
                 endTimeMs,
-                minBuyUsd: effectiveMinBuyUsd > 0 ? effectiveMinBuyUsd : undefined,
+                minBuyUsd: !isFullTable && effectiveMinBuyUsd > 0 ? effectiveMinBuyUsd : undefined,
                 minTokenAmount: effectiveMinTokenAmount > 0 ? effectiveMinTokenAmount : undefined,
-                minWalletTxCount: effectiveMinWalletTxCount > 0 ? effectiveMinWalletTxCount : undefined,
+                minWalletTxCount: !isFullTable && effectiveMinWalletTxCount > 0 ? effectiveMinWalletTxCount : undefined,
                 qualitySort: effectiveSort
             });
 
@@ -116,6 +137,9 @@ export const GetEarlyBuyersTool: Tool = {
                 && (effectiveMinBuyUsd > 0 || effectiveMinWalletTxCount > 0)
             ) {
                 buyers = await tokenAnalysis.getEarlyBuyers(address, resolved.chain, boundedLimit, {
+                    outputMode: 'smart_shortlist',
+                    includeTradeProgression: includeTradeProgression && !isFullTable,
+                    tradeHistoryLimit,
                     startTimeMs,
                     endTimeMs,
                     minTokenAmount: effectiveMinTokenAmount > 0 ? effectiveMinTokenAmount : undefined,
@@ -136,6 +160,11 @@ export const GetEarlyBuyersTool: Tool = {
                 token: address,
                 chain: resolved.chain,
                 buyerCount: buyers.length,
+                presentation: {
+                    outputMode: isFullTable ? 'full_table' : (qualityModeEnabled ? 'smart_shortlist' : 'raw'),
+                    includeTradeProgression,
+                    tradeHistoryLimit,
+                },
                 filters: {
                     qualityMode: qualityModeEnabled,
                     minBuyUsd: effectiveMinBuyUsd > 0 ? effectiveMinBuyUsd : null,
@@ -155,7 +184,8 @@ export const GetEarlyBuyersTool: Tool = {
                     estimatedBuyUsd: b.estimatedBuyUsd ?? null,
                     walletTxCount: b.walletTxCount ?? null,
                     qualityScore: b.qualityScore ?? null,
-                    qualityTier: b.qualityTier ?? null
+                    qualityTier: b.qualityTier ?? null,
+                    tradeProgression: b.tradeProgression ?? null
                 }))
             };
         } catch (error: any) {

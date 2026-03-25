@@ -99,6 +99,10 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
         'holders', 'holder', 'first trades', 'first swaps', 'snipers', 'wallets',
         'early purchasers', '早期买家', '首批买家', '早期购买者', '持有人', '前几位买家', '早期购买',
     ]);
+    const wantsEarlyBuyerFullList = containsAny(snapshot.lastUserMessage, [
+        'full list', 'complete list', 'full table', 'all early buyers', 'all wallets', 'export',
+        'excel', 'csv', 'table', 'full export', '完整名单', '全量', '导出', '表格', '全部钱包',
+    ]);
     const asksCreator = containsAny(snapshot.lastUserMessage, [
         'creator', 'deployer', 'deployed by', '创建者', '部署者', '谁部署',
     ]);
@@ -251,6 +255,9 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
         pushPreferred(preferredTools, 'get_early_buyers');
         pushPreferred(preferredTools, 'get_token_info');
         strategyNotes.push('This request asks for on-chain buyer/holder evidence. Prefer local token-analysis tools before answering from web summaries alone.');
+        if (wantsEarlyBuyerFullList) {
+            strategyNotes.push('The user explicitly asked for a full early-buyer export. Use get_early_buyers in full_table mode, preserve full wallet addresses, and include trade progression when available. Do not compress the result into a whale-only summary.');
+        }
     }
     if (asksCreator && hasRequestedToken) {
         pushPreferred(preferredTools, 'analyze_creator');

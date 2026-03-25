@@ -5,6 +5,8 @@
 
 import * as rpcManager from './rpcManager.js';
 import * as dexscreener from './dexscreener.js';
+import * as alchemy from './alchemy.js';
+import * as scanApi from './scanApi.js';
 import { getSolanaTokenMetadata } from '../utils/solanaToken.js';
 import pLimit from 'p-limit';
 import { getEvmEarlyBuyerTransfers } from './evmEarlyBuyerProvider.js';
@@ -43,6 +45,123 @@ export interface EarlyBuyer {
     walletTxCount?: number | null;
     qualityScore?: number;
     qualityTier?: 'whale' | 'high' | 'mid' | 'small';
+    tradeProgression?: TradeProgressionSummary | null;
+}
+
+export type TradeProgressionRow = {
+    txHash: string;
+    txType: 'BUY' | 'SELL' | 'SWAP' | 'TRANSFER_IN' | 'TRANSFER_OUT' | 'APPROVE';
+    timestamp: string;
+    amount: string;
+    tokenAddress: string | null;
+    tokenSymbol: string | null;
+};
+
+export type TradeProgressionSummary = {
+    totalTrades: number;
+    buyCount: number;
+    sellCount: number;
+    firstTrade: TradeProgressionRow | null;
+    firstBuy: TradeProgressionRow | null;
+    firstSell: TradeProgressionRow | null;
+    recentTrades: TradeProgressionRow[];
+};
+
+function toTradeProgressionRow(tx: {
+    txHash: string;
+    txType: alchemy.WalletTransaction['txType'];
+    blockTimestamp: Date;
+    amount: string;
+    tokenAddress: string | null;
+    tokenSymbol: string | null;
+}): TradeProgressionRow {
+    return {
+        txHash: tx.txHash,
+        txType: tx.txType,
+        timestamp: tx.blockTimestamp.toISOString(),
+        amount: tx.amount,
+        tokenAddress: tx.tokenAddress,
+        tokenSymbol: tx.tokenSymbol,
+    };
+}
+
+export function summarizeWalletTokenTrades(
+    transactions: Array<{
+        txHash: string;
+        txType: 'BUY' | 'SELL' | 'SWAP' | 'TRANSFER_IN' | 'TRANSFER_OUT' | 'APPROVE';
+        blockTimestamp: Date;
+        amount: string;
+        tokenAddress: string | null;
+        tokenSymbol: string | null;
+    }>,
+    tokenAddress: string
+): TradeProgressionSummary | null {
+    const normalizedToken = String(tokenAddress || '').toLowerCase();
+    if (!normalizedToken) return null;
+
+    const relevant = transactions
+        .filter((tx) => String(tx.tokenAddress || '').toLowerCase() === normalizedToken)
+        .sort((a, b) => a.blockTimestamp.getTime() - b.blockTimestamp.getTime());
+
+    if (relevant.length === 0) return null;
+
+    const firstTrade = relevant[0] || null;
+    const firstBuy = relevant.find((tx) => tx.txType === 'BUY') || null;
+    const firstSell = relevant.find((tx) => tx.txType === 'SELL') || null;
+    const buyCount = relevant.filter((tx) => tx.txType === 'BUY').length;
+    const sellCount = relevant.filter((tx) => tx.txType === 'SELL').length;
+
+    return {
+        totalTrades: relevant.length,
+        buyCount,
+        sellCount,
+        firstTrade: firstTrade ? toTradeProgressionRow(firstTrade) : null,
+        firstBuy: firstBuy ? toTradeProgressionRow(firstBuy) : null,
+        firstSell: firstSell ? toTradeProgressionRow(firstSell) : null,
+        recentTrades: relevant.slice(0, 10).map(toTradeProgressionRow),
+    };
+}
+
+async function fetchWalletTokenTrades(
+    wallet: string,
+    chain: string,
+    tokenAddress: string,
+    limit: number
+): Promise<Array<{
+    txHash: string;
+    txType: 'BUY' | 'SELL' | 'SWAP' | 'TRANSFER_IN' | 'TRANSFER_OUT' | 'APPROVE';
+    blockTimestamp: Date;
+    amount: string;
+    tokenAddress: string | null;
+    tokenSymbol: string | null;
+}> > {
+    const chainLower = chain.toLowerCase();
+    if (chainLower === 'solana' || chainLower === 'sol') {
+        const transactions = await alchemy.getWalletTransactions(wallet, { chain: 'solana', limit, source: 'early_buyers_trade_progression' });
+        return transactions
+            .filter((tx) => String(tx.tokenAddress || '').toLowerCase() === String(tokenAddress || '').toLowerCase())
+            .map((tx) => ({
+                txHash: tx.txHash,
+                txType: tx.txType,
+                blockTimestamp: tx.blockTimestamp,
+                amount: tx.amount,
+                tokenAddress: tx.tokenAddress,
+                tokenSymbol: tx.tokenSymbol,
+            }));
+    }
+
+    const txs = await scanApi.getEvmTokenTransfers(wallet, chainLower, 1, limit, {
+        sort: 'asc',
+        contractAddress: tokenAddress,
+    });
+    return txs.map((tx) => ({
+        txHash: tx.txHash,
+        txType: tx.txType,
+        blockTimestamp: tx.blockTimestamp,
+        amount: tx.amount,
+        tokenAddress: tx.tokenAddress,
+        tokenSymbol: tx.tokenSymbol,
+    }));
 }
 
 /**
@@ -53,6 +172,9 @@ export async function getEarlyBuyers(
     chain: string,
     limit: number = 10,
     options?: {
+        outputMode?: 'smart_shortlist' | 'full_table';
+        includeTradeProgression?: boolean;
+        tradeHistoryLimit?: number;
         startTimeMs?: number;
         endTimeMs?: number;
         minTokenAmount?: number;
@@ -72,6 +194,9 @@ export async function getEarlyBuyers(
     const minWalletTxCount = Number.isFinite(Number(options?.minWalletTxCount)) ? Number(options?.minWalletTxCount) : undefined;
     const minTransferCount = Math.max(1, Number(options?.minTransferCount || 1));
     const qualitySort = options?.qualitySort || 'first_seen';
+    const outputMode = options?.outputMode || 'smart_shortlist';
+    const includeTradeProgression = Boolean(options?.includeTradeProgression || outputMode === 'full_table');
+    const tradeHistoryLimit = Math.max(10, Math.min(100, Number(options?.tradeHistoryLimit || 25)));
     const walletTxCountCache = new Map<string, number | null>();
 
     type BuyerAggregate = {
@@ -123,15 +248,25 @@ export async function getEarlyBuyers(
 
     const normalizeCandidates = async (
         candidates: BuyerAggregate[],
-        currentPriceUsd: number | null
+        currentPriceUsd: number | null,
+        options?: {
+            includeTradeProgression?: boolean;
+            tradeHistoryLimit?: number;
+            outputMode?: 'smart_shortlist' | 'full_table';
+        }
     ): Promise<EarlyBuyer[]> => {
+        const includeTradeProgression = Boolean(options?.includeTradeProgression);
+        const tradeHistoryLimit = Math.max(10, Math.min(100, Number(options?.tradeHistoryLimit || 25)));
+        const outputMode = options?.outputMode || 'smart_shortlist';
+        const applyQualityFilters = outputMode !== 'full_table';
+
         let filtered = candidates.filter(c =>
             Number.isFinite(c.totalAmount) &&
             c.totalAmount >= minTokenAmount &&
             c.transferCount >= minTransferCount
         );
 
-        if (typeof minBuyUsd === 'number' && minBuyUsd > 0) {
+        if (applyQualityFilters && typeof minBuyUsd === 'number' && minBuyUsd > 0) {
             filtered = filtered.filter(c => {
                 if (currentPriceUsd === null || currentPriceUsd <= 0) return true;
                 return c.totalAmount * currentPriceUsd >= minBuyUsd;
@@ -159,7 +294,7 @@ export async function getEarlyBuyers(
             } as EarlyBuyer;
         });
 
-        if (!isSolana && typeof minWalletTxCount === 'number' && minWalletTxCount > 0 && mapped.length > 0) {
+        if (applyQualityFilters && !isSolana && typeof minWalletTxCount === 'number' && minWalletTxCount > 0 && mapped.length > 0) {
             const limiter = pLimit(4);
             await Promise.all(
                 mapped.map(item =>
@@ -170,9 +305,34 @@ export async function getEarlyBuyers(
             );
         }
 
-        const mappedFiltered = (!isSolana && typeof minWalletTxCount === 'number' && minWalletTxCount > 0)
+        const mappedFiltered = (applyQualityFilters && !isSolana && typeof minWalletTxCount === 'number' && minWalletTxCount > 0)
             ? mapped.filter(item => (item.walletTxCount ?? Number.MAX_SAFE_INTEGER) >= minWalletTxCount)
             : mapped;
+
+        if (includeTradeProgression && mappedFiltered.length > 0) {
+            const limiter = pLimit(3);
+            await Promise.all(
+                mappedFiltered.map(item =>
+                    limiter(async () => {
+                        try {
+                            const trades = await fetchWalletTokenTrades(item.address, chainLower, tokenAddress, tradeHistoryLimit);
+                            const progression = summarizeWalletTokenTrades(trades, tokenAddress);
+                            item.tradeProgression = progression;
+                        } catch {
+                            item.tradeProgression = null;
+                        }
+                    })
+                )
+            );
+
+            // Keep only wallets that show a real BUY when the user asks for a full table.
+            if (outputMode === 'full_table') {
+                const narrowed = mappedFiltered.filter(item => item.tradeProgression?.firstBuy);
+                if (narrowed.length > 0) {
+                    mappedFiltered.splice(0, mappedFiltered.length, ...narrowed);
+                }
+            }
+        }
 
         if (qualitySort === 'buy_usd_desc') {
             mappedFiltered.sort((a, b) => {
@@ -288,7 +448,11 @@ export async function getEarlyBuyers(
                     }
                 }
             }
-            return await normalizeCandidates(Array.from(aggregates.values()), currentPriceUsd);
+            return await normalizeCandidates(Array.from(aggregates.values()), currentPriceUsd, {
+                includeTradeProgression,
+                tradeHistoryLimit,
+                outputMode,
+            });
         } catch (error) {
             console.error('[TokenAnalysis] Error fetching early buyers on Solana:', error);
             return [];
@@ -383,7 +547,11 @@ export async function getEarlyBuyers(
                 }
             }
 
-            return await normalizeCandidates(Array.from(aggregates.values()), currentPriceUsd);
+            return await normalizeCandidates(Array.from(aggregates.values()), currentPriceUsd, {
+                includeTradeProgression,
+                tradeHistoryLimit,
+                outputMode,
+            });
 
         } catch (error) {
             console.error('[TokenAnalysis] Error fetching early buyers on EVM:', error);

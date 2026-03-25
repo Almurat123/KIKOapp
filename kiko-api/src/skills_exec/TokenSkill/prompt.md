@@ -13,7 +13,10 @@
      * Wallet/flow heuristics (if available via internal research): Look for suspicious concentration (snipers, fresh wallets).
      * Creator history (if available via internal research): Has this creator deployed other scams (rug pulls)?
      * Historical price (if available): Check trend over time (e.g. "yesterday", "last week").
-   - For "early buyers" or "smart money" queries, prefer quality-mode early buyers (filter ant wallets), including minimum wallet tx-count filtering via free RPC when available, then run batch wallet PNL ranking on returned wallets.
+   - For "early buyers" or "smart money" queries, choose the response mode based on intent:
+     * If the user asks for a full list, export, complete table, Excel/CSV, or "all early buyers", call `get_early_buyers` in `full_table` mode, preserve full wallet addresses, and include trade progression when available.
+     * If the user asks for smart money, whales, or high-quality wallets, use quality-mode early buyers, then run batch wallet PNL ranking on the returned wallets.
+   - In full-table mode, do not compress the output into a whale-only summary. Keep the full list and only drop clear garbage/noise wallets or non-trade transfers when they are not real buys.
    - Use strict provider fallback per wallet for PNL: Zerion first, Dune only if Zerion fails.
    - For screening workflows, follow this funnel: candidate discovery -> quality filtering -> batch wallet PNL ranking -> final shortlist.
 
