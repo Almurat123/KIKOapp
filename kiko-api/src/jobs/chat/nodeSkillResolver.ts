@@ -256,7 +256,7 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
         pushPreferred(preferredTools, 'get_token_info');
         strategyNotes.push('This request asks for on-chain buyer/holder evidence. Prefer local token-analysis tools before answering from web summaries alone.');
         if (wantsEarlyBuyerFullList) {
-            strategyNotes.push('The user explicitly asked for a full early-buyer export. Use get_early_buyers, preserve full wallet addresses, and include trade progression when available. Do not compress the result into a whale-only summary.');
+            strategyNotes.push('The user explicitly asked for a full early-buyer export. Use get_early_buyers, preserve full wallet addresses, and include trade progression when available. Do not compress the result into a whale-only summary. If the tool returns a structured table card, let the UI render it instead of rewriting the rows in markdown.');
         }
     }
     if (asksCreator && hasRequestedToken) {

@@ -273,10 +273,6 @@ export async function getEarlyBuyers(
                     })
                 )
             );
-            const narrowed = mappedFiltered.filter(item => item.tradeProgression?.firstBuy);
-            if (narrowed.length > 0) {
-                mappedFiltered.splice(0, mappedFiltered.length, ...narrowed);
-            }
         }
 
         mappedFiltered.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());

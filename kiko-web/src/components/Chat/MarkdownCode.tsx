@@ -73,8 +73,8 @@ function getMetadataTone(line: string): string {
 }
 
 function looksLikeCode(block: string): boolean {
-  const trimmed = block.trim();
-  if (!trimmed) return false;
+    const trimmed = block.trim();
+    if (!trimmed) return false;
 
   const codeSignals = [
     /(^|\n)\s*(const|let|var|function|class|interface|type|import|export|return)\b/,
@@ -86,7 +86,12 @@ function looksLikeCode(block: string): boolean {
     /(^|\n)\s*(if|for|while|switch|case|try|catch)\b/,
   ];
 
-  return codeSignals.some((pattern) => pattern.test(trimmed));
+    return codeSignals.some((pattern) => pattern.test(trimmed));
+}
+
+function looksLikeWalletAddress(value: string): boolean {
+  const trimmed = value.trim();
+  return /^0x[a-fA-F0-9]{40}$/.test(trimmed);
 }
 
 export const MarkdownCode: React.FC<MarkdownCodeProps> = ({
@@ -111,11 +116,20 @@ export const MarkdownCode: React.FC<MarkdownCodeProps> = ({
   const isMetadataOnly = lines.length > 0 && lines.every(isMetadataLine);
   const isShortSingleLineMetadata =
     isMetadataOnly && lines.length === 1 && lines[0].length <= 72;
+  const isWalletAddress = looksLikeWalletAddress(rawCode);
   const shouldRenderAsCodeBlock =
-    !isTextLikeLanguage || (!isMetadataOnly && (looksLikeCode(rawCode) || rawCode.trim().length > 0));
+    !isWalletAddress &&
+    (!isTextLikeLanguage || (!isMetadataOnly && (looksLikeCode(rawCode) || rawCode.trim().length > 0)));
 
   if (inline) {
+    if (isWalletAddress) {
+      return <span className={styles.plainAddress}>{rawCode}</span>;
+    }
     return <code className={styles.inlineCode}>{rawCode}</code>;
+  }
+
+  if (isWalletAddress) {
+    return <div className={styles.plainAddressBlock}>{rawCode}</div>;
   }
 
   if (!shouldRenderAsCodeBlock) {

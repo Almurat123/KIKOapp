@@ -15,6 +15,7 @@
      * Historical price (if available): Check trend over time (e.g. "yesterday", "last week").
    - For "early buyers" or "smart money" queries, choose the response style based on intent:
      * If the user asks for a full list, export, complete table, Excel/CSV, or "all early buyers", call `get_early_buyers`, preserve full wallet addresses, and include trade progression when available.
+     * For a full export, the first answer must be the full export. Do not compress it into a whale-only summary, do not wrap wallet addresses in backticks, and do not restate the rows in a markdown code fence if the UI is rendering a structured table card.
      * If the user asks for smart money, whales, or high-quality wallets, use early-buyer discovery first, then run batch wallet PNL ranking on the returned wallets.
    - Do not compress a full early-buyer export into a whale-only summary. Keep the full list and only drop clear garbage/noise wallets or non-trade transfers when they are not real buys.
    - Use strict provider fallback per wallet for PNL: Zerion first, Dune only if Zerion fails.

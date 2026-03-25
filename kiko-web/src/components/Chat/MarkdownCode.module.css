@@ -75,6 +75,27 @@
   white-space: pre-wrap;
 }
 
+.plainAddressBlock {
+  white-space: pre-wrap;
+  font-family:
+    "JetBrains Mono", "SF Mono", SFMono-Regular, Menlo, Monaco,
+    Consolas, "Liberation Mono", monospace !important;
+  font-size: 0.94em;
+  font-weight: 520;
+  line-height: 1.5;
+}
+
+.plainAddress {
+  display: inline;
+  white-space: inherit;
+  font-family:
+    "JetBrains Mono", "SF Mono", SFMono-Regular, Menlo, Monaco,
+    Consolas, "Liberation Mono", monospace !important;
+  font-size: 0.94em;
+  font-weight: 520;
+  line-height: 1.5;
+}
+
 .codeBlock {
   margin: 14px 0;
   overflow: hidden;

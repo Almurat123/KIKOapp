@@ -9,7 +9,7 @@ import { resolveChainInput } from '../../../utils/chainParam.js';
 export const GetEarlyBuyersTool: Tool = {
     definition: {
         name: 'get_early_buyers',
-        description: 'Get the earliest buyers of a token, optionally within a precise time window. Use this after you know the token contract and, if relevant, the event/post time window you want to analyze. If you choose this tool, emit a real structured tool call immediately. Do not narrate "Calling get_early_buyers" in plain text. Use address plus optional start_time/end_time; do not invent timestamp_range or other unofficial fields.',
+        description: 'Get the earliest buyers of a token, optionally within a precise time window. Use this after you know the token contract and, if relevant, the event/post time window you want to analyze. If you choose this tool, emit a real structured tool call immediately. Do not narrate "Calling get_early_buyers" in plain text. Use address plus optional start_time/end_time; do not invent timestamp_range or other unofficial fields. For full exports, preserve the full row set and let the UI render the structured table card instead of compressing it into a summary.',
         parameters: {
             type: 'object',
             properties: {
@@ -99,11 +99,40 @@ export const GetEarlyBuyersTool: Tool = {
                 };
             }
 
+            const tableRows = buyers.map((b, i) => ({
+                rank: i + 1,
+                address: b.address,
+                timestamp: b.timestamp?.toISOString(),
+                amount: b.amount,
+                txHash: b.txHash,
+                isSmart: b.isSmart,
+                transferCount: b.transferCount ?? null,
+                estimatedBuyUsd: b.estimatedBuyUsd ?? null,
+                walletTxCount: b.walletTxCount ?? null,
+                qualityScore: b.qualityScore ?? null,
+                qualityTier: b.qualityTier ?? null,
+                tradeProgression: b.tradeProgression ?? null
+            }));
+
             return {
                 success: true,
                 token: address,
                 chain: resolved.chain,
                 buyerCount: buyers.length,
+                __client_action: {
+                    type: 'show_token_card',
+                    payload: {
+                        kind: 'early_buyers_export',
+                        title: 'Early buyers export',
+                        token: address,
+                        chain: resolved.chain,
+                        buyerCount: buyers.length,
+                        includeTradeProgression,
+                        tradeHistoryLimit,
+                        outputMode: 'full_table',
+                        earlyBuyers: tableRows
+                    }
+                },
                 presentation: {
                     outputMode: 'full_table',
                     includeTradeProgression,
@@ -112,20 +141,7 @@ export const GetEarlyBuyersTool: Tool = {
                 filters: {
                     minTokenAmount: effectiveMinTokenAmount > 0 ? effectiveMinTokenAmount : null,
                 },
-                earlyBuyers: buyers.map((b, i) => ({
-                    rank: i + 1,
-                    address: b.address,
-                    timestamp: b.timestamp?.toISOString(),
-                    amount: b.amount,
-                    txHash: b.txHash,
-                    isSmart: b.isSmart,
-                    transferCount: b.transferCount ?? null,
-                    estimatedBuyUsd: b.estimatedBuyUsd ?? null,
-                    walletTxCount: b.walletTxCount ?? null,
-                    qualityScore: b.qualityScore ?? null,
-                    qualityTier: b.qualityTier ?? null,
-                    tradeProgression: b.tradeProgression ?? null
-                }))
+                earlyBuyers: tableRows
             };
         } catch (error: any) {
             console.error('[GetEarlyBuyers] Error:', error);
