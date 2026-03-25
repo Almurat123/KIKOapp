@@ -274,6 +274,69 @@ test('assembleGenerationMessages tells swap execution flows not to use get_token
     assert.match(String(systemMessage?.content || ''), /simulate_swap only when quote-before-swap is enabled/i);
 });
 
+test('assembleGenerationMessages includes canonical intent normalization summary when available', () => {
+    const snapshot: ChatContextSnapshot = {
+        sessionId: 'session-intent',
+        taskId: 'task-intent',
+        model: 'gpt-5-mini',
+        history: [],
+        lastUserMessage: 'Check early buyers for 30',
+        requestedTokenAddresses: ['0xeCCBb861c0dda7eFd964010085488B69317e4444'],
+        requestedTokenSymbols: [],
+        toolDefinitions: [],
+        normalizedIntent: {
+            domain: 'token',
+            intent: 'early_buyers',
+            taskMode: 'analyze',
+            outputMode: 'full_table',
+            searchMode: 'forbidden',
+            searchTarget: 'none',
+            confidence: 0.9,
+            explanation: 'Early buyer export',
+            entities: {
+                tokenAddresses: ['0xeCCBb861c0dda7eFd964010085488B69317e4444'],
+                tokenSymbols: [],
+                walletAddresses: [],
+                marketIdentifiers: [],
+            },
+            requestedChain: {
+                chainId: 56,
+                chainName: 'BNB Chain',
+                source: 'llm',
+            },
+            timeContext: null,
+            evidenceRequirements: ['onchain_token_evidence'],
+            requiresRealtime: false,
+            requiresOnchainEvidence: true,
+            executionCandidate: false,
+            rowCount: 30,
+            locale: 'en',
+            needsClarification: false,
+            clarificationQuestion: null,
+            source: 'llm',
+        },
+        runtime: {
+            contextBlocks: {},
+            userSettings: {},
+        },
+    };
+
+    const providerInfo: ProviderInfo = {
+        provider: 'openai',
+        model: snapshot.model,
+        supportsNativeSearch: false,
+        supportsPreviousResponse: false,
+    };
+
+    const messages = assembleGenerationMessages(snapshot, [], providerInfo);
+    const userMessage = messages.find((message) => message.role === 'user');
+    const content = String(userMessage?.content || '');
+    assert.match(content, /\[INTENT_NORMALIZATION\]/);
+    assert.match(content, /intent: early_buyers/);
+    assert.match(content, /output_mode: full_table/);
+    assert.match(content, /row_count: 30/);
+});
+
 test('assembleGenerationMessages adds fast swap contract guidance when fast swap mode is enabled', () => {
     const snapshot: ChatContextSnapshot = {
         sessionId: 'session-fast',

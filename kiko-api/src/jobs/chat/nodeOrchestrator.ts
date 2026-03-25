@@ -18,6 +18,7 @@ import {
     resolvePlanStepForTool,
 } from './taskPlanner.js';
 import { generateModelPlan } from './modelPlanGenerator.js';
+import { normalizeCanonicalIntent } from './canonicalIntentNormalizer.js';
 
 const CHAIN_EVIDENCE_TOOLS = new Set([
     'get_token_info',
@@ -37,9 +38,31 @@ export async function runNodeOrchestration(params: {
     onProviderState?: (state: { previousResponseId?: string }) => Promise<void> | void;
 }) {
     const providerInfo = resolveProviderInfo(params.snapshot.model);
-    const tradingIntent = parseTradingIntent(params.snapshot.lastUserMessage, params.snapshot);
-    const skillResolution = resolveNodeSkills(params.snapshot, tradingIntent);
+    let normalizedSnapshot = params.snapshot;
+    if (!normalizedSnapshot.normalizedIntent && !normalizedSnapshot.normalizationState) {
+        const normalization = await normalizeCanonicalIntent({
+            snapshot: normalizedSnapshot,
+            generationClient: params.generationClient,
+            shouldCancel: params.shouldCancel,
+        });
+        normalizedSnapshot = normalization.snapshot;
+    }
+    if (
+        normalizedSnapshot.normalizedIntent?.needsClarification
+        && normalizedSnapshot.normalizedIntent.clarificationQuestion
+        && normalizedSnapshot.normalizedIntent.confidence < 0.45
+    ) {
+        await params.broker.pushText(normalizedSnapshot.normalizedIntent.clarificationQuestion);
+        return;
+    }
+    const tradingIntent = parseTradingIntent(
+        normalizedSnapshot.lastUserMessage,
+        normalizedSnapshot,
+        normalizedSnapshot.normalizedIntent,
+    );
+    const skillResolution = resolveNodeSkills(normalizedSnapshot, tradingIntent, normalizedSnapshot.normalizedIntent);
     const strictPolicy = params.snapshot.policySnapshot?.enforcementLevel === 'hard';
+    params.snapshot = normalizedSnapshot;
     const effectiveAllowedTools = strictPolicy && params.snapshot.policySnapshot
         ? params.snapshot.policySnapshot.allowedTools
         : skillResolution.allowedTools;

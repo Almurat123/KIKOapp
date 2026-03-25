@@ -3,6 +3,7 @@ import { skillRegistryExec } from '../../skills/registry.js';
 import { logger } from '../../utils/logger.js';
 import { resolveRequestedChainHint } from './chainIntent.js';
 import type { ChatContextSnapshot } from './contracts.js';
+import type { CanonicalIntent } from './canonicalIntent.js';
 import {
     detectQuerySignals,
     matchSkillsForQuery,
@@ -26,7 +27,7 @@ export type IntentPrimaryIntent =
 
 export type IntentTaskMode = 'discover' | 'analyze' | 'execute' | 'confirm';
 export type IntentSearchTarget = 'x' | 'web' | 'x_and_web' | 'none';
-export type IntentDomain = 'x' | 'farcaster' | 'token' | 'wallet' | 'polymarket' | 'general';
+export type IntentDomain = 'x' | 'farcaster' | 'token' | 'wallet' | 'polymarket' | 'general' | 'zora' | 'market';
 export type IntentExecutionRisk = 'read_only' | 'mutation';
 export type ToolPhase = 'native_search_only' | 'local_analysis' | 'execution';
 
@@ -84,9 +85,10 @@ function extractExplicitRowCount(rawQuery: string): number | null {
     return null;
 }
 
-export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: TradingIntent | null): SkillResolution {
+export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: TradingIntent | null, canonicalIntent?: CanonicalIntent | null): SkillResolution {
     const isGrok = String(snapshot.model || '').toLowerCase().includes('grok');
     const rawQuery = String(snapshot.lastUserMessage || '');
+    const normalizedIntent = canonicalIntent || snapshot.normalizedIntent || null;
     const availableToolNames = new Set((snapshot.toolDefinitions || []).map((definition) => String(definition.name || '').trim()).filter(Boolean));
     const contextBlocks = snapshot.runtime.contextBlocks || {};
     const prefetched = snapshot.runtime.prefetchedToolResults || {};
@@ -102,31 +104,39 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
     ));
     const hasRequestedTokenAddress = Array.isArray(snapshot.requestedTokenAddresses) && snapshot.requestedTokenAddresses.length > 0;
 
-    const matchResult = matchSkillsForQuery({ snapshot, tradingIntent });
+    const matchResult = matchSkillsForQuery({ snapshot: normalizedIntent ? { ...snapshot, normalizedIntent } : snapshot, tradingIntent });
     const querySignals = matchResult.querySignals;
     const explicitRiskRequest = querySignals.risk;
     const asksWalletPnl = querySignals.pnl;
     const hasRequestedToken = querySignals.hasRequestedToken;
     const requiresSocialChainEvidence = querySignals.socialChainEvidence;
-    const requestedChain = resolveRequestedChainHint({
+    const requestedChain = normalizedIntent?.requestedChain || resolveRequestedChainHint({
         text: rawQuery,
         requestedTokenAddresses: snapshot.requestedTokenAddresses,
         requestedTokenSymbols: snapshot.requestedTokenSymbols,
     });
-    const explicitlyMentionsFarcaster = containsAny(rawQuery, ['farcaster', 'warpcast', 'cast', 'casts', 'fc']);
-    const preferXNativeSearch = querySignals.xSearch && !explicitlyMentionsFarcaster;
-    const asksEarlyBuyers = containsAny(snapshot.lastUserMessage, [
+    const explicitlyMentionsFarcaster = normalizedIntent?.domain === 'farcaster' || containsAny(rawQuery, ['farcaster', 'warpcast', 'cast', 'casts', 'fc']);
+    const preferXNativeSearch = normalizedIntent
+        ? (normalizedIntent.searchTarget === 'x' || normalizedIntent.searchTarget === 'x_and_web' || normalizedIntent.domain === 'x')
+        : (querySignals.xSearch && !explicitlyMentionsFarcaster);
+    const asksEarlyBuyers = normalizedIntent
+        ? ['early_buyers'].includes(normalizedIntent.intent)
+        : containsAny(snapshot.lastUserMessage, [
         'early buyers', 'earliest buyers', 'first buyers', 'first buyer', 'early buyer',
         'holders', 'holder', 'first trades', 'first swaps', 'snipers', 'wallets',
         'early purchasers', '早期买家', '首批买家', '早期购买者', '持有人', '前几位买家', '早期购买',
     ]);
-    const explicitEarlyBuyerRowCount = extractExplicitRowCount(snapshot.lastUserMessage);
-    const explicitlyRequestsEarlyBuyerFullList = containsAny(snapshot.lastUserMessage, [
+    const explicitEarlyBuyerRowCount = normalizedIntent?.rowCount ?? extractExplicitRowCount(snapshot.lastUserMessage);
+    const explicitlyRequestsEarlyBuyerFullList = normalizedIntent
+        ? normalizedIntent.outputMode === 'full_table'
+        : containsAny(snapshot.lastUserMessage, [
         'full list', 'complete list', 'full table', 'all early buyers', 'all wallets', 'export',
         'excel', 'csv', 'table', 'full export', '完整名单', '全量', '导出', '表格', '全部钱包',
     ]) || (asksEarlyBuyers && explicitEarlyBuyerRowCount !== null);
     const wantsEarlyBuyerFullList = asksEarlyBuyers || explicitlyRequestsEarlyBuyerFullList;
-    const asksCreator = containsAny(snapshot.lastUserMessage, [
+    const asksCreator = normalizedIntent
+        ? normalizedIntent.intent === 'creator_analysis'
+        : containsAny(snapshot.lastUserMessage, [
         'creator', 'deployer', 'deployed by', '创建者', '部署者', '谁部署',
     ]);
 
@@ -247,7 +257,9 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
         allowedTools = Array.from(availableToolNames).sort();
     }
 
-    const polymarketShortWindowQuery = querySignals.prediction && containsAny(lowercase(rawQuery), [
+    const polymarketShortWindowQuery = normalizedIntent
+        ? normalizedIntent.intent === 'polymarket_short_window'
+        : querySignals.prediction && containsAny(lowercase(rawQuery), [
         '5min', '5 min', '5-minute', '5 minute', 'up or down', 'token bet', 'coin bet', 'coin up/down', 'token up/down',
         '5分钟', '五分钟', '涨跌',
     ]);
@@ -395,6 +407,7 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
     const intentEnvelope = buildIntentEnvelope({
         snapshot,
         tradingIntent,
+        canonicalIntent: normalizedIntent,
         querySignals,
         searchMode: matchResult.searchMode,
         preferXNativeSearch,
@@ -449,6 +462,7 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
 function buildIntentEnvelope(params: {
     snapshot: ChatContextSnapshot;
     tradingIntent: TradingIntent | null;
+    canonicalIntent: CanonicalIntent | null;
     querySignals: QuerySignals;
     searchMode: SearchMode;
     preferXNativeSearch: boolean;
@@ -460,6 +474,7 @@ function buildIntentEnvelope(params: {
     const {
         snapshot,
         tradingIntent,
+        canonicalIntent,
         querySignals,
         searchMode,
         preferXNativeSearch,
@@ -468,6 +483,54 @@ function buildIntentEnvelope(params: {
         asksWalletPnl,
         hasRequestedToken,
     } = params;
+
+    if (canonicalIntent) {
+        const canonicalPrimary = (() => {
+            switch (canonicalIntent.intent) {
+                case 'copy_trade':
+                    return 'copytrade_execution' as const;
+                case 'swap':
+                case 'cross_chain_swap':
+                    return 'swap_execution' as const;
+                case 'polymarket_order':
+                    return 'polymarket_order' as const;
+                case 'polymarket_discovery':
+                case 'polymarket_short_window':
+                    return 'polymarket_discovery' as const;
+                case 'token_risk':
+                    return 'token_risk' as const;
+                case 'wallet_analysis':
+                case 'wallet_pnl':
+                    return 'wallet_analysis' as const;
+                case 'token_analysis':
+                case 'early_buyers':
+                case 'creator_analysis':
+                    return 'token_analysis' as const;
+                case 'social_discovery':
+                    return canonicalIntent.domain === 'x' || canonicalIntent.domain === 'farcaster'
+                        ? 'social_discovery' as const
+                        : 'search_discovery' as const;
+                default:
+                    return 'general_answer' as const;
+            }
+        })();
+
+        const canonicalDomain: IntentDomain = canonicalIntent.domain === 'market'
+            ? 'market'
+            : canonicalIntent.domain === 'zora'
+                ? 'zora'
+                : canonicalIntent.domain;
+
+        return {
+            primary_intent: canonicalPrimary,
+            task_mode: canonicalIntent.taskMode,
+            search_mode: canonicalIntent.searchMode,
+            search_target: canonicalIntent.searchTarget,
+            domain: canonicalDomain,
+            execution_risk: canonicalIntent.taskMode === 'execute' || canonicalIntent.taskMode === 'confirm' ? 'mutation' : 'read_only',
+            required_evidence: Array.from(new Set(canonicalIntent.evidenceRequirements)),
+        };
+    }
 
     const rawQuery = String(snapshot.lastUserMessage || '');
     const lower = rawQuery.toLowerCase();

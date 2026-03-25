@@ -93,14 +93,19 @@ export function buildProviderOptions(
     const lower = String(query || '').toLowerCase();
     const searchMode = skillResolution?.searchMode || 'forbidden';
     const intentEnvelope = skillResolution?.intentEnvelope;
+    const canonicalIntent = snapshot.normalizedIntent || null;
     const currentPhase = phaseContext?.currentPhase || skillResolution?.currentPhase || 'local_analysis';
     const requiresRealtimeSocialSearch = searchMode !== 'forbidden';
     const requestsOnchainEvidence =
-        ((snapshot.requestedTokenAddresses || []).length > 0) &&
-        (
-            ['early buyers', 'earliest buyers', 'first buyers', 'holders', 'first trades', 'first swaps', 'creator', 'deployer'].some((word) => lower.includes(word))
-            || ['早期买家', '首批买家', '持有人', '创建者', '部署者', '前几位买家'].some((word) => String(query || '').includes(word))
-        );
+        canonicalIntent
+            ? canonicalIntent.evidenceRequirements.includes('onchain_token_evidence')
+                || canonicalIntent.evidenceRequirements.includes('onchain_wallet_evidence')
+                || canonicalIntent.requiresOnchainEvidence
+            : ((snapshot.requestedTokenAddresses || []).length > 0) &&
+                (
+                    ['early buyers', 'earliest buyers', 'first buyers', 'holders', 'first trades', 'first swaps', 'creator', 'deployer'].some((word) => lower.includes(word))
+                    || ['早期买家', '首批买家', '持有人', '创建者', '部署者', '前几位买家'].some((word) => String(query || '').includes(word))
+                );
     const searchAttempt = Math.max(1, phaseContext?.searchAttempt || 1);
 
     const xSeedHandles = extractXHandles([

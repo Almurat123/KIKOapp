@@ -19,6 +19,7 @@ import { parseTradingIntent } from './chat/tradingIntentResolver.js';
 import { resolveNodeSkills } from './chat/nodeSkillResolver.js';
 import { buildTaskPlanningContext } from './chat/taskPlanner.js';
 import { buildControlPolicySnapshot } from './chat/controlPolicy.js';
+import { normalizeCanonicalIntent } from './chat/canonicalIntentNormalizer.js';
 import { getWalletBalance } from '../services/alchemy.js';
 import { walletService } from '../services/walletService.js';
 import { ethers } from 'ethers';
@@ -131,7 +132,7 @@ export class ChatWorker {
                 throw new Error(moderation.checks?.intent?.reason || 'Message blocked by moderation');
             }
 
-            const snapshot = assembleChatContext({
+            let snapshot = assembleChatContext({
                 task,
                 session,
                 messages,
@@ -147,8 +148,14 @@ export class ChatWorker {
                 requestedSymbols: snapshot.requestedTokenSymbols,
                 requestedAddresses: snapshot.requestedTokenAddresses.length,
             });
-            const tradingIntent = parseTradingIntent(snapshot.lastUserMessage, snapshot);
-            const skillResolution = resolveNodeSkills(snapshot, tradingIntent);
+            const normalization = await normalizeCanonicalIntent({
+                snapshot,
+                generationClient: this.generationClient,
+                shouldCancel: async () => this.checkTaskCancelled(task.id),
+            });
+            snapshot = normalization.snapshot;
+            const tradingIntent = parseTradingIntent(snapshot.lastUserMessage, snapshot, snapshot.normalizedIntent);
+            const skillResolution = resolveNodeSkills(snapshot, tradingIntent, snapshot.normalizedIntent);
             snapshot.policySnapshot = buildControlPolicySnapshot({
                 snapshot,
                 tradingIntent,

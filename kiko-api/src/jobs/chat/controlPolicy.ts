@@ -109,10 +109,19 @@ export function buildControlPolicySnapshot(params: {
 
 export function resolveActionClass(snapshot: ChatContextSnapshot, tradingIntent: TradingIntent | null): ActionClass {
     const query = String(snapshot.lastUserMessage || '').toLowerCase();
+    const canonicalIntent = snapshot.normalizedIntent || null;
     const confirmationKind = String(snapshot.confirmationState?.kind || '');
     if (confirmationKind === 'order_confirmation') {
         const confirmationActionClass = snapshot.confirmationState?.order?.actionClass;
         return confirmationActionClass === 'TRADE_MUTATION' ? 'TRADE_MUTATION' : 'ORDER_MUTATION';
+    }
+    if (canonicalIntent?.taskMode === 'confirm' || canonicalIntent?.taskMode === 'execute') {
+        if (canonicalIntent.intent === 'swap' || canonicalIntent.intent === 'cross_chain_swap') {
+            return 'TRADE_MUTATION';
+        }
+        if (canonicalIntent.intent === 'copy_trade' || canonicalIntent.domain === 'polymarket') {
+            return 'ORDER_MUTATION';
+        }
     }
     if (isOrderMutationQuery(query)) return 'ORDER_MUTATION';
     if (tradingIntent?.type === 'swap' || tradingIntent?.type === 'cross_chain_trade') {

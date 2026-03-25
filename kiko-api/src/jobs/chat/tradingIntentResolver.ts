@@ -1,5 +1,6 @@
 import type { ChatContextSnapshot } from './contracts.js';
 import { resolveRequestedChainHint } from './chainIntent.js';
+import type { CanonicalIntent } from './canonicalIntent.js';
 
 const STABLE_SYMBOLS = new Set(['USDC', 'USDT', 'DAI', 'FDUSD', 'BUSD', 'USD1']);
 const NATIVE_SYMBOLS = new Set(['ETH', 'WETH', 'BNB', 'WBNB', 'SOL', 'WSOL', 'POL', 'MATIC', 'WMATIC']);
@@ -10,10 +11,11 @@ export interface TradingIntent {
     slots: Record<string, any>;
 }
 
-export function parseTradingIntent(text: string, snapshot: ChatContextSnapshot): TradingIntent | null {
+export function parseTradingIntent(text: string, snapshot: ChatContextSnapshot, canonicalIntent?: CanonicalIntent | null): TradingIntent | null {
     const raw = String(text || '').trim();
     const lower = raw.toLowerCase();
     const confirmation = snapshot.confirmationState || {};
+    const normalizedIntent = canonicalIntent || snapshot.normalizedIntent || null;
     const requestedChain = resolveRequestedChainHint({
         text: raw,
         requestedTokenAddresses: snapshot.requestedTokenAddresses,
@@ -33,6 +35,60 @@ export function parseTradingIntent(text: string, snapshot: ChatContextSnapshot):
             type: 'copy_trade',
             slots: confirmation.copyTrade || {},
         };
+    }
+
+    if (normalizedIntent) {
+        const canonicalChain = normalizedIntent.requestedChain;
+        if (normalizedIntent.intent === 'copy_trade') {
+            return {
+                kind: normalizedIntent.taskMode === 'confirm' ? 'trade_confirmation' : 'trading',
+                type: 'copy_trade',
+                slots: {
+                    target_wallet: normalizedIntent.entities.walletAddresses[0] || snapshot.requestedTokenAddresses[0],
+                    chain_id: canonicalChain?.chainId,
+                    chain_name: canonicalChain?.chainName,
+                },
+            };
+        }
+        if (normalizedIntent.intent === 'cross_chain_swap') {
+            return {
+                kind: normalizedIntent.taskMode === 'confirm' ? 'trade_confirmation' : 'trading',
+                type: 'cross_chain_trade',
+                slots: {
+                    chain_id: canonicalChain?.chainId,
+                    chain_name: canonicalChain?.chainName,
+                    requested_addresses: snapshot.requestedTokenAddresses || [],
+                    requested_symbols: snapshot.requestedTokenSymbols || [],
+                },
+            };
+        }
+        if (normalizedIntent.intent === 'swap') {
+            const tokenOut = normalizedIntent.entities.tokenAddresses[0]
+                || normalizedIntent.entities.tokenSymbols[0]
+                || snapshot.requestedTokenAddresses[0]
+                || guessTokenOut(raw, extractSymbols(raw), snapshot)
+                || undefined;
+            const tokenIn = guessTokenIn(
+                raw,
+                [...normalizedIntent.entities.tokenSymbols, ...extractSymbols(raw)],
+                snapshot,
+                tokenOut,
+                canonicalChain?.chainId || requestedChain?.chainId,
+            ) || undefined;
+            return {
+                kind: normalizedIntent.taskMode === 'confirm' ? 'trade_confirmation' : 'trading',
+                type: 'swap',
+                slots: {
+                    amount: parseAmount(raw),
+                    token_in: tokenIn,
+                    token_out: tokenOut,
+                    chain_id: canonicalChain?.chainId || requestedChain?.chainId,
+                    chain_name: canonicalChain?.chainName || requestedChain?.chainName,
+                    requested_addresses: snapshot.requestedTokenAddresses || [],
+                    requested_symbols: snapshot.requestedTokenSymbols || [],
+                },
+            };
+        }
     }
 
     if (/\b(copy ?trade|follow this trader|跟单|复制交易)\b/i.test(lower)) {
@@ -85,6 +141,11 @@ function extractSymbols(raw: string): string[] {
         }
     }
     return seen;
+}
+
+function parseAmount(raw: string): string | undefined {
+    const match = raw.match(/\b(all|\d+(?:\.\d+)?%?)\b/i);
+    return match ? match[1] : undefined;
 }
 
 function guessTokenOut(raw: string, symbols: string[], snapshot: ChatContextSnapshot): string | null {

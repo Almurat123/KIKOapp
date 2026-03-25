@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { ChatContextSnapshot, PlanCard, PlanStep } from './contracts.js';
 import type { SkillResolution } from './nodeSkillResolver.js';
+import type { CanonicalIntent } from './canonicalIntent.js';
 
 export interface TaskPlanningContext {
     plan: PlanCard;
@@ -26,17 +27,29 @@ export function buildTaskPlanningContext(
 ): TaskPlanningContext {
     const query = String(snapshot.lastUserMessage || '');
     const lower = query.toLowerCase();
-    const asksRealtimeSocial = containsAny(lower, SOCIAL_KEYWORDS)
-        || containsAny(query, SOCIAL_CN_KEYWORDS)
-        || /\bon\s+x\b/i.test(lower)
-        || /\bweb\s+search\b/i.test(lower)
-        || /\bsearch\s+(the\s+)?web\b/i.test(lower)
-        || /\bsearch\s+x\b/i.test(lower)
-        || /\bx\s+search\b/i.test(lower);
-    const asksOnChainEvidence = containsAny(lower, CHAIN_EVIDENCE_KEYWORDS) || containsAny(query, CHAIN_EVIDENCE_CN_KEYWORDS);
-    const asksCreatorEvidence = containsAny(lower, ['creator', 'deployer', 'deployed by']) || containsAny(query, ['创建者', '部署者', '谁部署']);
+    const canonicalIntent = snapshot.normalizedIntent || null;
+    const asksRealtimeSocial = canonicalIntent
+        ? canonicalIntent.searchTarget === 'x'
+            || canonicalIntent.searchTarget === 'x_and_web'
+            || canonicalIntent.requiresRealtime
+        : containsAny(lower, SOCIAL_KEYWORDS)
+            || containsAny(query, SOCIAL_CN_KEYWORDS)
+            || /\bon\s+x\b/i.test(lower)
+            || /\bweb\s+search\b/i.test(lower)
+            || /\bsearch\s+(the\s+)?web\b/i.test(lower)
+            || /\bsearch\s+x\b/i.test(lower)
+            || /\bx\s+search\b/i.test(lower);
+    const asksOnChainEvidence = canonicalIntent
+        ? canonicalIntent.evidenceRequirements.includes('onchain_token_evidence')
+            || canonicalIntent.evidenceRequirements.includes('onchain_wallet_evidence')
+            || canonicalIntent.evidenceRequirements.includes('connected_chain_evidence')
+            || canonicalIntent.requiresOnchainEvidence
+        : containsAny(lower, CHAIN_EVIDENCE_KEYWORDS) || containsAny(query, CHAIN_EVIDENCE_CN_KEYWORDS);
+    const asksCreatorEvidence = canonicalIntent
+        ? canonicalIntent.intent === 'creator_analysis'
+        : containsAny(lower, ['creator', 'deployer', 'deployed by']) || containsAny(query, ['创建者', '部署者', '谁部署']);
     const requestedToken = (snapshot.requestedTokenAddresses || []).length > 0 || (snapshot.requestedTokenSymbols || []).length > 0;
-    const locale = detectLocale(query);
+    const locale = detectLocale(query, canonicalIntent);
 
     const initialStep = makeStep(
         'step-understand',
@@ -112,7 +125,7 @@ function resolvePlanSummary(locale: 'en' | 'zh', asksRealtimeSocial: boolean, as
 }
 
 export function buildSocialPlanStep(skillResolution: SkillResolution, query: string): PlanStep {
-    const locale = detectLocale(query);
+    const locale = detectLocale(query, null);
     return makeStep(
         'step-social',
         locale === 'zh' ? '确认时间线' : 'Check timing and social context',
@@ -124,7 +137,7 @@ export function buildSocialPlanStep(skillResolution: SkillResolution, query: str
 }
 
 export function buildChainEvidencePlanStep(skillResolution: SkillResolution, query: string): PlanStep {
-    const locale = detectLocale(query);
+    const locale = detectLocale(query, null);
     return makeStep(
         'step-chain',
         locale === 'zh' ? '查询链上证据' : 'Gather on-chain evidence',
@@ -136,7 +149,7 @@ export function buildChainEvidencePlanStep(skillResolution: SkillResolution, que
 }
 
 export function buildCreatorPlanStep(skillResolution: SkillResolution, query: string): PlanStep {
-    const locale = detectLocale(query);
+    const locale = detectLocale(query, null);
     return makeStep(
         'step-creator',
         locale === 'zh' ? '查看创建者信息' : 'Inspect creator evidence',
@@ -148,7 +161,7 @@ export function buildCreatorPlanStep(skillResolution: SkillResolution, query: st
 }
 
 export function buildSummaryPlanStep(query: string): PlanStep {
-    const locale = detectLocale(query);
+    const locale = detectLocale(query, null);
     return makeStep(
         'step-summary',
         locale === 'zh' ? '整理结果' : 'Summarize findings',
@@ -172,7 +185,7 @@ export function resolvePlanStepForTool(
                 planId: randomUUID(),
                 title: 'legacy',
                 summary: 'legacy',
-                locale: detectLocale(String(skillsOrQuery || '')),
+                locale: detectLocale(String(skillsOrQuery || ''), null),
                 status: 'in_progress',
                 steps: [],
             },
@@ -180,7 +193,7 @@ export function resolvePlanStepForTool(
             asksOnChainEvidence: false,
             asksCreatorEvidence: false,
             requestedToken: false,
-            locale: detectLocale(String(skillsOrQuery || '')),
+            locale: detectLocale(String(skillsOrQuery || ''), null),
         }
         : planningOrSkills as TaskPlanningContext;
     const skillResolution = legacyMode
@@ -231,6 +244,7 @@ function isChinese(text: string): boolean {
     return /[\u4e00-\u9fff]/.test(text);
 }
 
-export function detectLocale(text: string): 'en' | 'zh' {
+export function detectLocale(text: string, canonicalIntent?: CanonicalIntent | null): 'en' | 'zh' {
+    if (canonicalIntent?.locale === 'zh') return 'zh';
     return isChinese(text) ? 'zh' : 'en';
 }

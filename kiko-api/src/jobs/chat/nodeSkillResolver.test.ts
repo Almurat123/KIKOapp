@@ -4,6 +4,7 @@ import type { ChatContextSnapshot } from './contracts.js';
 import { resolveProviderInfo, buildProviderOptions } from './providerPolicyBuilder.js';
 import { resolveNodeSkills } from './nodeSkillResolver.js';
 import { toolRegistry } from '../../tooling/registry.js';
+import type { CanonicalIntent } from './canonicalIntent.js';
 
 function makeSnapshot(message: string, overrides: Partial<ChatContextSnapshot> = {}): ChatContextSnapshot {
     const { runtime: runtimeOverrides, ...restOverrides } = overrides;
@@ -332,4 +333,97 @@ test('resolver keeps the full available registry exposed on non-hard-policy turn
     const resolution = resolveNodeSkills(snapshot, null);
     assert.ok(resolution.allowAllTools);
     assert.deepEqual(resolution.allowedTools.sort(), ['external_web_search', 'get_token_info']);
+});
+
+test('canonical multilingual early-buyer intents route identically across languages', () => {
+    const canonicalIntent: CanonicalIntent = {
+        domain: 'token',
+        intent: 'early_buyers',
+        taskMode: 'analyze',
+        outputMode: 'full_table',
+        searchMode: 'forbidden',
+        searchTarget: 'none',
+        confidence: 0.92,
+        explanation: 'Early buyer table request.',
+        entities: {
+            tokenAddresses: ['0xeCCBb861c0dda7eFd964010085488B69317e4444'],
+            tokenSymbols: [],
+            walletAddresses: [],
+            marketIdentifiers: [],
+        },
+        requestedChain: {
+            chainId: 56,
+            chainName: 'BNB Chain',
+            source: 'llm',
+        },
+        timeContext: null,
+        evidenceRequirements: ['onchain_token_evidence'],
+        requiresRealtime: false,
+        requiresOnchainEvidence: true,
+        executionCandidate: false,
+        rowCount: 30,
+        locale: 'en',
+        needsClarification: false,
+        clarificationQuestion: null,
+        source: 'llm',
+    };
+
+    const messages = [
+        'Check early buyers for 30',
+        '查这个代币前30个早期买家',
+        'Dame los primeros 30 compradores tempranos',
+        '最初の30人の早期購入者を見せて',
+        'اعرض أول 30 من المشترين الأوائل',
+    ];
+
+    for (const message of messages) {
+        const resolution = resolveNodeSkills(makeSnapshot(message, {
+            requestedTokenAddresses: canonicalIntent.entities.tokenAddresses,
+            normalizedIntent: canonicalIntent,
+        }), null, canonicalIntent);
+        assert.equal(resolution.selectedSkills[0], 'token_analysis');
+        assert.ok(resolution.preferredTools.includes('get_early_buyers'));
+        assert.equal(resolution.intentEnvelope.primary_intent, 'token_analysis');
+    }
+});
+
+test('canonical polymarket short-window intent routes without raw keyword dependence', () => {
+    const canonicalIntent: CanonicalIntent = {
+        domain: 'polymarket',
+        intent: 'polymarket_short_window',
+        taskMode: 'discover',
+        outputMode: 'narrative',
+        searchMode: 'forbidden',
+        searchTarget: 'none',
+        confidence: 0.88,
+        explanation: 'Short-window Polymarket request.',
+        entities: {
+            tokenAddresses: [],
+            tokenSymbols: ['SOL'],
+            walletAddresses: [],
+            marketIdentifiers: [],
+        },
+        requestedChain: null,
+        timeContext: {
+            isTimeBound: true,
+            description: 'next five minutes',
+        },
+        evidenceRequirements: [],
+        requiresRealtime: true,
+        requiresOnchainEvidence: false,
+        executionCandidate: false,
+        rowCount: null,
+        locale: 'en',
+        needsClarification: false,
+        clarificationQuestion: null,
+        source: 'llm',
+    };
+
+    const resolution = resolveNodeSkills(makeSnapshot('non keyword phrasing', {
+        normalizedIntent: canonicalIntent,
+        requestedTokenSymbols: ['SOL'],
+    }), null, canonicalIntent);
+
+    assert.equal(resolution.selectedSkills[0], 'polymarket_prediction');
+    assert.ok(resolution.preferredTools.includes('get_polymarket_coin_updown_markets'));
 });

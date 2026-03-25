@@ -27,6 +27,12 @@ function makeSnapshot(message: string, overrides: Partial<ChatContextSnapshot> =
     lastUserMessage: message,
     requestedTokenAddresses: [],
     requestedTokenSymbols: [],
+    normalizedIntent: null,
+    normalizationState: {
+      status: 'invalid',
+      source: 'llm',
+      reasonCode: 'normalization_invalid_json',
+    },
     toolDefinitions: toolRegistry.getAllDefinitions(),
     policySnapshot: null,
     runtime,

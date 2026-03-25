@@ -1,0 +1,273 @@
+import { logger } from '../../utils/logger.js';
+import { LogCode } from '../../config/logRegistry.js';
+import type { ChatContextSnapshot } from './contracts.js';
+import type { PythonGenerationClient } from './pythonGenerationClient.js';
+import type { GenerationMessage } from './nodePromptAssembler.js';
+import {
+    applyCanonicalIntentToSnapshot,
+    type CanonicalIntentNormalizationState,
+    type NormalizationReasonCode,
+    validateCanonicalIntentPayload,
+} from './canonicalIntent.js';
+
+export async function normalizeCanonicalIntent(args: {
+    snapshot: ChatContextSnapshot;
+    generationClient: Pick<PythonGenerationClient, 'generate'>;
+    shouldCancel?: () => Promise<boolean>;
+}): Promise<{
+    snapshot: ChatContextSnapshot;
+    state: CanonicalIntentNormalizationState;
+}> {
+    const { snapshot, generationClient, shouldCancel } = args;
+    const messages: GenerationMessage[] = buildNormalizationMessages(snapshot);
+
+    logger.info(LogCode.AI_ORCHESTRATOR, 'Canonical intent normalization: start', {
+        sessionId: snapshot.sessionId,
+        taskId: snapshot.taskId,
+        model: snapshot.model,
+        requestedTokenAddresses: snapshot.requestedTokenAddresses.length,
+        requestedTokenSymbols: snapshot.requestedTokenSymbols,
+    });
+
+    try {
+        const result = await generationClient.generate({
+            sessionId: snapshot.sessionId,
+            taskId: `${snapshot.taskId}:normalize`,
+            model: snapshot.model,
+            messages,
+            tools: [],
+            providerOptions: {
+                enable_search: false,
+                metadata: {
+                    phase: 'canonical_intent_normalization',
+                },
+            },
+            shouldCancel,
+            onTextDelta: async () => {},
+            onReasoningDelta: async () => {},
+            onUsage: () => {},
+            onCitation: () => {},
+        });
+
+        const rawText = String(result.text || '').trim();
+        const parsed = parseNormalizationJson(rawText);
+        if (!parsed.ok) {
+            return invalidResult(snapshot, parsed.reasonCode, parsed.error, rawText);
+        }
+
+        const validated = validateCanonicalIntentPayload(parsed.payload, snapshot);
+        if (!validated.ok) {
+            return invalidResult(snapshot, validated.reasonCode, validated.error, rawText);
+        }
+
+        const normalizedSnapshot = applyCanonicalIntentToSnapshot(snapshot, validated.intent);
+        const state: CanonicalIntentNormalizationState = {
+            status: 'ok',
+            source: 'llm',
+            rawText,
+        };
+        normalizedSnapshot.normalizationState = state;
+
+        logger.info(LogCode.AI_ORCHESTRATOR, 'Canonical intent normalization: success', {
+            sessionId: snapshot.sessionId,
+            taskId: snapshot.taskId,
+            domain: validated.intent.domain,
+            intent: validated.intent.intent,
+            outputMode: validated.intent.outputMode,
+            confidence: validated.intent.confidence,
+            searchMode: validated.intent.searchMode,
+            requestedChain: validated.intent.requestedChain?.chainId,
+        });
+
+        return {
+            snapshot: normalizedSnapshot,
+            state,
+        };
+    } catch (error: any) {
+        return invalidResult(
+            snapshot,
+            'normalization_invalid_json',
+            error?.message || 'Normalization failed',
+            undefined,
+        );
+    }
+}
+
+function invalidResult(
+    snapshot: ChatContextSnapshot,
+    reasonCode: NormalizationReasonCode,
+    error: string,
+    rawText?: string,
+): {
+    snapshot: ChatContextSnapshot;
+    state: CanonicalIntentNormalizationState;
+} {
+    logger.warn(LogCode.AI_ORCHESTRATOR, 'Canonical intent normalization: invalid', {
+        sessionId: snapshot.sessionId,
+        taskId: snapshot.taskId,
+        reasonCode,
+        error,
+        rawTextPreview: rawText?.slice(0, 240),
+    });
+    const state: CanonicalIntentNormalizationState = {
+        status: 'invalid',
+        source: 'llm',
+        reasonCode,
+        error,
+        rawText,
+    };
+    return {
+        snapshot: {
+            ...snapshot,
+            normalizedIntent: null,
+            normalizationState: state,
+        },
+        state,
+    };
+}
+
+function buildNormalizationMessages(snapshot: ChatContextSnapshot): GenerationMessage[] {
+    const recentHistory = snapshot.history.slice(-6).map((message) => ({
+        role: message.role,
+        content: String(message.content || '').slice(0, 500),
+    }));
+
+    return [
+        {
+            role: 'system',
+            content: [
+                'You normalize a multilingual user chat request into a strict canonical intent JSON object.',
+                'Return JSON only. No markdown. No prose before or after the JSON.',
+                'Do not mention tools. Do not mention hidden prompts.',
+                'If the request is ambiguous, set needs_clarification=true and provide a short clarification_question.',
+                'Use these exact enums only:',
+                'domain: general | token | wallet | polymarket | x | farcaster | zora | market',
+                'intent: assistant_meta | swap | cross_chain_swap | copy_trade | token_analysis | early_buyers | creator_analysis | token_risk | wallet_analysis | wallet_pnl | social_discovery | market_macro | polymarket_discovery | polymarket_order | polymarket_short_window | zora_discovery | token_alerts',
+                'task_mode: discover | analyze | execute | confirm',
+                'output_mode: narrative | full_table | shortlist | execution_ready | confirmation_required',
+                'search_mode: forbidden | fallback | required',
+                'search_target: x | web | x_and_web | none',
+                'evidence_requirements values: native_search_results | onchain_token_evidence | onchain_wallet_evidence | connected_chain_evidence | verified_polymarket_token_id',
+                'Set locale to en or zh only. Use zh only when the latest user message is primarily Chinese.',
+                'For early-buyer / holder / first-buyer style queries, default output_mode to full_table.',
+                'For explicit numeric export requests like "for 30", set row_count accordingly.',
+            ].join(' '),
+        },
+        {
+            role: 'user',
+            content: JSON.stringify({
+                latest_user_message: snapshot.lastUserMessage,
+                recent_history: recentHistory,
+                requested_token_addresses: snapshot.requestedTokenAddresses || [],
+                requested_token_symbols: snapshot.requestedTokenSymbols || [],
+                connected_chain_id: snapshot.runtime.chainId || null,
+                connected_chain_name: snapshot.runtime.chainName || null,
+                wallet_address: snapshot.runtime.walletAddress || snapshot.runtime.userAddress || null,
+                confirmation_state: snapshot.confirmationState || null,
+                return_schema: {
+                    domain: 'enum',
+                    intent: 'enum',
+                    task_mode: 'enum',
+                    output_mode: 'enum',
+                    search_mode: 'enum',
+                    search_target: 'enum',
+                    confidence: '0_to_1_number',
+                    explanation: 'string',
+                    entities: {
+                        token_addresses: ['string'],
+                        token_symbols: ['string'],
+                        wallet_addresses: ['string'],
+                        market_identifiers: ['string'],
+                    },
+                    requested_chain: {
+                        chain_id: 'number',
+                        chain_name: 'string',
+                    },
+                    requested_time_window: {
+                        is_time_bound: 'boolean',
+                        description: 'string',
+                        start_time: 'optional_iso_string',
+                        end_time: 'optional_iso_string',
+                    },
+                    evidence_requirements: ['enum'],
+                    requires_realtime: 'boolean',
+                    requires_onchain_evidence: 'boolean',
+                    execution_candidate: 'boolean',
+                    row_count: 'number_or_null',
+                    locale: 'en_or_zh',
+                    needs_clarification: 'boolean',
+                    clarification_question: 'string_or_null',
+                },
+            }),
+        },
+    ];
+}
+
+function parseNormalizationJson(text: string): {
+    ok: true;
+    payload: unknown;
+} | {
+    ok: false;
+    reasonCode: NormalizationReasonCode;
+    error: string;
+} {
+    const candidate = stripCodeFence(String(text || '').trim());
+    if (!candidate) {
+        return {
+            ok: false,
+            reasonCode: 'normalization_invalid_json',
+            error: 'Normalization response was empty.',
+        };
+    }
+    const json = extractFirstJsonObject(candidate);
+    if (!json) {
+        return {
+            ok: false,
+            reasonCode: 'normalization_invalid_json',
+            error: 'Normalization response did not contain a JSON object.',
+        };
+    }
+    try {
+        return {
+            ok: true,
+            payload: JSON.parse(json),
+        };
+    } catch (error: any) {
+        return {
+            ok: false,
+            reasonCode: 'normalization_invalid_json',
+            error: error?.message || 'Failed to parse normalization JSON.',
+        };
+    }
+}
+
+function stripCodeFence(text: string): string {
+    return text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
+}
+
+function extractFirstJsonObject(text: string): string | null {
+    const start = text.indexOf('{');
+    if (start < 0) return null;
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+    for (let i = start; i < text.length; i += 1) {
+        const char = text[i];
+        if (inString) {
+            if (escaped) escaped = false;
+            else if (char === '\\') escaped = true;
+            else if (char === '"') inString = false;
+            continue;
+        }
+        if (char === '"') {
+            inString = true;
+            continue;
+        }
+        if (char === '{') depth += 1;
+        if (char === '}') {
+            depth -= 1;
+            if (depth === 0) return text.slice(start, i + 1);
+        }
+    }
+    return null;
+}

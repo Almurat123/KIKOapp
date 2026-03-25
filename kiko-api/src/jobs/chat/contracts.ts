@@ -1,5 +1,6 @@
 import type { ToolDefinition } from '../../tooling/registry.js';
 import type { ActionClass, ControlPolicySnapshot } from './controlPolicy.js';
+import type { CanonicalIntent, CanonicalIntentNormalizationState } from './canonicalIntent.js';
 
 export interface ChatHistoryMessage {
     role: 'system' | 'user' | 'assistant' | 'tool';
@@ -199,6 +200,8 @@ export interface ChatContextSnapshot {
         compactionHits: number;
     } | null;
     previousResponseId?: string | null;
+    normalizedIntent?: CanonicalIntent | null;
+    normalizationState?: CanonicalIntentNormalizationState | null;
     toolDefinitions: ToolDefinition[];
     policySnapshot?: ControlPolicySnapshot | null;
 }

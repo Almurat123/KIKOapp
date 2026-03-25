@@ -1,6 +1,7 @@
 import { CORE_UNIFIED, GROK_SEARCH_DELTA } from '../../services/ai/prompts/v2/CORE.js';
 import { resolveRequestedChainHint } from './chainIntent.js';
 import type { ChatContextSnapshot, PlanCard, ProviderNativeEvidenceSnapshot } from './contracts.js';
+import { summarizeCanonicalIntent } from './canonicalIntent.js';
 import type { IntentEnvelope, ToolPhase } from './nodeSkillResolver.js';
 import type { ProviderInfo } from './providerPolicyBuilder.js';
 import type { SearchMode, SkillMatch } from './skillIntentMatcher.js';
@@ -86,6 +87,10 @@ export function assembleGenerationMessages(
 
     const contextTextParts = [
         buildLabeledSummaryBlock('USER_CONTEXT', userContext),
+        ...(() => {
+            const intentSummary = summarizeCanonicalIntent(snapshot.normalizedIntent);
+            return intentSummary ? [buildLabeledSummaryBlock('INTENT_NORMALIZATION', intentSummary)] : [];
+        })(),
         contextBlocks.walletState,
         contextBlocks.tokenContext,
         contextBlocks.launchpadContext,
