@@ -2063,15 +2063,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
         if (!input) {
             requestAnimationFrame(() => syncScrollPaddingWithComposer());
         }
-
-
-        if (input.length > 0) {
-            console.log('[ChatInterface] Calling detectIntent with:', input);
-            detectIntent(input);
-            // Re-focus to ensure next step works
-            setTimeout(() => textareaRef.current?.focus(), 0);
-        }
-    }, [input, detectIntent, syncScrollPaddingWithComposer]);
+    }, [input, syncScrollPaddingWithComposer]);
 
     // Use propPendingPrompt or local state logic
     useEffect(() => {
