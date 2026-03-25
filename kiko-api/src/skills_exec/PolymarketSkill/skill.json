@@ -7,6 +7,7 @@
     ],
     "tools": [
         "get_polymarket_market_overview",
+        "get_polymarket_coin_updown_markets",
         "get_polymarket_trending",
         "get_polymarket_trending_markets",
         "search_polymarket",
@@ -35,6 +36,7 @@
         "en": [
             "What bets do you have on Polymarket?",
             "What's trending on Polymarket?",
+            "Give me the 5-minute Solana Up/Down market",
             "Search for markets about BTC price",
             "Follow Polymarket user 0x...",
             "Place a bet on 'Yes' for [Market]",
@@ -44,6 +46,7 @@
         ],
         "zh": [
             "What's trending on Polymarket?",
+            "Give me the 5-minute Solana Up/Down market",
             "Search for markets about BTC price",
             "Follow Polymarket user 0x...",
             "Place a bet on 'Yes' for [Market]",

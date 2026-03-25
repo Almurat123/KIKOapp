@@ -38,6 +38,13 @@ test('routes betting trend queries to Polymarket first', () => {
     assert.equal(resolution.searchMode, 'fallback');
 });
 
+test('routes 5-minute coin up/down queries to the exact short-window Polymarket tool', () => {
+    const resolution = resolveNodeSkills(makeSnapshot('Give me a 5-minute Solana up or down bet'), null);
+    assert.equal(resolution.selectedSkills[0], 'polymarket_prediction');
+    assert.ok(resolution.allowedTools.includes('get_polymarket_coin_updown_markets'));
+    assert.ok(resolution.preferredTools.includes('get_polymarket_coin_updown_markets'));
+});
+
 test('tool registry self-initializes even when imported directly', () => {
     const definitions = toolRegistry.getAllDefinitions();
     assert.ok(definitions.length > 0);
@@ -186,7 +193,11 @@ test('swap intents prefer wallet info and preflight before prepare swap executio
     assert.ok(resolution.preferredTools.includes('get_wallet_info'));
     assert.ok(resolution.preferredTools.includes('simulate_swap'));
     assert.ok(resolution.preferredTools.includes('prepare_swap_transaction'));
-    assert.ok(resolution.strategyNotes.some((note) => note.includes('preflight evidence first')));
+    assert.ok(
+        resolution.strategyNotes.some((note) =>
+            note.includes('preflight evidence first') || note.includes('Quote-before-swap mode is enabled')
+        )
+    );
     assert.ok(!resolution.allowedTools.includes('get_token_price'));
 });
 

@@ -91,6 +91,26 @@ test('normalizeDate returns null for blank or missing timestamps', () => {
   assert.equal(__testables.normalizeDate('2026-03-15T00:00:00Z'), '2026-03-15T00:00:00Z');
 });
 
+test('normalizeSearchEvents accepts both events and results payload shapes', () => {
+  assert.deepEqual(
+    __testables.normalizeSearchEvents({ events: [{ id: 1 }, { id: 2 }] }),
+    [{ id: 1 }, { id: 2 }],
+  );
+  assert.deepEqual(
+    __testables.normalizeSearchEvents({ results: [{ id: 3 }] }),
+    [{ id: 3 }],
+  );
+  assert.deepEqual(__testables.normalizeSearchEvents({}), []);
+});
+
+test('buildExactFiveMinuteWindowQuery builds the current ET window title deterministically', () => {
+  const start = new Date('2026-03-25T03:00:00Z'); // 11:00PM ET on March 24
+  assert.equal(
+    __testables.buildExactFiveMinuteWindowQuery({ coin: 'Solana', start }),
+    'Solana Up or Down - March 24, 11:00PM-11:05PM ET',
+  );
+});
+
 test('computePositionDeltaRatio returns proportional changes for mirrored sizing', () => {
   assert.equal(computePositionDeltaRatio({
     type: 'INCREASED',

@@ -22,6 +22,7 @@ export function getToolStatusMessage(toolName: string): string {
         get_current_time: 'Checking current time',
         get_polymarket_trending: 'Fetching predictions',
         get_polymarket_market_overview: 'Fetching Polymarket overview',
+        get_polymarket_coin_updown_markets: 'Finding 5-minute coin markets',
         get_polymarket_trending_markets: 'Ranking hot markets',
         get_new_markets: 'Checking new markets',
         get_polymarket_quote: 'Checking live market quote',

@@ -220,6 +220,15 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
         allowedTools = Array.from(availableToolNames).sort();
     }
 
+    const polymarketShortWindowQuery = querySignals.prediction && containsAny(lowercase(rawQuery), [
+        '5min', '5 min', '5-minute', '5 minute', 'up or down', 'token bet', 'coin bet', 'coin up/down', 'token up/down',
+        '5分钟', '五分钟', '涨跌',
+    ]);
+    if (polymarketShortWindowQuery) {
+        pushPreferred(preferredTools, 'get_polymarket_coin_updown_markets');
+        strategyNotes.push('For coin/token Up/Down short-window requests, prefer get_polymarket_coin_updown_markets over get_new_markets because exact ET-window discovery is required.');
+    }
+
     if ((tradingIntent?.kind === 'trading' && tradingIntent.type === 'swap') || hasRequestedTokenAddress) {
         removeTool(allowedTools, 'get_token_price');
         removeTool(preferredTools, 'get_token_price');
@@ -282,6 +291,7 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
         // "AI keeps repeating get_new_markets / get_polymarket_trending_markets on every turn" bug.
         const POLYMARKET_DISCOVERY_TOOLS = new Set([
             'get_polymarket_market_overview',
+            'get_polymarket_coin_updown_markets',
             'get_polymarket_trending_markets',
             'get_polymarket_trending',
             'get_new_markets',
@@ -622,6 +632,10 @@ function isSyntheticBlockedTool(toolName: string): boolean {
 function containsAny(text: string, needles: string[]): boolean {
     const haystack = String(text || '').toLowerCase();
     return needles.some((needle) => haystack.includes(String(needle).toLowerCase()));
+}
+
+function lowercase(text: string): string {
+    return String(text || '').toLowerCase();
 }
 
 function pushPreferredToolsForSkill(skillId: string, preferredTools: string[]) {

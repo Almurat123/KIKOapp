@@ -11,6 +11,7 @@ import { CreateCopyTradeConfigTool, ListCopyTradeConfigsTool, DeleteCopyTradeCon
 import {
     GetPolymarketTrendingTool as PMTrending,
     GetPolymarketMarketOverviewTool as PMOverview,
+    GetPolymarketCoinUpDownMarketsTool as PMCoinUpDown,
     GetPolymarketTrendingMarketsTool as PMTrendingMarkets,
     GetPolymarketEventTool as PMEvent,
     SearchPolymarketTool as PMSearch,
@@ -65,6 +66,7 @@ const BUILT_IN_TOOLS = [
     PauseCopyTradeConfigTool,
     PMTrending,
     PMOverview,
+    PMCoinUpDown,
     PMTrendingMarkets,
     PMEvent,
     PMSearch,

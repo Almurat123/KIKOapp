@@ -10,6 +10,7 @@ import {
     getEventDetails,
     searchEvents,
     getNewMarkets,
+    getCoinUpDownMarkets,
 } from '../../../services/polymarket.js';
 
 function formatDateLabel(value?: string | null): string | null {
@@ -188,6 +189,11 @@ export function buildPolymarketMarketOverview(params: {
         type: 'Market Overview',
         current_time_et: formatEtTimestamp(now),
         selection_note: params.newMarkets.selectionNote,
+        response_contract: {
+            grouped_buckets_required: true,
+            minimum_buckets_to_show: 2,
+            do_not_collapse_to_single_market: true,
+        },
         recommended_card: recommendedCard,
         buckets: {
             hot_24h_events: {
@@ -429,6 +435,61 @@ export const SearchPolymarketTool: Tool = {
             note: exactMatch
                 ? 'Use get_polymarket_event with an ID to see detailed odds.'
                 : 'No exact title match found. You can refine the query or provide a market link.'
+        };
+    },
+    permissions: 'public'
+};
+
+/**
+ * Get Polymarket 5-minute Coin Up/Down Markets Tool
+ */
+export const GetPolymarketCoinUpDownMarketsTool: Tool = {
+    definition: {
+        name: 'get_polymarket_coin_updown_markets',
+        description: 'Find exact 5-minute token Up/Down markets near the current ET time. Use this for requests like "5min coin bet", "token up or down", "5-minute Solana market", or "current 5m crypto market". This tool performs exact ET-window discovery and should be preferred over get_new_markets for coin-specific 5-minute markets.',
+        parameters: {
+            type: 'object',
+            properties: {
+                coin: {
+                    type: 'string',
+                    description: 'Optional coin series such as Bitcoin, Ethereum, Solana, Dogecoin, XRP, BNB, or Hyperliquid.'
+                },
+                limit: {
+                    type: 'number',
+                    description: 'Maximum number of exact-window markets to return (1-20). Default is 10.'
+                },
+                windows_ahead: {
+                    type: 'number',
+                    description: 'How many 5-minute windows ahead to probe from the current ET window (1-12). Default is 8 for a specific coin or 3 for broad coin discovery.'
+                }
+            },
+            required: []
+        }
+    },
+    handler: async (args: { coin?: string; limit?: number; windows_ahead?: number }) => {
+        const result = await getCoinUpDownMarkets({
+            coin: args.coin,
+            limit: args.limit,
+            windowsAhead: args.windows_ahead,
+        });
+
+        const recommended = result.markets[0] || null;
+        return {
+            source: 'Polymarket',
+            type: 'Coin Up/Down 5-minute Markets',
+            current_time_et: result.currentTimeEt,
+            series: result.series,
+            count: result.count,
+            note: result.note,
+            recommended_market: recommended ? {
+                id: recommended.id,
+                title: recommended.title,
+                slug: recommended.slug,
+                tradable: recommended.tradable,
+                tradable_detail: recommended.tradable_detail,
+                window: recommended.window,
+            } : null,
+            markets: result.markets,
         };
     },
     permissions: 'public'

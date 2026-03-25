@@ -85,6 +85,9 @@ const NEW_MARKET_SOON_HORIZON_SECONDS = 48 * 60 * 60; // show markets up to 48h 
 const NEW_MARKET_MIN_LIVE_SECONDS_LEFT = 120;
 const TRADABLE_HORIZON_SECONDS = 6 * 60 * 60; // only flag as 'tradable' if within 6h
 const MIN_TRADABLE_LIQUIDITY = 10; // minimum liquidity in USD to be considered tradable
+const COIN_UP_DOWN_MAX_HORIZON_SECONDS = 2 * 60 * 60;
+const FIVE_MINUTE_WINDOW_MS = 5 * 60 * 1000;
+const DEFAULT_COIN_UP_DOWN_SERIES = ['Bitcoin', 'Ethereum', 'Solana', 'Dogecoin', 'XRP', 'BNB', 'Hyperliquid'];
 
 const MONTH_LOOKUP: Record<string, number> = {
     january: 1,
@@ -100,6 +103,22 @@ const MONTH_LOOKUP: Record<string, number> = {
     november: 11,
     december: 12,
 };
+
+const MONTH_NAMES = [
+    '',
+    'January',
+    'February',
+    'March',
+    'April',
+    'May',
+    'June',
+    'July',
+    'August',
+    'September',
+    'October',
+    'November',
+    'December',
+];
 
 function parseStringArray(raw?: string): string[] {
     if (!raw) return [];
@@ -164,6 +183,150 @@ function formatDateTimeInEt(date: Date): string {
         second: '2-digit',
         hour12: false,
     }).format(date);
+}
+
+function formatEtTitleTime(hour24: number, minute: number): string {
+    const hour12 = hour24 % 12 === 0 ? 12 : hour24 % 12;
+    const meridiem = hour24 >= 12 ? 'PM' : 'AM';
+    return `${hour12}:${String(minute).padStart(2, '0')}${meridiem}`;
+}
+
+function normalizeSearchEvents(response: any): any[] {
+    if (response && Array.isArray(response.events)) return response.events;
+    if (response && Array.isArray(response.results)) return response.results;
+    return [];
+}
+
+function normalizeCoinSeriesName(value?: string | null): string | null {
+    const normalized = String(value || '').trim().toLowerCase();
+    if (!normalized) return null;
+    if (normalized === 'btc' || normalized === 'bitcoin') return 'Bitcoin';
+    if (normalized === 'eth' || normalized === 'ethereum') return 'Ethereum';
+    if (normalized === 'sol' || normalized === 'solana') return 'Solana';
+    if (normalized === 'doge' || normalized === 'dogecoin') return 'Dogecoin';
+    if (normalized === 'xrp') return 'XRP';
+    if (normalized === 'bnb') return 'BNB';
+    if (normalized === 'hype' || normalized === 'hyperliquid') return 'Hyperliquid';
+    return String(value).trim();
+}
+
+function getCurrentEtWindowStart(now: Date): Date {
+    const etNow = getEtParts(now);
+    const roundedMinute = Math.floor(etNow.minute / 5) * 5;
+    return convertEtLocalToUtc({
+        year: etNow.year,
+        month: etNow.month,
+        day: etNow.day,
+        hour: etNow.hour,
+        minute: roundedMinute,
+        second: 0,
+    });
+}
+
+function buildExactFiveMinuteWindowQuery(params: {
+    coin: string;
+    start: Date;
+}): string {
+    const end = new Date(params.start.getTime() + FIVE_MINUTE_WINDOW_MS);
+    const startEt = getEtParts(params.start);
+    const endEt = getEtParts(end);
+    const month = MONTH_NAMES[startEt.month] || 'January';
+    return `${params.coin} Up or Down - ${month} ${startEt.day}, ${formatEtTitleTime(startEt.hour, startEt.minute)}-${formatEtTitleTime(endEt.hour, endEt.minute)} ET`;
+}
+
+function buildFiveMinuteSearchQueries(now: Date, coin: string, windowCount: number): Array<{
+    coin: string;
+    query: string;
+    start: Date;
+}> {
+    const base = getCurrentEtWindowStart(now);
+    const queries: Array<{ coin: string; query: string; start: Date }> = [];
+    for (let index = 0; index < windowCount; index += 1) {
+        const start = new Date(base.getTime() + index * FIVE_MINUTE_WINDOW_MS);
+        queries.push({
+            coin,
+            query: buildExactFiveMinuteWindowQuery({ coin, start }),
+            start,
+        });
+    }
+    return queries;
+}
+
+function mapCoinUpDownEvent(event: any, now: Date) {
+    const activeMarkets: PolymarketMarket[] = Array.isArray(event?.markets)
+        ? event.markets.filter((market: any) => !market?.closed)
+        : [];
+    const parsedMarkets: ParsedMarket[] = activeMarkets.map((market) => parseMarket(market));
+    const primaryMarket = parsedMarkets[0] || null;
+    const window = parseMarketWindowLabel(String(primaryMarket?.question || event?.title || ''), now);
+    if (!primaryMarket || !window) return null;
+
+    const liquidity = Math.floor(Number(event?.liquidity || primaryMarket.liquidity || 0));
+    const withinHorizon = window.status === 'live'
+        || Number(window.secondsToStart || Number.MAX_SAFE_INTEGER) <= COIN_UP_DOWN_MAX_HORIZON_SECONDS;
+    if (!withinHorizon) return null;
+
+    const acceptingOrders = Boolean((activeMarkets[0] && activeMarkets[0].acceptingOrders) ?? primaryMarket.acceptingOrders);
+    const tradable = acceptingOrders && liquidity >= MIN_TRADABLE_LIQUIDITY && window.status !== 'expired';
+    const tradableDetail = !acceptingOrders
+        ? 'orders_not_open'
+        : liquidity < MIN_TRADABLE_LIQUIDITY
+            ? 'no_liquidity_yet'
+            : 'ok';
+
+    return {
+        id: String(event.id),
+        title: String(event.title || primaryMarket.question),
+        slug: normalizeString(event.slug) || primaryMarket.slug,
+        liquidity,
+        volume24hr: Math.floor(Number(event.volume24hr || primaryMarket.volume24hr || 0)),
+        tradable,
+        tradable_detail: tradableDetail,
+        window: {
+            start_at: window.startAt,
+            end_at: window.endAt,
+            status: window.status,
+            seconds_to_start: window.secondsToStart,
+            seconds_to_end: window.secondsToEnd,
+            duration_minutes: window.durationMinutes,
+        },
+        market: {
+            id: primaryMarket.id,
+            question: primaryMarket.question,
+            slug: primaryMarket.slug,
+            condition_id: primaryMarket.conditionId,
+            accepting_orders: primaryMarket.acceptingOrders,
+            best_bid: primaryMarket.bestBid,
+            best_ask: primaryMarket.bestAsk,
+            outcomes: primaryMarket.outcomes.map((outcome: ParsedOutcome) => ({
+                name: outcome.name,
+                probability: outcome.probability,
+                token_id: outcome.tokenId,
+            })),
+        },
+    };
+}
+
+function compareCoinUpDownCandidate(a: ReturnType<typeof mapCoinUpDownEvent>, b: ReturnType<typeof mapCoinUpDownEvent>): number {
+    const rank = (item: ReturnType<typeof mapCoinUpDownEvent>): number => {
+        if (!item) return 5;
+        if (item.tradable && item.window.status === 'live') return 0;
+        if (item.tradable && item.window.status === 'upcoming') return 1;
+        if (item.window.status === 'live') return 2;
+        if (item.window.status === 'upcoming') return 3;
+        return 4;
+    };
+
+    const diff = rank(a) - rank(b);
+    if (diff !== 0) return diff;
+    if (!a || !b) return 0;
+    if (a.window.status === 'upcoming' && b.window.status === 'upcoming') {
+        return Number(a.window.seconds_to_start || 0) - Number(b.window.seconds_to_start || 0);
+    }
+    if (a.window.status === 'live' && b.window.status === 'live') {
+        return Number(b.window.seconds_to_end || 0) - Number(a.window.seconds_to_end || 0);
+    }
+    return b.liquidity - a.liquidity;
 }
 
 function to24Hour(hour: number, meridiem: string): number {
@@ -359,6 +522,10 @@ export const __testables = {
     parseMarketWindowLabel,
     compareNewMarketPriority,
     isEligibleNewMarketWindow,
+    normalizeSearchEvents,
+    normalizeCoinSeriesName,
+    getCurrentEtWindowStart,
+    buildExactFiveMinuteWindowQuery,
     MIN_TRADABLE_LIQUIDITY,
     TRADABLE_HORIZON_SECONDS,
 };
@@ -483,8 +650,7 @@ export async function searchEvents(query: string, limit: number = 10): Promise<{
         endpointName: 'polymarket-search'
     });
 
-    // Gamma public-search returns { results: [], pagination: {} }
-    const results = (response && Array.isArray(response.results)) ? response.results : [];
+    const results = normalizeSearchEvents(response);
 
     if (results.length === 0) {
         return { events: [] };
@@ -499,6 +665,70 @@ export async function searchEvents(query: string, limit: number = 10): Promise<{
             liquidity: Math.floor(event.liquidity || 0),
             endDate: normalizeDate(event.endDate)
         }))
+    };
+}
+
+async function searchRawEvents(query: string, limit: number = 10): Promise<any[]> {
+    const url = `${GAMMA_API_BASE}/public-search?q=${encodeURIComponent(query)}&limit=${limit}&events_status=active`;
+    const response = await unifiedApiService.fetchJson<any>({
+        url,
+        method: 'GET',
+        requestTimeout: 15000,
+        endpointName: 'polymarket-search-raw',
+    });
+    return normalizeSearchEvents(response);
+}
+
+export async function getCoinUpDownMarkets(params: {
+    coin?: string | null;
+    limit?: number;
+    windowsAhead?: number;
+} = {}): Promise<{
+    currentTimeEt: string;
+    series: string[];
+    count: number;
+    markets: Array<ReturnType<typeof mapCoinUpDownEvent>>;
+    note: string;
+}> {
+    const now = new Date();
+    const requestedSeries = normalizeCoinSeriesName(params.coin);
+    const series = requestedSeries ? [requestedSeries] : DEFAULT_COIN_UP_DOWN_SERIES;
+    const windowsAhead = Math.min(Math.max(params.windowsAhead || (requestedSeries ? 8 : 3), 1), 12);
+    const limit = Math.min(Math.max(params.limit || 10, 1), 20);
+
+    const candidates = series.flatMap((coin) => buildFiveMinuteSearchQueries(now, coin, windowsAhead));
+    const rawResults = await Promise.all(candidates.map((candidate) => searchRawEvents(candidate.query, 3)));
+
+    const exactMatches = new Map<string, ReturnType<typeof mapCoinUpDownEvent>>();
+    for (let index = 0; index < candidates.length; index += 1) {
+        const candidate = candidates[index];
+        const events = rawResults[index] || [];
+        for (const event of events) {
+            const title = String(event?.title || '').trim().toLowerCase();
+            if (title !== candidate.query.toLowerCase()) continue;
+            const mapped = mapCoinUpDownEvent(event, now);
+            if (!mapped) continue;
+            const key = `${mapped.id}:${mapped.market.id}`;
+            if (!exactMatches.has(key)) {
+                exactMatches.set(key, mapped);
+            }
+        }
+    }
+
+    const markets = Array.from(exactMatches.values())
+        .sort(compareCoinUpDownCandidate)
+        .slice(0, limit);
+
+    const note = markets.length > 0
+        ? 'Exact 5-minute coin Up/Down windows found via current ET window search.'
+        : `No coin Up/Down 5-minute window found within the next ${Math.round((windowsAhead * 5) / 60 * 10) / 10} hour(s) of ET search windows.`;
+
+    return {
+        currentTimeEt: formatDateTimeInEt(now),
+        series,
+        count: markets.length,
+        markets,
+        note,
     };
 }
 
