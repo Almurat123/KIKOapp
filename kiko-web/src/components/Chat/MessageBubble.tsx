@@ -445,7 +445,10 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({
                   message.content.trim().length > 0 &&
                   !hasRuntimeCard &&
                   showReasoning && (
-                    <div className={styles.reasoningContent}>
+                    <div
+                      className={styles.reasoningContent}
+                      data-kiko-message-selection-target="true"
+                    >
                       <div className={`${styles.reasoningText} ${styles.markdownContent}`}>
                         <ReactMarkdown
                           remarkPlugins={[remarkGfm, remarkBreaks]}
@@ -463,14 +466,7 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({
                       styles.markdownContentSelectable,
                       styles.markdownContainer
                     )}
-                    onMouseDown={(e) => {
-                      // Allow text selection by not preventing default
-                      e.stopPropagation();
-                    }}
-                    onMouseUp={(e) => {
-                      // Prevent any parent handlers from clearing selection
-                      e.stopPropagation();
-                    }}
+                    data-kiko-message-selection-target="true"
                   >
                     {/* Use simple ReactMarkdown without custom components to enable text selection */}
                     <CitationRenderer

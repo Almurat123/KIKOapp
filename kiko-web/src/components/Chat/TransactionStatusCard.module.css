@@ -206,7 +206,7 @@
 }
 
 .amountValue {
-    font-size: clamp(15.3rem, 36vw, 22.5rem);
+    font-size: clamp(1.85rem, 6vw, 3.25rem);
     font-weight: 800;
     letter-spacing: var(--kiko-body-spacing);
     font-style: var(--kiko-italic-style);
@@ -311,7 +311,7 @@
     }
 
     .amountValue {
-        font-size: clamp(5rem, 24vw, 7.5rem);
+        font-size: clamp(1.65rem, 10vw, 2.6rem);
         line-height: 0.92;
     }
 

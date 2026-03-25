@@ -193,6 +193,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
     const [firstSendPending, setFirstSendPending] = useState(false);
     const [showJumpToBottom, setShowJumpToBottom] = useState(false);
     const [isComposing, setIsComposing] = useState(false);
+    const isTextSelectionActiveRef = useRef(false);
     const lastCompositionEndRef = useRef<number>(0);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const [welcomePendingMessages, setWelcomePendingMessages] = useState<Message[]>([]);
@@ -272,6 +273,37 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
     const [customSettings, setCustomSettings] = useState<Record<string, unknown> | null>(null);
     const pendingChunksRef = useRef<Map<string, PendingChunk>>(new Map());
     const chunkFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    useEffect(() => {
+        const syncTextSelectionState = () => {
+            const selection = window.getSelection();
+            isTextSelectionActiveRef.current = !!selection && !selection.isCollapsed && selection.toString().length > 0;
+        };
+
+        const handleSelectionIntent = (event: MouseEvent | PointerEvent | TouchEvent) => {
+            const target = event.target as HTMLElement | null;
+            if (target?.closest('[data-kiko-message-selection-target="true"]')) {
+                isTextSelectionActiveRef.current = true;
+            }
+        };
+
+        document.addEventListener('mousedown', handleSelectionIntent, true);
+        document.addEventListener('pointerdown', handleSelectionIntent, true);
+        document.addEventListener('selectionchange', syncTextSelectionState);
+        window.addEventListener('mouseup', syncTextSelectionState);
+        window.addEventListener('pointerup', syncTextSelectionState);
+        window.addEventListener('touchend', syncTextSelectionState);
+
+        return () => {
+            document.removeEventListener('mousedown', handleSelectionIntent, true);
+            document.removeEventListener('pointerdown', handleSelectionIntent, true);
+            document.removeEventListener('selectionchange', syncTextSelectionState);
+            window.removeEventListener('mouseup', syncTextSelectionState);
+            window.removeEventListener('pointerup', syncTextSelectionState);
+            window.removeEventListener('touchend', syncTextSelectionState);
+            isTextSelectionActiveRef.current = false;
+        };
+    }, []);
 
     const flushPendingChunks = useCallback(() => {
         // Deprecated: Chunks are now handled globally by RootLayout.
@@ -843,6 +875,9 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
     }, []);
 
     const scrollToBottom = useCallback((smooth = true) => {
+        if (isTextSelectionActiveRef.current) {
+            return;
+        }
         if (scrollContainerRef.current) {
             const { scrollHeight, clientHeight } = scrollContainerRef.current;
             scrollContainerRef.current.scrollTo({
@@ -1328,6 +1363,9 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
     // Smart scroll on new messages - follow output if user is at bottom
     useEffect(() => {
         if (userScrolledUpRef.current) {
+            return;
+        }
+        if (isTextSelectionActiveRef.current) {
             return;
         }
         const selection = window.getSelection();
