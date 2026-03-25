@@ -1,7 +1,7 @@
 export interface RequestedChainHint {
     chainId: number;
     chainName: string;
-    source: 'explicit_query' | 'address_shape' | 'native_symbol';
+    source: 'explicit_query' | 'address_shape' | 'native_symbol' | 'chain_symbol';
 }
 
 const CHAIN_SWITCH_PATTERNS = [
@@ -109,6 +109,20 @@ export function resolveRequestedChainHint(params: {
             chainId: 56,
             chainName: 'BNB Chain',
             source: 'native_symbol',
+        };
+    }
+    if (upperSymbols.some((symbol) => symbol === 'BSC' || symbol === 'BNBCHAIN')) {
+        return {
+            chainId: 56,
+            chainName: 'BNB Chain',
+            source: 'chain_symbol',
+        };
+    }
+    if (upperSymbols.some((symbol) => symbol === 'BASE')) {
+        return {
+            chainId: 8453,
+            chainName: 'Base',
+            source: 'chain_symbol',
         };
     }
     if (upperSymbols.some((symbol) => symbol === 'POL' || symbol === 'MATIC' || symbol === 'WMATIC')) {

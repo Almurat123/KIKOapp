@@ -30,6 +30,7 @@ type ChainAwareMeta = {
     attemptedChain?: string;
     attemptedChainId?: number;
     requestTokenAddress?: string;
+    canonicalTokenAddress?: string;
 };
 
 type ChainResolutionInfo = {
@@ -68,6 +69,37 @@ function getRequestTokenAddress(args: Record<string, any>): string | undefined {
     }
 
     return undefined;
+}
+
+function getSnapshotRequestedTokenAddress(context: ToolContextLike): string | undefined {
+    const requested = Array.isArray(context?.__snapshot?.requestedTokenAddresses)
+        ? context.__snapshot.requestedTokenAddresses
+        : [];
+    if (requested.length !== 1) return undefined;
+    return normalizeAddress(requested[0]);
+}
+
+function applyTokenAddress(args: Record<string, any>, address: string): Record<string, any> {
+    const next: Record<string, any> = { ...args };
+    if (next.address !== undefined || (next.token_address === undefined && next.contract_address === undefined)) {
+        next.address = address;
+    }
+    if (next.token_address !== undefined) {
+        next.token_address = address;
+    }
+    if (next.contract_address !== undefined) {
+        next.contract_address = address;
+    }
+    if (next.symbol_or_address !== undefined && isAddressLike(next.symbol_or_address)) {
+        next.symbol_or_address = address;
+    }
+    return next;
+}
+
+function resolveCanonicalTokenAddress(args: Record<string, any>, context?: ToolContextLike): string | undefined {
+    const direct = getRequestTokenAddress(args);
+    if (direct) return direct;
+    return getSnapshotRequestedTokenAddress(context);
 }
 
 function hasExplicitChainInput(args: Record<string, any>): boolean {
@@ -141,10 +173,41 @@ export async function prepareChainAwareToolExecution(
     toolName: string,
     args: Record<string, any>,
     context?: ToolContextLike,
+    deps?: {
+        findTokenOnAnyChain?: typeof findTokenOnAnyChain;
+    },
 ): Promise<{ args: Record<string, any>; meta: ChainAwareMeta }> {
-    const nextArgs = { ...(args || {}) };
+    const detector = deps?.findTokenOnAnyChain || findTokenOnAnyChain;
+    let nextArgs = { ...(args || {}) };
     const explicitChainInput = hasExplicitChainInput(nextArgs);
     const requestTokenAddress = getRequestTokenAddress(nextArgs);
+    const canonicalTokenAddress = resolveCanonicalTokenAddress(nextArgs, context);
+
+    if (ADDRESS_TOKEN_TOOLS.has(toolName) && canonicalTokenAddress && canonicalTokenAddress !== requestTokenAddress) {
+        nextArgs = applyTokenAddress(nextArgs, canonicalTokenAddress);
+    }
+
+    if (ADDRESS_TOKEN_TOOLS.has(toolName) && canonicalTokenAddress) {
+        const detected = await detector(canonicalTokenAddress).catch(() => null);
+        if (detected?.chainId) {
+            const detectedChain = canonicalizeChain(detected.chainName) || chainIdToSlug(detected.chainId);
+            if (detectedChain) {
+                const attemptedChain = canonicalizeChain(args?.chain) || chainIdToSlug(parseChainId(args?.chain_id));
+                const attemptedChainId = parseChainId(args?.chain_id) ?? (attemptedChain ? chainSlugToId(attemptedChain) : undefined);
+                const detectedArgs = applyChain(nextArgs, detectedChain, detected.chainId);
+                return {
+                    args: detectedArgs,
+                    meta: {
+                        explicitChainInput,
+                        requestTokenAddress,
+                        canonicalTokenAddress,
+                        attemptedChain,
+                        attemptedChainId,
+                    },
+                };
+            }
+        }
+    }
 
     if (shouldRespectAnalysisContext(toolName, nextArgs, context)) {
         const { chain, chainId } = pickAnalysisChain(context);
@@ -155,46 +218,11 @@ export async function prepareChainAwareToolExecution(
                 meta: {
                     explicitChainInput,
                     requestTokenAddress,
+                    canonicalTokenAddress,
                     attemptedChain: chain,
                     attemptedChainId: chainId,
                 },
             };
-        }
-    }
-
-    if (ADDRESS_TOKEN_TOOLS.has(toolName) && requestTokenAddress) {
-        const detected = await findTokenOnAnyChain(requestTokenAddress).catch(() => null);
-        if (detected?.chainId) {
-            const detectedChain = canonicalizeChain(detected.chainName) || chainIdToSlug(detected.chainId);
-            if (detectedChain) {
-                const attemptedChain = canonicalizeChain(nextArgs.chain) || chainIdToSlug(parseChainId(nextArgs.chain_id));
-                const attemptedChainId = parseChainId(nextArgs.chain_id) ?? (attemptedChain ? chainSlugToId(attemptedChain) : undefined);
-                const shouldOverride =
-                    !attemptedChain
-                    || attemptedChain !== detectedChain
-                    || attemptedChainId !== detected.chainId;
-                if (!shouldOverride) {
-                    return {
-                        args: nextArgs,
-                        meta: {
-                            explicitChainInput,
-                            requestTokenAddress,
-                            attemptedChain,
-                            attemptedChainId,
-                        },
-                    };
-                }
-                const detectedArgs = applyChain(nextArgs, detectedChain, detected.chainId);
-                return {
-                    args: detectedArgs,
-                    meta: {
-                        explicitChainInput,
-                        requestTokenAddress,
-                        attemptedChain,
-                        attemptedChainId,
-                    },
-                };
-            }
         }
     }
 
@@ -205,6 +233,7 @@ export async function prepareChainAwareToolExecution(
         meta: {
             explicitChainInput,
             requestTokenAddress,
+            canonicalTokenAddress,
             attemptedChain,
             attemptedChainId,
         },
@@ -218,16 +247,21 @@ export async function maybeRetryChainAwareToolExecution<T>(
     result: T,
     meta: ChainAwareMeta,
     executor: (nextArgs: Record<string, any>) => Promise<T>,
+    deps?: {
+        findTokenOnAnyChain?: typeof findTokenOnAnyChain;
+    },
 ): Promise<T> {
+    const detector = deps?.findTokenOnAnyChain || findTokenOnAnyChain;
     if (!ADDRESS_TOKEN_TOOLS.has(toolName)) {
         return result;
     }
 
-    if (!meta.requestTokenAddress || !looksLikeWrongChainOrEmptyResult(result)) {
+    const candidateAddress = meta.canonicalTokenAddress || meta.requestTokenAddress;
+    if (!candidateAddress || !looksLikeWrongChainOrEmptyResult(result)) {
         return result;
     }
 
-    const detected = await findTokenOnAnyChain(meta.requestTokenAddress).catch(() => null);
+    const detected = await detector(candidateAddress).catch(() => null);
     if (!detected?.chainId) {
         return result;
     }

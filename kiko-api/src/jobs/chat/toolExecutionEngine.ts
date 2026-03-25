@@ -192,6 +192,9 @@ export class ToolExecutionEngine {
         const requestedAddress = String(args.address || '').toLowerCase();
         const snapshotAddress = String(snapshot.address || snapshot.contractAddress || '').toLowerCase();
         if (requestedAddress && snapshotAddress && requestedAddress !== snapshotAddress) return undefined;
+        const requestedChain = String(args.chain || '').trim().toLowerCase();
+        const snapshotChain = String(snapshot.chain || snapshot.chainName || toolContext.chain || toolContext.chainName || '').trim().toLowerCase();
+        if (requestedChain && snapshotChain && requestedChain !== snapshotChain) return undefined;
         if (args.chainId && snapshot.chainId && Number(args.chainId) !== Number(snapshot.chainId)) return undefined;
         return {
             ...snapshot,
