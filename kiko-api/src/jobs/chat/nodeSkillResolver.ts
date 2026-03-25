@@ -63,6 +63,27 @@ export interface SkillResolution {
     currentPhase: ToolPhase;
 }
 
+function extractExplicitRowCount(rawQuery: string): number | null {
+    const query = String(rawQuery || '');
+    const patterns = [
+        /\b(?:for|top|limit|show|get|check)\s+(\d{1,3})\b/i,
+        /\b(\d{1,3})\s+(?:wallets|buyers|rows|addresses)\b/i,
+        /前\s*(\d{1,3})/i,
+        /(\d{1,3})\s*个/i,
+    ];
+
+    for (const pattern of patterns) {
+        const match = query.match(pattern);
+        if (!match) continue;
+        const count = Number(match[1]);
+        if (Number.isFinite(count) && count > 0 && count <= 100) {
+            return count;
+        }
+    }
+
+    return null;
+}
+
 export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: TradingIntent | null): SkillResolution {
     const isGrok = String(snapshot.model || '').toLowerCase().includes('grok');
     const rawQuery = String(snapshot.lastUserMessage || '');
@@ -99,10 +120,12 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
         'holders', 'holder', 'first trades', 'first swaps', 'snipers', 'wallets',
         'early purchasers', '早期买家', '首批买家', '早期购买者', '持有人', '前几位买家', '早期购买',
     ]);
-    const wantsEarlyBuyerFullList = containsAny(snapshot.lastUserMessage, [
+    const explicitEarlyBuyerRowCount = extractExplicitRowCount(snapshot.lastUserMessage);
+    const explicitlyRequestsEarlyBuyerFullList = containsAny(snapshot.lastUserMessage, [
         'full list', 'complete list', 'full table', 'all early buyers', 'all wallets', 'export',
         'excel', 'csv', 'table', 'full export', '完整名单', '全量', '导出', '表格', '全部钱包',
-    ]);
+    ]) || (asksEarlyBuyers && explicitEarlyBuyerRowCount !== null);
+    const wantsEarlyBuyerFullList = asksEarlyBuyers || explicitlyRequestsEarlyBuyerFullList;
     const asksCreator = containsAny(snapshot.lastUserMessage, [
         'creator', 'deployer', 'deployed by', '创建者', '部署者', '谁部署',
     ]);
@@ -256,7 +279,7 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
         pushPreferred(preferredTools, 'get_token_info');
         strategyNotes.push('This request asks for on-chain buyer/holder evidence. Prefer local token-analysis tools before answering from web summaries alone.');
         if (wantsEarlyBuyerFullList) {
-            strategyNotes.push('The user explicitly asked for a full early-buyer export. Use get_early_buyers, preserve full wallet addresses, and include trade progression when available. Do not compress the result into a whale-only summary. If the tool returns a structured table card, let the UI render it instead of rewriting the rows in markdown.');
+            strategyNotes.push(`Early-buyer queries in this system default to full-list output${explicitEarlyBuyerRowCount ? ` with ${explicitEarlyBuyerRowCount} rows` : ''}. Use get_early_buyers, preserve full wallet addresses, and include trade progression when available. If the tool returns markdownTable, emit that table verbatim before any analysis. Do not compress the result into a whale-only summary.`);
         }
     }
     if (asksCreator && hasRequestedToken) {

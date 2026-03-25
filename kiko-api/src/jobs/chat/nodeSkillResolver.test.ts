@@ -173,6 +173,11 @@ test('pure early-buyer token queries require on-chain evidence before concluding
     assert.equal(resolution.intentEnvelope.primary_intent, 'token_analysis');
     assert.ok(resolution.intentEnvelope.required_evidence.includes('onchain_token_evidence'));
     assert.ok(resolution.preferredTools.includes('get_early_buyers'));
+    assert.ok(
+        resolution.strategyNotes.some((note) =>
+            note.includes('default to full-list output')
+        )
+    );
 });
 
 test('full early-buyer export queries prefer full-table output wording', () => {
@@ -184,7 +189,21 @@ test('full early-buyer export queries prefer full-table output wording', () => {
     assert.ok(resolution.preferredTools.includes('get_early_buyers'));
     assert.ok(
         resolution.strategyNotes.some((note) =>
-            note.includes('full early-buyer export') || note.includes('full_table mode')
+            note.includes('default to full-list output')
+        )
+    );
+});
+
+test('explicit early-buyer row count queries are treated as full exports', () => {
+    const contract = '0xeCCBb861c0dda7eFd964010085488B69317e4444';
+    const resolution = resolveNodeSkills(makeSnapshot(`Check ${contract} early buyer for 30`, {
+        requestedTokenAddresses: [contract],
+    }), null);
+
+    assert.ok(resolution.preferredTools.includes('get_early_buyers'));
+    assert.ok(
+        resolution.strategyNotes.some((note) =>
+            note.includes('default to full-list output') && note.includes('30 rows')
         )
     );
 });

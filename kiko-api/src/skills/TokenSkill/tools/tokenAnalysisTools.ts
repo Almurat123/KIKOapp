@@ -3,13 +3,56 @@ import * as tokenAnalysis from '../../../services/tokenAnalysis.js';
 import * as creatorAnalysis from '../../../services/creatorAnalysis.js';
 import { resolveChainInput } from '../../../utils/chainParam.js';
 
+function escapeMarkdownCell(value: unknown): string {
+    return String(value ?? '')
+        .replace(/\|/g, '\\|')
+        .replace(/\r?\n/g, ' ')
+        .trim();
+}
+
+function formatNumericCell(value: unknown, decimals = 2): string {
+    const numeric = typeof value === 'number' ? value : Number(value);
+    if (!Number.isFinite(numeric)) return '';
+    return numeric.toLocaleString('en-US', {
+        minimumFractionDigits: 0,
+        maximumFractionDigits: decimals,
+    });
+}
+
+function buildEarlyBuyersMarkdownTable(rows: Array<{
+    rank: number;
+    address: string;
+    timestamp?: string;
+    amount?: string;
+    estimatedBuyUsd?: number | null;
+    txHash?: string;
+    qualityTier?: string | null;
+}>): string {
+    const header = [
+        '| Rank | Wallet Address | First Buy Time (UTC) | Buy Amount | Est. Buy USD | TX Hash | Quality Tier |',
+        '| --- | --- | --- | --- | --- | --- | --- |',
+    ];
+
+    const body = rows.map((row) => [
+        row.rank,
+        escapeMarkdownCell(row.address),
+        escapeMarkdownCell(row.timestamp || ''),
+        escapeMarkdownCell(row.amount || ''),
+        escapeMarkdownCell(formatNumericCell(row.estimatedBuyUsd, 2)),
+        escapeMarkdownCell(row.txHash || ''),
+        escapeMarkdownCell(row.qualityTier || ''),
+    ].join(' | ')).map((line) => `| ${line} |`);
+
+    return [...header, ...body].join('\n');
+}
+
 /**
  * Tool to get early buyers of a token
  */
 export const GetEarlyBuyersTool: Tool = {
     definition: {
         name: 'get_early_buyers',
-        description: 'Get the earliest buyers of a token, optionally within a precise time window. Use this after you know the token contract and, if relevant, the event/post time window you want to analyze. If you choose this tool, emit a real structured tool call immediately. Do not narrate "Calling get_early_buyers" in plain text. Use address plus optional start_time/end_time; do not invent timestamp_range or other unofficial fields. For full exports, preserve the full row set and let the UI render the structured table card instead of compressing it into a summary.',
+        description: 'Get the earliest buyers of a token, optionally within a precise time window. Use this after you know the token contract and, if relevant, the event/post time window you want to analyze. If you choose this tool, emit a real structured tool call immediately. Do not narrate "Calling get_early_buyers" in plain text. Use address plus optional start_time/end_time; do not invent timestamp_range or other unofficial fields. Early-buyer queries should default to full-list output for the returned rows, not a compressed summary. When the tool result includes markdownTable, output that table verbatim first.',
         parameters: {
             type: 'object',
             properties: {
@@ -127,6 +170,7 @@ export const GetEarlyBuyersTool: Tool = {
                 filters: {
                     minTokenAmount: effectiveMinTokenAmount > 0 ? effectiveMinTokenAmount : null,
                 },
+                markdownTable: buildEarlyBuyersMarkdownTable(tableRows),
                 earlyBuyers: tableRows
             };
         } catch (error: any) {
