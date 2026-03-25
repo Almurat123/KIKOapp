@@ -25,6 +25,12 @@ test('assembleGenerationMessages renders execution plan and provider evidence as
         },
         requestedTokenAddresses: [],
         requestedTokenSymbols: [],
+        conversationActionState: {
+            pendingAction: 'none',
+            canExecute: false,
+            needsClarification: false,
+            clarificationQuestion: null,
+        },
         toolDefinitions: [],
     };
 
@@ -94,6 +100,7 @@ test('assembleGenerationMessages renders execution plan and provider evidence as
     assert.match(content, /\[EXECUTION_PLAN\]/);
     assert.match(content, /Step step-1: Understand Query/);
     assert.match(content, /\[PROVIDER_NATIVE_EVIDENCE\]/);
+    assert.match(content, /\[WORKFLOW_STATE\]/);
     assert.match(content, /\[USER_SETTINGS\]/);
     assert.match(content, /quick_swap: true/);
     assert.match(content, /\[USER_CONTEXT\]/);
@@ -182,14 +189,12 @@ test('assembleGenerationMessages tells non-native-search providers to use local 
 
     const systemMessage = messages.find((message) => message.role === 'system');
     assert.match(String(systemMessage?.content || ''), /use local search tools such as external_web_search/i);
-    assert.match(String(systemMessage?.content || ''), /combine search evidence with chain-side evidence/i);
     assert.match(String(systemMessage?.content || ''), /do not say you found, confirmed, verified, or retrieved anything unless a real tool/i);
     assert.match(String(systemMessage?.content || ''), /never narrate planned tool usage in plain text/i);
-    assert.match(String(systemMessage?.content || ''), /\[TOOL_CALL_EXAMPLES\]/);
-    assert.match(String(systemMessage?.content || ''), /i will use external_web_search/i);
+    assert.equal(String(systemMessage?.content || '').includes('[TOOL_CALL_EXAMPLES]'), false);
 });
 
-test('assembleGenerationMessages reminds the model of the real early-buyer time contract', () => {
+test('assembleGenerationMessages carries early-buyer evidence requirements through structured guidance', () => {
     const snapshot: ChatContextSnapshot = {
         sessionId: 'session-5',
         taskId: 'task-5',
@@ -227,13 +232,12 @@ test('assembleGenerationMessages reminds the model of the real early-buyer time 
         },
     });
 
-    const systemMessage = messages.find((message) => message.role === 'system');
-    assert.match(String(systemMessage?.content || ''), /address plus start_time\/end_time/i);
-    assert.match(String(systemMessage?.content || ''), /do not invent timestamp_range/i);
-    assert.match(String(systemMessage?.content || ''), /do not write "Calling get_early_buyers"/i);
+    const userMessage = messages.find((message) => message.role === 'user');
+    assert.match(String(userMessage?.content || ''), /\[TOOL_POLICY\]/);
+    assert.match(String(userMessage?.content || ''), /required evidence before final execution\/conclusion: native_search_results, onchain_token_evidence/i);
 });
 
-test('assembleGenerationMessages tells swap execution flows not to use get_token_price for contract-address tokens', () => {
+test('assembleGenerationMessages uses compact execution mode guidance for swap execution flows', () => {
     const snapshot: ChatContextSnapshot = {
         sessionId: 'session-6',
         taskId: 'task-6',
@@ -269,9 +273,8 @@ test('assembleGenerationMessages tells swap execution flows not to use get_token
     });
 
     const systemMessage = messages.find((message) => message.role === 'system');
-    assert.match(String(systemMessage?.content || ''), /do not use get_token_price for contract-address tokens/i);
-    assert.match(String(systemMessage?.content || ''), /use get_wallet_info, get_token_info, and prepare_swap_transaction/i);
-    assert.match(String(systemMessage?.content || ''), /simulate_swap only when quote-before-swap is enabled/i);
+    assert.match(String(systemMessage?.content || ''), /EXECUTION_MODE: quote_before_swap/);
+    assert.match(String(systemMessage?.content || ''), /Quote once, wait for explicit confirmation/i);
 });
 
 test('assembleGenerationMessages includes canonical intent normalization summary when available', () => {
@@ -376,8 +379,8 @@ test('assembleGenerationMessages adds fast swap contract guidance when fast swap
     });
 
     const systemMessage = messages.find((message) => message.role === 'system');
-    assert.match(String(systemMessage?.content || ''), /FAST SWAP CONTRACT:/);
-    assert.match(String(systemMessage?.content || ''), /Do not make a quote card or simulate_swap a blocking prerequisite/i);
+    assert.match(String(systemMessage?.content || ''), /EXECUTION_MODE: fast_swap/);
+    assert.match(String(systemMessage?.content || ''), /Quote is optional, not a blocking prerequisite/i);
 });
 
 test('assembleGenerationMessages does not send stored reasoning_content back to DeepSeek history', () => {

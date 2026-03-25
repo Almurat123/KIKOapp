@@ -1,5 +1,5 @@
 import { CORE_UNIFIED, GROK_SEARCH_DELTA } from '../../services/ai/prompts/v2/CORE.js';
-import { resolveRequestedChainHint } from './chainIntent.js';
+import { resolveCanonicalChainRef } from './chainIntent.js';
 import type { ChatContextSnapshot, PlanCard, ProviderNativeEvidenceSnapshot } from './contracts.js';
 import { summarizeCanonicalIntent } from './canonicalIntent.js';
 import type { IntentEnvelope, ToolPhase } from './nodeSkillResolver.js';
@@ -56,33 +56,17 @@ export function assembleGenerationMessages(
         systemParts.push(GROK_SEARCH_DELTA);
     }
     if (providerInfo.supportsNativeSearch && guidance?.toolPhase === 'native_search_only') {
-        systemParts.push('For real-time requests, retrieve evidence before concluding.');
-    }
-    if (providerInfo.provider === 'grok' && guidance?.toolPhase === 'native_search_only') {
-        systemParts.push('REALTIME SOCIAL SEARCH REQUIRED: Search first. If evidence is thin, say so plainly.');
+        systemParts.push('Realtime public evidence is required before you conclude.');
     }
     if (providerInfo.provider === 'grok' && guidance?.searchMode !== 'forbidden') {
-        systemParts.push('When a request mixes social timing with token or on-chain analysis, use native search for the timing/news context and local chain tools for wallet, holder, buyer, transfer, and token evidence.');
-    }
-    if (guidance?.intentEnvelope?.domain === 'x') {
-        systemParts.push('For X/Twitter queries in this system, combine search evidence with chain-side evidence when it materially improves the answer.');
+        systemParts.push('Use provider-native search for realtime public context when needed, and local tools for chain-side evidence.');
     }
     if (!providerInfo.supportsNativeSearch && guidance?.searchMode === 'required') {
         systemParts.push('This provider path has no provider-native search. When search evidence is required, use local search tools such as external_web_search together with any relevant chain-analysis tools.');
     }
-    if (guidance?.intentEnvelope?.primary_intent === 'swap_execution' || guidance?.intentEnvelope?.primary_intent === 'copytrade_execution') {
-        systemParts.push('For swap or execution tasks, do not use get_token_price for contract-address tokens or sell-all flows. get_token_price is for mainstream symbol lookups only. Use get_wallet_info, get_token_info, and prepare_swap_transaction. Use simulate_swap only when quote-before-swap is enabled or preflight evidence is explicitly required.');
-    }
     const swapModeContract = buildSwapModeContract(runtime.userSettings || {});
     if (swapModeContract) {
         systemParts.push(swapModeContract);
-    }
-    if (guidance?.intentEnvelope?.required_evidence?.includes('onchain_token_evidence')) {
-        systemParts.push('For time-anchored token buyer analysis, use get_early_buyers with its real contract: address plus start_time/end_time. Do not invent timestamp_range, timestamp-only, XML tool tags, or pseudo schemas.');
-    }
-    const toolCallExamples = buildToolCallExamples(guidance, providerInfo);
-    if (toolCallExamples) {
-        systemParts.push(toolCallExamples);
     }
 
     const contextTextParts = [
@@ -91,6 +75,7 @@ export function assembleGenerationMessages(
             const intentSummary = summarizeCanonicalIntent(snapshot.normalizedIntent);
             return intentSummary ? [buildLabeledSummaryBlock('INTENT_NORMALIZATION', intentSummary)] : [];
         })(),
+        buildWorkflowStateBlock(snapshot),
         contextBlocks.walletState,
         contextBlocks.tokenContext,
         contextBlocks.launchpadContext,
@@ -207,33 +192,6 @@ function buildProviderNativeEvidenceBlock(providerNativeEvidence?: ProviderNativ
     return lines.join('\n');
 }
 
-function buildToolCallExamples(
-    guidance: {
-        intentEnvelope?: IntentEnvelope;
-        searchMode?: SearchMode;
-        preferredTools?: string[];
-    } | undefined,
-    providerInfo: ProviderInfo,
-): string {
-    const examples: string[] = [];
-    const preferred = new Set((guidance?.preferredTools || []).map((item) => String(item || '').trim()));
-
-    if (guidance?.searchMode === 'required') {
-        if (providerInfo.supportsNativeSearch) {
-            examples.push('- If you need current X/web evidence: emit a real provider-native search tool call immediately. Do not say "I will search".');
-        } else if (preferred.has('external_web_search')) {
-            examples.push('- Example: when you need current public evidence, call external_web_search with a concrete query immediately. Do not write "I will use external_web_search".');
-        }
-    }
-
-    if (guidance?.intentEnvelope?.required_evidence?.includes('onchain_token_evidence') || preferred.has('get_early_buyers')) {
-        examples.push('- Example: once you know the token address and time window, call get_early_buyers with address plus start_time/end_time immediately. Do not write "Calling get_early_buyers".');
-    }
-
-    if (examples.length === 0) return '';
-    return ['[TOOL_CALL_EXAMPLES]', ...examples].join('\n');
-}
-
 export function buildRoundToolPolicySystemMessage(guidance: {
     preferredTools?: string[];
     strategyNotes?: string[];
@@ -284,6 +242,35 @@ function buildRuntimeDirectivesBlock(systemDirectives: Array<{ message: string }
     return lines.length > 0 ? ['[RUNTIME_DIRECTIVES]', ...lines].join('\n') : '';
 }
 
+function buildWorkflowStateBlock(snapshot: ChatContextSnapshot): string {
+    const actionState = snapshot.conversationActionState || null;
+    const recentTools = (snapshot.recentToolTrace?.toolCalls || [])
+        .slice(-6)
+        .map((call) => String(call?.tool || '').trim())
+        .filter(Boolean);
+    const lines: string[] = [];
+
+    if (actionState) {
+        lines.push(`pending_action: ${actionState.pendingAction}`);
+        lines.push(`can_execute: ${actionState.canExecute}`);
+        if (actionState.clarificationQuestion) {
+            lines.push(`clarification: ${actionState.clarificationQuestion}`);
+        }
+    }
+    if (snapshot.confirmationState?.kind) {
+        lines.push(`pending_confirmation: ${snapshot.confirmationState.kind}`);
+    }
+    if (snapshot.normalizedIntent?.timeContext) {
+        lines.push(`time_anchor_state: ${snapshot.normalizedIntent.timeContext.description || (snapshot.normalizedIntent.timeContext.isTimeBound ? 'time_bound' : 'none')}`);
+    }
+    if (recentTools.length > 0) {
+        lines.push(`recent_tools: ${recentTools.join(', ')}`);
+        lines.push('discovery_state: reuse_recent_evidence_when_relevant');
+    }
+
+    return lines.length > 0 ? ['[WORKFLOW_STATE]', ...lines.map((line) => `- ${line}`)].join('\n') : '';
+}
+
 function buildUserSettings(settings: Record<string, any>): Record<string, any> {
     const compact = {
         quick_swap: asBoolean(settings.quickSwapMode),
@@ -303,38 +290,33 @@ function buildUserSettings(settings: Record<string, any>): Record<string, any> {
 function buildSwapModeContract(settings: Record<string, any>): string {
     if (asBoolean(settings.fastSwapMode)) {
         return [
-            'FAST SWAP CONTRACT:',
-            '- Fast swap is execution-first mode.',
-            '- Do not make a quote card or simulate_swap a blocking prerequisite.',
-            '- Once token target, chain, and executable amount are explicit and wallet context is sufficient, proceed directly toward prepare_swap_transaction execution.',
-            '- Ask a short clarification only when token identity, chain, or executable amount is still unsafe or unresolved.',
+            'EXECUTION_MODE: fast_swap',
+            '- Quote is optional, not a blocking prerequisite.',
+            '- Once token, chain, amount, and wallet context are explicit enough, move directly toward execution.',
         ].join('\n');
     }
 
     if (settings.showQuoteBeforeSwap !== false) {
         return [
-            'QUOTE-BEFORE-SWAP CONTRACT:',
-            '- Quote-before-swap mode is enabled.',
-            '- For the first execution attempt of a pair+amount, call simulate_swap once, present the quote, and wait for explicit user confirmation.',
-            '- Do not call prepare_swap_transaction with execute=true until the user confirms.',
-            '- After confirmation, execute directly without repeating simulate_swap unless the quote is stale or mismatched.',
+            'EXECUTION_MODE: quote_before_swap',
+            '- Quote once, wait for explicit confirmation, then execute without repeating the quote unless it is stale or mismatched.',
         ].join('\n');
     }
 
     return [
-        'DIRECT EXECUTION CONTRACT:',
-        '- Quote-before-swap is disabled and fast swap is off.',
-        '- Do not stall on quote presentation.',
-        '- Use preflight only when needed for balance, chain, token resolution, or safety validation, then proceed toward prepare_swap_transaction execution.',
+        'EXECUTION_MODE: direct',
+        '- Use only the minimum preflight needed for balance, chain, token resolution, or safety validation before execution.',
     ].join('\n');
 }
 
 function buildUserContext(snapshot: ChatContextSnapshot): Record<string, any> {
     const runtime = snapshot.runtime || {};
-    const requestedChain = resolveRequestedChainHint({
-        text: snapshot.lastUserMessage,
+    const requestedChain = resolveCanonicalChainRef({
+        canonicalIntent: snapshot.normalizedIntent || null,
         requestedTokenAddresses: snapshot.requestedTokenAddresses,
         requestedTokenSymbols: snapshot.requestedTokenSymbols,
+        runtimeChainId: snapshot.runtime.chainId,
+        runtimeChainName: snapshot.runtime.chainName,
     });
     const compact = {
         wallet: runtime.walletAddress || runtime.userAddress,
@@ -344,7 +326,7 @@ function buildUserContext(snapshot: ChatContextSnapshot): Record<string, any> {
                 name: runtime.chainName,
             }
             : undefined,
-        requested_chain: requestedChain
+        requested_chain: requestedChain && requestedChain.source !== 'wallet_context'
             ? {
                 id: requestedChain.chainId,
                 name: requestedChain.chainName,

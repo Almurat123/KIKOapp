@@ -1,4 +1,10 @@
-import type { ChatHistoryMessage, RecentToolTrace, TradeConfirmationState } from './contracts.js';
+import type {
+    ChatContextSnapshot,
+    ChatHistoryMessage,
+    ConversationActionState,
+    RecentToolTrace,
+    TradeConfirmationState,
+} from './contracts.js';
 import type { ActionClass } from './controlPolicy.js';
 import { isExplicitChainSwitchRequest } from './chainIntent.js';
 
@@ -28,12 +34,8 @@ export function sanitizeHistory(messages: any[]): ChatHistoryMessage[] {
 
 export function extractRequestedTokenAddresses(text: string): string[] {
     const values = new Set<string>();
-    for (const match of text.match(EVM_ADDR_RE) || []) {
-        values.add(match.toLowerCase());
-    }
-    for (const match of text.match(SOL_ADDR_RE) || []) {
-        values.add(match);
-    }
+    for (const match of text.match(EVM_ADDR_RE) || []) values.add(match.toLowerCase());
+    for (const match of text.match(SOL_ADDR_RE) || []) values.add(match);
     return Array.from(values);
 }
 
@@ -84,171 +86,141 @@ export function extractRecentToolTrace(messages: any[]): RecentToolTrace | null 
     };
 }
 
-export function isConfirmationMessage(message: string): boolean {
-    const normalized = String(message || '').trim().toLowerCase();
-    if (!normalized) return false;
-    const compact = normalized.replace(/[\s._-]+/g, '');
-    const directKeywords = new Set([
-        'confirm', 'confirmed', 'proceed', 'yes', 'y', 'ok', 'okay',
-        '继续', '确认', '执行', '下单', '成交', '好的', '可以',
-    ]);
-    if (directKeywords.has(compact) || directKeywords.has(normalized)) {
-        return true;
+export function buildConversationActionState(snapshot: ChatContextSnapshot): ConversationActionState {
+    const raw = String(snapshot.lastUserMessage || '').trim();
+    const normalizedIntent = snapshot.normalizedIntent || null;
+    const wantsConfirmation = normalizedIntent?.taskMode === 'confirm' || normalizedIntent?.taskMode === 'execute';
+    const explicitChainSwitch = isExplicitChainSwitchRequest(raw, normalizedIntent);
+    const toolTrace = snapshot.recentToolTrace || null;
+
+    if (explicitChainSwitch) {
+        return {
+            pendingAction: 'none',
+            confirmationPayload: null,
+            canExecute: false,
+            needsClarification: false,
+            clarificationQuestion: null,
+        };
     }
 
-    const isShortAffirmation = compact.length <= 24
-        && /^(?:please)?(?:goahead|proceed|confirm(?:ed)?|execute|runit|doit|yes|ok|okay|继续|确认执行|确认下单|直接执行|现在执行)$/.test(compact);
-    if (isShortAffirmation) {
-        return true;
+    const payloadConfirmation = resolveOrderConfirmationFromToolTrace(toolTrace);
+    if (payloadConfirmation) {
+        return {
+            pendingAction: payloadConfirmation.kind === 'copy_trade_confirmation' ? 'copy_trade' : 'order',
+            confirmationPayload: payloadConfirmation,
+            canExecute: wantsConfirmation,
+            needsClarification: false,
+            clarificationQuestion: null,
+        };
     }
 
-    const containsTradeIntent = /\b(swap|buy|sell|trade|quote|price|analyze|check|get|receive|convert)\b/i.test(normalized)
-        || /买|卖|兑换|报价|价格|分析|检查|查询/.test(normalized);
-    if (containsTradeIntent) {
-        return false;
-    }
-
-    return /^(?:please\s+)?(?:go ahead|proceed|confirm(?:ed)?|execute now|run it|do it)$/i.test(normalized)
-        || /^(?:现在)?(?:继续执行|确认执行|直接执行|继续下单|确认下单)$/.test(normalized);
-}
-
-export function isSetupProceedMessage(message: string): boolean {
-    const text = String(message || '').trim().toLowerCase();
-    if (!text) return false;
-    const patterns = [
-        /\bjust\s+create\b/,
-        /\bcreate\s+it\b/,
-        /\bgo\s+ahead\b/,
-        /\buse\s+default\b/,
-        /直接创建/,
-        /就创建/,
-        /按默认/,
-        /不用了.*创建/,
-    ];
-    return patterns.some((p) => p.test(text)) || isConfirmationMessage(text);
-}
-
-export function parseCopyTradeRequestFromText(text: string): {
-    target_wallet?: string;
-    buy_amount_usd?: number;
-    chain_id?: number;
-    mirror_sell?: boolean;
-    take_profit_pct?: number;
-    stop_loss_pct?: number;
-} | null {
-    const raw = String(text || '');
-    if (!raw) return null;
-    const lower = raw.toLowerCase();
-    const hasCopyTradeSignal =
-        /\bcopy[\s-]*trade|copy[\s-]*trading|copytrade|copy trader|follow this trader|copy strategy\b/i.test(lower)
-        || /\bcopy\b.*\bwallet\b/i.test(lower)
-        || /跟单|复制交易/.test(raw);
-    if (!hasCopyTradeSignal) return null;
-
-    const walletMatch = raw.match(/0x[a-fA-F0-9]{40}/);
-    if (!walletMatch) return null;
-
-    const parsed: {
-        target_wallet?: string;
-        buy_amount_usd?: number;
-        chain_id?: number;
-        mirror_sell?: boolean;
-        take_profit_pct?: number;
-        stop_loss_pct?: number;
-    } = {
-        target_wallet: walletMatch[0],
-    };
-
-    const amountPatterns = [
-        /\$\s*([0-9]+(?:\.[0-9]+)?)\s*(?:per\s*trade|each\s*trade)/i,
-        /with\s*\$\s*([0-9]+(?:\.[0-9]+)?)/i,
-        /\b([0-9]+(?:\.[0-9]+)?)\s*usd\s*(?:per\s*trade|each\s*trade)?/i,
-    ];
-    for (const pattern of amountPatterns) {
-        const m = raw.match(pattern);
-        if (m) {
-            parsed.buy_amount_usd = Number(m[1]);
-            break;
+    if (wantsConfirmation) {
+        const swapConfirmation = resolveSwapConfirmationFromToolTrace(toolTrace);
+        if (swapConfirmation) {
+            return {
+                pendingAction: 'swap',
+                confirmationPayload: swapConfirmation,
+                canExecute: true,
+                needsClarification: false,
+                clarificationQuestion: null,
+            };
         }
+
+        return {
+            pendingAction: 'none',
+            confirmationPayload: null,
+            canExecute: false,
+            needsClarification: true,
+            clarificationQuestion: normalizedIntent?.locale === 'zh'
+                ? '我目前没有待确认的执行步骤。请先让我准备交易或订单，再确认。'
+                : 'There is no pending action to confirm yet. Let me prepare the trade or order first.',
+        };
     }
 
-    if (/\bbase\b/i.test(raw)) parsed.chain_id = 8453;
-    else if (/\b(bnb|bsc)\b/i.test(raw)) parsed.chain_id = 56;
-    else if (/\bsolana\b|\bsol\b/i.test(raw)) parsed.chain_id = 900;
-
-    const autoSell = raw.match(/auto\s*sell\s*[:=]?\s*(yes|no|true|false|on|off)/i);
-    if (autoSell) parsed.mirror_sell = ['yes', 'true', 'on'].includes(autoSell[1].toLowerCase());
-
-    const tpMatch = raw.match(/(?:\bTP\b|take\s*profit)\s*[:=]?\s*([0-9]+(?:\.[0-9]+)?)\s*%/i);
-    if (tpMatch) parsed.take_profit_pct = Number(tpMatch[1]);
-    const slMatch = raw.match(/(?:\bSL\b|stop\s*loss)\s*[:=]?\s*([0-9]+(?:\.[0-9]+)?)\s*%/i);
-    if (slMatch) parsed.stop_loss_pct = Number(slMatch[1]);
-
-    return parsed;
+    return {
+        pendingAction: 'none',
+        confirmationPayload: null,
+        canExecute: false,
+        needsClarification: false,
+        clarificationQuestion: null,
+    };
 }
 
-export function resolveTradeConfirmationState(messages: any[], latestUserMessage: string): TradeConfirmationState | null {
-    const raw = String(latestUserMessage || '');
-    if (isExplicitChainSwitchRequest(raw)) return null;
-    const maybeProceed = isConfirmationMessage(raw) || isSetupProceedMessage(raw);
-    if (!maybeProceed) return null;
+export function applyConversationActionState(snapshot: ChatContextSnapshot): ChatContextSnapshot {
+    const conversationActionState = buildConversationActionState(snapshot);
+    return {
+        ...snapshot,
+        conversationActionState,
+        confirmationState: conversationActionState.confirmationPayload || null,
+    };
+}
 
-    const toolTrace = extractRecentToolTrace(messages);
-    const swapCall = [...(toolTrace?.toolCalls || [])].reverse().find((call) =>
-        ['simulate_swap', 'prepare_swap_transaction', 'get_cross_chain_quote', 'prepare_cross_chain_tx'].includes(String(call.tool || '')) &&
-        ['success', 'cached'].includes(String(call.status || ''))
-    );
-    if (swapCall) {
-        const args = swapCall.args || {};
+export function resolveTradeConfirmationState(
+    messages: any[],
+    latestUserMessage: string,
+    normalizedIntent?: ChatContextSnapshot['normalizedIntent'],
+): TradeConfirmationState | null {
+    const snapshot = applyConversationActionState({
+        sessionId: 'adhoc',
+        taskId: 'adhoc',
+        model: 'adhoc',
+        history: sanitizeHistory(messages),
+        lastUserMessage: latestUserMessage,
+        recentToolTrace: extractRecentToolTrace(messages),
+        runtime: {},
+        requestedTokenAddresses: extractRequestedTokenAddressesFromHistory(messages),
+        requestedTokenSymbols: extractRequestedTokenSymbolsFromHistory(messages),
+        normalizedIntent: normalizedIntent || null,
+        toolDefinitions: [],
+    } as ChatContextSnapshot);
+    return snapshot.confirmationState || null;
+}
+
+export function isConfirmationMessage(_message: string, snapshot?: ChatContextSnapshot | null): boolean {
+    const normalizedIntent = snapshot?.normalizedIntent || null;
+    return normalizedIntent?.taskMode === 'confirm' || normalizedIntent?.taskMode === 'execute' || false;
+}
+
+function resolveSwapConfirmationFromToolTrace(trace: RecentToolTrace | null): TradeConfirmationState | null {
+    const calls = trace?.toolCalls || [];
+    for (let idx = calls.length - 1; idx >= 0; idx -= 1) {
+        const call = calls[idx];
+        if (!['success', 'cached'].includes(String(call?.status || ''))) continue;
+        const toolName = String(call?.tool || '');
+        if (!['simulate_swap', 'prepare_swap_transaction', 'get_cross_chain_quote', 'prepare_cross_chain_tx'].includes(toolName)) {
+            continue;
+        }
+        const args = (call?.args && typeof call.args === 'object') ? call.args as Record<string, any> : {};
+        if (toolName === 'get_cross_chain_quote' || toolName === 'prepare_cross_chain_tx') {
+            if (!args.fromToken || !args.toToken || !args.fromAmount) continue;
+            return {
+                kind: 'swap_confirmation',
+                swap: {
+                    tokenIn: String(args.fromToken),
+                    tokenOut: String(args.toToken),
+                    amountIn: String(args.fromAmount),
+                    chainId: Number(args.fromChain || 0) || undefined,
+                    toChain: Number(args.toChain || 0) || undefined,
+                    isCrossChain: true,
+                },
+            };
+        }
+        if (!args.token_in || !args.token_out || !args.amount_in) continue;
         return {
             kind: 'swap_confirmation',
             swap: {
-                tokenIn: String(args.token_in || args.fromToken || ''),
-                tokenOut: String(args.token_out || args.toToken || ''),
-                amountIn: String(args.amount_in || args.fromAmount || ''),
-                chainId: Number(args.chain_id || args.fromChain || 0) || undefined,
-                toChain: Number(args.toChain || args.to_chain || 0) || undefined,
-                isCrossChain: Boolean(args.toChain || args.to_chain || swapCall.tool?.includes('cross_chain')),
-            },
-        };
-    }
-
-    const parsedCopyTrade = [...(messages || [])]
-        .sort((a, b) => (a.message_index || a.messageIndex || 0) - (b.message_index || b.messageIndex || 0))
-        .reverse()
-        .find((msg) => msg.role === 'user' && parseCopyTradeRequestFromText(String(msg.content || '')));
-    if (parsedCopyTrade) {
-        const args = parseCopyTradeRequestFromText(String(parsedCopyTrade.content || '')) || {};
-        return {
-            kind: 'copy_trade_confirmation',
-            copyTrade: {
-                targetWallet: String(args.target_wallet || ''),
-                buyAmountUsd: Number(args.buy_amount_usd || 0),
+                tokenIn: String(args.token_in),
+                tokenOut: String(args.token_out),
+                amountIn: String(args.amount_in),
                 chainId: Number(args.chain_id || 0) || undefined,
-                mirrorSell: typeof args.mirror_sell === 'boolean' ? args.mirror_sell : undefined,
-                takeProfitPct: Number.isFinite(Number(args.take_profit_pct)) ? Number(args.take_profit_pct) : undefined,
-                stopLossPct: Number.isFinite(Number(args.stop_loss_pct)) ? Number(args.stop_loss_pct) : undefined,
+                isCrossChain: false,
             },
         };
     }
-
-    const orderConfirmation = resolveOrderConfirmationFromToolTrace(toolTrace);
-    if (orderConfirmation) {
-        return {
-            kind: 'order_confirmation',
-            order: orderConfirmation,
-        };
-    }
-
     return null;
 }
 
-function resolveOrderConfirmationFromToolTrace(trace: RecentToolTrace | null): {
-    toolName: string;
-    args: Record<string, any>;
-    confirmationToken: string;
-    actionClass: ActionClass;
-} | null {
+function resolveOrderConfirmationFromToolTrace(trace: RecentToolTrace | null): TradeConfirmationState | null {
     const calls = trace?.toolCalls || [];
     for (let idx = calls.length - 1; idx >= 0; idx -= 1) {
         const call = calls[idx];
@@ -257,36 +229,53 @@ function resolveOrderConfirmationFromToolTrace(trace: RecentToolTrace | null): {
             ? result.confirmation_payload
             : null;
         if (!payload || result?.requires_confirmation !== true) continue;
+
         const toolName = String(payload.tool_name || call.tool || '').trim();
-        const args = (payload.args && typeof payload.args === 'object') ? payload.args : (call.args || {});
         const confirmationToken = String(payload.confirmation_token || '').trim();
+        const actionClass = String(payload.action_class || '').trim() as ActionClass;
         if (!toolName || !confirmationToken) continue;
-        const actionClassRaw = String(payload.action_class || '').trim();
-        const actionClass: ActionClass = actionClassRaw === 'TRADE_MUTATION' || actionClassRaw === 'ORDER_MUTATION'
-            ? actionClassRaw
-            : 'ORDER_MUTATION';
-        return {
+
+        const orderPayload = {
             toolName,
-            args,
+            args: (payload.args && typeof payload.args === 'object') ? payload.args : {},
             confirmationToken,
-            actionClass,
+            actionClass: (actionClass === 'TRADE_MUTATION' ? 'TRADE_MUTATION' : 'ORDER_MUTATION') as ActionClass,
+        };
+
+        if (toolName === 'create_copy_trade_config' || toolName === 'create_polymarket_copy_config') {
+            return {
+                kind: 'copy_trade_confirmation',
+                copyTrade: {
+                    targetWallet: String(orderPayload.args.target_wallet || orderPayload.args.targetWallet || ''),
+                    buyAmountUsd: Number(orderPayload.args.buy_amount_usd || orderPayload.args.bet_size_usd || 0),
+                    chainId: Number(orderPayload.args.chain_id || 0) || undefined,
+                    mirrorSell: typeof orderPayload.args.mirror_sell === 'boolean' ? orderPayload.args.mirror_sell : undefined,
+                    takeProfitPct: Number.isFinite(Number(orderPayload.args.take_profit_pct)) ? Number(orderPayload.args.take_profit_pct) : undefined,
+                    stopLossPct: Number.isFinite(Number(orderPayload.args.stop_loss_pct)) ? Number(orderPayload.args.stop_loss_pct) : undefined,
+                },
+            };
+        }
+
+        return {
+            kind: 'order_confirmation',
+            order: orderPayload,
         };
     }
     return null;
 }
 
-function collectRecentUserMessages(messages: any[], recentUserLimit: number): any[] {
-    return [...(messages || [])]
-        .filter((msg) => msg?.role === 'user')
-        .sort(compareMessagesChronologically)
-        .slice(-Math.max(1, recentUserLimit));
+function compareMessagesChronologically(a: any, b: any): number {
+    const aIndex = Number(a?.message_index || a?.messageIndex || 0);
+    const bIndex = Number(b?.message_index || b?.messageIndex || 0);
+    if (aIndex !== bIndex) return aIndex - bIndex;
+    const aCreated = Date.parse(String(a?.created_at || a?.createdAt || 0)) || 0;
+    const bCreated = Date.parse(String(b?.created_at || b?.createdAt || 0)) || 0;
+    return aCreated - bCreated;
 }
 
-function compareMessagesChronologically(a: any, b: any): number {
-    const aIndex = Number(a?.message_index ?? a?.messageIndex ?? 0);
-    const bIndex = Number(b?.message_index ?? b?.messageIndex ?? 0);
-    if (aIndex !== bIndex) return aIndex - bIndex;
-    const aCreated = String(a?.createdAt || a?.created_at || '');
-    const bCreated = String(b?.createdAt || b?.created_at || '');
-    return aCreated.localeCompare(bCreated);
+function collectRecentUserMessages(messages: any[], limit: number) {
+    return [...(messages || [])]
+        .filter((msg) => msg.role === 'user')
+        .sort(compareMessagesChronologically)
+        .slice(-limit);
 }

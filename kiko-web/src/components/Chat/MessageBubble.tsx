@@ -18,7 +18,7 @@ import remarkBreaks from 'remark-breaks';
 import { toast } from 'sonner';
 import clsx from 'clsx';
 import { useThemeContext } from '../../contexts/ThemeContext';
-import { preprocessMarkdown } from '../../utils/markdownUtils';
+import { preprocessMarkdown, stripMarkdownTables } from '../../utils/markdownUtils';
 // DEPRECATED: SwapCardChat removed from chat interface (kept in WalletPage)
 // import { SwapCardChat } from './SwapCardChat';
 import { StrategyCard } from './StrategyCard';
@@ -31,6 +31,7 @@ import { TokenCapsule } from './TokenCapsule';
 import { CitationRenderer } from './CitationRenderer';
 import { XPostCard } from './XPostCard';
 import { MarkdownCode } from './MarkdownCode';
+import { StructuredRenderBlock } from './StructuredRenderBlock';
 import {
   getSourceDomain,
   getFaviconUrl,
@@ -339,11 +340,21 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({
     (!message.content || message.content.trim().length === 0) &&
     (!message.reasoning_content || message.reasoning_content.trim().length === 0);
 
+  const renderContracts = Array.isArray(message.data?.renderContracts)
+    ? message.data.renderContracts
+    : message.data?.renderContract
+      ? [message.data.renderContract]
+      : [];
+  const hasStructuredRender = renderContracts.length > 0;
   const hasVisibleContent =
     (message.content && message.content.trim().length > 0) ||
     (message.reasoning_content && message.reasoning_content.trim().length > 0) ||
+    hasStructuredRender ||
     hasInlineCard ||
     hasRuntimeCard;
+  const renderedContent = hasStructuredRender
+    ? stripMarkdownTables(message.content || '')
+    : (message.content || '');
 
   return (
     <div
@@ -459,7 +470,12 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({
                       </div>
                     </div>
                   )}
-                {message.content && (
+                {hasStructuredRender && (
+                  <div className={styles.markdownContent}>
+                    <StructuredRenderBlock contracts={renderContracts} />
+                  </div>
+                )}
+                {renderedContent && (
                   <div
                     className={clsx(
                       styles.markdownContent,
@@ -470,7 +486,7 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({
                   >
                     {/* Use simple ReactMarkdown without custom components to enable text selection */}
                     <CitationRenderer
-                      content={message.content}
+                      content={renderedContent}
                       citations={message.citations || []}
                       components={MarkdownComponents}
                     />

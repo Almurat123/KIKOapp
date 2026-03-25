@@ -380,11 +380,15 @@ export class ChatStreamBroker {
                     },
                 ],
             };
-            const data = {
+            const data: Record<string, any> = {
                 ...this.assistantData,
                 toolTrace,
                 orchestrationToolResults: [...(this.assistantData.orchestrationToolResults || []), result],
             };
+            const renderContract = extractRenderContract(normalizedResult);
+            if (renderContract) {
+                data.renderContracts = mergeRenderContracts(this.assistantData.renderContracts || [], renderContract);
+            }
             this.assistantData = data;
             await chatRepo.updateMessage(this.params.assistantMessageId, { data, status: 'streaming' });
             await this.persistToolSideEffects(result);
@@ -925,6 +929,24 @@ export class ChatStreamBroker {
         const value = String(text || '').toLowerCase();
         return value.includes('completed') || value.includes('done') || value.includes('已完成');
     }
+}
+
+function extractRenderContract(result: any): any | null {
+    if (!result || typeof result !== 'object') return null;
+    const renderContract = (result as Record<string, any>).renderContract;
+    return renderContract && typeof renderContract === 'object' ? renderContract : null;
+}
+
+function mergeRenderContracts(existing: any[], next: any) {
+    const contracts = Array.isArray(existing) ? [...existing] : [];
+    const nextId = String(next?.id || '');
+    if (!nextId) return [...contracts, next];
+    const index = contracts.findIndex((item) => String(item?.id || '') === nextId);
+    if (index >= 0) {
+        contracts[index] = next;
+        return contracts;
+    }
+    return [...contracts, next];
 }
 
 function mergeProviderNativeEvidence(

@@ -4,6 +4,7 @@
  * Provides AI access to Polymarket prediction market data.
  */
 import { Tool } from '../../../tooling/registry.js';
+import type { RenderContract } from '../../../jobs/chat/contracts.js';
 import {
     getTrendingEvents,
     getTrendingMarkets,
@@ -106,6 +107,24 @@ function mapNewMarketEvent(event: Awaited<ReturnType<typeof getNewMarkets>>['eve
                 token_id: outcome.tokenId,
             })),
         })),
+    };
+}
+
+function buildPolymarketListRenderContract(params: {
+    id: string;
+    title: string;
+    summary?: string;
+    columns: Array<{ key: string; label: string; valueType?: 'text' | 'number' | 'datetime' }>;
+    rows: Array<Record<string, string | number | null>>;
+}): RenderContract {
+    return {
+        id: params.id,
+        renderMode: 'table',
+        title: params.title,
+        summary: params.summary,
+        columns: params.columns,
+        rows: params.rows,
+        rowCount: params.rows.length,
     };
 }
 
@@ -528,6 +547,26 @@ export const GetPolymarketCoinUpDownMarketsTool: Tool = {
         });
 
         const recommended = result.markets[0] || null;
+        const renderContract = buildPolymarketListRenderContract({
+            id: 'polymarket_coin_updown_markets',
+            title: '5-minute coin markets',
+            summary: result.note,
+            columns: [
+                { key: 'title', label: 'Market' },
+                { key: 'tradable', label: 'Tradable' },
+                { key: 'tradable_detail', label: 'Status' },
+                { key: 'slug', label: 'Slug' },
+            ],
+            rows: result.markets.flatMap((market) => {
+                if (!market) return [];
+                return [{
+                    title: market.title,
+                    tradable: market.tradable ? 'yes' : 'no',
+                    tradable_detail: market.tradable_detail || '',
+                    slug: market.slug || '',
+                }];
+            }),
+        });
         return {
             source: 'Polymarket',
             type: 'Coin Up/Down 5-minute Markets',
@@ -544,6 +583,7 @@ export const GetPolymarketCoinUpDownMarketsTool: Tool = {
                 window: recommended.window,
             } : null,
             markets: result.markets,
+            renderContract,
         };
     },
     permissions: 'public'
@@ -635,6 +675,31 @@ export const GetPolymarketMarketOverviewTool: Tool = {
         if (overview.recommended_card?.market_slug) {
             return {
                 ...overview,
+                renderContract: buildPolymarketListRenderContract({
+                    id: 'polymarket_market_overview',
+                    title: 'Polymarket overview',
+                    summary: overview.guidance,
+                    columns: [
+                        { key: 'bucket', label: 'Bucket' },
+                        { key: 'title', label: 'Title' },
+                        { key: 'vol24h', label: '24h Volume' },
+                        { key: 'liquidity', label: 'Liquidity' },
+                    ],
+                    rows: [
+                        ...overview.buckets.hot_24h_markets.markets.map((market) => ({
+                            bucket: 'hot_24h',
+                            title: market.question,
+                            vol24h: market.vol24h,
+                            liquidity: market.liquidity,
+                        })),
+                        ...overview.buckets.tradable_now.markets.map((market) => ({
+                            bucket: 'tradable_now',
+                            title: market.title,
+                            vol24h: market.liquidity,
+                            liquidity: market.liquidity,
+                        })),
+                    ],
+                }),
                 __client_action: {
                     type: 'show_polymarket_card',
                     data: {
@@ -644,7 +709,34 @@ export const GetPolymarketMarketOverviewTool: Tool = {
             };
         }
 
-        return overview;
+        return {
+            ...overview,
+            renderContract: buildPolymarketListRenderContract({
+                id: 'polymarket_market_overview',
+                title: 'Polymarket overview',
+                summary: overview.guidance,
+                columns: [
+                    { key: 'bucket', label: 'Bucket' },
+                    { key: 'title', label: 'Title' },
+                    { key: 'vol24h', label: '24h Volume' },
+                    { key: 'liquidity', label: 'Liquidity' },
+                ],
+                rows: [
+                    ...overview.buckets.hot_24h_markets.markets.map((market) => ({
+                        bucket: 'hot_24h',
+                        title: market.question,
+                        vol24h: market.vol24h,
+                        liquidity: market.liquidity,
+                    })),
+                    ...overview.buckets.tradable_now.markets.map((market) => ({
+                        bucket: 'tradable_now',
+                        title: market.title,
+                        vol24h: market.liquidity,
+                        liquidity: market.liquidity,
+                    })),
+                ],
+            }),
+        };
     },
     permissions: 'public'
 };

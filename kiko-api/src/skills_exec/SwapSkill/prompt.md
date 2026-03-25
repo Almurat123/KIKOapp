@@ -44,7 +44,7 @@ This skill is an execution-oriented contract. Do not describe internal tools or 
    - If parameters are complete, confirm once and proceed.
    - If parameters are missing, ask once and wait.
    - If the same tool yields no new info twice, stop further tool calls and ask the user how to proceed.
-   - After user confirmation (e.g., \u201cconfirm\u201d, \u201cproceed\u201d, \u201cyes\u201d), you MUST call prepare_swap_transaction. Do NOT suggest external DEXs unless the tool returns an error.
+   - Treat structured confirmation state as authoritative. After a pending swap confirmation is present, proceed directly to `prepare_swap_transaction`; do not re-interpret natural-language confirmation keywords yourself.
 
 ## CASE FORMAT STANDARD (JSON)
 Use this case schema for execution-quality reasoning. Do not print the JSON unless the user asks for debug details.

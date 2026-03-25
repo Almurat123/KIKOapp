@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { summarizeWalletTokenTrades } from './tokenAnalysis.js';
+import { resolveEarlyBuyerTokenPnl, summarizeWalletTokenTrades } from './tokenAnalysis.js';
 
 test('summarizeWalletTokenTrades picks first buy and first sell for a token', () => {
     const tokenAddress = '0x1111111111111111111111111111111111111111';
@@ -51,3 +51,79 @@ test('summarizeWalletTokenTrades picks first buy and first sell for a token', ()
     assert.equal(summary?.recentTrades.length, 4);
 });
 
+test('resolveEarlyBuyerTokenPnl prefers dune token-level breakdown when available', async () => {
+    const tokenAddress = '0x1111111111111111111111111111111111111111';
+
+    const result = await resolveEarlyBuyerTokenPnl(
+        '0xwallet',
+        tokenAddress,
+        'bsc',
+        30,
+        Promise.resolve({
+            getWalletPnlFromDune: async () => ({
+                tokens: [
+                    {
+                        tokenAddress,
+                        boughtUsd: 123.45,
+                        soldUsd: 456.78,
+                        pnlUsd: 333.33,
+                        profitPct: 270,
+                    },
+                ],
+            }),
+            calculateWalletPnlManual: async () => {
+                throw new Error('manual path should not execute when dune token row exists');
+            },
+        })
+    );
+
+    assert.deepEqual(result, {
+        source: 'dune',
+        coverage: 'token_level_breakdown',
+        days: 30,
+        totalBuyUsd: 123.45,
+        totalSellUsd: 456.78,
+        realizedPnlUsd: 333.33,
+        unrealizedPnlUsd: null,
+        profitPct: 270,
+        currentTokenAmount: null,
+    });
+});
+
+test('resolveEarlyBuyerTokenPnl falls back to manual token breakdown', async () => {
+    const tokenAddress = '0x1111111111111111111111111111111111111111';
+
+    const result = await resolveEarlyBuyerTokenPnl(
+        '0xwallet',
+        tokenAddress,
+        'bsc',
+        30,
+        Promise.resolve({
+            getWalletPnlFromDune: async () => ({ tokens: [] }),
+            calculateWalletPnlManual: async () => ({
+                tokenBreakdown: {
+                    [tokenAddress.toLowerCase()]: {
+                        totalBuyUsd: 200,
+                        totalSellUsd: 350,
+                        realizedPnlUsd: 150,
+                        totalAmount: 10,
+                        totalCostUsd: 100,
+                        lastPrice: 12,
+                    },
+                },
+            }),
+        })
+    );
+
+    assert.deepEqual(result, {
+        source: 'manual',
+        coverage: 'approx_manual',
+        days: 30,
+        totalBuyUsd: 200,
+        totalSellUsd: 350,
+        realizedPnlUsd: 150,
+        unrealizedPnlUsd: 20,
+        profitPct: 75,
+        currentTokenAmount: '10',
+    });
+});

@@ -48,6 +48,31 @@ export interface TradeConfirmationState {
     };
 }
 
+export interface ConversationActionState {
+    pendingAction: 'none' | 'swap' | 'order' | 'copy_trade';
+    confirmationPayload?: TradeConfirmationState | null;
+    canExecute: boolean;
+    needsClarification: boolean;
+    clarificationQuestion: string | null;
+}
+
+export interface RenderContractColumn {
+    key: string;
+    label: string;
+    valueType?: 'text' | 'wallet_address' | 'tx_hash' | 'number' | 'datetime';
+}
+
+export interface RenderContract {
+    id?: string;
+    renderMode: 'narrative' | 'table' | 'list' | 'confirmation';
+    title?: string;
+    columns?: RenderContractColumn[];
+    rows?: Array<Record<string, string | number | null>>;
+    rowCount?: number;
+    summary?: string;
+    markdownFallback?: string | null;
+}
+
 export interface RuntimeDirective {
     kind: 'chain_context' | 'swap_confirmation' | 'copy_trade_confirmation' | 'amount_semantics' | 'fast_swap_address_required' | 'fast_swap_safe_mode' | 'fast_swap_contract' | 'quote_before_swap_contract' | 'balance_auto_resolution_guard' | 'chain_switch_required';
     message: string;
@@ -202,6 +227,7 @@ export interface ChatContextSnapshot {
     previousResponseId?: string | null;
     normalizedIntent?: CanonicalIntent | null;
     normalizationState?: CanonicalIntentNormalizationState | null;
+    conversationActionState?: ConversationActionState | null;
     toolDefinitions: ToolDefinition[];
     policySnapshot?: ControlPolicySnapshot | null;
 }

@@ -38,15 +38,24 @@ export interface EarlyBuyer {
     timestamp: Date;
     amount: string;
     txHash: string;
-    pnlUsd: number; // Profit/Loss for this wallet on this token
-    isSmart: boolean; // True if wallet is profitable
+    pnlUsd: number; // Token-level realized Profit/Loss for this wallet when available
+    isSmart: boolean; // True if wallet is profitable on this token when available
     transferCount?: number;
-    estimatedBuyUsd?: number | null;
-    walletTxCount?: number | null;
-    qualityScore?: number;
-    qualityTier?: 'whale' | 'high' | 'mid' | 'small';
     tradeProgression?: TradeProgressionSummary | null;
+    tokenPnl?: EarlyBuyerTokenPnl | null;
 }
+
+export type EarlyBuyerTokenPnl = {
+    source: 'dune' | 'manual';
+    coverage: 'token_level_breakdown' | 'approx_manual';
+    days: number;
+    totalBuyUsd: number | null;
+    totalSellUsd: number | null;
+    realizedPnlUsd: number | null;
+    unrealizedPnlUsd: number | null;
+    profitPct: number | null;
+    currentTokenAmount: string | null;
+};
 
 export type TradeProgressionRow = {
     txHash: string;
@@ -66,6 +75,29 @@ export type TradeProgressionSummary = {
     firstSell: TradeProgressionRow | null;
     recentTrades: TradeProgressionRow[];
 };
+
+type TokenPnlDeps = {
+    getWalletPnlFromDune: (walletAddress: string, chain: string, days: number) => Promise<any>;
+    calculateWalletPnlManual: (
+        walletAddress: string,
+        chain: string,
+        days: number | 'all',
+        options?: {
+            mode?: 'fast' | 'accurate';
+            maxTransfers?: number;
+            includeUnrealized?: boolean;
+        }
+    ) => Promise<any>;
+};
+
+async function defaultTokenPnlDeps(): Promise<TokenPnlDeps> {
+    const dunePnlService = await import('./dunePnlService.js');
+    const pnlCalculationService = await import('./pnlCalculationService.js');
+    return {
+        getWalletPnlFromDune: dunePnlService.getWalletPnlFromDune,
+        calculateWalletPnlManual: pnlCalculationService.calculateWalletPnlManual,
+    };
+}
 
 function toTradeProgressionRow(tx: {
     txHash: string;
@@ -122,6 +154,83 @@ export function summarizeWalletTokenTrades(
     };
 }
 
+export async function resolveEarlyBuyerTokenPnl(
+    walletAddress: string,
+    tokenAddress: string,
+    chain: string,
+    days: number = 30,
+    depsPromise: Promise<TokenPnlDeps> = defaultTokenPnlDeps()
+): Promise<EarlyBuyerTokenPnl | null> {
+    const normalizedToken = String(tokenAddress || '').toLowerCase();
+    if (!walletAddress || !normalizedToken) return null;
+
+    const deps = await depsPromise;
+
+    try {
+        const dune = await deps.getWalletPnlFromDune(walletAddress, chain, days);
+        const duneToken = dune?.tokens?.find((token: any) => String(token.tokenAddress || '').toLowerCase() === normalizedToken);
+        if (duneToken) {
+            return {
+                source: 'dune',
+                coverage: 'token_level_breakdown',
+                days,
+                totalBuyUsd: Number.isFinite(Number(duneToken.boughtUsd)) ? Number(duneToken.boughtUsd) : null,
+                totalSellUsd: Number.isFinite(Number(duneToken.soldUsd)) ? Number(duneToken.soldUsd) : null,
+                realizedPnlUsd: Number.isFinite(Number(duneToken.pnlUsd)) ? Number(duneToken.pnlUsd) : null,
+                unrealizedPnlUsd: null,
+                profitPct: duneToken.profitPct !== null && Number.isFinite(Number(duneToken.profitPct))
+                    ? Number(duneToken.profitPct)
+                    : null,
+                currentTokenAmount: null,
+            };
+        }
+    } catch {
+        // fall through
+    }
+
+    try {
+        const manual = await deps.calculateWalletPnlManual(walletAddress, chain, days, {
+            mode: 'accurate',
+            maxTransfers: 5000,
+            includeUnrealized: true,
+        });
+        const tokenBreakdown = manual?.tokenBreakdown || {};
+        const tokenEntry = tokenBreakdown[normalizedToken]
+            || Object.values(tokenBreakdown).find((entry: any) => String(entry?.address || '').toLowerCase() === normalizedToken);
+        if (!tokenEntry) return null;
+
+        const totalBuyUsd = Number.isFinite(Number(tokenEntry.totalBuyUsd)) ? Number(tokenEntry.totalBuyUsd) : null;
+        const totalSellUsd = Number.isFinite(Number(tokenEntry.totalSellUsd)) ? Number(tokenEntry.totalSellUsd) : null;
+        const realizedPnlUsd = Number.isFinite(Number(tokenEntry.realizedPnlUsd)) ? Number(tokenEntry.realizedPnlUsd) : null;
+        const unrealizedPnlUsd = (
+            Number.isFinite(Number(tokenEntry.lastPrice))
+            && Number.isFinite(Number(tokenEntry.totalAmount))
+            && Number.isFinite(Number(tokenEntry.totalCostUsd))
+        )
+            ? (Number(tokenEntry.totalAmount) * Number(tokenEntry.lastPrice)) - Number(tokenEntry.totalCostUsd)
+            : null;
+        const profitPct = totalBuyUsd && realizedPnlUsd !== null
+            ? (realizedPnlUsd / totalBuyUsd) * 100
+            : null;
+
+        return {
+            source: 'manual',
+            coverage: 'approx_manual',
+            days,
+            totalBuyUsd,
+            totalSellUsd,
+            realizedPnlUsd,
+            unrealizedPnlUsd,
+            profitPct,
+            currentTokenAmount: Number.isFinite(Number(tokenEntry.totalAmount))
+                ? String(tokenEntry.totalAmount)
+                : null,
+        };
+    } catch {
+        return null;
+    }
+}
+
 async function fetchWalletTokenTrades(
     wallet: string,
     chain: string,
@@ -173,6 +282,8 @@ export async function getEarlyBuyers(
     limit: number = 10,
     options?: {
         includeTradeProgression?: boolean;
+        includeTokenPnl?: boolean;
+        tokenPnlDays?: number;
         tradeHistoryLimit?: number;
         startTimeMs?: number;
         endTimeMs?: number;
@@ -188,6 +299,8 @@ export async function getEarlyBuyers(
     const minTokenAmount = Number(options?.minTokenAmount || 0);
     const minTransferCount = Math.max(1, Number(options?.minTransferCount || 1));
     const includeTradeProgression = options?.includeTradeProgression !== false;
+    const includeTokenPnl = options?.includeTokenPnl !== false && !isSolana;
+    const tokenPnlDays = Math.max(1, Math.min(365, Number(options?.tokenPnlDays || 30)));
     const tradeHistoryLimit = Math.max(10, Math.min(100, Number(options?.tradeHistoryLimit || 25)));
 
     type BuyerAggregate = {
@@ -198,35 +311,18 @@ export async function getEarlyBuyers(
         transferCount: number;
     };
 
-    const computeQualityScore = (estimatedBuyUsd: number | null, totalAmount: number, transferCount: number): number => {
-        const usdSignal = estimatedBuyUsd !== null && estimatedBuyUsd > 0 ? Math.log10(estimatedBuyUsd + 1) * 40 : 0;
-        const amountSignal = totalAmount > 0 ? Math.log10(totalAmount + 1) * 20 : 0;
-        const transferSignal = Math.min(transferCount, 8) * 5;
-        return Number((usdSignal + amountSignal + transferSignal).toFixed(2));
-    };
-
-    const qualityTier = (estimatedBuyUsd: number | null, totalAmount: number): 'whale' | 'high' | 'mid' | 'small' => {
-        if (estimatedBuyUsd !== null) {
-            if (estimatedBuyUsd >= 50_000) return 'whale';
-            if (estimatedBuyUsd >= 10_000) return 'high';
-            if (estimatedBuyUsd >= 1_000) return 'mid';
-            return 'small';
-        }
-        if (totalAmount >= 1_000_000) return 'whale';
-        if (totalAmount >= 100_000) return 'high';
-        if (totalAmount >= 10_000) return 'mid';
-        return 'small';
-    };
-
     const normalizeCandidates = async (
         candidates: BuyerAggregate[],
-        currentPriceUsd: number | null,
         options?: {
             includeTradeProgression?: boolean;
+            includeTokenPnl?: boolean;
+            tokenPnlDays?: number;
             tradeHistoryLimit?: number;
         }
     ): Promise<EarlyBuyer[]> => {
         const includeTradeProgression = Boolean(options?.includeTradeProgression);
+        const includeTokenPnl = Boolean(options?.includeTokenPnl);
+        const tokenPnlDays = Math.max(1, Math.min(365, Number(options?.tokenPnlDays || 30)));
         const tradeHistoryLimit = Math.max(10, Math.min(100, Number(options?.tradeHistoryLimit || 25)));
 
         let filtered = candidates.filter(c =>
@@ -236,11 +332,6 @@ export async function getEarlyBuyers(
         );
 
         const mapped = filtered.map(c => {
-            const estimatedBuyUsd = currentPriceUsd !== null && currentPriceUsd > 0
-                ? c.totalAmount * currentPriceUsd
-                : null;
-            const score = computeQualityScore(estimatedBuyUsd, c.totalAmount, c.transferCount);
-
             return {
                 address: c.address,
                 timestamp: c.timestamp,
@@ -249,26 +340,31 @@ export async function getEarlyBuyers(
                 pnlUsd: 0,
                 isSmart: false,
                 transferCount: c.transferCount,
-                estimatedBuyUsd,
-                walletTxCount: null,
-                qualityScore: score,
-                qualityTier: qualityTier(estimatedBuyUsd, c.totalAmount),
             } as EarlyBuyer;
         });
 
         const mappedFiltered = mapped;
 
-        if (includeTradeProgression && mappedFiltered.length > 0) {
-            const limiter = pLimit(3);
+        if ((includeTradeProgression || includeTokenPnl) && mappedFiltered.length > 0) {
+            const limiter = pLimit(includeTokenPnl ? 2 : 3);
             await Promise.all(
                 mappedFiltered.map(item =>
                     limiter(async () => {
-                        try {
-                            const trades = await fetchWalletTokenTrades(item.address, chainLower, tokenAddress, tradeHistoryLimit);
-                            const progression = summarizeWalletTokenTrades(trades, tokenAddress);
-                            item.tradeProgression = progression;
-                        } catch {
-                            item.tradeProgression = null;
+                        if (includeTradeProgression) {
+                            try {
+                                const trades = await fetchWalletTokenTrades(item.address, chainLower, tokenAddress, tradeHistoryLimit);
+                                const progression = summarizeWalletTokenTrades(trades, tokenAddress);
+                                item.tradeProgression = progression;
+                            } catch {
+                                item.tradeProgression = null;
+                            }
+                        }
+                        if (includeTokenPnl) {
+                            item.tokenPnl = await resolveEarlyBuyerTokenPnl(item.address, tokenAddress, chainLower, tokenPnlDays);
+                            if (item.tokenPnl?.realizedPnlUsd !== null && item.tokenPnl?.realizedPnlUsd !== undefined) {
+                                item.pnlUsd = item.tokenPnl.realizedPnlUsd;
+                                item.isSmart = item.tokenPnl.realizedPnlUsd > 0;
+                            }
                         }
                     })
                 )
@@ -325,14 +421,6 @@ export async function getEarlyBuyers(
 
             const aggregates = new Map<string, BuyerAggregate>();
 
-            let currentPriceUsd: number | null = null;
-            try {
-                const details = await dexscreener.getTokenDetails('solana', tokenAddress);
-                if (details && Number.isFinite(details.price) && details.price > 0) {
-                    currentPriceUsd = details.price;
-                }
-            } catch { }
-
             let fallbackDecimals: number | null = null;
             if (result.success && result.data && result.data.length > 0) {
                 if (result.data[0].token_decimals === undefined || result.data[0].token_decimals === null) {
@@ -373,8 +461,10 @@ export async function getEarlyBuyers(
                     }
                 }
             }
-            return await normalizeCandidates(Array.from(aggregates.values()), currentPriceUsd, {
+            return await normalizeCandidates(Array.from(aggregates.values()), {
                 includeTradeProgression,
+                includeTokenPnl,
+                tokenPnlDays,
                 tradeHistoryLimit,
             });
         } catch (error) {
@@ -385,15 +475,6 @@ export async function getEarlyBuyers(
     else {
         console.log(`[TokenAnalysis] Fetching early buyers for EVM token: ${tokenAddress} on ${chainLower}`);
         try {
-            // Fetch current token price for rough wallet quality filtering.
-            let currentPriceUsd: number | null = null;
-            try {
-                const details = await dexscreener.getTokenDetails(chainLower, tokenAddress);
-                if (details && Number.isFinite(details.price) && details.price > 0) {
-                    currentPriceUsd = details.price;
-                }
-            } catch (e) { console.warn('[TokenAnalysis] DexScreener failed:', e); }
-
             const analysisLimit = Math.max(
                 50,
                 Math.min(500, Number(options?.scanLimit || Math.max(limit * 8, 80)))
@@ -471,8 +552,10 @@ export async function getEarlyBuyers(
                 }
             }
 
-            return await normalizeCandidates(Array.from(aggregates.values()), currentPriceUsd, {
+            return await normalizeCandidates(Array.from(aggregates.values()), {
                 includeTradeProgression,
+                includeTokenPnl,
+                tokenPnlDays,
                 tradeHistoryLimit,
             });
 

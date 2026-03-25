@@ -2,6 +2,7 @@ import { Tool } from '../../../tooling/registry.js';
 import * as tokenAnalysis from '../../../services/tokenAnalysis.js';
 import * as creatorAnalysis from '../../../services/creatorAnalysis.js';
 import { resolveChainInput } from '../../../utils/chainParam.js';
+import type { RenderContract } from '../../../jobs/chat/contracts.js';
 
 function escapeMarkdownCell(value: unknown): string {
     return String(value ?? '')
@@ -10,13 +11,19 @@ function escapeMarkdownCell(value: unknown): string {
         .trim();
 }
 
-function formatNumericCell(value: unknown, decimals = 2): string {
-    const numeric = typeof value === 'number' ? value : Number(value);
-    if (!Number.isFinite(numeric)) return '';
-    return numeric.toLocaleString('en-US', {
-        minimumFractionDigits: 0,
-        maximumFractionDigits: decimals,
-    });
+function formatUsd(value: number | null | undefined): string {
+    if (value === null || value === undefined || !Number.isFinite(value)) return '';
+    return new Intl.NumberFormat('en-US', {
+        style: 'currency',
+        currency: 'USD',
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+    }).format(value);
+}
+
+function formatPct(value: number | null | undefined): string {
+    if (value === null || value === undefined || !Number.isFinite(value)) return '';
+    return `${value.toFixed(2)}%`;
 }
 
 function buildEarlyBuyersMarkdownTable(rows: Array<{
@@ -24,13 +31,20 @@ function buildEarlyBuyersMarkdownTable(rows: Array<{
     address: string;
     timestamp?: string;
     amount?: string;
-    estimatedBuyUsd?: number | null;
     txHash?: string;
-    qualityTier?: string | null;
+    transferCount?: number | null;
+    tokenPnl?: {
+        source?: string | null;
+        totalBuyUsd?: number | null;
+        totalSellUsd?: number | null;
+        realizedPnlUsd?: number | null;
+        profitPct?: number | null;
+    } | null;
+    tradeProgression?: unknown;
 }>): string {
     const header = [
-        '| Rank | Wallet Address | First Buy Time (UTC) | Buy Amount | Est. Buy USD | TX Hash | Quality Tier |',
-        '| --- | --- | --- | --- | --- | --- | --- |',
+        '| Rank | Wallet Address | First Buy Time (UTC) | Buy Amount | TX Hash | Transfer Count | Buy USD | Sell USD | Realized PnL | Profit % | PnL Source |',
+        '| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |',
     ];
 
     const body = rows.map((row) => [
@@ -38,12 +52,67 @@ function buildEarlyBuyersMarkdownTable(rows: Array<{
         escapeMarkdownCell(row.address),
         escapeMarkdownCell(row.timestamp || ''),
         escapeMarkdownCell(row.amount || ''),
-        escapeMarkdownCell(formatNumericCell(row.estimatedBuyUsd, 2)),
         escapeMarkdownCell(row.txHash || ''),
-        escapeMarkdownCell(row.qualityTier || ''),
+        escapeMarkdownCell(row.transferCount ?? ''),
+        escapeMarkdownCell(formatUsd(row.tokenPnl?.totalBuyUsd)),
+        escapeMarkdownCell(formatUsd(row.tokenPnl?.totalSellUsd)),
+        escapeMarkdownCell(formatUsd(row.tokenPnl?.realizedPnlUsd)),
+        escapeMarkdownCell(formatPct(row.tokenPnl?.profitPct)),
+        escapeMarkdownCell(row.tokenPnl?.source || ''),
     ].join(' | ')).map((line) => `| ${line} |`);
 
     return [...header, ...body].join('\n');
+}
+
+function buildEarlyBuyerRenderContract(rows: Array<{
+    rank: number;
+    address: string;
+    timestamp?: string;
+    amount?: string;
+    txHash?: string;
+    transferCount?: number | null;
+    tokenPnl?: {
+        source?: string | null;
+        totalBuyUsd?: number | null;
+        totalSellUsd?: number | null;
+        realizedPnlUsd?: number | null;
+        profitPct?: number | null;
+    } | null;
+    tradeProgression?: unknown;
+}>): RenderContract {
+    return {
+        id: 'early_buyers_table',
+        renderMode: 'table',
+        title: 'Early buyers',
+        rowCount: rows.length,
+        columns: [
+            { key: 'rank', label: 'Rank', valueType: 'number' },
+            { key: 'address', label: 'Wallet Address', valueType: 'wallet_address' },
+            { key: 'timestamp', label: 'First Buy Time (UTC)', valueType: 'datetime' },
+            { key: 'amount', label: 'Buy Amount', valueType: 'text' },
+            { key: 'txHash', label: 'TX Hash', valueType: 'tx_hash' },
+            { key: 'transferCount', label: 'Transfer Count', valueType: 'number' },
+            { key: 'tokenBuyUsd', label: 'Buy USD', valueType: 'number' },
+            { key: 'tokenSellUsd', label: 'Sell USD', valueType: 'number' },
+            { key: 'tokenRealizedPnlUsd', label: 'Realized PnL', valueType: 'number' },
+            { key: 'tokenProfitPct', label: 'Profit %', valueType: 'number' },
+            { key: 'tokenPnlSource', label: 'PnL Source', valueType: 'text' },
+        ],
+        rows: rows.map((row) => ({
+            rank: row.rank,
+            address: row.address,
+            timestamp: row.timestamp || '',
+            amount: row.amount || '',
+            txHash: row.txHash || '',
+            transferCount: row.transferCount ?? '',
+            tokenBuyUsd: row.tokenPnl?.totalBuyUsd ?? '',
+            tokenSellUsd: row.tokenPnl?.totalSellUsd ?? '',
+            tokenRealizedPnlUsd: row.tokenPnl?.realizedPnlUsd ?? '',
+            tokenProfitPct: row.tokenPnl?.profitPct ?? '',
+            tokenPnlSource: row.tokenPnl?.source || '',
+        })),
+        markdownFallback: buildEarlyBuyersMarkdownTable(rows),
+    };
 }
 
 /**
@@ -52,7 +121,7 @@ function buildEarlyBuyersMarkdownTable(rows: Array<{
 export const GetEarlyBuyersTool: Tool = {
     definition: {
         name: 'get_early_buyers',
-        description: 'Get the earliest buyers of a token, optionally within a precise time window. Use this after you know the token contract and, if relevant, the event/post time window you want to analyze. If you choose this tool, emit a real structured tool call immediately. Do not narrate "Calling get_early_buyers" in plain text. Use address plus optional start_time/end_time; do not invent timestamp_range or other unofficial fields. Early-buyer queries should default to full-list output for the returned rows, not a compressed summary. When the tool result includes markdownTable, output that table verbatim first.',
+        description: 'Get the earliest buyers of a token, optionally within a precise time window. For EVM chains, this tool also attempts token-specific wallet PnL for the same token: total buy USD, total sell USD, realized PnL, and profit percent when provider data is available. Use this after you know the token contract and, if relevant, the event/post time window you want to analyze. If you choose this tool, emit a real structured tool call immediately. Do not narrate "Calling get_early_buyers" in plain text. Use address plus optional start_time/end_time; do not invent timestamp_range or other unofficial fields. Early-buyer queries should default to full-list output for the returned rows, not a compressed summary. When the tool result includes a renderContract, preserve the full returned row set.',
         parameters: {
             type: 'object',
             properties: {
@@ -90,6 +159,10 @@ export const GetEarlyBuyersTool: Tool = {
                     type: 'number',
                     description: 'How many wallet trade records to scan per wallet when include_trade_progression is enabled. Default 25, max 100.'
                 },
+                token_pnl_days: {
+                    type: 'number',
+                    description: 'Lookback window in days for token-specific wallet PnL on EVM chains. Default 30, max 365.'
+                },
                 min_token_amount: {
                     type: 'number',
                     description: 'Optional dust floor for token amount received during the early window.'
@@ -98,7 +171,7 @@ export const GetEarlyBuyersTool: Tool = {
             required: ['address']
         }
     },
-    handler: async ({ address, chain, chain_id, limit = 10, start_time, end_time, include_trade_progression, trade_history_limit, min_token_amount }, context) => {
+    handler: async ({ address, chain, chain_id, limit = 10, start_time, end_time, include_trade_progression, trade_history_limit, token_pnl_days, min_token_amount }, context) => {
         try {
             const resolved = resolveChainInput({ chain, chain_id }, {
                 contextChainId: context?.chainId,
@@ -126,9 +199,12 @@ export const GetEarlyBuyersTool: Tool = {
                 : 0;
             const includeTradeProgression = include_trade_progression !== false;
             const tradeHistoryLimit = Math.max(10, Math.min(100, Number(trade_history_limit) || 25));
+            const tokenPnlDays = Math.max(1, Math.min(365, Number(token_pnl_days) || 30));
 
             let buyers = await tokenAnalysis.getEarlyBuyers(address, resolved.chain, boundedLimit, {
                 includeTradeProgression,
+                includeTokenPnl: true,
+                tokenPnlDays,
                 tradeHistoryLimit,
                 startTimeMs,
                 endTimeMs,
@@ -150,10 +226,7 @@ export const GetEarlyBuyersTool: Tool = {
                 txHash: b.txHash,
                 isSmart: b.isSmart,
                 transferCount: b.transferCount ?? null,
-                estimatedBuyUsd: b.estimatedBuyUsd ?? null,
-                walletTxCount: b.walletTxCount ?? null,
-                qualityScore: b.qualityScore ?? null,
-                qualityTier: b.qualityTier ?? null,
+                tokenPnl: b.tokenPnl ?? null,
                 tradeProgression: b.tradeProgression ?? null
             }));
 
@@ -166,11 +239,18 @@ export const GetEarlyBuyersTool: Tool = {
                     outputMode: 'full_table',
                     includeTradeProgression,
                     tradeHistoryLimit,
+                    tokenPnlDays: resolved.chain === 'solana' ? null : tokenPnlDays,
                 },
+                notes: [
+                    'Early-buyer ranking still comes from first transfer timing, not profitability.',
+                    'Token PnL fields are token-specific wallet metrics for the same token when provider coverage exists.',
+                    'PnL values may be null when a provider cannot resolve token-level history for that wallet.',
+                ],
                 filters: {
                     minTokenAmount: effectiveMinTokenAmount > 0 ? effectiveMinTokenAmount : null,
                 },
                 markdownTable: buildEarlyBuyersMarkdownTable(tableRows),
+                renderContract: buildEarlyBuyerRenderContract(tableRows),
                 earlyBuyers: tableRows
             };
         } catch (error: any) {
@@ -245,4 +325,9 @@ export const AnalyzeCreatorTool: Tool = {
             return { success: false, error: error.message || 'Failed to analyze creator' };
         }
     }
+};
+
+export const __testOnly = {
+    buildEarlyBuyersMarkdownTable,
+    buildEarlyBuyerRenderContract,
 };

@@ -97,3 +97,25 @@ test('resolveFastSwapFinalStatus keeps submitted instant trades pending until se
         data: { status: 'PENDING' },
     }), 'failed');
 });
+
+test('canAttemptFastSwap allows fast mode even when hard policy and mutation are enabled', () => {
+    const snapshot = makeSnapshot('Sell all VIRTUAL to ETH', {
+        policySnapshot: {
+            enforcementLevel: 'hard',
+            mutationAllowed: true,
+        } as ChatContextSnapshot['policySnapshot'],
+    });
+
+    const result = __fastSwapCoordinatorTest.canAttemptFastSwap({
+        snapshot,
+        task: {
+            toolContext: {
+                toolConfig: {
+                    fastSwapMode: true,
+                },
+            },
+        },
+    });
+
+    assert.equal(result, true);
+});

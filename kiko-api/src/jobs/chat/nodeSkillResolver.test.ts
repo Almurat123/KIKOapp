@@ -30,8 +30,47 @@ function makeSnapshot(message: string, overrides: Partial<ChatContextSnapshot> =
     } as ChatContextSnapshot;
 }
 
+function makeCanonicalIntent(overrides: Partial<CanonicalIntent>): CanonicalIntent {
+    return {
+        domain: 'general',
+        intent: 'social_discovery',
+        taskMode: 'discover',
+        outputMode: 'narrative',
+        searchMode: 'forbidden',
+        searchTarget: 'none',
+        confidence: 0.9,
+        explanation: 'test canonical intent',
+        entities: {
+            tokenAddresses: [],
+            tokenSymbols: [],
+            walletAddresses: [],
+            marketIdentifiers: [],
+        },
+        requestedChain: null,
+        timeContext: null,
+        evidenceRequirements: [],
+        requiresRealtime: false,
+        requiresOnchainEvidence: false,
+        executionCandidate: false,
+        rowCount: null,
+        locale: 'en',
+        needsClarification: false,
+        clarificationQuestion: null,
+        source: 'llm',
+        ...overrides,
+    };
+}
+
 test('routes betting trend queries to Polymarket first', () => {
-    const resolution = resolveNodeSkills(makeSnapshot("what's trending bet?"), null);
+    const canonicalIntent = makeCanonicalIntent({
+        domain: 'polymarket',
+        intent: 'polymarket_discovery',
+        searchMode: 'fallback',
+        requiresRealtime: true,
+    });
+    const resolution = resolveNodeSkills(makeSnapshot("what's trending bet?", {
+        normalizedIntent: canonicalIntent,
+    }), null, canonicalIntent);
     assert.equal(resolution.selectedSkills[0], 'polymarket_prediction');
     assert.ok(resolution.allowedTools.includes('get_polymarket_market_overview'));
     assert.ok(resolution.preferredTools.includes('get_polymarket_market_overview'));
@@ -40,7 +79,21 @@ test('routes betting trend queries to Polymarket first', () => {
 });
 
 test('routes 5-minute coin up/down queries to the exact short-window Polymarket tool', () => {
-    const resolution = resolveNodeSkills(makeSnapshot('Give me a 5-minute Solana up or down bet'), null);
+    const canonicalIntent = makeCanonicalIntent({
+        domain: 'polymarket',
+        intent: 'polymarket_short_window',
+        entities: {
+            tokenAddresses: [],
+            tokenSymbols: ['SOL'],
+            walletAddresses: [],
+            marketIdentifiers: [],
+        },
+        requiresRealtime: true,
+    });
+    const resolution = resolveNodeSkills(makeSnapshot('Give me a 5-minute Solana up or down bet', {
+        normalizedIntent: canonicalIntent,
+        requestedTokenSymbols: ['SOL'],
+    }), null, canonicalIntent);
     assert.equal(resolution.selectedSkills[0], 'polymarket_prediction');
     assert.ok(resolution.allowedTools.includes('get_polymarket_coin_updown_markets'));
     assert.ok(resolution.preferredTools.includes('get_polymarket_coin_updown_markets'));
@@ -53,29 +106,58 @@ test('tool registry self-initializes even when imported directly', () => {
 });
 
 test('routes Zora trend queries to Zora skill first', () => {
-    const resolution = resolveNodeSkills(makeSnapshot("What's trending on Zora right now?"), null);
+    const canonicalIntent = makeCanonicalIntent({
+        domain: 'zora',
+        intent: 'zora_discovery',
+        requiresRealtime: true,
+    });
+    const resolution = resolveNodeSkills(makeSnapshot("What's trending on Zora right now?", {
+        normalizedIntent: canonicalIntent,
+    }), null, canonicalIntent);
     assert.equal(resolution.selectedSkills[0], 'zora_nfts');
     assert.ok(resolution.allowedTools.includes('get_zora_trending'));
 });
 
 test('routes capabilities questions to welcome skill without search', () => {
-    const resolution = resolveNodeSkills(makeSnapshot('What can KiKo do?'), null);
+    const canonicalIntent = makeCanonicalIntent({
+        domain: 'general',
+        intent: 'assistant_meta',
+    });
+    const resolution = resolveNodeSkills(makeSnapshot('What can KiKo do?', {
+        normalizedIntent: canonicalIntent,
+    }), null, canonicalIntent);
     assert.deepEqual(resolution.selectedSkills, ['welcome_onboarding']);
     assert.equal(resolution.allowAllTools, true);
     assert.equal(resolution.searchMode, 'forbidden');
 });
 
 test('routes wallet pnl queries to wallet skill and keeps pnl tools', () => {
-    const resolution = resolveNodeSkills(makeSnapshot('Check my 30d wallet PnL'), null);
+    const canonicalIntent = makeCanonicalIntent({
+        domain: 'wallet',
+        intent: 'wallet_pnl',
+    });
+    const resolution = resolveNodeSkills(makeSnapshot('Check my 30d wallet PnL', {
+        normalizedIntent: canonicalIntent,
+    }), null, canonicalIntent);
     assert.equal(resolution.selectedSkills[0], 'wallet_portfolio');
     assert.ok(resolution.allowedTools.includes('analyze_wallet_pnl_batch'));
 });
 
 test('explicit X search keeps native search required while preserving local token skill', () => {
+    const canonicalIntent = makeCanonicalIntent({
+        domain: 'x',
+        intent: 'social_discovery',
+        searchMode: 'required',
+        searchTarget: 'x',
+        requiresRealtime: true,
+        evidenceRequirements: ['native_search_results', 'onchain_token_evidence'],
+        requiresOnchainEvidence: true,
+    });
     const snapshot = makeSnapshot('Search X for what people say about BTC today', {
         requestedTokenSymbols: ['BTC'],
+        normalizedIntent: canonicalIntent,
     });
-    const resolution = resolveNodeSkills(snapshot, null);
+    const resolution = resolveNodeSkills(snapshot, null, canonicalIntent);
     assert.equal(resolution.searchMode, 'required');
     assert.ok(resolution.selectedSkills.includes('token_analysis'));
     assert.equal(resolution.intentEnvelope.domain, 'x');
@@ -96,7 +178,17 @@ test('explicit X search keeps native search required while preserving local toke
 });
 
 test('X trending queries keep X-first intent but no longer lock tool exposure', () => {
-    const resolution = resolveNodeSkills(makeSnapshot("What's trending on X today?"), null);
+    const canonicalIntent = makeCanonicalIntent({
+        domain: 'x',
+        intent: 'social_discovery',
+        searchMode: 'required',
+        searchTarget: 'x',
+        requiresRealtime: true,
+        evidenceRequirements: ['native_search_results', 'connected_chain_evidence'],
+    });
+    const resolution = resolveNodeSkills(makeSnapshot("What's trending on X today?", {
+        normalizedIntent: canonicalIntent,
+    }), null, canonicalIntent);
     assert.equal(resolution.intentEnvelope.domain, 'x');
     assert.equal(resolution.toolPhasePolicy.initialPhase, 'native_search_only');
     assert.equal(resolution.toolPhasePolicy.nextPhaseAfterNativeSearch, 'local_analysis');
@@ -106,9 +198,18 @@ test('X trending queries keep X-first intent but no longer lock tool exposure', 
 });
 
 test('DeepSeek X trending queries stay out of native-search-only while keeping full tool access', () => {
+    const canonicalIntent = makeCanonicalIntent({
+        domain: 'x',
+        intent: 'social_discovery',
+        searchMode: 'required',
+        searchTarget: 'x',
+        requiresRealtime: true,
+        evidenceRequirements: ['native_search_results', 'connected_chain_evidence'],
+    });
     const resolution = resolveNodeSkills(makeSnapshot("What's trending on X today?", {
         model: 'deepseek-reasoner',
-    }), null);
+        normalizedIntent: canonicalIntent,
+    }), null, canonicalIntent);
     assert.equal(resolution.intentEnvelope.domain, 'x');
     assert.equal(resolution.toolPhasePolicy.initialPhase, 'local_analysis');
     assert.ok(resolution.allowAllTools);
@@ -118,10 +219,30 @@ test('DeepSeek X trending queries stay out of native-search-only while keeping f
 
 test('DeepSeek X plus contract-and-time queries require external search plus chain tools', () => {
     const contract = '0x1111111111111111111111111111111111111111';
+    const canonicalIntent = makeCanonicalIntent({
+        domain: 'x',
+        intent: 'social_discovery',
+        searchMode: 'required',
+        searchTarget: 'x',
+        requiresRealtime: true,
+        requiresOnchainEvidence: true,
+        timeContext: {
+            isTimeBound: true,
+            description: 'around yesterday announcement',
+        },
+        evidenceRequirements: ['native_search_results', 'onchain_token_evidence'],
+        entities: {
+            tokenAddresses: [contract],
+            tokenSymbols: [],
+            walletAddresses: [],
+            marketIdentifiers: [],
+        },
+    });
     const resolution = resolveNodeSkills(makeSnapshot(`Search X for ${contract} around yesterday's announcement`, {
         model: 'deepseek-reasoner',
         requestedTokenAddresses: [contract],
-    }), null);
+        normalizedIntent: canonicalIntent,
+    }), null, canonicalIntent);
 
     assert.equal(resolution.searchMode, 'required');
     assert.equal(resolution.toolPhasePolicy.initialPhase, 'local_analysis');
@@ -134,12 +255,21 @@ test('DeepSeek X plus contract-and-time queries require external search plus cha
 });
 
 test('generic X queries still require search plus chain-side follow-up', () => {
+    const canonicalIntent = makeCanonicalIntent({
+        domain: 'x',
+        intent: 'social_discovery',
+        searchMode: 'required',
+        searchTarget: 'x',
+        requiresRealtime: true,
+        evidenceRequirements: ['native_search_results', 'connected_chain_evidence'],
+    });
     const resolution = resolveNodeSkills(makeSnapshot("What's trending on X today?", {
         model: 'deepseek-reasoner',
         runtime: {
             walletAddress: '0xabc',
         },
-    }), null);
+        normalizedIntent: canonicalIntent,
+    }), null, canonicalIntent);
 
     assert.equal(resolution.searchMode, 'required');
     assert.ok(resolution.allowAllTools);
@@ -149,13 +279,33 @@ test('generic X queries still require search plus chain-side follow-up', () => {
 
 test('official announcement date lookups are treated as required search even without explicit X keyword', () => {
     const contract = '0xeCCBb861c0dda7eFd964010085488B69317e4444';
+    const canonicalIntent = makeCanonicalIntent({
+        domain: 'x',
+        intent: 'social_discovery',
+        searchMode: 'required',
+        searchTarget: 'x',
+        requiresRealtime: true,
+        requiresOnchainEvidence: true,
+        timeContext: {
+            isTimeBound: true,
+            description: 'official listing announcement date',
+        },
+        entities: {
+            tokenAddresses: [contract],
+            tokenSymbols: [],
+            walletAddresses: [],
+            marketIdentifiers: [],
+        },
+        evidenceRequirements: ['native_search_results', 'onchain_token_evidence'],
+    });
     const resolution = resolveNodeSkills(makeSnapshot(`你可以寻找这个代币的${contract}在binance官方账户发布关于这个代币发布上架Alpha的帖子日期当时，购买的早期购买者吗？`, {
         model: 'grok-4-1-fast-non-reasoning',
         requestedTokenAddresses: [contract],
-    }), null);
+        normalizedIntent: canonicalIntent,
+    }), null, canonicalIntent);
 
     assert.equal(resolution.searchMode, 'required');
-    assert.equal(resolution.searchReason, 'social_plus_chain_evidence_required');
+    assert.equal(resolution.searchReason, 'canonical_social_discovery');
     assert.equal(resolution.toolPhasePolicy.initialPhase, 'native_search_only');
     assert.equal(resolution.toolPhasePolicy.nextPhaseAfterNativeSearch, 'local_analysis');
     assert.ok(resolution.allowedTools.includes('get_token_info'));
@@ -166,10 +316,24 @@ test('official announcement date lookups are treated as required search even wit
 
 test('pure early-buyer token queries require on-chain evidence before concluding', () => {
     const contract = '0xeCCBb861c0dda7eFd964010085488B69317e4444';
+    const canonicalIntent = makeCanonicalIntent({
+        domain: 'token',
+        intent: 'early_buyers',
+        outputMode: 'full_table',
+        entities: {
+            tokenAddresses: [contract],
+            tokenSymbols: [],
+            walletAddresses: [],
+            marketIdentifiers: [],
+        },
+        evidenceRequirements: ['onchain_token_evidence'],
+        requiresOnchainEvidence: true,
+    });
     const resolution = resolveNodeSkills(makeSnapshot(`Check ${contract} early buyer`, {
         model: 'deepseek-reasoner',
         requestedTokenAddresses: [contract],
-    }), null);
+        normalizedIntent: canonicalIntent,
+    }), null, canonicalIntent);
 
     assert.equal(resolution.intentEnvelope.primary_intent, 'token_analysis');
     assert.ok(resolution.intentEnvelope.required_evidence.includes('onchain_token_evidence'));
@@ -183,9 +347,23 @@ test('pure early-buyer token queries require on-chain evidence before concluding
 
 test('full early-buyer export queries prefer full-table output wording', () => {
     const contract = '0xeCCBb861c0dda7eFd964010085488B69317e4444';
+    const canonicalIntent = makeCanonicalIntent({
+        domain: 'token',
+        intent: 'early_buyers',
+        outputMode: 'full_table',
+        entities: {
+            tokenAddresses: [contract],
+            tokenSymbols: [],
+            walletAddresses: [],
+            marketIdentifiers: [],
+        },
+        evidenceRequirements: ['onchain_token_evidence'],
+        requiresOnchainEvidence: true,
+    });
     const resolution = resolveNodeSkills(makeSnapshot(`Export the full early buyers table for ${contract}`, {
         requestedTokenAddresses: [contract],
-    }), null);
+        normalizedIntent: canonicalIntent,
+    }), null, canonicalIntent);
 
     assert.ok(resolution.preferredTools.includes('get_early_buyers'));
     assert.ok(
@@ -197,9 +375,24 @@ test('full early-buyer export queries prefer full-table output wording', () => {
 
 test('explicit early-buyer row count queries are treated as full exports', () => {
     const contract = '0xeCCBb861c0dda7eFd964010085488B69317e4444';
+    const canonicalIntent = makeCanonicalIntent({
+        domain: 'token',
+        intent: 'early_buyers',
+        outputMode: 'full_table',
+        entities: {
+            tokenAddresses: [contract],
+            tokenSymbols: [],
+            walletAddresses: [],
+            marketIdentifiers: [],
+        },
+        evidenceRequirements: ['onchain_token_evidence'],
+        requiresOnchainEvidence: true,
+        rowCount: 30,
+    });
     const resolution = resolveNodeSkills(makeSnapshot(`Check ${contract} early buyer for 30`, {
         requestedTokenAddresses: [contract],
-    }), null);
+        normalizedIntent: canonicalIntent,
+    }), null, canonicalIntent);
 
     assert.ok(resolution.preferredTools.includes('get_early_buyers'));
     assert.ok(
@@ -237,14 +430,35 @@ test('swap intents prefer wallet info and preflight before prepare swap executio
 
 test('official source lookup handles split Chinese intent words and English synonyms', () => {
     const contract = '0xeCCBb861c0dda7eFd964010085488B69317e4444';
+    const canonicalIntent = makeCanonicalIntent({
+        domain: 'x',
+        intent: 'social_discovery',
+        searchMode: 'required',
+        searchTarget: 'x',
+        requiresRealtime: true,
+        requiresOnchainEvidence: true,
+        timeContext: {
+            isTimeBound: true,
+            description: 'official listing announcement date',
+        },
+        entities: {
+            tokenAddresses: [contract],
+            tokenSymbols: [],
+            walletAddresses: [],
+            marketIdentifiers: [],
+        },
+        evidenceRequirements: ['native_search_results', 'onchain_token_evidence'],
+    });
     const zhResolution = resolveNodeSkills(makeSnapshot(`帮我找一下 Binance 官方 账户 关于 ${contract} 上架 Alpha 的 帖子 日期`, {
         model: 'grok-4-1-fast-non-reasoning',
         requestedTokenAddresses: [contract],
-    }), null);
+        normalizedIntent: canonicalIntent,
+    }), null, canonicalIntent);
     const enResolution = resolveNodeSkills(makeSnapshot(`Find the date when Binance official handle posted the Alpha listing update for ${contract}`, {
         model: 'grok-4-1-fast-non-reasoning',
         requestedTokenAddresses: [contract],
-    }), null);
+        normalizedIntent: canonicalIntent,
+    }), null, canonicalIntent);
 
     assert.equal(zhResolution.searchMode, 'required');
     assert.equal(enResolution.searchMode, 'required');
@@ -253,26 +467,68 @@ test('official source lookup handles split Chinese intent words and English syno
 });
 
 test('resolver records that explicit query chain overrides connected chain', () => {
+    const canonicalIntent = makeCanonicalIntent({
+        domain: 'token',
+        intent: 'swap',
+        taskMode: 'execute',
+        outputMode: 'execution_ready',
+        requestedChain: {
+            chainId: 56,
+            chainName: 'BNB Chain',
+            source: 'llm',
+        },
+        entities: {
+            tokenAddresses: [],
+            tokenSymbols: ['CAKE'],
+            walletAddresses: [],
+            marketIdentifiers: [],
+        },
+        executionCandidate: true,
+    });
     const resolution = resolveNodeSkills(makeSnapshot('Buy CAKE on BNB chain', {
         requestedTokenSymbols: ['CAKE', 'BNB'],
         runtime: {
             chainId: 8453,
             chainName: 'Base',
         },
-    }), null);
+        normalizedIntent: canonicalIntent,
+    }), null, canonicalIntent);
 
     assert.ok(resolution.strategyNotes.some((note) => note.includes('requested BNB Chain')));
 });
 
 test('Farcaster discovery stays in local analysis phase', () => {
-    const resolution = resolveNodeSkills(makeSnapshot("What's trending on Farcaster today?"), null);
+    const canonicalIntent = makeCanonicalIntent({
+        domain: 'farcaster',
+        intent: 'social_discovery',
+        requiresRealtime: true,
+    });
+    const resolution = resolveNodeSkills(makeSnapshot("What's trending on Farcaster today?", {
+        normalizedIntent: canonicalIntent,
+    }), null, canonicalIntent);
     assert.equal(resolution.intentEnvelope.domain, 'farcaster');
     assert.equal(resolution.toolPhasePolicy.initialPhase, 'local_analysis');
     assert.ok(resolution.allowedTools.includes('get_trending_casts'));
 });
 
 test('Polymarket order intent requires verified token evidence before execution phase', () => {
-    const resolution = resolveNodeSkills(makeSnapshot('Place a YES order on Polymarket for BTC 100k'), null);
+    const canonicalIntent = makeCanonicalIntent({
+        domain: 'polymarket',
+        intent: 'polymarket_order',
+        taskMode: 'execute',
+        outputMode: 'execution_ready',
+        entities: {
+            tokenAddresses: [],
+            tokenSymbols: ['BTC'],
+            walletAddresses: [],
+            marketIdentifiers: [],
+        },
+        evidenceRequirements: ['verified_polymarket_token_id'],
+        executionCandidate: true,
+    });
+    const resolution = resolveNodeSkills(makeSnapshot('Place a YES order on Polymarket for BTC 100k', {
+        normalizedIntent: canonicalIntent,
+    }), null, canonicalIntent);
     assert.equal(resolution.intentEnvelope.primary_intent, 'polymarket_order');
     assert.equal(resolution.intentEnvelope.execution_risk, 'mutation');
     assert.ok(resolution.intentEnvelope.required_evidence.includes('verified_polymarket_token_id'));
@@ -280,8 +536,24 @@ test('Polymarket order intent requires verified token evidence before execution 
 });
 
 test('resolver only exposes tools that exist in the runtime toolDefinitions snapshot', () => {
+    const canonicalIntent = makeCanonicalIntent({
+        domain: 'x',
+        intent: 'social_discovery',
+        searchMode: 'required',
+        searchTarget: 'x',
+        requiresRealtime: true,
+        evidenceRequirements: ['native_search_results', 'onchain_token_evidence'],
+        requiresOnchainEvidence: true,
+        entities: {
+            tokenAddresses: [],
+            tokenSymbols: ['BTC'],
+            walletAddresses: [],
+            marketIdentifiers: [],
+        },
+    });
     const snapshot = makeSnapshot('Search X for BTC sentiment, then analyze holders', {
         requestedTokenSymbols: ['BTC'],
+        normalizedIntent: canonicalIntent,
         toolDefinitions: [
             {
                 name: 'get_token_info',
@@ -290,7 +562,7 @@ test('resolver only exposes tools that exist in the runtime toolDefinitions snap
             },
         ] as any,
     });
-    const resolution = resolveNodeSkills(snapshot, null);
+    const resolution = resolveNodeSkills(snapshot, null, canonicalIntent);
     assert.deepEqual(resolution.allowedTools, ['get_token_info']);
     assert.deepEqual(resolution.preferredTools, ['get_token_info']);
 });
@@ -311,7 +583,7 @@ test('resolver carries forward session-used tools into orchestration context', (
     assert.ok(resolution.allowedTools.includes('get_token_info'));
     assert.ok(resolution.preferredTools.includes('external_web_search'));
     assert.ok(resolution.preferredTools.includes('get_token_info'));
-    assert.ok(resolution.strategyNotes.some((note) => note.includes('Session tool context is available')));
+    assert.ok(resolution.strategyNotes.some((note) => note.includes('Recent tool evidence is available from this session')));
 });
 
 test('resolver keeps the full available registry exposed on non-hard-policy turns', () => {

@@ -3,14 +3,12 @@ import { contextBudgetManager } from '../../services/ai/contextBudgetManager.js'
 import type { ChatContextSnapshot } from './contracts.js';
 import { buildBalanceContextBlock } from './balanceContextBuilder.js';
 import { buildLaunchpadContextBlock, buildTokenContextBlock } from './contextBlockBuilder.js';
-import { isExplicitChainSwitchRequest } from './chainIntent.js';
 import {
     extractRecentToolTrace,
     extractRequestedTokenAddresses,
     extractRequestedTokenAddressesFromHistory,
     extractRequestedTokenSymbols,
     extractRequestedTokenSymbolsFromHistory,
-    resolveTradeConfirmationState,
     sanitizeHistory,
 } from './conversationStateResolver.js';
 import { resolveRuntimeDirectives } from './runtimeDirectiveResolver.js';
@@ -144,9 +142,7 @@ export function assembleChatContext(params: {
     });
     const clientContext = buildClientContext(toolContext, chainId, chainName);
 
-    const confirmationState = isExplicitChainSwitchRequest(lastUserMessage)
-        ? null
-        : resolveTradeConfirmationState(messages, lastUserMessage);
+    const confirmationState = null;
     const systemDirectives = resolveRuntimeDirectives({
         task,
         lastUserMessage,
@@ -200,6 +196,9 @@ export function assembleChatContext(params: {
             historyCompacted: budget.historyCompacted,
             compactionHits: budget.compactedSummary ? 1 : 0,
         },
+        normalizedIntent: null,
+        normalizationState: null,
+        conversationActionState: null,
         toolDefinitions,
         policySnapshot: null,
     };

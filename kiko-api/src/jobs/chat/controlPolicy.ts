@@ -108,12 +108,18 @@ export function buildControlPolicySnapshot(params: {
 }
 
 export function resolveActionClass(snapshot: ChatContextSnapshot, tradingIntent: TradingIntent | null): ActionClass {
-    const query = String(snapshot.lastUserMessage || '').toLowerCase();
     const canonicalIntent = snapshot.normalizedIntent || null;
     const confirmationKind = String(snapshot.confirmationState?.kind || '');
+    const actionState = snapshot.conversationActionState || null;
     if (confirmationKind === 'order_confirmation') {
         const confirmationActionClass = snapshot.confirmationState?.order?.actionClass;
         return confirmationActionClass === 'TRADE_MUTATION' ? 'TRADE_MUTATION' : 'ORDER_MUTATION';
+    }
+    if (actionState?.pendingAction === 'order' || actionState?.pendingAction === 'copy_trade') {
+        return 'ORDER_MUTATION';
+    }
+    if (actionState?.pendingAction === 'swap') {
+        return 'TRADE_MUTATION';
     }
     if (canonicalIntent?.taskMode === 'confirm' || canonicalIntent?.taskMode === 'execute') {
         if (canonicalIntent.intent === 'swap' || canonicalIntent.intent === 'cross_chain_swap') {
@@ -123,7 +129,6 @@ export function resolveActionClass(snapshot: ChatContextSnapshot, tradingIntent:
             return 'ORDER_MUTATION';
         }
     }
-    if (isOrderMutationQuery(query)) return 'ORDER_MUTATION';
     if (tradingIntent?.type === 'swap' || tradingIntent?.type === 'cross_chain_trade') {
         return 'TRADE_MUTATION';
     }
@@ -131,12 +136,6 @@ export function resolveActionClass(snapshot: ChatContextSnapshot, tradingIntent:
         return 'ORDER_MUTATION';
     }
     return 'READ_ONLY';
-}
-
-function isOrderMutationQuery(query: string): boolean {
-    return /\b(place|submit|create|cancel|close|withdraw|modify|edit|replace|change|pause|resume|stop)\b/.test(query)
-        && (/\border\b/.test(query) || /\bpolymarket\b/.test(query))
-        || /撤单|下单|平仓|取消订单|改单|改价|暂停跟单|恢复跟单|停止跟单/.test(query);
 }
 
 export function isTradeMutationTool(toolName: string): boolean {

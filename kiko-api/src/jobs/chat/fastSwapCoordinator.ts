@@ -55,18 +55,22 @@ function resolveFastSwapFinalStatus(result: {
     return backendStatus === 'PENDING' ? 'pending' : 'success';
 }
 
+function canAttemptFastSwap(params: {
+    snapshot: ChatContextSnapshot;
+    task: any;
+}): boolean {
+    const toolConfig = params.task?.toolContext?.toolConfig || {};
+    if (toolConfig.fastSwapMode !== true) return false;
+    return true;
+}
+
 export async function maybeExecuteFastSwap(params: {
     snapshot: ChatContextSnapshot;
     task: any;
     userId: string | null;
     broker: ChatStreamBroker;
 }): Promise<{ handled: boolean }> {
-    if (params.snapshot.policySnapshot?.enforcementLevel === 'hard' && params.snapshot.policySnapshot?.mutationAllowed) {
-        // Hard policy mode forbids bypassing preflight->confirm->execute through fast-swap direct execution.
-        return { handled: false };
-    }
-    const toolConfig = params.task.toolContext?.toolConfig || {};
-    if (toolConfig.fastSwapMode !== true) return { handled: false };
+    if (!canAttemptFastSwap(params)) return { handled: false };
 
     const parsedIntent = await buildFastSwapIntent(params.snapshot);
     const requestedChainId = Number(parsedIntent?.chainId || 0);
@@ -577,4 +581,5 @@ function normalizeRequestedAmount(
 
 export const __fastSwapCoordinatorTest = {
     resolveFastSwapFinalStatus,
+    canAttemptFastSwap,
 };

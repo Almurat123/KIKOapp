@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { toolRegistry } from '../../tooling/registry.js';
 import type { ChatContextSnapshot } from './contracts.js';
+import type { CanonicalIntent } from './canonicalIntent.js';
 import { buildGenerationTools, normalizeToolCallForProvider, runNodeOrchestration } from './nodeOrchestrator.js';
 
 function makeSnapshot(message: string, overrides: Partial<ChatContextSnapshot> = {}): ChatContextSnapshot {
@@ -34,6 +35,37 @@ function makeSnapshot(message: string, overrides: Partial<ChatContextSnapshot> =
         runtime,
         ...restOverrides,
     } as ChatContextSnapshot;
+}
+
+function makeCanonicalIntent(overrides: Partial<CanonicalIntent>): CanonicalIntent {
+    return {
+        domain: 'x',
+        intent: 'social_discovery',
+        taskMode: 'discover',
+        outputMode: 'narrative',
+        searchMode: 'required',
+        searchTarget: 'x',
+        confidence: 0.9,
+        explanation: 'test canonical intent',
+        entities: {
+            tokenAddresses: [],
+            tokenSymbols: [],
+            walletAddresses: [],
+            marketIdentifiers: [],
+        },
+        requestedChain: null,
+        timeContext: null,
+        evidenceRequirements: ['native_search_results', 'connected_chain_evidence'],
+        requiresRealtime: true,
+        requiresOnchainEvidence: false,
+        executionCandidate: false,
+        rowCount: null,
+        locale: 'en',
+        needsClarification: false,
+        clarificationQuestion: null,
+        source: 'llm',
+        ...overrides,
+    };
 }
 
 function makeBroker() {
@@ -113,6 +145,16 @@ test('buildGenerationTools no longer hides non-execution tools in execution phas
 test('native search guidance keeps local token analysis tools exposed while search stays available', async () => {
     const snapshot = makeSnapshot('Search X for BTC sentiment, then analyze holders', {
         requestedTokenSymbols: ['BTC'],
+        normalizedIntent: makeCanonicalIntent({
+            entities: {
+                tokenAddresses: [],
+                tokenSymbols: ['BTC'],
+                walletAddresses: [],
+                marketIdentifiers: [],
+            },
+            evidenceRequirements: ['native_search_results', 'onchain_token_evidence'],
+            requiresOnchainEvidence: true,
+        }),
     });
     const broker = makeBroker();
     const seenRounds: Array<{ tools: string[]; enableSearch: boolean }> = [];
@@ -188,7 +230,9 @@ test('native search guidance keeps local token analysis tools exposed while sear
 });
 
 test('search-capable queries can still return a direct answer without forced retry loops', async () => {
-    const snapshot = makeSnapshot("What's trending on X right now?");
+    const snapshot = makeSnapshot("What's trending on X right now?", {
+        normalizedIntent: makeCanonicalIntent({}),
+    });
     const broker = makeBroker();
     const seenRounds: Array<{ tools: string[]; enableSearch: boolean }> = [];
 
@@ -229,6 +273,7 @@ test('pseudo tool JSON in assistant text is sanitized but does not trigger a for
         runtime: {
             walletAddress: '0xabc',
         },
+        normalizedIntent: makeCanonicalIntent({}),
     });
     const broker = makeBroker();
     let generationRound = 0;
@@ -273,6 +318,16 @@ test('pseudo tool JSON in assistant text is sanitized but does not trigger a for
 test('provider-native search does not finish an X query before chain evidence is gathered', async () => {
     const snapshot = makeSnapshot("What's trending on X for 0x1111111111111111111111111111111111111111?", {
         requestedTokenAddresses: ['0x1111111111111111111111111111111111111111'],
+        normalizedIntent: makeCanonicalIntent({
+            entities: {
+                tokenAddresses: ['0x1111111111111111111111111111111111111111'],
+                tokenSymbols: [],
+                walletAddresses: [],
+                marketIdentifiers: [],
+            },
+            evidenceRequirements: ['native_search_results', 'onchain_token_evidence'],
+            requiresOnchainEvidence: true,
+        }),
     });
     const broker = makeBroker();
     let generationRound = 0;
@@ -346,6 +401,20 @@ test('plain-text answers are allowed without the removed hard evidence gate', as
     const snapshot = makeSnapshot(`Search X for ${tokenAddress} at 2026-03-10 12:00 UTC and find early buyers`, {
         model: 'deepseek-reasoner',
         requestedTokenAddresses: [tokenAddress],
+        normalizedIntent: makeCanonicalIntent({
+            entities: {
+                tokenAddresses: [tokenAddress],
+                tokenSymbols: [],
+                walletAddresses: [],
+                marketIdentifiers: [],
+            },
+            timeContext: {
+                isTimeBound: true,
+                description: '2026-03-10 12:00 UTC',
+            },
+            evidenceRequirements: ['native_search_results', 'onchain_token_evidence'],
+            requiresOnchainEvidence: true,
+        }),
     });
     const broker = makeBroker();
     let generationRound = 0;
@@ -382,6 +451,21 @@ test('function_call-style pseudo tool output is sanitized but does not trigger a
     const snapshot = makeSnapshot('2026-03-10上架的alpha，然后你能查询当天的early buyer吗？', {
         model: 'deepseek-reasoner',
         requestedTokenAddresses: [tokenAddress],
+        normalizedIntent: makeCanonicalIntent({
+            locale: 'zh',
+            entities: {
+                tokenAddresses: [tokenAddress],
+                tokenSymbols: [],
+                walletAddresses: [],
+                marketIdentifiers: [],
+            },
+            timeContext: {
+                isTimeBound: true,
+                description: '2026-03-10 alpha listing day',
+            },
+            evidenceRequirements: ['native_search_results', 'onchain_token_evidence'],
+            requiresOnchainEvidence: true,
+        }),
     });
     const broker = makeBroker();
     let generationRound = 0;
@@ -426,6 +510,26 @@ test('prose-style pseudo tool narration is sanitized but does not trigger a forc
     const snapshot = makeSnapshot('Find the early buyers around 2026-03-10 for this token', {
         model: 'deepseek-reasoner',
         requestedTokenAddresses: [tokenAddress],
+        normalizedIntent: makeCanonicalIntent({
+            domain: 'token',
+            intent: 'early_buyers',
+            outputMode: 'full_table',
+            searchTarget: 'none',
+            searchMode: 'forbidden',
+            entities: {
+                tokenAddresses: [tokenAddress],
+                tokenSymbols: [],
+                walletAddresses: [],
+                marketIdentifiers: [],
+            },
+            timeContext: {
+                isTimeBound: true,
+                description: 'around 2026-03-10',
+            },
+            evidenceRequirements: ['onchain_token_evidence'],
+            requiresOnchainEvidence: true,
+            requiresRealtime: false,
+        }),
     });
     const broker = makeBroker();
     let generationRound = 0;
@@ -468,6 +572,22 @@ test('pure early-buyer tool-name narration ends with the model response and does
     const snapshot = makeSnapshot(`Check ${tokenAddress} early buyer`, {
         model: 'deepseek-reasoner',
         requestedTokenAddresses: [tokenAddress],
+        normalizedIntent: makeCanonicalIntent({
+            domain: 'token',
+            intent: 'early_buyers',
+            outputMode: 'full_table',
+            searchTarget: 'none',
+            searchMode: 'forbidden',
+            entities: {
+                tokenAddresses: [tokenAddress],
+                tokenSymbols: [],
+                walletAddresses: [],
+                marketIdentifiers: [],
+            },
+            evidenceRequirements: ['onchain_token_evidence'],
+            requiresOnchainEvidence: true,
+            requiresRealtime: false,
+        }),
     });
     const broker = makeBroker();
     let generationRound = 0;

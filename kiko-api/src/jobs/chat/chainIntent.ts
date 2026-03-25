@@ -1,150 +1,131 @@
-export interface RequestedChainHint {
+import type { CanonicalIntent } from './canonicalIntent.js';
+
+export interface CanonicalChainRef {
     chainId: number;
     chainName: string;
-    source: 'explicit_query' | 'address_shape' | 'native_symbol' | 'chain_symbol';
+    source: 'normalized_intent' | 'entity_hint' | 'wallet_context';
 }
 
-const CHAIN_SWITCH_PATTERNS = [
-    /\bswitch\s+(?:wallet\s+)?chain\b/i,
-    /\bswitch\s+to\s+(?:ethereum|eth|base|bnb|bsc|bnb chain|binance smart chain|polygon|matic|pol|arbitrum|arb|optimism|op|solana|sol)\b/i,
-    /\bchange\s+(?:wallet\s+)?chain\b/i,
-    /\bmove\s+to\s+(?:ethereum|eth|base|bnb|bsc|bnb chain|binance smart chain|polygon|matic|pol|arbitrum|arb|optimism|op|solana|sol)\b/i,
-    /切换(?:到|至)?(?:钱包)?链/,
-    /切到(?:以太坊|eth|base|bnb|bsc|币安|polygon|matic|pol|arbitrum|optimism|solana|sol)/,
+interface ChainDefinition {
+    chainId: number;
+    chainName: string;
+    aliases: string[];
+    nativeSymbols: string[];
+    chainSymbols: string[];
+}
+
+const CHAIN_DEFINITIONS: ChainDefinition[] = [
+    { chainId: 1, chainName: 'Ethereum', aliases: ['ethereum', 'eth'], nativeSymbols: ['ETH', 'WETH'], chainSymbols: [] },
+    { chainId: 8453, chainName: 'Base', aliases: ['base'], nativeSymbols: ['ETH', 'WETH'], chainSymbols: ['BASE'] },
+    { chainId: 56, chainName: 'BNB Chain', aliases: ['bnb', 'bsc', 'bnb chain', 'binance smart chain', 'bep20', 'bep-20'], nativeSymbols: ['BNB', 'WBNB'], chainSymbols: ['BSC', 'BNBCHAIN'] },
+    { chainId: 137, chainName: 'Polygon', aliases: ['polygon', 'matic', 'pol'], nativeSymbols: ['POL', 'MATIC', 'WMATIC'], chainSymbols: [] },
+    { chainId: 42161, chainName: 'Arbitrum', aliases: ['arbitrum', 'arb', 'arbitrum one'], nativeSymbols: ['ETH', 'WETH'], chainSymbols: [] },
+    { chainId: 10, chainName: 'Optimism', aliases: ['optimism', 'op mainnet'], nativeSymbols: ['ETH', 'WETH'], chainSymbols: ['OP'] },
+    { chainId: 900, chainName: 'Solana', aliases: ['solana', 'sol'], nativeSymbols: ['SOL', 'WSOL'], chainSymbols: [] },
 ];
 
-const CHAIN_QUERY_PATTERNS: Array<{ chainId: number; chainName: string; patterns: RegExp[] }> = [
-    {
-        chainId: 1,
-        chainName: 'Ethereum',
-        patterns: [
-            /\bon\s+(?:ethereum|eth)\b/i,
-            /\b(?:ethereum|eth)\s+(?:mainnet|chain)\b/i,
-        ],
-    },
-    {
-        chainId: 8453,
-        chainName: 'Base',
-        patterns: [
-            /\bon\s+base\b/i,
-            /\bbase\s+(?:mainnet|chain)\b/i,
-        ],
-    },
-    {
-        chainId: 56,
-        chainName: 'BNB Chain',
-        patterns: [
-            /\bon\s+(?:bnb|bsc|bnb chain|binance smart chain)\b/i,
-            /\b(?:bsc|bnb|bnb smart chain|binance smart chain)\s+chain\b/i,
-            /\bbep-?20\b/i,
-        ],
-    },
-    {
-        chainId: 137,
-        chainName: 'Polygon',
-        patterns: [
-            /\bon\s+(?:polygon|matic|pol)\b/i,
-            /\b(?:polygon|matic|pol)\s+chain\b/i,
-        ],
-    },
-    {
-        chainId: 42161,
-        chainName: 'Arbitrum',
-        patterns: [
-            /\bon\s+(?:arbitrum|arb)\b/i,
-            /\b(?:arbitrum|arb)\s+(?:one|chain)\b/i,
-        ],
-    },
-    {
-        chainId: 10,
-        chainName: 'Optimism',
-        patterns: [
-            /\bon\s+optimism\b/i,
-            /\boptimism\s+(?:mainnet|chain)\b/i,
-            /\bop\s+mainnet\b/i,
-        ],
-    },
-    {
-        chainId: 900,
-        chainName: 'Solana',
-        patterns: [
-            /\bon\s+(?:solana|sol)\b/i,
-            /\bsolana\s+chain\b/i,
-        ],
-    },
-];
+const CHAIN_ALIAS_INDEX = new Map<string, ChainDefinition>();
+for (const definition of CHAIN_DEFINITIONS) {
+    for (const alias of [...definition.aliases, ...definition.nativeSymbols, ...definition.chainSymbols]) {
+        CHAIN_ALIAS_INDEX.set(alias.toLowerCase(), definition);
+    }
+}
 
 const SOLANA_ADDRESS_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
+const EVM_ADDRESS_RE = /^0x[a-fA-F0-9]{40}$/;
 
-export function resolveRequestedChainHint(params: {
-    text: string;
+export function normalizeChainAlias(value: string | null | undefined): CanonicalChainRef | null {
+    const alias = String(value || '').trim().toLowerCase();
+    if (!alias) return null;
+    const definition = CHAIN_ALIAS_INDEX.get(alias);
+    if (!definition) return null;
+    return {
+        chainId: definition.chainId,
+        chainName: definition.chainName,
+        source: 'entity_hint',
+    };
+}
+
+export function resolveCanonicalChainRef(params: {
+    canonicalIntent?: CanonicalIntent | null;
     requestedTokenAddresses?: string[];
     requestedTokenSymbols?: string[];
-}): RequestedChainHint | null {
-    const raw = String(params.text || '');
-    for (const candidate of CHAIN_QUERY_PATTERNS) {
-        if (candidate.patterns.some((pattern) => pattern.test(raw))) {
-            return {
-                chainId: candidate.chainId,
-                chainName: candidate.chainName,
-                source: 'explicit_query',
-            };
-        }
+    runtimeChainId?: number | null;
+    runtimeChainName?: string | null;
+}): CanonicalChainRef | null {
+    const canonicalIntent = params.canonicalIntent || null;
+    if (canonicalIntent?.requestedChain) {
+        return {
+            chainId: canonicalIntent.requestedChain.chainId,
+            chainName: canonicalIntent.requestedChain.chainName,
+            source: 'normalized_intent',
+        };
     }
 
     for (const address of params.requestedTokenAddresses || []) {
         const value = String(address || '').trim();
-        if (value && !value.startsWith('0x') && SOLANA_ADDRESS_RE.test(value)) {
+        if (value && !EVM_ADDRESS_RE.test(value) && SOLANA_ADDRESS_RE.test(value)) {
             return {
                 chainId: 900,
                 chainName: 'Solana',
-                source: 'address_shape',
+                source: 'entity_hint',
             };
         }
     }
 
-    const upperSymbols = (params.requestedTokenSymbols || []).map((symbol) => String(symbol || '').toUpperCase());
-    if (upperSymbols.some((symbol) => symbol === 'BNB' || symbol === 'WBNB')) {
+    for (const symbol of params.requestedTokenSymbols || []) {
+        const normalized = normalizeChainAlias(symbol);
+        if (normalized) return normalized;
+    }
+
+    const runtimeChainId = Number(params.runtimeChainId || 0) || null;
+    if (runtimeChainId) {
+        const byId = CHAIN_DEFINITIONS.find((definition) => definition.chainId === runtimeChainId);
         return {
-            chainId: 56,
-            chainName: 'BNB Chain',
-            source: 'native_symbol',
+            chainId: runtimeChainId,
+            chainName: byId?.chainName || String(params.runtimeChainName || runtimeChainId),
+            source: 'wallet_context',
         };
     }
-    if (upperSymbols.some((symbol) => symbol === 'BSC' || symbol === 'BNBCHAIN')) {
+
+    const runtimeAlias = normalizeChainAlias(params.runtimeChainName || '');
+    if (runtimeAlias) {
         return {
-            chainId: 56,
-            chainName: 'BNB Chain',
-            source: 'chain_symbol',
-        };
-    }
-    if (upperSymbols.some((symbol) => symbol === 'BASE')) {
-        return {
-            chainId: 8453,
-            chainName: 'Base',
-            source: 'chain_symbol',
-        };
-    }
-    if (upperSymbols.some((symbol) => symbol === 'POL' || symbol === 'MATIC' || symbol === 'WMATIC')) {
-        return {
-            chainId: 137,
-            chainName: 'Polygon',
-            source: 'native_symbol',
-        };
-    }
-    if (upperSymbols.some((symbol) => symbol === 'SOL' || symbol === 'WSOL')) {
-        return {
-            chainId: 900,
-            chainName: 'Solana',
-            source: 'native_symbol',
+            ...runtimeAlias,
+            source: 'wallet_context',
         };
     }
 
     return null;
 }
 
-export function isExplicitChainSwitchRequest(text: string): boolean {
-    const raw = String(text || '');
-    if (!raw.trim()) return false;
-    return CHAIN_SWITCH_PATTERNS.some((pattern) => pattern.test(raw));
+export function resolveRequestedChainHint(params: {
+    text?: string;
+    requestedTokenAddresses?: string[];
+    requestedTokenSymbols?: string[];
+    canonicalIntent?: CanonicalIntent | null;
+    runtimeChainId?: number | null;
+    runtimeChainName?: string | null;
+}): CanonicalChainRef | null {
+    return resolveCanonicalChainRef({
+        canonicalIntent: params.canonicalIntent,
+        requestedTokenAddresses: params.requestedTokenAddresses,
+        requestedTokenSymbols: params.requestedTokenSymbols,
+        runtimeChainId: params.runtimeChainId,
+        runtimeChainName: params.runtimeChainName,
+    });
+}
+
+export function isExplicitChainSwitchRequest(text: string, canonicalIntent?: CanonicalIntent | null): boolean {
+    if (canonicalIntent?.intent === 'swap' || canonicalIntent?.intent === 'cross_chain_swap') {
+        return false;
+    }
+    const normalized = String(text || '').trim().toLowerCase();
+    if (!normalized) return false;
+    return [
+        'switch chain',
+        'switch wallet chain',
+        'change chain',
+        'change wallet chain',
+    ].some((phrase) => normalized.includes(phrase));
 }

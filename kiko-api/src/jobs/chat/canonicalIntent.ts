@@ -330,3 +330,20 @@ export function applyCanonicalIntentToSnapshot(snapshot: ChatContextSnapshot, in
         normalizedIntent: intent,
     };
 }
+
+export function buildCanonicalIntentClarification(params: {
+    snapshot: ChatContextSnapshot;
+    reasonCode?: NormalizationReasonCode;
+}): string {
+    const locale = /[\u4e00-\u9fff]/.test(String(params.snapshot.lastUserMessage || '')) ? 'zh' : 'en';
+    if (locale === 'zh') {
+        if (params.reasonCode === 'normalization_entity_conflict') {
+            return '我识别到你的请求里有冲突的链或实体信息。请明确告诉我要分析哪个链、哪个地址或哪个市场。';
+        }
+        return '我需要先确认你的目标再继续。请直接告诉我你要做什么、对象是什么，以及如果相关的话是哪个链或市场。';
+    }
+    if (params.reasonCode === 'normalization_entity_conflict') {
+        return 'I detected conflicting chain or entity hints in your request. Please specify the exact chain, address, or market you want me to work on.';
+    }
+    return 'I need one clarification before continuing. Please state the exact task, target address or market, and chain if it matters.';
+}

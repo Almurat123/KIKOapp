@@ -90,7 +90,6 @@ export function buildProviderOptions(
         };
     }
 
-    const lower = String(query || '').toLowerCase();
     const searchMode = skillResolution?.searchMode || 'forbidden';
     const intentEnvelope = skillResolution?.intentEnvelope;
     const canonicalIntent = snapshot.normalizedIntent || null;
@@ -101,11 +100,9 @@ export function buildProviderOptions(
             ? canonicalIntent.evidenceRequirements.includes('onchain_token_evidence')
                 || canonicalIntent.evidenceRequirements.includes('onchain_wallet_evidence')
                 || canonicalIntent.requiresOnchainEvidence
-            : ((snapshot.requestedTokenAddresses || []).length > 0) &&
-                (
-                    ['early buyers', 'earliest buyers', 'first buyers', 'holders', 'first trades', 'first swaps', 'creator', 'deployer'].some((word) => lower.includes(word))
-                    || ['早期买家', '首批买家', '持有人', '创建者', '部署者', '前几位买家'].some((word) => String(query || '').includes(word))
-                );
+            : Boolean(intentEnvelope?.required_evidence.some((item) =>
+                ['onchain_token_evidence', 'onchain_wallet_evidence', 'connected_chain_evidence'].includes(item),
+            ));
     const searchAttempt = Math.max(1, phaseContext?.searchAttempt || 1);
 
     const xSeedHandles = extractXHandles([
@@ -125,6 +122,13 @@ export function buildProviderOptions(
     const preferredRequiredTool = nativeSearchEnabled
         ? resolvePreferredRequiredTool(enabledNativeTools, intentEnvelope, searchAttempt)
         : null;
+    const nativeToolReason = resolveNativeToolReason({
+        hardMutationPolicy,
+        nativeSearchEnabled,
+        requestsOnchainEvidence,
+        searchReason: skillResolution?.searchReason,
+        requiresRealtimeSocialSearch,
+    });
 
     const options = {
         metadata: {
@@ -146,16 +150,7 @@ export function buildProviderOptions(
                     ? ['inline_citations', ...(requiresRealtimeSocialSearch ? ['web_search_call_output', 'x_search_call_output'] : [])]
                     : [],
                 allow_extra_sdk_tools: false,
-                reason: hardMutationPolicy
-                    ? 'mutation_node_control_only'
-                    : nativeSearchEnabled
-                    ? 'search_enabled_for_query'
-                    : requestsOnchainEvidence
-                    ? 'native_search_required_with_local_chain_tools'
-                    : skillResolution?.searchReason
-                        || (requiresRealtimeSocialSearch
-                            ? 'native_search_fallback'
-                            : 'native_search_disabled'),
+                reason: nativeToolReason,
             },
             execution: {
                 per_tool_timeout_ms: 20000,
@@ -178,6 +173,20 @@ export function buildProviderOptions(
     };
     assertNodeControlledGrokPolicy(options);
     return options;
+}
+
+function resolveNativeToolReason(params: {
+    hardMutationPolicy: boolean;
+    nativeSearchEnabled: boolean;
+    requestsOnchainEvidence: boolean;
+    searchReason?: string;
+    requiresRealtimeSocialSearch: boolean;
+}): string {
+    if (params.hardMutationPolicy) return 'mutation_blocked';
+    if (params.nativeSearchEnabled) return 'search_required';
+    if (params.requestsOnchainEvidence) return 'local_chain_evidence';
+    if (params.searchReason) return params.searchReason;
+    return params.requiresRealtimeSocialSearch ? 'search_optional' : 'search_disabled';
 }
 
 function resolveEnabledNativeTools(intentEnvelope?: IntentEnvelope): string[] {

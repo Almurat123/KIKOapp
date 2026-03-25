@@ -1,5 +1,5 @@
 import type { ChatContextSnapshot } from './contracts.js';
-import { resolveRequestedChainHint } from './chainIntent.js';
+import { resolveCanonicalChainRef } from './chainIntent.js';
 import type { CanonicalIntent } from './canonicalIntent.js';
 
 const STABLE_SYMBOLS = new Set(['USDC', 'USDT', 'DAI', 'FDUSD', 'BUSD', 'USD1']);
@@ -13,13 +13,14 @@ export interface TradingIntent {
 
 export function parseTradingIntent(text: string, snapshot: ChatContextSnapshot, canonicalIntent?: CanonicalIntent | null): TradingIntent | null {
     const raw = String(text || '').trim();
-    const lower = raw.toLowerCase();
     const confirmation = snapshot.confirmationState || {};
     const normalizedIntent = canonicalIntent || snapshot.normalizedIntent || null;
-    const requestedChain = resolveRequestedChainHint({
-        text: raw,
+    const requestedChain = resolveCanonicalChainRef({
+        canonicalIntent: normalizedIntent,
         requestedTokenAddresses: snapshot.requestedTokenAddresses,
         requestedTokenSymbols: snapshot.requestedTokenSymbols,
+        runtimeChainId: snapshot.runtime.chainId,
+        runtimeChainName: snapshot.runtime.chainName,
     });
 
     if (confirmation.kind === 'swap_confirmation') {
@@ -89,44 +90,6 @@ export function parseTradingIntent(text: string, snapshot: ChatContextSnapshot, 
                 },
             };
         }
-    }
-
-    if (/\b(copy ?trade|follow this trader|跟单|复制交易)\b/i.test(lower)) {
-        const wallet = snapshot.requestedTokenAddresses[0];
-        return {
-            kind: 'trading',
-            type: 'copy_trade',
-            slots: { target_wallet: wallet },
-        };
-    }
-
-    if (/\b(bridge|cross.chain|cross chain)\b/i.test(lower)) {
-        return {
-            kind: 'trading',
-            type: 'cross_chain_trade',
-            slots: {},
-        };
-    }
-
-    if (/\b(swap|buy|sell|trade|exchange|convert|买|卖|兑换)\b/i.test(lower)) {
-        const amountMatch = raw.match(/\b(all|\d+(?:\.\d+)?%?)\b/i);
-        const symbols = extractSymbols(raw);
-        const contractAddresses = snapshot.requestedTokenAddresses || [];
-        const tokenOut = contractAddresses[0] || guessTokenOut(raw, symbols, snapshot) || undefined;
-        const tokenIn = guessTokenIn(raw, symbols, snapshot, tokenOut, requestedChain?.chainId) || undefined;
-        return {
-            kind: 'trading',
-            type: 'swap',
-            slots: {
-                amount: amountMatch ? amountMatch[1] : undefined,
-                token_in: tokenIn,
-                token_out: tokenOut,
-                chain_id: requestedChain?.chainId,
-                chain_name: requestedChain?.chainName,
-                requested_addresses: snapshot.requestedTokenAddresses || [],
-                requested_symbols: snapshot.requestedTokenSymbols || [],
-            },
-        };
     }
 
     return null;

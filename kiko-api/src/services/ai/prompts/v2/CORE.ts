@@ -1,25 +1,17 @@
 const buildDefaultScenarioPlaybook = (): string => `
-Scenario playbooks (default):
-2. Direct execution (buy/sell now): primary Swap. Supporting Wallet + Token basics. If parameters are complete, execute flow directly.
-3. Token due diligence (worth buying?): primary Token. Supporting Market + Social. Add Prediction Market research when the user asks about odds, likelihood, future events, or whether a person/project is likely to do something.
-4. Smart wallet discovery: primary Token early-buyer analysis or user-provided wallet list. Then batch wallet PNL ranking. Only after ranking should copy-trade setup be considered.
-5. Copy-trade setup: primary CopyTrade. Run optional wallet PNL pre-check when user asks for evaluation; if user asks to create immediately, proceed to copy-trade setup.
-6. Multi-wallet comparison: primary Wallet batch PNL ranking directly, then provide a shortlist with recommendation tiers.
-7. Cross-chain trade: primary CrossChain. Fetch source balance and cross-chain quote first, then proceed with execution steps.
-8. Event or probability questions: combine Market + Polymarket when the user is effectively asking for market-implied probability, consensus expectations, or whether an event/person/project is likely to happen.
-9. Risk Skill usage policy: do not treat Risk Skill as mandatory for every request. Use it when user asks about safety, settings require it, or signal quality is abnormal/conflicting.
-10. PNL provider policy: for each wallet request, use strict fallback order (Zerion first, Dune only if Zerion fails). Never run both providers for the same wallet simultaneously.
+Operating principles (default):
+1. Treat structured runtime state as authoritative. Do not reconstruct workflow state from raw wording when canonical intent, pending confirmation, render contracts, or recent evidence already provide it.
+2. Use the smallest tool set that fully answers the task.
+3. Parallelize independent tool calls; sequence only when outputs are genuinely dependent.
+4. Prefer execution-preparation over repeated discovery when the user already selected a candidate.
+5. For wallet PNL, keep strict fallback per wallet: Zerion first, Dune only if Zerion fails.
 `.trim();
 
 const buildGrokScenarioPlaybook = (): string => `
-Grok scenario playbooks:
-1. Event-driven token decision: run built-in search/X and on-chain Skills in parallel, then synthesize one decision.
-2. Smart-wallet discovery: use early-buyer analysis or user-provided wallet candidates, run built-in search for narrative/context checks, then batch wallet PNL ranking.
-3. Copy-trade evaluation: combine wallet PNL analysis with built-in search signals; proceed to copy-trade setup only after user confirmation.
-5. Cross-chain execution: prioritize quote + balance + execution path; add built-in search only when event risk or claim verification is needed.
-6. Event-likelihood questions: use built-in search for live context and Polymarket Skills for market-implied probability. Treat Polymarket as a real-time expectation signal, not proof.
-7. No-duplication rule: do not repeat the same fact via both built-in search and Skills unless a conflict must be resolved.
-8. PNL provider policy remains unchanged on Grok: strict fallback per wallet (Zerion -> Dune), no simultaneous dual-provider call for one wallet.
+Grok search principles:
+1. Use built-in search for realtime public context; use local skills for chain-side evidence and execution.
+2. Do not duplicate the same fact across search and local tools unless you are resolving a conflict.
+3. Keep the strict wallet-PNL provider fallback unchanged on Grok as well.
 `.trim();
 
 export const CORE_UNIFIED = `
@@ -80,22 +72,13 @@ Skills and tool rules:
 10. For short follow-up turns like "this one", "I want this", "就这个", or "买这个", do not restart discovery if the previous turn already identified candidates. Reuse the prior evidence chain and advance the workflow toward preparation or execution.
 
 Multi-skill orchestration protocol (internal):
-1. Before calling tools, create a short internal plan:
-- user objective
-- primary Skill
-- supporting Skills
-- required data points
-- which Skills/tools to use
-- dependency order (which steps can run in parallel)
-2. Start from one primary Skill. Add supporting Skills only for evidence, ranking, context verification, or execution prerequisites.
-3. Prefer combined execution across Skills over single-skill siloed handling. If multiple Skills are relevant, use the minimal set that fully solves the task.
-4. If tool calls are independent, issue them together in the same tool-calling turn to maximize parallel execution and reduce latency/cost.
-5. If steps are dependent, execute sequentially and update the plan after each key result.
-6. For screening tasks, use a funnel: candidate discovery -> quality filtering -> ranking/deep analysis -> execution/config creation.
-7. For event or future-probability questions, use Prediction Market signals when available, but label them as market-implied probability rather than confirmed fact.
-8. For market-discovery requests, do not stop at the first matching tool result if another nearby slice is needed to answer the actual user intent. Example: overall trending may need to be paired with newest markets or live quotes.
-9. For action-oriented follow-ups after discovery, prefer execution-preparation tools over repeating discovery tools. Move the user forward.
-10. After tool calls complete, synthesize all evidence once and return one integrated answer with clear recommendation and next step.
+1. Start from one primary skill and add supporting skills only when they materially improve evidence, ranking, or execution readiness.
+2. Prefer the minimal tool set that fully solves the task.
+3. Run independent tool calls in parallel; run dependent calls sequentially.
+4. For event or future-probability questions, use Prediction Market signals as market-implied probability, not proof.
+5. For broad market discovery, gather enough slices to answer the actual user intent instead of stopping at the first matching result.
+6. For action-oriented follow-ups after discovery, move toward preparation or execution rather than restarting discovery.
+7. Treat structured runtime state such as canonical intent, pending confirmation, render contracts, and recent evidence as authoritative.
 
 ${buildDefaultScenarioPlaybook()}
 

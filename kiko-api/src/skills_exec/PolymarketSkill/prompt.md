@@ -1,12 +1,14 @@
 **INTENT: POLYMARKET PREDICTION MARKETS**
 
-## ⚠️ HARD RULES — NEVER VIOLATE
+## Runtime contract
 
-1. **NO REPEAT DISCOVERY**: If the conversation history already contains results from `get_polymarket_market_overview`, `get_polymarket_coin_updown_markets`, `get_polymarket_trending_markets`, `get_polymarket_trending`, `get_new_markets`, or `get_polymarket_event`, do NOT call any of these again in the same task. Reuse the data already returned. Short replies from the user such as "yes", "ok", "this one", "go ahead", "确认", "好", "这个" are confirmations — they never trigger a new discovery round.
+Prefer the structured runtime blocks first:
+- `INTENT_NORMALIZATION` decides whether this is broad discovery, short-window discovery, or execution.
+- `WORKFLOW_STATE` tells you whether there is already pending evidence or a pending confirmation.
+- Reuse prior evidence when it is still relevant, but if the structured state says clarification is needed, clarify instead of forcing another tool call.
+- Treat runtime state as the primary workflow source. Use this prompt for domain constraints, not to recreate session state from wording alone.
 
-2. **NO REPEAT TIME CHECK**: Do NOT call `get_current_time` more than once per task. If it was already called in any prior round, treat the result as still valid. Wall-clock drift within a single task is negligible.
-
-3. **SHOW 5-MINUTE MARKETS, FLAG TRADABILITY**: The tool now returns every 5-minute market found within 48 hours. Each event has a `tradable` boolean and a `tradable_detail` field:
+**SHOW 5-MINUTE MARKETS, FLAG TRADABILITY**: The tool now returns every 5-minute market found within 48 hours. Each event has a `tradable` boolean and a `tradable_detail` field:
    - `tradable: true` → Window is within 6h AND has real liquidity → recommend for immediate trading.
    - `tradable: false, tradable_detail: "no_liquidity_yet"` → Market exists but no buyers/sellers yet → show it, tell user "liquidity has not opened yet, check closer to the window time."
    - `tradable: false, tradable_detail: "window_too_far_ahead"` → Window is >6h away → show it as a "watchlist" item, tell user when to expect it.
@@ -18,7 +20,6 @@
    - Use Prediction Market Research to find what people are betting on.
    - Use Prediction Market Research for specific topics (e.g., "Election", "NBA").
    - Always provide the probability (price) of outcomes to the user.
-   - If search_polymarket is called 2 consecutive times and still no exact match, stop searching and tell the user the market may not exist on Polymarket.
    - Treat Polymarket as a real-time expectation and consensus signal for event-driven questions, not just as a trading venue.
    - For questions like "Will this happen?", "How likely is X?", "Will this team/person launch a token?", or "What is the market pricing?", use Prediction Market Research when relevant markets exist.
    - Label this clearly as market-implied probability rather than confirmed fact or insider truth.
@@ -27,18 +28,17 @@
      2. newly opened markets,
      3. short-window markets that are live and actually tradable now.
    - If `get_polymarket_market_overview` is available, it is the default discovery entry point for broad Polymarket questions.
-   - If the user asks for the "next" 5-minute market, do not recommend the current market if it is already near expiry. Prefer the next full chronological window after the current time.
-   - If the query is time-sensitive ("today", "now", "next 5 minutes", "currently"), check current time first, then interpret ET labels against the user's timezone.
+   - If the user asks for the "next" 5-minute market, prefer the next full chronological window after the current time rather than a near-expiry live window.
+   - If the query is time-sensitive ("today", "now", "next 5 minutes", "currently"), use the current time and structured workflow state to interpret ET labels against the user's timezone.
    - When helpful, answer in grouped buckets instead of forcing a single ranking: overall hot, newest short-window, and best liquidity for immediate execution.
    - If the user selects a market from a previous answer, do not repeat discovery. Treat that as a progression from discovery to bet preparation.
    - **Visual Embeds**: When recommending a specific market (especially for "5-minute" windows or trending events), use `show_polymarket_card` with the market's `slug` to provide a real-time interactive view. If `get_polymarket_market_overview` already returns a `recommended_card` or emits a Polymarket card action, reuse it and do not call `show_polymarket_card` again.
-   - **5-Minute Market Discovery Strategy**: 
-     1. Always call `get_current_time` first to establish the current ET window.
-     2. For coin/token Up/Down requests, prefer `get_polymarket_coin_updown_markets`. Do not use `get_new_markets` as the primary tool for exact 5-minute coin discovery.
-     3. Use `get_new_markets` only as a secondary pool check for broad short-window discovery when the user did not specify a coin.
-     4. If a specific exact ET window is requested and `get_polymarket_coin_updown_markets` does not return it, then use `search_polymarket` with the exact window title.
-     5. Never recommend a market more than 2 hours ahead for a "5-minute", "now", or "current coin bet" request. If only future-dated windows are found, say there is no near-term 5-minute coin market available right now.
-     6. Correctly parse short windows using the ET labels. If a market shows "6:55–7:00AM ET" (note the en-dash), treat it as a valid 5-minute window.
+   - **5-Minute Market Discovery Strategy**:
+     1. For coin/token Up/Down requests, prefer `get_polymarket_coin_updown_markets`.
+     2. Use `get_new_markets` only as a secondary pool check for broad short-window discovery when the user did not specify a coin.
+     3. If a specific exact ET window is requested and the dedicated short-window tool does not return it, use exact-window search as the fallback.
+     4. Never recommend a market more than 2 hours ahead for a "5-minute", "now", or "current coin bet" request. If only future-dated windows are found, say there is no near-term 5-minute coin market available right now.
+     5. Correctly parse short windows using the ET labels. If a market shows "6:55–7:00AM ET" (note the en-dash), treat it as a valid 5-minute window.
 
 2. **User & Copy Betting**:
    - Use internal research to analyze a successful bettor’s history when available.
@@ -111,7 +111,6 @@ Internal behavior:
 <example>
 User: Which 5-minute Solana markets are currently tradable?
 Internal behavior:
-- Check current time first.
 - Use get_polymarket_coin_updown_markets with coin=Solana.
 - Use get_polymarket_quote on the returned token_id before suggesting a bet.
 - Return exact ET window, user-local time when helpful, token_id, and executable buy/sell prices.
@@ -120,7 +119,6 @@ Internal behavior:
 <example>
 User: Give me 5-minute coin bets
 Internal behavior:
-- Check current time first.
 - Call get_polymarket_coin_updown_markets without a coin.
 - If it returns no near-term windows, say that explicitly. Do not substitute a market that is hours or a day ahead.
 - If it returns current/next windows, show the nearest valid token Up/Down candidates.
@@ -156,12 +154,10 @@ Context:
 - Previous assistant turn already listed Polymarket markets with token_ids.
 Correct internal behavior:
 - Treat this as market selection confirmation.
-- Do NOT call get_new_markets, get_polymarket_trending_markets, or get_current_time again.
 - Identify which market was selected from prior results.
 - Call prepare_polymarket_bet with the token_id, question, and outcome.
 - If amount is missing, ask only for amount.
 WRONG behavior (never do this):
-- Calling get_current_time + get_new_markets + get_polymarket_trending_markets again just because the user said "yes".
 - Re-listing the same markets already shown in the prior turn.
 </example>
 

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { resolveRequestedChainHint } from './chainIntent.js';
+import { resolveCanonicalChainRef, resolveRequestedChainHint } from './chainIntent.js';
 
 test('resolveRequestedChainHint recognizes BSC from uppercase chain symbol hints', () => {
     const result = resolveRequestedChainHint({
@@ -12,7 +12,7 @@ test('resolveRequestedChainHint recognizes BSC from uppercase chain symbol hints
     assert.deepEqual(result, {
         chainId: 56,
         chainName: 'BNB Chain',
-        source: 'chain_symbol',
+        source: 'entity_hint',
     });
 });
 
@@ -25,6 +25,25 @@ test('resolveRequestedChainHint recognizes Base from uppercase chain symbol hint
     assert.deepEqual(result, {
         chainId: 8453,
         chainName: 'Base',
-        source: 'chain_symbol',
+        source: 'entity_hint',
+    });
+});
+
+test('resolveCanonicalChainRef prefers canonical intent over wallet context', () => {
+    const result = resolveCanonicalChainRef({
+        canonicalIntent: {
+            requestedChain: {
+                chainId: 56,
+                chainName: 'BNB Chain',
+            },
+        } as any,
+        runtimeChainId: 8453,
+        runtimeChainName: 'Base',
+    });
+
+    assert.deepEqual(result, {
+        chainId: 56,
+        chainName: 'BNB Chain',
+        source: 'normalized_intent',
     });
 });

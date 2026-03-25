@@ -12,77 +12,74 @@ export interface TaskPlanningContext {
     locale: 'en' | 'zh';
 }
 
-const SOCIAL_KEYWORDS = ['latest', 'today', 'current', 'timing', 'post', 'tweet', 'twitter', 'x.com', 'social', 'cz', 'trending', 'trend'];
-const SOCIAL_CN_KEYWORDS = ['最新', '今天', '现在', '时点', '发文', '推文', '社交', 'CZ'];
-const CHAIN_EVIDENCE_KEYWORDS = [
-    'early buyers', 'earliest buyers', 'first buyers', 'first buyer', 'early buyer',
-    'holders', 'holder', 'first trades', 'first swaps', 'snipers', 'wallets', 'creator',
-    'deployer', 'deployed by', 'first tx', 'first transactions',
-];
-const CHAIN_EVIDENCE_CN_KEYWORDS = ['早期买家', '首批买家', '早期购买者', '持有人', '前几位买家', '早期购买', '创建者', '部署者', '首批交易'];
-
 export function buildTaskPlanningContext(
     snapshot: ChatContextSnapshot,
     skillResolution: SkillResolution,
 ): TaskPlanningContext {
-    const query = String(snapshot.lastUserMessage || '');
-    const lower = query.toLowerCase();
     const canonicalIntent = snapshot.normalizedIntent || null;
-    const asksRealtimeSocial = canonicalIntent
-        ? canonicalIntent.searchTarget === 'x'
-            || canonicalIntent.searchTarget === 'x_and_web'
-            || canonicalIntent.requiresRealtime
-        : containsAny(lower, SOCIAL_KEYWORDS)
-            || containsAny(query, SOCIAL_CN_KEYWORDS)
-            || /\bon\s+x\b/i.test(lower)
-            || /\bweb\s+search\b/i.test(lower)
-            || /\bsearch\s+(the\s+)?web\b/i.test(lower)
-            || /\bsearch\s+x\b/i.test(lower)
-            || /\bx\s+search\b/i.test(lower);
-    const asksOnChainEvidence = canonicalIntent
-        ? canonicalIntent.evidenceRequirements.includes('onchain_token_evidence')
-            || canonicalIntent.evidenceRequirements.includes('onchain_wallet_evidence')
-            || canonicalIntent.evidenceRequirements.includes('connected_chain_evidence')
-            || canonicalIntent.requiresOnchainEvidence
-        : containsAny(lower, CHAIN_EVIDENCE_KEYWORDS) || containsAny(query, CHAIN_EVIDENCE_CN_KEYWORDS);
-    const asksCreatorEvidence = canonicalIntent
-        ? canonicalIntent.intent === 'creator_analysis'
-        : containsAny(lower, ['creator', 'deployer', 'deployed by']) || containsAny(query, ['创建者', '部署者', '谁部署']);
-    const requestedToken = (snapshot.requestedTokenAddresses || []).length > 0 || (snapshot.requestedTokenSymbols || []).length > 0;
-    const locale = detectLocale(query, canonicalIntent);
-
-    const initialStep = makeStep(
-        'step-understand',
-        locale === 'zh' ? '先理解任务' : 'Understand the request',
-        locale === 'zh'
-            ? '先明确目标，再决定下一步要查看哪些信息。'
-            : 'Clarify the goal first, then decide what evidence to gather next.',
-        preferredPlanTools(skillResolution, []),
+    const locale = detectLocale(String(snapshot.lastUserMessage || ''), canonicalIntent);
+    const asksRealtimeSocial = Boolean(
+        canonicalIntent?.searchTarget === 'x'
+        || canonicalIntent?.searchTarget === 'x_and_web'
+        || canonicalIntent?.requiresRealtime,
     );
-    const needsChainPlanStep = asksOnChainEvidence
-        || skillResolution.intentEnvelope.required_evidence.some((item) =>
-            ['onchain_token_evidence', 'onchain_wallet_evidence', 'connected_chain_evidence'].includes(item),
-        );
-    const steps: PlanStep[] = [initialStep];
-    if (asksRealtimeSocial) {
-        steps.push(buildSocialPlanStep(skillResolution, query));
+    const asksOnChainEvidence = Boolean(
+        canonicalIntent?.evidenceRequirements.includes('onchain_token_evidence')
+        || canonicalIntent?.evidenceRequirements.includes('onchain_wallet_evidence')
+        || canonicalIntent?.evidenceRequirements.includes('connected_chain_evidence')
+        || canonicalIntent?.requiresOnchainEvidence,
+    );
+    const asksCreatorEvidence = canonicalIntent?.intent === 'creator_analysis';
+    const requestedToken = (snapshot.requestedTokenAddresses || []).length > 0 || (snapshot.requestedTokenSymbols || []).length > 0;
+    const steps: PlanStep[] = [];
+
+    steps.push(makeStep(
+        'step-discover',
+        locale === 'zh' ? '识别意图与范围' : 'Resolve intent and scope',
+        locale === 'zh'
+            ? '根据规范化意图确定范围、证据要求与输出模式。'
+            : 'Use canonical intent to lock the scope, evidence requirements, and output mode.',
+        preferredPlanTools(skillResolution, []),
+    ));
+    if (asksRealtimeSocial || asksOnChainEvidence || asksCreatorEvidence) {
+        steps.push(makeStep(
+            'step-verify',
+            locale === 'zh' ? '验证关键证据' : 'Verify key evidence',
+            locale === 'zh'
+                ? '仅收集当前任务真正需要的实时或链上证据。'
+                : 'Collect only the realtime or on-chain evidence required for this task.',
+            preferredPlanTools(skillResolution, asksOnChainEvidence ? ['get_early_buyers', 'get_token_info', 'get_wallet_info'] : asksRealtimeSocial ? ['external_web_search'] : ['analyze_creator']),
+        ));
     }
-    if (needsChainPlanStep) {
-        steps.push(buildChainEvidencePlanStep(skillResolution, query));
+    if (canonicalIntent?.taskMode === 'execute' || canonicalIntent?.taskMode === 'confirm' || skillResolution.intentEnvelope.execution_risk === 'mutation') {
+        steps.push(makeStep(
+            'step-prepare',
+            locale === 'zh' ? '准备执行' : 'Prepare execution',
+            locale === 'zh'
+                ? '准备确认所需参数、执行前提和最小下一步。'
+                : 'Prepare the execution prerequisites, confirmation payload, and smallest next step.',
+            preferredPlanTools(skillResolution, skillResolution.preferredTools || []),
+        ));
     }
-    if (asksCreatorEvidence) {
-        steps.push(buildCreatorPlanStep(skillResolution, query));
-    }
-    steps.push(buildSummaryPlanStep(query));
+    steps.push(makeStep(
+        'step-summary',
+        locale === 'zh' ? '整合回答' : 'Synthesize answer',
+        locale === 'zh'
+            ? '按照结构化输出契约返回结果。'
+            : 'Return the answer using the structured output contract.',
+        [],
+    ));
+
+    steps[0].status = 'in_progress';
 
     return {
         plan: {
             planId: randomUUID(),
-            title: resolvePlanTitle(locale, asksRealtimeSocial, needsChainPlanStep),
-            summary: resolvePlanSummary(locale, asksRealtimeSocial, needsChainPlanStep),
+            title: resolvePlanTitle(locale, asksRealtimeSocial, asksOnChainEvidence || asksCreatorEvidence),
+            summary: resolvePlanSummary(locale, asksRealtimeSocial, asksOnChainEvidence || asksCreatorEvidence),
             locale,
             status: 'in_progress',
-            currentStepId: initialStep.id,
+            currentStepId: steps[0]?.id,
             steps,
             activity: [],
         },
@@ -234,10 +231,6 @@ function preferredPlanTools(skillResolution: SkillResolution, fallbacks: string[
         ...fallbacks.filter((toolName) => !preferred.includes(toolName)),
     ];
     return Array.from(new Set(resolved));
-}
-
-function containsAny(text: string, needles: string[]): boolean {
-    return needles.some((needle) => text.includes(needle));
 }
 
 function isChinese(text: string): boolean {

@@ -134,7 +134,11 @@ test('resolveTradeConfirmationState extracts order confirmation from a prepared 
                 },
             },
         },
-    ], 'confirm');
+    ], 'confirm', {
+        domain: 'polymarket',
+        intent: 'polymarket_order',
+        taskMode: 'confirm',
+    } as any);
 
     assert.equal(state?.kind, 'order_confirmation');
     assert.equal(state?.order?.toolName, 'place_polymarket_order');
@@ -146,7 +150,14 @@ test('resolveTradeConfirmationState extracts order confirmation from a prepared 
 test('isConfirmationMessage stays strict for ordinary trade requests that contain polite language', () => {
     assert.equal(isConfirmationMessage('可以帮我报价一下这个 token 吗'), false);
     assert.equal(isConfirmationMessage('ok buy 1 eth worth of virtual'), false);
-    assert.equal(isConfirmationMessage('可以'), true);
-    assert.equal(isConfirmationMessage('confirm'), true);
-    assert.equal(isConfirmationMessage('继续执行'), true);
+    assert.equal(isConfirmationMessage('confirm', {
+        normalizedIntent: {
+            taskMode: 'confirm',
+        },
+    } as any), true);
+    assert.equal(isConfirmationMessage('继续执行', {
+        normalizedIntent: {
+            taskMode: 'execute',
+        },
+    } as any), true);
 });

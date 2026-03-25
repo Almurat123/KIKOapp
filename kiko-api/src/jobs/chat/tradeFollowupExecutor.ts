@@ -5,7 +5,6 @@ import { ChatStreamBroker } from './streamBroker.js';
 import type { ToolExecutionEngine } from './toolExecutionEngine.js';
 import { computeConfirmationToken } from './executionGate.js';
 import { createPolicyError } from './controlPolicy.js';
-import { isConfirmationMessage } from './conversationStateResolver.js';
 
 export async function executeDirectTradeFollowup(params: {
     snapshot: ChatContextSnapshot;
@@ -47,7 +46,7 @@ export async function executeDirectTradeFollowup(params: {
                 params.snapshot.policySnapshot || null,
             );
             await params.broker.complete({
-                content: `Proceed confirmed, but execution failed: ${policyError.code}`,
+                content: buildFailureSummary(params.snapshot, policyError.message),
             });
             return {
                 handled: true,
@@ -200,21 +199,33 @@ async function invokeTool(params: {
     const finalText = txMessageId
         ? ''
         : (toolResult.result?.summary
-            || (toolResult.ok ? buildSuccessSummary(params.toolName, params.args) : buildFailureSummary(toolResult.error)));
+            || (toolResult.ok
+                ? buildSuccessSummary(params.snapshot, params.toolName, params.args)
+                : buildFailureSummary(params.snapshot, toolResult.error)));
     await params.broker.complete({ content: finalText });
     return toolResult;
 }
 
-function buildSuccessSummary(toolName: string, args: Record<string, any>): string {
-    if (toolName === 'create_copy_trade_config') return 'Copy trade setup created.';
-    if (toolName === 'prepare_cross_chain_tx') {
-        return `Proceed confirmed. Executed cross-chain trade ${String(args.fromAmount || '')} ${String(args.fromToken || '')} -> ${String(args.toToken || '')}.`;
+function buildSuccessSummary(snapshot: ChatContextSnapshot, toolName: string, args: Record<string, any>): string {
+    const locale = detectLocale(snapshot);
+    if (toolName === 'create_copy_trade_config') {
+        return locale === 'zh' ? '已创建跟单配置。' : 'Copy-trade setup created.';
     }
-    return `Proceed confirmed. Executed ${String(args.amount_in || '')} ${String(args.token_in || '')} -> ${String(args.token_out || '')}.`;
+    if (toolName === 'prepare_cross_chain_tx') {
+        return locale === 'zh'
+            ? `已提交跨链交易：${String(args.fromAmount || '')} ${String(args.fromToken || '')} -> ${String(args.toToken || '')}。`
+            : `Cross-chain trade submitted: ${String(args.fromAmount || '')} ${String(args.fromToken || '')} -> ${String(args.toToken || '')}.`;
+    }
+    return locale === 'zh'
+        ? `已提交交易：${String(args.amount_in || '')} ${String(args.token_in || '')} -> ${String(args.token_out || '')}。`
+        : `Trade submitted: ${String(args.amount_in || '')} ${String(args.token_in || '')} -> ${String(args.token_out || '')}.`;
 }
 
-function buildFailureSummary(message?: string): string {
-    return `Proceed confirmed, but execution failed: ${String(message || 'unknown error')}`;
+function buildFailureSummary(snapshot: ChatContextSnapshot, message?: string): string {
+    const locale = detectLocale(snapshot);
+    return locale === 'zh'
+        ? `交易执行失败：${String(message || '未知错误')}`
+        : `Execution failed: ${String(message || 'unknown error')}`;
 }
 
 async function broadcastClientAction(params: {
@@ -294,7 +305,8 @@ function resolveInvalidTradeConfirmation(snapshot: ChatContextSnapshot): {
     args: Record<string, any>;
 } | null {
     if (snapshot.confirmationState?.kind) return null;
-    if (!isConfirmationMessage(snapshot.lastUserMessage)) return null;
+    const taskMode = snapshot.normalizedIntent?.taskMode;
+    if (taskMode !== 'confirm' && taskMode !== 'execute') return null;
 
     const toolCalls = snapshot.recentToolTrace?.toolCalls || [];
     const recentTradeCall = [...toolCalls].reverse().find((entry) =>
@@ -328,8 +340,13 @@ function resolveInvalidTradeConfirmation(snapshot: ChatContextSnapshot): {
         error,
         toolName,
         args,
-        userMessage:
-            `Nothing was executed. The previous trade preflight did not complete successfully (${error}). ` +
-            `Run a fresh simulation/quote first, then confirm again.`,
+        userMessage: detectLocale(snapshot) === 'zh'
+            ? `本次没有执行交易。之前的预检查未成功完成（${error}）。请先重新获取报价或预检查，然后再确认。`
+            : `Nothing was executed. The previous trade preflight did not complete successfully (${error}). Run a fresh quote or preflight first, then confirm again.`,
     };
+}
+
+function detectLocale(snapshot: ChatContextSnapshot): 'en' | 'zh' {
+    if (snapshot.normalizedIntent?.locale === 'zh') return 'zh';
+    return /[\u4e00-\u9fff]/.test(String(snapshot.lastUserMessage || '')) ? 'zh' : 'en';
 }

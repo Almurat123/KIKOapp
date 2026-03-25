@@ -1,7 +1,7 @@
 import { LogCode } from '../../config/logRegistry.js';
 import { skillRegistryExec } from '../../skills/registry.js';
 import { logger } from '../../utils/logger.js';
-import { resolveRequestedChainHint } from './chainIntent.js';
+import { resolveCanonicalChainRef } from './chainIntent.js';
 import type { ChatContextSnapshot } from './contracts.js';
 import type { CanonicalIntent } from './canonicalIntent.js';
 import {
@@ -64,34 +64,11 @@ export interface SkillResolution {
     currentPhase: ToolPhase;
 }
 
-function extractExplicitRowCount(rawQuery: string): number | null {
-    const query = String(rawQuery || '');
-    const patterns = [
-        /\b(?:for|top|limit|show|get|check)\s+(\d{1,3})\b/i,
-        /\b(\d{1,3})\s+(?:wallets|buyers|rows|addresses)\b/i,
-        /前\s*(\d{1,3})/i,
-        /(\d{1,3})\s*个/i,
-    ];
-
-    for (const pattern of patterns) {
-        const match = query.match(pattern);
-        if (!match) continue;
-        const count = Number(match[1]);
-        if (Number.isFinite(count) && count > 0 && count <= 100) {
-            return count;
-        }
-    }
-
-    return null;
-}
-
 export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: TradingIntent | null, canonicalIntent?: CanonicalIntent | null): SkillResolution {
     const isGrok = String(snapshot.model || '').toLowerCase().includes('grok');
     const rawQuery = String(snapshot.lastUserMessage || '');
     const normalizedIntent = canonicalIntent || snapshot.normalizedIntent || null;
     const availableToolNames = new Set((snapshot.toolDefinitions || []).map((definition) => String(definition.name || '').trim()).filter(Boolean));
-    const contextBlocks = snapshot.runtime.contextBlocks || {};
-    const prefetched = snapshot.runtime.prefetchedToolResults || {};
     const blockedTools: string[] = [];
     const preferredTools: string[] = [];
     const strategyNotes: string[] = [];
@@ -110,35 +87,23 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
     const asksWalletPnl = querySignals.pnl;
     const hasRequestedToken = querySignals.hasRequestedToken;
     const requiresSocialChainEvidence = querySignals.socialChainEvidence;
-    const requestedChain = normalizedIntent?.requestedChain || resolveRequestedChainHint({
-        text: rawQuery,
+    const requestedChain = resolveCanonicalChainRef({
+        canonicalIntent: normalizedIntent,
         requestedTokenAddresses: snapshot.requestedTokenAddresses,
         requestedTokenSymbols: snapshot.requestedTokenSymbols,
+        runtimeChainId: snapshot.runtime.chainId,
+        runtimeChainName: snapshot.runtime.chainName,
     });
-    const explicitlyMentionsFarcaster = normalizedIntent?.domain === 'farcaster' || containsAny(rawQuery, ['farcaster', 'warpcast', 'cast', 'casts', 'fc']);
+    const explicitlyMentionsFarcaster = normalizedIntent?.domain === 'farcaster';
     const preferXNativeSearch = normalizedIntent
         ? (normalizedIntent.searchTarget === 'x' || normalizedIntent.searchTarget === 'x_and_web' || normalizedIntent.domain === 'x')
-        : (querySignals.xSearch && !explicitlyMentionsFarcaster);
-    const asksEarlyBuyers = normalizedIntent
-        ? ['early_buyers'].includes(normalizedIntent.intent)
-        : containsAny(snapshot.lastUserMessage, [
-        'early buyers', 'earliest buyers', 'first buyers', 'first buyer', 'early buyer',
-        'holders', 'holder', 'first trades', 'first swaps', 'snipers', 'wallets',
-        'early purchasers', '早期买家', '首批买家', '早期购买者', '持有人', '前几位买家', '早期购买',
-    ]);
-    const explicitEarlyBuyerRowCount = normalizedIntent?.rowCount ?? extractExplicitRowCount(snapshot.lastUserMessage);
-    const explicitlyRequestsEarlyBuyerFullList = normalizedIntent
-        ? normalizedIntent.outputMode === 'full_table'
-        : containsAny(snapshot.lastUserMessage, [
-        'full list', 'complete list', 'full table', 'all early buyers', 'all wallets', 'export',
-        'excel', 'csv', 'table', 'full export', '完整名单', '全量', '导出', '表格', '全部钱包',
-    ]) || (asksEarlyBuyers && explicitEarlyBuyerRowCount !== null);
+        : false;
+    const asksEarlyBuyers = normalizedIntent?.intent === 'early_buyers';
+    const explicitEarlyBuyerRowCount = normalizedIntent?.rowCount ?? null;
+    const explicitlyRequestsEarlyBuyerFullList = normalizedIntent?.outputMode === 'full_table'
+        || (asksEarlyBuyers && explicitEarlyBuyerRowCount !== null);
     const wantsEarlyBuyerFullList = asksEarlyBuyers || explicitlyRequestsEarlyBuyerFullList;
-    const asksCreator = normalizedIntent
-        ? normalizedIntent.intent === 'creator_analysis'
-        : containsAny(snapshot.lastUserMessage, [
-        'creator', 'deployer', 'deployed by', '创建者', '部署者', '谁部署',
-    ]);
+    const asksCreator = normalizedIntent?.intent === 'creator_analysis';
 
     let selected = matchResult.rankedMatches.map((item) => item.skillId);
     if (querySignals.welcome) {
@@ -257,12 +222,7 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
         allowedTools = Array.from(availableToolNames).sort();
     }
 
-    const polymarketShortWindowQuery = normalizedIntent
-        ? normalizedIntent.intent === 'polymarket_short_window'
-        : querySignals.prediction && containsAny(lowercase(rawQuery), [
-        '5min', '5 min', '5-minute', '5 minute', 'up or down', 'token bet', 'coin bet', 'coin up/down', 'token up/down',
-        '5分钟', '五分钟', '涨跌',
-    ]);
+    const polymarketShortWindowQuery = normalizedIntent?.intent === 'polymarket_short_window';
     if (polymarketShortWindowQuery) {
         pushPreferred(preferredTools, 'get_polymarket_coin_updown_markets');
         strategyNotes.push('For coin/token Up/Down short-window requests, prefer get_polymarket_coin_updown_markets over get_new_markets because exact ET-window discovery is required.');
@@ -291,7 +251,7 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
         pushPreferred(preferredTools, 'get_token_info');
         strategyNotes.push('This request asks for on-chain buyer/holder evidence. Prefer local token-analysis tools before answering from web summaries alone.');
         if (wantsEarlyBuyerFullList) {
-            strategyNotes.push(`Early-buyer queries in this system default to full-list output${explicitEarlyBuyerRowCount ? ` with ${explicitEarlyBuyerRowCount} rows` : ''}. Use get_early_buyers, preserve full wallet addresses, and include trade progression when available. If the tool returns markdownTable, emit that table verbatim before any analysis. Do not compress the result into a whale-only summary.`);
+            strategyNotes.push(`Early-buyer queries default to full-list output${explicitEarlyBuyerRowCount ? ` with ${explicitEarlyBuyerRowCount} rows` : ''}. Preserve full wallet addresses, include trade progression when available, and prefer the tool's structured render contract over ad hoc markdown formatting.`);
         }
     }
     if (asksCreator && hasRequestedToken) {
@@ -326,36 +286,7 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
         for (const toolName of sessionToolNames) {
             pushPreferred(preferredTools, toolName);
         }
-        strategyNotes.push(`Session tool context is available. Tools already used in this session may be reused directly when they fit the current request: ${sessionToolNames.join(', ')}.`);
-
-        // P2: Polymarket discovery guard — prevent the model from re-running discovery when
-        // results are already in the session history. This is the primary fix for the
-        // "AI keeps repeating get_new_markets / get_polymarket_trending_markets on every turn" bug.
-        const POLYMARKET_DISCOVERY_TOOLS = new Set([
-            'get_polymarket_market_overview',
-            'get_polymarket_coin_updown_markets',
-            'get_polymarket_trending_markets',
-            'get_polymarket_trending',
-            'get_new_markets',
-            'get_polymarket_event',
-        ]);
-        const sessionPolyDiscovery = sessionToolNames.filter((toolName) => POLYMARKET_DISCOVERY_TOOLS.has(toolName));
-        if (sessionPolyDiscovery.length > 0) {
-            strategyNotes.push(
-                `⚠️ POLYMARKET DISCOVERY ALREADY DONE: The following discovery tools have already been called this session and returned data: ${sessionPolyDiscovery.join(', ')}. ` +
-                `Do NOT call them again. Reuse their results. ` +
-                `Short user replies ("yes", "ok", "this one", "go ahead", "好", "确认", "这个") are confirmations — ` +
-                `respond by calling prepare_polymarket_bet or place_polymarket_order, NOT by running discovery again.`,
-            );
-        }
-
-        // P1: get_current_time budget — one call per task is enough.
-        if (sessionToolNames.includes('get_current_time')) {
-            strategyNotes.push(
-                '⏱️ TIME ALREADY CHECKED: get_current_time was already called this session. Do NOT call it again. ' +
-                'Use the time result from the earlier round; wall-clock drift within a single task is negligible.',
-            );
-        }
+        strategyNotes.push(`Recent tool evidence is available from this session: ${sessionToolNames.join(', ')}. Reuse it when it still answers the current turn, and refresh only when the structured workflow state or new user request makes targeted re-verification necessary.`);
     }
 
     if (selected.length > 0) {
@@ -532,97 +463,37 @@ function buildIntentEnvelope(params: {
         };
     }
 
-    const rawQuery = String(snapshot.lastUserMessage || '');
-    const lower = rawQuery.toLowerCase();
-    const asksEarlyBuyerEvidence = containsAny(lower, [
-        'early buyers', 'earliest buyers', 'first buyers', 'first buyer', 'early buyer',
-        'holders', 'holder', 'first trades', 'first swaps', 'snipers', 'creator', 'deployer',
-    ]) || containsAny(rawQuery, [
-        '早期买家', '首批买家', '早期购买者', '持有人', '前几位买家', '早期购买', '创建者', '部署者',
-    ]);
-    const mentionsExecution = containsAny(lower, [
-        'place order', 'buy yes', 'buy no', 'sell yes', 'sell no', 'place a', '下注', '下单', '买 yes', '买 no', '卖 yes', '卖 no',
-    ]);
-
-    const domain: IntentDomain = explicitlyMentionsFarcaster
-        ? 'farcaster'
-        : preferXNativeSearch
-            ? 'x'
-            : querySignals.prediction
-                ? 'polymarket'
-                : querySignals.wallet || asksWalletPnl
-                    ? 'wallet'
-                    : hasRequestedToken || querySignals.tokenAnalysis || explicitRiskRequest
-                        ? 'token'
-                        : 'general';
-
-    let primaryIntent: IntentPrimaryIntent = 'general_answer';
-    let taskMode: IntentTaskMode = 'discover';
     if (tradingIntent?.type === 'copy_trade') {
-        primaryIntent = 'copytrade_execution';
-        taskMode = tradingIntent.kind === 'trade_confirmation' ? 'confirm' : 'execute';
-    } else if (tradingIntent?.type === 'swap' || tradingIntent?.type === 'cross_chain_trade') {
-        primaryIntent = 'swap_execution';
-        taskMode = tradingIntent.kind === 'trade_confirmation' ? 'confirm' : 'execute';
-    } else if (domain === 'polymarket' && mentionsExecution) {
-        primaryIntent = 'polymarket_order';
-        taskMode = 'execute';
-    } else if (domain === 'polymarket') {
-        primaryIntent = 'polymarket_discovery';
-        taskMode = 'discover';
-    } else if (explicitRiskRequest) {
-        primaryIntent = 'token_risk';
-        taskMode = 'analyze';
-    } else if (domain === 'wallet') {
-        primaryIntent = 'wallet_analysis';
-        taskMode = 'analyze';
-    } else if (hasRequestedToken || querySignals.tokenAnalysis) {
-        primaryIntent = 'token_analysis';
-        taskMode = 'analyze';
-    } else if (domain === 'x' || domain === 'farcaster') {
-        primaryIntent = querySignals.social ? 'social_discovery' : 'search_discovery';
-        taskMode = 'discover';
+        return {
+            primary_intent: 'copytrade_execution',
+            task_mode: tradingIntent.kind === 'trade_confirmation' ? 'confirm' : 'execute',
+            search_mode: searchMode,
+            search_target: 'none',
+            domain: 'wallet',
+            execution_risk: 'mutation',
+            required_evidence: [],
+        };
     }
-
-    let effectiveSearchMode: SearchMode = searchMode;
-    if (preferXNativeSearch) {
-        effectiveSearchMode = 'required';
-    }
-
-    const searchTarget: IntentSearchTarget = preferXNativeSearch
-        ? (querySignals.webSearch ? 'x_and_web' : 'x')
-        : querySignals.webSearch || effectiveSearchMode === 'required'
-            ? 'web'
-            : 'none';
-
-    const requiredEvidence: string[] = [];
-    if (effectiveSearchMode === 'required') {
-        requiredEvidence.push('native_search_results');
-    }
-    if ((hasRequestedToken || querySignals.tokenAnalysis) && (querySignals.realtime || querySignals.socialChainEvidence)) {
-        requiredEvidence.push('onchain_token_evidence');
-    }
-    if ((hasRequestedToken || querySignals.tokenAnalysis) && asksEarlyBuyerEvidence) {
-        requiredEvidence.push('onchain_token_evidence');
-    }
-    if (querySignals.socialChainEvidence && (querySignals.wallet || asksWalletPnl)) {
-        requiredEvidence.push('onchain_wallet_evidence');
-    }
-    if (querySignals.socialChainEvidence && !hasRequestedToken && !(querySignals.wallet || asksWalletPnl)) {
-        requiredEvidence.push('connected_chain_evidence');
-    }
-    if (primaryIntent === 'polymarket_order') {
-        requiredEvidence.push('verified_polymarket_token_id');
+    if (tradingIntent?.type === 'swap' || tradingIntent?.type === 'cross_chain_trade') {
+        return {
+            primary_intent: 'swap_execution',
+            task_mode: tradingIntent.kind === 'trade_confirmation' ? 'confirm' : 'execute',
+            search_mode: searchMode,
+            search_target: 'none',
+            domain: hasRequestedToken ? 'token' : 'general',
+            execution_risk: 'mutation',
+            required_evidence: [],
+        };
     }
 
     return {
-        primary_intent: primaryIntent,
-        task_mode: taskMode,
-        search_mode: effectiveSearchMode,
-        search_target: searchTarget,
-        domain,
-        execution_risk: taskMode === 'execute' || taskMode === 'confirm' ? 'mutation' : 'read_only',
-        required_evidence: Array.from(new Set(requiredEvidence)),
+        primary_intent: 'general_answer',
+        task_mode: 'discover',
+        search_mode: searchMode,
+        search_target: 'none',
+        domain: 'general',
+        execution_risk: 'read_only',
+        required_evidence: [],
     };
 }
 
@@ -720,15 +591,6 @@ function removeTool(target: string[], toolName: string) {
 
 function isSyntheticBlockedTool(toolName: string): boolean {
     return ['external_web_search'].includes(String(toolName || '').trim());
-}
-
-function containsAny(text: string, needles: string[]): boolean {
-    const haystack = String(text || '').toLowerCase();
-    return needles.some((needle) => haystack.includes(String(needle).toLowerCase()));
-}
-
-function lowercase(text: string): string {
-    return String(text || '').toLowerCase();
 }
 
 function pushPreferredToolsForSkill(skillId: string, preferredTools: string[]) {

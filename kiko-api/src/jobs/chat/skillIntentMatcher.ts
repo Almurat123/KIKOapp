@@ -93,39 +93,17 @@ const INTENT_SIGNAL_MAP: Record<NormalizedIntent, keyof QuerySignals> = {
     MARKET_MACRO: 'market',
 };
 
-const SKILL_HINT_PHRASES: Record<string, string[]> = {
-    welcome_onboarding: [
-        'who are you', 'what can you do', 'what do you do', 'introduce yourself',
-        'how can you help', '你是谁', '你能做什么', '你会什么', '介绍一下你自己',
-    ],
-    swap: ['swap', 'buy', 'sell', 'trade', '兑换', '买入', '卖出'],
-    cross_chain_swap: ['cross-chain', 'cross chain', 'bridge', '跨链', '桥接'],
-    copy_trade: ['copy trade', 'copy-trade', 'copytrading', 'follow this trader', '跟单', '跟单交易'],
-    token_analysis: [
-        'token', 'coin', 'contract', 'address', 'creator', 'deployer', 'holders',
-        'early buyers', 'first buyers', 'token analysis', '代币', '合约', '创建者', '部署者', '持有人', '早期买家',
-    ],
-    risk_security: ['risk', 'safe', 'safety', 'honeypot', 'rug', 'security', '风险', '安全', '蜜罐', '土狗'],
-    wallet_portfolio: ['wallet', 'balance', 'portfolio', 'pnl', 'profit', 'performance', '钱包', '余额', '持仓', '盈亏', '收益'],
-    social_farcaster: ['farcaster', 'cast', 'casts', 'warpcast', '热门', '在聊什么'],
-    polymarket_prediction: [
-        'polymarket', 'prediction market', 'prediction markets', 'odds', 'bet', 'bets', 'betting',
-        'wager', 'what people are betting on', '押注', '大家在赌什么', '赔率', '预测市场',
-    ],
-    zora_nfts: ['zora', 'nft', 'nfts', 'mint', 'mints', 'minting', '铸造'],
-    token_alert: ['alert', 'alerts', 'notify me', 'notification', '提醒', '预警', '通知我'],
-    market_macro: ['market', 'macro', 'news', 'gas', 'economic', 'overview', '行情', '宏观', '新闻'],
-};
-
 export function matchSkillsForQuery(params: {
     snapshot: ChatContextSnapshot;
     tradingIntent: TradingIntent | null;
 }): SkillMatchResult {
-    const query = String(params.snapshot.lastUserMessage || '');
-    const queryLower = query.toLowerCase();
-    const queryTokens = tokenize(queryLower);
     const canonicalIntent = params.snapshot.normalizedIntent || null;
-    const querySignals = detectQuerySignals(query, params.snapshot, params.tradingIntent, canonicalIntent);
+    const querySignals = detectQuerySignals(
+        params.snapshot.lastUserMessage,
+        params.snapshot,
+        params.tradingIntent,
+        canonicalIntent,
+    );
     const toolDescriptionMap = new Map(
         (params.snapshot.toolDefinitions || []).map((definition) => [
             definition.name,
@@ -135,9 +113,6 @@ export function matchSkillsForQuery(params: {
 
     const scored = skillRegistryExec.getAllSkills().map((skill) => scoreSkill({
         skill,
-        query,
-        queryLower,
-        queryTokens,
         querySignals,
         canonicalIntent,
         tradingIntent: params.tradingIntent,
@@ -195,15 +170,12 @@ export function matchSkillsForQuery(params: {
 
 function scoreSkill(params: {
     skill: Skill;
-    query: string;
-    queryLower: string;
-    queryTokens: string[];
     querySignals: QuerySignals;
     canonicalIntent: CanonicalIntent | null;
     tradingIntent: TradingIntent | null;
     toolDescriptionMap: Map<string, string>;
 }): SkillMatch {
-    const { skill, query, queryLower, queryTokens, querySignals, canonicalIntent, tradingIntent, toolDescriptionMap } = params;
+    const { skill, querySignals, canonicalIntent, tradingIntent, toolDescriptionMap } = params;
     const reasons: string[] = [];
     let score = 0;
     const matchedIntents = new Set<NormalizedIntent>();
@@ -220,15 +192,7 @@ function scoreSkill(params: {
 
     score += scoreCanonicalIntentBoost(skill.metadata.id, canonicalIntent, reasons, matchedIntents);
     score += scoreTradingIntentBoost(skill.metadata.id, tradingIntent, reasons, matchedIntents);
-    score += scorePhraseHints(skill.metadata.id, queryLower, query, reasons);
-    score += scoreExamples(skill, queryLower, queryTokens, reasons);
-    score += scoreTextBlock(skill.metadata.name, queryLower, queryTokens, reasons, 'name');
-    score += scoreTextBlock(skill.metadata.description, queryLower, queryTokens, reasons, 'description');
-
-    const toolText = (skill.metadata.tools || [])
-        .map((toolName) => toolDescriptionMap.get(toolName) || toolName)
-        .join(' ');
-    score += scoreTextBlock(toolText, queryLower, queryTokens, reasons, 'tools');
+    score += scoreToolCoverage(skill, toolDescriptionMap, reasons);
 
     if (skill.metadata.id === 'token_analysis' && querySignals.hasRequestedToken) {
         score += 35;
@@ -249,6 +213,13 @@ function scoreSkill(params: {
         reasons: unique(reasons).slice(0, 6),
         matchedIntents: Array.from(matchedIntents),
     };
+}
+
+function scoreToolCoverage(skill: Skill, toolDescriptionMap: Map<string, string>, reasons: string[]): number {
+    const registeredTools = (skill.metadata.tools || []).filter((toolName) => toolDescriptionMap.has(toolName));
+    if (registeredTools.length === 0) return 0;
+    reasons.push('registry_tool_support');
+    return Math.min(registeredTools.length * 2, 8);
 }
 
 function scoreTradingIntentBoost(
@@ -276,110 +247,34 @@ function scoreTradingIntentBoost(
     return 0;
 }
 
-function scorePhraseHints(skillId: string, queryLower: string, rawQuery: string, reasons: string[]): number {
-    const phrases = SKILL_HINT_PHRASES[skillId] || [];
-    let score = 0;
-    for (const phrase of phrases) {
-        const normalized = phrase.toLowerCase();
-        if ((/[\u4e00-\u9fff]/.test(phrase) ? rawQuery.includes(phrase) : queryLower.includes(normalized))) {
-            score += 22;
-            reasons.push(`phrase:${phrase}`);
-        }
-    }
-    return Math.min(score, 88);
-}
-
-function scoreExamples(skill: Skill, queryLower: string, queryTokens: string[], reasons: string[]): number {
-    const examples = [...(skill.metadata.examples?.en || []), ...(skill.metadata.examples?.zh || [])];
-    let best = 0;
-    let bestReason = '';
-    for (const example of examples) {
-        const normalized = normalizeText(example);
-        if (!normalized) continue;
-        if (queryLower.includes(normalized) || normalized.includes(queryLower)) {
-            if (60 > best) {
-                best = 60;
-                bestReason = `example:${example}`;
-            }
-            continue;
-        }
-        const overlap = tokenOverlap(queryTokens, tokenize(normalized));
-        if (overlap.shared >= 2 && overlap.ratio >= 0.34) {
-            const score = Math.round(18 + overlap.ratio * 24);
-            if (score > best) {
-                best = score;
-                bestReason = `example_overlap:${example}`;
-            }
-        }
-    }
-    if (bestReason) reasons.push(bestReason);
-    return best;
-}
-
-function scoreTextBlock(text: string, queryLower: string, queryTokens: string[], reasons: string[], label: string): number {
-    const normalized = normalizeText(text);
-    if (!normalized) return 0;
-    if (queryLower.includes(normalized) || normalized.includes(queryLower)) {
-        reasons.push(`${label}:substring`);
-        return label === 'name' ? 28 : 18;
-    }
-    const overlap = tokenOverlap(queryTokens, tokenize(normalized));
-    if (overlap.shared >= 2 && overlap.ratio >= 0.3) {
-        reasons.push(`${label}:overlap`);
-        return Math.round(8 + overlap.ratio * (label === 'tools' ? 20 : 16));
-    }
-    return 0;
-}
-
 export function detectQuerySignals(query: string, snapshot: ChatContextSnapshot, tradingIntent: TradingIntent | null, canonicalIntent?: CanonicalIntent | null): QuerySignals {
     if (canonicalIntent) {
         return deriveQuerySignalsFromCanonicalIntent(snapshot, tradingIntent, canonicalIntent);
     }
-    const lower = String(query || '').toLowerCase();
-    const raw = String(query || '');
     const hasRequestedToken = (snapshot.requestedTokenAddresses || []).length > 0 || (snapshot.requestedTokenSymbols || []).length > 0;
-    const officialPostLookup = requiresOfficialPostLookup(lower, raw);
-    const explicitSearch = isExplicitSearchIntent(lower, raw) || officialPostLookup;
-    const xSearch = /\btwitter\b/i.test(lower)
-        || lower.includes('x.com')
-        || /\bon\s+x\b/i.test(lower)
-        || /\bsearch\s+x\b/i.test(lower)
-        || /\bx\s+search\b/i.test(lower)
-        || ['推特', '推文', 'X上', 'x上'].some((word) => raw.includes(word));
-    const webSearch = /\bweb\s+search\b/i.test(lower) || /\bsearch\s+(the\s+)?web\b/i.test(lower) || /\bon\s+the\s+web\b/i.test(lower) || ['网页', '网站', '网上'].some((word) => raw.includes(word));
-    const timeContext = hasTimeOrEventContext(lower, raw);
-    const walletSignal = containsAny(lower, ['wallet', 'balance', 'portfolio', 'holdings']) || ['钱包', '余额', '持仓'].some((word) => raw.includes(word));
-    const pnlSignal = containsAny(lower, ['pnl', 'profit', 'profits', 'profitability', 'performance']) || ['盈亏', '收益', '利润', '表现'].some((word) => raw.includes(word));
-    const realtimeSignal = containsAny(lower, ['trending', 'trend', 'latest', 'today', 'current', 'right now', 'hot', 'buzz'])
-        || ['趋势', '今天', '现在', '最新', '热门', '在聊什么'].some((word) => raw.includes(word));
-    const socialChainEvidence = xSearch || (officialPostLookup && hasRequestedToken);
 
     return {
-        welcome: isAssistantMetaQuery(lower, raw),
-        explicitSearch,
-        realtime: realtimeSignal,
-        timeContext,
-        xSearch,
-        webSearch,
-        wallet: walletSignal,
-        pnl: pnlSignal,
-        risk: isExplicitRiskRequest(lower, raw),
-        prediction: containsAny(lower, ['polymarket', 'prediction', 'predictions', 'odds', 'bet', 'bets', 'betting', 'wager'])
-            || ['押注', '赔率', '预测市场', '大家在赌什么'].some((word) => raw.includes(word)),
-        zora: containsAny(lower, ['zora', 'mint', 'mints', 'nft', 'nfts']) || ['铸造', 'nft'].some((word) => raw.includes(word)),
-        copyTrade: containsAny(lower, ['copy trade', 'copy-trade', 'copytrading', 'follow trader']) || ['跟单', '跟单交易'].some((word) => raw.includes(word)),
-        crossChain: containsAny(lower, ['cross-chain', 'cross chain', 'bridge']) || ['跨链', '桥接'].some((word) => raw.includes(word)),
+        welcome: false,
+        explicitSearch: false,
+        realtime: false,
+        timeContext: false,
+        xSearch: false,
+        webSearch: false,
+        wallet: false,
+        pnl: false,
+        risk: false,
+        prediction: false,
+        zora: false,
+        copyTrade: tradingIntent?.type === 'copy_trade',
+        crossChain: tradingIntent?.type === 'cross_chain_trade',
         swap: Boolean(tradingIntent && (tradingIntent.type === 'swap' || tradingIntent.type === 'cross_chain_trade'))
-            || containsAny(lower, ['swap', 'buy', 'sell', 'trade']) || ['兑换', '买入', '卖出', '交易'].some((word) => raw.includes(word)),
-        alerts: containsAny(lower, ['alert', 'alerts', 'notify me', 'notification']) || ['提醒', '预警', '通知我'].some((word) => raw.includes(word)),
-        tokenAnalysis: hasRequestedToken
-            || containsAny(lower, ['token', 'coin', 'coins', 'contract', 'creator', 'deployer', 'holders', 'early buyers', 'price'])
-            || ['代币', '合约', '创建者', '部署者', '持有人', '早期买家', '价格'].some((word) => raw.includes(word)),
-        social: containsAny(lower, ['farcaster', 'cast', 'casts', 'warpcast', 'twitter', 'x.com', 'social', 'sentiment'])
-            || ['farcaster', '社交', '情绪', '推特', '推文'].some((word) => raw.includes(word)),
-        market: containsAny(lower, ['market', 'macro', 'news', 'gas', 'economic', 'overview']) || ['行情', '宏观', '新闻', 'gas'].some((word) => raw.includes(word)),
+            || hasRequestedToken,
+        alerts: false,
+        tokenAnalysis: hasRequestedToken,
+        social: false,
+        market: false,
         hasRequestedToken,
-        socialChainEvidence,
+        socialChainEvidence: false,
     };
 }
 
@@ -479,111 +374,6 @@ function scoreCanonicalIntentBoost(
         return boost(95, `canonical:intent=${intent}`, 'MARKET_MACRO');
     }
     return 0;
-}
-
-function isExplicitSearchIntent(query: string, rawQuery: string): boolean {
-    const hasSearchVerb = /\b(search|look up|lookup|find|browse)\b/i.test(query);
-    const hasXOrTwitter = /\btwitter\b/i.test(query)
-        || query.includes('x.com')
-        || /\bon\s+x\b/i.test(query)
-        || /\bsearch\s+x\b/i.test(query)
-        || /\bx\s+search\b/i.test(query);
-    const hasWebSearch = /\bweb\s+search\b/i.test(query) || /\bsearch\s+(the\s+)?web\b/i.test(query) || /\bon\s+the\s+web\b/i.test(query);
-    const hasZhSearch = ['搜索', '搜一下', '查一下', '查找', '浏览', '网页', '推特', '推文', 'X上', 'x上'].some((word) => rawQuery.includes(word));
-    return hasWebSearch || hasXOrTwitter || hasZhSearch || (hasSearchVerb && (hasXOrTwitter || /\bweb\b/i.test(query)));
-}
-
-function isExplicitRiskRequest(query: string, rawQuery: string): boolean {
-    return containsAny(query, [
-        'check token risk', 'check risk', 'risk check', 'security check', 'is this safe', 'safe or not',
-        'is this token safe', 'honeypot', 'rug', 'rug pull', 'scam', 'is this a scam',
-    ]) || containsAny(rawQuery, [
-        '检查风险', '风险检查', '安全检查', '这个安全吗', '这个代币安全吗', '是不是土狗',
-        '是不是骗局', '是不是貔貅', '貔貅', '蜜罐', '土狗', '拉地毯', 'rug', 'honeypot',
-    ]);
-}
-
-function hasTimeOrEventContext(query: string, rawQuery: string): boolean {
-    if (containsAny(query, [
-        'announcement', 'announcements', 'announce', 'announced', 'news', 'event', 'events',
-        'date', 'time', 'timeline', 'when', 'yesterday', 'tomorrow', 'this week', 'last week',
-        'before', 'after',
-    ])) {
-        return true;
-    }
-    if (['公告', '新闻', '事件', '时间', '日期', '昨天', '明天', '之前', '之后', '本周', '上周'].some((word) => rawQuery.includes(word))) {
-        return true;
-    }
-    return /\b20\d{2}[-/]\d{1,2}[-/]\d{1,2}\b/.test(query)
-        || /\b\d{1,2}:\d{2}\b/.test(query)
-        || /\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\s+\d{1,2}\b/i.test(rawQuery);
-}
-
-function requiresOfficialPostLookup(query: string, rawQuery: string): boolean {
-    const officialQualifier = containsAny(query, [
-        'official', 'verified', 'main account', 'main handle', 'officially',
-    ]) || ['官方', '认证', '主号', '主账户', '主账号'].some((word) => rawQuery.includes(word));
-    const accountCarrier = containsAny(query, [
-        'account', 'handle', 'channel', 'page', 'profile',
-    ]) || ['账户', '账号', '帐号', '主页', '频道'].some((word) => rawQuery.includes(word));
-    const postCarrier = containsAny(query, [
-        'post', 'posts', 'tweet', 'tweets', 'thread', 'threads', 'announcement', 'announcements',
-        'listing announcement', 'listing post', 'announcement post', 'post date', 'tweet date',
-        'posted', 'publish', 'published', 'publication time',
-    ]) || ['帖子', '发帖', '贴文', '推文', '公告', '发文', '发布时间', '发布日期'].some((word) => rawQuery.includes(word));
-    const listingCarrier = containsAny(query, [
-        'alpha listing', 'list on alpha', 'alpha listed', 'listing', 'listed',
-    ]) || ['Alpha', '上架', '上币', '挂盘'].some((word) => rawQuery.includes(word));
-    const mentionsOfficialSource = (officialQualifier && accountCarrier) || (officialQualifier && postCarrier) || (accountCarrier && postCarrier);
-    const mentionsEntity = containsAny(query, ['binance', 'coinbase', 'okx', 'bybit', 'kucoin']) || ['币安', '欧易', '交易所', 'Coinbase', 'Bybit', 'KuCoin'].some((word) => rawQuery.includes(word));
-    return mentionsEntity && (mentionsOfficialSource || (officialQualifier && listingCarrier) || (postCarrier && listingCarrier));
-}
-
-function isAssistantMetaQuery(query: string, rawQuery: string): boolean {
-    const normalized = query.trim();
-    const raw = rawQuery.trim();
-    if (['hi', 'hello', 'hey', 'yo', 'sup'].includes(normalized)) return true;
-    if (['你好', '嗨', '哈喽', '您好'].includes(raw)) return true;
-    return containsAny(normalized, [
-        'who are you', 'what can you do', 'what do you do', 'introduce yourself',
-        'how can you help', 'help me understand your capabilities', 'tell me about yourself',
-    ]) || containsAny(raw, [
-        '你是谁', '你能做什么', '你会什么', '介绍一下你自己', '你可以帮我做什么', '你都能做什么',
-    ]);
-}
-
-function normalizeText(text: string): string {
-    return String(text || '')
-        .toLowerCase()
-        .replace(/[_/]+/g, ' ')
-        .replace(/[^\p{L}\p{N}\s]+/gu, ' ')
-        .replace(/\s+/g, ' ')
-        .trim();
-}
-
-function tokenize(text: string): string[] {
-    return normalizeText(text)
-        .split(' ')
-        .map((token) => token.trim())
-        .filter((token) => token.length >= 2);
-}
-
-function tokenOverlap(a: string[], b: string[]): { shared: number; ratio: number } {
-    if (a.length === 0 || b.length === 0) return { shared: 0, ratio: 0 };
-    const aSet = new Set(a);
-    const bSet = new Set(b);
-    let shared = 0;
-    for (const token of aSet) {
-        if (bSet.has(token)) shared += 1;
-    }
-    return {
-        shared,
-        ratio: shared / Math.max(1, Math.min(aSet.size, bSet.size)),
-    };
-}
-
-function containsAny(text: string, needles: string[]): boolean {
-    return needles.some((needle) => String(text || '').includes(needle));
 }
 
 function unique(values: string[]): string[] {

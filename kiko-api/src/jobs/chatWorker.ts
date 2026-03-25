@@ -20,6 +20,9 @@ import { resolveNodeSkills } from './chat/nodeSkillResolver.js';
 import { buildTaskPlanningContext } from './chat/taskPlanner.js';
 import { buildControlPolicySnapshot } from './chat/controlPolicy.js';
 import { normalizeCanonicalIntent } from './chat/canonicalIntentNormalizer.js';
+import { buildCanonicalIntentClarification } from './chat/canonicalIntent.js';
+import { applyConversationActionState } from './chat/conversationStateResolver.js';
+import { resolveRuntimeDirectives } from './chat/runtimeDirectiveResolver.js';
 import { getWalletBalance } from '../services/alchemy.js';
 import { walletService } from '../services/walletService.js';
 import { ethers } from 'ethers';
@@ -153,7 +156,29 @@ export class ChatWorker {
                 generationClient: this.generationClient,
                 shouldCancel: async () => this.checkTaskCancelled(task.id),
             });
-            snapshot = normalization.snapshot;
+            snapshot = applyConversationActionState(normalization.snapshot);
+            snapshot.runtime.systemDirectives = resolveRuntimeDirectives({
+                task,
+                lastUserMessage: snapshot.lastUserMessage,
+                confirmationState: snapshot.confirmationState,
+            });
+            if (!snapshot.normalizedIntent) {
+                await broker.pushText(buildCanonicalIntentClarification({
+                    snapshot,
+                    reasonCode: snapshot.normalizationState?.reasonCode,
+                }));
+                await persistBillingUsage({
+                    assistantMessageId: task.assistantMessageId!,
+                    userId,
+                    model: task.model,
+                    usage: broker.getUsage(),
+                    toolContext: task.toolContext,
+                    toolCallNames: broker.getToolResults().map((item) => item.name),
+                });
+                await this.repo.updateTaskStatus(task.id, 'done');
+                this.broadcastTaskStatus(userId, task, { taskId: task.id, status: 'done' });
+                return;
+            }
             const tradingIntent = parseTradingIntent(snapshot.lastUserMessage, snapshot, snapshot.normalizedIntent);
             const skillResolution = resolveNodeSkills(snapshot, tradingIntent, snapshot.normalizedIntent);
             snapshot.policySnapshot = buildControlPolicySnapshot({
@@ -163,7 +188,7 @@ export class ChatWorker {
             });
             await broker.bootstrapRuntime(buildTaskPlanningContext(snapshot, skillResolution).plan);
 
-            if (!isExplicitChainSwitchRequest(lastUserMessage)) {
+            if (!isExplicitChainSwitchRequest(lastUserMessage, snapshot.normalizedIntent)) {
                 const directFollowup = await executeDirectTradeFollowup({
                     snapshot,
                     task,

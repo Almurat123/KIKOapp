@@ -19,6 +19,8 @@ import {
 } from './taskPlanner.js';
 import { generateModelPlan } from './modelPlanGenerator.js';
 import { normalizeCanonicalIntent } from './canonicalIntentNormalizer.js';
+import { buildCanonicalIntentClarification } from './canonicalIntent.js';
+import { applyConversationActionState } from './conversationStateResolver.js';
 
 const CHAIN_EVIDENCE_TOOLS = new Set([
     'get_token_info',
@@ -45,12 +47,21 @@ export async function runNodeOrchestration(params: {
             generationClient: params.generationClient,
             shouldCancel: params.shouldCancel,
         });
-        normalizedSnapshot = normalization.snapshot;
+        normalizedSnapshot = applyConversationActionState(normalization.snapshot);
+    }
+    if (normalizedSnapshot.normalizedIntent && !normalizedSnapshot.conversationActionState) {
+        normalizedSnapshot = applyConversationActionState(normalizedSnapshot);
+    }
+    if (!normalizedSnapshot.normalizedIntent) {
+        await params.broker.pushText(buildCanonicalIntentClarification({
+            snapshot: normalizedSnapshot,
+            reasonCode: normalizedSnapshot.normalizationState?.reasonCode,
+        }));
+        return;
     }
     if (
         normalizedSnapshot.normalizedIntent?.needsClarification
         && normalizedSnapshot.normalizedIntent.clarificationQuestion
-        && normalizedSnapshot.normalizedIntent.confidence < 0.45
     ) {
         await params.broker.pushText(normalizedSnapshot.normalizedIntent.clarificationQuestion);
         return;

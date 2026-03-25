@@ -84,5 +84,5 @@ test('swap confirmation accepts prepare_swap_transaction as the confirmation anc
     assert.equal(executed.length, 1);
     assert.equal(executed[0]?.name, 'prepare_swap_transaction');
     assert.equal(completed.length, 1);
-    assert.match(String(completed[0]?.content || ''), /Executed/);
+    assert.match(String(completed[0]?.content || ''), /Trade submitted/);
 });

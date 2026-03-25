@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { toolRegistry } from '../../tooling/registry.js';
 import type { ChatContextSnapshot } from './contracts.js';
+import type { CanonicalIntent } from './canonicalIntent.js';
 import {
   collectVerifiedPolymarketTokenIds,
   resolvePolymarketOrderGuardResult,
@@ -38,6 +39,37 @@ function makeSnapshot(message: string, overrides: Partial<ChatContextSnapshot> =
     runtime,
     ...restOverrides,
   } as ChatContextSnapshot;
+}
+
+function makeCanonicalIntent(overrides: Partial<CanonicalIntent>): CanonicalIntent {
+  return {
+    domain: 'polymarket',
+    intent: 'polymarket_order',
+    taskMode: 'execute',
+    outputMode: 'execution_ready',
+    searchMode: 'forbidden',
+    searchTarget: 'none',
+    confidence: 0.92,
+    explanation: 'test canonical intent',
+    entities: {
+      tokenAddresses: [],
+      tokenSymbols: ['BTC'],
+      walletAddresses: [],
+      marketIdentifiers: [],
+    },
+    requestedChain: null,
+    timeContext: null,
+    evidenceRequirements: ['verified_polymarket_token_id'],
+    requiresRealtime: false,
+    requiresOnchainEvidence: false,
+    executionCandidate: true,
+    rowCount: null,
+    locale: 'en',
+    needsClarification: false,
+    clarificationQuestion: null,
+    source: 'llm',
+    ...overrides,
+  };
 }
 
 test('collectVerifiedPolymarketTokenIds reads token ids from valid resolution tools', () => {
@@ -166,7 +198,9 @@ test('runNodeOrchestration blocks place_polymarket_order until token_id is verif
   };
 
   await runNodeOrchestration({
-    snapshot: makeSnapshot('Place a yes order on Polymarket'),
+    snapshot: makeSnapshot('Place a yes order on Polymarket', {
+      normalizedIntent: makeCanonicalIntent({}),
+    }),
     generationClient: generationClient as any,
     toolExecutionEngine: toolExecutionEngine as any,
     broker: broker as any,

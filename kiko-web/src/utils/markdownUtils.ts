@@ -125,3 +125,14 @@ export const preprocessMarkdown = (content: string): string => {
 
   return processed;
 };
+
+export const stripMarkdownTables = (content: string): string => {
+  if (!content) return '';
+  return content
+    .replace(
+      /(?:^|\n)\|[^\n]+\|\n\|(?:\s*:?-{3,}:?\s*\|)+\n(?:\|[^\n]+\|\n?)*/g,
+      '\n'
+    )
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+};

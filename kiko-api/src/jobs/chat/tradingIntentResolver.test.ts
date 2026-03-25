@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { ChatContextSnapshot } from './contracts.js';
+import type { CanonicalIntent } from './canonicalIntent.js';
 import { parseTradingIntent } from './tradingIntentResolver.js';
 
 function makeSnapshot(message: string, overrides: Partial<ChatContextSnapshot> = {}): ChatContextSnapshot {
@@ -25,10 +26,55 @@ function makeSnapshot(message: string, overrides: Partial<ChatContextSnapshot> =
     } as ChatContextSnapshot;
 }
 
+function makeCanonicalIntent(overrides: Partial<CanonicalIntent>): CanonicalIntent {
+    return {
+        domain: 'token',
+        intent: 'swap',
+        taskMode: 'execute',
+        outputMode: 'execution_ready',
+        searchMode: 'forbidden',
+        searchTarget: 'none',
+        confidence: 0.92,
+        explanation: 'test intent',
+        entities: {
+            tokenAddresses: [],
+            tokenSymbols: [],
+            walletAddresses: [],
+            marketIdentifiers: [],
+        },
+        requestedChain: null,
+        timeContext: null,
+        evidenceRequirements: [],
+        requiresRealtime: false,
+        requiresOnchainEvidence: false,
+        executionCandidate: true,
+        rowCount: null,
+        locale: 'en',
+        needsClarification: false,
+        clarificationQuestion: null,
+        source: 'llm',
+        ...overrides,
+    };
+}
+
 test('parseTradingIntent prefers explicit query chain over connected chain for native token inference', () => {
+    const canonicalIntent = makeCanonicalIntent({
+        entities: {
+            tokenAddresses: [],
+            tokenSymbols: ['CAKE'],
+            walletAddresses: [],
+            marketIdentifiers: [],
+        },
+        requestedChain: {
+            chainId: 56,
+            chainName: 'BNB Chain',
+            source: 'llm',
+        },
+    });
     const intent = parseTradingIntent('Buy CAKE on BNB chain', makeSnapshot('Buy CAKE on BNB chain', {
         requestedTokenSymbols: ['CAKE', 'BNB'],
-    }));
+        normalizedIntent: canonicalIntent,
+    }), canonicalIntent);
 
     assert.ok(intent);
     assert.equal(intent?.type, 'swap');
@@ -40,9 +86,18 @@ test('parseTradingIntent prefers explicit query chain over connected chain for n
 
 test('parseTradingIntent infers Solana from requested token address shape even when connected chain is Base', () => {
     const solAddress = 'So11111111111111111111111111111111111111112';
+    const canonicalIntent = makeCanonicalIntent({
+        entities: {
+            tokenAddresses: [solAddress],
+            tokenSymbols: [],
+            walletAddresses: [],
+            marketIdentifiers: [],
+        },
+    });
     const intent = parseTradingIntent(`Buy ${solAddress}`, makeSnapshot(`Buy ${solAddress}`, {
         requestedTokenAddresses: [solAddress],
-    }));
+        normalizedIntent: canonicalIntent,
+    }), canonicalIntent);
 
     assert.ok(intent);
     assert.equal(intent?.slots.chain_id, 900);
