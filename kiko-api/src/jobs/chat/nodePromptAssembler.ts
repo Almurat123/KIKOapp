@@ -58,9 +58,6 @@ export function assembleGenerationMessages(
     if (providerInfo.provider === 'grok' && guidance?.searchMode !== 'forbidden') {
         systemParts.push(GROK_SEARCH_DELTA);
     }
-    if (providerInfo.supportsNativeSearch && guidance?.toolPhase === 'native_search_only') {
-        systemParts.push('Realtime public evidence is required before you conclude.');
-    }
     if (providerInfo.provider === 'grok' && guidance?.searchMode !== 'forbidden') {
         systemParts.push('Use provider-native search for realtime public context when needed, and local tools for chain-side evidence.');
     }
@@ -144,26 +141,6 @@ function buildToolGuidanceBlock(guidance?: {
     if (lines.length > 0 || guidance?.allowAllTools || guidance?.searchMode) {
         if (lines.length > 0) lines.push('');
         lines.push('[TOOL_POLICY]');
-        if (guidance?.toolPhase === 'native_search_only') {
-            lines.push('- Current phase preference: native_search_only. Prefer provider-native search first when it fits, but all registered tools remain available subject to policy.');
-        } else if (guidance?.toolPhase === 'execution') {
-            lines.push('- Current phase preference: execution. Prefer the most relevant execution or verification tools, and avoid unrelated detours.');
-        } else {
-            lines.push('- Current phase preference: local_analysis. Reuse any evidence already gathered before deciding whether another tool is needed.');
-        }
-        if (guidance?.searchMode === 'required') {
-            lines.push(`- Search mode: required (${guidance.searchReason || 'external_evidence_required'}).`);
-        } else if (guidance?.searchMode === 'fallback') {
-            lines.push(`- Search mode: fallback (${guidance.searchReason || 'local_skill_first'}).`);
-        } else {
-            lines.push(`- Search mode: forbidden (${guidance?.searchReason || 'no_external_search_needed'}).`);
-        }
-        if (guidance?.intentEnvelope) {
-            lines.push(`- Intent envelope: primary=${guidance.intentEnvelope.primary_intent}; domain=${guidance.intentEnvelope.domain}; task_mode=${guidance.intentEnvelope.task_mode}; search_target=${guidance.intentEnvelope.search_target}.`);
-            if (guidance.intentEnvelope.required_evidence.length > 0) {
-                lines.push(`- Required evidence before final execution/conclusion: ${guidance.intentEnvelope.required_evidence.join(', ')}.`);
-            }
-        }
         if (guidance?.allowAllTools) {
             lines.push('- All registered tools remain available for this turn unless the policy layer explicitly blocks them.');
         } else {
@@ -272,7 +249,6 @@ function buildWorkflowStateBlock(snapshot: ChatContextSnapshot): string {
     }
     if (recentTools.length > 0) {
         lines.push(`recent_tools: ${recentTools.join(', ')}`);
-        lines.push('discovery_state: reuse_recent_evidence_when_relevant');
     }
     if (recentToolResults.length > 0) {
         for (const item of recentToolResults) {

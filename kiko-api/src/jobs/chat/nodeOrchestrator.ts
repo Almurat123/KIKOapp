@@ -694,9 +694,9 @@ function buildToolCallKey(name: string, args: Record<string, any>): string {
 
 function buildEvidenceOnlyAnswerInstruction(locale: 'en' | 'zh'): string {
     if (locale === 'zh') {
-        return '不要再调用任何工具，也不要继续搜索。只基于当前对话里已经拿到的工具结果、缓存结果和公开来源证据，直接给出最终回答。';
+        return '基于当前对话里已经拿到的工具结果、缓存结果和公开来源证据，直接给出最终回答。';
     }
-    return 'Do not call any more tools and do not continue searching. Use only the tool results, cached evidence, and public-source evidence already gathered in this conversation, then answer the user directly.';
+    return 'Use the tool results, cached evidence, and public-source evidence already gathered in this conversation, then answer the user directly.';
 }
 
 function buildEvidenceOnlyProviderOptions(
