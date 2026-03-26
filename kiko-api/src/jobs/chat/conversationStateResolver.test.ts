@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+    applyConversationActionState,
     extractRecentToolTrace,
     extractRequestedTokenAddressesFromHistory,
     extractRequestedTokenSymbolsFromHistory,
@@ -160,4 +161,51 @@ test('isConfirmationMessage stays strict for ordinary trade requests that contai
             taskMode: 'execute',
         },
     } as any), true);
+});
+
+test('confirmation-like turns without a pending payload do not force a hardcoded clarification', () => {
+    const snapshot = applyConversationActionState({
+        sessionId: 's1',
+        taskId: 't1',
+        model: 'gpt-5.4',
+        history: [],
+        lastUserMessage: 'confirm',
+        recentToolTrace: null,
+        runtime: {},
+        requestedTokenAddresses: [],
+        requestedTokenSymbols: [],
+        normalizedIntent: {
+            domain: 'polymarket',
+            intent: 'polymarket_order',
+            taskMode: 'confirm',
+            outputMode: 'confirmation_required',
+            searchMode: 'forbidden',
+            searchTarget: 'none',
+            confidence: 0.9,
+            explanation: 'test',
+            entities: {
+                tokenAddresses: [],
+                tokenSymbols: ['BTC'],
+                walletAddresses: [],
+                marketIdentifiers: [],
+            },
+            requestedChain: null,
+            timeContext: null,
+            evidenceRequirements: ['verified_polymarket_token_id'],
+            requiresRealtime: false,
+            requiresOnchainEvidence: false,
+            executionCandidate: true,
+            rowCount: null,
+            locale: 'en',
+            needsClarification: false,
+            clarificationQuestion: null,
+            source: 'llm',
+        } as any,
+        toolDefinitions: [],
+    } as any);
+
+    assert.equal(snapshot.conversationActionState?.pendingAction, 'none');
+    assert.equal(snapshot.conversationActionState?.canExecute, false);
+    assert.equal(snapshot.conversationActionState?.needsClarification, false);
+    assert.equal(snapshot.conversationActionState?.clarificationQuestion, null);
 });

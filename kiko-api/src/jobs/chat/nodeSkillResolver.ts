@@ -233,6 +233,11 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
         pushPreferred(preferredTools, 'get_polymarket_coin_updown_markets');
         strategyNotes.push('For coin/token Up/Down short-window requests, prefer get_polymarket_coin_updown_markets over get_new_markets because exact ET-window discovery is required.');
     }
+    const polymarketOrderQuery = normalizedIntent?.intent === 'polymarket_order';
+    if (polymarketOrderQuery) {
+        pushPreferred(preferredTools, 'prepare_polymarket_bet');
+        strategyNotes.push('For concrete Polymarket order turns, go straight to prepare_polymarket_bet when market, outcome, and amount are already explicit. Do not spend another turn re-confirming obvious selected parameters.');
+    }
 
     if ((tradingIntent?.kind === 'trading' && tradingIntent.type === 'swap') || hasRequestedTokenAddress) {
         removeTool(allowedTools, 'get_token_price');
@@ -293,6 +298,12 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
             pushPreferred(preferredTools, toolName);
         }
         strategyNotes.push(`Recent tool evidence is available from this session: ${sessionToolNames.join(', ')}. Reuse it when it still answers the current turn, and refresh only when the structured workflow state or new user request makes targeted re-verification necessary.`);
+        if (
+            polymarketOrderQuery
+            && sessionToolNames.some((toolName) => ['get_polymarket_coin_updown_markets', 'prepare_polymarket_bet', 'get_polymarket_market_overview'].includes(toolName))
+        ) {
+            strategyNotes.push('Recent Polymarket discovery/prep evidence already exists in this session. Reuse that evidence and move directly into bet preparation unless the user explicitly changed the market, side, or amount.');
+        }
     }
 
     if (selected.length > 0) {

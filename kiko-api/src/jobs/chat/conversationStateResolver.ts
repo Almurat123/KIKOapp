@@ -130,10 +130,8 @@ export function buildConversationActionState(snapshot: ChatContextSnapshot): Con
             pendingAction: 'none',
             confirmationPayload: null,
             canExecute: false,
-            needsClarification: true,
-            clarificationQuestion: normalizedIntent?.locale === 'zh'
-                ? '我目前没有待确认的执行步骤。请先让我准备交易或订单，再确认。'
-                : 'There is no pending action to confirm yet. Let me prepare the trade or order first.',
+            needsClarification: false,
+            clarificationQuestion: null,
         };
     }
 

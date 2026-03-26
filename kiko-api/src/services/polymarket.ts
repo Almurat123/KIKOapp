@@ -914,22 +914,36 @@ async function fetchAuthoritativeMarket(params: {
     const marketSlug = normalizeString(params.marketSlug);
     if (!marketId && !marketSlug) return null;
 
-    const query = marketId
-        ? `id=${encodeURIComponent(marketId)}`
-        : `slug=${encodeURIComponent(String(marketSlug))}`;
-    const url = `${GAMMA_API_BASE}/markets?limit=5&active=true&closed=false&${query}`;
-    const data = await unifiedApiService.fetchJson<PolymarketMarket[]>({
-        url,
-        method: 'GET',
-        requestTimeout: 15000,
-        endpointName: 'polymarket-market-authoritative',
-    });
+    const queries = marketId
+        ? [
+            `id=${encodeURIComponent(marketId)}`,
+            `active=true&closed=false&id=${encodeURIComponent(marketId)}`,
+        ]
+        : [
+            `slug=${encodeURIComponent(String(marketSlug))}`,
+            `active=true&closed=false&slug=${encodeURIComponent(String(marketSlug))}`,
+        ];
 
-    const parsed = data.map(parseMarket);
-    if (marketId) {
-        return parsed.find((market) => String(market.id) === marketId) || parsed[0] || null;
+    for (const query of queries) {
+        const url = `${GAMMA_API_BASE}/markets?limit=5&${query}`;
+        const data = await unifiedApiService.fetchJson<PolymarketMarket[]>({
+            url,
+            method: 'GET',
+            requestTimeout: 15000,
+            endpointName: 'polymarket-market-authoritative',
+        }).catch(() => []);
+
+        const parsed = data.map(parseMarket);
+        if (marketId) {
+            const matched = parsed.find((market) => String(market.id) === marketId) || parsed[0] || null;
+            if (matched) return matched;
+            continue;
+        }
+        const matched = parsed.find((market) => market.slug === marketSlug) || parsed[0] || null;
+        if (matched) return matched;
     }
-    return parsed.find((market) => market.slug === marketSlug) || parsed[0] || null;
+
+    return null;
 }
 
 export async function verifyPolymarketSelection(params: {

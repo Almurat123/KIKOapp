@@ -576,6 +576,39 @@ test('Polymarket order intent requires verified token evidence before execution 
     assert.equal(resolution.intentEnvelope.execution_risk, 'mutation');
     assert.ok(resolution.intentEnvelope.required_evidence.includes('verified_polymarket_token_id'));
     assert.equal(resolution.toolPhasePolicy.initialPhase, 'local_analysis');
+    assert.ok(resolution.preferredTools.includes('prepare_polymarket_bet'));
+});
+
+test('Polymarket order intent with recent short-window evidence reuses session evidence and prefers bet prep', () => {
+    const canonicalIntent = makeCanonicalIntent({
+        domain: 'polymarket',
+        intent: 'polymarket_order',
+        taskMode: 'execute',
+        outputMode: 'execution_ready',
+        entities: {
+            tokenAddresses: [],
+            tokenSymbols: ['BTC'],
+            walletAddresses: [],
+            marketIdentifiers: [],
+        },
+        evidenceRequirements: ['verified_polymarket_token_id'],
+        executionCandidate: true,
+    });
+    const snapshot = makeSnapshot('Bitcoin Up or Down - March 26, 1:55AM-2:00AM ET for down $1', {
+        normalizedIntent: canonicalIntent,
+        recentToolTrace: {
+            messageId: 'assistant-poly-1',
+            toolCalls: [
+                { tool: 'get_polymarket_coin_updown_markets', status: 'success' },
+            ],
+        },
+    });
+    const resolution = resolveNodeSkills(snapshot, null, canonicalIntent);
+    assert.ok(resolution.preferredTools.includes('prepare_polymarket_bet'));
+    assert.ok(resolution.preferredTools.includes('get_polymarket_coin_updown_markets'));
+    assert.ok(
+        resolution.strategyNotes.some((note) => note.includes('move directly into bet preparation')),
+    );
 });
 
 test('resolver only exposes tools that exist in the runtime toolDefinitions snapshot', () => {
