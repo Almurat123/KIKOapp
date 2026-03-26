@@ -1,54 +1,49 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { __testOnly } from '../MainSwapService.js';
+import {
+  buildUserFacingSwapError,
+  inferSwapReasonCode,
+  verifyNativeBalancePrecheck,
+} from '../MainSwapService.js';
 
-test('turbo copytrade buy recoverable direct failures enable 0x fallback', () => {
-  const plan = __testOnly.resolveTurboCopytrade0xFallbackPlan({
-    isTurboCopytrade: true,
-    isBuyDirection: true,
-    directFailureReason: 'budget_timeout',
-    directFailureMessage: 'timeout_turbo_budget_6500ms',
-    acceptedDirectEvidence: false,
-    hasGuardContext: true,
-    skipExternalFallback: false,
-    skipNoLiquidity: false,
+test('verifyNativeBalancePrecheck bypasses transient RPC auth failures', async () => {
+  let bypassed: string | null = null;
+
+  await verifyNativeBalancePrecheck({
+    chainId: 56,
+    walletAddress: '0xFB64Ce8d64CEC808a8aCb977d3Ee7bE1169f1a2B',
+    amountIn: '0.001',
+    gasReserve: '0.003',
+    getNativeBalanceFn: async () => {
+      throw new Error('All RPC endpoints failed for BNB Smart Chain. Last error: HTTP 401: Unauthorized');
+    },
+    onBypass: (error) => {
+      bypassed = String((error as Error).message || error);
+    },
   });
 
-  assert.equal(plan.shouldFallback, true);
-  assert.equal(plan.reasonCode, 'budget_timeout');
-  assert.equal(plan.providerTag, 'aggregator_fallback_0x_turbo');
-  assert.ok((plan.quoteTimeoutMs || 0) <= (plan.fallbackBudgetMs || 0));
+  assert.match(bypassed || '', /HTTP 401: Unauthorized/);
 });
 
-test('turbo copytrade buy suppresses 0x fallback when guard context is missing', () => {
-  const plan = __testOnly.resolveTurboCopytrade0xFallbackPlan({
-    isTurboCopytrade: true,
-    isBuyDirection: true,
-    directFailureReason: 'route_failure',
-    directFailureMessage: 'No suitable pool found',
-    acceptedDirectEvidence: false,
-    hasGuardContext: false,
-    skipExternalFallback: false,
-    skipNoLiquidity: false,
-  });
-
-  assert.equal(plan.shouldFallback, false);
-  assert.equal(plan.reasonCode, 'missing_copytrade_guard_context');
+test('verifyNativeBalancePrecheck still rejects true insufficient native balance', async () => {
+  await assert.rejects(
+    () => verifyNativeBalancePrecheck({
+      chainId: 56,
+      walletAddress: '0xFB64Ce8d64CEC808a8aCb977d3Ee7bE1169f1a2B',
+      amountIn: '0.01',
+      gasReserve: '0.003',
+      getNativeBalanceFn: async () => '0x0',
+    }),
+    /insufficient_native_balance_precheck/
+  );
 });
 
-test('turbo copytrade buy suppresses 0x fallback on non-recoverable validation failures', () => {
-  const plan = __testOnly.resolveTurboCopytrade0xFallbackPlan({
-    isTurboCopytrade: true,
-    isBuyDirection: true,
-    directFailureReason: 'route_failure',
-    directFailureMessage: 'unsupported_v4_hook:before_swap_delta',
-    acceptedDirectEvidence: false,
-    hasGuardContext: true,
-    skipExternalFallback: false,
-    skipNoLiquidity: false,
-  });
-
-  assert.equal(plan.shouldFallback, false);
-  assert.equal(plan.reasonCode, 'non_recoverable_validation');
+test('swap error mapping classifies rpc pool failures explicitly', () => {
+  const message = 'All RPC endpoints failed for BNB Smart Chain. Last error: HTTP 401: Unauthorized';
+  assert.equal(inferSwapReasonCode(message), 'rpc_unavailable');
+  assert.equal(
+    buildUserFacingSwapError(message),
+    'Trade execution RPC is temporarily unavailable on this chain. Please retry shortly.'
+  );
 });

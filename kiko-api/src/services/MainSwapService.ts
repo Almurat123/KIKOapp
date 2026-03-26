@@ -40,7 +40,7 @@ import { ethers } from 'ethers';
 import { TradeContext, getTradeContext } from './TradeContext.js';
 import { getTokenData } from './UnifiedDataLayer.js';
 import { executeDirectSwap, isDirectSwapSupported } from './dex/directSwapService.js';
-import { callRpc, diffRpcMethodUsageSnapshots, getChainRpcDegradeState, getRpcMethodUsageSnapshot, getTxLifecycleState, waitForReceiptStateMachine } from './rpcManager.js';
+import { callRpc, diffRpcMethodUsageSnapshots, getChainRpcDegradeState, getNativeBalance, getRpcMethodUsageSnapshot, getTxLifecycleState, waitForReceiptStateMachine } from './rpcManager.js';
 import { resolveTokenAddress, normalizeTokenAddress } from './tokens.js';
 import { sendTransaction } from './privyWallet.js';
 import { isPostBuyPreApprovalEnabled } from './swapPreApprovalPolicy.js';
@@ -73,7 +73,7 @@ import {
 import { recordPlanRun, recordSuccessSample } from './copytrade-v2/planner/sampleLibrary.js';
 import type { SwapExecutionContextV1 } from './copytrade-v2/context/types.js';
 import { buildDirectSwapHintFromContext } from './copytrade-v2/context/contextStore.js';
-import { TRADE_READ_PROFILE, TRADE_VISIBILITY_PROFILE } from './rpc/profile.js';
+import { TRADE_VISIBILITY_PROFILE } from './rpc/profile.js';
 
 /**
  * Swap execution mode to determine behavior and fee structure
@@ -237,9 +237,16 @@ export interface MainSwapResult {
   };
 }
 
-function inferSwapReasonCode(message?: string): string {
+export function inferSwapReasonCode(message?: string): string {
   const normalized = String(message || '').toLowerCase();
   if (!normalized) return 'swap_failed';
+  if (
+    normalized.includes('all rpc endpoints failed')
+    || normalized.includes('http 401')
+    || normalized.includes('http 403')
+    || normalized.includes('unauthorized')
+    || normalized.includes('forbidden')
+  ) return 'rpc_unavailable';
   if (normalized.includes('route policy')) return 'fallback_blocked';
   if (normalized.includes('no route') || normalized.includes('no liquidity') || normalized.includes('liquidity')) return 'quote_unavailable';
   if (normalized.includes('unsupported')) return 'unsupported_token_or_chain';
@@ -249,9 +256,11 @@ function inferSwapReasonCode(message?: string): string {
   return 'execution_rejected';
 }
 
-function buildUserFacingSwapError(message?: string, routePolicy?: RoutePolicy): string {
+export function buildUserFacingSwapError(message?: string, routePolicy?: RoutePolicy): string {
   const reasonCode = inferSwapReasonCode(message);
   switch (reasonCode) {
+    case 'rpc_unavailable':
+      return 'Trade execution RPC is temporarily unavailable on this chain. Please retry shortly.';
     case 'fallback_blocked':
       return 'The external aggregator could not execute this trade, and internal fallback is disabled for chat trades.';
     case 'quote_unavailable':
@@ -268,6 +277,34 @@ function buildUserFacingSwapError(message?: string, routePolicy?: RoutePolicy): 
       return 'The trade failed because price movement exceeded the allowed slippage.';
     default:
       return 'The trade could not be executed.';
+  }
+}
+
+export async function verifyNativeBalancePrecheck(params: {
+  chainId: number;
+  walletAddress: string;
+  amountIn: string;
+  gasReserve: string;
+  getNativeBalanceFn?: typeof getNativeBalance;
+  onBypass?: (error: unknown) => void;
+}): Promise<void> {
+  const readNativeBalance = params.getNativeBalanceFn || getNativeBalance;
+  try {
+    const amountInWei = ethers.parseUnits(params.amountIn, 18);
+    const reserveWei = ethers.parseUnits(params.gasReserve || '0', 18);
+    const balanceHex = await readNativeBalance(params.walletAddress, params.chainId, 'latest', { lane: 'cheap' });
+    const balanceWei = BigInt(balanceHex);
+    const requiredWei = amountInWei + reserveWei;
+    if (balanceWei < requiredWei) {
+      throw new Error(
+        `insufficient_native_balance_precheck: have=${ethers.formatEther(balanceWei)} required=${ethers.formatEther(requiredWei)}`
+      );
+    }
+  } catch (error) {
+    if (String((error as Error)?.message || '').includes('insufficient_native_balance_precheck')) {
+      throw error;
+    }
+    params.onBypass?.(error);
   }
 }
 
@@ -1403,28 +1440,21 @@ export class MainSwapService {
     // Balance precheck: turbo skips (let on-chain revert handle; saves 50–300ms). Non-turbo runs in parallel with DirectSwap.
     const checkNativeBalancePromise: Promise<void> | null =
       isNativeToken(normalizedTokenIn, request.chainId) && !isTurboCopytrade
-        ? (async () => {
-            const amountInWei = ethers.parseUnits(request.amountIn, 18);
-            const chainCfg = getChainConfig(request.chainId);
-            const reserveWei = ethers.parseUnits(chainCfg.gasReserve || '0.003', 18);
-            const balanceHex = await callRpc<string>(
-              request.chainId,
-              'eth_getBalance',
-              [request.walletAddress, 'latest'],
-              {
-                strategy: TRADE_READ_PROFILE.strategy,
-                purpose: TRADE_READ_PROFILE.purpose,
-                importance: TRADE_READ_PROFILE.importance,
-              }
-            );
-            const balanceWei = BigInt(balanceHex);
-            const requiredWei = amountInWei + reserveWei;
-            if (balanceWei < requiredWei) {
-              throw new Error(
-                `insufficient_native_balance_precheck: have=${ethers.formatEther(balanceWei)} required=${ethers.formatEther(requiredWei)}`
-              );
+        ? verifyNativeBalancePrecheck({
+            chainId: request.chainId,
+            walletAddress: request.walletAddress,
+            amountIn: request.amountIn,
+            gasReserve: getChainConfig(request.chainId).gasReserve || '0.003',
+            onBypass: (error) => {
+              logger.warn(LogCode.API_FETCH_FAILED, trace('Native balance precheck unavailable; continuing without precheck'), {
+                chainId: request.chainId,
+                walletAddress: request.walletAddress,
+                error: String((error as Error)?.message || error || 'unknown'),
+                tokenIn: normalizedTokenIn,
+                tokenOut: normalizedTokenOut,
+              });
             }
-          })()
+          })
         : null;
 
     logger.info(LogCode.EXE_TX_BROADCAST, trace('Executing EVM swap'), {
