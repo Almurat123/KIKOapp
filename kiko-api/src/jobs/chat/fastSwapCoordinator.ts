@@ -13,6 +13,7 @@ import type { ChatContextSnapshot } from './contracts.js';
 import { ChatStreamBroker } from './streamBroker.js';
 import { resolveTokenDisplayMetadata } from '../../services/tokens.js';
 import { resolveTradeSemantics } from '../../services/ai/tradeSemantics.js';
+import { resolveDisplayedAmountOut } from '../../services/swapCardAmount.js';
 
 const CHAIN_ID_MAP: Record<number, string> = {
     1: 'eth',
@@ -187,6 +188,7 @@ export async function maybeExecuteFastSwap(params: {
             status: 'streaming',
         },
     );
+    let latestCardData = { ...(txCardMessage.data || {}) };
 
     if (params.userId) {
         chatWS.broadcastToUser(params.userId, {
@@ -196,7 +198,7 @@ export async function maybeExecuteFastSwap(params: {
                 targetMessageId: txCardMessage.id,
                 action: {
                     type: 'show_transaction_status_card',
-                    data: txCardMessage.data,
+                    data: latestCardData,
                 },
             },
         });
@@ -267,6 +269,11 @@ export async function maybeExecuteFastSwap(params: {
     }
 
     const finalStatus = resolveFastSwapFinalStatus(swapResult);
+    const latestPersistedCard = await chatRepo.getMessage(txCardMessage.id).catch(() => null);
+    latestCardData = {
+        ...latestCardData,
+        ...((latestPersistedCard?.data as Record<string, any> | undefined) || {}),
+    };
     const finalDebug = buildTradeDebug(params.task, {
         mode: 'fast_swap',
         finalStatus,
@@ -275,10 +282,14 @@ export async function maybeExecuteFastSwap(params: {
         tradeId: swapResult.data?.tradeId || null,
     });
     const cardData = {
-        ...(txCardMessage.data || {}),
+        ...latestCardData,
         status: finalStatus,
         txHash: swapResult.data?.txHash,
-        amountOut: swapResult.data?.amountOut,
+        amountOut: resolveDisplayedAmountOut({
+            status: finalStatus,
+            currentAmountOut: latestCardData.amountOut,
+            settledAmountOut: swapResult.data?.amountOut,
+        }),
         error: swapResult.error,
         errorMessage: swapResult.error,
         completedAt: Date.now(),
@@ -505,7 +516,7 @@ async function prewarmQuote(params: {
         const data = {
             ...(message?.data || {}),
             amountOut,
-            isLoading: false,
+            isLoading: (message?.data as any)?.isLoading ?? true,
         };
         await chatRepo.updateMessage(params.txCardMessageId, { data });
         if (params.userId) {

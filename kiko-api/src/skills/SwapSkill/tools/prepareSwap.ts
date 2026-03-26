@@ -5,6 +5,7 @@ import { buildSignedHeaders } from '../../../utils/requestSigningClient.js';
 import { getChainConfig } from '../../../config/chainConfig.js';
 import { resolveTokenDisplayMetadata } from '../../../services/tokens.js';
 import { isTruncatedEvmAddressLike, repairTruncatedEvmAddressFromMessages } from '../../../services/addressRecovery.js';
+import { resolveDisplayedAmountOut } from '../../../services/swapCardAmount.js';
 import { validateSwapExecutionChain } from './chainExecutionGuard.js';
 import type { RecentToolTrace } from '../../../jobs/chat/contracts.js';
 // Note: swapAggregator import removed - using internal API call instead
@@ -308,7 +309,11 @@ function buildSocketRecoveryResult(params: {
         ...params.currentData,
         status: recoveredStatus,
         txHash,
-        amountOut: params.recentSwap.tokenOutAmount || params.currentData.amountOut,
+        amountOut: resolveDisplayedAmountOut({
+            status: recoveredStatus,
+            currentAmountOut: params.currentData.amountOut,
+            settledAmountOut: params.recentSwap.tokenOutAmount,
+        }),
         tokenInSymbol: params.recentSwap.tokenInSymbol || params.currentData.tokenInSymbol,
         tokenOutSymbol: params.recentSwap.tokenOutSymbol || params.currentData.tokenOutSymbol,
         completedAt: Date.now(),
@@ -771,6 +776,7 @@ When show-quote-before-swap is enabled (default), execution must follow:
                         status: 'streaming'
                     }
                 );
+                let latestCardData = { ...(transactionMessage.data || {}) };
 
                 console.log(`[PrepareSwapTransaction] Created transaction message: ${transactionMessage.id}`);
 
@@ -782,19 +788,7 @@ When show-quote-before-swap is enabled (default), execution must follow:
                         targetMessageId: transactionMessage.id,
                         action: {
                             type: 'show_transaction_status_card',
-                            data: {
-                                status: 'sending',
-                                tokenIn: args.token_in,
-                                tokenOut: args.token_out,
-                                tokenInSymbol: tokenInDisplay.symbol,
-                                tokenOutSymbol: tokenOutDisplay.symbol,
-                                tokenInLogoURI: tokenInDisplay.logoURI,
-                                tokenOutLogoURI: tokenOutDisplay.logoURI,
-                                amountIn: args.amount_in,
-                                chainId: args.chain_id,
-                                slippage: args.slippage || 0.5,
-                                isLoading: true
-                            }
+                            data: latestCardData
                         }
                     }
                 });
@@ -802,13 +796,14 @@ When show-quote-before-swap is enabled (default), execution must follow:
                 let isFinalized = false;
                 let pendingTimer: NodeJS.Timeout | null = setTimeout(async () => {
                     if (isFinalized) return;
-                    const currentData = transactionMessage.data || {};
+                    const currentData = latestCardData || {};
                     const updatedData = {
                         ...currentData,
                         status: 'pending',
                         message: '⏳ Waiting for confirmation...',
                         isLoading: currentData.isLoading ?? true
                     };
+                    latestCardData = updatedData;
                     try {
                         await updateMessage(transactionMessage.id, {
                             data: updatedData
@@ -833,12 +828,13 @@ When show-quote-before-swap is enabled (default), execution must follow:
                 preWarmQuotePromise.then(async preWarmedQuote => {
                     const estimatedOut = preWarmedQuote?.data?.amountOut || preWarmedQuote?.data?.amountOutHuman;
                     if (!estimatedOut) return;
-                    const currentData = transactionMessage.data || {};
+                    const currentData = latestCardData || {};
                     const updatedData = {
                         ...currentData,
                         amountOut: estimatedOut,
-                        isLoading: false
+                        isLoading: currentData.isLoading ?? true
                     };
+                    latestCardData = updatedData;
                     try {
                         await updateMessage(transactionMessage.id, {
                             data: updatedData
@@ -924,12 +920,16 @@ When show-quote-before-swap is enabled (default), execution must follow:
                         : backendStatus === 'PENDING'
                             ? 'pending'
                             : 'success';
-                    const messageData = transactionMessage.data || {};
+                    const messageData = latestCardData || {};
                     const completionData = {
                         ...messageData,
                         status: finalStatus,
                         txHash: result.data?.txHash,
-                        amountOut: result.data?.amountOut || swapRecord?.tokenOutAmount || messageData.amountOut,
+                        amountOut: resolveDisplayedAmountOut({
+                            status: finalStatus,
+                            currentAmountOut: messageData.amountOut,
+                            settledAmountOut: result.data?.amountOut || swapRecord?.tokenOutAmount,
+                        }),
                         tokenInSymbol: swapRecord?.tokenInSymbol || messageData.tokenInSymbol,
                         tokenOutSymbol: swapRecord?.tokenOutSymbol || messageData.tokenOutSymbol,
                         error: result.error,
@@ -950,6 +950,7 @@ When show-quote-before-swap is enabled (default), execution must follow:
                             }
                         } : {}),
                     };
+                    latestCardData = completionData;
                     isFinalized = true;
                     if (pendingTimer) {
                         clearTimeout(pendingTimer);
@@ -1020,21 +1021,23 @@ When show-quote-before-swap is enabled (default), execution must follow:
                         console.error('[PrepareSwapTransaction] Request timeout after 150s');
 
                         // Update message to timeout status
-                        const messageContent = transactionMessage.data || {};
+                        const messageContent = latestCardData || {};
                         isFinalized = true;
                         if (pendingTimer) {
                             clearTimeout(pendingTimer);
                             pendingTimer = null;
                         }
+                        const timeoutData = {
+                            ...messageContent,
+                            status: 'failed',
+                            error: 'Transaction timeout',
+                            errorMessage: 'Transaction timeout',
+                            completedAt: Date.now(),
+                            isLoading: false
+                        };
+                        latestCardData = timeoutData;
                         await updateMessage(transactionMessage.id, {
-                            data: {
-                                ...messageContent,
-                                status: 'failed',
-                                error: 'Transaction timeout',
-                                errorMessage: 'Transaction timeout',
-                                completedAt: Date.now(),
-                                isLoading: false
-                            },
+                            data: timeoutData,
                             status: 'complete'
                         });
 
@@ -1045,14 +1048,7 @@ When show-quote-before-swap is enabled (default), execution must follow:
                                 targetMessageId: transactionMessage.id,
                                 action: {
                                     type: 'show_transaction_status_card',
-                                    data: {
-                                        ...messageContent,
-                                        status: 'failed',
-                                        error: 'Transaction timeout',
-                                        errorMessage: 'Transaction timeout',
-                                        completedAt: Date.now(),
-                                        isLoading: false
-                                    }
+                                    data: timeoutData
                                 }
                             }
                         });
@@ -1084,7 +1080,7 @@ When show-quote-before-swap is enabled (default), execution must follow:
                             const maxWaitTime = 60000; // 60 seconds total (reduced from 90s)
                             const startTime = Date.now();
                             const searchStartMs = resolveSocketRecoverySearchStartMs({
-                                requestStartedAt: transactionMessage.data?.startedAt,
+                                requestStartedAt: latestCardData?.startedAt,
                                 recoveryStartedAt: startTime,
                                 lookbackMs: 5000
                             });
@@ -1125,7 +1121,7 @@ When show-quote-before-swap is enabled (default), execution must follow:
                                 if (recentSwap && recentSwap.txHash) {
                                     // Transaction was recorded! Update card and return success
                                     console.log(`[PrepareSwapTransaction] ✅ Found transaction after ${Math.round((Date.now() - startTime) / 1000)}s (${pollCount} polls):`, recentSwap.txHash);
-                                    const currentData = transactionMessage.data || {};
+                                    const currentData = latestCardData || {};
                                     const recoveryResult = buildSocketRecoveryResult({
                                         currentData,
                                         recentSwap,
@@ -1136,6 +1132,7 @@ When show-quote-before-swap is enabled (default), execution must follow:
                                         }
                                     });
                                     const { completionData } = recoveryResult;
+                                    latestCardData = completionData;
                                     isFinalized = true;
                                     if (pendingTimer) {
                                         clearTimeout(pendingTimer);
@@ -1176,15 +1173,17 @@ When show-quote-before-swap is enabled (default), execution must follow:
                         }
 
                         // If no transaction found in DB, ask user to verify manually
+                        const verificationData = {
+                            ...(latestCardData || {}),
+                            status: 'pending_verification',
+                            error: 'Connection lost during transaction',
+                            errorMessage: 'Connection lost during transaction',
+                            completedAt: Date.now(),
+                            isLoading: false
+                        };
+                        latestCardData = verificationData;
                         await updateMessage(transactionMessage.id, {
-                            data: {
-                                ...transactionMessage.data,
-                                status: 'pending_verification',
-                                error: 'Connection lost during transaction',
-                                errorMessage: 'Connection lost during transaction',
-                                completedAt: Date.now(),
-                                isLoading: false
-                            },
+                            data: verificationData,
                             status: 'complete'
                         });
                         isFinalized = true;
@@ -1200,14 +1199,7 @@ When show-quote-before-swap is enabled (default), execution must follow:
                                 targetMessageId: transactionMessage.id,
                                 action: {
                                     type: 'show_transaction_status_card',
-                                    data: {
-                                        ...transactionMessage.data,
-                                        status: 'pending_verification',
-                                        error: 'Connection lost during transaction',
-                                        errorMessage: 'Connection lost during transaction',
-                                        completedAt: Date.now(),
-                                        isLoading: false
-                                    }
+                                    data: verificationData
                                 }
                             }
                         });
@@ -1229,15 +1221,17 @@ When show-quote-before-swap is enabled (default), execution must follow:
                         clearTimeout(pendingTimer);
                         pendingTimer = null;
                     }
+                    const networkErrorData = {
+                        ...(latestCardData || {}),
+                        status: 'failed',
+                        error: innerError.message,
+                        errorMessage: innerError.message,
+                        completedAt: Date.now(),
+                        isLoading: false
+                    };
+                    latestCardData = networkErrorData;
                     await updateMessage(transactionMessage.id, {
-                        data: {
-                            ...transactionMessage.data,
-                            status: 'failed',
-                            error: innerError.message,
-                            errorMessage: innerError.message,
-                            completedAt: Date.now(),
-                            isLoading: false
-                        },
+                        data: networkErrorData,
                         status: 'complete'
                     });
 
@@ -1248,14 +1242,7 @@ When show-quote-before-swap is enabled (default), execution must follow:
                             targetMessageId: transactionMessage.id,
                             action: {
                                 type: 'show_transaction_status_card',
-                                data: {
-                                    ...transactionMessage.data,
-                                    status: 'failed',
-                                    error: innerError.message,
-                                    errorMessage: innerError.message,
-                                    completedAt: Date.now(),
-                                    isLoading: false
-                                }
+                                data: networkErrorData
                             }
                         }
                     });

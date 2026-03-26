@@ -38,6 +38,7 @@ test('buildSocketRecoveryResult keeps recovered pending trades pending in the UI
 
   assert.equal(result.completionData.status, 'pending');
   assert.equal(result.completionData.isLoading, true);
+  assert.equal(result.completionData.amountOut, '0.1');
   assert.equal(result.toolResult.mode, 'pending');
   assert.equal(result.toolResult.data.status, 'pending');
 });
@@ -64,6 +65,7 @@ test('buildSocketRecoveryResult marks confirmed trades as success', () => {
 
   assert.equal(result.completionData.status, 'success');
   assert.equal(result.completionData.isLoading, false);
+  assert.equal(result.completionData.amountOut, '0.3');
   assert.equal(result.toolResult.mode, 'executed');
   assert.equal(result.toolResult.data.status, 'success');
 });

@@ -107,7 +107,46 @@ type EvmExecuteInstantDeps = {
     trackSwap: typeof trackSwap;
 };
 
+type InstantExecutionOutcome = {
+    historyStatus: 'pending' | 'success' | 'failed';
+    responseStatus: 'PENDING' | 'SUCCESS' | 'FAILED';
+    confirmedAt?: Date;
+    shouldScheduleSettlement: boolean;
+};
+
 const NATIVE_TOKEN_PLACEHOLDER = '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE';
+
+function resolveInstantExecutionOutcome(params: {
+    requireConfirmedTx: boolean;
+    swapResult: MainSwapResult;
+}): InstantExecutionOutcome {
+    const lifecycleStatus = params.swapResult.txLifecycle?.status || null;
+    const confirmedSuccess = lifecycleStatus === 'confirmed_success';
+    const confirmedFailed = lifecycleStatus === 'confirmed_failed';
+
+    if (confirmedFailed) {
+        return {
+            historyStatus: 'failed',
+            responseStatus: 'FAILED',
+            shouldScheduleSettlement: false,
+        };
+    }
+
+    if (params.requireConfirmedTx || confirmedSuccess) {
+        return {
+            historyStatus: 'success',
+            responseStatus: 'SUCCESS',
+            confirmedAt: new Date(),
+            shouldScheduleSettlement: false,
+        };
+    }
+
+    return {
+        historyStatus: 'pending',
+        responseStatus: 'PENDING',
+        shouldScheduleSettlement: true,
+    };
+}
 
 function toDec(value: number | string | null | undefined): string | null {
     if (value === null || value === undefined) return null;
@@ -301,7 +340,7 @@ function schedulePendingTradeSettlement(params: {
 async function executeEvmInstantWithDeps(
     params: EvmExecuteInstantParams,
     deps: EvmExecuteInstantDeps
-): Promise<{ txHash: string; tradeId: string; status: 'SUCCESS' | 'PENDING'; amountOut: string | null }> {
+): Promise<{ txHash: string; tradeId: string; status: 'SUCCESS' | 'PENDING' | 'FAILED'; amountOut: string | null }> {
     const resolvedTokenIn = deps.resolveTokenAddress(params.tokenIn, params.chainId);
     const resolvedTokenOut = deps.resolveTokenAddress(params.tokenOut, params.chainId);
 
@@ -440,13 +479,24 @@ async function executeEvmInstantWithDeps(
         ? parseFloat(swapResult.amountOut) * tokenOutUsd
         : 0;
 
-    if (!requireConfirmedTx) {
-        await deps.updateSwapHistory(pendingTrade.id, {
-            status: 'pending',
-            txHash,
-            amountOut: swapResult.amountOut || null,
-            amountOutUsd,
-        });
+    const executionOutcome = resolveInstantExecutionOutcome({
+        requireConfirmedTx,
+        swapResult,
+    });
+
+    await deps.updateSwapHistory(pendingTrade.id, {
+        status: executionOutcome.historyStatus,
+        txHash,
+        amountOut: swapResult.amountOut || null,
+        amountOutUsd,
+        confirmedAt: executionOutcome.confirmedAt,
+    });
+
+    if (executionOutcome.historyStatus === 'success') {
+        deps.trackSwap(pendingTrade.userId, pendingTrade.tokenInUsd || 0);
+    }
+
+    if (executionOutcome.shouldScheduleSettlement) {
         deps.scheduleTradeSettlement({
             tradeId: pendingTrade.id,
             txHash,
@@ -458,29 +508,12 @@ async function executeEvmInstantWithDeps(
             updateSwapHistory: deps.updateSwapHistory,
             trackSwap: deps.trackSwap,
         });
-
-        return {
-            txHash,
-            tradeId: pendingTrade.id,
-            status: 'PENDING',
-            amountOut: swapResult.amountOut || null,
-        };
     }
-
-    await deps.updateSwapHistory(pendingTrade.id, {
-        status: 'success',
-        txHash,
-        amountOut: swapResult.amountOut || null,
-        amountOutUsd,
-        confirmedAt: new Date(),
-    });
-
-    deps.trackSwap(pendingTrade.userId, pendingTrade.tokenInUsd || 0);
 
     return {
         txHash,
         tradeId: pendingTrade.id,
-        status: 'SUCCESS',
+        status: executionOutcome.responseStatus,
         amountOut: swapResult.amountOut || null,
     };
 }
@@ -499,4 +532,5 @@ export async function handleEvmExecuteInstant(
 export const __evmExecuteInstantTest = {
     executeEvmInstantWithDeps,
     NATIVE_TOKEN_PLACEHOLDER,
+    resolveInstantExecutionOutcome,
 };
