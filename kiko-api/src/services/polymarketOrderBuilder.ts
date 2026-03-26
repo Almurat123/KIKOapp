@@ -116,6 +116,10 @@ export function getPolymarketWalletAddress(): string {
     return getPolymarketWallet().address;
 }
 
+function shouldUsePrivySigning(userId: string): boolean {
+    return Boolean(userId && !userId.startsWith('0x'));
+}
+
 /**
  * Build and sign an order using the Polymarket wallet private key
  * Uses POLY_PROXY signature type (1) since we're signing on behalf of the funder
@@ -125,8 +129,6 @@ export async function buildSignedOrder(
     order: OrderData,
     isNegRisk: boolean = false
 ): Promise<SignedOrder> {
-    const wallet = getPolymarketWallet();
-
     // Select exchange address based on market type
     const exchangeAddress = isNegRisk ? NEG_RISK_CTF_EXCHANGE : CTF_EXCHANGE_ADDRESS;
 
@@ -164,7 +166,7 @@ export async function buildSignedOrder(
     // Sign with EIP-712
     let signature: string;
 
-    if (_userId && !(_userId.startsWith('0x'))) {
+    if (shouldUsePrivySigning(_userId)) {
         // Sign with Privy if userId looks like a Privy DID
         logger.debug(LogCode.SYS_INFO, 'Signing with Privy for user', { userId: _userId });
         signature = await signTypedData(_userId, {
@@ -175,6 +177,7 @@ export async function buildSignedOrder(
         });
     } else {
         // Fallback to server private key (legacy or internal)
+        const wallet = getPolymarketWallet();
         logger.debug(LogCode.SYS_INFO, 'Signing with server private key');
         signature = await wallet.signTypedData(domain, ORDER_TYPES, message);
     }
@@ -250,3 +253,7 @@ export function createLimitOrderData(params: {
         signatureType: signatureType
     };
 }
+
+export const __testables = {
+    shouldUsePrivySigning,
+};
