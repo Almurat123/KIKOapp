@@ -66,7 +66,7 @@ export const SwitchChainTool: Tool = {
         }
 
         return {
-            summary: `Requested wallet switch to ${chainName} (Chain ID: ${chainId}). Wait for wallet confirmation before executing trades on that chain.`,
+            summary: `Switching KiKo to ${chainName} (Chain ID: ${chainId}) now. The chain-switch tool has already dispatched the wallet/client action; no extra in-chat confirmation is needed.`,
             __client_action: {
                 type: 'switch_chain',
                 payload: {

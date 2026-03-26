@@ -14,7 +14,7 @@ test('validateSwapExecutionChain blocks execution when connected chain does not 
     assert.equal(result.ok, false);
     if (result.ok) return;
     assert.equal(result.code, 'CHAIN_SWITCH_REQUIRED');
-    assert.match(result.error, /Call switch_wallet_chain first/i);
+    assert.match(result.error, /Use switch_wallet_chain now/i);
 });
 
 test('validateSwapExecutionChain blocks execution while a chain switch is still pending confirmation', async () => {
@@ -34,7 +34,7 @@ test('validateSwapExecutionChain blocks execution while a chain switch is still 
     assert.equal(result.ok, false);
     if (result.ok) return;
     assert.equal(result.code, 'CHAIN_SWITCH_REQUIRED');
-    assert.match(result.error, /pending confirmation/i);
+    assert.match(result.error, /already in progress/i);
 });
 
 test('validateSwapExecutionChain blocks execution when recent user history explicitly requested another chain', async () => {

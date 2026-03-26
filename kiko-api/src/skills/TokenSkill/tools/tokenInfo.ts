@@ -3,6 +3,7 @@ import * as geckoTerminal from '../../../services/geckoTerminal.js';
 import * as dexscreener from '../../../services/dexscreener.js';
 import { resolveChainInput } from '../../../utils/chainParam.js';
 import { findCachedTrendingToken } from '../../../repositories/tokenRepository.js';
+import { isTruncatedEvmAddressLike, repairTruncatedEvmAddressFromMessages } from '../../../services/addressRecovery.js';
 
 function isTokenAddressLike(value: string): boolean {
     const raw = String(value || '').trim();
@@ -74,7 +75,16 @@ export const GetTokenInfoTool: Tool = {
                 return { error: `Unsupported chain_id: ${String(args.chain_id)}` };
             }
             const resolvedChainId = chainId ?? 1;
-            const requestedIdentifier = String(args.address || '').trim();
+            let requestedIdentifier = String(args.address || '').trim();
+            if (context?.sessionId && isTruncatedEvmAddressLike(requestedIdentifier)) {
+                try {
+                    const { getSessionMessages } = await import('../../../repositories/chatRepository.js');
+                    const sessionMessages = await getSessionMessages(context.sessionId);
+                    requestedIdentifier = repairTruncatedEvmAddressFromMessages(requestedIdentifier, sessionMessages);
+                } catch (repairErr: any) {
+                    console.warn('[GetTokenInfo] Failed to repair truncated token address from session:', repairErr?.message || repairErr);
+                }
+            }
             const { cachedToken, resolvedAddress } = await resolveTokenInfoLookup({
                 identifier: requestedIdentifier,
                 chain,

@@ -114,3 +114,28 @@ test('hasQuoteModeExecutionAuthorization requires explicit execute gate or match
     chain_id: 8453,
   }), false);
 });
+
+test('repairTruncatedEvmAddressFromMessages restores a uniquely matching full address from session content', () => {
+  const repaired = __prepareSwapTest.repairTruncatedEvmAddressFromMessages(
+    '0x0bc61768132aa1484e2b09301284b7def78a444',
+    [
+      {
+        content: 'Buy 0x0bC61768132aA1484E2b09301284b7DeF78a4444 for 0.001 BNB on BSC',
+      },
+    ],
+  );
+
+  assert.equal(repaired, '0x0bC61768132aA1484E2b09301284b7DeF78a4444');
+});
+
+test('repairTruncatedEvmAddressFromMessages leaves ambiguous partial addresses unchanged', () => {
+  const repaired = __prepareSwapTest.repairTruncatedEvmAddressFromMessages(
+    '0x1234',
+    [
+      { content: '0x1234000000000000000000000000000000000000' },
+      { content: '0x1234ffffffffffffffffffffffffffffffffffff' },
+    ],
+  );
+
+  assert.equal(repaired, '0x1234');
+});

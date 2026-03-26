@@ -115,7 +115,7 @@ Use this case schema for execution-quality reasoning. Do not print the JSON unle
       "checks": [
         "Do not infer chain solely from 0x address format"
       ],
-      "branch_if_mismatch": "If chain mismatches, ask whether to switch to the target chain and wait for confirmation before continuing."
+      "branch_if_mismatch": "If chain mismatches and the trade intent is already explicit enough to continue, call switch_wallet_chain immediately and treat the switch as already dispatched by the tool. Do not ask for an extra in-chat/UI confirmation before continuing once the switch completes."
     },
     {
       "step": 2,

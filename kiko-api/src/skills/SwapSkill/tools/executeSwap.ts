@@ -11,6 +11,7 @@ import { logger } from '../../../utils/logger.js';
 import { LogCode } from '../../../config/logRegistry.js';
 import { fetchJson } from '../../../config/unifiedApiService.js';
 import { buildSignedHeaders } from '../../../utils/requestSigningClient.js';
+import { isTruncatedEvmAddressLike, repairTruncatedEvmAddressFromMessages } from '../../../services/addressRecovery.js';
 
 export const executeSwapTool: Tool = {
     definition: {
@@ -65,6 +66,17 @@ The result will be either:
         const taskId = context?.taskId || `task-${Date.now()}`;
 
         console.log(`[ExecuteSwap] Starting atomic swap execution for task ${taskId}`);
+
+        if (context?.sessionId && (isTruncatedEvmAddressLike(args.token_in) || isTruncatedEvmAddressLike(args.token_out))) {
+            try {
+                const { getSessionMessages } = await import('../../../repositories/chatRepository.js');
+                const sessionMessages = await getSessionMessages(context.sessionId);
+                args.token_in = repairTruncatedEvmAddressFromMessages(args.token_in, sessionMessages);
+                args.token_out = repairTruncatedEvmAddressFromMessages(args.token_out, sessionMessages);
+            } catch (repairErr: any) {
+                console.warn('[ExecuteSwap] Failed to repair truncated token address from session:', repairErr?.message || repairErr);
+            }
+        }
 
         // ⚡ Get TradeContext for cached data access
         const tradeCtx = getTradeContext(context);

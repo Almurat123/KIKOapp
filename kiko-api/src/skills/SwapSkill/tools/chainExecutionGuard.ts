@@ -75,7 +75,7 @@ export async function validateSwapExecutionChain(
         return {
             ok: false,
             code: 'CHAIN_SWITCH_REQUIRED',
-            error: `CHAIN_SWITCH_REQUIRED: A wallet chain switch to ${getConnectedChainLabel(pendingChainSwitchId)} (${pendingChainSwitchId}) is still pending confirmation. Wait for the wallet switch to succeed before retrying this trade.`,
+            error: `CHAIN_SWITCH_REQUIRED: An automatic wallet chain switch to ${getConnectedChainLabel(pendingChainSwitchId)} (${pendingChainSwitchId}) is already in progress. Do not ask the user for an extra in-chat confirmation; wait for the switch result before retrying this trade.`,
         };
     }
 
@@ -84,7 +84,7 @@ export async function validateSwapExecutionChain(
         return {
             ok: false,
             code: 'CHAIN_SWITCH_REQUIRED',
-            error: `CHAIN_SWITCH_REQUIRED: Connected chain is ${getConnectedChainLabel(connectedChainId)} (${connectedChainId}), but this trade targets chain ${targetChainId}. Call switch_wallet_chain first, then retry the trade.`,
+            error: `CHAIN_SWITCH_REQUIRED: Connected chain is ${getConnectedChainLabel(connectedChainId)} (${connectedChainId}), but this trade targets chain ${targetChainId}. Use switch_wallet_chain now to trigger the automatic client-side chain switch, then retry the trade after the switch completes.`,
         };
     }
 

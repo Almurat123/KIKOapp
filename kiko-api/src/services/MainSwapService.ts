@@ -261,7 +261,7 @@ function buildUserFacingSwapError(message?: string, routePolicy?: RoutePolicy): 
     case 'unsupported_token_or_chain':
       return 'This token or chain is not supported for this trade path.';
     case 'invalid_token':
-      return 'The token input could not be resolved into a valid tradable address.';
+      return 'One of the swap tokens could not be resolved into a valid tradable address.';
     case 'insufficient_balance':
       return 'Insufficient balance to complete this trade.';
     case 'slippage_exceeded':

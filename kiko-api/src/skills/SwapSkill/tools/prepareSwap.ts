@@ -4,6 +4,7 @@ import { getTokenData } from '../../../services/UnifiedDataLayer.js';
 import { buildSignedHeaders } from '../../../utils/requestSigningClient.js';
 import { getChainConfig } from '../../../config/chainConfig.js';
 import { resolveTokenDisplayMetadata } from '../../../services/tokens.js';
+import { isTruncatedEvmAddressLike, repairTruncatedEvmAddressFromMessages } from '../../../services/addressRecovery.js';
 import { validateSwapExecutionChain } from './chainExecutionGuard.js';
 // Note: swapAggregator import removed - using internal API call instead
 
@@ -391,6 +392,8 @@ When show-quote-before-swap is enabled (default), execution must follow:
                 try {
                     const { getSessionMessages } = await import('../../../repositories/chatRepository.js');
                     const sessionMessages = await getSessionMessages(context.sessionId);
+                    args.token_in = repairTruncatedEvmAddressFromMessages(args.token_in, sessionMessages);
+                    args.token_out = repairTruncatedEvmAddressFromMessages(args.token_out, sessionMessages);
                     const simulated = findRecentSimulatedSwap(sessionMessages, 2 * 60 * 1000);
                     recentSimulatedSwap = simulated;
                     if (simulated && args.execute === true) {
@@ -405,6 +408,18 @@ When show-quote-before-swap is enabled (default), execution must follow:
                     }
                 } catch (pinErr: any) {
                     console.warn('[PrepareSwapTransaction] Failed to pin amount from simulation:', pinErr?.message || pinErr);
+                }
+            }
+
+            if (context?.sessionId && !(args.execute === true || context?.allowanceMode === 'instant')
+                && (isTruncatedEvmAddressLike(args.token_in) || isTruncatedEvmAddressLike(args.token_out))) {
+                try {
+                    const { getSessionMessages } = await import('../../../repositories/chatRepository.js');
+                    const sessionMessages = await getSessionMessages(context.sessionId);
+                    args.token_in = repairTruncatedEvmAddressFromMessages(args.token_in, sessionMessages);
+                    args.token_out = repairTruncatedEvmAddressFromMessages(args.token_out, sessionMessages);
+                } catch (repairErr: any) {
+                    console.warn('[PrepareSwapTransaction] Failed to repair truncated token address from session:', repairErr?.message || repairErr);
                 }
             }
 
@@ -1255,4 +1270,5 @@ export const __prepareSwapTest = {
     resolveSocketRecoverySearchStartMs,
     buildSocketRecoveryResult,
     hasQuoteModeExecutionAuthorization,
+    repairTruncatedEvmAddressFromMessages,
 };

@@ -1,6 +1,7 @@
 import { Tool } from '../../../tooling/registry.js';
 import { fetchJson } from '../../../config/unifiedApiService.js';
 import { buildSignedHeaders } from '../../../utils/requestSigningClient.js';
+import { isTruncatedEvmAddressLike, repairTruncatedEvmAddressFromMessages } from '../../../services/addressRecovery.js';
 import { validateSwapExecutionChain } from './chainExecutionGuard.js';
 
 export const SimulateSwapTool: Tool = {
@@ -21,6 +22,17 @@ export const SimulateSwapTool: Tool = {
     },
     handler: async (args, context) => {
         try {
+            if (context?.sessionId && (isTruncatedEvmAddressLike(args.token_in) || isTruncatedEvmAddressLike(args.token_out))) {
+                try {
+                    const { getSessionMessages } = await import('../../../repositories/chatRepository.js');
+                    const sessionMessages = await getSessionMessages(context.sessionId);
+                    args.token_in = repairTruncatedEvmAddressFromMessages(args.token_in, sessionMessages);
+                    args.token_out = repairTruncatedEvmAddressFromMessages(args.token_out, sessionMessages);
+                } catch (repairErr: any) {
+                    console.warn('[SimulateSwap] Failed to repair truncated token address from session:', repairErr?.message || repairErr);
+                }
+            }
+
             const chainGuard = await validateSwapExecutionChain(args, context);
             if (!chainGuard.ok) {
                 return { error: chainGuard.error, code: chainGuard.code };
