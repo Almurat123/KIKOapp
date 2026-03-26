@@ -2,6 +2,7 @@ import type { ChatContextSnapshot } from './contracts.js';
 import { resolveCanonicalChainRef } from './chainIntent.js';
 import type { CanonicalIntent } from './canonicalIntent.js';
 import { resolveTradeSemantics } from '../../services/ai/tradeSemantics.js';
+import { shouldSupersedePendingSwapConfirmation } from './swapConfirmationSupersession.js';
 
 export interface TradingIntent {
     kind: 'trading' | 'trade_confirmation';
@@ -12,6 +13,14 @@ export interface TradingIntent {
 export function parseTradingIntent(text: string, snapshot: ChatContextSnapshot, canonicalIntent?: CanonicalIntent | null): TradingIntent | null {
     const raw = String(text || '').trim();
     const confirmation = snapshot.confirmationState || {};
+    const supersededSwap = confirmation.kind === 'swap_confirmation'
+        && shouldSupersedePendingSwapConfirmation({
+            text: raw,
+            snapshot,
+            pendingSwap: confirmation.swap,
+        })
+        ? confirmation.swap || null
+        : null;
     const normalizedIntent = canonicalIntent || snapshot.normalizedIntent || null;
     const requestedChain = resolveCanonicalChainRef({
         canonicalIntent: normalizedIntent,
@@ -21,7 +30,10 @@ export function parseTradingIntent(text: string, snapshot: ChatContextSnapshot, 
         runtimeChainName: snapshot.runtime.chainName,
     });
 
-    if (confirmation.kind === 'swap_confirmation') {
+    if (
+        confirmation.kind === 'swap_confirmation'
+        && !supersededSwap
+    ) {
         return {
             kind: 'trade_confirmation',
             type: 'swap',
@@ -70,6 +82,8 @@ export function parseTradingIntent(text: string, snapshot: ChatContextSnapshot, 
                 requestedTokenAddresses: snapshot.requestedTokenAddresses || [],
                 requestedTokenSymbols: snapshot.requestedTokenSymbols || [],
             });
+            const inheritedTokenIn = semantics.tokenIn || supersededSwap?.tokenIn;
+            const inheritedTokenOut = semantics.tokenOut || supersededSwap?.tokenOut;
             return {
                 kind: normalizedIntent.taskMode === 'confirm' ? 'trade_confirmation' : 'trading',
                 type: 'swap',
@@ -78,9 +92,9 @@ export function parseTradingIntent(text: string, snapshot: ChatContextSnapshot, 
                     amount_kind: semantics.amount.kind,
                     amount_semantic: semantics.amount.semantic,
                     amount_currency: semantics.amount.currency,
-                    token_in: semantics.tokenIn || undefined,
-                    token_out: semantics.tokenOut || undefined,
-                    chain_id: canonicalChain?.chainId || requestedChain?.chainId,
+                    token_in: inheritedTokenIn || undefined,
+                    token_out: inheritedTokenOut || undefined,
+                    chain_id: canonicalChain?.chainId || requestedChain?.chainId || supersededSwap?.chainId,
                     chain_name: canonicalChain?.chainName || requestedChain?.chainName,
                     requested_addresses: snapshot.requestedTokenAddresses || [],
                     requested_symbols: snapshot.requestedTokenSymbols || [],

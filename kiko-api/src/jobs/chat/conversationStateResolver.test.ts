@@ -8,6 +8,7 @@ import {
     isConfirmationMessage,
     resolveTradeConfirmationState,
 } from './conversationStateResolver.js';
+import type { CanonicalIntent } from './canonicalIntent.js';
 
 test('extractRequestedTokenAddressesFromHistory keeps prior contract context for short follow-up turns', () => {
     const contract = '0xeCCBb861c0dda7eFd964010085488B69317e4444';
@@ -103,6 +104,70 @@ test('resolveTradeConfirmationState does not treat explicit chain switch request
             },
         },
     ], 'Switch to polygon');
+
+    assert.equal(state, null);
+});
+
+test('resolveTradeConfirmationState clears stale swap confirmation when latest turn is a fresh amount-adjustment request', () => {
+    const token = '0x0bc61768132aa1484e2b09301284b7def78a4444';
+    const normalizedIntent: CanonicalIntent = {
+        domain: 'token',
+        intent: 'swap',
+        taskMode: 'execute',
+        outputMode: 'execution_ready',
+        searchMode: 'forbidden',
+        searchTarget: 'none',
+        confidence: 0.91,
+        explanation: 'test',
+        entities: {
+            tokenAddresses: [token],
+            tokenSymbols: ['BENJI'],
+            walletAddresses: [],
+            marketIdentifiers: [],
+        },
+        requestedChain: {
+            chainId: 56,
+            chainName: 'BNB Chain',
+            source: 'llm',
+        },
+        timeContext: null,
+        evidenceRequirements: [],
+        requiresRealtime: false,
+        requiresOnchainEvidence: false,
+        executionCandidate: true,
+        rowCount: null,
+        locale: 'en',
+        needsClarification: false,
+        clarificationQuestion: null,
+        source: 'llm',
+    };
+
+    const state = resolveTradeConfirmationState([
+        {
+            role: 'assistant',
+            id: 'a1',
+            message_index: 1,
+            data: {
+                toolTrace: {
+                    toolCalls: [
+                        {
+                            tool: 'simulate_swap',
+                            status: 'success',
+                            args: {
+                                token_in: 'BNB',
+                                token_out: token,
+                                amount_in: '0.01',
+                                chain_id: 56,
+                            },
+                            result: {
+                                finishedAt: '2026-03-26T13:46:59.000Z',
+                            },
+                        },
+                    ],
+                },
+            },
+        },
+    ], '0.001 BNB', normalizedIntent);
 
     assert.equal(state, null);
 });

@@ -4,7 +4,6 @@ import type { ChatContextSnapshot, OrchestratorToolResult } from './contracts.js
 import { ChatStreamBroker } from './streamBroker.js';
 import type { ToolExecutionEngine } from './toolExecutionEngine.js';
 import { computeConfirmationToken } from './executionGate.js';
-import { createPolicyError } from './controlPolicy.js';
 
 export async function executeDirectTradeFollowup(params: {
     snapshot: ChatContextSnapshot;
@@ -38,35 +37,6 @@ export async function executeDirectTradeFollowup(params: {
 
     if (confirmation.kind === 'swap_confirmation' && confirmation.swap) {
         const swap = confirmation.swap;
-        const quoteExpired = isQuoteExpiredFromTrace(params.snapshot);
-        if (quoteExpired) {
-            const policyError = createPolicyError(
-                'CONFIRMATION_STALE_OR_MISMATCH',
-                'Confirmation is stale. Please run preflight again and then confirm.',
-                params.snapshot.policySnapshot || null,
-            );
-            await params.broker.complete({
-                content: buildFailureSummary(params.snapshot, policyError.message),
-            });
-            return {
-                handled: true,
-                toolResult: {
-                    id: `direct:swap_confirmation_stale:${Date.now()}`,
-                    name: 'swap_confirmation_guard',
-                    arguments: {},
-                    ok: false,
-                    error: policyError.message,
-                    reasonCode: policyError.code,
-                    policyDecisionId: policyError.policyDecisionId,
-                    result: {
-                        error: policyError.message,
-                        reason_code: policyError.code,
-                        policy_decision_id: policyError.policyDecisionId,
-                    },
-                    metadata: { source: 'direct_followup_guard' },
-                },
-            };
-        }
 
         const toolName = swap.isCrossChain ? 'prepare_cross_chain_tx' : 'prepare_swap_transaction';
         const args = swap.isCrossChain
@@ -269,34 +239,6 @@ async function broadcastClientAction(params: {
     }
 }
 
-function isQuoteExpiredFromTrace(snapshot: ChatContextSnapshot): boolean {
-    const toolCalls = snapshot.recentToolTrace?.toolCalls || [];
-    const relevant = [...toolCalls].reverse().find((entry) =>
-        ['simulate_swap', 'prepare_swap_transaction', 'get_cross_chain_quote', 'prepare_cross_chain_tx'].includes(String(entry.tool || '')) &&
-        ['success', 'cached'].includes(String(entry.status || ''))
-    );
-    const finishedAt = extractTradeTraceTimestamp(relevant);
-    if (!finishedAt) return true;
-    const ts = new Date(String(finishedAt)).getTime();
-    if (!Number.isFinite(ts)) return true;
-    const ttlMs = Math.max(5000, parseInt(process.env.CHAT_SIM_QUOTE_TTL_MS || '45000', 10) || 45000);
-    return Date.now() - ts > ttlMs;
-}
-
-function extractTradeTraceTimestamp(entry: any): string | undefined {
-    if (!entry || typeof entry !== 'object') return undefined;
-    return entry.finishedAt
-        || entry.completedAt
-        || entry.simulatedAt
-        || entry.createdAt
-        || entry.result?.finishedAt
-        || entry.result?.completedAt
-        || entry.result?.simulatedAt
-        || entry.result?.createdAt
-        || entry.result?.timestamp
-        || undefined;
-}
-
 function resolveInvalidTradeConfirmation(snapshot: ChatContextSnapshot): {
     code: string;
     error: string;
@@ -304,7 +246,8 @@ function resolveInvalidTradeConfirmation(snapshot: ChatContextSnapshot): {
     toolName: string;
     args: Record<string, any>;
 } | null {
-    if (snapshot.confirmationState?.kind) return null;
+    const confirmation = snapshot.confirmationState;
+    if (confirmation?.kind) return null;
     const taskMode = snapshot.normalizedIntent?.taskMode;
     if (taskMode !== 'confirm' && taskMode !== 'execute') return null;
 

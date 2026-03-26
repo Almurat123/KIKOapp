@@ -139,3 +139,50 @@ test('repairTruncatedEvmAddressFromMessages leaves ambiguous partial addresses u
 
   assert.equal(repaired, '0x1234');
 });
+
+test('findRecentSimulatedSwapFromTrace reuses the latest matching successful simulation from snapshot trace', () => {
+  const simulated = __prepareSwapTest.findRecentSimulatedSwapFromTrace({
+    toolCalls: [
+      {
+        tool: 'simulate_swap',
+        status: 'success',
+        args: {
+          token_in: 'BNB',
+          token_out: '0x0bc61768132aa1484e2b09301284b7def78a4444',
+          amount_in: '0.001',
+          chain_id: 56,
+        },
+        result: {
+          finishedAt: new Date().toISOString(),
+        },
+      },
+    ],
+  }, 2 * 60 * 1000);
+
+  assert.deepEqual(simulated, {
+    token_in: 'BNB',
+    token_out: '0x0bc61768132aa1484e2b09301284b7def78a4444',
+    amount_in: '0.001',
+    chain_id: 56,
+  });
+});
+
+test('repairSwapArgsFromMessages upgrades truncated simulated token addresses using session content', () => {
+  const repaired = __prepareSwapTest.repairSwapArgsFromMessages({
+    token_in: 'BNB',
+    token_out: '0x0bc61768132aa1484e2b09301284b7def78a444',
+    amount_in: '0.001',
+    chain_id: 56,
+  }, [
+    {
+      content: 'Buy 0x0bc61768132aa1484e2b09301284b7def78a4444 for 0.01 BNB on BSC',
+    },
+  ]);
+
+  assert.deepEqual(repaired, {
+    token_in: 'BNB',
+    token_out: '0x0bc61768132aa1484e2b09301284b7def78a4444',
+    amount_in: '0.001',
+    chain_id: 56,
+  });
+});

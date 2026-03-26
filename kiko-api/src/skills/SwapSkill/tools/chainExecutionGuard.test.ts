@@ -17,7 +17,7 @@ test('validateSwapExecutionChain blocks execution when connected chain does not 
     assert.match(result.error, /Use switch_wallet_chain now/i);
 });
 
-test('validateSwapExecutionChain blocks execution while a chain switch is still pending confirmation', async () => {
+test('validateSwapExecutionChain allows execution while the pending chain switch already targets this trade chain', async () => {
     const result = await validateSwapExecutionChain({
         token_in: 'ETH',
         token_out: 'USDC',
@@ -27,6 +27,23 @@ test('validateSwapExecutionChain blocks execution while a chain switch is still 
         pendingChainSwitch: {
             targetChainId: 56,
             targetChainName: 'BNB Chain',
+            status: 'pending',
+        },
+    });
+
+    assert.deepEqual(result, { ok: true });
+});
+
+test('validateSwapExecutionChain still blocks execution while a different chain switch is pending', async () => {
+    const result = await validateSwapExecutionChain({
+        token_in: 'ETH',
+        token_out: 'USDC',
+        chain_id: 56,
+    }, {
+        chainId: 8453,
+        pendingChainSwitch: {
+            targetChainId: 1,
+            targetChainName: 'Ethereum',
             status: 'pending',
         },
     });

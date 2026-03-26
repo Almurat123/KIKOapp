@@ -88,6 +88,10 @@ function makeBroker() {
         async recordToolResult() {},
         async markAnswerStarted() {},
         async setRuntimeState() {},
+        async complete(overrides?: { content?: string }) {
+            texts.length = 0;
+            if (overrides?.content) texts.push(overrides.content);
+        },
         pushUsage() {},
         pushCitation(citation: any) { citations.push(citation); },
         getCitations() { return [...citations]; },
@@ -265,6 +269,76 @@ test('search-capable queries can still return a direct answer without forced ret
     assert.ok((seenRounds[0]?.tools || []).includes('external_web_search'));
     assert.equal(seenRounds.length, 1);
     assert.equal(broker.texts.at(-1), 'Here is a concise answer without using tools.');
+});
+
+test('explicit structured swap requests use the fast swap lane without generation', async () => {
+    const snapshot = makeSnapshot('Buy 0x0bc61768132aa1484e2b09301284b7def78a4444 for 0.001 BNB on BSC', {
+        requestedTokenAddresses: ['0x0bc61768132aa1484e2b09301284b7def78a4444'],
+        requestedTokenSymbols: ['BNB'],
+        runtime: {
+            chainId: 56,
+            chainName: 'BNB Chain',
+            nativeBalance: '0.00764573',
+            userId: 'user-1',
+            toolContext: {
+                chainId: 56,
+                chainName: 'BNB Chain',
+                nativeBalance: '0.00764573',
+                toolConfig: {
+                    customSlippage: '10',
+                },
+            },
+        },
+    });
+    const broker = makeBroker();
+    const generationClient = {
+        async generate() {
+            throw new Error('generation should not be called for fast swap lane');
+        },
+    };
+    const seenCalls: string[] = [];
+
+    await runNodeOrchestration({
+        snapshot,
+        generationClient: generationClient as any,
+        toolExecutionEngine: {
+            async execute(call: any) {
+                seenCalls.push(call.name);
+                if (call.name === 'get_token_info') {
+                    return {
+                        id: call.id,
+                        name: call.name,
+                        arguments: call.arguments,
+                        ok: true,
+                        result: {
+                            symbol: 'BENJI',
+                            name: 'Benji Bean',
+                        },
+                    };
+                }
+                if (call.name === 'simulate_swap') {
+                    return {
+                        id: call.id,
+                        name: call.name,
+                        arguments: call.arguments,
+                        ok: true,
+                        result: {
+                            expected_out_human: '8779.58',
+                            price_impact: '0%',
+                        },
+                    };
+                }
+                throw new Error(`unexpected tool ${call.name}`);
+            },
+        } as any,
+        broker: broker as any,
+        toolContext: snapshot.runtime.toolContext || {},
+    });
+
+    assert.deepEqual(seenCalls.sort(), ['get_token_info', 'simulate_swap']);
+    assert.match(broker.getContent(), /Fast quote ready|已获取快速报价/);
+    assert.match(broker.getContent(), /0\.001 BNB/);
+    assert.match(broker.getContent(), /BENJI/);
 });
 
 test('duplicate-only read-only rounds force a no-tool final answer from cached evidence', async () => {

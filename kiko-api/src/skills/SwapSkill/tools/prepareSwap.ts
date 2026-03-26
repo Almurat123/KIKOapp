@@ -6,6 +6,7 @@ import { getChainConfig } from '../../../config/chainConfig.js';
 import { resolveTokenDisplayMetadata } from '../../../services/tokens.js';
 import { isTruncatedEvmAddressLike, repairTruncatedEvmAddressFromMessages } from '../../../services/addressRecovery.js';
 import { validateSwapExecutionChain } from './chainExecutionGuard.js';
+import type { RecentToolTrace } from '../../../jobs/chat/contracts.js';
 // Note: swapAggregator import removed - using internal API call instead
 
 interface SwapArgs {
@@ -202,6 +203,26 @@ function findRecentSimulatedSwap(messages: any[], windowMs: number): SwapArgs | 
     return null;
 }
 
+function findRecentSimulatedSwapFromTrace(trace: RecentToolTrace | null | undefined, windowMs: number): SwapArgs | null {
+    const now = Date.now();
+    const toolCalls = Array.isArray(trace?.toolCalls) ? trace.toolCalls : [];
+    for (let i = toolCalls.length - 1; i >= 0; i -= 1) {
+        const call = toolCalls[i];
+        if (call?.tool !== 'simulate_swap') continue;
+        if (!['success', 'cached'].includes(String(call?.status || ''))) continue;
+        const finishedAt = (call as any)?.finishedAt
+            || call?.result?.finishedAt
+            || call?.result?.completedAt
+            || call?.result?.timestamp;
+        const finishedMs = finishedAt ? new Date(String(finishedAt)).getTime() : 0;
+        if (finishedMs && now - finishedMs > windowMs) continue;
+        const parsed = parseSimulateSwapTraceArgs(call?.args);
+        if (!parsed?.token_in || !parsed?.token_out || !parsed?.amount_in || !parsed?.chain_id) continue;
+        return parsed;
+    }
+    return null;
+}
+
 function matchesSimulatedSwap(simulated: SwapArgs | null, args: SwapArgs): boolean {
     if (!simulated) return false;
     const sameChain = Number(simulated.chain_id) === Number(args.chain_id);
@@ -209,6 +230,15 @@ function matchesSimulatedSwap(simulated: SwapArgs | null, args: SwapArgs): boole
     const sameTokenIn = normalizeTokenForMatch(simulated.token_in, args.chain_id) === normalizeTokenForMatch(args.token_in, args.chain_id);
     const sameTokenOut = normalizeTokenForMatch(simulated.token_out, args.chain_id) === normalizeTokenForMatch(args.token_out, args.chain_id);
     return sameTokenIn && sameTokenOut;
+}
+
+function repairSwapArgsFromMessages(simulated: SwapArgs | null, messages: any[]): SwapArgs | null {
+    if (!simulated) return null;
+    return {
+        ...simulated,
+        token_in: repairTruncatedEvmAddressFromMessages(simulated.token_in, messages),
+        token_out: repairTruncatedEvmAddressFromMessages(simulated.token_out, messages),
+    };
 }
 
 function hasQuoteModeExecutionAuthorization(context: ToolContext | undefined, args: SwapArgs): boolean {
@@ -386,24 +416,38 @@ When show-quote-before-swap is enabled (default), execution must follow:
         try {
             console.log('[PrepareSwapTransaction] Preparing swap:', args);
             let recentSimulatedSwap: SwapArgs | null = null;
+            const simulationReuseWindowMs = 2 * 60 * 1000;
 
             // Guard confirmation flow: load latest successful simulate_swap for the same pair/chain.
             if (context?.sessionId && (args.execute === true || context?.allowanceMode === 'instant')) {
                 try {
+                    const tracedSimulation = findRecentSimulatedSwapFromTrace(
+                        (context as any)?.__snapshot?.recentToolTrace,
+                        simulationReuseWindowMs,
+                    );
+                    if (tracedSimulation) {
+                        recentSimulatedSwap = tracedSimulation;
+                    }
                     const { getSessionMessages } = await import('../../../repositories/chatRepository.js');
                     const sessionMessages = await getSessionMessages(context.sessionId);
                     args.token_in = repairTruncatedEvmAddressFromMessages(args.token_in, sessionMessages);
                     args.token_out = repairTruncatedEvmAddressFromMessages(args.token_out, sessionMessages);
-                    const simulated = findRecentSimulatedSwap(sessionMessages, 2 * 60 * 1000);
-                    recentSimulatedSwap = simulated;
+                    if (recentSimulatedSwap) {
+                        recentSimulatedSwap = repairSwapArgsFromMessages(recentSimulatedSwap, sessionMessages);
+                    }
+                    const simulated = findRecentSimulatedSwap(sessionMessages, simulationReuseWindowMs);
+                    if (simulated) {
+                        recentSimulatedSwap = repairSwapArgsFromMessages(simulated, sessionMessages);
+                    }
                     if (simulated && args.execute === true) {
-                        if (matchesSimulatedSwap(simulated, args) && simulated.amount_in !== args.amount_in) {
+                        const pinnedSimulation = repairSwapArgsFromMessages(simulated, sessionMessages);
+                        if (pinnedSimulation && matchesSimulatedSwap(pinnedSimulation, args) && pinnedSimulation.amount_in !== args.amount_in) {
                             console.log('[PrepareSwapTransaction] Using pinned amount from latest simulation', {
                                 requestedAmount: args.amount_in,
-                                pinnedAmount: simulated.amount_in,
+                                pinnedAmount: pinnedSimulation.amount_in,
                                 chainId: args.chain_id,
                             });
-                            args.amount_in = String(simulated.amount_in);
+                            args.amount_in = String(pinnedSimulation.amount_in);
                         }
                     }
                 } catch (pinErr: any) {
@@ -1271,4 +1315,6 @@ export const __prepareSwapTest = {
     buildSocketRecoveryResult,
     hasQuoteModeExecutionAuthorization,
     repairTruncatedEvmAddressFromMessages,
+    findRecentSimulatedSwapFromTrace,
+    repairSwapArgsFromMessages,
 };

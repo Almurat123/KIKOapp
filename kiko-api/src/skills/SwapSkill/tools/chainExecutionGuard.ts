@@ -72,6 +72,9 @@ export async function validateSwapExecutionChain(
 
     const pendingChainSwitchId = Number(context?.pendingChainSwitch?.targetChainId || 0) || undefined;
     if (pendingChainSwitchId) {
+        if (pendingChainSwitchId === targetChainId) {
+            return { ok: true };
+        }
         return {
             ok: false,
             code: 'CHAIN_SWITCH_REQUIRED',

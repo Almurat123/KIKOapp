@@ -21,6 +21,7 @@ import { generateModelPlan } from './modelPlanGenerator.js';
 import { normalizeCanonicalIntent } from './canonicalIntentNormalizer.js';
 import { buildCanonicalIntentClarification } from './canonicalIntent.js';
 import { applyConversationActionState } from './conversationStateResolver.js';
+import { tryBuildFastLaneSwapIntent, tryRunFastSwapLane } from './swapFastLane.js';
 
 const CHAIN_EVIDENCE_TOOLS = new Set([
     'get_token_info',
@@ -40,7 +41,7 @@ export async function runNodeOrchestration(params: {
     onProviderState?: (state: { previousResponseId?: string }) => Promise<void> | void;
 }) {
     const providerInfo = resolveProviderInfo(params.snapshot.model);
-    let normalizedSnapshot = params.snapshot;
+    let normalizedSnapshot = tryBuildFastLaneSwapIntent(params.snapshot).snapshot;
     if (!normalizedSnapshot.normalizedIntent && !normalizedSnapshot.normalizationState) {
         const normalization = await normalizeCanonicalIntent({
             snapshot: normalizedSnapshot,
@@ -71,6 +72,20 @@ export async function runNodeOrchestration(params: {
         normalizedSnapshot,
         normalizedSnapshot.normalizedIntent,
     );
+    if (await tryRunFastSwapLane({
+        snapshot: normalizedSnapshot,
+        tradingIntent,
+        broker: params.broker,
+        task: {
+            sessionId: normalizedSnapshot.sessionId,
+            assistantMessageId: normalizedSnapshot.assistantMessageId,
+            toolContext: params.toolContext,
+        },
+        userId: normalizedSnapshot.runtime.userId || null,
+        toolExecutionEngine: params.toolExecutionEngine,
+    })) {
+        return;
+    }
     const skillResolution = resolveNodeSkills(normalizedSnapshot, tradingIntent, normalizedSnapshot.normalizedIntent);
     const strictPolicy = params.snapshot.policySnapshot?.enforcementLevel === 'hard';
     params.snapshot = normalizedSnapshot;

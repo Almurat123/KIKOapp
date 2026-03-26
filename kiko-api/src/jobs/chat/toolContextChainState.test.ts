@@ -64,25 +64,32 @@ test('buildToolContextForChain switches to Solana wallet address and clears stal
     assert.equal('nativeBalance' in next, false);
 });
 
-test('markPendingToolContextChainSwitch records a pending switch without mutating the connected chain yet', () => {
+test('markPendingToolContextChainSwitch applies an optimistic chain switch and stores the previous context for rollback', () => {
     const next = markPendingToolContextChainSwitch({
         toolContext: {
             chainId: 8453,
             chainName: 'Base',
             walletAddress: '0xbase',
             userAddress: '0xbase',
+            balance: { ETH: '1.25' },
+            nativeBalance: '1.25',
         },
         chainId: 56,
         chainName: 'BNB Chain',
         evmWalletAddress: '0xevm',
     });
 
-    assert.equal(next.chainId, 8453);
-    assert.equal(next.chainName, 'Base');
+    assert.equal(next.chainId, 56);
+    assert.equal(next.chainName, 'BNB Chain');
+    assert.equal(next.walletAddress, '0xevm');
+    assert.equal(next.userAddress, '0xevm');
     assert.equal(next.evmWalletAddress, '0xevm');
     assert.equal(next.pendingChainSwitch.targetChainId, 56);
     assert.equal(next.pendingChainSwitch.targetChainName, 'BNB Chain');
     assert.equal(next.pendingChainSwitch.status, 'pending');
+    assert.equal(next.pendingChainSwitch.previousContext.chainId, 8453);
+    assert.equal(next.pendingChainSwitch.previousContext.chainName, 'Base');
+    assert.equal(next.pendingChainSwitch.previousContext.balance.ETH, '1.25');
 });
 
 test('resolveToolContextChainSwitchAck applies the new chain only after a success ack arrives', () => {
@@ -124,14 +131,24 @@ test('resolveToolContextChainSwitchAck applies the new chain only after a succes
 test('resolveToolContextChainSwitchAck preserves the old chain and records an error on failed ack', () => {
     const next = resolveToolContextChainSwitchAck({
         toolContext: {
-            chainId: 8453,
-            chainName: 'Base',
-            walletAddress: '0xbase',
-            userAddress: '0xbase',
+            chainId: 56,
+            chainName: 'BNB Chain',
+            walletAddress: '0xevm',
+            userAddress: '0xevm',
             pendingChainSwitch: {
                 targetChainId: 56,
                 targetChainName: 'BNB Chain',
                 status: 'pending',
+                previousContext: {
+                    chainId: 8453,
+                    chainName: 'Base',
+                    chain: 'base',
+                    walletAddress: '0xbase',
+                    userAddress: '0xbase',
+                    evmWalletAddress: '0xevm',
+                    balance: { ETH: '1.25' },
+                    nativeBalance: '1.25',
+                },
             },
         },
         chainId: 56,
@@ -142,6 +159,10 @@ test('resolveToolContextChainSwitchAck preserves the old chain and records an er
 
     assert.equal(next.chainId, 8453);
     assert.equal(next.chainName, 'Base');
+    assert.equal(next.walletAddress, '0xbase');
+    assert.equal(next.userAddress, '0xbase');
+    assert.equal(next.balance.ETH, '1.25');
+    assert.equal(next.nativeBalance, '1.25');
     assert.equal('pendingChainSwitch' in next, false);
     assert.equal(next.lastChainSwitchError.chainId, 56);
     assert.match(next.lastChainSwitchError.error, /rejected/i);

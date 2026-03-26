@@ -177,3 +177,47 @@ test('parseTradingIntent preserves sell destination asset for Chinese follow-up 
     assert.equal(intent?.slots.token_in, token);
     assert.equal(intent?.slots.token_out, 'BNB');
 });
+
+test('parseTradingIntent prefers a fresh amount adjustment over a stale swap confirmation', () => {
+    const token = '0x0bc61768132aa1484e2b09301284b7def78a4444';
+    const canonicalIntent = makeCanonicalIntent({
+        entities: {
+            tokenAddresses: [token],
+            tokenSymbols: ['BENJI'],
+            walletAddresses: [],
+            marketIdentifiers: [],
+        },
+        requestedChain: {
+            chainId: 56,
+            chainName: 'BNB Chain',
+            source: 'llm',
+        },
+    });
+
+    const intent = parseTradingIntent('0.001 BNB', makeSnapshot('0.001 BNB', {
+        requestedTokenAddresses: [token],
+        requestedTokenSymbols: ['BENJI', 'BNB'],
+        normalizedIntent: canonicalIntent,
+        confirmationState: {
+            kind: 'swap_confirmation',
+            swap: {
+                tokenIn: 'BNB',
+                tokenOut: token,
+                amountIn: '0.01',
+                chainId: 56,
+                isCrossChain: false,
+            },
+        },
+        runtime: {
+            chainId: 56,
+            chainName: 'BNB Chain',
+        },
+    }), canonicalIntent);
+
+    assert.ok(intent);
+    assert.equal(intent?.kind, 'trading');
+    assert.equal(intent?.type, 'swap');
+    assert.equal(intent?.slots.amount, '0.001');
+    assert.equal(intent?.slots.token_in, 'BNB');
+    assert.equal(intent?.slots.token_out, token);
+});

@@ -36,6 +36,24 @@ type PendingChainSwitchParams = {
     solanaWalletAddress?: string;
 };
 
+type StoredToolContextSnapshot = {
+    chainId?: number;
+    chainName?: string;
+    chain?: string;
+    analysisChainId?: number;
+    analysisChainName?: string;
+    analysisChain?: string;
+    walletAddress?: string;
+    userAddress?: string;
+    evmWalletAddress?: string;
+    solanaWalletAddress?: string;
+    solanaAddress?: string;
+    userSolanaAddress?: string;
+    balance?: Record<string, any>;
+    nativeBalance?: string;
+    balanceSnapshotAt?: string;
+};
+
 type ResolveChainSwitchAckParams = PendingChainSwitchParams & {
     status: 'success' | 'failed';
     error?: string;
@@ -58,6 +76,71 @@ function normalizeBalanceEntries(balance: any): Record<string, string> {
             continue;
         }
         next[key] = String(raw);
+    }
+    return next;
+}
+
+function snapshotToolContextForRestore(toolContext: Record<string, any> | undefined): StoredToolContextSnapshot {
+    const current = toolContext || {};
+    const snapshot: StoredToolContextSnapshot = {};
+    const keys: Array<keyof StoredToolContextSnapshot> = [
+        'chainId',
+        'chainName',
+        'chain',
+        'analysisChainId',
+        'analysisChainName',
+        'analysisChain',
+        'walletAddress',
+        'userAddress',
+        'evmWalletAddress',
+        'solanaWalletAddress',
+        'solanaAddress',
+        'userSolanaAddress',
+        'balance',
+        'nativeBalance',
+        'balanceSnapshotAt',
+    ];
+    for (const key of keys) {
+        if (current[key] === undefined) continue;
+        const value = current[key];
+        snapshot[key] = value && typeof value === 'object'
+            ? JSON.parse(JSON.stringify(value))
+            : value;
+    }
+    return snapshot;
+}
+
+function restoreToolContextSnapshot(
+    toolContext: Record<string, any>,
+    snapshot: StoredToolContextSnapshot | undefined,
+): Record<string, any> {
+    const next = { ...(toolContext || {}) };
+    const keys: Array<keyof StoredToolContextSnapshot> = [
+        'chainId',
+        'chainName',
+        'chain',
+        'analysisChainId',
+        'analysisChainName',
+        'analysisChain',
+        'walletAddress',
+        'userAddress',
+        'evmWalletAddress',
+        'solanaWalletAddress',
+        'solanaAddress',
+        'userSolanaAddress',
+        'balance',
+        'nativeBalance',
+        'balanceSnapshotAt',
+    ];
+    for (const key of keys) {
+        if (snapshot && snapshot[key] !== undefined) {
+            const value = snapshot[key];
+            next[key] = value && typeof value === 'object'
+                ? JSON.parse(JSON.stringify(value))
+                : value;
+            continue;
+        }
+        delete next[key];
     }
     return next;
 }
@@ -127,21 +210,21 @@ export function buildToolContextForChain(params: {
 }
 
 export function markPendingToolContextChainSwitch(params: PendingChainSwitchParams): Record<string, any> {
-    const next = { ...(params.toolContext || {}) };
+    const optimistic = buildToolContextForChain({
+        toolContext: params.toolContext || {},
+        chainId: params.chainId,
+        chainName: params.chainName,
+        evmWalletAddress: params.evmWalletAddress,
+        solanaWalletAddress: params.solanaWalletAddress,
+    });
     const chainName = params.chainName || CHAIN_ID_TO_NAME[params.chainId] || `Chain ${params.chainId}`;
-
-    if (params.evmWalletAddress) next.evmWalletAddress = params.evmWalletAddress;
-    if (params.solanaWalletAddress) {
-        next.solanaWalletAddress = params.solanaWalletAddress;
-        next.solanaAddress = params.solanaWalletAddress;
-        next.userSolanaAddress = params.solanaWalletAddress;
-    }
-
+    const next = { ...optimistic };
     next.pendingChainSwitch = {
         targetChainId: params.chainId,
         targetChainName: chainName,
         requestedAt: new Date().toISOString(),
         status: 'pending',
+        previousContext: snapshotToolContextForRestore(params.toolContext),
     };
     delete next.lastChainSwitchError;
 
@@ -174,14 +257,20 @@ export function resolveToolContextChainSwitchAck(params: ResolveChainSwitchAckPa
         return applied;
     }
 
-    delete next.pendingChainSwitch;
-    next.lastChainSwitchError = {
+    const restored = restoreToolContextSnapshot(
+        next,
+        pending?.previousContext && typeof pending.previousContext === 'object'
+            ? pending.previousContext as StoredToolContextSnapshot
+            : undefined,
+    );
+    delete restored.pendingChainSwitch;
+    restored.lastChainSwitchError = {
         chainId,
         chainName,
         error: params.error || 'Chain switch failed or was rejected by the wallet.',
         failedAt: new Date().toISOString(),
     };
-    return next;
+    return restored;
 }
 
 export function getConnectedChainLabel(chainId?: number): string {

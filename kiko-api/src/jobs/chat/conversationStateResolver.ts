@@ -8,6 +8,7 @@ import type {
 import type { ActionClass } from './controlPolicy.js';
 import { isExplicitChainSwitchRequest } from './chainIntent.js';
 import { extractTradeAssetCandidates } from '../../services/ai/tradeSemantics.js';
+import { shouldSupersedePendingSwapConfirmation } from './swapConfirmationSupersession.js';
 
 const EVM_ADDR_RE = /\b0x[a-fA-F0-9]{40}\b/g;
 const SOL_ADDR_RE = /\b[1-9A-HJ-NP-Za-km-z]{32,44}\b/g;
@@ -103,6 +104,22 @@ export function buildConversationActionState(snapshot: ChatContextSnapshot): Con
 
     const payloadConfirmation = resolveOrderConfirmationFromToolTrace(toolTrace);
     if (payloadConfirmation) {
+        if (
+            payloadConfirmation.kind === 'swap_confirmation'
+            && shouldSupersedePendingSwapConfirmation({
+                text: raw,
+                snapshot,
+                pendingSwap: payloadConfirmation.swap,
+            })
+        ) {
+            return {
+                pendingAction: 'none',
+                confirmationPayload: null,
+                canExecute: false,
+                needsClarification: false,
+                clarificationQuestion: null,
+            };
+        }
         return {
             pendingAction: payloadConfirmation.kind === 'copy_trade_confirmation' ? 'copy_trade' : 'order',
             confirmationPayload: payloadConfirmation,
@@ -115,6 +132,21 @@ export function buildConversationActionState(snapshot: ChatContextSnapshot): Con
     if (wantsConfirmation) {
         const swapConfirmation = resolveSwapConfirmationFromToolTrace(toolTrace);
         if (swapConfirmation) {
+            if (
+                shouldSupersedePendingSwapConfirmation({
+                    text: raw,
+                    snapshot,
+                    pendingSwap: swapConfirmation.swap,
+                })
+            ) {
+                return {
+                    pendingAction: 'none',
+                    confirmationPayload: null,
+                    canExecute: false,
+                    needsClarification: false,
+                    clarificationQuestion: null,
+                };
+            }
             return {
                 pendingAction: 'swap',
                 confirmationPayload: swapConfirmation,
