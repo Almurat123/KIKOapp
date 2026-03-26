@@ -17,16 +17,24 @@ export function buildTaskPlanningContext(
     skillResolution: SkillResolution,
 ): TaskPlanningContext {
     const canonicalIntent = snapshot.normalizedIntent || null;
+    const intentEnvelope = skillResolution.intentEnvelope;
     const locale = detectLocale(String(snapshot.lastUserMessage || ''), canonicalIntent);
     const asksRealtimeSocial = Boolean(
-        canonicalIntent?.searchTarget === 'x'
-        || canonicalIntent?.searchTarget === 'x_and_web'
-        || canonicalIntent?.requiresRealtime,
+        intentEnvelope?.required_evidence?.includes('native_search_results')
+        || (
+            skillResolution.searchMode === 'required'
+            && (
+                intentEnvelope?.search_target === 'x'
+                || intentEnvelope?.search_target === 'x_and_web'
+                || intentEnvelope?.domain === 'x'
+                || intentEnvelope?.domain === 'farcaster'
+            )
+        ),
     );
     const asksOnChainEvidence = Boolean(
-        canonicalIntent?.evidenceRequirements.includes('onchain_token_evidence')
-        || canonicalIntent?.evidenceRequirements.includes('onchain_wallet_evidence')
-        || canonicalIntent?.evidenceRequirements.includes('connected_chain_evidence')
+        intentEnvelope?.required_evidence?.includes('onchain_token_evidence')
+        || intentEnvelope?.required_evidence?.includes('onchain_wallet_evidence')
+        || intentEnvelope?.required_evidence?.includes('connected_chain_evidence')
         || canonicalIntent?.requiresOnchainEvidence,
     );
     const asksCreatorEvidence = canonicalIntent?.intent === 'creator_analysis';

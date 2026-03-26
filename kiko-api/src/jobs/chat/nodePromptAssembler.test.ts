@@ -25,6 +25,34 @@ test('assembleGenerationMessages renders execution plan and provider evidence as
         },
         requestedTokenAddresses: [],
         requestedTokenSymbols: [],
+        recentToolTrace: {
+            messageId: 'assistant-1',
+            toolCalls: [
+                {
+                    tool: 'get_trending_tokens',
+                    status: 'success',
+                    args: { chain: 'bsc', chain_id: 56, limit: 10 },
+                    result: [
+                        {
+                            rank: 1,
+                            name: 'TOKEN1',
+                            symbol: 'TK1',
+                            address: '0x111',
+                            price: '1.23',
+                            volume24h: '$1.2M',
+                        },
+                        {
+                            rank: 2,
+                            name: 'TOKEN2',
+                            symbol: 'TK2',
+                            address: '0x222',
+                            price: '0.42',
+                            volume24h: '$800K',
+                        },
+                    ],
+                },
+            ],
+        },
         conversationActionState: {
             pendingAction: 'none',
             canExecute: false,
@@ -101,6 +129,8 @@ test('assembleGenerationMessages renders execution plan and provider evidence as
     assert.match(content, /Step step-1: Understand Query/);
     assert.match(content, /\[PROVIDER_NATIVE_EVIDENCE\]/);
     assert.match(content, /\[WORKFLOW_STATE\]/);
+    assert.match(content, /recent_tool_result: get_trending_tokens\[success\]/);
+    assert.match(content, /result=\[rank=1, name=TOKEN1, symbol=TK1, address=0x111, price=1.23, volume24h=\$1.2M/);
     assert.match(content, /\[USER_SETTINGS\]/);
     assert.match(content, /quick_swap: true/);
     assert.match(content, /\[USER_CONTEXT\]/);
@@ -238,6 +268,7 @@ test('assembleGenerationMessages tells non-native-search providers to use local 
     assert.match(String(systemMessage?.content || ''), /use local search tools such as external_web_search/i);
     assert.match(String(systemMessage?.content || ''), /do not say you found, confirmed, verified, or retrieved anything unless a real tool/i);
     assert.match(String(systemMessage?.content || ''), /never narrate planned tool usage in plain text/i);
+    assert.match(String(systemMessage?.content || ''), /final answers must stay grounded in the actual tool\/source fields you have/i);
     assert.equal(String(systemMessage?.content || '').includes('[TOOL_CALL_EXAMPLES]'), false);
 });
 

@@ -23,6 +23,9 @@ const SYSTEM_PROMPT_BASE = [
     'Never narrate planned tool usage in plain text. Do not write sentences like "I will search", "I will use external_web_search", or "Calling get_token_info". Either emit a real structured tool call, or answer normally with no tool mention.',
     'If you are uncertain whether a tool is needed, decide first. Once you decide to use one, emit the tool call immediately instead of describing the plan.',
     'Do not say you found, confirmed, verified, or retrieved anything unless a real tool or search result already produced that evidence in this turn or the supplied evidence context.',
+    'Final answers must stay grounded in the actual tool/source fields you have. If a tool did not return a field, metric, column, or fact, do not invent it to make the answer look complete.',
+    'When you already have a structured tool result, prefer that result over generic market memory or background knowledge. Do not replace a concrete tool result with a broader narrative.',
+    'If the user asks a singular question but the tool returns a ranked list, answer from rank #1 first and make clear it is the top-ranked result. If the user asks plural, summarize the returned shortlist instead of collapsing it to one item.',
     'Treat USER_SETTINGS as current preferences and USER_CONTEXT as connected-session context.',
     'If USER_QUERY explicitly names a chain or clearly implies one, that requested chain overrides the connected chain for analysis and execution planning.',
 ].join('\n\n');
@@ -163,8 +166,11 @@ function buildToolGuidanceBlock(guidance?: {
         }
         if (guidance?.allowAllTools) {
             lines.push('- All registered tools remain available for this turn unless the policy layer explicitly blocks them.');
+        } else {
+            lines.push('- Tool access is intentionally narrowed for this turn. Stay inside the available evidence/tool surface instead of filling gaps from memory.');
         }
         lines.push('- If the user asks for on-chain evidence such as early buyers, holders, first trades, or creator wallets, do not answer from summaries alone when a relevant local tool is available.');
+        lines.push('- Final answers must cite or summarize only fields actually returned by tools or provider-native evidence already present in context.');
     }
 
     return lines.join('\n');
@@ -248,6 +254,7 @@ function buildWorkflowStateBlock(snapshot: ChatContextSnapshot): string {
         .slice(-6)
         .map((call) => String(call?.tool || '').trim())
         .filter(Boolean);
+    const recentToolResults = summarizeRecentToolResults(snapshot.recentToolTrace);
     const lines: string[] = [];
 
     if (actionState) {
@@ -266,6 +273,11 @@ function buildWorkflowStateBlock(snapshot: ChatContextSnapshot): string {
     if (recentTools.length > 0) {
         lines.push(`recent_tools: ${recentTools.join(', ')}`);
         lines.push('discovery_state: reuse_recent_evidence_when_relevant');
+    }
+    if (recentToolResults.length > 0) {
+        for (const item of recentToolResults) {
+            lines.push(`recent_tool_result: ${item}`);
+        }
     }
     if (snapshot.polymarketSelection) {
         const summary = summarizePolymarketSelection(snapshot.polymarketSelection);
@@ -349,6 +361,7 @@ function buildUserContext(snapshot: ChatContextSnapshot): Record<string, any> {
         all_chain_balances_snapshot_at: normalizePrimitive(runtime.allChainBalancesSnapshotAt),
         pending_confirmation: summarizeConfirmationState(snapshot.confirmationState),
         recent_tools: summarizeRecentToolTrace(snapshot.recentToolTrace),
+        recent_tool_results: summarizeRecentToolResults(snapshot.recentToolTrace),
         requested_addresses: limitArray(snapshot.requestedTokenAddresses, 3),
         requested_symbols: limitArray(snapshot.requestedTokenSymbols, 6),
         polymarket_selection: summarizePolymarketSelection(snapshot.polymarketSelection),
@@ -463,6 +476,60 @@ function summarizeRecentToolTrace(recentToolTrace: ChatContextSnapshot['recentTo
         tool: normalizePrimitive(item.tool),
         status: normalizePrimitive(item.status),
     }));
+}
+
+function summarizeRecentToolResults(recentToolTrace: ChatContextSnapshot['recentToolTrace']): string[] {
+    const toolCalls = Array.isArray(recentToolTrace?.toolCalls) ? recentToolTrace.toolCalls : [];
+    if (toolCalls.length === 0) return [];
+    return toolCalls.slice(-2).map((item) => {
+        const tool = String(item?.tool || '').trim();
+        const status = String(item?.status || '').trim();
+        const argsPreview = summarizeStructuredPreview(item?.args);
+        const resultPreview = summarizeStructuredPreview(item?.result);
+        const fragments = [
+            tool ? `${tool}${status ? `[${status}]` : ''}` : '',
+            argsPreview ? `args=${argsPreview}` : '',
+            resultPreview ? `result=${resultPreview}` : '',
+        ].filter(Boolean);
+        return fragments.join(' | ');
+    }).filter(Boolean);
+}
+
+function summarizeStructuredPreview(value: any): string | undefined {
+    if (value === null || value === undefined) return undefined;
+    if (typeof value === 'string') {
+        const text = value.trim();
+        if (!text) return undefined;
+        return text.length <= 180 ? text : `${text.slice(0, 180)}...`;
+    }
+    if (typeof value === 'number' || typeof value === 'boolean') {
+        return String(value);
+    }
+    if (Array.isArray(value)) {
+        if (value.length === 0) return '[]';
+        const items = value
+            .slice(0, 3)
+            .map((item) => summarizeStructuredPreview(item))
+            .filter(Boolean) as string[];
+        if (items.length === 0) return `array(${value.length})`;
+        const suffix = value.length > 3 ? ` (+${value.length - 3} more)` : '';
+        return `[${items.join(' || ')}]${suffix}`;
+    }
+    if (typeof value === 'object') {
+        const scalarEntries = Object.entries(value)
+            .filter(([, entryValue]) => ['string', 'number', 'boolean'].includes(typeof entryValue) && String(entryValue).trim() !== '')
+            .slice(0, 6)
+            .map(([key, entryValue]) => `${key}=${String(entryValue)}`);
+        if (scalarEntries.length > 0) return scalarEntries.join(', ');
+        const nestedArrayEntry = Object.entries(value).find(([, entryValue]) => Array.isArray(entryValue));
+        if (nestedArrayEntry) {
+            const [key, entryValue] = nestedArrayEntry;
+            const nestedPreview = summarizeStructuredPreview(entryValue);
+            return nestedPreview ? `${key}=${nestedPreview}` : undefined;
+        }
+        return undefined;
+    }
+    return undefined;
 }
 
 function stripEmptyEntries<T extends Record<string, any>>(input: T): T {
