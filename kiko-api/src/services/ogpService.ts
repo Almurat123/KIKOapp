@@ -4,6 +4,7 @@ import StealthPlugin from 'puppeteer-extra-plugin-stealth';
 import redis from '../cache/cacheClient.js';
 import { logger } from '../utils/logger.js';
 import { LogCode, LogRole } from '../config/logRegistry.js';
+import { assertSafeOutboundUrl, fetchWithUrlSafety } from './outboundUrlSafety.js';
 
 let browserInstance: any = null;
 let requestCount = 0;
@@ -444,7 +445,7 @@ function extractHtmlSnapshot(html: string, requestedUrl: string, baseUrl: string
 }
 
 async function fetchHtmlSnapshot(url: string, fetchUrl: string, htmlUserAgent: string): Promise<HtmlSnapshot | null> {
-    const res = await fetch(fetchUrl, {
+    const res = await fetchWithUrlSafety(fetchUrl, {
         headers: {
             'User-Agent': htmlUserAgent,
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
@@ -459,7 +460,7 @@ async function fetchHtmlSnapshot(url: string, fetchUrl: string, htmlUserAgent: s
 
 async function fetchOEmbedPreview(canonicalUrl: string, oEmbedUrl: string): Promise<OGPPreview | null> {
     try {
-        const response = await fetch(oEmbedUrl, { signal: AbortSignal.timeout(3000) });
+        const response = await fetchWithUrlSafety(oEmbedUrl, { signal: AbortSignal.timeout(3000) });
         if (!response.ok) return null;
 
         const data: any = await response.json();
@@ -738,6 +739,7 @@ async function resolvePreview(canonicalUrl: string): Promise<OGPPreview> {
 export const ogpService = {
     async fetchOGP(url: string): Promise<OGPPreview> {
         const canonicalUrl = normalizeUrl(url);
+        await assertSafeOutboundUrl(canonicalUrl);
         const cacheKey = buildCacheKey(canonicalUrl);
 
         const existingRequest = inFlightFetches.get(cacheKey);

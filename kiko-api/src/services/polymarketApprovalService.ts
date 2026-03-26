@@ -307,6 +307,7 @@ export async function checkTradingReadiness(userId: string): Promise<{
     hasDelegatedEvm: boolean;
     hasUsdcApproval: boolean | null;
     hasCtfApproval: boolean | null;
+    blockchainStatus: 'ok' | 'unavailable';
     usdcBalance: string;
     nativeUsdcBalance: string;
     walletAddress: string | null;
@@ -332,6 +333,7 @@ export async function checkTradingReadiness(userId: string): Promise<{
             hasDelegatedEvm: !!delegatedEvmWallet,
             hasUsdcApproval: false,
             hasCtfApproval: false,
+            blockchainStatus: 'ok',
             usdcBalance: '0',
             nativeUsdcBalance: '0',
             walletAddress: null,
@@ -380,6 +382,7 @@ export async function checkTradingReadiness(userId: string): Promise<{
         hasDelegatedEvm: !!delegatedEvmWallet,
         hasUsdcApproval: blockchainCallFailed ? null : usdcStatus.approved,
         hasCtfApproval: blockchainCallFailed ? null : ctfApproved,
+        blockchainStatus: blockchainCallFailed ? 'unavailable' : 'ok',
         usdcBalance: usdcStatus.balance,
         nativeUsdcBalance,
         walletAddress: creds.walletAddress,

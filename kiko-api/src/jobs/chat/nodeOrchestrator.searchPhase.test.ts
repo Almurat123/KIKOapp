@@ -142,7 +142,7 @@ test('buildGenerationTools no longer hides non-execution tools in execution phas
     assert.deepEqual(names.sort(), ['get_token_info', 'place_polymarket_order', 'prepare_swap_transaction']);
 });
 
-test('native search guidance keeps local token analysis tools exposed while search stays available', async () => {
+test('Grok social queries use native search first, then restrict local analysis to chain-evidence tools', async () => {
     const snapshot = makeSnapshot('Search X for BTC sentiment, then analyze holders', {
         requestedTokenSymbols: ['BTC'],
         normalizedIntent: makeCanonicalIntent({
@@ -222,9 +222,10 @@ test('native search guidance keeps local token analysis tools exposed while sear
     });
 
     assert.equal(seenRounds[0]?.enableSearch, true);
-    assert.ok(seenRounds[0]?.tools.includes('get_token_info'));
-    assert.equal(seenRounds[1]?.enableSearch, true);
+    assert.deepEqual(seenRounds[0]?.tools || [], []);
+    assert.equal(seenRounds[1]?.enableSearch, false);
     assert.ok(seenRounds[1]?.tools.includes('get_token_info'));
+    assert.ok(!seenRounds[1]?.tools.includes('prepare_swap_transaction'));
     assert.ok(broker.providerNativeEvidence.length >= 1);
     assert.equal(broker.texts.at(-1), 'Based on X sentiment and on-chain context, BTC holders are still active.');
 });
@@ -262,9 +263,89 @@ test('search-capable queries can still return a direct answer without forced ret
     });
 
     assert.equal(seenRounds[0]?.enableSearch, true);
-    assert.ok((seenRounds[0]?.tools.length || 0) > 0);
+    assert.deepEqual(seenRounds[0]?.tools || [], []);
     assert.equal(seenRounds.length, 1);
     assert.equal(broker.texts.at(-1), 'Here is a concise answer without using tools.');
+});
+
+test('duplicate-only read-only rounds force a no-tool final answer from cached evidence', async () => {
+    const snapshot = makeSnapshot("What's the trending token ?", {
+        normalizedIntent: makeCanonicalIntent({
+            domain: 'token',
+            intent: 'token_analysis',
+            searchTarget: 'none',
+            entities: {
+                tokenAddresses: [],
+                tokenSymbols: [],
+                walletAddresses: [],
+                marketIdentifiers: [],
+            },
+            requestedChain: { chainId: 56, chainName: 'BSC', source: 'llm' },
+        }),
+    });
+    const broker = makeBroker();
+    const seenRounds: Array<{ tools: string[]; enableSearch: boolean }> = [];
+    let generationRound = 0;
+    let executeCalls = 0;
+
+    const generationClient = {
+        async generate(params: any) {
+            if (String(params?.taskId || '').endsWith(':plan')) {
+                return { text: '', reasoning: '', toolCalls: [] };
+            }
+            generationRound += 1;
+            seenRounds.push({
+                tools: (params.tools || []).map((item: any) => item.function?.name).filter(Boolean),
+                enableSearch: Boolean(params.providerOptions?.enable_search),
+            });
+            if (generationRound <= 2) {
+                return {
+                    text: '',
+                    reasoning: '',
+                    toolCalls: [
+                        {
+                            id: `trend-${generationRound}`,
+                            name: 'get_trending_tokens',
+                            arguments: { chain: 'bsc', chain_id: 56, limit: 10 },
+                        },
+                    ],
+                };
+            }
+            assert.equal((params.tools || []).length, 0);
+            assert.equal(Boolean(params.providerOptions?.enable_search), false);
+            return {
+                text: 'The top cached trending token on BSC is VIRTUAL.',
+                reasoning: '',
+                toolCalls: [],
+            };
+        },
+    };
+
+    await runNodeOrchestration({
+        snapshot,
+        generationClient: generationClient as any,
+        toolExecutionEngine: {
+            async execute(call: any) {
+                executeCalls += 1;
+                assert.equal(call.name, 'get_trending_tokens');
+                return {
+                    ok: true,
+                    result: { topToken: { symbol: 'VIRTUAL', chain: 'bsc' } },
+                    metadata: { source: 'tool_runtime' },
+                };
+            },
+        } as any,
+        broker: broker as any,
+        toolContext: {},
+    });
+
+    assert.equal(executeCalls, 1);
+    assert.equal(generationRound, 3);
+    assert.equal(seenRounds[0]?.enableSearch, true);
+    assert.ok((seenRounds[0]?.tools || []).includes('get_trending_tokens'));
+    assert.equal(seenRounds[2]?.enableSearch, false);
+    assert.deepEqual(seenRounds[2]?.tools || [], []);
+    assert.equal(broker.texts.join(''), 'The top cached trending token on BSC is VIRTUAL.');
 });
 
 test('pseudo tool JSON in assistant text is sanitized but does not trigger a forced retry', async () => {

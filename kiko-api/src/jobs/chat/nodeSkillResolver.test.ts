@@ -141,6 +141,9 @@ test('routes wallet pnl queries to wallet skill and keeps pnl tools', () => {
     }), null, canonicalIntent);
     assert.equal(resolution.selectedSkills[0], 'wallet_portfolio');
     assert.ok(resolution.allowedTools.includes('analyze_wallet_pnl_batch'));
+    assert.ok(!resolution.allowedTools.includes('get_trending_casts'));
+    assert.ok(!resolution.allowedTools.includes('search_farcaster_casts'));
+    assert.ok(!resolution.allowedTools.includes('get_farcaster_user'));
 });
 
 test('explicit X search keeps native search required while preserving local token skill', () => {
@@ -497,18 +500,58 @@ test('resolver records that explicit query chain overrides connected chain', () 
     assert.ok(resolution.strategyNotes.some((note) => note.includes('requested BNB Chain')));
 });
 
-test('Farcaster discovery stays in local analysis phase', () => {
+test('non-Grok Farcaster discovery stays in local analysis phase', () => {
     const canonicalIntent = makeCanonicalIntent({
         domain: 'farcaster',
         intent: 'social_discovery',
         requiresRealtime: true,
     });
     const resolution = resolveNodeSkills(makeSnapshot("What's trending on Farcaster today?", {
+        model: 'deepseek-reasoner',
         normalizedIntent: canonicalIntent,
     }), null, canonicalIntent);
     assert.equal(resolution.intentEnvelope.domain, 'farcaster');
     assert.equal(resolution.toolPhasePolicy.initialPhase, 'local_analysis');
     assert.ok(resolution.allowedTools.includes('get_trending_casts'));
+});
+
+test('Grok social discovery on Farcaster uses native search only and blocks local Farcaster cache tools', () => {
+    const canonicalIntent = makeCanonicalIntent({
+        domain: 'farcaster',
+        intent: 'social_discovery',
+        searchMode: 'required',
+        searchTarget: 'x',
+        requiresRealtime: true,
+    });
+    const snapshot = makeSnapshot("What's trending on Farcaster today?", {
+        model: 'grok-4-1-fast-non-reasoning',
+        normalizedIntent: canonicalIntent,
+    });
+    const resolution = resolveNodeSkills(snapshot, null, canonicalIntent);
+
+    assert.equal(resolution.intentEnvelope.domain, 'farcaster');
+    assert.equal(resolution.toolPhasePolicy.initialPhase, 'native_search_only');
+    assert.ok(!resolution.allowedTools.includes('get_trending_casts'));
+    assert.ok(!resolution.allowedTools.includes('search_farcaster_casts'));
+    assert.ok(!resolution.allowedTools.includes('get_farcaster_user'));
+    assert.ok(resolution.strategyNotes.some((note) => note.includes('does not expose local Farcaster cache/search tools')));
+
+    const nativeOptions = buildProviderOptions(
+        snapshot,
+        resolveProviderInfo(snapshot.model),
+        snapshot.lastUserMessage,
+        resolution,
+    );
+    assert.equal(nativeOptions.enable_search, true);
+
+    const localOptions = buildProviderOptions(
+        snapshot,
+        resolveProviderInfo(snapshot.model),
+        snapshot.lastUserMessage,
+        resolution,
+        { currentPhase: 'local_analysis' },
+    );
+    assert.equal(localOptions.enable_search, false);
 });
 
 test('Polymarket order intent requires verified token evidence before execution phase', () => {

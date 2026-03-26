@@ -115,7 +115,9 @@ export function buildProviderOptions(
     const previousResponseId = sanitizePreviousResponseId(phaseContext?.previousResponseId ?? snapshot.previousResponseId);
     const actionClass = snapshot.policySnapshot?.actionClass || 'READ_ONLY';
     const hardMutationPolicy = snapshot.policySnapshot?.enforcementLevel === 'hard' && actionClass !== 'READ_ONLY';
-    const nativeSearchEnabled = !hardMutationPolicy && requiresRealtimeSocialSearch;
+    const nativeSearchEnabled = !hardMutationPolicy
+        && requiresRealtimeSocialSearch
+        && currentPhase === 'native_search_only';
     const enabledNativeTools = nativeSearchEnabled
         ? resolveEnabledNativeTools(intentEnvelope)
         : [];

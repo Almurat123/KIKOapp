@@ -215,3 +215,86 @@ test('isEligibleNewMarketWindow includes tomorrow windows (48h horizon) and excl
   assert.equal(__testables.isEligibleNewMarketWindow(nearExpiryLive), false); // near expiry still excluded
   assert.equal(__testables.isEligibleNewMarketWindow(soonUpcoming), true);
 });
+
+test('near-term upcoming windows are recommendable while tomorrow watchlist windows are not', () => {
+  const now = new Date('2026-03-24T08:58:00Z');
+
+  const nearUpcoming = __testables.parseMarketWindowLabel(
+    'Ethereum Up or Down - March 24, 5:00AM-5:05AM ET',
+    now
+  );
+  const tomorrowWindow = __testables.parseMarketWindowLabel(
+    'Ethereum Up or Down - March 25, 5:25AM-5:30AM ET',
+    now
+  );
+
+  assert.ok(nearUpcoming && tomorrowWindow);
+  assert.ok((nearUpcoming.secondsToStart || 0) < __testables.RECOMMENDABLE_HORIZON_SECONDS);
+  assert.ok((tomorrowWindow.secondsToStart || 0) > __testables.RECOMMENDABLE_HORIZON_SECONDS);
+});
+
+test('validateSelectionAgainstMarkets accepts exact question/outcome/token matches', () => {
+  const validation = __testables.validateSelectionAgainstMarkets({
+    question: 'Bitcoin Up or Down - March 25, 11:10PM-11:15PM ET',
+    outcome: 'Up',
+    tokenId: 'token-up',
+    eventId: 'event-1',
+    eventTitle: 'Bitcoin Up or Down',
+    source: 'search_exact',
+    markets: [
+      __testables.parseMarket({
+        id: 'market-1',
+        question: 'Bitcoin Up or Down - March 25, 11:10PM-11:15PM ET',
+        conditionId: '0xcondition',
+        slug: 'btc-updown-5m',
+        outcomes: '["Up","Down"]',
+        clobTokenIds: '["token-up","token-down"]',
+        outcomePrices: '["0.505","0.495"]',
+        volume: '2',
+        volume24hr: 2,
+        liquidity: '20033.2442',
+        endDate: '2026-03-26T03:15:00Z',
+        closed: false,
+        acceptingOrders: true,
+      }),
+    ],
+  });
+
+  assert.equal(validation.matched, true);
+  assert.equal(validation.reason, 'ok');
+  assert.equal(validation.questionMatched, true);
+  assert.equal(validation.outcomeMatched, true);
+  assert.equal(validation.tokenMatched, true);
+});
+
+test('validateSelectionAgainstMarkets rejects token mismatches for the same question/outcome', () => {
+  const validation = __testables.validateSelectionAgainstMarkets({
+    question: 'Bitcoin Up or Down - March 25, 11:10PM-11:15PM ET',
+    outcome: 'Up',
+    tokenId: 'wrong-token',
+    source: 'search_exact',
+    markets: [
+      __testables.parseMarket({
+        id: 'market-1',
+        question: 'Bitcoin Up or Down - March 25, 11:10PM-11:15PM ET',
+        conditionId: '0xcondition',
+        slug: 'btc-updown-5m',
+        outcomes: '["Up","Down"]',
+        clobTokenIds: '["token-up","token-down"]',
+        outcomePrices: '["0.505","0.495"]',
+        volume: '2',
+        volume24hr: 2,
+        liquidity: '20033.2442',
+        endDate: '2026-03-26T03:15:00Z',
+        closed: false,
+        acceptingOrders: true,
+      }),
+    ],
+  });
+
+  assert.equal(validation.matched, false);
+  assert.equal(validation.reason, 'token_mismatch');
+  assert.equal(validation.questionMatched, true);
+  assert.equal(validation.outcomeMatched, true);
+  assert.equal(validation.tokenMatched, false);
+});

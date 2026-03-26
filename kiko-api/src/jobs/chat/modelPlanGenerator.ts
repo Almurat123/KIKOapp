@@ -4,6 +4,7 @@ import type { ChatContextSnapshot, PlanCard, PlanStep } from './contracts.js';
 import type { SkillResolution } from './nodeSkillResolver.js';
 import type { PythonGenerationClient } from './pythonGenerationClient.js';
 import type { GenerationMessage } from './nodePromptAssembler.js';
+import { orderPlanSteps } from './planOrdering.js';
 import type { TaskPlanningContext } from './taskPlanner.js';
 
 type ModelPlanPayload = {
@@ -134,7 +135,7 @@ function mergePlan(plan: PlanCard, payload: ModelPlanPayload, fallbackPreferredT
         ...plan,
         title: String(payload.title || '').trim() || plan.title,
         summary: String(payload.summary || '').trim() || plan.summary,
-        steps: nextSteps,
+        steps: orderPlanSteps(nextSteps),
     };
 }
 

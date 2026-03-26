@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import time
 from typing import AsyncGenerator, Any
 
@@ -182,10 +183,18 @@ async def _stream_sse(provider: str, url: str, headers: dict[str, str], body: di
                         except Exception:
                             continue
 
-                        if data.get("id") and provider_request_id is None:
-                            provider_request_id = str(data.get("id"))
-                        if data.get("response_id") and provider_request_id is None:
-                            provider_request_id = str(data.get("response_id"))
+                        provider_request_id = promote_provider_request_id(
+                            provider_request_id,
+                            data.get("id"),
+                            provider=provider,
+                            prefer=False,
+                        )
+                        provider_request_id = promote_provider_request_id(
+                            provider_request_id,
+                            data.get("response_id"),
+                            provider=provider,
+                            prefer=True,
+                        )
 
                         top_level_error = data.get("error")
                         if isinstance(top_level_error, dict) and top_level_error:
@@ -256,3 +265,31 @@ async def _stream_sse(provider: str, url: str, headers: dict[str, str], body: di
                     return
                 await asyncio.sleep(backoff)
                 backoff *= 2
+
+
+def is_suspicious_provider_request_id(value: Any, provider: str) -> bool:
+    normalized = str(value or "").strip()
+    if not normalized:
+        return True
+    if provider != "xai":
+        return False
+    return bool(re.fullmatch(r"chatcmpl-?-?\d+", normalized))
+
+
+def promote_provider_request_id(
+    current: str | None,
+    candidate: Any,
+    *,
+    provider: str,
+    prefer: bool,
+) -> str | None:
+    normalized = str(candidate or "").strip()
+    if not normalized:
+        return current
+    if is_suspicious_provider_request_id(normalized, provider):
+        return current
+    if prefer:
+        return normalized
+    if not current or is_suspicious_provider_request_id(current, provider):
+        return normalized
+    return current

@@ -8,6 +8,7 @@ import {
     sanitizeReasoningForDisplay,
     stripLeadingInternalScaffold,
 } from '../../services/ai/promptLeakSanitizer.js';
+import { orderPlanSteps } from './planOrdering.js';
 import type {
     AgentRuntimeEnvelope,
     AgentRuntimeEvent,
@@ -229,7 +230,7 @@ export class ChatStreamBroker {
         if (!this.planCard) return;
         const next = this.clonePlan(this.planCard);
         if (next.steps.some((item) => item.id === step.id)) return;
-        next.steps = [...next.steps, { ...step, executions: step.executions || [] }];
+        next.steps = orderPlanSteps([...next.steps, { ...step, executions: step.executions || [] }]);
         next.activity = this.appendRuntimeEvent(
             next.activity,
             this.makeRuntimeEvent('step_added', this.localeText(`Added step: ${step.title}`, `已添加步骤：${step.title}`), {
@@ -880,7 +881,7 @@ export class ChatStreamBroker {
                 : step;
         });
         const preservedSteps = current.steps.filter((step) => !incoming.steps.some((incomingStep) => incomingStep.id === step.id));
-        const mergedSteps = [...incomingSteps, ...preservedSteps];
+        const mergedSteps = orderPlanSteps([...incomingSteps, ...preservedSteps]);
         return {
             ...current,
             title: incoming.title || current.title,

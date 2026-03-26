@@ -64,6 +64,12 @@ export interface SkillResolution {
     currentPhase: ToolPhase;
 }
 
+const GROK_BLOCKED_FARCASTER_TOOLS = new Set([
+    'get_trending_casts',
+    'search_farcaster_casts',
+    'get_farcaster_user',
+]);
+
 export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: TradingIntent | null, canonicalIntent?: CanonicalIntent | null): SkillResolution {
     const isGrok = String(snapshot.model || '').toLowerCase().includes('grok');
     const rawQuery = String(snapshot.lastUserMessage || '');
@@ -347,6 +353,11 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
         asksWalletPnl,
         hasRequestedToken,
     });
+    if (isGrok) {
+        allowedTools = allowedTools.filter((toolName) => !GROK_BLOCKED_FARCASTER_TOOLS.has(toolName));
+        preferredTools.splice(0, preferredTools.length, ...preferredTools.filter((toolName) => !GROK_BLOCKED_FARCASTER_TOOLS.has(toolName)));
+        strategyNotes.push('Grok path does not expose local Farcaster cache/search tools. Use provider-native search instead for social discovery.');
+    }
     const toolPhasePolicy = buildToolPhasePolicy(snapshot, tradingIntent, intentEnvelope);
     if (!isGrok && intentEnvelope.search_mode === 'required') {
         strategyNotes.push('This provider does not support provider-native X/web search in the current orchestration path. Use only relevant local tools if they truly match the request, otherwise state the limitation plainly.');
@@ -517,6 +528,18 @@ function buildToolPhasePolicy(
         return {
             initialPhase: 'execution',
             nextPhaseAfterNativeSearch: null,
+            searchRetryLimit: 2,
+        };
+    }
+
+    if (
+        supportsNativeSearch
+        && intentEnvelope.primary_intent === 'social_discovery'
+        && (intentEnvelope.domain === 'x' || intentEnvelope.domain === 'farcaster')
+    ) {
+        return {
+            initialPhase: 'native_search_only',
+            nextPhaseAfterNativeSearch: requiresPostSearchLocalAnalysis(intentEnvelope) ? 'local_analysis' : null,
             searchRetryLimit: 2,
         };
     }

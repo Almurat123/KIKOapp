@@ -78,9 +78,12 @@ function mapNewMarketEvent(event: Awaited<ReturnType<typeof getNewMarkets>>['eve
         id: event.id,
         title: event.title,
         createdAt: new Date(event.creationDate).toLocaleDateString(),
+        vol24h: formatUsd(event.volume),
         liquidity: formatUsd(event.liquidity),
         liquidity_value: event.liquidity,
         tradable: event.tradable,
+        recommendable: event.recommendable,
+        recommendable_detail: event.recommendable_detail,
         tradable_detail: event.tradable_detail,
         recommended_window: event.recommendedWindow ? {
             start_at: event.recommendedWindow.startAt,
@@ -151,14 +154,14 @@ function selectOverviewCardCandidate(params: {
         };
     }
 
-    const newestCandidate = params.newestMarkets.find((event) => pickMarketSlugFromNewMarketEvent(event));
+    const newestCandidate = params.newestMarkets.find((event) => event.recommendable && pickMarketSlugFromNewMarketEvent(event));
     const newestSlug = newestCandidate ? pickMarketSlugFromNewMarketEvent(newestCandidate) : null;
     if (newestSlug) {
         return {
             market_slug: newestSlug,
             title: newestCandidate?.title || null,
             source_bucket: 'newest_short_window',
-            reason: 'next chronological short-window market',
+            reason: 'next near-term short-window market',
         };
     }
 
@@ -280,8 +283,13 @@ export function buildPolymarketMarketOverview(params: {
             newest_short_window: {
                 count: newestMarkets.length,
                 tradable_window_count: params.newMarkets.tradableWindowCount,
+                recommendable_window_count: params.newMarkets.recommendableWindowCount,
                 eligible_window_count: params.newMarkets.eligibleWindowCount,
-                sort_mode: params.newMarkets.tradableWindowCount > 0 ? 'tradable_windows_first' : 'discovery_only_no_tradable_windows',
+                sort_mode: params.newMarkets.recommendableWindowCount > 0
+                    ? 'near_term_windows_first'
+                    : params.newMarkets.tradableWindowCount > 0
+                        ? 'tradable_windows_first'
+                        : 'discovery_only_no_tradable_windows',
                 events: newestMarkets,
             },
             tradable_now: {
@@ -695,7 +703,7 @@ export const GetPolymarketMarketOverviewTool: Tool = {
                         ...overview.buckets.tradable_now.markets.map((market) => ({
                             bucket: 'tradable_now',
                             title: market.title,
-                            vol24h: market.liquidity,
+                            vol24h: market.vol24h,
                             liquidity: market.liquidity,
                         })),
                     ],
@@ -731,7 +739,7 @@ export const GetPolymarketMarketOverviewTool: Tool = {
                     ...overview.buckets.tradable_now.markets.map((market) => ({
                         bucket: 'tradable_now',
                         title: market.title,
-                        vol24h: market.liquidity,
+                        vol24h: market.vol24h,
                         liquidity: market.liquidity,
                     })),
                 ],
@@ -769,8 +777,13 @@ export const GetNewMarketsTool: Tool = {
             type: 'Newest Events',
             count: result.events.length,
             tradable_window_count: result.tradableWindowCount,
+            recommendable_window_count: result.recommendableWindowCount,
             eligible_window_count: result.eligibleWindowCount,
-            sort_mode: noTradableWindows ? 'discovery_only_no_tradable_windows' : 'tradable_windows_first',
+            sort_mode: result.recommendableWindowCount > 0
+                ? 'near_term_windows_first'
+                : noTradableWindows
+                    ? 'discovery_only_no_tradable_windows'
+                    : 'tradable_windows_first',
             selection_note: result.selectionNote,
             events: result.events.map(e => ({
                 id: e.id,
@@ -778,6 +791,8 @@ export const GetNewMarketsTool: Tool = {
                 createdAt: new Date(e.creationDate).toLocaleDateString(),
                 liquidity: `$${e.liquidity.toLocaleString()}`,
                 tradable: e.tradable,
+                recommendable: e.recommendable,
+                recommendable_detail: e.recommendable_detail,
                 tradable_detail: e.tradable_detail,
                 recommended_window: e.recommendedWindow ? {
                     start_at: e.recommendedWindow.startAt,

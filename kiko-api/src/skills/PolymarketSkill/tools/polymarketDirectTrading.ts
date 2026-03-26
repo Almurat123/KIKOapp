@@ -7,8 +7,92 @@ import { Tool } from '../../../tooling/registry.js';
 import prisma from '../../../db/prisma.js';
 import { createOrDeriveCredentials, getPolymarketWallet } from '../../../services/polymarketCredService.js';
 import { checkTradingReadiness, getRequiredApprovals } from '../../../services/polymarketApprovalService.js';
+import { buildPolymarketFundingPlan } from '../../../services/polymarketFundingPlan.js';
 import { placeBuyOrder } from '../../../services/polymarketExecutor.js';
 import { getExecutablePrice } from '../../../services/polymarketDataService.js';
+import { computeConfirmationToken } from '../../../jobs/chat/executionGate.js';
+
+type PolymarketReadiness = Awaited<ReturnType<typeof checkTradingReadiness>>;
+
+function buildPolymarketReadinessGate(readiness: PolymarketReadiness): {
+    success: false;
+    blocked_by: 'polymarket_readiness';
+    error: string;
+    readiness: {
+        ready: boolean;
+        blockchain_status: 'ok' | 'unavailable';
+        wallet_address: string | null;
+        usdc_balance: string;
+        native_usdc_balance: string;
+        conversion_required: boolean;
+        missing_steps: string[];
+    };
+    next_step: string;
+} | null {
+    if (readiness.isReady) return null;
+
+    const nextStep = readiness.conversionRequired
+        ? 'Convert Polygon native USDC to Polymarket USDC.e, then check readiness again before placing the order.'
+        : readiness.blockchainStatus === 'unavailable'
+            ? 'Polymarket readiness could not be verified because Polygon readiness checks are currently unavailable. Retry readiness before placing the order.'
+            : readiness.missingSteps[0] || 'Complete Polymarket setup before placing the order.';
+
+    const error = readiness.conversionRequired
+        ? 'Polymarket trading is blocked until Polygon native USDC is converted to Polymarket USDC.e.'
+        : readiness.blockchainStatus === 'unavailable'
+            ? 'Polymarket trading is blocked because readiness could not be verified against Polygon right now.'
+            : 'Polymarket trading is blocked until account readiness is complete.';
+
+    return {
+        success: false,
+        blocked_by: 'polymarket_readiness',
+        error,
+        readiness: {
+            ready: readiness.isReady,
+            blockchain_status: readiness.blockchainStatus,
+            wallet_address: readiness.walletAddress,
+            usdc_balance: readiness.usdcBalance,
+            native_usdc_balance: readiness.nativeUsdcBalance,
+            conversion_required: readiness.conversionRequired,
+            missing_steps: readiness.missingSteps,
+        },
+        next_step: nextStep,
+    };
+}
+
+function buildPolymarketBlockedOrderResponse(params: {
+    readiness: PolymarketReadiness;
+    context?: ToolContextLike;
+    amountUsd?: number | null;
+}) {
+    const readinessBlock = buildPolymarketReadinessGate(params.readiness);
+    if (!readinessBlock) return null;
+
+    const fundingPlan = buildPolymarketFundingPlan({
+        readiness: params.readiness,
+        context: params.context,
+        amountUsd: params.amountUsd,
+    });
+
+    return {
+        ...readinessBlock,
+        funding_plan: fundingPlan,
+        requires_confirmation: fundingPlan.preferred_action?.tool_name === 'prepare_swap_transaction',
+        confirmation_payload: fundingPlan.preferred_action?.tool_name === 'prepare_swap_transaction'
+            ? {
+                tool_name: 'prepare_swap_transaction',
+                args: fundingPlan.preferred_action.args,
+                confirmation_token: computeConfirmationToken('prepare_swap_transaction', fundingPlan.preferred_action.args),
+                action_class: 'TRADE_MUTATION',
+            }
+            : null,
+        next_step: fundingPlan.preferred_action?.reason || readinessBlock.next_step,
+    };
+}
+
+type ToolContextLike = {
+    [key: string]: any;
+} | undefined;
 
 /**
  * Check Polymarket Trading Readiness Tool
@@ -31,6 +115,11 @@ export const CheckPolymarketReadinessTool: Tool = {
 
         try {
             const readiness = await checkTradingReadiness(userId);
+            const fundingPlan = buildPolymarketFundingPlan({
+                readiness,
+                context,
+                amountUsd: null,
+            });
 
             return {
                 ready: readiness.isReady,
@@ -41,10 +130,12 @@ export const CheckPolymarketReadinessTool: Tool = {
                     usdc: readiness.hasUsdcApproval ? '✅' : '❌',
                     ctf: readiness.hasCtfApproval ? '✅' : '❌'
                 },
+                blockchain_status: readiness.blockchainStatus,
                 wallet_address: readiness.walletAddress,
                 usdc_balance: readiness.usdcBalance,
                 native_usdc_balance: readiness.nativeUsdcBalance,
                 conversion_required: readiness.conversionRequired,
+                funding_plan: fundingPlan,
                 conversion_suggestion: readiness.conversionSuggestion
                     ? {
                         tool: 'prepare_swap_transaction',
@@ -66,9 +157,10 @@ export const CheckPolymarketReadinessTool: Tool = {
                 missing_steps: readiness.missingSteps,
                 next_step: readiness.isReady
                     ? 'You can now place orders using place_polymarket_order.'
-                    : readiness.conversionRequired
-                        ? 'Convert Polygon native USDC (0x3c499c542cef5e3811e1192ce70d8cc03d5c3359) to Polymarket USDC.e (0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174) using prepare_swap_transaction, then check readiness again. No wallet chain switch is required.'
-                        : readiness.missingSteps[0]
+                    : fundingPlan.preferred_action?.reason
+                        || (readiness.conversionRequired
+                            ? 'Convert Polygon native USDC (0x3c499c542cef5e3811e1192ce70d8cc03d5c3359) to Polymarket USDC.e (0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174) using prepare_swap_transaction, then check readiness again. No wallet chain switch is required.'
+                            : readiness.missingSteps[0])
             };
         } catch (error: any) {
             return {
@@ -254,6 +346,16 @@ export const PlacePolymarketOrderTool: Tool = {
         const side = args.side || 'BUY';
 
         try {
+            const readiness = await checkTradingReadiness(userId);
+            const readinessBlock = buildPolymarketBlockedOrderResponse({
+                readiness,
+                context,
+                amountUsd: side === 'BUY' ? args.amount_usd ?? null : null,
+            });
+            if (readinessBlock) {
+                return readinessBlock;
+            }
+
             let resolvedPrice = typeof args.price === 'number' && Number.isFinite(args.price)
                 ? args.price
                 : null;
@@ -406,6 +508,11 @@ export const PlacePolymarketOrderTool: Tool = {
         }
     },
     permissions: 'authenticated'
+};
+
+export const __directTradingTestables = {
+    buildPolymarketReadinessGate,
+    buildPolymarketBlockedOrderResponse,
 };
 
 /**

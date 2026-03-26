@@ -69,6 +69,21 @@ interface ParsedMarket {
     outcomes: ParsedOutcome[];
 }
 
+interface PolymarketSelectionValidation {
+    matched: boolean;
+    source: 'event_id' | 'search_exact' | 'none';
+    eventId: string | null;
+    eventTitle: string | null;
+    marketId: string | null;
+    marketSlug: string | null;
+    conditionId: string | null;
+    questionMatched: boolean;
+    outcomeMatched: boolean;
+    tokenMatched: boolean;
+    acceptingOrders: boolean | null;
+    reason: 'ok' | 'question_not_found' | 'outcome_not_found' | 'token_mismatch' | 'event_lookup_failed';
+}
+
 interface ParsedMarketWindow {
     startAt: string | null;
     endAt: string | null;
@@ -84,6 +99,7 @@ interface ParsedMarketWindow {
 const NEW_MARKET_SOON_HORIZON_SECONDS = 48 * 60 * 60; // show markets up to 48h ahead so newly created windows are always visible
 const NEW_MARKET_MIN_LIVE_SECONDS_LEFT = 120;
 const TRADABLE_HORIZON_SECONDS = 6 * 60 * 60; // only flag as 'tradable' if within 6h
+const RECOMMENDABLE_HORIZON_SECONDS = 2 * 60 * 60; // only recommend "next" short-window markets if they are within 2h
 const MIN_TRADABLE_LIQUIDITY = 10; // minimum liquidity in USD to be considered tradable
 const COIN_UP_DOWN_MAX_HORIZON_SECONDS = 2 * 60 * 60;
 const FIVE_MINUTE_WINDOW_MS = 5 * 60 * 1000;
@@ -140,6 +156,14 @@ function normalizeString(value: unknown): string | null {
     if (typeof value !== 'string') return null;
     const trimmed = value.trim();
     return trimmed.length > 0 ? trimmed : null;
+}
+
+function normalizeComparableText(value: unknown): string {
+    return String(value || '')
+        .trim()
+        .toLowerCase()
+        .replace(/[–—]/g, '-')
+        .replace(/\s+/g, ' ');
 }
 
 function getEtParts(now: Date): {
@@ -516,8 +540,82 @@ function parseMarket(market: PolymarketMarket): ParsedMarket {
     };
 }
 
+function validateSelectionAgainstMarkets(params: {
+    question: string;
+    outcome: string;
+    tokenId: string;
+    eventId?: string | null;
+    eventTitle?: string | null;
+    markets: ParsedMarket[];
+    source: 'event_id' | 'search_exact';
+}): PolymarketSelectionValidation {
+    const normalizedQuestion = normalizeComparableText(params.question);
+    const normalizedOutcome = normalizeComparableText(params.outcome);
+    const tokenId = String(params.tokenId || '').trim();
+    const questionMatches = params.markets.filter((market) => normalizeComparableText(market.question) === normalizedQuestion);
+    const matchedMarket = questionMatches.find((market) =>
+        market.outcomes.some((outcome) => {
+            const outcomeNameMatches = normalizeComparableText(outcome.name) === normalizedOutcome;
+            const outcomeTokenMatches = String(outcome.tokenId || '').trim() === tokenId;
+            return outcomeNameMatches || outcomeTokenMatches;
+        }),
+    ) || questionMatches[0] || null;
+
+    if (!matchedMarket) {
+        return {
+            matched: false,
+            source: params.source,
+            eventId: params.eventId || null,
+            eventTitle: params.eventTitle || null,
+            marketId: null,
+            marketSlug: null,
+            conditionId: null,
+            questionMatched: false,
+            outcomeMatched: false,
+            tokenMatched: false,
+            acceptingOrders: null,
+            reason: 'question_not_found',
+        };
+    }
+
+    const matchedOutcome = matchedMarket.outcomes.find((outcome) => normalizeComparableText(outcome.name) === normalizedOutcome) || null;
+    if (!matchedOutcome) {
+        return {
+            matched: false,
+            source: params.source,
+            eventId: params.eventId || null,
+            eventTitle: params.eventTitle || null,
+            marketId: matchedMarket.id,
+            marketSlug: matchedMarket.slug,
+            conditionId: matchedMarket.conditionId,
+            questionMatched: true,
+            outcomeMatched: false,
+            tokenMatched: false,
+            acceptingOrders: matchedMarket.acceptingOrders,
+            reason: 'outcome_not_found',
+        };
+    }
+
+    const tokenMatched = String(matchedOutcome.tokenId || '').trim() === tokenId;
+    return {
+        matched: tokenMatched,
+        source: params.source,
+        eventId: params.eventId || null,
+        eventTitle: params.eventTitle || null,
+        marketId: matchedMarket.id,
+        marketSlug: matchedMarket.slug,
+        conditionId: matchedMarket.conditionId,
+        questionMatched: true,
+        outcomeMatched: true,
+        tokenMatched,
+        acceptingOrders: matchedMarket.acceptingOrders,
+        reason: tokenMatched ? 'ok' : 'token_mismatch',
+    };
+}
+
 export const __testables = {
     normalizeDate,
+    normalizeComparableText,
     parseMarket,
     parseMarketWindowLabel,
     compareNewMarketPriority,
@@ -526,8 +624,10 @@ export const __testables = {
     normalizeCoinSeriesName,
     getCurrentEtWindowStart,
     buildExactFiveMinuteWindowQuery,
+    validateSelectionAgainstMarkets,
     MIN_TRADABLE_LIQUIDITY,
     TRADABLE_HORIZON_SECONDS,
+    RECOMMENDABLE_HORIZON_SECONDS,
 };
 
 /**
@@ -679,6 +779,87 @@ async function searchRawEvents(query: string, limit: number = 10): Promise<any[]
     return normalizeSearchEvents(response);
 }
 
+export async function verifyPolymarketSelection(params: {
+    question: string;
+    outcome: string;
+    tokenId: string;
+    eventId?: string | null;
+}): Promise<PolymarketSelectionValidation> {
+    const tokenId = String(params.tokenId || '').trim();
+    const question = String(params.question || '').trim();
+    const outcome = String(params.outcome || '').trim();
+    if (!tokenId || !question || !outcome) {
+        return {
+            matched: false,
+            source: 'none',
+            eventId: params.eventId || null,
+            eventTitle: null,
+            marketId: null,
+            marketSlug: null,
+            conditionId: null,
+            questionMatched: false,
+            outcomeMatched: false,
+            tokenMatched: false,
+            acceptingOrders: null,
+            reason: 'question_not_found',
+        };
+    }
+
+    if (params.eventId) {
+        try {
+            const event = await getEventDetails(String(params.eventId));
+            return validateSelectionAgainstMarkets({
+                question,
+                outcome,
+                tokenId,
+                eventId: event.id,
+                eventTitle: event.title,
+                markets: event.markets,
+                source: 'event_id',
+            });
+        } catch {
+            // Fall through to exact search lookup.
+        }
+    }
+
+    const rawEvents = await searchRawEvents(question, 5);
+    for (const event of rawEvents) {
+        const markets = Array.isArray(event?.markets)
+            ? event.markets
+                .filter((market: any) => !market?.closed)
+                .map((market: PolymarketMarket) => parseMarket(market))
+            : [];
+        if (markets.length === 0) continue;
+        const validation = validateSelectionAgainstMarkets({
+            question,
+            outcome,
+            tokenId,
+            eventId: normalizeString(event?.id),
+            eventTitle: normalizeString(event?.title),
+            markets,
+            source: 'search_exact',
+        });
+        if (validation.questionMatched) {
+            return validation;
+        }
+    }
+
+    return {
+        matched: false,
+        source: params.eventId ? 'event_id' : 'search_exact',
+        eventId: params.eventId || null,
+        eventTitle: null,
+        marketId: null,
+        marketSlug: null,
+        conditionId: null,
+        questionMatched: false,
+        outcomeMatched: false,
+        tokenMatched: false,
+        acceptingOrders: null,
+        reason: params.eventId ? 'event_lookup_failed' : 'question_not_found',
+    };
+}
+
 export async function getCoinUpDownMarkets(params: {
     coin?: string | null;
     limit?: number;
@@ -744,11 +925,14 @@ export async function getNewMarkets(limit: number = 10): Promise<{
         creationDate: string;
         recommendedWindow?: ParsedMarketWindow | null;
         tradable: boolean;
+        recommendable: boolean;
+        recommendable_detail: 'ok' | 'watchlist_only' | 'no_window_found';
         tradable_detail: string;
         markets: ParsedMarket[];
     }>;
     eligibleWindowCount: number;
     tradableWindowCount: number;
+    recommendableWindowCount: number;
     selectionNote: string;
 }> {
     const url = `${GAMMA_API_BASE}/events?limit=${limit}&active=true&closed=false&order=createdAt&ascending=false`;
@@ -764,6 +948,7 @@ export async function getNewMarkets(limit: number = 10): Promise<{
     const now = new Date();
     let eligibleWindowCount = 0;
     let tradableWindowCount = 0;
+    let recommendableWindowCount = 0;
     const mappedEvents = data.map((event, index) => {
         const markets = (event.markets || [])
             .filter((market) => !market.closed)
@@ -783,11 +968,36 @@ export async function getNewMarkets(limit: number = 10): Promise<{
             : false;
         const hasLiquidity = eventLiquidity >= MIN_TRADABLE_LIQUIDITY;
         const isTradable = withinTradableHorizon && hasLiquidity;
+        const isRecommendable = recommendedWindow
+            ? (
+                (recommendedWindow.status === 'upcoming'
+                    && (recommendedWindow.secondsToStart ?? Number.MAX_SAFE_INTEGER) <= RECOMMENDABLE_HORIZON_SECONDS)
+                || (recommendedWindow.status === 'live'
+                    && (recommendedWindow.secondsToEnd ?? 0) > NEW_MARKET_MIN_LIVE_SECONDS_LEFT)
+            )
+            : false;
         
         if (recommendedWindow) eligibleWindowCount += 1;
         if (isTradable) tradableWindowCount += 1;
+        if (isRecommendable) recommendableWindowCount += 1;
         
-        const sortPriority = recommendedWindow ? (recommendedWindow.status === 'upcoming' ? 0 : recommendedWindow.status === 'live' ? 1 : 2) : 3;
+        const sortPriority = !recommendedWindow
+            ? 5
+            : isRecommendable && recommendedWindow.status === 'upcoming'
+                ? 0
+                : isRecommendable && recommendedWindow.status === 'live'
+                    ? 1
+                    : isTradable && recommendedWindow.status === 'upcoming'
+                        ? 2
+                        : isTradable && recommendedWindow.status === 'live'
+                            ? 3
+                            : 4;
+
+        const recommendableDetail: 'ok' | 'watchlist_only' | 'no_window_found' = !recommendedWindow
+            ? 'no_window_found'
+            : isRecommendable
+                ? 'ok'
+                : 'watchlist_only';
 
         return {
             id: event.id,
@@ -797,6 +1007,8 @@ export async function getNewMarkets(limit: number = 10): Promise<{
             creationDate: normalizeDate(event.startDate) || '',
             recommendedWindow,
             tradable: isTradable,
+            recommendable: isRecommendable,
+            recommendable_detail: recommendableDetail,
             tradable_detail: !recommendedWindow
                 ? 'no_window_found'
                 : !withinTradableHorizon
@@ -824,9 +1036,14 @@ export async function getNewMarkets(limit: number = 10): Promise<{
                 return a.__sort.startMs - b.__sort.startMs;
             }
         }
-        if (a.__sort.priority === 1 && b.__sort.priority === 1) {
+        if ((a.__sort.priority === 1 && b.__sort.priority === 1) || (a.__sort.priority === 3 && b.__sort.priority === 3)) {
             if (a.__sort.secondsToEnd !== b.__sort.secondsToEnd) {
                 return b.__sort.secondsToEnd - a.__sort.secondsToEnd;
+            }
+        }
+        if ((a.__sort.priority === 2 && b.__sort.priority === 2) || (a.__sort.priority === 4 && b.__sort.priority === 4)) {
+            if (a.__sort.startMs !== b.__sort.startMs) {
+                return a.__sort.startMs - b.__sort.startMs;
             }
         }
         return a.__sort.sourceIndex - b.__sort.sourceIndex;
@@ -836,10 +1053,13 @@ export async function getNewMarkets(limit: number = 10): Promise<{
         events: mappedEvents.map(({ __sort, ...event }) => event),
         eligibleWindowCount,
         tradableWindowCount,
-        selectionNote: tradableWindowCount > 0
-            ? `${tradableWindowCount} market(s) are tradable now (within 6h and have liquidity). Others are listed for discovery only.`
-            : eligibleWindowCount > 0
-                ? `${eligibleWindowCount} short-window market(s) found but none are tradable yet (no liquidity or window is too far ahead). Show them to the user with tradable=false and explain when they might open.`
+        recommendableWindowCount,
+        selectionNote: recommendableWindowCount > 0
+            ? `${recommendableWindowCount} near-term short-window market(s) are suitable answer candidates. Keep farther windows as watchlist-only discovery.`
+            : tradableWindowCount > 0
+                ? `${tradableWindowCount} market(s) are tradable now (within 6h and have liquidity), but none are near-term enough to recommend as the "next" short-window answer.`
+                : eligibleWindowCount > 0
+                    ? `${eligibleWindowCount} short-window market(s) found but none are near-term answer candidates yet. Keep them visible as watchlist items and explain when they might open.`
                 : 'No short-window market found within 48 hours.'
     };
 }

@@ -29,7 +29,7 @@ from xai_sdk.tools import (
 from xai_sdk.aio import chat as aio_chat
 from jose import jwt
 from grok.tool_bridge import normalize_tool_request
-from grok.tool_events import build_tool_status_chunk, summarize_tool_names
+from grok.tool_events import build_stream_chunk_id, build_tool_status_chunk, summarize_tool_names
 from grok.tool_policy import resolve_requested_tool_policy
 from grok.tool_scheduler import PlannedToolCall, execute_planned_custom_tools
 
@@ -1906,6 +1906,7 @@ async def chat_completions(
                 non_text_signal_emitted = False
                 tool_call_signal_emitted = False
                 request_hash = hash(str(request.messages))
+                stream_chunk_id = build_stream_chunk_id(request_hash=request_hash)
                 log_tools(f"[Generate] Starting generator")
                 
                 def is_client_side_tool(tool_call_obj, tool_name_str: str) -> bool:
@@ -2021,7 +2022,7 @@ async def chat_completions(
                             if not piece:
                                 continue
                             finalizer_chunks.append({
-                                "id": f"chatcmpl-{hash(str(request.messages))}",
+                                "id": stream_chunk_id,
                                 "object": "chat.completion.chunk",
                                 "created": int(__import__('time').time()),
                                 "model": request.model,
@@ -2143,7 +2144,7 @@ async def chat_completions(
                                     if new_citations:
                                         non_text_signal_emitted = True
                                         cite_chunk = {
-                                            "id": f"chatcmpl-{hash(str(request.messages))}",
+                                            "id": stream_chunk_id,
                                             "object": "chat.completion.chunk",
                                             "created": int(__import__('time').time()),
                                             "model": request.model,
@@ -2253,7 +2254,7 @@ async def chat_completions(
                                             import time as time_module
                                             tool_call_id = f"call_{int(time_module.time() * 1000000)}_{hash(tool_call_signature)}"
                                             tool_call_event = {
-                                                "id": f"chatcmpl-{hash(str(request.messages))}",
+                                                "id": stream_chunk_id,
                                                 "object": "chat.completion.chunk",
                                                 "created": int(__import__('time').time()),
                                                 "model": request.model,
@@ -2275,7 +2276,7 @@ async def chat_completions(
                                             }
                                             # Also send a simplified tool_call field for frontend compatibility
                                             tool_call_simple_event = {
-                                                "id": f"chatcmpl-{hash(str(request.messages))}",
+                                                "id": stream_chunk_id,
                                                 "object": "chat.completion.chunk",
                                                 "created": int(__import__('time').time()),
                                                 "model": request.model,
@@ -2331,7 +2332,7 @@ async def chat_completions(
                                                 if not piece:
                                                     continue
                                                 chunk_data = {
-                                                    "id": f"chatcmpl-{hash(str(request.messages))}",
+                                                    "id": stream_chunk_id,
                                                     "object": "chat.completion.chunk",
                                                     "created": int(__import__('time').time()),
                                                     "model": request.model,
@@ -2358,6 +2359,7 @@ async def chat_completions(
                                     print(f"[Tool Budget] Exhausted before executing planned tools at {tool_budget_elapsed_ms()}ms")
                                     budget_chunk = build_tool_status_chunk(
                                         request_hash=request_hash,
+                                        chunk_id=stream_chunk_id,
                                         model=request.model,
                                         status=f"Tool budget exhausted before running {len(planned_custom_tools)} planned tool(s)",
                                         phase="budget_exhausted",
@@ -2381,6 +2383,7 @@ async def chat_completions(
                                             effective_tool_timeout_ms = min(effective_tool_timeout_ms, remaining_budget_ms)
                                     planned_chunk = build_tool_status_chunk(
                                         request_hash=request_hash,
+                                        chunk_id=stream_chunk_id,
                                         model=request.model,
                                         status=f"Planned {len(planned_custom_tools)} tool(s): {summarize_tool_names(planned_tool_names)}",
                                         phase="planned",
@@ -2389,6 +2392,7 @@ async def chat_completions(
                                     )
                                     started_chunk = build_tool_status_chunk(
                                         request_hash=request_hash,
+                                        chunk_id=stream_chunk_id,
                                         model=request.model,
                                         status=f"Running {len(planned_custom_tools)} tool(s) in parallel",
                                         phase="started",
@@ -2410,6 +2414,7 @@ async def chat_completions(
                                     )
                                     finished_chunk = build_tool_status_chunk(
                                         request_hash=request_hash,
+                                        chunk_id=stream_chunk_id,
                                         model=request.model,
                                         status=f"Finished {len(executed_tool_calls)} tool(s): {summarize_tool_names([tool.name for tool in executed_tool_calls])}",
                                         phase="finished",
@@ -2426,7 +2431,7 @@ async def chat_completions(
                                             else f"Completed {executed_tool.name}"
                                         )
                                         status_chunk = {
-                                            "id": f"chatcmpl-{hash(str(request.messages))}",
+                                            "id": stream_chunk_id,
                                             "object": "chat.completion.chunk",
                                             "created": int(__import__('time').time()),
                                             "model": request.model,
@@ -2443,7 +2448,7 @@ async def chat_completions(
                                         if executed_tool.client_action and executed_tool.name != "prepare_swap_transaction":
                                             non_text_signal_emitted = True
                                             action_chunk = {
-                                                "id": f"chatcmpl-{hash(str(request.messages))}",
+                                                "id": stream_chunk_id,
                                                 "object": "chat.completion.chunk",
                                                 "created": int(__import__('time').time()),
                                                 "model": request.model,
@@ -2462,6 +2467,7 @@ async def chat_completions(
                                         print(f"[Tool Budget] Exhausted after executing planned tools at {tool_budget_elapsed_ms()}ms")
                                         budget_chunk = build_tool_status_chunk(
                                             request_hash=request_hash,
+                                            chunk_id=stream_chunk_id,
                                             model=request.model,
                                             status="Tool budget exhausted after collecting partial evidence",
                                             phase="budget_exhausted",
@@ -2525,6 +2531,7 @@ async def chat_completions(
                                         print(f"[Tool Budget] Exhausted before fallback planned tools at {tool_budget_elapsed_ms()}ms")
                                         budget_chunk = build_tool_status_chunk(
                                             request_hash=request_hash,
+                                            chunk_id=stream_chunk_id,
                                             model=request.model,
                                             status=f"Tool budget exhausted before fallback batch of {len(fallback_planned_custom_tools)} tool(s)",
                                             phase="budget_exhausted",
@@ -2548,6 +2555,7 @@ async def chat_completions(
                                                 effective_tool_timeout_ms = min(effective_tool_timeout_ms, remaining_budget_ms)
                                         planned_chunk = build_tool_status_chunk(
                                             request_hash=request_hash,
+                                            chunk_id=stream_chunk_id,
                                             model=request.model,
                                             status=f"Planned fallback batch of {len(fallback_planned_custom_tools)} tool(s): {summarize_tool_names(fallback_tool_names)}",
                                             phase="planned",
@@ -2557,6 +2565,7 @@ async def chat_completions(
                                         )
                                         started_chunk = build_tool_status_chunk(
                                             request_hash=request_hash,
+                                            chunk_id=stream_chunk_id,
                                             model=request.model,
                                             status=f"Running fallback batch of {len(fallback_planned_custom_tools)} tool(s) in parallel",
                                             phase="started",
@@ -2579,6 +2588,7 @@ async def chat_completions(
                                         )
                                         finished_chunk = build_tool_status_chunk(
                                             request_hash=request_hash,
+                                            chunk_id=stream_chunk_id,
                                             model=request.model,
                                             status=f"Finished fallback batch of {len(executed_tool_calls)} tool(s): {summarize_tool_names([tool.name for tool in executed_tool_calls])}",
                                             phase="finished",
@@ -2592,7 +2602,7 @@ async def chat_completions(
                                             if executed_tool.client_action and executed_tool.name != "prepare_swap_transaction":
                                                 non_text_signal_emitted = True
                                                 action_chunk = {
-                                                    "id": f"chatcmpl-{hash(str(request.messages))}",
+                                                    "id": stream_chunk_id,
                                                     "object": "chat.completion.chunk",
                                                     "created": int(__import__('time').time()),
                                                     "model": request.model,
@@ -2610,6 +2620,7 @@ async def chat_completions(
                                             print(f"[Tool Budget] Exhausted after fallback planned tools at {tool_budget_elapsed_ms()}ms")
                                             budget_chunk = build_tool_status_chunk(
                                                 request_hash=request_hash,
+                                                chunk_id=stream_chunk_id,
                                                 model=request.model,
                                                 status="Tool budget exhausted after fallback evidence collection",
                                                 phase="budget_exhausted",
@@ -2672,7 +2683,7 @@ async def chat_completions(
                                     if final_response and hasattr(final_response, 'text') and final_response.text:
                                         try:
                                             fallback_chunk = {
-                                                "id": f"chatcmpl-{hash(str(request.messages))}",
+                                                "id": stream_chunk_id,
                                                 "object": "chat.completion.chunk",
                                                 "created": int(__import__('time').time()),
                                                 "model": request.model,
@@ -2707,7 +2718,7 @@ async def chat_completions(
                             else:
                                 # No content received, send error to client
                                 error_chunk = {
-                                    "id": f"chatcmpl-{hash(str(request.messages))}",
+                                    "id": stream_chunk_id,
                                     "object": "chat.completion.chunk",
                                     "created": int(__import__('time').time()),
                                     "model": request.model,
@@ -2731,7 +2742,7 @@ async def chat_completions(
                             print("[gRPC Error] Request timeout")
                             # Send timeout error to client
                             error_chunk = {
-                                "id": f"chatcmpl-{hash(str(request.messages))}",
+                                "id": stream_chunk_id,
                                 "object": "chat.completion.chunk",
                                 "created": int(__import__('time').time()),
                                 "model": request.model,
@@ -2755,7 +2766,7 @@ async def chat_completions(
                             print("[gRPC Error] Rate limit exceeded")
                             # Send rate limit error to client
                             error_chunk = {
-                                "id": f"chatcmpl-{hash(str(request.messages))}",
+                                "id": stream_chunk_id,
                                 "object": "chat.completion.chunk",
                                 "created": int(__import__('time').time()),
                                 "model": request.model,
@@ -2780,7 +2791,7 @@ async def chat_completions(
                             # For other errors, if we have content, continue; otherwise send error
                             if not final_response or chunk_count == 0:
                                 error_chunk = {
-                                    "id": f"chatcmpl-{hash(str(request.messages))}",
+                                    "id": stream_chunk_id,
                                     "object": "chat.completion.chunk",
                                     "created": int(__import__('time').time()),
                                     "model": request.model,
@@ -2911,7 +2922,7 @@ async def chat_completions(
 
                                 if candidate_text:
                                     fallback_chunk = {
-                                        "id": f"chatcmpl-{hash(str(request.messages))}",
+                                        "id": stream_chunk_id,
                                         "object": "chat.completion.chunk",
                                         "created": int(__import__('time').time()),
                                         "model": request.model,
@@ -2938,7 +2949,7 @@ async def chat_completions(
                                         "code": error_code,
                                     }
                                     error_chunk = {
-                                        "id": f"chatcmpl-{hash(str(request.messages))}",
+                                        "id": stream_chunk_id,
                                         "object": "chat.completion.chunk",
                                         "created": int(__import__('time').time()),
                                         "model": request.model,
@@ -2958,7 +2969,10 @@ async def chat_completions(
                         citations_list = collected_citations if collected_citations else []
                         
                         final_chunk = {
-                            "id": f"chatcmpl-{hash(str(request.messages))}",
+                            "id": build_stream_chunk_id(
+                                request_hash=request_hash,
+                                response_id=getattr(final_response, "id", None),
+                            ),
                             "object": "chat.completion.chunk",
                             "created": int(__import__('time').time()),
                             "model": request.model,
@@ -3020,7 +3034,7 @@ async def chat_completions(
                     # Try to send error in OpenAI-compatible format
                     try:
                         error_data = {
-                            "id": f"chatcmpl-error-{hash(str(request.messages))}",
+                            "id": build_stream_chunk_id(request_hash=request_hash),
                             "object": "chat.completion.chunk",
                             "created": int(__import__('time').time()),
                             "model": request.model,
@@ -3228,7 +3242,10 @@ async def chat_completions(
                 log_citations(f"[Citations] Non-streaming: Sending {len(citations)} citations to client")
             
             return {
-                "id": f"chatcmpl-{hash(str(request.messages))}",
+                "id": build_stream_chunk_id(
+                    request_hash=hash(str(request.messages)),
+                    response_id=getattr(response, "id", None),
+                ),
                 "object": "chat.completion",
                 "created": int(__import__('time').time()),
                 "model": request.model,

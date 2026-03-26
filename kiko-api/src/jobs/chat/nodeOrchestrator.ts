@@ -95,6 +95,8 @@ export async function runNodeOrchestration(params: {
     let currentPhase = skillResolution.currentPhase;
     let previousResponseId: string | null | undefined = params.snapshot.previousResponseId;
     let lastRoundPolicyMessage = '';
+    let forceAnswerFromEvidence = false;
+    const isReadOnlyTask = (params.snapshot.policySnapshot?.actionClass || 'READ_ONLY') === 'READ_ONLY';
 
     await params.broker.bootstrapRuntime(plan);
 
@@ -165,10 +167,11 @@ export async function runNodeOrchestration(params: {
     };
 
     for (let round = 1; round <= 8; round += 1) {
+        const effectivePhase = forceAnswerFromEvidence ? 'local_analysis' : currentPhase;
         if (params.shouldCancel && await params.shouldCancel()) {
             throw new Error('Task cancelled');
         }
-        if (currentPhase === 'native_search_only') {
+        if (effectivePhase === 'native_search_only') {
             await params.broker.setRuntimeState?.(
                 'search_in_progress',
                 planning.locale === 'zh'
@@ -180,7 +183,8 @@ export async function runNodeOrchestration(params: {
             sessionId: params.snapshot.sessionId,
             taskId: params.snapshot.taskId,
             round,
-            toolPhase: currentPhase,
+            toolPhase: effectivePhase,
+            forceAnswerFromEvidence,
         });
         await params.broker.markPlanPhase(
             round === 1
@@ -209,7 +213,7 @@ export async function runNodeOrchestration(params: {
             rankedMatches: skillResolution.rankedMatches,
             searchMode: skillResolution.searchMode,
             searchReason: skillResolution.searchReason,
-            toolPhase: currentPhase,
+            toolPhase: effectivePhase,
             intentEnvelope: skillResolution.intentEnvelope,
             providerNativeEvidence,
         });
@@ -217,33 +221,55 @@ export async function runNodeOrchestration(params: {
             messages.push(roundPolicyMessage);
             lastRoundPolicyMessage = roundPolicyMessage.content;
         }
+        if (forceAnswerFromEvidence) {
+            messages.push({
+                role: 'system',
+                content: buildEvidenceOnlyAnswerInstruction(planning.locale),
+            });
+        }
 
         const providerReadyMessages = sanitizeProviderHistory(messages, params.snapshot.model);
-        const roundTools = buildGenerationTools(
-            params.snapshot.toolDefinitions,
+        const phaseAllowedTools = resolvePhaseAllowedTools(
             effectiveAllowedTools,
-            skillResolution.blockedTools,
-            skillResolution.preferredTools,
-            strictPolicy ? false : skillResolution.allowAllTools,
+            skillResolution,
             providerInfo.provider,
-            currentPhase,
+            effectivePhase,
         );
-        const roundProviderOptions = buildProviderOptions(
-            params.snapshot,
-            providerInfo,
-            params.snapshot.lastUserMessage,
-            {
-                searchMode: skillResolution.searchMode,
-                searchReason: skillResolution.searchReason,
-                intentEnvelope: skillResolution.intentEnvelope,
-                currentPhase,
-            },
-            {
-                currentPhase,
-                searchAttempt: round,
-                previousResponseId,
-            },
-        );
+        const phaseAllowAllTools = strictPolicy
+            ? false
+            : resolvePhaseAllowAllTools(skillResolution, providerInfo.provider, effectivePhase, skillResolution.allowAllTools);
+        const roundTools = forceAnswerFromEvidence
+            ? []
+            : buildGenerationTools(
+                params.snapshot.toolDefinitions,
+                phaseAllowedTools,
+                skillResolution.blockedTools,
+                skillResolution.preferredTools,
+                phaseAllowAllTools,
+                providerInfo.provider,
+                effectivePhase,
+            );
+        const roundProviderOptions = forceAnswerFromEvidence
+            ? buildEvidenceOnlyProviderOptions(params.snapshot, providerInfo)
+            : buildProviderOptions(
+                params.snapshot,
+                providerInfo,
+                params.snapshot.lastUserMessage,
+                {
+                    searchMode: skillResolution.searchMode,
+                    searchReason: skillResolution.searchReason,
+                    intentEnvelope: skillResolution.intentEnvelope,
+                    currentPhase: effectivePhase,
+                },
+                {
+                    currentPhase: effectivePhase,
+                    searchAttempt: round,
+                    previousResponseId,
+                },
+            );
+        const roundPreviousResponseId = typeof (roundProviderOptions as any)?.previous_response_id === 'string'
+            ? String((roundProviderOptions as any).previous_response_id)
+            : '';
         let roundResult;
         let streamedRoundText = '';
         let streamedRoundReasoning = '';
@@ -296,8 +322,7 @@ export async function runNodeOrchestration(params: {
                 const canRetryWithoutPreviousResponse =
                     !retriedWithoutPreviousResponse
                     && providerInfo.provider === 'grok'
-                    && typeof roundProviderOptions.previous_response_id === 'string'
-                    && roundProviderOptions.previous_response_id.trim().length > 0
+                    && roundPreviousResponseId.trim().length > 0
                     && isStalePreviousResponseError(errorMessage);
 
                 logger.error(LogCode.AI_API_ERROR, 'NodeOrchestrator: generation round failed', {
@@ -398,7 +423,7 @@ export async function runNodeOrchestration(params: {
                 await params.broker.recordProviderNativeEvidence?.(evidenceSnapshot);
             }
 
-            if (currentPhase === 'native_search_only') {
+            if (effectivePhase === 'native_search_only') {
                 if (evidenceSnapshot && skillResolution.toolPhasePolicy.nextPhaseAfterNativeSearch) {
                     currentPhase = skillResolution.toolPhasePolicy.nextPhaseAfterNativeSearch;
                     await params.broker.setRuntimeState?.(
@@ -501,6 +526,7 @@ export async function runNodeOrchestration(params: {
         });
 
         let executedFreshTool = false;
+        let shouldForceAnswerAfterRound: boolean = forceAnswerFromEvidence;
         for (const call of actionableToolCalls) {
             if (params.shouldCancel && await params.shouldCancel()) {
                 throw new Error('Task cancelled');
@@ -522,6 +548,8 @@ export async function runNodeOrchestration(params: {
                 });
                 continue;
             }
+            const toolKey = buildToolCallKey(call.name, call.arguments || {});
+            const cached = executedToolResults.get(toolKey);
             const usageCount = (toolUsageCount.get(call.name) || 0) + 1;
             toolUsageCount.set(call.name, usageCount);
             const toolBudget = resolvePolicyToolBudget(params.snapshot.policySnapshot || null, call.name);
@@ -534,30 +562,51 @@ export async function runNodeOrchestration(params: {
                     usageCount,
                     toolBudget,
                 });
-                const budgetResult = {
-                    id: call.id,
-                    name: call.name,
-                    arguments: call.arguments || {},
-                    ok: false,
-                    error: buildToolBudgetMessage(call.name, planning.locale),
-                    reasonCode: 'TOOL_BUDGET_EXCEEDED',
-                    policyDecisionId: params.snapshot.policySnapshot?.policyDecisionId,
-                    result: {
+                const budgetResult = cached
+                    ? {
+                        id: call.id,
+                        name: call.name,
+                        arguments: call.arguments || {},
+                        ok: cached.ok,
+                        result: cached.result,
+                        error: cached.error,
+                        metadata: {
+                            ...(cached.metadata || {}),
+                            source: 'repeat_cache',
+                            stop_reason: 'tool_budget_guard',
+                        },
+                    }
+                    : {
+                        id: call.id,
+                        name: call.name,
+                        arguments: call.arguments || {},
+                        ok: false,
                         error: buildToolBudgetMessage(call.name, planning.locale),
                         reasonCode: 'TOOL_BUDGET_EXCEEDED',
-                        reason_code: 'TOOL_BUDGET_EXCEEDED',
-                        policy_decision_id: params.snapshot.policySnapshot?.policyDecisionId,
-                        tool: call.name,
-                        usageCount,
-                        toolBudget,
-                    },
-                    metadata: { source: 'tool_budget_guard' },
-                };
-                await params.broker.recordToolResult(budgetResult);
+                        policyDecisionId: params.snapshot.policySnapshot?.policyDecisionId,
+                        result: {
+                            error: buildToolBudgetMessage(call.name, planning.locale),
+                            reasonCode: 'TOOL_BUDGET_EXCEEDED',
+                            reason_code: 'TOOL_BUDGET_EXCEEDED',
+                            policy_decision_id: params.snapshot.policySnapshot?.policyDecisionId,
+                            tool: call.name,
+                            usageCount,
+                            toolBudget,
+                        },
+                        metadata: { source: 'tool_budget_guard' },
+                    };
+                if (isReadOnlyTask) {
+                    shouldForceAnswerAfterRound = true;
+                }
+                await params.broker.recordToolResult(budgetResult as any);
                 messages.push({
                     role: 'tool',
                     tool_call_id: call.id,
-                    content: JSON.stringify({ error: budgetResult.error, reasonCode: 'TOOL_BUDGET_EXCEEDED' }),
+                    content: JSON.stringify(
+                        cached
+                            ? (budgetResult as any).result ?? null
+                            : { error: (budgetResult as any).error, reasonCode: 'TOOL_BUDGET_EXCEEDED' },
+                    ),
                 });
                 continue;
             }
@@ -575,9 +624,7 @@ export async function runNodeOrchestration(params: {
                 );
             }
             await params.broker.markPlanStepStarted(call, plannedStep || undefined);
-            const toolKey = buildToolCallKey(call.name, call.arguments || {});
             let result;
-            const cached = executedToolResults.get(toolKey);
             if (cached) {
                 logger.warn(LogCode.AI_ORCHESTRATOR, 'NodeOrchestrator: duplicate tool call reused from cache', {
                     sessionId: params.snapshot.sessionId,
@@ -629,9 +676,13 @@ export async function runNodeOrchestration(params: {
                 duplicateOnlyRounds,
                 tools: actionableToolCalls.map((call) => call.name),
             });
+            if (isReadOnlyTask && actionableToolCalls.length > 0) {
+                shouldForceAnswerAfterRound = true;
+            }
         } else {
             duplicateOnlyRounds = 0;
         }
+        forceAnswerFromEvidence = shouldForceAnswerAfterRound;
     }
 
     throw new Error('Max orchestration rounds exceeded');
@@ -639,6 +690,57 @@ export async function runNodeOrchestration(params: {
 
 function buildToolCallKey(name: string, args: Record<string, any>): string {
     return `${name}:${stableStringify(args || {})}`;
+}
+
+function buildEvidenceOnlyAnswerInstruction(locale: 'en' | 'zh'): string {
+    if (locale === 'zh') {
+        return '不要再调用任何工具，也不要继续搜索。只基于当前对话里已经拿到的工具结果、缓存结果和公开来源证据，直接给出最终回答。';
+    }
+    return 'Do not call any more tools and do not continue searching. Use only the tool results, cached evidence, and public-source evidence already gathered in this conversation, then answer the user directly.';
+}
+
+function buildEvidenceOnlyProviderOptions(
+    snapshot: ChatContextSnapshot,
+    providerInfo: { provider: 'openai' | 'deepseek' | 'grok' },
+) {
+    if (providerInfo.provider !== 'grok') {
+        return {
+            metadata: {
+                session_id: String(snapshot.sessionId || ''),
+                task_id: String(snapshot.taskId || ''),
+            },
+            tool_context: snapshot.runtime.toolContext || {},
+            enable_search: false,
+        };
+    }
+
+    return {
+        metadata: {
+            session_id: String(snapshot.sessionId || ''),
+            task_id: String(snapshot.taskId || ''),
+        },
+        tool_context: snapshot.runtime.toolContext || {},
+        enable_search: false,
+        tool_policy: {
+            control_plane: 'node',
+            action_class: snapshot.policySnapshot?.actionClass || 'READ_ONLY',
+            mutation_allowed: Boolean(snapshot.policySnapshot?.mutationAllowed),
+            enforcement_level: snapshot.policySnapshot?.enforcementLevel || 'hard',
+            native_tools: {
+                enable_search: false,
+                enabled_tools: [],
+                required: false,
+                preferred_required_tool: null,
+                include_options: [],
+                allow_extra_sdk_tools: false,
+                reason: 'forced_final_answer',
+            },
+            execution: {
+                per_tool_timeout_ms: 20000,
+                total_tool_budget_ms: 45000,
+            },
+        },
+    };
 }
 
 function isStalePreviousResponseError(message: string): boolean {
@@ -931,6 +1033,49 @@ export function buildGenerationTools(
                 parameters: definition.parameters,
             },
         }));
+}
+
+function resolvePhaseAllowedTools(
+    allowedTools: string[],
+    skillResolution: ReturnType<typeof resolveNodeSkills>,
+    provider: 'openai' | 'deepseek' | 'grok',
+    phase: 'native_search_only' | 'local_analysis' | 'execution',
+): string[] {
+    if (provider !== 'grok') {
+        return allowedTools;
+    }
+    const socialQuery = skillResolution.querySignals.social || skillResolution.intentEnvelope.domain === 'farcaster';
+    const grokSocialDiscovery = skillResolution.intentEnvelope.primary_intent === 'social_discovery' && socialQuery;
+    if (!grokSocialDiscovery) {
+        return allowedTools;
+    }
+    if (phase === 'native_search_only') {
+        return [];
+    }
+    if (phase === 'local_analysis') {
+        return allowedTools.filter((toolName) => CHAIN_EVIDENCE_TOOLS.has(toolName));
+    }
+    return allowedTools;
+}
+
+function resolvePhaseAllowAllTools(
+    skillResolution: ReturnType<typeof resolveNodeSkills>,
+    provider: 'openai' | 'deepseek' | 'grok',
+    phase: 'native_search_only' | 'local_analysis' | 'execution',
+    defaultAllowAllTools: boolean,
+): boolean {
+    if (provider !== 'grok') {
+        return defaultAllowAllTools;
+    }
+    const socialQuery = skillResolution.querySignals.social || skillResolution.intentEnvelope.domain === 'farcaster';
+    const grokSocialDiscovery = skillResolution.intentEnvelope.primary_intent === 'social_discovery' && socialQuery;
+    if (!grokSocialDiscovery) {
+        return defaultAllowAllTools;
+    }
+    if (phase === 'native_search_only' || phase === 'local_analysis') {
+        return false;
+    }
+    return defaultAllowAllTools;
 }
 
 function toAssistantToolCall(call: { id: string; name: string; arguments: Record<string, any> }) {

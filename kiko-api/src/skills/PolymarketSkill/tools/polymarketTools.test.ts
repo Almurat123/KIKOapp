@@ -55,14 +55,18 @@ test('buildPolymarketMarketOverview groups hot, new, and tradable buckets', () =
     newMarkets: {
       eligibleWindowCount: 2,
       tradableWindowCount: 1,
+      recommendableWindowCount: 1,
       selectionNote: '1 market(s) are tradable now.',
       events: [
         {
           id: 'new-1',
           title: 'Solana Up or Down - March 24, 5:00AM-5:05AM ET',
           creationDate: '2026-03-24T08:55:00Z',
+          volume: 1900,
           liquidity: 2500,
           tradable: true,
+          recommendable: true,
+          recommendable_detail: 'ok',
           tradable_detail: 'ok',
           recommendedWindow: {
             startAt: '2026-03-24T09:00:00Z',
@@ -101,7 +105,9 @@ test('buildPolymarketMarketOverview groups hot, new, and tradable buckets', () =
   assert.equal(overview.buckets.hot_24h_markets.count, 1);
   assert.equal(overview.buckets.newest_short_window.count, 1);
   assert.equal(overview.buckets.tradable_now.count, 1);
+  assert.equal(overview.buckets.newest_short_window.recommendable_window_count, 1);
   assert.equal(overview.buckets.tradable_now.markets[0].id, 'new-1');
   assert.equal(overview.buckets.newest_short_window.events[0].tradable, true);
+  assert.equal(overview.buckets.newest_short_window.events[0].recommendable, true);
   assert.equal(overview.recommended_card?.market_slug, 'sol-up');
 });
