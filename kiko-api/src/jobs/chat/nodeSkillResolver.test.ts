@@ -249,6 +249,8 @@ test('Grok token leaderboard questions prefer local KiKo rankings over native se
     const resolution = resolveNodeSkills(snapshot, null, canonicalIntent);
 
     assert.equal(resolution.toolPhasePolicy.initialPhase, 'local_analysis');
+    assert.equal(resolution.searchMode, 'forbidden');
+    assert.equal(resolution.searchReason, 'local_token_leaderboard_preferred');
     assert.equal(resolution.allowAllTools, false);
     assert.ok(resolution.allowedTools.includes('get_trending_tokens'));
     assert.ok(resolution.preferredTools.includes('get_trending_tokens'));
@@ -261,6 +263,7 @@ test('Grok token leaderboard questions prefer local KiKo rankings over native se
         resolution,
     );
     assert.equal(providerOptions.enable_search, false);
+    assert.equal(resolution.intentEnvelope.search_mode, 'forbidden');
 });
 
 test('DeepSeek X plus contract-and-time queries require external search plus chain tools', () => {

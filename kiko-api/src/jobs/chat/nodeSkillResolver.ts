@@ -378,12 +378,14 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
         strategyNotes.push('Do not run token-risk scanning unless the user explicitly asks for a safety or risk check.');
     }
 
+    let effectiveSearchMode = matchResult.searchMode;
+    let effectiveSearchReason = matchResult.searchReason;
     const intentEnvelope = buildIntentEnvelope({
         snapshot,
         tradingIntent,
         canonicalIntent: normalizedIntent,
         querySignals,
-        searchMode: matchResult.searchMode,
+        searchMode: effectiveSearchMode,
         preferXNativeSearch,
         explicitlyMentionsFarcaster,
         explicitRiskRequest,
@@ -391,6 +393,11 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
         hasRequestedToken,
     });
     if (isGrok && shouldPreferLocalTokenLeaderboard(snapshot, intentEnvelope)) {
+        effectiveSearchMode = 'forbidden';
+        effectiveSearchReason = 'local_token_leaderboard_preferred';
+        intentEnvelope.search_mode = 'forbidden';
+        intentEnvelope.search_target = 'none';
+        intentEnvelope.required_evidence = intentEnvelope.required_evidence.filter((item) => item !== 'native_search_results');
         for (const toolName of LOCAL_TOKEN_LEADERBOARD_TOOLS) {
             if (availableToolNames.has(toolName) && !allowedTools.includes(toolName)) {
                 allowedTools.push(toolName);
@@ -427,8 +434,8 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
             skillId: match.skillId,
             score: match.score,
         })),
-        searchMode: matchResult.searchMode,
-        searchReason: matchResult.searchReason,
+        searchMode: effectiveSearchMode,
+        searchReason: effectiveSearchReason,
         allowedTools,
         blockedTools,
     });
@@ -442,8 +449,8 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
         strategyNotes,
         allowAllTools,
         rankedMatches: matchResult.rankedMatches,
-        searchMode: matchResult.searchMode,
-        searchReason: matchResult.searchReason,
+        searchMode: effectiveSearchMode,
+        searchReason: effectiveSearchReason,
         querySignals,
         intentEnvelope,
         toolPhasePolicy,

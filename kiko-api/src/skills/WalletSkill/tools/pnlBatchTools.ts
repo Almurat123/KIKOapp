@@ -1,8 +1,7 @@
 import pLimit from 'p-limit';
 import { Tool } from '../../../tooling/registry.js';
 import { resolveChainInput } from '../../../utils/chainParam.js';
-import * as zerionPnlService from '../../../services/zerionPnlService.js';
-import * as dunePnlService from '../../../services/dunePnlService.js';
+import * as duneWalletAnalysisService from '../../../services/duneWalletAnalysisService.js';
 import { logger } from '../../../utils/logger.js';
 import { LogCode } from '../../../config/logRegistry.js';
 
@@ -18,87 +17,123 @@ function isEvmChain(chain: string): boolean {
     return chain !== 'solana';
 }
 
+function sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+type BatchQueryProfile = 'wallet_token_pnl_analysis' | 'wallet_portfolio_token_breakdown';
+
 type BatchWalletPnlResult = {
     address: string;
-    source: 'zerion' | 'dune';
+    source: 'dune_analysis';
+    profile: BatchQueryProfile;
     realizedPnlUsd: number;
-    totalGainUsd: number;
-    winRate: number | null;
+    totalBuyUsd: number | null;
+    totalSellUsd: number | null;
+    profitPct: number | null;
     totalTrades: number | null;
-    coverage: 'wallet_level_summary_only' | 'token_level_breakdown';
-    providerLatencyMs: number;
-    fallbackTrace: string[];
+    tokenAddress: string | null;
+    tokenSymbol: string | null;
+    coverage: 'existing_wallet_breakdown_query';
 };
 
-async function fetchWalletPnlWithFallback(
+type AnalysisDeps = {
+    analyzeWalletTokenPnl: typeof duneWalletAnalysisService.analyzeWalletTokenPnl;
+    analyzeWalletPortfolioTokenBreakdown: typeof duneWalletAnalysisService.analyzeWalletPortfolioTokenBreakdown;
+};
+
+function resolveBatchProfile(args: any): BatchQueryProfile {
+    const explicit = String(args.query_profile || '').trim();
+    if (explicit === 'wallet_portfolio_token_breakdown') {
+        return 'wallet_portfolio_token_breakdown';
+    }
+    if (explicit === 'wallet_token_pnl_analysis') {
+        return 'wallet_token_pnl_analysis';
+    }
+    return args.token_address ? 'wallet_token_pnl_analysis' : 'wallet_portfolio_token_breakdown';
+}
+
+async function fetchWalletAnalysisResult(
     address: string,
     chain: string,
-    days: number
+    days: number,
+    profile: BatchQueryProfile,
+    tokenAddress: string | null,
+    deps: AnalysisDeps = {
+        analyzeWalletTokenPnl: duneWalletAnalysisService.analyzeWalletTokenPnl,
+        analyzeWalletPortfolioTokenBreakdown: duneWalletAnalysisService.analyzeWalletPortfolioTokenBreakdown,
+    }
 ): Promise<BatchWalletPnlResult | null> {
-    const fallbackTrace: string[] = [];
-
-    // Strict fallback strategy per wallet: Zerion first, Dune only if Zerion fails.
-    if (zerionPnlService.isZerionConfigured() && zerionPnlService.canUseZerionForChain(chain)) {
-        const zerion = await zerionPnlService.getWalletPnlFromZerion(address, chain, days);
-        if (zerion) {
-            return {
-                address,
-                source: 'zerion',
-                realizedPnlUsd: zerion.realizedGainUsd,
-                totalGainUsd: zerion.totalGainUsd,
-                winRate: null,
-                totalTrades: null,
-                coverage: 'wallet_level_summary_only',
-                providerLatencyMs: zerion.queryExecutionTimeMs,
-                fallbackTrace,
-            };
-        }
-        fallbackTrace.push('zerion_request_failed_or_empty');
-    } else {
-        fallbackTrace.push('zerion_not_configured_or_chain_unsupported');
+    if (profile === 'wallet_token_pnl_analysis') {
+        if (!tokenAddress) return null;
+        const token = await deps.analyzeWalletTokenPnl(address, chain, days, tokenAddress);
+        if (!token) return null;
+        return {
+            address,
+            source: 'dune_analysis',
+            profile,
+            realizedPnlUsd: token.realizedPnlUsd,
+            totalBuyUsd: token.totalBuyUsd,
+            totalSellUsd: token.totalSellUsd,
+            profitPct: token.profitPct,
+            totalTrades: null,
+            tokenAddress: token.tokenAddress,
+            tokenSymbol: token.tokenSymbol,
+            coverage: token.coverage,
+        };
     }
 
-    if (!isEvmChain(chain)) {
-        return null;
-    }
-
-    const dune = await dunePnlService.getWalletPnlFromDune(address, chain, days);
-    if (!dune) {
-        return null;
-    }
+    const portfolio = await deps.analyzeWalletPortfolioTokenBreakdown(address, chain, days, 50);
+    if (!portfolio) return null;
+    const aggregate = portfolio.tokens.reduce((acc, token) => {
+        acc.realizedPnlUsd += token.realizedPnlUsd;
+        acc.totalBuyUsd += token.totalBuyUsd;
+        acc.totalSellUsd += token.totalSellUsd;
+        acc.totalTrades += 1;
+        return acc;
+    }, {
+        realizedPnlUsd: 0,
+        totalBuyUsd: 0,
+        totalSellUsd: 0,
+        totalTrades: 0,
+    });
 
     return {
         address,
-        source: 'dune',
-        realizedPnlUsd: dune.totalRealizedPnlUsd,
-        totalGainUsd: dune.totalRealizedPnlUsd,
-        winRate: dune.winRate,
-        totalTrades: dune.totalTrades,
-        coverage: 'token_level_breakdown',
-        providerLatencyMs: dune.queryExecutionTimeMs,
-        fallbackTrace,
+        source: 'dune_analysis',
+        profile,
+        realizedPnlUsd: aggregate.realizedPnlUsd,
+        totalBuyUsd: aggregate.totalBuyUsd,
+        totalSellUsd: aggregate.totalSellUsd,
+        profitPct: aggregate.totalBuyUsd > 0
+            ? (aggregate.realizedPnlUsd / aggregate.totalBuyUsd) * 100
+            : null,
+        totalTrades: aggregate.totalTrades,
+        tokenAddress: null,
+        tokenSymbol: null,
+        coverage: portfolio.coverage,
     };
 }
 
 export const AnalyzeWalletPnlBatchTool: Tool = {
     definition: {
         name: 'analyze_wallet_pnl_batch',
-        description: 'Batch-analyze PNL for multiple wallets (ideal after early-buyer discovery). Per wallet uses strict fallback: Zerion first, Dune only on Zerion failure.',
+        description: 'Batch-analyze wallet PNL using Dune analysis semantics. With token_address it ranks wallets by single-token realized PnL; without token_address it ranks wallets by portfolio token-breakdown aggregate on EVM chains.',
         parameters: {
             type: 'object',
             properties: {
                 addresses: {
                     type: 'array',
-                    description: 'Wallet addresses to analyze (EVM or Solana). Recommended 5-20 addresses per call.',
+                    description: 'Wallet addresses to analyze. Recommended 5-20 addresses per call.',
                     items: { type: 'string' }
                 },
                 chain: {
                     type: 'string',
-                    description: 'Blockchain network (ethereum, base, bnb, polygon, arbitrum, optimism, avalanche, fantom, solana).',
+                    description: 'Blockchain network (ethereum, base, bnb, polygon, arbitrum, optimism, avalanche, solana).',
                 },
                 chain_id: {
                     type: 'number',
-                    description: 'Numeric chain ID (preferred), e.g. 1, 8453, 56, 900.',
+                    description: 'Numeric chain ID (preferred), e.g. 1, 8453, 56.',
                 },
                 days: {
                     type: 'number',
@@ -111,6 +146,15 @@ export const AnalyzeWalletPnlBatchTool: Tool = {
                     description: 'Maximum number of wallets to process from input list. Default 20, max 50.',
                     default: 20
                 },
+                token_address: {
+                    type: 'string',
+                    description: 'Optional token contract. When present, batch analysis ranks wallets by this token only.'
+                },
+                query_profile: {
+                    type: 'string',
+                    description: 'Analysis profile to use.',
+                    enum: ['wallet_token_pnl_analysis', 'wallet_portfolio_token_breakdown']
+                },
                 min_realized_pnl_usd: {
                     type: 'number',
                     description: 'Optional filter to keep only wallets with realized PNL >= this value.'
@@ -118,7 +162,7 @@ export const AnalyzeWalletPnlBatchTool: Tool = {
                 sort_by: {
                     type: 'string',
                     description: 'Ranking sort key.',
-                    enum: ['realized_pnl_desc', 'total_gain_desc'],
+                    enum: ['realized_pnl_desc', 'total_buy_desc', 'profit_pct_desc'],
                     default: 'realized_pnl_desc'
                 }
             },
@@ -151,6 +195,27 @@ export const AnalyzeWalletPnlBatchTool: Tool = {
                 return { success: false, error: `Unsupported days=${days}. Supported values: 1, 7, 30.` };
             }
 
+            const profile = resolveBatchProfile(args);
+            const tokenAddress = typeof args.token_address === 'string' && args.token_address.trim()
+                ? args.token_address.trim().toLowerCase()
+                : null;
+
+            if (!isEvmChain(chain)) {
+                return {
+                    success: false,
+                    error: `Batch analysis is currently supported for EVM chains only. Received ${chain}.`,
+                    profile,
+                };
+            }
+
+            if (profile === 'wallet_token_pnl_analysis' && !tokenAddress) {
+                return {
+                    success: false,
+                    error: 'token_address is required for wallet_token_pnl_analysis batch mode.',
+                    profile,
+                };
+            }
+
             const cap = Math.max(1, Math.min(Number(args.limit) || 20, 50));
             const candidates = uniqueAddresses.slice(0, cap);
 
@@ -173,28 +238,36 @@ export const AnalyzeWalletPnlBatchTool: Tool = {
             const minRealized = Number.isFinite(Number(args.min_realized_pnl_usd))
                 ? Number(args.min_realized_pnl_usd)
                 : undefined;
-            const sortBy = (args.sort_by === 'total_gain_desc' ? 'total_gain_desc' : 'realized_pnl_desc') as 'realized_pnl_desc' | 'total_gain_desc';
+            const sortBy = (args.sort_by === 'total_buy_desc'
+                ? 'total_buy_desc'
+                : args.sort_by === 'profit_pct_desc'
+                    ? 'profit_pct_desc'
+                    : 'realized_pnl_desc') as 'realized_pnl_desc' | 'total_buy_desc' | 'profit_pct_desc';
 
-            logger.info(LogCode.AI_TOOL_USED, 'Analyzing wallet PNL batch', {
+            logger.info(LogCode.AI_TOOL_USED, 'Analyzing wallet PNL batch with Dune analysis semantics', {
                 chain,
                 days,
+                profile,
                 requestedCount,
                 analyzing: validAddresses.length
             });
 
-            // Keep concurrency conservative to reduce provider 429 on free-tier API keys.
-            const limitRun = pLimit(2);
+            const limitRun = pLimit(1);
             const start = Date.now();
             const settled = await Promise.all(
-                validAddresses.map(address =>
+                validAddresses.map((address, index) =>
                     limitRun(async () => {
-                        const result = await fetchWalletPnlWithFallback(address, chain, days);
+                        if (index > 0) {
+                            await sleep(400);
+                        }
+                        const result = await fetchWalletAnalysisResult(address, chain, days, profile, tokenAddress);
                         return { address, result };
                     })
                 )
             );
             const elapsedMs = Date.now() - start;
 
+            const failedAddresses = settled.filter((item) => !item.result).map((item) => item.address);
             let wallets = settled
                 .filter(item => !!item.result)
                 .map(item => item.result as BatchWalletPnlResult);
@@ -204,47 +277,49 @@ export const AnalyzeWalletPnlBatchTool: Tool = {
             }
 
             wallets.sort((a, b) => {
-                if (sortBy === 'total_gain_desc') return b.totalGainUsd - a.totalGainUsd;
+                if (sortBy === 'total_buy_desc') return (b.totalBuyUsd || 0) - (a.totalBuyUsd || 0);
+                if (sortBy === 'profit_pct_desc') return (b.profitPct || Number.NEGATIVE_INFINITY) - (a.profitPct || Number.NEGATIVE_INFINITY);
                 return b.realizedPnlUsd - a.realizedPnlUsd;
             });
 
-            const sourceBreakdown = wallets.reduce((acc, w) => {
-                acc[w.source] = (acc[w.source] || 0) + 1;
-                return acc;
-            }, {} as Record<string, number>);
-
             const failedCount = validAddresses.length - wallets.length;
-            if (failedCount > 0) {
-                sourceBreakdown.failed = failedCount;
-            }
 
             return {
                 success: true,
                 chain,
                 days,
                 timeRange: days === 1 ? '24H' : `${days}D`,
+                profile,
+                requestedTokenAddress: tokenAddress,
                 requestedCount,
                 analyzedCount: validAddresses.length,
                 returnedCount: wallets.length,
                 invalidAddresses,
-                sourceBreakdown,
                 meta: {
-                    strictFallbackPerWallet: true,
+                    source: 'dune_analysis',
                     sortBy,
                     minRealizedPnlUsd: typeof minRealized === 'number' ? minRealized : null,
-                    batchElapsedMs: elapsedMs
+                    batchElapsedMs: elapsedMs,
+                    coverage: 'existing_wallet_breakdown_query',
+                    failedCount,
+                    failedAddresses,
+                    note: profile === 'wallet_token_pnl_analysis'
+                        ? 'Current batch token analysis runs the existing wallet breakdown Dune query per wallet, filters the target token locally, and uses conservative serial scheduling to reduce Dune rate limits.'
+                        : 'Current batch portfolio analysis aggregates the existing wallet breakdown Dune query per wallet and uses conservative serial scheduling to reduce Dune rate limits.',
                 },
                 wallets: wallets.map((w, i) => ({
                     rank: i + 1,
                     address: w.address,
                     source: w.source,
+                    profile: w.profile,
+                    tokenAddress: w.tokenAddress,
+                    tokenSymbol: w.tokenSymbol,
                     realizedPnlUsd: w.realizedPnlUsd,
-                    totalGainUsd: w.totalGainUsd,
-                    winRate: w.winRate,
+                    totalBuyUsd: w.totalBuyUsd,
+                    totalSellUsd: w.totalSellUsd,
+                    profitPct: w.profitPct,
                     totalTrades: w.totalTrades,
                     coverage: w.coverage,
-                    providerLatencyMs: w.providerLatencyMs,
-                    fallbackTrace: w.fallbackTrace
                 }))
             };
         } catch (error: any) {
@@ -254,4 +329,9 @@ export const AnalyzeWalletPnlBatchTool: Tool = {
             return { success: false, error: error?.message || 'Failed to analyze wallet batch PNL.' };
         }
     }
+};
+
+export const __testOnlyPnlBatch = {
+    resolveBatchProfile,
+    fetchWalletAnalysisResult,
 };

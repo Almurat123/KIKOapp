@@ -3,7 +3,7 @@ import { GetCrossChainQuoteTool, PrepareCrossChainTxTool } from '../skills/Cross
 import { GetTokenInfoTool, GetTrendingTokensTool, GetTokenPriceTool, GetHistoricalPriceTool, GetEarlyBuyersTool, AnalyzeCreatorTool } from '../skills/TokenSkill/index.js';
 import { ExternalWebSearchTool, GetGasPriceTool, GetMarketOverviewTool, GetEconomicCalendarTool, GetCurrentTimeTool } from '../skills/MarketSkill/index.js';
 import { PrepareSwapTransactionTool, SimulateSwapTool } from '../skills/SwapSkill/index.js';
-import { GetWalletInfoTool, SwitchChainTool, GetUserFavoritesTool, AnalyzeWalletPnlTool, AnalyzeWalletPnlBatchTool, GetTokenTopGainersTool } from '../skills/WalletSkill/index.js';
+import { GetWalletInfoTool, SwitchChainTool, GetUserFavoritesTool, AnalyzeWalletPnlTool, AnalyzeWalletPnlAnalysisTool, AnalyzeWalletPnlBatchTool, GetTokenTopGainersTool } from '../skills/WalletSkill/index.js';
 import { CheckTokenRiskTool } from '../skills/RiskSkill/index.js';
 import { GetTrendingCastsTool, GetFarcasterUserTool, SearchFarcasterCastsTool } from '../skills/SocialSkill/index.js';
 import { GetZoraTrendingTool, GetZoraProfileTool } from '../skills/ZoraSkill/index.js';
@@ -88,6 +88,7 @@ const BUILT_IN_TOOLS = [
     CancelPolymarketOrderTool,
     ModifyPolymarketOrderTool,
     AnalyzeWalletPnlTool,
+    AnalyzeWalletPnlAnalysisTool,
     AnalyzeWalletPnlBatchTool,
     GetTokenTopGainersTool,
     SetTokenAlertTool,

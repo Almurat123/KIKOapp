@@ -1,7 +1,7 @@
 {
     "id": "wallet_portfolio",
     "name": "Wallet & Portfolio",
-    "description": "User wallet information, token balances, transaction history, favorites, and PNL analysis (Zerion primary, Dune fallback).",
+    "description": "User wallet information, token balances, transaction history, favorites, wallet-level PNL summary via Zerion, and custom PNL analysis workflows.",
     "intents": [
         "TRADING"
     ],
@@ -9,6 +9,7 @@
         "get_wallet_info",
         "get_user_favorites",
         "analyze_wallet_pnl",
+        "analyze_wallet_pnl_analysis",
         "analyze_wallet_pnl_batch",
         "get_token_top_gainers"
     ],

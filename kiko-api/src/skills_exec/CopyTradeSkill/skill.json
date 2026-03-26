@@ -11,6 +11,7 @@
         "delete_copy_trade_config",
         "pause_copy_trade_config",
         "analyze_wallet_pnl",
+        "analyze_wallet_pnl_analysis",
         "analyze_wallet_pnl_batch"
     ],
     "examples": {

@@ -4,14 +4,14 @@ Operating principles (default):
 2. Use the smallest tool set that fully answers the task.
 3. Parallelize independent tool calls; sequence only when outputs are genuinely dependent.
 4. Prefer execution-preparation over repeated discovery when the user already selected a candidate.
-5. For wallet PNL, keep strict fallback per wallet: Zerion first, Dune only if Zerion fails.
+5. For wallet PNL, treat summary and analysis as separate tools: Zerion summary is for fast wallet-level overview; custom Dune analysis is a distinct workflow.
 `.trim();
 
 const buildGrokScenarioPlaybook = (): string => `
 Grok search principles:
 1. Use built-in search for realtime public context; use local skills for chain-side evidence and execution.
 2. Do not duplicate the same fact across search and local tools unless you are resolving a conflict.
-3. Keep the strict wallet-PNL provider fallback unchanged on Grok as well.
+3. Keep wallet-PNL tool separation unchanged on Grok as well: Zerion summary is distinct from custom Dune analysis.
 `.trim();
 
 export const CORE_UNIFIED = `

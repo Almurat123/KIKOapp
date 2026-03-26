@@ -19,7 +19,8 @@
      * Preserve full wallet addresses and tx hashes as plain text, not code-formatted cells.
      * If the user asks for smart money, whales, or high-quality wallets, you may add ranking analysis after the full early-buyer table, but the table still comes first.
    - Do not compress an early-buyer export into a whale-only summary. Keep the full list and only drop clear garbage/noise wallets or non-trade transfers when they are not real buys.
-   - Use strict provider fallback per wallet for PNL: Zerion first, Dune only if Zerion fails.
+   - Use `analyze_wallet_pnl` for fast wallet-level summary only.
+   - Use `analyze_wallet_pnl_analysis` only when a custom Dune analysis workflow is explicitly available for the task.
    - For screening workflows, follow this funnel: candidate discovery -> quality filtering -> batch wallet PNL ranking -> final shortlist.
 
 3. **Narrative & Explanation**:
