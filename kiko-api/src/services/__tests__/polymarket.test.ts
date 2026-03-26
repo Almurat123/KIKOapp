@@ -297,6 +297,8 @@ test('validateSelectionAgainstMarkets rejects token mismatches for the same ques
   assert.equal(validation.questionMatched, true);
   assert.equal(validation.outcomeMatched, true);
   assert.equal(validation.tokenMatched, false);
+  assert.equal(validation.resolvedTokenId, 'token-up');
+  assert.equal(validation.resolvedOutcome, 'Up');
 });
 
 test('mapCoinUpDownEvent marks orderable and exact 5-minute window metadata', () => {

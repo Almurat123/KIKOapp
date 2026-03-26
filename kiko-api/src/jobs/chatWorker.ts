@@ -30,6 +30,10 @@ import { isExplicitChainSwitchRequest } from './chat/chainIntent.js';
 
 type AITask = Awaited<ReturnType<typeof chatRepo.getTask>>;
 
+export function isEmptyAssistantCompletion(content: string, toolResults: Array<{ name: string }> = []): boolean {
+    return String(content || '').trim().length === 0 && toolResults.length === 0;
+}
+
 export class ChatWorker {
     private readonly repo = chatRepo;
     private readonly ws = chatWS;
@@ -298,6 +302,13 @@ export class ChatWorker {
                 toolCalls: broker.getToolResults().map((item) => item.name),
             });
 
+            const toolResults = broker.getToolResults().map((item) => ({ name: item.name }));
+            if (isEmptyAssistantCompletion(broker.getContent(), toolResults)) {
+                const error = new Error('I could not produce a stable response for that turn. Please retry.');
+                (error as any).code = 'EMPTY_ASSISTANT_RESPONSE';
+                throw error;
+            }
+
             const moderated = await moderationClient.moderateOutput(broker.getContent(), userId, task.sessionId, task.model);
             if (moderated.safe === false) {
                 const moderationMessage = sanitizeUserFacingError(buildOutputModerationErrorMessage(moderated));
@@ -306,7 +317,13 @@ export class ChatWorker {
                 (error as any).code = 'OUTPUT_MODERATION_BLOCK';
                 throw error;
             }
-            await broker.complete({ content: moderated.filtered_text || broker.getContent() });
+            const finalContent = moderated.filtered_text || broker.getContent();
+            if (isEmptyAssistantCompletion(finalContent, toolResults)) {
+                const error = new Error('I could not produce a stable response for that turn. Please retry.');
+                (error as any).code = 'EMPTY_ASSISTANT_RESPONSE';
+                throw error;
+            }
+            await broker.complete({ content: finalContent });
             logger.info(LogCode.AI_ORCHESTRATOR, 'ChatWorker: broker completion broadcast finished', {
                 taskId: task.id,
                 sessionId: task.sessionId,

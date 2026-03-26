@@ -922,6 +922,23 @@ export function collectVerifiedPolymarketTokenIds(
         }
     }
 
+    const selection = snapshot.polymarketSelection || null;
+    if (selection) {
+        const prepared = selection.preparedSelection;
+        const preparedToken = String(prepared?.tokenId || '').trim();
+        if (preparedToken) {
+            tokenIds.add(preparedToken);
+        }
+        for (const candidate of selection.candidates || []) {
+            for (const outcome of candidate.outcomes || []) {
+                const tokenId = String(outcome.tokenId || '').trim();
+                if (tokenId) {
+                    tokenIds.add(tokenId);
+                }
+            }
+        }
+    }
+
     return tokenIds;
 }
 

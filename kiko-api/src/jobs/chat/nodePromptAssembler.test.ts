@@ -149,6 +149,53 @@ test('assembleGenerationMessages marks requested chain separately from connected
     assert.match(String(userMessage?.content || ''), /requested_chain.name: BNB Chain/);
 });
 
+test('assembleGenerationMessages exposes persisted polymarket selection state to the model', () => {
+    const snapshot: ChatContextSnapshot = {
+        sessionId: 'session-poly',
+        taskId: 'task-poly',
+        model: 'gpt-5-mini',
+        history: [],
+        lastUserMessage: 'bet down for 1$',
+        runtime: {
+            contextBlocks: {},
+            userSettings: {},
+        },
+        requestedTokenAddresses: [],
+        requestedTokenSymbols: ['BTC'],
+        polymarketSelection: {
+            sourceTool: 'get_polymarket_coin_updown_markets',
+            capturedAt: '2026-03-26T05:58:03.000Z',
+            candidates: [
+                {
+                    title: 'Bitcoin Up or Down - March 26, 1:55AM-2:00AM ET',
+                    question: 'Bitcoin Up or Down - March 26, 1:55AM-2:00AM ET',
+                    marketId: '305787',
+                    marketSlug: 'btc-updown-5m-1774504500',
+                    conditionId: 'condition-1',
+                    outcomes: [
+                        { name: 'Up', tokenId: 'token-up' },
+                        { name: 'Down', tokenId: 'token-down' },
+                    ],
+                },
+            ],
+        },
+        toolDefinitions: [],
+    };
+
+    const providerInfo: ProviderInfo = {
+        provider: 'openai',
+        model: snapshot.model,
+        supportsNativeSearch: false,
+        supportsPreviousResponse: true,
+    };
+
+    const messages = assembleGenerationMessages(snapshot, [], providerInfo);
+    const userMessage = messages.find((message) => message.role === 'user');
+    const content = String(userMessage?.content || '');
+    assert.match(content, /polymarket_selection: market=Bitcoin Up or Down - March 26, 1:55AM-2:00AM ET/i);
+    assert.match(content, /outcomes=\[Up:token-up, Down:token-down\]/i);
+});
+
 test('assembleGenerationMessages tells non-native-search providers to use local search tools when search is required', () => {
     const snapshot: ChatContextSnapshot = {
         sessionId: 'session-4',

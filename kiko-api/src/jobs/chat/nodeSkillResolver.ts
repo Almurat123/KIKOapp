@@ -70,6 +70,15 @@ const GROK_BLOCKED_FARCASTER_TOOLS = new Set([
     'get_farcaster_user',
 ]);
 
+const LOCAL_TOKEN_LEADERBOARD_TOOLS = new Set([
+    'get_trending_tokens',
+    'get_token_info',
+]);
+
+const EXPLICIT_SOCIAL_SOURCE_QUERY_RE = /\b(x|twitter|tweet|tweets|farcaster|cast|casts)\b/i;
+const EXPLICIT_SEARCH_QUERY_RE = /\b(search|look\s*up|lookup|find on|search on|from x|from twitter|from farcaster)\b/i;
+const TOKEN_LEADERBOARD_QUERY_RE = /\b(trend|trending|hot token|hot coin|top token|top coin|pumping|top gainers|gainers|movers)\b/i;
+
 export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: TradingIntent | null, canonicalIntent?: CanonicalIntent | null): SkillResolution {
     const isGrok = String(snapshot.model || '').toLowerCase().includes('grok');
     const rawQuery = String(snapshot.lastUserMessage || '');
@@ -364,6 +373,19 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
         asksWalletPnl,
         hasRequestedToken,
     });
+    if (isGrok && shouldPreferLocalTokenLeaderboard(snapshot, intentEnvelope)) {
+        for (const toolName of LOCAL_TOKEN_LEADERBOARD_TOOLS) {
+            if (availableToolNames.has(toolName) && !allowedTools.includes(toolName)) {
+                allowedTools.push(toolName);
+            }
+        }
+        allowedTools = allowedTools.filter((toolName) => LOCAL_TOKEN_LEADERBOARD_TOOLS.has(toolName));
+        preferredTools.splice(0, preferredTools.length, ...preferredTools.filter((toolName) => LOCAL_TOKEN_LEADERBOARD_TOOLS.has(toolName)));
+        pushPreferred(preferredTools, 'get_trending_tokens');
+        pushPreferred(preferredTools, 'get_token_info');
+        allowAllTools = false;
+        strategyNotes.push('This read-only token trend query is satisfiable from KiKo local token leaderboard data. Start with get_trending_tokens and stay on local token evidence unless the user explicitly asks for social/search sources.');
+    }
     if (isGrok) {
         allowedTools = allowedTools.filter((toolName) => !GROK_BLOCKED_FARCASTER_TOOLS.has(toolName));
         preferredTools.splice(0, preferredTools.length, ...preferredTools.filter((toolName) => !GROK_BLOCKED_FARCASTER_TOOLS.has(toolName)));
@@ -543,6 +565,14 @@ function buildToolPhasePolicy(
         };
     }
 
+    if (supportsNativeSearch && shouldPreferLocalTokenLeaderboard(snapshot, intentEnvelope)) {
+        return {
+            initialPhase: 'local_analysis',
+            nextPhaseAfterNativeSearch: null,
+            searchRetryLimit: 0,
+        };
+    }
+
     if (
         supportsNativeSearch
         && intentEnvelope.primary_intent === 'social_discovery'
@@ -594,6 +624,23 @@ function describePhasePolicy(intentEnvelope: IntentEnvelope, toolPhasePolicy: To
         return `Structured intent: ${intentEnvelope.primary_intent}. Execution phase is allowed only for the approved mutation tools in this turn.`;
     }
     return `Structured intent: ${intentEnvelope.primary_intent} in domain=${intentEnvelope.domain}. Start with local analysis tools; search stays gated by the phase policy.`;
+}
+
+function shouldPreferLocalTokenLeaderboard(snapshot: ChatContextSnapshot, intentEnvelope: IntentEnvelope): boolean {
+    if (intentEnvelope.execution_risk !== 'read_only') return false;
+    if (intentEnvelope.primary_intent !== 'search_discovery') return false;
+    if (intentEnvelope.domain !== 'token') return false;
+    const hasLocalLeaderboardTool = (snapshot.toolDefinitions || []).some((definition) => definition.name === 'get_trending_tokens');
+    if (!hasLocalLeaderboardTool) return false;
+    const query = String(snapshot.lastUserMessage || '').trim();
+    if (!query) return false;
+    if (!TOKEN_LEADERBOARD_QUERY_RE.test(query)) return false;
+    if (EXPLICIT_SOCIAL_SOURCE_QUERY_RE.test(query)) return false;
+    if (EXPLICIT_SEARCH_QUERY_RE.test(query)) return false;
+    if (intentEnvelope.search_target === 'x' || intentEnvelope.search_target === 'x_and_web' || intentEnvelope.search_target === 'web') {
+        return false;
+    }
+    return true;
 }
 
 function ensurePrimarySkill(selected: string[], skillId: string) {

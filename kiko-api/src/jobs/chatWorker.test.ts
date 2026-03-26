@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test, { mock } from 'node:test';
 import { moderationClient } from '../services/moderationClient.js';
-import { ChatWorker } from './chatWorker.js';
+import { ChatWorker, isEmptyAssistantCompletion } from './chatWorker.js';
 import { ChatStreamBroker } from './chat/streamBroker.js';
 
 test('ChatWorker starts the broker and emits progress before wallet hydration begins', async () => {
@@ -88,4 +88,11 @@ test('ChatWorker starts the broker and emits progress before wallet hydration be
         worker.hydrateWalletSnapshotIfNeeded = originalHydrate;
         mock.restoreAll();
     }
+});
+
+test('empty assistant completion is rejected when there are no tool results', () => {
+    assert.equal(isEmptyAssistantCompletion('', []), true);
+    assert.equal(isEmptyAssistantCompletion('   ', []), true);
+    assert.equal(isEmptyAssistantCompletion('answer', []), false);
+    assert.equal(isEmptyAssistantCompletion('', [{ name: 'get_trending_tokens' }]), false);
 });

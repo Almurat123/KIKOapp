@@ -220,6 +220,34 @@ test('DeepSeek X trending queries stay out of native-search-only while keeping f
     assert.ok(resolution.strategyNotes.some((note) => note.includes('native X search')));
 });
 
+test('Grok token leaderboard questions prefer local KiKo rankings over native search', () => {
+    const canonicalIntent = makeCanonicalIntent({
+        domain: 'token',
+        intent: 'social_discovery',
+        searchMode: 'required',
+        searchTarget: 'none',
+        requiresRealtime: true,
+    });
+    const snapshot = makeSnapshot("What's the trending token on BSC?", {
+        normalizedIntent: canonicalIntent,
+    });
+    const resolution = resolveNodeSkills(snapshot, null, canonicalIntent);
+
+    assert.equal(resolution.toolPhasePolicy.initialPhase, 'local_analysis');
+    assert.equal(resolution.allowAllTools, false);
+    assert.ok(resolution.allowedTools.includes('get_trending_tokens'));
+    assert.ok(resolution.preferredTools.includes('get_trending_tokens'));
+    assert.ok(!resolution.allowedTools.includes('prepare_swap_transaction'));
+
+    const providerOptions = buildProviderOptions(
+        snapshot,
+        resolveProviderInfo(snapshot.model),
+        snapshot.lastUserMessage,
+        resolution,
+    );
+    assert.equal(providerOptions.enable_search, false);
+});
+
 test('DeepSeek X plus contract-and-time queries require external search plus chain tools', () => {
     const contract = '0x1111111111111111111111111111111111111111';
     const canonicalIntent = makeCanonicalIntent({

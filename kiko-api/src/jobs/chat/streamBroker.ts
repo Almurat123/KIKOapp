@@ -23,6 +23,7 @@ import type {
     PlanStepStatus,
     ProviderNativeEvidenceSnapshot,
 } from './contracts.js';
+import { extractPolymarketSelectionState, mergePolymarketSelectionState } from './polymarketSelectionState.js';
 
 export class ChatStreamBroker {
     private content = '';
@@ -394,6 +395,14 @@ export class ChatStreamBroker {
             if (renderContract) {
                 data.renderContracts = mergeRenderContracts(this.assistantData.renderContracts || [], renderContract);
                 liveDataPatch.renderContracts = data.renderContracts;
+            }
+            const nextPolymarketSelection = extractPolymarketSelectionState(result.name, normalizedResult);
+            if (nextPolymarketSelection) {
+                data.polymarketSelection = mergePolymarketSelectionState(
+                    this.assistantData.polymarketSelection || null,
+                    nextPolymarketSelection,
+                );
+                liveDataPatch.polymarketSelection = data.polymarketSelection;
             }
             this.assistantData = data;
             await chatRepo.updateMessage(this.params.assistantMessageId, { data, status: 'streaming' });

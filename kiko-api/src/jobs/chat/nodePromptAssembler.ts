@@ -1,6 +1,6 @@
 import { CORE_UNIFIED, GROK_SEARCH_DELTA } from '../../services/ai/prompts/v2/CORE.js';
 import { resolveCanonicalChainRef } from './chainIntent.js';
-import type { ChatContextSnapshot, PlanCard, ProviderNativeEvidenceSnapshot } from './contracts.js';
+import type { ChatContextSnapshot, PlanCard, PolymarketSelectionState, ProviderNativeEvidenceSnapshot } from './contracts.js';
 import { summarizeCanonicalIntent } from './canonicalIntent.js';
 import type { IntentEnvelope, ToolPhase } from './nodeSkillResolver.js';
 import type { ProviderInfo } from './providerPolicyBuilder.js';
@@ -267,6 +267,12 @@ function buildWorkflowStateBlock(snapshot: ChatContextSnapshot): string {
         lines.push(`recent_tools: ${recentTools.join(', ')}`);
         lines.push('discovery_state: reuse_recent_evidence_when_relevant');
     }
+    if (snapshot.polymarketSelection) {
+        const summary = summarizePolymarketSelection(snapshot.polymarketSelection);
+        if (summary) {
+            lines.push(`polymarket_selection: ${summary}`);
+        }
+    }
 
     return lines.length > 0 ? ['[WORKFLOW_STATE]', ...lines.map((line) => `- ${line}`)].join('\n') : '';
 }
@@ -345,9 +351,25 @@ function buildUserContext(snapshot: ChatContextSnapshot): Record<string, any> {
         recent_tools: summarizeRecentToolTrace(snapshot.recentToolTrace),
         requested_addresses: limitArray(snapshot.requestedTokenAddresses, 3),
         requested_symbols: limitArray(snapshot.requestedTokenSymbols, 6),
+        polymarket_selection: summarizePolymarketSelection(snapshot.polymarketSelection),
         balance_snapshot_at: normalizePrimitive(runtime.balanceSnapshotAt),
     };
     return stripEmptyEntries(compact);
+}
+
+function summarizePolymarketSelection(selection: PolymarketSelectionState | null | undefined): string | undefined {
+    if (!selection) return undefined;
+    const prepared = selection.preparedSelection;
+    if (prepared?.question && prepared?.outcome && prepared?.tokenId) {
+        return `prepared=${prepared.question} | outcome=${prepared.outcome} | token_id=${prepared.tokenId}`;
+    }
+    const primary = selection.primaryCandidate || selection.currentCandidate || selection.executionCandidate || selection.candidates?.[0];
+    if (!primary) return undefined;
+    const outcomes = (primary.outcomes || [])
+        .slice(0, 4)
+        .map((outcome) => `${outcome.name}:${outcome.tokenId || 'none'}`)
+        .join(', ');
+    return `market=${primary.question} | slug=${primary.marketSlug || 'none'} | outcomes=[${outcomes}]`;
 }
 
 function summarizeFarcaster(farcaster: Record<string, any> | null | undefined): Record<string, any> | undefined {

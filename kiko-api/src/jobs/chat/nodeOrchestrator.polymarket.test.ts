@@ -122,6 +122,33 @@ test('collectVerifiedPolymarketTokenIds accepts token ids from 5-minute coin mar
   assert.deepEqual(Array.from(tokenIds).sort(), ['btc-down-token', 'btc-up-token']);
 });
 
+test('collectVerifiedPolymarketTokenIds accepts token ids from persisted polymarket selection state', () => {
+  const tokenIds = collectVerifiedPolymarketTokenIds(
+    new Map(),
+    makeSnapshot('buy BTC up', {
+      polymarketSelection: {
+        sourceTool: 'get_polymarket_coin_updown_markets',
+        capturedAt: '2026-03-26T05:00:00.000Z',
+        candidates: [
+          {
+            title: 'Bitcoin Up or Down - March 27, 3:20AM-3:25AM ET',
+            question: 'Bitcoin Up or Down - March 27, 3:20AM-3:25AM ET',
+            marketId: '305999',
+            marketSlug: 'btc-updown-5m-2',
+            conditionId: 'condition-2',
+            outcomes: [
+              { name: 'Up', tokenId: 'real-up-token' },
+              { name: 'Down', tokenId: 'real-down-token' },
+            ],
+          },
+        ],
+      } as any,
+    }),
+  );
+
+  assert.deepEqual(Array.from(tokenIds).sort(), ['real-down-token', 'real-up-token']);
+});
+
 test('resolvePolymarketOrderGuardResult blocks unverified token ids', () => {
   const result = resolvePolymarketOrderGuardResult(
     {

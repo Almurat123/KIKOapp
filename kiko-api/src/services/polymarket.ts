@@ -118,6 +118,8 @@ interface PolymarketSelectionValidation {
     marketId: string | null;
     marketSlug: string | null;
     conditionId: string | null;
+    resolvedTokenId: string | null;
+    resolvedOutcome: string | null;
     questionMatched: boolean;
     outcomeMatched: boolean;
     tokenMatched: boolean;
@@ -681,6 +683,8 @@ function validateSelectionAgainstMarkets(params: {
             marketId: null,
             marketSlug: null,
             conditionId: null,
+            resolvedTokenId: null,
+            resolvedOutcome: null,
             questionMatched: false,
             outcomeMatched: false,
             tokenMatched: false,
@@ -699,6 +703,8 @@ function validateSelectionAgainstMarkets(params: {
             marketId: matchedMarket.id,
             marketSlug: matchedMarket.slug,
             conditionId: matchedMarket.conditionId,
+            resolvedTokenId: null,
+            resolvedOutcome: null,
             questionMatched: true,
             outcomeMatched: false,
             tokenMatched: false,
@@ -716,6 +722,8 @@ function validateSelectionAgainstMarkets(params: {
         marketId: matchedMarket.id,
         marketSlug: matchedMarket.slug,
         conditionId: matchedMarket.conditionId,
+        resolvedTokenId: String(matchedOutcome.tokenId || '').trim() || null,
+        resolvedOutcome: matchedOutcome.name,
         questionMatched: true,
         outcomeMatched: true,
         tokenMatched,
@@ -964,6 +972,8 @@ export async function verifyPolymarketSelection(params: {
             marketId: null,
             marketSlug: null,
             conditionId: null,
+            resolvedTokenId: null,
+            resolvedOutcome: null,
             questionMatched: false,
             outcomeMatched: false,
             tokenMatched: false,
@@ -1022,6 +1032,8 @@ export async function verifyPolymarketSelection(params: {
         questionMatched: false,
         outcomeMatched: false,
         tokenMatched: false,
+        resolvedTokenId: null,
+        resolvedOutcome: null,
         acceptingOrders: null,
         reason: params.eventId ? 'event_lookup_failed' : 'question_not_found',
     };
@@ -1047,6 +1059,8 @@ export async function resolveAuthoritativePolymarketSelection(params: {
             marketId: normalizeString(params.marketId),
             marketSlug: normalizeString(params.marketSlug),
             conditionId: null,
+            resolvedTokenId: null,
+            resolvedOutcome: null,
             questionMatched: false,
             outcomeMatched: false,
             tokenMatched: false,

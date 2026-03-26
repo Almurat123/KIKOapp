@@ -48,6 +48,50 @@ export interface TradeConfirmationState {
     };
 }
 
+export interface PolymarketSelectionOutcomeState {
+    name: string;
+    tokenId: string | null;
+    probability?: string | null;
+    price?: number | null;
+}
+
+export interface PolymarketSelectionCandidateState {
+    title: string;
+    question: string;
+    marketId: string | null;
+    marketSlug: string | null;
+    conditionId: string | null;
+    windowRole?: 'current' | 'next' | 'execution' | 'watchlist' | 'candidate';
+    orderable?: boolean;
+    live?: boolean;
+    orderableDetail?: string | null;
+    windowStartEt?: string | null;
+    windowEndEt?: string | null;
+    outcomes: PolymarketSelectionOutcomeState[];
+}
+
+export interface PolymarketPreparedSelectionState {
+    question: string;
+    outcome: string;
+    tokenId: string;
+    resolvedTokenId?: string | null;
+    marketId?: string | null;
+    marketSlug?: string | null;
+    conditionId?: string | null;
+    amountUsd?: number | null;
+}
+
+export interface PolymarketSelectionState {
+    sourceTool: string;
+    capturedAt: string;
+    currentTimeEtStrict?: string | null;
+    primaryCandidate?: PolymarketSelectionCandidateState | null;
+    currentCandidate?: PolymarketSelectionCandidateState | null;
+    executionCandidate?: PolymarketSelectionCandidateState | null;
+    preparedSelection?: PolymarketPreparedSelectionState | null;
+    candidates: PolymarketSelectionCandidateState[];
+}
+
 export interface ConversationActionState {
     pendingAction: 'none' | 'swap' | 'order' | 'copy_trade';
     confirmationPayload?: TradeConfirmationState | null;
@@ -228,6 +272,7 @@ export interface ChatContextSnapshot {
     normalizedIntent?: CanonicalIntent | null;
     normalizationState?: CanonicalIntentNormalizationState | null;
     conversationActionState?: ConversationActionState | null;
+    polymarketSelection?: PolymarketSelectionState | null;
     toolDefinitions: ToolDefinition[];
     policySnapshot?: ControlPolicySnapshot | null;
 }

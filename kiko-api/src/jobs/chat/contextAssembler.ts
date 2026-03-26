@@ -11,6 +11,7 @@ import {
     extractRequestedTokenSymbolsFromHistory,
     sanitizeHistory,
 } from './conversationStateResolver.js';
+import { extractRecentPolymarketSelection } from './polymarketSelectionState.js';
 import { resolveRuntimeDirectives } from './runtimeDirectiveResolver.js';
 
 const CHAT_CONTEXT_RECENT_WINDOW = Math.max(4, parseInt(process.env.CHAT_CONTEXT_RECENT_WINDOW || '12', 10) || 12);
@@ -199,6 +200,7 @@ export function assembleChatContext(params: {
         normalizedIntent: null,
         normalizationState: null,
         conversationActionState: null,
+        polymarketSelection: extractRecentPolymarketSelection(messages),
         toolDefinitions,
         policySnapshot: null,
     };
