@@ -386,28 +386,18 @@ export class ChatStreamBroker {
                 toolTrace,
                 orchestrationToolResults: [...(this.assistantData.orchestrationToolResults || []), result],
             };
+            const liveDataPatch: Record<string, any> = {
+                toolTrace: data.toolTrace,
+                orchestrationToolResults: data.orchestrationToolResults,
+            };
             const renderContract = extractRenderContract(normalizedResult);
             if (renderContract) {
                 data.renderContracts = mergeRenderContracts(this.assistantData.renderContracts || [], renderContract);
-                if (this.params.userId) {
-                    chatWS.broadcastToUser(this.params.userId, {
-                        type: 'client_action',
-                        sessionId: this.params.sessionId,
-                        data: {
-                            message_id: this.params.assistantMessageId,
-                            targetMessageId: this.params.assistantMessageId,
-                            action: {
-                                type: 'update_message_data',
-                                data: {
-                                    renderContracts: data.renderContracts,
-                                },
-                            },
-                        },
-                    });
-                }
+                liveDataPatch.renderContracts = data.renderContracts;
             }
             this.assistantData = data;
             await chatRepo.updateMessage(this.params.assistantMessageId, { data, status: 'streaming' });
+            this.broadcastAssistantDataPatch(liveDataPatch);
             await this.persistToolSideEffects(result);
         } catch (error: any) {
             logger.warn(LogCode.DB_TRANSACTION_FAILED, 'ChatStreamBroker: failed to record tool result', {
@@ -446,6 +436,9 @@ export class ChatStreamBroker {
             ...this.assistantData,
             providerNativeEvidence: merged,
         };
+        this.broadcastAssistantDataPatch({
+            providerNativeEvidence: merged,
+        });
         await this.persistRuntimeState('streaming');
     }
 
@@ -834,6 +827,23 @@ export class ChatStreamBroker {
             status,
         });
         this.broadcastAgentRuntime();
+    }
+
+    private broadcastAssistantDataPatch(patch: Record<string, any>) {
+        if (!this.params.userId) return;
+        if (!patch || typeof patch !== 'object' || Object.keys(patch).length === 0) return;
+        chatWS.broadcastToUser(this.params.userId, {
+            type: 'client_action',
+            sessionId: this.params.sessionId,
+            data: {
+                message_id: this.params.assistantMessageId,
+                targetMessageId: this.params.assistantMessageId,
+                action: {
+                    type: 'update_message_data',
+                    data: patch,
+                },
+            },
+        });
     }
 
     private broadcastAgentRuntime() {

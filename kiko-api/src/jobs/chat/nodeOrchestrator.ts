@@ -838,12 +838,27 @@ function createOrchestrationError(code: string, message: string): Error {
     return error;
 }
 
-const POLYMARKET_TOKEN_SOURCE_TOOLS = new Set([
-    'get_polymarket_event',
-    'get_polymarket_trending_markets',
-    'get_new_markets',
-    'get_polymarket_coin_updown_markets',
-]);
+function isTrustedPolymarketEvidenceSource(toolName: string, result: any): boolean {
+    const normalizedTool = String(toolName || '').trim();
+    if (!normalizedTool) return false;
+
+    if (result && typeof result === 'object') {
+        const source = String((result as Record<string, any>).source || '').trim().toLowerCase();
+        const type = String((result as Record<string, any>).type || '').trim().toLowerCase();
+        const selectionValid = Boolean((result as Record<string, any>)?.selection_validation?.valid);
+        const authoritativeValid = Boolean((result as Record<string, any>)?.authoritative_resolution?.valid);
+        const hasMarketList = Array.isArray((result as Record<string, any>).markets);
+        const hasBuckets = Boolean((result as Record<string, any>).buckets && typeof (result as Record<string, any>).buckets === 'object');
+        const hasPrimaryCandidate = Boolean((result as Record<string, any>).primary_candidate || (result as Record<string, any>).current_candidate || (result as Record<string, any>).execution_candidate);
+
+        if (selectionValid || authoritativeValid) return true;
+        if (normalizedTool === 'get_new_markets' && hasMarketList) return true;
+        if (normalizedTool.startsWith('get_polymarket_') && (hasMarketList || hasBuckets || hasPrimaryCandidate)) return true;
+        if (source.includes('polymarket') && (type.includes('coin up/down') || type.includes('market overview'))) return true;
+    }
+
+    return false;
+}
 
 export function resolvePolymarketOrderGuardResult(
     call: { id: string; name: string; arguments: Record<string, any> },
@@ -861,8 +876,8 @@ export function resolvePolymarketOrderGuardResult(
     }
 
     const error = tokenId
-        ? 'Polymarket order blocked: token_id was not verified by get_polymarket_event, get_polymarket_trending_markets, get_new_markets, or get_polymarket_coin_updown_markets in the current evidence chain.'
-        : 'Polymarket order blocked: missing concrete token_id. Resolve the exact selected outcome with get_polymarket_event, get_polymarket_trending_markets, get_new_markets, or get_polymarket_coin_updown_markets first.';
+        ? 'Polymarket order blocked: token_id was not verified by a trusted Polymarket discovery or preparation result in the current evidence chain.'
+        : 'Polymarket order blocked: missing concrete token_id. Resolve the exact selected outcome with a trusted Polymarket discovery or preparation tool first.';
 
     return {
         id: call.id,
@@ -874,7 +889,7 @@ export function resolvePolymarketOrderGuardResult(
         result: {
             error,
             reasonCode: 'PRECHECK_REQUIRED',
-            required_tools: Array.from(POLYMARKET_TOKEN_SOURCE_TOOLS),
+            required_tools: ['trusted_polymarket_discovery_or_prep'],
             token_id: tokenId || null,
         },
         metadata: { source: 'polymarket_token_guard' },
@@ -890,7 +905,7 @@ export function collectVerifiedPolymarketTokenIds(
     for (const item of executedToolResults.values()) {
         if (!item?.ok) continue;
         const toolName = String(item?.name || '').trim();
-        if (!POLYMARKET_TOKEN_SOURCE_TOOLS.has(toolName)) continue;
+        if (!isTrustedPolymarketEvidenceSource(toolName, item.result)) continue;
         for (const tokenId of extractPolymarketTokenIds(item.result)) {
             tokenIds.add(tokenId);
         }
@@ -900,7 +915,7 @@ export function collectVerifiedPolymarketTokenIds(
     for (const toolCall of recentCalls) {
         const toolName = String(toolCall?.tool || '').trim();
         const status = String(toolCall?.status || '').trim().toLowerCase();
-        if (!POLYMARKET_TOKEN_SOURCE_TOOLS.has(toolName)) continue;
+        if (!isTrustedPolymarketEvidenceSource(toolName, toolCall?.result)) continue;
         if (!['success', 'cached'].includes(status)) continue;
         for (const tokenId of extractPolymarketTokenIds(toolCall?.result)) {
             tokenIds.add(tokenId);
