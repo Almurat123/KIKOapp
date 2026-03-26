@@ -1,4 +1,5 @@
 import { Tool } from '../../../tooling/registry.js';
+import { formatZonedDateTime, formatZonedDateTimeParts, formatZonedIsoLike } from '../../../utils/timeFormatting.js';
 
 interface TimeSnapshot {
     timezone: string;
@@ -8,31 +9,13 @@ interface TimeSnapshot {
 }
 
 function formatTimeSnapshot(now: Date, timeZone: string): TimeSnapshot {
-    const formatter = new Intl.DateTimeFormat('en-CA', {
-        timeZone,
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-        hour12: false,
-    });
-
-    const parts = formatter.formatToParts(now);
-    const read = (type: Intl.DateTimeFormatPartTypes) => parts.find((part) => part.type === type)?.value || '00';
-    const year = read('year');
-    const month = read('month');
-    const day = read('day');
-    const hour = read('hour');
-    const minute = read('minute');
-    const second = read('second');
+    const parts = formatZonedDateTimeParts(now, timeZone);
 
     return {
         timezone: timeZone,
-        date: `${year}-${month}-${day}`,
-        time: `${hour}:${minute}:${second}`,
-        iso_like: `${year}-${month}-${day}T${hour}:${minute}:${second}`,
+        date: `${parts.year}-${parts.month}-${parts.day}`,
+        time: `${parts.hour}:${parts.minute}:${parts.second}`,
+        iso_like: formatZonedIsoLike(now, timeZone),
     };
 }
 
@@ -65,6 +48,7 @@ export const GetCurrentTimeTool: Tool = {
             },
             local: formatTimeSnapshot(now, requestedTimeZone),
             market_time: formatTimeSnapshot(now, 'America/New_York'),
+            market_time_strict: formatZonedDateTime(now, 'America/New_York'),
             note: 'Use absolute timestamps and the America/New_York market clock for short-window Polymarket markets.',
         };
     },

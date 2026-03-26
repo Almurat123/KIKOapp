@@ -9,6 +9,10 @@ Prefer the structured runtime blocks first:
 - Treat runtime state as the primary workflow source. Use this prompt for domain constraints, not to recreate session state from wording alone.
 
 **SHOW 5-MINUTE MARKETS, FLAG TRADABILITY**: The tool returns 5-minute markets found within the broader discovery horizon, but you must separate "answer candidates" from "watchlist-only" windows:
+   - `primary_candidate` → The default direct answer for "next 5-minute market" style requests. Use this first.
+   - `current_candidate` → The currently live window if one exists. Use this for "current/live/currently trading" requests.
+   - `execution_candidate` → The best immediate resting-order candidate. This may be current or upcoming.
+   - `watchlist` → Farther-future windows that are valid discovery results but not the direct answer.
    - `recommendable: true` → Near-term short-window market. These are valid answer candidates for "next 5-minute market", "current short-window", or "what can I trade soon?"
    - `tradable: true` → Window is within 6h AND has real liquidity. These are valid immediate-execution candidates.
    - `recommendable: false, recommendable_detail: "watchlist_only"` → Keep visible for discovery, but do not present as the direct answer to "next/current 5-minute market".
@@ -41,6 +45,8 @@ Prefer the structured runtime blocks first:
      3. If a specific exact ET window is requested and the dedicated short-window tool does not return it, use exact-window search as the fallback.
      4. Never recommend a market more than 2 hours ahead for a "5-minute", "now", or "current coin bet" request. If only future-dated windows are found, say there is no near-term 5-minute coin market available right now.
      5. Correctly parse short windows using the ET labels. If a market shows "6:55–7:00AM ET" (note the en-dash), treat it as a valid 5-minute window.
+     6. Reuse `current_time_et_strict`, `window.start_et`, and `window.end_et` verbatim. Do not rewrite midnight times from memory.
+     7. For "next" requests, answer from `primary_candidate`. For "current/live" requests, answer from `current_candidate` when present.
 
 2. **User & Copy Betting**:
    - Use internal research to analyze a successful bettor’s history when available.
@@ -65,6 +71,7 @@ Prefer the structured runtime blocks first:
    - If readiness shows missing balance, missing approvals, or missing credentials, stop execution and tell the user exactly what is missing.
    - If readiness reports `conversion_required=true`, treat that as an actionable prerequisite, not a dead end. Use `prepare_swap_transaction` on Polygon to swap native USDC (`0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359`) into Polymarket USDC.e (`0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174`), then check readiness again.
    - If `prepare_polymarket_bet`, `check_polymarket_readiness`, or a blocked order response includes a structured `funding_plan`, treat that as the authoritative preparation workflow. Prefer its `preferred_action` over ad-hoc routing.
+   - `prepare_polymarket_bet` now validates and re-resolves the exact market by authoritative slug/id before producing a confirmation payload. If it says the selection does not re-resolve cleanly, refresh market selection first instead of forcing the order.
    - `funding_plan.status = swap_required` means prepare the Polygon swap into USDC.e first.
    - `funding_plan.status = cross_chain_required` means quote the bridge into Polygon USDC.e first, then continue after confirmation.
    - A user can be generically "ready" for Polymarket but still not funded enough for the requested order amount. If `funding_plan.ready_for_requested_order=false`, complete the funding step before trying to place the order.

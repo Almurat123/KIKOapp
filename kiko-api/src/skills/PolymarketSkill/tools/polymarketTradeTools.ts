@@ -3,7 +3,7 @@ import { getTradesByAssetId } from '../../../services/polymarketTradeService.js'
 import { getExecutablePrice } from '../../../services/polymarketDataService.js';
 import { checkTradingReadiness } from '../../../services/polymarketApprovalService.js';
 import { buildPolymarketFundingPlan } from '../../../services/polymarketFundingPlan.js';
-import { getEventDetails, verifyPolymarketSelection } from '../../../services/polymarket.js';
+import { getEventDetails, resolveAuthoritativePolymarketSelection, verifyPolymarketSelection } from '../../../services/polymarket.js';
 import { computeConfirmationToken } from '../../../jobs/chat/executionGate.js';
 
 /**
@@ -210,6 +210,14 @@ export const PreparePolymarketBetTool: Tool = {
                 event_id: {
                     type: 'string',
                     description: 'Optional Polymarket event ID to enrich the response with sibling markets and metadata.'
+                },
+                market_id: {
+                    type: 'string',
+                    description: 'Optional exact Polymarket market ID from discovery. Prefer passing this for short-window markets.'
+                },
+                market_slug: {
+                    type: 'string',
+                    description: 'Optional exact Polymarket market slug from discovery. Prefer passing this for short-window markets.'
                 }
             },
             required: ['token_id', 'question', 'outcome']
@@ -221,6 +229,8 @@ export const PreparePolymarketBetTool: Tool = {
         outcome: string;
         amount_usd?: number;
         event_id?: string;
+        market_id?: string;
+        market_slug?: string;
     }, context) => {
         const tokenId = String(args.token_id || '').trim();
         if (!tokenId) {
@@ -253,6 +263,29 @@ export const PreparePolymarketBetTool: Tool = {
                 reason: 'question_not_found' as const,
             })),
         ]);
+
+        const authoritativeSelection = selectionValidation.matched
+            ? await resolveAuthoritativePolymarketSelection({
+                question: args.question,
+                outcome: args.outcome,
+                tokenId,
+                marketId: args.market_id ?? selectionValidation.marketId,
+                marketSlug: args.market_slug ?? selectionValidation.marketSlug,
+            }).catch(() => ({
+                matched: false,
+                source: 'none' as const,
+                eventId: null,
+                eventTitle: null,
+                marketId: args.market_id ?? selectionValidation.marketId ?? null,
+                marketSlug: args.market_slug ?? selectionValidation.marketSlug ?? null,
+                conditionId: null,
+                questionMatched: false,
+                outcomeMatched: false,
+                tokenMatched: false,
+                acceptingOrders: null,
+                reason: 'event_lookup_failed' as const,
+            }))
+            : null;
 
         let readiness: Awaited<ReturnType<typeof checkTradingReadiness>> | null = null;
         const userId = String(context?.userId || '').trim();
@@ -297,7 +330,7 @@ export const PreparePolymarketBetTool: Tool = {
             }
             : null;
 
-        const selectionIsValid = Boolean(selectionValidation?.matched);
+        const selectionIsValid = Boolean(selectionValidation?.matched && authoritativeSelection?.matched);
         const safeOrderArgs = selectionIsValid ? orderArgs : null;
         const swapFundingConfirmation = selectionIsValid && fundingPlan?.preferred_action?.tool_name === 'prepare_swap_transaction'
             ? {
@@ -308,7 +341,7 @@ export const PreparePolymarketBetTool: Tool = {
             }
             : null;
         const nextStep = !selectionIsValid
-            ? 'Refresh the exact selected market and outcome first. The provided question/outcome/token_id do not resolve to the same live market.'
+            ? 'Refresh the exact selected market and outcome first. The selection did not re-resolve cleanly against the authoritative Polymarket market record.'
             : readiness == null
                 ? 'If you want to place this bet next, check readiness or place the order directly if the account is already prepared.'
                 : fundingPlan?.ready_for_requested_order
@@ -316,6 +349,17 @@ export const PreparePolymarketBetTool: Tool = {
                     : fundingPlan?.preferred_action?.reason
                         || readiness.missingSteps[0]
                         || 'Complete readiness setup before placing the order.';
+
+        console.info('[PolymarketBetPrep]', {
+            question: args.question,
+            outcome: args.outcome,
+            token_id: tokenId,
+            selection_reason_code: selectionValidation.reason,
+            authoritative_reason_code: authoritativeSelection?.reason || 'event_lookup_failed',
+            selection_valid: selectionIsValid,
+            market_id: args.market_id ?? selectionValidation.marketId ?? null,
+            market_slug: args.market_slug ?? selectionValidation.marketSlug ?? null,
+        });
 
         return {
             source: 'Polymarket Bet Prep',
@@ -338,6 +382,29 @@ export const PreparePolymarketBetTool: Tool = {
                 token_matched: selectionValidation.tokenMatched,
                 accepting_orders: selectionValidation.acceptingOrders,
             },
+            authoritative_resolution: authoritativeSelection
+                ? {
+                    valid: authoritativeSelection.matched,
+                    reason: authoritativeSelection.reason,
+                    market_id: authoritativeSelection.marketId,
+                    market_slug: authoritativeSelection.marketSlug,
+                    condition_id: authoritativeSelection.conditionId,
+                    question_matched: authoritativeSelection.questionMatched,
+                    outcome_matched: authoritativeSelection.outcomeMatched,
+                    token_matched: authoritativeSelection.tokenMatched,
+                    accepting_orders: authoritativeSelection.acceptingOrders,
+                }
+                : {
+                    valid: false,
+                    reason: 'event_lookup_failed',
+                    market_id: args.market_id ?? selectionValidation.marketId ?? null,
+                    market_slug: args.market_slug ?? selectionValidation.marketSlug ?? null,
+                    condition_id: null,
+                    question_matched: false,
+                    outcome_matched: false,
+                    token_matched: false,
+                    accepting_orders: null,
+                },
             live_quote: {
                 buy_price: buyPrice,
                 sell_price: sellPrice,
@@ -360,6 +427,8 @@ export const PreparePolymarketBetTool: Tool = {
             enrichment: {
                 event_id_used: args.event_id ?? null,
                 event_lookup_ok: Boolean(event),
+                market_id_used: args.market_id ?? selectionValidation.marketId ?? null,
+                market_slug_used: args.market_slug ?? selectionValidation.marketSlug ?? null,
             },
             requires_confirmation: Boolean(safeOrderArgs || swapFundingConfirmation),
             confirmation_payload: safeOrderArgs

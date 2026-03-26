@@ -298,3 +298,147 @@ test('validateSelectionAgainstMarkets rejects token mismatches for the same ques
   assert.equal(validation.outcomeMatched, true);
   assert.equal(validation.tokenMatched, false);
 });
+
+test('mapCoinUpDownEvent marks orderable and exact 5-minute window metadata', () => {
+  const mapped = __testables.mapCoinUpDownEvent({
+    id: 'event-1',
+    title: 'Bitcoin Up or Down - March 26, 12:40AM-12:45AM ET',
+    slug: 'btc-updown-5m-1774500000',
+    liquidity: 50763.4148,
+    volume24hr: 196,
+    markets: [{
+      id: '1712668',
+      question: 'Bitcoin Up or Down - March 26, 12:40AM-12:45AM ET',
+      conditionId: '0xcondition',
+      slug: 'btc-updown-5m-1774500000',
+      outcomes: '["Up","Down"]',
+      clobTokenIds: '["token-up","token-down"]',
+      outcomePrices: '["0.505","0.495"]',
+      volume: '2',
+      volume24hr: 196,
+      liquidity: '48341.8377',
+      endDate: '2026-03-26T04:45:00Z',
+      closed: false,
+      acceptingOrders: true,
+      bestBid: 0.5,
+      bestAsk: 0.51,
+    }],
+  }, new Date('2026-03-26T04:40:50Z'));
+
+  assert.ok(mapped);
+  assert.equal(mapped.orderable, true);
+  assert.equal(mapped.live, true);
+  assert.equal(mapped.window.duration_minutes, 5);
+  assert.equal(mapped.window.start_et, '2026-03-26 00:40:00');
+});
+
+test('mapCoinUpDownEvent excludes fuzzy non-5-minute windows', () => {
+  const mapped = __testables.mapCoinUpDownEvent({
+    id: 'event-1',
+    title: 'Bitcoin Up or Down - March 26, 12:30AM-12:45AM ET',
+    slug: 'btc-updown-15m',
+    liquidity: 7569.1456,
+    volume24hr: 10,
+    markets: [{
+      id: '1712626',
+      question: 'Bitcoin Up or Down - March 26, 12:30AM-12:45AM ET',
+      conditionId: '0xcondition',
+      slug: 'btc-updown-15m',
+      outcomes: '["Up","Down"]',
+      clobTokenIds: '["token-up","token-down"]',
+      outcomePrices: '["0.3","0.7"]',
+      volume: '2',
+      volume24hr: 10,
+      liquidity: '8274.612',
+      endDate: '2026-03-26T04:45:00Z',
+      closed: false,
+      acceptingOrders: true,
+      bestBid: 0.3,
+      bestAsk: 0.31,
+    }],
+  }, new Date('2026-03-26T04:30:50Z'));
+
+  assert.equal(mapped, null);
+});
+
+test('applyCoinUpDownSelectionState prefers nearest upcoming window as primary and live window for execution', () => {
+  const now = new Date('2026-03-26T04:40:50Z');
+  const live = __testables.mapCoinUpDownEvent({
+    id: 'event-live',
+    title: 'Bitcoin Up or Down - March 26, 12:40AM-12:45AM ET',
+    slug: 'btc-updown-live',
+    liquidity: 20000,
+    volume24hr: 100,
+    markets: [{
+      id: 'm-live',
+      question: 'Bitcoin Up or Down - March 26, 12:40AM-12:45AM ET',
+      conditionId: '0xlive',
+      slug: 'btc-updown-live',
+      outcomes: '["Up","Down"]',
+      clobTokenIds: '["live-up","live-down"]',
+      outcomePrices: '["0.5","0.5"]',
+      volume: '2',
+      volume24hr: 100,
+      liquidity: '20000',
+      endDate: '2026-03-26T04:45:00Z',
+      closed: false,
+      acceptingOrders: true,
+      bestBid: 0.5,
+      bestAsk: 0.51,
+    }],
+  }, now)!;
+  const next = __testables.mapCoinUpDownEvent({
+    id: 'event-next',
+    title: 'Bitcoin Up or Down - March 26, 12:45AM-12:50AM ET',
+    slug: 'btc-updown-next',
+    liquidity: 16000,
+    volume24hr: 50,
+    markets: [{
+      id: 'm-next',
+      question: 'Bitcoin Up or Down - March 26, 12:45AM-12:50AM ET',
+      conditionId: '0xnext',
+      slug: 'btc-updown-next',
+      outcomes: '["Up","Down"]',
+      clobTokenIds: '["next-up","next-down"]',
+      outcomePrices: '["0.5","0.5"]',
+      volume: '2',
+      volume24hr: 50,
+      liquidity: '16000',
+      endDate: '2026-03-26T04:50:00Z',
+      closed: false,
+      acceptingOrders: true,
+      bestBid: 0.5,
+      bestAsk: 0.51,
+    }],
+  }, now)!;
+  const farther = __testables.mapCoinUpDownEvent({
+    id: 'event-farther',
+    title: 'Bitcoin Up or Down - March 26, 1:00AM-1:05AM ET',
+    slug: 'btc-updown-farther',
+    liquidity: 10000,
+    volume24hr: 10,
+    markets: [{
+      id: 'm-farther',
+      question: 'Bitcoin Up or Down - March 26, 1:00AM-1:05AM ET',
+      conditionId: '0xfarther',
+      slug: 'btc-updown-farther',
+      outcomes: '["Up","Down"]',
+      clobTokenIds: '["far-up","far-down"]',
+      outcomePrices: '["0.5","0.5"]',
+      volume: '2',
+      volume24hr: 10,
+      liquidity: '10000',
+      endDate: '2026-03-26T05:05:00Z',
+      closed: false,
+      acceptingOrders: true,
+      bestBid: 0.5,
+      bestAsk: 0.51,
+    }],
+  }, now)!;
+
+  const selected = __testables.applyCoinUpDownSelectionState([live, next, farther]);
+  assert.equal(selected.primaryCandidate?.title, next.title);
+  assert.equal(selected.executionCandidate?.title, live.title);
+  assert.equal(selected.watchlist[0]?.title, farther.title);
+  assert.equal(selected.markets.find((item: any) => item.id === next.id)?.next_window_candidate, true);
+});

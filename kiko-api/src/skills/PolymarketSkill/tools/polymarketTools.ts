@@ -14,6 +14,7 @@ import {
     getCoinUpDownMarkets,
 } from '../../../services/polymarket.js';
 import { chatWS } from '../../../services/chatWebSocket.js';
+import { formatZonedDateTime } from '../../../utils/timeFormatting.js';
 
 function formatDateLabel(value?: string | null): string | null {
     if (typeof value !== 'string') return null;
@@ -22,16 +23,7 @@ function formatDateLabel(value?: string | null): string | null {
 }
 
 function formatEtTimestamp(date: Date): string {
-    return new Intl.DateTimeFormat('en-CA', {
-        timeZone: 'America/New_York',
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-        hour12: false,
-    }).format(date);
+    return formatZonedDateTime(date, 'America/New_York');
 }
 
 function formatUsd(value: number): string {
@@ -554,23 +546,31 @@ export const GetPolymarketCoinUpDownMarketsTool: Tool = {
             windowsAhead: args.windows_ahead,
         });
 
-        const recommended = result.markets[0] || null;
+        const recommended = result.primaryCandidate || result.currentCandidate || result.executionCandidate || result.markets[0] || null;
         const renderContract = buildPolymarketListRenderContract({
             id: 'polymarket_coin_updown_markets',
             title: '5-minute coin markets',
             summary: result.note,
             columns: [
                 { key: 'title', label: 'Market' },
-                { key: 'tradable', label: 'Tradable' },
-                { key: 'tradable_detail', label: 'Status' },
+                { key: 'window_role', label: 'Window role' },
+                { key: 'orderable', label: 'Orderable' },
+                { key: 'orderable_detail', label: 'Status' },
                 { key: 'slug', label: 'Slug' },
             ],
             rows: result.markets.flatMap((market) => {
                 if (!market) return [];
                 return [{
                     title: market.title,
-                    tradable: market.tradable ? 'yes' : 'no',
-                    tradable_detail: market.tradable_detail || '',
+                    window_role: market.next_window_candidate
+                        ? 'next'
+                        : market.live
+                            ? 'current'
+                            : market.watchlist_only
+                                ? 'watchlist'
+                                : 'candidate',
+                    orderable: market.orderable ? 'yes' : 'no',
+                    orderable_detail: market.orderable_detail || '',
                     slug: market.slug || '',
                 }];
             }),
@@ -579,9 +579,38 @@ export const GetPolymarketCoinUpDownMarketsTool: Tool = {
             source: 'Polymarket',
             type: 'Coin Up/Down 5-minute Markets',
             current_time_et: result.currentTimeEt,
+            current_time_et_strict: result.currentTimeEtStrict,
             series: result.series,
             count: result.count,
             note: result.note,
+            reason_code: result.reasonCode,
+            primary_candidate: result.primaryCandidate ? {
+                id: result.primaryCandidate.id,
+                title: result.primaryCandidate.title,
+                slug: result.primaryCandidate.slug,
+                orderable: result.primaryCandidate.orderable,
+                orderable_detail: result.primaryCandidate.orderable_detail,
+                live: result.primaryCandidate.live,
+                window: result.primaryCandidate.window,
+            } : null,
+            execution_candidate: result.executionCandidate ? {
+                id: result.executionCandidate.id,
+                title: result.executionCandidate.title,
+                slug: result.executionCandidate.slug,
+                orderable: result.executionCandidate.orderable,
+                orderable_detail: result.executionCandidate.orderable_detail,
+                live: result.executionCandidate.live,
+                window: result.executionCandidate.window,
+            } : null,
+            current_candidate: result.currentCandidate ? {
+                id: result.currentCandidate.id,
+                title: result.currentCandidate.title,
+                slug: result.currentCandidate.slug,
+                orderable: result.currentCandidate.orderable,
+                orderable_detail: result.currentCandidate.orderable_detail,
+                live: result.currentCandidate.live,
+                window: result.currentCandidate.window,
+            } : null,
             recommended_market: recommended ? {
                 id: recommended.id,
                 title: recommended.title,
@@ -590,6 +619,7 @@ export const GetPolymarketCoinUpDownMarketsTool: Tool = {
                 tradable_detail: recommended.tradable_detail,
                 window: recommended.window,
             } : null,
+            watchlist: result.watchlist,
             markets: result.markets,
             renderContract,
         };

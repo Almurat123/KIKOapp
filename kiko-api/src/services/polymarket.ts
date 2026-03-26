@@ -4,6 +4,7 @@
  */
 
 import * as unifiedApiService from '../config/unifiedApiService.js';
+import { formatZonedDateTime, formatZonedDateTimeParts } from '../utils/timeFormatting.js';
 
 const GAMMA_API_BASE = 'https://gamma-api.polymarket.com';
 
@@ -67,6 +68,46 @@ interface ParsedMarket {
     negRisk: boolean;
     enableOrderBook: boolean;
     outcomes: ParsedOutcome[];
+}
+
+interface CoinUpDownMarketCandidate {
+    id: string;
+    title: string;
+    slug: string | null;
+    liquidity: number;
+    volume24hr: number;
+    orderable: boolean;
+    orderable_detail: 'ok' | 'orders_not_open' | 'no_liquidity_yet' | 'expired';
+    tradable: boolean;
+    tradable_detail: 'ok' | 'orders_not_open' | 'no_liquidity_yet' | 'expired';
+    live: boolean;
+    next_window_candidate: boolean;
+    watchlist_only: boolean;
+    current_time_et_strict: string;
+    window: {
+        start_at: string;
+        end_at: string;
+        start_et: string;
+        end_et: string;
+        status: ParsedMarketWindow['status'];
+        seconds_to_start: number;
+        seconds_to_end: number;
+        duration_minutes: number;
+    };
+    market: {
+        id: string;
+        question: string;
+        slug: string | null;
+        condition_id: string | null;
+        accepting_orders: boolean;
+        best_bid: number | null;
+        best_ask: number | null;
+        outcomes: Array<{
+            name: string;
+            probability: string;
+            token_id: string | null;
+        }>;
+    };
 }
 
 interface PolymarketSelectionValidation {
@@ -174,39 +215,26 @@ function getEtParts(now: Date): {
     minute: number;
     second: number;
 } {
-    const formatter = new Intl.DateTimeFormat('en-CA', {
-        timeZone: 'America/New_York',
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-        hour12: false,
-    });
-    const parts = formatter.formatToParts(now);
-    const read = (type: Intl.DateTimeFormatPartTypes) => Number(parts.find((part) => part.type === type)?.value || '0');
+    const parts = formatZonedDateTimeParts(now, 'America/New_York');
     return {
-        year: read('year'),
-        month: read('month'),
-        day: read('day'),
-        hour: read('hour'),
-        minute: read('minute'),
-        second: read('second'),
+        year: Number(parts.year),
+        month: Number(parts.month),
+        day: Number(parts.day),
+        hour: Number(parts.hour),
+        minute: Number(parts.minute),
+        second: Number(parts.second),
     };
 }
 
 function formatDateTimeInEt(date: Date): string {
-    return new Intl.DateTimeFormat('en-CA', {
-        timeZone: 'America/New_York',
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-        hour12: false,
-    }).format(date);
+    return formatZonedDateTime(date, 'America/New_York');
+}
+
+function formatEtStrict(value: string | Date | null | undefined): string | null {
+    if (!value) return null;
+    const date = value instanceof Date ? value : new Date(value);
+    if (Number.isNaN(date.getTime())) return null;
+    return formatDateTimeInEt(date);
 }
 
 function formatEtTitleTime(hour24: number, minute: number): string {
@@ -276,14 +304,24 @@ function buildFiveMinuteSearchQueries(now: Date, coin: string, windowCount: numb
     return queries;
 }
 
-function mapCoinUpDownEvent(event: any, now: Date) {
+function isCoinUpDownSeriesEvent(event: any, requestedSeries: string[]): boolean {
+    const title = normalizeComparableText(event?.title);
+    if (!title.includes('up or down')) return false;
+    return requestedSeries.some((series) => title.startsWith(normalizeComparableText(`${series} Up or Down -`)));
+}
+
+function isExactFiveMinuteWindow(window: ParsedMarketWindow | null): boolean {
+    return Boolean(window && window.durationMinutes === 5 && window.startAt && window.endAt);
+}
+
+function mapCoinUpDownEvent(event: any, now: Date): CoinUpDownMarketCandidate | null {
     const activeMarkets: PolymarketMarket[] = Array.isArray(event?.markets)
         ? event.markets.filter((market: any) => !market?.closed)
         : [];
     const parsedMarkets: ParsedMarket[] = activeMarkets.map((market) => parseMarket(market));
     const primaryMarket = parsedMarkets[0] || null;
     const window = parseMarketWindowLabel(String(primaryMarket?.question || event?.title || ''), now);
-    if (!primaryMarket || !window) return null;
+    if (!primaryMarket || !window || !isExactFiveMinuteWindow(window)) return null;
 
     const liquidity = Math.floor(Number(event?.liquidity || primaryMarket.liquidity || 0));
     const withinHorizon = window.status === 'live'
@@ -291,8 +329,10 @@ function mapCoinUpDownEvent(event: any, now: Date) {
     if (!withinHorizon) return null;
 
     const acceptingOrders = Boolean((activeMarkets[0] && activeMarkets[0].acceptingOrders) ?? primaryMarket.acceptingOrders);
-    const tradable = acceptingOrders && liquidity >= MIN_TRADABLE_LIQUIDITY && window.status !== 'expired';
-    const tradableDetail = !acceptingOrders
+    const orderable = acceptingOrders && liquidity >= MIN_TRADABLE_LIQUIDITY && window.status !== 'expired';
+    const orderableDetail = window.status === 'expired'
+        ? 'expired'
+        : !acceptingOrders
         ? 'orders_not_open'
         : liquidity < MIN_TRADABLE_LIQUIDITY
             ? 'no_liquidity_yet'
@@ -304,15 +344,23 @@ function mapCoinUpDownEvent(event: any, now: Date) {
         slug: normalizeString(event.slug) || primaryMarket.slug,
         liquidity,
         volume24hr: Math.floor(Number(event.volume24hr || primaryMarket.volume24hr || 0)),
-        tradable,
-        tradable_detail: tradableDetail,
+        orderable,
+        orderable_detail: orderableDetail,
+        tradable: orderable,
+        tradable_detail: orderableDetail,
+        live: window.status === 'live',
+        next_window_candidate: false,
+        watchlist_only: false,
+        current_time_et_strict: formatDateTimeInEt(now),
         window: {
-            start_at: window.startAt,
-            end_at: window.endAt,
+            start_at: window.startAt!,
+            end_at: window.endAt!,
+            start_et: formatEtStrict(window.startAt)!,
+            end_et: formatEtStrict(window.endAt)!,
             status: window.status,
-            seconds_to_start: window.secondsToStart,
-            seconds_to_end: window.secondsToEnd,
-            duration_minutes: window.durationMinutes,
+            seconds_to_start: window.secondsToStart ?? 0,
+            seconds_to_end: window.secondsToEnd ?? 0,
+            duration_minutes: window.durationMinutes ?? 5,
         },
         market: {
             id: primaryMarket.id,
@@ -331,14 +379,15 @@ function mapCoinUpDownEvent(event: any, now: Date) {
     };
 }
 
-function compareCoinUpDownCandidate(a: ReturnType<typeof mapCoinUpDownEvent>, b: ReturnType<typeof mapCoinUpDownEvent>): number {
-    const rank = (item: ReturnType<typeof mapCoinUpDownEvent>): number => {
+function compareCoinUpDownCandidate(a: CoinUpDownMarketCandidate | null, b: CoinUpDownMarketCandidate | null): number {
+    const rank = (item: CoinUpDownMarketCandidate | null): number => {
         if (!item) return 5;
-        if (item.tradable && item.window.status === 'live') return 0;
-        if (item.tradable && item.window.status === 'upcoming') return 1;
-        if (item.window.status === 'live') return 2;
+        if (item.live && item.orderable) return 0;
+        if (item.live) return 1;
+        if (item.orderable && item.window.status === 'upcoming') return 2;
         if (item.window.status === 'upcoming') return 3;
-        return 4;
+        if (item.watchlist_only) return 4;
+        return 5;
     };
 
     const diff = rank(a) - rank(b);
@@ -351,6 +400,68 @@ function compareCoinUpDownCandidate(a: ReturnType<typeof mapCoinUpDownEvent>, b:
         return Number(b.window.seconds_to_end || 0) - Number(a.window.seconds_to_end || 0);
     }
     return b.liquidity - a.liquidity;
+}
+
+function pickCurrentCoinUpDownCandidate(markets: CoinUpDownMarketCandidate[]): CoinUpDownMarketCandidate | null {
+    return markets
+        .filter((market) => market.live)
+        .sort(compareCoinUpDownCandidate)[0] || null;
+}
+
+function pickNextCoinUpDownCandidate(markets: CoinUpDownMarketCandidate[]): CoinUpDownMarketCandidate | null {
+    return markets
+        .filter((market) => market.window.status === 'upcoming')
+        .sort((a, b) => a.window.seconds_to_start - b.window.seconds_to_start)[0] || null;
+}
+
+function pickExecutionCoinUpDownCandidate(markets: CoinUpDownMarketCandidate[]): CoinUpDownMarketCandidate | null {
+    const immediate = markets
+        .filter((market) => market.orderable)
+        .sort(compareCoinUpDownCandidate);
+    return immediate[0] || null;
+}
+
+function applyCoinUpDownSelectionState(markets: CoinUpDownMarketCandidate[]): {
+    markets: CoinUpDownMarketCandidate[];
+    primaryCandidate: CoinUpDownMarketCandidate | null;
+    executionCandidate: CoinUpDownMarketCandidate | null;
+    currentCandidate: CoinUpDownMarketCandidate | null;
+    watchlist: CoinUpDownMarketCandidate[];
+    reasonCode: 'ok' | 'primary_candidate_missing' | 'no_near_term_window' | 'future_watchlist_only';
+} {
+    const currentCandidate = pickCurrentCoinUpDownCandidate(markets);
+    const primaryCandidate = pickNextCoinUpDownCandidate(markets) || currentCandidate;
+    const executionCandidate = pickExecutionCoinUpDownCandidate(markets);
+    const primaryKey = primaryCandidate ? `${primaryCandidate.id}:${primaryCandidate.market.id}` : null;
+    const currentKey = currentCandidate ? `${currentCandidate.id}:${currentCandidate.market.id}` : null;
+    const annotated = markets.map((market) => {
+        const key = `${market.id}:${market.market.id}`;
+        const nextWindowCandidate = Boolean(primaryKey && key === primaryKey && market.window.status === 'upcoming');
+        const watchlistOnly = Boolean(primaryKey && key !== primaryKey && market.window.status === 'upcoming');
+        return {
+            ...market,
+            next_window_candidate: nextWindowCandidate,
+            watchlist_only: watchlistOnly,
+        };
+    });
+    const watchlist = annotated.filter((market) => market.watchlist_only);
+    const reasonCode = primaryCandidate
+        ? 'ok'
+        : watchlist.length > 0
+            ? 'future_watchlist_only'
+            : markets.length > 0
+                ? 'primary_candidate_missing'
+                : 'no_near_term_window';
+    return {
+        markets: annotated,
+        primaryCandidate,
+        executionCandidate,
+        currentCandidate: currentKey
+            ? annotated.find((market) => `${market.id}:${market.market.id}` === currentKey) || null
+            : null,
+        watchlist,
+        reasonCode,
+    };
 }
 
 function to24Hour(hour: number, meridiem: string): number {
@@ -618,6 +729,8 @@ export const __testables = {
     normalizeComparableText,
     parseMarket,
     parseMarketWindowLabel,
+    mapCoinUpDownEvent,
+    applyCoinUpDownSelectionState,
     compareNewMarketPriority,
     isEligibleNewMarketWindow,
     normalizeSearchEvents,
@@ -625,6 +738,7 @@ export const __testables = {
     getCurrentEtWindowStart,
     buildExactFiveMinuteWindowQuery,
     validateSelectionAgainstMarkets,
+    isExactFiveMinuteWindow,
     MIN_TRADABLE_LIQUIDITY,
     TRADABLE_HORIZON_SECONDS,
     RECOMMENDABLE_HORIZON_SECONDS,
@@ -779,6 +893,45 @@ async function searchRawEvents(query: string, limit: number = 10): Promise<any[]
     return normalizeSearchEvents(response);
 }
 
+async function fetchActiveEventsChronologically(params: {
+    limit: number;
+    offset?: number;
+}): Promise<PolymarketEvent[]> {
+    const url = `${GAMMA_API_BASE}/events?limit=${params.limit}&offset=${params.offset || 0}&active=true&closed=false&order=startDate&ascending=true`;
+    return unifiedApiService.fetchJson<PolymarketEvent[]>({
+        url,
+        method: 'GET',
+        requestTimeout: 15000,
+        endpointName: 'polymarket-events-chronological',
+    });
+}
+
+async function fetchAuthoritativeMarket(params: {
+    marketId?: string | null;
+    marketSlug?: string | null;
+}): Promise<ParsedMarket | null> {
+    const marketId = normalizeString(params.marketId);
+    const marketSlug = normalizeString(params.marketSlug);
+    if (!marketId && !marketSlug) return null;
+
+    const query = marketId
+        ? `id=${encodeURIComponent(marketId)}`
+        : `slug=${encodeURIComponent(String(marketSlug))}`;
+    const url = `${GAMMA_API_BASE}/markets?limit=5&active=true&closed=false&${query}`;
+    const data = await unifiedApiService.fetchJson<PolymarketMarket[]>({
+        url,
+        method: 'GET',
+        requestTimeout: 15000,
+        endpointName: 'polymarket-market-authoritative',
+    });
+
+    const parsed = data.map(parseMarket);
+    if (marketId) {
+        return parsed.find((market) => String(market.id) === marketId) || parsed[0] || null;
+    }
+    return parsed.find((market) => market.slug === marketSlug) || parsed[0] || null;
+}
+
 export async function verifyPolymarketSelection(params: {
     question: string;
     outcome: string;
@@ -860,16 +1013,61 @@ export async function verifyPolymarketSelection(params: {
     };
 }
 
+export async function resolveAuthoritativePolymarketSelection(params: {
+    question: string;
+    outcome: string;
+    tokenId: string;
+    marketId?: string | null;
+    marketSlug?: string | null;
+}): Promise<PolymarketSelectionValidation> {
+    const market = await fetchAuthoritativeMarket({
+        marketId: params.marketId,
+        marketSlug: params.marketSlug,
+    }).catch(() => null);
+    if (!market) {
+        return {
+            matched: false,
+            source: 'none',
+            eventId: null,
+            eventTitle: null,
+            marketId: normalizeString(params.marketId),
+            marketSlug: normalizeString(params.marketSlug),
+            conditionId: null,
+            questionMatched: false,
+            outcomeMatched: false,
+            tokenMatched: false,
+            acceptingOrders: null,
+            reason: 'event_lookup_failed',
+        };
+    }
+
+    return validateSelectionAgainstMarkets({
+        question: params.question,
+        outcome: params.outcome,
+        tokenId: params.tokenId,
+        markets: [market],
+        source: 'event_id',
+        eventId: null,
+        eventTitle: market.question,
+    });
+}
+
 export async function getCoinUpDownMarkets(params: {
     coin?: string | null;
     limit?: number;
     windowsAhead?: number;
 } = {}): Promise<{
     currentTimeEt: string;
+    currentTimeEtStrict: string;
     series: string[];
     count: number;
-    markets: Array<ReturnType<typeof mapCoinUpDownEvent>>;
+    primaryCandidate: CoinUpDownMarketCandidate | null;
+    executionCandidate: CoinUpDownMarketCandidate | null;
+    currentCandidate: CoinUpDownMarketCandidate | null;
+    watchlist: CoinUpDownMarketCandidate[];
+    markets: CoinUpDownMarketCandidate[];
     note: string;
+    reasonCode: 'ok' | 'primary_candidate_missing' | 'no_near_term_window' | 'future_watchlist_only';
 }> {
     const now = new Date();
     const requestedSeries = normalizeCoinSeriesName(params.coin);
@@ -877,39 +1075,81 @@ export async function getCoinUpDownMarkets(params: {
     const windowsAhead = Math.min(Math.max(params.windowsAhead || (requestedSeries ? 8 : 3), 1), 12);
     const limit = Math.min(Math.max(params.limit || 10, 1), 20);
 
-    const candidates = series.flatMap((coin) => buildFiveMinuteSearchQueries(now, coin, windowsAhead));
-    const rawResults = await Promise.all(candidates.map((candidate) => searchRawEvents(candidate.query, 3)));
-
-    const exactMatches = new Map<string, ReturnType<typeof mapCoinUpDownEvent>>();
-    for (let index = 0; index < candidates.length; index += 1) {
-        const candidate = candidates[index];
-        const events = rawResults[index] || [];
-        for (const event of events) {
-            const title = String(event?.title || '').trim().toLowerCase();
-            if (title !== candidate.query.toLowerCase()) continue;
+    const maxResultsNeeded = Math.max(limit * 3, series.length * windowsAhead * 2);
+    const eventScanCandidates = new Map<string, CoinUpDownMarketCandidate>();
+    for (let offset = 0; offset < 300 && eventScanCandidates.size < maxResultsNeeded; offset += 100) {
+        const batch = await fetchActiveEventsChronologically({ limit: 100, offset });
+        if (!Array.isArray(batch) || batch.length === 0) break;
+        for (const event of batch) {
+            if (!isCoinUpDownSeriesEvent(event, series)) continue;
             const mapped = mapCoinUpDownEvent(event, now);
             if (!mapped) continue;
             const key = `${mapped.id}:${mapped.market.id}`;
-            if (!exactMatches.has(key)) {
-                exactMatches.set(key, mapped);
+            if (!eventScanCandidates.has(key)) {
+                eventScanCandidates.set(key, mapped);
             }
+        }
+        if (batch.length < 100) break;
+    }
+
+    let markets = Array.from(eventScanCandidates.values()).sort(compareCoinUpDownCandidate);
+    let fallbackReason: 'none' | 'fuzzy_search_only' = 'none';
+
+    if (markets.length === 0 && requestedSeries) {
+        const searchQueries = buildFiveMinuteSearchQueries(now, requestedSeries, windowsAhead);
+        const rawResults = await Promise.all(searchQueries.map((candidate) => searchRawEvents(candidate.query, 10)));
+        const exactMatches = new Map<string, CoinUpDownMarketCandidate>();
+        for (let index = 0; index < searchQueries.length; index += 1) {
+            const candidate = searchQueries[index];
+            const events = rawResults[index] || [];
+            for (const event of events) {
+                const title = normalizeComparableText(event?.title);
+                if (title !== normalizeComparableText(candidate.query)) continue;
+                const mapped = mapCoinUpDownEvent(event, now);
+                if (!mapped) continue;
+                const key = `${mapped.id}:${mapped.market.id}`;
+                if (!exactMatches.has(key)) {
+                    exactMatches.set(key, mapped);
+                }
+            }
+        }
+        markets = Array.from(exactMatches.values()).sort(compareCoinUpDownCandidate);
+        if (markets.length > 0) {
+            fallbackReason = 'fuzzy_search_only';
         }
     }
 
-    const markets = Array.from(exactMatches.values())
-        .sort(compareCoinUpDownCandidate)
-        .slice(0, limit);
+    const selected = applyCoinUpDownSelectionState(markets);
+    const slicedMarkets = selected.markets.slice(0, limit);
 
-    const note = markets.length > 0
-        ? 'Exact 5-minute coin Up/Down windows found via current ET window search.'
-        : `No coin Up/Down 5-minute window found within the next ${Math.round((windowsAhead * 5) / 60 * 10) / 10} hour(s) of ET search windows.`;
+    const note = selected.primaryCandidate
+        ? 'Exact 5-minute coin Up/Down windows found via active-event scan. Answer from primary_candidate first; keep additional future windows as watchlist only.'
+        : selected.watchlist.length > 0
+            ? 'Only farther-future 5-minute windows are visible right now. No near-term primary candidate is available.'
+            : `No coin Up/Down 5-minute window found within the next ${Math.round((windowsAhead * 5) / 60 * 10) / 10} hour(s) of ET search windows.`;
+
+    console.info('[Polymarket5mDiscovery]', {
+        requested_coin: requestedSeries || null,
+        current_time_et: formatDateTimeInEt(now),
+        candidate_count: selected.markets.length,
+        primary_candidate_title: selected.primaryCandidate?.title || null,
+        execution_candidate_title: selected.executionCandidate?.title || null,
+        fallback_reason: fallbackReason,
+        reason_code: selected.reasonCode,
+    });
 
     return {
         currentTimeEt: formatDateTimeInEt(now),
+        currentTimeEtStrict: formatDateTimeInEt(now),
         series,
-        count: markets.length,
-        markets,
+        count: slicedMarkets.length,
+        primaryCandidate: selected.primaryCandidate,
+        executionCandidate: selected.executionCandidate,
+        currentCandidate: selected.currentCandidate,
+        watchlist: selected.watchlist.slice(0, limit),
+        markets: slicedMarkets,
         note,
+        reasonCode: selected.reasonCode,
     };
 }
 
