@@ -237,6 +237,32 @@ export interface MainSwapResult {
   };
 }
 
+export function txLifecycleFromExecutionFinality(params: {
+  finalityState?: SwapResult['finalityState'];
+  txHash?: string;
+  chainId: number;
+}): TxLifecycleResult | undefined {
+  if (params.finalityState === 'confirmed_success') {
+    return {
+      status: 'confirmed_success',
+      txHash: params.txHash,
+      confirmedAt: Date.now(),
+      attempts: 1,
+      chainId: params.chainId,
+    };
+  }
+  if (params.finalityState === 'confirmed_failed') {
+    return {
+      status: 'confirmed_failed',
+      txHash: params.txHash,
+      confirmedAt: Date.now(),
+      attempts: 1,
+      chainId: params.chainId,
+    };
+  }
+  return undefined;
+}
+
 export function inferSwapReasonCode(message?: string): string {
   const normalized = String(message || '').toLowerCase();
   if (!normalized) return 'swap_failed';
@@ -2376,11 +2402,21 @@ export class MainSwapService {
       success: true,
       txHash: executionResult.txHash,
       amountOut: executionResult.amountOut,
+      txLifecycle: txLifecycleFromExecutionFinality({
+        finalityState: executionResult.finalityState,
+        txHash: executionResult.txHash,
+        chainId: request.chainId,
+      }),
       metadata: {
         provider: useTurboCopytrade0xFallback ? 'aggregator_fallback_0x_turbo' : executionResult.method,
         mode: request.mode,
         gasUsed: undefined,
-        launchpad: undefined
+        launchpad: undefined,
+        txLifecycleStatus: txLifecycleFromExecutionFinality({
+          finalityState: executionResult.finalityState,
+          txHash: executionResult.txHash,
+          chainId: request.chainId,
+        })?.status,
       }
     };
     persistLiveSuccessSample({

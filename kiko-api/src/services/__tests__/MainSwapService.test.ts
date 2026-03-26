@@ -4,6 +4,7 @@ import test from 'node:test';
 import {
   buildUserFacingSwapError,
   inferSwapReasonCode,
+  txLifecycleFromExecutionFinality,
   verifyNativeBalancePrecheck,
 } from '../MainSwapService.js';
 
@@ -46,4 +47,16 @@ test('swap error mapping classifies rpc pool failures explicitly', () => {
     buildUserFacingSwapError(message),
     'Trade execution RPC is temporarily unavailable on this chain. Please retry shortly.'
   );
+});
+
+test('txLifecycleFromExecutionFinality maps confirmed executor success into tx lifecycle evidence', () => {
+  const lifecycle = txLifecycleFromExecutionFinality({
+    finalityState: 'confirmed_success',
+    txHash: '0xabc',
+    chainId: 56,
+  });
+
+  assert.equal(lifecycle?.status, 'confirmed_success');
+  assert.equal(lifecycle?.txHash, '0xabc');
+  assert.equal(lifecycle?.chainId, 56);
 });
