@@ -100,7 +100,7 @@ export const CHAINS: Record<number, ChainConfig> = {
             kyberRouter: '0x6131B5fae19EA4f9D964eAc0408E4408b66337b5'
         },
         apiUrl: 'https://bnb-mainnet.g.alchemy.com/v2',
-        gasReserve: '0.005',
+        gasReserve: '0.0001',
         slugs: { dexScreener: 'bsc', geckoTerminal: 'bsc' }
     },
     // Solana  
@@ -120,7 +120,7 @@ export const CHAINS: Record<number, ChainConfig> = {
             permit2: '',
             kyberRouter: ''
         },
-        gasReserve: '0.05',
+        gasReserve: '0.005',
         slugs: { dexScreener: 'solana', geckoTerminal: 'solana' }
     },
     // Polygon
@@ -141,7 +141,7 @@ export const CHAINS: Record<number, ChainConfig> = {
             permit2: '0x000000000022d473030f116ddee9dad608d18000',
             kyberRouter: '0x6131B5fae19EA4f9D964eAc0408E4408b66337b5'
         },
-        gasReserve: '0.1',
+        gasReserve: '0.01',
         slugs: { dexScreener: 'polygon', geckoTerminal: 'polygon_pos' }
     },
     // Arbitrum
