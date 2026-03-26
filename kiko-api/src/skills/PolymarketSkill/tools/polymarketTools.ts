@@ -123,6 +123,29 @@ function buildPolymarketListRenderContract(params: {
     };
 }
 
+function buildOverviewRenderRows(overview: ReturnType<typeof buildPolymarketMarketOverview>) {
+    return [
+        ...overview.buckets.hot_24h_markets.markets.map((market) => ({
+            bucket: 'hot_24h',
+            title: market.question,
+            vol24h: market.vol24h,
+            liquidity: market.liquidity,
+        })),
+        ...overview.buckets.newest_short_window.events.map((event) => ({
+            bucket: event.recommendable ? 'short_window' : 'short_window_watchlist',
+            title: event.title,
+            vol24h: event.vol24h,
+            liquidity: event.liquidity,
+        })),
+        ...overview.buckets.tradable_now.markets.map((market) => ({
+            bucket: 'tradable_now',
+            title: market.title,
+            vol24h: market.vol24h,
+            liquidity: market.liquidity,
+        })),
+    ];
+}
+
 function pickMarketSlugFromNewMarketEvent(event: ReturnType<typeof mapNewMarketEvent>): string | null {
     for (const market of event.markets) {
         if (market.slug) return market.slug;
@@ -251,6 +274,8 @@ export function buildPolymarketMarketOverview(params: {
         newestMarkets,
         tradableNow,
     });
+    const shortWindowHighlight = newestMarkets[0] || null;
+    const hotMarketHighlight = hotMarkets[0] || null;
 
     return {
         source: 'Polymarket',
@@ -261,6 +286,24 @@ export function buildPolymarketMarketOverview(params: {
             grouped_buckets_required: true,
             minimum_buckets_to_show: 2,
             do_not_collapse_to_single_market: true,
+            include_short_window_bucket_in_first_reply: newestMarkets.length > 0,
+        },
+        headline_highlights: {
+            hot_market: hotMarketHighlight ? {
+                question: hotMarketHighlight.question,
+                slug: hotMarketHighlight.slug,
+                vol24h: hotMarketHighlight.vol24h,
+                liquidity: hotMarketHighlight.liquidity,
+            } : null,
+            short_window_market: shortWindowHighlight ? {
+                title: shortWindowHighlight.title,
+                tradable: shortWindowHighlight.tradable,
+                recommendable: shortWindowHighlight.recommendable,
+                recommendable_detail: shortWindowHighlight.recommendable_detail,
+                tradable_detail: shortWindowHighlight.tradable_detail,
+                start_at: shortWindowHighlight.recommended_window?.start_at || null,
+                end_at: shortWindowHighlight.recommended_window?.end_at || null,
+            } : null,
         },
         recommended_card: recommendedCard,
         buckets: {
@@ -723,20 +766,7 @@ export const GetPolymarketMarketOverviewTool: Tool = {
                         { key: 'vol24h', label: '24h Volume' },
                         { key: 'liquidity', label: 'Liquidity' },
                     ],
-                    rows: [
-                        ...overview.buckets.hot_24h_markets.markets.map((market) => ({
-                            bucket: 'hot_24h',
-                            title: market.question,
-                            vol24h: market.vol24h,
-                            liquidity: market.liquidity,
-                        })),
-                        ...overview.buckets.tradable_now.markets.map((market) => ({
-                            bucket: 'tradable_now',
-                            title: market.title,
-                            vol24h: market.vol24h,
-                            liquidity: market.liquidity,
-                        })),
-                    ],
+                    rows: buildOverviewRenderRows(overview),
                 }),
                 __client_action: {
                     type: 'show_polymarket_card',
@@ -759,20 +789,7 @@ export const GetPolymarketMarketOverviewTool: Tool = {
                     { key: 'vol24h', label: '24h Volume' },
                     { key: 'liquidity', label: 'Liquidity' },
                 ],
-                rows: [
-                    ...overview.buckets.hot_24h_markets.markets.map((market) => ({
-                        bucket: 'hot_24h',
-                        title: market.question,
-                        vol24h: market.vol24h,
-                        liquidity: market.liquidity,
-                    })),
-                    ...overview.buckets.tradable_now.markets.map((market) => ({
-                        bucket: 'tradable_now',
-                        title: market.title,
-                        vol24h: market.vol24h,
-                        liquidity: market.liquidity,
-                    })),
-                ],
+                rows: buildOverviewRenderRows(overview),
             }),
         };
     },

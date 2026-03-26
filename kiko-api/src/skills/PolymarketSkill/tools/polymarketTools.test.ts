@@ -110,4 +110,8 @@ test('buildPolymarketMarketOverview groups hot, new, and tradable buckets', () =
   assert.equal(overview.buckets.newest_short_window.events[0].tradable, true);
   assert.equal(overview.buckets.newest_short_window.events[0].recommendable, true);
   assert.equal(overview.recommended_card?.market_slug, 'sol-up');
+  assert.equal(overview.response_contract.include_short_window_bucket_in_first_reply, true);
+  assert.equal(overview.headline_highlights.hot_market?.question, 'Will BTC hit 100k by Friday?');
+  assert.equal(overview.headline_highlights.short_window_market?.title, 'Solana Up or Down - March 24, 5:00AM-5:05AM ET');
+  assert.equal(overview.headline_highlights.short_window_market?.recommendable, true);
 });

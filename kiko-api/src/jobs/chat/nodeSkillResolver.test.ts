@@ -99,6 +99,21 @@ test('routes 5-minute coin up/down queries to the exact short-window Polymarket 
     assert.ok(resolution.preferredTools.includes('get_polymarket_coin_updown_markets'));
 });
 
+test('routes generic short-window Polymarket queries to broad short-window discovery first', () => {
+    const canonicalIntent = makeCanonicalIntent({
+        domain: 'polymarket',
+        intent: 'polymarket_short_window',
+        requiresRealtime: true,
+    });
+    const resolution = resolveNodeSkills(makeSnapshot('Give me a short window market', {
+        normalizedIntent: canonicalIntent,
+    }), null, canonicalIntent);
+    assert.equal(resolution.selectedSkills[0], 'polymarket_prediction');
+    assert.ok(resolution.preferredTools.includes('get_polymarket_market_overview'));
+    assert.ok(resolution.preferredTools.includes('get_new_markets'));
+    assert.ok(!resolution.preferredTools.includes('get_polymarket_coin_updown_markets'));
+});
+
 test('tool registry self-initializes even when imported directly', () => {
     const definitions = toolRegistry.getAllDefinitions();
     assert.ok(definitions.length > 0);
@@ -802,4 +817,46 @@ test('canonical polymarket short-window intent routes without raw keyword depend
 
     assert.equal(resolution.selectedSkills[0], 'polymarket_prediction');
     assert.ok(resolution.preferredTools.includes('get_polymarket_coin_updown_markets'));
+});
+
+test('canonical generic polymarket short-window intent does not over-narrow to coin-only 5m', () => {
+    const canonicalIntent: CanonicalIntent = {
+        domain: 'polymarket',
+        intent: 'polymarket_short_window',
+        taskMode: 'discover',
+        outputMode: 'narrative',
+        searchMode: 'forbidden',
+        searchTarget: 'none',
+        confidence: 0.89,
+        explanation: 'Generic short-window Polymarket request.',
+        entities: {
+            tokenAddresses: [],
+            tokenSymbols: [],
+            walletAddresses: [],
+            marketIdentifiers: [],
+        },
+        requestedChain: null,
+        timeContext: {
+            isTimeBound: true,
+            description: 'short window',
+        },
+        evidenceRequirements: [],
+        requiresRealtime: true,
+        requiresOnchainEvidence: false,
+        executionCandidate: false,
+        rowCount: null,
+        locale: 'en',
+        needsClarification: false,
+        clarificationQuestion: null,
+        source: 'llm',
+    };
+
+    const resolution = resolveNodeSkills(makeSnapshot('non keyword generic short-window phrasing', {
+        normalizedIntent: canonicalIntent,
+    }), null, canonicalIntent);
+
+    assert.equal(resolution.selectedSkills[0], 'polymarket_prediction');
+    assert.ok(resolution.preferredTools.includes('get_polymarket_market_overview'));
+    assert.ok(resolution.preferredTools.includes('get_new_markets'));
+    assert.ok(!resolution.preferredTools.includes('get_polymarket_coin_updown_markets'));
 });

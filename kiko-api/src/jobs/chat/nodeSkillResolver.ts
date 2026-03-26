@@ -118,6 +118,13 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
     const explicitlyRequestsEarlyBuyerFullList = normalizedIntent?.outputMode === 'full_table'
         || (asksEarlyBuyers && explicitEarlyBuyerRowCount !== null);
     const wantsEarlyBuyerFullList = asksEarlyBuyers || explicitlyRequestsEarlyBuyerFullList;
+    const normalizedTokenSymbols = Array.isArray(normalizedIntent?.entities?.tokenSymbols)
+        ? normalizedIntent!.entities.tokenSymbols.filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+        : [];
+    const requestedTokenSymbols = Array.isArray(snapshot.requestedTokenSymbols)
+        ? snapshot.requestedTokenSymbols.filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+        : [];
+    const hasExplicitPolymarketCoinSelection = normalizedTokenSymbols.length > 0 || requestedTokenSymbols.length > 0;
     const asksCreator = normalizedIntent?.intent === 'creator_analysis';
 
     let selected = matchResult.rankedMatches.map((item) => item.skillId);
@@ -239,8 +246,14 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
 
     const polymarketShortWindowQuery = normalizedIntent?.intent === 'polymarket_short_window';
     if (polymarketShortWindowQuery) {
-        pushPreferred(preferredTools, 'get_polymarket_coin_updown_markets');
-        strategyNotes.push('For coin/token Up/Down short-window requests, prefer get_polymarket_coin_updown_markets over get_new_markets because exact ET-window discovery is required.');
+        if (hasExplicitPolymarketCoinSelection) {
+            pushPreferred(preferredTools, 'get_polymarket_coin_updown_markets');
+            strategyNotes.push('For explicit coin/token Up/Down short-window requests, prefer get_polymarket_coin_updown_markets because exact ET-window discovery is required.');
+        } else {
+            pushPreferred(preferredTools, 'get_polymarket_market_overview');
+            pushPreferred(preferredTools, 'get_new_markets');
+            strategyNotes.push('Generic short-window market requests are broader than the coin-only 5-minute slice. Use grouped overview/new-market discovery first, and only narrow to get_polymarket_coin_updown_markets when the user explicitly asks for a coin/token series.');
+        }
     }
     const polymarketOrderQuery = normalizedIntent?.intent === 'polymarket_order';
     if (polymarketOrderQuery) {
@@ -295,6 +308,10 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
 
     for (const skillId of selected) {
         pushPreferredToolsForSkill(skillId, preferredTools);
+    }
+
+    if (polymarketShortWindowQuery && !hasExplicitPolymarketCoinSelection) {
+        removeTool(preferredTools, 'get_polymarket_coin_updown_markets');
     }
 
     if (sessionToolNames.length > 0) {
