@@ -94,6 +94,34 @@ test('collectVerifiedPolymarketTokenIds reads token ids from valid resolution to
   assert.deepEqual(Array.from(tokenIds), ['token-yes']);
 });
 
+test('collectVerifiedPolymarketTokenIds accepts token ids from 5-minute coin market tool', () => {
+  const executedToolResults = new Map([
+    ['get_polymarket_coin_updown_markets:{"coin":"Bitcoin"}', {
+      name: 'get_polymarket_coin_updown_markets',
+      arguments: { coin: 'Bitcoin' },
+      ok: true,
+      result: {
+        primary_candidate: {
+          market: {
+            outcomes: [{ name: 'Up', token_id: 'btc-up-token' }],
+          },
+        },
+        markets: [
+          {
+            market: {
+              outcomes: [{ name: 'Up', token_id: 'btc-up-token' }, { name: 'Down', token_id: 'btc-down-token' }],
+            },
+          },
+        ],
+      },
+      metadata: { source: 'tool_runtime' },
+    }],
+  ]);
+
+  const tokenIds = collectVerifiedPolymarketTokenIds(executedToolResults as any, makeSnapshot('buy BTC up'));
+  assert.deepEqual(Array.from(tokenIds).sort(), ['btc-down-token', 'btc-up-token']);
+});
+
 test('resolvePolymarketOrderGuardResult blocks unverified token ids', () => {
   const result = resolvePolymarketOrderGuardResult(
     {

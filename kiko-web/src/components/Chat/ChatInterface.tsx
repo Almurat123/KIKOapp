@@ -79,6 +79,31 @@ const replaceMessageAtIndex = (messages: Message[], idx: number, nextMessage: Me
     return updated;
 };
 
+const mergeRenderContracts = (existing: any, incoming: any): any[] => {
+    const current = Array.isArray(existing)
+        ? existing
+        : existing
+            ? [existing]
+            : [];
+    const next = Array.isArray(incoming)
+        ? incoming
+        : incoming
+            ? [incoming]
+            : [];
+    const merged = [...current];
+    for (const contract of next) {
+        if (!contract || typeof contract !== 'object') continue;
+        const incomingId = String(contract.id || '').trim();
+        const idx = merged.findIndex((item) => String(item?.id || '').trim() === incomingId && incomingId);
+        if (idx >= 0) {
+            merged[idx] = { ...merged[idx], ...contract };
+        } else {
+            merged.push(contract);
+        }
+    }
+    return merged;
+};
+
 const LOCAL_TX_CARD_TEST_COMMANDS = new Set([
     '/test-tx-card',
     '/tx-card-test',
@@ -697,6 +722,27 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                                 nextConversationPatch.activeTask = null;
                             }
                             updateConversation(conversationId, nextConversationPatch);
+                        }
+                    } else if (normalizedAction.type === 'update_message_data') {
+                        const targetMessageId = event.data.targetMessageId || event.data.message_id || event.data.messageId;
+                        const actionData = normalizedAction.data || normalizedAction.payload || {};
+                        if (conversationId && targetMessageId) {
+                            const freshMessages = messagesRef.current;
+                            const targetIdx = freshMessages.findIndex(m => m.id === targetMessageId);
+                            if (targetIdx !== -1) {
+                                const existingData = freshMessages[targetIdx].data || {};
+                                const mergedData = {
+                                    ...existingData,
+                                    ...actionData,
+                                    renderContracts: mergeRenderContracts(existingData.renderContracts, actionData.renderContracts),
+                                };
+                                const updated = replaceMessageAtIndex(freshMessages, targetIdx, {
+                                    ...freshMessages[targetIdx],
+                                    data: mergedData,
+                                });
+                                messagesRef.current = updated;
+                                updateConversation(conversationId, { messages: updated });
+                            }
                         }
                     }
                     break;

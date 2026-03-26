@@ -842,6 +842,7 @@ const POLYMARKET_TOKEN_SOURCE_TOOLS = new Set([
     'get_polymarket_event',
     'get_polymarket_trending_markets',
     'get_new_markets',
+    'get_polymarket_coin_updown_markets',
 ]);
 
 export function resolvePolymarketOrderGuardResult(
@@ -860,8 +861,8 @@ export function resolvePolymarketOrderGuardResult(
     }
 
     const error = tokenId
-        ? 'Polymarket order blocked: token_id was not verified by get_polymarket_event, get_polymarket_trending_markets, or get_new_markets in the current evidence chain.'
-        : 'Polymarket order blocked: missing concrete token_id. Resolve the exact selected outcome with get_polymarket_event, get_polymarket_trending_markets, or get_new_markets first.';
+        ? 'Polymarket order blocked: token_id was not verified by get_polymarket_event, get_polymarket_trending_markets, get_new_markets, or get_polymarket_coin_updown_markets in the current evidence chain.'
+        : 'Polymarket order blocked: missing concrete token_id. Resolve the exact selected outcome with get_polymarket_event, get_polymarket_trending_markets, get_new_markets, or get_polymarket_coin_updown_markets first.';
 
     return {
         id: call.id,

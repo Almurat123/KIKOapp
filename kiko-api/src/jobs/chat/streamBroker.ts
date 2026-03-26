@@ -389,6 +389,22 @@ export class ChatStreamBroker {
             const renderContract = extractRenderContract(normalizedResult);
             if (renderContract) {
                 data.renderContracts = mergeRenderContracts(this.assistantData.renderContracts || [], renderContract);
+                if (this.params.userId) {
+                    chatWS.broadcastToUser(this.params.userId, {
+                        type: 'client_action',
+                        sessionId: this.params.sessionId,
+                        data: {
+                            message_id: this.params.assistantMessageId,
+                            targetMessageId: this.params.assistantMessageId,
+                            action: {
+                                type: 'update_message_data',
+                                data: {
+                                    renderContracts: data.renderContracts,
+                                },
+                            },
+                        },
+                    });
+                }
             }
             this.assistantData = data;
             await chatRepo.updateMessage(this.params.assistantMessageId, { data, status: 'streaming' });
