@@ -25,8 +25,16 @@ const CHAIN_DEFINITIONS: ChainDefinition[] = [
 ];
 
 const CHAIN_ALIAS_INDEX = new Map<string, ChainDefinition>();
+const NATIVE_SYMBOL_COUNTS = new Map<string, number>();
 for (const definition of CHAIN_DEFINITIONS) {
-    for (const alias of [...definition.aliases, ...definition.nativeSymbols, ...definition.chainSymbols]) {
+    for (const symbol of definition.nativeSymbols) {
+        const key = symbol.toLowerCase();
+        NATIVE_SYMBOL_COUNTS.set(key, (NATIVE_SYMBOL_COUNTS.get(key) || 0) + 1);
+    }
+}
+for (const definition of CHAIN_DEFINITIONS) {
+    const uniqueNativeSymbols = definition.nativeSymbols.filter((symbol) => (NATIVE_SYMBOL_COUNTS.get(symbol.toLowerCase()) || 0) === 1);
+    for (const alias of [...definition.aliases, ...uniqueNativeSymbols, ...definition.chainSymbols]) {
         CHAIN_ALIAS_INDEX.set(alias.toLowerCase(), definition);
     }
 }

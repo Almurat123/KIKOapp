@@ -1,8 +1,6 @@
 import { getChainConfig } from '../../config/chainConfig.js';
 import type { RuntimeDirective, TradeConfirmationState } from './contracts.js';
-
-const STABLE_SYMBOLS = new Set(['USDC', 'USDT', 'DAI', 'FDUSD', 'BUSD', 'USD1']);
-const NATIVE_SYMBOLS = new Set(['ETH', 'BNB', 'SOL', 'POL', 'MATIC']);
+import { defaultNativeSymbolForChain, resolveTradeSemantics } from '../../services/ai/tradeSemantics.js';
 
 export function resolveRuntimeDirectives(params: {
     task: any;
@@ -68,41 +66,24 @@ export function resolveRuntimeDirectives(params: {
 }
 
 function resolveAmountSemanticDirective(message: string, chainId?: number): RuntimeDirective | null {
-    const raw = String(message || '');
-    const lower = raw.toLowerCase();
-    const amountMatch = raw.match(/\b(\d+(?:\.\d+)?)\b/);
-    if (!amountMatch) return null;
-    const amount = amountMatch[1];
-
-    let tokenOut = '';
-    for (const match of raw.matchAll(/\b[A-Z]{2,10}\b/g)) {
-        const symbol = String(match[0] || '').toUpperCase();
-        if (STABLE_SYMBOLS.has(symbol)) {
-            tokenOut = symbol;
-            break;
-        }
-    }
-    if (!tokenOut) return null;
-
-    const hasBuySemantics = /\b(buy|get|receive)\b/i.test(raw) || /购买|买/.test(raw);
-    if (!hasBuySemantics || !lower.includes(tokenOut.toLowerCase())) return null;
-
-    let tokenIn = '';
-    if (chainId) {
-        try {
-            tokenIn = String(getChainConfig(chainId).nativeCurrency.symbol || '').toUpperCase();
-        } catch {
-            tokenIn = '';
-        }
-    }
-    if (!tokenIn || !NATIVE_SYMBOLS.has(tokenIn)) return null;
+    const semantics = resolveTradeSemantics({
+        text: message,
+        chainId,
+    });
+    const amount = semantics.amount.value;
+    if (!amount) return null;
+    const tokenIn = semantics.tokenIn || defaultNativeSymbolForChain(chainId);
+    const tokenOut = semantics.tokenOut || semantics.targetAsset || '';
+    if (!tokenIn || !tokenOut) return null;
+    if (!['fiat_value', 'output'].includes(semantics.amount.semantic)) return null;
 
     return {
         kind: 'amount_semantics',
         message:
-            `AMOUNT_SEMANTICS_RULE: In this request, numeric amount ${amount} refers to target output ${tokenOut}, NOT input ${tokenIn}. ` +
-            `Do NOT treat ${amount} as amount_in ${tokenIn}. You MUST first estimate the required ${tokenIn} input for receiving approximately ${amount} ${tokenOut}, then call simulate_swap with that estimated amount_in. NEVER use the user's full balance when a specific target output amount is requested.`,
-        metadata: { amount, tokenIn, tokenOut, chainId },
+            semantics.amount.semantic === 'fiat_value'
+                ? `AMOUNT_SEMANTICS_RULE: In this request, numeric amount ${amount} is a USD-denominated trade value for ${tokenOut}, NOT token quantity ${tokenIn}. Convert or quote first, then execute with the resolved input amount.`
+                : `AMOUNT_SEMANTICS_RULE: In this request, numeric amount ${amount} refers to target output ${tokenOut}, NOT input ${tokenIn}. Estimate the required ${tokenIn} input before execution.`,
+        metadata: { amount, tokenIn, tokenOut, chainId, semantic: semantics.amount.semantic },
     };
 }
 
@@ -138,11 +119,12 @@ function resolveFastSwapDirectives(input: {
         return [];
     }
 
-    const requestedSymbols = Array.from(input.raw.matchAll(/\b[A-Z]{2,10}\b/g)).map((match) => String(match[0] || '').toUpperCase());
-    const requestedAddresses = Array.from(input.raw.matchAll(/\b0x[a-fA-F0-9]{40}\b/g)).map((match) => String(match[0] || '').toLowerCase());
-    const hasSwapVerb = /\b(swap|buy|sell|trade|exchange|convert)\b/i.test(input.raw) || /买|卖|兑换/.test(input.raw);
-    const hasAnyTarget = requestedSymbols.length > 0 || requestedAddresses.length > 0;
-    const firstSymbol = requestedSymbols.find((symbol) => !NATIVE_SYMBOLS.has(symbol) && !STABLE_SYMBOLS.has(symbol));
+    const semantics = resolveTradeSemantics({
+        text: input.raw,
+        chainId: input.chainId,
+    });
+    const hasSwapVerb = semantics.explicitTradeVerb;
+    const hasAnyTarget = Boolean(semantics.tokenIn || semantics.tokenOut || semantics.targetAsset || semantics.referencedAddresses.length > 0);
 
     const directives: RuntimeDirective[] = [];
     directives.push({
@@ -150,40 +132,19 @@ function resolveFastSwapDirectives(input: {
         message: 'FAST SWAP CONTRACT: fastSwapMode is ON. Do not make simulate_swap or quote presentation a blocking prerequisite. Once token target, chain, and executable amount are explicit and safe, move directly toward prepare_swap_transaction execution.',
         metadata: { chainId: input.chainId },
     });
-    if (hasSwapVerb && hasAnyTarget && requestedAddresses.length === 0 && firstSymbol && !isFastSwapWhitelisted(firstSymbol, input.chainId)) {
-        directives.push({
-            kind: 'fast_swap_address_required',
-            message: 'FAST SWAP ADDRESS REQUIRED: Fast Swap Mode is ON. Native whitelist tokens may proceed without address, but any other token requires the exact contract address from the user before continuing. Do NOT resolve non-whitelisted token names via cache, search, or inference. Ask a short follow-up for the contract address.',
-            metadata: { chainId: input.chainId, tokenOut: firstSymbol },
-        });
-    }
-
     if (!hasSwapVerb && hasAnyTarget) {
         directives.push({
             kind: 'fast_swap_safe_mode',
             message: 'FAST SWAP SAFE MODE: User shared a token address or token reference without explicit trade intent. Ask a short confirmation question: trade now or analyze? Do not execute any trade without a clear buy/sell instruction.',
-            metadata: { chainId: input.chainId, hasAddress: requestedAddresses.length > 0, symbols: requestedSymbols },
+            metadata: {
+                chainId: input.chainId,
+                hasAddress: semantics.referencedAddresses.length > 0,
+                symbols: semantics.referencedSymbols,
+            },
         });
     }
 
     return directives;
-}
-
-function isFastSwapWhitelisted(symbol: string, chainId?: number): boolean {
-    const normalized = String(symbol || '').trim().toUpperCase();
-    if (!normalized) return false;
-    const perChain: Record<number, Set<string>> = {
-        1: new Set(['ETH', 'WETH']),
-        10: new Set(['ETH', 'WETH']),
-        56: new Set(['BNB', 'WBNB']),
-        137: new Set(['POL', 'MATIC', 'WMATIC']),
-        42161: new Set(['ETH', 'WETH']),
-        8453: new Set(['ETH', 'WETH']),
-        900: new Set(['SOL', 'WSOL']),
-    };
-    const scoped = chainId ? perChain[chainId] : undefined;
-    if (scoped?.has(normalized)) return true;
-    return Object.values(perChain).some((set) => set.has(normalized));
 }
 
 function resolveBalanceAutoResolutionGuard(input: {
@@ -208,9 +169,11 @@ function resolveBalanceAutoResolutionGuard(input: {
         || (Array.isArray(chainSnapshot?.tokens) && chainSnapshot.tokens.length > 0);
     if (hasBalanceSnapshot) return null;
 
-    const tokenMatch = Array.from(input.raw.matchAll(/\b[A-Z]{2,10}\b/g))
-        .map((match) => String(match[0] || '').toUpperCase())
-        .find((symbol) => !STABLE_SYMBOLS.has(symbol) && !NATIVE_SYMBOLS.has(symbol));
+    const semantics = resolveTradeSemantics({
+        text: input.raw,
+        chainId: input.chainId,
+    });
+    const tokenMatch = semantics.targetAsset || semantics.tokenIn || semantics.tokenOut;
     const token = tokenMatch || 'requested token';
     return {
         kind: 'balance_auto_resolution_guard',

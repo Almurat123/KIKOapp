@@ -142,7 +142,7 @@ test('buildGenerationTools no longer hides non-execution tools in execution phas
     assert.deepEqual(names.sort(), ['get_token_info', 'place_polymarket_order', 'prepare_swap_transaction']);
 });
 
-test('Grok social queries use native search first, then restrict local analysis to chain-evidence tools', async () => {
+test('Grok social queries keep native search enabled without hiding local tools', async () => {
     const snapshot = makeSnapshot('Search X for BTC sentiment, then analyze holders', {
         requestedTokenSymbols: ['BTC'],
         normalizedIntent: makeCanonicalIntent({
@@ -222,15 +222,14 @@ test('Grok social queries use native search first, then restrict local analysis 
     });
 
     assert.equal(seenRounds[0]?.enableSearch, true);
-    assert.deepEqual(seenRounds[0]?.tools || [], []);
-    assert.equal(seenRounds[1]?.enableSearch, false);
+    assert.ok((seenRounds[0]?.tools || []).includes('get_token_info'));
+    assert.equal(seenRounds[1]?.enableSearch, true);
     assert.ok(seenRounds[1]?.tools.includes('get_token_info'));
-    assert.ok(!seenRounds[1]?.tools.includes('prepare_swap_transaction'));
     assert.ok(broker.providerNativeEvidence.length >= 1);
     assert.equal(broker.texts.at(-1), 'Based on X sentiment and on-chain context, BTC holders are still active.');
 });
 
-test('search-capable queries can still return a direct answer without forced retry loops', async () => {
+test('search-capable queries can still return a direct answer without forced retry loops even when local tools remain visible', async () => {
     const snapshot = makeSnapshot("What's trending on X right now?", {
         normalizedIntent: makeCanonicalIntent({}),
     });
@@ -263,7 +262,7 @@ test('search-capable queries can still return a direct answer without forced ret
     });
 
     assert.equal(seenRounds[0]?.enableSearch, true);
-    assert.deepEqual(seenRounds[0]?.tools || [], []);
+    assert.ok((seenRounds[0]?.tools || []).includes('external_web_search'));
     assert.equal(seenRounds.length, 1);
     assert.equal(broker.texts.at(-1), 'Here is a concise answer without using tools.');
 });

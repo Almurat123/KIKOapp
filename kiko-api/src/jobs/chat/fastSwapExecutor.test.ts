@@ -76,3 +76,38 @@ test('prepareFastSwapExecution treats Polygon native POL as native balance sourc
   assert.equal(prepared.tokenIn, 'POL');
   assert.equal(prepared.tokenOut, 'USDC');
 });
+
+test('prepareFastSwapExecution falls back when the request is USD-denominated and still needs amount resolution', async () => {
+  const tokenAddress = '0x76331326a25904ddcfb0fa7c03b5e2847d49ffff';
+  const prepared = await prepareFastSwapExecution({
+    parsedIntent: {
+      detailed: { action: 'swap' },
+      swapIntent: {
+        tokenIn: 'BNB',
+        tokenOut: tokenAddress,
+        amount: '2',
+        amountKind: 'fiat_value',
+        amountSemantic: 'fiat_value',
+      },
+      contractAddress: tokenAddress,
+      chainId: 56,
+      needsAmountResolution: true,
+    },
+    lastUserMessage: '你可以帮我买价值2美金的龙虾王吗？',
+    taskToolContext: {
+      userId: 'user-1',
+      walletAddress: '0xA386bc9D8F26AB170A847D73226e3e0BCEb0fe8E',
+      chainId: 56,
+    },
+    chainIdMap: { 56: 'bsc' },
+    findSnapshotBalance: () => 1,
+    fetchOnchainBalance: async () => 1,
+    resolveSolWallet: async () => null,
+    resolveEvmWallet: async () => '0xA386bc9D8F26AB170A847D73226e3e0BCEb0fe8E',
+  });
+
+  assert.equal(prepared.shouldFallbackToLlm, true);
+  assert.equal(prepared.tokenIn, 'BNB');
+  assert.equal(prepared.tokenOut, tokenAddress);
+  assert.equal(prepared.amountIn, '2');
+});

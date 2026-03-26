@@ -103,3 +103,77 @@ test('parseTradingIntent infers Solana from requested token address shape even w
     assert.equal(intent?.slots.chain_id, 900);
     assert.equal(intent?.slots.chain_name, 'Solana');
 });
+
+test('parseTradingIntent keeps USD-denominated buy semantics instead of treating value as token_in quantity', () => {
+    const token = '0x76331326a25904ddcfb0fa7c03b5e2847d49ffff';
+    const canonicalIntent = makeCanonicalIntent({
+        locale: 'zh',
+        entities: {
+            tokenAddresses: [token],
+            tokenSymbols: ['LOBSTER'],
+            walletAddresses: [],
+            marketIdentifiers: [],
+        },
+        requestedChain: {
+            chainId: 56,
+            chainName: 'BNB Chain',
+            source: 'llm',
+        },
+    });
+
+    const intent = parseTradingIntent(
+        '你可以帮我买价值2美金的龙虾王吗？',
+        makeSnapshot('你可以帮我买价值2美金的龙虾王吗？', {
+            requestedTokenAddresses: [token],
+            normalizedIntent: canonicalIntent,
+            runtime: {
+                chainId: 56,
+                chainName: 'BNB Chain',
+            },
+        }),
+        canonicalIntent,
+    );
+
+    assert.ok(intent);
+    assert.equal(intent?.slots.token_in, 'BNB');
+    assert.equal(intent?.slots.token_out, token);
+    assert.equal(intent?.slots.amount, '2');
+    assert.equal(intent?.slots.amount_kind, 'fiat_value');
+    assert.equal(intent?.slots.amount_semantic, 'fiat_value');
+    assert.equal(intent?.slots.needs_amount_resolution, true);
+});
+
+test('parseTradingIntent preserves sell destination asset for Chinese follow-up turns', () => {
+    const token = '0x76331326a25904ddcfb0fa7c03b5e2847d49ffff';
+    const canonicalIntent = makeCanonicalIntent({
+        locale: 'zh',
+        entities: {
+            tokenAddresses: [token],
+            tokenSymbols: ['LOBSTER'],
+            walletAddresses: [],
+            marketIdentifiers: [],
+        },
+        requestedChain: {
+            chainId: 56,
+            chainName: 'BNB Chain',
+            source: 'llm',
+        },
+    });
+
+    const intent = parseTradingIntent(
+        '卖成 BNB',
+        makeSnapshot('卖成 BNB', {
+            requestedTokenAddresses: [token],
+            normalizedIntent: canonicalIntent,
+            runtime: {
+                chainId: 56,
+                chainName: 'BNB Chain',
+            },
+        }),
+        canonicalIntent,
+    );
+
+    assert.ok(intent);
+    assert.equal(intent?.slots.token_in, token);
+    assert.equal(intent?.slots.token_out, 'BNB');
+});

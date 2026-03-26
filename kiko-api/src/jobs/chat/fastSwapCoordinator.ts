@@ -12,6 +12,7 @@ import { resolveRequestedChainHint } from './chainIntent.js';
 import type { ChatContextSnapshot } from './contracts.js';
 import { ChatStreamBroker } from './streamBroker.js';
 import { resolveTokenDisplayMetadata } from '../../services/tokens.js';
+import { resolveTradeSemantics } from '../../services/ai/tradeSemantics.js';
 
 const CHAIN_ID_MAP: Record<number, string> = {
     1: 'eth',
@@ -23,7 +24,6 @@ const CHAIN_ID_MAP: Record<number, string> = {
     900: 'solana',
 };
 
-const STABLE_SYMBOLS = new Set(['USDC', 'USDT', 'DAI', 'FDUSD', 'BUSD', 'USD1']);
 const NATIVE_SYMBOLS_BY_CHAIN: Record<number, string> = {
     1: 'ETH',
     10: 'ETH',
@@ -331,52 +331,42 @@ async function buildFastSwapIntent(snapshot: ChatContextSnapshot): Promise<any> 
 export function deriveFastSwapIntentDraft(snapshot: ChatContextSnapshot, detectedTokenChainId?: number): any {
     const chainId = snapshot.runtime.chainId || 8453;
     const query = snapshot.lastUserMessage;
-    const lower = query.toLowerCase();
     const contractAddress = snapshot.requestedTokenAddresses[0];
     const requestedChain = resolveRequestedChainHint({
         text: query,
         requestedTokenAddresses: snapshot.requestedTokenAddresses,
         requestedTokenSymbols: snapshot.requestedTokenSymbols,
+        runtimeChainId: snapshot.runtime.chainId,
+        runtimeChainName: snapshot.runtime.chainName,
     });
-    const destinationAsset = extractDestinationAsset(query, requestedChain?.chainId || chainId);
-    const explicitBuy = /\b(buy|get|swap|trade|ape)\b/i.test(query) || /买|换/.test(query);
-    const amountMatch = query.match(/\b(all|\d+(?:\.\d+)?%?)\b/i);
-    const symbolCandidates = snapshot.requestedTokenSymbols.filter((symbol) =>
-        !['BUY', 'SELL', 'SWAP', 'TRADE', 'GET', 'ALL'].includes(symbol)
-    );
-    const destinationChainId = destinationAsset ? inferChainIdFromAsset(destinationAsset) : undefined;
+    const semantics = resolveTradeSemantics({
+        text: query,
+        chainId: requestedChain?.chainId || chainId,
+        requestedTokenAddresses: snapshot.requestedTokenAddresses,
+        requestedTokenSymbols: snapshot.requestedTokenSymbols,
+        preferredTokenAddress: contractAddress,
+    });
+    const destinationChainId = semantics.destinationAsset ? inferChainIdFromAsset(semantics.destinationAsset) : undefined;
     const inferredChainId = requestedChain?.chainId || detectedTokenChainId || destinationChainId || chainId;
     const effectiveChainId = inferredChainId || 8453;
-    const nativeSymbol = nativeSymbolForChain(effectiveChainId);
-    const explicitSell =
-        /\b(sell|dump)\b/i.test(query)
-        || /卖/.test(query)
-        || (!!contractAddress && !!destinationAsset && destinationAsset.toUpperCase() !== String(contractAddress).toUpperCase());
-    const target = contractAddress || symbolCandidates.find((symbol) => !STABLE_SYMBOLS.has(symbol) && symbol !== nativeSymbolForChain(effectiveChainId))
-        || symbolCandidates[0];
-    let tokenIn = nativeSymbol;
-    let tokenOut = destinationAsset || target || '';
-    if (explicitSell && target) {
-        tokenIn = target;
-        tokenOut = destinationAsset || nativeSymbol;
-    }
-    if (!explicitSell && target && STABLE_SYMBOLS.has(String(target).toUpperCase())) {
-        tokenOut = target;
-        tokenIn = nativeSymbol;
-    }
-    const explicitSource = extractSourceSymbol(query, symbolCandidates, tokenOut, effectiveChainId);
-    if (explicitSource) tokenIn = explicitSource;
-    const parsedAmount = normalizeRequestedAmount(amountMatch?.[1], lower, explicitSell, tokenIn);
+    const tokenIn = semantics.tokenIn || nativeSymbolForChain(effectiveChainId);
+    const tokenOut = semantics.tokenOut || '';
+    const parsedAmount = semantics.amount.value || (semantics.action === 'sell' ? 'all' : '0.001');
 
     return {
-        detailed: { action: explicitBuy || explicitSell ? 'swap' : 'other' },
+        detailed: { action: semantics.explicitTradeVerb ? 'swap' : 'other' },
+        tradeAction: semantics.action,
         swapIntent: {
             tokenIn,
             tokenOut,
             amount: parsedAmount,
+            amountKind: semantics.amount.kind,
+            amountSemantic: semantics.amount.semantic,
+            amountCurrency: semantics.amount.currency,
         },
         contractAddress,
         chainId: effectiveChainId,
+        needsAmountResolution: semantics.needsAmountResolution,
     };
 }
 
@@ -534,49 +524,6 @@ async function prewarmQuote(params: {
     } catch {
         // Best effort prewarm only.
     }
-}
-
-function extractSourceSymbol(query: string, candidates: string[], tokenOut: string, chainId: number): string | null {
-    const lower = query.toLowerCase();
-    const native = nativeSymbolForChain(chainId);
-    for (const symbol of candidates) {
-        if (symbol === tokenOut) continue;
-        if (new RegExp(`\\bwith\\s+${symbol.toLowerCase()}\\b`).test(lower)) return symbol;
-        if (new RegExp(`\\busing\\s+${symbol.toLowerCase()}\\b`).test(lower)) return symbol;
-        if (new RegExp(`\\bfrom\\s+${symbol.toLowerCase()}\\b`).test(lower)) return symbol;
-    }
-    if (/\bwith\s+all\b/.test(lower) || /\buse\s+my\b/.test(lower)) return native;
-    return null;
-}
-
-function extractDestinationAsset(query: string, chainId: number): string | null {
-    const native = nativeSymbolForChain(chainId);
-    const match = query.match(/\bto\s+([A-Za-z0-9._-]+)\b/i) || query.match(/(?:换成|兑成|到)\s*([A-Za-z0-9._-]+)/i);
-    if (!match?.[1]) return null;
-    const asset = String(match[1]).trim();
-    if (!asset) return null;
-    const upper = asset.toUpperCase();
-    if (upper === 'NATIVE') return native;
-    if (upper === 'MATIC') return 'POL';
-    return upper;
-}
-
-function normalizeRequestedAmount(
-    rawAmount: string | undefined,
-    lower: string,
-    explicitSell: boolean,
-    tokenIn: string,
-): string {
-    if (!rawAmount) {
-        if (/\ball\b/.test(lower) || /全部/.test(lower)) return 'all';
-        if (/\bhalf\b/.test(lower)) return '50%';
-        return explicitSell ? 'all' : '0.001';
-    }
-    if (/^\d+$/.test(rawAmount) && /\bpercent\b/.test(lower)) return `${rawAmount}%`;
-    if (rawAmount.toLowerCase() === 'all') return 'all';
-    if (rawAmount.endsWith('%')) return rawAmount;
-    if (/\bbuy\b/.test(lower) && STABLE_SYMBOLS.has(String(tokenIn || '').toUpperCase())) return rawAmount;
-    return rawAmount;
 }
 
 export const __fastSwapCoordinatorTest = {

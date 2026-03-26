@@ -39,24 +39,25 @@ export function buildTaskPlanningContext(
     );
     const asksCreatorEvidence = canonicalIntent?.intent === 'creator_analysis';
     const requestedToken = (snapshot.requestedTokenAddresses || []).length > 0 || (snapshot.requestedTokenSymbols || []).length > 0;
-    const steps: PlanStep[] = [];
-
-    steps.push(makeStep(
-        'step-discover',
-        locale === 'zh' ? '识别意图与范围' : 'Resolve intent and scope',
-        locale === 'zh'
-            ? '根据规范化意图确定范围、证据要求与输出模式。'
-            : 'Use canonical intent to lock the scope, evidence requirements, and output mode.',
-        preferredPlanTools(skillResolution, []),
-    ));
-    if (asksRealtimeSocial || asksOnChainEvidence || asksCreatorEvidence) {
-        steps.push(makeStep(
-            'step-verify',
-            locale === 'zh' ? '验证关键证据' : 'Verify key evidence',
+    const needsEvidence = asksRealtimeSocial || asksOnChainEvidence || asksCreatorEvidence || requestedToken;
+    const steps: PlanStep[] = [
+        makeStep(
+            'step-understand',
+            locale === 'zh' ? '理解请求' : 'Understand the request',
             locale === 'zh'
-                ? '仅收集当前任务真正需要的实时或链上证据。'
-                : 'Collect only the realtime or on-chain evidence required for this task.',
-            preferredPlanTools(skillResolution, asksOnChainEvidence ? ['get_early_buyers', 'get_token_info', 'get_wallet_info'] : asksRealtimeSocial ? ['external_web_search'] : ['analyze_creator']),
+                ? '先明确用户当前这一轮真正要解决的问题。'
+                : 'Clarify what the user is actually trying to accomplish on this turn.',
+            [],
+        ),
+    ];
+    if (needsEvidence) {
+        steps.push(makeStep(
+            'step-evidence',
+            locale === 'zh' ? '收集证据' : 'Gather evidence',
+            locale === 'zh'
+                ? '只收集回答当前请求真正需要的证据。'
+                : 'Collect only the evidence that is actually needed for the current request.',
+            preferredPlanTools(skillResolution, skillResolution.preferredTools || []),
         ));
     }
     if (canonicalIntent?.taskMode === 'execute' || canonicalIntent?.taskMode === 'confirm' || skillResolution.intentEnvelope.execution_risk === 'mutation') {
@@ -64,17 +65,17 @@ export function buildTaskPlanningContext(
             'step-prepare',
             locale === 'zh' ? '准备执行' : 'Prepare execution',
             locale === 'zh'
-                ? '准备确认所需参数、执行前提和最小下一步。'
-                : 'Prepare the execution prerequisites, confirmation payload, and smallest next step.',
+                ? '整理执行参数、确认条件和下一步。'
+                : 'Prepare execution parameters, confirmation state, and the next action.',
             preferredPlanTools(skillResolution, skillResolution.preferredTools || []),
         ));
     }
     steps.push(makeStep(
         'step-summary',
-        locale === 'zh' ? '整合回答' : 'Synthesize answer',
+        locale === 'zh' ? '生成回答' : 'Generate answer',
         locale === 'zh'
-            ? '按照结构化输出契约返回结果。'
-            : 'Return the answer using the structured output contract.',
+            ? '基于已拿到的真实结果给出回答。'
+            : 'Answer from the evidence and tool results already gathered.',
         [],
     ));
 
@@ -101,55 +102,43 @@ export function buildTaskPlanningContext(
 
 function resolvePlanTitle(locale: 'en' | 'zh', asksRealtimeSocial: boolean, asksChainEvidence: boolean): string {
     if (locale === 'zh') {
-        if (asksRealtimeSocial && asksChainEvidence) return '核实发布时间与链上买家';
-        if (asksRealtimeSocial) return '核实社交时间线';
-        if (asksChainEvidence) return '整理链上证据';
+        if (asksRealtimeSocial || asksChainEvidence) return '收集相关证据';
         return '正在处理你的请求';
     }
-    if (asksRealtimeSocial && asksChainEvidence) return 'Verify timing and on-chain buyers';
-    if (asksRealtimeSocial) return 'Verify social timing';
-    if (asksChainEvidence) return 'Gather on-chain evidence';
+    if (asksRealtimeSocial || asksChainEvidence) return 'Gather relevant evidence';
     return 'Working on your request';
 }
 
 function resolvePlanSummary(locale: 'en' | 'zh', asksRealtimeSocial: boolean, asksChainEvidence: boolean): string {
     if (locale === 'zh') {
-        if (asksRealtimeSocial && asksChainEvidence) {
-            return '我会先确认帖子时间，再用链上工具核对买家和交易证据。';
-        }
-        if (asksRealtimeSocial) return '我会先确认相关帖子、时间点和公开来源。';
-        if (asksChainEvidence) return '我会先获取链上证据，再整理结论。';
+        if (asksRealtimeSocial || asksChainEvidence) return '我会先收集必要证据，再基于真实结果回答。';
         return '我会逐步查看信息并在拿到结果后继续。';
     }
-    if (asksRealtimeSocial && asksChainEvidence) {
-        return 'I will verify the public post timing first, then gather chain-side buyer and transaction evidence.';
-    }
-    if (asksRealtimeSocial) return 'I will verify the relevant public post and timing first.';
-    if (asksChainEvidence) return 'I will gather on-chain evidence before writing the answer.';
+    if (asksRealtimeSocial || asksChainEvidence) return 'I will gather the necessary evidence first, then answer from the real results.';
     return 'I will inspect the task step by step and continue as results come in.';
 }
 
 export function buildSocialPlanStep(skillResolution: SkillResolution, query: string): PlanStep {
     const locale = detectLocale(query, null);
     return makeStep(
-        'step-social',
-        locale === 'zh' ? '确认时间线' : 'Check timing and social context',
+        'step-evidence',
+        locale === 'zh' ? '收集证据' : 'Gather evidence',
         locale === 'zh'
-            ? '先确认相关帖子、时间点和社交上下文。'
-            : 'Confirm the relevant post, timing, and surrounding social context.',
-        preferredPlanTools(skillResolution, ['external_web_search']),
+            ? '收集回答当前请求需要的公开来源证据。'
+            : 'Gather the public-source evidence needed for this request.',
+        preferredPlanTools(skillResolution, skillResolution.preferredTools || ['external_web_search']),
     );
 }
 
 export function buildChainEvidencePlanStep(skillResolution: SkillResolution, query: string): PlanStep {
     const locale = detectLocale(query, null);
     return makeStep(
-        'step-chain',
-        locale === 'zh' ? '查询链上证据' : 'Gather on-chain evidence',
+        'step-evidence',
+        locale === 'zh' ? '收集证据' : 'Gather evidence',
         locale === 'zh'
-            ? '查询代币、持有人、早期买家或交易证据。'
-            : 'Query token, holder, buyer, or transaction evidence.',
-        preferredPlanTools(skillResolution, ['get_early_buyers', 'get_token_info', 'get_wallet_info']),
+            ? '收集回答当前请求需要的链上证据。'
+            : 'Gather the chain-side evidence needed for this request.',
+        preferredPlanTools(skillResolution, skillResolution.preferredTools || ['get_early_buyers', 'get_token_info', 'get_wallet_info']),
     );
 }
 
@@ -169,10 +158,10 @@ export function buildSummaryPlanStep(query: string): PlanStep {
     const locale = detectLocale(query, null);
     return makeStep(
         'step-summary',
-        locale === 'zh' ? '整理结果' : 'Summarize findings',
+        locale === 'zh' ? '生成回答' : 'Generate answer',
         locale === 'zh'
-            ? '整理已拿到的信息并给出结论。'
-            : 'Combine the evidence and produce the final answer.',
+            ? '基于已拿到的真实结果给出回答。'
+            : 'Answer from the evidence already gathered.',
         [],
     );
 }

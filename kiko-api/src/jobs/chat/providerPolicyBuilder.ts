@@ -117,13 +117,10 @@ export function buildProviderOptions(
     const hardMutationPolicy = snapshot.policySnapshot?.enforcementLevel === 'hard' && actionClass !== 'READ_ONLY';
     const nativeSearchEnabled = !hardMutationPolicy
         && requiresRealtimeSocialSearch
-        && currentPhase === 'native_search_only';
+        && currentPhase !== 'execution';
     const enabledNativeTools = nativeSearchEnabled
         ? resolveEnabledNativeTools(intentEnvelope)
         : [];
-    const preferredRequiredTool = nativeSearchEnabled
-        ? resolvePreferredRequiredTool(enabledNativeTools, intentEnvelope, searchAttempt)
-        : null;
     const nativeToolReason = resolveNativeToolReason({
         hardMutationPolicy,
         nativeSearchEnabled,
@@ -147,7 +144,7 @@ export function buildProviderOptions(
                 enable_search: nativeSearchEnabled,
                 enabled_tools: enabledNativeTools,
                 required: false,
-                preferred_required_tool: preferredRequiredTool,
+                preferred_required_tool: null,
                 include_options: nativeSearchEnabled
                     ? ['inline_citations', ...(requiresRealtimeSocialSearch ? ['web_search_call_output', 'x_search_call_output'] : [])]
                     : [],
@@ -197,24 +194,6 @@ function resolveEnabledNativeTools(intentEnvelope?: IntentEnvelope): string[] {
     if (target === 'x_and_web') return ['x_search', 'web_search'];
     if (target === 'web') return ['web_search'];
     return ['web_search', 'x_search'];
-}
-
-function resolvePreferredRequiredTool(
-    enabledTools: string[],
-    intentEnvelope: IntentEnvelope | undefined,
-    searchAttempt: number,
-): string | null {
-    if (enabledTools.length === 0) return null;
-    if (intentEnvelope?.search_target === 'x' || intentEnvelope?.search_target === 'x_and_web') {
-        if (searchAttempt > 1 && enabledTools.includes('web_search')) {
-            return 'web_search';
-        }
-        if (enabledTools.includes('x_search')) {
-            return 'x_search';
-        }
-    }
-    if (enabledTools.includes('web_search')) return 'web_search';
-    return enabledTools[0] || null;
 }
 
 function assertNodeControlledGrokPolicy(options: Record<string, any>) {

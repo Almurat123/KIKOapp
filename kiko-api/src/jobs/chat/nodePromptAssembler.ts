@@ -112,42 +112,15 @@ function buildToolGuidanceBlock(guidance?: {
         providerNativeEvidence?: ProviderNativeEvidenceSnapshot[];
 }): string {
     const lines: string[] = [];
-    const preferredTools = guidance?.preferredTools || [];
-    const strategyNotes = guidance?.strategyNotes || [];
-    const rankedMatches = guidance?.rankedMatches || [];
-
-    if (strategyNotes.length > 0) {
-        lines.push('[TASK_STRATEGY]');
-        for (const note of strategyNotes) {
-            lines.push(`- ${note}`);
-        }
-    }
-
-    if (rankedMatches.length > 0) {
-        if (lines.length > 0) lines.push('');
-        lines.push('[SKILL_MATCHES]');
-        for (const match of rankedMatches) {
-            lines.push(`- ${match.skillId} (${match.skillName}) score=${match.score}; reasons: ${match.reasons.join(', ')}`);
-        }
-    }
-
-    if (preferredTools.length > 0) {
-        if (lines.length > 0) lines.push('');
-        lines.push('[TOOL_PREFERENCES]');
-        lines.push(`- Suggested tools for this query: ${preferredTools.join(', ')}`);
-        lines.push('- Suggested tools are guidance, not a whitelist.');
-    }
-
-    if (lines.length > 0 || guidance?.allowAllTools || guidance?.searchMode) {
-        if (lines.length > 0) lines.push('');
-        lines.push('[TOOL_POLICY]');
+    if (guidance?.allowAllTools !== undefined || guidance?.searchMode) {
+        lines.push('[TOOL_CONTEXT]');
         if (guidance?.allowAllTools) {
-            lines.push('- All registered tools remain available for this turn unless the policy layer explicitly blocks them.');
+            lines.push('- Registered tools are available for this turn unless the safety/policy layer blocks them.');
         } else {
-            lines.push('- Tool access is intentionally narrowed for this turn. Stay inside the available evidence/tool surface instead of filling gaps from memory.');
+            lines.push('- Some tools may be unavailable on this turn because of provider or policy constraints.');
         }
-        lines.push('- If the user asks for on-chain evidence such as early buyers, holders, first trades, or creator wallets, do not answer from summaries alone when a relevant local tool is available.');
-        lines.push('- Final answers must cite or summarize only fields actually returned by tools or provider-native evidence already present in context.');
+        lines.push('- No fixed workflow is prescribed. Choose the smallest set of tools that best answers the current user request.');
+        lines.push('- When a direct tool result already answers the request, prefer that result over broader narrative synthesis.');
     }
 
     return lines.join('\n');

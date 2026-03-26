@@ -30,6 +30,16 @@ test('extractRequestedTokenSymbolsFromHistory keeps prior token symbols for shor
     assert.deepEqual(symbols.sort(), ['BTC', 'ETH']);
 });
 
+test('extractRequestedTokenSymbolsFromHistory keeps lowercase trade asset mentions for short follow-up turns', () => {
+    const symbols = extractRequestedTokenSymbolsFromHistory([
+        { role: 'user', content: 'sell all virtual to eth', message_index: 1 },
+        { role: 'assistant', content: 'I can do that.', message_index: 2 },
+        { role: 'user', content: '继续', message_index: 3 },
+    ]);
+
+    assert.deepEqual(symbols.sort(), ['ETH', 'VIRTUAL']);
+});
+
 test('extractRecentToolTrace aggregates tool calls across the session instead of only the last assistant turn', () => {
     const trace = extractRecentToolTrace([
         {

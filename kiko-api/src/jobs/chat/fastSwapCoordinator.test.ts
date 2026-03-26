@@ -53,6 +53,26 @@ test('deriveFastSwapIntentDraft does not hard-map ETH to Base when no explicit c
     assert.equal(intent.swapIntent.tokenOut, 'USDC');
 });
 
+test('deriveFastSwapIntentDraft preserves USD-denominated buy semantics for Chinese requests', () => {
+    const token = '0x76331326a25904ddcfb0fa7c03b5e2847d49ffff';
+    const snapshot = makeSnapshot('你可以帮我买价值2美金的龙虾王吗？', {
+        requestedTokenAddresses: [token],
+        runtime: {
+            chainId: 56,
+            chainName: 'BNB Chain',
+        },
+    });
+
+    const intent = deriveFastSwapIntentDraft(snapshot);
+
+    assert.equal(intent.chainId, 56);
+    assert.equal(intent.swapIntent.tokenIn, 'BNB');
+    assert.equal(intent.swapIntent.tokenOut, token);
+    assert.equal(intent.swapIntent.amount, '2');
+    assert.equal(intent.swapIntent.amountKind, 'fiat_value');
+    assert.equal(intent.needsAmountResolution, true);
+});
+
 test('findSnapshotBalanceForToken falls back to all-chain balances when single-chain balance is missing', () => {
     const snapshot = makeSnapshot('Sell all USDC to ETH', {
         runtime: {

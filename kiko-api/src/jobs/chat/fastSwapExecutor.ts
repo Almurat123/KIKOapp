@@ -83,14 +83,14 @@ export function getFastSwapDecision(input: FastSwapDecisionInput): FastSwapDecis
     const fastSwapMode = fastSwapModeEnabled;
     const isSwapIntent = input.parsedIntent?.detailed?.action === 'swap';
     const hasSwapTarget = !!input.parsedIntent?.swapIntent?.tokenOut || !!input.parsedIntent?.contractAddress;
-    const hasExplicitSwapVerb = /\b(swap|buy|sell|trade|买|卖)\b/i.test(input.lastUserMessage || '');
+    const hasExplicitSwapVerb = input.parsedIntent?.tradeAction
+        ? input.parsedIntent.tradeAction !== 'unknown'
+        : (/\b(swap|buy|sell|trade)\b/i.test(input.lastUserMessage || '') || /买|卖|换|兑换/.test(input.lastUserMessage || ''));
     const chainId = input.parsedIntent?.chainId || input.toolContext?.chainId;
     const tokenOut = input.parsedIntent?.swapIntent?.tokenOut;
     const contractAddress = input.parsedIntent?.contractAddress;
     const hasResolvableAddressTarget =
-        isAddressLike(contractAddress) ||
-        isAddressLike(tokenOut) ||
-        isWhitelistedFastSwapToken(tokenOut, chainId);
+        Boolean(tokenOut) || isAddressLike(contractAddress) || isWhitelistedFastSwapToken(tokenOut, chainId);
     const requiresAddressForFastSwap = false;
     const shouldAttempt =
         fastSwapMode && isSwapIntent && hasSwapTarget && hasExplicitSwapVerb && hasResolvableAddressTarget;
@@ -123,17 +123,26 @@ function resolveInitialSwapParams(parsedIntent: any, lastUserMessage: string, de
     tokenOut: string;
     amountIn: string;
     chainId: number;
+    requiresAmountResolution: boolean;
 } {
     let tokenIn = parsedIntent?.swapIntent?.tokenIn || 'ETH';
     let tokenOut = parsedIntent?.swapIntent?.tokenOut || parsedIntent?.contractAddress || '';
     const chainId = parsedIntent?.chainId || defaultChainId || 8453;
     const lower = String(lastUserMessage || '').toLowerCase();
-    const isSellOperation = /\b(sell|dump)\b/i.test(lastUserMessage || '') || /卖/.test(lastUserMessage || '');
-    const isBuyOperation = /\b(buy|买|get)\b/i.test(lastUserMessage || '');
-    const hasExplicitAmount = /\b(all|\d+(?:\.\d+)?%?)\b/i.test(lower) || /全部|全卖|卖光|清仓|满仓|最大|full balance|max/i.test(lastUserMessage || '');
+    const tradeAction = String(parsedIntent?.tradeAction || '');
+    const isSellOperation = tradeAction === 'sell' || /\b(sell|dump)\b/i.test(lastUserMessage || '') || /卖/.test(lastUserMessage || '');
+    const isBuyOperation = tradeAction === 'buy' || /\b(buy|get)\b/i.test(lastUserMessage || '') || /买/.test(lastUserMessage || '');
+    const hasExplicitAmount = /\b(all|\d+(?:\.\d+)?%?)\b/i.test(lower) || /全部|全卖|卖光|清仓|满仓|最大|full balance|max|价值|美金|美元/i.test(lastUserMessage || '');
     const providedAmount = parsedIntent?.swapIntent?.amount;
+    const amountKind = String(parsedIntent?.swapIntent?.amountKind || '');
+    const amountSemantic = String(parsedIntent?.swapIntent?.amountSemantic || '');
+    const requiresAmountResolution = parsedIntent?.needsAmountResolution === true
+        || amountKind === 'fiat_value'
+        || amountSemantic === 'output';
     let amountIn = '0.001';
-    if (isSellOperation && !isBuyOperation) {
+    if (requiresAmountResolution) {
+        amountIn = String(providedAmount || '0');
+    } else if (isSellOperation && !isBuyOperation) {
         // For sell flows, never invent a tiny default amount.
         // If the user did not specify an amount, interpret it as a full-balance sell and let the
         // balance resolver convert it to the exact amount.
@@ -159,7 +168,7 @@ function resolveInitialSwapParams(parsedIntent: any, lastUserMessage: string, de
         }
     }
 
-    return { tokenIn, tokenOut, amountIn: String(amountIn), chainId };
+    return { tokenIn, tokenOut, amountIn: String(amountIn), chainId, requiresAmountResolution };
 }
 
 function resolveActualChainName(tokenIn: string, tokenOut: string, chainId: number, chainIdMap: Record<number, string>): string {
@@ -238,6 +247,17 @@ export async function prepareFastSwapExecution(input: FastSwapPrepareInput): Pro
         input.lastUserMessage,
         input.taskToolContext?.chainId
     );
+    if (initial.requiresAmountResolution) {
+        return {
+            tokenIn: initial.tokenIn,
+            tokenOut: initial.tokenOut,
+            amountIn: initial.amountIn,
+            chainId: initial.chainId,
+            actualChainName: resolveActualChainName(initial.tokenIn, initial.tokenOut, initial.chainId, input.chainIdMap),
+            resolvedWalletAddress: input.taskToolContext?.walletAddress,
+            shouldFallbackToLlm: true,
+        };
+    }
     const actualChainName = resolveActualChainName(initial.tokenIn, initial.tokenOut, initial.chainId, input.chainIdMap);
 
     const resolvedWalletAddress = await resolveWalletAddressForChain({

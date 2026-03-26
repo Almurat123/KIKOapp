@@ -195,16 +195,6 @@ export async function runNodeOrchestration(params: {
                     ? '正在根据最新结果调整后续步骤'
                     : 'Updating the next steps from the latest result'
         );
-        if (round === 1 && planning.asksRealtimeSocial) {
-            await params.broker.ensurePlanStep(buildSocialPlanStep(skillResolution, params.snapshot.lastUserMessage));
-            await params.broker.focusPlanStep(
-                'step-social',
-                planning.locale === 'zh'
-                    ? '正在确认相关帖子和时间线'
-                    : 'Checking the relevant post and timing'
-            );
-        }
-
         const roundPolicyMessage = buildRoundToolPolicySystemMessage({
             preferredTools: skillResolution.preferredTools,
             strategyNotes: skillResolution.strategyNotes,
@@ -1074,20 +1064,6 @@ function resolvePhaseAllowedTools(
     provider: 'openai' | 'deepseek' | 'grok',
     phase: 'native_search_only' | 'local_analysis' | 'execution',
 ): string[] {
-    if (provider !== 'grok') {
-        return allowedTools;
-    }
-    const socialQuery = skillResolution.querySignals.social || skillResolution.intentEnvelope.domain === 'farcaster';
-    const grokSocialDiscovery = skillResolution.intentEnvelope.primary_intent === 'social_discovery' && socialQuery;
-    if (!grokSocialDiscovery) {
-        return allowedTools;
-    }
-    if (phase === 'native_search_only') {
-        return [];
-    }
-    if (phase === 'local_analysis') {
-        return allowedTools.filter((toolName) => CHAIN_EVIDENCE_TOOLS.has(toolName));
-    }
     return allowedTools;
 }
 
@@ -1097,17 +1073,6 @@ function resolvePhaseAllowAllTools(
     phase: 'native_search_only' | 'local_analysis' | 'execution',
     defaultAllowAllTools: boolean,
 ): boolean {
-    if (provider !== 'grok') {
-        return defaultAllowAllTools;
-    }
-    const socialQuery = skillResolution.querySignals.social || skillResolution.intentEnvelope.domain === 'farcaster';
-    const grokSocialDiscovery = skillResolution.intentEnvelope.primary_intent === 'social_discovery' && socialQuery;
-    if (!grokSocialDiscovery) {
-        return defaultAllowAllTools;
-    }
-    if (phase === 'native_search_only' || phase === 'local_analysis') {
-        return false;
-    }
     return defaultAllowAllTools;
 }
 

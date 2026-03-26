@@ -1,5 +1,6 @@
 import type { UserContext } from './types.js';
 import { v4 as uuidv4 } from 'uuid';
+import { defaultNativeSymbolForChain, resolveTradeSemantics } from './tradeSemantics.js';
 
 export type HighLevelIntentType =
     | 'TRADING'
@@ -64,18 +65,6 @@ export interface ParsedIntent {
     decision?: IntentDecision;
 }
 
-const STABLE_SYMBOLS = new Set(['USDC', 'USDT', 'DAI', 'FDUSD', 'BUSD', 'USD1']);
-const NATIVE_SYMBOLS = new Set(['ETH', 'WETH', 'BNB', 'WBNB', 'SOL', 'WSOL', 'POL', 'MATIC', 'WMATIC']);
-const CHAIN_DEFAULT_NATIVE: Record<number, string> = {
-    1: 'ETH',
-    10: 'ETH',
-    56: 'BNB',
-    137: 'POL',
-    42161: 'ETH',
-    8453: 'ETH',
-    900: 'SOL',
-};
-
 export function detectContractAddress(text: string): string | null {
     const evmPattern = /0x[a-fA-F0-9]{40}/i;
     const evmMatch = text.match(evmPattern);
@@ -120,62 +109,6 @@ function hasConfirmationKeywords(text: string): boolean {
     return /\b(confirm transaction|execute swap|proceed with trade|proceed with swap|continue with trade|confirm trade)\b/i.test(text);
 }
 
-function extractOrderedSymbols(text: string): string[] {
-    const found: string[] = [];
-    for (const match of text.matchAll(/\b[A-Z]{2,10}\b/g)) {
-        const symbol = String(match[0] || '').toUpperCase();
-        if (!found.includes(symbol)) {
-            found.push(symbol);
-        }
-    }
-    return found;
-}
-
-function resolveTokenOut(text: string, symbols: string[], userContext?: UserContext, contractAddress?: string | null): string | undefined {
-    const lower = text.toLowerCase();
-    if (contractAddress) return contractAddress;
-    for (const symbol of symbols) {
-        if (['BUY', 'SELL', 'SWAP', 'TRADE', 'GET', 'ALL'].includes(symbol)) continue;
-        if (new RegExp(`\\b(buy|get|receive)\\s+[\\d.%]*\\s*${symbol.toLowerCase()}\\b`, 'i').test(lower)) {
-            return symbol;
-        }
-    }
-    for (const symbol of symbols) {
-        if (['BUY', 'SELL', 'SWAP', 'TRADE', 'GET', 'ALL'].includes(symbol)) continue;
-        if (!NATIVE_SYMBOLS.has(symbol)) return symbol;
-    }
-    const pending = userContext?.pendingSwapToken;
-    if (pending?.symbol) return pending.symbol;
-    return symbols[0];
-}
-
-function resolveTokenIn(text: string, symbols: string[], tokenOut: string | undefined, userContext?: UserContext): string | undefined {
-    const lower = text.toLowerCase();
-    const chainId = Number(userContext?.chainId || 8453);
-    if (/\b(sell|dump|swap out of|convert)\b/i.test(lower) || text.includes('卖')) {
-        for (const symbol of symbols) {
-            if (symbol !== tokenOut && !STABLE_SYMBOLS.has(symbol)) return symbol;
-        }
-        return tokenOut;
-    }
-    for (const symbol of symbols) {
-        if (symbol !== tokenOut && NATIVE_SYMBOLS.has(symbol)) return symbol;
-    }
-    return CHAIN_DEFAULT_NATIVE[chainId] || 'ETH';
-}
-
-function parseAmount(text: string): string | undefined {
-    const match = text.match(/\b(all|\d+(?:\.\d+)?%?)\b/i);
-    return match ? match[1] : undefined;
-}
-
-function inferAmountSemantic(text: string): 'input' | 'output' {
-    if (/\b(buy|get|receive)\b/i.test(text) || text.includes('买')) {
-        return 'output';
-    }
-    return 'input';
-}
-
 export async function parseIntent(
     userMessage: string,
     userContext?: UserContext
@@ -183,7 +116,6 @@ export async function parseIntent(
     const message = String(userMessage || '').trim();
     const contractAddress = detectContractAddress(message);
     const chainId = detectChainId(contractAddress, userContext);
-    const symbols = extractOrderedSymbols(message);
 
     let highLevel: HighLevelIntent = {
         type: 'TRADING',
@@ -220,10 +152,22 @@ export async function parseIntent(
         decision.hardRule = { label: 'TRADING', reason: decision.routing.reason };
     }
 
-    const tokenOut = action === 'general_query' ? undefined : resolveTokenOut(message, symbols, userContext, contractAddress);
-    const tokenIn = action === 'general_query' ? undefined : resolveTokenIn(message, symbols, tokenOut, userContext);
-    const amount = action === 'general_query' ? undefined : parseAmount(message);
-    const amountSemantic = action === 'general_query' ? undefined : inferAmountSemantic(message);
+    const semantics = action === 'general_query'
+        ? null
+        : resolveTradeSemantics({
+            text: message,
+            chainId,
+            requestedTokenAddresses: contractAddress ? [contractAddress] : [],
+            requestedTokenSymbols: userContext?.pendingSwapToken?.symbol ? [userContext.pendingSwapToken.symbol] : [],
+            preferredTokenAddress: contractAddress || undefined,
+            preferredTokenSymbol: userContext?.pendingSwapToken?.symbol,
+        });
+    const tokenOut = semantics?.tokenOut;
+    const tokenIn = semantics?.tokenIn || defaultNativeSymbolForChain(chainId);
+    const amount = semantics?.amount.value;
+    const amountSemantic = semantics?.amount.semantic === 'output'
+        ? 'output'
+        : 'input';
 
     const detailed: DetailedIntent = {
         version: 'trade_only_v2',

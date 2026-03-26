@@ -7,6 +7,7 @@ import type {
 } from './contracts.js';
 import type { ActionClass } from './controlPolicy.js';
 import { isExplicitChainSwitchRequest } from './chainIntent.js';
+import { extractTradeAssetCandidates } from '../../services/ai/tradeSemantics.js';
 
 const EVM_ADDR_RE = /\b0x[a-fA-F0-9]{40}\b/g;
 const SOL_ADDR_RE = /\b[1-9A-HJ-NP-Za-km-z]{32,44}\b/g;
@@ -50,11 +51,8 @@ export function extractRequestedTokenAddressesFromHistory(messages: any[], recen
 }
 
 export function extractRequestedTokenSymbols(text: string): string[] {
-    const values = new Set<string>();
-    for (const match of text.matchAll(/\b[A-Z]{2,10}\b/g)) {
-        values.add(match[0].toUpperCase());
-    }
-    return Array.from(values);
+    return extractTradeAssetCandidates(text)
+        .filter((value) => !/^0x[a-fA-F0-9]{40}$/.test(value) && !/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(value));
 }
 
 export function extractRequestedTokenSymbolsFromHistory(messages: any[], recentUserLimit = 6): string[] {
